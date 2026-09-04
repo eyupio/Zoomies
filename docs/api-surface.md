@@ -134,6 +134,18 @@ only touch its own host's runners.
 | POST | `/api/v1/agent/report` | Out-of-band runner state reports. |
 | POST | `/api/v1/agent/logs/{stream_id}` | Chunked outbound log relay for a UI viewer. |
 
+## Migrations
+
+Moving a repository's workflows from GitHub's runners onto this fleet. The plan
+writes nothing; the second call is the only thing in Zoomies that writes to a
+repository, and it needs three App permissions the rest of Zoomies does not ask
+for: Contents (write), Pull requests (write) and Workflows (write).
+
+| Method | Path | Role | Notes |
+| --- | --- | --- | --- |
+| POST | `/api/v1/migrations/plan` | operator | `{installation_id, repos?, mapping?}`. Returns the rewrites, the skips and a unified diff per file. With no mapping, proposes one from the pools that exist. |
+| POST | `/api/v1/migrations/pull-requests` | operator | `{installation_id, repos, mapping, title?, body?, commit_message?}`. One pull request per repository, each on its own branch. Re-plans from the repository's current contents rather than trusting the client. |
+
 ## Audit
 
 | Method | Path | Role | Notes |
