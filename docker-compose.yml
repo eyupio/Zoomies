@@ -2,7 +2,7 @@
 #
 #   1. cp .env.example .env  and fill in ZOOMIES_ENCRYPTION_KEY
 #   2. docker compose up -d
-#   3. open https://zoomies.build and create the first admin
+#   3. open https://zoomies.sh and create the first admin
 #
 # Cloudflare terminates TLS and proxies to this origin over plain HTTP on port
 # 80, so the container serves HTTP and Zoomies is told its external URL is
@@ -28,7 +28,7 @@ services:
       # How GitHub and your browser reach this controller. Webhooks are
       # delivered to $ZOOMIES_EXTERNAL_URL/webhooks/github, and the https here
       # is what makes Zoomies mark its session cookie Secure.
-      ZOOMIES_EXTERNAL_URL: ${ZOOMIES_EXTERNAL_URL:-https://zoomies.build}
+      ZOOMIES_EXTERNAL_URL: ${ZOOMIES_EXTERNAL_URL:-https://zoomies.sh}
 
       # 32 bytes, base64. Generate with: openssl rand -base64 32
       # Back it up: without it the stored GitHub App key cannot be decrypted.

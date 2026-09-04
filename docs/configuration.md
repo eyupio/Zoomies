@@ -164,7 +164,7 @@ to the origin over plain HTTP on port 80.
 ```yaml
 server:
   bind: 0.0.0.0:8080          # the container port; compose publishes it on 80
-  external_url: https://zoomies.build
+  external_url: https://zoomies.sh
   tls:
     mode: off                 # Cloudflare holds the certificate
   trusted_proxies: [ ... ]    # Cloudflare's published ranges

@@ -9,13 +9,22 @@
 #   curl -fsSLO https://zoomies.sh/install.sh && less install.sh && sh install.sh
 #
 # What it does, in order:
-#   1. works out your OS, architecture, container runtime and init system
+#   1. works out your OS, architecture, container runtime, compose command and
+#      init system
 #   2. downloads the right binary and verifies its SHA-256 against the
 #      published checksums file
 #   3. installs it to /usr/local/bin
-#   4. hands off to `zoomies init`, which does the interactive setup: service
-#      user, directories, encryption key, backend, TLS, the GitHub App, your
-#      admin account, and the system service
+#   4. hands off to `zoomies init`, which does the interactive setup and can
+#      deploy Zoomies three ways:
+#
+#        native   the binary under systemd (or launchd), which is the leanest
+#                 option and the one that needs no container runtime at all
+#        compose  a docker-compose.yml and a fully populated .env, brought up
+#                 with `docker compose up -d`
+#        docker   a single `docker run` container with an env file
+#
+#      Either way `zoomies init` does the rest: service user, directories,
+#      encryption key, backend, TLS, the GitHub App, and your admin account.
 #
 # POSIX sh. No bashisms -- it is checked with dash and shellcheck in CI.
 
@@ -27,6 +36,7 @@ PREFIX="${ZOOMIES_PREFIX:-/usr/local/bin}"
 BASE_URL="${ZOOMIES_BASE_URL:-https://github.com/${REPO}/releases}"
 
 MODE=""
+DEPLOYMENT=""
 CONTROLLER_URL=""
 JOIN_TOKEN=""
 NON_INTERACTIVE=0
@@ -58,10 +68,14 @@ note() { printf '%s      %s%s\n' "$C_DIM" "$*" "$C_RESET"; }
 warn() { printf '%s   !!%s %s\n' "$C_WARN" "$C_RESET" "$*" >&2; }
 die()  { printf '%s error:%s %s\n' "$C_ERR" "$C_RESET" "$*" >&2; exit 1; }
 
+# Three lines, and every one of them says something. The dog is the mark; the
+# tagline is the product; the third line is where to look when this goes wrong.
 banner() {
-    printf '%s%sZoomies%s -- a GitHub Actions runner fleet that cleans up after itself.\n' \
-        "$C_BOLD" "$C_ACCENT" "$C_RESET"
-    printf '%shttps://github.com/%s%s\n\n' "$C_DIM" "$REPO" "$C_RESET"
+    printf '\n%s%s   ⟋●⟍%s   %s%sZoomies%s  %soff the lead, on the job%s\n' \
+        "$C_BOLD" "$C_ACCENT" "$C_RESET" "$C_BOLD" "$C_ACCENT" "$C_RESET" "$C_DIM" "$C_RESET"
+    printf '%s        %s  ephemeral GitHub Actions runners that clean up after themselves%s\n' \
+        "$C_DIM" "$C_RESET" "$C_RESET"
+    printf '%s           https://github.com/%s%s\n\n' "$C_DIM" "$REPO" "$C_RESET"
 }
 
 usage() {
@@ -76,6 +90,12 @@ Options:
                         What to install. "single" is a controller with an
                         embedded agent -- one process, one VM, the common case.
                         Asked interactively if omitted.
+  --deployment <native|compose|docker>
+                        How to run it. "native" is the binary under systemd,
+                        "compose" writes a docker-compose.yml and a populated
+                        .env, "docker" runs a single container. Asked
+                        interactively if omitted, and only the ones this host
+                        can actually run are offered.
   --controller <url>    For --mode agent: the controller to join.
   --join-token <token>  For --mode agent: a join token from the UI or
                         `zoomies hosts join-token create`.
@@ -109,6 +129,8 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --mode)        MODE="${2:?--mode needs a value}"; shift 2 ;;
         --mode=*)      MODE="${1#*=}"; shift ;;
+        --deployment)  DEPLOYMENT="${2:?--deployment needs a value}"; shift 2 ;;
+        --deployment=*) DEPLOYMENT="${1#*=}"; shift ;;
         --controller)  CONTROLLER_URL="${2:?--controller needs a URL}"; shift 2 ;;
         --controller=*) CONTROLLER_URL="${1#*=}"; shift ;;
         --join-token)  JOIN_TOKEN="${2:?--join-token needs a value}"; shift 2 ;;
@@ -239,6 +261,23 @@ docker_ok() {
 # explicit ifs rather than a negated pipeline: `! cmd | grep -q` reads the same
 # but skips errexit, which is exactly the kind of thing that makes an installer
 # carry on after a check it thinks it made.
+# Sets COMPOSE_CMD to whichever compose is usable, or leaves it empty.
+# Compose v2 is a docker subcommand; v1 was a separate binary. Both are still
+# in the field, so both are accepted and the one found is passed through rather
+# than re-derived later.
+detect_compose() {
+    COMPOSE_CMD=""
+    case "$RUNTIME" in
+        docker) ;;
+        *) return 0 ;;
+    esac
+    if have docker && docker compose version >/dev/null 2>&1; then
+        COMPOSE_CMD="docker compose"
+    elif have docker-compose && docker-compose --version >/dev/null 2>&1; then
+        COMPOSE_CMD="docker-compose"
+    fi
+}
+
 port_free() {
     p="$1"
     if have ss; then
@@ -405,6 +444,7 @@ banner
 detect_platform
 detect_init
 detect_runtime
+detect_compose
 
 [ "$DO_UNINSTALL" -eq 1 ] && do_uninstall
 
@@ -431,6 +471,9 @@ case "$RUNTIME" in
         note "runtime     none found -- the process backend will run jobs directly on this host"
         ;;
 esac
+if [ -n "$COMPOSE_CMD" ]; then
+    note "compose     $COMPOSE_CMD"
+fi
 for p in 8080 443; do
     port_free "$p" || note "port $p     already in use; setup will offer another"
 done
@@ -464,7 +507,9 @@ set -- init \
     --installed-binary "$PREFIX/zoomies"
 [ -n "$RUNTIME_SOCKET" ] && set -- "$@" --detected-socket "$RUNTIME_SOCKET"
 [ "$RUNTIME_ROOTLESS" -eq 1 ] && set -- "$@" --detected-rootless
+[ -n "$COMPOSE_CMD" ] && set -- "$@" --detected-compose "$COMPOSE_CMD"
 [ -n "$MODE" ] && set -- "$@" --mode "$MODE"
+[ -n "$DEPLOYMENT" ] && set -- "$@" --deployment "$DEPLOYMENT"
 [ -n "$CONTROLLER_URL" ] && set -- "$@" --controller "$CONTROLLER_URL"
 [ -n "$JOIN_TOKEN" ] && set -- "$@" --join-token "$JOIN_TOKEN"
 [ -n "$ANSWERS" ] && set -- "$@" --answers "$ANSWERS"
