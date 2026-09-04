@@ -362,7 +362,9 @@ How it is kept:
   routes that use them;
 * no chart library — sparklines and bars are hand-written SVG;
 * Lucide icons imported individually so tree-shaking works;
-* fonts subset to latin and preloaded;
+* fonts declared by hand as four Latin faces with `font-display: swap`,
+  rather than @fontsource's own stylesheets, which pull in Cyrillic, Greek and
+  Vietnamese in both woff and woff2;
 * the SSE cache is a plain `Map`, not a reactive deep-proxy over thousands of
   rows.
 
