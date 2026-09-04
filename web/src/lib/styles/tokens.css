@@ -1,0 +1,296 @@
+/*
+ * Zoomies design tokens.
+ *
+ * This file is the only place a colour, size, radius or duration is defined.
+ * Everything else -- components, Tailwind utilities, hand-written CSS -- reads
+ * from here. See docs/ui-guidelines.md for the reasoning and the measured
+ * contrast ratios.
+ *
+ * Theming works in three states:
+ *   light                    :root
+ *   dark, by system setting  @media (prefers-color-scheme: dark) on :root:not([data-theme="light"])
+ *   dark, chosen explicitly  :root[data-theme="dark"]
+ * so an explicit choice wins in both directions and "system" needs no attribute.
+ */
+
+:root {
+  /* ---------------------------------------------------------------------
+   * Neutrals -- "sand and ink".
+   * Warm rather than the usual cool slate. It is what stops Zoomies looking
+   * like every other dashboard, and it makes the cool status hues read as
+   * information rather than decoration.
+   * ------------------------------------------------------------------ */
+  --z-bg: #fbfaf8;
+  --z-surface: #ffffff;
+  --z-surface-raised: #ffffff;
+  --z-surface-sunken: #f4f2ee;
+  --z-surface-hover: #f7f5f1;
+  --z-border: #e5e1d9;
+  --z-border-strong: #cfc9be;
+  --z-text: #191817;
+  --z-text-muted: #67625a;
+  --z-text-subtle: #8c867c;
+  --z-text-inverse: #fbfaf8;
+
+  /* Brand ---------------------------------------------------------------
+   * #5B34E8 on #FBFAF8 is 7.4:1 -- AAA, which matters because links appear
+   * inline inside table cells at 13px.
+   * ------------------------------------------------------------------ */
+  --z-accent: #5b34e8;
+  --z-accent-hover: #4a28c9;
+  --z-accent-active: #3d1fa8;
+  --z-accent-subtle: #eeeafe;
+  --z-accent-border: #d5c9fb;
+  --z-accent-contrast: #ffffff;
+
+  /* Status --------------------------------------------------------------
+   * Fixed meanings. Do not reuse these hues for anything else; operators
+   * learn them. Colour is never the only carrier -- see StatusDot.
+   * ------------------------------------------------------------------ */
+  --z-idle: #2c7a4b;
+  --z-idle-subtle: #e4f4ea;
+  --z-idle-border: #b6e0c5;
+
+  --z-busy: #1f63c4;
+  --z-busy-subtle: #e4edfb;
+  --z-busy-border: #b9d0f3;
+
+  --z-pending: #9a5b00;
+  --z-pending-subtle: #fbf0dd;
+  --z-pending-border: #f0d5a3;
+
+  --z-draining: #6b6b7b;
+  --z-draining-subtle: #eeeef1;
+  --z-draining-border: #d2d2da;
+
+  --z-danger: #b3261e;
+  --z-danger-hover: #8f1e17;
+  --z-danger-subtle: #fce9e7;
+  --z-danger-border: #f3c2bd;
+
+  --z-neutral: #8c867c;
+  --z-neutral-subtle: #f1efeb;
+  --z-neutral-border: #ddd8d0;
+
+  /* Categorical chart ramp, ordered for maximum adjacent separation. */
+  --z-chart-1: #1f63c4;
+  --z-chart-2: #9a5b00;
+  --z-chart-3: #2c7a4b;
+  --z-chart-4: #5b34e8;
+  --z-chart-5: #b3261e;
+  --z-chart-6: #0e7490;
+
+  /* Focus ---------------------------------------------------------------- */
+  --z-focus-ring: 0 0 0 2px var(--z-bg), 0 0 0 4px var(--z-accent);
+
+  /* Type ----------------------------------------------------------------
+   * Base is 13px, not 16px. This is a dense operational tool; 13px Inter at
+   * 450 stays comfortable while fitting a useful number of runners on screen.
+   * ------------------------------------------------------------------ */
+  --z-font-sans:
+    'InterVariable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  --z-font-mono:
+    'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas,
+    'Liberation Mono', monospace;
+
+  --z-text-2xs: 0.6875rem; /* 11px */
+  --z-text-xs: 0.75rem; /* 12px */
+  --z-text-sm: 0.8125rem; /* 13px -- default */
+  --z-text-base: 0.875rem; /* 14px */
+  --z-text-lg: 1rem; /* 16px */
+  --z-text-xl: 1.25rem; /* 20px */
+  --z-text-2xl: 1.75rem; /* 28px */
+  --z-text-3xl: 2.25rem; /* 36px */
+
+  --z-leading-2xs: 1rem;
+  --z-leading-xs: 1.125rem;
+  --z-leading-sm: 1.25rem;
+  --z-leading-base: 1.375rem;
+  --z-leading-lg: 1.5rem;
+  --z-leading-xl: 1.75rem;
+  --z-leading-2xl: 2.125rem;
+  --z-leading-3xl: 2.625rem;
+
+  --z-weight-normal: 450;
+  --z-weight-medium: 500;
+  --z-weight-semibold: 550;
+  --z-weight-bold: 640;
+
+  /* Spacing -- a 4px base, and only these steps exist. ------------------- */
+  --z-space-1: 0.25rem;
+  --z-space-2: 0.5rem;
+  --z-space-3: 0.75rem;
+  --z-space-4: 1rem;
+  --z-space-5: 1.25rem;
+  --z-space-6: 1.5rem;
+  --z-space-8: 2rem;
+  --z-space-10: 2.5rem;
+  --z-space-12: 3rem;
+  --z-space-16: 4rem;
+
+  /* Radii ---------------------------------------------------------------- */
+  --z-radius-sm: 4px;
+  --z-radius-md: 8px;
+  --z-radius-lg: 12px;
+  --z-radius-full: 9999px;
+
+  /* Elevation -- warm-tinted and restrained. ----------------------------- */
+  --z-shadow-sm: 0 1px 2px rgb(41 34 24 / 0.06);
+  --z-shadow-md: 0 4px 12px -2px rgb(41 34 24 / 0.1);
+  --z-shadow-lg: 0 16px 40px -8px rgb(41 34 24 / 0.16);
+
+  /* Motion --------------------------------------------------------------- */
+  --z-motion-fast: 120ms;
+  --z-motion-base: 200ms;
+  --z-motion-slow: 320ms;
+  --z-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* Layout --------------------------------------------------------------- */
+  --z-nav-width: 232px;
+  --z-nav-width-collapsed: 56px;
+  --z-topbar-height: 52px;
+  --z-content-max: 1600px;
+
+  /* Z-index. Named so that "what is on top of what" is answerable. -------- */
+  --z-layer-sticky: 10;
+  --z-layer-nav: 20;
+  --z-layer-dropdown: 40;
+  --z-layer-drawer: 50;
+  --z-layer-dialog: 60;
+  --z-layer-toast: 70;
+  --z-layer-palette: 80;
+
+  color-scheme: light;
+}
+
+/* Dark, by system preference. Guarded so an explicit light choice wins. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --z-bg: #121110;
+    --z-surface: #1a1917;
+    --z-surface-raised: #232120;
+    --z-surface-sunken: #0e0d0c;
+    --z-surface-hover: #232120;
+    --z-border: #302d2a;
+    --z-border-strong: #413d39;
+    --z-text: #f6f4f0;
+    --z-text-muted: #a8a199;
+    --z-text-subtle: #7c766e;
+    --z-text-inverse: #191817;
+
+    --z-accent: #b49cff;
+    --z-accent-hover: #c6b4ff;
+    --z-accent-active: #d3c6ff;
+    --z-accent-subtle: #241e3d;
+    --z-accent-border: #3a2f66;
+    --z-accent-contrast: #17132a;
+
+    --z-idle: #6fd693;
+    --z-idle-subtle: #12271b;
+    --z-idle-border: #23472f;
+
+    --z-busy: #84b4ff;
+    --z-busy-subtle: #121e33;
+    --z-busy-border: #223a5e;
+
+    --z-pending: #f2b24c;
+    --z-pending-subtle: #2a1f0c;
+    --z-pending-border: #4a3714;
+
+    --z-draining: #a9a6bc;
+    --z-draining-subtle: #1e1d24;
+    --z-draining-border: #33313d;
+
+    --z-danger: #ff938a;
+    --z-danger-hover: #ffaba3;
+    --z-danger-subtle: #2d1512;
+    --z-danger-border: #542622;
+
+    --z-neutral: #7c766e;
+    --z-neutral-subtle: #1c1b19;
+    --z-neutral-border: #302d2a;
+
+    --z-chart-1: #84b4ff;
+    --z-chart-2: #f2b24c;
+    --z-chart-3: #6fd693;
+    --z-chart-4: #b49cff;
+    --z-chart-5: #ff938a;
+    --z-chart-6: #5bc8de;
+
+    --z-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.5);
+    --z-shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.6);
+    --z-shadow-lg: 0 16px 40px -8px rgb(0 0 0 / 0.7);
+
+    color-scheme: dark;
+  }
+}
+
+/* Dark, chosen explicitly. Same values; wins over a light system setting. */
+:root[data-theme='dark'] {
+  --z-bg: #121110;
+  --z-surface: #1a1917;
+  --z-surface-raised: #232120;
+  --z-surface-sunken: #0e0d0c;
+  --z-surface-hover: #232120;
+  --z-border: #302d2a;
+  --z-border-strong: #413d39;
+  --z-text: #f6f4f0;
+  --z-text-muted: #a8a199;
+  --z-text-subtle: #7c766e;
+  --z-text-inverse: #191817;
+
+  --z-accent: #b49cff;
+  --z-accent-hover: #c6b4ff;
+  --z-accent-active: #d3c6ff;
+  --z-accent-subtle: #241e3d;
+  --z-accent-border: #3a2f66;
+  --z-accent-contrast: #17132a;
+
+  --z-idle: #6fd693;
+  --z-idle-subtle: #12271b;
+  --z-idle-border: #23472f;
+
+  --z-busy: #84b4ff;
+  --z-busy-subtle: #121e33;
+  --z-busy-border: #223a5e;
+
+  --z-pending: #f2b24c;
+  --z-pending-subtle: #2a1f0c;
+  --z-pending-border: #4a3714;
+
+  --z-draining: #a9a6bc;
+  --z-draining-subtle: #1e1d24;
+  --z-draining-border: #33313d;
+
+  --z-danger: #ff938a;
+  --z-danger-hover: #ffaba3;
+  --z-danger-subtle: #2d1512;
+  --z-danger-border: #542622;
+
+  --z-neutral: #7c766e;
+  --z-neutral-subtle: #1c1b19;
+  --z-neutral-border: #302d2a;
+
+  --z-chart-1: #84b4ff;
+  --z-chart-2: #f2b24c;
+  --z-chart-3: #6fd693;
+  --z-chart-4: #b49cff;
+  --z-chart-5: #ff938a;
+  --z-chart-6: #5bc8de;
+
+  --z-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.5);
+  --z-shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.6);
+  --z-shadow-lg: 0 16px 40px -8px rgb(0 0 0 / 0.7);
+
+  color-scheme: dark;
+}
+
+/* Motion is decoration. Anyone who has asked for less of it gets none. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --z-motion-fast: 1ms;
+    --z-motion-base: 1ms;
+    --z-motion-slow: 1ms;
+  }
+}

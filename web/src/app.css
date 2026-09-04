@@ -1,0 +1,204 @@
+/*
+ * Zoomies stylesheet entry point.
+ *
+ * Order matters: tokens first so Tailwind's @theme can reference them, then
+ * Tailwind, then the small set of global rules that are genuinely global.
+ */
+
+@import './lib/styles/tokens.css';
+@import 'tailwindcss';
+
+/* Self-hosted so an air-gapped install has no network dependency and makes no
+   third-party font request. */
+@import '@fontsource-variable/inter/index.css';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
+
+/*
+ * Map the tokens onto Tailwind's theme so `bg-surface`, `text-muted`,
+ * `rounded-md` and friends resolve to the same custom properties that
+ * hand-written CSS uses. There is exactly one source of truth.
+ */
+@theme inline {
+  --color-bg: var(--z-bg);
+  --color-surface: var(--z-surface);
+  --color-raised: var(--z-surface-raised);
+  --color-sunken: var(--z-surface-sunken);
+  --color-hover: var(--z-surface-hover);
+  --color-border: var(--z-border);
+  --color-border-strong: var(--z-border-strong);
+  --color-fg: var(--z-text);
+  --color-muted: var(--z-text-muted);
+  --color-subtle: var(--z-text-subtle);
+  --color-inverse: var(--z-text-inverse);
+
+  --color-accent: var(--z-accent);
+  --color-accent-hover: var(--z-accent-hover);
+  --color-accent-subtle: var(--z-accent-subtle);
+  --color-accent-border: var(--z-accent-border);
+  --color-accent-contrast: var(--z-accent-contrast);
+
+  --color-idle: var(--z-idle);
+  --color-idle-subtle: var(--z-idle-subtle);
+  --color-idle-border: var(--z-idle-border);
+  --color-busy: var(--z-busy);
+  --color-busy-subtle: var(--z-busy-subtle);
+  --color-busy-border: var(--z-busy-border);
+  --color-pending: var(--z-pending);
+  --color-pending-subtle: var(--z-pending-subtle);
+  --color-pending-border: var(--z-pending-border);
+  --color-draining: var(--z-draining);
+  --color-draining-subtle: var(--z-draining-subtle);
+  --color-draining-border: var(--z-draining-border);
+  --color-danger: var(--z-danger);
+  --color-danger-hover: var(--z-danger-hover);
+  --color-danger-subtle: var(--z-danger-subtle);
+  --color-danger-border: var(--z-danger-border);
+  --color-neutral: var(--z-neutral);
+  --color-neutral-subtle: var(--z-neutral-subtle);
+  --color-neutral-border: var(--z-neutral-border);
+
+  --font-sans: var(--z-font-sans);
+  --font-mono: var(--z-font-mono);
+
+  --text-2xs: var(--z-text-2xs);
+  --text-2xs--line-height: var(--z-leading-2xs);
+  --text-xs: var(--z-text-xs);
+  --text-xs--line-height: var(--z-leading-xs);
+  --text-sm: var(--z-text-sm);
+  --text-sm--line-height: var(--z-leading-sm);
+  --text-base: var(--z-text-base);
+  --text-base--line-height: var(--z-leading-base);
+  --text-lg: var(--z-text-lg);
+  --text-lg--line-height: var(--z-leading-lg);
+  --text-xl: var(--z-text-xl);
+  --text-xl--line-height: var(--z-leading-xl);
+  --text-2xl: var(--z-text-2xl);
+  --text-2xl--line-height: var(--z-leading-2xl);
+  --text-3xl: var(--z-text-3xl);
+  --text-3xl--line-height: var(--z-leading-3xl);
+
+  --radius-sm: var(--z-radius-sm);
+  --radius-md: var(--z-radius-md);
+  --radius-lg: var(--z-radius-lg);
+
+  --shadow-sm: var(--z-shadow-sm);
+  --shadow-md: var(--z-shadow-md);
+  --shadow-lg: var(--z-shadow-lg);
+
+  --spacing: 0.25rem;
+}
+
+/* ------------------------------------------------------------------------ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  /* The theme paints the whole viewport, including overscroll. */
+  background: var(--z-bg);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--z-bg);
+  color: var(--z-text);
+  font-family: var(--z-font-sans);
+  font-size: var(--z-text-sm);
+  line-height: var(--z-leading-sm);
+  font-weight: var(--z-weight-normal);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: 'cv05' 1, 'ss03' 1; /* single-storey g, rounded quotes */
+}
+
+/* Numbers in tables must line up. */
+table,
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+code,
+kbd,
+samp,
+pre,
+.mono {
+  font-family: var(--z-font-mono);
+  font-size: 0.95em;
+}
+
+/*
+ * A visible focus ring, everywhere, always. :focus-visible means a mouse click
+ * does not draw one but a keyboard tab does -- which is the behaviour that makes
+ * a permanent focus ring acceptable to designers and keyboard users at once.
+ */
+:focus-visible {
+  outline: 2px solid var(--z-accent);
+  outline-offset: 2px;
+  border-radius: var(--z-radius-sm);
+}
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+::selection {
+  background: var(--z-accent-subtle);
+  color: var(--z-text);
+}
+
+/* Scrollbars that belong to the theme rather than to the browser. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--z-border-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--z-border-strong);
+  border: 3px solid transparent;
+  border-radius: var(--z-radius-full);
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--z-text-subtle);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+/* Visually hidden but available to assistive technology. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* The skip link is the first focusable thing on the page. */
+.skip-link {
+  position: absolute;
+  left: var(--z-space-4);
+  top: -100px;
+  z-index: var(--z-layer-toast);
+  padding: var(--z-space-2) var(--z-space-4);
+  background: var(--z-accent);
+  color: var(--z-accent-contrast);
+  border-radius: var(--z-radius-md);
+  transition: top var(--z-motion-fast) var(--z-ease);
+}
+.skip-link:focus {
+  top: var(--z-space-4);
+}
