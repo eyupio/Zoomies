@@ -92,6 +92,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	if err := c.jobProblems(ctx, &out); err != nil {
 		return nil, err
 	}
+	out = append(out, c.PoolCapacityProblems()...)
 	if err := c.runnerProblems(ctx, &out); err != nil {
 		return nil, err
 	}
@@ -258,6 +259,62 @@ func (c *Controller) webhookURLOrPath() string {
 		return u
 	}
 	return c.cfg.GitHub.WebhookPath + " (set server.external_url so Zoomies can tell you the full URL)"
+}
+
+// PoolCapacityProblems reports the pools the scheduler wanted to grow and could
+// not place anywhere. It is exported because the pool's own page shows it too:
+// "why is this pool not running anything?" is asked on the pool, not only on
+// the Overview.
+//
+// This is the failure that looks exactly like health: the pool is enabled, its
+// labels match the queue, every host is connected, and no runner is ever
+// created because none of those hosts offers the pool's backend or matches its
+// host selector. Nothing else in the product says so -- a scaling event is only
+// written when the size actually moved -- so a fleet in this state answers
+// "why is nothing running?" with silence unless it is reported here.
+func (c *Controller) PoolCapacityProblems() []Problem {
+	plan, at := c.getLastPlan()
+	if plan == nil || at.IsZero() {
+		return nil
+	}
+	var out []Problem
+	for _, pp := range plan.Pools {
+		if pp.Blocked == "" {
+			continue
+		}
+		// Jobs already waiting make this an outage rather than a warning about
+		// a pool that is merely unable to reach its minimum -- unless the fleet
+		// is simply full, which is the system working and which the next
+		// finished job clears on its own.
+		severity := config.SeverityWarning
+		title := fmt.Sprintf("pool %s cannot start the runners it wants", pp.PoolName)
+		switch {
+		case pp.BlockedAtCapacity && pp.QueuedMatched > 0:
+			title = fmt.Sprintf("pool %s has %s waiting for a host with room",
+				pp.PoolName, plural(pp.QueuedMatched, "job"))
+		case pp.QueuedMatched > 0:
+			severity = config.SeverityError
+			title = fmt.Sprintf("pool %s has %s waiting and nowhere to run them",
+				pp.PoolName, plural(pp.QueuedMatched, "job"))
+		}
+		out = append(out, Problem{
+			Code:       "pool.no_capacity",
+			Severity:   severity,
+			Title:      title,
+			Detail:     pp.Blocked,
+			Fix:        pp.BlockedFix,
+			TargetKind: "pool", TargetID: pp.PoolID,
+		})
+	}
+	return out
+}
+
+// plural writes "1 job" and "3 jobs".
+func plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }
 
 func (c *Controller) jobProblems(ctx context.Context, out *[]Problem) error {

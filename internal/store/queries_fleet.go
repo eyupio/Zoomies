@@ -344,7 +344,7 @@ func (s *Store) CountRunnersByPool(ctx context.Context) (map[string]PoolCounts, 
 // Hosts
 // ---------------------------------------------------------------------------
 
-const hostCols = `id, name, address, embedded, capacity, backends, labels, os, arch,
+const hostCols = `id, name, address, embedded, capacity, backends, backend_info, labels, os, arch,
 	version, cordoned, token_hash, last_heartbeat, created_at`
 
 func scanHost(sc interface{ Scan(...any) error }) (*Host, error) {
@@ -352,7 +352,8 @@ func scanHost(sc interface{ Scan(...any) error }) (*Host, error) {
 	var embedded, cordoned int
 	var heartbeat, created int64
 	err := sc.Scan(&h.ID, &h.Name, &h.Address, &embedded, &h.Capacity, &h.Backends,
-		&h.Labels, &h.OS, &h.Arch, &h.Version, &cordoned, &h.TokenHash, &heartbeat, &created)
+		&h.BackendInfo, &h.Labels, &h.OS, &h.Arch, &h.Version, &cordoned, &h.TokenHash,
+		&heartbeat, &created)
 	if err != nil {
 		return nil, err
 	}
@@ -370,9 +371,9 @@ func (s *Store) CreateHost(ctx context.Context, h *Host) error {
 	if h.LastHeartbeat.IsZero() {
 		h.LastHeartbeat = h.CreatedAt
 	}
-	_, err := s.exec(ctx, `INSERT INTO hosts (`+hostCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		h.ID, h.Name, h.Address, boolInt(h.Embedded), h.Capacity, h.Backends, h.Labels,
-		h.OS, h.Arch, h.Version, boolInt(h.Cordoned), h.TokenHash,
+	_, err := s.exec(ctx, `INSERT INTO hosts (`+hostCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		h.ID, h.Name, h.Address, boolInt(h.Embedded), h.Capacity, h.Backends, h.BackendInfo,
+		h.Labels, h.OS, h.Arch, h.Version, boolInt(h.Cordoned), h.TokenHash,
 		ms(h.LastHeartbeat), ms(h.CreatedAt))
 	return wrapWrite(err)
 }
@@ -469,10 +470,10 @@ func (s *Store) FindHostByTokenHash(ctx context.Context, hash string) (*Host, er
 
 // UpdateHost persists agent-reported host facts.
 func (s *Store) UpdateHost(ctx context.Context, h *Host) error {
-	res, err := s.exec(ctx, `UPDATE hosts SET name=?, address=?, capacity=?, backends=?, labels=?,
-		os=?, arch=?, version=?, cordoned=?, last_heartbeat=? WHERE id=?`,
-		h.Name, h.Address, h.Capacity, h.Backends, h.Labels, h.OS, h.Arch, h.Version,
-		boolInt(h.Cordoned), ms(h.LastHeartbeat), h.ID)
+	res, err := s.exec(ctx, `UPDATE hosts SET name=?, address=?, capacity=?, backends=?,
+		backend_info=?, labels=?, os=?, arch=?, version=?, cordoned=?, last_heartbeat=? WHERE id=?`,
+		h.Name, h.Address, h.Capacity, h.Backends, h.BackendInfo, h.Labels, h.OS, h.Arch,
+		h.Version, boolInt(h.Cordoned), ms(h.LastHeartbeat), h.ID)
 	if err != nil {
 		return wrapWrite(err)
 	}

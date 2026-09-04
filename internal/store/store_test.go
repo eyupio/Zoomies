@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -241,5 +242,76 @@ func TestNotFoundIsReported(t *testing.T) {
 	s := newTestStore(t)
 	if _, err := s.GetPool(context.Background(), "pool_missing"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("got %v, want ErrNotFound", err)
+	}
+}
+
+// The probe an agent sends is the only thing that can explain a host that is
+// connected and still running nothing, so it has to survive a round trip
+// through the database intact -- including the backends that did not answer.
+func TestHostBackendProbeRoundTrips(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	host := &Host{
+		Name:     "vm-1",
+		Capacity: 2,
+		Backends: StringSlice{"process"},
+		BackendInfo: HostBackends{
+			{Kind: BackendDocker, Detail: "cannot connect to /var/run/docker.sock: permission denied"},
+			{Kind: BackendProcess, Available: true, Version: "fake", Endpoint: "memory"},
+		},
+	}
+	if err := s.CreateHost(ctx, host); err != nil {
+		t.Fatalf("CreateHost: %v", err)
+	}
+
+	got, err := s.GetHost(ctx, host.ID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if len(got.BackendInfo) != 2 {
+		t.Fatalf("backend info = %+v, want both backends", got.BackendInfo)
+	}
+	docker, ok := got.BackendInfo.Find(BackendDocker)
+	if !ok || docker.Available || !strings.Contains(docker.Detail, "permission denied") {
+		t.Fatalf("docker = %+v, want it recorded as unavailable with its reason", docker)
+	}
+	if kinds := got.BackendInfo.Kinds(); len(kinds) != 1 || kinds[0] != "process" {
+		t.Fatalf("kinds = %v, want only the backend that answered", kinds)
+	}
+
+	got.BackendInfo = HostBackends{{Kind: BackendDocker, Available: true, SupportsDinD: true}}
+	got.Backends = got.BackendInfo.Kinds()
+	if err := s.UpdateHost(ctx, got); err != nil {
+		t.Fatalf("UpdateHost: %v", err)
+	}
+	again, err := s.GetHost(ctx, host.ID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if len(again.BackendInfo) != 1 || !again.BackendInfo[0].SupportsDinD {
+		t.Fatalf("backend info = %+v, want the update to have replaced it", again.BackendInfo)
+	}
+}
+
+// A host row written before this column existed still reads back, with no
+// probe rather than a scan error.
+func TestHostWithNoStoredProbeReadsBack(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	host := &Host{Name: "vm-1", Capacity: 1, Backends: StringSlice{"docker"}}
+	if err := s.CreateHost(ctx, host); err != nil {
+		t.Fatalf("CreateHost: %v", err)
+	}
+	if _, err := s.exec(ctx, `UPDATE hosts SET backend_info = '' WHERE id = ?`, host.ID); err != nil {
+		t.Fatalf("clearing backend_info: %v", err)
+	}
+	got, err := s.GetHost(ctx, host.ID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if len(got.BackendInfo) != 0 || len(got.Backends) != 1 {
+		t.Fatalf("host = %+v, want its backends and no probe", got)
 	}
 }

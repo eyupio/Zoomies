@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -242,4 +243,100 @@ func contains(list []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// A host that came up before its container daemon joins with nothing usable,
+// and its agent re-probes as it runs. The controller has to act on that second
+// answer: until it does, every pool on that backend matches no host, looks
+// perfectly healthy, and quietly starts nothing.
+func TestHeartbeatRecordsABackendThatBecameAvailable(t *testing.T) {
+	h := newHarness(t)
+	tr := h.c.EmbeddedTransport()
+
+	resp, err := tr.Join(h.ctx, agent.JoinRequest{
+		ProtocolVersion: agent.ProtocolVersion,
+		Name:            "vm-1",
+		Capacity:        2,
+		Backends: []backend.Info{{
+			Kind:   store.BackendDocker,
+			Detail: "cannot connect to /var/run/docker.sock: permission denied",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	tr.SetCredentials(resp.HostID, resp.AgentToken)
+
+	host, err := h.st.GetHost(h.ctx, resp.HostID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if len(host.Backends) != 0 {
+		t.Fatalf("backends = %v, want none while the daemon is unreachable", host.Backends)
+	}
+	// The reason is kept even though the kind is not, because it is the only
+	// thing that tells an operator what to fix.
+	if info, ok := host.BackendInfo.Find(store.BackendDocker); !ok || info.Available ||
+		!strings.Contains(info.Detail, "permission denied") {
+		t.Fatalf("backend info = %+v, want docker recorded as unavailable with its reason", host.BackendInfo)
+	}
+
+	if _, err := tr.Heartbeat(h.ctx, agent.HeartbeatRequest{
+		ProtocolVersion: agent.ProtocolVersion,
+		Capacity:        2,
+		Backends: []backend.Info{{
+			Kind: store.BackendDocker, Available: true,
+			Version: "27.1.1", Endpoint: "unix:///var/run/docker.sock", SupportsDinD: true,
+		}},
+	}); err != nil {
+		t.Fatalf("Heartbeat: %v", err)
+	}
+
+	host, err = h.st.GetHost(h.ctx, resp.HostID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if len(host.Backends) != 1 || host.Backends[0] != "docker" {
+		t.Fatalf("backends = %v, want docker once the daemon answered", host.Backends)
+	}
+	info, ok := host.BackendInfo.Find(store.BackendDocker)
+	if !ok || !info.Available || info.Version != "27.1.1" || !info.SupportsDinD {
+		t.Fatalf("backend info = %+v, want the fresh probe in full", host.BackendInfo)
+	}
+	if info.Detail != "" {
+		t.Fatalf("detail = %q, want the stale failure gone", info.Detail)
+	}
+}
+
+// A heartbeat that carries no probe at all -- an older agent, or one that has
+// not probed yet -- must not wipe what the host is known to be able to do.
+func TestHeartbeatWithoutABackendProbeKeepsWhatIsKnown(t *testing.T) {
+	h := newHarness(t)
+	tr := h.c.EmbeddedTransport()
+
+	resp, err := tr.Join(h.ctx, agent.JoinRequest{
+		ProtocolVersion: agent.ProtocolVersion,
+		Name:            "vm-1",
+		Capacity:        2,
+		Backends:        []backend.Info{{Kind: store.BackendDocker, Available: true, Version: "27.1.1"}},
+	})
+	if err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	tr.SetCredentials(resp.HostID, resp.AgentToken)
+
+	if _, err := tr.Heartbeat(h.ctx, agent.HeartbeatRequest{
+		ProtocolVersion: agent.ProtocolVersion,
+		Capacity:        3,
+	}); err != nil {
+		t.Fatalf("Heartbeat: %v", err)
+	}
+
+	host, err := h.st.GetHost(h.ctx, resp.HostID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if len(host.Backends) != 1 || len(host.BackendInfo) != 1 {
+		t.Fatalf("host = %+v, want the backends it joined with left alone", host)
+	}
 }

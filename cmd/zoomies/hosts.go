@@ -77,6 +77,22 @@ func hostsList(ctx context.Context, e *env, args []string) error {
 		})
 	}
 	p.table([]string{"name", "id", "state", "runners", "used", "backends", "platform", "last seen"}, rows)
+
+	// A host with no usable backend is connected, healthy and completely
+	// useless: no pool matches it, so its jobs queue with nothing to say why.
+	// The agent already explained it -- repeat that here rather than leaving a
+	// dash in the backends column.
+	for _, h := range out.Items {
+		if len(h.Backends) > 0 {
+			continue
+		}
+		p.note("%s can run nothing, so no pool will be scheduled on it.", h.Name)
+		for _, b := range h.BackendInfo {
+			if !b.Available && b.Detail != "" {
+				p.note("  %s: %s", b.Kind, b.Detail)
+			}
+		}
+	}
 	return nil
 }
 

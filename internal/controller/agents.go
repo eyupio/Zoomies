@@ -277,6 +277,7 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 		labels[k] = v
 	}
 
+	probed := hostBackends(req.Backends)
 	plaintext, hash := auth.NewAgentToken()
 	now := c.Now()
 	h := &store.Host{
@@ -285,7 +286,8 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 		Address:       firstNonEmpty(req.Address, ip),
 		Embedded:      embedded,
 		Capacity:      capacity,
-		Backends:      availableBackends(req.Backends),
+		Backends:      probed.Kinds(),
+		BackendInfo:   probed,
 		Labels:        labels,
 		OS:            req.OS,
 		Arch:          req.Arch,
@@ -367,17 +369,38 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 
 	// Only write the row back when the agent is telling us something new: a
 	// heartbeat every 30 seconds per host is not worth an UPDATE each time.
-	kinds := availableBackends(req.Backends)
-	changed := (len(kinds) > 0 && !slices.Equal(kinds, h.Backends)) ||
+	//
+	// An agent re-probes its backends as it runs, so this is also how a host
+	// that started before its Docker daemon -- or before its user was in the
+	// docker group -- stops advertising nothing and becomes schedulable. That
+	// recovery is worth a log line and a scheduling pass: until it happens,
+	// every pool on that backend looks healthy and quietly starts no runner.
+	probed := hostBackends(req.Backends)
+	kinds := probed.Kinds()
+	backendsChanged := len(probed) > 0 && !slices.Equal(kinds, h.Backends)
+	changed := backendsChanged ||
+		(len(probed) > 0 && !slices.Equal(probed, h.BackendInfo)) ||
 		(req.Version != "" && req.Version != h.Version) ||
 		capacity != h.Capacity
 	if changed {
-		h.Backends = firstNonEmptySlice(kinds, h.Backends)
+		was := h.Backends
+		if len(probed) > 0 {
+			h.Backends = kinds
+			h.BackendInfo = probed
+		}
 		h.Version = firstNonEmpty(req.Version, h.Version)
 		h.Capacity = capacity
 		h.LastHeartbeat = now
 		if err := c.st.UpdateHost(ctx, h); err != nil {
 			c.log.Warn("could not record what a host reported about itself", "host", hostID, "error", err)
+		} else if backendsChanged {
+			c.log.Info("a host's backends changed", "host", hostID, "name", h.Name,
+				"was", strings.Join(was, ","), "now", strings.Join(h.Backends, ","),
+				"detail", unavailableDetail(probed))
+			c.publishHost(h)
+			// A host that has just gained a backend may be the one a stalled
+			// pool has been waiting for.
+			c.Nudge()
 		}
 	}
 
@@ -605,17 +628,42 @@ func (c *Controller) heartbeatInterval() time.Duration {
 	return 30 * time.Second
 }
 
-// availableBackends reduces a probe to the backend kinds that actually
-// answered, which is what the scheduler matches a pool against.
-func availableBackends(infos []backend.Info) store.StringSlice {
-	var out store.StringSlice
+// hostBackends converts an agent's probe into the form the store keeps. The
+// whole probe is persisted, not just the kinds that answered: "this host has no
+// docker" and "this host has docker but the agent cannot read its socket" are
+// the same row to the scheduler and completely different to an operator.
+func hostBackends(infos []backend.Info) store.HostBackends {
+	if len(infos) == 0 {
+		return nil
+	}
+	out := make(store.HostBackends, 0, len(infos))
 	for _, i := range infos {
-		if i.Available {
-			out = append(out, string(i.Kind))
+		out = append(out, store.HostBackend{
+			Kind:         i.Kind,
+			Available:    i.Available,
+			Version:      i.Version,
+			Rootless:     i.Rootless,
+			Endpoint:     i.Endpoint,
+			Detail:       i.Detail,
+			SupportsDinD: i.SupportsDinD,
+		})
+	}
+	slices.SortFunc(out, func(a, b store.HostBackend) int {
+		return strings.Compare(string(a.Kind), string(b.Kind))
+	})
+	return out
+}
+
+// unavailableDetail summarises the backends a host reported it cannot use, for
+// the log line that records a change. It is empty when everything answered.
+func unavailableDetail(probed store.HostBackends) string {
+	var parts []string
+	for _, i := range probed {
+		if !i.Available {
+			parts = append(parts, string(i.Kind)+": "+firstNonEmpty(i.Detail, "unavailable"))
 		}
 	}
-	slices.Sort(out)
-	return out
+	return strings.Join(parts, "; ")
 }
 
 func firstNonEmpty(vals ...string) string {
@@ -625,13 +673,6 @@ func firstNonEmpty(vals ...string) string {
 		}
 	}
 	return ""
-}
-
-func firstNonEmptySlice(a, b store.StringSlice) store.StringSlice {
-	if len(a) > 0 {
-		return a
-	}
-	return b
 }
 
 // ---------------------------------------------------------------------------

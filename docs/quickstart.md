@@ -160,6 +160,24 @@ The Overview's problems panel, `GET /api/v1/problems` and `zoomies status` all
 render the same list, each entry with what is true, why it matters and what to
 change. When there is nothing wrong it is one quiet line.
 
+### A job that sits in the queue
+
+Two different faults look the same from GitHub, and the problems panel tells
+them apart:
+
+* **No pool claims the job.** Its `runs-on` labels match no enabled pool. Change
+  the workflow's labels, or the pool's.
+* **No host can run the pool.** A pool is claiming the job and nothing in the
+  fleet offers its backend, matches its host selector, or has room left. The
+  panel names which, and repeats what the host's own agent said -- an
+  unreadable `docker.sock` is the usual answer, and it is fixed on the host
+  rather than in the pool.
+
+A host whose Docker daemon was not up when the agent started re-probes as it
+runs, so it starts taking work within a heartbeat of the daemon appearing. What
+each host can currently run, and why it cannot run the rest, is on the Hosts
+page.
+
 ## Next
 
 - [Configuration](configuration.md) — every setting, including running behind Cloudflare

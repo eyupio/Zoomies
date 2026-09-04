@@ -99,8 +99,25 @@ type PoolPlan struct {
 	// Reason is the sentence shown in the UI, e.g.
 	// "scaled linux-x64 2 -> 4: 3 jobs queued > 30s". It is empty when the
 	// pool's size did not change.
-	Reason  string   `json:"reason,omitempty"`
-	Actions []Action `json:"actions,omitempty"`
+	Reason string `json:"reason,omitempty"`
+	// Blocked is set when this pool needed runners and the fleet had nowhere to
+	// put them: no host offers its backend, matches its host selector, or has
+	// room left. It holds the sentence naming which, and it is what the
+	// problems panel reports -- a pool in this state looks completely healthy
+	// while its jobs queue forever, so it has to be said out loud somewhere.
+	//
+	// It stays empty when the shortfall was only this tick's create budget,
+	// which the next pass clears on its own and which no operator can act on.
+	Blocked string `json:"blocked,omitempty"`
+	// BlockedFix is what to change to unblock it, kept apart from Blocked
+	// because the problems panel shows the two differently.
+	BlockedFix string `json:"blocked_fix,omitempty"`
+	// BlockedAtCapacity distinguishes a fleet that is merely full -- every host
+	// could run this pool and all of them are busy, which the next finished job
+	// clears -- from one where no host can ever run it. Both are worth saying;
+	// only the second is a fault.
+	BlockedAtCapacity bool     `json:"blocked_at_capacity,omitempty"`
+	Actions           []Action `json:"actions,omitempty"`
 }
 
 // Plan is one tick's worth of decisions.
@@ -278,7 +295,9 @@ func (t *tick) scaleUp(p *store.Pool, plan *PoolPlan, live, busy, eligible int) 
 	}
 	hosts := t.hosts.place(p, want)
 	if len(hosts) == 0 {
-		plan.Reason = cannotScale(p.Name, live, plan.Desired, t.hosts.why(p))
+		what, fix, atCapacity := t.hosts.why(p)
+		plan.Reason = cannotScale(p.Name, live, plan.Desired, sentence(what, fix))
+		plan.Blocked, plan.BlockedFix, plan.BlockedAtCapacity = what, fix, atCapacity
 		return
 	}
 	for _, hostID := range hosts {
@@ -402,12 +421,19 @@ func selects(selector, labels store.StringMap) bool {
 }
 
 // why explains why no host could take a runner for p, naming the counts an
-// operator can act on.
-func (hs *hostSet) why(p *store.Pool) string {
+// operator can act on. It is split into what is true and what to change,
+// because the problems panel shows those as two different things; sentence
+// joins them for the one-line scaling reason. atCapacity reports the one case
+// that is not a misconfiguration: every host could run this pool and all of
+// them are full.
+func (hs *hostSet) why(p *store.Pool) (what, fix string, atCapacity bool) {
 	if len(hs.hosts) == 0 {
-		return "no agent hosts are registered; run 'zoomies agent' on a machine that can host runners"
+		return "no agent hosts are registered, so there is nowhere to put a runner",
+			"run 'zoomies agent' on a machine that can host runners, using a join token from the Hosts page",
+			false
 	}
 	var unhealthy, cordoned, backend, selector, full int
+	var detail string
 	for _, h := range hs.hosts {
 		switch {
 		case !h.Healthy(hs.now):
@@ -416,6 +442,15 @@ func (hs *hostSet) why(p *store.Pool) string {
 			cordoned++
 		case !slices.Contains(h.Backends, string(p.Backend)):
 			backend++
+			// The agent's own probe usually names the fix -- a socket that is
+			// not readable, a daemon that is not running -- and "without the
+			// docker backend" alone sends an operator looking in the wrong
+			// place. Take the first host that has an explanation.
+			if detail == "" {
+				if info, ok := h.BackendInfo.Find(p.Backend); ok && !info.Available && info.Detail != "" {
+					detail = h.Name + " reports: " + info.Detail
+				}
+			}
 		case !selects(p.HostSelector, h.Labels):
 			selector++
 		default:
@@ -433,8 +468,33 @@ func (hs *hostSet) why(p *store.Pool) string {
 	add(backend, "without the "+string(p.Backend)+" backend")
 	add(selector, "not matching the pool's host selector")
 	add(full, "at capacity")
-	return fmt.Sprintf("no host can take a new %s runner (%s); add a host, raise its capacity, or relax the pool's host selector",
+	what = fmt.Sprintf("no host can take a new %s runner (%s)",
 		p.Backend, strings.Join(parts, ", "))
+	if detail != "" {
+		// The agent's own words about the backend it could not use. They name
+		// the fix far more precisely than any count can.
+		what += ". " + detail
+	}
+	switch {
+	case full == len(hs.hosts):
+		fix = "wait for a job to finish, raise a host's capacity, or add a host"
+	case unhealthy == len(hs.hosts):
+		fix = "check that the zoomies agent is running on those hosts and can reach this controller"
+	case backend > 0 && backend+unhealthy+cordoned == len(hs.hosts):
+		fix = fmt.Sprintf("make the %s backend usable on one of those hosts, or point this pool at a backend they already offer", p.Backend)
+	default:
+		fix = "add a host, raise a host's capacity, uncordon one, or relax the pool's host selector"
+	}
+	return what, fix, full == len(hs.hosts)
+}
+
+// sentence is why() as one line, for the scaling reason an operator reads in a
+// pool's history.
+func sentence(what, fix string) string {
+	if fix == "" {
+		return what
+	}
+	return what + "; " + fix
 }
 
 // ---------------------------------------------------------------------------

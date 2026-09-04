@@ -379,3 +379,63 @@ func TestOverviewEndpoints(t *testing.T) {
 	scaling := h.do(request{method: http.MethodGet, path: "/api/v1/scaling-events?limit=5", cookie: cookie})
 	scaling.mustStatus(t, http.StatusOK, "scaling events")
 }
+
+// The Hosts page and the pool wizard both answer "why is this host not taking
+// work?" out of backend_info, so the API has to hand back the agent's whole
+// probe -- the backends that failed included -- rather than a list of the ones
+// that worked.
+func TestHostResponseCarriesTheAgentsProbe(t *testing.T) {
+	h := newHarness(t)
+	host := h.host("vm-1")
+	host.Backends = store.StringSlice{"process"}
+	host.BackendInfo = store.HostBackends{
+		{Kind: store.BackendDocker, Detail: "cannot connect to /var/run/docker.sock: permission denied"},
+		{Kind: store.BackendProcess, Available: true, Version: "1.2.3", Endpoint: "exec", SupportsDinD: false},
+	}
+	if err := h.st.UpdateHost(h.ctx, host); err != nil {
+		t.Fatalf("UpdateHost: %v", err)
+	}
+	viewer, _ := h.user("viewer", store.RoleViewer)
+
+	resp := h.do(request{method: http.MethodGet, path: "/api/v1/hosts/" + host.ID, cookie: h.session(viewer)})
+	resp.mustStatus(t, http.StatusOK, "get host")
+	var out hostResponse
+	resp.into(t, &out)
+
+	if len(out.BackendInfo) != 2 {
+		t.Fatalf("backend_info = %+v, want every backend the agent probed", out.BackendInfo)
+	}
+	var docker backendInfoResponse
+	for _, b := range out.BackendInfo {
+		if b.Kind == store.BackendDocker {
+			docker = b
+		}
+	}
+	if docker.Available {
+		t.Errorf("docker is reported available although the agent could not reach it: %+v", docker)
+	}
+	if !strings.Contains(docker.Detail, "permission denied") {
+		t.Errorf("detail = %q, want the agent's own explanation", docker.Detail)
+	}
+}
+
+// A host that joined before probes were stored has no probe to show. Its
+// available kinds are still rendered, and nothing is invented about the
+// backends it never reported on.
+func TestHostResponseFallsBackToTheKindsAlone(t *testing.T) {
+	h := newHarness(t)
+	host := h.host("vm-1")
+	viewer, _ := h.user("viewer", store.RoleViewer)
+
+	resp := h.do(request{method: http.MethodGet, path: "/api/v1/hosts/" + host.ID, cookie: h.session(viewer)})
+	resp.mustStatus(t, http.StatusOK, "get host")
+	var out hostResponse
+	resp.into(t, &out)
+
+	if len(out.BackendInfo) != 1 || out.BackendInfo[0].Kind != store.BackendDocker || !out.BackendInfo[0].Available {
+		t.Fatalf("backend_info = %+v, want the one kind the host is known to have", out.BackendInfo)
+	}
+	if out.BackendInfo[0].Detail != "" {
+		t.Errorf("detail = %q, want nothing invented", out.BackendInfo[0].Detail)
+	}
+}

@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -215,5 +216,131 @@ func TestStatsSummarisesTheFleet(t *testing.T) {
 	}
 	if s.Pools[0].Utilisation != 0.5 {
 		t.Fatalf("utilisation = %v, want 0.5", s.Pools[0].Utilisation)
+	}
+}
+
+// A pool nothing can run is the failure that looks like health: the pool is
+// enabled, the job matched it, every host is connected, and no runner is ever
+// created. Nothing else in the product reports it -- a scaling event is written
+// only when the size actually moved -- so the panel has to.
+func TestPoolWithNoHostToRunItIsReported(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	p := h.pool(inst, "linux-x64")
+	p.Backend = store.BackendPodman
+	if err := h.st.UpdatePool(h.ctx, p); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+	// One connected, healthy host -- which offers docker, not podman.
+	host := h.host("vm-1")
+	host.BackendInfo = store.HostBackends{{
+		Kind: store.BackendPodman, Available: false,
+		Detail: "podman.sock is not readable by this agent",
+	}}
+	if err := h.st.UpdateHost(h.ctx, host); err != nil {
+		t.Fatalf("UpdateHost: %v", err)
+	}
+	h.deliverJob(jobEvent{Action: "queued", JobID: 4242, Labels: p.Labels})
+
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if rs := h.runners(); len(rs) != 0 {
+		t.Fatalf("created %d runners with no host able to run them", len(rs))
+	}
+
+	ps, err := h.c.Problems(h.ctx)
+	if err != nil {
+		t.Fatalf("Problems: %v", err)
+	}
+	var found *Problem
+	for i, p := range ps {
+		if p.Code == "pool.no_capacity" {
+			found = &ps[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("problems = %v, want one saying the pool has nowhere to run", h.problemCodes())
+	}
+	// A queued job makes this an outage, not a warning about a pool that
+	// merely cannot reach its minimum.
+	if found.Severity != config.SeverityError {
+		t.Fatalf("severity = %q, want error while a job is waiting", found.Severity)
+	}
+	if !strings.Contains(found.Detail, "podman") {
+		t.Fatalf("detail = %q, want it to name the backend no host offers", found.Detail)
+	}
+	// The agent's own explanation is the whole fix, so it must survive the
+	// trip from the probe to the panel.
+	if !strings.Contains(found.Detail, "podman.sock is not readable") {
+		t.Fatalf("detail = %q, want the host's own explanation", found.Detail)
+	}
+	if found.Fix == "" || found.TargetID != p.ID {
+		t.Fatalf("problem = %+v, want a fix and a link to the pool", found)
+	}
+}
+
+// The same pool, once a host can run it, drops off the panel: a problem that
+// never clears is one an operator learns to ignore.
+func TestPoolProblemClearsWhenAHostCanRunIt(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	p := h.pool(inst, "linux-x64")
+	h.deliverJob(jobEvent{Action: "queued", JobID: 4243, Labels: p.Labels})
+
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if !contains(h.problemCodes(), "pool.no_capacity") {
+		t.Fatalf("problems = %v, want the blocked pool with no hosts at all", h.problemCodes())
+	}
+
+	h.host("vm-1")
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if contains(h.problemCodes(), "pool.no_capacity") {
+		t.Fatalf("problems = %v, want the blocked pool gone once a host can run it", h.problemCodes())
+	}
+}
+
+// A fleet that is simply full is the system working: the jobs are waiting for a
+// runner to finish, not for an operator. It is still worth saying, but it is
+// not an outage.
+func TestAFullFleetIsAWarningRatherThanAnOutage(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	p := h.pool(inst, "linux-x64")
+	host := h.host("vm-1")
+	host.Capacity = 1
+	if err := h.st.UpdateHost(h.ctx, host); err != nil {
+		t.Fatalf("UpdateHost: %v", err)
+	}
+	// The one slot is taken, and a second job is queued behind it.
+	h.runnerRow(p, host, store.RunnerBusy)
+	h.deliverJob(jobEvent{Action: "queued", JobID: 4244, Labels: p.Labels})
+
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	ps, err := h.c.Problems(h.ctx)
+	if err != nil {
+		t.Fatalf("Problems: %v", err)
+	}
+	found := false
+	for _, pr := range ps {
+		if pr.Code != "pool.no_capacity" {
+			continue
+		}
+		found = true
+		if pr.Severity != config.SeverityWarning {
+			t.Errorf("severity = %q, want a warning: the fleet is busy, not broken", pr.Severity)
+		}
+		if !strings.Contains(pr.Detail, "at capacity") {
+			t.Errorf("detail = %q, want it to say the fleet is full", pr.Detail)
+		}
+	}
+	if !found {
+		t.Fatalf("problems = %v, want the pool waiting on capacity", h.problemCodes())
 	}
 }

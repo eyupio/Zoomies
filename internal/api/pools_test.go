@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/eyupio/zoomies/internal/controller"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -255,6 +256,52 @@ func TestPoolValidateWarnsWhenNoHostMatches(t *testing.T) {
 	}
 }
 
+// The usual reason no host matches is not a missing machine: it is a host that
+// is right there with a daemon its agent could not reach. The agent's own
+// explanation is the shortest route to a working pool, so the dry run has to
+// carry it rather than telling the operator to go and add a host.
+func TestPoolValidateRepeatsWhatTheHostSaidAboutItsBackend(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	u, _ := h.user("operator", store.RoleOperator)
+
+	host := h.host("vm-1")
+	host.Backends = store.StringSlice{"process"}
+	host.BackendInfo = store.HostBackends{{
+		Kind:   store.BackendDocker,
+		Detail: "/var/run/docker.sock is not readable by this agent",
+	}}
+	if err := h.st.UpdateHost(h.ctx, host); err != nil {
+		t.Fatalf("UpdateHost: %v", err)
+	}
+
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/pools/validate",
+		cookie: h.session(u), body: poolBody(inst.ID)})
+	resp.mustStatus(t, http.StatusOK, "validate")
+
+	var verdict validatePoolResponse
+	resp.into(t, &verdict)
+	if verdict.MatchingHosts != 0 {
+		t.Fatalf("matching_hosts = %d, want none: the only host has no docker", verdict.MatchingHosts)
+	}
+	var warning *controller.Problem
+	for i, w := range verdict.Warnings {
+		if w.Code == "pool.no_matching_hosts" {
+			warning = &verdict.Warnings[i]
+		}
+	}
+	if warning == nil {
+		t.Fatalf("warnings = %+v, want one about no host matching", verdict.Warnings)
+	}
+	if !strings.Contains(warning.Detail, "vm-1 reports:") ||
+		!strings.Contains(warning.Detail, "not readable by this agent") {
+		t.Errorf("detail = %q, want the host's own explanation", warning.Detail)
+	}
+	if !strings.Contains(warning.Fix, "docker") {
+		t.Errorf("fix = %q, want it to point at the backend rather than at buying a machine", warning.Fix)
+	}
+}
+
 // TestDeletePoolDrainsItsRunners checks the default: deleting a pool finishes
 // the work in flight rather than interrupting it.
 func TestDeletePoolDrainsItsRunners(t *testing.T) {
@@ -272,5 +319,39 @@ func TestDeletePoolDrainsItsRunners(t *testing.T) {
 	resp.into(t, &out)
 	if out.RunnersAffected != 2 {
 		t.Fatalf("runners_affected = %d, want 2", out.RunnersAffected)
+	}
+}
+
+// The pool page is where an operator lands when a workflow is not running, so
+// the reason its runners cannot be placed belongs there and not only on the
+// Overview.
+func TestPoolResponseCarriesWhyItCannotScale(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+	h.job(pool, store.JobQueued)
+	u, _ := h.user("viewer", store.RoleViewer)
+
+	// No host at all, so the scheduler wants a runner and has nowhere to put it.
+	if err := h.ctrl.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	resp := h.do(request{method: http.MethodGet, path: "/api/v1/pools/" + pool.ID, cookie: h.session(u)})
+	resp.mustStatus(t, http.StatusOK, "get pool")
+	var out poolResponse
+	resp.into(t, &out)
+
+	found := false
+	for _, w := range out.Warnings {
+		if w.Code == "pool.no_capacity" {
+			found = true
+			if w.Detail == "" || w.Fix == "" {
+				t.Errorf("warning = %+v, want it to say what is true and what to change", w)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("warnings = %+v, want one saying the pool has nowhere to run", out.Warnings)
 	}
 }
