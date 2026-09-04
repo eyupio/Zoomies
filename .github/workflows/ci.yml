@@ -82,6 +82,14 @@ jobs:
         working-directory: web
       - run: npm run lint
         working-directory: web
+      # The generated client must match api/openapi.yaml. If it does not, the
+      # UI is typed against an API that no longer exists.
+      - name: The generated API client is up to date
+        run: |
+          npm run generate:api
+          git diff --exit-code src/lib/api/schema.d.ts \
+            || { echo "::error::src/lib/api/schema.d.ts is stale. Run 'make openapi' and commit the result."; exit 1; }
+        working-directory: web
       - run: npm run check
         working-directory: web
       # The build fails on its own if the gzipped shell exceeds the 200 KB
