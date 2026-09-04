@@ -207,8 +207,9 @@ fixed, because muscle memory is the point:
 4. **Jobs** — what has run
 5. **Hosts** — where runners can go
 6. **Installations** — GitHub App connections
-7. **Audit** — who did what
-8. **Settings** — users, tokens, appearance, danger zone
+7. **Migrate** — move repositories off GitHub's runners onto this fleet
+8. **Audit** — who did what
+9. **Settings** — users, tokens, appearance, danger zone
 
 The navigation is headed by the mark, the wordmark and the descriptor, and every
 page ends in a hairline footer carrying the mark, the name and the running

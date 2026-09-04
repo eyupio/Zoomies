@@ -391,17 +391,20 @@ func (c *Controller) seedJobs(ctx context.Context, now time.Time, rng *rand.Rand
 }
 
 func (c *Controller) seedScaling(ctx context.Context, now time.Time, linux, arm *store.Pool) error {
+	// The reason quotes the pool by name, exactly as the scheduler writes it,
+	// so the fixture cannot drift from the pool it describes when the pools are
+	// renamed.
 	events := []struct {
 		pool     *store.Pool
 		from, to int
-		reason   string
+		why      string
 		agoMin   int
 	}{
-		{linux, 1, 4, "scaled demo-linux-x64 1 -> 4: 3 jobs queued > 30s", 95},
-		{linux, 4, 6, "scaled demo-linux-x64 4 -> 6: 2 jobs queued > 30s", 70},
-		{linux, 6, 4, "scaled demo-linux-x64 6 -> 4: 2 runners idle > 5m", 40},
-		{arm, 0, 1, "scaled demo-linux-arm64 0 -> 1: 1 job queued > 30s", 30},
-		{linux, 4, 5, "scaled demo-linux-x64 4 -> 5: 1 job queued > 30s", 8},
+		{linux, 1, 4, "3 jobs queued > 30s", 95},
+		{linux, 4, 6, "2 jobs queued > 30s", 70},
+		{linux, 6, 4, "2 runners idle > 5m", 40},
+		{arm, 0, 1, "1 job queued > 30s", 30},
+		{linux, 4, 5, "1 job queued > 30s", 8},
 	}
 	for i, e := range events {
 		ev := &store.ScalingEvent{
@@ -410,7 +413,7 @@ func (c *Controller) seedScaling(ctx context.Context, now time.Time, linux, arm 
 			PoolName:  e.pool.Name,
 			From:      e.from,
 			To:        e.to,
-			Reason:    e.reason,
+			Reason:    fmt.Sprintf("scaled %s %d -> %d: %s", e.pool.Name, e.from, e.to, e.why),
 			CreatedAt: now.Add(-time.Duration(e.agoMin) * time.Minute),
 		}
 		if err := c.st.AppendScalingEvent(ctx, ev); err != nil {

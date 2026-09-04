@@ -12,7 +12,7 @@
 -->
 <script lang="ts">
   import CopyButton from '$lib/components/CopyButton.svelte';
-  import { runsOnSnippet } from '$lib/brand';
+  import { BRAND_LABEL, isImplicit, normalizeLabels, runsOnSnippet } from '$lib/brand';
 
   interface Props {
     labels?: readonly string[];
@@ -22,6 +22,13 @@
   let { labels = [], class: className = '' }: Props = $props();
 
   const snippet = $derived(runsOnSnippet(labels));
+  // A pool with nothing but the brand and the labels every runner already
+  // advertises answers every job that asks for this fleet, which is rarely what
+  // an operator meant. That is the state worth warning about -- not "no labels
+  // typed yet", since the brand is always there.
+  const specific = $derived(
+    normalizeLabels(labels).filter((l) => !isImplicit(l) && l !== BRAND_LABEL),
+  );
 </script>
 
 <figure class="preview {className}">
@@ -30,7 +37,7 @@
     <CopyButton value={snippet} label="Copy the runs-on snippet" />
   </figcaption>
   <pre><code>{snippet}</code></pre>
-  {#if labels.length === 0}
+  {#if specific.length === 0}
     <p class="hint">
       With no labels of its own this pool answers every job that asks for this fleet, which is
       rarely what an operator wants once there is more than one pool.

@@ -7,7 +7,7 @@
 <script lang="ts">
   import { joinWords } from '$lib/format';
   import Field from '$lib/components/Field.svelte';
-  import { BRAND_LABEL, brandedLabel, isImplicit } from '$lib/brand';
+  import { BRAND_LABEL, brandLabels, brandedLabel, isImplicit } from '$lib/brand';
   import LabelInput from './LabelInput.svelte';
   import RunsOnPreview from './RunsOnPreview.svelte';
   import type { PoolDraft } from './PoolWizardForm.svelte';
@@ -75,7 +75,8 @@
   </p>
 {/if}
 
-<RunsOnPreview labels={draft.labels} />
+<!-- The brand is what the server adds on save, so the preview shows it too. -->
+<RunsOnPreview labels={brandLabels(draft.labels)} />
 
 {#if !carriesBrand}
   <p class="note">

@@ -19,6 +19,7 @@ import {
   navEntry,
   pageHeading,
   SECTIONS,
+  sectionHeading,
 } from './support/fixtures';
 
 test.use(browserOverride);
@@ -79,7 +80,7 @@ test('the navigation becomes a bar at the bottom and every page is reachable', a
   for (const section of SECTIONS) {
     await goto(page, '/', 'Overview');
     await navEntry(page, section.path).click();
-    await expect(pageHeading(page, section.label)).toBeVisible();
+    await expect(pageHeading(page, sectionHeading(section))).toBeVisible();
     await expect(navEntry(page, section.path)).toHaveAttribute('aria-current', 'page');
   }
 });
