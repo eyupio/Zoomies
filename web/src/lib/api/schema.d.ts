@@ -1132,6 +1132,13 @@ export interface components {
             fix?: string;
             target_kind?: string;
             target_id?: string;
+            /**
+             * @description The choices the fix leaves open, when the fix is a choice. For a pool no host can run, these are the backends its hosts do offer, so the UI can put the change one click away.
+             * @example [
+             *       "podman"
+             *     ]
+             */
+            alternatives?: components["schemas"]["BackendKind"][];
             /** Format: date-time */
             since?: string;
         };
@@ -1490,7 +1497,30 @@ export interface components {
             /** @default true */
             enabled: boolean;
         };
-        PoolUpdate: components["schemas"]["PoolCreate"] & Record<string, never>;
+        PoolUpdate: {
+            /** @example linux-x64 */
+            name?: string;
+            installation_id?: string;
+            labels?: string[];
+            runner_group?: string;
+            backend?: components["schemas"]["BackendKind"];
+            image?: string;
+            runner_version?: string;
+            min_runners?: number;
+            max_runners?: number;
+            idle_timeout?: components["schemas"]["Duration"];
+            ephemeral?: boolean;
+            docker_mode?: components["schemas"]["DockerMode"];
+            resources?: components["schemas"]["Resources"];
+            host_selector?: {
+                [key: string]: string;
+            };
+            env?: {
+                [key: string]: string;
+            };
+            run_as_root?: boolean;
+            enabled?: boolean;
+        };
         Runner: {
             id?: string;
             name?: string;

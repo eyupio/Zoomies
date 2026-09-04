@@ -277,6 +277,12 @@ Empty autodetects, **preferring a rootless socket**, in this order:
 4. `~/.docker/run/docker.sock` (Docker Desktop on macOS)
 5. `/var/run/docker.sock`
 
+A socket that exists but cannot be opened is diagnosed rather than guessed at:
+the agent reports the account it runs as, the group that owns the socket, and
+whether that account is already a member. If it is, the fix is a restart of the
+agent and not another `usermod` -- supplementary groups are fixed when a process
+starts.
+
 ### `agent.labels` and pool host selectors
 
 Agent labels describe a host; a pool's `host_selector` requires them. Every

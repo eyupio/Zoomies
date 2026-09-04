@@ -16,7 +16,7 @@
     listScalingEvents,
   } from '$lib/api/client';
   import { events } from '$lib/api/sse';
-  import type { Job, Pool, ScalingEvent } from '$lib/api/types';
+  import type { BackendKind, Job, Pool, Problem, ScalingEvent } from '$lib/api/types';
   import { formatNumber, pluralise } from '$lib/format';
   import { router } from '$lib/router';
   import { poolStatus } from '$lib/status';
@@ -31,6 +31,7 @@
   import PageHeader from '$lib/components/PageHeader.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import UtilisationBar from '$lib/components/UtilisationBar.svelte';
+  import PoolBackendSwitch from '$lib/pools/PoolBackendSwitch.svelte';
   import PoolConfig from '$lib/pools/PoolConfig.svelte';
   import PoolJobs from '$lib/pools/PoolJobs.svelte';
   import PoolRunners from '$lib/pools/PoolRunners.svelte';
@@ -320,7 +321,7 @@
         <div class="panel-head">
           <h2 id="warnings-heading">Warnings</h2>
         </div>
-        <PoolWarnings warnings={pool.warnings ?? []} bare />
+        <PoolWarnings warnings={pool.warnings ?? []} bare action={warningAction} />
       </section>
 
       <section class="panel" aria-labelledby="config-heading">
@@ -335,6 +336,16 @@
     </div>
   </div>
 {/if}
+
+<!--
+  A pool with nowhere to run carries the backends its hosts do offer, so the
+  change the fix asks for is one click rather than a trip through the wizard.
+-->
+{#snippet warningAction(warning: Problem)}
+  {#if pool && canOperate && warning.code === 'pool.no_capacity' && (warning.alternatives?.length ?? 0) > 0}
+    <PoolBackendSwitch {pool} alternatives={(warning.alternatives ?? []) as BackendKind[]} />
+  {/if}
+{/snippet}
 
 <ConfirmDialog
   bind:open={deleteOpen}

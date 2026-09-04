@@ -184,6 +184,16 @@ them apart:
   unreadable `docker.sock` is the usual answer, and it is fixed on the host
   rather than in the pool.
 
+  A pool blocked on its backend has two ways out, and both are named where the
+  problem is. On the host, the agent's sentence about a socket it cannot open
+  identifies **its own account**, not `$USER`: an agent installed as a service
+  runs as `zoomies`, so a `usermod` copied from a shell adds the wrong user and
+  changes nothing. When that account is already in the group, the agent says so
+  and asks to be restarted instead, because a running process cannot gain a
+  group it did not start with. In the controller, if your hosts offer a backend
+  this pool is not using, the problem names it and the pool's own page offers
+  the change as a button -- the runners it already has finish their jobs first.
+
 A host whose Docker daemon was not up when the agent started re-probes as it
 runs, so it starts taking work within a heartbeat of the daemon appearing. What
 each host can currently run, and why it cannot run the rest, is on the Hosts

@@ -177,7 +177,9 @@ func (c *APIClient) unavailable(err error) error {
 	case errors.Is(err, syscall.ENOENT):
 		return fmt.Errorf("%w: no socket at %s; the daemon is not running or is listening elsewhere -- start it (systemctl --user start docker, or systemctl start docker) or set agent.docker_host: %w", ErrUnavailable, where, err)
 	case errors.Is(err, syscall.EACCES), errors.Is(err, syscall.EPERM):
-		return fmt.Errorf("%w: permission denied on %s; add your user to the docker group (sudo usermod -aG docker $USER, then log in again) or run a rootless daemon and point agent.docker_host at /run/user/$(id -u)/docker.sock: %w", ErrUnavailable, where, err)
+		// deniedDetail names this agent's own account and the group that owns
+		// the socket, which is what makes the usermod line copyable.
+		return fmt.Errorf("%w: %s: %w", ErrUnavailable, deniedDetail(realIdentity(), strings.TrimPrefix(where, "unix://")), err)
 	case errors.Is(err, syscall.ECONNREFUSED):
 		return fmt.Errorf("%w: nothing is listening on %s; the socket exists but the daemon is down -- start it with systemctl --user start docker (rootless) or systemctl start docker: %w", ErrUnavailable, where, err)
 	default:

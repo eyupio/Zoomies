@@ -1038,3 +1038,93 @@ func TestBudgetShortfallIsNotReportedAsBlocked(t *testing.T) {
 		t.Fatalf("blocked = %q, want nothing for a shortfall the next tick clears", pp.Blocked)
 	}
 }
+
+// "point this pool at a backend they already offer" is not something an
+// operator can act on until Zoomies says which backend that is.
+func TestBlockedOnBackendNamesWhatTheHostsDoOffer(t *testing.T) {
+	host := testHost("host_a", 8, 0)
+	host.Backends = store.StringSlice{"podman"}
+	host.BackendInfo = store.HostBackends{{
+		Kind:   store.BackendDocker,
+		Detail: "permission denied on /var/run/docker.sock",
+	}}
+
+	pp := only(t, Decide(snap([]*store.Pool{testPool("linux-x64", "linux")}, nil,
+		[]*store.Job{queued("j1", time.Minute, "linux")}, []*store.Host{host})))
+
+	if !slices.Equal(pp.BlockedAlternatives, []string{"podman"}) {
+		t.Fatalf("alternatives = %v, want the backend the host offers", pp.BlockedAlternatives)
+	}
+	if !strings.Contains(pp.BlockedFix, "point this pool at podman, which 1 host already offers") {
+		t.Fatalf("fix = %q, want it to name podman and the count", pp.BlockedFix)
+	}
+}
+
+func TestBlockedOnBackendListsEveryAlternativeInOrder(t *testing.T) {
+	a := testHost("host_a", 8, 0)
+	a.Backends = store.StringSlice{"podman", "process"}
+	b := testHost("host_b", 8, 0)
+	b.Backends = store.StringSlice{"process"}
+
+	pp := only(t, Decide(snap([]*store.Pool{testPool("linux-x64", "linux")}, nil,
+		[]*store.Job{queued("j1", time.Minute, "linux")}, []*store.Host{a, b})))
+
+	if !slices.Equal(pp.BlockedAlternatives, []string{"podman", "process"}) {
+		t.Fatalf("alternatives = %v, want podman before process", pp.BlockedAlternatives)
+	}
+	if !strings.Contains(pp.BlockedFix, "podman (1 host), process (2 hosts)") {
+		t.Fatalf("fix = %q, want each alternative with the hosts that offer it", pp.BlockedFix)
+	}
+}
+
+// A fleet with nothing else to offer must not be told to switch to something.
+func TestBlockedOnBackendSaysSoWhenThereIsNoAlternative(t *testing.T) {
+	host := testHost("host_a", 8, 0)
+	host.Backends = nil
+
+	pp := only(t, Decide(snap([]*store.Pool{testPool("linux-x64", "linux")}, nil,
+		[]*store.Job{queued("j1", time.Minute, "linux")}, []*store.Host{host})))
+
+	if len(pp.BlockedAlternatives) != 0 {
+		t.Fatalf("alternatives = %v, want none", pp.BlockedAlternatives)
+	}
+	if strings.Contains(pp.BlockedFix, "point this pool at") {
+		t.Fatalf("fix = %q, want no offer of a backend nothing has", pp.BlockedFix)
+	}
+	if !strings.Contains(pp.BlockedFix, "no other backend to switch this pool to") {
+		t.Fatalf("fix = %q, want it to say the daemon is the only way out", pp.BlockedFix)
+	}
+}
+
+// A host that only has room for nothing is not an alternative: switching the
+// pool's backend would leave it exactly as stuck.
+func TestBlockedAlternativesIgnoreHostsWithNoRoom(t *testing.T) {
+	full := testHost("host_full", 1, 1)
+	full.Backends = store.StringSlice{"podman"}
+	mismatched := testHost("host_a", 8, 0)
+	mismatched.Backends = store.StringSlice{"process"}
+
+	pp := only(t, Decide(snap([]*store.Pool{testPool("linux-x64", "linux")}, nil,
+		[]*store.Job{queued("j1", time.Minute, "linux")}, []*store.Host{full, mismatched})))
+
+	if slices.Contains(pp.BlockedAlternatives, "podman") {
+		t.Fatalf("alternatives = %v, want nothing from a host with no capacity", pp.BlockedAlternatives)
+	}
+}
+
+// A pool the fleet is merely too busy for is not solved by a different backend,
+// so it is never offered one.
+func TestAtCapacityCarriesNoAlternatives(t *testing.T) {
+	host := testHost("host_a", 1, 1)
+	host.Backends = store.StringSlice{"docker", "podman"}
+
+	pp := only(t, Decide(snap([]*store.Pool{testPool("linux-x64", "linux")}, nil,
+		[]*store.Job{queued("j1", time.Minute, "linux")}, []*store.Host{host})))
+
+	if !pp.BlockedAtCapacity {
+		t.Fatalf("plan = %+v, want a full fleet reported as full", pp)
+	}
+	if len(pp.BlockedAlternatives) != 0 {
+		t.Fatalf("alternatives = %v, want none for a fleet that is only busy", pp.BlockedAlternatives)
+	}
+}

@@ -180,7 +180,7 @@ func CanUseDockerSocket(path string) error {
 	case errors.Is(err, fs.ErrNotExist):
 		return fmt.Errorf("%w: no socket at %s; install Docker or Podman, start it (systemctl --user start docker, or systemctl start docker), or point agent.docker_host at the right socket", ErrUnavailable, p)
 	case errors.Is(err, fs.ErrPermission):
-		return fmt.Errorf("%w: cannot look at %s: permission denied; add your user to the docker group (sudo usermod -aG docker $USER, then log in again) or use the rootless socket at /run/user/%d/docker.sock", ErrUnavailable, p, os.Geteuid())
+		return fmt.Errorf("%w: %s", ErrUnavailable, deniedDetail(realIdentity(), p))
 	case err != nil:
 		return fmt.Errorf("%w: cannot look at %s: %w", ErrUnavailable, p, err)
 	case fi.Mode()&fs.ModeSocket == 0:
@@ -194,7 +194,7 @@ func CanUseDockerSocket(path string) error {
 	}
 	switch {
 	case errors.Is(err, syscall.EACCES), errors.Is(err, syscall.EPERM), errors.Is(err, fs.ErrPermission):
-		return fmt.Errorf("%w: permission denied on %s; add your user to the docker group (sudo usermod -aG docker $USER, then log in again), or run a rootless daemon and use /run/user/%d/docker.sock", ErrUnavailable, p, os.Geteuid())
+		return fmt.Errorf("%w: %s", ErrUnavailable, deniedDetail(realIdentity(), p))
 	case errors.Is(err, syscall.ECONNREFUSED):
 		return fmt.Errorf("%w: %s exists but nothing is listening; start the daemon with systemctl --user start docker (rootless), systemctl start docker, or systemctl --user start podman.socket", ErrUnavailable, p)
 	default:

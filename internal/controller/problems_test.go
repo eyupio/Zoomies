@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -277,6 +278,14 @@ func TestPoolWithNoHostToRunItIsReported(t *testing.T) {
 	}
 	if found.Fix == "" || found.TargetID != p.ID {
 		t.Fatalf("problem = %+v, want a fix and a link to the pool", found)
+	}
+	// "point this pool at a backend they already offer" is only a fix if the
+	// panel says which one, and hands the UI enough to make the change.
+	if !slices.Contains(found.Alternatives, string(store.BackendDocker)) {
+		t.Fatalf("alternatives = %v, want the docker backend this host does offer", found.Alternatives)
+	}
+	if !strings.Contains(found.Fix, "docker") {
+		t.Fatalf("fix = %q, want it to name the backend to switch to", found.Fix)
 	}
 }
 

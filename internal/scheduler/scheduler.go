@@ -116,8 +116,14 @@ type PoolPlan struct {
 	// could run this pool and all of them are busy, which the next finished job
 	// clears -- from one where no host can ever run it. Both are worth saying;
 	// only the second is a fault.
-	BlockedAtCapacity bool     `json:"blocked_at_capacity,omitempty"`
-	Actions           []Action `json:"actions,omitempty"`
+	BlockedAtCapacity bool `json:"blocked_at_capacity,omitempty"`
+	// BlockedAlternatives are the backends the hosts this pool otherwise fits
+	// already offer. "Point this pool at a backend they already offer" is half
+	// the fix for a pool blocked on its backend, and an operator cannot act on
+	// it without being told which backend that is -- so the answer travels with
+	// the reason, to the problems panel, the pool page and the CLI.
+	BlockedAlternatives []string `json:"blocked_alternatives,omitempty"`
+	Actions             []Action `json:"actions,omitempty"`
 }
 
 // Plan is one tick's worth of decisions.
@@ -295,9 +301,10 @@ func (t *tick) scaleUp(p *store.Pool, plan *PoolPlan, live, busy, eligible int) 
 	}
 	hosts := t.hosts.place(p, want)
 	if len(hosts) == 0 {
-		what, fix, atCapacity := t.hosts.why(p)
-		plan.Reason = cannotScale(p.Name, live, plan.Desired, sentence(what, fix))
-		plan.Blocked, plan.BlockedFix, plan.BlockedAtCapacity = what, fix, atCapacity
+		b := t.hosts.why(p)
+		plan.Reason = cannotScale(p.Name, live, plan.Desired, sentence(b.what, b.fix))
+		plan.Blocked, plan.BlockedFix = b.what, b.fix
+		plan.BlockedAtCapacity, plan.BlockedAlternatives = b.atCapacity, b.alternatives
 		return
 	}
 	for _, hostID := range hosts {
@@ -420,17 +427,30 @@ func selects(selector, labels store.StringMap) bool {
 	return true
 }
 
+// blockage is why one pool could not be placed: what is true, what to change,
+// and the two facts the callers treat differently -- whether the fleet is
+// merely full, and which other backends would work right now.
+type blockage struct {
+	what string
+	fix  string
+	// atCapacity is the one case that is not a misconfiguration: every host
+	// could run this pool and all of them are busy.
+	atCapacity bool
+	// alternatives are the backends offered by the hosts that match this pool
+	// in every other way, in the order a pool would sensibly move to them.
+	alternatives []string
+}
+
 // why explains why no host could take a runner for p, naming the counts an
 // operator can act on. It is split into what is true and what to change,
 // because the problems panel shows those as two different things; sentence
-// joins them for the one-line scaling reason. atCapacity reports the one case
-// that is not a misconfiguration: every host could run this pool and all of
-// them are full.
-func (hs *hostSet) why(p *store.Pool) (what, fix string, atCapacity bool) {
+// joins them for the one-line scaling reason.
+func (hs *hostSet) why(p *store.Pool) blockage {
 	if len(hs.hosts) == 0 {
-		return "no agent hosts are registered, so there is nowhere to put a runner",
-			"run 'zoomies agent' on a machine that can host runners, using a join token from the Hosts page",
-			false
+		return blockage{
+			what: "no agent hosts are registered, so there is nowhere to put a runner",
+			fix:  "run 'zoomies agent' on a machine that can host runners, using a join token from the Hosts page",
+		}
 	}
 	var unhealthy, cordoned, backend, selector, full int
 	var detail string
@@ -468,24 +488,96 @@ func (hs *hostSet) why(p *store.Pool) (what, fix string, atCapacity bool) {
 	add(backend, "without the "+string(p.Backend)+" backend")
 	add(selector, "not matching the pool's host selector")
 	add(full, "at capacity")
-	what = fmt.Sprintf("no host can take a new %s runner (%s)",
-		p.Backend, strings.Join(parts, ", "))
+	b := blockage{
+		what: fmt.Sprintf("no host can take a new %s runner (%s)",
+			p.Backend, strings.Join(parts, ", ")),
+		atCapacity: full == len(hs.hosts),
+	}
 	if detail != "" {
 		// The agent's own words about the backend it could not use. They name
 		// the fix far more precisely than any count can.
-		what += ". " + detail
+		b.what += ". " + detail
 	}
 	switch {
-	case full == len(hs.hosts):
-		fix = "wait for a job to finish, raise a host's capacity, or add a host"
+	case b.atCapacity:
+		b.fix = "wait for a job to finish, raise a host's capacity, or add a host"
 	case unhealthy == len(hs.hosts):
-		fix = "check that the zoomies agent is running on those hosts and can reach this controller"
+		b.fix = "check that the zoomies agent is running on those hosts and can reach this controller"
 	case backend > 0 && backend+unhealthy+cordoned == len(hs.hosts):
-		fix = fmt.Sprintf("make the %s backend usable on one of those hosts, or point this pool at a backend they already offer", p.Backend)
+		// Only a pool blocked on its backend can be unblocked by changing it,
+		// so that is the only case that carries alternatives. Offering them for
+		// a full fleet or an unmatched selector would send an operator to
+		// change the one thing that was never the problem.
+		b.alternatives = hs.otherBackends(p)
+		b.fix = fmt.Sprintf("make the %s backend usable on one of those hosts%s",
+			p.Backend, hs.switchTo(p, b.alternatives))
 	default:
-		fix = "add a host, raise a host's capacity, uncordon one, or relax the pool's host selector"
+		b.fix = "add a host, raise a host's capacity, uncordon one, or relax the pool's host selector"
 	}
-	return what, fix, full == len(hs.hosts)
+	return b
+}
+
+// backendOrder is the order alternatives are offered in: the two container
+// backends first, since they are interchangeable as far as isolation goes, and
+// the process backend last because moving to it means jobs stop being contained
+// at all. It is a suggestion, never a change Zoomies makes by itself.
+var backendOrder = []store.BackendKind{store.BackendDocker, store.BackendPodman, store.BackendProcess}
+
+// otherBackends lists what the hosts that fit this pool in every other way --
+// healthy, uncordoned, selected, with room -- do offer instead of the backend
+// it asks for. It is the answer to "point this pool at a backend they already
+// offer", which is not actionable until somebody says which one.
+func (hs *hostSet) otherBackends(p *store.Pool) []string {
+	offered := map[string]int{}
+	for _, h := range hs.hosts {
+		if hs.free[h.ID] <= 0 || !h.Healthy(hs.now) || h.Cordoned || !selects(p.HostSelector, h.Labels) {
+			continue
+		}
+		for _, kind := range h.Backends {
+			if kind != string(p.Backend) {
+				offered[kind]++
+			}
+		}
+	}
+	var out []string
+	for _, kind := range backendOrder {
+		if offered[string(kind)] > 0 {
+			out = append(out, string(kind))
+		}
+	}
+	return out
+}
+
+// switchTo turns the alternatives into the second half of the fix, or into an
+// honest full stop when there is no second half: a fleet that offers nothing
+// else needs a daemon fixed, and saying "or use another backend" to an operator
+// who has none is how a problems panel stops being believed.
+func (hs *hostSet) switchTo(p *store.Pool, alternatives []string) string {
+	switch len(alternatives) {
+	case 0:
+		return "; they offer no other backend to switch this pool to"
+	case 1:
+		return fmt.Sprintf(", or point this pool at %s, which %s already offers",
+			alternatives[0], plural(hs.offering(p, alternatives[0]), "host"))
+	default:
+		var parts []string
+		for _, kind := range alternatives {
+			parts = append(parts, fmt.Sprintf("%s (%s)", kind, plural(hs.offering(p, kind), "host")))
+		}
+		return ", or point this pool at a backend they already offer: " + strings.Join(parts, ", ")
+	}
+}
+
+// offering counts the hosts that would take this pool if it asked for kind.
+func (hs *hostSet) offering(p *store.Pool, kind string) int {
+	n := 0
+	for _, h := range hs.hosts {
+		if hs.free[h.ID] > 0 && h.Healthy(hs.now) && !h.Cordoned &&
+			slices.Contains(h.Backends, kind) && selects(p.HostSelector, h.Labels) {
+			n++
+		}
+	}
+	return n
 }
 
 // sentence is why() as one line, for the scaling reason an operator reads in a

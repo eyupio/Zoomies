@@ -6,6 +6,7 @@
   quiet line rather than an empty box or a green celebration.
 -->
 <script lang="ts">
+  import type { Snippet } from 'svelte';
   import { ShieldCheck } from '@lucide/svelte';
   import type { Problem } from '$lib/api/types';
   import { severityStatus } from '$lib/status';
@@ -17,6 +18,12 @@
     okMessage?: string;
     /** Render without the surrounding card, for use inside another panel. */
     bare?: boolean;
+    /**
+     * Rendered under each warning, for the ones whose fix Zoomies can carry out
+     * itself. It is given the warning, and decides for itself whether it has
+     * anything to offer for that one.
+     */
+    action?: Snippet<[Problem]>;
     class?: string;
   }
 
@@ -24,6 +31,7 @@
     warnings = [],
     okMessage = 'Nothing dangerous is switched on for this pool.',
     bare = false,
+    action,
     class: className = '',
   }: Props = $props();
 </script>
@@ -50,6 +58,7 @@
           {#if warning.setting}
             <p class="setting"><code>{warning.setting}</code></p>
           {/if}
+          {#if action}{@render action(warning)}{/if}
         </li>
       {/each}
     </ul>
