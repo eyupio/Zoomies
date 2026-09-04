@@ -614,9 +614,10 @@ type manifestResponse struct {
 
 // handleCreateManifest builds the GitHub App manifest the browser posts.
 //
-// The manifest asks for exactly the permissions Zoomies needs, and the webhook
-// secret is generated here so that the App and this controller agree on one
-// without an operator having to invent and paste it.
+// The manifest asks for exactly the permissions Zoomies needs. It cannot carry
+// a webhook secret -- GitHub rejects a manifest that names one -- so the secret
+// is GitHub's, and it arrives with the rest of the credentials when the code is
+// exchanged.
 func (s *Server) handleCreateManifest(w http.ResponseWriter, r *http.Request) {
 	var req manifestRequest
 	if !decode(w, r, &req) {
@@ -667,14 +668,12 @@ func (s *Server) handleCreateManifest(w http.ResponseWriter, r *http.Request) {
 		org = target
 	}
 
-	secret := store.NewSecret(24)
 	manifest, err := github.Manifest(github.ManifestOptions{
-		Name:          name,
-		URL:           s.cfg.Server.ExternalURL,
-		WebhookURL:    s.cfg.WebhookURL(),
-		WebhookSecret: secret,
-		Organization:  org,
-		SetupURL:      s.cfg.Server.ExternalURL + "/settings/github/setup",
+		Name:         name,
+		URL:          s.cfg.Server.ExternalURL,
+		WebhookURL:   s.cfg.WebhookURL(),
+		Organization: org,
+		SetupURL:     s.cfg.Server.ExternalURL + "/settings/github/setup",
 	})
 	if err != nil {
 		unprocessable(w, err.Error(), []fieldError{{"name", err.Error()}})
@@ -683,12 +682,11 @@ func (s *Server) handleCreateManifest(w http.ResponseWriter, r *http.Request) {
 
 	state := store.NewSecret(16)
 	s.manifests.put(&pendingApp{
-		state:         state,
-		target:        target,
-		targetType:    targetType,
-		apiBaseURL:    normalised,
-		webhookSecret: secret,
-		createdAt:     s.ctrl.Now(),
+		state:      state,
+		target:     target,
+		targetType: targetType,
+		apiBaseURL: normalised,
+		createdAt:  s.ctrl.Now(),
 	})
 
 	writeJSON(w, http.StatusOK, manifestResponse{
@@ -758,11 +756,9 @@ func (s *Server) handleExchangeManifest(w http.ResponseWriter, r *http.Request) 
 	}
 
 	pending.appID, pending.slug, pending.pem = creds.AppID, creds.Slug, creds.PEM
-	if creds.WebhookSecret != "" {
-		// GitHub generates its own secret when the manifest did not carry one;
-		// either way the one it reports is the one deliveries are signed with.
-		pending.webhookSecret = creds.WebhookSecret
-	}
+	// The manifest cannot ask for a particular secret, so the one GitHub
+	// generated is the one its deliveries are signed with.
+	pending.webhookSecret = creds.WebhookSecret
 	pending.state = store.NewSecret(16)
 	pending.createdAt = s.ctrl.Now()
 	s.manifests.put(pending)
