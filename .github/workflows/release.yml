@@ -46,7 +46,10 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          # github.token rather than secrets.GITHUB_TOKEN: the same value, but
+          # GitHub reserves the GITHUB_ prefix for secret names, so referring to
+          # it this way keeps the workflow clear of that namespace entirely.
+          password: ${{ github.token }}
       - uses: docker/build-push-action@v6
         with:
           context: .

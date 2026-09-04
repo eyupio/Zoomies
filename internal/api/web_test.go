@@ -69,10 +69,29 @@ func TestSecurityHeaders(t *testing.T) {
 			t.Errorf("script-src allows unsafe-inline: %s", scriptPart)
 		}
 	}
-	// The page's inline theme bootstrap has to be allowed by hash, or the UI
-	// flashes white on every load with the console full of CSP errors.
-	if !strings.Contains(csp, "sha256-") {
-		t.Errorf("no inline script hash in the CSP, so the theme bootstrap would be blocked: %s", csp)
+	// Every inline script the page carries has to be allowed by its own hash,
+	// or the UI flashes white on every load with the console full of CSP
+	// errors.
+	//
+	// The invariant is "each inline script present is allowed", not "at least
+	// one hash exists". Those differ: a build that has not run `make ui` embeds
+	// a placeholder index.html with no inline script at all, and demanding a
+	// hash there would fail a build that is behaving perfectly correctly --
+	// which is exactly what it did in CI, where the Go job builds with the
+	// placeholder on purpose.
+	index, err := webdist.ReadFile("webdist/index.html")
+	if err != nil {
+		t.Fatalf("reading the embedded index.html: %v", err)
+	}
+	hashes := inlineScriptHashes(index)
+	for _, want := range hashes {
+		if !strings.Contains(csp, want) {
+			t.Errorf("the CSP does not allow the page's inline script %s, so it would be blocked: %s", want, csp)
+		}
+	}
+	if len(hashes) == 0 {
+		t.Log("the embedded UI is the placeholder, so there is no inline script to allow; " +
+			"run `make ui` to exercise the hashed-script path")
 	}
 	if got := resp.header.Get("X-Content-Type-Options"); got != "nosniff" {
 		t.Errorf("X-Content-Type-Options = %q", got)
