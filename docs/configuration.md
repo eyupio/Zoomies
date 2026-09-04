@@ -51,7 +51,7 @@ github:
   webhook_path: /webhooks/github         # ZOOMIES_WEBHOOK_PATH
   poll_interval: 30s                     # ZOOMIES_POLL_INTERVAL
   poll_fallback: true                    # ZOOMIES_POLL_FALLBACK
-  runner_image: ghcr.io/eyupio/zoomies-runner:latest   # ZOOMIES_RUNNER_IMAGE
+  runner_image: ghcr.io/eyupio/zoomies-runner:main   # ZOOMIES_RUNNER_IMAGE
   runner_version: ""                     # ZOOMIES_RUNNER_VERSION
 
 agent:
@@ -160,7 +160,7 @@ JIT configs, webhooks, runner groups — works the same.
 
 ```yaml
 github:
-  runner_image: ghcr.io/eyupio/zoomies-runner:latest
+  runner_image: ghcr.io/eyupio/zoomies-runner:main
 ```
 
 Both images — `ghcr.io/eyupio/zoomies` (the controller) and
@@ -173,9 +173,11 @@ tag:
 | `main` | The tip of `main` | `ci.yml`, on every push to `main` |
 | `sha-<commit>` | One exact commit | `ci.yml`, on every push to `main` |
 
-`latest` is the default and the one to run: it moves only when a release is
-tagged. `main` is for trying an unreleased fix, and moves under you. Pin
-`sha-<commit>` when you want a runner image that never changes at all.
+`main` is the default today, because Zoomies has not been released yet and
+`latest` does not exist until a `v*` tag is pushed. It moves under you on every
+merge. Once there is a release, switch to `latest` — it moves only when a
+release is tagged, which is what you want for anything you rely on. Pin
+`sha-<commit>` when you want an image that never changes at all.
 
 The runner image is only rebuilt when something that goes into it changes —
 `deploy/Dockerfile.runner` or `deploy/runner-entrypoint.sh` — so its `main` tag

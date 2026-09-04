@@ -336,7 +336,7 @@ deployment: compose
 # Where docker-compose.yml and the .env are written. Defaults to config_dir.
 # deployment_dir: /etc/zoomies
 # The image those deployments run. Pin a release tag to choose when to upgrade.
-# image: ghcr.io/eyupio/zoomies:latest
+# image: ghcr.io/eyupio/zoomies:main
 
 # The unprivileged account the service runs as. Created when init runs as root.
 service_user: zoomies

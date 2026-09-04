@@ -225,7 +225,7 @@ type ComposeSpec struct {
 // that comes back after a reboot.
 func RenderCompose(w io.Writer, spec ComposeSpec) error {
 	if spec.Image == "" {
-		spec.Image = "ghcr.io/eyupio/zoomies:latest"
+		spec.Image = "ghcr.io/eyupio/zoomies:main"
 	}
 	if spec.Port == 0 {
 		spec.Port = 8080

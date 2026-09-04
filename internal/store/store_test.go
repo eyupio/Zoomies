@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -37,6 +39,24 @@ func seedPool(t *testing.T, s *Store) (*Installation, *Pool, *Host) {
 		t.Fatalf("CreateHost: %v", err)
 	}
 	return inst, pool, host
+}
+
+// Open documents itself as "creating if necessary". A state directory that does
+// not exist yet is the normal case on a first run -- a fresh container volume, a
+// systemd unit's StateDirectory, a --db-path somewhere new -- and SQLite reports
+// only "unable to open database file (14)" when it is missing.
+func TestOpenCreatesTheDatabaseDirectory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state", "nested", "zoomies.db")
+
+	s, err := Open(context.Background(), Options{Path: path})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("database file was not created: %v", err)
+	}
 }
 
 func TestMigrationsAreIdempotent(t *testing.T) {
