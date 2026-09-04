@@ -156,6 +156,31 @@ github:
 A bare hostname is accepted and `/api/v3` appended. Everything else — App auth,
 JIT configs, webhooks, runner groups — works the same.
 
+### `github.runner_image` — which image tag to run
+
+```yaml
+github:
+  runner_image: ghcr.io/eyupio/zoomies-runner:latest
+```
+
+Both images — `ghcr.io/eyupio/zoomies` (the controller) and
+`ghcr.io/eyupio/zoomies-runner` — are published to GHCR under three kinds of
+tag:
+
+| Tag | Points at | Published by |
+| --- | --- | --- |
+| `latest`, `vX.Y.Z` | The last tagged release | `release.yml`, on a `v*` tag |
+| `main` | The tip of `main` | `ci.yml`, on every push to `main` |
+| `sha-<commit>` | One exact commit | `ci.yml`, on every push to `main` |
+
+`latest` is the default and the one to run: it moves only when a release is
+tagged. `main` is for trying an unreleased fix, and moves under you. Pin
+`sha-<commit>` when you want a runner image that never changes at all.
+
+The runner image is only rebuilt when something that goes into it changes —
+`deploy/Dockerfile.runner` or `deploy/runner-entrypoint.sh` — so its `main` tag
+can be older than the controller's, and correctly so.
+
 ### Deployment models
 
 `zoomies init` can run Zoomies three ways, and offers only the ones your host can
