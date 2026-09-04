@@ -199,16 +199,16 @@ func TestSuggestPool(t *testing.T) {
 		wantName string
 		wantCmd  string
 	}{
-		{"linux", "amd64", store.BackendDocker, 4, "linux-x64",
-			"zoomies pools create --name linux-x64 --labels linux-x64 --backend docker --max 4"},
-		{"linux", "arm64", store.BackendPodman, 2, "linux-arm64",
-			"zoomies pools create --name linux-arm64 --labels linux-arm64 --backend podman --max 2"},
-		{"linux", "amd64", store.BackendProcess, 1, "linux-x64-host",
-			"zoomies pools create --name linux-x64-host --labels linux-x64-host --backend process --max 1"},
-		{"darwin", "arm64", store.BackendDocker, 8, "macos-arm64",
-			"zoomies pools create --name macos-arm64 --labels macos-arm64 --backend docker --max 8"},
-		{"linux", "amd64", store.BackendDocker, 0, "linux-x64",
-			"zoomies pools create --name linux-x64 --labels linux-x64 --backend docker --max 1"},
+		{"linux", "amd64", store.BackendDocker, 4, "zoomies-linux-x64",
+			"zoomies pools create --name zoomies-linux-x64 --labels zoomies,zoomies-linux-x64 --backend docker --max 4"},
+		{"linux", "arm64", store.BackendPodman, 2, "zoomies-linux-arm64",
+			"zoomies pools create --name zoomies-linux-arm64 --labels zoomies,zoomies-linux-arm64 --backend podman --max 2"},
+		{"linux", "amd64", store.BackendProcess, 1, "zoomies-linux-x64-host",
+			"zoomies pools create --name zoomies-linux-x64-host --labels zoomies,zoomies-linux-x64-host --backend process --max 1"},
+		{"darwin", "arm64", store.BackendDocker, 8, "zoomies-macos-arm64",
+			"zoomies pools create --name zoomies-macos-arm64 --labels zoomies,zoomies-macos-arm64 --backend docker --max 8"},
+		{"linux", "amd64", store.BackendDocker, 0, "zoomies-linux-x64",
+			"zoomies pools create --name zoomies-linux-x64 --labels zoomies,zoomies-linux-x64 --backend docker --max 1"},
 	}
 	for _, tc := range cases {
 		got := SuggestPool(tc.os, tc.arch, tc.backend, tc.capacity)
@@ -217,6 +217,11 @@ func TestSuggestPool(t *testing.T) {
 		}
 		if cmd := got.Command(); cmd != tc.wantCmd {
 			t.Errorf("Command() = %q\nwant %q", cmd, tc.wantCmd)
+		}
+		// The line the installer prints is the one a workflow copies, so it is
+		// the branded label on its own rather than a list to decode.
+		if runsOn := got.RunsOn(); runsOn != tc.wantName {
+			t.Errorf("RunsOn() = %q, want %q", runsOn, tc.wantName)
 		}
 	}
 }

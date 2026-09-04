@@ -41,10 +41,10 @@ export const SECTIONS = [
 
 /** Names from internal/controller/seed.go, so the fixture and the tests agree. */
 export const FIXTURE = {
-  linuxPool: 'demo-linux-x64',
-  armPool: 'demo-linux-arm64',
+  linuxPool: 'zoomies-demo-linux-x64',
+  armPool: 'zoomies-demo-linux-arm64',
   /** A runner that is busy in the fixture, so it is never reaped mid-run. */
-  busyRunner: 'zoomies-demo-linux-x64-d000',
+  busyRunner: 'zoomies-demo0000',
   /** Its id, which the seed fixes so a test can go straight to its page. */
   busyRunnerId: 'run_demo00',
   repos: ['acme/api', 'acme/site', 'acme/widgets'],

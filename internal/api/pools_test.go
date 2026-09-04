@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -84,8 +85,12 @@ func TestPoolRoundTrip(t *testing.T) {
 	if updated.MaxRunners != 8 {
 		t.Errorf("max_runners = %d, want 8", updated.MaxRunners)
 	}
-	if updated.Name != "linux-x64" || len(updated.Labels) != 4 {
+	// Four labels as asked for, plus the brand every pool answers to.
+	if updated.Name != "linux-x64" || len(updated.Labels) != 5 {
 		t.Errorf("a partial update lost fields: %+v", updated)
+	}
+	if !slices.Contains(updated.Labels, store.BrandLabel) {
+		t.Errorf("labels = %v, want the %q label on every pool", updated.Labels, store.BrandLabel)
 	}
 
 	disabled := h.do(request{method: http.MethodPost, path: "/api/v1/pools/" + pool.ID + "/disable", cookie: cookie})

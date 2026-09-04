@@ -15,12 +15,6 @@ import (
 	"github.com/eyupio/zoomies/internal/store"
 )
 
-// runnerNamePrefix is what github.RunnerName puts in front of every name it
-// mints. internal/github does not export it, and the reaper needs it to tell
-// a runner Zoomies created from one somebody else registered, so it is stated
-// here with that dependency called out.
-const runnerNamePrefix = "zoomies-"
-
 // reapInterval is how often Zoomies' view of the fleet is compared against the
 // runners GitHub thinks exist. It is slow because it costs one API call per
 // installation and the situation it fixes -- an orphaned registration -- is
@@ -218,7 +212,7 @@ func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, a sched
 			pool.Name, pool.InstallationID, err)
 	}
 
-	name := github.RunnerName(pool.Name)
+	name := github.RunnerName()
 	r := &store.Runner{
 		PoolID:        pool.ID,
 		HostID:        a.HostID,
@@ -515,7 +509,7 @@ func (c *Controller) reapLoop(ctx context.Context) {
 // The rule for what may be deleted is deliberately narrow, because this code
 // is one API call away from deleting somebody else's runners:
 //
-//   - the name must carry the "zoomies-" prefix that github.RunnerName mints,
+//   - the name must carry the "zoomies-" prefix that store.NewRunnerName mints,
 //     so a runner another tool registered is never a candidate;
 //   - and either Zoomies has a row for it in a terminal state (we know it is
 //     dead), or Zoomies has no row at all and GitHub reports it offline (the
@@ -544,7 +538,7 @@ func (c *Controller) reap(ctx context.Context) {
 			continue
 		}
 		for _, gr := range remote {
-			if !strings.HasPrefix(gr.Name, runnerNamePrefix) {
+			if !store.IsRunnerName(gr.Name) {
 				continue
 			}
 			if gr.Busy {

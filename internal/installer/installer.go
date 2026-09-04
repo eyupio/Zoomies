@@ -696,8 +696,13 @@ type PoolSuggestion struct {
 // SuggestPool builds the suggestion from this host's architecture and chosen
 // backend, so that the label in the suggestion is the one a workflow's
 // runs-on can actually use.
+//
+// The name is branded -- "zoomies-linux-x64", not "linux-x64" -- because it is
+// the word a workflow in somebody else's repository has to write. An unbranded
+// label reads like one of GitHub's own and gives a reviewer of that pull
+// request no way to tell where the job is about to run.
 func SuggestPool(osName, arch string, kind store.BackendKind, capacity int) PoolSuggestion {
-	name := archLabel(osName, arch)
+	name := store.RunnerNamePrefix + archLabel(osName, arch)
 	if kind == store.BackendProcess {
 		// A process-backend pool answers to a different label on purpose:
 		// jobs that land on it get the host, not a container.
@@ -707,7 +712,14 @@ func SuggestPool(osName, arch string, kind store.BackendKind, capacity int) Pool
 	if maxRunners < 1 {
 		maxRunners = 1
 	}
-	return PoolSuggestion{Name: name, Labels: []string{name}, Backend: kind, MaxRunners: maxRunners}
+	return PoolSuggestion{
+		Name: name,
+		// Both labels, always: the specific one for a workflow that means this
+		// pool, and the brand for one that means "anywhere in this fleet".
+		Labels:     store.BrandLabels([]string{name}),
+		Backend:    kind,
+		MaxRunners: maxRunners,
+	}
 }
 
 func archLabel(osName, arch string) string {
@@ -739,16 +751,19 @@ func (p *PoolSuggestion) applyAnswers(a AnswersPool) {
 		// labels of its own follows the new name rather than answering to the
 		// old one.
 		if len(a.Labels) == 0 {
-			p.Labels = []string{name}
+			p.Labels = store.BrandLabels([]string{store.BrandedLabel(name)})
 		}
 	}
 	if len(a.Labels) > 0 {
-		p.Labels = a.Labels
+		p.Labels = store.BrandLabels(a.Labels)
 	}
 	if a.MaxRunners > 0 {
 		p.MaxRunners = a.MaxRunners
 	}
 }
+
+// RunsOn renders the runs-on value a workflow writes to reach this pool.
+func (p PoolSuggestion) RunsOn() string { return store.RunsOn(p.Labels) }
 
 // Command renders the suggestion as a line the operator can paste.
 func (p PoolSuggestion) Command() string {
@@ -1845,8 +1860,8 @@ func (i *Installer) stepFirstPool(ctx context.Context, st *store.Store, cfg *con
 	if i.interactive {
 		if err := i.confirm(ctx, fmt.Sprintf("Create the %q pool now?", sug.Name),
 			fmt.Sprintf("It runs at most %d %s on this host with the %s backend, and answers to "+
-				"runs-on: [self-hosted, %s]. Answering no leaves the Pools page empty; nothing can run until "+
-				"a pool exists.", sug.MaxRunners, pluralise(sug.MaxRunners, "runner"), sug.Backend, sug.Name),
+				"runs-on: %s. Answering no leaves the Pools page empty; nothing can run until "+
+				"a pool exists.", sug.MaxRunners, pluralise(sug.MaxRunners, "runner"), sug.Backend, sug.RunsOn()),
 			&create); err != nil {
 			return err
 		}
@@ -1878,7 +1893,7 @@ func (i *Installer) stepFirstPool(ctx context.Context, st *store.Store, cfg *con
 	p.PoolName = pool.Name
 	i.ui.ok(fmt.Sprintf("created the %q pool for %s, up to %d %s",
 		pool.Name, insts[0].Target, pool.MaxRunners, pluralise(pool.MaxRunners, "runner")))
-	i.ui.note("put  runs-on: [self-hosted, " + sug.Name + "]  in a workflow and it will run here.")
+	i.ui.note("put  runs-on: " + sug.RunsOn() + "  in a workflow and it will run here.")
 	return nil
 }
 
@@ -2089,14 +2104,14 @@ func (i *Installer) stepSummary(p Plan) {
 
 	if p.PoolName != "" {
 		i.ui.note("This host is ready: the " + p.PoolName + " pool runs on it.")
-		i.ui.note("  runs-on: [self-hosted, " + p.PoolName + "]")
+		i.ui.note("  runs-on: " + store.BrandedLabel(p.PoolName))
 		return
 	}
 	sug := SuggestPool(i.det.OS, i.det.Arch, p.Backend, p.Capacity)
 	i.ui.note("Nothing can run until a pool exists. This host is " + i.det.Arch + " with the " +
 		string(p.Backend) + " backend:")
 	i.ui.note("  " + sug.Command())
-	i.ui.note("then put  runs-on: [self-hosted, " + sug.Name + "]  in a workflow.")
+	i.ui.note("then put  runs-on: " + sug.RunsOn() + "  in a workflow.")
 }
 
 func logHint(p Plan) string {

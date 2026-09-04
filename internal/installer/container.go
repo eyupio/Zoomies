@@ -628,7 +628,7 @@ func (i *Installer) containerSummary(p Plan, envPath string, reusedKey bool) {
 	sug := SuggestPool(i.det.OS, i.det.Arch, p.Backend, p.Capacity)
 	i.ui.note("Your first pool -- this host is " + i.det.Arch + " with the " + string(p.Backend) + " backend:")
 	i.ui.note("  " + sug.Command())
-	i.ui.note("then put  runs-on: [self-hosted, " + sug.Name + "]  in a workflow.")
+	i.ui.note("then put  runs-on: " + sug.RunsOn() + "  in a workflow.")
 }
 
 // deploymentCommands lists the four things an operator does to a running

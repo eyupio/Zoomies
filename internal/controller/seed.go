@@ -37,8 +37,15 @@ func IsDemoID(id string) bool {
 }
 
 // demoPoolNames is what "is this instance already seeded?" is decided on, and
-// also what stops seeding from touching a real deployment.
-var demoPoolNames = []string{"demo-linux-x64", "demo-linux-arm64"}
+// also what stops seeding from touching a real deployment. The first two are
+// what seeding writes now; the unbranded pair is what it wrote before pool
+// names carried the brand, and is still recognised so that a demo instance
+// seeded by an older build is left alone rather than rejected as a real
+// fleet.
+var demoPoolNames = []string{
+	"zoomies-demo-linux-x64", "zoomies-demo-linux-arm64",
+	"demo-linux-x64", "demo-linux-arm64",
+}
 
 // SeedDemo writes a deterministic fixture fleet: one installation, two pools, a
 // dozen runners spread across the state machine, fifty jobs with plausible
@@ -185,7 +192,7 @@ func (c *Controller) seedPools(ctx context.Context) (*store.Pool, *store.Pool, e
 		ID:             demoPoolLinuxID,
 		Name:           demoPoolNames[0],
 		InstallationID: demoInstallationID,
-		Labels:         store.StringSlice{"self-hosted", "linux", "x64", "demo"},
+		Labels:         store.StringSlice(store.BrandLabels([]string{"linux", "x64", "zoomies-demo-linux-x64"})),
 		Backend:        store.BackendDocker,
 		Image:          c.cfg.GitHub.RunnerImage,
 		MinRunners:     1,
@@ -201,7 +208,7 @@ func (c *Controller) seedPools(ctx context.Context) (*store.Pool, *store.Pool, e
 		ID:             demoPoolArmID,
 		Name:           demoPoolNames[1],
 		InstallationID: demoInstallationID,
-		Labels:         store.StringSlice{"self-hosted", "linux", "arm64", "demo"},
+		Labels:         store.StringSlice(store.BrandLabels([]string{"linux", "arm64", "zoomies-demo-linux-arm64"})),
 		Backend:        store.BackendDocker,
 		Image:          c.cfg.GitHub.RunnerImage,
 		MinRunners:     0,
@@ -259,7 +266,7 @@ func (c *Controller) seedRunners(ctx context.Context, now time.Time, pools []*st
 			ID:             fmt.Sprintf("run_demo%02d", i),
 			PoolID:         pool.ID,
 			HostID:         host.ID,
-			Name:           fmt.Sprintf("zoomies-%s-d%03d", pool.Name, i),
+			Name:           fmt.Sprintf("%sdemo%04d", store.RunnerNamePrefix, i),
 			State:          s.state,
 			Ephemeral:      pool.Ephemeral,
 			Labels:         pool.Labels,
@@ -340,7 +347,7 @@ func (c *Controller) seedJobs(ctx context.Context, now time.Time, rng *rand.Rand
 			j.State = store.JobCompleted
 			j.Conclusion = conclusions[i%len(conclusions)]
 			j.StartedAt, j.CompletedAt = &started, &completed
-			j.RunnerName = fmt.Sprintf("zoomies-%s-d%03d", pool.Name, i%12)
+			j.RunnerName = fmt.Sprintf("%sdemo%04d", store.RunnerNamePrefix, i%12)
 		case i < 47 && len(busy) > 0:
 			// Running right now, on one of the busy runners.
 			r := busy[i%len(busy)]

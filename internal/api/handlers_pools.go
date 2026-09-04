@@ -249,7 +249,12 @@ func (in *poolInput) apply(p *store.Pool) []fieldError {
 		p.InstallationID = strings.TrimSpace(*in.InstallationID)
 	}
 	if in.Labels != nil {
-		p.Labels = store.NormalizeLabels(*in.Labels)
+		// Every pool answers to the brand as well as to whatever it was given,
+		// so that "runs-on: zoomies" reaches this fleet without naming one of
+		// its pools. That is the label the migration wizard writes into a
+		// repository that has not yet been assigned to a pool, and a pool that
+		// quietly dropped it would take no work from those repositories.
+		p.Labels = store.BrandLabels(*in.Labels)
 	}
 	if in.RunnerGroup != nil {
 		p.RunnerGroup = strings.TrimSpace(*in.RunnerGroup)
@@ -341,7 +346,8 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 	case len(p.Labels) == 0:
 		add("labels", "a pool needs at least one label your workflows can ask for")
 	case !hasDistinctiveLabel(p.Labels):
-		add("labels", "a pool needs at least one label your workflows can ask for: these are the labels every runner advertises anyway, so nothing would ever select this pool in particular")
+		add("labels", fmt.Sprintf("a pool needs at least one label of its own: %q is on every Zoomies pool and the rest are labels every runner advertises anyway, so nothing would ever select this pool in particular. Try %q.",
+			store.BrandLabel, store.BrandedLabel(p.Name)))
 	}
 	for _, l := range p.Labels {
 		if strings.ContainsAny(l, " ,") {
@@ -409,7 +415,12 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 // operator meant.
 func hasDistinctiveLabel(labels []string) bool {
 	return slices.ContainsFunc(labels, func(l string) bool {
-		return !store.ImplicitLabels[store.NormalizeLabel(l)]
+		l = store.NormalizeLabel(l)
+		// The brand is on every pool, so it distinguishes this one from the
+		// others no better than "self-hosted" does. A fleet reached only by
+		// "runs-on: zoomies" is a fleet where no workflow can say which pool
+		// it meant.
+		return !store.ImplicitLabels[l] && l != store.BrandLabel
 	})
 }
 

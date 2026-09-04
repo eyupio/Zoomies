@@ -158,37 +158,16 @@ type Factory interface {
 	For(ctx context.Context, inst *store.Installation, privateKeyPEM []byte) (Client, error)
 }
 
-// RunnerName builds a unique, human-readable runner name for a pool.
+// RunnerName mints the name one runner registers under: the brand and a short
+// random suffix, "zoomies-k3f9qz2m".
 //
-// GitHub requires runner names to be unique within a target and rejects a
-// number of characters, so the pool name is sanitised and a short random
-// suffix guarantees uniqueness across restarts.
-func RunnerName(poolName string) string {
-	return "zoomies-" + sanitizeName(poolName) + "-" + store.NewSecret(4)
-}
-
-func sanitizeName(s string) string {
-	s = strings.ToLower(strings.TrimSpace(s))
-	var b strings.Builder
-	for _, r := range s {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
-			b.WriteRune(r)
-		case r == '-' || r == '_' || r == '.':
-			b.WriteRune('-')
-		default:
-			b.WriteRune('-')
-		}
-	}
-	out := strings.Trim(b.String(), "-")
-	if out == "" {
-		out = "pool"
-	}
-	if len(out) > 40 {
-		out = strings.Trim(out[:40], "-")
-	}
-	return out
-}
+// GitHub requires the name to be unique within a target and shows it in the
+// runner list, in the job header and in the "Set up job" step of every log. It
+// used to carry the pool name as well, which made the common case --
+// "zoomies-linux-x64-a3f9q" -- long enough that the brand was what got
+// truncated in GitHub's own tables. Which pool a runner belongs to is a click
+// away in Zoomies and is on the runner's labels either way.
+func RunnerName() string { return store.NewRunnerName() }
 
 // SplitTarget parses "owner" or "owner/repo" into its parts.
 func SplitTarget(target string) (owner, repo string, kind store.TargetType) {
