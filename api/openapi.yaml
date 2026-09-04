@@ -542,6 +542,8 @@ paths:
                   name: { type: string }
                   html_url: { type: string }
                   install_url: { type: string, description: Send the operator here to install the App on their organisation. }
+                  target: { type: string, description: The organisation or repository the App was created for. }
+                  target_type: { $ref: "#/components/schemas/TargetType" }
         "422": { $ref: "#/components/responses/Unprocessable" }
 
   /webhook-deliveries:

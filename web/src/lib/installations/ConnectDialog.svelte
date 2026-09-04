@@ -26,6 +26,7 @@
     exchangeAppManifest,
   } from '$lib/api/client';
   import type { TargetType } from '$lib/api/types';
+  import { storage } from '$lib/state/prefs.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
   import Button from '$lib/components/Button.svelte';
   import Dialog from '$lib/components/Dialog.svelte';
@@ -39,11 +40,82 @@
     open?: boolean;
     /** A code GitHub redirected back with, when the operator landed here rather than pasting. */
     initialCode?: string;
+    /** The state that went out with the manifest, echoed back on the same redirect. */
+    initialState?: string;
+    /** The installation ID GitHub returns with once the App has been installed. */
+    initialInstallationId?: string;
     oncreated?: () => void;
     onclose?: () => void;
   }
 
-  let { open = $bindable(false), initialCode = '', oncreated, onclose }: Props = $props();
+  let {
+    open = $bindable(false),
+    initialCode = '',
+    initialState = '',
+    initialInstallationId = '',
+    oncreated,
+    onclose,
+  }: Props = $props();
+
+  /**
+   * The flow crosses tabs twice: GitHub is asked to create the App in a new tab
+   * and returns the operator there, and the install link opens another one
+   * again. Neither knows what was typed on the first step, so what is needed to
+   * finish is kept where any tab on this origin can read it.
+   *
+   * Nothing here is a secret. The App's private key never reaches the browser:
+   * it stays sealed on the controller, which hands it out to nothing. This is
+   * the target, the App's public identifiers, and the handshake state that is
+   * already in the address bar GitHub redirected to.
+   */
+  const PROGRESS_KEY = 'zoomies.github.connect';
+  /** Matches the controller's manifest TTL: after that the handshake is dead anyway. */
+  const PROGRESS_TTL = 60 * 60 * 1000;
+
+  interface Progress {
+    savedAt: number;
+    target: string;
+    targetType: string;
+    apiBase: string;
+    manifestState: string;
+    appId: number | null;
+    appSlug: string;
+    installUrl: string;
+    step: number;
+  }
+
+  function loadProgress(): Progress | null {
+    const raw = storage.get(PROGRESS_KEY);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw) as Partial<Progress>;
+      if (typeof parsed?.savedAt !== 'number' || Date.now() - parsed.savedAt > PROGRESS_TTL) {
+        storage.remove(PROGRESS_KEY);
+        return null;
+      }
+      return parsed as Progress;
+    } catch {
+      storage.remove(PROGRESS_KEY);
+      return null;
+    }
+  }
+
+  function saveProgress(): void {
+    storage.set(
+      PROGRESS_KEY,
+      JSON.stringify({
+        savedAt: Date.now(),
+        target,
+        targetType,
+        apiBase,
+        manifestState,
+        appId,
+        appSlug,
+        installUrl,
+        step,
+      } satisfies Progress),
+    );
+  }
 
   const STEPS = [
     { id: 'describe', title: 'Describe the App' },
@@ -86,15 +158,47 @@
   let manualKey = $state('');
   let manualSecret = $state('');
 
+  /**
+   * Pick up where the other tab left off.
+   *
+   * Which step that is comes from what GitHub sent back: a code means the App
+   * has just been created and needs exchanging, an installation ID means it has
+   * been installed and only needs recording.
+   */
+  let restored = false;
   $effect(() => {
-    if (!open) return;
+    if (!open || restored) return;
+    restored = true;
+
+    const saved = loadProgress();
+    if (saved) {
+      if (!target) target = saved.target ?? '';
+      if (saved.targetType) targetType = saved.targetType;
+      if (!apiBase) apiBase = saved.apiBase ?? '';
+      if (!manifestState) manifestState = saved.manifestState ?? '';
+      if (appId === null) appId = saved.appId ?? null;
+      if (!appSlug) appSlug = saved.appSlug ?? '';
+      if (!installUrl) installUrl = saved.installUrl ?? '';
+      if (saved.step > step) step = saved.step;
+    }
+    // The state in the address bar is the one GitHub just echoed, so it wins
+    // over anything left behind by an earlier attempt.
+    if (initialState) manifestState = initialState;
     if (initialCode && !code) {
       code = initialCode;
       step = 1;
     }
+    if (initialInstallationId && !installationId) {
+      installationId = initialInstallationId;
+      // Only the last step can use it, and only if this browser still knows
+      // which App was created; without that the operator has to start again.
+      if (appId !== null) step = 2;
+    }
   });
 
   function reset(): void {
+    storage.remove(PROGRESS_KEY);
+    restored = false;
     step = 0;
     busy = false;
     errors = {};
@@ -165,6 +269,7 @@
       manifest = result.manifest ?? '';
       manifestState = result.state ?? '';
       step = 1;
+      saveProgress();
     } catch (cause) {
       report(cause, 'The manifest could not be built.');
     } finally {
@@ -215,7 +320,13 @@
       appId = result.app_id ?? null;
       appSlug = result.slug ?? result.name ?? '';
       installUrl = result.install_url ?? '';
+      // In the tab GitHub redirected to, the form on the first step was never
+      // filled in. The controller remembers what the manifest asked for, and
+      // returns it here so the last step has a target to record.
+      if (!target) target = result.target ?? '';
+      if (result.target_type) targetType = result.target_type;
       step = 2;
+      saveProgress();
     } catch (cause) {
       report(cause, 'That code could not be exchanged.');
     } finally {

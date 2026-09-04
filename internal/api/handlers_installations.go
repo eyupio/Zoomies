@@ -144,6 +144,20 @@ func (s *Server) handleCreateInstallation(w http.ResponseWriter, r *http.Request
 	target := strings.TrimSpace(req.Target)
 	targetType := store.TargetType(strings.ToLower(strings.TrimSpace(req.TargetType)))
 	apiBase := strings.TrimSpace(req.APIBaseURL)
+	// A browser that finished the manifest flow in the tab GitHub redirected
+	// back to never saw the form the flow started from, so it may not know the
+	// target. The pending handshake does; it is the same App either way.
+	if pending != nil {
+		if target == "" {
+			target = pending.target
+		}
+		if targetType == "" {
+			targetType = pending.targetType
+		}
+		if apiBase == "" {
+			apiBase = pending.apiBaseURL
+		}
+	}
 	if apiBase == "" {
 		apiBase = s.cfg.GitHub.APIBaseURL
 	}
@@ -708,6 +722,11 @@ type exchangeResponse struct {
 	Name       string `json:"name"`
 	HTMLURL    string `json:"html_url"`
 	InstallURL string `json:"install_url"`
+	// Target and TargetType are echoed back because GitHub returns the
+	// operator to a fresh tab, which knows nothing about the form the flow
+	// started from. Without them the last step has no target to record.
+	Target     string `json:"target"`
+	TargetType string `json:"target_type"`
 }
 
 // handleExchangeManifest turns the code GitHub redirected back with into App
@@ -773,6 +792,8 @@ func (s *Server) handleExchangeManifest(w http.ResponseWriter, r *http.Request) 
 		Name:       creds.Name,
 		HTMLURL:    creds.HTMLURL,
 		InstallURL: github.InstallURL(creds.HTMLURL),
+		Target:     pending.target,
+		TargetType: string(pending.targetType),
 	})
 }
 

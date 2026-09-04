@@ -37,6 +37,18 @@
   let usernameInput = $state<HTMLInputElement | null>(null);
   let passwordInput = $state<HTMLInputElement | null>(null);
 
+  /**
+   * Where to go once signed in.
+   *
+   * Anything other than the overview is a deep link somebody followed while
+   * signed out -- GitHub returning an operator to the App setup address with a
+   * single-use code in it, most importantly -- and sending them to the overview
+   * throws it away.
+   */
+  const destination = untrack(() =>
+    location.pathname === '/login' ? '/' : location.pathname + location.search,
+  );
+
   const meta = $derived(session.meta);
 
   const usernameError = $derived(
@@ -105,7 +117,7 @@
     failure = null;
     try {
       await session.login(username.trim(), password);
-      router.navigate('/');
+      router.navigate(destination);
     } catch (cause) {
       failure =
         cause instanceof ApiError

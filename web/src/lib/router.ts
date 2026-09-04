@@ -81,6 +81,15 @@ export const ROUTES: readonly RouteDef[] = [
     load: () => import('../routes/Settings.svelte'),
   },
   {
+    // GitHub's return address, named in every App manifest this controller
+    // builds. It hands what GitHub sent to the Installations page; it is not
+    // somewhere anybody navigates to on purpose.
+    name: 'github-setup',
+    path: '/settings/github/setup',
+    title: 'Connecting GitHub',
+    load: () => import('../routes/GithubSetup.svelte'),
+  },
+  {
     name: 'login',
     path: '/login',
     title: 'Sign in',
