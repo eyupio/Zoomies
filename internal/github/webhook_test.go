@@ -1,0 +1,246 @@
+package github
+
+import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/eyupio/zoomies/internal/store"
+)
+
+const testSecret = "s3cr3t-webhook"
+
+func sign(t *testing.T, payload []byte, secret string) string {
+	t.Helper()
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(payload)
+	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
+}
+
+func TestValidateSignature(t *testing.T) {
+	payload := []byte(`{"action":"queued"}`)
+	good := sign(t, payload, testSecret)
+
+	t.Run("valid", func(t *testing.T) {
+		if err := ValidateSignature(payload, good, testSecret); err != nil {
+			t.Fatalf("valid signature rejected: %v", err)
+		}
+	})
+
+	t.Run("wrong secret", func(t *testing.T) {
+		err := ValidateSignature(payload, sign(t, payload, "other"), testSecret)
+		if !errors.Is(err, ErrInvalidSignature) {
+			t.Fatalf("got %v, want ErrInvalidSignature", err)
+		}
+	})
+
+	t.Run("missing header", func(t *testing.T) {
+		err := ValidateSignature(payload, "  ", testSecret)
+		if !errors.Is(err, ErrInvalidSignature) {
+			t.Fatalf("got %v, want ErrInvalidSignature", err)
+		}
+		// The operator needs to be sent to the GitHub side, not ours.
+		if !strings.Contains(err.Error(), "GitHub side") || !strings.Contains(err.Error(), SignatureHeader) {
+			t.Fatalf("unhelpful message for a missing signature: %v", err)
+		}
+	})
+
+	t.Run("tampered body", func(t *testing.T) {
+		err := ValidateSignature([]byte(`{"action":"completed"}`), good, testSecret)
+		if !errors.Is(err, ErrInvalidSignature) {
+			t.Fatalf("got %v, want ErrInvalidSignature", err)
+		}
+	})
+
+	t.Run("no secret configured", func(t *testing.T) {
+		err := ValidateSignature(payload, good, "")
+		if !errors.Is(err, ErrNoSecret) {
+			t.Fatalf("got %v, want ErrNoSecret", err)
+		}
+	})
+}
+
+func TestParseEventType(t *testing.T) {
+	if got := ParseEventType("  Workflow_Job "); got != "workflow_job" {
+		t.Fatalf("ParseEventType = %q", got)
+	}
+	if !IsPing("Ping") {
+		t.Fatal("IsPing did not recognise a ping")
+	}
+	if IsPing("workflow_job") {
+		t.Fatal("IsPing matched a workflow_job")
+	}
+}
+
+// jobPayload renders a workflow_job delivery for one action.
+func jobPayload(action, status, conclusion string, started, completed bool) []byte {
+	body := `{
+	  "action": "` + action + `",
+	  "installation": {"id": 42},
+	  "repository": {"full_name": "acme/widgets"},
+	  "workflow_job": {
+	    "id": 998877,
+	    "run_id": 5544,
+	    "workflow_name": "CI",
+	    "name": "build (linux)",
+	    "labels": ["self-hosted", "Linux", "gpu"],
+	    "runner_id": 7,
+	    "runner_name": "zoomies-linux-abcd",
+	    "status": "` + status + `",
+	    "conclusion": ` + jsonOrNull(conclusion) + `,
+	    "created_at": "2024-05-01T10:00:00Z",
+	    "started_at": ` + timeOrNull("2024-05-01T10:00:30Z", started) + `,
+	    "completed_at": ` + timeOrNull("2024-05-01T10:05:00Z", completed) + `,
+	    "html_url": "https://github.com/acme/widgets/actions/runs/5544/job/998877"
+	  }
+	}`
+	return []byte(body)
+}
+
+func jsonOrNull(s string) string {
+	if s == "" {
+		return "null"
+	}
+	return `"` + s + `"`
+}
+
+func timeOrNull(s string, present bool) string {
+	if !present {
+		return "null"
+	}
+	return `"` + s + `"`
+}
+
+func TestParseWorkflowJobQueued(t *testing.T) {
+	e, err := ParseWorkflowJob(jobPayload("queued", "queued", "", true, false))
+	if err != nil {
+		t.Fatalf("ParseWorkflowJob: %v", err)
+	}
+	if e.Action != "queued" || e.JobID != 998877 || e.RunID != 5544 {
+		t.Fatalf("unexpected event: %+v", e)
+	}
+	if e.Repo != "acme/widgets" || e.WorkflowName != "CI" || e.JobName != "build (linux)" {
+		t.Fatalf("unexpected identity: %+v", e)
+	}
+	if e.InstallationID != 42 || e.RunnerID != 7 || e.RunnerName != "zoomies-linux-abcd" {
+		t.Fatalf("unexpected routing fields: %+v", e)
+	}
+	if !slices.Equal(e.Labels, []string{"self-hosted", "Linux", "gpu"}) {
+		t.Fatalf("labels = %v", e.Labels)
+	}
+	if e.HTMLURL == "" || !e.CompletedAt.IsZero() {
+		t.Fatalf("unexpected timestamps: %+v", e)
+	}
+
+	j := e.ToJob()
+	if j.State != store.JobQueued {
+		t.Fatalf("state = %q", j.State)
+	}
+	if j.ID != "" {
+		t.Fatalf("ToJob minted an ID (%q); the store owns that", j.ID)
+	}
+	// GitHub stamps started_at on queued jobs too; trusting it would report a
+	// zero queue wait for every job.
+	if j.StartedAt != nil {
+		t.Fatalf("queued job has StartedAt = %v", *j.StartedAt)
+	}
+	if !j.QueuedAt.Equal(time.Date(2024, 5, 1, 10, 0, 0, 0, time.UTC)) {
+		t.Fatalf("queued_at = %v", j.QueuedAt)
+	}
+	if !slices.Equal(j.Labels, []string{"gpu", "linux", "self-hosted"}) {
+		t.Fatalf("labels not normalised: %v", j.Labels)
+	}
+	if j.Conclusion != "" {
+		t.Fatalf("queued job has a conclusion: %q", j.Conclusion)
+	}
+}
+
+func TestParseWorkflowJobInProgress(t *testing.T) {
+	e, err := ParseWorkflowJob(jobPayload("in_progress", "in_progress", "", true, false))
+	if err != nil {
+		t.Fatalf("ParseWorkflowJob: %v", err)
+	}
+	j := e.ToJob()
+	if j.State != store.JobInProgress {
+		t.Fatalf("state = %q", j.State)
+	}
+	if j.StartedAt == nil || !j.StartedAt.Equal(time.Date(2024, 5, 1, 10, 0, 30, 0, time.UTC)) {
+		t.Fatalf("started_at = %v", j.StartedAt)
+	}
+	if j.CompletedAt != nil {
+		t.Fatalf("running job has CompletedAt = %v", *j.CompletedAt)
+	}
+	if j.RunnerName != "zoomies-linux-abcd" {
+		t.Fatalf("runner name lost: %q", j.RunnerName)
+	}
+	if got := j.QueueWait(); got != 30*time.Second {
+		t.Fatalf("queue wait = %v, want 30s", got)
+	}
+}
+
+func TestParseWorkflowJobCompleted(t *testing.T) {
+	e, err := ParseWorkflowJob(jobPayload("completed", "completed", "success", true, true))
+	if err != nil {
+		t.Fatalf("ParseWorkflowJob: %v", err)
+	}
+	j := e.ToJob()
+	if j.State != store.JobCompleted {
+		t.Fatalf("state = %q", j.State)
+	}
+	if j.Conclusion != "success" {
+		t.Fatalf("conclusion = %q", j.Conclusion)
+	}
+	if j.CompletedAt == nil || !j.CompletedAt.Equal(time.Date(2024, 5, 1, 10, 5, 0, 0, time.UTC)) {
+		t.Fatalf("completed_at = %v", j.CompletedAt)
+	}
+	if got := j.Duration(); got != 4*time.Minute+30*time.Second {
+		t.Fatalf("duration = %v", got)
+	}
+}
+
+func TestParseWorkflowJobWaitingIsQueued(t *testing.T) {
+	// The store refuses to move a job backwards, so a waiting job must not be
+	// recorded past "queued" or the later queued delivery becomes a no-op.
+	e, err := ParseWorkflowJob(jobPayload("waiting", "waiting", "", false, false))
+	if err != nil {
+		t.Fatalf("ParseWorkflowJob: %v", err)
+	}
+	if got := e.ToJob().State; got != store.JobQueued {
+		t.Fatalf("state = %q, want %q", got, store.JobQueued)
+	}
+}
+
+func TestParseWorkflowJobCompletedWithoutTimestamp(t *testing.T) {
+	before := time.Now().UTC()
+	e, err := ParseWorkflowJob(jobPayload("completed", "completed", "cancelled", false, false))
+	if err != nil {
+		t.Fatalf("ParseWorkflowJob: %v", err)
+	}
+	j := e.ToJob()
+	if j.CompletedAt == nil || j.CompletedAt.Before(before) {
+		t.Fatalf("completed_at should be stamped now, got %v", j.CompletedAt)
+	}
+}
+
+func TestParseWorkflowJobRejectsOtherEvents(t *testing.T) {
+	_, err := ParseWorkflowJob([]byte(`{"action":"completed","workflow_run":{"id":1}}`))
+	if !errors.Is(err, ErrNotWorkflowJob) {
+		t.Fatalf("got %v, want ErrNotWorkflowJob", err)
+	}
+	if _, err := ParseWorkflowJob([]byte(`not json`)); err == nil {
+		t.Fatal("malformed JSON accepted")
+	}
+}
+
+func TestToJobStampsQueuedAtWhenMissing(t *testing.T) {
+	e := &WorkflowJobEvent{Action: "queued", JobID: 1}
+	j := e.ToJob()
+	if j.QueuedAt.IsZero() {
+		t.Fatal("QueuedAt left zero; the queue-wait histogram cannot sort it")
+	}
+}
