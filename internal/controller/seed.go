@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/store"
@@ -22,6 +23,18 @@ const (
 	demoHostPrefix     = "host_demo"
 	demoTarget         = "acme"
 )
+
+// IsDemoID reports whether an identifier belongs to the seeded demo fixtures.
+//
+// The fixtures have no GitHub behind them, so the two places that would
+// otherwise reach out on their behalf -- the credential prober and the
+// registration reaper -- check this and skip. Without it a demo or a UI test
+// run fills the problems panel with "this installation is not usable" and the
+// log with parse failures, none of which says anything about the fleet.
+func IsDemoID(id string) bool {
+	_, rest, ok := strings.Cut(id, "_")
+	return ok && strings.HasPrefix(rest, "demo")
+}
 
 // demoPoolNames is what "is this instance already seeded?" is decided on, and
 // also what stops seeding from touching a real deployment.
@@ -395,14 +408,14 @@ func (c *Controller) seedScaling(ctx context.Context, now time.Time, linux, arm 
 
 func (c *Controller) seedAudit(ctx context.Context, now time.Time, pool *store.Pool) error {
 	entries := []struct {
-		actor, kind, action, target string
-		agoMin                      int
+		actor, kind, action, targetKind, target string
+		agoMin                                  int
 	}{
-		{"alice", "user", "pool.create", pool.ID, 240},
-		{"alice", "user", "installation.create", demoInstallationID, 245},
-		{"bob", "user", "runner.drain", "run_demo08", 60},
-		{"ci-bot", "token", "pool.update", pool.ID, 35},
-		{"zoomies", "system", "host.join", demoHostPrefix + "b", 200},
+		{"alice", "user", "pool.create", "pool", pool.ID, 240},
+		{"alice", "user", "installation.create", "installation", demoInstallationID, 245},
+		{"bob", "user", "runner.drain", "runner", "run_demo08", 60},
+		{"ci-bot", "token", "pool.update", "pool", pool.ID, 35},
+		{"zoomies", "system", "host.join", "host", demoHostPrefix + "b", 200},
 	}
 	for i, e := range entries {
 		ev := &store.AuditEvent{
@@ -411,7 +424,7 @@ func (c *Controller) seedAudit(ctx context.Context, now time.Time, pool *store.P
 			ActorName:  e.actor,
 			ActorKind:  e.kind,
 			Action:     e.action,
-			TargetKind: "pool",
+			TargetKind: e.targetKind,
 			TargetID:   e.target,
 			IP:         "10.0.0.9",
 			CreatedAt:  now.Add(-time.Duration(e.agoMin) * time.Minute),

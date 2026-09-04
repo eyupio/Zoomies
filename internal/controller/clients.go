@@ -194,6 +194,9 @@ func (c *Controller) probeInstallations(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+		if IsDemoID(inst.ID) {
+			continue
+		}
 		if _, err := c.ProbeInstallation(ctx, inst.ID); err != nil {
 			c.log.Warn("installation credentials are not usable",
 				"installation", inst.ID, "target", inst.Target, "error", err)

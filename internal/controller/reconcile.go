@@ -454,6 +454,10 @@ func (c *Controller) deleteRegistration(ctx context.Context, r *store.Runner, po
 		}
 		pool = p
 	}
+	if IsDemoID(pool.InstallationID) {
+		// Demo fixtures have no GitHub behind them; there is nothing to delete.
+		return
+	}
 	inst, err := c.st.GetInstallation(ctx, pool.InstallationID)
 	if err != nil {
 		return
