@@ -156,6 +156,45 @@ github:
 A bare hostname is accepted and `/api/v3` appended. Everything else — App auth,
 JIT configs, webhooks, runner groups — works the same.
 
+### Behind Cloudflare (or any reverse proxy)
+
+`docker-compose.yml` is set up for this: Cloudflare terminates TLS and proxies
+to the origin over plain HTTP on port 80.
+
+```yaml
+server:
+  bind: 0.0.0.0:8080          # the container port; compose publishes it on 80
+  external_url: https://zoomies.build
+  tls:
+    mode: off                 # Cloudflare holds the certificate
+  trusted_proxies: [ ... ]    # Cloudflare's published ranges
+```
+
+Three things follow from that, and getting any of them wrong is quiet rather
+than loud:
+
+* **The external URL is `https://`, not `http://`.** It is what the session
+  cookie's `Secure` flag is derived from, what the webhook URL is built from,
+  and what the UI links to. The container serving HTTP does not change any of
+  that.
+* **`trusted_proxies` must list Cloudflare's ranges.** Without them the origin
+  sees Cloudflare's address on every connection, so the audit log records
+  Cloudflare for every action and the login rate limiter throttles the whole
+  internet as one client. With them, Zoomies takes the address from
+  `CF-Connecting-IP` — which Cloudflare sets and a client cannot override —
+  falling back to the right-most non-proxy entry of `X-Forwarded-For`. The
+  current list is in `.env.example`; refresh it from
+  <https://www.cloudflare.com/ips/> when Cloudflare publishes a change.
+* **Only Cloudflare should be able to reach the origin.** Publishing port 80
+  puts an unauthenticated webhook endpoint on the public internet with
+  Cloudflare merely in front of it, not in the way. Firewall the origin to
+  Cloudflare's ranges, or use a Cloudflare Tunnel and publish no port at all.
+
+Zoomies will warn at startup that it is listening without TLS. In this
+deployment that warning is expected, and it is the reason the warning says
+"if a proxy already terminates TLS, this is expected" rather than treating it
+as an error.
+
 ### `agent.capacity`
 
 The maximum number of concurrent runners on this host. It is a hard ceiling the

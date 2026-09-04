@@ -390,6 +390,18 @@ func (s *Server) resolveClientIP(r *http.Request) string {
 		return remote
 	}
 
+	// Cloudflare sets CF-Connecting-IP to the true client address and cannot be
+	// talked out of it, whereas X-Forwarded-For arrives as whatever the client
+	// sent with Cloudflare's own value appended. Both resolve correctly here,
+	// but only one of them is a single unambiguous value, so prefer it -- and
+	// only when the connection itself came from a trusted proxy, which is what
+	// stops a direct client from simply setting the header.
+	if cf := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); cf != "" {
+		if ip := net.ParseIP(strings.Trim(cf, "[]")); ip != nil {
+			return ip.String()
+		}
+	}
+
 	forwarded := r.Header.Values("X-Forwarded-For")
 	var chain []string
 	for _, header := range forwarded {

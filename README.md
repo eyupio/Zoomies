@@ -96,9 +96,17 @@ sh install.sh --non-interactive --answers zoomies-answers.yaml
 ```sh
 git clone https://github.com/eyupio/zoomies && cd zoomies
 cp .env.example .env
-$EDITOR .env          # set ZOOMIES_EXTERNAL_URL and ZOOMIES_ENCRYPTION_KEY
+$EDITOR .env          # set ZOOMIES_ENCRYPTION_KEY
 docker compose up -d
 ```
+
+The compose file is set up for running behind Cloudflare: the origin serves
+plain HTTP on port 80 and Cloudflare terminates TLS, with `ZOOMIES_EXTERNAL_URL`
+set to the https address so cookies, webhook URLs and links are all correct, and
+Cloudflare's ranges in `ZOOMIES_TRUSTED_PROXIES` so the audit log records real
+client addresses rather than Cloudflare's. Firewall the origin to Cloudflare, or
+use a Tunnel and publish no port at all. See
+[docs/configuration.md](docs/configuration.md#behind-cloudflare-or-any-reverse-proxy).
 
 ### Add another host
 

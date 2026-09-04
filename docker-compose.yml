@@ -1,9 +1,13 @@
-# Zoomies on a single VM.
+# Zoomies on a single VM, behind Cloudflare.
 #
-#   1. cp .env.example .env  and fill in ZOOMIES_ENCRYPTION_KEY and
-#      ZOOMIES_EXTERNAL_URL
+#   1. cp .env.example .env  and fill in ZOOMIES_ENCRYPTION_KEY
 #   2. docker compose up -d
-#   3. open the URL and create the first admin
+#   3. open https://zoomies.build and create the first admin
+#
+# Cloudflare terminates TLS and proxies to this origin over plain HTTP on port
+# 80, so the container serves HTTP and Zoomies is told its external URL is
+# https. That is what makes the session cookie Secure, the webhook URL correct,
+# and the UI's links right.
 #
 # The controller runs an embedded agent, so this is one container plus the
 # runners it creates.
@@ -21,14 +25,29 @@ services:
     restart: unless-stopped
     command: ["controller"]
     environment:
-      # Where GitHub and your browser reach this controller. Webhooks need it.
-      ZOOMIES_EXTERNAL_URL: ${ZOOMIES_EXTERNAL_URL:?set this in .env}
+      # How GitHub and your browser reach this controller. Webhooks are
+      # delivered to $ZOOMIES_EXTERNAL_URL/webhooks/github, and the https here
+      # is what makes Zoomies mark its session cookie Secure.
+      ZOOMIES_EXTERNAL_URL: ${ZOOMIES_EXTERNAL_URL:-https://zoomies.build}
+
       # 32 bytes, base64. Generate with: openssl rand -base64 32
       # Back it up: without it the stored GitHub App key cannot be decrypted.
       ZOOMIES_ENCRYPTION_KEY: ${ZOOMIES_ENCRYPTION_KEY:?set this in .env}
-      # Inside the container we bind to all interfaces; the published port below
-      # is what actually controls exposure. Put a TLS-terminating proxy in front.
+
+      # Inside the container we bind to all interfaces; the published port
+      # below is what actually controls exposure. TLS is off here because
+      # Cloudflare terminates it -- Zoomies will say so at startup, and that
+      # warning is expected in this deployment.
       ZOOMIES_BIND: "0.0.0.0:8080"
+      ZOOMIES_TLS_MODE: "off"
+
+      # Without this every audit row and every login rate-limit decision sees
+      # Cloudflare's address instead of the real client's, so the whole
+      # internet is throttled as one caller and the audit log is useless.
+      # Refresh from https://www.cloudflare.com/ips/ when Cloudflare publishes
+      # a change.
+      ZOOMIES_TRUSTED_PROXIES: ${ZOOMIES_TRUSTED_PROXIES}
+
       ZOOMIES_DB_PATH: /var/lib/zoomies/zoomies.db
       ZOOMIES_AGENT_EMBEDDED: "true"
       ZOOMIES_AGENT_BACKEND: docker
@@ -37,8 +56,10 @@ services:
       ZOOMIES_WORK_DIR: /var/lib/zoomies/work
       ZOOMIES_LOG_FORMAT: json
     ports:
-      # 127.0.0.1 only. Change to "8080:8080" once something terminates TLS.
-      - "127.0.0.1:8080:8080"
+      # Cloudflare connects here over HTTP. Nothing but Cloudflare should be
+      # able to: put the origin behind a firewall that allows only Cloudflare's
+      # ranges, or use a Cloudflare Tunnel and publish no port at all.
+      - "80:8080"
     volumes:
       - zoomies-data:/var/lib/zoomies
       # The embedded agent needs the Docker socket to create runner containers.

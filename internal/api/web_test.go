@@ -294,3 +294,58 @@ func TestUnknownJSONFieldIsRefused(t *testing.T) {
 		t.Errorf("the message does not name the unknown field: %q", resp.errorMessage(t))
 	}
 }
+
+// Behind Cloudflare the origin sees Cloudflare's address on every connection.
+// Without honouring its header the audit log records Cloudflare for every
+// action and the login rate limiter throttles the whole internet as one client.
+func TestCloudflareConnectingIPIsBelievedFromATrustedProxy(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) {
+		c.Server.TrustedProxies = []string{"127.0.0.0/8", "::1/128"}
+	})
+	h.user("alice", store.RoleViewer)
+
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/auth/login",
+		headers: map[string]string{
+			"CF-Connecting-IP": "198.51.100.7",
+			// What the client sent, with Cloudflare's value appended. The
+			// unambiguous header wins.
+			"X-Forwarded-For": "203.0.113.1, 198.51.100.7",
+		},
+		body: map[string]any{"username": "alice", "password": testPassword}})
+	resp.mustStatus(t, http.StatusOK, "login")
+
+	events, _, err := h.st.ListAudit(h.ctx, store.AuditFilter{Actions: []string{"auth.login"}}, store.Page{Limit: 10})
+	if err != nil {
+		t.Fatalf("ListAudit: %v", err)
+	}
+	if len(events) == 0 {
+		t.Fatal("the login was not audited")
+	}
+	if events[0].IP != "198.51.100.7" {
+		t.Errorf("recorded address = %q, want the client's 198.51.100.7", events[0].IP)
+	}
+}
+
+// The same header from a peer that is not a trusted proxy must be ignored, or
+// anyone can pick their own address and with it defeat the rate limiter and
+// forge the address in every audit row they cause.
+func TestCloudflareConnectingIPIsIgnoredFromAnUntrustedPeer(t *testing.T) {
+	h := newHarness(t)
+	h.user("alice", store.RoleViewer)
+
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/auth/login",
+		headers: map[string]string{"CF-Connecting-IP": "198.51.100.7"},
+		body:    map[string]any{"username": "alice", "password": testPassword}})
+	resp.mustStatus(t, http.StatusOK, "login")
+
+	events, _, err := h.st.ListAudit(h.ctx, store.AuditFilter{Actions: []string{"auth.login"}}, store.Page{Limit: 10})
+	if err != nil {
+		t.Fatalf("ListAudit: %v", err)
+	}
+	if len(events) == 0 {
+		t.Fatal("the login was not audited")
+	}
+	if events[0].IP == "198.51.100.7" {
+		t.Fatal("an untrusted client's CF-Connecting-IP was believed")
+	}
+}
