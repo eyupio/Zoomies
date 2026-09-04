@@ -1,0 +1,23 @@
+{
+  "brand": "Zoomies",
+  "descriptor": "Self-hosted Git runners",
+  "colors": {
+    "black": "#080808",
+    "white": "#FFFFFF",
+    "coolGrey": "#B9BCC2",
+    "midGrey": "#666A73",
+    "runnerBlue": "#2F80ED",
+    "fastCyan": "#22D3EE"
+  },
+  "typography": {
+    "primary": "Inter",
+    "alternatives": [
+      "Geist Sans",
+      "system-ui"
+    ]
+  },
+  "assets": {
+    "primaryLogo": "logos/zoomies-logo-master-dark.png",
+    "mark": "logos/zoomies-mark-dark.png"
+  }
+}

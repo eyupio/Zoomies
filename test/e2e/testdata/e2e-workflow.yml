@@ -1,0 +1,32 @@
+# The workflow the end-to-end test triggers. Put this in the repository named by
+# ZOOMIES_E2E_REPO, on its default branch, as .github/workflows/zoomies-e2e.yml.
+#
+# It is deliberately trivial: the point is to prove a runner appeared, ran
+# something, and went away -- not to test anything about Actions itself.
+name: zoomies-e2e
+
+on:
+  workflow_dispatch:
+    inputs:
+      marker:
+        description: A value the test asserts on, so concurrent runs do not confuse each other.
+        required: true
+        type: string
+
+jobs:
+  smoke:
+    runs-on: [self-hosted, zoomies-e2e]
+    timeout-minutes: 5
+    steps:
+      - name: Prove we are on a Zoomies runner
+        run: |
+          echo "marker=${{ inputs.marker }}"
+          echo "runner=${RUNNER_NAME}"
+          test -n "${RUNNER_NAME}"
+          case "${RUNNER_NAME}" in
+            zoomies-*) echo "runner name looks right" ;;
+            *) echo "unexpected runner name: ${RUNNER_NAME}" >&2; exit 1 ;;
+          esac
+      - name: Do a little work
+        run: |
+          for i in 1 2 3; do echo "step $i"; sleep 1; done

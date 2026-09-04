@@ -1,0 +1,2001 @@
+openapi: 3.1.0
+
+info:
+  title: Zoomies API
+  version: "1.0.0"
+  summary: Self-hosted GitHub Actions runner fleet controller
+  description: |
+    Zoomies manages ephemeral self-hosted GitHub Actions runners.
+
+    This document is the whole product surface. The web UI and the `zoomies`
+    CLI are both clients of it, and nothing is reachable from either that is
+    not described here.
+
+    ## Authentication
+
+    Two credentials are accepted on the same routes:
+
+    * a **session cookie** (`zoomies_session`), which the browser gets from
+      `POST /auth/login`;
+    * a **bearer token** (`Authorization: Bearer zoo_...`), for automation.
+
+    Cookie-authenticated mutating requests are subject to a same-origin check.
+    Bearer-authenticated requests are not, because they are not vulnerable to
+    CSRF.
+
+    Agents use a separate credential class on `/agent/*` and can reach nothing
+    else.
+
+    ## Roles
+
+    | Role | May |
+    |---|---|
+    | `viewer` | read everything except secrets |
+    | `operator` | act on the fleet and manage pools |
+    | `admin` | manage users, tokens, installations and settings |
+
+    Each operation below records its minimum role in `x-zoomies-role`.
+
+    ## Conventions
+
+    * List endpoints take `limit`, `offset`, `sort` and `order`, and return
+      `{ items, total, limit, offset }`.
+    * Timestamps are RFC 3339 with a `Z` offset.
+    * Durations are Go duration strings: `"5m"`, `"1h30s"`.
+    * Errors are `{ "error": { code, message, field?, detail? } }` with a
+      message written for a human to read.
+  license:
+    name: MIT
+    url: https://github.com/eyupio/zoomies/blob/main/LICENSE
+  contact:
+    name: Zoomies
+    url: https://github.com/eyupio/zoomies
+
+servers:
+  - url: /api/v1
+    description: This controller
+
+security:
+  - cookieAuth: []
+  - bearerAuth: []
+
+tags:
+  - name: meta
+    description: Version, capabilities and health. Callable before login.
+  - name: auth
+    description: Sessions, bootstrap and single sign-on.
+  - name: overview
+    description: Fleet statistics, problems, scaling history and the live event stream.
+  - name: installations
+    description: GitHub App installations and webhook delivery health.
+  - name: pools
+    description: What runners to make and how many.
+  - name: runners
+    description: The runners that exist right now.
+  - name: jobs
+    description: Job history, queue waits and outcomes.
+  - name: hosts
+    description: Agents, their capacity, and enrolment.
+  - name: audit
+    description: Who did what.
+  - name: admin
+    description: Users, API tokens and settings.
+  - name: agent
+    description: Routes used by agents. Not for general clients.
+
+paths:
+  # ==========================================================================
+  # Meta
+  # ==========================================================================
+  /meta:
+    get:
+      operationId: getMeta
+      tags: [meta]
+      summary: Version and capabilities
+      description: |
+        Safe to call unauthenticated. It is what the login page uses to decide
+        whether to show a password form, a "sign in with SSO" button, or the
+        first-run bootstrap form.
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Meta" }
+
+  # ==========================================================================
+  # Authentication
+  # ==========================================================================
+  /auth/bootstrap:
+    post:
+      operationId: bootstrap
+      tags: [auth]
+      summary: Create the first administrator
+      description: |
+        Available only while no user exists. Once any account has been created
+        this returns 409 forever. That check is the entire security of this
+        route, which is why it is unauthenticated.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string, minLength: 1, maxLength: 64, examples: [admin] }
+                password: { type: string, minLength: 12, format: password }
+                email: { type: string, format: email }
+      responses:
+        "201":
+          description: Created, and the session cookie is set
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Identity" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Sign in with a username and password
+      description: Rate limited per source address. A wrong password and an unknown user are indistinguishable, deliberately.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string }
+                password: { type: string, format: password }
+      responses:
+        "200":
+          description: Signed in
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Identity" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Sign out
+      x-zoomies-role: viewer
+      responses:
+        "204": { description: Signed out }
+
+  /auth/session:
+    get:
+      operationId: getSession
+      tags: [auth]
+      summary: The current identity
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Identity" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /auth/password:
+    post:
+      operationId: changeOwnPassword
+      tags: [auth]
+      summary: Change your own password
+      description: Invalidates every other session belonging to this account.
+      x-zoomies-role: viewer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [new_password]
+              properties:
+                old_password: { type: string, format: password }
+                new_password: { type: string, minLength: 12, format: password }
+      responses:
+        "204": { description: Changed }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  # ==========================================================================
+  # Overview
+  # ==========================================================================
+  /stats:
+    get:
+      operationId: getStats
+      tags: [overview]
+      summary: Fleet statistics
+      x-zoomies-role: viewer
+      parameters:
+        - name: window
+          in: query
+          description: Rolling window for the completed/failed counts and queue-wait percentiles.
+          schema: { type: string, default: "1h", examples: ["1h", "24h"] }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Stats" }
+
+  /samples:
+    get:
+      operationId: listSamples
+      tags: [overview]
+      summary: Fleet samples for the sparklines
+      x-zoomies-role: viewer
+      parameters:
+        - name: window
+          in: query
+          schema: { type: string, default: "1h" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/FleetSample" }
+
+  /problems:
+    get:
+      operationId: listProblems
+      tags: [overview]
+      summary: Everything currently wrong, and every dangerous setting in effect
+      description: |
+        The Overview's problems panel. Includes unhealthy hosts, failed
+        registrations, webhook delivery failures, queued jobs no pool claims,
+        and every warning the configuration validator produced.
+
+        `ok` is true and `items` is empty when there is nothing to say, which is
+        the common case and is rendered as a single quiet line rather than an
+        empty box.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, items]
+                properties:
+                  ok: { type: boolean }
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Problem" }
+
+  /scaling-events:
+    get:
+      operationId: listScalingEvents
+      tags: [overview]
+      summary: Recent scaling decisions, with the reason in words
+      x-zoomies-role: viewer
+      parameters:
+        - name: pool_id
+          in: query
+          schema: { type: string }
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/ScalingEvent" }
+
+  /events:
+    get:
+      operationId: streamEvents
+      tags: [overview]
+      summary: Live event stream (Server-Sent Events)
+      description: |
+        `text/event-stream`. Every state change the operator would want to see.
+        Honours `Last-Event-ID` on reconnect and replays what the server still
+        holds. A `heartbeat` event every 20 seconds keeps proxies from closing
+        an idle connection.
+      x-zoomies-role: viewer
+      parameters:
+        - name: kinds
+          in: query
+          description: Comma-separated event kinds to receive. Omit for all.
+          schema: { type: string, examples: ["runner.updated,scaling"] }
+        - name: topic
+          in: query
+          description: Topic prefix filter, e.g. `runner:run_k3f9qz2m`.
+          schema: { type: string }
+      responses:
+        "200":
+          description: The stream
+          content:
+            text/event-stream:
+              schema: { type: string }
+
+  # ==========================================================================
+  # Installations
+  # ==========================================================================
+  /installations:
+    get:
+      operationId: listInstallations
+      tags: [installations]
+      summary: List GitHub App installations
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Installation" }
+    post:
+      operationId: createInstallation
+      tags: [installations]
+      summary: Connect a GitHub App installation
+      description: The private key is sealed with the instance encryption key before it reaches the database, and is never returned.
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InstallationCreate" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Installation" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /installations/{id}:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    get:
+      operationId: getInstallation
+      tags: [installations]
+      summary: Get an installation
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Installation" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      operationId: updateInstallation
+      tags: [installations]
+      summary: Update an installation
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InstallationUpdate" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Installation" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      operationId: deleteInstallation
+      tags: [installations]
+      summary: Remove an installation
+      description: Cascades to its pools. The response says how many pools and runners went with it.
+      x-zoomies-role: admin
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pools_deleted: { type: integer }
+                  runners_affected: { type: integer }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /installations/{id}/verify:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    post:
+      operationId: verifyInstallation
+      tags: [installations]
+      summary: Check the credentials and permissions
+      description: On a 403 from GitHub, the message names the permission that is probably missing rather than echoing the status code.
+      x-zoomies-role: operator
+      responses:
+        "200":
+          description: The result of the probe
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InstallationHealth" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /installations/{id}/runner-groups:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    get:
+      operationId: listRunnerGroups
+      tags: [installations]
+      summary: The target's runner groups
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: integer, format: int64 }
+                        name: { type: string }
+
+  /installations/{id}/rate-limit:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    get:
+      operationId: getRateLimit
+      tags: [installations]
+      summary: Remaining GitHub API quota
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  limit: { type: integer }
+                  remaining: { type: integer }
+                  reset_at: { type: string, format: date-time }
+
+  /installations/manifest:
+    post:
+      operationId: createAppManifest
+      tags: [installations]
+      summary: Build a GitHub App manifest
+      description: |
+        Returns the manifest JSON and the URL to POST it to. The browser submits
+        it, the operator confirms in GitHub, and GitHub redirects back with a
+        code that `manifest/exchange` turns into App credentials.
+
+        The manifest asks for exactly the permissions Zoomies needs and no more.
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [target, target_type]
+              properties:
+                name: { type: string, examples: ["Zoomies (acme)"] }
+                target: { type: string, examples: [acme] }
+                target_type: { $ref: "#/components/schemas/TargetType" }
+                api_base_url: { type: string, examples: ["https://api.github.com"] }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  post_url: { type: string, description: Where the browser POSTs the manifest. }
+                  manifest: { type: string, description: The manifest JSON, to be sent as a form field named `manifest`. }
+                  state: { type: string, description: Single-use value echoed back on the callback. }
+
+  /installations/manifest/exchange:
+    post:
+      operationId: exchangeAppManifest
+      tags: [installations]
+      summary: Exchange a manifest code for App credentials
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string }
+                state: { type: string }
+                api_base_url: { type: string }
+      responses:
+        "200":
+          description: The App was created; finish by installing it.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  app_id: { type: integer, format: int64 }
+                  slug: { type: string }
+                  name: { type: string }
+                  html_url: { type: string }
+                  install_url: { type: string, description: Send the operator here to install the App on their organisation. }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /webhook-deliveries:
+    get:
+      operationId: listWebhookDeliveries
+      tags: [installations]
+      summary: Recent webhook deliveries
+      x-zoomies-role: viewer
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [accepted, rejected, error] }
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/WebhookDelivery" }
+                  last_received_at:
+                    type: [string, "null"]
+                    format: date-time
+                    description: Null when nothing has ever arrived, which distinguishes "quiet" from "broken".
+
+  /webhook-test:
+    post:
+      operationId: testWebhookReachability
+      tags: [installations]
+      summary: Check whether GitHub can reach this controller
+      description: |
+        Reports plainly whether the configured external URL is reachable from
+        outside, and when it is not, gives the specific fix -- open a port, use
+        a tunnel, configure the reverse proxy -- along with the option of
+        falling back to polling.
+      x-zoomies-role: operator
+      responses:
+        "200":
+          description: The result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WebhookCheck" }
+
+  # ==========================================================================
+  # Pools
+  # ==========================================================================
+  /pools:
+    get:
+      operationId: listPools
+      tags: [pools]
+      summary: List pools
+      description: Each pool carries live per-state runner counts and its current utilisation.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Pool" }
+    post:
+      operationId: createPool
+      tags: [pools]
+      summary: Create a pool
+      x-zoomies-role: operator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PoolCreate" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Pool" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /pools/validate:
+    post:
+      operationId: validatePool
+      tags: [pools]
+      summary: Dry-run a pool definition
+      description: |
+        Returns the field errors and the dangerous-setting warnings the pool
+        would produce, without creating anything. The creation wizard's review
+        step calls this, so the warnings an operator sees before confirming are
+        the same ones the server would raise afterwards.
+      x-zoomies-role: operator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PoolCreate" }
+      responses:
+        "200":
+          description: The verdict
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [valid]
+                properties:
+                  valid: { type: boolean }
+                  errors:
+                    type: array
+                    items: { $ref: "#/components/schemas/FieldError" }
+                  warnings:
+                    type: array
+                    items: { $ref: "#/components/schemas/Problem" }
+                  matching_hosts:
+                    type: integer
+                    description: How many hosts could actually run this pool. Zero is worth saying out loud before the pool is created.
+
+  /pools/{id}:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    get:
+      operationId: getPool
+      tags: [pools]
+      summary: Get a pool
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Pool" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      operationId: updatePool
+      tags: [pools]
+      summary: Update a pool
+      x-zoomies-role: operator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PoolUpdate" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Pool" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+    delete:
+      operationId: deletePool
+      tags: [pools]
+      summary: Delete a pool
+      x-zoomies-role: operator
+      parameters:
+        - name: drain
+          in: query
+          description: Let running jobs finish first. The default, and the only safe choice while work is in flight.
+          schema: { type: boolean, default: true }
+        - name: force
+          in: query
+          description: Destroy runners immediately, interrupting any job they are running.
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  runners_affected: { type: integer }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /pools/{id}/enable:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    post:
+      operationId: enablePool
+      tags: [pools]
+      summary: Enable a pool
+      x-zoomies-role: operator
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Pool" }
+
+  /pools/{id}/disable:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    post:
+      operationId: disablePool
+      tags: [pools]
+      summary: Disable a pool
+      description: Existing runners drain as they become idle; no new ones are created. Running jobs are not interrupted.
+      x-zoomies-role: operator
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Pool" }
+
+  # ==========================================================================
+  # Runners
+  # ==========================================================================
+  /runners:
+    get:
+      operationId: listRunners
+      tags: [runners]
+      summary: List runners
+      x-zoomies-role: viewer
+      parameters:
+        - { name: pool_id, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: host_id, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - name: state
+          in: query
+          schema: { type: array, items: { $ref: "#/components/schemas/RunnerState" } }
+          style: form
+          explode: true
+        - { name: q, in: query, description: Substring match on name, ID or container ID., schema: { type: string } }
+        - name: include_removed
+          in: query
+          description: Terminal runners are hidden by default, because a busy fleet accumulates thousands of them.
+          schema: { type: boolean, default: false }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Order"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Page"
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: "#/components/schemas/Runner" }
+
+  /runners/{id}:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    get:
+      operationId: getRunner
+      tags: [runners]
+      summary: Get a runner
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RunnerDetail" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      operationId: deleteRunner
+      tags: [runners]
+      summary: Delete a runner
+      description: Without `force` this drains first, so a running job is never interrupted. The registration is removed from GitHub either way.
+      x-zoomies-role: operator
+      parameters:
+        - name: force
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        "202": { description: Accepted }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /runners/{id}/drain:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    post:
+      operationId: drainRunner
+      tags: [runners]
+      summary: Drain a runner
+      description: Finish the current job, then exit. Never interrupts work in progress.
+      x-zoomies-role: operator
+      responses:
+        "202":
+          description: Accepted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Runner" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: The runner is already terminal.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  /runners/{id}/timeline:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    get:
+      operationId: getRunnerTimeline
+      tags: [runners]
+      summary: A runner's state history
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/TimelineEntry" }
+
+  /runners/bulk:
+    post:
+      operationId: bulkRunnerAction
+      tags: [runners]
+      summary: Drain or delete several runners
+      description: Returns a per-ID result, so a partial failure is visible rather than hidden behind one status code.
+      x-zoomies-role: operator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action, ids]
+              properties:
+                action: { type: string, enum: [drain, delete] }
+                ids: { type: array, items: { type: string }, minItems: 1, maxItems: 500 }
+                force: { type: boolean, default: false }
+      responses:
+        "200":
+          description: Per-ID outcomes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        ok: { type: boolean }
+                        error: { type: string }
+
+  /runners/{id}/logs:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    get:
+      operationId: streamRunnerLogs
+      tags: [runners]
+      summary: Live log tail (Server-Sent Events)
+      description: |
+        `text/event-stream`. The controller asks the runner's agent to open an
+        outbound relay and fans the output out here. Nothing dials the agent.
+      x-zoomies-role: viewer
+      parameters:
+        - { name: tail, in: query, description: Lines of backlog before following. 0 means everything., schema: { type: integer, default: 1000 } }
+        - { name: follow, in: query, schema: { type: boolean, default: true } }
+      responses:
+        "200":
+          description: The stream
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /runners/{id}/logs/download:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    get:
+      operationId: downloadRunnerLogs
+      tags: [runners]
+      summary: Download a runner's logs
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: A snapshot
+          headers:
+            Content-Disposition:
+              schema: { type: string, examples: ['attachment; filename="zoomies-linux-x64-k3f9.log"'] }
+          content:
+            text/plain:
+              schema: { type: string }
+
+  # ==========================================================================
+  # Jobs
+  # ==========================================================================
+  /jobs:
+    get:
+      operationId: listJobs
+      tags: [jobs]
+      summary: Job history
+      x-zoomies-role: viewer
+      parameters:
+        - { name: repo, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: workflow, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: pool_id, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: runner_id, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: state, in: query, schema: { type: array, items: { $ref: "#/components/schemas/JobState" } }, style: form, explode: true }
+        - { name: conclusion, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: label, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: q, in: query, schema: { type: string } }
+        - { name: since, in: query, schema: { type: string, format: date-time } }
+        - { name: until, in: query, schema: { type: string, format: date-time } }
+        - name: unmatched
+          in: query
+          description: Only jobs no enabled pool claims. These will never run, and are almost always a typo in `runs-on`.
+          schema: { type: boolean }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Order"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Page"
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: "#/components/schemas/Job" }
+
+  /jobs/{id}:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    get:
+      operationId: getJob
+      tags: [jobs]
+      summary: Get a job
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Job" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /jobs/facets:
+    get:
+      operationId: getJobFacets
+      tags: [jobs]
+      summary: Distinct values for the job filter menus
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  repos: { type: array, items: { type: string } }
+                  workflows: { type: array, items: { type: string } }
+                  conclusions: { type: array, items: { type: string } }
+
+  # ==========================================================================
+  # Hosts
+  # ==========================================================================
+  /hosts:
+    get:
+      operationId: listHosts
+      tags: [hosts]
+      summary: List hosts
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Host" }
+
+  /hosts/{id}:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    get:
+      operationId: getHost
+      tags: [hosts]
+      summary: Get a host
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Host" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      operationId: updateHost
+      tags: [hosts]
+      summary: Update a host's capacity or labels
+      x-zoomies-role: operator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                capacity: { type: integer, minimum: 0 }
+                labels: { type: object, additionalProperties: { type: string } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Host" }
+    delete:
+      operationId: deleteHost
+      tags: [hosts]
+      summary: Remove a host
+      description: Refused while the host still has live runners, unless forced.
+      x-zoomies-role: admin
+      parameters:
+        - { name: force, in: query, schema: { type: boolean, default: false } }
+      responses:
+        "204": { description: Removed }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /hosts/{id}/cordon:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    post:
+      operationId: cordonHost
+      tags: [hosts]
+      summary: Cordon or uncordon a host
+      description: A cordoned host keeps its existing runners and accepts no new ones.
+      x-zoomies-role: operator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cordoned]
+              properties:
+                cordoned: { type: boolean }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Host" }
+
+  /join-tokens:
+    get:
+      operationId: listJoinTokens
+      tags: [hosts]
+      summary: List join tokens
+      description: The secret itself is never returned; only its prefix, for identification.
+      x-zoomies-role: admin
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/JoinToken" }
+    post:
+      operationId: createJoinToken
+      tags: [hosts]
+      summary: Mint a join token
+      description: |
+        Returns the plaintext token **once**, along with a ready-to-paste
+        command for the new host. Single-use, and short-lived by default.
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ttl: { type: string, default: "15m", examples: ["15m", "1h"] }
+                capacity: { type: integer, default: 2, minimum: 1 }
+                labels: { type: object, additionalProperties: { type: string } }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/JoinToken"
+                  - type: object
+                    properties:
+                      token:
+                        type: string
+                        description: Shown once. Only its hash is stored.
+                      command:
+                        type: string
+                        description: The one-liner to run on the new host.
+                        examples: ["curl -fsSL https://zoomies.sh/install.sh | sh -s -- --mode agent --controller https://zoomies.example.com --join-token zoojoin_..."]
+
+  /join-tokens/{id}:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    delete:
+      operationId: deleteJoinToken
+      tags: [hosts]
+      summary: Revoke an unused join token
+      x-zoomies-role: admin
+      responses:
+        "204": { description: Revoked }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  # ==========================================================================
+  # Audit
+  # ==========================================================================
+  /audit:
+    get:
+      operationId: listAudit
+      tags: [audit]
+      summary: The audit log
+      x-zoomies-role: viewer
+      parameters:
+        - { name: actor_id, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: action, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: target_kind, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: target_id, in: query, schema: { type: string } }
+        - { name: q, in: query, schema: { type: string } }
+        - { name: since, in: query, schema: { type: string, format: date-time } }
+        - { name: until, in: query, schema: { type: string, format: date-time } }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Order"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Page"
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: "#/components/schemas/AuditEvent" }
+
+  /audit/actions:
+    get:
+      operationId: listAuditActions
+      tags: [audit]
+      summary: Distinct action names, for the filter menu
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { type: string } }
+
+  # ==========================================================================
+  # Administration
+  # ==========================================================================
+  /users:
+    get:
+      operationId: listUsers
+      tags: [admin]
+      summary: List users
+      x-zoomies-role: admin
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/User" } }
+    post:
+      operationId: createUser
+      tags: [admin]
+      summary: Create a user
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, role]
+              properties:
+                username: { type: string, minLength: 1, maxLength: 64 }
+                password: { type: string, minLength: 12, format: password, description: Omit for an account that will sign in through OIDC. }
+                email: { type: string, format: email }
+                display_name: { type: string }
+                role: { $ref: "#/components/schemas/Role" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /users/{id}:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    get:
+      operationId: getUser
+      tags: [admin]
+      summary: Get a user
+      x-zoomies-role: admin
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      operationId: updateUser
+      tags: [admin]
+      summary: Update a user
+      description: Refused if it would leave the instance with no enabled administrator.
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email: { type: string, format: email }
+                display_name: { type: string }
+                role: { $ref: "#/components/schemas/Role" }
+                disabled: { type: boolean }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      operationId: deleteUser
+      tags: [admin]
+      summary: Delete a user
+      description: Refused if it would leave the instance with no enabled administrator.
+      x-zoomies-role: admin
+      responses:
+        "204": { description: Deleted }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /users/{id}/password:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    post:
+      operationId: resetUserPassword
+      tags: [admin]
+      summary: Reset a user's password
+      description: Sets `must_change_password`, so the user picks their own on next sign-in.
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [new_password]
+              properties:
+                new_password: { type: string, minLength: 12, format: password }
+      responses:
+        "204": { description: Reset }
+
+  /tokens:
+    get:
+      operationId: listTokens
+      tags: [admin]
+      summary: List API tokens
+      description: Metadata only. The token value exists in plaintext exactly once, at creation.
+      x-zoomies-role: admin
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/APIToken" } }
+    post:
+      operationId: createToken
+      tags: [admin]
+      summary: Create an API token
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, role]
+              properties:
+                name: { type: string, examples: ["prometheus"] }
+                role: { $ref: "#/components/schemas/Role" }
+                scopes:
+                  type: array
+                  items: { type: string, examples: ["pools:read", "runners:write"] }
+                  description: Optional narrowing within the role. Empty means whatever the role allows.
+                expires_in: { type: string, examples: ["2160h"], description: Omit for a token that never expires, which is worth avoiding. }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/APIToken"
+                  - type: object
+                    properties:
+                      token: { type: string, description: Shown once. }
+
+  /tokens/{id}:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    delete:
+      operationId: revokeToken
+      tags: [admin]
+      summary: Revoke an API token
+      x-zoomies-role: admin
+      responses:
+        "204": { description: Revoked }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /settings:
+    get:
+      operationId: getSettings
+      tags: [admin]
+      summary: The effective configuration
+      description: Every secret is blanked. The validator's findings are included so the UI can show them next to the setting they concern.
+      x-zoomies-role: admin
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Settings" }
+    patch:
+      operationId: updateSettings
+      tags: [admin]
+      summary: Change the settings that are safe to change at runtime
+      description: |
+        Retention, scheduler tunables, the poll interval and the log level.
+        Anything needing a restart is rejected with a message saying which
+        setting it was and that the process must be restarted.
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Settings" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: zoomies_session
+      description: Set by `POST /auth/login`. HttpOnly, SameSite=Lax, and Secure when the external URL is https.
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: zoo_<prefix>_<secret>
+      description: An API token. Not subject to the same-origin check, because it is not vulnerable to CSRF.
+
+  parameters:
+    PathID:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+      description: The resource ID, e.g. `pool_k3f9qz2m`.
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, default: 50, minimum: 1, maximum: 500 }
+    Offset:
+      name: offset
+      in: query
+      schema: { type: integer, default: 0, minimum: 0 }
+    Sort:
+      name: sort
+      in: query
+      description: A column name. An unknown value falls back to the default rather than erroring, so a stale bookmark does not break the page.
+      schema: { type: string }
+    Order:
+      name: order
+      in: query
+      schema: { type: string, enum: [asc, desc], default: desc }
+
+  responses:
+    Unauthorized:
+      description: Not signed in, or the credential was rejected.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+    Forbidden:
+      description: Signed in, but the role is not sufficient. The message says which role is needed.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+    NotFound:
+      description: No such thing.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+    Conflict:
+      description: The request conflicts with the current state.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+    Unprocessable:
+      description: The request was understood but is not valid. `errors` names the fields.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/ErrorEnvelope"
+              - type: object
+                properties:
+                  errors: { type: array, items: { $ref: "#/components/schemas/FieldError" } }
+    RateLimited:
+      description: Too many attempts.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  schemas:
+    # --- primitives -------------------------------------------------------
+    Role:
+      type: string
+      enum: [viewer, operator, admin]
+    TargetType:
+      type: string
+      enum: [org, repo]
+    BackendKind:
+      type: string
+      enum: [docker, podman, process]
+    DockerMode:
+      type: string
+      enum: [none, dind, host-socket]
+      description: |
+        How much Docker a job on this pool gets.
+        `none` is the default and the only one that is not a warning.
+        `dind` gives a private, privileged sidecar daemon.
+        `host-socket` hands the job the host's daemon, and with it root on the host.
+    RunnerState:
+      type: string
+      enum: [provisioning, registering, idle, busy, draining, removed, failed]
+    JobState:
+      type: string
+      enum: [queued, in_progress, completed]
+    Severity:
+      type: string
+      enum: [error, warning, info]
+    Duration:
+      type: string
+      description: A Go duration string.
+      examples: ["5m", "1h30s"]
+
+    Page:
+      type: object
+      required: [total, limit, offset]
+      properties:
+        total: { type: integer, description: Rows matching the filter, not rows returned. }
+        limit: { type: integer }
+        offset: { type: integer }
+
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [bad_request, unauthorized, forbidden, not_found, conflict, unprocessable, rate_limited, internal]
+            message: { type: string, description: Written for a person to read, and to act on. }
+            field: { type: string }
+            detail: { type: string }
+
+    FieldError:
+      type: object
+      required: [field, message]
+      properties:
+        field: { type: string, examples: [labels] }
+        message: { type: string, examples: ["a pool needs at least one label your workflows can ask for"] }
+
+    Problem:
+      type: object
+      required: [code, severity, title]
+      properties:
+        code: { type: string, examples: [bind.public_no_tls] }
+        severity: { $ref: "#/components/schemas/Severity" }
+        setting: { type: string, examples: [server.bind] }
+        title: { type: string, description: One line - what is true. }
+        detail: { type: string, description: Why it matters, and the consequence. }
+        fix: { type: string, description: What to change, concretely. }
+        target_kind: { type: string }
+        target_id: { type: string }
+        since: { type: string, format: date-time }
+
+    # --- meta -------------------------------------------------------------
+    Meta:
+      type: object
+      required: [version, bootstrap_required]
+      properties:
+        version: { type: string, examples: ["1.0.0 (abc1234)"] }
+        commit: { type: string }
+        bootstrap_required: { type: boolean, description: True when no user exists yet. }
+        auth_disabled: { type: boolean, description: True when authentication has been switched off in the configuration. }
+        oidc_enabled: { type: boolean }
+        oidc_label: { type: string, examples: ["Sign in with Okta"] }
+        external_url: { type: string }
+        webhook_url: { type: string }
+        polling_only: { type: boolean, description: True when no webhook has ever been received and the poller is doing the work. }
+
+    # --- overview ---------------------------------------------------------
+    Stats:
+      type: object
+      properties:
+        window: { type: string, description: The window these counts cover, echoed back., examples: ["1h"] }
+        queued_jobs: { type: integer }
+        running_jobs: { type: integer }
+        completed: { type: integer, description: Within the requested window. }
+        failed: { type: integer }
+        median_wait_ms: { type: integer, format: int64 }
+        p95_wait_ms: { type: integer, format: int64 }
+        runners:
+          type: object
+          properties:
+            provisioning: { type: integer }
+            registering: { type: integer }
+            idle: { type: integer }
+            busy: { type: integer }
+            draining: { type: integer }
+            failed: { type: integer }
+            total: { type: integer }
+        hosts:
+          type: object
+          properties:
+            total: { type: integer }
+            healthy: { type: integer }
+            cordoned: { type: integer }
+            capacity: { type: integer }
+            used: { type: integer }
+        pools:
+          type: array
+          items:
+            type: object
+            properties:
+              pool_id: { type: string }
+              pool_name: { type: string }
+              min: { type: integer }
+              max: { type: integer }
+              live: { type: integer }
+              busy: { type: integer }
+              idle: { type: integer }
+              queued: { type: integer }
+              utilisation: { type: number, format: double, minimum: 0, maximum: 1 }
+
+    FleetSample:
+      type: object
+      properties:
+        at: { type: string, format: date-time }
+        queued_jobs: { type: integer }
+        running_jobs: { type: integer }
+        idle_runners: { type: integer }
+        busy_runners: { type: integer }
+        total_runners: { type: integer }
+
+    ScalingEvent:
+      type: object
+      properties:
+        id: { type: string }
+        pool_id: { type: string }
+        pool_name: { type: string }
+        from: { type: integer }
+        to: { type: integer }
+        reason:
+          type: string
+          description: The scheduler's own words, shown verbatim in the UI.
+          examples: ["scaled linux-x64 2 -> 4: 3 jobs queued > 30s"]
+        created_at: { type: string, format: date-time }
+
+    # --- installations ----------------------------------------------------
+    Installation:
+      type: object
+      properties:
+        id: { type: string }
+        app_id: { type: integer, format: int64 }
+        installation_id: { type: integer, format: int64 }
+        target: { type: string, examples: [acme, "acme/widgets"] }
+        target_type: { $ref: "#/components/schemas/TargetType" }
+        api_base_url: { type: string }
+        app_slug: { type: string }
+        web_url: { type: string }
+        enterprise: { type: boolean }
+        healthy: { type: boolean }
+        last_error: { type: string }
+        last_checked_at: { type: [string, "null"], format: date-time }
+        pool_count: { type: integer }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    InstallationCreate:
+      type: object
+      required: [app_id, installation_id, target, target_type, private_key]
+      properties:
+        app_id: { type: integer, format: int64 }
+        installation_id: { type: integer, format: int64 }
+        target: { type: string }
+        target_type: { $ref: "#/components/schemas/TargetType" }
+        api_base_url: { type: string, default: "https://api.github.com" }
+        private_key: { type: string, format: password, description: The App's PEM private key. Sealed before storage and never returned. }
+        webhook_secret: { type: string, format: password }
+
+    InstallationUpdate:
+      type: object
+      properties:
+        target: { type: string }
+        api_base_url: { type: string }
+        private_key: { type: string, format: password }
+        webhook_secret: { type: string, format: password }
+
+    InstallationHealth:
+      type: object
+      properties:
+        ok: { type: boolean }
+        app_slug: { type: string }
+        app_name: { type: string }
+        message: { type: string, description: On failure, names the missing permission where GitHub tells us. }
+        permissions: { type: object, additionalProperties: { type: string } }
+        events: { type: array, items: { type: string } }
+        missing_permissions: { type: array, items: { type: string } }
+        missing_events: { type: array, items: { type: string } }
+        rate_limit_remaining: { type: integer }
+
+    WebhookDelivery:
+      type: object
+      properties:
+        id: { type: string }
+        delivery_id: { type: string }
+        event: { type: string }
+        action: { type: string }
+        repo: { type: string }
+        status: { type: string, enum: [accepted, rejected, error] }
+        error: { type: string }
+        received_at: { type: string, format: date-time }
+
+    WebhookCheck:
+      type: object
+      properties:
+        reachable: { type: boolean }
+        url: { type: string }
+        message: { type: string }
+        fix: { type: string, description: The specific remedy - open a port, use a tunnel, configure the proxy. }
+        polling_available: { type: boolean }
+        last_delivery_at: { type: [string, "null"], format: date-time }
+
+    # --- pools ------------------------------------------------------------
+    Resources:
+      type: object
+      properties:
+        cpus: { type: number, format: double, examples: [2] }
+        memory_mb: { type: integer, format: int64, examples: [4096] }
+        disk_gb: { type: integer, format: int64 }
+        pids_limit: { type: integer, format: int64 }
+
+    Pool:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        installation_id: { type: string }
+        installation_target: { type: string }
+        labels: { type: array, items: { type: string } }
+        runner_group: { type: string }
+        backend: { $ref: "#/components/schemas/BackendKind" }
+        image: { type: string }
+        runner_version: { type: string }
+        min_runners: { type: integer }
+        max_runners: { type: integer }
+        idle_timeout: { $ref: "#/components/schemas/Duration" }
+        ephemeral: { type: boolean }
+        docker_mode: { $ref: "#/components/schemas/DockerMode" }
+        resources: { $ref: "#/components/schemas/Resources" }
+        host_selector: { type: object, additionalProperties: { type: string } }
+        env: { type: object, additionalProperties: { type: string } }
+        run_as_root: { type: boolean }
+        enabled: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        counts:
+          type: object
+          properties:
+            provisioning: { type: integer }
+            registering: { type: integer }
+            idle: { type: integer }
+            busy: { type: integer }
+            draining: { type: integer }
+            failed: { type: integer }
+            live: { type: integer }
+        queued_jobs: { type: integer }
+        utilisation: { type: number, format: double }
+        warnings:
+          type: array
+          items: { $ref: "#/components/schemas/Problem" }
+          description: The dangerous settings this pool has in effect, if any.
+
+    PoolCreate:
+      type: object
+      required: [name, installation_id, labels, backend]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 64, examples: [linux-x64] }
+        installation_id: { type: string }
+        labels: { type: array, items: { type: string }, minItems: 1 }
+        runner_group: { type: string }
+        backend: { $ref: "#/components/schemas/BackendKind" }
+        image: { type: string }
+        runner_version: { type: string }
+        min_runners: { type: integer, default: 0, minimum: 0 }
+        max_runners: { type: integer, default: 4, minimum: 1 }
+        idle_timeout: { allOf: [{ $ref: "#/components/schemas/Duration" }], default: "5m" }
+        ephemeral: { type: boolean, default: true }
+        docker_mode: { allOf: [{ $ref: "#/components/schemas/DockerMode" }], default: none }
+        resources: { $ref: "#/components/schemas/Resources" }
+        host_selector: { type: object, additionalProperties: { type: string } }
+        env: { type: object, additionalProperties: { type: string } }
+        run_as_root: { type: boolean, default: false }
+        enabled: { type: boolean, default: true }
+
+    PoolUpdate:
+      allOf:
+        - $ref: "#/components/schemas/PoolCreate"
+        - type: object
+          required: []
+
+    # --- runners ----------------------------------------------------------
+    Runner:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        pool_id: { type: string }
+        pool_name: { type: string }
+        host_id: { type: string }
+        host_name: { type: string }
+        state: { $ref: "#/components/schemas/RunnerState" }
+        github_runner_id: { type: integer, format: int64 }
+        container_id: { type: string }
+        ephemeral: { type: boolean }
+        labels: { type: array, items: { type: string } }
+        image: { type: string }
+        runner_version: { type: string }
+        current_job_id: { type: string }
+        current_job: { $ref: "#/components/schemas/Job" }
+        message: { type: string }
+        jobs_handled: { type: integer }
+        cpu_percent: { type: number, format: double }
+        memory_bytes: { type: integer, format: int64 }
+        created_at: { type: string, format: date-time }
+        started_at: { type: [string, "null"], format: date-time }
+        last_idle_at: { type: [string, "null"], format: date-time }
+        finished_at: { type: [string, "null"], format: date-time }
+
+    RunnerDetail:
+      allOf:
+        - $ref: "#/components/schemas/Runner"
+        - type: object
+          properties:
+            host: { $ref: "#/components/schemas/Host" }
+            pool: { $ref: "#/components/schemas/Pool" }
+            timeline: { type: array, items: { $ref: "#/components/schemas/TimelineEntry" } }
+            logs_available: { type: boolean, description: False when the runner's host is unreachable, so the UI can say why rather than showing an empty log. }
+
+    TimelineEntry:
+      type: object
+      properties:
+        state: { $ref: "#/components/schemas/RunnerState" }
+        at: { type: string, format: date-time }
+        duration_ms: { type: integer, format: int64, description: How long the runner stayed in this state. }
+        message: { type: string }
+
+    # --- jobs -------------------------------------------------------------
+    Job:
+      type: object
+      properties:
+        id: { type: string }
+        github_job_id: { type: integer, format: int64 }
+        github_run_id: { type: integer, format: int64 }
+        repo: { type: string }
+        workflow: { type: string }
+        job_name: { type: string }
+        labels: { type: array, items: { type: string } }
+        state: { $ref: "#/components/schemas/JobState" }
+        conclusion: { type: string, examples: [success, failure, cancelled, skipped] }
+        pool_id: { type: string }
+        pool_name: { type: string }
+        runner_id: { type: string }
+        runner_name: { type: string }
+        html_url: { type: string, description: The run on GitHub. }
+        matched: { type: boolean, description: False when no enabled pool claims this job's labels. }
+        queued_at: { type: string, format: date-time }
+        started_at: { type: [string, "null"], format: date-time }
+        completed_at: { type: [string, "null"], format: date-time }
+        queue_wait_ms: { type: integer, format: int64 }
+        duration_ms: { type: integer, format: int64 }
+
+    # --- hosts ------------------------------------------------------------
+    BackendInfo:
+      type: object
+      properties:
+        kind: { $ref: "#/components/schemas/BackendKind" }
+        available: { type: boolean }
+        version: { type: string }
+        rootless: { type: boolean }
+        endpoint: { type: string }
+        detail: { type: string, description: When unavailable, what is wrong and how to fix it. }
+        supports_dind: { type: boolean }
+
+    Host:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        address: { type: string }
+        embedded: { type: boolean, description: True for the agent running inside the controller process. }
+        capacity: { type: integer }
+        active_runners: { type: integer }
+        free: { type: integer }
+        backends: { type: array, items: { type: string } }
+        backend_info: { type: array, items: { $ref: "#/components/schemas/BackendInfo" } }
+        labels: { type: object, additionalProperties: { type: string } }
+        os: { type: string }
+        arch: { type: string }
+        version: { type: string }
+        cordoned: { type: boolean }
+        healthy: { type: boolean }
+        last_heartbeat: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+
+    JoinToken:
+      type: object
+      properties:
+        id: { type: string }
+        prefix: { type: string }
+        created_by: { type: string }
+        capacity: { type: integer }
+        labels: { type: object, additionalProperties: { type: string } }
+        created_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+        used_at: { type: [string, "null"], format: date-time }
+        used_by_id: { type: string }
+        usable: { type: boolean }
+
+    # --- audit and administration ----------------------------------------
+    AuditEvent:
+      type: object
+      properties:
+        id: { type: string }
+        actor_id: { type: string }
+        actor_name: { type: string }
+        actor_kind: { type: string, enum: [user, token, agent, system, webhook] }
+        action: { type: string, examples: ["pool.create", "runner.drain"] }
+        target_kind: { type: string }
+        target_id: { type: string }
+        before: { type: string, description: JSON, with secrets redacted. }
+        after: { type: string }
+        ip: { type: string }
+        created_at: { type: string, format: date-time }
+
+    User:
+      type: object
+      properties:
+        id: { type: string }
+        username: { type: string }
+        email: { type: string }
+        display_name: { type: string }
+        role: { $ref: "#/components/schemas/Role" }
+        oidc_subject: { type: string }
+        disabled: { type: boolean }
+        must_change_password: { type: boolean }
+        created_at: { type: string, format: date-time }
+        last_login_at: { type: [string, "null"], format: date-time }
+
+    Identity:
+      type: object
+      properties:
+        kind: { type: string, enum: [user, token, agent, system] }
+        id: { type: string }
+        name: { type: string }
+        role: { $ref: "#/components/schemas/Role" }
+        scopes: { type: array, items: { type: string } }
+        must_change_password: { type: boolean }
+
+    APIToken:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        role: { $ref: "#/components/schemas/Role" }
+        scopes: { type: array, items: { type: string } }
+        prefix: { type: string }
+        revoked: { type: boolean }
+        created_at: { type: string, format: date-time }
+        expires_at: { type: [string, "null"], format: date-time }
+        last_used_at: { type: [string, "null"], format: date-time }
+
+    Settings:
+      type: object
+      properties:
+        config:
+          type: object
+          additionalProperties: true
+          description: The effective configuration, with every secret blanked.
+        findings:
+          type: array
+          items: { $ref: "#/components/schemas/Problem" }
+        config_path: { type: string }
+        restart_required_keys:
+          type: array
+          items: { type: string }
+          description: Keys that exist but cannot be changed without restarting the process.
+        version: { type: string }
+        database_path: { type: string }
+        event_subscribers: { type: integer }

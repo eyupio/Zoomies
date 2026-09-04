@@ -1,0 +1,61 @@
+# Zoomies on a single host, under Docker Compose.
+#
+# This host has neither systemd nor launchd, so `zoomies init` printed a compose
+# file instead of installing a service. Save it as docker-compose.yml, put the
+# two required values in a .env file beside it, and run:
+#
+#     docker compose up -d
+#
+# .env:
+#     ZOOMIES_EXTERNAL_URL={{.ExternalURL}}
+#     ZOOMIES_ENCRYPTION_KEY=<the key printed during setup -- keep it out of git>
+#
+# The key is deliberately not written here. Anything that can read this file
+# would otherwise be able to decrypt every stored secret.
+
+name: zoomies
+
+services:
+  zoomies:
+    image: {{.Image}}
+    restart: unless-stopped
+    command: ["controller"]
+    environment:
+      ZOOMIES_EXTERNAL_URL: ${ZOOMIES_EXTERNAL_URL:?set this in .env}
+      ZOOMIES_ENCRYPTION_KEY: ${ZOOMIES_ENCRYPTION_KEY:?set this in .env}
+      # Inside the container we bind to all interfaces; the published port below
+      # is what actually controls exposure. Put a TLS-terminating proxy in front.
+      ZOOMIES_BIND: "0.0.0.0:{{.Port}}"
+      ZOOMIES_DB_PATH: /var/lib/zoomies/zoomies.db
+      ZOOMIES_AGENT_EMBEDDED: "{{.Embedded}}"
+      ZOOMIES_AGENT_BACKEND: {{.Backend}}
+      ZOOMIES_DOCKER_HOST: {{.DockerHost}}
+      ZOOMIES_AGENT_CAPACITY: "{{.Capacity}}"
+      ZOOMIES_WORK_DIR: /var/lib/zoomies/work
+      ZOOMIES_LOG_FORMAT: json
+    ports:
+      # Loopback only. Change to "{{.Port}}:{{.Port}}" once something terminates TLS.
+      - "127.0.0.1:{{.Port}}:{{.Port}}"
+    volumes:
+      - zoomies-data:/var/lib/zoomies
+      # Zoomies' own access to the container runtime, which is NOT the same
+      # thing as pool.docker_mode=host-socket handing the socket to your jobs.
+      - {{.SocketPath}}:{{.SocketPath}}
+    group_add:
+      - "{{.DockerGID}}"
+    networks: [zoomies]
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/zoomies", "healthcheck", "--url", "http://127.0.0.1:{{.Port}}"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  zoomies-data:
+
+networks:
+  # Runner containers are attached to this network by the embedded agent, which
+  # keeps them off the host network and off the default bridge.
+  zoomies:
+    name: zoomies

@@ -1,0 +1,38 @@
+# The build context is sent to the daemon in full, so what is not needed here
+# is pure latency. node_modules alone is 250 MB, and copying it over the one
+# `npm ci` just installed would also defeat the layer cache and risk mixing
+# host-platform binaries into a cross-built image.
+.git
+.github
+**/node_modules
+web/dist
+internal/api/webdist
+
+# Build output and local state
+/zoomies
+/dist
+*.test
+coverage.out
+*.db
+*.db-shm
+*.db-wal
+/zoomies.yaml
+/encryption.key
+/.zoomies
+
+# Test and report output
+web/test-results
+web/playwright-report
+web/blob-report
+
+# Documentation and artwork: several megabytes, and the image needs none of it.
+docs
+README.md
+*.md
+!deploy/*.md
+
+# Editors and OS
+.DS_Store
+.idea
+.vscode
+*.swp

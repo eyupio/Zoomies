@@ -1,0 +1,6 @@
+node_modules
+dist
+../internal/api/webdist
+src/lib/api/schema.d.ts
+playwright-report
+test-results

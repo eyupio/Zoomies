@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  GO_VERSION: "1.26"
+  NODE_VERSION: "22"
+
+jobs:
+  binaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.26", cache: true }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: make dist VERSION=${GITHUB_REF_NAME#v}
+      # install.sh verifies the checksum of what it downloads, so this file is
+      # part of the security story, not just a convenience.
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/zoomies_*
+            dist/checksums.txt
+          generate_release_notes: true
+          draft: true
+
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          # github.token rather than secrets.GITHUB_TOKEN: the same value, but
+          # GitHub reserves the GITHUB_ prefix for secret names, so referring to
+          # it this way keeps the workflow clear of that namespace entirely.
+          password: ${{ github.token }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          target: controller
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT=${{ github.sha }}
+          tags: |
+            ghcr.io/eyupio/zoomies:${{ github.ref_name }}
+            ghcr.io/eyupio/zoomies:latest
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile.runner
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/eyupio/zoomies-runner:${{ github.ref_name }}
+            ghcr.io/eyupio/zoomies-runner:latest

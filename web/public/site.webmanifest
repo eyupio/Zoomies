@@ -1,0 +1,22 @@
+{
+  "name": "Zoomies",
+  "short_name": "Zoomies",
+  "description": "Self-hosted GitHub Actions runner fleet controller",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#080808",
+  "theme_color": "#080808",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Runners", "url": "/runners" },
+    { "name": "Jobs", "url": "/jobs" },
+    { "name": "Pools", "url": "/pools" }
+  ]
+}

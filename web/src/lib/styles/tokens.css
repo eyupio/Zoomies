@@ -1,0 +1,321 @@
+/*
+ * Zoomies design tokens.
+ *
+ * This file is the only place a colour, size, radius or duration is defined.
+ * Everything else -- components, Tailwind utilities, hand-written CSS -- reads
+ * from here. See docs/ui-guidelines.md for the reasoning and the measured
+ * contrast ratios, and the brand pack in docs/brand.md for what is fixed.
+ *
+ * The palette comes from the Zoomies brand: near-black, white and cool grey,
+ * with Runner Blue as the interactive accent and Fast Cyan reserved for the one
+ * thing that is actually moving. The logo itself stays monochrome.
+ *
+ * Theming works in three states:
+ *   light                    :root
+ *   dark, by system setting  @media (prefers-color-scheme: dark) on :root:not([data-theme="light"])
+ *   dark, chosen explicitly  :root[data-theme="dark"]
+ * so an explicit choice wins in both directions and "system" needs no attribute.
+ */
+
+:root {
+  /* ---------------------------------------------------------------------
+   * Brand constants. These are the identity and do not change between
+   * themes; the semantic tokens below are derived from them.
+   * ------------------------------------------------------------------ */
+  --z-brand-black: #080808;
+  --z-brand-white: #ffffff;
+  --z-brand-cool-grey: #b9bcc2;
+  --z-brand-mid-grey: #666a73;
+  --z-brand-runner-blue: #2f80ed;
+  --z-brand-fast-cyan: #22d3ee;
+
+  /* ---------------------------------------------------------------------
+   * Neutrals. A cool near-black spine, per the brand palette.
+   * ------------------------------------------------------------------ */
+  --z-bg: #f6f7f9;
+  --z-surface: #ffffff;
+  --z-surface-raised: #ffffff;
+  --z-surface-sunken: #eef0f3;
+  --z-surface-hover: #f1f3f6;
+  --z-border: #e2e5ea;
+  --z-border-strong: #c7cbd3;
+  --z-text: #0b0c0e;
+  --z-text-muted: #5b6069;
+  --z-text-subtle: #6e737c;
+  --z-text-inverse: #f6f7f9;
+
+  /* Brand accent -------------------------------------------------------
+   * Runner Blue at full strength (#2F80ED) is 3.87:1 on white: fine for a
+   * large shape, not fine for 13px text or for white text on a button. The
+   * interactive accent is therefore a darkened Runner Blue at 5.5:1, and the
+   * pure brand blue is kept for illustrative fills where 3:1 is the bar.
+   * ------------------------------------------------------------------ */
+  --z-accent: #1a63d8;
+  --z-accent-hover: #154fb0;
+  --z-accent-active: #113f8e;
+  --z-accent-subtle: #e8f0fd;
+  --z-accent-border: #bcd4f8;
+  --z-accent-contrast: #ffffff;
+
+  /* Status -------------------------------------------------------------
+   * Fixed meanings. Do not reuse these hues for anything else; operators
+   * learn them. Colour is never the only carrier -- see StatusDot. Busy is
+   * Fast Cyan, which is the brand's "used sparingly" accent spent on the one
+   * thing that is actually moving.
+   * ------------------------------------------------------------------ */
+  --z-idle: #177245;
+  --z-idle-subtle: #e3f5ea;
+  --z-idle-border: #b3e0c6;
+
+  --z-busy: #0e7490;
+  --z-busy-subtle: #e0f4f9;
+  --z-busy-border: #a9dced;
+
+  --z-pending: #8a5200;
+  --z-pending-subtle: #fbf0dd;
+  --z-pending-border: #f0d5a3;
+
+  --z-draining: #5e636d;
+  --z-draining-subtle: #edeff2;
+  --z-draining-border: #d3d7de;
+
+  --z-danger: #b32218;
+  --z-danger-hover: #8f1b13;
+  --z-danger-subtle: #fce9e7;
+  --z-danger-border: #f3c2bd;
+  --z-danger-contrast: #ffffff;
+
+  --z-neutral: #6e737c;
+  --z-neutral-subtle: #f0f1f4;
+  --z-neutral-border: #dcdfe5;
+
+  /* Categorical chart ramp, ordered for maximum adjacent separation. */
+  --z-chart-1: #1a63d8;
+  --z-chart-2: #8a5200;
+  --z-chart-3: #177245;
+  --z-chart-4: #0e7490;
+  --z-chart-5: #b32218;
+  --z-chart-6: #5e636d;
+
+  /* Focus ---------------------------------------------------------------- */
+  --z-focus-ring: 0 0 0 2px var(--z-bg), 0 0 0 4px var(--z-accent);
+
+  /* Type ----------------------------------------------------------------
+   * Inter, per the brand. Base is 13px, not 16px: this is a dense operational
+   * tool, and 13px Inter at 450 stays comfortable while fitting a useful
+   * number of runners on screen.
+   * ------------------------------------------------------------------ */
+  --z-font-sans:
+    'InterVariable', 'Inter', 'Geist', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    'Segoe UI', Roboto, sans-serif;
+  --z-font-mono:
+    'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono',
+    monospace;
+
+  --z-text-2xs: 0.6875rem; /* 11px */
+  --z-text-xs: 0.75rem; /* 12px */
+  --z-text-sm: 0.8125rem; /* 13px -- default */
+  --z-text-base: 0.875rem; /* 14px */
+  --z-text-lg: 1rem; /* 16px */
+  --z-text-xl: 1.25rem; /* 20px */
+  --z-text-2xl: 1.75rem; /* 28px */
+  --z-text-3xl: 2.25rem; /* 36px */
+
+  --z-leading-2xs: 1rem;
+  --z-leading-xs: 1.125rem;
+  --z-leading-sm: 1.25rem;
+  --z-leading-base: 1.375rem;
+  --z-leading-lg: 1.5rem;
+  --z-leading-xl: 1.75rem;
+  --z-leading-2xl: 2.125rem;
+  --z-leading-3xl: 2.625rem;
+
+  --z-weight-normal: 450;
+  --z-weight-medium: 500;
+  --z-weight-semibold: 550;
+  --z-weight-bold: 640;
+
+  /* Spacing -- a 4px base, and only these steps exist. ------------------- */
+  --z-space-1: 0.25rem;
+  --z-space-2: 0.5rem;
+  --z-space-3: 0.75rem;
+  --z-space-4: 1rem;
+  --z-space-5: 1.25rem;
+  --z-space-6: 1.5rem;
+  --z-space-8: 2rem;
+  --z-space-10: 2.5rem;
+  --z-space-12: 3rem;
+  --z-space-16: 4rem;
+
+  /* Radii ---------------------------------------------------------------- */
+  --z-radius-sm: 4px;
+  --z-radius-md: 8px;
+  --z-radius-lg: 12px;
+  --z-radius-full: 9999px;
+
+  /* Elevation -- cool-tinted and restrained; in dark mode elevation is
+     carried mostly by surface colour rather than shadow. ------------------ */
+  --z-shadow-sm: 0 1px 2px rgb(8 12 20 / 0.06);
+  --z-shadow-md: 0 4px 12px -2px rgb(8 12 20 / 0.1);
+  --z-shadow-lg: 0 16px 40px -8px rgb(8 12 20 / 0.16);
+
+  /* Motion --------------------------------------------------------------- */
+  --z-motion-fast: 120ms;
+  --z-motion-base: 200ms;
+  --z-motion-slow: 320ms;
+  --z-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* Layout --------------------------------------------------------------- */
+  --z-nav-width: 232px;
+  --z-nav-width-collapsed: 56px;
+  --z-topbar-height: 52px;
+  --z-content-max: 1600px;
+
+  /* The chip the monochrome mark sits on. The brand sanctions the white
+     knockout over dark surfaces, so one asset serves both themes when it is
+     drawn on a near-black chip. */
+  --z-mark-chip: var(--z-brand-black);
+
+  /* Z-index. Named so that "what is on top of what" is answerable. -------- */
+  --z-layer-sticky: 10;
+  --z-layer-nav: 20;
+  --z-layer-dropdown: 40;
+  --z-layer-drawer: 50;
+  --z-layer-dialog: 60;
+  --z-layer-toast: 70;
+  --z-layer-palette: 80;
+
+  color-scheme: light;
+}
+
+/* The dark palette, shared by the system-preference and explicit cases. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --z-bg: #0a0b0d;
+    --z-surface: #131519;
+    --z-surface-raised: #1b1e23;
+    --z-surface-sunken: #050607;
+    --z-surface-hover: #1b1e23;
+    --z-border: #262a31;
+    --z-border-strong: #363b44;
+    --z-text: #f4f5f7;
+    --z-text-muted: #b9bcc2;
+    --z-text-subtle: #868b94;
+    --z-text-inverse: #0b0c0e;
+
+    --z-accent: #78b4ff;
+    --z-accent-hover: #9bc9ff;
+    --z-accent-active: #b6d8ff;
+    --z-accent-subtle: #10203a;
+    --z-accent-border: #1e3a63;
+    --z-accent-contrast: #08131f;
+
+    --z-idle: #5fd68c;
+    --z-idle-subtle: #0d2318;
+    --z-idle-border: #1c4630;
+
+    --z-busy: #3ed8f0;
+    --z-busy-subtle: #082630;
+    --z-busy-border: #12495c;
+
+    --z-pending: #f0b34c;
+    --z-pending-subtle: #2a1f0c;
+    --z-pending-border: #4a3714;
+
+    --z-draining: #a6abb5;
+    --z-draining-subtle: #1a1d22;
+    --z-draining-border: #2e333b;
+
+    --z-danger: #ff9089;
+    --z-danger-hover: #ffaba5;
+    --z-danger-subtle: #2d1310;
+    --z-danger-border: #542520;
+    --z-danger-contrast: #1a0a08;
+
+    --z-neutral: #868b94;
+    --z-neutral-subtle: #16181c;
+    --z-neutral-border: #262a31;
+
+    --z-chart-1: #78b4ff;
+    --z-chart-2: #f0b34c;
+    --z-chart-3: #5fd68c;
+    --z-chart-4: #3ed8f0;
+    --z-chart-5: #ff9089;
+    --z-chart-6: #a6abb5;
+
+    --z-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.5);
+    --z-shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.6);
+    --z-shadow-lg: 0 16px 40px -8px rgb(0 0 0 / 0.7);
+
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme='dark'] {
+  --z-bg: #0a0b0d;
+  --z-surface: #131519;
+  --z-surface-raised: #1b1e23;
+  --z-surface-sunken: #050607;
+  --z-surface-hover: #1b1e23;
+  --z-border: #262a31;
+  --z-border-strong: #363b44;
+  --z-text: #f4f5f7;
+  --z-text-muted: #b9bcc2;
+  --z-text-subtle: #868b94;
+  --z-text-inverse: #0b0c0e;
+
+  --z-accent: #78b4ff;
+  --z-accent-hover: #9bc9ff;
+  --z-accent-active: #b6d8ff;
+  --z-accent-subtle: #10203a;
+  --z-accent-border: #1e3a63;
+  --z-accent-contrast: #08131f;
+
+  --z-idle: #5fd68c;
+  --z-idle-subtle: #0d2318;
+  --z-idle-border: #1c4630;
+
+  --z-busy: #3ed8f0;
+  --z-busy-subtle: #082630;
+  --z-busy-border: #12495c;
+
+  --z-pending: #f0b34c;
+  --z-pending-subtle: #2a1f0c;
+  --z-pending-border: #4a3714;
+
+  --z-draining: #a6abb5;
+  --z-draining-subtle: #1a1d22;
+  --z-draining-border: #2e333b;
+
+  --z-danger: #ff9089;
+  --z-danger-hover: #ffaba5;
+  --z-danger-subtle: #2d1310;
+  --z-danger-border: #542520;
+  --z-danger-contrast: #1a0a08;
+
+  --z-neutral: #868b94;
+  --z-neutral-subtle: #16181c;
+  --z-neutral-border: #262a31;
+
+  --z-chart-1: #78b4ff;
+  --z-chart-2: #f0b34c;
+  --z-chart-3: #5fd68c;
+  --z-chart-4: #3ed8f0;
+  --z-chart-5: #ff9089;
+  --z-chart-6: #a6abb5;
+
+  --z-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.5);
+  --z-shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.6);
+  --z-shadow-lg: 0 16px 40px -8px rgb(0 0 0 / 0.7);
+
+  color-scheme: dark;
+}
+
+/* Motion is decoration. Anyone who has asked for less of it gets none. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --z-motion-fast: 1ms;
+    --z-motion-base: 1ms;
+    --z-motion-slow: 1ms;
+  }
+}

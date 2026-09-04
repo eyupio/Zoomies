@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <meta
+      name="description"
+      content="Zoomies -- self-hosted GitHub Actions runner fleet controller"
+    />
+    <title>Zoomies</title>
+
+    <!-- The mark is a dark-background icon by design, so the browser chrome is
+         told to match it in both themes rather than framing it in white. -->
+    <meta name="theme-color" content="#080808" />
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="icon" href="/favicon-16.png" type="image/png" sizes="16x16" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+
+    <script>
+      // Apply the stored theme before the first paint. Without this the page
+      // flashes light before the app boots, which on a dark-mode dashboard is
+      // genuinely unpleasant. Kept inline and tiny on purpose.
+      (function () {
+        try {
+          var t = localStorage.getItem('zoomies.theme');
+          if (t === 'dark' || t === 'light') {
+            document.documentElement.setAttribute('data-theme', t);
+          }
+          var n = localStorage.getItem('zoomies.nav.collapsed');
+          if (n === '1') document.documentElement.setAttribute('data-nav', 'collapsed');
+        } catch (e) {
+          /* private mode: fall back to the system preference */
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <noscript>
+      <p style="font-family: system-ui, sans-serif; padding: 2rem; max-width: 40rem">
+        Zoomies needs JavaScript. Everything the interface can do is also available from the REST
+        API and the <code>zoomies</code> command-line client, both documented at
+        <a href="https://github.com/eyupio/zoomies">github.com/eyupio/zoomies</a>.
+      </p>
+    </noscript>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
