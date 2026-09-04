@@ -112,9 +112,12 @@ type Agent struct {
 	// runners is what the agent believes about the workloads it started. The
 	// host is the real truth; reconcile.go corrects this map from it.
 	runners map[string]*tracked
-	// inflight keys the tasks currently executing on runner ID, so two tasks
-	// for one runner never run at once.
-	inflight map[string]bool
+	// inflight maps a runner ID to the ID of the task currently executing on
+	// it, so two tasks for one runner never run at once. The task ID is held
+	// rather than a bare flag because the claim is dropped in two places -- as
+	// the result is reported, and again when the task's goroutine exits -- and
+	// by then the next task for that runner may legitimately hold it.
+	inflight map[string]string
 	// orphans records when an unclaimed workload was first seen, which is how
 	// "the controller has not mentioned it in a while" is measured.
 	orphans map[backend.Handle]time.Time
@@ -231,7 +234,7 @@ func New(opts Options) (*Agent, error) {
 		heartbtI: interval,
 		sem:      make(chan struct{}, opts.Capacity),
 		runners:  make(map[string]*tracked),
-		inflight: make(map[string]bool),
+		inflight: make(map[string]string),
 		orphans:  make(map[backend.Handle]time.Time),
 	}
 	a.logs = newLogRelay(opts.Transport, log)
@@ -599,7 +602,7 @@ func (a *Agent) dispatch(ctx context.Context, task Task) {
 		return
 	}
 
-	if !a.claim(task.RunnerID) {
+	if !a.claim(task.RunnerID, task.ID) {
 		// The controller redelivers any task it has not seen a result for, so
 		// a duplicate arriving while the first is still running is expected.
 		// Skipping rather than queueing is what stops two creates for one
@@ -612,7 +615,7 @@ func (a *Agent) dispatch(ctx context.Context, task Task) {
 	a.tasks.Add(1)
 	go func() {
 		defer a.tasks.Done()
-		defer a.release(task.RunnerID)
+		defer a.release(task.RunnerID, task.ID)
 		select {
 		case a.sem <- struct{}{}:
 		case <-ctx.Done():
@@ -860,6 +863,13 @@ func (a *Agent) report(ctx context.Context, res TaskResult) {
 	if res.CompletedAt.IsZero() {
 		res.CompletedAt = a.now()
 	}
+	// The claim on this runner is dropped before the result goes out, not
+	// after the task's goroutine finishes unwinding. Reporting is the moment
+	// the controller learns it may send the next task for this runner -- a
+	// remove straight after a create -- and a task that arrives while the
+	// finished one still holds the claim is skipped as a duplicate and
+	// silently dropped, left waiting on redelivery.
+	a.release(res.RunnerID, res.TaskID)
 	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), reportTimeout)
 	defer cancel()
 	if err := a.tr.ReportResult(rctx, res); err != nil {
@@ -969,19 +979,24 @@ func (a *Agent) adopt(runnerID string, kind store.BackendKind, w backend.Workloa
 	delete(a.orphans, w.Handle)
 }
 
-func (a *Agent) claim(runnerID string) bool {
+func (a *Agent) claim(runnerID, taskID string) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.inflight[runnerID] {
+	if _, held := a.inflight[runnerID]; held {
 		return false
 	}
-	a.inflight[runnerID] = true
+	a.inflight[runnerID] = taskID
 	return true
 }
 
-func (a *Agent) release(runnerID string) {
+// release drops taskID's claim on a runner, and does nothing if the claim has
+// already moved on to another task. Naming the task is what makes releasing
+// twice, or releasing one this task never held, harmless.
+func (a *Agent) release(runnerID, taskID string) {
 	a.mu.Lock()
-	delete(a.inflight, runnerID)
+	if a.inflight[runnerID] == taskID {
+		delete(a.inflight, runnerID)
+	}
 	a.mu.Unlock()
 }
 

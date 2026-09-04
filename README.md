@@ -12,6 +12,7 @@ multi-host agents, a live web UI, and a one-line installer.
 
 Single Go binary. SQLite. No Kubernetes.
 
+[zoomies.sh](https://zoomies.sh) ·
 [Quick start](#quick-start) ·
 [How it works](docs/architecture.md) ·
 [Security](docs/security.md) ·
@@ -269,7 +270,22 @@ internal/agent      the runner-executing half
 internal/installer  zoomies init / uninstall / agent join
 web/                the Svelte 5 UI
 deploy/             images, compose, systemd units
-docs/               architecture, security, UI guidelines, configuration, brand
+docs/               the zoomies.sh site: architecture, security, UI guidelines,
+                    configuration, brand
+mkdocs.yml          how docs/ becomes zoomies.sh
+```
+
+## The website
+
+[zoomies.sh](https://zoomies.sh) is built from `docs/` by MkDocs, so the site
+cannot drift from the repository, and `install.sh` is copied to the site root
+from the one in this repository's root -- the script you `curl` and the script a
+contributor edits are the same file, and CI asserts they are byte-identical.
+
+```sh
+pip install -r docs/requirements.txt
+mkdocs serve          # http://127.0.0.1:8000
+mkdocs build --strict # a link that points nowhere fails the build
 ```
 
 ## Contributing

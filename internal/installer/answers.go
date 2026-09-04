@@ -19,6 +19,14 @@ import (
 type Answers struct {
 	// Mode is single, controller or agent.
 	Mode string `yaml:"mode"`
+	// Deployment is native, compose or docker: how this host runs Zoomies,
+	// which is a separate question from what it runs.
+	Deployment string `yaml:"deployment"`
+	// DeploymentDir is where a compose or docker deployment writes its
+	// docker-compose.yml and its environment file.
+	DeploymentDir string `yaml:"deployment_dir"`
+	// Image is the container image those deployments run.
+	Image string `yaml:"image"`
 	// ServiceUser is the unprivileged account the service runs as.
 	ServiceUser string `yaml:"service_user"`
 	ConfigDir   string `yaml:"config_dir"`
@@ -134,6 +142,7 @@ func (a *Answers) Path() string {
 
 func (a *Answers) normalize() {
 	a.Mode = strings.ToLower(strings.TrimSpace(a.Mode))
+	a.Deployment = strings.ToLower(strings.TrimSpace(a.Deployment))
 	a.Backend = strings.ToLower(strings.TrimSpace(a.Backend))
 	a.TLS.Mode = strings.ToLower(strings.TrimSpace(a.TLS.Mode))
 	a.Service.Manager = strings.ToLower(strings.TrimSpace(a.Service.Manager))
@@ -183,10 +192,14 @@ func (a *Answers) Missing(mode Mode) []MissingAnswer {
 
 	need(a.ExternalURL != "", "external_url",
 		"the URL GitHub and your browser reach this controller on; it forms the webhook URL")
-	need(a.Admin.Username != "", "admin.username",
-		"the first administrator's login name")
-	need(a.Admin.Password != "" || a.Admin.PasswordFile != "", "admin.password",
-		"the first administrator's password, or admin.password_file to keep it out of this file")
+	// A container's database lives in a volume the installer never opens, so
+	// its first administrator is created in the browser rather than here.
+	if !Deployment(a.Deployment).Containerised() {
+		need(a.Admin.Username != "", "admin.username",
+			"the first administrator's login name")
+		need(a.Admin.Password != "" || a.Admin.PasswordFile != "", "admin.password",
+			"the first administrator's password, or admin.password_file to keep it out of this file")
+	}
 
 	if !a.GitHub.Skip {
 		need(a.GitHub.Target != "", "github.target",
@@ -306,6 +319,25 @@ const exampleAnswers = `# zoomies answer file
 # agent      -- this host only runs runners
 mode: single
 
+# How this host runs Zoomies. Orthogonal to mode: any of them can be
+# containerised.
+#
+# native   -- the binary under systemd or launchd. Leanest, starts fastest,
+#             and needs no container runtime for the controller itself.
+# compose  -- a docker-compose.yml and a fully populated .env, brought up with
+#             "docker compose up -d". Easiest to upgrade and to move.
+# docker   -- a single container from an env file. Fewest files, but you own
+#             the run command.
+#
+# Omitted, it takes compose when this host has a compose command and native
+# otherwise. A compose or docker deployment creates its first administrator in
+# the browser, so admin.username and admin.password below are then unused.
+deployment: compose
+# Where docker-compose.yml and the .env are written. Defaults to config_dir.
+# deployment_dir: /etc/zoomies
+# The image those deployments run. Pin a release tag to choose when to upgrade.
+# image: ghcr.io/eyupio/zoomies:latest
+
 # The unprivileged account the service runs as. Created when init runs as root.
 service_user: zoomies
 # config_dir: /etc/zoomies
@@ -368,6 +400,7 @@ admin:
   password: ""
   # password_file: /run/secrets/zoomies-admin-password
 
+# Only for deployment: native.
 service:
   # systemd | launchd | compose | none. Detected when omitted.
   manager: systemd

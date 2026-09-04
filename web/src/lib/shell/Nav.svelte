@@ -209,9 +209,26 @@
       height: var(--z-space-12);
       padding: 0 var(--z-space-1);
     }
-    .label,
     kbd {
       display: none;
+    }
+    /*
+      Eight labels do not fit across a phone, but `display: none` would take
+      each entry's accessible name with them and a screen reader would
+      announce eight links called "link". Hidden the way the collapsed desktop
+      nav hides its own labels instead: off the screen, still in the
+      accessibility tree.
+    */
+    .label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+      border-width: 0;
     }
   }
 </style>

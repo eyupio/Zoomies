@@ -171,7 +171,7 @@
       iconAfter={triggerIcon}
       class="trigger"
     >
-      {triggerLabel}
+      <span class="trigger-label">{triggerLabel}</span>
     </Button>
   {:else}
     <IconButton

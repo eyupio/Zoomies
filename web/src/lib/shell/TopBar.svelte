@@ -134,16 +134,29 @@
     background: color-mix(in srgb, var(--z-bg) 88%, transparent);
     backdrop-filter: blur(8px);
   }
+  .title {
+    /*
+      The bar must never be wider than the window: on a phone that is the
+      difference between a page that fits and a page the browser zooms out to
+      fit, whose controls are then too small to press. The title is the part
+      that gives way, because the h1 below it says the same thing.
+    */
+    min-width: 0;
+  }
   .page {
     margin: 0;
     font-size: var(--z-text-base);
     font-weight: var(--z-weight-semibold);
     color: var(--z-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .right {
     display: flex;
     align-items: center;
     gap: var(--z-space-2);
+    flex: none;
   }
   .connection {
     display: inline-flex;
@@ -224,6 +237,14 @@
   @media (max-width: 768px) {
     .topbar {
       padding: 0 var(--z-space-3);
+    }
+    /*
+      "Authentication disabled" -- or any long display name -- is 175px of a
+      412px phone. The trigger keeps its accessible name ("Account menu") and
+      its icon; only the word beside the icon goes.
+    */
+    .right :global(.trigger-label) {
+      display: none;
     }
   }
 </style>

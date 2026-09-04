@@ -1,0 +1,121 @@
+# The zoomies.sh site.
+#
+# It publishes the docs that already live in docs/ rather than a second copy of
+# them, so the website cannot drift from the repository. install.sh is copied to
+# the site root by the deploy workflow, again from the one in the repository
+# root, so `curl -fsSL https://zoomies.sh/install.sh | sh` and the file a
+# contributor edits are the same file.
+
+site_name: Zoomies
+site_url: https://zoomies.sh/
+site_description: >-
+  A lightweight, self-hosted GitHub Actions runner fleet controller. Ephemeral
+  runners by default, GitHub App auth, webhook-driven autoscaling, multi-host
+  agents, a live web UI, and a one-line installer.
+site_author: Zoomies contributors
+copyright: Zoomies is MIT licensed.
+
+repo_url: https://github.com/eyupio/zoomies
+repo_name: eyupio/zoomies
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  language: en
+  favicon: brand/favicon.ico
+  logo: brand/mark-white-transparent.png
+  icon:
+    repo: fontawesome/brands/github
+  font:
+    text: Inter
+    code: JetBrains Mono
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - content.action.edit
+  palette:
+    # The brand is a near-black identity, so dark is the default and light is
+    # the alternative rather than the other way round.
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark
+
+extra_css:
+  - stylesheets/zoomies.css
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      permalink_title: Link to this section
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+plugins:
+  - search
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/eyupio/zoomies
+      name: Zoomies on GitHub
+  generator: false
+
+nav:
+  - Home: index.md
+  - Quick start: quickstart.md
+  - Guide:
+      - Architecture: architecture.md
+      - Configuration: configuration.md
+      - Security: security.md
+      - API: api-surface.md
+  - Reference:
+      - Dependencies: dependencies.md
+      - UI guidelines: ui-guidelines.md
+      - Brand: brand.md
+
+# A link in the docs that points nowhere is a broken promise, so a broken one
+# fails the build rather than shipping.
+strict: true
+validation:
+  links:
+    absolute_links: ignore
+    unrecognized_links: warn

@@ -27,3 +27,6 @@ coverage.out
 .idea/
 .vscode/
 *.swp
+
+# The built website (mkdocs build)
+/site/
