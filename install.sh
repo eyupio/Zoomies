@@ -197,6 +197,10 @@ detect_runtime() {
     RUNTIME="none"
     RUNTIME_SOCKET=""
     RUNTIME_ROOTLESS=0
+    # A socket that is there and refuses this user is a different fault from a
+    # daemon that is not running, and has a different fix. Keeping the first one
+    # found means the summary can say which.
+    RUNTIME_DENIED=""
 
     uid=$(id -u)
     xdg="${XDG_RUNTIME_DIR:-/run/user/$uid}"
@@ -219,6 +223,7 @@ detect_runtime() {
             esac
             return
         fi
+        [ -n "$RUNTIME_DENIED" ] || RUNTIME_DENIED="$candidate"
     done
 
     for candidate in \
@@ -460,8 +465,22 @@ case "$RUNTIME" in
         fi
         ;;
     docker-unavailable)
-        note "runtime     docker is installed but its socket is not reachable"
-        note "            try: sudo systemctl start docker  (or start rootless: systemctl --user start docker)"
+        if [ -n "$RUNTIME_DENIED" ]; then
+            # The socket is there and this user may not open it. Naming the
+            # group that owns it turns the fix into one command, and setup will
+            # put the service account in that group for you.
+            # GNU stat and BSD stat spell this differently, and the fix has to
+            # name a real group on both.
+            denied_group=$(stat -c '%G' "$RUNTIME_DENIED" 2>/dev/null \
+                || stat -f '%Sg' "$RUNTIME_DENIED" 2>/dev/null \
+                || echo docker)
+            note "runtime     docker is running but $RUNTIME_DENIED is not usable by $(id -un)"
+            note "            it is owned by group $denied_group; setup adds the service account to that group,"
+            note "            and for your own shell: sudo usermod -aG $denied_group $(id -un), then log in again"
+        else
+            note "runtime     docker is installed but its socket is not reachable"
+            note "            try: sudo systemctl start docker  (or start rootless: systemctl --user start docker)"
+        fi
         ;;
     podman-unavailable)
         note "runtime     podman is installed but its API socket is not running"

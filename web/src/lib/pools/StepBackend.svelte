@@ -6,15 +6,23 @@
   cannot be left selected without a deliberate confirmation.
 -->
 <script lang="ts">
-  import { ShieldAlert } from '@lucide/svelte';
+  import { ServerOff, ShieldAlert } from '@lucide/svelte';
   import type { BackendKind, DockerMode } from '$lib/api/types';
   import { pluralise } from '$lib/format';
+  import Button from '$lib/components/Button.svelte';
+  import RemedyText from '$lib/components/RemedyText.svelte';
   import Checkbox from '$lib/components/Checkbox.svelte';
   import Field from '$lib/components/Field.svelte';
   import Input from '$lib/components/Input.svelte';
   import RadioGroup from '$lib/components/RadioGroup.svelte';
-  import { BACKENDS, DOCKER_MODES } from './PoolVocabulary.svelte';
-  import type { BackendOffer, PoolDraft } from './PoolWizardForm.svelte';
+  import {
+    BACKENDS,
+    DOCKER_MODES,
+    backendLabel,
+    backendUnavailable,
+  } from './PoolVocabulary.svelte';
+  import type { BackendOffer } from './PoolVocabulary.svelte';
+  import type { PoolDraft } from './PoolWizardForm.svelte';
 
   interface Props {
     draft: PoolDraft;
@@ -61,6 +69,13 @@
 
   const dindHosts = $derived(offer(draft.backend)?.dindHosts ?? 0);
 
+  // Why this pool could not run as chosen, in the same sentence that stops the
+  // wizard advancing, plus the backends it could move to.
+  const unavailable = $derived(backendUnavailable(draft.backend, offers, hostsKnown));
+  const runnable = $derived(
+    offers.filter((entry) => entry.kind !== draft.backend && entry.hosts > 0),
+  );
+
   const dockerOptions = $derived(
     DOCKER_MODES.map((choice) => {
       let description = choice.consequence;
@@ -94,6 +109,29 @@
   options={backendOptions}
   onchange={chooseBackend}
 />
+
+{#if unavailable}
+  <!--
+    A pool no host can run is the failure that looks like health: it is enabled,
+    its labels match, and it never makes a runner. The wizard will not create
+    one while the fleet has something else to offer, so this says what is wrong
+    and changes it in one click rather than leaving the operator to guess.
+  -->
+  <div class="unrunnable" role="group" aria-labelledby="backend-unrunnable">
+    <p class="unrunnable-title" id="backend-unrunnable">
+      <ServerOff size={16} aria-hidden="true" />
+      No connected host can run a {backendLabel(draft.backend)} pool
+    </p>
+    <p class="unrunnable-body"><RemedyText text={unavailable} /></p>
+    <div class="unrunnable-actions">
+      {#each runnable as entry (entry.kind)}
+        <Button size="sm" onclick={() => chooseBackend(entry.kind)}>
+          Use {backendLabel(entry.kind)} ({pluralise(entry.hosts, 'host')})
+        </Button>
+      {/each}
+    </div>
+  </div>
+{/if}
 
 {#if usesImage}
   <Field
@@ -176,6 +214,37 @@
 />
 
 <style>
+  .unrunnable {
+    margin-top: var(--z-space-4);
+    padding: var(--z-space-4);
+    border: 1px solid var(--z-danger-border, var(--z-border));
+    border-left: 3px solid var(--z-danger);
+    border-radius: var(--z-radius-md);
+    background: var(--z-danger-subtle);
+  }
+  .unrunnable-title {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-2);
+    margin: 0;
+    font-size: var(--z-text-base);
+    font-weight: var(--z-weight-semibold);
+    color: var(--z-text);
+  }
+  .unrunnable-body {
+    margin: var(--z-space-2) 0 0;
+    max-width: 70ch;
+    font-size: var(--z-text-sm);
+    line-height: var(--z-leading-sm);
+    color: var(--z-text-muted);
+  }
+  .unrunnable-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--z-space-2);
+    margin-top: var(--z-space-3);
+  }
+
   .docker {
     display: flex;
     flex-direction: column;

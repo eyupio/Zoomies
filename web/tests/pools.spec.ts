@@ -199,31 +199,40 @@ test('the review step shows the server verdict and how many hosts could run it',
   );
 });
 
-test('the review step names a backend the hosts do offer when this one has none', async ({
-  page,
-}) => {
+test('a backend no host offers stops the wizard and offers one that does', async ({ page }) => {
   // The seeded hosts run Docker and probe Podman as absent, so a Podman pool is
   // the shape an operator actually gets stuck in: everything connected, nothing
-  // able to run the pool. "Point this pool at a backend they already offer" is
-  // only a fix if the wizard says which backend that is.
+  // able to run the pool. It would be enabled, its labels would match, and it
+  // would never make a runner -- so the wizard refuses to create it while the
+  // fleet has something else to offer.
   await goto(page, '/pools/new', 'Create a pool');
   await nameField(page).fill('e2e-podman');
   await next(page).click();
   await addLabel(page, 'gpu');
   await next(page).click();
-  await radio(page, 'backend', 'podman').check();
-  await next(page).click();
-  await next(page).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Backend' })).toBeVisible();
+  await expect(next(page)).toBeEnabled();
 
-  const verdict = page.getByRole('region', { name: "The controller's check" });
-  await expect(verdict).toContainText('No connected host can run this pool', { timeout: 15_000 });
-  // Either the hosts are still heartbeating, and the fix names Docker as the
-  // way out; or the fixture's 90 seconds are up and they are unhealthy, which
-  // is a different problem with a different fix. Both are correct answers, and
-  // the wizard must never claim an alternative that is not there.
-  await expect(verdict).toContainText(
-    /point this pool at docker, which they already offer|add a host with that backend/,
-  );
+  await radio(page, 'backend', 'podman').check();
+  const stuck = page.getByRole('group', { name: 'No connected host can run a Podman pool' });
+  await expect(stuck).toBeVisible();
+  await expect(stuck).toContainText('No connected host offers Podman');
+  // Named, with the count, rather than left as an exercise.
+  await expect(stuck).toContainText(/Choose Docker \(\d+ hosts?\)/);
+  await expect(next(page)).toBeDisabled();
+
+  // The agent's own sentence comes through with its command as something to
+  // copy rather than retype.
+  await expect(stuck.getByText('systemctl --user enable --now podman.socket')).toBeVisible();
+  await expect(
+    stuck.getByRole('button', { name: /Copy the command systemctl --user enable/ }),
+  ).toBeVisible();
+
+  // And changed from here, without hunting back through the radio group.
+  await stuck.getByRole('button', { name: /^Use Docker/ }).click();
+  await expect(radio(page, 'backend', 'docker')).toBeChecked();
+  await expect(stuck).toBeHidden();
+  await expect(next(page)).toBeEnabled();
 });
 
 test('going back a step does not lose what was typed', async ({ page }) => {

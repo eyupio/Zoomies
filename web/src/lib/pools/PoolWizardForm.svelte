@@ -2,7 +2,6 @@
   import type {
     BackendKind,
     DockerMode,
-    Host,
     Installation,
     Pool,
     PoolCreate,
@@ -10,7 +9,14 @@
     RunnerGroup,
   } from '$lib/api/types';
   import { parseGoDuration } from '$lib/format';
-  import { STEP_FIELDS, WIZARD_STEPS, stepForField } from './PoolVocabulary.svelte';
+  import {
+    backendOffers,
+    backendUnavailable,
+    STEP_FIELDS,
+    WIZARD_STEPS,
+    stepForField,
+  } from './PoolVocabulary.svelte';
+  import type { BackendOffer } from './PoolVocabulary.svelte';
 
   /**
    * What the wizard is editing.
@@ -154,7 +160,12 @@
    * the same things and more; these exist so the operator finds out while they
    * are still typing rather than at the end.
    */
-  export function draftErrors(draft: PoolDraft, socketConfirmed: boolean): Record<string, string> {
+  export function draftErrors(
+    draft: PoolDraft,
+    socketConfirmed: boolean,
+    offers: readonly BackendOffer[] = [],
+    hostsKnown = false,
+  ): Record<string, string> {
     const errors: Record<string, string> = {};
     const name = draft.name.trim();
     if (name === '') errors['name'] = 'Give the pool a name so it can be told apart in the fleet.';
@@ -202,37 +213,10 @@
       errors['docker_mode'] =
         'Confirm that you understand what mounting the host socket gives every job on this pool.';
 
+    const unrunnable = backendUnavailable(draft.backend, offers, hostsKnown);
+    if (unrunnable) errors['backend'] = unrunnable;
+
     return errors;
-  }
-
-  /** What the fleet can actually run right now, counted from the connected hosts. */
-  export interface BackendOffer {
-    kind: BackendKind;
-    /** Hosts where this backend is available. */
-    hosts: number;
-    /** Hosts where Docker in Docker is possible. */
-    dindHosts: number;
-    /** The first host's explanation of why it is unavailable, when there is one. */
-    detail?: string;
-  }
-
-  export function backendOffers(hosts: readonly Host[]): BackendOffer[] {
-    const kinds: BackendKind[] = ['docker', 'podman', 'process'];
-    return kinds.map((kind) => {
-      let available = 0;
-      let dind = 0;
-      let detail: string | undefined;
-      for (const host of hosts) {
-        const info = (host.backend_info ?? []).find((entry) => entry.kind === kind);
-        const listed = info?.available === true || (host.backends ?? []).includes(kind);
-        if (listed) available += 1;
-        if (listed && info?.supports_dind === true) dind += 1;
-        if (!listed && detail === undefined && info?.detail) detail = info.detail;
-      }
-      const offer: BackendOffer = { kind, hosts: available, dindHosts: dind };
-      if (detail !== undefined) offer.detail = detail;
-      return offer;
-    });
   }
 </script>
 
@@ -300,9 +284,9 @@
   let validateError = $state<unknown>(null);
 
   const reviewStep = WIZARD_STEPS.length - 1;
-  const clientErrors = $derived(draftErrors(draft, socketConfirmed));
-  const body = $derived(toPoolBody(draft));
   const offers = $derived(backendOffers(fleet.hosts));
+  const clientErrors = $derived(draftErrors(draft, socketConfirmed, offers, fleet.loaded));
+  const body = $derived(toPoolBody(draft));
 
   /** Client rules show once a field has been left; server rules show at once. */
   const errors = $derived.by(() => {

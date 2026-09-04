@@ -11,6 +11,7 @@
   import type { Problem } from '$lib/api/types';
   import { severityStatus } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
+  import RemedyText from '$lib/components/RemedyText.svelte';
 
   interface Props {
     warnings?: readonly Problem[];
@@ -51,9 +52,13 @@
             <Badge {status} size="sm" />
             <p class="title">{warning.title}</p>
           </div>
-          {#if warning.detail}<p class="detail">{warning.detail}</p>{/if}
+          {#if warning.detail}
+            <p class="detail"><RemedyText text={warning.detail} /></p>
+          {/if}
           {#if warning.fix}
-            <p class="fix"><span class="fix-label">Fix</span>{warning.fix}</p>
+            <p class="fix">
+              <span class="fix-label">Fix</span><RemedyText text={warning.fix} />
+            </p>
           {/if}
           {#if warning.setting}
             <p class="setting"><code>{warning.setting}</code></p>

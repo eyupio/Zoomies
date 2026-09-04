@@ -15,6 +15,7 @@
   import ErrorState from '$lib/components/ErrorState.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import PoolConfig from './PoolConfig.svelte';
+  import RemedyText from '$lib/components/RemedyText.svelte';
   import PoolWarnings from './PoolWarnings.svelte';
   import { FIELD_LABELS, WIZARD_STEPS, stepForField } from './PoolVocabulary.svelte';
   import type { PoolDraft } from './PoolWizardForm.svelte';
@@ -94,12 +95,12 @@
             your hosts offers, or connect a host that does, before you rely on it.
           </p>
           {#if noHost?.detail}
-            <p class="hosts-body">{noHost.detail}</p>
+            <p class="hosts-body"><RemedyText text={noHost.detail} /></p>
           {/if}
           {#if noHost?.fix}
             <p class="hosts-fix">
               <Wrench size={13} aria-hidden="true" />
-              <span>{noHost.fix}</span>
+              <span><RemedyText text={noHost.fix} /></span>
             </p>
           {/if}
         {:else}

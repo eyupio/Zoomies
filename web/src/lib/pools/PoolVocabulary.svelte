@@ -10,7 +10,8 @@
   wizard back.
 -->
 <script module lang="ts">
-  import type { BackendKind, DockerMode } from '$lib/api/types';
+  import type { BackendKind, DockerMode, Host } from '$lib/api/types';
+  import { pluralise } from '$lib/format';
 
   export interface Choice<T> {
     value: T;
@@ -63,6 +64,63 @@
 
   export function dockerModeLabel(mode: DockerMode | undefined): string {
     return DOCKER_MODES.find((m) => m.value === (mode ?? 'none'))?.label ?? 'None';
+  }
+
+  /** What the fleet can actually run right now, counted from the connected hosts. */
+  export interface BackendOffer {
+    kind: BackendKind;
+    /** Hosts where this backend is available. */
+    hosts: number;
+    /** Hosts where Docker in Docker is possible. */
+    dindHosts: number;
+    /** The first host's explanation of why it is unavailable, when there is one. */
+    detail?: string;
+  }
+
+  export function backendOffers(hosts: readonly Host[]): BackendOffer[] {
+    const kinds: BackendKind[] = ['docker', 'podman', 'process'];
+    return kinds.map((kind) => {
+      let available = 0;
+      let dind = 0;
+      let detail: string | undefined;
+      for (const host of hosts) {
+        const info = (host.backend_info ?? []).find((entry) => entry.kind === kind);
+        const listed = info?.available === true || (host.backends ?? []).includes(kind);
+        if (listed) available += 1;
+        if (listed && info?.supports_dind === true) dind += 1;
+        if (!listed && detail === undefined && info?.detail) detail = info.detail;
+      }
+      const offer: BackendOffer = { kind, hosts: available, dindHosts: dind };
+      if (detail !== undefined) offer.detail = detail;
+      return offer;
+    });
+  }
+
+  /**
+   * Why this backend cannot be chosen, or "" when it can.
+   *
+   * A pool whose backend no host offers never makes a runner and looks perfectly
+   * healthy doing it, so the wizard refuses to create one while the fleet has
+   * something else to offer. The escape hatch is deliberate: when nothing is
+   * connected, or nothing is offering anything, there is no better answer to
+   * insist on and the pool is allowed through with a warning -- which is how the
+   * first pool gets created before the first agent joins.
+   */
+  export function backendUnavailable(
+    backend: BackendKind,
+    offers: readonly BackendOffer[],
+    hostsKnown: boolean,
+  ): string {
+    if (!hostsKnown) return '';
+    const chosen = offers.find((offer) => offer.kind === backend);
+    if (!chosen || chosen.hosts > 0) return '';
+    const others = offers.filter((offer) => offer.kind !== backend && offer.hosts > 0);
+    if (others.length === 0) return '';
+    const alternatives = others
+      .map((offer) => `${backendLabel(offer.kind)} (${pluralise(offer.hosts, 'host')})`)
+      .join(' or ');
+    const because = chosen.detail ? ` ${chosen.detail}` : '';
+    return `No connected host offers ${backendLabel(backend)}, so this pool would never start a runner.${because} Choose ${alternatives}, or make ${backendLabel(backend)} work on a host first.`;
   }
 
   /* -- the creation wizard ------------------------------------------------- */

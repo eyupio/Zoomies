@@ -59,8 +59,10 @@ type ComposeFileSpec struct {
 	// agent needs in order to create runner containers.
 	MountSocket bool
 	SocketPath  string
-	// GroupAdd adds the host's docker group. A rootless socket needs no group,
-	// so the line is left out rather than written with a meaningless gid.
+	// GroupAdd adds the group that owns the host's socket -- the docker group
+	// for a root daemon, the user's own group for a rootless one. It is left out
+	// rather than written with a meaningless gid when the socket could not be
+	// read at all.
 	GroupAdd bool
 	// TLSCertFile and TLSKeyFile are mounted read-only at the same paths they
 	// have on the host, which is why the environment file can name them

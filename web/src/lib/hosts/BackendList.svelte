@@ -10,6 +10,7 @@
 <script lang="ts">
   import { Check, X } from '@lucide/svelte';
   import type { BackendInfo } from '$lib/api/types';
+  import RemedyText from '$lib/components/RemedyText.svelte';
 
   interface Props {
     backends?: readonly BackendInfo[];
@@ -54,7 +55,7 @@
             <span class="endpoint mono">{backend.endpoint}</span>
           {/if}
           {#if !available && backend.detail}
-            <span class="detail">{backend.detail}</span>
+            <span class="detail"><RemedyText text={backend.detail} /></span>
           {/if}
         </span>
       </li>

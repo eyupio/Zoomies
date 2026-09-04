@@ -277,7 +277,9 @@ Empty autodetects, **preferring a rootless socket**, in this order:
 4. `~/.docker/run/docker.sock` (Docker Desktop on macOS)
 5. `/var/run/docker.sock`
 
-A socket that exists but cannot be opened is diagnosed rather than guessed at:
+The group a service account must join to reach a root socket is read from the
+socket itself, not from the name `docker`. A socket that exists but cannot be
+opened is diagnosed rather than guessed at:
 the agent reports the account it runs as, the group that owns the socket, and
 whether that account is already a member. If it is, the fix is a restart of the
 agent and not another `usermod` -- supplementary groups are fixed when a process
