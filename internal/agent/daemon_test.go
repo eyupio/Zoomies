@@ -268,6 +268,60 @@ func TestRemoveTaskRemovesWorkload(t *testing.T) {
 	}
 }
 
+func TestRunnerIsClaimableAgainAsSoonAsItsResultIsReported(t *testing.T) {
+	// A controller sends the next task for a runner the moment it sees the
+	// last one's result -- a remove straight after a create is the ordinary
+	// case. The agent skips a task for a runner that already has one in
+	// flight, and skipping is silent, so if the finished task still held its
+	// claim when the result went out, that next task would be dropped and left
+	// waiting on redelivery. Nothing in the test suite could see the window:
+	// it is only as wide as a goroutine takes to unwind its defers, which is
+	// why this asks the question from inside the report itself.
+	h := newHarness(t, 1)
+
+	claimable := make(chan bool, 4)
+	h.tr.mu.Lock()
+	h.tr.onResult = func(res TaskResult) {
+		if res.RunnerID == "" {
+			return
+		}
+		// What the controller's next task would find.
+		got := h.agent.claim(res.RunnerID, "next-task")
+		if got {
+			h.agent.release(res.RunnerID, "next-task")
+		}
+		claimable <- got
+	}
+	h.tr.mu.Unlock()
+
+	h.tr.tasks <- []Task{createTask("task-1", "runner-1")}
+	if res := h.nextResult(); !res.OK {
+		t.Fatalf("create failed: %+v", res)
+	}
+	select {
+	case free := <-claimable:
+		if !free {
+			t.Fatal("runner-1 was still claimed by the create when its result was reported, so the controller's next task for it would have been skipped")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the result was never reported")
+	}
+
+	// And the create's own goroutine, unwinding afterwards, must not release a
+	// claim that by then belongs to somebody else.
+	if !h.agent.claim("runner-1", "task-2") {
+		t.Fatal("runner-1 could not be claimed after the create finished")
+	}
+	time.Sleep(50 * time.Millisecond)
+	h.agent.mu.Lock()
+	holder := h.agent.inflight["runner-1"]
+	h.agent.mu.Unlock()
+	if holder != "task-2" {
+		t.Fatalf("claim on runner-1 is held by %q, want task-2: the finished task released a claim it no longer owned", holder)
+	}
+	h.agent.release("runner-1", "task-2")
+}
+
 func TestStopTaskUsesTheTaskTimeout(t *testing.T) {
 	h := newHarness(t, 1)
 	h.tr.tasks <- []Task{createTask("task-1", "runner-1")}

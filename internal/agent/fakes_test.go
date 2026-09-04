@@ -188,6 +188,10 @@ type fakeTransport struct {
 	openErr   error
 	writeHold time.Duration
 	polls     int
+	// onResult stands in for a controller that acts on a result the instant it
+	// arrives, which is the only way to observe what the agent's state looks
+	// like at the moment it publishes one.
+	onResult func(TaskResult)
 }
 
 func newFakeTransport() *fakeTransport {
@@ -244,6 +248,12 @@ func (f *fakeTransport) PollTasks(ctx context.Context, wait time.Duration) (*Tas
 }
 
 func (f *fakeTransport) ReportResult(_ context.Context, res TaskResult) error {
+	f.mu.Lock()
+	hook := f.onResult
+	f.mu.Unlock()
+	if hook != nil {
+		hook(res)
+	}
 	select {
 	case f.results <- res:
 	default:
