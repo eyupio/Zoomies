@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Written by zoomies. macOS is supported for a development controller;
+     production fleets run on Linux under systemd. -->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>{{.Label}}</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>{{.ExecPath}}</string>
+		<string>{{.Command}}</string>
+		<string>--config</string>
+		<string>{{.ConfigFile}}</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+	<key>WorkingDirectory</key>
+	<string>{{.StateDir}}</string>
+	<key>StandardOutPath</key>
+	<string>{{.LogFile}}</string>
+	<key>StandardErrorPath</key>
+	<string>{{.LogFile}}</string>
+	<key>ProcessType</key>
+	<string>Background</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>HOME</key>
+		<string>{{.Home}}</string>
+{{- if .Path}}
+		<key>PATH</key>
+		<string>{{.Path}}</string>
+{{- end}}
+	</dict>
+</dict>
+</plist>
