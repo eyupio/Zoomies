@@ -106,11 +106,11 @@
    * number of runners on screen.
    * ------------------------------------------------------------------ */
   --z-font-sans:
-    'InterVariable', 'Inter', 'Geist', ui-sans-serif, system-ui, -apple-system,
-    BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    'InterVariable', 'Inter', 'Geist', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    'Segoe UI', Roboto, sans-serif;
   --z-font-mono:
-    'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas,
-    'Liberation Mono', monospace;
+    'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono',
+    monospace;
 
   --z-text-2xs: 0.6875rem; /* 11px */
   --z-text-xs: 0.75rem; /* 12px */

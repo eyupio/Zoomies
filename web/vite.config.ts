@@ -22,7 +22,11 @@ function shellBudget(): Plugin {
       const rows: Array<[string, number]> = [];
       for (const [name, chunk] of Object.entries(bundle)) {
         const source =
-          chunk.type === 'chunk' ? chunk.code : typeof chunk.source === 'string' ? chunk.source : '';
+          chunk.type === 'chunk'
+            ? chunk.code
+            : typeof chunk.source === 'string'
+              ? chunk.source
+              : '';
         if (!source) continue;
         const size = gzipSync(Buffer.from(source)).length;
         // The entry chunk and every CSS file are the shell; everything else is
@@ -33,7 +37,9 @@ function shellBudget(): Plugin {
       }
       rows.sort((a, b) => b[1] - a[1]);
       const kb = (n: number) => `${(n / 1024).toFixed(1)} KB`;
-      this.info(`gzipped sizes:\n${rows.map(([n, s]) => `  ${kb(s).padStart(9)}  ${n}`).join('\n')}`);
+      this.info(
+        `gzipped sizes:\n${rows.map(([n, s]) => `  ${kb(s).padStart(9)}  ${n}`).join('\n')}`,
+      );
       this.info(`app shell: ${kb(shell)} of ${kb(SHELL_BUDGET)} budget`);
       if (shell > SHELL_BUDGET) {
         this.error(
