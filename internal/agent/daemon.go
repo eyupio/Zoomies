@@ -112,12 +112,9 @@ type Agent struct {
 	// runners is what the agent believes about the workloads it started. The
 	// host is the real truth; reconcile.go corrects this map from it.
 	runners map[string]*tracked
-	// inflight maps a runner ID to the ID of the task currently executing on
-	// it, so two tasks for one runner never run at once. The task ID is held
-	// rather than a bare flag because the claim is dropped in two places -- as
-	// the result is reported, and again when the task's goroutine exits -- and
-	// by then the next task for that runner may legitimately hold it.
-	inflight map[string]string
+	// inflight keys the tasks currently executing on runner ID, so two tasks
+	// for one runner never run at once.
+	inflight map[string]bool
 	// orphans records when an unclaimed workload was first seen, which is how
 	// "the controller has not mentioned it in a while" is measured.
 	orphans map[backend.Handle]time.Time
@@ -234,7 +231,7 @@ func New(opts Options) (*Agent, error) {
 		heartbtI: interval,
 		sem:      make(chan struct{}, opts.Capacity),
 		runners:  make(map[string]*tracked),
-		inflight: make(map[string]string),
+		inflight: make(map[string]bool),
 		orphans:  make(map[backend.Handle]time.Time),
 	}
 	a.logs = newLogRelay(opts.Transport, log)
@@ -602,7 +599,7 @@ func (a *Agent) dispatch(ctx context.Context, task Task) {
 		return
 	}
 
-	if !a.claim(task.RunnerID, task.ID) {
+	if !a.claim(task.RunnerID) {
 		// The controller redelivers any task it has not seen a result for, so
 		// a duplicate arriving while the first is still running is expected.
 		// Skipping rather than queueing is what stops two creates for one
@@ -615,10 +612,13 @@ func (a *Agent) dispatch(ctx context.Context, task Task) {
 	a.tasks.Add(1)
 	go func() {
 		defer a.tasks.Done()
-		defer a.release(task.RunnerID, task.ID)
+		var releaseOnce sync.Once
+		release := func() { releaseOnce.Do(func() { a.release(task.RunnerID) }) }
+		defer release()
 		select {
 		case a.sem <- struct{}{}:
 		case <-ctx.Done():
+			release()
 			a.report(ctx, TaskResult{
 				TaskID:      task.ID,
 				RunnerID:    task.RunnerID,
@@ -629,7 +629,7 @@ func (a *Agent) dispatch(ctx context.Context, task Task) {
 			return
 		}
 		defer func() { <-a.sem }()
-		a.runTask(ctx, task)
+		a.runTask(ctx, task, release)
 	}()
 }
 
@@ -669,24 +669,25 @@ func validateTask(task Task) error {
 	return nil
 }
 
-func (a *Agent) runTask(ctx context.Context, task Task) {
+func (a *Agent) runTask(ctx context.Context, task Task, release func()) {
 	switch task.Kind {
 	case TaskCreateRunner:
-		a.handleCreate(ctx, task)
+		a.handleCreate(ctx, task, release)
 	case TaskStopRunner:
-		a.handleStop(ctx, task)
+		a.handleStop(ctx, task, release)
 	case TaskRemoveRunner:
-		a.handleRemove(ctx, task)
+		a.handleRemove(ctx, task, release)
 	}
 }
 
-func (a *Agent) handleCreate(ctx context.Context, task Task) {
+func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 	kind := task.Backend
 	if kind == "" {
 		kind = a.opts.DefaultBackend
 	}
 	b, err := a.opts.Backends.Get(kind)
 	if err != nil {
+		release()
 		a.reportFailure(ctx, task, fmt.Sprintf("this host has no %s backend (registered: %s); point the pool at a backend this host runs, or set agent.backend: %v", kind, kindList(a.opts.Backends.Kinds()), err))
 		return
 	}
@@ -708,6 +709,7 @@ func (a *Agent) handleCreate(ctx context.Context, task Task) {
 	handle, err := b.Create(cctx, spec)
 	if err != nil {
 		a.log.Error("creating runner failed", "runner", task.RunnerID, "name", spec.Name, "backend", kind, "error", err)
+		release()
 		a.reportFailure(ctx, task, fmt.Sprintf("the %s backend could not create runner %s: %v", kind, spec.Name, err))
 		return
 	}
@@ -729,6 +731,7 @@ func (a *Agent) handleCreate(ctx context.Context, task Task) {
 	a.mu.Unlock()
 
 	a.log.Info("runner created", "runner", task.RunnerID, "name", spec.Name, "backend", kind, "handle", handle, "took", now.Sub(start))
+	release()
 	a.report(ctx, TaskResult{
 		TaskID:      task.ID,
 		RunnerID:    task.RunnerID,
@@ -739,15 +742,17 @@ func (a *Agent) handleCreate(ctx context.Context, task Task) {
 	})
 }
 
-func (a *Agent) handleStop(ctx context.Context, task Task) {
+func (a *Agent) handleStop(ctx context.Context, task Task, release func()) {
 	b, handle, ok, err := a.resolve(ctx, task.RunnerID)
 	if !ok {
 		if err != nil {
+			release()
 			a.reportUnsearchable(ctx, task, err)
 			return
 		}
 		// Nothing to stop is the outcome the controller wanted, not an error.
 		a.log.Info("stop task for a runner with no workload on this host; reporting it removed", "runner", task.RunnerID)
+		release()
 		a.report(ctx, TaskResult{TaskID: task.ID, RunnerID: task.RunnerID, OK: true, State: store.RunnerRemoved, CompletedAt: a.now()})
 		return
 	}
@@ -763,6 +768,7 @@ func (a *Agent) handleStop(ctx context.Context, task Task) {
 
 	if err := b.Stop(sctx, handle, timeout); err != nil && !errors.Is(err, backend.ErrNotFound) {
 		a.log.Error("stopping runner failed", "runner", task.RunnerID, "handle", handle, "error", err)
+		release()
 		a.report(ctx, TaskResult{
 			TaskID:      task.ID,
 			RunnerID:    task.RunnerID,
@@ -778,18 +784,21 @@ func (a *Agent) handleStop(ctx context.Context, task Task) {
 	// No state is claimed here on purpose: the runner's end of life is reported
 	// from the workload's actual exit by the reconciler, which knows whether it
 	// finished its job or died.
+	release()
 	a.report(ctx, TaskResult{TaskID: task.ID, RunnerID: task.RunnerID, OK: true, Handle: handle, CompletedAt: a.now()})
 }
 
-func (a *Agent) handleRemove(ctx context.Context, task Task) {
+func (a *Agent) handleRemove(ctx context.Context, task Task, release func()) {
 	b, handle, ok, err := a.resolve(ctx, task.RunnerID)
 	if !ok {
 		if err != nil {
+			release()
 			a.reportUnsearchable(ctx, task, err)
 			return
 		}
 		// A workload that is already gone is exactly what this task asked for.
 		a.untrack(task.RunnerID)
+		release()
 		a.report(ctx, TaskResult{TaskID: task.ID, RunnerID: task.RunnerID, OK: true, State: store.RunnerRemoved, CompletedAt: a.now()})
 		return
 	}
@@ -799,6 +808,7 @@ func (a *Agent) handleRemove(ctx context.Context, task Task) {
 
 	if err := b.Remove(rctx, handle); err != nil && !errors.Is(err, backend.ErrNotFound) {
 		a.log.Error("removing runner failed", "runner", task.RunnerID, "handle", handle, "error", err)
+		release()
 		a.report(ctx, TaskResult{
 			TaskID:      task.ID,
 			RunnerID:    task.RunnerID,
@@ -812,6 +822,7 @@ func (a *Agent) handleRemove(ctx context.Context, task Task) {
 
 	a.untrack(task.RunnerID)
 	a.log.Info("runner removed", "runner", task.RunnerID, "handle", handle)
+	release()
 	a.report(ctx, TaskResult{TaskID: task.ID, RunnerID: task.RunnerID, OK: true, Handle: handle, State: store.RunnerRemoved, CompletedAt: a.now()})
 }
 
@@ -863,13 +874,6 @@ func (a *Agent) report(ctx context.Context, res TaskResult) {
 	if res.CompletedAt.IsZero() {
 		res.CompletedAt = a.now()
 	}
-	// The claim on this runner is dropped before the result goes out, not
-	// after the task's goroutine finishes unwinding. Reporting is the moment
-	// the controller learns it may send the next task for this runner -- a
-	// remove straight after a create -- and a task that arrives while the
-	// finished one still holds the claim is skipped as a duplicate and
-	// silently dropped, left waiting on redelivery.
-	a.release(res.RunnerID, res.TaskID)
 	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), reportTimeout)
 	defer cancel()
 	if err := a.tr.ReportResult(rctx, res); err != nil {
@@ -979,24 +983,19 @@ func (a *Agent) adopt(runnerID string, kind store.BackendKind, w backend.Workloa
 	delete(a.orphans, w.Handle)
 }
 
-func (a *Agent) claim(runnerID, taskID string) bool {
+func (a *Agent) claim(runnerID string) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if _, held := a.inflight[runnerID]; held {
+	if a.inflight[runnerID] {
 		return false
 	}
-	a.inflight[runnerID] = taskID
+	a.inflight[runnerID] = true
 	return true
 }
 
-// release drops taskID's claim on a runner, and does nothing if the claim has
-// already moved on to another task. Naming the task is what makes releasing
-// twice, or releasing one this task never held, harmless.
-func (a *Agent) release(runnerID, taskID string) {
+func (a *Agent) release(runnerID string) {
 	a.mu.Lock()
-	if a.inflight[runnerID] == taskID {
-		delete(a.inflight, runnerID)
-	}
+	delete(a.inflight, runnerID)
 	a.mu.Unlock()
 }
 
