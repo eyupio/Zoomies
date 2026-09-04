@@ -32,9 +32,21 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
         -X github.com/eyupio/zoomies/internal/version.Commit=${COMMIT}" \
       -o /out/zoomies ./cmd/zoomies
 
+# An empty state directory to copy into the runtime stages. distroless has no
+# shell, so this is the only way to get /var/lib/zoomies into the image owned by
+# the user that runs there.
+RUN install -d -m 0750 /out/state
+
 # ---- Runtime ----------------------------------------------------------------
 FROM gcr.io/distroless/static-debian12:nonroot AS controller
 COPY --from=build /out/zoomies /usr/local/bin/zoomies
+# The state directory must exist in the image, owned by the user that runs. A
+# VOLUME on a path the image does not have gets created by the container runtime
+# as root, and then uid 65532 cannot create the database in it -- SQLite reports
+# only "unable to open database file (14)". Docker seeds a fresh named volume
+# from the image, so baking the ownership in here is what makes that volume
+# writable.
+COPY --from=build --chown=65532:65532 /out/state /var/lib/zoomies
 # 65532 is distroless' "nonroot" user. The controller never needs root.
 USER 65532:65532
 VOLUME ["/var/lib/zoomies"]
@@ -50,6 +62,7 @@ CMD ["controller"]
 # socket, which is bind-mounted in.
 FROM gcr.io/distroless/static-debian12:nonroot AS agent
 COPY --from=build /out/zoomies /usr/local/bin/zoomies
+COPY --from=build --chown=65532:65532 /out/state /var/lib/zoomies
 USER 65532:65532
 ENV ZOOMIES_STATE_DIR=/var/lib/zoomies
 VOLUME ["/var/lib/zoomies"]

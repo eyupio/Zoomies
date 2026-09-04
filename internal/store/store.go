@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/url"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -70,6 +71,13 @@ func Open(ctx context.Context, opts Options) (*Store, error) {
 		if err != nil {
 			return nil, fmt.Errorf("store: resolving %q: %w", opts.Path, err)
 		}
+		// "Creating if necessary" has to include the directory. SQLite will not
+		// make one, and what it reports when the directory is missing or not
+		// writable is a bare "unable to open database file (14)" that says
+		// nothing about which of the two it was.
+		if err := os.MkdirAll(filepath.Dir(abs), 0o750); err != nil {
+			return nil, fmt.Errorf("store: creating %s: %w", filepath.Dir(abs), err)
+		}
 		// _txlock=immediate makes write transactions take the write lock up
 		// front, which turns a would-be mid-transaction "database is locked"
 		// into a clean, retryable start-of-transaction wait.
@@ -115,6 +123,12 @@ func Open(ctx context.Context, opts Options) (*Store, error) {
 	if err := write.PingContext(ctx); err != nil {
 		read.Close()
 		write.Close()
+		if !memory {
+			// The overwhelmingly common cause is a directory the running user
+			// cannot write to -- a container volume owned by root, say. SQLite
+			// will not say so, so say it here.
+			return nil, fmt.Errorf("store: connecting to %s (is the directory writable by the user running zoomies?): %w", opts.Path, err)
+		}
 		return nil, fmt.Errorf("store: connecting to %s: %w", opts.Path, err)
 	}
 
