@@ -1,0 +1,68 @@
+# The Zoomies runner image.
+#
+# It carries the actions/runner release and its .NET 8 dependencies, and an
+# entrypoint that understands the environment contract Zoomies' backends use.
+# Built for linux/amd64 and linux/arm64.
+#
+# Deliberately NOT based on a "everything a build might need" mega-image: this
+# is a runner, and what a job needs beyond it belongs in the job's own container
+# or setup steps. A smaller image means a faster cold start, which is the whole
+# point of ephemeral runners.
+
+ARG RUNNER_VERSION=2.337.0
+ARG BASE=ubuntu:24.04
+
+FROM ${BASE}
+ARG RUNNER_VERSION
+ARG TARGETARCH
+
+LABEL org.opencontainers.image.title="zoomies-runner" \
+      org.opencontainers.image.description="GitHub Actions runner image for Zoomies" \
+      org.opencontainers.image.source="https://github.com/eyupio/zoomies" \
+      org.opencontainers.image.licenses="MIT" \
+      io.zoomies.runner-version="${RUNNER_VERSION}"
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    RUNNER_MANUALLY_TRAP_SIG=1 \
+    ACTIONS_RUNNER_PRINT_LOG_TO_STDOUT=1
+
+# libicu is the dependency actions/runner most often dies without. git, curl,
+# ca-certificates and jq are what essentially every workflow assumes exists.
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        ca-certificates curl git jq unzip zip tar gzip xz-utils \
+        libicu74 liblttng-ust1t64 libkrb5-3 zlib1g libssl3t64 \
+        sudo gosu tzdata locales openssh-client rsync; \
+    rm -rf /var/lib/apt/lists/*; \
+    localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8
+ENV LANG=en_US.UTF-8
+
+# The runner must not be root. It gets passwordless sudo because a great many
+# real workflows expect it; a pool that does not want that can override the
+# entrypoint's user.
+RUN set -eux; \
+    useradd -m -s /bin/bash -u 1001 runner; \
+    echo "runner ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/runner; \
+    chmod 0440 /etc/sudoers.d/runner
+
+WORKDIR /home/runner
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+      amd64) RUNNER_ARCH=x64 ;; \
+      arm64) RUNNER_ARCH=arm64 ;; \
+      *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o runner.tar.gz \
+      "https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-${RUNNER_ARCH}-${RUNNER_VERSION}.tar.gz"; \
+    tar xzf runner.tar.gz; \
+    rm runner.tar.gz; \
+    ./bin/installdependencies.sh || true; \
+    mkdir -p /home/runner/_work; \
+    chown -R runner:runner /home/runner
+
+COPY --chmod=0755 deploy/runner-entrypoint.sh /usr/local/bin/entrypoint.sh
+
+USER runner
+ENV RUNNER_ALLOW_RUNASROOT=0
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

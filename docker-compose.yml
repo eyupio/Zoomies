@@ -1,0 +1,67 @@
+# Zoomies on a single VM.
+#
+#   1. cp .env.example .env  and fill in ZOOMIES_ENCRYPTION_KEY and
+#      ZOOMIES_EXTERNAL_URL
+#   2. docker compose up -d
+#   3. open the URL and create the first admin
+#
+# The controller runs an embedded agent, so this is one container plus the
+# runners it creates.
+
+name: zoomies
+
+services:
+  zoomies:
+    image: ghcr.io/eyupio/zoomies:latest
+    # Or build locally:
+    # build:
+    #   context: .
+    #   dockerfile: deploy/Dockerfile
+    #   target: controller
+    restart: unless-stopped
+    command: ["controller"]
+    environment:
+      # Where GitHub and your browser reach this controller. Webhooks need it.
+      ZOOMIES_EXTERNAL_URL: ${ZOOMIES_EXTERNAL_URL:?set this in .env}
+      # 32 bytes, base64. Generate with: openssl rand -base64 32
+      # Back it up: without it the stored GitHub App key cannot be decrypted.
+      ZOOMIES_ENCRYPTION_KEY: ${ZOOMIES_ENCRYPTION_KEY:?set this in .env}
+      # Inside the container we bind to all interfaces; the published port below
+      # is what actually controls exposure. Put a TLS-terminating proxy in front.
+      ZOOMIES_BIND: "0.0.0.0:8080"
+      ZOOMIES_DB_PATH: /var/lib/zoomies/zoomies.db
+      ZOOMIES_AGENT_EMBEDDED: "true"
+      ZOOMIES_AGENT_BACKEND: docker
+      ZOOMIES_DOCKER_HOST: unix:///var/run/docker.sock
+      ZOOMIES_AGENT_CAPACITY: ${ZOOMIES_AGENT_CAPACITY:-4}
+      ZOOMIES_WORK_DIR: /var/lib/zoomies/work
+      ZOOMIES_LOG_FORMAT: json
+    ports:
+      # 127.0.0.1 only. Change to "8080:8080" once something terminates TLS.
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - zoomies-data:/var/lib/zoomies
+      # The embedded agent needs the Docker socket to create runner containers.
+      # This is Zoomies' own access to Docker -- it is NOT the same thing as
+      # pool.docker_mode=host-socket, which would hand the socket to your jobs.
+      - /var/run/docker.sock:/var/run/docker.sock
+    # The image runs as uid 65532; that user must be able to use the socket.
+    # On most hosts that means adding the docker group's gid here.
+    group_add:
+      - ${DOCKER_GID:-999}
+    networks: [zoomies]
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/zoomies", "healthcheck", "--url", "http://127.0.0.1:8080"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  zoomies-data:
+
+networks:
+  # Runner containers are attached to this network by the embedded agent, which
+  # keeps them off the host network and off the default bridge.
+  zoomies:
+    name: zoomies

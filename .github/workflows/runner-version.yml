@@ -1,0 +1,51 @@
+name: Check actions/runner version
+
+# The runner image has to track the actions/runner release, because GitHub
+# deprecates old runner versions and a stale image eventually stops working.
+# This opens a pull request when a newer one appears.
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: latest
+        name: Find the latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          latest=$(gh api repos/actions/runner/releases/latest --jq .tag_name | sed 's/^v//')
+          current=$(grep -oP 'ARG RUNNER_VERSION=\K[0-9.]+' deploy/Dockerfile.runner)
+          echo "latest=$latest"   >> "$GITHUB_OUTPUT"
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          echo "Current $current, latest $latest" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Bump
+        if: steps.latest.outputs.latest != steps.latest.outputs.current
+        run: |
+          sed -i "s/ARG RUNNER_VERSION=.*/ARG RUNNER_VERSION=${{ steps.latest.outputs.latest }}/" deploy/Dockerfile.runner
+          sed -i "s/^RUNNER_VERSION ?= .*/RUNNER_VERSION ?= ${{ steps.latest.outputs.latest }}/" Makefile
+
+      - name: Open a pull request
+        if: steps.latest.outputs.latest != steps.latest.outputs.current
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: chore/runner-${{ steps.latest.outputs.latest }}
+          title: "Update the runner image to actions/runner ${{ steps.latest.outputs.latest }}"
+          body: |
+            actions/runner ${{ steps.latest.outputs.latest }} is out; the image
+            currently pins ${{ steps.latest.outputs.current }}.
+
+            Release notes:
+            https://github.com/actions/runner/releases/tag/v${{ steps.latest.outputs.latest }}
+          commit-message: "Update the runner image to actions/runner ${{ steps.latest.outputs.latest }}"
