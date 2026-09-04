@@ -286,9 +286,9 @@ func TestRunnerIsClaimableAgainAsSoonAsItsResultIsReported(t *testing.T) {
 			return
 		}
 		// What the controller's next task would find.
-		got := h.agent.claim(res.RunnerID, "next-task")
+		got := h.agent.claim(res.RunnerID)
 		if got {
-			h.agent.release(res.RunnerID, "next-task")
+			h.agent.release(res.RunnerID)
 		}
 		claimable <- got
 	}
@@ -309,17 +309,17 @@ func TestRunnerIsClaimableAgainAsSoonAsItsResultIsReported(t *testing.T) {
 
 	// And the create's own goroutine, unwinding afterwards, must not release a
 	// claim that by then belongs to somebody else.
-	if !h.agent.claim("runner-1", "task-2") {
+	if !h.agent.claim("runner-1") {
 		t.Fatal("runner-1 could not be claimed after the create finished")
 	}
 	time.Sleep(50 * time.Millisecond)
 	h.agent.mu.Lock()
-	holder := h.agent.inflight["runner-1"]
+	held := h.agent.inflight["runner-1"]
 	h.agent.mu.Unlock()
-	if holder != "task-2" {
-		t.Fatalf("claim on runner-1 is held by %q, want task-2: the finished task released a claim it no longer owned", holder)
+	if !held {
+		t.Fatal("claim on runner-1 was released by the finished task")
 	}
-	h.agent.release("runner-1", "task-2")
+	h.agent.release("runner-1")
 }
 
 func TestStopTaskUsesTheTaskTimeout(t *testing.T) {
