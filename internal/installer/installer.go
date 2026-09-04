@@ -393,6 +393,11 @@ type Plan struct {
 
 	GitHub GitHubPlan
 
+	// PoolName is the pool setup created, empty when it created none. The
+	// summary reads it to decide between "here is your pool" and "here is the
+	// command that makes one".
+	PoolName string
+
 	AdminUser string
 	// adminPassword is unexported so that it cannot be printed by accident,
 	// serialised into a config file, or reach a log line.
@@ -723,6 +728,26 @@ func archLabel(osName, arch string) string {
 		a = "x64"
 	}
 	return o + "-" + a
+}
+
+// applyAnswers overlays what an answer file said, leaving the derived defaults
+// wherever it said nothing.
+func (p *PoolSuggestion) applyAnswers(a AnswersPool) {
+	if name := strings.TrimSpace(a.Name); name != "" {
+		p.Name = name
+		// The labels default to the name, so a renamed pool that was not given
+		// labels of its own follows the new name rather than answering to the
+		// old one.
+		if len(a.Labels) == 0 {
+			p.Labels = []string{name}
+		}
+	}
+	if len(a.Labels) > 0 {
+		p.Labels = a.Labels
+	}
+	if a.MaxRunners > 0 {
+		p.MaxRunners = a.MaxRunners
+	}
 }
 
 // Command renders the suggestion as a line the operator can paste.
@@ -1526,6 +1551,9 @@ func (i *Installer) runInstall(ctx context.Context, p Plan) error {
 	if err := i.stepAdmin(ctx, st, cfg, p); err != nil {
 		return err
 	}
+	if err := i.stepFirstPool(ctx, st, cfg, &p); err != nil {
+		return err
+	}
 
 	// The service opens the same SQLite file, so the installer lets go of it
 	// before anything is started.
@@ -1759,6 +1787,110 @@ func (i *Installer) stepAdmin(ctx context.Context, st *store.Store, cfg *config.
 	return nil
 }
 
+// stepFirstPool creates the pool that makes the host Zoomies was just
+// installed on usable.
+//
+// Without one, setup ends with a controller, a connected App, a healthy host --
+// and nothing that can run a job. A pool is what a queued workflow_job is
+// matched against, so until one exists every delivery is received and then
+// dropped for want of anywhere to place a runner. The installer used to print
+// the `zoomies pools create` line in the summary and stop there, which left the
+// last step of setup outside setup.
+//
+// It is deliberately conservative: it only ever adds the first pool, on a
+// single-host install, when GitHub is connected. Anything else is a fleet whose
+// shape the operator has already decided, and re-running `zoomies init` must
+// not touch it.
+func (i *Installer) stepFirstPool(ctx context.Context, st *store.Store, cfg *config.Config, p *Plan) error {
+	// Only the single-host mode puts an agent on this machine. A controller
+	// with no embedded agent, or an agent joining someone else's controller,
+	// has no runners here for a pool to describe.
+	if p.Mode != ModeSingle {
+		return nil
+	}
+	i.ui.step("First pool")
+
+	if p.GitHub.Skip {
+		i.ui.note("skipped: a pool belongs to a GitHub App installation, and none is connected yet.")
+		i.ui.note("Connect GitHub, then create the pool on the Pools page.")
+		return nil
+	}
+	pools, err := st.ListPools(ctx)
+	if err != nil {
+		return fmt.Errorf("installer: reading the existing pools: %w", err)
+	}
+	if len(pools) > 0 {
+		i.ui.note(fmt.Sprintf("this fleet already has %d %s; leaving them alone.", len(pools), pluralise(len(pools), "pool")))
+		return nil
+	}
+	insts, err := st.ListInstallations(ctx)
+	if err != nil {
+		return fmt.Errorf("installer: reading the installations: %w", err)
+	}
+	if len(insts) == 0 {
+		i.ui.note("skipped: no GitHub App installation was recorded, and a pool has to belong to one.")
+		return nil
+	}
+
+	sug := SuggestPool(i.det.OS, i.det.Arch, p.Backend, p.Capacity)
+	if i.answers != nil {
+		if i.answers.Pool.Skip {
+			i.ui.note("skipped: pool.skip is set in the answer file.")
+			return nil
+		}
+		sug.applyAnswers(i.answers.Pool)
+	}
+
+	create := true
+	if i.interactive {
+		if err := i.confirm(ctx, fmt.Sprintf("Create the %q pool now?", sug.Name),
+			fmt.Sprintf("It runs at most %d %s on this host with the %s backend, and answers to "+
+				"runs-on: [self-hosted, %s]. Answering no leaves the Pools page empty; nothing can run until "+
+				"a pool exists.", sug.MaxRunners, pluralise(sug.MaxRunners, "runner"), sug.Backend, sug.Name),
+			&create); err != nil {
+			return err
+		}
+	}
+	if !create {
+		i.ui.note("skipped. Create one on the Pools page; " + sug.Command() + " does the same thing.")
+		return nil
+	}
+
+	pool := &store.Pool{
+		Name:           sug.Name,
+		InstallationID: insts[0].ID,
+		Labels:         store.StringSlice(sug.Labels),
+		Backend:        sug.Backend,
+		Image:          cfg.GitHub.RunnerImage,
+		MinRunners:     0,
+		MaxRunners:     sug.MaxRunners,
+		IdleTimeout:    store.Duration(5 * time.Minute),
+		// Ephemeral, like every pool the API creates: a runner that takes one
+		// job and is destroyed is the only arrangement that keeps one
+		// workflow's leftovers out of the next one.
+		Ephemeral:  true,
+		DockerMode: store.DockerNone,
+		Enabled:    true,
+	}
+	if err := st.CreatePool(ctx, pool); err != nil {
+		return fmt.Errorf("installer: creating the %s pool: %w", sug.Name, err)
+	}
+	p.PoolName = pool.Name
+	i.ui.ok(fmt.Sprintf("created the %q pool for %s, up to %d %s",
+		pool.Name, insts[0].Target, pool.MaxRunners, pluralise(pool.MaxRunners, "runner")))
+	i.ui.note("put  runs-on: [self-hosted, " + sug.Name + "]  in a workflow and it will run here.")
+	return nil
+}
+
+// pluralise writes "1 runner" and "4 runners". The installer says these counts
+// in several places and "1 runners" reads like a bug in everything around it.
+func pluralise(n int, noun string) string {
+	if n == 1 {
+		return noun
+	}
+	return noun + "s"
+}
+
 // stepService installs and starts the supervisor's unit, or prints what to run
 // when there is no supervisor to install into.
 func (i *Installer) stepService(ctx context.Context, p Plan) (ServiceManager, error) {
@@ -1955,8 +2087,14 @@ func (i *Installer) stepSummary(p Plan) {
 		i.ui.blank()
 	}
 
+	if p.PoolName != "" {
+		i.ui.note("This host is ready: the " + p.PoolName + " pool runs on it.")
+		i.ui.note("  runs-on: [self-hosted, " + p.PoolName + "]")
+		return
+	}
 	sug := SuggestPool(i.det.OS, i.det.Arch, p.Backend, p.Capacity)
-	i.ui.note("Your first pool -- this host is " + i.det.Arch + " with the " + string(p.Backend) + " backend:")
+	i.ui.note("Nothing can run until a pool exists. This host is " + i.det.Arch + " with the " +
+		string(p.Backend) + " backend:")
 	i.ui.note("  " + sug.Command())
 	i.ui.note("then put  runs-on: [self-hosted, " + sug.Name + "]  in a workflow.")
 }

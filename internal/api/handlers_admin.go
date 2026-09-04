@@ -547,7 +547,7 @@ func (s *Server) oidcRedirectURL() string {
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, settingsResponse{
 		Config:              s.settingsConfig(),
-		Findings:            s.cfg.Validate(),
+		Findings:            s.cfg.Validate().ForUI(),
 		ConfigPath:          s.cfg.Path(),
 		RestartRequiredKeys: restartRequiredKeys(),
 		Version:             version.Short(),

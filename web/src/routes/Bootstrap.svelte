@@ -7,12 +7,14 @@
   to know why it is safe.
 -->
 <script lang="ts">
+  import { Eye, EyeOff, TriangleAlert } from '@lucide/svelte';
   import { ApiError } from '$lib/api/client';
   import { router } from '$lib/router';
   import { session } from '$lib/state/session.svelte';
   import Logo from '$lib/components/Logo.svelte';
   import Button from '$lib/components/Button.svelte';
   import Field from '$lib/components/Field.svelte';
+  import IconButton from '$lib/components/IconButton.svelte';
   import Input from '$lib/components/Input.svelte';
 
   /** The API's minimum. Long, rather than a zoo of character classes. */
@@ -25,7 +27,25 @@
   let touched = $state({ username: false, password: false, confirm: false });
   let submitting = $state(false);
   let failure = $state<ApiError | null>(null);
+  let revealed = $state(false);
+  let capsLock = $state(false);
   let form = $state<HTMLFormElement | null>(null);
+  let usernameInput = $state<HTMLInputElement | null>(null);
+
+  // Fires once, when the field first exists. Nothing here is prefilled, so the
+  // cursor always belongs in the first one.
+  let placed = false;
+  $effect(() => {
+    if (placed || !usernameInput) return;
+    placed = true;
+    usernameInput.focus();
+  });
+
+  /** Choosing a password with caps lock on is a password you cannot type again. */
+  function readCapsLock(event: KeyboardEvent): void {
+    if (typeof event.getModifierState !== 'function') return;
+    capsLock = event.getModifierState('CapsLock');
+  }
 
   const usernameError = $derived(
     touched.username && username.trim() === ''
@@ -92,7 +112,7 @@
 
 <div class="card">
   <div class="brand">
-    <Logo variant="full" size={48} label="Zoomies" />
+    <Logo variant="lockup" size={72} label="" />
   </div>
   <h1>Create the first administrator</h1>
   <p class="lede">
@@ -102,9 +122,12 @@
 
   {#if failure}
     <p class="failure" role="alert">
-      {failure.status === 409
-        ? 'An account already exists, so this form has closed. Reload the page and sign in.'
-        : failure.message}
+      <TriangleAlert size={15} aria-hidden="true" />
+      <span>
+        {failure.status === 409
+          ? 'An account already exists, so this form has closed. Reload the page and sign in.'
+          : failure.message}
+      </span>
     </p>
   {/if}
 
@@ -113,28 +136,49 @@
       {#snippet children({ id, describedBy, invalid })}
         <Input
           bind:value={username}
+          bind:element={usernameInput}
           {id}
           {describedBy}
           {invalid}
           name="username"
           autocomplete="username"
+          disabled={submitting}
+          onkeydown={readCapsLock}
           onblur={() => (touched = { ...touched, username: true })}
         />
       {/snippet}
     </Field>
 
-    <Field label="Password" hint={strength} error={passwordError ?? fieldErrors.password} required>
+    <Field
+      label="Password"
+      hint={capsLock ? 'Caps lock is on.' : strength}
+      error={passwordError ?? fieldErrors.password}
+      required
+    >
       {#snippet children({ id, describedBy, invalid })}
         <Input
           bind:value={password}
           {id}
           {describedBy}
           {invalid}
-          type="password"
+          type={revealed ? 'text' : 'password'}
           name="new-password"
           autocomplete="new-password"
+          disabled={submitting}
+          onkeydown={readCapsLock}
           onblur={() => (touched = { ...touched, password: true })}
-        />
+        >
+          {#snippet trailing()}
+            <IconButton
+              icon={revealed ? EyeOff : Eye}
+              label={revealed ? 'Hide password' : 'Show password'}
+              size="sm"
+              pressed={revealed}
+              disabled={submitting}
+              onclick={() => (revealed = !revealed)}
+            />
+          {/snippet}
+        </Input>
       {/snippet}
     </Field>
 
@@ -145,8 +189,10 @@
           {id}
           {describedBy}
           {invalid}
-          type="password"
+          type={revealed ? 'text' : 'password'}
           autocomplete="new-password"
+          disabled={submitting}
+          onkeydown={readCapsLock}
           onblur={() => (touched = { ...touched, confirm: true })}
         />
       {/snippet}
@@ -158,7 +204,15 @@
       error={fieldErrors.email}
     >
       {#snippet children({ id, describedBy, invalid })}
-        <Input bind:value={email} {id} {describedBy} {invalid} type="email" autocomplete="email" />
+        <Input
+          bind:value={email}
+          {id}
+          {describedBy}
+          {invalid}
+          type="email"
+          autocomplete="email"
+          disabled={submitting}
+        />
       {/snippet}
     </Field>
 
@@ -169,41 +223,68 @@
 </div>
 
 <style>
-  .brand {
-    display: flex;
-    justify-content: center;
-    margin-bottom: var(--z-space-6);
-  }
+  /* Deliberately identical to Login.svelte: these two are the same screen at
+     two moments in a controller's life, and a card that changes width, weight
+     or elevation between them reads as two different products. */
   .card {
+    position: relative;
     width: 100%;
-    max-width: 420px;
+    max-width: 25rem;
     padding: var(--z-space-8);
     border: 1px solid var(--z-border);
     border-radius: var(--z-radius-lg);
     background: var(--z-surface);
-    box-shadow: var(--z-shadow-sm);
+    box-shadow: var(--z-shadow-lg);
+  }
+  .card::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto;
+    height: 1px;
+    margin: 0 var(--z-radius-lg);
+    background: linear-gradient(90deg, transparent, var(--z-border-strong), transparent);
+  }
+  .brand {
+    display: flex;
+    justify-content: center;
+    margin-bottom: var(--z-space-6);
+    color: var(--z-text);
   }
   h1 {
     margin: 0;
     font-size: var(--z-text-xl);
     line-height: var(--z-leading-xl);
-    font-weight: var(--z-weight-bold);
+    font-weight: var(--z-weight-semibold);
+    letter-spacing: -0.01em;
     color: var(--z-text);
+    text-align: center;
+    text-wrap: balance;
   }
   .lede {
-    margin: var(--z-space-3) 0 var(--z-space-6);
-    font-size: var(--z-text-base);
-    line-height: var(--z-leading-base);
+    margin: var(--z-space-2) 0 var(--z-space-6);
+    font-size: var(--z-text-sm);
+    line-height: var(--z-leading-sm);
     color: var(--z-text-muted);
+    text-align: center;
+    text-wrap: pretty;
   }
   .failure {
-    margin: 0 0 var(--z-space-4);
+    display: flex;
+    align-items: flex-start;
+    gap: var(--z-space-2);
+    margin: 0 0 var(--z-space-5);
     padding: var(--z-space-3);
     border: 1px solid var(--z-danger-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-danger-subtle);
     font-size: var(--z-text-sm);
+    line-height: var(--z-leading-sm);
     color: var(--z-text);
+  }
+  .failure :global(svg) {
+    flex: none;
+    margin-top: 1px;
+    color: var(--z-danger);
   }
   form {
     display: flex;

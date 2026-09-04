@@ -44,12 +44,11 @@ func permissions(t *testing.T, m map[string]any) map[string]string {
 
 func TestManifestOrgShape(t *testing.T) {
 	m := decodeManifest(t, ManifestOptions{
-		Name:          "zoomies-acme",
-		URL:           "https://zoomies.example.com",
-		WebhookURL:    "https://zoomies.example.com/webhooks/github",
-		WebhookSecret: "hunter2",
-		Organization:  "acme",
-		SetupURL:      "https://zoomies.example.com/setup/github",
+		Name:         "zoomies-acme",
+		URL:          "https://zoomies.example.com",
+		WebhookURL:   "https://zoomies.example.com/webhooks/github",
+		Organization: "acme",
+		SetupURL:     "https://zoomies.example.com/setup/github",
 	})
 
 	if m["name"] != "zoomies-acme" || m["url"] != "https://zoomies.example.com" {
@@ -65,9 +64,6 @@ func TestManifestOrgShape(t *testing.T) {
 	}
 	if hook["url"] != "https://zoomies.example.com/webhooks/github" || hook["active"] != true {
 		t.Fatalf("hook_attributes = %v", hook)
-	}
-	if hook["secret"] != "hunter2" {
-		t.Fatalf("webhook secret not carried into the manifest: %v", hook)
 	}
 
 	events, _ := m["default_events"].([]any)
@@ -89,6 +85,44 @@ func TestManifestOrgShape(t *testing.T) {
 	if m["redirect_url"] != "https://zoomies.example.com/setup/github" ||
 		m["setup_url"] != "https://zoomies.example.com/setup/github" {
 		t.Fatalf("setup urls = %v / %v", m["redirect_url"], m["setup_url"])
+	}
+}
+
+// GitHub validates the manifest key by key and rejects the whole thing with
+// `"<key>" is not a permitted key` when it does not recognise one, so a
+// well-meant addition here breaks App creation for everybody. These are the
+// keys GitHub's manifest schema accepts.
+func TestManifestSendsOnlyPermittedKeys(t *testing.T) {
+	permitted := map[string]bool{
+		"name": true, "url": true, "hook_attributes": true, "redirect_url": true,
+		"callback_urls": true, "setup_url": true, "description": true, "public": true,
+		"default_events": true, "default_permissions": true, "request_oauth_on_install": true,
+		"setup_on_update": true,
+	}
+	m := decodeManifest(t, ManifestOptions{
+		Name:         "zoomies-acme",
+		URL:          "https://zoomies.example.com",
+		WebhookURL:   "https://zoomies.example.com/webhooks/github",
+		Organization: "acme",
+		SetupURL:     "https://zoomies.example.com/setup/github",
+	})
+	for k := range m {
+		if !permitted[k] {
+			t.Errorf("manifest carries %q, which GitHub does not permit and will reject the whole manifest over", k)
+		}
+	}
+
+	// hook_attributes has its own, much shorter, list. A "secret" here is the
+	// tempting one: GitHub generates the secret itself and returns it from the
+	// conversion, and naming one makes App creation fail outright.
+	hook, ok := m["hook_attributes"].(map[string]any)
+	if !ok {
+		t.Fatalf("hook_attributes missing: %v", m)
+	}
+	for k := range hook {
+		if k != "url" && k != "active" {
+			t.Errorf("hook_attributes carries %q; GitHub permits only url and active", k)
+		}
 	}
 }
 

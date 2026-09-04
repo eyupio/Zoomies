@@ -250,7 +250,13 @@ than loud:
 Zoomies will warn at startup that it is listening without TLS. In this
 deployment that warning is expected, and it is the reason the warning says
 "if a proxy already terminates TLS, this is expected" rather than treating it
-as an error.
+as an error. The controller cannot see the proxy from behind it, so it has no
+way to tell this deployment from an origin genuinely exposed in the clear.
+
+The web UI does not repeat it: `bind.public_no_tls` is printed at startup and
+by `zoomies config check`, but it is left off the Overview's problems panel
+and the Settings page, because a panel that is permanently amber on a
+correctly configured fleet is a panel nobody reads.
 
 ### `agent.capacity`
 

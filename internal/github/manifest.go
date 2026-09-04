@@ -22,8 +22,6 @@ type ManifestOptions struct {
 	URL string
 	// WebhookURL is where GitHub delivers workflow_job events.
 	WebhookURL string
-	// WebhookSecret signs those deliveries. Zoomies always sets one.
-	WebhookSecret string
 	// Organization is the org the App is created under. Empty creates it on
 	// the operator's own account, which is the right choice for repo targets.
 	Organization string
@@ -51,10 +49,14 @@ type manifest struct {
 	DefaultPermissions map[string]string `json:"default_permissions"`
 }
 
+// hookAttributes carries the webhook configuration. GitHub's manifest schema
+// permits exactly url and active here: sending a "secret" key makes GitHub
+// reject the whole manifest with `"secret" is not a permitted key`. The secret
+// is GitHub's to generate, and it comes back from the conversion in
+// ManifestCredentials.WebhookSecret.
 type hookAttributes struct {
 	URL    string `json:"url"`
 	Active bool   `json:"active"`
-	Secret string `json:"secret,omitempty"`
 }
 
 // Manifest renders the JSON an operator's browser POSTs to GitHub to create
@@ -65,6 +67,9 @@ type hookAttributes struct {
 // administration permission for the kind of target it will manage, read access
 // to Actions so it can see queued jobs, and nothing else. Metadata read is
 // mandatory for every App.
+//
+// Every key here is one GitHub's manifest schema permits; it rejects anything
+// else outright, so nothing speculative belongs in this struct.
 func Manifest(o ManifestOptions) ([]byte, error) {
 	name := strings.TrimSpace(o.Name)
 	switch {
@@ -87,10 +92,9 @@ func Manifest(o ManifestOptions) ([]byte, error) {
 	m := manifest{
 		Name: name,
 		URL:  o.URL,
-		// The secret rides in the manifest because that is the only way GitHub
-		// accepts one; leaving it empty makes GitHub generate one and hand it
-		// back through the conversion, which Zoomies then seals.
-		HookAttributes: hookAttributes{URL: o.WebhookURL, Active: true, Secret: o.WebhookSecret},
+		// No secret is sent: GitHub generates one for a manifest-created App
+		// and returns it through the conversion, which Zoomies then seals.
+		HookAttributes: hookAttributes{URL: o.WebhookURL, Active: true},
 		RedirectURL:    o.SetupURL,
 		SetupURL:       o.SetupURL,
 		Description:    "Self-hosted runner fleet managed by Zoomies.",
@@ -142,7 +146,10 @@ type ManifestCredentials struct {
 	Name  string
 	// PEM is the App's private key. It is shown once and must be sealed
 	// immediately.
-	PEM           string
+	PEM string
+	// WebhookSecret is the secret GitHub generated for the App's webhook. It
+	// is the only copy: the manifest cannot ask for a particular one, and
+	// GitHub does not show it again.
 	WebhookSecret string
 	ClientID      string
 	ClientSecret  string

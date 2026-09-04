@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from 'svelte';
   import type { LucideIcon } from '@lucide/svelte';
   import type { HTMLInputAttributes } from 'svelte/elements';
 
@@ -27,6 +28,12 @@
     onchange?: (event: Event) => void;
     onblur?: (event: FocusEvent) => void;
     onkeydown?: (event: KeyboardEvent) => void;
+    /**
+     * A control rendered inside the field's right-hand edge -- a password
+     * reveal, a unit, a clear button. The input reserves room for it so the
+     * value never runs underneath.
+     */
+    trailing?: Snippet;
     class?: string;
   }
 
@@ -54,6 +61,7 @@
     onchange,
     onblur,
     onkeydown,
+    trailing,
     class: className = '',
   }: Props = $props();
 
@@ -72,7 +80,11 @@
   }
 </script>
 
-<div class="wrap {size} {className}" class:has-icon={Boolean(Icon)}>
+<div
+  class="wrap {size} {className}"
+  class:has-icon={Boolean(Icon)}
+  class:has-trailing={Boolean(trailing)}
+>
   {#if Icon}
     <span class="icon" aria-hidden="true"><Icon size={14} /></span>
   {/if}
@@ -99,6 +111,9 @@
     {onblur}
     {onkeydown}
   />
+  {#if trailing}
+    <span class="trailing">{@render trailing()}</span>
+  {/if}
 </div>
 
 <style>
@@ -140,6 +155,18 @@
   }
   .has-icon.sm input {
     padding-left: var(--z-space-6);
+  }
+  .trailing {
+    position: absolute;
+    right: var(--z-space-1);
+    display: inline-flex;
+    align-items: center;
+  }
+  .has-trailing.md input {
+    padding-right: var(--z-space-8);
+  }
+  .has-trailing.sm input {
+    padding-right: var(--z-space-6);
   }
   input.mono {
     font-family: var(--z-font-mono);

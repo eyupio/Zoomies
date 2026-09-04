@@ -136,7 +136,6 @@ func (i *Installer) appFromManifest(ctx context.Context, st *store.Store, key *c
 
 	cfg := p.Config()
 	webhookURL := cfg.WebhookURL()
-	secret := store.NewSecret(24)
 	org := ""
 	if p.GitHub.TargetType == store.TargetOrg {
 		org = p.GitHub.Target
@@ -149,12 +148,11 @@ func (i *Installer) appFromManifest(ctx context.Context, st *store.Store, key *c
 	defer srv.Close()
 
 	manifest, err := github.Manifest(github.ManifestOptions{
-		Name:          p.GitHub.AppName,
-		URL:           p.ExternalURL,
-		WebhookURL:    webhookURL,
-		WebhookSecret: secret,
-		Organization:  org,
-		SetupURL:      srv.CallbackURL(),
+		Name:         p.GitHub.AppName,
+		URL:          p.ExternalURL,
+		WebhookURL:   webhookURL,
+		Organization: org,
+		SetupURL:     srv.CallbackURL(),
 	})
 	if err != nil {
 		return err
@@ -188,10 +186,12 @@ func (i *Installer) appFromManifest(ctx context.Context, st *store.Store, key *c
 	p.GitHub.AppID = creds.AppID
 	p.GitHub.AppSlug = creds.Slug
 	p.GitHub.HTMLURL = creds.HTMLURL
-	if creds.WebhookSecret != "" {
-		// GitHub echoes the secret it stored, which is authoritative: if it
-		// rewrote ours, sealing ours would fail every delivery.
-		secret = creds.WebhookSecret
+	// GitHub's manifest schema has no place for a secret of our choosing, so
+	// the one it generated is the only one that verifies its deliveries.
+	secret := creds.WebhookSecret
+	if secret == "" {
+		i.ui.warn("GitHub returned no webhook secret for this App, so deliveries cannot be verified yet; " +
+			"set one on the App's settings page and paste it into the Installations page.")
 	}
 	i.ui.ok(fmt.Sprintf("created the App %q (id %d)", creds.Name, creds.AppID))
 

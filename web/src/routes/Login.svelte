@@ -5,14 +5,25 @@
   is authenticated: a password form, an SSO button, both, or -- when
   authentication has been switched off in the configuration -- a plain statement
   of that fact rather than a form that would do nothing.
+
+  This is the first screen anyone sees, and often the only one they see while
+  something is wrong, so it does the small things properly: the cursor starts in
+  the first empty field, caps lock is called out before it costs an attempt, the
+  password can be revealed, and a failure says which kind of failure it was --
+  wrong credentials, too many attempts, or a controller that cannot be reached
+  at all. Those are three different problems and only one of them is the
+  operator's fault.
 -->
 <script lang="ts">
+  import { untrack } from 'svelte';
+  import { Eye, EyeOff, TriangleAlert } from '@lucide/svelte';
   import { ApiError, oidcStartUrl } from '$lib/api/client';
   import { router } from '$lib/router';
   import { session } from '$lib/state/session.svelte';
   import Logo from '$lib/components/Logo.svelte';
   import Button from '$lib/components/Button.svelte';
   import Field from '$lib/components/Field.svelte';
+  import IconButton from '$lib/components/IconButton.svelte';
   import Input from '$lib/components/Input.svelte';
 
   let username = $state('');
@@ -20,7 +31,11 @@
   let touched = $state({ username: false, password: false });
   let submitting = $state(false);
   let failure = $state<ApiError | null>(null);
+  let revealed = $state(false);
+  let capsLock = $state(false);
   let form = $state<HTMLFormElement | null>(null);
+  let usernameInput = $state<HTMLInputElement | null>(null);
+  let passwordInput = $state<HTMLInputElement | null>(null);
 
   const meta = $derived(session.meta);
 
@@ -31,7 +46,53 @@
     touched.password && password === '' ? 'Enter your password.' : undefined,
   );
 
-  const rateLimited = $derived(failure?.status === 429);
+  /**
+   * What actually went wrong, in the operator's terms. A controller that never
+   * answered and a password that was refused look identical in a generic
+   * "sign-in failed", and they need completely different next steps.
+   */
+  const failureText = $derived.by(() => {
+    if (!failure) return '';
+    if (failure.status === 429) {
+      return 'Too many sign-in attempts from this address. Wait a minute, then try again.';
+    }
+    if (failure.status === 401 || failure.status === 403) {
+      return 'That username and password do not match an account.';
+    }
+    if (failure.status === 0) {
+      return 'The controller did not answer. Check that it is running and that this address can reach it.';
+    }
+    if (failure.status >= 500) {
+      return 'The controller answered with an error. Its logs will say more than this page can.';
+    }
+    return failure.message;
+  });
+
+  /*
+    The cursor starts where there is something to type: a browser that has
+    filled the username in should not make the operator tab past it.
+
+    `placed` is a plain variable rather than state on purpose. The effect must
+    fire once, when the fields first exist, and never again -- tracking it, or
+    reading `username` reactively, would move the cursor out of the field
+    somebody is typing in.
+  */
+  let placed = false;
+  $effect(() => {
+    if (placed || !usernameInput || meta?.auth_disabled) return;
+    placed = true;
+    untrack(() => (username.trim() === '' ? usernameInput : passwordInput))?.focus();
+  });
+
+  /**
+   * Caps lock costs an attempt and, at the rate limit, a minute. The state is
+   * only knowable from a key event, so it is read from every one the two
+   * fields see and cleared when the password field is left.
+   */
+  function readCapsLock(event: KeyboardEvent): void {
+    if (typeof event.getModifierState !== 'function') return;
+    capsLock = event.getModifierState('CapsLock');
+  }
 
   async function submit(event: SubmitEvent): Promise<void> {
     event.preventDefault();
@@ -50,7 +111,15 @@
         cause instanceof ApiError
           ? cause
           : new ApiError({ status: 0, code: 'internal', message: 'Sign-in failed. Try again.' });
+      // The password is cleared, so that is where the cursor belongs: retyping
+      // it is the next thing to do whichever failure this was. The field is
+      // untouched again with it -- "Enter your password." under a field this
+      // page emptied itself is an accusation, and it would sit directly below
+      // the banner that already said what went wrong.
       password = '';
+      touched = { ...touched, password: false };
+      revealed = false;
+      passwordInput?.focus();
     } finally {
       submitting = false;
     }
@@ -59,11 +128,11 @@
 
 <div class="card">
   <div class="brand">
-    <Logo variant="lockup" size={104} label="" />
-    <h1 class="sr-only">Zoomies</h1>
+    <Logo variant="lockup" size={72} label="" />
   </div>
 
   {#if meta?.auth_disabled}
+    <h1>No sign-in required</h1>
     <p class="lede">
       Authentication is switched off in this controller's configuration, so there is nothing to sign
       in to. Anyone who can reach this address has full access.
@@ -74,15 +143,13 @@
       anyone you do not trust.
     </p>
   {:else}
-    <p class="lede">Sign in to manage the runner fleet.</p>
+    <h1>Sign in</h1>
+    <p class="lede">Manage the runner fleet on this controller.</p>
 
     {#if failure}
       <p class="failure" role="alert">
-        {#if rateLimited}
-          Too many sign-in attempts from this address. Wait a minute, then try again.
-        {:else}
-          {failure.message}
-        {/if}
+        <TriangleAlert size={15} aria-hidden="true" />
+        <span>{failureText}</span>
       </p>
     {/if}
 
@@ -91,28 +158,55 @@
         {#snippet children({ id, describedBy, invalid })}
           <Input
             bind:value={username}
+            bind:element={usernameInput}
             {id}
             {describedBy}
             {invalid}
             name="username"
             autocomplete="username"
+            disabled={submitting}
+            onkeydown={readCapsLock}
             onblur={() => (touched = { ...touched, username: true })}
           />
         {/snippet}
       </Field>
 
-      <Field label="Password" error={passwordError}>
+      <Field
+        label="Password"
+        error={passwordError}
+        hint={capsLock ? 'Caps lock is on.' : undefined}
+      >
         {#snippet children({ id, describedBy, invalid })}
           <Input
             bind:value={password}
+            bind:element={passwordInput}
             {id}
             {describedBy}
             {invalid}
-            type="password"
+            type={revealed ? 'text' : 'password'}
             name="password"
             autocomplete="current-password"
-            onblur={() => (touched = { ...touched, password: true })}
-          />
+            disabled={submitting}
+            onkeydown={readCapsLock}
+            onblur={() => {
+              touched = { ...touched, password: true };
+              capsLock = false;
+            }}
+          >
+            {#snippet trailing()}
+              <IconButton
+                icon={revealed ? EyeOff : Eye}
+                label={revealed ? 'Hide password' : 'Show password'}
+                size="sm"
+                pressed={revealed}
+                disabled={submitting}
+                onclick={() => {
+                  revealed = !revealed;
+                  passwordInput?.focus();
+                }}
+              />
+            {/snippet}
+          </Input>
         {/snippet}
       </Field>
 
@@ -124,33 +218,59 @@
       <Button href={oidcStartUrl()} full>{meta.oidc_label ?? 'Sign in with SSO'}</Button>
     {/if}
   {/if}
-
-  {#if meta?.version}
-    <p class="version">Zoomies {meta.version}</p>
-  {/if}
 </div>
 
+{#if meta?.version}
+  <p class="version">Zoomies {meta.version}</p>
+{/if}
+
 <style>
+  /*
+    The card floats on the page rather than sitting in a layout, so it carries
+    real elevation. A hairline highlight along its top edge keeps it from
+    reading as a flat rectangle in dark mode, where the border alone nearly
+    disappears.
+  */
   .card {
+    position: relative;
     width: 100%;
-    max-width: 360px;
+    max-width: 25rem;
     padding: var(--z-space-8);
     border: 1px solid var(--z-border);
     border-radius: var(--z-radius-lg);
     background: var(--z-surface);
-    box-shadow: var(--z-shadow-sm);
+    box-shadow: var(--z-shadow-lg);
+  }
+  .card::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto;
+    height: 1px;
+    margin: 0 var(--z-radius-lg);
+    background: linear-gradient(90deg, transparent, var(--z-border-strong), transparent);
   }
   .brand {
     display: flex;
-    align-items: center;
-    gap: var(--z-space-3);
-    color: var(--z-accent);
+    justify-content: center;
+    margin-bottom: var(--z-space-6);
+    color: var(--z-text);
+  }
+  h1 {
+    margin: 0;
+    font-size: var(--z-text-xl);
+    line-height: var(--z-leading-xl);
+    font-weight: var(--z-weight-semibold);
+    letter-spacing: -0.01em;
+    color: var(--z-text);
+    text-align: center;
   }
   .lede {
-    margin: var(--z-space-4) 0 var(--z-space-6);
-    font-size: var(--z-text-base);
-    line-height: var(--z-leading-base);
+    margin: var(--z-space-2) 0 var(--z-space-6);
+    font-size: var(--z-text-sm);
+    line-height: var(--z-leading-sm);
     color: var(--z-text-muted);
+    text-align: center;
+    text-wrap: balance;
   }
   form {
     display: flex;
@@ -158,7 +278,10 @@
     gap: var(--z-space-4);
   }
   .failure {
-    margin: 0 0 var(--z-space-4);
+    display: flex;
+    align-items: flex-start;
+    gap: var(--z-space-2);
+    margin: 0 0 var(--z-space-5);
     padding: var(--z-space-3);
     border: 1px solid var(--z-danger-border);
     border-radius: var(--z-radius-sm);
@@ -166,6 +289,11 @@
     font-size: var(--z-text-sm);
     line-height: var(--z-leading-sm);
     color: var(--z-text);
+  }
+  .failure :global(svg) {
+    flex: none;
+    margin-top: 1px;
+    color: var(--z-danger);
   }
   .divider {
     display: flex;
@@ -187,9 +315,12 @@
     font-size: var(--z-text-xs);
     line-height: var(--z-leading-xs);
     color: var(--z-text-muted);
+    text-align: center;
   }
+  /* Outside the card: a build number is about the installation, not about
+     signing in, and it should not be the last thing inside the box. */
   .version {
-    margin: var(--z-space-6) 0 0;
+    margin: 0;
     font-family: var(--z-font-mono);
     font-size: var(--z-text-2xs);
     color: var(--z-text-subtle);

@@ -289,12 +289,11 @@ func TestStoreInstallationNeedsAKey(t *testing.T) {
 // integration, so it is checked here rather than trusted.
 func TestManifestAsksForTheLeastItCan(t *testing.T) {
 	raw, err := github.Manifest(github.ManifestOptions{
-		Name:          "zoomies-acme",
-		URL:           "https://zoomies.example.com",
-		WebhookURL:    "https://zoomies.example.com/webhooks/github",
-		WebhookSecret: "shhh",
-		Organization:  "acme",
-		SetupURL:      "http://127.0.0.1:4321/callback",
+		Name:         "zoomies-acme",
+		URL:          "https://zoomies.example.com",
+		WebhookURL:   "https://zoomies.example.com/webhooks/github",
+		Organization: "acme",
+		SetupURL:     "http://127.0.0.1:4321/callback",
 	})
 	if err != nil {
 		t.Fatalf("Manifest: %v", err)
