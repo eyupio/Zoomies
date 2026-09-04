@@ -162,7 +162,7 @@ func TestOpenAPIIsServed(t *testing.T) {
 
 // TestEmbeddedSpecMatchesTheSource is the drift check.
 //
-// go:embed cannot reach api/openapi.yaml from this package, so the copy in
+// The embed directive cannot reach api/openapi.yaml from this package, so the copy in
 // openapi_spec.go is generated. This test is what stops the two from silently
 // disagreeing about what the API promises.
 func TestEmbeddedSpecMatchesTheSource(t *testing.T) {

@@ -723,7 +723,7 @@ func (b *DockerBackend) Stats(ctx context.Context, h Handle) (Stats, error) {
 		}
 		return Stats{}, nil
 	}
-	return Stats{CPUPercent: s.CPUPercent, MemoryBytes: s.MemoryBytes, MemoryLimit: s.MemoryLimit}, nil
+	return Stats(s), nil
 }
 
 // Logs streams a container's output, demultiplexed.

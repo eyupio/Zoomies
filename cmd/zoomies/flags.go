@@ -11,10 +11,10 @@ import (
 	"strings"
 )
 
-// flagHelp is returned when the operator asked for help rather than made a
+// errFlagHelp is returned when the operator asked for help rather than made a
 // mistake. It exits 0: `zoomies pools list --help | less` should not look like
 // a failure to a shell.
-var flagHelp = errors.New("help requested")
+var errFlagHelp = errors.New("help requested")
 
 // flagSet is a flag.FlagSet with the usage text this CLI prints. Every command
 // builds one; there are no global flags, so `zoomies runners list --help`
@@ -94,7 +94,7 @@ func (fs *flagSet) printUsage(w io.Writer) {
 	}
 }
 
-// parse parses args, translating a help request into flagHelp and any other
+// parse parses args, translating a help request into errFlagHelp and any other
 // failure into a usage error so that both exit with the right code.
 //
 // Arguments are permuted first. The standard flag package stops parsing at the
@@ -107,7 +107,7 @@ func (fs *flagSet) parse(args []string) error {
 	if err := fs.FlagSet.Parse(fs.permute(args)); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			// flag has already called Usage for us.
-			return flagHelp
+			return errFlagHelp
 		}
 		return &usageError{cmd: fs.Name(), err: err}
 	}
@@ -138,9 +138,9 @@ func (fs *flagSet) permute(args []string) []string {
 		flags = append(flags, arg)
 
 		name := strings.TrimLeft(arg, "-")
-		if before, _, found := strings.Cut(name, "="); found {
-			// --flag=value carries its own value.
-			name = before
+		if _, _, found := strings.Cut(name, "="); found {
+			// --flag=value carries its own value, so there is no following
+			// argument to consume.
 			continue
 		}
 		f := fs.Lookup(name)

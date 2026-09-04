@@ -157,7 +157,7 @@ func (h *spaHandler) setCacheHeaders(w http.ResponseWriter, name string) {
 
 // buildTime is the modification time reported for embedded files.
 //
-// go:embed does not preserve timestamps, so there is nothing truthful to
+// Embedding does not preserve timestamps, so there is nothing truthful to
 // report; a fixed, non-zero time makes conditional requests work consistently
 // (the ETag-less If-Modified-Since path) without pretending each file was
 // written when the process started.

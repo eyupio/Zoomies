@@ -23,6 +23,7 @@ log() { printf '%s zoomies-runner: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"; 
 # exactly what a Zoomies drain means. Forward it rather than letting the shell
 # die and orphan the runner.
 child=0
+# shellcheck disable=SC2317  # invoked by trap, which shellcheck cannot see
 forward() {
   if [ "$child" -ne 0 ]; then
     log "forwarding $1 to the runner (it will finish its current job first)"
@@ -57,6 +58,7 @@ elif [ -n "${ZOOMIES_RUNNER_TOKEN:-}" ]; then
   # Deregister on the way out so a crashed container does not leave a ghost
   # runner in the GitHub UI. Ephemeral runners deregister themselves, so this
   # only matters on the persistent path.
+  # shellcheck disable=SC2317  # invoked by trap, which shellcheck cannot see
   cleanup() {
     log "removing this runner's registration"
     ./config.sh remove --token "${ZOOMIES_RUNNER_TOKEN}" >/dev/null 2>&1 || true

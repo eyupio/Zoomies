@@ -152,7 +152,7 @@ func report(e *env, name string, err error) int {
 	switch {
 	case err == nil:
 		return exitOK
-	case errors.Is(err, flagHelp):
+	case errors.Is(err, errFlagHelp):
 		// The command printed its own usage in response to --help.
 		return exitOK
 	case errors.Is(err, context.Canceled):

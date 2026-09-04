@@ -64,7 +64,7 @@ func Open(ctx context.Context, opts Options) (*Store, error) {
 	}
 
 	memory := opts.Path == ":memory:" || strings.HasPrefix(opts.Path, "file::memory:")
-	dsn := opts.Path
+	var dsn string
 	if !memory {
 		abs, err := filepath.Abs(opts.Path)
 		if err != nil {

@@ -235,15 +235,24 @@ docker_ok() {
     [ -r "$1" ] && [ -w "$1" ]
 }
 
+# port_free succeeds when nothing is listening on the given port. Written as
+# explicit ifs rather than a negated pipeline: `! cmd | grep -q` reads the same
+# but skips errexit, which is exactly the kind of thing that makes an installer
+# carry on after a check it thinks it made.
 port_free() {
     p="$1"
     if have ss; then
-        ! ss -ltn 2>/dev/null | grep -qE "[:.]${p}[[:space:]]"
+        if ss -ltn 2>/dev/null | grep -qE "[:.]${p}[[:space:]]"; then
+            return 1
+        fi
     elif have netstat; then
-        ! netstat -ltn 2>/dev/null | grep -qE "[:.]${p}[[:space:]]"
-    else
-        return 0
+        if netstat -ltn 2>/dev/null | grep -qE "[:.]${p}[[:space:]]"; then
+            return 1
+        fi
     fi
+    # Neither tool is present, so we cannot tell. Say the port is free rather
+    # than blocking an install on a check we were unable to make.
+    return 0
 }
 
 detect_existing() {
