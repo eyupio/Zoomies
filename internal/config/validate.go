@@ -70,6 +70,35 @@ func (fs Findings) bySeverity(s Severity) Findings {
 	return out
 }
 
+// uiHidden lists the finding codes the web UI does not surface.
+//
+// bind.public_no_tls is the only one so far, and it is here because it is true
+// of every deployment that terminates TLS at a reverse proxy -- Cloudflare,
+// nginx, Caddy -- which is the arrangement its own fix recommends and by far
+// the most common way Zoomies is run. The controller cannot see that proxy
+// from behind it, so the warning sat permanently on the Overview of correctly
+// configured fleets, and a panel that is always amber is a panel nobody reads.
+//
+// It is not dropped: `zoomies config check` and the startup banner still print
+// it, where it is read once by the person doing the deploying rather than
+// every day by everybody else.
+var uiHidden = map[string]bool{
+	"bind.public_no_tls": true,
+}
+
+// ForUI drops the findings the web UI does not surface, leaving the CLI's own
+// output alone. It returns an empty, non-nil slice when nothing is left, which
+// is what the problems panel renders "nothing needs your attention" from.
+func (fs Findings) ForUI() Findings {
+	out := make(Findings, 0, len(fs))
+	for _, f := range fs {
+		if !uiHidden[f.Code] {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
 // Err returns a single error describing every fatal finding, or nil.
 func (fs Findings) Err() error {
 	errs := fs.Errors()

@@ -50,8 +50,10 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 
 	// Configuration: every warning and error the validator produced. These are
 	// the settings that trade safety for convenience, and they are listed
-	// whether or not anything has gone wrong yet.
-	for _, f := range c.cfg.Validate() {
+	// whether or not anything has gone wrong yet. ForUI drops the handful that
+	// only the CLI says, because they are expected in a normal deployment and
+	// a panel that is never clear stops being read.
+	for _, f := range c.cfg.Validate().ForUI() {
 		if f.Severity != config.SeverityError && f.Severity != config.SeverityWarning {
 			continue
 		}
