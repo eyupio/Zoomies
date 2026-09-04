@@ -180,34 +180,55 @@ jobs:
   images:
     name: Images
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    # Publishing needs to write packages; everything else here only reads.
+    permissions:
+      contents: read
+      packages: write
+    env:
+      CONTROLLER_IMAGE: ghcr.io/eyupio/zoomies
+      RUNNER_IMAGE: ghcr.io/eyupio/zoomies-runner
     steps:
+      # Full history: the "what changed" step below diffs against a base commit
+      # that a shallow clone does not contain.
       - uses: actions/checkout@v7
+        with: { fetch-depth: 0 }
 
-      # Which images actually need building. The runner image is by far the
-      # most expensive thing in this workflow -- it apt-installs a desktop's
-      # worth of build dependencies and downloads the ~200 MB actions/runner
-      # tarball -- so it is built only when something that goes into it changed.
-      - id: changed
-        name: Work out what changed
-        env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+      # Whether this run publishes anything. Only main does. A pull request --
+      # from a fork especially -- is untrusted code carrying a read-only token,
+      # and has no business writing to the registry: it builds the images to
+      # prove the Dockerfiles still work, and pushes nothing.
+      - id: publish
+        name: Decide whether to publish
         run: |
           set -eu
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ -z "${BASE:-}" ]; then
-            echo "runner=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if git diff --name-only "$BASE" HEAD | grep -qE '^deploy/(Dockerfile\.runner|runner-entrypoint\.sh)$'; then
-            echo "runner=true" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" != "pull_request" ] \
+             && [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "value=true" >> "$GITHUB_OUTPUT"
           else
-            echo "runner=false" >> "$GITHUB_OUTPUT"
+            echo "value=false" >> "$GITHUB_OUTPUT"
           fi
+
+      # :main and :sha-<commit> are what main publishes. :latest belongs to
+      # tagged releases and is moved only by release.yml, so that pulling
+      # :latest keeps meaning "the last release" and not "the last merge".
+      - id: tags
+        name: Work out the tags
+        run: echo "sha=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - if: steps.publish.outputs.value == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          # github.token rather than secrets.GITHUB_TOKEN: the same value, but
+          # GitHub reserves the GITHUB_ prefix for secret names, so referring to
+          # it this way keeps the workflow clear of that namespace entirely.
+          password: ${{ github.token }}
 
       # arm64 is emulated, and emulated apt plus an emulated 200 MB download is
       # the difference between a two-minute job and a twenty-minute one. A pull
       # request proves the Dockerfiles still build; main proves they still build
-      # for both architectures. Releases publish multi-arch either way, from
-      # release.yml.
+      # for both architectures, and publishes both.
       - id: platforms
         name: Decide the platforms
         run: |
@@ -224,6 +245,50 @@ jobs:
       - name: Setup Blacksmith Builder
         uses: useblacksmith/setup-docker-builder@v1
 
+      # Which images actually need building. The runner image is by far the
+      # most expensive thing in this workflow -- it apt-installs a desktop's
+      # worth of build dependencies and downloads the ~200 MB actions/runner
+      # tarball -- so it is built only when something that goes into it changed.
+      # Nothing else in the repository does: the image is the actions/runner
+      # release, its dependencies, and the entrypoint.
+      #
+      # Runs after the builder is set up, because deciding needs a registry
+      # lookup.
+      - id: changed
+        name: Work out what changed
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          PUBLISH: ${{ steps.publish.outputs.value }}
+        run: |
+          set -eu
+          build_it() { echo "runner=true" >> "$GITHUB_OUTPUT"; exit 0; }
+
+          # Skipping the build is only safe while :main already points at an
+          # image built from these files. On the first publish it points at
+          # nothing at all, and "unchanged" would leave it that way.
+          if [ "$PUBLISH" = "true" ] &&
+             ! docker buildx imagetools inspect "$RUNNER_IMAGE:main" >/dev/null 2>&1; then
+            echo "$RUNNER_IMAGE:main is not in the registry yet; building it." >> "$GITHUB_STEP_SUMMARY"
+            build_it
+          fi
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            build_it
+          fi
+
+          # A base we cannot resolve -- a force push, a branch's first commit --
+          # tells us nothing about what changed, so assume the worst.
+          if [ -z "${BASE:-}" ] || ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
+            build_it
+          fi
+
+          if git diff --name-only "$BASE" HEAD |
+             grep -qE '^deploy/(Dockerfile\.runner|runner-entrypoint\.sh)$'; then
+            echo "runner=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "runner=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build the controller image
         uses: useblacksmith/build-push-action@v2
         with:
@@ -231,7 +296,16 @@ jobs:
           file: deploy/Dockerfile
           target: controller
           platforms: ${{ steps.platforms.outputs.list }}
-          push: false
+          push: ${{ steps.publish.outputs.value }}
+          # Without these, `zoomies version` inside a published image reports
+          # the Dockerfile's "dev" default, and nothing in the image says which
+          # commit it came from.
+          build-args: |
+            VERSION=main-${{ steps.tags.outputs.sha }}
+            COMMIT=${{ github.sha }}
+          tags: |
+            ${{ env.CONTROLLER_IMAGE }}:main
+            ${{ env.CONTROLLER_IMAGE }}:${{ steps.tags.outputs.sha }}
 
       - name: Build the runner image
         if: steps.changed.outputs.runner == 'true'
@@ -240,9 +314,35 @@ jobs:
           context: .
           file: deploy/Dockerfile.runner
           platforms: ${{ steps.platforms.outputs.list }}
-          push: false
+          push: ${{ steps.publish.outputs.value }}
+          tags: |
+            ${{ env.RUNNER_IMAGE }}:main
+            ${{ env.RUNNER_IMAGE }}:${{ steps.tags.outputs.sha }}
 
-      - name: Say when the runner image was skipped
-        if: steps.changed.outputs.runner != 'true'
+      - name: Say what happened
+        env:
+          PUBLISH: ${{ steps.publish.outputs.value }}
+          RUNNER_BUILT: ${{ steps.changed.outputs.runner }}
+          SHA_TAG: ${{ steps.tags.outputs.sha }}
         run: |
-          echo "The runner image was not rebuilt: nothing under deploy/ that goes into it changed." >> "$GITHUB_STEP_SUMMARY"
+          set -eu
+          {
+            if [ "$RUNNER_BUILT" != "true" ]; then
+              echo "The runner image was not rebuilt: nothing under deploy/ that goes into it changed."
+              echo
+            fi
+            if [ "$PUBLISH" != "true" ]; then
+              echo "Nothing was published: images are pushed from main only."
+            else
+              echo "Published:"
+              echo
+              echo "- \`$CONTROLLER_IMAGE:main\`, \`$CONTROLLER_IMAGE:$SHA_TAG\`"
+              if [ "$RUNNER_BUILT" = "true" ]; then
+                echo "- \`$RUNNER_IMAGE:main\`, \`$RUNNER_IMAGE:$SHA_TAG\`"
+              else
+                echo "- \`$RUNNER_IMAGE:main\` is unchanged, and still current."
+              fi
+              echo
+              echo "\`:latest\` is not moved from here; it follows tagged releases."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
