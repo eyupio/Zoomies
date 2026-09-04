@@ -120,9 +120,9 @@ func IsHostedLabel(label string) bool {
 // runsOnKey matches a `runs-on:` key and splits it into the parts that must be
 // preserved byte for byte.
 //
-//	 1: everything up to and including the colon and the space after it
-//	 2: the value, with any trailing comment left in group 3
-//	 3: a trailing comment, including the whitespace before it
+//	1: everything up to and including the colon and the space after it
+//	2: the value, with any trailing comment left in group 3
+//	3: a trailing comment, including the whitespace before it
 //
 // The key is matched case-insensitively because GitHub accepts "Runs-On" and
 // people write it.

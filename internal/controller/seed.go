@@ -42,6 +42,10 @@ func IsDemoID(id string) bool {
 // names carried the brand, and is still recognised so that a demo instance
 // seeded by an older build is left alone rather than rejected as a real
 // fleet.
+// demoRepos are the repositories the fixture's jobs come from, and the ones the
+// demo installation reports to the migration wizard.
+var demoRepos = []string{"acme/widgets", "acme/api", "acme/site"}
+
 var demoPoolNames = []string{
 	"zoomies-demo-linux-x64", "zoomies-demo-linux-arm64",
 	"demo-linux-x64", "demo-linux-arm64",
@@ -305,7 +309,7 @@ func (c *Controller) seedRunners(ctx context.Context, now time.Time, pools []*st
 // real morning: mostly quick and successful, a long tail that makes the p95
 // worth showing, and a couple nothing claims.
 func (c *Controller) seedJobs(ctx context.Context, now time.Time, rng *rand.Rand, pools []*store.Pool, runners []*store.Runner) error {
-	repos := []string{"acme/widgets", "acme/api", "acme/site"}
+	repos := demoRepos
 	workflows := []string{"CI", "Release", "Nightly"}
 	jobNames := []string{"build", "test", "lint", "package"}
 	conclusions := []string{"success", "success", "success", "success", "failure", "cancelled"}

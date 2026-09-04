@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/github"
@@ -87,3 +88,54 @@ func (d *demoClient) RateLimit(context.Context) (*github.RateLimit, error) {
 }
 
 func (d *demoClient) WebURL() string { return "https://github.com/" + d.target }
+
+// The migration surface. Reads answer with the fixture's repositories so the
+// wizard has something to render in a demo; the write refuses, because a
+// fixture has no App behind it and a pull request that silently went nowhere
+// would be worse than a refusal that says why.
+
+func (d *demoClient) ListRepositories(context.Context, int) ([]github.Repository, error) {
+	out := make([]github.Repository, 0, len(demoRepos))
+	for _, name := range demoRepos {
+		out = append(out, github.Repository{
+			FullName:      name,
+			DefaultBranch: "main",
+			Private:       true,
+			HTMLURL:       "https://github.com/" + name,
+		})
+	}
+	return out, nil
+}
+
+func (d *demoClient) ListWorkflows(_ context.Context, repo string) ([]github.WorkflowFile, error) {
+	return []github.WorkflowFile{{
+		Path:    ".github/workflows/ci.yml",
+		SHA:     "demo" + strings.ReplaceAll(repo, "/", ""),
+		Content: demoWorkflow,
+	}}, nil
+}
+
+func (d *demoClient) OpenPullRequest(context.Context, github.PullRequestRequest) (*github.PullRequest, error) {
+	return nil, fmt.Errorf("%w, so it cannot open a pull request; connect a real installation to migrate a repository", ErrDemoFixture)
+}
+
+// demoWorkflow is a workflow with one job the wizard can migrate and one it
+// must refuse to touch, so a demo shows both halves of the review step.
+const demoWorkflow = `name: CI
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make build
+  matrix:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-14]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - run: make test
+`
