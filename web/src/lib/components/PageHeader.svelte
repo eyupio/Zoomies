@@ -103,12 +103,19 @@
     color: var(--z-text);
     overflow-wrap: anywhere;
   }
-  h1:focus {
-    outline: none;
-  }
+  /*
+    Route navigation moves focus here so a keyboard user lands on the page name
+    rather than back at the top of the nav. That focus is programmatic, though,
+    and drawing a ring around the title of every page the moment it loads reads
+    as a rendering bug rather than as an affordance. :focus-visible would
+    normally handle this, but a scripted .focus() on a tabindex="-1" element
+    still matches it in Chromium, so the ring is suppressed explicitly. A
+    keyboard user has not moved focus here themselves and is being told where
+    they are by the live region instead.
+  */
+  h1:focus,
   h1:focus-visible {
-    outline: 2px solid var(--z-accent);
-    outline-offset: 4px;
+    outline: none;
   }
   .subtitle {
     margin: var(--z-space-1) 0 0;

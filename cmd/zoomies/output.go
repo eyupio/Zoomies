@@ -55,20 +55,6 @@ func isTerminal(w io.Writer) bool {
 	return term.IsTerminal(int(f.Fd()))
 }
 
-// terminalWidth returns the width of w, or 0 when it is not a terminal. It is
-// used to decide how wide a utilisation bar may be, never to truncate data.
-func terminalWidth(w io.Writer) int {
-	f, ok := w.(*os.File)
-	if !ok {
-		return 0
-	}
-	width, _, err := term.GetSize(int(f.Fd()))
-	if err != nil {
-		return 0
-	}
-	return width
-}
-
 // printer renders a command's output in the mode the operator asked for.
 type printer struct {
 	out    io.Writer

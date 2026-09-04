@@ -265,13 +265,22 @@
         cell: nameCell,
       },
       {
+        // Pool and host names are hyphenated, and without a width they wrap
+        // one segment per line and triple the row height.
         id: 'pool',
         header: 'Pool',
         sortable: true,
+        width: '11rem',
         value: (row) => row.pool_name ?? '',
         cell: poolCell,
       },
-      { id: 'host', header: 'Host', sortable: true, value: (row) => row.host_name ?? '' },
+      {
+        id: 'host',
+        header: 'Host',
+        sortable: true,
+        width: '10rem',
+        value: (row) => row.host_name ?? '',
+      },
       {
         id: 'job',
         header: 'Current job',

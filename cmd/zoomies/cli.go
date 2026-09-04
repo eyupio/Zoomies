@@ -20,10 +20,11 @@ import (
 )
 
 // The commands in this file and the per-resource files beside it are pure API
-// clients. They open no database and import no controller: everything they can
-// do, the web UI can do, because both go through the same routes. That is the
-// property that keeps the CLI honest, so it is enforced by what this file is
-// allowed to import.
+// clients: they open no database and call into no controller, only the HTTP
+// routes in api/openapi.yaml. That is what keeps the CLI honest -- anything it
+// can do, the web UI can do, because both go through the same surface -- and it
+// is worth preserving deliberately, since the daemon half of this binary sits
+// in the same package and the compiler will not stop anyone reaching for it.
 
 // defaultRequestTimeout bounds an ordinary call. Streams -- a followed log tail,
 // the event stream -- set no deadline of their own and are bounded by the
@@ -77,7 +78,7 @@ func loadCLIConfig(path string) (cliConfig, error) {
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(raw))
 	dec.KnownFields(true)
-	if err := dec.Decode(&c); err != nil && err != io.EOF {
+	if err := dec.Decode(&c); err != nil && !errors.Is(err, io.EOF) {
 		return c, fmt.Errorf("%s: %w (it should hold url, token and optionally ca_file and insecure)", path, err)
 	}
 	return c, nil
@@ -292,6 +293,9 @@ func (c *apiClient) do(ctx context.Context, method, path string, q url.Values, b
 
 	resp, err := c.http.Do(req)
 	if err != nil {
+		if stopped(ctx, err) {
+			return nil, context.Canceled
+		}
 		return nil, c.transportError(method, path, err)
 	}
 	defer resp.Body.Close()
@@ -339,6 +343,9 @@ func (c *apiClient) stream(ctx context.Context, path string, q url.Values, accep
 
 	resp, err := c.http.Do(req)
 	if err != nil {
+		if stopped(ctx, err) {
+			return nil, context.Canceled
+		}
 		return nil, c.transportError(http.MethodGet, path, err)
 	}
 	if resp.StatusCode >= 400 {
@@ -357,6 +364,20 @@ func (c *apiClient) decorate(req *http.Request) {
 		// the CLI never has to think about Origin headers.
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
+}
+
+// stopped reports whether an error is only the operator's ctrl-C.
+//
+// It asks the context rather than inspecting the error, because a cancelled
+// request surfaces as whatever the transport was doing at the time -- and
+// because signal.NotifyContext attaches a cause of its own, so the error a
+// stream ends with is not context.Canceled and must not be printed as a
+// failure.
+func stopped(ctx context.Context, err error) bool {
+	if err == nil {
+		return false
+	}
+	return ctx.Err() != nil || errors.Is(err, context.Canceled)
 }
 
 // transportError turns a dial or TLS failure into something actionable. "connection

@@ -149,20 +149,28 @@ type Subscription struct {
 	C   <-chan Event
 	bus *Bus
 	id  int
+	// once makes Close idempotent AND race-free. Both matter: Subscribe spawns
+	// a goroutine that closes the subscription when the context ends, so an
+	// explicit Close from the handler and that goroutine routinely run at the
+	// same time. An earlier version cleared s.bus at the end of Close, which
+	// was an unsynchronised write to a field the other caller was reading.
+	once sync.Once
 }
 
-// Close unsubscribes. It is safe to call more than once.
+// Close unsubscribes. It is safe to call more than once and from more than one
+// goroutine at a time.
 func (s *Subscription) Close() {
 	if s == nil || s.bus == nil {
 		return
 	}
-	s.bus.mu.Lock()
-	if sub, ok := s.bus.subs[s.id]; ok {
-		delete(s.bus.subs, s.id)
-		close(sub.ch)
-	}
-	s.bus.mu.Unlock()
-	s.bus = nil
+	s.once.Do(func() {
+		s.bus.mu.Lock()
+		if sub, ok := s.bus.subs[s.id]; ok {
+			delete(s.bus.subs, s.id)
+			close(sub.ch)
+		}
+		s.bus.mu.Unlock()
+	})
 }
 
 // SubscribeOptions narrows a subscription.

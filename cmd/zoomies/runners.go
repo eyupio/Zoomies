@@ -282,8 +282,10 @@ func runnersLogs(ctx context.Context, e *env, args []string) error {
 			return explainLogError(err, id)
 		}
 		defer resp.Body.Close()
-		_, err = io.Copy(e.out, resp.Body)
-		return err
+		if _, err := io.Copy(e.out, resp.Body); err != nil && !stopped(ctx, err) {
+			return err
+		}
+		return nil
 	}
 
 	q := url.Values{}
@@ -315,7 +317,7 @@ func runnersLogs(ctx context.Context, e *env, args []string) error {
 			return nil
 		}
 	})
-	if errors.Is(err, io.EOF) {
+	if errors.Is(err, io.EOF) || stopped(ctx, err) {
 		return nil
 	}
 	return err

@@ -2,7 +2,10 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"testing"
+
+	"github.com/eyupio/zoomies/internal/github"
 )
 
 func TestIsDemoID(t *testing.T) {
@@ -54,5 +57,53 @@ func TestDemoInstallationIsNotProbed(t *testing.T) {
 		if p.Code == "installation.unhealthy" {
 			t.Errorf("the demo fleet reports %q: %s", p.Code, p.Title)
 		}
+	}
+}
+
+// The demo installation must answer every read the UI makes without reaching
+// GitHub. Before this, the Installations page 500'd on the rate limit and the
+// poller logged a credential failure every thirty seconds, which makes a demo
+// instance read as broken software rather than as a working fleet.
+func TestDemoInstallationAnswersReadsWithoutGitHub(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+	if err := h.c.SeedDemo(ctx); err != nil {
+		t.Fatalf("SeedDemo: %v", err)
+	}
+
+	client, err := h.c.ClientFor(ctx, demoInstallationID)
+	if err != nil {
+		t.Fatalf("ClientFor: %v", err)
+	}
+
+	if _, err := client.Probe(ctx); err != nil {
+		t.Errorf("Probe: %v", err)
+	}
+	rl, err := client.RateLimit(ctx)
+	if err != nil {
+		t.Fatalf("RateLimit: %v", err)
+	}
+	if rl.Remaining <= 0 || rl.Remaining > rl.Limit {
+		t.Errorf("rate limit = %d/%d, want a plausible pair", rl.Remaining, rl.Limit)
+	}
+	if _, err := client.ListRunners(ctx); err != nil {
+		t.Errorf("ListRunners: %v", err)
+	}
+	if _, err := client.ListRunnerGroups(ctx); err != nil {
+		t.Errorf("ListRunnerGroups: %v", err)
+	}
+	if _, err := client.ListQueuedJobs(ctx); err != nil {
+		t.Errorf("ListQueuedJobs: %v", err)
+	}
+	if err := client.DeleteRunner(ctx, 42); err != nil {
+		t.Errorf("DeleteRunner on a registration that never existed should succeed: %v", err)
+	}
+
+	// Writes must refuse, and say why. Silently pretending to mint a runner
+	// credential would leave runners stuck in provisioning with no explanation.
+	if _, err := client.CreateJITConfig(ctx, github.JITRequest{Name: "x"}); err == nil {
+		t.Error("CreateJITConfig succeeded on a demo fixture; it must refuse")
+	} else if !errors.Is(err, ErrDemoFixture) {
+		t.Errorf("CreateJITConfig error = %v, want it to wrap ErrDemoFixture", err)
 	}
 }

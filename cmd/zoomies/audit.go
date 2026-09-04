@@ -173,7 +173,7 @@ func auditTail(ctx context.Context, e *env, args []string) error {
 	}
 	defer resp.Body.Close()
 
-	return readSSE(resp.Body, func(f sseFrame) error {
+	err = readSSE(resp.Body, func(f sseFrame) error {
 		if f.event != "audit" {
 			return nil
 		}
@@ -185,4 +185,9 @@ func auditTail(ctx context.Context, e *env, args []string) error {
 		fmt.Fprintln(e.out, auditLine(p, a))
 		return nil
 	})
+	// Ending a tail with ctrl-C is how a tail ends, not a failure.
+	if stopped(ctx, err) {
+		return nil
+	}
+	return err
 }

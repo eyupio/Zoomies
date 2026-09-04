@@ -92,7 +92,7 @@
 
 <div class="card">
   <div class="brand">
-    <Logo variant="full" size={34} label="Zoomies" />
+    <Logo variant="full" size={48} label="Zoomies" />
   </div>
   <h1>Create the first administrator</h1>
   <p class="lede">

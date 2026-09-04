@@ -90,6 +90,14 @@ class Session {
       this.#phase = 'failed';
       return;
     }
+    // Authentication being switched off wins over everything else. There is no
+    // point creating the first administrator on a controller that will never
+    // check who anybody is, and a first-run form on such an instance would be
+    // a form that does nothing.
+    if (this.#meta.auth_disabled) {
+      this.#phase = 'ready';
+      return;
+    }
     if (this.#meta.bootstrap_required) {
       this.#phase = 'bootstrap';
       return;

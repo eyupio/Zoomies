@@ -103,6 +103,9 @@ func (c *Controller) SeedDemo(ctx context.Context) error {
 	if err := c.seedAudit(ctx, now, pool1); err != nil {
 		return err
 	}
+	if err := c.seedSamples(ctx, now, rng); err != nil {
+		return err
+	}
 
 	c.log.Info("seeded the demo fleet",
 		"pools", len(demoPoolNames), "hosts", len(hosts), "runners", len(runners))
@@ -434,4 +437,73 @@ func (c *Controller) seedAudit(ctx context.Context, now time.Time, pool *store.P
 		}
 	}
 	return nil
+}
+
+// seedSamples writes an hour of per-minute fleet history.
+//
+// Without it the Overview's sparklines have a single point until the instance
+// has been up for a while, so the one thing that makes that page worth leaving
+// open -- the shape of the last hour -- is exactly what a demo or a screenshot
+// cannot show. The shape is deliberate rather than noise: a quiet start, a
+// burst of queued work that the fleet scales into, and a wind-down, which is
+// what a real morning looks like.
+func (c *Controller) seedSamples(ctx context.Context, now time.Time, rng *rand.Rand) error {
+	const minutes = 60
+	start := now.Add(-minutes * time.Minute).Truncate(time.Minute)
+
+	for i := 0; i <= minutes; i++ {
+		at := start.Add(time.Duration(i) * time.Minute)
+
+		// A burst arriving around minute 20 and clearing by minute 50.
+		var queued, running, total int
+		switch {
+		case i < 15:
+			queued = jitter(rng, 0, 1)
+			running = jitter(rng, 1, 2)
+			total = 2 + running
+		case i < 25:
+			queued = jitter(rng, 4, 9)
+			running = jitter(rng, 2, 4)
+			total = 4 + running
+		case i < 45:
+			// The scheduler has caught up: the queue drains as runners appear.
+			queued = jitter(rng, 1, 4)
+			running = jitter(rng, 4, 7)
+			total = 2 + running + queued/2
+		default:
+			queued = jitter(rng, 0, 2)
+			running = jitter(rng, 2, 4)
+			total = 3 + running
+		}
+		busy := running
+		if busy > total {
+			busy = total
+		}
+		idle := total - busy
+		if idle < 0 {
+			idle = 0
+		}
+
+		if err := c.st.RecordSample(ctx, store.FleetSample{
+			At:           at,
+			QueuedJobs:   queued,
+			RunningJobs:  running,
+			IdleRunners:  idle,
+			BusyRunners:  busy,
+			TotalRunners: total,
+		}); err != nil {
+			return fmt.Errorf("seeding the fleet sample for %s: %w", at.Format(time.RFC3339), err)
+		}
+	}
+	return nil
+}
+
+// jitter returns a value in [lo, hi]. The fixtures use a seeded source, so the
+// shape is the same on every run and a screenshot taken today matches one taken
+// last week.
+func jitter(rng *rand.Rand, lo, hi int) int {
+	if hi <= lo {
+		return lo
+	}
+	return lo + rng.IntN(hi-lo+1)
 }

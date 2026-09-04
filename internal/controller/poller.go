@@ -82,6 +82,12 @@ func (c *Controller) pollOnce(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+		if IsDemoID(inst.ID) {
+			// The demo fixtures are already in the database; there is nothing
+			// to poll for, and trying would log a credential failure on every
+			// tick of a demo instance.
+			continue
+		}
 		client, err := c.clients.get(ctx, inst)
 		if err != nil {
 			c.log.Warn("skipping an installation while polling", "installation", inst.ID, "error", err)

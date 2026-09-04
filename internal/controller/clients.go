@@ -51,6 +51,11 @@ func (c *Controller) ClientFor(ctx context.Context, installationID string) (gith
 	if err != nil {
 		return nil, err
 	}
+	if IsDemoID(inst.ID) {
+		// The demo fixtures have no GitHub App behind them; answer from
+		// demoClient rather than failing every read the UI makes.
+		return newDemoClient(inst), nil
+	}
 	return c.clients.get(ctx, inst)
 }
 
