@@ -22,8 +22,8 @@ jobs:
     name: Go
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
@@ -57,8 +57,8 @@ jobs:
     name: staticcheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
@@ -72,8 +72,8 @@ jobs:
     name: UI
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -96,7 +96,7 @@ jobs:
       # budget documented in docs/ui-guidelines.md.
       - run: npm run build
         working-directory: web
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: webdist
           path: internal/api/webdist
@@ -107,17 +107,17 @@ jobs:
     runs-on: ubuntu-latest
     needs: [ui]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: webdist
           path: internal/api/webdist
@@ -128,7 +128,7 @@ jobs:
         working-directory: web
       - run: npm run test:e2e
         working-directory: web
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-report
@@ -148,12 +148,12 @@ jobs:
           - { goos: darwin, goarch: amd64 }
           - { goos: darwin, goarch: arm64 }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: webdist
           path: internal/api/webdist
@@ -167,7 +167,7 @@ jobs:
     name: install.sh
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: POSIX shell syntax
         run: |
           # dash is the strictest POSIX sh most users will have; install.sh must
@@ -181,25 +181,69 @@ jobs:
     name: Images
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
+      - uses: actions/checkout@v7
+
+      # Which images actually need building. The runner image is by far the
+      # most expensive thing in this workflow -- it apt-installs a desktop's
+      # worth of build dependencies and downloads the ~200 MB actions/runner
+      # tarball -- so it is built only when something that goes into it changed.
+      - id: changed
+        name: Work out what changed
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -eu
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ -z "${BASE:-}" ]; then
+            echo "runner=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if git diff --name-only "$BASE" HEAD | grep -qE '^deploy/(Dockerfile\.runner|runner-entrypoint\.sh)$'; then
+            echo "runner=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "runner=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # arm64 is emulated on a GitHub runner, and emulated apt plus an emulated
+      # 200 MB download is the difference between a two-minute job and a
+      # twenty-minute one. A pull request proves the Dockerfiles still build;
+      # main proves they still build for both architectures. Releases publish
+      # multi-arch either way, from release.yml.
+      - name: Decide the platforms
+        id: platforms
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "list=linux/amd64" >> "$GITHUB_OUTPUT"
+          else
+            echo "list=linux/amd64,linux/arm64" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.platforms.outputs.list != 'linux/amd64'
+        uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
+
       - name: Build the controller image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: deploy/Dockerfile
           target: controller
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ steps.platforms.outputs.list }}
           push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=controller
+          cache-to: type=gha,mode=max,scope=controller
+
       - name: Build the runner image
+        if: steps.changed.outputs.runner == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
           file: deploy/Dockerfile.runner
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ steps.platforms.outputs.list }}
           push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=runner
+          cache-to: type=gha,mode=max,scope=runner
+
+      - name: Say when the runner image was skipped
+        if: steps.changed.outputs.runner != 'true'
+        run: |
+          echo "The runner image was not rebuilt: nothing under deploy/ that goes into it changed." >> "$GITHUB_STEP_SUMMARY"

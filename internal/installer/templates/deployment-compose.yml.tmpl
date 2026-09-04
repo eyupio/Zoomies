@@ -1,0 +1,119 @@
+# Zoomies, deployed with Docker Compose.
+#
+# Written by `zoomies init`. Every value this reads is in the .env file beside
+# it, already filled in -- there is nothing to edit here before it will run:
+#
+#     docker compose up -d
+#
+{{if eq .Command "agent" -}}
+# The .env holds this host's agent token, so it is mode 0600 and belongs in
+# neither a repository nor a backup that anyone can read. This file has no
+# secrets in it and is safe to keep under version control.
+{{- else -}}
+# The .env holds the instance encryption key, so it is mode 0600 and belongs in
+# neither a repository nor a backup that anyone can read. This file has no
+# secrets in it and is safe to keep under version control.
+{{- end}}
+
+name: zoomies
+
+services:
+  zoomies:
+    image: ${ZOOMIES_IMAGE}
+    restart: unless-stopped
+    container_name: {{.Container}}
+    command: ["{{.Command}}"]
+    environment:
+{{- if eq .Command "agent" }}
+      # The controller this host takes work from, and the credential the join
+      # exchanged your join token for.
+      ZOOMIES_CONTROLLER_URL: ${ZOOMIES_CONTROLLER_URL:?set this in .env}
+      ZOOMIES_AGENT_TOKEN: ${ZOOMIES_AGENT_TOKEN:?set this in .env}
+{{- else }}
+      # How GitHub and your browser reach this controller. Webhooks are
+      # delivered to $ZOOMIES_EXTERNAL_URL/webhooks/github, and the https there
+      # is what makes Zoomies mark its session cookie Secure.
+      ZOOMIES_EXTERNAL_URL: ${ZOOMIES_EXTERNAL_URL:?set this in .env}
+
+      # 32 bytes, base64. Everything secret in the database is sealed with it.
+      # Back it up: without it the stored GitHub App key cannot be decrypted.
+      ZOOMIES_ENCRYPTION_KEY: ${ZOOMIES_ENCRYPTION_KEY:?set this in .env}
+
+      # Inside the container Zoomies binds every interface; the published port
+      # below is what actually controls exposure.
+      ZOOMIES_BIND: ${ZOOMIES_BIND}
+      ZOOMIES_TLS_MODE: ${ZOOMIES_TLS_MODE}
+{{- if .TLSCertFile }}
+      ZOOMIES_TLS_CERT_FILE: ${ZOOMIES_TLS_CERT_FILE}
+      ZOOMIES_TLS_KEY_FILE: ${ZOOMIES_TLS_KEY_FILE}
+{{- end }}
+
+      # Without this every audit row and every login rate-limit decision sees
+      # your proxy's address instead of the real client's, so the whole
+      # internet is throttled as one caller and the audit log is useless.
+      ZOOMIES_TRUSTED_PROXIES: ${ZOOMIES_TRUSTED_PROXIES}
+
+      ZOOMIES_GITHUB_API_BASE_URL: ${ZOOMIES_GITHUB_API_BASE_URL}
+      # The queued-job poller: what keeps scaling working when a webhook
+      # delivery is lost or misconfigured.
+      ZOOMIES_POLL_FALLBACK: ${ZOOMIES_POLL_FALLBACK}
+{{- end }}
+
+      ZOOMIES_AGENT_EMBEDDED: ${ZOOMIES_AGENT_EMBEDDED}
+      ZOOMIES_AGENT_BACKEND: ${ZOOMIES_AGENT_BACKEND}
+      ZOOMIES_DOCKER_HOST: ${ZOOMIES_DOCKER_HOST}
+      ZOOMIES_AGENT_CAPACITY: ${ZOOMIES_AGENT_CAPACITY}
+      ZOOMIES_WORK_DIR: ${ZOOMIES_WORK_DIR}
+
+      # Generated run-time data -- a self-signed certificate above all -- goes
+      # into the volume, so replacing the container does not change it.
+      ZOOMIES_STATE_DIR: ${ZOOMIES_STATE_DIR}
+      ZOOMIES_DB_PATH: ${ZOOMIES_DB_PATH}
+      ZOOMIES_LOG_FORMAT: ${ZOOMIES_LOG_FORMAT}
+      ZOOMIES_LOG_LEVEL: ${ZOOMIES_LOG_LEVEL}
+{{- if .Publish }}
+    ports:
+      # Published as ${ZOOMIES_PUBLISHED_ADDR}:${ZOOMIES_PUBLISHED_PORT}. On
+      # 127.0.0.1 only this host and whatever proxies from it can connect; open
+      # it wider only once something in front terminates TLS, or put the origin
+      # behind a firewall that allows only your proxy's ranges.
+      - "${ZOOMIES_PUBLISHED_ADDR}:${ZOOMIES_PUBLISHED_PORT}:{{.ContainerPort}}"
+{{- end }}
+    volumes:
+      - {{.Volume}}:/var/lib/zoomies
+{{- if .MountSocket }}
+      # The embedded agent needs this socket to create runner containers. This
+      # is Zoomies' own access to the runtime -- it is NOT the same thing as
+      # pool.docker_mode=host-socket, which would hand the socket to your jobs.
+      - {{.SocketPath}}:{{.SocketPath}}
+{{- end }}
+{{- if .TLSCertFile }}
+      # The certificate and key are mounted at the same paths they have on this
+      # host, which is why ZOOMIES_TLS_CERT_FILE can name them directly.
+      - ${ZOOMIES_TLS_CERT_FILE}:${ZOOMIES_TLS_CERT_FILE}:ro
+      - ${ZOOMIES_TLS_KEY_FILE}:${ZOOMIES_TLS_KEY_FILE}:ro
+{{- end }}
+{{- if .GroupAdd }}
+    # The image runs as uid 65532; that user must be able to use the socket.
+    # On most hosts that means adding the docker group's gid here.
+    group_add:
+      - "${DOCKER_GID}"
+{{- end }}
+    networks: [zoomies]
+{{- if .Healthcheck }}
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/zoomies", "healthcheck", "--url", "http://127.0.0.1:{{.ContainerPort}}"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+{{- end }}
+
+volumes:
+  {{.Volume}}:
+
+networks:
+  # Runner containers are attached to this network by the embedded agent, which
+  # keeps them off the host network and off the default bridge.
+  zoomies:
+    name: {{.Network}}

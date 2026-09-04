@@ -37,6 +37,11 @@ type UninstallOptions struct {
 	NonInteractive bool
 	// Deregister decides the GitHub cleanup without asking. Nil asks.
 	Deregister *bool
+	// RemoveVolume decides whether a containerised deployment's data volume
+	// goes with it. Nil asks, and a run that cannot ask keeps the volume: the
+	// volume is the database, and an uninstaller that deletes one nobody
+	// mentioned is not one anybody runs twice.
+	RemoveVolume *bool
 	// KeepConfig leaves zoomies.yaml in place, for an operator who edited it
 	// and wants to keep their work.
 	KeepConfig bool
@@ -77,7 +82,16 @@ type RemovalItem struct {
 // directory rather than against the real /etc.
 func UninstallItems(opts UninstallOptions) []RemovalItem {
 	cfgDir, stateDir := opts.configDir(), opts.stateDir()
-	items := []RemovalItem{
+	var items []RemovalItem
+
+	// A containerised deployment is listed first because it is the part an
+	// operator would otherwise not see going: a compose project left running
+	// keeps creating runners long after the files are gone.
+	if rec, ok := ReadDeploymentRecord(cfgDir); ok {
+		items = append(items, deploymentItems(rec, opts)...)
+	}
+
+	items = append(items, []RemovalItem{
 		{What: "service", Path: SystemdUnitPath(UnitController), Present: exists(SystemdUnitPath(UnitController)),
 			Note: "stopped and disabled first"},
 		{What: "agent service", Path: SystemdUnitPath(UnitAgent), Present: exists(SystemdUnitPath(UnitAgent))},
@@ -86,7 +100,7 @@ func UninstallItems(opts UninstallOptions) []RemovalItem {
 		{What: "state directory", Path: stateDir, Present: exists(stateDir)},
 		{What: "encryption key", Path: filepath.Join(cfgDir, "encryption.key"), Present: exists(filepath.Join(cfgDir, "encryption.key")),
 			Note: "the GitHub App private key and webhook secrets cannot be decrypted without it"},
-	}
+	}...)
 	cfgFile := filepath.Join(cfgDir, "zoomies.yaml")
 	if opts.KeepConfig {
 		items = append(items, RemovalItem{What: "configuration", Path: cfgFile, Present: exists(cfgFile),
@@ -98,6 +112,36 @@ func UninstallItems(opts UninstallOptions) []RemovalItem {
 		items = append(items, RemovalItem{What: "binary", Path: opts.BinaryPath, Present: exists(opts.BinaryPath),
 			Note: "removed last"})
 	}
+	return items
+}
+
+// deploymentItems lists what a containerised deployment leaves on this host,
+// in the words the operator will recognise from setup.
+func deploymentItems(rec DeploymentRecord, opts UninstallOptions) []RemovalItem {
+	what := "compose project"
+	if rec.Deployment == DeploymentDocker {
+		what = "container"
+	}
+	target := rec.ComposeFile()
+	note := "brought down with `" + strings.Join(rec.ComposeCommand, " ") + " down`"
+	if rec.Deployment == DeploymentDocker {
+		target = containerOr(rec)
+		note = "stopped and removed"
+	}
+	items := []RemovalItem{
+		{What: what, Path: target, Present: true, Note: note},
+	}
+	if rec.EnvFile != "" {
+		items = append(items, RemovalItem{What: "environment file", Path: rec.EnvFile, Present: exists(rec.EnvFile),
+			Note: "it holds the encryption key"})
+	}
+	volumeNote := "the database; kept unless you say otherwise"
+	if opts.RemoveVolume != nil && *opts.RemoveVolume {
+		volumeNote = "the database -- removing it destroys every pool, runner, job and audit row"
+	}
+	items = append(items, RemovalItem{What: "data volume", Path: volumeOr(rec), Present: true, Note: volumeNote})
+	items = append(items, RemovalItem{What: "deployment record", Path: DeploymentRecordPath(opts.configDir()),
+		Present: exists(DeploymentRecordPath(opts.configDir()))})
 	return items
 }
 
@@ -189,6 +233,17 @@ func Uninstall(ctx context.Context, opts UninstallOptions) error {
 		record("stopped and disabled %s", unit)
 	}
 
+	// --- Bring a containerised deployment down, for the same reason: a
+	// running container would carry on creating runners while we deregister
+	// the ones it has already made. -----------------------------------------
+	if rec, ok := ReadDeploymentRecord(opts.configDir()); ok {
+		removeVolume, err := wantsVolumeRemoved(opts, u, rec)
+		if err != nil {
+			return err
+		}
+		tearDownDeployment(ctx, rec, removeVolume, u, record)
+	}
+
 	// --- Deregister runners from GitHub, before the credentials go. -------
 	if err := maybeDeregister(ctx, opts, u, log, record); err != nil {
 		// A GitHub failure must not strand the operator with a half-removed
@@ -251,6 +306,26 @@ func Uninstall(ctx context.Context, opts UninstallOptions) error {
 			record("removed %s", cfgFile)
 		}
 	}
+	if rec, ok := ReadDeploymentRecord(cfgDir); ok {
+		paths := []string{rec.EnvFile, rec.ComposeFile(), DeploymentRecordPath(cfgDir)}
+		// The backups this installer made hold the encryption key too, so they
+		// go with the file they are copies of. Leaving one behind would undo
+		// the care taken to remove the key at all.
+		if rec.EnvFile != "" {
+			backups, _ := filepath.Glob(rec.EnvFile + ".bak.*")
+			paths = append(paths, backups...)
+		}
+		for _, path := range paths {
+			if path == "" || !exists(path) {
+				continue
+			}
+			if err := os.Remove(path); err != nil {
+				u.warn("could not remove " + path + ": " + err.Error())
+				continue
+			}
+			record("removed %s", path)
+		}
+	}
 	keyFile := filepath.Join(cfgDir, "encryption.key")
 	if exists(keyFile) {
 		if err := os.Remove(keyFile); err != nil {
@@ -310,6 +385,27 @@ func Uninstall(ctx context.Context, opts UninstallOptions) error {
 		u.note("nothing was left behind.")
 	}
 	return nil
+}
+
+// wantsVolumeRemoved settles whether the data volume goes too.
+//
+// It is a separate question from the rest of uninstall because it is the one
+// irreversible answer: the volume is the database, and nothing about the
+// container being gone implies the operator wanted their job history, pools
+// and audit log gone with it. Silence keeps it.
+func wantsVolumeRemoved(opts UninstallOptions, u *ui, rec DeploymentRecord) (bool, error) {
+	if opts.RemoveVolume != nil {
+		return *opts.RemoveVolume, nil
+	}
+	if opts.NonInteractive || opts.Yes {
+		u.note("keeping the " + volumeOr(rec) + " volume, which is the database; pass --volumes to delete it too.")
+		return false, nil
+	}
+	u.blank()
+	u.step("Delete the " + volumeOr(rec) + " volume as well?")
+	u.note("that volume is the database: pools, runners, job history and the audit log. Deleting it")
+	u.note("cannot be undone, and keeping it lets a later install pick up exactly where this left off.")
+	return askYesNo(opts.In, opts.Out, "Delete the volume? [y/N]: ")
 }
 
 // maybeDeregister offers, and then performs, the GitHub cleanup. It is offered

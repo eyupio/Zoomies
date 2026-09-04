@@ -156,6 +156,31 @@ github:
 A bare hostname is accepted and `/api/v3` appended. Everything else — App auth,
 JIT configs, webhooks, runner groups — works the same.
 
+### Deployment models
+
+`zoomies init` can run Zoomies three ways, and offers only the ones your host can
+actually do:
+
+| | What it writes | When to pick it |
+| --- | --- | --- |
+| `native` | a hardened systemd unit (or a launchd plist) | leanest, starts fastest, and needs no container runtime for the controller itself |
+| `compose` | `docker-compose.yml` and a populated `.env` | easiest to upgrade and to move to another host |
+| `docker` | an env file and one `docker run` | fewest files, but you manage the run command |
+
+Pass `--deployment native|compose|docker` to skip the question. Compose is the
+default when a compose command is present, native otherwise.
+
+The generated `.env` is complete: external URL, a freshly generated encryption
+key, bind address, TLS mode, trusted proxies, backend, capacity, work and
+database paths, log settings, the image tag, the published port, and the host's
+real docker group id. Every variable carries a comment. It is `0600`, written
+atomically, and a re-run **reuses the existing encryption key** rather than
+minting a new one -- which would render every stored secret undecryptable.
+
+`zoomies uninstall` reads back which deployment was used and tears down the
+right thing: `<compose> down` for a compose install (offering `-v`, and saying
+plainly that this destroys the database), `stop` and `rm` for a container.
+
 ### Behind Cloudflare (or any reverse proxy)
 
 `docker-compose.yml` is set up for this: Cloudflare terminates TLS and proxies

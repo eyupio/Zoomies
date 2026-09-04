@@ -47,6 +47,16 @@ never asks a question the script already answered.
 
     A single container. Fewest files, but you manage the run command yourself.
 
+Whichever you choose, the containerised deployments write a **fully populated
+`.env`** -- no placeholders to go back and fill in. Every variable carries a
+one-line comment saying what it is for, the file is `0600` because it holds your
+encryption key, and it is written atomically so an interrupted install never
+leaves a half-written file that compose would then read.
+
+Re-running the installer over an existing deployment is an upgrade, not a
+reinstall: it **keeps the existing encryption key** (minting a new one would
+make every stored secret undecryptable) and backs the old file up beside it.
+
 Then it walks the rest: a dedicated service user and directories, an encryption
 key (which it will tell you to back up, and say exactly what is lost without),
 the runner backend — preferring a rootless Docker or Podman socket, and

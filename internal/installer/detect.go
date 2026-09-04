@@ -55,6 +55,56 @@ type RuntimeInfo struct {
 	Installed bool
 }
 
+// ComposeInfo is the Docker Compose command this host can run.
+//
+// Compose v2 is a subcommand of docker; v1 was a separate docker-compose
+// binary. Both are still in the field, so whichever answered is carried around
+// as an argv prefix rather than re-derived at each call site -- which is how a
+// host with only v1 ends up being told to run a v2 command it does not have.
+type ComposeInfo struct {
+	// Command is the argv prefix, e.g. ["docker","compose"].
+	Command []string
+	// Available means the command answered a version request. install.sh's
+	// finding is trusted here without re-running it: the script asked this
+	// same host moments ago.
+	Available bool
+	// Detail explains an absent compose in words the operator can act on.
+	Detail string
+}
+
+// String renders the command the way an operator would type it.
+func (c ComposeInfo) String() string { return strings.Join(c.Command, " ") }
+
+// ParseComposeCommand turns install.sh's --detected-compose value into an argv
+// prefix.
+func ParseComposeCommand(s string) []string { return strings.Fields(s) }
+
+// detectCompose settles which compose command this host has.
+//
+// install.sh already ran both probes before any privilege change, so its
+// answer wins. The probing here is for `zoomies init` run on its own, and it
+// asks in the same order the script does: the v2 plugin first, because a host
+// with both should use the one that is still maintained.
+func detectCompose(ctx context.Context, hint string) ComposeInfo {
+	if cmd := ParseComposeCommand(hint); len(cmd) > 0 {
+		return ComposeInfo{Command: cmd, Available: true}
+	}
+	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+
+	if lookPath("docker") != "" {
+		if _, err := runCommand(ctx, "docker", "compose", "version"); err == nil {
+			return ComposeInfo{Command: []string{"docker", "compose"}, Available: true}
+		}
+	}
+	if lookPath("docker-compose") != "" {
+		if _, err := runCommand(ctx, "docker-compose", "--version"); err == nil {
+			return ComposeInfo{Command: []string{"docker-compose"}, Available: true}
+		}
+	}
+	return ComposeInfo{Detail: "neither `docker compose` nor `docker-compose` answered here"}
+}
+
 // PortStatus records whether the installer could bind a port, so that the bind
 // prompt can offer another one instead of failing at first start.
 type PortStatus struct {
@@ -136,12 +186,16 @@ type Detection struct {
 	Docker RuntimeInfo
 	Podman RuntimeInfo
 
-	// HasSystemd, HasLaunchd and HasCompose say which service managers this
-	// host can actually run, so the installer never shells out to a binary
-	// that is not there.
+	// HasSystemd, HasLaunchd and HasCompose say which supervisors this host
+	// can actually run, so the installer never shells out to a binary that is
+	// not there.
 	HasSystemd bool
 	HasLaunchd bool
 	HasCompose bool
+
+	// Compose is the Docker Compose command this host has, which decides
+	// whether a compose deployment can be offered at all.
+	Compose ComposeInfo
 
 	// Ports records the bind check for the ports setup would like to use.
 	Ports []PortStatus
@@ -193,7 +247,8 @@ func Detect(ctx context.Context, opts Options) Detection {
 	}
 	d.HasSystemd = d.Init == InitSystemd && lookPath("systemctl") != ""
 	d.HasLaunchd = d.Init == InitLaunchd && lookPath("launchctl") != ""
-	d.HasCompose = lookPath("docker") != "" || lookPath("podman-compose") != ""
+	d.Compose = detectCompose(ctx, opts.DetectedCompose)
+	d.HasCompose = d.Compose.Available
 
 	d.Docker = probeRuntime(ctx, store.BackendDocker, socketHintFor(opts, store.BackendDocker))
 	d.Podman = probeRuntime(ctx, store.BackendPodman, socketHintFor(opts, store.BackendPodman))
@@ -410,6 +465,9 @@ func (d Detection) Lines() []string {
 		fmt.Sprintf("%-12s%s", "state", d.StateDir),
 	}
 	out = append(out, runtimeLine(d.Docker), runtimeLine(d.Podman))
+	if d.Compose.Available {
+		out = append(out, fmt.Sprintf("%-12s%s", "compose", d.Compose))
+	}
 	for _, p := range d.Ports {
 		if !p.Free {
 			out = append(out, fmt.Sprintf("%-12sport %d is not available: %s", "ports", p.Port, p.Detail))

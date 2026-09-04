@@ -91,13 +91,19 @@ type Options struct {
 	DetectedRuntime  string
 	DetectedSocket   string
 	DetectedRootless bool
+	// DetectedCompose is the compose command install.sh found, e.g.
+	// "docker compose" or "docker-compose".
+	DetectedCompose string
 	// InstalledBinary is where install.sh put the binary, which is what the
 	// service unit will exec.
 	InstalledBinary string
 
-	// Mode, ControllerURL and JoinToken come from the command line. When Mode
-	// is empty the installer asks.
+	// Mode, Deployment, ControllerURL and JoinToken come from the command
+	// line. When Mode or Deployment is empty the installer asks -- install.sh
+	// deliberately does not, so that there is one place these questions are
+	// worded.
 	Mode          Mode
+	Deployment    Deployment
 	ControllerURL string
 	JoinToken     string
 
@@ -202,6 +208,13 @@ func New(opts Options) (*Installer, error) {
 		}
 		opts.Mode = m
 	}
+	if opts.Deployment != "" {
+		d, err := ParseDeployment(string(opts.Deployment))
+		if err != nil {
+			return nil, err
+		}
+		opts.Deployment = d
+	}
 
 	i := &Installer{
 		opts:        opts,
@@ -253,6 +266,9 @@ func (i *Installer) Run(ctx context.Context) error {
 	if plan.Upgrade {
 		return i.runUpgrade(ctx, plan)
 	}
+	if plan.Deployment.Containerised() {
+		return i.runContainer(ctx, plan)
+	}
 	return i.runInstall(ctx, plan)
 }
 
@@ -286,6 +302,15 @@ func (i *Installer) resolveMode(ctx context.Context) (Mode, error) {
 // runAgent hands over to the join flow, which is the same code path
 // `zoomies agent join` uses.
 func (i *Installer) runAgent(ctx context.Context) error {
+	// A runner host joins natively whatever --deployment says, and is told so
+	// rather than quietly getting something other than it asked for: the join
+	// exchanges the token for credentials written to this host's state
+	// directory, and `zoomies agent` reads them from there on every start.
+	if i.opts.Deployment.Containerised() {
+		i.ui.warn("a runner host is set up natively, so --deployment " + string(i.opts.Deployment) + " does not apply here.")
+		i.ui.note("the join writes this host's credentials to its state directory, and the agent reads them")
+		i.ui.note("from there at every start. The deployment choice is a controller one.")
+	}
 	token := i.opts.JoinToken
 	controller := i.opts.ControllerURL
 	if i.answers != nil {
@@ -329,6 +354,10 @@ func (i *Installer) runAgent(ctx context.Context) error {
 // terminal.
 type Plan struct {
 	Mode Mode
+	// Deployment is how this host runs Zoomies: the binary under a supervisor,
+	// a compose project, or a single container. It is orthogonal to Mode, and
+	// it decides which of the remaining questions are worth asking at all.
+	Deployment Deployment
 	// Upgrade means a previous installation was found and its configuration,
 	// key and database are to be kept.
 	Upgrade bool
@@ -372,6 +401,22 @@ type Plan struct {
 	Service       ServiceKind
 	EnableService bool
 	StartService  bool
+
+	// DeployDir is where a containerised deployment's docker-compose.yml and
+	// environment file are written.
+	DeployDir string
+	// Image is what a containerised deployment runs.
+	Image string
+	// ComposeCommand is this host's compose argv prefix, carried rather than
+	// re-derived so that a v1-only host is never handed a v2 command line.
+	ComposeCommand []string
+	// PublishAddr and PublishedPort are the host side of a container's
+	// listener; Bind is the inside of it.
+	PublishAddr   string
+	PublishedPort int
+	// DockerGID is the host's docker group, which the container joins to reach
+	// a root-owned socket. Zero means this host has no such group.
+	DockerGID int
 }
 
 // defaultPlan is what the installer would do if the operator pressed Enter at
@@ -380,6 +425,7 @@ type Plan struct {
 func defaultPlan(d Detection, mode Mode) Plan {
 	p := Plan{
 		Mode:          mode,
+		Deployment:    DefaultDeployment(d),
 		ConfigDir:     d.ConfigDir,
 		StateDir:      d.StateDir,
 		Capacity:      defaultCapacity(),
@@ -397,6 +443,10 @@ func defaultPlan(d Detection, mode Mode) Plan {
 	p.WorkDir = filepath.Join(p.StateDir, "work")
 
 	p.ServiceUser, p.ServiceGroup = defaultServiceUser(d)
+	p.DeployDir = p.ConfigDir
+	p.Image = DefaultImage
+	p.ComposeCommand = d.Compose.Command
+	p.DockerGID = dockerGroupGID()
 
 	if c := backendChoices(d); len(c) > 0 {
 		p.Backend = c[0].Kind
@@ -731,8 +781,10 @@ func (p Plan) Missing() []MissingAnswer {
 		out = append(out, MissingAnswer{"external_url", "the URL GitHub and your browser reach this controller on"})
 	}
 	// An existing database already holds the accounts, so a re-run does not
-	// need to be told about an administrator it is not going to create.
-	if !exists(p.DBPath) {
+	// need to be told about an administrator it is not going to create -- and
+	// a containerised deployment creates its first one in the browser, in a
+	// database this process never opens.
+	if !p.Deployment.Containerised() && !exists(p.DBPath) {
 		if p.AdminUser == "" {
 			out = append(out, MissingAnswer{"admin.username", "the first administrator's login name"})
 		}
@@ -756,6 +808,16 @@ func applyAnswers(p Plan, a *Answers) (Plan, error) {
 	if a == nil {
 		return p, nil
 	}
+	if a.Deployment != "" {
+		d, err := ParseDeployment(a.Deployment)
+		if err != nil {
+			return p, fmt.Errorf("installer: deployment in the answer file: %w", err)
+		}
+		p.Deployment = d
+	}
+	if a.Image != "" {
+		p.Image = a.Image
+	}
 	if a.ServiceUser != "" {
 		p.ServiceUser, p.ServiceGroup = a.ServiceUser, a.ServiceUser
 	}
@@ -763,6 +825,7 @@ func applyAnswers(p Plan, a *Answers) (Plan, error) {
 		p.ConfigDir = a.ConfigDir
 		p.ConfigFile = filepath.Join(a.ConfigDir, "zoomies.yaml")
 		p.KeyFile = filepath.Join(a.ConfigDir, "encryption.key")
+		p.DeployDir = a.ConfigDir
 	}
 	if a.StateDir != "" {
 		p.StateDir = a.StateDir
@@ -850,6 +913,11 @@ func applyAnswers(p Plan, a *Answers) (Plan, error) {
 	if a.Service.Start != nil {
 		p.StartService = *a.Service.Start
 	}
+	// Applied last so that it wins over config_dir, which is only the default
+	// place for these two files.
+	if a.DeploymentDir != "" {
+		p.DeployDir = a.DeploymentDir
+	}
 	return p, nil
 }
 
@@ -902,11 +970,19 @@ func (i *Installer) resolvePlan(ctx context.Context, mode Mode) (Plan, error) {
 		}
 	}
 
+	if p, err = i.resolveDeployment(ctx, p); err != nil {
+		return p, err
+	}
 	if i.interactive {
 		if p, err = i.ask(ctx, p); err != nil {
 			return p, err
 		}
 	}
+	// The operator answered questions about this host; a containerised
+	// deployment needs the same answers translated to the inside of a
+	// container. Doing it once, here, is what keeps the compose file, the
+	// environment file and the health check describing one deployment.
+	p = containerise(p)
 	if missing := p.Missing(); len(missing) > 0 {
 		var b strings.Builder
 		b.WriteString("installer: this run cannot continue without:\n")
@@ -917,6 +993,79 @@ func (i *Installer) resolvePlan(ctx context.Context, mode Mode) (Plan, error) {
 		return p, errors.New(strings.TrimRight(b.String(), "\n"))
 	}
 	return p, nil
+}
+
+// resolveDeployment settles how this host will run Zoomies.
+//
+// The flag wins, then the answer file, then the operator. It is asked before
+// anything else because it decides which of the later questions exist at all:
+// a container has no service unit to install and creates its first
+// administrator in the browser rather than here.
+func (i *Installer) resolveDeployment(ctx context.Context, p Plan) (Plan, error) {
+	named := i.opts.Deployment != "" || (i.answers != nil && i.answers.Deployment != "")
+	if i.opts.Deployment != "" {
+		p.Deployment = i.opts.Deployment
+	}
+
+	if named {
+		if why := UnavailableDeployment(i.det, p.Deployment); why != "" {
+			return p, errors.New(why)
+		}
+		i.ui.step("Deployment: " + string(p.Deployment))
+		i.ui.note(deploymentConsequence(i.det, p.Deployment))
+		return p, nil
+	}
+
+	if !i.interactive {
+		// A missing answer takes the default rather than failing: there is a
+		// right answer for this host, and refusing to install over a question
+		// nobody was there to answer helps nobody. It is said out loud,
+		// though, because the operator did not choose it.
+		p.Deployment = DefaultDeployment(i.det)
+		i.ui.step("Deployment: " + string(p.Deployment))
+		i.ui.note(defaultDeploymentReason(i.det))
+		i.ui.note("set `deployment:` in the answer file, or pass --deployment, to choose another.")
+		return p, nil
+	}
+
+	opts := DeploymentOptions(i.det)
+	huhOpts := make([]huh.Option[string], 0, len(opts))
+	for _, o := range opts {
+		huhOpts = append(huhOpts, huh.NewOption(o.Label+" -- "+o.Description, string(o.Deployment)))
+	}
+	choice := string(DefaultDeployment(i.det))
+	if err := i.selectOne(ctx, "How should Zoomies run on this host?",
+		"Only what this host can actually do is listed. "+defaultDeploymentReason(i.det),
+		huhOpts, &choice); err != nil {
+		return p, err
+	}
+	chosen, err := ParseDeployment(choice)
+	if err != nil {
+		return p, err
+	}
+	p.Deployment = chosen
+	i.ui.ok("deployment: " + string(p.Deployment))
+	return p, nil
+}
+
+// defaultDeploymentReason says why the default is the default, because a
+// default an operator does not understand is one they cannot safely accept.
+func defaultDeploymentReason(d Detection) string {
+	if d.Compose.Available {
+		return "Compose is the default because `" + d.Compose.String() + "` answered here, and a compose deployment is the easiest to upgrade and to move."
+	}
+	return "Native is the default because this host has no compose command; the binary under a supervisor needs nothing else installed."
+}
+
+// deploymentConsequence is the one line a non-interactive run gets instead of
+// the prompt's description.
+func deploymentConsequence(d Detection, want Deployment) string {
+	for _, o := range DeploymentOptions(d) {
+		if o.Deployment == want {
+			return o.Description
+		}
+	}
+	return "Runs the binary directly, supervised by whatever this host has."
 }
 
 // askExisting decides what to do about a previous installation. Nothing here
@@ -1018,6 +1167,13 @@ func (i *Installer) ask(ctx context.Context, p Plan) (Plan, error) {
 	}
 	if p, err = i.askExternalURL(ctx, p); err != nil {
 		return p, err
+	}
+	if p.Deployment.Containerised() {
+		// A container keeps its database in a volume this process cannot
+		// reach, so the first administrator is created in the browser on first
+		// start, and the deployment is its own supervisor.
+		i.ui.note("the first administrator is created in the browser once the container is up.")
+		return p, nil
 	}
 	if p, err = i.askAdmin(ctx, p); err != nil {
 		return p, err
@@ -1260,10 +1416,14 @@ func (i *Installer) askService(ctx context.Context, p Plan) (Plan, error) {
 		opts = append(opts, huh.NewOption("launchd job (default) -- starts at login, restarts on failure", string(ServiceLaunchd)))
 	}
 	opts = append(opts,
-		huh.NewOption("Print a docker-compose.yml instead", string(ServiceCompose)),
 		huh.NewOption("Nothing -- I will run `zoomies controller` myself", string(ServiceNone)),
 	)
 	choice := string(p.Service)
+	// A default this list does not offer -- ServiceCompose, on a host with no
+	// supervisor -- would leave the prompt showing a value nobody can pick.
+	if !containsOption(opts, choice) {
+		choice = opts[0].Value
+	}
 	if err := i.selectOne(ctx, "How should Zoomies be kept running?",
 		"Without a service, the controller stops when this terminal does and does not come back after a reboot.",
 		opts, &choice); err != nil {
@@ -1271,6 +1431,16 @@ func (i *Installer) askService(ctx context.Context, p Plan) (Plan, error) {
 	}
 	p.Service = ServiceKind(choice)
 	return p, nil
+}
+
+// containsOption reports whether a value is one of the choices offered.
+func containsOption(opts []huh.Option[string], value string) bool {
+	for _, o := range opts {
+		if o.Value == value {
+			return true
+		}
+	}
+	return false
 }
 
 func fileMustExist(s string) error {
@@ -1598,6 +1768,7 @@ func (i *Installer) stepService(ctx context.Context, p Plan) (ServiceManager, er
 	case ServiceCompose:
 		i.ui.note("this host has no service manager Zoomies can install into, so here is a compose file.")
 		i.ui.note("save it as docker-compose.yml and run `docker compose up -d`.")
+		i.ui.note("or re-run with --deployment compose and setup will write it, and a populated .env, for you.")
 		i.ui.blank()
 		spec := ComposeSpec{
 			ExternalURL: p.ExternalURL,
