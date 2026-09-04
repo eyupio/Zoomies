@@ -54,9 +54,18 @@
   --color-danger-hover: var(--z-danger-hover);
   --color-danger-subtle: var(--z-danger-subtle);
   --color-danger-border: var(--z-danger-border);
+  --color-danger-contrast: var(--z-danger-contrast);
   --color-neutral: var(--z-neutral);
   --color-neutral-subtle: var(--z-neutral-subtle);
   --color-neutral-border: var(--z-neutral-border);
+
+  /* The brand constants, for the few places that need the identity rather
+     than a semantic role: the chip behind the monochrome mark, and the
+     illustrative fills that may use Runner Blue at full strength. */
+  --color-brand-black: var(--z-brand-black);
+  --color-brand-blue: var(--z-brand-runner-blue);
+  --color-brand-cyan: var(--z-brand-fast-cyan);
+  --color-mark-chip: var(--z-mark-chip);
 
   --font-sans: var(--z-font-sans);
   --font-mono: var(--z-font-mono);

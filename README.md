@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/brand/logo-master-dark.png" alt="Zoomies" width="260">
+
 # Zoomies
 
 **Off the lead, on the job.**
@@ -14,7 +16,8 @@ Single Go binary. SQLite. No Kubernetes.
 [How it works](docs/architecture.md) ·
 [Security](docs/security.md) ·
 [Configuration](docs/configuration.md) ·
-[API](docs/api-surface.md)
+[API](docs/api-surface.md) ·
+[Brand](docs/brand.md)
 
 </div>
 
@@ -146,7 +149,8 @@ wrong), **Pools**, **Runners**, **Jobs**, **Hosts**, **Installations**,
 
 Light and dark, keyboard-driven, a `⌘K` command palette, live everywhere, and a
 log viewer that handles a hundred thousand lines. Design system in
-[docs/ui-guidelines.md](docs/ui-guidelines.md).
+[docs/ui-guidelines.md](docs/ui-guidelines.md), identity in
+[docs/brand.md](docs/brand.md).
 
 ## The CLI
 
@@ -257,7 +261,7 @@ internal/agent      the runner-executing half
 internal/installer  zoomies init / uninstall / agent join
 web/                the Svelte 5 UI
 deploy/             images, compose, systemd units
-docs/               architecture, security, UI guidelines, configuration
+docs/               architecture, security, UI guidelines, configuration, brand
 ```
 
 ## Contributing

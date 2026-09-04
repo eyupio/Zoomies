@@ -4,7 +4,11 @@
  * This file is the only place a colour, size, radius or duration is defined.
  * Everything else -- components, Tailwind utilities, hand-written CSS -- reads
  * from here. See docs/ui-guidelines.md for the reasoning and the measured
- * contrast ratios.
+ * contrast ratios, and the brand pack in docs/brand.md for what is fixed.
+ *
+ * The palette comes from the Zoomies brand: near-black, white and cool grey,
+ * with Runner Blue as the interactive accent and Fast Cyan reserved for the one
+ * thing that is actually moving. The logo itself stays monochrome.
  *
  * Theming works in three states:
  *   light                    :root
@@ -15,81 +19,95 @@
 
 :root {
   /* ---------------------------------------------------------------------
-   * Neutrals -- "sand and ink".
-   * Warm rather than the usual cool slate. It is what stops Zoomies looking
-   * like every other dashboard, and it makes the cool status hues read as
-   * information rather than decoration.
+   * Brand constants. These are the identity and do not change between
+   * themes; the semantic tokens below are derived from them.
    * ------------------------------------------------------------------ */
-  --z-bg: #fbfaf8;
+  --z-brand-black: #080808;
+  --z-brand-white: #ffffff;
+  --z-brand-cool-grey: #b9bcc2;
+  --z-brand-mid-grey: #666a73;
+  --z-brand-runner-blue: #2f80ed;
+  --z-brand-fast-cyan: #22d3ee;
+
+  /* ---------------------------------------------------------------------
+   * Neutrals. A cool near-black spine, per the brand palette.
+   * ------------------------------------------------------------------ */
+  --z-bg: #f6f7f9;
   --z-surface: #ffffff;
   --z-surface-raised: #ffffff;
-  --z-surface-sunken: #f4f2ee;
-  --z-surface-hover: #f7f5f1;
-  --z-border: #e5e1d9;
-  --z-border-strong: #cfc9be;
-  --z-text: #191817;
-  --z-text-muted: #67625a;
-  --z-text-subtle: #8c867c;
-  --z-text-inverse: #fbfaf8;
+  --z-surface-sunken: #eef0f3;
+  --z-surface-hover: #f1f3f6;
+  --z-border: #e2e5ea;
+  --z-border-strong: #c7cbd3;
+  --z-text: #0b0c0e;
+  --z-text-muted: #5b6069;
+  --z-text-subtle: #6e737c;
+  --z-text-inverse: #f6f7f9;
 
-  /* Brand ---------------------------------------------------------------
-   * #5B34E8 on #FBFAF8 is 7.4:1 -- AAA, which matters because links appear
-   * inline inside table cells at 13px.
+  /* Brand accent -------------------------------------------------------
+   * Runner Blue at full strength (#2F80ED) is 3.87:1 on white: fine for a
+   * large shape, not fine for 13px text or for white text on a button. The
+   * interactive accent is therefore a darkened Runner Blue at 5.5:1, and the
+   * pure brand blue is kept for illustrative fills where 3:1 is the bar.
    * ------------------------------------------------------------------ */
-  --z-accent: #5b34e8;
-  --z-accent-hover: #4a28c9;
-  --z-accent-active: #3d1fa8;
-  --z-accent-subtle: #eeeafe;
-  --z-accent-border: #d5c9fb;
+  --z-accent: #1a63d8;
+  --z-accent-hover: #154fb0;
+  --z-accent-active: #113f8e;
+  --z-accent-subtle: #e8f0fd;
+  --z-accent-border: #bcd4f8;
   --z-accent-contrast: #ffffff;
 
-  /* Status --------------------------------------------------------------
+  /* Status -------------------------------------------------------------
    * Fixed meanings. Do not reuse these hues for anything else; operators
-   * learn them. Colour is never the only carrier -- see StatusDot.
+   * learn them. Colour is never the only carrier -- see StatusDot. Busy is
+   * Fast Cyan, which is the brand's "used sparingly" accent spent on the one
+   * thing that is actually moving.
    * ------------------------------------------------------------------ */
-  --z-idle: #2c7a4b;
-  --z-idle-subtle: #e4f4ea;
-  --z-idle-border: #b6e0c5;
+  --z-idle: #177245;
+  --z-idle-subtle: #e3f5ea;
+  --z-idle-border: #b3e0c6;
 
-  --z-busy: #1f63c4;
-  --z-busy-subtle: #e4edfb;
-  --z-busy-border: #b9d0f3;
+  --z-busy: #0e7490;
+  --z-busy-subtle: #e0f4f9;
+  --z-busy-border: #a9dced;
 
-  --z-pending: #9a5b00;
+  --z-pending: #8a5200;
   --z-pending-subtle: #fbf0dd;
   --z-pending-border: #f0d5a3;
 
-  --z-draining: #6b6b7b;
-  --z-draining-subtle: #eeeef1;
-  --z-draining-border: #d2d2da;
+  --z-draining: #5e636d;
+  --z-draining-subtle: #edeff2;
+  --z-draining-border: #d3d7de;
 
-  --z-danger: #b3261e;
-  --z-danger-hover: #8f1e17;
+  --z-danger: #b32218;
+  --z-danger-hover: #8f1b13;
   --z-danger-subtle: #fce9e7;
   --z-danger-border: #f3c2bd;
+  --z-danger-contrast: #ffffff;
 
-  --z-neutral: #8c867c;
-  --z-neutral-subtle: #f1efeb;
-  --z-neutral-border: #ddd8d0;
+  --z-neutral: #6e737c;
+  --z-neutral-subtle: #f0f1f4;
+  --z-neutral-border: #dcdfe5;
 
   /* Categorical chart ramp, ordered for maximum adjacent separation. */
-  --z-chart-1: #1f63c4;
-  --z-chart-2: #9a5b00;
-  --z-chart-3: #2c7a4b;
-  --z-chart-4: #5b34e8;
-  --z-chart-5: #b3261e;
-  --z-chart-6: #0e7490;
+  --z-chart-1: #1a63d8;
+  --z-chart-2: #8a5200;
+  --z-chart-3: #177245;
+  --z-chart-4: #0e7490;
+  --z-chart-5: #b32218;
+  --z-chart-6: #5e636d;
 
   /* Focus ---------------------------------------------------------------- */
   --z-focus-ring: 0 0 0 2px var(--z-bg), 0 0 0 4px var(--z-accent);
 
   /* Type ----------------------------------------------------------------
-   * Base is 13px, not 16px. This is a dense operational tool; 13px Inter at
-   * 450 stays comfortable while fitting a useful number of runners on screen.
+   * Inter, per the brand. Base is 13px, not 16px: this is a dense operational
+   * tool, and 13px Inter at 450 stays comfortable while fitting a useful
+   * number of runners on screen.
    * ------------------------------------------------------------------ */
   --z-font-sans:
-    'InterVariable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-    'Helvetica Neue', Arial, sans-serif;
+    'InterVariable', 'Inter', 'Geist', ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --z-font-mono:
     'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas,
     'Liberation Mono', monospace;
@@ -135,10 +153,11 @@
   --z-radius-lg: 12px;
   --z-radius-full: 9999px;
 
-  /* Elevation -- warm-tinted and restrained. ----------------------------- */
-  --z-shadow-sm: 0 1px 2px rgb(41 34 24 / 0.06);
-  --z-shadow-md: 0 4px 12px -2px rgb(41 34 24 / 0.1);
-  --z-shadow-lg: 0 16px 40px -8px rgb(41 34 24 / 0.16);
+  /* Elevation -- cool-tinted and restrained; in dark mode elevation is
+     carried mostly by surface colour rather than shadow. ------------------ */
+  --z-shadow-sm: 0 1px 2px rgb(8 12 20 / 0.06);
+  --z-shadow-md: 0 4px 12px -2px rgb(8 12 20 / 0.1);
+  --z-shadow-lg: 0 16px 40px -8px rgb(8 12 20 / 0.16);
 
   /* Motion --------------------------------------------------------------- */
   --z-motion-fast: 120ms;
@@ -152,6 +171,11 @@
   --z-topbar-height: 52px;
   --z-content-max: 1600px;
 
+  /* The chip the monochrome mark sits on. The brand sanctions the white
+     knockout over dark surfaces, so one asset serves both themes when it is
+     drawn on a near-black chip. */
+  --z-mark-chip: var(--z-brand-black);
+
   /* Z-index. Named so that "what is on top of what" is answerable. -------- */
   --z-layer-sticky: 10;
   --z-layer-nav: 20;
@@ -164,59 +188,60 @@
   color-scheme: light;
 }
 
-/* Dark, by system preference. Guarded so an explicit light choice wins. */
+/* The dark palette, shared by the system-preference and explicit cases. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
-    --z-bg: #121110;
-    --z-surface: #1a1917;
-    --z-surface-raised: #232120;
-    --z-surface-sunken: #0e0d0c;
-    --z-surface-hover: #232120;
-    --z-border: #302d2a;
-    --z-border-strong: #413d39;
-    --z-text: #f6f4f0;
-    --z-text-muted: #a8a199;
-    --z-text-subtle: #7c766e;
-    --z-text-inverse: #191817;
+    --z-bg: #0a0b0d;
+    --z-surface: #131519;
+    --z-surface-raised: #1b1e23;
+    --z-surface-sunken: #050607;
+    --z-surface-hover: #1b1e23;
+    --z-border: #262a31;
+    --z-border-strong: #363b44;
+    --z-text: #f4f5f7;
+    --z-text-muted: #b9bcc2;
+    --z-text-subtle: #868b94;
+    --z-text-inverse: #0b0c0e;
 
-    --z-accent: #b49cff;
-    --z-accent-hover: #c6b4ff;
-    --z-accent-active: #d3c6ff;
-    --z-accent-subtle: #241e3d;
-    --z-accent-border: #3a2f66;
-    --z-accent-contrast: #17132a;
+    --z-accent: #78b4ff;
+    --z-accent-hover: #9bc9ff;
+    --z-accent-active: #b6d8ff;
+    --z-accent-subtle: #10203a;
+    --z-accent-border: #1e3a63;
+    --z-accent-contrast: #08131f;
 
-    --z-idle: #6fd693;
-    --z-idle-subtle: #12271b;
-    --z-idle-border: #23472f;
+    --z-idle: #5fd68c;
+    --z-idle-subtle: #0d2318;
+    --z-idle-border: #1c4630;
 
-    --z-busy: #84b4ff;
-    --z-busy-subtle: #121e33;
-    --z-busy-border: #223a5e;
+    --z-busy: #3ed8f0;
+    --z-busy-subtle: #082630;
+    --z-busy-border: #12495c;
 
-    --z-pending: #f2b24c;
+    --z-pending: #f0b34c;
     --z-pending-subtle: #2a1f0c;
     --z-pending-border: #4a3714;
 
-    --z-draining: #a9a6bc;
-    --z-draining-subtle: #1e1d24;
-    --z-draining-border: #33313d;
+    --z-draining: #a6abb5;
+    --z-draining-subtle: #1a1d22;
+    --z-draining-border: #2e333b;
 
-    --z-danger: #ff938a;
-    --z-danger-hover: #ffaba3;
-    --z-danger-subtle: #2d1512;
-    --z-danger-border: #542622;
+    --z-danger: #ff9089;
+    --z-danger-hover: #ffaba5;
+    --z-danger-subtle: #2d1310;
+    --z-danger-border: #542520;
+    --z-danger-contrast: #1a0a08;
 
-    --z-neutral: #7c766e;
-    --z-neutral-subtle: #1c1b19;
-    --z-neutral-border: #302d2a;
+    --z-neutral: #868b94;
+    --z-neutral-subtle: #16181c;
+    --z-neutral-border: #262a31;
 
-    --z-chart-1: #84b4ff;
-    --z-chart-2: #f2b24c;
-    --z-chart-3: #6fd693;
-    --z-chart-4: #b49cff;
-    --z-chart-5: #ff938a;
-    --z-chart-6: #5bc8de;
+    --z-chart-1: #78b4ff;
+    --z-chart-2: #f0b34c;
+    --z-chart-3: #5fd68c;
+    --z-chart-4: #3ed8f0;
+    --z-chart-5: #ff9089;
+    --z-chart-6: #a6abb5;
 
     --z-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.5);
     --z-shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.6);
@@ -226,58 +251,58 @@
   }
 }
 
-/* Dark, chosen explicitly. Same values; wins over a light system setting. */
 :root[data-theme='dark'] {
-  --z-bg: #121110;
-  --z-surface: #1a1917;
-  --z-surface-raised: #232120;
-  --z-surface-sunken: #0e0d0c;
-  --z-surface-hover: #232120;
-  --z-border: #302d2a;
-  --z-border-strong: #413d39;
-  --z-text: #f6f4f0;
-  --z-text-muted: #a8a199;
-  --z-text-subtle: #7c766e;
-  --z-text-inverse: #191817;
+  --z-bg: #0a0b0d;
+  --z-surface: #131519;
+  --z-surface-raised: #1b1e23;
+  --z-surface-sunken: #050607;
+  --z-surface-hover: #1b1e23;
+  --z-border: #262a31;
+  --z-border-strong: #363b44;
+  --z-text: #f4f5f7;
+  --z-text-muted: #b9bcc2;
+  --z-text-subtle: #868b94;
+  --z-text-inverse: #0b0c0e;
 
-  --z-accent: #b49cff;
-  --z-accent-hover: #c6b4ff;
-  --z-accent-active: #d3c6ff;
-  --z-accent-subtle: #241e3d;
-  --z-accent-border: #3a2f66;
-  --z-accent-contrast: #17132a;
+  --z-accent: #78b4ff;
+  --z-accent-hover: #9bc9ff;
+  --z-accent-active: #b6d8ff;
+  --z-accent-subtle: #10203a;
+  --z-accent-border: #1e3a63;
+  --z-accent-contrast: #08131f;
 
-  --z-idle: #6fd693;
-  --z-idle-subtle: #12271b;
-  --z-idle-border: #23472f;
+  --z-idle: #5fd68c;
+  --z-idle-subtle: #0d2318;
+  --z-idle-border: #1c4630;
 
-  --z-busy: #84b4ff;
-  --z-busy-subtle: #121e33;
-  --z-busy-border: #223a5e;
+  --z-busy: #3ed8f0;
+  --z-busy-subtle: #082630;
+  --z-busy-border: #12495c;
 
-  --z-pending: #f2b24c;
+  --z-pending: #f0b34c;
   --z-pending-subtle: #2a1f0c;
   --z-pending-border: #4a3714;
 
-  --z-draining: #a9a6bc;
-  --z-draining-subtle: #1e1d24;
-  --z-draining-border: #33313d;
+  --z-draining: #a6abb5;
+  --z-draining-subtle: #1a1d22;
+  --z-draining-border: #2e333b;
 
-  --z-danger: #ff938a;
-  --z-danger-hover: #ffaba3;
-  --z-danger-subtle: #2d1512;
-  --z-danger-border: #542622;
+  --z-danger: #ff9089;
+  --z-danger-hover: #ffaba5;
+  --z-danger-subtle: #2d1310;
+  --z-danger-border: #542520;
+  --z-danger-contrast: #1a0a08;
 
-  --z-neutral: #7c766e;
-  --z-neutral-subtle: #1c1b19;
-  --z-neutral-border: #302d2a;
+  --z-neutral: #868b94;
+  --z-neutral-subtle: #16181c;
+  --z-neutral-border: #262a31;
 
-  --z-chart-1: #84b4ff;
-  --z-chart-2: #f2b24c;
-  --z-chart-3: #6fd693;
-  --z-chart-4: #b49cff;
-  --z-chart-5: #ff938a;
-  --z-chart-6: #5bc8de;
+  --z-chart-1: #78b4ff;
+  --z-chart-2: #f0b34c;
+  --z-chart-3: #5fd68c;
+  --z-chart-4: #3ed8f0;
+  --z-chart-5: #ff9089;
+  --z-chart-6: #a6abb5;
 
   --z-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.5);
   --z-shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.6);

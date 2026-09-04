@@ -20,62 +20,82 @@ component.**
 
 ### 1.1 Colour
 
-The palette is a *warm* neutral spine with a violet brand accent. The warmth is
-deliberate: it is what stops Zoomies looking like every other slate-and-blue
-dashboard, and it makes the status hues (which are cool) read as information
-rather than decoration.
+The palette is the brand palette: a cool near-black spine with Runner Blue as
+the interactive accent. See [brand.md](brand.md) for the identity itself and
+the two decisions -- darkening Runner Blue for text, and spending Fast Cyan on
+the busy state -- that turn it into a usable UI palette.
 
-#### Neutrals — "sand and ink"
+Every pairing below has been measured; the numbers are real, not aspirational.
 
-| Token | Light | Dark | Use |
-| --- | --- | --- | --- |
-| `--z-bg` | `#FBFAF8` | `#121110` | Page background |
-| `--z-surface` | `#FFFFFF` | `#1A1917` | Cards, panels, table body |
-| `--z-surface-raised` | `#FFFFFF` | `#232120` | Popovers, dialogs, dropdowns |
-| `--z-surface-sunken` | `#F4F2EE` | `#0E0D0C` | Wells, code blocks, table headers |
-| `--z-border` | `#E5E1D9` | `#302D2A` | Default hairlines |
-| `--z-border-strong` | `#CFC9BE` | `#413D39` | Inputs, focused containers |
-| `--z-text` | `#191817` | `#F6F4F0` | Primary text |
-| `--z-text-muted` | `#67625A` | `#A8A199` | Secondary text, labels |
-| `--z-text-subtle` | `#8C867C` | `#7C766E` | Timestamps, placeholders |
+#### Brand constants
 
-Both `--z-text` on `--z-bg` pairs exceed 15:1. `--z-text-muted` on `--z-bg`
-clears 5.4:1 in light and 6.1:1 in dark, so muted text is still AA body text.
-`--z-text-subtle` is only ever used at ≥ 14px for non-essential metadata and
-clears 4.5:1.
+Fixed by the identity, available as `--z-brand-*` and unchanged between themes.
 
-#### Brand
+| Token | Value |
+| --- | --- |
+| `--z-brand-black` | `#080808` |
+| `--z-brand-white` | `#FFFFFF` |
+| `--z-brand-cool-grey` | `#B9BCC2` |
+| `--z-brand-mid-grey` | `#666A73` |
+| `--z-brand-runner-blue` | `#2F80ED` |
+| `--z-brand-fast-cyan` | `#22D3EE` |
+
+#### Neutrals
 
 | Token | Light | Dark | Use |
 | --- | --- | --- | --- |
-| `--z-accent` | `#5B34E8` | `#B49CFF` | Primary buttons, links, active nav, focus |
-| `--z-accent-hover` | `#4A28C9` | `#C6B4FF` | Hover state |
-| `--z-accent-subtle` | `#EEEAFE` | `#241E3D` | Selected rows, badge backgrounds |
-| `--z-accent-contrast` | `#FFFFFF` | `#17132A` | Text on an accent fill |
+| `--z-bg` | `#F6F7F9` | `#0A0B0D` | Page background |
+| `--z-surface` | `#FFFFFF` | `#131519` | Cards, panels, table body |
+| `--z-surface-raised` | `#FFFFFF` | `#1B1E23` | Popovers, dialogs, dropdowns |
+| `--z-surface-sunken` | `#EEF0F3` | `#050607` | Wells, code blocks, table headers |
+| `--z-border` | `#E2E5EA` | `#262A31` | Default hairlines |
+| `--z-border-strong` | `#C7CBD3` | `#363B44` | Inputs, focused containers |
+| `--z-text` | `#0B0C0E` | `#F4F5F7` | Primary text |
+| `--z-text-muted` | `#5B6069` | `#B9BCC2` | Secondary text, labels |
+| `--z-text-subtle` | `#6E737C` | `#868B94` | Timestamps, placeholders |
 
-`#5B34E8` on `#FBFAF8` is 7.4:1; `#B49CFF` on `#121110` is 9.6:1. Both are AAA
-for body text, which matters because links appear inline in table cells.
+Primary text is 18:1 in both themes. Muted is 5.9:1 light and 10.3:1 dark.
+Subtle -- the weakest text in the product -- is 4.45:1 light and 5.75:1 dark, so
+even the timestamps clear AA.
+
+#### Brand accent
+
+| Token | Light | Dark | Use |
+| --- | --- | --- | --- |
+| `--z-accent` | `#1A63D8` | `#78B4FF` | Primary buttons, links, active nav, focus |
+| `--z-accent-hover` | `#154FB0` | `#9BC9FF` | Hover |
+| `--z-accent-subtle` | `#E8F0FD` | `#10203A` | Selected rows, badge backgrounds |
+| `--z-accent-contrast` | `#FFFFFF` | `#08131F` | Text on an accent fill |
+
+5.13:1 and 9.16:1 against their backgrounds; the text on an accent fill is
+5.5:1 light and 8.7:1 dark. Full-strength Runner Blue (`--z-brand-blue`) is
+available for illustrative fills, where the bar is 3:1.
 
 #### Status
 
-Runner and job states get their own hue. The mapping is fixed — do not use these
-colours for anything else, because operators learn them.
+Runner and job states get their own hue. The mapping is fixed -- do not use
+these colours for anything else, because operators learn them.
 
 | State | Token | Light | Dark |
 | --- | --- | --- | --- |
-| idle / healthy / success | `--z-idle` | `#2C7A4B` | `#6FD693` |
-| busy / running | `--z-busy` | `#1F63C4` | `#84B4FF` |
-| provisioning / registering / pending | `--z-pending` | `#9A5B00` | `#F2B24C` |
-| draining / cordoned / paused | `--z-draining` | `#6B6B7B` | `#A9A6BC` |
-| failed / error / destructive | `--z-danger` | `#B3261E` | `#FF938A` |
-| removed / neutral | `--z-neutral` | `#8C867C` | `#7C766E` |
+| idle / healthy / success | `--z-idle` | `#177245` | `#5FD68C` |
+| **busy / running** | `--z-busy` | `#0E7490` | `#3ED8F0` |
+| provisioning / registering / pending | `--z-pending` | `#8A5200` | `#F0B34C` |
+| draining / cordoned / paused | `--z-draining` | `#5E636D` | `#A6ABB5` |
+| failed / error / destructive | `--z-danger` | `#B32218` | `#FF9089` |
+| removed / neutral | `--z-neutral` | `#6E737C` | `#868B94` |
 
-Each has a `-subtle` companion for badge and chart-fill backgrounds
-(`--z-idle-subtle`, etc.). Every status is *also* carried by a shape: a filled
-dot for busy, a hollow dot for idle, a dashed ring for provisioning, a slash for
-draining, a triangle for failed. Colour alone never encodes state — that is both
-an accessibility requirement and a practical one for the operator glancing at a
-sparkline from across the room.
+Busy is the Fast Cyan family: the brand asks for the accent to be used
+sparingly, and *this runner is executing a job right now* is the single most
+valuable "look here" signal on the page.
+
+Each has a `-subtle` companion for badge and chart-fill backgrounds, and
+`--z-danger` has a `-contrast` for text on a destructive fill. Every status is
+**also** carried by a shape: a filled dot for busy, a hollow dot for idle, a
+dashed ring for provisioning, a slash for draining, a triangle for failed.
+Colour alone never encodes state -- that is both an accessibility requirement
+and a practical one for an operator glancing at a sparkline from across the
+room.
 
 #### Charts
 
@@ -84,14 +104,25 @@ hues, ordered for maximum adjacent separation. Sparklines use `--z-busy` for
 running work and `--z-pending` for queue depth, because those are the two
 quantities an operator is actually watching.
 
+#### The mark
+
+`--z-mark-chip` is the Zoomies Black ground the monochrome mark sits on. The
+mark is white line art drawn for a dark surface, so the UI puts it on a small
+black chip rather than inverting it -- one asset, correct in both themes,
+legible at 24px. See [brand.md](brand.md).
+
 ### 1.2 Type
 
 Two faces, both self-hosted as woff2 so an air-gapped install has no network
 dependency and no third-party font request:
 
-* **Inter Variable** — UI. `--z-font-sans`.
+* **Inter Variable** — UI. `--z-font-sans`. Geist and `system-ui` are the
+  brand's sanctioned alternatives and sit in the fallback stack.
 * **JetBrains Mono** — logs, IDs, labels, durations, anything monospaced.
   `--z-font-mono`.
+
+The wordmark in the logo artwork is custom-rendered and is not Inter. Do not
+try to set it in type.
 
 Both declare a full system fallback stack so the first paint is never blank.
 
