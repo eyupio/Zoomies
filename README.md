@@ -15,6 +15,7 @@ Single Go binary. SQLite. No Kubernetes.
 [zoomies.sh](https://zoomies.sh) ·
 [Quick start](#quick-start) ·
 [How it works](docs/architecture.md) ·
+[Migrating](docs/migration.md) ·
 [Security](docs/security.md) ·
 [Configuration](docs/configuration.md) ·
 [API](docs/api-surface.md) ·
@@ -135,8 +136,8 @@ are what you get on a 4-CPU Linux box with Docker:
 
 | | |
 | --- | --- |
-| **Name** | `linux-x64` |
-| **Labels** | `linux-x64` — what your workflows put in `runs-on` |
+| **Name** | `zoomies-linux-x64` |
+| **Labels** | `zoomies-linux-x64`, and `zoomies` like every pool |
 | **Backend** | Docker (rootless if available) |
 | **Min / max** | `0` / `4` — nothing idle when nothing is queued; the max is the host's capacity |
 | **Idle timeout** | `5m` |
@@ -148,7 +149,7 @@ Then in a workflow:
 ```yaml
 jobs:
   build:
-    runs-on: [self-hosted, linux-x64]
+    runs-on: zoomies-linux-x64
     steps:
       - uses: actions/checkout@v4
       - run: make test
@@ -157,12 +158,34 @@ jobs:
 Push it. Zoomies sees the `workflow_job` webhook, starts a runner, and you watch
 the whole thing happen on the Overview page without refreshing.
 
+One label is enough, and it is branded on purpose: a reviewer of the pull request
+that introduces it can tell at a glance that the job has left GitHub's runners.
+Every pool also answers to `zoomies`, so `runs-on: zoomies` means "anywhere in
+this fleet" — the line to write before anyone has decided which pool a repository
+belongs in.
+
+## Moving your repositories over
+
+You do not have to edit every workflow by hand. **Migrate** in the UI reads the
+workflows in the repositories your App can see, rewrites their `runs-on` lines,
+shows you the exact diff, and opens one pull request per repository.
+
+It changes `runs-on` and nothing else — comments, indentation and quoting all
+survive byte for byte — and it refuses to guess: a job on `${{ matrix.os }}`, a
+job already on a self-hosted runner, or a label you chose not to map is listed as
+left alone, with the reason, both in the review screen and in the pull request
+body.
+
+It needs three App permissions the rest of Zoomies deliberately does not ask for
+(Contents, Pull requests, Workflows), and it tells you which are missing before
+it tries anything. See [docs/migration.md](docs/migration.md).
+
 ## The UI
 
-Eight pages, one job each: **Overview** (fleet health, queue depth, scaling
+Nine pages, one job each: **Overview** (fleet health, queue depth, scaling
 decisions in plain words, and a problems panel that is quiet when nothing is
 wrong), **Pools**, **Runners**, **Jobs**, **Hosts**, **Installations**,
-**Audit**, **Settings**.
+**Migrate**, **Audit**, **Settings**.
 
 Light and dark, keyboard-driven, a `⌘K` command palette, live everywhere, and a
 log viewer that handles a hundred thousand lines. Design system in
@@ -177,7 +200,7 @@ from one that is not reachable from the other.
 ```sh
 zoomies status                       # the Overview, in a terminal
 zoomies pools list
-zoomies pools create --name linux-x64 --labels linux-x64 --max 8
+zoomies pools create --name zoomies-linux-x64 --labels zoomies-linux-x64 --max 8
 zoomies runners list --state busy
 zoomies runners drain run_k3f9qz2m
 zoomies runners logs run_k3f9qz2m --follow

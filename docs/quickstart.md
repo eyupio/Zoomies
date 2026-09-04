@@ -90,8 +90,8 @@ are what you get on a 4-CPU Linux box with Docker:
 
 | | |
 | --- | --- |
-| **Name** | `linux-x64` |
-| **Labels** | `linux-x64` — what your workflows put in `runs-on` |
+| **Name** | `zoomies-linux-x64` |
+| **Labels** | `zoomies-linux-x64` — what your workflows put in `runs-on` — and `zoomies`, which every pool answers to |
 | **Backend** | Docker (rootless if available) |
 | **Min / max** | `0` / `4` — nothing idle when nothing is queued; the max is the host's capacity |
 | **Idle timeout** | `5m` |
@@ -107,19 +107,30 @@ is your only backstop against a runaway workflow.
 ```yaml
 jobs:
   build:
-    runs-on: [self-hosted, linux-x64]
+    runs-on: zoomies-linux-x64
     steps:
       - uses: actions/checkout@v4
       - run: make test
 ```
+
+One label is enough, and it is branded on purpose: a reviewer of the pull request
+that introduces it can tell at a glance that the job has left GitHub's runners.
+`runs-on: zoomies` works too, and means "anywhere in this fleet".
 
 Push it. Zoomies sees the `workflow_job` webhook, starts a runner, and you watch
 the whole thing happen on the Overview page without refreshing — including the
 scheduler's reasoning, in its own words:
 
 ```
-scaled linux-x64 0 -> 1: 1 job queued > 30s
+scaled zoomies-linux-x64 0 -> 1: 1 job queued > 30s
 ```
+
+## Moving the rest of your repositories
+
+Editing every workflow by hand is the part nobody does. **Migrate** in the
+navigation reads the workflows in the repositories your App can see, rewrites
+their `runs-on` lines, shows you the exact diff, and opens one pull request per
+repository. See [Migrating repositories](migration.md).
 
 ## Adding another host
 

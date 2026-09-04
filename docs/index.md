@@ -80,6 +80,13 @@ Loopback bind, authentication on, no Docker socket in your jobs, no root. Every
 deviation is named at startup and in the UI's problems panel.
 </div>
 
+<div markdown>
+### One pull request per repository
+The migration wizard rewrites `runs-on` across your repositories and opens a
+pull request on each one — after showing you the exact diff, and only for the
+jobs it is sure about. [How it works](migration.md).
+</div>
+
 </div>
 
 ## Five minutes to a running fleet
