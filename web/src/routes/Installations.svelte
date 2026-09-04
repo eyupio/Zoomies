@@ -90,14 +90,26 @@
 
   let connectOpen = $state(false);
 
-  // GitHub can send the operator back here with the manifest code in the URL.
-  // Pick it up, open the flow at the right step, and take it out of the address
-  // bar so a reload does not try to use it twice.
+  // GitHub can send the operator back here with the manifest code in the URL,
+  // and again with the installation ID once the App has been installed. Pick
+  // them up, open the flow at the right step, and take them out of the address
+  // bar so a reload does not try to use the code twice.
+  //
+  // The state matters as much as the code: it is what ties the exchange back to
+  // the manifest this controller built, and the tab GitHub returns to is a
+  // fresh one that knows nothing else about the handshake.
   const returnedCode = $derived(router.param('code'));
+  const returnedState = $derived(router.param('state'));
+  const returnedInstallationId = $derived(router.param('installation_id'));
   $effect(() => {
-    if (!returnedCode) return;
+    if (!returnedCode && !returnedInstallationId) return;
     connectOpen = true;
   });
+
+  function clearReturnedParams(): void {
+    if (!returnedCode && !returnedState && !returnedInstallationId) return;
+    router.setQuery({ code: null, state: null, installation_id: null, setup_action: null });
+  }
 
   /* -- verify ------------------------------------------------------------------ */
 
@@ -232,10 +244,10 @@
 <ConnectDialog
   bind:open={connectOpen}
   initialCode={returnedCode}
+  initialState={returnedState}
+  initialInstallationId={returnedInstallationId}
   oncreated={() => (reload += 1)}
-  onclose={() => {
-    if (returnedCode) router.setQuery({ code: null, state: null });
-  }}
+  onclose={clearReturnedParams}
 />
 
 <VerifyDialog

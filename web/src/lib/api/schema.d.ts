@@ -2164,6 +2164,9 @@ export interface operations {
                         html_url?: string;
                         /** @description Send the operator here to install the App on their organisation. */
                         install_url?: string;
+                        /** @description The organisation or repository the App was created for. */
+                        target?: string;
+                        target_type?: components["schemas"]["TargetType"];
                     };
                 };
             };
