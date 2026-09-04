@@ -26,6 +26,17 @@ services:
     #   target: controller
     restart: unless-stopped
     command: ["controller"]
+    # Compose already reads .env to interpolate the ${...} below; this passes it
+    # into the container as well, so any of the ZOOMIES_* settings in
+    # docs/configuration.md can be set by putting it in .env, with no matching
+    # line needed here. The explicit environment: entries below still win.
+    #
+    # required: false keeps a deployment that supplies its own environment --
+    # systemd, a secrets manager, CI -- from failing on a missing .env. It needs
+    # Compose v2.24 or newer; on older versions use `env_file: .env`.
+    env_file:
+      - path: .env
+        required: false
     environment:
       # How GitHub and your browser reach this controller. Webhooks are
       # delivered to $ZOOMIES_EXTERNAL_URL/webhooks/github, and the https here

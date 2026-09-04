@@ -21,6 +21,10 @@ coverage.out
 /zoomies.yaml
 /encryption.key
 /.zoomies/
+# The documented first step is `cp .env.example .env`, and what goes in it is
+# ZOOMIES_ENCRYPTION_KEY -- the key everything secret in the database is sealed
+# with. .env.example is the one that belongs in git.
+/.env
 
 # Editors and OS
 .DS_Store
