@@ -2164,6 +2164,8 @@ export interface operations {
                         html_url?: string;
                         /** @description Send the operator here to install the App on their organisation. */
                         install_url?: string;
+                        /** @description The App's own settings page. A manifest cannot set an App's logo -- GitHub takes an avatar as an upload and has no manifest field for it -- so this is where the operator is sent to give the App the Zoomies mark. */
+                        settings_url?: string;
                         /** @description The organisation or repository the App was created for. */
                         target?: string;
                         target_type?: components["schemas"]["TargetType"];

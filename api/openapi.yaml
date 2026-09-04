@@ -542,6 +542,12 @@ paths:
                   name: { type: string }
                   html_url: { type: string }
                   install_url: { type: string, description: Send the operator here to install the App on their organisation. }
+                  settings_url:
+                    type: string
+                    description: >-
+                      The App's own settings page. A manifest cannot set an App's logo -- GitHub
+                      takes an avatar as an upload and has no manifest field for it -- so this is
+                      where the operator is sent to give the App the Zoomies mark.
                   target: { type: string, description: The organisation or repository the App was created for. }
                   target_type: { $ref: "#/components/schemas/TargetType" }
         "422": { $ref: "#/components/responses/Unprocessable" }

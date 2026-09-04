@@ -203,6 +203,26 @@ func TestInstallURL(t *testing.T) {
 	}
 }
 
+// The logo is the one thing a manifest cannot set, so the settings URL is what
+// stands in for it. GitHub 404s the account-scoped page for an org App and the
+// org-scoped page for a personal one, so the two forms have to be right.
+func TestSettingsURL(t *testing.T) {
+	cases := []struct{ api, slug, org, want string }{
+		{"https://api.github.com/", "zoomies-acme", "acme",
+			"https://github.com/organizations/acme/settings/apps/zoomies-acme"},
+		{"https://api.github.com/", "zoomies-acme", "",
+			"https://github.com/settings/apps/zoomies-acme"},
+		{"https://ghe.example.com/api/v3/", "zoomies", "acme",
+			"https://ghe.example.com/organizations/acme/settings/apps/zoomies"},
+		{"https://api.github.com/", "", "acme", ""},
+	}
+	for _, c := range cases {
+		if got := SettingsURL(c.api, c.slug, c.org); got != c.want {
+			t.Errorf("SettingsURL(%q, %q, %q) = %q, want %q", c.api, c.slug, c.org, got, c.want)
+		}
+	}
+}
+
 func TestExchangeManifestCode(t *testing.T) {
 	var gotPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
