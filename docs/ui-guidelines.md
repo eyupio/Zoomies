@@ -109,7 +109,8 @@ quantities an operator is actually watching.
 `--z-mark-chip` is the Zoomies Black ground the monochrome mark sits on. The
 mark is white line art drawn for a dark surface, so the UI puts it on a small
 black chip rather than inverting it -- one asset, correct in both themes,
-legible at 24px. See [brand.md](brand.md).
+legible at 24px. See [brand.md](brand.md), which lists every place the signed-in
+product carries the mark, the name or the descriptor.
 
 ### 1.2 Type
 
@@ -209,6 +210,13 @@ fixed, because muscle memory is the point:
 7. **Audit** — who did what
 8. **Settings** — users, tokens, appearance, danger zone
 
+The navigation is headed by the mark, the wordmark and the descriptor, and every
+page ends in a hairline footer carrying the mark, the name and the running
+version — so a signed-in screenshot says which product and which build it came
+from without anyone having to open Settings. On a phone the navigation moves to
+the bottom edge and loses its masthead, so the mark appears in the top bar
+instead.
+
 A **command palette** on `Cmd/Ctrl+K` jumps to any page, any pool, any runner by
 ID or name, and runs quick actions (drain a runner, cordon a host, create a
 pool). It is the fastest path to everything and is discoverable from a hint in
@@ -254,7 +262,7 @@ no stores except for genuinely global state.
 | `Tabs` | `aria-controls`/`aria-selected`, arrow-key navigation |
 | `Toast` | bottom-right, `aria-live="polite"` (`assertive` for errors), auto-dismiss except on error |
 | `Skeleton` | **the only loading affordance for content.** Spinners are for in-flight *actions* only |
-| `EmptyState` | icon + one sentence of what this is + the action that fills it |
+| `EmptyState` | icon + one sentence of what this is + the action that fills it; a `visual` snippet replaces the icon disc where artwork is wanted, as the not-found page does with the mark |
 | `CopyButton` | wraps any ID; announces "copied" to screen readers |
 | `RelativeTime` | "4m ago", absolute ISO timestamp in the tooltip, updates itself |
 | `Duration` | humanised, tabular numerals |

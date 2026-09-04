@@ -16,6 +16,8 @@
   import ErrorState from '$lib/components/ErrorState.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import Toaster from '$lib/components/Toaster.svelte';
+  import Logo from '$lib/components/Logo.svelte';
+  import AppFooter from '$lib/shell/AppFooter.svelte';
   import CommandPalette from '$lib/shell/CommandPalette.svelte';
   import Nav from '$lib/shell/Nav.svelte';
   import ShortcutSheet from '$lib/shell/ShortcutSheet.svelte';
@@ -96,12 +98,12 @@
 
 {#if session.phase === 'booting'}
   <div class="boot" aria-busy="true">
-    <Skeleton width="180px" height="1.5rem" />
-    <Skeleton width="320px" height="1rem" />
+    <Logo variant="lockup" size={72} label="" />
     <span class="sr-only">Loading Zoomies</span>
   </div>
 {:else if session.phase === 'failed'}
   <main id="main" class="centred">
+    <div class="brand"><Logo variant="lockup" size={56} label="" /></div>
     <ErrorState
       error={session.error}
       title="Cannot reach the Zoomies controller"
@@ -146,6 +148,7 @@
           </div>
         {/if}
       </main>
+      <AppFooter />
     </div>
   </div>
 
@@ -166,6 +169,27 @@
     gap: var(--z-space-3);
     min-height: 100vh;
     padding: var(--z-space-6);
+  }
+  /*
+    The boot screen is usually gone within a frame or two, and a logo that
+    flashes on and then straight off again is worse than no logo at all. So it
+    waits out a third of a second and fades in only for the boots that are
+    actually slow enough to be worth reassuring somebody about. Under
+    reduced motion the durations collapse to 1ms with the rest of the tokens,
+    which shows it immediately -- correct, and one less rule to keep in step.
+  */
+  .boot :global(.logo) {
+    opacity: 0;
+    animation: reveal var(--z-motion-slow) var(--z-ease) var(--z-motion-slow) forwards;
+  }
+  @keyframes reveal {
+    to {
+      opacity: 1;
+    }
+  }
+  .brand {
+    margin-bottom: var(--z-space-2);
+    color: var(--z-text);
   }
   .app {
     display: flex;
@@ -211,7 +235,10 @@
       align-items: stretch;
     }
     .page {
-      padding: var(--z-space-4) var(--z-space-3) var(--z-space-16);
+      /* The clearance for the fixed bottom navigation is the footer's job
+         below this, so the page itself does not also reserve it and leave a
+         hole between the content and the footer. */
+      padding: var(--z-space-4) var(--z-space-3) var(--z-space-2);
     }
   }
 </style>
