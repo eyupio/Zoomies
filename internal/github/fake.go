@@ -537,16 +537,14 @@ func runnerJSON(r *Runner) map[string]any {
 	for i, l := range r.Labels {
 		labels = append(labels, map[string]any{"id": i + 1, "name": l, "type": "custom"})
 	}
-	if r.Ephemeral {
-		labels = append(labels, map[string]any{"id": len(labels) + 1, "name": "ephemeral", "type": "read-only"})
-	}
 	return map[string]any{
-		"id":     r.ID,
-		"name":   r.Name,
-		"os":     r.OS,
-		"status": r.Status,
-		"busy":   r.Busy,
-		"labels": labels,
+		"id":        r.ID,
+		"name":      r.Name,
+		"os":        r.OS,
+		"status":    r.Status,
+		"busy":      r.Busy,
+		"ephemeral": r.Ephemeral,
+		"labels":    labels,
 	}
 }
 

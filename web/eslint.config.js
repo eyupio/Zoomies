@@ -22,7 +22,10 @@ export default ts.config(
     },
   },
   {
-    files: ['**/*.svelte'],
+    // `.svelte.ts` modules (the runes-based stores) are parsed by the Svelte
+    // parser too, so they need the TypeScript parser handed to it as well --
+    // without this they fail to parse rather than fail to lint.
+    files: ['**/*.svelte', '**/*.svelte.ts', '**/*.svelte.js'],
     languageOptions: { parserOptions: { parser: ts.parser } },
   },
   {

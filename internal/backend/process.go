@@ -373,13 +373,11 @@ func (b *ProcessBackend) start(dir string, args, env []string, spec Spec, versio
 		StartedAt: now,
 	}
 	if err := writeMeta(dir, meta); err != nil {
-		_ = cmd.Process.Kill()
-		_ = logFile.Close()
+		abandon(cmd, logFile)
 		return err
 	}
 	if err := os.WriteFile(filepath.Join(dir, runnerPIDFile), []byte(strconv.Itoa(cmd.Process.Pid)), 0o640); err != nil {
-		_ = cmd.Process.Kill()
-		_ = logFile.Close()
+		abandon(cmd, logFile)
 		return fmt.Errorf("backend: writing the pid file in %s: %w", dir, err)
 	}
 
@@ -406,6 +404,14 @@ func (b *ProcessBackend) start(dir string, args, env []string, spec Spec, versio
 		b.log.Info("runner process exited", "runner", meta.Name, "dir", dir, "exit_code", code)
 	}()
 	return nil
+}
+
+// abandon kills a child we have decided not to keep and reaps it, so that a
+// half-failed create leaves no zombie behind.
+func abandon(cmd *exec.Cmd, log *os.File) {
+	_ = cmd.Process.Kill()
+	_ = cmd.Wait()
+	_ = log.Close()
 }
 
 // childEnv builds the runner's environment. It is assembled rather than

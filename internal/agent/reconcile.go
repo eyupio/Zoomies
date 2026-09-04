@@ -86,12 +86,18 @@ func (a *Agent) ReconcileOnce(ctx context.Context) ([]RunnerReport, error) {
 	// behind the agent's back -- by an operator with docker rm, or by a daemon
 	// restart with cleanup.
 	for _, r := range a.trackedRunners() {
-		if seen[r.runnerID] || r.terminal {
+		if seen[r.runnerID] {
 			continue
 		}
 		if now.Sub(r.createdAt) < missingGrace {
 			// A workload created moments ago may not be listed yet; declaring
 			// it gone would fail a runner that is starting perfectly well.
+			continue
+		}
+		if r.terminal {
+			// Its end of life has already been reported and its workload is
+			// gone, so stop carrying it in every heartbeat.
+			a.untrack(r.runnerID)
 			continue
 		}
 		msg := fmt.Sprintf("workload %s is no longer on host %s", r.handle, a.opts.Name)

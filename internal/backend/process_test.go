@@ -8,6 +8,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -661,5 +663,137 @@ func TestNewProcessNeedsAWorkDir(t *testing.T) {
 	_, err := NewProcess(ProcessOptions{})
 	if err == nil || !strings.Contains(err.Error(), "work_dir") {
 		t.Fatalf("got %v, want the setting named", err)
+	}
+}
+
+// tarGzWithListener builds a minimal actions/runner release archive.
+func tarGzWithListener(t *testing.T) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	body := stubListener
+	if err := tw.WriteHeader(&tar.Header{Name: listenerPath, Mode: 0o755, Size: int64(len(body)), Typeflag: tar.TypeReg}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write([]byte(body)); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func TestProcessEnsureRelease(t *testing.T) {
+	if _, err := runnerAsset(runtime.GOOS, runtime.GOARCH, "2.3.4"); err != nil {
+		t.Skipf("no actions/runner release for this host: %v", err)
+	}
+	archive := tarGzWithListener(t)
+	sum := sha256.Sum256(archive)
+
+	var downloads atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, "actions-runner-") || !strings.HasSuffix(r.URL.Path, ".tar.gz") {
+			http.NotFound(w, r)
+			return
+		}
+		downloads.Add(1)
+		_, _ = w.Write(archive)
+	}))
+	defer srv.Close()
+
+	root := t.TempDir()
+	b, err := NewProcess(ProcessOptions{
+		WorkDir:         root,
+		RunnerVersion:   "2.3.4",
+		RunnerSHA256:    hex.EncodeToString(sum[:]),
+		DownloadBaseURL: srv.URL,
+		Logger:          quietLogger(),
+	})
+	if err != nil {
+		t.Fatalf("NewProcess: %v", err)
+	}
+
+	dir, err := b.ensureRelease(context.Background(), "2.3.4")
+	if err != nil {
+		t.Fatalf("ensureRelease: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, listenerPath)); err != nil {
+		t.Fatalf("the release was not installed: %v", err)
+	}
+	if downloads.Load() != 1 {
+		t.Fatalf("downloads = %d", downloads.Load())
+	}
+
+	// A second create must reuse what is already on disk.
+	if _, err := b.ensureRelease(context.Background(), "2.3.4"); err != nil {
+		t.Fatalf("second ensureRelease: %v", err)
+	}
+	if downloads.Load() != 1 {
+		t.Fatalf("the cached release was downloaded again (%d times)", downloads.Load())
+	}
+
+	// Nothing partial is left behind for the next run to trip over.
+	entries, err := os.ReadDir(filepath.Join(root, toolsDirName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".download") || strings.HasSuffix(e.Name(), ".incoming") {
+			t.Fatalf("temporary file left behind: %s", e.Name())
+		}
+	}
+}
+
+func TestProcessEnsureReleaseRejectsATamperedArchive(t *testing.T) {
+	if _, err := runnerAsset(runtime.GOOS, runtime.GOARCH, "2.3.4"); err != nil {
+		t.Skipf("no actions/runner release for this host: %v", err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("not the release you asked for"))
+	}))
+	defer srv.Close()
+
+	root := t.TempDir()
+	b, err := NewProcess(ProcessOptions{
+		WorkDir: root, RunnerVersion: "2.3.4",
+		RunnerSHA256:    strings.Repeat("a", 64),
+		DownloadBaseURL: srv.URL, Logger: quietLogger(),
+	})
+	if err != nil {
+		t.Fatalf("NewProcess: %v", err)
+	}
+
+	if _, err := b.ensureRelease(context.Background(), "2.3.4"); err == nil {
+		t.Fatal("a tampered archive was installed")
+	} else if !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, toolsDirName, "2.3.4")); err == nil {
+		t.Fatal("a failed verification must leave nothing installed")
+	}
+}
+
+func TestProcessDownloadMissingVersion(t *testing.T) {
+	if _, err := runnerAsset(runtime.GOOS, runtime.GOARCH, "9.9.9"); err != nil {
+		t.Skipf("no actions/runner release for this host: %v", err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(http.NotFound))
+	defer srv.Close()
+
+	b, err := NewProcess(ProcessOptions{
+		WorkDir: t.TempDir(), DownloadBaseURL: srv.URL,
+		AllowUnverifiedDownload: true, Logger: quietLogger(),
+	})
+	if err != nil {
+		t.Fatalf("NewProcess: %v", err)
+	}
+	_, err = b.ensureRelease(context.Background(), "0.0.1")
+	if err == nil || !strings.Contains(err.Error(), "pinned runner version") {
+		t.Fatalf("got %v, want a message about the pinned version", err)
 	}
 }

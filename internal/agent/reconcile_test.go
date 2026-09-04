@@ -86,7 +86,7 @@ func TestReconcileRemovesOrphansOnlyAfterASuccessfulPoll(t *testing.T) {
 }
 
 func TestReconcileReportsCleanEphemeralExitAsRemoved(t *testing.T) {
-	a, _, be, _ := newAgent(t, 2)
+	a, _, be, clock := newAgent(t, 2)
 	a.polled.Store(true)
 	track(a, "runner-1", "wl-1", true)
 	be.setWorkloads(exited("wl-1", "runner-1", 0))
@@ -112,6 +112,20 @@ func TestReconcileReportsCleanEphemeralExitAsRemoved(t *testing.T) {
 	}
 	if len(again) != 0 {
 		t.Fatalf("re-reported a terminal runner: %+v", again)
+	}
+
+	// Once the controller has reaped the workload, the agent stops carrying
+	// the runner in every heartbeat.
+	be.setWorkloads()
+	clock.advance(missingGrace + time.Second)
+	if again, err = a.ReconcileOnce(context.Background()); err != nil {
+		t.Fatalf("ReconcileOnce: %v", err)
+	}
+	if len(again) != 0 {
+		t.Fatalf("re-reported a runner that was already reported terminal: %+v", again)
+	}
+	if got := a.Runners(); len(got) != 0 {
+		t.Fatalf("still tracking a finished runner whose workload is gone: %+v", got)
 	}
 }
 

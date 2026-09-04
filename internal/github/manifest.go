@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 )
 
 // maxAppNameLength is GitHub's limit on a GitHub App name. Hitting it during
@@ -77,17 +76,20 @@ func Manifest(o ManifestOptions) ([]byte, error) {
 			"at most %d", name, len(name), maxAppNameLength)
 	}
 	if strings.TrimSpace(o.URL) == "" {
-		return nil, fmt.Errorf("github: app manifest: a homepage url is required; set "+
+		return nil, fmt.Errorf("github: app manifest: a homepage url is required; set " +
 			"server.external_url in zoomies.yaml")
 	}
 	if strings.TrimSpace(o.WebhookURL) == "" {
-		return nil, fmt.Errorf("github: app manifest: a webhook url is required; set "+
+		return nil, fmt.Errorf("github: app manifest: a webhook url is required; set " +
 			"server.external_url in zoomies.yaml so GitHub can reach this controller")
 	}
 
 	m := manifest{
-		Name:           name,
-		URL:            o.URL,
+		Name: name,
+		URL:  o.URL,
+		// The secret rides in the manifest because that is the only way GitHub
+		// accepts one; leaving it empty makes GitHub generate one and hand it
+		// back through the conversion, which Zoomies then seals.
 		HookAttributes: hookAttributes{URL: o.WebhookURL, Active: true, Secret: o.WebhookSecret},
 		RedirectURL:    o.SetupURL,
 		SetupURL:       o.SetupURL,
@@ -239,10 +241,3 @@ func InstallURL(htmlURL string) string {
 	}
 	return h + "/installations/new"
 }
-
-// manifestCodeTTL is how long GitHub honours a manifest code. It is quoted in
-// the error above and exported here so the installer can warn before it lapses.
-const manifestCodeTTL = time.Hour
-
-// ManifestCodeTTL returns how long a manifest code stays valid.
-func ManifestCodeTTL() time.Duration { return manifestCodeTTL }

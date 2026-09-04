@@ -89,6 +89,10 @@ const DefaultDinDImage = "docker:27-dind"
 // namespace the two containers share. It is never published to the host.
 const dindPort = 2375
 
+// dindStartTimeout bounds how long we wait for the sidecar container to come up
+// before giving up on the pair.
+const dindStartTimeout = 30 * time.Second
+
 // defaultStopTimeout bounds a graceful stop when the caller does not say.
 const defaultStopTimeout = 60 * time.Second
 
@@ -544,8 +548,14 @@ func (b *DockerBackend) Create(ctx context.Context, spec Spec) (Handle, error) {
 	return Handle(id), nil
 }
 
-// startDinD creates and starts the sidecar and waits for its daemon to accept
-// connections, so that a runner never starts against a daemon that is not up.
+// startDinD creates and starts the sidecar, waiting until the daemon reports it
+// as running.
+//
+// It waits on the container, not on dockerd inside it: a host that refuses
+// privileged containers fails here, where the error can name the pool, instead
+// of much later as a connection refused inside somebody's job. Waiting for the
+// nested daemon to finish booting is the runner image's job, since only it
+// knows when its first docker command runs.
 func (b *DockerBackend) startDinD(ctx context.Context, spec Spec, opts containerOptions) (string, error) {
 	cfg := buildDinDConfig(spec, b.fl, opts)
 	id, err := b.api.ContainerCreate(ctx, dindName(containerName(spec.Name)), cfg)
@@ -555,6 +565,15 @@ func (b *DockerBackend) startDinD(ctx context.Context, spec Spec, opts container
 	if err := b.api.ContainerStart(ctx, id); err != nil {
 		_ = b.api.ContainerRemove(ctx, id, true)
 		return "", fmt.Errorf("backend: starting the docker-in-docker sidecar for %s: %w", spec.Name, err)
+	}
+
+	running := func() bool {
+		insp, err := b.api.ContainerInspect(ctx, id)
+		return err == nil && insp.State != nil && insp.State.Running
+	}
+	if !waitFor(ctx, running, dindStartTimeout, 200*time.Millisecond) {
+		_ = b.api.ContainerRemove(ctx, id, true)
+		return "", fmt.Errorf("backend: the docker-in-docker sidecar for %s was not running after %s; this host may not allow privileged containers, in which case the pool needs docker_mode none or the podman backend", spec.Name, dindStartTimeout)
 	}
 	b.log.Warn("docker-in-docker sidecar started: this runner has a privileged container",
 		"runner", spec.Name, "pool", spec.PoolName, "container", shortID(id))

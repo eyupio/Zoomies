@@ -557,6 +557,15 @@ func (c *APIClient) ContainerStop(ctx context.Context, id string, timeout time.D
 		secs = 0
 	}
 	q.Set("t", strconv.Itoa(secs))
+
+	// The daemon holds this request open until the container is down or the
+	// grace period expires, so the default call deadline would cancel our own
+	// stop on any timeout longer than a minute.
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout+defaultCallTimeout)
+		defer cancel()
+	}
 	err := c.do(ctx, http.MethodPost, "/containers/"+id+"/stop", q, nil, nil)
 	if StatusCode(err) == http.StatusNotModified {
 		return nil

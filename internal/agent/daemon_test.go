@@ -403,3 +403,28 @@ func TestNewValidatesOptions(t *testing.T) {
 		t.Fatalf("DefaultBackend = %q, want docker", a.opts.DefaultBackend)
 	}
 }
+
+func TestStopTaskDoesNotClaimRemovalWhenTheBackendWillNotAnswer(t *testing.T) {
+	h := newHarness(t, 1)
+	h.be.mu.Lock()
+	h.be.listErr = backend.ErrUnavailable
+	h.be.mu.Unlock()
+
+	// The agent has no record of this runner, so it has to ask the host -- and
+	// the host will not say. Reporting "removed" here would tell the controller
+	// a runner is gone while its job is still running.
+	h.tr.tasks <- []Task{{ID: "task-1", Kind: TaskStopRunner, RunnerID: "runner-unknown"}}
+	res := h.nextResult()
+	if res.OK {
+		t.Fatalf("unexpected success: %+v", res)
+	}
+	if res.State == store.RunnerRemoved {
+		t.Fatalf("claimed the runner was removed without being able to look: %+v", res)
+	}
+	if !strings.Contains(res.Error, "nothing was changed") {
+		t.Fatalf("error does not say the host was left alone: %q", res.Error)
+	}
+	if _, stopped, _ := h.be.counts(); stopped != 0 {
+		t.Fatal("stopped something despite not knowing what")
+	}
+}

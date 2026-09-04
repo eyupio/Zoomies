@@ -43,6 +43,9 @@ const (
 	// its own kill path before the context expires.
 	stopMargin    = 30 * time.Second
 	removeTimeout = 2 * time.Minute
+	// resolveTimeout bounds the backend listings used to find a runner the
+	// agent has no record of.
+	resolveTimeout = 30 * time.Second
 	// minPollInterval keeps a controller that answers polls instantly from
 	// turning the task loop into a spin.
 	minPollInterval = 200 * time.Millisecond
@@ -734,8 +737,12 @@ func (a *Agent) handleCreate(ctx context.Context, task Task) {
 }
 
 func (a *Agent) handleStop(ctx context.Context, task Task) {
-	b, handle, ok := a.resolve(ctx, task.RunnerID)
+	b, handle, ok, err := a.resolve(ctx, task.RunnerID)
 	if !ok {
+		if err != nil {
+			a.reportUnsearchable(ctx, task, err)
+			return
+		}
 		// Nothing to stop is the outcome the controller wanted, not an error.
 		a.log.Info("stop task for a runner with no workload on this host; reporting it removed", "runner", task.RunnerID)
 		a.report(ctx, TaskResult{TaskID: task.ID, RunnerID: task.RunnerID, OK: true, State: store.RunnerRemoved, CompletedAt: a.now()})
@@ -772,8 +779,13 @@ func (a *Agent) handleStop(ctx context.Context, task Task) {
 }
 
 func (a *Agent) handleRemove(ctx context.Context, task Task) {
-	b, handle, ok := a.resolve(ctx, task.RunnerID)
+	b, handle, ok, err := a.resolve(ctx, task.RunnerID)
 	if !ok {
+		if err != nil {
+			a.reportUnsearchable(ctx, task, err)
+			return
+		}
+		// A workload that is already gone is exactly what this task asked for.
 		a.untrack(task.RunnerID)
 		a.report(ctx, TaskResult{TaskID: task.ID, RunnerID: task.RunnerID, OK: true, State: store.RunnerRemoved, CompletedAt: a.now()})
 		return
@@ -782,7 +794,6 @@ func (a *Agent) handleRemove(ctx context.Context, task Task) {
 	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), removeTimeout)
 	defer cancel()
 
-	// A workload that is already gone is exactly what this task was asking for.
 	if err := b.Remove(rctx, handle); err != nil && !errors.Is(err, backend.ErrNotFound) {
 		a.log.Error("removing runner failed", "runner", task.RunnerID, "handle", handle, "error", err)
 		a.report(ctx, TaskResult{
@@ -808,8 +819,12 @@ func (a *Agent) runLogTask(ctx context.Context, task Task) {
 		return
 	}
 
-	b, handle, ok := a.resolve(ctx, task.RunnerID)
+	b, handle, ok, err := a.resolve(ctx, task.RunnerID)
 	if !ok {
+		if err != nil {
+			a.reportUnsearchable(ctx, task, err)
+			return
+		}
 		a.report(ctx, TaskResult{
 			TaskID:      task.ID,
 			RunnerID:    task.RunnerID,
@@ -824,7 +839,7 @@ func (a *Agent) runLogTask(ctx context.Context, task Task) {
 	if task.LogOptions != nil {
 		opts = *task.LogOptions
 	}
-	if err := a.logs.start(ctx, task.StreamID, handle, b, opts); err != nil {
+	if err = a.logs.start(ctx, task.StreamID, handle, b, opts); err != nil {
 		a.report(ctx, TaskResult{
 			TaskID:      task.ID,
 			RunnerID:    task.RunnerID,
@@ -853,6 +868,19 @@ func (a *Agent) report(ctx context.Context, res TaskResult) {
 	}
 }
 
+// reportUnsearchable reports a task the agent could not even look up, which is
+// a backend that would not answer rather than a runner that has gone.
+func (a *Agent) reportUnsearchable(ctx context.Context, task Task, err error) {
+	a.log.Error("could not find the workload for a task", "task", task.ID, "kind", task.Kind, "runner", task.RunnerID, "error", err)
+	a.report(ctx, TaskResult{
+		TaskID:      task.ID,
+		RunnerID:    task.RunnerID,
+		OK:          false,
+		Error:       fmt.Sprintf("could not tell whether runner %s is still on this host because its backend would not answer, so nothing was changed: %v", task.RunnerID, err),
+		CompletedAt: a.now(),
+	})
+}
+
 func (a *Agent) reportFailure(ctx context.Context, task Task, msg string) {
 	a.report(ctx, TaskResult{
 		TaskID:      task.ID,
@@ -867,7 +895,12 @@ func (a *Agent) reportFailure(ctx context.Context, task Task, msg string) {
 // resolve finds the backend and handle for a runner, falling back to listing
 // the host when the agent has no record -- which is the situation after an
 // agent restart, and exactly when a stop or remove task matters most.
-func (a *Agent) resolve(ctx context.Context, runnerID string) (backend.Backend, backend.Handle, bool) {
+//
+// The error return matters: "the runner is not here" and "this host could not
+// be asked" look the same to a caller that only gets a bool, and reporting the
+// second as the first would tell the controller a runner is gone while its job
+// is still running.
+func (a *Agent) resolve(ctx context.Context, runnerID string) (backend.Backend, backend.Handle, bool, error) {
 	a.mu.Lock()
 	r, ok := a.runners[runnerID]
 	var kind store.BackendKind
@@ -879,30 +912,37 @@ func (a *Agent) resolve(ctx context.Context, runnerID string) (backend.Backend, 
 
 	if ok {
 		if b, err := a.opts.Backends.Get(kind); err == nil {
-			return b, handle, true
+			return b, handle, true, nil
 		}
 	}
 
+	// Listing must survive shutdown for the same reason the lifecycle calls do:
+	// a stop task that gives up half way tells nobody anything useful.
+	lctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), resolveTimeout)
+	defer cancel()
+
 	kinds := a.opts.Backends.Kinds()
 	slices.Sort(kinds)
+	var errs []error
 	for _, k := range kinds {
 		b, err := a.opts.Backends.Get(k)
 		if err != nil {
+			errs = append(errs, err)
 			continue
 		}
-		workloads, err := b.List(ctx)
+		workloads, err := b.List(lctx)
 		if err != nil {
-			a.log.Warn("could not list workloads while looking for a runner", "backend", k, "runner", runnerID, "error", err)
+			errs = append(errs, fmt.Errorf("listing %s workloads: %w", k, err))
 			continue
 		}
 		for _, w := range workloads {
 			if w.RunnerID == runnerID {
 				a.adopt(runnerID, k, w)
-				return b, w.Handle, true
+				return b, w.Handle, true, nil
 			}
 		}
 	}
-	return nil, "", false
+	return nil, "", false, errors.Join(errs...)
 }
 
 // adopt records a workload the agent found on the host but had no memory of,

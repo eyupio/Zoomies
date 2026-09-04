@@ -137,6 +137,10 @@ func expectedTargetShape(kind store.TargetType) string {
 // newGitHubClient points go-github at apiBaseURL. GitHub Enterprise Server and
 // github.com differ only here, which is the whole reason Client is an
 // interface.
+//
+// It uses WithURLs rather than WithEnterpriseURLs because NormalizeAPIBaseURL
+// has already put the URL in the form go-github wants; letting go-github
+// normalise it a second time would append /api/v3 to a URL that has it.
 func newGitHubClient(hc *http.Client, apiBaseURL, uploadBaseURL string) (*gh.Client, error) {
 	c, err := gh.NewClient(
 		gh.WithHTTPClient(hc),
@@ -362,55 +366,65 @@ func (c *appClient) CreateRemoveToken(ctx context.Context) (*RegistrationToken, 
 	return &RegistrationToken{Token: tok.GetToken(), ExpiresAt: tok.GetExpiresAt().Time}, nil
 }
 
+// runnersPage mirrors the self-hosted runner list response.
+//
+// It is decoded by hand rather than through go-github's Runner type because
+// that type has no ephemeral field, and ephemerality is what tells the
+// reconciler apart a runner that exited normally after one job from one that
+// died. Everything else -- auth, base URL, pagination headers -- still comes
+// from go-github.
+type runnersPage struct {
+	TotalCount int `json:"total_count"`
+	Runners    []struct {
+		ID        int64  `json:"id"`
+		Name      string `json:"name"`
+		OS        string `json:"os"`
+		Status    string `json:"status"`
+		Busy      bool   `json:"busy"`
+		Ephemeral bool   `json:"ephemeral"`
+		Labels    []struct {
+			Name string `json:"name"`
+		} `json:"labels"`
+	} `json:"runners"`
+}
+
 // ListRunners returns every self-hosted runner registered on the target.
 func (c *appClient) ListRunners(ctx context.Context) ([]Runner, error) {
-	opts := &gh.ListRunnersOptions{ListOptions: gh.ListOptions{PerPage: pollPerPage}}
+	base := "orgs/" + c.owner + "/actions/runners"
+	if !c.isOrg() {
+		base = "repos/" + c.owner + "/" + c.repo + "/actions/runners"
+	}
 	var out []Runner
-	for {
-		if err := ctx.Err(); err != nil {
-			return nil, err
+	for page := 1; ; {
+		u := fmt.Sprintf("%s?per_page=%d&page=%d", base, pollPerPage, page)
+		req, err := c.asInstallation.NewRequest(ctx, http.MethodGet, u, nil)
+		if err != nil {
+			return nil, errorf("list runners on "+c.target, err)
 		}
-		var (
-			page *gh.Runners
-			resp *gh.Response
-			err  error
-		)
-		if c.isOrg() {
-			page, resp, err = c.asInstallation.Actions.ListOrganizationRunners(ctx, c.owner, opts)
-		} else {
-			page, resp, err = c.asInstallation.Actions.ListRunners(ctx, c.owner, c.repo, opts)
-		}
+		var body runnersPage
+		resp, err := c.asInstallation.Do(req, &body)
 		if err != nil {
 			return nil, c.fail("list runners on "+c.target, resp, err)
 		}
-		for _, r := range page.Runners {
-			out = append(out, convertRunner(r))
+		for _, r := range body.Runners {
+			runner := Runner{
+				ID:        r.ID,
+				Name:      r.Name,
+				OS:        r.OS,
+				Status:    r.Status,
+				Busy:      r.Busy,
+				Ephemeral: r.Ephemeral,
+			}
+			for _, l := range r.Labels {
+				runner.Labels = append(runner.Labels, l.Name)
+			}
+			out = append(out, runner)
 		}
 		if resp == nil || resp.NextPage == 0 {
 			return out, nil
 		}
-		opts.Page = resp.NextPage
+		page = resp.NextPage
 	}
-}
-
-func convertRunner(r *gh.Runner) Runner {
-	out := Runner{
-		ID:     r.GetID(),
-		Name:   r.GetName(),
-		OS:     r.GetOS(),
-		Status: r.GetStatus(),
-		Busy:   r.GetBusy(),
-	}
-	for _, l := range r.Labels {
-		out.Labels = append(out.Labels, l.GetName())
-		// GitHub does not report ephemerality directly on the runner, but a
-		// JIT-configured runner always carries the "ephemeral" label GitHub
-		// adds for it.
-		if l.GetName() == "ephemeral" {
-			out.Ephemeral = true
-		}
-	}
-	return out
 }
 
 // DeleteRunner removes a registration. A runner GitHub has already forgotten
@@ -425,13 +439,11 @@ func (c *appClient) DeleteRunner(ctx context.Context, id int64) error {
 	} else {
 		resp, err = c.asInstallation.Actions.RemoveRunner(ctx, c.owner, c.repo, id)
 	}
-	if err == nil {
+	e := classify(resp, err)
+	if e == nil || errors.Is(e, ErrNotFound) {
 		return nil
 	}
-	if e := classify(resp, err); errors.Is(e, ErrNotFound) {
-		return nil
-	}
-	return c.fail(fmt.Sprintf("delete runner %d", id), resp, err)
+	return c.decorate(fmt.Sprintf("delete runner %d", id), e)
 }
 
 // ListRunnerGroups returns the target's runner groups. Repositories do not
@@ -501,12 +513,13 @@ func (c *appClient) ListQueuedJobs(ctx context.Context) ([]QueuedJob, error) {
 					ListOptions: gh.ListOptions{PerPage: min(budget, pollPerPage)},
 				})
 			if err != nil {
+				e := classify(resp, err)
 				// A repository with Actions disabled 404s. That is normal in a
 				// large org and must not abort the whole sweep.
-				if errors.Is(classify(resp, err), ErrNotFound) {
+				if errors.Is(e, ErrNotFound) {
 					break
 				}
-				return nil, c.fail("list workflow runs for "+full, resp, err)
+				return nil, c.decorate("list workflow runs for "+full, e)
 			}
 			for _, run := range runs.WorkflowRuns {
 				if budget <= 0 {
@@ -569,10 +582,11 @@ func (c *appClient) queuedJobsForRun(ctx context.Context, owner, repo string, ru
 			ListOptions: gh.ListOptions{PerPage: pollPerPage},
 		})
 	if err != nil {
-		if errors.Is(classify(resp, err), ErrNotFound) {
+		e := classify(resp, err)
+		if errors.Is(e, ErrNotFound) {
 			return nil, nil
 		}
-		return nil, c.fail(fmt.Sprintf("list jobs for run %d in %s/%s", run.GetID(), owner, repo), resp, err)
+		return nil, c.decorate(fmt.Sprintf("list jobs for run %d in %s/%s", run.GetID(), owner, repo), e)
 	}
 	full := owner + "/" + repo
 	var out []QueuedJob
@@ -617,11 +631,17 @@ func (c *appClient) RateLimit(ctx context.Context) (*RateLimit, error) {
 	return &RateLimit{Limit: core.Limit, Remaining: core.Remaining, ResetAt: core.Reset.Time}, nil
 }
 
-// fail turns a go-github error into one an operator can act on: the operation
-// that failed, the mapped sentinel, and -- for a 403 -- the permission that is
-// almost certainly the cause.
+// fail turns a go-github error into one an operator can act on.
 func (c *appClient) fail(op string, resp *gh.Response, err error) error {
-	e := classify(resp, err)
+	return c.decorate(op, classify(resp, err))
+}
+
+// decorate names the operation that failed and, for a 403, the permission that
+// is almost certainly the cause.
+func (c *appClient) decorate(op string, e error) error {
+	if e == nil {
+		return nil
+	}
 	if errors.Is(e, ErrForbidden) {
 		return fmt.Errorf("github: %s: %w; %s", op, e, c.permissionHint())
 	}
