@@ -25,6 +25,8 @@ coverage.out
 # ZOOMIES_ENCRYPTION_KEY -- the key everything secret in the database is sealed
 # with. .env.example is the one that belongs in git.
 /.env
+# The compose deployment's state: the database and the runners' work area.
+/data/
 
 # Editors and OS
 .DS_Store

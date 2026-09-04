@@ -98,8 +98,13 @@ sh install.sh --non-interactive --answers zoomies-answers.yaml
 git clone https://github.com/eyupio/zoomies && cd zoomies
 cp .env.example .env
 $EDITOR .env          # set ZOOMIES_ENCRYPTION_KEY
+mkdir -p data && chown 65532:65532 data   # the container runs as 65532
 docker compose up -d
 ```
+
+The database and the runners' work area live in `./data` beside the compose
+file, so a backup is a copy of a directory. It has to be owned by uid 65532: a
+bind mount keeps the host directory's ownership, and the container is not root.
 
 The compose file is set up for running behind Cloudflare: the origin serves
 plain HTTP on port 80 and Cloudflare terminates TLS, with `ZOOMIES_EXTERNAL_URL`
