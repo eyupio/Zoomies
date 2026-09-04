@@ -20,7 +20,7 @@ env:
 jobs:
   go:
     name: Go
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -55,7 +55,7 @@ jobs:
 
   staticcheck:
     name: staticcheck
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -70,7 +70,7 @@ jobs:
 
   ui:
     name: UI
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -104,7 +104,7 @@ jobs:
 
   playwright:
     name: Playwright
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [ui]
     steps:
       - uses: actions/checkout@v7
@@ -137,7 +137,7 @@ jobs:
 
   build-matrix:
     name: Cross-compile
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     needs: [ui]
     strategy:
       fail-fast: false
@@ -165,7 +165,7 @@ jobs:
 
   installer:
     name: install.sh
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v7
       - name: POSIX shell syntax
@@ -179,7 +179,7 @@ jobs:
 
   images:
     name: Images
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v7
 
@@ -203,13 +203,13 @@ jobs:
             echo "runner=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # arm64 is emulated on a GitHub runner, and emulated apt plus an emulated
-      # 200 MB download is the difference between a two-minute job and a
-      # twenty-minute one. A pull request proves the Dockerfiles still build;
-      # main proves they still build for both architectures. Releases publish
-      # multi-arch either way, from release.yml.
-      - name: Decide the platforms
-        id: platforms
+      # arm64 is emulated, and emulated apt plus an emulated 200 MB download is
+      # the difference between a two-minute job and a twenty-minute one. A pull
+      # request proves the Dockerfiles still build; main proves they still build
+      # for both architectures. Releases publish multi-arch either way, from
+      # release.yml.
+      - id: platforms
+        name: Decide the platforms
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "list=linux/amd64" >> "$GITHUB_OUTPUT"
@@ -217,31 +217,30 @@ jobs:
             echo "list=linux/amd64,linux/arm64" >> "$GITHUB_OUTPUT"
           fi
 
+      # QEMU is only needed for the architecture this machine is not.
       - if: steps.platforms.outputs.list != 'linux/amd64'
         uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
+
+      - name: Setup Blacksmith Builder
+        uses: useblacksmith/setup-docker-builder@v1
 
       - name: Build the controller image
-        uses: docker/build-push-action@v6
+        uses: useblacksmith/build-push-action@v2
         with:
           context: .
           file: deploy/Dockerfile
           target: controller
           platforms: ${{ steps.platforms.outputs.list }}
           push: false
-          cache-from: type=gha,scope=controller
-          cache-to: type=gha,mode=max,scope=controller
 
       - name: Build the runner image
         if: steps.changed.outputs.runner == 'true'
-        uses: docker/build-push-action@v6
+        uses: useblacksmith/build-push-action@v2
         with:
           context: .
           file: deploy/Dockerfile.runner
           platforms: ${{ steps.platforms.outputs.list }}
           push: false
-          cache-from: type=gha,scope=runner
-          cache-to: type=gha,mode=max,scope=runner
 
       - name: Say when the runner image was skipped
         if: steps.changed.outputs.runner != 'true'
