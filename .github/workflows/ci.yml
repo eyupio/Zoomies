@@ -208,9 +208,14 @@ jobs:
             echo "value=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # :main and :sha-<commit> are what main publishes. :latest belongs to
-      # tagged releases and is moved only by release.yml, so that pulling
-      # :latest keeps meaning "the last release" and not "the last merge".
+      # main publishes :latest, :main and :sha-<commit>.
+      #
+      # :latest tracks main only because Zoomies has no release yet: the tag
+      # everything defaults to has to exist, and release.yml cannot create it
+      # until a v* tag is pushed. Once the first release is cut, DROP :latest
+      # from this job -- otherwise the next merge to main overwrites the
+      # release's :latest with an untagged build, which is precisely the thing
+      # :latest is supposed to protect people from.
       - id: tags
         name: Work out the tags
         run: echo "sha=sha-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
@@ -267,8 +272,8 @@ jobs:
           # image built from these files. On the first publish it points at
           # nothing at all, and "unchanged" would leave it that way.
           if [ "$PUBLISH" = "true" ] &&
-             ! docker buildx imagetools inspect "$RUNNER_IMAGE:main" >/dev/null 2>&1; then
-            echo "$RUNNER_IMAGE:main is not in the registry yet; building it." >> "$GITHUB_STEP_SUMMARY"
+             ! docker buildx imagetools inspect "$RUNNER_IMAGE:latest" >/dev/null 2>&1; then
+            echo "$RUNNER_IMAGE:latest is not in the registry yet; building it." >> "$GITHUB_STEP_SUMMARY"
             build_it
           fi
 
@@ -304,6 +309,7 @@ jobs:
             VERSION=main-${{ steps.tags.outputs.sha }}
             COMMIT=${{ github.sha }}
           tags: |
+            ${{ env.CONTROLLER_IMAGE }}:latest
             ${{ env.CONTROLLER_IMAGE }}:main
             ${{ env.CONTROLLER_IMAGE }}:${{ steps.tags.outputs.sha }}
 
@@ -316,6 +322,7 @@ jobs:
           platforms: ${{ steps.platforms.outputs.list }}
           push: ${{ steps.publish.outputs.value }}
           tags: |
+            ${{ env.RUNNER_IMAGE }}:latest
             ${{ env.RUNNER_IMAGE }}:main
             ${{ env.RUNNER_IMAGE }}:${{ steps.tags.outputs.sha }}
 
@@ -336,13 +343,13 @@ jobs:
             else
               echo "Published:"
               echo
-              echo "- \`$CONTROLLER_IMAGE:main\`, \`$CONTROLLER_IMAGE:$SHA_TAG\`"
+              echo "- \`$CONTROLLER_IMAGE:latest\`, \`:main\`, \`:$SHA_TAG\`"
               if [ "$RUNNER_BUILT" = "true" ]; then
-                echo "- \`$RUNNER_IMAGE:main\`, \`$RUNNER_IMAGE:$SHA_TAG\`"
+                echo "- \`$RUNNER_IMAGE:latest\`, \`:main\`, \`:$SHA_TAG\`"
               else
-                echo "- \`$RUNNER_IMAGE:main\` is unchanged, and still current."
+                echo "- \`$RUNNER_IMAGE:latest\` is unchanged, and still current."
               fi
               echo
-              echo "\`:latest\` is not moved from here; it follows tagged releases."
+              echo "Drop \`:latest\` from this job once the first release is tagged."
             fi
           } >> "$GITHUB_STEP_SUMMARY"

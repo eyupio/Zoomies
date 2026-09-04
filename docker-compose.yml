@@ -16,9 +16,7 @@ name: zoomies
 
 services:
   zoomies:
-    # :main is the tip of main, published by CI on every merge. :latest
-    # appears once a release is tagged; switch to it when one exists.
-    image: ghcr.io/eyupio/zoomies:main
+    image: ghcr.io/eyupio/zoomies:latest
     # Or build locally:
     # build:
     #   context: .

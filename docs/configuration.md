@@ -51,7 +51,7 @@ github:
   webhook_path: /webhooks/github         # ZOOMIES_WEBHOOK_PATH
   poll_interval: 30s                     # ZOOMIES_POLL_INTERVAL
   poll_fallback: true                    # ZOOMIES_POLL_FALLBACK
-  runner_image: ghcr.io/eyupio/zoomies-runner:main   # ZOOMIES_RUNNER_IMAGE
+  runner_image: ghcr.io/eyupio/zoomies-runner:latest   # ZOOMIES_RUNNER_IMAGE
   runner_version: ""                     # ZOOMIES_RUNNER_VERSION
 
 agent:
@@ -160,24 +160,29 @@ JIT configs, webhooks, runner groups — works the same.
 
 ```yaml
 github:
-  runner_image: ghcr.io/eyupio/zoomies-runner:main
+  runner_image: ghcr.io/eyupio/zoomies-runner:latest
 ```
 
 Both images — `ghcr.io/eyupio/zoomies` (the controller) and
-`ghcr.io/eyupio/zoomies-runner` — are published to GHCR under three kinds of
+`ghcr.io/eyupio/zoomies-runner` — are published to GHCR under four kinds of
 tag:
 
 | Tag | Points at | Published by |
 | --- | --- | --- |
-| `latest`, `vX.Y.Z` | The last tagged release | `release.yml`, on a `v*` tag |
+| `latest` | The tip of `main`, for now | `ci.yml`, on every push to `main` |
 | `main` | The tip of `main` | `ci.yml`, on every push to `main` |
 | `sha-<commit>` | One exact commit | `ci.yml`, on every push to `main` |
+| `vX.Y.Z` | One tagged release | `release.yml`, on a `v*` tag |
 
-`main` is the default today, because Zoomies has not been released yet and
-`latest` does not exist until a `v*` tag is pushed. It moves under you on every
-merge. Once there is a release, switch to `latest` — it moves only when a
-release is tagged, which is what you want for anything you rely on. Pin
-`sha-<commit>` when you want an image that never changes at all.
+`latest` is the default, and until the first release it is the same image as
+`main` — Zoomies has no `v*` tag yet, so there is no release for it to point at.
+It therefore moves on every merge. Pin `sha-<commit>` when you want an image
+that never changes at all.
+
+Once the first release is tagged, `latest` should go back to meaning "the last
+release": drop it from the `images` job in `ci.yml`, and let `release.yml` be
+the only thing that moves it. Leaving both in place means the next merge to
+`main` overwrites the release's `latest` with an untagged build.
 
 The runner image is only rebuilt when something that goes into it changes —
 `deploy/Dockerfile.runner` or `deploy/runner-entrypoint.sh` — so its `main` tag
