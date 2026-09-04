@@ -406,6 +406,7 @@ func (i *Installer) runContainer(ctx context.Context, p Plan) error {
 		i.ui.note("and must be entered again. Copy it with:  sudo grep ZOOMIES_ENCRYPTION_KEY " + envPath)
 	}
 	i.warnAboutRootlessSocket(p)
+	i.checkContainerSocketAccess(p)
 
 	// The record is written before anything is started, not after. A failed
 	// `up` can still have created a network, a volume or a container, and an
@@ -448,6 +449,99 @@ func (i *Installer) runContainer(ctx context.Context, p Plan) error {
 // warnAboutRootlessSocket names the one combination that looks right and is
 // not: the image runs as an unprivileged uid, which cannot use a socket that
 // belongs to the operator's own user.
+// ImageUID is the account the published image runs as. It is not an operator's
+// account and does not exist on the host, which is why a container is given a
+// group when it is created rather than joined to one afterwards.
+const ImageUID = 65532
+
+// containerSocketVerdict is what the image's account will be able to do with a
+// socket, decided from the socket and the gid the deployment would add.
+type containerSocketVerdict int
+
+const (
+	// socketUsable: the container will be able to open it.
+	socketUsable containerSocketVerdict = iota
+	// socketWrongGID: the group bits are right and the gid being added is not
+	// the one that owns the socket, which is a one-line fix in the env file.
+	socketWrongGID
+	// socketRootGroup: the socket belongs to group root. A container could only
+	// reach it by being given the root group, which Zoomies will not do.
+	socketRootGroup
+	// socketNoGroupBits: no gid can help; the mode itself is the refusal.
+	socketNoGroupBits
+)
+
+// judgeContainerSocket is the whole decision, kept apart from the printing so
+// every branch can be checked without a container runtime, a second group or
+// root.
+func judgeContainerSocket(facts socketFacts, dockerGID int) containerSocketVerdict {
+	// Exactly what the container will be: the image's uid, plus the one group
+	// the deployment adds -- and only when there is one to add.
+	acct := account{uid: ImageUID}
+	if dockerGID > 0 {
+		acct.groups = []int{dockerGID}
+	}
+	switch {
+	case canOpen(facts, acct):
+		return socketUsable
+	case facts.gid == 0:
+		return socketRootGroup
+	case joinable(facts, acct):
+		return socketWrongGID
+	default:
+		return socketNoGroupBits
+	}
+}
+
+// checkContainerSocketAccess proves, before the container is started, that the
+// image's account will be able to open the socket that is about to be mounted
+// into it.
+//
+// The container equivalent of the native install's group check, and the one
+// that matters more: there is no usermod to fall back on afterwards, because
+// the image's account does not exist on the host. A wrong or missing DOCKER_GID
+// produces a container that comes up healthy, reports every backend as
+// unavailable, and leaves its pools queueing forever.
+func (i *Installer) checkContainerSocketAccess(p Plan) {
+	socket := SocketPathOf(p.DockerHost)
+	if !p.runsRunners() || p.Backend == store.BackendProcess || socket == "" {
+		return
+	}
+	facts, ok := statSocket(socket)
+	if !ok {
+		i.ui.note("no socket at " + socket + " to check yet; the agent re-probes as it runs, so it will start taking work once the daemon is up.")
+		return
+	}
+
+	switch judgeContainerSocket(facts, p.DockerGID) {
+	case socketUsable:
+		if p.DockerGID > 0 {
+			i.ui.ok(fmt.Sprintf("the container joins group %d, which owns %s", p.DockerGID, socket))
+		} else {
+			i.ui.ok("the container can use " + socket)
+		}
+	case socketWrongGID:
+		i.ui.warn(fmt.Sprintf("the container would run as uid %d with no access to %s, so no runner could be created",
+			ImageUID, socket))
+		if p.Deployment == DeploymentCompose {
+			// Compose reads the gid from the env file at up time.
+			i.ui.note(fmt.Sprintf("set DOCKER_GID=%d in %s and bring the deployment up again -- that gid owns the socket on this host.",
+				facts.gid, EnvFileFor(p.Deployment)))
+			return
+		}
+		// A plain container carries the group in its own run command, so the
+		// env file is not where this one lives.
+		i.ui.note(fmt.Sprintf("recreate the container with --group-add %d, which is the gid that owns the socket on this host.", facts.gid))
+	case socketRootGroup:
+		i.ui.warn(socket + " belongs to group root, so the only gid that would reach it is 0")
+		i.ui.note("Zoomies will not put a container in the root group. Give the socket a group of its own -- `sudo groupadd docker`, then restart the daemon so it takes the group -- or run a rootless daemon and point ZOOMIES_DOCKER_HOST at its socket.")
+	case socketNoGroupBits:
+		i.ui.warn(fmt.Sprintf("%s is mode %04o, which grants nothing to its group, so no gid added to the container can open it",
+			socket, facts.mode.Perm()))
+		i.ui.note("run a rootless daemon and point ZOOMIES_DOCKER_HOST at its socket, or change the socket's own permissions.")
+	}
+}
+
 func (i *Installer) warnAboutRootlessSocket(p Plan) {
 	if !p.Rootless || !p.runsRunners() || p.Backend == store.BackendProcess {
 		return

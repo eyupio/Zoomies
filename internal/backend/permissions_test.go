@@ -162,3 +162,73 @@ func TestDeniedDetailFallsBackToTheGidWhenTheGroupHasNoName(t *testing.T) {
 		t.Errorf("want the numeric group in the command: %s", got)
 	}
 }
+
+// The failure this whole diagnosis exists for, in the deployment it is most
+// often hit in: the agent is a container, its account belongs to the image, and
+// the host has no such user to add to anything. Telling an operator to run
+// usermod there costs them a round trip and a `user does not exist`.
+func TestDeniedDetailGivesContainerAdviceInAContainer(t *testing.T) {
+	id := fakeIdentity(nil, nil, fs.ModeSocket|0o660, 987, true)
+	id.username = "nonroot"
+	id.containerized = true
+
+	got := deniedDetail(id, socket)
+	if strings.Contains(got, "usermod -aG 987 nonroot") {
+		t.Errorf("a host usermod cannot reach a user inside the image: %s", got)
+	}
+	for _, want := range []string{
+		"runs in a container",
+		"group-owned by 987",
+		"--group-add 987",
+		`group_add: ["987"]`,
+		"DOCKER_GID=987",
+		"recreate the container",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in: %s", want, got)
+		}
+	}
+}
+
+// A container that was never given the socket at all: the advice has to say how
+// to find the gid, since it cannot be read from in there.
+func TestDeniedDetailInAContainerWithNoSocketToLookAt(t *testing.T) {
+	id := fakeIdentity(nil, nil, 0, 0, false)
+	id.containerized = true
+
+	got := deniedDetail(id, socket)
+	if !strings.Contains(got, "Mount the host's socket") || !strings.Contains(got, "stat -c '%g'") {
+		t.Errorf("want the mount and the way to find the gid: %s", got)
+	}
+	if strings.Contains(got, "usermod") {
+		t.Errorf("no usermod belongs in a container's advice: %s", got)
+	}
+}
+
+// A container that already holds the group and is still refused is the mode
+// case, not the group case, exactly as on a host.
+func TestDeniedDetailInAContainerThatAlreadyHoldsTheGroup(t *testing.T) {
+	id := fakeIdentity([]int{987}, nil, fs.ModeSocket|0o600, 987, true)
+	id.containerized = true
+
+	got := deniedDetail(id, socket)
+	if !strings.Contains(got, "already holds group 987") {
+		t.Errorf("the held group must still win: %s", got)
+	}
+	if strings.Contains(got, "--group-add") {
+		t.Errorf("adding a group it already has would be no advice at all: %s", got)
+	}
+}
+
+// On a host, nothing changes.
+func TestDeniedDetailOutsideAContainerKeepsTheUsermod(t *testing.T) {
+	id := fakeIdentity(nil, nil, fs.ModeSocket|0o660, 998, true)
+
+	got := deniedDetail(id, socket)
+	if !strings.Contains(got, "sudo usermod -aG docker zoomies") {
+		t.Errorf("a host install still gets the host fix: %s", got)
+	}
+	if strings.Contains(got, "--group-add") {
+		t.Errorf("container advice must not leak onto a host: %s", got)
+	}
+}
