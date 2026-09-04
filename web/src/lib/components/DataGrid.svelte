@@ -473,13 +473,22 @@
               onfocus={() => (focused = index)}
             >
               {#if selectable}
-                <td class="pick">
+                <!--
+                  The row's own click opens the row, so the cell that holds the
+                  selection checkbox has to stop the event reaching it. Without
+                  this, ticking a row navigates away and selects nothing, which
+                  makes bulk selection impossible with a mouse -- the keyboard
+                  path is unaffected, which is exactly why it went unnoticed.
+                  Every other cell that holds a control does the same.
+                -->
+                <td class="pick" onclick={(event) => event.stopPropagation()}>
                   <Checkbox
                     checked={isSelected(row.id)}
                     ariaLabel="Select this row"
                     onchange={(on) => {
                       setSelected(row.id, on);
                       anchor = index;
+                      focused = index;
                     }}
                   />
                 </td>
@@ -565,6 +574,15 @@
   .scroll {
     overflow: auto;
     max-height: 70vh;
+    /*
+      Also the containing block for anything absolutely positioned inside it.
+      Without this, a visually-hidden `.sr-only` span in a cell 500px along a
+      1200px-wide table is positioned against the page instead, escapes this
+      frame's clipping, and makes the whole document that wide -- so on a phone
+      the page scrolls sideways and the browser zooms out to fit, which is a
+      strange amount of damage for a one-pixel span nobody can see.
+    */
+    position: relative;
   }
   table {
     width: 100%;

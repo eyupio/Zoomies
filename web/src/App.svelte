@@ -200,6 +200,15 @@
   @media (max-width: 768px) {
     .app {
       flex-direction: column;
+      /*
+        The row becomes a column here, so `align-items: flex-start` stops
+        meaning "the sidebar keeps its width" and starts meaning "the content
+        column is as wide as its widest child". A 1150px grid, or a top-bar
+        label a few pixels too long, then sizes the whole document and the
+        phone scrolls sideways -- which the browser answers by zooming out
+        until the toolbar and the row actions are too small to press.
+      */
+      align-items: stretch;
     }
     .page {
       padding: var(--z-space-4) var(--z-space-3) var(--z-space-16);

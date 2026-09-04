@@ -56,6 +56,20 @@
     onkeydown,
     class: className = '',
   }: Props = $props();
+
+  /*
+    The value handed back is always the string the user typed, for every
+    `type`. Svelte's `bind:value` would have coerced it to a number on a
+    number input, and because `type` is a prop the caller cannot see that
+    coming: a form that stores strings would silently start holding numbers,
+    and the first `.trim()` downstream throws. Binding by hand keeps this
+    component's declared contract -- value is a string -- true of every type
+    it accepts.
+  */
+  function handleInput(event: Event): void {
+    value = (event.currentTarget as HTMLInputElement).value;
+    oninput?.(event);
+  }
 </script>
 
 <div class="wrap {size} {className}" class:has-icon={Boolean(Icon)}>
@@ -64,7 +78,7 @@
   {/if}
   <input
     bind:this={element}
-    bind:value
+    {value}
     {id}
     {name}
     {type}
@@ -80,7 +94,7 @@
     aria-label={ariaLabel}
     aria-invalid={invalid ? 'true' : undefined}
     aria-describedby={describedBy}
-    {oninput}
+    oninput={handleInput}
     {onchange}
     {onblur}
     {onkeydown}
