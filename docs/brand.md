@@ -73,8 +73,23 @@ dark surface — and draws it on a small Zoomies Black chip
 (`--z-mark-chip`) with a `--z-radius-md` corner. One asset, correct in both
 themes, legible at 24px, and it keeps the circular shape intact.
 
-The full lock-up appears on the sign-in and first-run screens, where there is
-room for it at its 240px minimum.
+The full lock-up appears on the sign-in, first-run and boot screens, and on the
+one that says the controller cannot be reached -- the four screens that are
+nothing but the lock-up, where there is room for it at its 240px minimum.
+
+Once somebody is signed in, the identity is carried in five quieter places:
+
+| Where | What |
+| --- | --- |
+| The navigation masthead | Mark and wordmark, over the descriptor; the mark alone when collapsed |
+| The top bar, on a phone | The mark alone, because the masthead is not on screen there |
+| The foot of every page | The mark, the name, the running version and the descriptor, in a hairline |
+| The command palette | The mark and the name, in the footer beside the key hints |
+| Settings → About | The mark at 44px beside the name and the descriptor |
+
+The descriptor is set in Inter -- small, uppercase, letter-spaced -- rather than
+cropped out of the wordmark artwork, whose own descriptor line is drawn for
+240px and is a smudge at sidebar width.
 
 ## Clear space and minimum sizes
 

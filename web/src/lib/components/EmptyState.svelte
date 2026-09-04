@@ -9,6 +9,8 @@
 
   interface Props {
     icon?: LucideIcon;
+    /** Replaces the icon disc entirely, for the rare state that wants artwork. */
+    visual?: Snippet;
     title: string;
     /** One sentence. What this is, or why it is empty. */
     description?: string;
@@ -20,6 +22,7 @@
 
   let {
     icon: Icon = Inbox,
+    visual,
     title,
     description,
     compact = false,
@@ -29,7 +32,11 @@
 </script>
 
 <div class="empty {className}" class:compact>
-  <span class="icon" aria-hidden="true"><Icon size={compact ? 18 : 22} /></span>
+  {#if visual}
+    <span class="visual" aria-hidden="true">{@render visual()}</span>
+  {:else}
+    <span class="icon" aria-hidden="true"><Icon size={compact ? 18 : 22} /></span>
+  {/if}
   <p class="title">{title}</p>
   {#if description}<p class="description">{description}</p>{/if}
   {#if children}
@@ -60,6 +67,10 @@
     border-radius: var(--z-radius-full);
     background: var(--z-surface-sunken);
     color: var(--z-text-subtle);
+  }
+  .visual {
+    display: inline-flex;
+    margin-bottom: var(--z-space-2);
   }
   .compact .icon {
     width: var(--z-space-8);

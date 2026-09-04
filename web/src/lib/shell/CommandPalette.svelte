@@ -30,6 +30,7 @@
   import { toasts } from '../state/toasts.svelte';
   import { runnerStatus } from '../status';
   import EmptyState from '../components/EmptyState.svelte';
+  import Logo from '../components/Logo.svelte';
 
   interface Props {
     open?: boolean;
@@ -365,6 +366,9 @@
         <span><kbd>↑</kbd><kbd>↓</kbd> to move</span>
         <span><kbd>Enter</kbd> to run</span>
         <span><kbd>Esc</kbd> to close</span>
+        <!-- The palette floats clear of the page, so it is the one surface that
+             has to say for itself whose it is. -->
+        <span class="brand"><Logo variant="mark" size={14} label="" /> Zoomies</span>
       </footer>
     </div>
   </div>
@@ -476,12 +480,28 @@
   }
   footer {
     display: flex;
+    align-items: center;
     gap: var(--z-space-4);
     padding: var(--z-space-2) var(--z-space-4);
     border-top: 1px solid var(--z-border);
     background: var(--z-surface-sunken);
     font-size: var(--z-text-2xs);
     color: var(--z-text-subtle);
+  }
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--z-space-2);
+    margin-left: auto;
+    font-weight: var(--z-weight-semibold);
+    color: var(--z-text-muted);
+  }
+  @media (max-width: 560px) {
+    /* The three key hints are the working part of this bar; the signature is
+       the first thing to go when the row stops fitting. */
+    .brand {
+      display: none;
+    }
   }
   kbd {
     margin-right: 2px;

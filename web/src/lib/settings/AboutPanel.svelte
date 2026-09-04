@@ -14,6 +14,7 @@
   import { session } from '$lib/state/session.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import LoadingBoundary from '$lib/components/LoadingBoundary.svelte';
+  import Logo from '$lib/components/Logo.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
 
   const DOCS: { label: string; description: string; href: string }[] = [
@@ -69,6 +70,19 @@
     <h2>About</h2>
     <p>This controller, and where to read more.</p>
   </header>
+
+  <!--
+    The one place in the product that is allowed to be about the product rather
+    than about the fleet, so the lock-up gets the room the brand guide asks for
+    instead of the 24px it gets in the sidebar.
+  -->
+  <div class="identity">
+    <Logo variant="mark" size={44} label="" />
+    <div>
+      <p class="name">Zoomies</p>
+      <p class="descriptor">Self-hosted Git runners</p>
+    </div>
+  </div>
 
   <div class="body">
     <LoadingBoundary {loading} {error} onretry={() => (reload += 1)}>
@@ -154,6 +168,30 @@
     margin: var(--z-space-1) 0 0;
     font-size: var(--z-text-xs);
     color: var(--z-text-muted);
+  }
+  .identity {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-4);
+    padding: var(--z-space-5);
+    border-bottom: 1px solid var(--z-border);
+    background: var(--z-surface-sunken);
+  }
+  .name {
+    margin: 0;
+    font-size: var(--z-text-lg);
+    line-height: var(--z-leading-lg);
+    font-weight: var(--z-weight-bold);
+    letter-spacing: -0.01em;
+    color: var(--z-text);
+  }
+  .descriptor {
+    margin: var(--z-space-1) 0 0;
+    font-size: var(--z-text-2xs);
+    font-weight: var(--z-weight-medium);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--z-text-subtle);
   }
   .body {
     display: flex;

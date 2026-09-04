@@ -57,6 +57,9 @@
     <a href="/" class="mark" aria-label="Zoomies, go to the overview">
       <Logo variant={collapsed ? 'mark' : 'full'} size={collapsed ? 26 : 24} label="" />
     </a>
+    {#if !collapsed}
+      <p class="descriptor">Self-hosted Git runners</p>
+    {/if}
   </div>
 
   <ul>
@@ -109,8 +112,22 @@
     width: var(--z-nav-width-collapsed);
     padding-inline: var(--z-space-2);
   }
+  /*
+    The masthead. The wordmark alone is a logo in a corner; the wordmark over
+    the descriptor is the product introducing itself, which is what an operator
+    who has just signed in to an unfamiliar controller needs to read. The rule
+    under it separates the identity from the sections, so the two are not read
+    as one list.
+  */
   .brand {
-    padding: var(--z-space-2) var(--z-space-2) var(--z-space-4);
+    padding: var(--z-space-2) var(--z-space-2) var(--z-space-3);
+    margin-bottom: var(--z-space-3);
+    border-bottom: 1px solid var(--z-border);
+  }
+  .collapsed .brand {
+    display: flex;
+    justify-content: center;
+    padding-inline: 0;
   }
   .mark {
     display: inline-flex;
@@ -118,6 +135,24 @@
     color: var(--z-text);
     text-decoration: none;
     border-radius: var(--z-radius-md);
+  }
+  .mark:hover {
+    /* The mark is a fixed asset and must not be recoloured, so the hover is
+       carried by the wordmark's currentColor and nothing else. */
+    color: var(--z-accent);
+  }
+  /*
+    Set in Inter, not taken from the artwork: the descriptor line inside the
+    full wordmark PNG is drawn for 240px and would be unreadable at this width.
+  */
+  .descriptor {
+    margin: var(--z-space-2) 0 0;
+    font-size: var(--z-text-2xs);
+    line-height: 1.4;
+    font-weight: var(--z-weight-medium);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--z-text-subtle);
   }
   ul {
     flex: 1;

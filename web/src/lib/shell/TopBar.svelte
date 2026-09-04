@@ -16,6 +16,7 @@
   import { toasts } from '../state/toasts.svelte';
   import DropdownMenu from '../components/DropdownMenu.svelte';
   import IconButton from '../components/IconButton.svelte';
+  import Logo from '../components/Logo.svelte';
   import type { MenuItem } from '../components/DropdownMenu.svelte';
 
   interface Props {
@@ -89,6 +90,15 @@
 </script>
 
 <header class="topbar">
+  <!--
+    On a phone the navigation is a bar along the bottom and its masthead is
+    gone, so this is the only place the product says its own name. It is a link
+    home for the same reason the masthead is.
+  -->
+  <a href="/" class="home" aria-label="Zoomies, go to the overview">
+    <Logo variant="mark" size={22} label="" />
+  </a>
+
   <div class="title">
     <p class="page">{router.title}</p>
   </div>
@@ -134,6 +144,16 @@
     background: color-mix(in srgb, var(--z-bg) 88%, transparent);
     backdrop-filter: blur(8px);
   }
+  /* Desktop has the masthead in the sidebar; two marks on one screen is one
+     too many. */
+  .home {
+    display: none;
+    flex: none;
+    align-items: center;
+    border-radius: var(--z-radius-md);
+    color: var(--z-text);
+    text-decoration: none;
+  }
   .title {
     /*
       The bar must never be wider than the window: on a phone that is the
@@ -141,6 +161,7 @@
       fit, whose controls are then too small to press. The title is the part
       that gives way, because the h1 below it says the same thing.
     */
+    flex: 1;
     min-width: 0;
   }
   .page {
@@ -236,7 +257,11 @@
   }
   @media (max-width: 768px) {
     .topbar {
+      gap: var(--z-space-3);
       padding: 0 var(--z-space-3);
+    }
+    .home {
+      display: inline-flex;
     }
     /*
       "Authentication disabled" -- or any long display name -- is 175px of a
