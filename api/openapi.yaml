@@ -1593,6 +1593,7 @@ components:
     Stats:
       type: object
       properties:
+        window: { type: string, description: The window these counts cover, echoed back., examples: ["1h"] }
         queued_jobs: { type: integer }
         running_jobs: { type: integer }
         completed: { type: integer, description: Within the requested window. }

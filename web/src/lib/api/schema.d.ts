@@ -1089,6 +1089,11 @@ export interface components {
             polling_only?: boolean;
         };
         Stats: {
+            /**
+             * @description The window these counts cover
+             * @example 1h
+             */
+            window?: string;
             queued_jobs?: number;
             running_jobs?: number;
             /** @description Within the requested window. */
