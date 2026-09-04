@@ -20,7 +20,7 @@ import (
 // which port to publish, where to keep the files -- are made on the outside.
 const (
 	// DefaultImage is the published controller image.
-	DefaultImage = "ghcr.io/eyupio/zoomies:latest"
+	DefaultImage = "ghcr.io/eyupio/zoomies:main"
 	// ContainerPort is what Zoomies listens on inside the container.
 	ContainerPort = 8080
 	// ContainerStateDir is the mount point of the data volume.

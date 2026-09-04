@@ -276,7 +276,7 @@ func Default() *Config {
 // DefaultRunnerImage is the image new pools use unless told otherwise. It is
 // built from deploy/Dockerfile.runner and tracks the current actions/runner
 // release and its .NET 8 dependency.
-const DefaultRunnerImage = "ghcr.io/eyupio/zoomies-runner:latest"
+const DefaultRunnerImage = "ghcr.io/eyupio/zoomies-runner:main"
 
 func defaultCapacity() int {
 	// One runner per two cores is a defensible starting point: a job usually
