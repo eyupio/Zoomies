@@ -1,0 +1,9 @@
+# The zoomies.sh site's build dependencies, pinned.
+#
+# MkDocs is pinned below 2.0 deliberately: the Material maintainers have said
+# that MkDocs 2.0 removes the plugin system and rewrites theming with no
+# migration path, so an unpinned build would break the day it lands rather than
+# the day someone chooses to deal with it.
+mkdocs>=1.6,<2.0
+mkdocs-material>=9.7,<10.0
+pymdown-extensions>=10.0,<12.0

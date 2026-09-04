@@ -1,0 +1,201 @@
+/*
+ * The Zoomies palette, applied to Material for MkDocs.
+ *
+ * These are the same values as web/src/lib/styles/tokens.css and the brand
+ * pack: a cool near-black spine with Runner Blue as the interactive accent.
+ * See docs/brand.md for why Runner Blue is darkened for text -- #2F80ED is
+ * 3.87:1 on white, which fails AA for body copy, so links use a darker one and
+ * the pure brand blue is kept for large shapes.
+ */
+
+:root {
+  --z-brand-black: #080808;
+  --z-brand-cool-grey: #b9bcc2;
+  --z-brand-mid-grey: #666a73;
+  --z-brand-runner-blue: #2f80ed;
+  --z-brand-fast-cyan: #22d3ee;
+}
+
+/* Light ------------------------------------------------------------------ */
+[data-md-color-scheme='default'] {
+  /* The header is Zoomies Black in both themes. The identity is a monochrome
+     mark with blue as an accent, not a blue-chrome product, and a black bar
+     also lets the mark sit on the header without its own chip. */
+  --md-primary-fg-color: var(--z-brand-black);
+  --md-primary-fg-color--light: #1c1d20;
+  --md-primary-fg-color--dark: #000000;
+  --md-primary-bg-color: #f4f5f7;
+  --md-accent-fg-color: #154fb0;
+
+  --md-default-bg-color: #f6f7f9;
+  --md-default-fg-color: #0b0c0e;
+  --md-default-fg-color--light: #5b6069;
+  --md-default-fg-color--lighter: #6e737c;
+  --md-typeset-a-color: #1a63d8;
+  --md-code-bg-color: #eef0f3;
+  --md-footer-bg-color: var(--z-brand-black);
+  --md-footer-bg-color--dark: #000000;
+}
+
+/* Dark: the identity's own ground, and the default. ---------------------- */
+[data-md-color-scheme='slate'] {
+  --md-hue: 220;
+  --md-primary-fg-color: #0a0b0d;
+  --md-primary-bg-color: #f4f5f7;
+  --md-accent-fg-color: #78b4ff;
+
+  --md-default-bg-color: #0a0b0d;
+  --md-default-fg-color: #f4f5f7;
+  --md-default-fg-color--light: #b9bcc2;
+  --md-default-fg-color--lighter: #868b94;
+  --md-typeset-a-color: #78b4ff;
+  --md-code-bg-color: #131519;
+  --md-code-fg-color: #f4f5f7;
+  --md-footer-bg-color: #050607;
+  --md-footer-bg-color--dark: #000000;
+}
+
+/* Type. Inter and JetBrains Mono, per the brand. ------------------------- */
+body,
+input,
+.md-typeset {
+  font-feature-settings: 'cv05' 1, 'ss03' 1;
+}
+.md-typeset code,
+.md-typeset pre {
+  font-variant-ligatures: none;
+}
+.md-typeset h1,
+.md-typeset h2 {
+  font-weight: 640;
+  letter-spacing: -0.015em;
+}
+.md-typeset table:not([class]) {
+  font-size: 0.72rem;
+}
+
+/* The mark is white line art drawn for a dark ground -- inverting it washes it
+   out -- and the header is Zoomies Black in both themes, so it needs no chip
+   of its own. See brand.md. */
+.md-header__button.md-logo img {
+  height: 1.5rem;
+  width: 1.5rem;
+}
+
+/* ------------------------------------------------------------------------ */
+/* The home page's hero.                                                     */
+/* ------------------------------------------------------------------------ */
+
+/* The landing page's own artwork carries the name, so MkDocs' generated "Home"
+   heading above it is a second, worse title. Hidden only on that page. */
+.md-content__inner:has(.zoomies-hero) > h1:first-of-type {
+  display: none;
+}
+.zoomies-hero {
+  display: grid;
+  place-items: center;
+  gap: 1.25rem;
+  text-align: center;
+  padding: 2.5rem 1rem 1.5rem;
+  margin: -1rem 0 2rem;
+  border-radius: 14px;
+  background:
+    radial-gradient(120% 120% at 50% 0%, rgba(47, 128, 237, 0.16) 0%, transparent 62%),
+    var(--z-brand-black);
+  color: #f4f5f7;
+}
+.zoomies-hero img {
+  width: min(260px, 60vw);
+  height: auto;
+}
+.zoomies-hero .tagline {
+  font-size: 1.05rem;
+  font-weight: 550;
+  color: #ffffff;
+  margin: 0;
+}
+.zoomies-hero .lede {
+  max-width: 46rem;
+  margin: 0;
+  color: var(--z-brand-cool-grey);
+}
+.md-typeset .zoomies-hero .pills,
+.zoomies-hero .pills {
+  display: flex;
+  flex-flow: row wrap;
+  gap: 0.5rem;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.md-typeset .zoomies-hero .pills li,
+.zoomies-hero .pills li {
+  display: block;
+  margin: 0;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.25rem 0.7rem;
+  border: 1px solid rgba(185, 188, 194, 0.28);
+  border-radius: 999px;
+  color: var(--z-brand-cool-grey);
+  white-space: nowrap;
+}
+
+/* The install command, which is the one thing most visitors came for. */
+.zoomies-install {
+  width: min(46rem, 100%);
+  text-align: left;
+}
+.zoomies-install .md-typeset,
+.zoomies-install pre {
+  margin: 0;
+}
+.zoomies-install code {
+  font-size: 0.78rem;
+}
+/* The hero is dark in both themes, so its code block is too -- a light block
+   inside it reads as a hole punched in the artwork. */
+.zoomies-hero .highlight,
+.zoomies-hero pre,
+.zoomies-hero code {
+  background: rgba(255, 255, 255, 0.06) !important;
+  color: #f4f5f7 !important;
+}
+.zoomies-hero .md-clipboard {
+  color: rgba(244, 245, 247, 0.55);
+}
+.zoomies-hero .md-clipboard:hover {
+  color: #f4f5f7;
+}
+
+/* A three-across grid of what it does, used on the home page. */
+.zoomies-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0 2rem;
+}
+.zoomies-grid > div {
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 10px;
+  background: var(--md-code-bg-color);
+}
+.zoomies-grid h3 {
+  margin: 0 0 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.zoomies-grid p {
+  margin: 0;
+  font-size: 0.76rem;
+  color: var(--md-default-fg-color--light);
+}
+
+@media screen and (max-width: 44.9375em) {
+  .zoomies-hero {
+    padding: 1.75rem 0.75rem 1.25rem;
+  }
+}
