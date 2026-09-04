@@ -432,38 +432,60 @@ func hasDistinctiveLabel(labels []string) bool {
 	})
 }
 
+// hostFit is what the fleet says about a pool that does not exist yet: how many
+// hosts could run it, why the ones that cannot say they cannot, and which
+// backends they offer instead.
+type hostFit struct {
+	count  int
+	detail string
+	// alternatives are the backends offered by the hosts that match this pool
+	// in every way except its backend, in the order a pool would move to them.
+	// The wizard turns them into the second half of its warning, in the same
+	// words the scheduler uses once the pool is real.
+	alternatives []string
+}
+
 // matchingHosts counts the hosts that could actually run this pool, and returns
 // the first host's explanation of why it cannot when one is to be had.
 //
 // Zero is worth saying out loud before a pool is created: a pool whose selector
 // matches nothing looks completely healthy and never starts a runner. The
 // explanation matters as much as the count, because the usual cause is not a
-// missing machine but a daemon the agent on an existing one could not reach.
-func (s *Server) matchingHosts(ctx context.Context, p *store.Pool) (int, string, error) {
+// missing machine but a daemon the agent on an existing one could not reach --
+// and the backends those same hosts do offer are the other way out.
+func (s *Server) matchingHosts(ctx context.Context, p *store.Pool) (hostFit, error) {
 	hosts, err := s.ctrl.Store().ListHosts(ctx)
 	if err != nil {
-		return 0, "", err
+		return hostFit{}, err
 	}
 	now := s.ctrl.Now()
-	n, detail := 0, ""
+	fit := hostFit{}
+	offered := map[string]int{}
 	for _, h := range hosts {
-		if !h.Healthy(now) || h.Cordoned {
+		if !h.Healthy(now) || h.Cordoned || !selectorMatches(p.HostSelector, h.Labels) {
 			continue
 		}
+		for _, kind := range h.Backends {
+			if kind != string(p.Backend) {
+				offered[kind]++
+			}
+		}
 		if !slices.Contains(h.Backends, string(p.Backend)) {
-			if detail == "" {
+			if fit.detail == "" {
 				if info, ok := h.BackendInfo.Find(p.Backend); ok && !info.Available && info.Detail != "" {
-					detail = h.Name + " reports: " + info.Detail
+					fit.detail = h.Name + " reports: " + info.Detail
 				}
 			}
 			continue
 		}
-		if !selectorMatches(p.HostSelector, h.Labels) {
-			continue
-		}
-		n++
+		fit.count++
 	}
-	return n, detail, nil
+	for _, kind := range []store.BackendKind{store.BackendDocker, store.BackendPodman, store.BackendProcess} {
+		if offered[string(kind)] > 0 {
+			fit.alternatives = append(fit.alternatives, string(kind))
+		}
+	}
+	return fit, nil
 }
 
 // selectorMatches is the scheduler's host-selector rule, which is deliberately
@@ -530,29 +552,30 @@ func (s *Server) handleValidatePool(w http.ResponseWriter, r *http.Request) {
 	errs := in.apply(p)
 	errs = append(errs, s.validatePool(r.Context(), p, "")...)
 
-	hosts, detail, err := s.matchingHosts(r.Context(), p)
+	fit, err := s.matchingHosts(r.Context(), p)
 	if err != nil {
 		s.internal(w, r, "counting the hosts that could run this pool", err)
 		return
 	}
 	warnings := poolWarnings(p)
-	if hosts == 0 {
+	if fit.count == 0 {
 		why := fmt.Sprintf("no healthy, uncordoned host offers the %s backend and matches this pool's host selector, "+
 			"so every runner it asks for would wait for a host that does not exist.", p.Backend)
 		fix := "add a host with that backend, uncordon one, or relax the host selector."
-		if detail != "" {
+		if detail := fit.detail; detail != "" {
 			// A host is there and its agent already said what is wrong with it,
 			// which is a much shorter route to a working pool than adding a
 			// machine.
 			why += " " + detail
-			fix = fmt.Sprintf("make the %s backend usable on that host, or point this pool at a backend your hosts already offer.", p.Backend)
+			fix = fmt.Sprintf("make the %s backend usable on that host%s.", p.Backend, switchTo(fit.alternatives))
 		}
 		warnings = append(warnings, controller.Problem{
-			Code:     "pool.no_matching_hosts",
-			Severity: config.SeverityWarning,
-			Title:    "no host can run this pool as configured",
-			Detail:   why,
-			Fix:      fix,
+			Code:         "pool.no_matching_hosts",
+			Severity:     config.SeverityWarning,
+			Title:        "no host can run this pool as configured",
+			Detail:       why,
+			Fix:          fix,
+			Alternatives: fit.alternatives,
 		})
 	}
 	if errs == nil {
@@ -565,8 +588,23 @@ func (s *Server) handleValidatePool(w http.ResponseWriter, r *http.Request) {
 		Valid:         len(errs) == 0,
 		Errors:        errs,
 		Warnings:      warnings,
-		MatchingHosts: hosts,
+		MatchingHosts: fit.count,
 	})
+}
+
+// switchTo names the backends a pool could move to instead, or says plainly
+// that there are none. It is the wizard's half of the sentence the scheduler
+// writes for a pool that already exists, kept in the same words on purpose:
+// the warning before creation and the problem after it are the same fact.
+func switchTo(alternatives []string) string {
+	switch len(alternatives) {
+	case 0:
+		return "; your hosts offer no other backend either"
+	case 1:
+		return ", or point this pool at " + alternatives[0] + ", which they already offer"
+	default:
+		return ", or point this pool at a backend they already offer: " + strings.Join(alternatives, ", ")
+	}
 }
 
 // handleUpdatePool answers PATCH /api/v1/pools/{id}.

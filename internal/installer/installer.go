@@ -451,13 +451,15 @@ func defaultPlan(d Detection, mode Mode) Plan {
 	p.DeployDir = p.ConfigDir
 	p.Image = DefaultImage
 	p.ComposeCommand = d.Compose.Command
-	p.DockerGID = dockerGroupGID()
-
 	if c := backendChoices(d); len(c) > 0 {
 		p.Backend = c[0].Kind
 		p.DockerHost = c[0].Socket
 		p.Rootless = c[0].Rootless
 	}
+	// The group that owns the chosen socket, which is not always the group
+	// called "docker" -- a Podman socket, or a distribution that names it
+	// something else, would otherwise be given the wrong gid to join.
+	p.DockerGID = SocketGroupGID(p.DockerHost)
 
 	port := 8080
 	if !PortFree("127.0.0.1", port) {
@@ -1675,18 +1677,103 @@ func (i *Installer) stepUserAndDirs(ctx context.Context, p *Plan) error {
 	}
 	i.ui.ok(fmt.Sprintf("%s and %s are mode 0750, owned by %s", p.ConfigDir, p.StateDir, p.ServiceUser))
 
-	if p.Backend != store.BackendProcess && p.DockerHost != "" && !p.Rootless && i.det.Root {
-		if gid := dockerGroupGID(); gid > 0 {
-			p.DockerGroup = "docker"
-			if err := addUserToGroup(ctx, p.ServiceUser, "docker"); err != nil {
-				i.ui.warn("could not add " + p.ServiceUser + " to the docker group: " + err.Error())
-				i.ui.note("without it the service cannot reach " + p.DockerHost + "; add it by hand with: usermod -aG docker " + p.ServiceUser)
-			} else {
-				i.ui.note(p.ServiceUser + " joined the docker group, which is what makes the root socket reachable without running as root.")
-			}
-		}
-	}
+	i.ensureSocketAccess(ctx, p)
 	return nil
+}
+
+// ensureSocketAccess makes the container socket usable by the account the
+// service will run as, and says plainly when it cannot.
+//
+// This is the failure the fleet reports later as "no host can take a new docker
+// runner": the daemon is running, the socket is there, and the service account
+// may not open it. It is cheap to settle here, while the installer is still
+// root and the operator is still watching, and expensive to settle afterwards
+// from a pool page.
+func (i *Installer) ensureSocketAccess(ctx context.Context, p *Plan) {
+	socket := SocketPathOf(p.DockerHost)
+	if p.Backend == store.BackendProcess || socket == "" {
+		return
+	}
+	facts, ok := statSocket(socket)
+	if !ok {
+		// No socket to inspect. The daemon may simply not be running yet, which
+		// the agent re-probes for on every heartbeat, so this is a note rather
+		// than a warning.
+		i.ui.note("no socket at " + socket + " yet; the agent re-probes as it runs, so it will start taking work once the daemon is up.")
+		return
+	}
+	// The unit and the container both need the socket's own group, which is not
+	// always the group called "docker".
+	p.DockerGID = facts.gid
+	group := socketGroupName(facts.gid)
+
+	acct, err := lookupAccount(p.ServiceUser)
+	if err != nil {
+		// No such account yet (a dry run, or a non-root install on a host where
+		// the user is created later): say what will be needed rather than
+		// guessing at what is true.
+		i.ui.note(fmt.Sprintf("%s must be in the %s group to reach %s: usermod -aG %s %s", p.ServiceUser, group, socket, group, p.ServiceUser))
+		p.DockerGroup = group
+		return
+	}
+	if canOpen(facts, acct) {
+		switch {
+		case acct.uid == 0:
+			// True, and not a recommendation: the config validator has its own
+			// opinion about a service that runs as root.
+			i.ui.ok(p.ServiceUser + " is root, so it can reach " + socket)
+		case containsInt(acct.groups, facts.gid):
+			// Record the group so the unit names it too, which is what keeps the
+			// service working across a reboot.
+			p.DockerGroup = group
+			i.ui.ok(p.ServiceUser + " can reach " + socket + " through the " + group + " group")
+		default:
+			// A rootless socket the account owns, or a permissive mode. Naming
+			// a group it does not need would be noise.
+			i.ui.ok(p.ServiceUser + " can reach " + socket)
+		}
+		return
+	}
+
+	if !joinable(facts, acct) {
+		// Group membership cannot help: the socket's group bits do not grant
+		// read and write, so the only ways out are a different daemon or a
+		// change to the socket itself.
+		i.ui.warn(fmt.Sprintf("%s cannot use %s: it is owned by %s:%s with mode %04o, which grants nothing to its group",
+			p.ServiceUser, socket, ownerName(facts.uid), group, facts.mode.Perm()))
+		i.ui.note("run a rootless daemon and set agent.docker_host to its socket, or change the socket's own permissions; until then no runner can be created on this host.")
+		return
+	}
+
+	if !i.det.Root {
+		i.ui.warn(p.ServiceUser + " is not in the " + group + " group, so the service cannot open " + socket)
+		i.ui.note(fmt.Sprintf("run: sudo usermod -aG %s %s   then restart the service, since a running process keeps the groups it started with.", group, p.ServiceUser))
+		return
+	}
+
+	if err := addUserToGroup(ctx, p.ServiceUser, group); err != nil {
+		i.ui.warn("could not add " + p.ServiceUser + " to the " + group + " group: " + err.Error())
+		i.ui.note("without it the service cannot reach " + socket + "; add it by hand with: usermod -aG " + group + " " + p.ServiceUser)
+		return
+	}
+	p.DockerGroup = group
+	// Re-read the account rather than assuming: usermod can succeed against a
+	// group the account still does not end up in, and the whole point of this
+	// step is to stop the installer reporting a success it did not verify.
+	if after, err := lookupAccount(p.ServiceUser); err != nil || !canOpen(facts, after) {
+		i.ui.warn(p.ServiceUser + " was added to the " + group + " group but still cannot open " + socket)
+		i.ui.note("check `ls -l " + socket + "` and the directories above it, or run a rootless daemon instead.")
+		return
+	}
+	i.ui.ok(p.ServiceUser + " joined the " + group + " group and can now reach " + socket)
+}
+
+// ownerName is a uid as an operator would see it in `ls -l`.
+func ownerName(uid int) string {
+	if u, err := user.LookupId(strconv.Itoa(uid)); err == nil && u != nil && u.Username != "" {
+		return u.Username
+	}
+	return strconv.Itoa(uid)
 }
 
 // chown gives a path to the service user when the installer is root. Failures
@@ -1923,7 +2010,7 @@ func (i *Installer) stepService(ctx context.Context, p Plan) (ServiceManager, er
 			DockerHost:  p.DockerHost,
 			Capacity:    p.Capacity,
 			Embedded:    p.Embedded,
-			DockerGID:   dockerGroupGID(),
+			DockerGID:   p.DockerGID,
 		}
 		if _, port, err := splitBind(p.Bind); err == nil {
 			spec.Port = port

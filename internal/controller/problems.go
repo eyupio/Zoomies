@@ -31,6 +31,11 @@ type Problem struct {
 	// runner or installation it is about.
 	TargetKind string `json:"target_kind,omitempty"`
 	TargetID   string `json:"target_id,omitempty"`
+	// Alternatives are the choices the fix leaves open, when the fix is a
+	// choice: for a pool no host can run, the backends its hosts do offer. They
+	// are carried apart from the prose so the UI can put the change one click
+	// away rather than leaving an operator to find the pool's edit form.
+	Alternatives []string `json:"alternatives,omitempty"`
 	// Since is when the situation started, where that is knowable.
 	Since *time.Time `json:"since,omitempty"`
 }
@@ -298,12 +303,13 @@ func (c *Controller) PoolCapacityProblems() []Problem {
 				pp.PoolName, plural(pp.QueuedMatched, "job"))
 		}
 		out = append(out, Problem{
-			Code:       "pool.no_capacity",
-			Severity:   severity,
-			Title:      title,
-			Detail:     pp.Blocked,
-			Fix:        pp.BlockedFix,
-			TargetKind: "pool", TargetID: pp.PoolID,
+			Code:         "pool.no_capacity",
+			Severity:     severity,
+			Title:        title,
+			Detail:       pp.Blocked,
+			Fix:          pp.BlockedFix,
+			Alternatives: pp.BlockedAlternatives,
+			TargetKind:   "pool", TargetID: pp.PoolID,
 		})
 	}
 	return out

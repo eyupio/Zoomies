@@ -63,6 +63,15 @@ the runner backend — preferring a rootless Docker or Podman socket, and
 spelling out the consequence of each alternative — the bind address and TLS, and
 your first administrator account.
 
+Setup does not assume the service account can reach the container socket, it
+checks. The account's access is worked out from the socket's own owner and mode
+rather than from a group called `docker`, which is the wrong group on a Podman
+socket or a distribution that names it something else; the account is added to
+whichever group that is; and the check runs **again** afterwards, so an install
+only reports success it has verified. Where joining a group cannot help — a
+socket with no group permissions at all — it says so and names the two ways out,
+instead of leaving you with a fleet that comes up unable to run anything.
+
 ## 3. Connect GitHub
 
 Zoomies creates the GitHub App for you through the manifest flow. It opens your
@@ -183,6 +192,25 @@ them apart:
   panel names which, and repeats what the host's own agent said -- an
   unreadable `docker.sock` is the usual answer, and it is fixed on the host
   rather than in the pool.
+
+  A pool blocked on its backend has two ways out, and both are named where the
+  problem is. On the host, the agent's sentence about a socket it cannot open
+  identifies **its own account**, not `$USER`: an agent installed as a service
+  runs as `zoomies`, so a `usermod` copied from a shell adds the wrong user and
+  changes nothing. When that account is already in the group, the agent says so
+  and asks to be restarted instead, because a running process cannot gain a
+  group it did not start with. In the controller, if your hosts offer a backend
+  this pool is not using, the problem names it and the pool's own page offers
+  the change as a button -- the runners it already has finish their jobs first.
+  Wherever one of these sentences carries a command, the UI shows it as a
+  command with a copy button rather than as prose to retype.
+
+  The wizard will not make this pool in the first place: choosing a backend no
+  connected host offers stops it, says which backends they do offer and how many
+  hosts each, and switches the pool to one of them in a click. It gives way only
+  when there is nothing better to insist on -- no hosts yet, or no host offering
+  anything -- which is how the first pool gets created before the first agent
+  joins.
 
 A host whose Docker daemon was not up when the agent started re-probes as it
 runs, so it starts taking work within a heartbeat of the daemon appearing. What

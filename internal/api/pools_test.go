@@ -305,6 +305,14 @@ func TestPoolValidateRepeatsWhatTheHostSaidAboutItsBackend(t *testing.T) {
 	if !strings.Contains(warning.Fix, "docker") {
 		t.Errorf("fix = %q, want it to point at the backend rather than at buying a machine", warning.Fix)
 	}
+	// The host runs the process backend, so the wizard can offer that instead
+	// of leaving "a backend they already offer" as an exercise.
+	if !slices.Contains(warning.Alternatives, "process") {
+		t.Errorf("alternatives = %v, want the backend this host does offer", warning.Alternatives)
+	}
+	if !strings.Contains(warning.Fix, "point this pool at process") {
+		t.Errorf("fix = %q, want the alternative named", warning.Fix)
+	}
 }
 
 // TestDeletePoolDrainsItsRunners checks the default: deleting a pool finishes

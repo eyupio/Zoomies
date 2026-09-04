@@ -7,6 +7,7 @@
   import type { Problem } from '$lib/api/types';
   import { severityStatus } from '$lib/status';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
+  import RemedyText from '$lib/components/RemedyText.svelte';
   import StatusDot from '$lib/components/StatusDot.svelte';
 
   interface Props {
@@ -56,11 +57,13 @@
   <span class="shape"><StatusDot {status} /></span>
   <div class="body">
     <p class="title">{problem.title}</p>
-    {#if problem.detail}<p class="detail">{problem.detail}</p>{/if}
+    {#if problem.detail}
+      <p class="detail"><RemedyText text={problem.detail} /></p>
+    {/if}
     {#if problem.fix}
       <p class="fix">
         <Wrench size={12} aria-hidden="true" />
-        <span>{problem.fix}</span>
+        <span><RemedyText text={problem.fix} /></span>
       </p>
     {/if}
     <p class="meta">

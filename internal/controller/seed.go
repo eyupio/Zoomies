@@ -179,7 +179,11 @@ func (c *Controller) seedHosts(ctx context.Context, now time.Time) ([]*store.Hos
 			BackendInfo: store.HostBackends{
 				{Kind: store.BackendDocker, Available: true, Version: "27.1.1",
 					Rootless: true, Endpoint: "unix:///run/user/1000/docker.sock", SupportsDinD: true},
-				{Kind: store.BackendPodman, Detail: "no podman socket at /run/user/1000/podman/podman.sock"},
+				// The real probe's sentence, commands and all: the demo fleet is
+				// what the UI is looked at with, so it has to show what an
+				// operator actually gets when a backend is missing.
+				{Kind: store.BackendPodman, Detail: "no socket at /run/user/1000/podman/podman.sock; " +
+					"if Podman is installed, its API socket is off by default -- enable it with `systemctl --user enable --now podman.socket`"},
 			},
 			Labels:        store.StringMap{"arch": s.arch, "zone": "demo"},
 			OS:            "linux",

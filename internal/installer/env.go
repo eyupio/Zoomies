@@ -328,9 +328,9 @@ func dockerGIDValue(gid int) string {
 
 func dockerGIDComment(gid int) string {
 	if gid <= 0 {
-		return "The gid of the host's docker group. This host has no docker group, so the container is given no extra group; if the embedded agent cannot reach the socket, set this to the gid that owns it."
+		return "The gid that owns the container socket. It could not be read on this host, so the container is given no extra group; if the embedded agent cannot reach the socket, set this to the gid that owns it (ls -l on the socket says which)."
 	}
-	return "The gid of the host's docker group, read from this host. The image runs as uid 65532, which must be in this group to use the socket."
+	return "The gid that owns the container socket, read from the socket itself on this host -- which is not always the group called docker. The image runs as uid 65532, which must be in this group to use the socket."
 }
 
 // envWriter builds the file. It collects the first error rather than returning
