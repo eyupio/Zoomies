@@ -55,6 +55,14 @@ const (
 	// create stuck on an image pull must not stop systemd from restarting the
 	// unit.
 	shutdownGrace = 30 * time.Second
+	// probeBudget bounds one round of capability probing, which is a ping per
+	// registered backend.
+	probeBudget = 15 * time.Second
+	// backendProbeInterval is how often a healthy host re-checks what it can
+	// run. Capabilities do change under a running agent -- a daemon is
+	// upgraded, restarted, or stopped -- and a probe is a ping per backend, so
+	// this is cheap enough to do regularly and slow enough to stay quiet.
+	backendProbeInterval = 5 * time.Minute
 	// orphanGrace is how long a workload nothing claims must stay unclaimed
 	// before the agent reaps it.
 	orphanGrace = 2 * time.Minute
@@ -118,8 +126,11 @@ type Agent struct {
 	// orphans records when an unclaimed workload was first seen, which is how
 	// "the controller has not mentioned it in a while" is measured.
 	orphans map[backend.Handle]time.Time
-	// backendInfo is the last probe, sent with heartbeats.
+	// backendInfo is the last probe, sent with heartbeats, and probedAt is
+	// when it was taken. It is refreshed as the agent runs: what a host can do
+	// is not a fact of its startup.
 	backendInfo []backend.Info
+	probedAt    time.Time
 	// cordoned mirrors the controller's flag, logged when it changes.
 	cordoned bool
 	// warnedSkew keeps a version-skew warning to one line per run.
@@ -281,6 +292,7 @@ func (a *Agent) Join(ctx context.Context, joinToken string) error {
 	infos := a.opts.Backends.Probe(ctx)
 	a.mu.Lock()
 	a.backendInfo = infos
+	a.probedAt = a.now()
 	a.mu.Unlock()
 
 	req := JoinRequest{
@@ -461,10 +473,7 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 	hctx, cancel := context.WithTimeout(ctx, reportTimeout)
 	defer cancel()
 
-	a.mu.Lock()
-	infos := a.backendInfo
-	a.mu.Unlock()
-
+	infos := a.refreshBackends(ctx)
 	runners := a.Runners()
 	resp, err := a.tr.Heartbeat(hctx, HeartbeatRequest{
 		ProtocolVersion: ProtocolVersion,
@@ -508,12 +517,86 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 		// send it a stale capability list.
 		a.mu.Lock()
 		a.backendInfo = a.opts.Backends.Probe(hctx)
+		a.probedAt = a.now()
 		a.mu.Unlock()
 		if err := a.tr.ReportRunners(hctx, runners); err != nil {
 			a.log.Warn("resync report failed", "error", err)
 		}
 	}
 	return nil
+}
+
+// refreshBackends returns the capability probe the next heartbeat should carry,
+// re-running it when the last one is stale.
+//
+// A probe is not a fact about startup. An agent that came up before its Docker
+// daemon -- the ordinary case on a rebooting host, and on one whose operator
+// has just added the agent's user to the docker group -- reported no backend at
+// join, and a host with no backends matches no pool: the pool looks healthy,
+// its jobs queue forever, and nothing in the fleet ever says why. So while
+// nothing is available the probe is retried on every heartbeat, which is the
+// cheapest way for that host to become schedulable on its own; once something
+// answers it settles down to backendProbeInterval, which is what notices a
+// daemon that was later stopped or upgraded.
+func (a *Agent) refreshBackends(ctx context.Context) []backend.Info {
+	a.mu.Lock()
+	last, at := a.backendInfo, a.probedAt
+	a.mu.Unlock()
+
+	if !a.probeDue(last, at) || ctx.Err() != nil {
+		return last
+	}
+	// The probe gets its own budget rather than sharing the heartbeat's: a
+	// daemon that hangs on a ping must not cost the controller the heartbeat
+	// that keeps this host marked healthy.
+	pctx, cancel := context.WithTimeout(ctx, probeBudget)
+	defer cancel()
+	fresh := a.opts.Backends.Probe(pctx)
+	if ctx.Err() != nil {
+		// The agent is shutting down. A probe cut short says every daemon is
+		// unreachable, which is a lie worth neither storing nor logging.
+		return last
+	}
+	a.mu.Lock()
+	a.backendInfo = fresh
+	a.probedAt = a.now()
+	a.mu.Unlock()
+
+	if was, now := availableKinds(last), availableKinds(fresh); !slices.Equal(was, now) {
+		a.log.Info("this host's backends changed",
+			"was", strings.Join(was, ","), "now", strings.Join(now, ","))
+		for _, i := range fresh {
+			if !i.Available {
+				a.log.Info("a backend is not usable on this host", "backend", i.Kind, "detail", i.Detail)
+			}
+		}
+	}
+	return fresh
+}
+
+// probeDue reports whether it is time to look again: always when the last probe
+// found nothing usable, and otherwise once every backendProbeInterval.
+func (a *Agent) probeDue(last []backend.Info, at time.Time) bool {
+	if at.IsZero() {
+		return true
+	}
+	if len(availableKinds(last)) == 0 {
+		return true
+	}
+	return a.now().Sub(at) >= backendProbeInterval
+}
+
+// availableKinds is the sorted list of backends that answered, which is exactly
+// what the controller stores and matches pools against.
+func availableKinds(infos []backend.Info) []string {
+	var out []string
+	for _, i := range infos {
+		if i.Available {
+			out = append(out, string(i.Kind))
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 func (a *Agent) warnSkew(controllerVersion string) {

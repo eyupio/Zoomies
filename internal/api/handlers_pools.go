@@ -62,6 +62,10 @@ type poolView struct {
 	counts  map[string]store.PoolCounts
 	targets map[string]string
 	queued  map[string]int
+	// blocked holds, per pool, the scheduler's reason for not placing the
+	// runners that pool wanted. It is the answer to the question the pool page
+	// is opened to ask.
+	blocked map[string][]controller.Problem
 }
 
 // buildPoolView gathers the per-pool counts, installation targets and queue
@@ -89,7 +93,11 @@ func (s *Server) buildPoolView(ctx context.Context) (*poolView, error) {
 			queued[j.PoolID]++
 		}
 	}
-	return &poolView{counts: counts, targets: targets, queued: queued}, nil
+	blocked := map[string][]controller.Problem{}
+	for _, p := range s.ctrl.PoolCapacityProblems() {
+		blocked[p.TargetID] = append(blocked[p.TargetID], p)
+	}
+	return &poolView{counts: counts, targets: targets, queued: queued, blocked: blocked}, nil
 }
 
 func (v *poolView) response(p *store.Pool) poolResponse {
@@ -123,7 +131,7 @@ func (v *poolView) response(p *store.Pool) poolResponse {
 		},
 		QueuedJobs:  v.queued[p.ID],
 		Utilisation: c.Utilisation(),
-		Warnings:    poolWarnings(p),
+		Warnings:    append(poolWarnings(p), v.blocked[p.ID]...),
 	}
 	return out
 }
@@ -424,22 +432,30 @@ func hasDistinctiveLabel(labels []string) bool {
 	})
 }
 
-// matchingHosts counts the hosts that could actually run this pool.
+// matchingHosts counts the hosts that could actually run this pool, and returns
+// the first host's explanation of why it cannot when one is to be had.
 //
 // Zero is worth saying out loud before a pool is created: a pool whose selector
-// matches nothing looks completely healthy and never starts a runner.
-func (s *Server) matchingHosts(ctx context.Context, p *store.Pool) (int, error) {
+// matches nothing looks completely healthy and never starts a runner. The
+// explanation matters as much as the count, because the usual cause is not a
+// missing machine but a daemon the agent on an existing one could not reach.
+func (s *Server) matchingHosts(ctx context.Context, p *store.Pool) (int, string, error) {
 	hosts, err := s.ctrl.Store().ListHosts(ctx)
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
 	now := s.ctrl.Now()
-	n := 0
+	n, detail := 0, ""
 	for _, h := range hosts {
 		if !h.Healthy(now) || h.Cordoned {
 			continue
 		}
 		if !slices.Contains(h.Backends, string(p.Backend)) {
+			if detail == "" {
+				if info, ok := h.BackendInfo.Find(p.Backend); ok && !info.Available && info.Detail != "" {
+					detail = h.Name + " reports: " + info.Detail
+				}
+			}
 			continue
 		}
 		if !selectorMatches(p.HostSelector, h.Labels) {
@@ -447,7 +463,7 @@ func (s *Server) matchingHosts(ctx context.Context, p *store.Pool) (int, error) 
 		}
 		n++
 	}
-	return n, nil
+	return n, detail, nil
 }
 
 // selectorMatches is the scheduler's host-selector rule, which is deliberately
@@ -514,20 +530,29 @@ func (s *Server) handleValidatePool(w http.ResponseWriter, r *http.Request) {
 	errs := in.apply(p)
 	errs = append(errs, s.validatePool(r.Context(), p, "")...)
 
-	hosts, err := s.matchingHosts(r.Context(), p)
+	hosts, detail, err := s.matchingHosts(r.Context(), p)
 	if err != nil {
 		s.internal(w, r, "counting the hosts that could run this pool", err)
 		return
 	}
 	warnings := poolWarnings(p)
 	if hosts == 0 {
+		why := fmt.Sprintf("no healthy, uncordoned host offers the %s backend and matches this pool's host selector, "+
+			"so every runner it asks for would wait for a host that does not exist.", p.Backend)
+		fix := "add a host with that backend, uncordon one, or relax the host selector."
+		if detail != "" {
+			// A host is there and its agent already said what is wrong with it,
+			// which is a much shorter route to a working pool than adding a
+			// machine.
+			why += " " + detail
+			fix = fmt.Sprintf("make the %s backend usable on that host, or point this pool at a backend your hosts already offer.", p.Backend)
+		}
 		warnings = append(warnings, controller.Problem{
 			Code:     "pool.no_matching_hosts",
 			Severity: config.SeverityWarning,
 			Title:    "no host can run this pool as configured",
-			Detail: fmt.Sprintf("no healthy, uncordoned host offers the %s backend and matches this pool's host selector, "+
-				"so every runner it asks for would wait for a host that does not exist.", p.Backend),
-			Fix: "add a host with that backend, uncordon one, or relax the host selector.",
+			Detail:   why,
+			Fix:      fix,
 		})
 	}
 	if errs == nil {

@@ -43,11 +43,12 @@ type hostResponse struct {
 
 // hostResponse renders a host as the API returns it.
 //
-// backend_info is derived from the kinds the agent reported: the store keeps
-// only the backends a host said were *available*, so each one is reported
-// available here and nothing is invented about the ones that were not. The
-// richer detail an agent sends at join is not persisted, so there is nothing
-// truthful to put in the version or endpoint fields.
+// backend_info is the agent's own probe, which includes the backends it could
+// not use and the sentence explaining why: that sentence is the whole answer to
+// "this host is connected, so why is nothing running on it?". A host that
+// joined an older controller has no probe stored, so its available kinds are
+// rendered as the bare list they are, and nothing is invented about the
+// backends it never reported on.
 func (s *Server) hostResponse(h *store.Host) hostResponse {
 	now := s.ctrl.Now()
 	out := hostResponse{
@@ -67,6 +68,21 @@ func (s *Server) hostResponse(h *store.Host) hostResponse {
 		Healthy:       h.Healthy(now),
 		LastHeartbeat: h.LastHeartbeat,
 		CreatedAt:     h.CreatedAt,
+	}
+	if len(h.BackendInfo) > 0 {
+		out.BackendInfo = make([]backendInfoResponse, 0, len(h.BackendInfo))
+		for _, b := range h.BackendInfo {
+			out.BackendInfo = append(out.BackendInfo, backendInfoResponse{
+				Kind:      b.Kind,
+				Available: b.Available,
+				Version:   b.Version,
+				Rootless:  b.Rootless,
+				Endpoint:  b.Endpoint,
+				Detail:    b.Detail,
+				DinD:      b.SupportsDinD,
+			})
+		}
+		return out
 	}
 	out.BackendInfo = make([]backendInfoResponse, 0, len(h.Backends))
 	for _, kind := range h.Backends {

@@ -153,6 +153,7 @@ func (c *Controller) apply(ctx context.Context, snap scheduler.Snapshot, plan sc
 			}
 		}
 		c.recordScaling(ctx, pp, created, drained)
+		c.noteBlocked(pp)
 	}
 }
 

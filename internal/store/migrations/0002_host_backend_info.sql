@@ -1,0 +1,12 @@
+-- What each host's agent said about every backend it knows about, not just the
+-- ones that answered.
+--
+-- The hosts.backends column keeps only the kinds that were available, which is
+-- what the scheduler matches a pool against. That leaves nothing to explain a
+-- host that is not taking work: "docker is missing" and "docker is there but
+-- its socket is not readable by this agent" look identical, and the second is
+-- the one an operator can fix in a minute. This column holds the agent's full
+-- probe -- kind, availability, version, endpoint, whether a docker-in-docker
+-- sidecar is possible, and the sentence explaining an unavailable one -- so the
+-- Hosts page and the pool wizard can say which it is.
+ALTER TABLE hosts ADD COLUMN backend_info TEXT NOT NULL DEFAULT '[]';

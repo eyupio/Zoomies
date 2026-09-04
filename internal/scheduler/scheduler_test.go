@@ -583,6 +583,12 @@ func TestHostSelection(t *testing.T) {
 				if !strings.Contains(pp.Reason, tc.wantWhy) {
 					t.Fatalf("reason = %q, want it to mention %q", pp.Reason, tc.wantWhy)
 				}
+				// A pool that wanted a runner and got nowhere to put it is
+				// reported as blocked, which is what the problems panel shows:
+				// nothing else in the product says this happened.
+				if pp.Blocked == "" || pp.BlockedFix == "" {
+					t.Fatalf("plan = %+v, want it marked blocked with a fix", pp)
+				}
 				return
 			}
 			if len(creates) != 1 || creates[0].HostID != tc.wantHost {
@@ -986,5 +992,49 @@ func TestTiesBreakOnIDNotInputOrder(t *testing.T) {
 		if !slices.Equal(order, []string{"j0", "j1", "j2"}) {
 			t.Fatalf("unmatched order = %v, want oldest first then by ID", order)
 		}
+	}
+}
+
+// "1 without the docker backend" sends an operator looking at the pool, when
+// what is wrong is on the host and the agent already said so. The probe's own
+// sentence is the fix, so it travels with the reason.
+func TestBlockedReasonCarriesTheHostsExplanation(t *testing.T) {
+	host := testHost("host_a", 8, 0)
+	host.Backends = store.StringSlice{"process"}
+	host.BackendInfo = store.HostBackends{{
+		Kind:   store.BackendDocker,
+		Detail: "/var/run/docker.sock is not readable by this agent",
+	}}
+
+	s := snap([]*store.Pool{testPool("linux-x64", "linux")}, nil,
+		[]*store.Job{queued("j1", time.Minute, "linux")}, []*store.Host{host})
+	pp := only(t, Decide(s))
+
+	if len(actionsOf(pp.Actions, ActionCreate)) != 0 {
+		t.Fatalf("created a runner on a host with no docker: %+v", pp.Actions)
+	}
+	if !strings.Contains(pp.Blocked, "is not readable by this agent") {
+		t.Fatalf("blocked = %q, want the agent's own explanation", pp.Blocked)
+	}
+	if !strings.Contains(pp.Blocked, host.Name) {
+		t.Fatalf("blocked = %q, want it to name the host", pp.Blocked)
+	}
+}
+
+// A scale-up that only ran out of this tick's create budget is not blocked:
+// the next pass makes the runner, and an operator has nothing to do about it.
+func TestBudgetShortfallIsNotReportedAsBlocked(t *testing.T) {
+	p := testPool("linux-x64", "linux")
+	s := snap([]*store.Pool{p}, nil,
+		[]*store.Job{queued("j1", time.Minute, "linux"), queued("j2", time.Minute, "linux")},
+		[]*store.Host{testHost("host_a", 8, 0)})
+	s.Policy.MaxCreatesPerTick = 1
+
+	pp := only(t, Decide(s))
+	if len(actionsOf(pp.Actions, ActionCreate)) != 1 {
+		t.Fatalf("creates = %+v, want the one the budget allows", pp.Actions)
+	}
+	if pp.Blocked != "" {
+		t.Fatalf("blocked = %q, want nothing for a shortfall the next tick clears", pp.Blocked)
 	}
 }

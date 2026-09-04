@@ -482,3 +482,79 @@ func TestStopTaskDoesNotClaimRemovalWhenTheBackendWillNotAnswer(t *testing.T) {
 		t.Fatal("stopped something despite not knowing what")
 	}
 }
+
+// The common startup race: the agent comes up before its container daemon, or
+// before its user's new docker group membership is in effect, and joins saying
+// it can run nothing. A host with no backends matches no pool, so every pool on
+// that backend looks healthy while its jobs queue forever. The agent has to
+// find the daemon on its own once it appears.
+func TestAgentReprobesUntilABackendAnswers(t *testing.T) {
+	a, tr, be, _ := newAgent(t, 1)
+	be.setUnavailable(true)
+	if err := a.Join(context.Background(), "join-token"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	tr.mu.Lock()
+	joined := tr.joinReq
+	tr.mu.Unlock()
+	if len(joined.Backends) != 1 || joined.Backends[0].Available {
+		t.Fatalf("join backends = %+v, want docker reported as unavailable", joined.Backends)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- a.Run(ctx) }()
+
+	// The daemon arrives while the agent is running. Nothing restarts.
+	be.setUnavailable(false)
+
+	deadline := time.After(10 * time.Second)
+	for {
+		select {
+		case beat := <-tr.beats:
+			if len(beat.Backends) == 1 && beat.Backends[0].Available {
+				cancel()
+				<-done
+				return
+			}
+		case <-deadline:
+			cancel()
+			<-done
+			t.Fatal("no heartbeat reported the backend within 10s of it becoming available")
+		}
+	}
+}
+
+// Once something answers, the probe settles down: it is a ping per backend, and
+// a fleet of hosts doing it every heartbeat is noise for no news.
+func TestAgentDoesNotReprobeOnEveryHeartbeatWhenHealthy(t *testing.T) {
+	h := newHarness(t, 1)
+
+	// The join probe is the one that has happened so far.
+	if got := h.be.probeCount(); got != 1 {
+		t.Fatalf("probes after join = %d, want 1", got)
+	}
+	for range 3 {
+		select {
+		case <-h.tr.beats:
+		case <-time.After(5 * time.Second):
+			t.Fatal("no heartbeat within 5s")
+		}
+	}
+	if got := h.be.probeCount(); got != 1 {
+		t.Fatalf("probes = %d after three heartbeats, want the one from join", got)
+	}
+
+	// Time passes, and the agent looks again: a daemon can be stopped or
+	// upgraded under a running agent.
+	h.clock.advance(backendProbeInterval)
+	deadline := time.After(5 * time.Second)
+	for h.be.probeCount() == 1 {
+		select {
+		case <-h.tr.beats:
+		case <-deadline:
+			t.Fatalf("no probe within 5s of %s passing", backendProbeInterval)
+		}
+	}
+}

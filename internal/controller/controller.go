@@ -107,6 +107,9 @@ type Controller struct {
 	// can report the queued jobs no pool claimed without deciding again.
 	lastPlan   *scheduler.Plan
 	lastPlanAt time.Time
+	// blocked remembers the reason each pool could not place a runner, so that
+	// a fleet that cannot scale says so once rather than every tick.
+	blocked map[string]string
 	// hostHealthy remembers each host's last known health so that only a flip
 	// publishes an event.
 	hostHealthy map[string]bool
@@ -367,6 +370,34 @@ func (c *Controller) setLastPlan(p scheduler.Plan) {
 	defer c.mu.Unlock()
 	c.lastPlan = &p
 	c.lastPlanAt = c.Now()
+}
+
+// noteBlocked logs a pool that wanted runners and could not place any, and the
+// moment it recovers. Both are logged once per change: the reconcile loop runs
+// every few seconds, and a fleet that is one host short would otherwise fill
+// the log with the same sentence until somebody noticed it.
+func (c *Controller) noteBlocked(pp scheduler.PoolPlan) {
+	c.mu.Lock()
+	if c.blocked == nil {
+		c.blocked = map[string]string{}
+	}
+	was, had := c.blocked[pp.PoolID]
+	switch {
+	case pp.Blocked == "":
+		delete(c.blocked, pp.PoolID)
+	default:
+		c.blocked[pp.PoolID] = pp.Blocked
+	}
+	c.mu.Unlock()
+
+	switch {
+	case pp.Blocked != "" && pp.Blocked != was:
+		c.log.Warn("a pool cannot place the runners it wants",
+			"pool", pp.PoolName, "current", pp.Current, "desired", pp.Desired,
+			"queued", pp.QueuedMatched, "reason", pp.Blocked, "fix", pp.BlockedFix)
+	case pp.Blocked == "" && had:
+		c.log.Info("a pool can place runners again", "pool", pp.PoolName)
+	}
 }
 
 func (c *Controller) getLastPlan() (*scheduler.Plan, time.Time) {

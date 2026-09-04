@@ -7,7 +7,7 @@
   at an empty queue.
 -->
 <script lang="ts">
-  import { CircleCheck, ServerOff, TriangleAlert } from '@lucide/svelte';
+  import { CircleCheck, ServerOff, TriangleAlert, Wrench } from '@lucide/svelte';
   import type { Pool, PoolCreate, Result } from '$lib/api/types';
   import { pluralise } from '$lib/format';
   import Button from '$lib/components/Button.svelte';
@@ -38,6 +38,11 @@
   const fieldErrors = $derived(verdict?.errors ?? []);
   const warnings = $derived(verdict?.warnings ?? []);
   const matching = $derived(verdict?.matching_hosts);
+  // The server says the same thing as the banner below, only with the detail
+  // the fleet knows: which host is there and what its agent could not reach.
+  // It is shown inside the banner rather than a second time under it.
+  const noHost = $derived(warnings.find((w) => w.code === 'pool.no_matching_hosts'));
+  const otherWarnings = $derived(warnings.filter((w) => w.code !== 'pool.no_matching_hosts'));
   const happy = $derived(
     verdict !== null &&
       verdict.valid &&
@@ -88,6 +93,15 @@
             and every job asking for these labels will sit in the queue. Choose a backend one of
             your hosts offers, or connect a host that does, before you rely on it.
           </p>
+          {#if noHost?.detail}
+            <p class="hosts-body">{noHost.detail}</p>
+          {/if}
+          {#if noHost?.fix}
+            <p class="hosts-fix">
+              <Wrench size={13} aria-hidden="true" />
+              <span>{noHost.fix}</span>
+            </p>
+          {/if}
         {:else}
           <p class="hosts-title">
             <CircleCheck size={15} aria-hidden="true" />
@@ -117,10 +131,10 @@
       </div>
     {/if}
 
-    {#if warnings.length > 0}
+    {#if otherWarnings.length > 0}
       <div class="warnings">
         <p class="warnings-title">This pool will be created with warnings</p>
-        <PoolWarnings {warnings} bare />
+        <PoolWarnings warnings={otherWarnings} bare />
       </div>
     {/if}
 
@@ -187,6 +201,16 @@
     font-size: var(--z-text-base);
     line-height: var(--z-leading-base);
     color: var(--z-text);
+  }
+  .hosts-fix {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--z-space-2);
+    margin: var(--z-space-2) 0 0;
+    max-width: 70ch;
+    font-size: var(--z-text-base);
+    line-height: var(--z-leading-base);
+    color: var(--z-text-muted);
   }
   .errors {
     padding: var(--z-space-3) var(--z-space-4);

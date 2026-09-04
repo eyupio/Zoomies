@@ -32,6 +32,11 @@ type fakeBackend struct {
 	logs        func() io.ReadCloser
 	inflight    int
 	maxInflight int
+	// unavailable makes Probe answer as a daemon that is not there, which is
+	// what a host looks like before its Docker is up. probes counts how often
+	// the agent has asked.
+	unavailable bool
+	probes      int
 }
 
 func newFakeBackend(kind store.BackendKind) *fakeBackend {
@@ -41,7 +46,29 @@ func newFakeBackend(kind store.BackendKind) *fakeBackend {
 func (f *fakeBackend) Kind() store.BackendKind { return f.kind }
 
 func (f *fakeBackend) Probe(context.Context) backend.Info {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.probes++
+	if f.unavailable {
+		return backend.Info{
+			Kind:   f.kind,
+			Detail: "cannot connect to the daemon: no such file or directory",
+		}
+	}
 	return backend.Info{Kind: f.kind, Available: true, Version: "fake", Endpoint: "memory"}
+}
+
+// setUnavailable flips what the next probe will find.
+func (f *fakeBackend) setUnavailable(v bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.unavailable = v
+}
+
+func (f *fakeBackend) probeCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.probes
 }
 
 func (f *fakeBackend) Create(ctx context.Context, spec backend.Spec) (backend.Handle, error) {

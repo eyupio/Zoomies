@@ -170,12 +170,17 @@ func (c *Controller) seedHosts(ctx context.Context, now time.Time) ([]*store.Hos
 	out := make([]*store.Host, 0, len(specs))
 	for _, s := range specs {
 		h := &store.Host{
-			ID:            s.id,
-			Name:          s.name,
-			Address:       "10.0.0." + s.id[len(s.id)-1:],
-			Embedded:      s.embedded,
-			Capacity:      s.capacity,
-			Backends:      store.StringSlice{"docker"},
+			ID:       s.id,
+			Name:     s.name,
+			Address:  "10.0.0." + s.id[len(s.id)-1:],
+			Embedded: s.embedded,
+			Capacity: s.capacity,
+			Backends: store.StringSlice{"docker"},
+			BackendInfo: store.HostBackends{
+				{Kind: store.BackendDocker, Available: true, Version: "27.1.1",
+					Rootless: true, Endpoint: "unix:///run/user/1000/docker.sock", SupportsDinD: true},
+				{Kind: store.BackendPodman, Detail: "no podman socket at /run/user/1000/podman/podman.sock"},
+			},
 			Labels:        store.StringMap{"arch": s.arch, "zone": "demo"},
 			OS:            "linux",
 			Arch:          s.arch,

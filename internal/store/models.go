@@ -250,6 +250,81 @@ func (m StringMap) Value() (driver.Value, error) {
 	return string(b), err
 }
 
+// HostBackend is one line of an agent's capability probe: what it found, or
+// what stopped it finding anything.
+//
+// It mirrors backend.Info, which the store cannot name because the backend
+// package is built on top of this one. Only the fields an operator or the
+// scheduler needs are kept; the host's Docker socket path is deliberately not
+// among them, since nothing reads it back and it is a detail of the machine
+// rather than of the fleet.
+type HostBackend struct {
+	Kind BackendKind `json:"kind"`
+	// Available is false when the daemon did not answer. Detail then explains
+	// why in the agent's own words, which is usually the whole fix.
+	Available bool   `json:"available"`
+	Version   string `json:"version,omitempty"`
+	Rootless  bool   `json:"rootless"`
+	Endpoint  string `json:"endpoint,omitempty"`
+	Detail    string `json:"detail,omitempty"`
+	// SupportsDinD reports whether this backend can give a job its own Docker
+	// daemon in a sidecar.
+	SupportsDinD bool `json:"supports_dind"`
+}
+
+// HostBackends is a probe result persisted as a JSON array in a TEXT column.
+type HostBackends []HostBackend
+
+func (b *HostBackends) Scan(v any) error {
+	*b = nil
+	switch t := v.(type) {
+	case nil:
+		return nil
+	case []byte:
+		if len(t) == 0 {
+			return nil
+		}
+		return json.Unmarshal(t, b)
+	case string:
+		if t == "" {
+			return nil
+		}
+		return json.Unmarshal([]byte(t), b)
+	}
+	return fmt.Errorf("store: cannot scan %T into HostBackends", v)
+}
+
+func (b HostBackends) Value() (driver.Value, error) {
+	if b == nil {
+		b = HostBackends{}
+	}
+	s, err := json.Marshal([]HostBackend(b))
+	return string(s), err
+}
+
+// Kinds returns the backends that answered, sorted, which is what a pool is
+// matched against.
+func (b HostBackends) Kinds() StringSlice {
+	var out StringSlice
+	for _, i := range b {
+		if i.Available {
+			out = append(out, string(i.Kind))
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// Find returns what the probe said about one backend, if it said anything.
+func (b HostBackends) Find(kind BackendKind) (HostBackend, bool) {
+	for _, i := range b {
+		if i.Kind == kind {
+			return i, true
+		}
+	}
+	return HostBackend{}, false
+}
+
 // ---------------------------------------------------------------------------
 // Domain types
 // ---------------------------------------------------------------------------
@@ -396,12 +471,18 @@ type Host struct {
 	Embedded bool `json:"embedded"`
 	// Capacity is the maximum number of concurrent runners this host accepts.
 	Capacity int `json:"capacity"`
-	// Backends lists the runner backends this host can actually service.
+	// Backends lists the runner backends this host can actually service. It is
+	// what a pool's backend is matched against, so it holds only the kinds the
+	// agent found available.
 	Backends StringSlice `json:"backends"`
-	Labels   StringMap   `json:"labels"`
-	OS       string      `json:"os"`
-	Arch     string      `json:"arch"`
-	Version  string      `json:"version"`
+	// BackendInfo is the agent's last full probe, including the backends that
+	// were not available and why. It is what the UI shows an operator whose
+	// host is not taking work; the scheduler reads Backends, never this.
+	BackendInfo HostBackends `json:"backend_info,omitempty"`
+	Labels      StringMap    `json:"labels"`
+	OS          string       `json:"os"`
+	Arch        string       `json:"arch"`
+	Version     string       `json:"version"`
 	// Cordoned hosts keep their existing runners but accept no new ones.
 	Cordoned      bool      `json:"cordoned"`
 	LastHeartbeat time.Time `json:"last_heartbeat"`
