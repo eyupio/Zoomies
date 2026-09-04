@@ -49,6 +49,10 @@ type FakeGitHub struct {
 	nextRunID int64
 	jobs      []*fakeJob
 	repos     []string
+	// contents holds what the migration surface reads and writes: files,
+	// branches and pull requests, per repository. It fills in lazily, so a
+	// test that never migrates anything pays nothing for it.
+	contents map[string]*fakeRepo
 
 	groups []RunnerGroup
 
@@ -328,6 +332,8 @@ func (f *FakeGitHub) handler() http.Handler {
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/runs", f.listWorkflowRuns)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/runs/{run}/jobs", f.listWorkflowJobs)
 
+	f.registerMigrationRoutes(mux)
+
 	return f.middleware(mux)
 }
 
@@ -453,6 +459,13 @@ func (f *FakeGitHub) listInstallationRepos(w http.ResponseWriter, _ *http.Reques
 			"full_name": full,
 			"name":      name,
 			"owner":     map[string]any{"login": owner},
+			// The migration scan reads the default branch from here: a pull
+			// request has to be opened against one, and guessing "main" is how
+			// a migration fails silently on a repository still using "master".
+			"default_branch": f.repoLocked(full).defaultBranch,
+			"private":        true,
+			"archived":       false,
+			"html_url":       "https://github.com/" + full,
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(repos), "repositories": repos})

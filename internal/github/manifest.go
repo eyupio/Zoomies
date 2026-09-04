@@ -248,3 +248,27 @@ func InstallURL(htmlURL string) string {
 	}
 	return h + "/installations/new"
 }
+
+// SettingsURL returns the App's own settings page, which is the only place its
+// logo can be set.
+//
+// The App manifest schema has no field for an avatar -- GitHub takes it as an
+// upload and nothing else -- so an App created by Zoomies arrives with the grey
+// default, and every "Set up job" line in the organisation's logs is signed by
+// an anonymous App. Pointing the operator at the page and handing them the
+// mark is as close to automatic as GitHub allows.
+//
+// An App owned by an organisation has its settings under that organisation;
+// one owned by a user has them under the user's own settings, and GitHub
+// answers the wrong URL with a 404 rather than a redirect.
+func SettingsURL(apiBaseURL, slug, org string) string {
+	slug = strings.Trim(strings.TrimSpace(slug), "/")
+	if slug == "" {
+		return ""
+	}
+	web := strings.TrimRight(WebURLForAPI(apiBaseURL), "/")
+	if org = strings.Trim(strings.TrimSpace(org), "/"); org != "" {
+		return web + "/organizations/" + org + "/settings/apps/" + slug
+	}
+	return web + "/settings/apps/" + slug
+}

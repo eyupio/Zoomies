@@ -314,9 +314,9 @@ the CLI or the API. These are their fields:
 
 | Field | Meaning |
 | --- | --- |
-| `name` | Unique. Appears in scaling reasons and runner names. |
+| `name` | Unique. Appears in scaling reasons and in the UI. |
 | `installation_id` | Which GitHub App installation this pool registers against. |
-| `labels` | What `runs-on` must ask for. Normalised to lowercase. |
+| `labels` | What `runs-on` must ask for. Normalised to lowercase, and always includes `zoomies`, which Zoomies adds to every pool. |
 | `runner_group` | Optional GitHub runner group. |
 | `backend` | `docker`, `podman` or `process`. |
 | `image` | Runner image for the container backends. |
@@ -330,6 +330,24 @@ the CLI or the API. These are their fields:
 | `env` | Injected into every runner. |
 | `run_as_root` | Off. Turning it on is warned about. |
 | `enabled` | A disabled pool drains to zero and creates nothing. |
+
+### The labels to give a pool
+
+Give it one branded label of its own — `zoomies-linux-x64`, `zoomies-gpu` — and
+let a workflow write that alone:
+
+```yaml
+runs-on: zoomies-linux-x64
+```
+
+One label is enough to reach a pool. Branding it means a reviewer of the pull
+request that introduces it can tell the job has left GitHub's runners, which
+`runs-on: [self-hosted, linux, x64]` does not say. Zoomies also adds `zoomies` to
+every pool, so `runs-on: zoomies` means "anywhere in this fleet" — useful for a
+repository nobody has assigned a pool to yet.
+
+Runners are named for the brand too: `zoomies-k3f9qz2m`, which is what GitHub
+shows in its runner list and in every job's log header.
 
 ### How a job finds a pool
 

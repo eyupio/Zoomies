@@ -37,8 +37,19 @@ func IsDemoID(id string) bool {
 }
 
 // demoPoolNames is what "is this instance already seeded?" is decided on, and
-// also what stops seeding from touching a real deployment.
-var demoPoolNames = []string{"demo-linux-x64", "demo-linux-arm64"}
+// also what stops seeding from touching a real deployment. The first two are
+// what seeding writes now; the unbranded pair is what it wrote before pool
+// names carried the brand, and is still recognised so that a demo instance
+// seeded by an older build is left alone rather than rejected as a real
+// fleet.
+// demoRepos are the repositories the fixture's jobs come from, and the ones the
+// demo installation reports to the migration wizard.
+var demoRepos = []string{"acme/widgets", "acme/api", "acme/site"}
+
+var demoPoolNames = []string{
+	"zoomies-demo-linux-x64", "zoomies-demo-linux-arm64",
+	"demo-linux-x64", "demo-linux-arm64",
+}
 
 // SeedDemo writes a deterministic fixture fleet: one installation, two pools, a
 // dozen runners spread across the state machine, fifty jobs with plausible
@@ -185,7 +196,7 @@ func (c *Controller) seedPools(ctx context.Context) (*store.Pool, *store.Pool, e
 		ID:             demoPoolLinuxID,
 		Name:           demoPoolNames[0],
 		InstallationID: demoInstallationID,
-		Labels:         store.StringSlice{"self-hosted", "linux", "x64", "demo"},
+		Labels:         store.StringSlice(store.BrandLabels([]string{"linux", "x64", "zoomies-demo-linux-x64"})),
 		Backend:        store.BackendDocker,
 		Image:          c.cfg.GitHub.RunnerImage,
 		MinRunners:     1,
@@ -201,7 +212,7 @@ func (c *Controller) seedPools(ctx context.Context) (*store.Pool, *store.Pool, e
 		ID:             demoPoolArmID,
 		Name:           demoPoolNames[1],
 		InstallationID: demoInstallationID,
-		Labels:         store.StringSlice{"self-hosted", "linux", "arm64", "demo"},
+		Labels:         store.StringSlice(store.BrandLabels([]string{"linux", "arm64", "zoomies-demo-linux-arm64"})),
 		Backend:        store.BackendDocker,
 		Image:          c.cfg.GitHub.RunnerImage,
 		MinRunners:     0,
@@ -259,7 +270,7 @@ func (c *Controller) seedRunners(ctx context.Context, now time.Time, pools []*st
 			ID:             fmt.Sprintf("run_demo%02d", i),
 			PoolID:         pool.ID,
 			HostID:         host.ID,
-			Name:           fmt.Sprintf("zoomies-%s-d%03d", pool.Name, i),
+			Name:           fmt.Sprintf("%sdemo%04d", store.RunnerNamePrefix, i),
 			State:          s.state,
 			Ephemeral:      pool.Ephemeral,
 			Labels:         pool.Labels,
@@ -298,7 +309,7 @@ func (c *Controller) seedRunners(ctx context.Context, now time.Time, pools []*st
 // real morning: mostly quick and successful, a long tail that makes the p95
 // worth showing, and a couple nothing claims.
 func (c *Controller) seedJobs(ctx context.Context, now time.Time, rng *rand.Rand, pools []*store.Pool, runners []*store.Runner) error {
-	repos := []string{"acme/widgets", "acme/api", "acme/site"}
+	repos := demoRepos
 	workflows := []string{"CI", "Release", "Nightly"}
 	jobNames := []string{"build", "test", "lint", "package"}
 	conclusions := []string{"success", "success", "success", "success", "failure", "cancelled"}
@@ -340,7 +351,7 @@ func (c *Controller) seedJobs(ctx context.Context, now time.Time, rng *rand.Rand
 			j.State = store.JobCompleted
 			j.Conclusion = conclusions[i%len(conclusions)]
 			j.StartedAt, j.CompletedAt = &started, &completed
-			j.RunnerName = fmt.Sprintf("zoomies-%s-d%03d", pool.Name, i%12)
+			j.RunnerName = fmt.Sprintf("%sdemo%04d", store.RunnerNamePrefix, i%12)
 		case i < 47 && len(busy) > 0:
 			// Running right now, on one of the busy runners.
 			r := busy[i%len(busy)]
@@ -380,17 +391,20 @@ func (c *Controller) seedJobs(ctx context.Context, now time.Time, rng *rand.Rand
 }
 
 func (c *Controller) seedScaling(ctx context.Context, now time.Time, linux, arm *store.Pool) error {
+	// The reason quotes the pool by name, exactly as the scheduler writes it,
+	// so the fixture cannot drift from the pool it describes when the pools are
+	// renamed.
 	events := []struct {
 		pool     *store.Pool
 		from, to int
-		reason   string
+		why      string
 		agoMin   int
 	}{
-		{linux, 1, 4, "scaled demo-linux-x64 1 -> 4: 3 jobs queued > 30s", 95},
-		{linux, 4, 6, "scaled demo-linux-x64 4 -> 6: 2 jobs queued > 30s", 70},
-		{linux, 6, 4, "scaled demo-linux-x64 6 -> 4: 2 runners idle > 5m", 40},
-		{arm, 0, 1, "scaled demo-linux-arm64 0 -> 1: 1 job queued > 30s", 30},
-		{linux, 4, 5, "scaled demo-linux-x64 4 -> 5: 1 job queued > 30s", 8},
+		{linux, 1, 4, "3 jobs queued > 30s", 95},
+		{linux, 4, 6, "2 jobs queued > 30s", 70},
+		{linux, 6, 4, "2 runners idle > 5m", 40},
+		{arm, 0, 1, "1 job queued > 30s", 30},
+		{linux, 4, 5, "1 job queued > 30s", 8},
 	}
 	for i, e := range events {
 		ev := &store.ScalingEvent{
@@ -399,7 +413,7 @@ func (c *Controller) seedScaling(ctx context.Context, now time.Time, linux, arm 
 			PoolName:  e.pool.Name,
 			From:      e.from,
 			To:        e.to,
-			Reason:    e.reason,
+			Reason:    fmt.Sprintf("scaled %s %d -> %d: %s", e.pool.Name, e.from, e.to, e.why),
 			CreatedAt: now.Add(-time.Duration(e.agoMin) * time.Minute),
 		}
 		if err := c.st.AppendScalingEvent(ctx, ev); err != nil {

@@ -73,6 +73,12 @@ export const ROUTES: readonly RouteDef[] = [
     title: 'Installations',
     load: () => import('../routes/Installations.svelte'),
   },
+  {
+    name: 'migrate',
+    path: '/migrate',
+    title: 'Migrate repositories',
+    load: () => import('../routes/Migrate.svelte'),
+  },
   { name: 'audit', path: '/audit', title: 'Audit', load: () => import('../routes/Audit.svelte') },
   {
     name: 'settings',

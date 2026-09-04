@@ -106,7 +106,7 @@ test('per-pool utilisation shows both pools and marks the one at its ceiling', a
   // told from a pool with room.
   await expect(row).toContainText('1–8 runners');
 
-  // demo-linux-x64 is seeded with eight live runners against a maximum of
+  // zoomies-demo-linux-x64 is seeded with eight live runners against a maximum of
   // eight and a job still queued for it: it cannot grow, and saying so is the
   // one thing this section exists for. It is asserted against the controller's
   // own numbers rather than against the fixture, because after about five
@@ -135,9 +135,9 @@ test('the scaling feed quotes the scheduler verbatim', async ({ page }) => {
   // Paraphrasing the one sentence that explains why a runner exists is how a
   // dashboard stops being trustworthy, so the reason string is matched as the
   // scheduler writes it.
-  await expect(feed).toContainText(/scaled demo-linux-x64 \d+ -> \d+: /);
-  await expect(feed).toContainText('scaled demo-linux-x64 1 -> 4: 3 jobs queued > 30s');
-  await expect(feed).toContainText('scaled demo-linux-arm64 0 -> 1: 1 job queued > 30s');
+  await expect(feed).toContainText(/scaled zoomies-demo-linux-x64 \d+ -> \d+: /);
+  await expect(feed).toContainText('scaled zoomies-demo-linux-x64 1 -> 4: 3 jobs queued > 30s');
+  await expect(feed).toContainText('scaled zoomies-demo-linux-arm64 0 -> 1: 1 job queued > 30s');
   await expect(feed.getByRole('listitem').first()).toBeVisible();
 });
 

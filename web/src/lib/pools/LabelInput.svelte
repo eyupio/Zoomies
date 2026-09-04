@@ -1,24 +1,3 @@
-<script module lang="ts">
-  /**
-   * The labels GitHub attaches to every self-hosted runner by itself. Adding
-   * one of these to a pool is not an error, but it is never what the operator
-   * meant: it makes the pool look more specific than it is.
-   */
-  export const IMPLICIT_LABELS: readonly string[] = [
-    'self-hosted',
-    'linux',
-    'windows',
-    'macos',
-    'x64',
-    'arm64',
-    'arm',
-  ];
-
-  export function isImplicit(label: string): boolean {
-    return IMPLICIT_LABELS.includes(label.trim().toLowerCase());
-  }
-</script>
-
 <!--
   A chip input for runner labels.
 
@@ -28,6 +7,9 @@
 -->
 <script lang="ts">
   import { X } from '@lucide/svelte';
+  // The label vocabulary lives in $lib/brand, the browser's copy of
+  // internal/store/brand.go.
+  import { isImplicit } from '$lib/brand';
 
   interface Props {
     value?: string[];

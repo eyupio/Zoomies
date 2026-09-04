@@ -105,6 +105,7 @@ nav:
   - Guide:
       - Architecture: architecture.md
       - Configuration: configuration.md
+      - Migrating repositories: migration.md
       - Security: security.md
       - API: api-surface.md
   - Reference:

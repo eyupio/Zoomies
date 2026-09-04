@@ -3,6 +3,7 @@ package installer
 import (
 	"bytes"
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/eyupio/zoomies/internal/config"
@@ -59,8 +60,11 @@ func TestFirstPoolMakesTheInstallHostUsable(t *testing.T) {
 		t.Fatalf("got %d pools, want exactly one", len(pools))
 	}
 	got := pools[0]
-	if got.Name != "linux-x64" {
-		t.Errorf("pool name = %q, want the label a workflow's runs-on can ask for", got.Name)
+	if got.Name != "zoomies-linux-x64" {
+		t.Errorf("pool name = %q, want the branded label a workflow's runs-on can ask for", got.Name)
+	}
+	if !slices.Equal([]string(got.Labels), []string{"zoomies", "zoomies-linux-x64"}) {
+		t.Errorf("labels = %v, want the brand and this host's branded label", got.Labels)
 	}
 	if got.InstallationID != inst.ID {
 		t.Errorf("installation = %q, want %q", got.InstallationID, inst.ID)
@@ -82,7 +86,7 @@ func TestFirstPoolMakesTheInstallHostUsable(t *testing.T) {
 	}
 	// The summary reads this to say "you are ready" rather than printing a
 	// command for a pool that now exists.
-	if p.PoolName != "linux-x64" {
+	if p.PoolName != "zoomies-linux-x64" {
 		t.Errorf("plan.PoolName = %q, want the pool that was created", p.PoolName)
 	}
 }
@@ -188,10 +192,10 @@ func TestFirstPoolHonoursTheAnswerFile(t *testing.T) {
 		if pools[0].Name != "gpu" || pools[0].MaxRunners != 2 {
 			t.Fatalf("pool = %+v, want the answer file's name and cap", pools[0])
 		}
-		// A renamed pool that was given no labels answers to its new name,
-		// not the architecture label it would have had.
-		if len(pools[0].Labels) != 1 || pools[0].Labels[0] != "gpu" {
-			t.Fatalf("labels = %v, want [gpu] to follow the rename", pools[0].Labels)
+		// A renamed pool that was given no labels answers to a branded form
+		// of its new name, not the architecture label it would have had.
+		if !slices.Equal([]string(pools[0].Labels), []string{"zoomies", "zoomies-gpu"}) {
+			t.Fatalf("labels = %v, want [zoomies zoomies-gpu] to follow the rename", pools[0].Labels)
 		}
 	})
 }

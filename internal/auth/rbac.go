@@ -65,6 +65,16 @@ const (
 // Audit actions.
 const ActionAuditRead Action = "audit.read"
 
+// Migrations move a repository's workflows onto this fleet, which means
+// opening pull requests in repositories Zoomies does not own. Reading a plan
+// is an operator's job rather than a viewer's because it costs a burst of
+// GitHub quota the scheduler shares; opening the pull requests is the same
+// weight as changing a pool.
+const (
+	ActionMigrationsRead  Action = "migrations.read"
+	ActionMigrationsWrite Action = "migrations.write"
+)
+
 // Account and credential actions.
 const (
 	ActionUsersRead   Action = "users.read"
@@ -118,6 +128,9 @@ var actionRoles = map[Action]store.Role{
 	ActionWebhooksTest: store.RoleOperator,
 
 	ActionAuditRead: store.RoleViewer,
+
+	ActionMigrationsRead:  store.RoleOperator,
+	ActionMigrationsWrite: store.RoleOperator,
 
 	ActionUsersRead:   store.RoleAdmin,
 	ActionUsersWrite:  store.RoleAdmin,

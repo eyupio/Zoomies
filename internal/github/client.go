@@ -150,6 +150,72 @@ type Client interface {
 	RateLimit(ctx context.Context) (*RateLimit, error)
 	// WebURL returns the browser URL for the target.
 	WebURL() string
+
+	// The migration surface. These three are the only calls Zoomies makes that
+	// write anything to a repository, and they are used by one feature: the
+	// wizard that moves a repository's workflows onto this fleet. They need
+	// permissions the rest of Zoomies does not have and does not ask for, so
+	// every one of them can fail with ErrForbidden on a perfectly healthy
+	// installation; callers must say so rather than reporting a broken App.
+
+	// ListRepositories returns the repositories this installation can see.
+	ListRepositories(ctx context.Context, limit int) ([]Repository, error)
+	// ListWorkflows returns the workflow files at the top of a repository's
+	// .github/workflows, with their contents.
+	ListWorkflows(ctx context.Context, repo string) ([]WorkflowFile, error)
+	// OpenPullRequest commits a set of files to a new branch and opens a pull
+	// request for it.
+	OpenPullRequest(ctx context.Context, req PullRequestRequest) (*PullRequest, error)
+}
+
+// Repository is one repository an installation can see.
+type Repository struct {
+	FullName      string `json:"full_name"`
+	DefaultBranch string `json:"default_branch"`
+	Private       bool   `json:"private"`
+	Archived      bool   `json:"archived"`
+	HTMLURL       string `json:"html_url"`
+}
+
+// WorkflowFile is one file under .github/workflows as it exists on the
+// repository's default branch.
+type WorkflowFile struct {
+	// Path is repository-relative.
+	Path string
+	// SHA is the blob SHA. GitHub requires it to update the file, and it is
+	// what makes an update fail rather than clobber somebody's change.
+	SHA string
+	// Content is the decoded file.
+	Content string
+}
+
+// FileChange is one file a pull request writes.
+type FileChange struct {
+	Path    string
+	Content string
+	// SHA is the blob SHA the change was computed against.
+	SHA string
+}
+
+// PullRequestRequest describes the pull request to open.
+type PullRequestRequest struct {
+	// Repo is "owner/name".
+	Repo string
+	// Base is the branch to open against. Empty means the default branch.
+	Base string
+	// Head is the branch to create. It must not already exist.
+	Head          string
+	Title         string
+	Body          string
+	CommitMessage string
+	Files         []FileChange
+}
+
+// PullRequest is what opening one produced.
+type PullRequest struct {
+	Number  int    `json:"number"`
+	HTMLURL string `json:"html_url"`
+	Branch  string `json:"branch"`
 }
 
 // Factory builds a Client for an installation. The controller holds one
@@ -158,37 +224,16 @@ type Factory interface {
 	For(ctx context.Context, inst *store.Installation, privateKeyPEM []byte) (Client, error)
 }
 
-// RunnerName builds a unique, human-readable runner name for a pool.
+// RunnerName mints the name one runner registers under: the brand and a short
+// random suffix, "zoomies-k3f9qz2m".
 //
-// GitHub requires runner names to be unique within a target and rejects a
-// number of characters, so the pool name is sanitised and a short random
-// suffix guarantees uniqueness across restarts.
-func RunnerName(poolName string) string {
-	return "zoomies-" + sanitizeName(poolName) + "-" + store.NewSecret(4)
-}
-
-func sanitizeName(s string) string {
-	s = strings.ToLower(strings.TrimSpace(s))
-	var b strings.Builder
-	for _, r := range s {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
-			b.WriteRune(r)
-		case r == '-' || r == '_' || r == '.':
-			b.WriteRune('-')
-		default:
-			b.WriteRune('-')
-		}
-	}
-	out := strings.Trim(b.String(), "-")
-	if out == "" {
-		out = "pool"
-	}
-	if len(out) > 40 {
-		out = strings.Trim(out[:40], "-")
-	}
-	return out
-}
+// GitHub requires the name to be unique within a target and shows it in the
+// runner list, in the job header and in the "Set up job" step of every log. It
+// used to carry the pool name as well, which made the common case --
+// "zoomies-linux-x64-a3f9q" -- long enough that the brand was what got
+// truncated in GitHub's own tables. Which pool a runner belongs to is a click
+// away in Zoomies and is on the runner's labels either way.
+func RunnerName() string { return store.NewRunnerName() }
 
 // SplitTarget parses "owner" or "owner/repo" into its parts.
 func SplitTarget(target string) (owner, repo string, kind store.TargetType) {

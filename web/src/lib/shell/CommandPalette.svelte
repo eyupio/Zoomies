@@ -9,6 +9,7 @@
   import {
     Boxes,
     CircleSlash,
+    GitPullRequestArrow,
     HardDrive,
     LayoutDashboard,
     ListChecks,
@@ -103,6 +104,13 @@
         label: 'Installations',
         icon: Plug,
         run: () => router.navigate('/installations'),
+      },
+      {
+        id: 'go-migrate',
+        group: 'Go to',
+        label: 'Migrate repositories',
+        icon: GitPullRequestArrow,
+        run: () => router.navigate('/migrate'),
       },
       {
         id: 'go-audit',

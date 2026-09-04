@@ -380,6 +380,16 @@ export const createAppManifest = (body: Body<'createAppManifest'>) =>
 export const exchangeAppManifest = (body: Body<'exchangeAppManifest'>) =>
   api.post<Result<'exchangeAppManifest'>>('/installations/manifest/exchange', { body });
 
+/* -- migrations ---------------------------------------------------------- */
+
+/** What moving these repositories onto Zoomies would change. Writes nothing. */
+export const planMigration = (body: Body<'planMigration'>, signal?: AbortSignal) =>
+  api.post<Result<'planMigration'>>('/migrations/plan', { body, signal });
+
+/** Opens one pull request per repository. The only call that writes to a repo. */
+export const openMigrationPullRequests = (body: Body<'openMigrationPullRequests'>) =>
+  api.post<Result<'openMigrationPullRequests'>>('/migrations/pull-requests', { body });
+
 export const listWebhookDeliveries = (
   query?: Query<'listWebhookDeliveries'>,
   signal?: AbortSignal,

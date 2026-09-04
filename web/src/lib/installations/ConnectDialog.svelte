@@ -68,6 +68,12 @@
    * the target, the App's public identifiers, and the handshake state that is
    * already in the address bar GitHub redirected to.
    */
+  /**
+   * The square mark, served from the controller so that an operator on an
+   * air-gapped network has it to hand rather than being sent to a website.
+   */
+  const APP_LOGO = '/brand/app-logo.png';
+
   const PROGRESS_KEY = 'zoomies.github.connect';
   /** Matches the controller's manifest TTL: after that the handshake is dead anyway. */
   const PROGRESS_TTL = 60 * 60 * 1000;
@@ -81,6 +87,7 @@
     appId: number | null;
     appSlug: string;
     installUrl: string;
+    settingsUrl: string;
     step: number;
   }
 
@@ -112,6 +119,7 @@
         appId,
         appSlug,
         installUrl,
+        settingsUrl,
         step,
       } satisfies Progress),
     );
@@ -147,6 +155,7 @@
   let appId = $state<number | null>(null);
   let appSlug = $state('');
   let installUrl = $state('');
+  let settingsUrl = $state('');
 
   /* -- the manual path -------------------------------------------------------- */
 
@@ -179,6 +188,7 @@
       if (appId === null) appId = saved.appId ?? null;
       if (!appSlug) appSlug = saved.appSlug ?? '';
       if (!installUrl) installUrl = saved.installUrl ?? '';
+      if (!settingsUrl) settingsUrl = saved.settingsUrl ?? '';
       if (saved.step > step) step = saved.step;
     }
     // The state in the address bar is the one GitHub just echoed, so it wins
@@ -215,6 +225,7 @@
     appId = null;
     appSlug = '';
     installUrl = '';
+    settingsUrl = '';
     // The private key is a secret this component was trusted with for one
     // request. It does not linger in memory afterwards.
     manualAppId = '';
@@ -268,6 +279,7 @@
       postUrl = result.post_url ?? '';
       manifest = result.manifest ?? '';
       manifestState = result.state ?? '';
+      builtFrom = JSON.stringify([target.trim(), targetType, apiBase.trim(), appName.trim()]);
       step = 1;
       saveProgress();
     } catch (cause) {
@@ -278,31 +290,56 @@
   }
 
   /**
-   * Post the manifest to GitHub in a new tab.
+   * Going back and editing the description invalidates the manifest that was
+   * built from the old answers.
    *
-   * It has to be a real form submission -- GitHub reads `manifest` as a form
-   * field -- and the state is appended here because the API returns the URL and
-   * the state separately.
+   * GitHub reads the manifest body, not the form on screen, so a stale one
+   * creates an App for the wrong target -- or is rejected outright, which the
+   * operator experiences as "it did not take my form". Clearing it here makes
+   * the first step build a new one before the second step can post anything.
    */
-  function sendToGitHub(): void {
-    if (!postUrl || !manifest) return;
-    const url = new URL(postUrl);
-    if (manifestState) url.searchParams.set('state', manifestState);
+  let builtFrom = $state('');
+  $effect(() => {
+    const now = JSON.stringify([target.trim(), targetType, apiBase.trim(), appName.trim()]);
+    if (!postUrl) {
+      builtFrom = now;
+      return;
+    }
+    if (builtFrom !== '' && builtFrom !== now) {
+      postUrl = '';
+      manifest = '';
+      manifestState = '';
+      if (step > 0 && !code.trim()) step = 0;
+    }
+  });
 
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = url.toString();
-    form.target = '_blank';
-    form.rel = 'noopener';
-    const field = document.createElement('input');
-    field.type = 'hidden';
-    field.name = 'manifest';
-    field.value = manifest;
-    form.append(field);
-    document.body.append(form);
-    form.submit();
-    form.remove();
-  }
+  /**
+   * Where the manifest is posted: the endpoint the API returned, with the
+   * handshake state appended, because the API returns the two separately.
+   */
+  const manifestAction = $derived.by(() => {
+    if (!postUrl) return '';
+    try {
+      const url = new URL(postUrl);
+      if (manifestState) url.searchParams.set('state', manifestState);
+      return url.toString();
+    } catch {
+      return postUrl;
+    }
+  });
+
+  /**
+   * The manifest goes to GitHub as a real form in the markup, submitted by a
+   * real submit button.
+   *
+   * It used to be a form built in script and submitted with `form.submit()`,
+   * which is where the "you have to reload the GitHub tab before it takes the
+   * form" report came from: a programmatic submission into a new tab is not
+   * reliably treated as user-initiated, and removing the element in the same
+   * turn as submitting it can leave the new tab sitting on a blank page that
+   * never got the body. A declarative form has none of that -- the browser
+   * navigates the new tab itself, with the POST body attached, on the click.
+   */
 
   /* -- step two: exchange the code -------------------------------------------- */
 
@@ -320,6 +357,7 @@
       appId = result.app_id ?? null;
       appSlug = result.slug ?? result.name ?? '';
       installUrl = result.install_url ?? '';
+      settingsUrl = result.settings_url ?? '';
       // In the tab GitHub redirected to, the form on the first step was never
       // filled in. The controller remembers what the manifest asked for, and
       // returns it here so the last step has a target to record.
@@ -485,11 +523,12 @@
               address bar.
             </p>
 
-            <div>
-              <Button variant="primary" iconAfter={ExternalLink} onclick={sendToGitHub}>
+            <form method="POST" action={manifestAction} target="_blank" rel="noopener">
+              <input type="hidden" name="manifest" value={manifest} />
+              <Button type="submit" variant="primary" iconAfter={ExternalLink} disabled={!manifest}>
                 Create the App on GitHub
               </Button>
-            </div>
+            </form>
 
             <Field
               label="Code from GitHub"
@@ -514,6 +553,28 @@
                 </a>
               </div>
             {/if}
+
+            <div class="logo-step">
+              <img class="logo-preview" src={APP_LOGO} alt="" width="56" height="56" />
+              <div class="logo-copy">
+                <p class="logo-title">Give it the Zoomies mark</p>
+                <p>
+                  An App manifest cannot carry a logo — GitHub only takes an upload — so the App is
+                  wearing the grey default, and it signs every "Set up job" line in the
+                  organisation's logs. Download the mark and upload it under
+                  <em>Display information</em>.
+                </p>
+                <p class="logo-actions">
+                  <a href={APP_LOGO} download="zoomies-app-logo.png">Download the mark</a>
+                  {#if settingsUrl}
+                    <a href={settingsUrl} target="_blank" rel="noopener noreferrer">
+                      Open the App's settings
+                      <ExternalLink size={12} aria-hidden="true" />
+                    </a>
+                  {/if}
+                </p>
+              </div>
+            </div>
 
             <Field
               label="Installation ID"
@@ -748,6 +809,46 @@
   }
   .install:hover {
     background: var(--z-accent-hover);
+  }
+  .logo-step {
+    display: flex;
+    gap: var(--z-space-3);
+    padding: var(--z-space-3);
+    border: 1px solid var(--z-border);
+    border-radius: var(--z-radius-md);
+    background: var(--z-surface-sunken);
+  }
+  .logo-preview {
+    flex: none;
+    border-radius: var(--z-radius-md);
+  }
+  .logo-copy {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-1);
+    min-width: 0;
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+    color: var(--z-text-muted);
+  }
+  .logo-copy p {
+    margin: 0;
+  }
+  .logo-title {
+    color: var(--z-text);
+    font-weight: var(--z-weight-medium);
+  }
+  .logo-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--z-space-3);
+    margin-top: var(--z-space-1);
+  }
+  .logo-actions a {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--z-space-1);
+    color: var(--z-accent);
   }
   .failure {
     margin: 0;

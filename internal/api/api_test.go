@@ -592,6 +592,11 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "POST", path: "/api/v1/join-tokens", role: store.RoleAdmin, body: map[string]any{"ttl": "15m"}},
 		{method: "DELETE", path: "/api/v1/join-tokens/missing", role: store.RoleAdmin},
 
+		{method: "POST", path: "/api/v1/migrations/plan", role: store.RoleOperator,
+			body: map[string]any{"installation_id": ids.installation}},
+		{method: "POST", path: "/api/v1/migrations/pull-requests", role: store.RoleOperator,
+			body: map[string]any{"installation_id": ids.installation, "repos": []string{}, "mapping": map[string]string{}}},
+
 		{method: "GET", path: "/api/v1/audit", role: store.RoleViewer},
 		{method: "GET", path: "/api/v1/audit/actions", role: store.RoleViewer},
 

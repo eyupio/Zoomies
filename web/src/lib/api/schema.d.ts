@@ -833,6 +833,69 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/migrations/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * What moving these repositories onto Zoomies would change
+         * @description Reads the workflow files in the repositories a GitHub App installation
+         *     can see, and reports the `runs-on` lines it would rewrite, the ones it
+         *     would leave alone and why, and a unified diff of each change.
+         *
+         *     It writes nothing. Everything it returns is a proposal for the operator
+         *     to edit before `POST /migrations/pull-requests` acts on it.
+         *
+         *     With no `mapping`, the server proposes one from the pools that exist,
+         *     matching each GitHub-hosted label against the pool that promises the
+         *     same operating system and architecture. A label with no plausible pool
+         *     is left unmapped rather than mapped approximately, and appears in
+         *     `unmapped`.
+         */
+        post: operations["planMigration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/migrations/pull-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Open the pull requests a plan described
+         * @description Opens one pull request per repository, each on its own branch, changing
+         *     only the workflow files whose `runs-on` the mapping covers.
+         *
+         *     The plan is recomputed here from the repositories' current contents
+         *     rather than taken from the client: the workflows may have changed since
+         *     the review step, and accepting file contents from a browser would make
+         *     this a way to write arbitrary files into any repository the App can
+         *     reach. Every file is committed against the blob SHA it was read at, so a
+         *     push that lands in between is a conflict rather than a silent revert.
+         *
+         *     The App needs three permissions the rest of Zoomies does not:
+         *     Contents (write), Pull requests (write) and Workflows (write). The plan
+         *     endpoint reports which are missing before anything is attempted.
+         */
+        post: operations["openMigrationPullRequests"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/audit": {
         parameters: {
             query?: never;
@@ -1241,6 +1304,101 @@ export interface components {
             polling_available?: boolean;
             /** Format: date-time */
             last_delivery_at?: string | null;
+        };
+        /** @description One runs-on value a migration would change. */
+        MigrationRewrite: {
+            /** @description The 1-based line in the file as it is today. */
+            line?: number;
+            /** @description The workflow job the line belongs to */
+            job?: string;
+            /** @example ubuntu-latest */
+            from?: string;
+            /** @example zoomies-linux-x64 */
+            to?: string;
+        };
+        /**
+         * @description A runs-on the migration deliberately left alone, and why. A skip is not
+         *     a failure: a matrix expression, a job already on a self-hosted runner
+         *     and a hosted label nobody mapped are all things a person has to decide.
+         */
+        MigrationSkip: {
+            line?: number;
+            job?: string;
+            value?: string;
+            reason?: string;
+        };
+        MigrationWorkflow: {
+            /** @example .github/workflows/ci.yml */
+            path?: string;
+            /** @description The blob SHA the plan was computed against. */
+            sha?: string;
+            rewrites?: components["schemas"]["MigrationRewrite"][];
+            skips?: components["schemas"]["MigrationSkip"][];
+            /** @description A unified diff of the change */
+            diff?: string;
+        };
+        MigrationRepo: {
+            /** @example acme/widgets */
+            repo?: string;
+            default_branch?: string;
+            workflows?: components["schemas"]["MigrationWorkflow"][];
+            /** @description The GitHub-hosted labels this repository asks for, mapped or not. */
+            hosted_labels?: string[];
+            /** @description Set when this repository could not be read; the rest of the plan still stands. */
+            error?: string;
+        };
+        MigrationPoolOption: {
+            id?: string;
+            name?: string;
+            labels?: string[];
+            /** @description What a workflow writes to reach this pool */
+            runs_on?: string;
+            enabled?: boolean;
+        };
+        MigrationCounts: {
+            repos?: number;
+            workflows?: number;
+            jobs?: number;
+            skipped?: number;
+        };
+        MigrationPlan: {
+            installation_id?: string;
+            target?: string;
+            repositories?: components["schemas"]["MigrationRepo"][];
+            hosted_labels?: string[];
+            /** @description What was applied - the request's mapping, or the one the server proposed. */
+            mapping?: {
+                [key: string]: string;
+            };
+            /** @description Hosted labels no pool was proposed for. Jobs on these are left where they are. */
+            unmapped?: string[];
+            pools?: components["schemas"]["MigrationPoolOption"][];
+            counts?: components["schemas"]["MigrationCounts"];
+            /** @description True when the installation has more repositories than one plan reads. */
+            truncated?: boolean;
+            /** @description What the App still needs before pull requests can be opened. Reported here, in the step before, because discovering it halfway through leaves half the pull requests open. */
+            missing_permissions?: string[];
+            permission_hint?: string;
+            /** @description The App's settings page */
+            settings_url?: string;
+        };
+        MigrationResult: {
+            repo?: string;
+            /** @enum {string} */
+            status?: "opened" | "skipped" | "failed";
+            pull_request_url?: string;
+            pull_request_number?: number;
+            branch?: string;
+            workflows?: number;
+            jobs?: number;
+            /** @description Why it was skipped */
+            reason?: string;
+        };
+        MigrationOutcome: {
+            results?: components["schemas"]["MigrationResult"][];
+            opened?: number;
+            skipped?: number;
+            failed?: number;
         };
         Resources: {
             /**
@@ -2164,6 +2322,8 @@ export interface operations {
                         html_url?: string;
                         /** @description Send the operator here to install the App on their organisation. */
                         install_url?: string;
+                        /** @description The App's own settings page. A manifest cannot set an App's logo -- GitHub takes an avatar as an upload and has no manifest field for it -- so this is where the operator is sent to give the App the Zoomies mark. */
+                        settings_url?: string;
                         /** @description The organisation or repository the App was created for. */
                         target?: string;
                         target_type?: components["schemas"]["TargetType"];
@@ -2965,6 +3125,77 @@ export interface operations {
                 content?: never;
             };
             404: components["responses"]["NotFound"];
+        };
+    };
+    planMigration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    installation_id: string;
+                    /** @description Limits the plan to these repositories. Empty means every repository the installation can see, up to the server's limit. */
+                    repos?: string[];
+                    /** @description Hosted label to the runs-on value that replaces it, e.g. {"ubuntu-latest": "zoomies-linux-x64"}. Empty asks the server to propose one. */
+                    mapping?: {
+                        [key: string]: string;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description The plan */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MigrationPlan"];
+                };
+            };
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    openMigrationPullRequests: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    installation_id: string;
+                    /** @description The repositories to open pull requests on. Required; this endpoint never defaults to every repository an App can see. */
+                    repos: string[];
+                    mapping: {
+                        [key: string]: string;
+                    };
+                    /** @description Overrides the default pull request title. */
+                    title?: string;
+                    /** @description Overrides the generated body */
+                    body?: string;
+                    /** @description Overrides the default commit message. */
+                    commit_message?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description What happened to each repository */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MigrationOutcome"];
+                };
+            };
+            422: components["responses"]["Unprocessable"];
         };
     };
     listAudit: {

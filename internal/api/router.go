@@ -166,6 +166,13 @@ func (s *Server) apiRoutes() chi.Router {
 			r.With(s.require(auth.ActionJoinsWrite)).Delete("/{id}", s.handleDeleteJoinToken)
 		})
 
+		// Migrations: what moving a repository's workflows onto this fleet
+		// would change, and then doing it. The plan writes nothing.
+		r.Route("/migrations", func(r chi.Router) {
+			r.With(s.require(auth.ActionMigrationsRead)).Post("/plan", s.handleMigrationPlan)
+			r.With(s.require(auth.ActionMigrationsWrite)).Post("/pull-requests", s.handleMigrationApply)
+		})
+
 		// Audit.
 		r.Route("/audit", func(r chi.Router) {
 			r.Use(s.require(auth.ActionAuditRead))

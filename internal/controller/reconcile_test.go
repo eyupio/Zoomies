@@ -250,7 +250,7 @@ func (h *harness) runnerRow(pool *store.Pool, host *store.Host, state store.Runn
 	r := &store.Runner{
 		PoolID:    pool.ID,
 		HostID:    host.ID,
-		Name:      runnerNamePrefix + pool.Name + "-" + store.NewSecret(4),
+		Name:      store.NewRunnerName(),
 		State:     state,
 		Ephemeral: pool.Ephemeral,
 		Labels:    pool.Labels,

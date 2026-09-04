@@ -60,7 +60,12 @@ full-resolution originals live in the brand pack.
 The product's own copies live in `web/public/` and are the sizes the app
 actually serves: `favicon.ico` (16/32/48), `favicon-16.png`, `favicon-32.png`,
 `apple-touch-icon.png`, `icon-192.png`, `icon-512.png`, and
-`brand/mark-white.png`, `brand/wordmark-white.png`, `brand/logo-white.png`.
+`brand/mark-white.png`, `brand/wordmark-white.png`, `brand/logo-white.png`, and
+`brand/app-logo.png` — a 512px square of the mark on Zoomies Black, which is
+what an operator uploads as their GitHub App's avatar. An App manifest cannot
+carry a logo, so the connect flow hands them this file and a link to the page
+that takes it; without it the App wears GitHub's grey default and signs every
+"Set up job" line in the organisation's logs anonymously.
 
 ## Using the mark in the product
 
@@ -134,6 +139,22 @@ not try to set it in type.
 | Service | `zoomies` (controller), `zoomies-agent` (agent) |
 | Config directory | `/etc/zoomies`, or `.zoomies/` for a per-user install |
 | Container images | `ghcr.io/eyupio/zoomies`, `ghcr.io/eyupio/zoomies-runner` |
+| Runner names | `zoomies-k3f9qz2m` — the brand and eight random characters |
+| Pool labels | `zoomies-linux-x64`, `zoomies-gpu`; every pool also answers to `zoomies` |
+| Migration branch | `zoomies/migrate-runners-<timestamp>` |
+
+### On somebody else's screen
+
+Two of those names are read far more often outside Zoomies than inside it: the
+runner name, which GitHub prints in its runner list and in every job's "Set up
+job" step, and the pool label, which has to be written into `runs-on` in every
+workflow in the organisation. Both are short, both start with the product name,
+and neither carries anything a reader would have to decode. The runner name used
+to carry the pool as well — `zoomies-linux-x64-a3f9q` — which made the brand the
+part GitHub truncated.
+
+`internal/store/brand.go` is the one place these are spelled out;
+`web/src/lib/brand.ts` is the browser's copy of it.
 
 ## For print, signage or merchandise
 

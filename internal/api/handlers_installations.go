@@ -722,6 +722,12 @@ type exchangeResponse struct {
 	Name       string `json:"name"`
 	HTMLURL    string `json:"html_url"`
 	InstallURL string `json:"install_url"`
+	// SettingsURL is the App's own settings page. It is returned because the
+	// one thing a manifest cannot do is set the App's logo: GitHub takes an
+	// avatar as an upload and has no manifest field for it, so an App created
+	// this way starts out anonymous unless the operator is sent to the page
+	// that fixes it.
+	SettingsURL string `json:"settings_url"`
 	// Target and TargetType are echoed back because GitHub returns the
 	// operator to a fresh tab, which knows nothing about the form the flow
 	// started from. Without them the last step has no target to record.
@@ -786,14 +792,21 @@ func (s *Server) handleExchangeManifest(w http.ResponseWriter, r *http.Request) 
 		"app_id": creds.AppID, "slug": creds.Slug, "target": pending.target,
 	})
 
+	// The settings page lives under the organisation for an org App and under
+	// the operator's own account for a repo App, and GitHub 404s the wrong one.
+	settingsOrg := ""
+	if pending.targetType == store.TargetOrg {
+		settingsOrg = pending.target
+	}
 	writeJSON(w, http.StatusOK, exchangeResponse{
-		AppID:      creds.AppID,
-		Slug:       creds.Slug,
-		Name:       creds.Name,
-		HTMLURL:    creds.HTMLURL,
-		InstallURL: github.InstallURL(creds.HTMLURL),
-		Target:     pending.target,
-		TargetType: string(pending.targetType),
+		AppID:       creds.AppID,
+		Slug:        creds.Slug,
+		Name:        creds.Name,
+		HTMLURL:     creds.HTMLURL,
+		InstallURL:  github.InstallURL(creds.HTMLURL),
+		SettingsURL: github.SettingsURL(apiBase, creds.Slug, settingsOrg),
+		Target:      pending.target,
+		TargetType:  string(pending.targetType),
 	})
 }
 

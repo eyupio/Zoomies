@@ -27,7 +27,13 @@ export const browserOverride = process.env.PLAYWRIGHT_CHROMIUM
   ? { launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM } }
   : {};
 
-/** The persistent navigation, in the fixed order docs/ui-guidelines.md gives. */
+/**
+ * The persistent navigation, in the fixed order docs/ui-guidelines.md gives.
+ *
+ * `heading` is the page's own <h1> where it says more than the nav entry does:
+ * a nav label has to stay short enough to sit beside an icon, and a heading
+ * does not.
+ */
 export const SECTIONS = [
   { path: '/', label: 'Overview' },
   { path: '/pools', label: 'Pools' },
@@ -35,16 +41,22 @@ export const SECTIONS = [
   { path: '/jobs', label: 'Jobs' },
   { path: '/hosts', label: 'Hosts' },
   { path: '/installations', label: 'Installations' },
+  { path: '/migrate', label: 'Migrate', heading: 'Migrate repositories' },
   { path: '/audit', label: 'Audit' },
   { path: '/settings', label: 'Settings' },
 ] as const;
 
+/** The <h1> a section's page shows. */
+export function sectionHeading(section: (typeof SECTIONS)[number]): string {
+  return 'heading' in section ? section.heading : section.label;
+}
+
 /** Names from internal/controller/seed.go, so the fixture and the tests agree. */
 export const FIXTURE = {
-  linuxPool: 'demo-linux-x64',
-  armPool: 'demo-linux-arm64',
+  linuxPool: 'zoomies-demo-linux-x64',
+  armPool: 'zoomies-demo-linux-arm64',
   /** A runner that is busy in the fixture, so it is never reaped mid-run. */
-  busyRunner: 'zoomies-demo-linux-x64-d000',
+  busyRunner: 'zoomies-demo0000',
   /** Its id, which the seed fixes so a test can go straight to its page. */
   busyRunnerId: 'run_demo00',
   repos: ['acme/api', 'acme/site', 'acme/widgets'],

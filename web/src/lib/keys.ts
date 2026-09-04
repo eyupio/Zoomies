@@ -142,6 +142,7 @@ export const GO_KEYS: ReadonlyArray<{ key: string; path: string; label: string }
   { key: 'j', path: '/jobs', label: 'Jobs' },
   { key: 'h', path: '/hosts', label: 'Hosts' },
   { key: 'i', path: '/installations', label: 'Installations' },
+  { key: 'm', path: '/migrate', label: 'Migrate repositories' },
   { key: 'a', path: '/audit', label: 'Audit' },
   { key: 's', path: '/settings', label: 'Settings' },
 ];

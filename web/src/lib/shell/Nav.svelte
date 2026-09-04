@@ -9,6 +9,7 @@
 <script lang="ts">
   import {
     Boxes,
+    GitPullRequestArrow,
     HardDrive,
     LayoutDashboard,
     ListChecks,
@@ -40,6 +41,7 @@
     { path: '/jobs', label: 'Jobs', icon: ListChecks, key: 'j' },
     { path: '/hosts', label: 'Hosts', icon: HardDrive, key: 'h' },
     { path: '/installations', label: 'Installations', icon: Plug, key: 'i' },
+    { path: '/migrate', label: 'Migrate', icon: GitPullRequestArrow, key: 'm' },
     { path: '/audit', label: 'Audit', icon: ScrollText, key: 'a' },
     { path: '/settings', label: 'Settings', icon: Settings, key: 's' },
   ];

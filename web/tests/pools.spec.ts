@@ -106,19 +106,21 @@ test('the labels step previews the runs-on line those labels produce', async ({ 
   await expect(page.getByRole('heading', { level: 2, name: 'Labels' })).toBeVisible();
 
   const preview = page.locator('figure');
-  // With no labels the pool would answer every self-hosted job, and the
-  // preview says so rather than looking finished.
-  await expect(preview).toContainText('runs-on: [self-hosted]');
-  await expect(preview).toContainText('answers every self-hosted job');
+  // Every pool answers to the brand, so that is what an unlabelled one would
+  // be reached by -- and the preview says that reaches everything, rather than
+  // looking finished.
+  await expect(preview).toContainText('runs-on: zoomies');
+  await expect(preview).toContainText('answers every job that asks for this fleet');
 
-  await addLabel(page, 'gpu');
+  await addLabel(page, 'zoomies-gpu');
   await addLabel(page, 'cuda12');
-  await expect(preview).toContainText('runs-on: [self-hosted, gpu, cuda12]');
+  // Two labels of its own need the list form; the brand is implied by both.
+  await expect(preview).toContainText('runs-on: [cuda12, zoomies-gpu]');
   await expect(preview).toContainText('jobs:');
 
-  // Removing one takes it back out of the snippet.
-  await page.getByRole('button', { name: 'Remove the label gpu' }).click();
-  await expect(preview).toContainText('runs-on: [self-hosted, cuda12]');
+  // With one label left, the shortest correct line is that label alone.
+  await page.getByRole('button', { name: 'Remove the label cuda12' }).click();
+  await expect(preview).toContainText('runs-on: zoomies-gpu');
 });
 
 test('choosing the host socket warns about root and demands a confirmation', async ({ page }) => {

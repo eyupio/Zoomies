@@ -44,8 +44,8 @@ func TestQueuedJobWebhookProducesARunnerAndACreateTask(t *testing.T) {
 	if r.HostID != host.ID || r.PoolID != pool.ID {
 		t.Fatalf("runner placed on host %s in pool %s, want %s/%s", r.HostID, r.PoolID, host.ID, pool.ID)
 	}
-	if !strings.HasPrefix(r.Name, runnerNamePrefix) {
-		t.Fatalf("runner name %q does not carry the %q prefix", r.Name, runnerNamePrefix)
+	if !store.IsRunnerName(r.Name) {
+		t.Fatalf("runner name %q does not carry the %q prefix", r.Name, store.RunnerNamePrefix)
 	}
 	if r.GitHubRunnerID == 0 {
 		t.Fatal("the runner has no GitHub runner ID, so no JIT config was minted for it")

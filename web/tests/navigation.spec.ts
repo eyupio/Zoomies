@@ -20,6 +20,7 @@ import {
   readTheme,
   reload,
   SECTIONS,
+  sectionHeading,
 } from './support/fixtures';
 
 test.use(browserOverride);
@@ -37,7 +38,7 @@ test('every navigation entry routes to its page and is marked as current', async
     await entry.click();
 
     await expect(page).toHaveURL(new RegExp(`${section.path.replace(/\//g, '\\/')}$`));
-    await expect(pageHeading(page, section.label)).toBeVisible();
+    await expect(pageHeading(page, sectionHeading(section))).toBeVisible();
     await expect(entry, `${section.label} is marked as the current page`).toHaveAttribute(
       'aria-current',
       'page',

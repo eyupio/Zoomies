@@ -76,6 +76,8 @@ tags:
     description: Job history, queue waits and outcomes.
   - name: hosts
     description: Agents, their capacity, and enrolment.
+  - name: migrations
+    description: Moving a repository's workflows from GitHub's runners onto this fleet.
   - name: audit
     description: Who did what.
   - name: admin
@@ -542,6 +544,12 @@ paths:
                   name: { type: string }
                   html_url: { type: string }
                   install_url: { type: string, description: Send the operator here to install the App on their organisation. }
+                  settings_url:
+                    type: string
+                    description: >-
+                      The App's own settings page. A manifest cannot set an App's logo -- GitHub
+                      takes an avatar as an upload and has no manifest field for it -- so this is
+                      where the operator is sent to give the App the Zoomies mark.
                   target: { type: string, description: The organisation or repository the App was created for. }
                   target_type: { $ref: "#/components/schemas/TargetType" }
         "422": { $ref: "#/components/responses/Unprocessable" }
@@ -1166,6 +1174,102 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
 
   # ==========================================================================
+  # Migrations
+  # ==========================================================================
+  /migrations/plan:
+    post:
+      operationId: planMigration
+      tags: [migrations]
+      summary: What moving these repositories onto Zoomies would change
+      description: |
+        Reads the workflow files in the repositories a GitHub App installation
+        can see, and reports the `runs-on` lines it would rewrite, the ones it
+        would leave alone and why, and a unified diff of each change.
+
+        It writes nothing. Everything it returns is a proposal for the operator
+        to edit before `POST /migrations/pull-requests` acts on it.
+
+        With no `mapping`, the server proposes one from the pools that exist,
+        matching each GitHub-hosted label against the pool that promises the
+        same operating system and architecture. A label with no plausible pool
+        is left unmapped rather than mapped approximately, and appears in
+        `unmapped`.
+      x-zoomies-role: operator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [installation_id]
+              properties:
+                installation_id: { type: string }
+                repos:
+                  type: array
+                  items: { type: string }
+                  description: Limits the plan to these repositories. Empty means every repository the installation can see, up to the server's limit.
+                mapping:
+                  type: object
+                  additionalProperties: { type: string }
+                  description: >-
+                    Hosted label to the runs-on value that replaces it, e.g.
+                    {"ubuntu-latest": "zoomies-linux-x64"}. Empty asks the server to propose one.
+      responses:
+        "200":
+          description: The plan
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MigrationPlan" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /migrations/pull-requests:
+    post:
+      operationId: openMigrationPullRequests
+      tags: [migrations]
+      summary: Open the pull requests a plan described
+      description: |
+        Opens one pull request per repository, each on its own branch, changing
+        only the workflow files whose `runs-on` the mapping covers.
+
+        The plan is recomputed here from the repositories' current contents
+        rather than taken from the client: the workflows may have changed since
+        the review step, and accepting file contents from a browser would make
+        this a way to write arbitrary files into any repository the App can
+        reach. Every file is committed against the blob SHA it was read at, so a
+        push that lands in between is a conflict rather than a silent revert.
+
+        The App needs three permissions the rest of Zoomies does not:
+        Contents (write), Pull requests (write) and Workflows (write). The plan
+        endpoint reports which are missing before anything is attempted.
+      x-zoomies-role: operator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [installation_id, repos, mapping]
+              properties:
+                installation_id: { type: string }
+                repos:
+                  type: array
+                  items: { type: string }
+                  description: The repositories to open pull requests on. Required; this endpoint never defaults to every repository an App can see.
+                mapping:
+                  type: object
+                  additionalProperties: { type: string }
+                title: { type: string, description: Overrides the default pull request title. }
+                body: { type: string, description: Overrides the generated body, which lists what moved and what was left alone. }
+                commit_message: { type: string, description: Overrides the default commit message. }
+      responses:
+        "200":
+          description: What happened to each repository
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MigrationOutcome" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  # ==========================================================================
   # Audit
   # ==========================================================================
   /audit:
@@ -1733,6 +1837,114 @@ components:
         fix: { type: string, description: The specific remedy - open a port, use a tunnel, configure the proxy. }
         polling_available: { type: boolean }
         last_delivery_at: { type: [string, "null"], format: date-time }
+
+    # --- migrations -------------------------------------------------------
+    MigrationRewrite:
+      type: object
+      description: One runs-on value a migration would change.
+      properties:
+        line: { type: integer, description: The 1-based line in the file as it is today. }
+        job: { type: string, description: The workflow job the line belongs to, where indentation could tell. }
+        from: { type: string, examples: ["ubuntu-latest"] }
+        to: { type: string, examples: ["zoomies-linux-x64"] }
+
+    MigrationSkip:
+      type: object
+      description: |
+        A runs-on the migration deliberately left alone, and why. A skip is not
+        a failure: a matrix expression, a job already on a self-hosted runner
+        and a hosted label nobody mapped are all things a person has to decide.
+      properties:
+        line: { type: integer }
+        job: { type: string }
+        value: { type: string }
+        reason: { type: string }
+
+    MigrationWorkflow:
+      type: object
+      properties:
+        path: { type: string, examples: [".github/workflows/ci.yml"] }
+        sha: { type: string, description: The blob SHA the plan was computed against. }
+        rewrites: { type: array, items: { $ref: "#/components/schemas/MigrationRewrite" } }
+        skips: { type: array, items: { $ref: "#/components/schemas/MigrationSkip" } }
+        diff: { type: string, description: A unified diff of the change, empty when the file is untouched. }
+
+    MigrationRepo:
+      type: object
+      properties:
+        repo: { type: string, examples: ["acme/widgets"] }
+        default_branch: { type: string }
+        workflows: { type: array, items: { $ref: "#/components/schemas/MigrationWorkflow" } }
+        hosted_labels:
+          type: array
+          items: { type: string }
+          description: The GitHub-hosted labels this repository asks for, mapped or not.
+        error: { type: string, description: Set when this repository could not be read; the rest of the plan still stands. }
+
+    MigrationPoolOption:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        labels: { type: array, items: { type: string } }
+        runs_on: { type: string, description: What a workflow writes to reach this pool, and the value a mapping should hold. }
+        enabled: { type: boolean }
+
+    MigrationCounts:
+      type: object
+      properties:
+        repos: { type: integer }
+        workflows: { type: integer }
+        jobs: { type: integer }
+        skipped: { type: integer }
+
+    MigrationPlan:
+      type: object
+      properties:
+        installation_id: { type: string }
+        target: { type: string }
+        repositories: { type: array, items: { $ref: "#/components/schemas/MigrationRepo" } }
+        hosted_labels: { type: array, items: { type: string } }
+        mapping:
+          type: object
+          additionalProperties: { type: string }
+          description: What was applied - the request's mapping, or the one the server proposed.
+        unmapped:
+          type: array
+          items: { type: string }
+          description: Hosted labels no pool was proposed for. Jobs on these are left where they are.
+        pools: { type: array, items: { $ref: "#/components/schemas/MigrationPoolOption" } }
+        counts: { $ref: "#/components/schemas/MigrationCounts" }
+        truncated: { type: boolean, description: True when the installation has more repositories than one plan reads.  }
+        missing_permissions:
+          type: array
+          items: { type: string }
+          description: >-
+            What the App still needs before pull requests can be opened. Reported here,
+            in the step before, because discovering it halfway through leaves half the
+            pull requests open.
+        permission_hint: { type: string }
+        settings_url: { type: string, description: The App's settings page, where the missing permissions are granted. }
+
+    MigrationResult:
+      type: object
+      properties:
+        repo: { type: string }
+        status: { type: string, enum: [opened, skipped, failed] }
+        pull_request_url: { type: string }
+        pull_request_number: { type: integer }
+        branch: { type: string }
+        workflows: { type: integer }
+        jobs: { type: integer }
+        reason: { type: string, description: Why it was skipped, or how it failed. }
+
+    MigrationOutcome:
+      type: object
+      properties:
+        results: { type: array, items: { $ref: "#/components/schemas/MigrationResult" } }
+        opened: { type: integer }
+        skipped: { type: integer }
+        failed: { type: integer }
 
     # --- pools ------------------------------------------------------------
     Resources:
