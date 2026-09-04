@@ -81,21 +81,26 @@ Create the App, install it on your organisation, and the credentials come back
 to the installer automatically. The private key is sealed with your instance
 encryption key before it touches the database, and is never returned by the API.
 
-## 4. Make a pool
+## 4. Your first pool
 
 A pool says what labels your runners answer to and how many may exist.
+On a single-host install, setup creates this one for you once GitHub is
+connected -- it is derived from what the host actually is, so the numbers below
+are what you get on a 4-CPU Linux box with Docker:
 
 | | |
 | --- | --- |
 | **Name** | `linux-x64` |
 | **Labels** | `linux-x64` — what your workflows put in `runs-on` |
 | **Backend** | Docker (rootless if available) |
-| **Min / max** | `0` / `8` — nothing idle when nothing is queued |
+| **Min / max** | `0` / `4` — nothing idle when nothing is queued; the max is the host's capacity |
 | **Idle timeout** | `5m` |
 | **Ephemeral** | yes |
 | **Docker in jobs** | none |
 
-Always set a maximum. It is your only backstop against a runaway workflow.
+Decline it, or set `pool.skip` in an answer file, and the Pools page starts
+empty; nothing runs until a pool exists. Either way, always set a maximum. It
+is your only backstop against a runaway workflow.
 
 ## 5. Run something
 

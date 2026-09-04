@@ -129,13 +129,16 @@ curl -fsSL https://zoomies.sh/install.sh | sh -s -- \
 ## Your first pool
 
 A pool says what labels your runners answer to and how many may exist.
+On a single-host install, setup creates this one for you once GitHub is
+connected -- it is derived from what the host actually is, so the numbers below
+are what you get on a 4-CPU Linux box with Docker:
 
 | | |
 | --- | --- |
 | **Name** | `linux-x64` |
 | **Labels** | `linux-x64` — what your workflows put in `runs-on` |
 | **Backend** | Docker (rootless if available) |
-| **Min / max** | `0` / `8` — nothing idle when nothing is queued |
+| **Min / max** | `0` / `4` — nothing idle when nothing is queued; the max is the host's capacity |
 | **Idle timeout** | `5m` |
 | **Ephemeral** | yes |
 | **Docker in jobs** | none |

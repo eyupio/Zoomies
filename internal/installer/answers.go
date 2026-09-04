@@ -45,6 +45,7 @@ type Answers struct {
 	ExternalURL    string      `yaml:"external_url"`
 	GitHub         AnswersApp  `yaml:"github"`
 	Admin          AnswersUser `yaml:"admin"`
+	Pool           AnswersPool `yaml:"pool"`
 	Service        AnswersSvc  `yaml:"service"`
 	Agent          AnswersJoin `yaml:"agent"`
 
@@ -91,6 +92,27 @@ type AnswersUser struct {
 	// the answer file is stored anywhere shared.
 	Password     string `yaml:"password"`
 	PasswordFile string `yaml:"password_file"`
+}
+
+// AnswersPool mirrors the first-pool question a single-host install asks.
+//
+// Every field is optional: an answer file that says nothing about pools gets
+// the same pool the prompt would have offered, which is the one this host can
+// actually run.
+type AnswersPool struct {
+	// Skip finishes setup with no pool. The Pools page is then empty and
+	// nothing runs until one is created.
+	Skip bool `yaml:"skip"`
+	// Name overrides the suggested pool name, which is derived from this
+	// host's OS, architecture and backend.
+	Name string `yaml:"name"`
+	// Labels are what a workflow's runs-on has to ask for. Empty means the
+	// pool answers to its own name.
+	Labels []string `yaml:"labels"`
+	// MaxRunners caps how many runners the pool may start at once. It cannot
+	// usefully exceed the host's capacity, which is where the default comes
+	// from.
+	MaxRunners int `yaml:"max_runners"`
 }
 
 // AnswersSvc mirrors the service question.
@@ -399,6 +421,21 @@ admin:
   # REQUIRED (or password_file). At least 12 characters.
   password: ""
   # password_file: /run/secrets/zoomies-admin-password
+
+# The first pool, created on a single-host install once GitHub is connected.
+# Without one the fleet has a host and nothing to place on it, so every key
+# here is optional and the defaults come from what this host actually is.
+pool:
+  # Set skip to true to finish setup with no pool and create one yourself.
+  skip: false
+  # Defaults to this host's OS and architecture, e.g. linux-x64 (and
+  # linux-x64-host for the process backend, which gives jobs no container).
+  # name: linux-x64
+  # What a workflow's runs-on has to ask for. Defaults to the pool's name.
+  # labels: [linux-x64]
+  # Defaults to capacity above. Always set a maximum somewhere: it is the only
+  # backstop against a runaway workflow.
+  # max_runners: 4
 
 # Only for deployment: native.
 service:
