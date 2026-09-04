@@ -73,9 +73,9 @@ jobs:
 
   deploy:
     name: Deploy
-    # Only from main: a pull request builds the site to prove it still builds,
-    # and publishes nothing.
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    # Only from main, and only when Pages is enabled: a pull request builds the
+    # site to prove it still builds, and publishes nothing.
+    if: github.event.repository.has_pages && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     needs: build
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
