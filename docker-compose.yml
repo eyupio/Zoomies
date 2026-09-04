@@ -1,8 +1,18 @@
 # Zoomies on a single VM, behind Cloudflare.
 #
 #   1. cp .env.example .env  and fill in ZOOMIES_ENCRYPTION_KEY
-#   2. docker compose up -d
-#   3. open https://zoomies.sh and create the first admin
+#   2. mkdir -p data && chown 65532:65532 data
+#   3. docker compose up -d
+#   4. open https://zoomies.sh and create the first admin
+#
+# Step 2 is not optional. The database lives in ./data next to this file, bind
+# mounted into the container, and a bind mount keeps the host directory's
+# ownership -- unlike a named volume, it does not inherit anything from the
+# image. The container runs as uid 65532, so a ./data owned by anyone else (and
+# Docker creates a missing one as root) gives you:
+#
+#   store: connecting to /var/lib/zoomies/zoomies.db: unable to open database
+#   file (14)
 #
 # Cloudflare terminates TLS and proxies to this origin over plain HTTP on port
 # 80, so the container serves HTTP and Zoomies is told its external URL is
@@ -16,9 +26,7 @@ name: zoomies
 
 services:
   zoomies:
-    # :main is the tip of main, published by CI on every merge. :latest
-    # appears once a release is tagged; switch to it when one exists.
-    image: ghcr.io/eyupio/zoomies:main
+    image: ghcr.io/eyupio/zoomies:latest
     # Or build locally:
     # build:
     #   context: .
@@ -26,6 +34,17 @@ services:
     #   target: controller
     restart: unless-stopped
     command: ["controller"]
+    # Compose already reads .env to interpolate the ${...} below; this passes it
+    # into the container as well, so any of the ZOOMIES_* settings in
+    # docs/configuration.md can be set by putting it in .env, with no matching
+    # line needed here. The explicit environment: entries below still win.
+    #
+    # required: false keeps a deployment that supplies its own environment --
+    # systemd, a secrets manager, CI -- from failing on a missing .env. It needs
+    # Compose v2.24 or newer; on older versions use `env_file: .env`.
+    env_file:
+      - path: .env
+        required: false
     environment:
       # How GitHub and your browser reach this controller. Webhooks are
       # delivered to $ZOOMIES_EXTERNAL_URL/webhooks/github, and the https here
@@ -63,7 +82,19 @@ services:
       # ranges, or use a Cloudflare Tunnel and publish no port at all.
       - "80:8080"
     volumes:
-      - zoomies-data:/var/lib/zoomies
+      # The database, and the runners' work area, in ./data beside this file --
+      # so backing Zoomies up is copying a directory, and inspecting it does not
+      # need `docker volume inspect`. See step 2 above: this directory must be
+      # owned by 65532.
+      - type: bind
+        source: ./data
+        target: /var/lib/zoomies
+        bind:
+          # Compose would otherwise helpfully create a missing ./data -- as
+          # root, since the daemon is root -- and hand you error 14 at startup.
+          # Failing with "bind source path does not exist" is far easier to act
+          # on than a SQLite error code.
+          create_host_path: false
       # The embedded agent needs the Docker socket to create runner containers.
       # This is Zoomies' own access to Docker -- it is NOT the same thing as
       # pool.docker_mode=host-socket, which would hand the socket to your jobs.
@@ -79,9 +110,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
-
-volumes:
-  zoomies-data:
 
 networks:
   # Runner containers are attached to this network by the embedded agent, which
