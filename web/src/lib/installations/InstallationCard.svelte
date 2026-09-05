@@ -94,7 +94,7 @@
         disabled={!canAdmin}
         onclick={() => ondelete(installation)}
       >
-        Delete
+        Disconnect
       </Button>
     </div>
   </header>

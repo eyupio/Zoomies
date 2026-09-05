@@ -163,7 +163,7 @@
       );
       reload += 1;
     } catch (cause) {
-      toasts.fromError(cause, 'That installation was not removed');
+      toasts.fromError(cause, 'That installation was not disconnected');
     }
   }
 
