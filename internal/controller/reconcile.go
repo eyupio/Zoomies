@@ -273,6 +273,7 @@ func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, a sched
 		PoolID:        pool.ID,
 		PoolName:      pool.Name,
 		Image:         r.Image,
+		PullPolicy:    pool.PullPolicy,
 		Credentials:   creds,
 		Env:           pool.Env,
 		Ephemeral:     pool.Ephemeral,

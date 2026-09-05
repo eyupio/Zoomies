@@ -109,6 +109,11 @@ func (f *fakeBackend) Create(ctx context.Context, spec backend.Spec) (backend.Ha
 	return handle, nil
 }
 
+func (f *fakeBackend) CreateWithResult(ctx context.Context, spec backend.Spec) (backend.CreateResult, error) {
+	h, err := f.Create(ctx, spec)
+	return backend.CreateResult{Handle: h, Digest: "sha256:resolved"}, err
+}
+
 func (f *fakeBackend) Status(_ context.Context, h backend.Handle) (backend.Status, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
