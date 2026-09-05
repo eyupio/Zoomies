@@ -68,6 +68,7 @@ build [zoomies.sh](https://zoomies.sh) and nothing else.
 | `mkdocs-material` | The theme. It carries the search, the light/dark palettes, the tabbed blocks the quick start uses, and the Mermaid integration below. |
 | `pymdown-extensions` | The fenced-block, tabbed and admonition syntax the pages are written in, including the custom `mermaid` fence. |
 | Mermaid | Diagrams. Material fetches it from a CDN in the reader's browser, only on a page that has one, and colours it from the palette above — so a diagram lives in the Markdown beside what it explains, renders on GitHub as well, and there is no exported image to go stale. |
+| `pillow` | Encodes the screenshots in `docs/screenshots/` as lossless WebP, at under half the size of the PNGs Playwright takes. Only `make screenshots` needs it, so it is not in `docs/requirements.txt` and the site builds without it; the browser can write lossless WebP itself but compresses it six times worse. |
 
 ## Deliberate omissions
 

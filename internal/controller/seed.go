@@ -294,6 +294,19 @@ func (c *Controller) seedRunners(ctx context.Context, now time.Time, pools []*st
 		if s.state != store.RunnerProvisioning {
 			started := created.Add(20 * time.Second)
 			r.StartedAt = &started
+			// The store stamps created_at itself, so the backend timings are
+			// placed relative to the seeding instant rather than to `created`:
+			// a few seconds to a running container, a few more to a registered
+			// runner, varying by runner so the p50 and p95 differ. Without them
+			// the Overview's startup and registration tiles both read 0ms, and
+			// a demo that says the fleet starts runners in no time at all is
+			// lying about the one number an operator sizing a pool asks for.
+			containerStarted := now.Add(time.Duration(3+i%5) * time.Second)
+			r.ContainerStartedAt = &containerStarted
+			if s.state != store.RunnerRegistering {
+				registered := containerStarted.Add(time.Duration(6+(i*3)%9) * time.Second)
+				r.RegisteredAt = &registered
+			}
 		}
 		if s.state == store.RunnerIdle {
 			idle := now.Add(-time.Duration(s.ageMin/2) * time.Minute)
@@ -384,6 +397,12 @@ func (c *Controller) seedJobs(ctx context.Context, now time.Time, rng *rand.Rand
 			// Running right now, on one of the busy runners.
 			r := busy[i%len(busy)]
 			started := now.Add(-time.Duration(2+i%5) * time.Minute)
+			// Queued moments before it started, as on a fleet that is keeping
+			// up. Left in its historical slot the job would carry a forty-minute
+			// wait, and the three running jobs are most of what the Overview's
+			// one-hour median sees -- so the headline number would say the
+			// fleet is drowning while every other panel says it is fine.
+			j.QueuedAt = started.Add(-time.Duration(12+7*(i%3)) * time.Second)
 			j.State = store.JobInProgress
 			j.StartedAt = &started
 			j.RunnerID, j.RunnerName = r.ID, r.Name

@@ -16,6 +16,9 @@ Open it at **Migrate** in the navigation, or `g` then `m`.
 
 ## What it does
 
+![The migration wizard's review step: the exact diff for one repository, changing runs-on from ubuntu-latest to the pool's label, and the jobs it leaves alone with their reasons](screenshots/migrate-dark.webp#only-dark){ .zoomies-shot }
+![The migration wizard's review step: the exact diff for one repository, changing runs-on from ubuntu-latest to the pool's label, and the jobs it leaves alone with their reasons](screenshots/migrate-light.webp#only-light){ .zoomies-shot }
+
 1. **Reads.** It lists the repositories your GitHub App installation can see and
    reads the workflow files at the top of each one's `.github/workflows`.
 2. **Proposes.** For every rented-runner label it found — GitHub's own

@@ -123,10 +123,16 @@
     font-weight: var(--z-weight-medium);
     color: var(--z-text-muted);
   }
+  /* A row while there is room; when there is not, the delta, the hint and the
+     sparkline each take a line of their own rather than breaking mid-phrase.
+     "6 in the hour" and "9 of 10 slots on 3 healthy hosts" are each one thing
+     to read, and a four-column tile at laptop width has room for one of them
+     beside the sparkline, not both. */
   .foot {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: var(--z-space-2);
+    gap: var(--z-space-1) var(--z-space-2);
     min-height: var(--z-space-6);
   }
   .delta {
@@ -136,6 +142,7 @@
     font-size: var(--z-text-xs);
     font-variant-numeric: tabular-nums;
     color: var(--z-text-muted);
+    white-space: nowrap;
   }
   .delta[data-tone='good'] {
     color: var(--z-idle);
@@ -146,6 +153,7 @@
   .hint {
     font-size: var(--z-text-xs);
     color: var(--z-text-subtle);
+    white-space: nowrap;
   }
   .spark {
     margin-left: auto;

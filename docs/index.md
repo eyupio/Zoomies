@@ -48,6 +48,12 @@ curl -fsSL https://zoomies.sh/install.sh | sh
 
 </div>
 
+![The Overview: four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and the scheduler's recent decisions in its own words](screenshots/overview-dark.webp#only-dark){ .zoomies-shot }
+![The Overview: four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and the scheduler's recent decisions in its own words](screenshots/overview-light.webp#only-light){ .zoomies-shot }
+
+The Overview, on a fleet part-way through a morning. [Every page, in both themes](ui.md).
+{ .zoomies-shot-caption }
+
 ## How it works
 
 Point Zoomies at a GitHub organisation. It watches for queued jobs, starts a
