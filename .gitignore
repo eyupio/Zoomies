@@ -36,3 +36,6 @@ coverage.out
 
 # The built website (mkdocs build)
 /site/
+
+# Python bytecode from the site build hook
+__pycache__/

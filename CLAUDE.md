@@ -96,7 +96,10 @@ has a CI job that diffs them:
   budget.
 * `go mod tidy` must leave `go.mod`/`go.sum` unchanged, and `gofmt -l` must be
   empty.
-* `mkdocs build --strict` — a docs link that points nowhere fails the build.
+* `mkdocs build --strict` — a docs link that points nowhere fails the build. The
+  site workflow also checks that `sitemap.xml` and `llms.txt` came out of it,
+  both generated (by `overrides/sitemap.xml` and `hooks/seo.py`) rather than
+  written, so a build that quietly stopped producing one would otherwise ship.
 
 ## Configuration
 
@@ -207,6 +210,7 @@ web/                the Svelte 5 UI
 api/openapi.yaml    the API contract both clients are generated from
 deploy/             images, compose, systemd units
 docs/               the zoomies.sh site, built by mkdocs.yml
-overrides/          the site's theme overrides: sharing tags and structured data
+overrides/          the site's theme overrides: sharing tags, structured data, sitemap
+hooks/              the site's build-time SEO metadata: git dates and llms.txt
 install.sh          the one-line installer, served from the site root
 ```

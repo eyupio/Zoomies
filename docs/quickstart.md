@@ -1,3 +1,9 @@
+---
+description: >-
+  Install Zoomies and run your first job on a self-hosted ephemeral runner in
+  about five minutes -- one curl command, one GitHub App, no Kubernetes.
+---
+
 # Quick start
 
 Five minutes, on a fresh Ubuntu, Debian, Fedora or Alpine host. macOS works too
@@ -103,7 +109,17 @@ host still works — with exactly the permissions it needs and no more:
 | `administration: write` | the same, for a repository target |
 | `actions: read` | read workflow runs and jobs for the fallback poller |
 | `metadata: read` | required by GitHub for any App |
+| `contents: write` | read and rewrite workflow files for the [migration wizard](migration.md) |
+| `pull_requests: write` | open the migration wizard's pull request |
+| `workflows: write` | GitHub requires it specifically to change files under `.github/workflows` |
 | `workflow_job` event | the webhook that makes scaling instant |
+
+The last three are the migration wizard's, and they are asked for now rather
+than later because later is expensive: adding a permission to an App that
+already exists is held by GitHub until the account's owner accepts it on the
+installation, and until they do the wizard cannot read a workflow at all. If you
+never migrate anything, remove them on the App's **Permissions & events** page —
+nothing else in Zoomies writes to a repository.
 
 Create the App, install it on your organisation, and the credentials come back
 to the installer automatically. The private key is sealed with your instance

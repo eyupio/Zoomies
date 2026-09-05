@@ -1,3 +1,9 @@
+---
+description: >-
+  Every REST, SSE and metrics endpoint the Zoomies controller serves, and the
+  role each one needs -- the contract both generated clients are built from.
+---
+
 # Zoomies API surface
 
 This is the authoritative list of endpoints. `internal/api` implements exactly
@@ -33,6 +39,8 @@ Conventions:
 | GET | `/api/v1/meta` | — | Version, whether bootstrap is needed, whether OIDC is enabled, feature flags. Safe to call before login — it is what the login page uses to decide what to render. |
 | GET | `/metrics` | viewer¹ | Prometheus text format. ¹Unauthenticated when `metrics.public` is true. |
 | GET | `/api/openapi.yaml` | — | The spec this document describes. |
+| GET | `/robots.txt` | — | Declines crawling unless `server.allow_indexing` is on. Rendered per request, because it has to name this controller's own address. |
+| GET | `/sitemap.xml` | — | The interface's top-level pages, absolute. Nothing about the fleet: a pool or runner address is gone by tomorrow. |
 
 ## Authentication
 

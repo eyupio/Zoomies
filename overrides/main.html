@@ -4,19 +4,27 @@
   Material's own social plugin is not used: it renders a card image per page
   with Cairo and Pillow, which would put two native libraries into the docs
   build for a picture the brand pack already supplies. These blocks are the part
-  that matters -- a title, a description and one card image, absolute, on every
-  page -- and they cost nothing.
+  that matters -- a title, a description, one card image, and a machine-readable
+  description of what the project is, absolute, on every page -- and they cost
+  nothing.
 
   Everything here is derived from the page rather than written twice: the
-  description falls back to site_description, and the canonical URL is the one
-  MkDocs already computes.
+  description falls back to site_description, the canonical URL is the one
+  MkDocs already computes, the breadcrumb is read out of the navigation, and the
+  modified date comes from git by way of hooks/seo.py.
 #}
 {% extends "base.html" %}
 
 {% block extrahead %}
+  {#
+    The page's own title, not the abbreviation the sidebar uses: a navigation
+    entry is trimmed to fit a column, and "FAQ -- Zoomies" is a worse thing to
+    find in a search result than the sentence the page opens with.
+  #}
+  {% set page_title = (page.meta.title if page and page.meta and page.meta.title else (page.title if page else none)) %}
   {% set title = config.site_name %}
-  {% if page and page.title and not page.is_homepage %}
-    {% set title = page.title ~ " -- " ~ config.site_name %}
+  {% if page_title and not page.is_homepage %}
+    {% set title = page_title ~ " -- " ~ config.site_name %}
   {% endif %}
   {% set description = config.site_description %}
   {% if page and page.meta and page.meta.description %}
@@ -24,20 +32,42 @@
   {% endif %}
   {% set image = config.site_url ~ "brand/social-card.png" %}
   {% set canonical = page.canonical_url if page else config.site_url %}
+  {% set modified = page.meta.git_date if page and page.meta else none %}
 
-  <meta property="og:type" content="website" />
+  {#
+    Everything here is public documentation and is meant to be found, so the
+    directives are the permissive ones: a full snippet rather than the ~160
+    characters a search engine otherwise truncates to, and a large preview
+    image rather than a thumbnail.
+
+    The exception is the 404 template, which has no page behind it and is
+    rendered at a different address every time it is served.
+  #}
+  {% if page %}
+  <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  {% else %}
+  <meta name="robots" content="noindex, follow" />
+  {% endif %}
+
+  <meta property="og:type" content="{{ 'article' if page and not page.is_homepage else 'website' }}" />
+  <meta property="og:locale" content="en_GB" />
   <meta property="og:site_name" content="{{ config.site_name }}" />
   <meta property="og:title" content="{{ title }}" />
-  <meta property="og:description" content="{{ description }}" />
+  <meta property="og:description" content="{{ description | striptags | trim }}" />
   <meta property="og:url" content="{{ canonical }}" />
   <meta property="og:image" content="{{ image }}" />
+  <meta property="og:image:type" content="image/png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
   <meta property="og:image:alt" content="The Zoomies logo: a cocker spaniel curling through a circular motion path" />
+  {% if modified %}
+  <meta property="article:modified_time" content="{{ modified }}" />
+  {% endif %}
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="{{ title }}" />
-  <meta name="twitter:description" content="{{ description }}" />
+  <meta name="twitter:description" content="{{ description | striptags | trim }}" />
   <meta name="twitter:image" content="{{ image }}" />
+  <meta name="twitter:image:alt" content="The Zoomies logo: a cocker spaniel curling through a circular motion path" />
 
   {#
     The structured description search engines and AI assistants read. It says
@@ -47,26 +77,106 @@
     It is on the home page only. Repeating one application's description on
     every page of its documentation is how a site ends up with fifteen
     competing answers to "what is this".
+
+    The WebSite entry beside it names the site's own search, which is what lets
+    a result offer a search box for these docs rather than only a link. Material
+    reads ?q= on load, so the URL below really does run the query.
   #}
   {% if page and page.is_homepage %}
   <script type="application/ld+json">
     {
       "@context": "https://schema.org",
-      "@type": "SoftwareApplication",
-      "name": "Zoomies",
-      "alternateName": "Zoomies runner fleet controller",
-      "applicationCategory": "DeveloperApplication",
-      "applicationSubCategory": "Continuous integration",
-      "operatingSystem": "Linux, macOS, Windows",
-      "url": "{{ config.site_url }}",
-      "downloadUrl": "{{ config.site_url }}quickstart/",
-      "codeRepository": "{{ config.repo_url }}",
-      "license": "https://opensource.org/licenses/MIT",
-      "description": "{{ config.site_description | trim }}",
+      "@graph": [
+        {
+          "@type": "SoftwareApplication",
+          "@id": "{{ config.site_url }}#software",
+          "name": "Zoomies",
+          "alternateName": "Zoomies runner fleet controller",
+          "applicationCategory": "DeveloperApplication",
+          "applicationSubCategory": "Continuous integration",
+          "operatingSystem": "Linux, macOS",
+          "url": "{{ config.site_url }}",
+          "downloadUrl": "{{ config.site_url }}quickstart/",
+          "installUrl": "{{ config.site_url }}install.sh",
+          "codeRepository": "{{ config.repo_url }}",
+          "license": "https://opensource.org/licenses/MIT",
+          "description": {{ config.site_description | trim | tojson }},
+          "image": "{{ image }}",
+          "featureList": [
+            "Ephemeral runners, one job per container",
+            "GitHub App authentication with single-use JIT registrations",
+            "Webhook-driven autoscaling, with polling as a fallback",
+            "Multi-host agents that connect outbound only",
+            "A live web UI, Prometheus metrics and an audit log",
+            "A one-line installer"
+          ],
+          "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+          "isAccessibleForFree": true,
+          "author": {
+            "@type": "Organization",
+            "name": "Zoomies contributors",
+            "url": "{{ config.repo_url }}"
+          },
+          "keywords": "self-hosted GitHub Actions runner, ephemeral runners, autoscaling CI runners, GitHub Actions runner controller, self-hosted CI"
+        },
+        {
+          "@type": "WebSite",
+          "@id": "{{ config.site_url }}#website",
+          "url": "{{ config.site_url }}",
+          "name": "{{ config.site_name }}",
+          "description": {{ config.site_description | trim | tojson }},
+          "inLanguage": "en-GB",
+          "about": { "@id": "{{ config.site_url }}#software" },
+          "potentialAction": {
+            "@type": "SearchAction",
+            "target": {
+              "@type": "EntryPoint",
+              "urlTemplate": "{{ config.site_url }}?q={search_term_string}"
+            },
+            "query-input": "required name=search_term_string"
+          }
+        }
+      ]
+    }
+  </script>
+  {% elif page %}
+  {#
+    A documentation page describes itself, and says where it sits. The
+    breadcrumb is read out of the navigation rather than the URL, so a page
+    moved between sections in mkdocs.yml moves here too.
+  #}
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "TechArticle",
+      "headline": {{ page_title | tojson }},
+      "description": {{ description | striptags | trim | tojson }},
+      "url": "{{ canonical }}",
+      "inLanguage": "en-GB",
+      {% if modified %}"dateModified": "{{ modified }}",{% endif %}
       "image": "{{ image }}",
-      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-      "isAccessibleForFree": true,
-      "keywords": "self-hosted GitHub Actions runner, ephemeral runners, autoscaling CI runners, GitHub Actions runner controller, self-hosted CI"
+      "isPartOf": { "@type": "WebSite", "@id": "{{ config.site_url }}#website" },
+      "about": { "@type": "SoftwareApplication", "@id": "{{ config.site_url }}#software" },
+      "author": {
+        "@type": "Organization",
+        "name": "Zoomies contributors",
+        "url": "{{ config.repo_url }}"
+      },
+      "license": "https://opensource.org/licenses/MIT"
+    }
+  </script>
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "Home", "item": "{{ config.site_url }}" }
+        {%- set ancestors = page.ancestors | reverse | list -%}
+        {%- for parent in ancestors %}
+        , { "@type": "ListItem", "position": {{ loop.index + 1 }}, "name": {{ parent.title | tojson }} }
+        {%- endfor %}
+        , { "@type": "ListItem", "position": {{ ancestors | length + 2 }}, "name": {{ page_title | tojson }}, "item": "{{ canonical }}" }
+      ]
     }
   </script>
   {% endif %}

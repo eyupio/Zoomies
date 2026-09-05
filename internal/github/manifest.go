@@ -75,8 +75,9 @@ type hookAttributes struct {
 // The permission set is deliberately minimal, because an App that manages a
 // fleet's runners is a high-value credential: it asks for the runner
 // administration permission for the kind of target it will manage, read access
-// to Actions so it can see queued jobs, and nothing else. Metadata read is
-// mandatory for every App.
+// to Actions so it can see queued jobs, the three the migration wizard needs to
+// rewrite a runs-on line and open a pull request for it, and nothing else.
+// Metadata read is mandatory for every App.
 //
 // Every key here is one GitHub's manifest schema permits; it rejects anything
 // else outright, so nothing speculative belongs in this struct.
@@ -129,10 +130,27 @@ func Manifest(o ManifestOptions) ([]byte, error) {
 // manifestPermissions returns the least privilege that works for the target
 // kind. An org App manages runners through the organisation permission and
 // never needs repository administration; a repo App is the other way round.
+//
+// The three migration permissions are asked for here, at creation, rather than
+// left for the operator to add later. Adding a permission to an App that
+// already exists is not a setting an operator can just flip: GitHub holds the
+// change until the account's owner accepts it on the installation, and until
+// they do the migration wizard cannot even *read* a workflow -- it reports
+// every repository as unreadable, which is a broken product rather than a
+// missing permission. Asking once, on the consent screen the operator is
+// already reading, is both honest and the only point in the flow where saying
+// yes costs a click.
 func manifestPermissions(org bool) map[string]string {
 	p := map[string]string{
 		"actions":  "read",
 		"metadata": "read",
+		// The migration wizard's three: read a repository's workflows, commit
+		// the rewritten file to a branch, and open the pull request. GitHub
+		// requires "workflows" specifically for a change under
+		// .github/workflows, and grants nothing else with it.
+		"contents":      "write",
+		"pull_requests": "write",
+		"workflows":     "write",
 	}
 	if org {
 		p["organization_self_hosted_runners"] = "write"

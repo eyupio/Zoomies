@@ -1,3 +1,10 @@
+---
+description: >-
+  What Zoomies protects, what it does not, and what each dangerous setting
+  costs: ephemeral runners, the Docker socket, disabled authentication, and
+  the warnings they raise.
+---
+
 # Zoomies security
 
 This document says what Zoomies protects, what it does not, and what every
@@ -81,8 +88,12 @@ on its own runners, and cannot read pools, jobs, users or the audit log.
 * **Multi-tenancy between untrusted organisations.** One Zoomies instance is one
   team's fleet. Pools are not a security boundary between tenants.
 * **Compromise of the GitHub App itself.** If the App's private key leaks, the
-  attacker can register runners against your org. Rotate it in GitHub and
-  re-enter it in Zoomies.
+  attacker can register runners against your org, and — because the App is
+  created with the [migration wizard's](migration.md) permissions — commit to a
+  branch and open a pull request on the repositories it is installed on. It
+  cannot merge one. Rotate the key in GitHub and re-enter it in Zoomies; a fleet
+  that will never migrate anything can drop those three permissions on the App's
+  **Permissions & events** page.
 * **Denial of service.** There is no per-repository quota in v1. A repository
   that queues thousands of jobs will pin your pools at their maximum, which is
   what `max_runners` is for.
@@ -274,6 +285,18 @@ development.
 
 `/metrics` served without authentication. Repository names, workflow names and
 pool names appear in metric labels. Prefer giving Prometheus a viewer API token.
+
+### `server.allow_indexing: true`
+
+`robots.txt` invites search engines into the interface, advertises
+`/sitemap.xml`, and the page's own directive changes from `noindex, nofollow` to
+`index, follow`.
+
+Nothing behind authentication becomes readable — the API still refuses a request
+without a session — but the sign-in page, this controller's address and the fact
+that it is a Zoomies fleet all become public knowledge, findable by anyone
+searching for exactly that. Leave it off unless the instance is deliberately
+public.
 
 ### `agent.insecure_skip_verify: true`
 

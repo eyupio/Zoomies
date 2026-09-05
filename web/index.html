@@ -50,6 +50,52 @@
       content="A GitHub Actions runner fleet controller you host yourself. Single Go binary, SQLite, no Kubernetes."
     />
     <meta name="twitter:image" content="__ZOOMIES_ORIGIN__/brand/social-card.png" />
+    <meta
+      name="twitter:image:alt"
+      content="The Zoomies logo: a cocker spaniel curling through a circular motion path"
+    />
+    <meta property="og:locale" content="en_GB" />
+    <meta property="og:image:type" content="image/png" />
+
+    <!--
+      Whether this controller wants to be found at all.
+
+      __ZOOMIES_ROBOTS__ is replaced at startup from server.allow_indexing, and
+      the default is noindex: a fleet controller is somebody's infrastructure,
+      not somebody's website, and /robots.txt says the same thing to a crawler
+      that never fetches this page. An operator running a deliberately public
+      instance turns it on and gets a startup warning saying what that means.
+
+      The canonical link starts at the root and the router rewrites it on every
+      navigation, so a route that has collected filters in its query string
+      still names one address rather than a hundred.
+    -->
+    <meta name="robots" content="__ZOOMIES_ROBOTS__" />
+    <link rel="canonical" href="__ZOOMIES_ORIGIN__/" />
+
+    <!--
+      What this is, for anything reading the page rather than looking at it: a
+      link preview, a bookmarking tool, an assistant asked what is running on
+      this host. It names the project's own site, which is where the answer
+      actually lives.
+    -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "Zoomies",
+        "applicationCategory": "DeveloperApplication",
+        "applicationSubCategory": "Continuous integration",
+        "operatingSystem": "Linux, macOS",
+        "browserRequirements": "Requires JavaScript",
+        "url": "__ZOOMIES_ORIGIN__/",
+        "sameAs": "https://zoomies.sh/",
+        "description": "The operator interface for a Zoomies GitHub Actions runner fleet: pools, runners, jobs, hosts and live logs.",
+        "license": "https://opensource.org/licenses/MIT",
+        "isAccessibleForFree": true,
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+      }
+    </script>
 
     <!-- The paw/swish is the official favicon-scale mark. Larger installed-app
          icons keep the primary circular dog identity. -->

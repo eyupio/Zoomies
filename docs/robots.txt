@@ -2,4 +2,9 @@
 User-agent: *
 Allow: /
 
+# llms.txt is the same table of contents in one plain-text file, for an
+# assistant that would rather read the site than crawl it. It is generated at
+# build time from the navigation, so it cannot fall behind the pages.
+# https://zoomies.sh/llms.txt
+
 Sitemap: https://zoomies.sh/sitemap.xml

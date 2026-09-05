@@ -1,3 +1,9 @@
+---
+description: >-
+  Every dependency Zoomies carries, the one-line reason it earns its place,
+  and the two that were deliberately left out.
+---
+
 # Dependencies
 
 Every dependency needs a reason. If one below stops earning its line, it should
