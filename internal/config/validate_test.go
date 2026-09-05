@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // The web UI does not show bind.public_no_tls, because a fleet behind
@@ -164,5 +165,92 @@ func TestABareEnterpriseHostnameIsNormalisedNotRefused(t *testing.T) {
 	}
 	if hasCode(c.Validate(), "github.api_base_malformed") {
 		t.Fatal("a bare hostname the docs accept was refused by the validator")
+	}
+}
+
+// Each of these is a value that quietly weakens the default posture, which is
+// exactly what the validator exists to name, and none of them used to draw a
+// finding. They are warnings: every one has a legitimate use somewhere, and
+// the point is that the operator is told, not stopped.
+func TestQuietDangerousValuesAreNamed(t *testing.T) {
+	cases := []struct {
+		name string
+		code string
+		set  func(c *Config)
+	}{
+		{"any origin", "origins.any", func(c *Config) { c.Server.AllowedOrigins = []string{"*"} }},
+		{"a plaintext origin on an https controller", "origins.insecure", func(c *Config) {
+			c.Server.ExternalURL = "https://zoomies.example.com"
+			c.Server.AllowedOrigins = []string{"http://dash.example.com"}
+		}},
+		{"every address is a trusted proxy", "proxy.trust_everyone", func(c *Config) {
+			c.Server.TrustedProxies = []string{"0.0.0.0/0"}
+		}},
+		{"every IPv6 address is a trusted proxy", "proxy.trust_everyone", func(c *Config) {
+			c.Server.TrustedProxies = []string{"::/0"}
+		}},
+		{"no login rate limit", "auth.no_login_limit", func(c *Config) { c.Security.RateLimitLogins = 0 }},
+		{"a heartbeat interval near the lost-host timeout", "agent.heartbeat_interval_long", func(c *Config) {
+			c.Agent.HeartbeatInterval = MaxQuietHeartbeatInterval + time.Second
+		}},
+		{"a plaintext identity provider", "oidc.insecure_issuer", func(c *Config) {
+			c.OIDC.Enabled = true
+			c.OIDC.Issuer = "http://sso.example.com"
+			c.OIDC.ClientID = "zoomies"
+			c.Server.ExternalURL = "https://zoomies.example.com"
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := Default()
+			if hasCode(c.Validate(), tc.code) {
+				t.Fatalf("the default configuration drew %s", tc.code)
+			}
+			tc.set(c)
+			fs := c.Validate()
+			if !hasCode(fs, tc.code) {
+				t.Fatalf("no %s finding; got %+v", tc.code, fs)
+			}
+			for _, f := range fs {
+				if f.Code == tc.code && f.Severity != SeverityWarning {
+					t.Fatalf("%s is %s; it should warn, not refuse to start", tc.code, f.Severity)
+				}
+			}
+		})
+	}
+}
+
+// A plaintext origin costs nothing extra on a controller that is itself
+// plaintext -- bind.public_no_tls already covers that deployment -- and
+// nothing at all on loopback, where a Vite dev server lives.
+func TestPlaintextOriginsAreOnlyNamedOnAnHTTPSController(t *testing.T) {
+	c := Default()
+	c.Server.AllowedOrigins = []string{"http://dash.example.com", "http://localhost:5173"}
+	if hasCode(c.Validate(), "origins.insecure") {
+		t.Fatal("a plaintext origin on a plaintext controller drew origins.insecure")
+	}
+	c.Server.TLS.Mode = TLSSelfSigned
+	named := 0
+	for _, f := range c.Validate() {
+		if f.Code == "origins.insecure" {
+			named++
+		}
+	}
+	if named != 1 {
+		t.Fatalf("origins.insecure was raised %d times, want once: the loopback origin is exempt", named)
+	}
+}
+
+// A proxy range that is merely wide is a choice; only the range that is every
+// address is the warning, and a bad CIDR stays the error it always was.
+func TestOnlyTheEverythingRangeDrawsTheProxyWarning(t *testing.T) {
+	c := Default()
+	c.Server.TrustedProxies = []string{"10.0.0.0/8", "192.168.1.5", "cloudflare"}
+	if fs := c.Validate(); hasCode(fs, "proxy.trust_everyone") || hasCode(fs, "proxy.bad_cidr") {
+		t.Fatalf("an ordinary proxy list drew a finding: %+v", fs)
+	}
+	c.Server.TrustedProxies = []string{"not-a-cidr"}
+	if !hasCode(c.Validate(), "proxy.bad_cidr") {
+		t.Fatal("an unparseable proxy entry was accepted")
 	}
 }

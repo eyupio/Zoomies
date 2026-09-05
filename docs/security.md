@@ -304,6 +304,37 @@ a warning rather than an error. If that is your setup, also set
 than your proxy's. The word `cloudflare` stands for Cloudflare's published
 ranges when Cloudflare is the proxy.
 
+### `server.allowed_origins: ["*"]`
+
+Switches the origin check off. Browser requests that change state are normally
+accepted only from this controller's own origin (or an origin listed here), so
+that a page on some other site an operator happens to visit cannot use their
+session cookie to create pools, drain runners or mint tokens. `"*"` accepts any
+origin, which is exactly that cross-site request forgery. List the origins that
+actually host the UI instead. An `http://` origin on an `https://` controller
+is warned about for a related reason: a plaintext page can be rewritten in
+transit, and whatever rewrites it inherits the permission the entry grants.
+
+### `server.trusted_proxies: [0.0.0.0/0]`
+
+Believes `X-Forwarded-For` from every address. It is what makes a header-based
+setup "just work", and what it costs is that any client can choose the address
+the audit log records for it and defeat login rate limiting by rotating the one
+it claims. List your proxy's own range, or the word `cloudflare`.
+
+### `security.rate_limit_logins: 0`
+
+Turns the sign-in rate limit off, so a password can be guessed from one address
+as fast as the controller answers. The default of ten attempts per address per
+minute is generous for a person and hopeless for a dictionary.
+
+### `oidc.issuer: http://…`
+
+Discovery, the token exchange and the client secret all travel to the identity
+provider over plaintext HTTP, where anything on the path can read or replace
+them and sign in as anyone. Use the issuer's `https://` address; a loopback
+issuer for local development is not warned about.
+
 ### `security.disable_auth: true`
 
 Every request is treated as an administrator.
