@@ -18,6 +18,26 @@ func kindsOfEvents(events []*store.JobEvent) []store.JobEventKind {
 	return out
 }
 
+// runnerLostTotal reads the lost-runner counter back through the registry, the
+// way a scrape would, so the test needs nothing the production code does not.
+func (h *harness) runnerLostTotal() float64 {
+	h.t.Helper()
+	families, err := h.c.metrics.reg.Gather()
+	if err != nil {
+		h.t.Fatalf("Gather: %v", err)
+	}
+	total := 0.0
+	for _, mf := range families {
+		if mf.GetName() != "zoomies_jobs_runner_lost_total" {
+			continue
+		}
+		for _, m := range mf.GetMetric() {
+			total += m.GetCounter().GetValue()
+		}
+	}
+	return total
+}
+
 func (h *harness) timeline(jobID string) []*store.JobEvent {
 	h.t.Helper()
 	events, err := h.c.JobEvents(h.ctx, jobID)
@@ -195,6 +215,25 @@ func TestARunnerFailingUnderItsJobIsRecordedOnTheJob(t *testing.T) {
 		t.Fatalf("last timeline entry = %+v, want runner_lost from the agent", last)
 	}
 
+	// The agent reports the same exit again -- a runner report and then the
+	// task result that carries it both arrive -- and the failed runner is
+	// terminal, so the second report is dropped by the state machine. The
+	// job must still carry exactly one line and one count for it.
+	before := h.runnerLostTotal()
+	if before != 1 {
+		t.Fatalf("zoomies_jobs_runner_lost_total = %v after one lost runner, want 1", before)
+	}
+	h.c.noteRunnerLost(h.ctx, r, sourceAgent, "runner exited with code 137: reported again")
+	if got := h.timeline(job.ID); len(got) != len(events) {
+		t.Fatalf("a repeated report added a timeline entry: %v", kindsOfEvents(got))
+	}
+	if after := h.runnerLostTotal(); after != before {
+		t.Fatalf("a repeated report counted the runner as lost again: %v -> %v", before, after)
+	}
+	if again, _ := h.st.GetJob(h.ctx, job.ID); !strings.Contains(again.RunnerFault, "memory limit") {
+		t.Fatalf("a repeated report replaced the first fault: %q", again.RunnerFault)
+	}
+
 	if codes := h.problemCodes(); !slices.Contains(codes, "jobs.runner_lost") {
 		t.Fatalf("problems = %v, want jobs.runner_lost", codes)
 	}
@@ -263,6 +302,12 @@ func TestForceRemovingABusyRunnerIsRecordedOnItsJob(t *testing.T) {
 	after, _ := h.st.GetJob(h.ctx, job.ID)
 	if !strings.Contains(after.RunnerFault, "removed by an operator") {
 		t.Fatalf("runner fault = %q, want the operator's reason", after.RunnerFault)
+	}
+	// The agent did not see this one go; the controller did it, and the
+	// timeline says so rather than blaming the host.
+	events := h.timeline(job.ID)
+	if last := events[len(events)-1]; last.Kind != store.JobEventRunnerLost || last.Source != sourceController {
+		t.Fatalf("last timeline entry = %+v, want runner_lost from the controller", last)
 	}
 
 	// Without force the runner drains, the job keeps running, and nothing is

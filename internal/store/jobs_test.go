@@ -115,21 +115,24 @@ func TestSetJobRunnerFaultKeepsTheFirstMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpsertJob: %v", err)
 	}
-	got, err := s.SetJobRunnerFault(ctx, j.ID, "runner exited with code 137: out of memory")
+	got, recorded, err := s.SetJobRunnerFault(ctx, j.ID, "runner exited with code 137: out of memory")
 	if err != nil {
 		t.Fatalf("SetJobRunnerFault: %v", err)
 	}
-	if got.RunnerFault != "runner exited with code 137: out of memory" {
-		t.Fatalf("fault = %q", got.RunnerFault)
+	if got.RunnerFault != "runner exited with code 137: out of memory" || !recorded {
+		t.Fatalf("fault = %q, recorded = %v; want the first report kept and flagged", got.RunnerFault, recorded)
 	}
-	got, err = s.SetJobRunnerFault(ctx, j.ID, "the agent could not complete task t1")
+	got, recorded, err = s.SetJobRunnerFault(ctx, j.ID, "the agent could not complete task t1")
 	if err != nil {
 		t.Fatalf("second SetJobRunnerFault: %v", err)
 	}
 	if got.RunnerFault != "runner exited with code 137: out of memory" {
 		t.Fatalf("a second report replaced the first fault: %q", got.RunnerFault)
 	}
-	if _, err := s.SetJobRunnerFault(ctx, "job_missing", "x"); err == nil {
+	if recorded {
+		t.Fatal("a second report was flagged as the one that recorded the fault")
+	}
+	if _, _, err := s.SetJobRunnerFault(ctx, "job_missing", "x"); err == nil {
 		t.Fatal("a fault on a job that does not exist was accepted")
 	}
 }
@@ -161,7 +164,7 @@ func TestFailedOnlyFindsBothKindsOfFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetJobByGitHubID: %v", err)
 	}
-	if _, err := s.SetJobRunnerFault(ctx, orphan.ID, "runner exited with code 137"); err != nil {
+	if _, _, err := s.SetJobRunnerFault(ctx, orphan.ID, "runner exited with code 137"); err != nil {
 		t.Fatalf("SetJobRunnerFault: %v", err)
 	}
 

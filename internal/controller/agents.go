@@ -656,7 +656,7 @@ func (c *Controller) applyRunnerState(ctx context.Context, r *store.Runner, stat
 		// A clean exit under a job is the ordinary race between GitHub's
 		// completed delivery and the agent noticing the container has gone;
 		// a failure is not, and the job it was running needs to say so.
-		c.noteRunnerLost(ctx, r, message)
+		c.noteRunnerLost(ctx, r, sourceAgent, message)
 	}
 	if state.Terminal() {
 		// A runner that has gone frees host capacity, so the next placement

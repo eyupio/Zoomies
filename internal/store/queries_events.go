@@ -171,16 +171,23 @@ func (s *Store) ApplyJob(ctx context.Context, j *Job) (*Job, JobChange, error) {
 
 // SetJobRunnerFault records what the runner executing a job said when it
 // stopped before GitHub reported the job over, and returns the job as it now
-// is.
+// is, along with whether this call is the one that recorded the fault.
 //
 // Only the first fault is kept. The agent may report the same exit more than
 // once -- a runner report and then a task result -- and the first message is
-// the one closest to the event.
-func (s *Store) SetJobRunnerFault(ctx context.Context, jobID, fault string) (*Job, error) {
+// the one closest to the event. The flag is what lets the caller write the
+// timeline entry and count the metric exactly once, decided inside the write
+// rather than by a read that two reports could both make first.
+func (s *Store) SetJobRunnerFault(ctx context.Context, jobID, fault string) (*Job, bool, error) {
 	var out *Job
+	var recorded bool
 	err := s.tx(ctx, func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx, `UPDATE jobs SET runner_fault=? WHERE id=? AND runner_fault=''`, fault, jobID); err != nil {
+		res, err := tx.ExecContext(ctx, `UPDATE jobs SET runner_fault=? WHERE id=? AND runner_fault=''`, fault, jobID)
+		if err != nil {
 			return err
+		}
+		if n, err := res.RowsAffected(); err == nil && n > 0 {
+			recorded = true
 		}
 		j, err := scanJob(tx.QueryRowContext(ctx, `SELECT `+jobCols+` FROM jobs WHERE id = ?`, jobID))
 		if errors.Is(err, sql.ErrNoRows) {
@@ -189,7 +196,7 @@ func (s *Store) SetJobRunnerFault(ctx context.Context, jobID, fault string) (*Jo
 		out = j
 		return err
 	})
-	return out, err
+	return out, recorded, err
 }
 
 // ---------------------------------------------------------------------------

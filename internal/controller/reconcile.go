@@ -451,7 +451,7 @@ func (c *Controller) removeRunner(ctx context.Context, r *store.Runner, reason s
 		// Only a forced removal reaches here with a job still running, and
 		// that job is about to fail on GitHub for a reason only this fleet
 		// knows.
-		c.noteRunnerLost(ctx, r, reason)
+		c.noteRunnerLost(ctx, r, sourceController, reason)
 	}
 	return updated, nil
 }
@@ -467,7 +467,7 @@ func (c *Controller) failRunnerID(ctx context.Context, id, reason string) error 
 	}
 	c.publishRunner(ctx, events.KindRunnerUpdated, updated)
 	c.log.Warn("a runner failed", "runner", updated.ID, "name", updated.Name, "reason", reason)
-	c.noteRunnerLost(ctx, before, reason)
+	c.noteRunnerLost(ctx, before, sourceController, reason)
 	return nil
 }
 

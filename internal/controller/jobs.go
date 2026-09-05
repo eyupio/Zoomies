@@ -155,8 +155,14 @@ func completionMessage(j *store.Job) string {
 //
 // before is the runner as it was before the transition, because the store
 // clears CurrentJobID when a runner goes terminal and the job's identity would
-// otherwise be gone by the time anyone asked.
-func (c *Controller) noteRunnerLost(ctx context.Context, before *store.Runner, message string) {
+// otherwise be gone by the time anyone asked. source says who saw it go: the
+// agent, when the container died on its own; the controller, when an operator
+// removed a busy runner with force or the reconcile loop gave up on it.
+//
+// It is idempotent. The same exit can reach here more than once -- a runner
+// report and then the task result that carries it -- and only the report that
+// records the fault writes the timeline entry and counts the metric.
+func (c *Controller) noteRunnerLost(ctx context.Context, before *store.Runner, source, message string) {
 	if before == nil || before.CurrentJobID == "" {
 		return
 	}
@@ -173,13 +179,16 @@ func (c *Controller) noteRunnerLost(ctx context.Context, before *store.Runner, m
 		message = "the runner stopped without saying why"
 	}
 	fault := fmt.Sprintf("runner %s stopped while this job was running: %s", before.Name, message)
-	updated, err := c.st.SetJobRunnerFault(ctx, j.ID, fault)
+	updated, recorded, err := c.st.SetJobRunnerFault(ctx, j.ID, fault)
 	if err != nil {
 		c.log.Warn("could not record a lost runner on its job", "job", j.ID, "runner", before.ID, "error", err)
 		return
 	}
+	if !recorded {
+		return
+	}
 	if err := c.st.AppendJobEvent(ctx, &store.JobEvent{
-		JobID: j.ID, Kind: store.JobEventRunnerLost, Source: sourceAgent,
+		JobID: j.ID, Kind: store.JobEventRunnerLost, Source: source,
 		Message:  fault + "; GitHub will report the job failed once the runner's absence is noticed",
 		RunnerID: before.ID, RunnerName: before.Name, At: c.Now(),
 	}); err != nil {
