@@ -412,14 +412,27 @@ func (c *Controller) seedScaling(ctx context.Context, now time.Time, linux, arm 
 	// The reason quotes the pool by name, exactly as the scheduler writes it,
 	// so the fixture cannot drift from the pool it describes when the pools are
 	// renamed.
+	//
+	// Ten of them, on purpose: that is as many as the Overview shows, and more
+	// than fit beside a fleet of two pools, so the fixture exercises the feed
+	// being cut to its column rather than stretching the page. The scheduler
+	// keeps deciding over this fleet once it is seeded, and each decision it
+	// records pushes the oldest line here off the Overview -- so the lines the
+	// UI tests quote are kept well clear of the old end, and the wind-down
+	// before them is what gets displaced.
 	events := []struct {
 		pool     *store.Pool
 		from, to int
 		why      string
 		agoMin   int
 	}{
+		{linux, 6, 4, "2 runners idle > 5m", 165},
+		{linux, 4, 2, "2 runners idle > 5m", 150},
+		{linux, 2, 1, "1 runner idle > 5m", 140},
 		{linux, 1, 4, "3 jobs queued > 30s", 95},
 		{linux, 4, 6, "2 jobs queued > 30s", 70},
+		{arm, 0, 1, "1 job queued > 30s", 62},
+		{arm, 1, 0, "1 runner idle > 10m", 48},
 		{linux, 6, 4, "2 runners idle > 5m", 40},
 		{arm, 0, 1, "1 job queued > 30s", 30},
 		{linux, 4, 5, "1 job queued > 30s", 8},
