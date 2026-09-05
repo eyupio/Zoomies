@@ -1172,8 +1172,22 @@ paths:
               type: object
               properties:
                 ttl: { type: string, default: "15m", examples: ["15m", "1h"] }
-                capacity: { type: integer, default: 2, minimum: 1 }
+                capacity:
+                  type: integer
+                  default: 2
+                  minimum: 0
+                  description: 0 lets the agent decide from the host's CPU count.
                 labels: { type: object, additionalProperties: { type: string } }
+                controller_url:
+                  type: string
+                  format: uri
+                  description: |
+                    The address the new host should join on, used in the
+                    returned command in place of `server.external_url`. The
+                    UI sends the address the browser reached this controller
+                    on, which is the one a machine beside it can usually reach
+                    too. Must be an absolute http or https URL.
+                  examples: ["https://zoomies.example.com"]
       responses:
         "201":
           description: Created
@@ -1194,6 +1208,22 @@ paths:
 
   /join-tokens/{id}:
     parameters: [{ $ref: "#/components/parameters/PathID" }]
+    get:
+      operationId: getJoinToken
+      tags: [hosts]
+      summary: Get a join token
+      description: |
+        The token's state, never its secret. Once a host has redeemed it,
+        `used_by_id` is that host's id -- which is how the Add-a-host page
+        knows the machine it is waiting for has arrived.
+      x-zoomies-role: admin
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JoinToken" }
+        "404": { $ref: "#/components/responses/NotFound" }
     delete:
       operationId: deleteJoinToken
       tags: [hosts]

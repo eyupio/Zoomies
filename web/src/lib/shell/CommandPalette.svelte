@@ -167,7 +167,7 @@
           group: 'Action',
           label: 'Add a host',
           icon: HardDrive,
-          run: () => router.navigate('/hosts'),
+          run: () => router.navigate('/hosts/new'),
         },
         {
           id: 'create-pool',
