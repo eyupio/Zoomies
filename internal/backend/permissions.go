@@ -36,7 +36,10 @@ import (
 // agentIdentity is the agent's view of itself, injected so that every branch of
 // the diagnosis can be tested on a machine with one user and no docker group.
 type agentIdentity struct {
-	uid      int
+	uid int
+	// gid is the primary group, which is what separates "the groups this
+	// process was given" from the one it would have anyway.
+	gid      int
 	username string
 	// processGroups are the groups this process holds. A group added with
 	// usermod does not appear here until the process is restarted, and that gap
@@ -58,11 +61,18 @@ type agentIdentity struct {
 	// changes the fix completely: its account is the image's, not the host's,
 	// and the group has to be granted when the container is created.
 	containerized bool
+	// envDockerGID is DOCKER_GID from the environment, if the deployment put
+	// it there. The compose files do: it is the value group_add was given, so
+	// when it is present the advice can say which line to change rather than
+	// which file to look in.
+	envDockerGID string
 }
 
 func realIdentity() agentIdentity {
 	id := agentIdentity{
-		uid: os.Geteuid(),
+		uid:          os.Geteuid(),
+		gid:          os.Getegid(),
+		envDockerGID: strings.TrimSpace(os.Getenv("DOCKER_GID")),
 		groupName: func(gid int) string {
 			g, err := user.LookupGroupId(strconv.Itoa(gid))
 			if err != nil || g == nil {
@@ -123,17 +133,15 @@ func deniedDetail(id agentIdentity, path string) string {
 	case ok && id.containerized && !id.holdsGroup(gid):
 		// Nothing an operator does on the host to a user that only exists in
 		// the image will help. The container needs the host gid at creation.
-		return fmt.Sprintf("permission denied on %s: this agent runs in a container as %s, and the host socket mounted into it is group-owned by %s (mode %s). "+
-			"A usermod on the host cannot help -- that account exists only inside the image. Give the container the group instead: "+
-			"`--group-add %s` with docker run, or `group_add: [\"%s\"]` in compose (set DOCKER_GID=%s in .env), then recreate the container.",
-			path, id.name(), group, perm, group, group, group)
+		return id.containerDenied(path, gid, perm)
 
 	case !ok && id.containerized:
 		// The socket cannot even be examined from in here, which usually means
 		// it was never mounted.
 		return fmt.Sprintf("permission denied on %s: this agent runs in a container as %s and cannot open that socket. "+
 			"Mount the host's socket into the container and give the container the group that owns it -- "+
-			"`stat -c '%%g' %s` on the host says which gid, then `--group-add <gid>` or `group_add` in compose.",
+			"`stat -c '%%g' %s` on the host says which gid; with docker compose put DOCKER_GID=<gid> in .env (the compose file's group_add reads it) "+
+			"and run `docker compose up -d`, with docker run recreate the container with --group-add <gid>.",
 			path, id.name(), path)
 
 	case ok && id.holdsGroup(gid):
@@ -169,6 +177,96 @@ func deniedDetail(id agentIdentity, path string) string {
 			"Add that user to the docker group (`sudo usermod -aG docker %s`) and %s, or %s",
 			path, who, id.name(), id.restartClause(), id.rootlessAlternative())
 	}
+}
+
+// containerDenied is the advice for a container that was not given the group
+// owning the socket, written as the two steps a compose operator actually has
+// to take.
+//
+// The earlier version of this sentence offered `group_add: ["987"]` as a
+// copyable snippet, and the UI dutifully gave it a copy button -- so it was
+// pasted into a shell, which answered "command not found", and the container
+// was recreated with the same wrong group as before. The compose file already
+// has group_add; what it reads is DOCKER_GID in .env, and that line is the
+// only thing to change. Naming the group the container currently holds is
+// what makes the mismatch obvious at a glance: "holds 999, socket is 987".
+//
+// Nothing here is a `docker compose down`: `up -d` recreates a container whose
+// configuration changed, and the destructive variant, `down -v`, is what an
+// operator reaches for when told to "recreate" -- and it deletes the volume
+// with the database in it.
+func (id agentIdentity) containerDenied(path string, gid int, perm string) string {
+	socketGID := strconv.Itoa(gid)
+	var b strings.Builder
+	fmt.Fprintf(&b, "permission denied on %s: this agent runs in a container as %s, and the host socket mounted into it is group-owned by %s (mode %s)",
+		path, id.name(), socketGID, perm)
+
+	if gid == 0 {
+		// The only gid that would reach this socket is root's, and the two
+		// numbered steps below would put the container in it. That is not a
+		// fix Zoomies will suggest; the socket needs a group of its own.
+		b.WriteString(", which is root's group: the only DOCKER_GID that would open it is 0, and a container in the root group is not something to run jobs from. ")
+		fmt.Fprintf(&b, "Give the socket a group of its own on the host -- `sudo groupadd docker`, then restart the daemon so it takes the group, "+
+			"and put that group's gid (`stat -c '%%g' %s`) in DOCKER_GID -- or run a rootless daemon and point ZOOMIES_DOCKER_HOST at its socket.", path)
+		return b.String()
+	}
+
+	switch extra := id.extraGroups(); {
+	case len(extra) == 1:
+		fmt.Fprintf(&b, ", but the container holds group %d, not %s", extra[0], socketGID)
+	case len(extra) > 1:
+		fmt.Fprintf(&b, ", but the container holds groups %s, not %s", joinInts(extra), socketGID)
+	default:
+		b.WriteString(", and the container was given no extra group at all")
+	}
+	if id.envDockerGID != "" {
+		if slices.Contains(id.extraGroups(), atoiOr(id.envDockerGID, -1)) {
+			fmt.Fprintf(&b, " -- DOCKER_GID=%s in its environment is where that came from", id.envDockerGID)
+		} else {
+			fmt.Fprintf(&b, " (its environment says DOCKER_GID=%s, but no group_add carried that into the container)", id.envDockerGID)
+		}
+	}
+	b.WriteString(". A usermod on the host cannot help: that account exists only inside the image, and a container is given its groups when it is created. ")
+
+	b.WriteString("With docker compose, in the directory that holds docker-compose.yml: ")
+	if id.envDockerGID != "" && id.envDockerGID != socketGID {
+		fmt.Fprintf(&b, "1. change the DOCKER_GID line in .env from %s to `DOCKER_GID=%s`", id.envDockerGID, socketGID)
+	} else {
+		fmt.Fprintf(&b, "1. put `DOCKER_GID=%s` in .env, which is the value the compose file's group_add reads", socketGID)
+	}
+	fmt.Fprintf(&b, " (`stat -c '%%g' %s` on the host confirms the gid); ", path)
+	b.WriteString("2. run `docker compose up -d`, which recreates the container with that group -- there is no need to bring it down first, and down -v would delete the volume with the database in it. ")
+	fmt.Fprintf(&b, "With docker run, recreate the container with `--group-add %s`.", socketGID)
+	return b.String()
+}
+
+// extraGroups are the groups the process holds beyond its primary one: for a
+// container, exactly what group_add or --group-add gave it.
+func (id agentIdentity) extraGroups() []int {
+	var out []int
+	for _, g := range id.processGroups {
+		if g != id.gid && !slices.Contains(out, g) {
+			out = append(out, g)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+func joinInts(ns []int) string {
+	parts := make([]string, len(ns))
+	for i, n := range ns {
+		parts[i] = strconv.Itoa(n)
+	}
+	return strings.Join(parts, ", ")
+}
+
+func atoiOr(s string, fallback int) int {
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil {
+		return fallback
+	}
+	return n
 }
 
 // who names the account the agent runs as, which is the fact an operator most

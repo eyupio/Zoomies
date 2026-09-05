@@ -168,6 +168,7 @@ func EnvSpecFor(p Plan) EnvSpec {
 		Backend:          string(p.Backend),
 		DockerHost:       p.DockerHost,
 		Capacity:         p.Capacity,
+		Network:          NetworkName,
 		WorkDir:          p.WorkDir,
 		DBPath:           p.DBPath,
 		StateDir:         ContainerStateDir,
@@ -302,7 +303,10 @@ func DockerRunArgs(s DockerRunSpec) []string {
 		s.Command = "controller"
 	}
 
-	args := []string{"run", "--detach", "--name", s.Container, "--restart", "unless-stopped"}
+	// The hostname is the name the embedded agent registers the host under;
+	// without one it is the container's random ID, which then follows the host
+	// into every scheduler reason and problem message.
+	args := []string{"run", "--detach", "--name", s.Container, "--hostname", s.Container, "--restart", "unless-stopped"}
 	if s.EnvFile != "" {
 		args = append(args, "--env-file", s.EnvFile)
 	}

@@ -543,7 +543,14 @@ func (c *Config) applyEnv() error {
 	integer("ZOOMIES_AGENT_CAPACITY", &c.Agent.Capacity)
 	str("ZOOMIES_AGENT_BACKEND", &c.Agent.Backend)
 	str("ZOOMIES_DOCKER_HOST", &c.Agent.DockerHost)
-	str("DOCKER_HOST", &c.Agent.DockerHost)
+	// Docker's own variable is honoured only when Zoomies' is not set. The
+	// compose file hands the whole .env to the container, and an operator
+	// whose daemon is rootless or remote keeps DOCKER_HOST in that file for
+	// docker and compose themselves; read second, it would silently override
+	// the socket the compose file names explicitly.
+	if _, explicit := os.LookupEnv("ZOOMIES_DOCKER_HOST"); !explicit {
+		str("DOCKER_HOST", &c.Agent.DockerHost)
+	}
 	str("ZOOMIES_WORK_DIR", &c.Agent.WorkDir)
 	str("ZOOMIES_CONTROLLER_URL", &c.Agent.ControllerURL)
 	str("ZOOMIES_JOIN_TOKEN", &c.Agent.JoinToken)

@@ -45,6 +45,12 @@
     /** The installation ID GitHub returns with once the App has been installed. */
     initialInstallationId?: string;
     oncreated?: () => void;
+    /**
+     * The code has been spent. The page that owns the address bar takes the
+     * code and state out of it here, so a reload of this tab does not try to
+     * exchange a code GitHub has already honoured.
+     */
+    onexchanged?: () => void;
     onclose?: () => void;
   }
 
@@ -54,6 +60,7 @@
     initialState = '',
     initialInstallationId = '',
     oncreated,
+    onexchanged,
     onclose,
   }: Props = $props();
 
@@ -146,6 +153,15 @@
   let appName = $state('');
   let code = $state('');
   let installationId = $state('');
+  /**
+   * The App ID typed on the last step, for the tab that GitHub returned the
+   * installation to when it is not the tab that created the App: nothing in
+   * that browser knows which App the installation belongs to, and the App ID
+   * is the one thing the controller needs to match it to the key it holds.
+   */
+  let appIdInput = $state('');
+  /** The code came in on the address bar: GitHub has created the App already. */
+  let arrivedWithCode = $state(false);
 
   /* -- what the server hands back -------------------------------------------- */
 
@@ -195,15 +211,27 @@
     // over anything left behind by an earlier attempt.
     if (initialState) manifestState = initialState;
     if (initialCode && !code) {
-      code = initialCode;
-      step = 1;
+      // A handshake this browser already carried past the exchange is not
+      // undone by the code still sitting in the address bar -- a reload of
+      // the callback tab, say. That code is spent; step three is where the
+      // flow left off.
+      const exchanged = saved?.appId != null && (saved.step ?? 0) >= 2;
+      if (!exchanged) {
+        code = initialCode;
+        step = 1;
+        arrivedWithCode = true;
+      }
     }
     if (initialInstallationId && !installationId) {
       installationId = initialInstallationId;
-      // Only the last step can use it, and only if this browser still knows
-      // which App was created; without that the operator has to start again.
-      if (appId !== null) step = 2;
+      // GitHub only ever sends this after an installation succeeded, so it is
+      // never noise. When this browser does not know which App was created,
+      // the last step asks for the App ID rather than starting over.
+      step = 2;
     }
+    // GitHub has done its part and the state is in the address bar: there is
+    // nothing for the operator to decide before the exchange, so it runs.
+    if (arrivedWithCode && manifestState) void exchange();
   });
 
   function reset(): void {
@@ -219,6 +247,8 @@
     appName = '';
     code = '';
     installationId = '';
+    appIdInput = '';
+    arrivedWithCode = false;
     postUrl = '';
     manifest = '';
     manifestState = '';
@@ -243,16 +273,49 @@
     reset();
   }
 
+  /**
+   * The fields each step of the manifest tab renders. A field error for
+   * anything else -- the private key, on the last step, when the controller
+   * no longer holds it -- would otherwise be attached to an input that is not
+   * on screen, leaving a failure line that names no cause.
+   */
+  const STEP_FIELDS: readonly (readonly string[])[] = [
+    ['target', 'target_type', 'name', 'api_base_url'],
+    ['code', 'state'],
+    ['installation_id', 'app_id'],
+  ];
+
   function report(cause: unknown, fallback: string): void {
     if (cause instanceof ApiError) {
       errors = cause.fieldErrors();
       failure = cause.message;
+      if (tab === 'manifest') {
+        const shown = STEP_FIELDS[step] ?? [];
+        const hidden = Object.entries(errors)
+          .filter(([field]) => !shown.includes(field))
+          .map(([, message]) => message);
+        if (hidden.length > 0) failure = `${failure} ${hidden.join(' ')}`;
+      }
     } else {
       failure = fallback;
     }
   }
 
   /* -- step one: build the manifest ------------------------------------------- */
+
+  /**
+   * What GitHub will and will not let a private App do. A repository target
+   * creates the App on the operator's own account, and GitHub installs a
+   * private App only on the account that owns it -- so for a repository that
+   * belongs to an organisation, the App has to be the organisation's, scoped
+   * to that one repository at install time. Said here, before the App exists,
+   * rather than discovered on GitHub's install page.
+   */
+  const targetHint = $derived(
+    targetType === 'repo'
+      ? 'A repository App is created on your own account, and GitHub only lets a private App be installed there. For a repository owned by an organisation, choose Organisation and pick just that repository when you install.'
+      : 'The account whose runners this App will manage.',
+  );
 
   const targetError = $derived(
     target.trim() === ''
@@ -332,13 +395,16 @@
    * The manifest goes to GitHub as a real form in the markup, submitted by a
    * real submit button.
    *
-   * It used to be a form built in script and submitted with `form.submit()`,
-   * which is where the "you have to reload the GitHub tab before it takes the
-   * form" report came from: a programmatic submission into a new tab is not
-   * reliably treated as user-initiated, and removing the element in the same
-   * turn as submitting it can leave the new tab sitting on a blank page that
-   * never got the body. A declarative form has none of that -- the browser
-   * navigates the new tab itself, with the POST body attached, on the click.
+   * Two things have to hold for the POST to arrive. The form must be a real
+   * one: a form built in script, submitted with `form.submit()` and torn down
+   * in the same turn, is not reliably treated as user-initiated and can leave
+   * the new tab on a blank page. And the page's Content-Security-Policy must
+   * name GitHub in `form-action`, which the controller does (see
+   * contentSecurityPolicy in internal/api/router.go). That second one was the
+   * real cause of the "you have to reload the GitHub tab, and then the form is
+   * empty" report: a policy of 'self' alone makes the browser refuse the
+   * submission without a word on screen, and reloading turns the POST into a
+   * GET, which GitHub answers with its blank create-an-App form.
    */
 
   /* -- step two: exchange the code -------------------------------------------- */
@@ -365,6 +431,7 @@
       if (result.target_type) targetType = result.target_type;
       step = 2;
       saveProgress();
+      onexchanged?.();
     } catch (cause) {
       report(cause, 'That code could not be exchanged.');
     } finally {
@@ -375,14 +442,15 @@
   /* -- step three: record the installation ------------------------------------- */
 
   async function record(): Promise<void> {
+    const app = appId ?? Number(appIdInput.trim());
     const id = Number(installationId.trim());
-    if (!appId || !Number.isInteger(id) || id <= 0) return;
+    if (!Number.isInteger(app) || app <= 0 || !Number.isInteger(id) || id <= 0) return;
     busy = true;
     errors = {};
     failure = '';
     try {
       await createInstallation({
-        app_id: appId,
+        app_id: app,
         installation_id: id,
         target: target.trim(),
         target_type: targetType as TargetType,
@@ -463,7 +531,7 @@
 
             <Field
               label="Organisation or repository"
-              hint="The account whose runners this App will manage."
+              hint={targetHint}
               error={errors.target ?? targetError}
             >
               {#snippet children({ id, describedBy, invalid })}
@@ -517,18 +585,31 @@
               {/snippet}
             </Field>
           {:else if step === 1}
-            <p class="lede">
-              The next button opens GitHub in a new tab with the manifest already filled in. Confirm
-              it there; GitHub creates the App and sends the browser back here with a code in the
-              address bar.
-            </p>
+            {#if arrivedWithCode}
+              <p class="lede">
+                GitHub has created the App and sent this tab back with a code. The code is exchanged
+                here for the App's credentials, which stay sealed on this controller; if the
+                exchange did not go through, the button below tries it again.
+              </p>
+            {:else if manifest}
+              <p class="lede">
+                The next button opens GitHub in a new tab with the manifest already filled in.
+                Confirm it there; GitHub creates the App and sends the browser back here with a code
+                in the address bar.
+              </p>
 
-            <form method="POST" action={manifestAction} target="_blank" rel="noopener">
-              <input type="hidden" name="manifest" value={manifest} />
-              <Button type="submit" variant="primary" iconAfter={ExternalLink} disabled={!manifest}>
-                Create the App on GitHub
-              </Button>
-            </form>
+              <form method="POST" action={manifestAction} target="_blank" rel="noopener">
+                <input type="hidden" name="manifest" value={manifest} />
+                <Button type="submit" variant="primary" iconAfter={ExternalLink}>
+                  Create the App on GitHub
+                </Button>
+              </form>
+            {:else}
+              <p class="lede">
+                The manifest was built in another tab, so this one has nothing to send to GitHub.
+                Paste the code GitHub gave that tab, or go back a step and build the manifest here.
+              </p>
+            {/if}
 
             <Field
               label="Code from GitHub"
@@ -540,10 +621,25 @@
               {/snippet}
             </Field>
           {:else}
-            <p class="lede">
-              {appSlug ? `${appSlug} exists` : 'The App exists'} and its key is sealed here. It cannot
-              do anything yet: an App has to be installed on the account before it can see any repositories.
-            </p>
+            {#if appId !== null}
+              <p class="lede">
+                {appSlug ? `${appSlug} exists` : 'The App exists'} and its key is sealed here. It cannot
+                do anything yet: an App has to be installed on the account before it can see any repositories.
+              </p>
+            {:else}
+              <p class="lede">
+                GitHub reports that installation {installationId || 'of the App'} was created, but this
+                browser does not know which App it belongs to -- that was in the tab the flow started
+                from. The App ID is on the App's settings page, next to its name; this controller still
+                holds the key it created, for an hour.
+              </p>
+
+              <Field label="App ID" error={errors.app_id}>
+                {#snippet children({ id, describedBy, invalid })}
+                  <Input bind:value={appIdInput} {id} {describedBy} {invalid} type="number" mono />
+                {/snippet}
+              </Field>
+            {/if}
 
             {#if installUrl}
               <div>
@@ -715,7 +811,12 @@
           Exchange the code
         </Button>
       {:else}
-        <Button variant="primary" loading={busy} disabled={!installationId.trim()} onclick={record}>
+        <Button
+          variant="primary"
+          loading={busy}
+          disabled={!installationId.trim() || (appId === null && !appIdInput.trim())}
+          onclick={record}
+        >
           Finish
         </Button>
       {/if}

@@ -558,3 +558,25 @@ func TestAgentDoesNotReprobeOnEveryHeartbeatWhenHealthy(t *testing.T) {
 		}
 	}
 }
+
+// A container runner's scratch space is its own filesystem, never the agent's
+// work directory: that directory is shared by every runner on the host, owned
+// by the wrong account for the image, and -- when the agent is itself a
+// container -- a path the host daemon cannot even see. Mounting it produced a
+// runner whose first job failed on an empty root-owned _work.
+func TestCreateTaskDoesNotHandTheAgentsWorkDirToTheBackend(t *testing.T) {
+	h := newHarness(t, 1)
+	h.tr.tasks <- []Task{createTask("task-1", "runner-1")}
+	if res := h.nextResult(); !res.OK {
+		t.Fatalf("create failed: %+v", res)
+	}
+
+	h.be.mu.Lock()
+	defer h.be.mu.Unlock()
+	if len(h.be.created) != 1 {
+		t.Fatalf("created %d runners, want 1", len(h.be.created))
+	}
+	if got := h.be.created[0].WorkDir; got != "" {
+		t.Fatalf("the backend was given work dir %q; the runner should use its own filesystem", got)
+	}
+}

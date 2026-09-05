@@ -236,6 +236,10 @@ func newContainerBackend(opts DockerOptions, fl flavor, detect func() []string, 
 // Kind identifies the implementation.
 func (b *DockerBackend) Kind() store.BackendKind { return b.fl.kind }
 
+// SocketPath is the unix socket this backend talks to, or "" for a TCP
+// endpoint.
+func (b *DockerBackend) SocketPath() string { return b.api.SocketPath() }
+
 // Probe reports what this daemon can do, never failing: an agent on a host with
 // no Docker must still start and say so.
 func (b *DockerBackend) Probe(ctx context.Context) Info {

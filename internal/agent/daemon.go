@@ -780,9 +780,19 @@ func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 	if spec.RunnerID == "" {
 		spec.RunnerID = task.RunnerID
 	}
-	if spec.WorkDir == "" {
-		spec.WorkDir = a.opts.WorkDir
-	}
+	// The agent's own work directory is deliberately not handed to the
+	// backend as the runner's. For a container backend a spec WorkDir is bind
+	// mounted over the runner's _work, and the agent's directory is the wrong
+	// thing to mount three times over: it is one directory shared by every
+	// concurrent runner on the host; it belongs to the agent's account, which
+	// is not the image's runner uid, so the runner cannot write to it; and
+	// when the agent is itself a container -- the compose deployment -- the
+	// path names a place inside the agent's container, which the host daemon
+	// resolves on the host instead, mounting an empty root-owned directory
+	// that fails the first job. A runner container's own filesystem is the
+	// right scratch space for an ephemeral runner. The process backend keeps
+	// its own per-runner directories under the agent's work directory and
+	// never read this field.
 
 	// Tasks are given a context that shutdown does not cancel: a create that is
 	// half done is worse than one that finishes and is reported.

@@ -22,6 +22,10 @@ services:
     image: ${ZOOMIES_IMAGE}
     restart: unless-stopped
     container_name: {{.Container}}
+    # The embedded agent registers this host under the container's hostname;
+    # without one that is a random twelve-hex-digit ID, which then follows the
+    # host into every scheduler reason and problem message.
+    hostname: {{.Container}}
     command: ["{{.Command}}"]
     environment:
 {{- if eq .Command "agent" }}
@@ -63,6 +67,10 @@ services:
       ZOOMIES_AGENT_BACKEND: ${ZOOMIES_AGENT_BACKEND}
       ZOOMIES_DOCKER_HOST: ${ZOOMIES_DOCKER_HOST}
       ZOOMIES_AGENT_CAPACITY: ${ZOOMIES_AGENT_CAPACITY}
+      # The network runner containers are attached to: the one declared at the
+      # bottom of this file. Without it they land on the daemon's default
+      # bridge.
+      ZOOMIES_AGENT_NETWORK: ${ZOOMIES_AGENT_NETWORK}
       ZOOMIES_WORK_DIR: ${ZOOMIES_WORK_DIR}
 
       # Generated run-time data -- a self-signed certificate above all -- goes
@@ -71,6 +79,12 @@ services:
       ZOOMIES_DB_PATH: ${ZOOMIES_DB_PATH}
       ZOOMIES_LOG_FORMAT: ${ZOOMIES_LOG_FORMAT}
       ZOOMIES_LOG_LEVEL: ${ZOOMIES_LOG_LEVEL}
+{{- if .GroupAdd }}
+
+      # The gid group_add below is given, echoed in so that if it is ever
+      # wrong the Hosts page can name the line in .env to change.
+      DOCKER_GID: ${DOCKER_GID}
+{{- end }}
 {{- if .Publish }}
     ports:
       # Published as ${ZOOMIES_PUBLISHED_ADDR}:${ZOOMIES_PUBLISHED_PORT}. On

@@ -849,6 +849,7 @@ func (c *Controller) adoptEmbeddedCredentials(ctx context.Context, a *agent.Agen
 		if h, herr := c.st.GetHost(ctx, creds.HostID); herr == nil &&
 			cryptox.ConstantTimeEqual(h.TokenHash, cryptox.HashToken(creds.AgentToken)) {
 			tr.SetCredentials(creds.HostID, creds.AgentToken)
+			c.renameEmbeddedHost(ctx, h, cfg.Agent.Name)
 			c.markHostSeen(creds.HostID, true)
 			return nil
 		}
@@ -862,6 +863,34 @@ func (c *Controller) adoptEmbeddedCredentials(ctx context.Context, a *agent.Agen
 	// the same code path a remote agent takes, and one path is easier to trust
 	// than two.
 	return a.Join(ctx, plaintext)
+}
+
+// renameEmbeddedHost brings the host row's name in line with the agent's
+// configured one when the two have drifted apart.
+//
+// The name is recorded once, at join, and a container deployment joined under
+// whatever hostname Docker gave the first container -- a random twelve hex
+// digits -- before its compose file set one. The identity is the persisted
+// credential, not the name, so the row is kept and renamed rather than
+// re-joined; and it is only renamed when nothing else already answers to the
+// new name, since two hosts called the same thing would be worse than one
+// called 7096d9a9b798.
+func (c *Controller) renameEmbeddedHost(ctx context.Context, h *store.Host, name string) {
+	name = strings.TrimSpace(name)
+	if name == "" || h.Name == name {
+		return
+	}
+	if _, err := c.st.GetHostByName(ctx, name); !errors.Is(err, store.ErrNotFound) {
+		return
+	}
+	was := h.Name
+	h.Name = name
+	if err := c.st.UpdateHost(ctx, h); err != nil {
+		c.log.Warn("could not rename the embedded host", "host", h.ID, "was", was, "want", name, "error", err)
+		return
+	}
+	c.log.Info("renamed the embedded host to its configured name", "host", h.ID, "was", was, "now", name)
+	c.publishHost(h)
 }
 
 // EmbeddedAgent returns the in-process agent, or nil when this controller runs

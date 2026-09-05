@@ -250,7 +250,7 @@ func TestDockerRunArgs(t *testing.T) {
 			name:   "the reference deployment",
 			mutate: func(s *DockerRunSpec) {},
 			want: []string{
-				"run", "--detach", "--name", "zoomies", "--restart", "unless-stopped",
+				"run", "--detach", "--name", "zoomies", "--hostname", "zoomies", "--restart", "unless-stopped",
 				"--env-file", "/etc/zoomies/zoomies.env",
 				"--publish", "127.0.0.1:9090:8080",
 				"--volume", "zoomies-data:/var/lib/zoomies",

@@ -183,9 +183,20 @@ func (s *Server) handleCreateInstallation(w http.ResponseWriter, r *http.Request
 	if !targetType.Valid() {
 		fields = append(fields, fieldError{"target_type", fmt.Sprintf("%q is not a target type; use org or repo", targetType)})
 	}
-	if privateKey == "" {
+	switch {
+	case privateKey == "" && pending == nil && strings.TrimSpace(req.PrivateKey) == "" && req.AppID > 0:
+		// The manifest flow's last step, arriving after the credentials it
+		// relies on have gone: they live in memory for an hour and do not
+		// survive a restart -- and a restart is exactly what the Hosts page
+		// prescribes for a wrong DOCKER_GID. The operator can still finish,
+		// but not on this tab, and the sentence has to say so.
+		fields = append(fields, fieldError{"private_key", fmt.Sprintf(
+			"this controller no longer holds the credentials from creating App %d: they are kept in memory for an hour and do not survive a restart. "+
+				"Generate a new private key on the App's settings page, set a new webhook secret there, and connect it under \"Use an App you already have\".",
+			req.AppID)})
+	case privateKey == "":
 		fields = append(fields, fieldError{"private_key", "paste the App's PEM private key; GitHub shows it once, when you generate it"})
-	} else if !strings.Contains(privateKey, "PRIVATE KEY") {
+	case !strings.Contains(privateKey, "PRIVATE KEY"):
 		fields = append(fields, fieldError{"private_key", "that does not look like a PEM private key; it should start with -----BEGIN RSA PRIVATE KEY-----"})
 	}
 	normalised, err := github.NormalizeAPIBaseURL(apiBase)
@@ -564,6 +575,18 @@ func (m *manifestStates) put(p *pendingApp) {
 	m.items[p.state] = p
 }
 
+// peek finds a handshake without spending it. The exchange looks the state up
+// before it talks to GitHub and spends it only once GitHub has answered: a
+// state taken first and then lost to a transient failure -- no egress yet, a
+// proxy in the way -- would leave the code still valid, the target and API
+// base forgotten, and the retry told to start again.
+func (m *manifestStates) peek(state string) *pendingApp {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sweepLocked()
+	return m.items[state]
+}
+
 func (m *manifestStates) take(state string) *pendingApp {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -694,6 +717,21 @@ func (s *Server) handleCreateManifest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The browser, not this controller, posts the manifest, and it will only
+	// post where the page's Content-Security-Policy lets it. An Enterprise
+	// host named here but not in the configuration would be refused by the
+	// browser in silence -- a blank tab -- so it is refused here with the
+	// setting that fixes it.
+	postURL := github.ManifestURL(normalised, org)
+	if !s.formAllowed(postURL) {
+		unprocessable(w, "the App manifest could not be built", []fieldError{{"api_base_url", fmt.Sprintf(
+			"the browser is only allowed to post the manifest to %s, and %s is not among them; "+
+				"set github.api_base_url to %s (ZOOMIES_GITHUB_API_BASE_URL) and restart the controller, "+
+				"or connect an App you already have on that GitHub instead",
+			strings.Join(s.formTargets, ", "), formOrigin(postURL), normalised)}})
+		return
+	}
+
 	state := store.NewSecret(16)
 	s.manifests.put(&pendingApp{
 		state:      state,
@@ -704,7 +742,7 @@ func (s *Server) handleCreateManifest(w http.ResponseWriter, r *http.Request) {
 	})
 
 	writeJSON(w, http.StatusOK, manifestResponse{
-		PostURL:  github.ManifestURL(normalised, org),
+		PostURL:  postURL,
 		Manifest: string(manifest),
 		State:    state,
 	})
@@ -754,7 +792,8 @@ func (s *Server) handleExchangeManifest(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	pending := s.manifests.take(strings.TrimSpace(req.State))
+	state := strings.TrimSpace(req.State)
+	pending := s.manifests.peek(state)
 	apiBase := strings.TrimSpace(req.APIBaseURL)
 	if apiBase == "" && pending != nil {
 		apiBase = pending.apiBaseURL
@@ -765,9 +804,14 @@ func (s *Server) handleExchangeManifest(w http.ResponseWriter, r *http.Request) 
 
 	creds, err := github.ExchangeManifestCode(r.Context(), apiBase, req.Code)
 	if err != nil {
+		// The handshake is left in place: the code was not spent, and the
+		// retry needs the target and API base it carries.
 		unprocessable(w, err.Error(), []fieldError{{"code", err.Error()}})
 		return
 	}
+	// Spent now, with the code: the state is single use, and reusing it is
+	// either a replay or a mistake.
+	s.manifests.take(state)
 
 	if pending == nil {
 		// The state expired or came from another process. The App exists and

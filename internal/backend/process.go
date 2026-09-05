@@ -189,6 +189,10 @@ func (b *ProcessBackend) Probe(ctx context.Context) Info {
 		info.Detail = err.Error()
 		return info
 	}
+	if !HasShell() {
+		info.Detail = noShellDetail
+		return info
+	}
 	if err := checkICU(); err != nil {
 		info.Detail = err.Error()
 		return info
@@ -214,6 +218,24 @@ func (b *ProcessBackend) checkWritable() error {
 	_ = f.Close()
 	_ = os.Remove(name)
 	return nil
+}
+
+// noShellDetail is why the process backend is unavailable on a host with no
+// shell, in the words the Hosts page shows.
+const noShellDetail = "no shell is installed (sh is not in PATH), so nothing actions/runner starts could run here; " +
+	"the published Zoomies image is built without one on purpose -- from a container, use the docker or podman backend, " +
+	"and use the process backend only on a host with a shell, tar and libicu"
+
+// HasShell reports whether this host has a shell, which the runner's config.sh
+// and every `run:` step need.
+//
+// It is checked before ICU because it decides what kind of host this is. The
+// published Zoomies image is distroless -- no shell at all, on purpose -- so an
+// agent running in it can never use this backend, and telling that operator to
+// apt-get install libicu, into an image with no apt, sends them the wrong way.
+func HasShell() bool {
+	_, err := exec.LookPath("sh")
+	return err == nil
 }
 
 // checkICU looks for the ICU libraries the runner's .NET runtime needs.

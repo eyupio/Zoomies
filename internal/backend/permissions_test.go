@@ -11,6 +11,7 @@ import (
 func fakeIdentity(processGroups, userGroups []int, mode fs.FileMode, gid int, statOK bool) agentIdentity {
 	return agentIdentity{
 		uid:           65532,
+		gid:           65532,
 		username:      "zoomies",
 		processGroups: processGroups,
 		userGroups:    userGroups,
@@ -173,20 +174,79 @@ func TestDeniedDetailGivesContainerAdviceInAContainer(t *testing.T) {
 	id.containerized = true
 
 	got := deniedDetail(id, socket)
-	if strings.Contains(got, "usermod -aG 987 nonroot") {
+	if strings.Contains(got, "`sudo usermod") {
 		t.Errorf("a host usermod cannot reach a user inside the image: %s", got)
 	}
 	for _, want := range []string{
 		"runs in a container",
 		"group-owned by 987",
+		"was given no extra group at all",
+		"1. put `DOCKER_GID=987` in .env",
+		"2. run `docker compose up -d`",
 		"--group-add 987",
-		`group_add: ["987"]`,
-		"DOCKER_GID=987",
-		"recreate the container",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in: %s", want, got)
 		}
+	}
+}
+
+// The compose file already has group_add; what was wrong was the value it
+// read. The sentence has to say which group the container was actually given
+// and which line to change -- and it must not offer a YAML fragment as a
+// command, because the UI puts a copy button on every backticked run and an
+// operator pasted `group_add: ["987"]` into a shell.
+func TestDeniedDetailInAContainerNamesTheGroupItWasGivenInstead(t *testing.T) {
+	id := fakeIdentity([]int{65532, 999}, nil, fs.ModeSocket|0o660, 987, true)
+	id.username = "nonroot"
+	id.containerized = true
+	id.envDockerGID = "999"
+
+	got := deniedDetail(id, socket)
+	for _, want := range []string{
+		"holds group 999, not 987",
+		"DOCKER_GID=999 in its environment",
+		"1. change the DOCKER_GID line in .env from 999 to `DOCKER_GID=987`",
+		"2. run `docker compose up -d`",
+		"down -v would delete",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in: %s", want, got)
+		}
+	}
+	for _, bad := range []string{"`group_add", "`docker compose down", "`sudo usermod"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("%q must not be offered as a command: %s", bad, got)
+		}
+	}
+}
+
+// Several extra groups, none of them the right one, are all named, and the
+// primary group is never counted among them.
+func TestDeniedDetailInAContainerListsEveryExtraGroup(t *testing.T) {
+	id := fakeIdentity([]int{65532, 1001, 999, 999}, nil, fs.ModeSocket|0o660, 987, true)
+	id.containerized = true
+
+	got := deniedDetail(id, socket)
+	if !strings.Contains(got, "holds groups 999, 1001, not 987") {
+		t.Errorf("want the extra groups, sorted and deduplicated, without the primary: %s", got)
+	}
+}
+
+// DOCKER_GID in the environment that the container does not actually hold
+// means the compose file lost its group_add, which is a different fix from
+// changing the number.
+func TestDeniedDetailInAContainerNoticesAGidThatWasNeverApplied(t *testing.T) {
+	id := fakeIdentity([]int{65532}, nil, fs.ModeSocket|0o660, 987, true)
+	id.containerized = true
+	id.envDockerGID = "987"
+
+	got := deniedDetail(id, socket)
+	if !strings.Contains(got, "its environment says DOCKER_GID=987, but no group_add carried that into the container") {
+		t.Errorf("want the missing group_add named: %s", got)
+	}
+	if !strings.Contains(got, "1. put `DOCKER_GID=987` in .env") {
+		t.Errorf("the value is already right, so the step is to have group_add read it: %s", got)
 	}
 }
 
@@ -202,6 +262,9 @@ func TestDeniedDetailInAContainerWithNoSocketToLookAt(t *testing.T) {
 	}
 	if strings.Contains(got, "usermod") {
 		t.Errorf("no usermod belongs in a container's advice: %s", got)
+	}
+	if strings.Contains(got, "`group_add`") {
+		t.Errorf("a YAML key is not a command to copy: %s", got)
 	}
 }
 
@@ -230,5 +293,26 @@ func TestDeniedDetailOutsideAContainerKeepsTheUsermod(t *testing.T) {
 	}
 	if strings.Contains(got, "--group-add") {
 		t.Errorf("container advice must not leak onto a host: %s", got)
+	}
+}
+
+// A socket owned by root's group has no gid worth putting in DOCKER_GID: the
+// numbered steps would put the container in group 0, which the installer
+// refuses to do, and the advice from inside the container must not do it
+// either.
+func TestDeniedDetailInAContainerNeverSuggestsTheRootGroup(t *testing.T) {
+	id := fakeIdentity([]int{65532}, nil, fs.ModeSocket|0o660, 0, true)
+	id.containerized = true
+
+	got := deniedDetail(id, socket)
+	for _, bad := range []string{"DOCKER_GID=0", "--group-add 0"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("%q would put the container in the root group: %s", bad, got)
+		}
+	}
+	for _, want := range []string{"root's group", "sudo groupadd docker", "rootless daemon"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in: %s", want, got)
+		}
 	}
 }
