@@ -302,11 +302,16 @@ The one page that has to earn the second monitor.
   so an operator can see a pool pinned at its ceiling.
 * **Recent scaling activity** — a reverse-chronological list of decisions in the
   scheduler's own words: *"scaled `linux-x64` 2 → 4: 3 jobs queued > 30s"*.
-* **Active jobs** and **Recent outcomes**, side by side — what is running this
-  moment, and how the last jobs ended, newest first. An outcome names the step
-  a job failed at, and a job whose runner stopped under it is badged *Runner
-  lost*: that failure is the fleet's, not the workflow's, and the page is where
-  the two are told apart.
+  On a desktop the pools and the running jobs share the left-hand column and
+  this feed takes the right, cut to their height and scrolling inside itself.
+  It is the one panel whose length says nothing about the fleet, so it never
+  decides the height of the page: a fleet with one pool does not get a screen
+  of blank space under it because the scheduler has been busy.
+* **Active jobs**, under the pools, and **Recent outcomes**, across the bottom
+  of the page — what is running this moment, and how the last jobs ended,
+  newest first. An outcome names the step a job failed at, and a job whose
+  runner stopped under it is badged *Runner lost*: that failure is the fleet's,
+  not the workflow's, and the page is where the two are told apart.
 * **Problems summary** — one line saying how many things need a person, worst
   severity first, with a *Review* button that opens the problems drawer.
   **When everything is fine it is a single quiet line, not an empty box and not

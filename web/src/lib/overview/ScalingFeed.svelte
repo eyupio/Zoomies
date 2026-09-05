@@ -68,7 +68,10 @@
   const hasPools = $derived(fleet.pools.length > 0);
 </script>
 
-<Panel title="Recent scaling" description="Newest first." class={className} flush>
+<!-- `scroll`: on a desktop the Overview cuts this panel to the height of the
+     column beside it, and the decisions that do not fit are a scroll away
+     rather than a screen of blank space under the pools. -->
+<Panel title="Recent scaling" description="Newest first." class={className} flush scroll>
   {#if loading}
     <p class="sr-only">Loading recent scaling decisions.</p>
     <ul class="feed" aria-hidden="true">
