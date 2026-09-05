@@ -50,7 +50,7 @@ func (b BackendKind) Valid() bool {
 
 // DockerMode controls whether jobs running on a pool's runners can themselves
 // talk to a Docker daemon. Both non-none values weaken isolation, so both are
-// surfaced as warnings by the config validator and in the UI problems panel.
+// surfaced as warnings by the config validator and in the UI problems drawer.
 type DockerMode string
 
 const (
@@ -442,7 +442,7 @@ func (d *Duration) UnmarshalYAML(unmarshal func(any) error) error {
 func (d Duration) MarshalYAML() (any, error) { return time.Duration(d).String(), nil }
 
 // Dangerous returns the list of pool settings that weaken the default security
-// posture, phrased for direct display in the UI's problems panel.
+// posture, phrased for direct display in the UI's problems drawer.
 func (p *Pool) Dangerous() []string {
 	var out []string
 	if !p.Ephemeral {

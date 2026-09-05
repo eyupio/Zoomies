@@ -178,13 +178,13 @@ zoomies config check    # validate the config without starting anything
 journalctl -u zoomies -n 50
 ```
 
-The Overview's problems panel, `GET /api/v1/problems` and `zoomies status` all
-render the same list, each entry with what is true, why it matters and what to
+The problems drawer -- the count in the UI's top bar opens it --
+`GET /api/v1/problems` and `zoomies status` all render the same list, each entry with what is true, why it matters and what to
 change. When there is nothing wrong it is one quiet line.
 
 ### A job that sits in the queue
 
-Two different faults look the same from GitHub, and the problems panel tells
+Two different faults look the same from GitHub, and the problems drawer tells
 them apart:
 
 ```mermaid

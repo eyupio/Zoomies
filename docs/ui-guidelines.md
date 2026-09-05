@@ -233,10 +233,35 @@ The one page that has to earn the second monitor.
   so an operator can see a pool pinned at its ceiling.
 * **Recent scaling activity** — a reverse-chronological list of decisions in the
   scheduler's own words: *"scaled `linux-x64` 2 → 4: 3 jobs queued > 30s"*.
-* **Problems panel** — unhealthy hosts, failed registrations, webhook delivery
-  failures, unmatched queued jobs, and every dangerous configuration setting
-  the validator flagged. **When everything is fine this panel renders a single
-  quiet line, not an empty box and not a green celebration.**
+* **Problems summary** — one line saying how many things need a person, worst
+  severity first, with a *Review* button that opens the problems drawer.
+  **When everything is fine it is a single quiet line, not an empty box and not
+  a green celebration.** It is a line rather than a list on purpose: the panels
+  above are what the page is for, and a configuration warning somebody chose
+  deliberately must not push the pools and the running jobs below the fold
+  every day.
+
+### The problems drawer
+
+Reachable from the count in the top bar on every page, from the Overview's
+*Review*, and from the command palette. It holds the list itself — unhealthy
+hosts, failed registrations, webhook delivery failures, unmatched queued jobs,
+and every dangerous configuration setting the validator flagged — worst first,
+each entry saying what is true, why it matters and what to change, with a link
+to the pool, host, runner or installation it is about.
+
+Every entry can be **dismissed**, which is a per-operator preference in
+`localStorage` and never fleet state: `GET /api/v1/problems`, `zoomies status`
+and any alerting rule still see everything. Two rules stop a dismissal from
+hiding a real fault:
+
+* it is forgotten the moment the controller stops reporting that problem, so
+  the same fault happening again is news again; and
+* it only covers the severity it was made at, so a warning that becomes an
+  error comes back.
+
+Dismissed entries stay listed at the bottom of the drawer, dated, and can be
+restored one at a time or all at once.
 
 ---
 

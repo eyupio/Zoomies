@@ -20,6 +20,7 @@
   import AppFooter from '$lib/shell/AppFooter.svelte';
   import CommandPalette from '$lib/shell/CommandPalette.svelte';
   import Nav from '$lib/shell/Nav.svelte';
+  import ProblemsDrawer from '$lib/problems/ProblemsDrawer.svelte';
   import ShortcutSheet from '$lib/shell/ShortcutSheet.svelte';
   import TopBar from '$lib/shell/TopBar.svelte';
   import Bootstrap from './routes/Bootstrap.svelte';
@@ -153,6 +154,7 @@
   </div>
 
   <CommandPalette bind:open={paletteOpen} />
+  <ProblemsDrawer />
   <ShortcutSheet bind:open={shortcutsOpen} />
 {/if}
 

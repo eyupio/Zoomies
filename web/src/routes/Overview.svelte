@@ -7,6 +7,12 @@
   operator watches when nothing is wrong -- where the capacity is going, and
   what the scheduler decided -- and finally the work itself.
 
+  What needs a person is one line here rather than a full panel. The list it
+  summarises lives in the problems drawer, reachable from the top bar on every
+  page: a fleet whose deliberate configuration warnings pushed its pools and its
+  running jobs below the fold was answering "what is happening right now?" with
+  a month-old decision.
+
   Nothing on this page polls, and nothing on it can be refreshed by hand. The
   fleet cache subscribes to `stats`, `scaling`, `problems.updated`, `runner.*`,
   `pool.*` and `host.*`; the panels below add `job.updated` for the running
@@ -20,7 +26,7 @@
   import ActiveJobs from '$lib/overview/ActiveJobs.svelte';
   import FleetMetrics from '$lib/overview/FleetMetrics.svelte';
   import PoolUtilisation from '$lib/overview/PoolUtilisation.svelte';
-  import ProblemsPanel from '$lib/overview/ProblemsPanel.svelte';
+  import ProblemsSummary from '$lib/overview/ProblemsSummary.svelte';
   import ScalingFeed from '$lib/overview/ScalingFeed.svelte';
 
   const loading = $derived(!fleet.loaded);
@@ -44,7 +50,7 @@
 {:else}
   <div class="stack">
     <FleetMetrics {loading} />
-    <ProblemsPanel {loading} />
+    <ProblemsSummary {loading} />
     <div class="split">
       <PoolUtilisation {loading} />
       <ScalingFeed {loading} />

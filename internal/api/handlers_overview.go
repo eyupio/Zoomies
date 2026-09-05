@@ -68,7 +68,7 @@ type problemsResponse struct {
 	Items []controller.Problem `json:"items"`
 }
 
-// handleProblems answers the Overview's problems panel.
+// handleProblems answers the UI's problems drawer.
 func (s *Server) handleProblems(w http.ResponseWriter, r *http.Request) {
 	items, err := s.ctrl.Problems(r.Context())
 	if err != nil {

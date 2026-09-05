@@ -30,7 +30,7 @@ func TestIsDemoID(t *testing.T) {
 
 // The demo fixtures have no GitHub behind them. If the credential prober were
 // allowed to check them, every demo instance and every UI test run would open
-// on a problems panel led by "this installation is not usable" -- a failure
+// on a problems drawer led by "this installation is not usable" -- a failure
 // that says nothing about the operator's fleet and hides the ones that do.
 func TestDemoInstallationIsNotProbed(t *testing.T) {
 	h := newHarness(t)

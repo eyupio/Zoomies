@@ -54,9 +54,53 @@ test('each trend tile carries a described sparkline', async ({ page }) => {
   }
 });
 
-test('the problems panel names the seeded faults, with a fix for each', async ({ page }) => {
-  const problems = page.getByRole('region', { name: 'Problems' });
-  await expect(problems).toBeVisible();
+/** Open the problems drawer the way an operator does: from the top bar. */
+async function openProblems(page: import('@playwright/test').Page) {
+  await page.getByRole('button', { name: /^Problems\./ }).click();
+  const drawer = page.getByRole('dialog', { name: 'Problems' });
+  await expect(drawer).toBeVisible();
+  return drawer;
+}
+
+test('the Overview says how much needs a person without spending the page on it', async ({
+  page,
+}) => {
+  // The whole point of the summary: the fleet's own panels are what the page
+  // is for, and a settled configuration warning must not push them under the
+  // fold. So what is on the page is a sentence and a way in -- never the list.
+  await expect(page.getByText(/needs? your attention\.$/).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Review' })).toBeVisible();
+
+  // Nothing in the page's own content lists a problem's fix; that lives in the
+  // drawer, which is not open yet.
+  await expect(page.getByRole('main')).not.toContainText('no webhook has ever arrived');
+
+  // And on a desktop the panels an operator actually watches are above the fold
+  // with it, which is exactly what the full-height list used to cost. A phone
+  // stacks everything and cannot promise this, so it is not asserted there.
+  const viewport = page.viewportSize();
+  if ((viewport?.width ?? 0) >= 1180) {
+    const box = await page.getByRole('region', { name: 'Recent scaling' }).boundingBox();
+    expect(box, 'the scaling feed is laid out').not.toBeNull();
+    expect(box?.y ?? Infinity, 'the scaling feed starts within the first screen').toBeLessThan(
+      viewport?.height ?? 0,
+    );
+  }
+});
+
+test('the top bar carries the count on every page and opens the list', async ({ page }) => {
+  const bell = page.getByRole('button', { name: /^Problems\./ });
+  // The label spells the counts out, because colour and a badge alone are not
+  // information anyone can read aloud.
+  await expect(bell).toHaveAccessibleName(/(error|warning|note)s? .*need/);
+
+  await page.goto('/runners');
+  await expect(bell, 'the count follows the operator off the Overview').toBeVisible();
+  await openProblems(page);
+});
+
+test('the problems drawer names the seeded faults, with a fix for each', async ({ page }) => {
+  const problems = await openProblems(page);
 
   // Four the seeded fleet always has: a controller that cannot be told about
   // queued work, a pool that weakens isolation two different ways, and a job
@@ -93,6 +137,36 @@ test('the problems panel names the seeded faults, with a fix for each', async ({
     expect(line.detail, `"${line.title}" says why it matters`).not.toBe('');
     expect(line.fix, `"${line.title}" says what to change`).not.toBe('');
   }
+});
+
+test('a dismissed problem stops asking, and can be brought back', async ({ page }) => {
+  const problems = await openProblems(page);
+  const before = await problems.getByRole('listitem').count();
+
+  const entry = problems.getByRole('listitem').filter({ hasText: 'authentication is disabled' });
+  await entry.getByRole('button', { name: /^Dismiss:/ }).click();
+
+  // Gone from the list, and off the count in the top bar.
+  await expect(problems.getByRole('listitem')).toHaveCount(before - 1);
+  await expect(problems).not.toContainText('authentication is disabled');
+
+  // Never deleted, though: a dismissal is a decision, and a decision can be
+  // undone. It is dated where it is listed.
+  await problems.getByRole('button', { name: /Show 1 dismissed problem/ }).click();
+  const dismissed = problems
+    .getByRole('listitem')
+    .filter({ hasText: 'authentication is disabled' });
+  await expect(dismissed).toContainText('dismissed');
+  await dismissed.getByRole('button', { name: /^Restore:/ }).click();
+  await expect(problems.getByRole('listitem')).toHaveCount(before);
+
+  // The controller is untouched by any of this: what an operator has read is a
+  // browser preference, never fleet state, so an alerting rule still sees it.
+  const api = await page.request.get('/api/v1/problems').then((r) => r.json());
+  expect(
+    (api.items ?? []).some((p: { code?: string }) => p.code === 'auth.disabled'),
+    'the API still reports everything',
+  ).toBe(true);
 });
 
 test('per-pool utilisation shows both pools and marks the one at its ceiling', async ({ page }) => {

@@ -1656,7 +1656,7 @@ func (i *Installer) runUpgrade(ctx context.Context, p Plan) error {
 	i.ui.step("Done")
 	i.ui.note("upgraded in place; " + p.ConfigFile + " and " + p.DBPath + " were not touched.")
 	if p.ExternalURL != "" {
-		i.ui.note("open " + p.ExternalURL + " and check the Overview's problems panel.")
+		i.ui.note("open " + p.ExternalURL + " and check the UI's problems drawer.")
 	}
 	return nil
 }

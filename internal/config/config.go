@@ -4,7 +4,7 @@
 // Validation has two outputs. Errors stop the process with a message that says
 // what to change. Warnings do not stop anything, but every one of them names a
 // setting that weakens the default security posture; they are logged at startup
-// and surfaced in the UI's problems panel, so a dangerous toggle is never
+// and surfaced in the UI's problems drawer, so a dangerous toggle is never
 // silently in effect.
 package config
 

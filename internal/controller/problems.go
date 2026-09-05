@@ -16,7 +16,7 @@ import (
 //
 // It carries the same four sentences a config.Finding does -- what is true,
 // why it matters, and what to change -- because an operator reading the
-// problems panel should never have to go and look up what a code means.
+// problems drawer should never have to go and look up what a code means.
 type Problem struct {
 	// Code is a stable identifier such as "host.unhealthy", suitable for
 	// grouping or suppressing in an alerting rule.
@@ -42,7 +42,7 @@ type Problem struct {
 
 // problemWindow is how far back rejected webhook deliveries are counted. An
 // hour is long enough to catch a secret that was changed on one side only, and
-// short enough that yesterday's fixed problem is not still on the panel.
+// short enough that yesterday's fixed problem is not still on the list.
 const problemWindow = time.Hour
 
 // Problems aggregates everything currently wrong and every dangerous setting
@@ -57,7 +57,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	// the settings that trade safety for convenience, and they are listed
 	// whether or not anything has gone wrong yet. ForUI drops the handful that
 	// only the CLI says, because they are expected in a normal deployment and
-	// a panel that is never clear stops being read.
+	// a list that is never clear stops being read.
 	for _, f := range c.cfg.Validate().ForUI() {
 		if f.Severity != config.SeverityError && f.Severity != config.SeverityWarning {
 			continue
@@ -102,7 +102,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 		return nil, err
 	}
 
-	// Errors first, then warnings, then a stable order so the panel does not
+	// Errors first, then warnings, then a stable order so the list does not
 	// reshuffle itself between refreshes.
 	slices.SortStableFunc(out, func(a, b Problem) int {
 		if r := severityRank(a.Severity) - severityRank(b.Severity); r != 0 {
