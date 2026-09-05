@@ -11,9 +11,13 @@ Open it at **Migrate** in the navigation, or `g` then `m`.
 
 1. **Reads.** It lists the repositories your GitHub App installation can see and
    reads the workflow files at the top of each one's `.github/workflows`.
-2. **Proposes.** For every GitHub-hosted label it found — `ubuntu-latest`,
-   `ubuntu-24.04-arm`, `macos-14` — it proposes the pool that promises the same
-   operating system and architecture.
+2. **Proposes.** For every rented-runner label it found — GitHub's own
+   (`ubuntu-latest`, `ubuntu-24.04-arm`, `macos-14`) and the vendors that sit in
+   front of Actions (`blacksmith-4vcpu-ubuntu-2404`, `buildjet-4vcpu-ubuntu-2204`,
+   `warp-ubuntu-latest-x64-4x`, `nscloud-…`, `depot-…`, `ubicloud-…`) — it
+   proposes the pool that promises the same operating system and architecture.
+   A vendor's machines are the bill this fleet exists to replace, so its labels
+   are as migratable as GitHub's.
 3. **Shows you.** A unified diff of every file it would change, and every job it
    would not, with the reason.
 4. **Opens.** One pull request per repository, each on its own branch, changing
@@ -27,7 +31,7 @@ flowchart LR
     dec -->|"a hosted label you mapped"| rw["rewrite that one line"]
     dec -->|"a matrix expression"| skip["left alone,<br/>and the reason recorded"]
     dec -->|"already self-hosted"| skip
-    dec -->|"another vendor's label"| skip
+    dec -->|"a label you invented"| skip
     dec -->|"a hosted label you did not map"| skip
     rw --> rev["review: the exact diff,<br/>nothing written yet"]
     skip --> rev
@@ -56,8 +60,8 @@ Four things it leaves alone, and says so:
 | --- | --- | --- |
 | `runs-on: ${{ matrix.os }}` | Skips it | What it resolves to is decided elsewhere in the file, or in a reusable workflow, or by a repository variable. |
 | `runs-on: [self-hosted, linux]` | Skips it | Somebody already pointed this job somewhere deliberate. |
-| `runs-on: buildjet-4vcpu-ubuntu-2204` | Skips it | Not one of GitHub's labels, so it is another vendor's or your own. |
-| A hosted label you did not map | Skips it | You chose to leave it on GitHub's runners. |
+| `runs-on: acme-bigbox` | Skips it | Not a label any hosted-runner vendor publishes, so it is a runner group or a fleet of your own. |
+| A rented label you did not map | Skips it | You chose to leave those jobs where they are. |
 
 Each skip is listed in the review step and again in the pull request body, so
 whoever reviews the change can see which jobs are still running on GitHub after
@@ -159,5 +163,7 @@ reach.
 Nothing else to do. The next `workflow_job` webhook for that repository arrives
 with your pool's label on it, the scheduler matches it, and a runner starts. If
 a job queues and nothing happens, the **Jobs** page has an "unmatched" filter
-that finds jobs no pool claims and says why — usually a label typo, or a pool
-that is disabled.
+that finds *queued* jobs no pool claims and says why — usually a label typo, or a
+pool that is disabled. A job that already ran is never listed there, however its
+labels read: half-migrated repositories are the normal state of a migration, and
+their jobs run on somebody else's machines rather than being stuck.

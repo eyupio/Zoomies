@@ -315,3 +315,40 @@ func TestHostWithNoStoredProbeReadsBack(t *testing.T) {
 		t.Fatalf("host = %+v, want its backends and no probe", got)
 	}
 }
+
+// The unmatched filter is what the Jobs page's "these will never run" banner is
+// counted from, so it must not include a job that demonstrably already ran. A
+// repository left on a hosted-runner vendor produces exactly that: labels no
+// pool here claims, on jobs GitHub ran without this controller's help.
+func TestUnmatchedOnlyLeavesOutJobsThatAlreadyRan(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	started := now.Add(time.Second)
+	done := now.Add(time.Minute)
+
+	if _, err := s.UpsertJob(ctx, &Job{
+		GitHubJobID: 1, Repo: "acme/widgets", JobName: "waiting", State: JobQueued,
+		QueuedAt: now, Labels: StringSlice{"typo-linux"},
+	}); err != nil {
+		t.Fatalf("queued job: %v", err)
+	}
+	if _, err := s.UpsertJob(ctx, &Job{
+		GitHubJobID: 2, Repo: "acme/widgets", JobName: "ran elsewhere", State: JobCompleted,
+		Conclusion: "success", QueuedAt: now, StartedAt: &started, CompletedAt: &done,
+		Labels: StringSlice{"blacksmith-4vcpu-ubuntu-2404"},
+	}); err != nil {
+		t.Fatalf("completed job: %v", err)
+	}
+
+	got, total, err := s.ListJobs(ctx, JobFilter{UnmatchedOnly: true}, Page{})
+	if err != nil {
+		t.Fatalf("ListJobs: %v", err)
+	}
+	if total != 1 || len(got) != 1 {
+		t.Fatalf("total = %d, jobs = %d, want only the job still waiting", total, len(got))
+	}
+	if got[0].JobName != "waiting" {
+		t.Fatalf("unmatched job = %q, want the queued one", got[0].JobName)
+	}
+}

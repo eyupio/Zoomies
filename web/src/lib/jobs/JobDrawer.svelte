@@ -7,7 +7,7 @@
 -->
 <script lang="ts">
   import { formatDuration } from '$lib/format';
-  import { jobStatus, UNMATCHED } from '$lib/status';
+  import { jobStatus, stuckUnmatched, UNMATCHED } from '$lib/status';
   import type { Job } from '$lib/api/types';
   import Badge from '$lib/components/Badge.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
@@ -27,7 +27,7 @@
   let { open = $bindable(false), job, onclose }: Props = $props();
 
   const status = $derived(job ? jobStatus(job.state, job.conclusion) : undefined);
-  const unmatched = $derived(job?.matched === false);
+  const unmatched = $derived(job ? stuckUnmatched(job) : false);
   const running = $derived(job?.state === 'in_progress');
   const waiting = $derived(job?.state === 'queued' && !job?.started_at);
 </script>

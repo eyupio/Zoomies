@@ -213,7 +213,7 @@
 
   <Switch
     label="Unmatched only"
-    description="Jobs no enabled pool claims"
+    description="Queued jobs no enabled pool claims"
     checked={value.unmatched}
     onchange={(on) => onchange({ unmatched: on })}
   />

@@ -183,15 +183,30 @@ export function jobStatus(state: JobState | undefined, conclusion?: string | nul
   return UNKNOWN;
 }
 
-/** A job no enabled pool claims. It will never run, which is worth saying loudly. */
+/** A queued job no enabled pool claims. Nothing here will start it. */
 export const UNMATCHED: StatusMeta = meta(
   'unmatched',
   'Unmatched',
   'danger',
   'triangle',
   TriangleAlert,
-  'No enabled pool answers these labels, so this job will never start.',
+  'No enabled pool here answers these labels, so nothing in this fleet will start it.',
 );
+
+/**
+ * Whether a job is actually waiting on a pool that does not exist.
+ *
+ * `matched` alone is not that question. It records only that no enabled pool
+ * claims the job's labels, which is equally true of every repository still on
+ * GitHub-hosted or vendor runners -- jobs that run perfectly well, just not
+ * here. Saying "will never run" about a job that already succeeded turns the
+ * Jobs page into a wall of red during exactly the migration this fleet exists
+ * to make, so the warning is kept for the one case it is true of: a job still
+ * queued, with nothing to hand it to.
+ */
+export function stuckUnmatched(job: { matched?: boolean; state?: JobState }): boolean {
+  return job.matched === false && job.state === 'queued';
+}
 
 /* -- hosts ---------------------------------------------------------------- */
 
