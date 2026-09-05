@@ -137,8 +137,11 @@ class Fleet {
         const wasBroken = this.#connection !== 'live';
         this.#connection = status;
         // Every reconnect ends with one reconciling fetch, because the replay
-        // buffer is finite and we cannot know whether it covered the gap.
-        if (status === 'live' && wasBroken && this.#loaded) void this.reconcile();
+        // buffer is finite and we cannot know whether it covered the gap. A
+        // first load that failed is retried the same way: the controller that
+        // was restarting under it is back, and there is no refresh button.
+        const stale = this.#loaded || this.#error !== null;
+        if (status === 'live' && wasBroken && stale) void this.reconcile();
       }),
     );
 
@@ -194,6 +197,7 @@ class Fleet {
     this.#problems = [];
     this.#scaling = [];
     this.#loaded = false;
+    this.#error = null;
   }
 
   /**
@@ -235,7 +239,14 @@ class Fleet {
     } catch (cause) {
       // A failed reconcile is a UI state, not an exception: the stream may well
       // recover on its own, and the page keeps showing what it last knew.
-      this.#error = cause instanceof ApiError ? cause : null;
+      this.#error =
+        cause instanceof ApiError
+          ? cause
+          : new ApiError({
+              status: 0,
+              code: 'internal',
+              message: cause instanceof Error ? cause.message : 'The fleet could not be loaded.',
+            });
     }
   }
 
