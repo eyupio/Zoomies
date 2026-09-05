@@ -151,13 +151,32 @@
     ];
 
     if (canOperate) {
-      out.push({
-        id: 'create-pool',
-        group: 'Action',
-        label: 'Create a pool',
-        icon: Plus,
-        run: () => router.navigate('/pools/new'),
-      });
+      // The three things a fresh controller needs doing, in the order it needs
+      // them. The palette advertises itself as the fastest path to everything,
+      // and on a new install the only action it offered was the second step.
+      out.push(
+        {
+          id: 'connect-github',
+          group: 'Action',
+          label: 'Connect GitHub',
+          icon: Plug,
+          run: () => router.navigate('/installations'),
+        },
+        {
+          id: 'add-host',
+          group: 'Action',
+          label: 'Add a host',
+          icon: HardDrive,
+          run: () => router.navigate('/hosts'),
+        },
+        {
+          id: 'create-pool',
+          group: 'Action',
+          label: 'Create a pool',
+          icon: Plus,
+          run: () => router.navigate('/pools/new'),
+        },
+      );
     }
 
     for (const pool of fleet.pools.slice(0, ENTITY_LIMIT)) {

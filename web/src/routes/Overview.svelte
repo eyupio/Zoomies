@@ -24,10 +24,15 @@
   import PageHeader from '$lib/components/PageHeader.svelte';
   import { fleet } from '$lib/state/fleet.svelte';
   import ActiveJobs from '$lib/overview/ActiveJobs.svelte';
+  import FirstRun from '$lib/overview/FirstRun.svelte';
   import FleetMetrics from '$lib/overview/FleetMetrics.svelte';
   import PoolUtilisation from '$lib/overview/PoolUtilisation.svelte';
   import ProblemsSummary from '$lib/overview/ProblemsSummary.svelte';
   import ScalingFeed from '$lib/overview/ScalingFeed.svelte';
+
+  // Raised by the checklist while it is on screen, so the problems summary
+  // knows not to also claim that nothing needs attention.
+  let setupPending = $state(false);
 
   const loading = $derived(!fleet.loaded);
   // A failed reconcile once there is something on screen is not an error state:
@@ -49,8 +54,13 @@
   />
 {:else}
   <div class="stack">
+    <!-- Above the metrics on purpose: on a fleet that has never run a job the
+         four numbers are all zero, and what the operator needs is the next
+         step, not confirmation that nothing is happening. It removes itself
+         for good once a job has run here. -->
+    <FirstRun onpending={(pending) => (setupPending = pending)} />
     <FleetMetrics {loading} />
-    <ProblemsSummary {loading} />
+    <ProblemsSummary {loading} {setupPending} />
     <div class="split">
       <PoolUtilisation {loading} />
       <ScalingFeed {loading} />

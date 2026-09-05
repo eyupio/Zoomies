@@ -232,7 +232,10 @@
       align-items: center;
       width: 100%;
       height: auto;
-      padding: var(--z-space-1);
+      /* The home-indicator gap on an iPhone: index.html asks for
+         viewport-fit=cover, so the inset has to be honoured somewhere. */
+      padding: var(--z-space-1) var(--z-space-1)
+        calc(var(--z-space-1) + env(safe-area-inset-bottom, 0px));
       border-right: 0;
       border-top: 1px solid var(--z-border);
     }

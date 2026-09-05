@@ -21,10 +21,16 @@
 
   interface Props {
     loading?: boolean;
+    /**
+     * True while the first-run checklist above is on screen. The all-clear line
+     * is then suppressed: two things competing to explain the same emptiness is
+     * worse than one, and only one of them is right.
+     */
+    setupPending?: boolean;
     class?: string;
   }
 
-  let { loading = false, class: className = '' }: Props = $props();
+  let { loading = false, setupPending = false, class: className = '' }: Props = $props();
 
   const active = $derived(notifications.active);
   const dismissed = $derived(notifications.dismissed);
@@ -36,32 +42,44 @@
     notifications.groups.map((g) => pluralise(g.items.length, SEVERITY_NOUN[g.severity])),
   );
 
+  /**
+   * Say nothing at all while the first-run checklist is on screen with nothing
+   * else wrong. "Nothing needs your attention" is true of a working fleet and
+   * false of a controller that cannot register a runner: the problems endpoint
+   * is deliberately quiet on an unconfigured instance -- one with no
+   * installation is not misconfigured, it is unfinished -- so the line stands
+   * down and lets the checklist be the message.
+   */
+  const silent = $derived(!loading && active.length === 0 && setupPending);
+
   function open(): void {
     notifications.open = true;
   }
 </script>
 
-<div class="summary {className}" data-severity={worst ?? 'none'}>
-  {#if loading}
-    <Skeleton width="14rem" height="var(--z-text-base)" />
-  {:else if active.length > 0}
-    <StatusDot {status} size="sm" />
-    <p class="line">
-      {#each counts as count, i (count)}{i > 0 ? ' and ' : ''}<strong>{count}</strong>{/each}
-      {active.length === 1 ? 'needs' : 'need'} your attention.
-    </p>
-    <button type="button" class="review" onclick={open}>Review</button>
-  {:else}
-    <p class="line quiet">
-      Nothing needs your attention.
-      {#if dismissed.length > 0}
-        <button type="button" class="review" onclick={open}>
-          {pluralise(dismissed.length, 'problem')} dismissed
-        </button>
-      {/if}
-    </p>
-  {/if}
-</div>
+{#if !silent}
+  <div class="summary {className}" data-severity={worst ?? 'none'}>
+    {#if loading}
+      <Skeleton width="14rem" height="var(--z-text-base)" />
+    {:else if active.length > 0}
+      <StatusDot {status} size="sm" />
+      <p class="line">
+        {#each counts as count, i (count)}{i > 0 ? ' and ' : ''}<strong>{count}</strong>{/each}
+        {active.length === 1 ? 'needs' : 'need'} your attention.
+      </p>
+      <button type="button" class="review" onclick={open}>Review</button>
+    {:else}
+      <p class="line quiet">
+        Nothing needs your attention.
+        {#if dismissed.length > 0}
+          <button type="button" class="review" onclick={open}>
+            {pluralise(dismissed.length, 'problem')} dismissed
+          </button>
+        {/if}
+      </p>
+    {/if}
+  </div>
+{/if}
 
 <style>
   .summary {

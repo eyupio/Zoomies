@@ -10,9 +10,7 @@
   import type { LucideIcon } from '@lucide/svelte';
   import type { ScalingEvent } from '$lib/api/types';
   import { fleet } from '$lib/state/fleet.svelte';
-  import { session } from '$lib/state/session.svelte';
   import { toMillis } from '$lib/format';
-  import Button from '$lib/components/Button.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
@@ -67,7 +65,6 @@
       .map(decide),
   );
 
-  const canCreate = $derived(session.can('operator'));
   const hasPools = $derived(fleet.pools.length > 0);
 </script>
 
@@ -90,12 +87,10 @@
       icon={History}
       compact
       title="No scaling decisions yet"
-      description="The scheduler writes a line here every time it creates or removes runners, and says why."
-    >
-      {#if canCreate && !hasPools}
-        <Button variant="primary" href="/pools/new">Create a pool</Button>
-      {/if}
-    </EmptyState>
+      description={hasPools
+        ? 'The scheduler writes a line here every time it creates or removes runners, and says why.'
+        : 'Once a pool exists, the scheduler writes a line here every time it creates or removes runners, and says why.'}
+    />
   {:else}
     <ul class="feed">
       {#each decisions as decision (decision.key)}

@@ -8,6 +8,7 @@
 <script lang="ts">
   import { ApiError, createJoinToken } from '$lib/api/client';
   import type { JoinToken } from '$lib/api/types';
+  import { session } from '$lib/state/session.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
   import Button from '$lib/components/Button.svelte';
   import Dialog from '$lib/components/Dialog.svelte';
@@ -79,6 +80,25 @@
     }
   }
 
+  /**
+   * The address the new host will reach this controller on.
+   *
+   * The server substitutes a placeholder when server.external_url is unset --
+   * which is every deployment that did not come from `zoomies init` -- so the
+   * command it returns cannot run. Rather than hand that over, the dialog asks,
+   * defaulting to the address this browser is already using, which is right
+   * far more often than not.
+   */
+  const PLACEHOLDER = 'https://<this-controller>';
+  const needsControllerURL = $derived(Boolean(minted?.command?.includes(PLACEHOLDER)));
+  let controllerURL = $state(location.origin);
+
+  const joinCommand = $derived.by(() => {
+    const command = minted?.command ?? minted?.token ?? '';
+    if (!needsControllerURL) return command;
+    return command.replace(PLACEHOLDER, controllerURL.trim().replace(/\/+$/, ''));
+  });
+
   function close(): void {
     open = false;
     onclose?.();
@@ -96,11 +116,30 @@
 >
   {#if minted}
     <div class="done">
-      <OneTimeSecret
-        what="join token"
-        value={minted.command ?? minted.token ?? ''}
-        copyLabel="Copy the install command"
-      />
+      {#if needsControllerURL}
+        <p class="unreachable">
+          {session.meta?.external_url
+            ? `This controller's external URL is ${session.meta.external_url}, which no other machine can reach.`
+            : 'This controller does not know its own address.'}
+          A host cannot join a controller on an address only that controller can reach, so the command
+          below needs one the new machine will actually use.
+        </p>
+        <!--
+          The command the server built carries a placeholder, because this
+          controller does not know its own address. Presenting that under "Run
+          this on the new host" hands the operator a line that cannot work --
+          and the token is single use, so the failure costs them another one.
+        -->
+        <Field
+          label="Controller URL"
+          hint="Set server.external_url in the configuration and every operator gets the right command; for now, this fills in the line below."
+        >
+          {#snippet children({ id, describedBy, invalid })}
+            <Input bind:value={controllerURL} {id} {describedBy} {invalid} type="url" mono />
+          {/snippet}
+        </Field>
+      {/if}
+      <OneTimeSecret what="join token" value={joinCommand} copyLabel="Copy the install command" />
       <p class="expiry">
         It can be used once, and expires <RelativeTime value={minted.expires_at} plain />. If nobody
         gets to it in time, mint another.
@@ -192,5 +231,16 @@
     background: var(--z-surface-sunken);
     font-size: var(--z-text-xs);
     overflow-wrap: anywhere;
+  }
+  .unreachable {
+    margin: 0;
+    padding: var(--z-space-3);
+    border: 1px solid var(--z-pending-border);
+    border-radius: var(--z-radius-sm);
+    background: var(--z-pending-subtle);
+    font-size: var(--z-text-sm);
+    line-height: var(--z-leading-sm);
+    color: var(--z-text);
+    text-wrap: pretty;
   }
 </style>

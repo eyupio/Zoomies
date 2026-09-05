@@ -5,7 +5,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { X } from '@lucide/svelte';
-  import { layers, lockScroll, trapFocus } from '../keys';
+  import { layers, lockScroll, pageInert, trapFocus } from '../keys';
   import IconButton from './IconButton.svelte';
 
   interface Props {
@@ -42,20 +42,25 @@
     onclose?.();
   }
 
+  let backdrop = $state<HTMLDivElement | null>(null);
+
   $effect(() => {
     if (!open) return;
     const layer = layers.push('drawer', close);
     const unlock = lockScroll();
+    const uninert = pageInert(backdrop);
     return () => {
       layers.remove(layer);
       unlock();
+      uninert();
     };
   });
 </script>
 
 {#if open}
-  <div class="backdrop">
-    <button type="button" class="scrim" tabindex="-1" aria-hidden="true" onclick={close}></button>
+  <div class="backdrop" bind:this={backdrop}>
+    <!-- A div, not a focusable-but-aria-hidden button. See Dialog.svelte. -->
+    <div class="scrim" aria-hidden="true" onclick={close}></div>
     <div
       class="panel {width} {className}"
       role="dialog"

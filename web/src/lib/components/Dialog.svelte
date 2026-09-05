@@ -9,7 +9,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { X } from '@lucide/svelte';
-  import { layers, lockScroll, trapFocus } from '../keys';
+  import { layers, lockScroll, pageInert, trapFocus } from '../keys';
   import IconButton from './IconButton.svelte';
 
   interface Props {
@@ -48,26 +48,30 @@
     onclose?.();
   }
 
+  let backdrop = $state<HTMLDivElement | null>(null);
+
   $effect(() => {
     if (!open) return;
     const layer = layers.push('dialog', close);
     const unlock = lockScroll();
+    const uninert = pageInert(backdrop);
     return () => {
       layers.remove(layer);
       unlock();
+      uninert();
     };
   });
 </script>
 
 {#if open}
-  <div class="backdrop">
-    <button
-      type="button"
-      class="scrim"
-      tabindex="-1"
-      aria-hidden="true"
-      onclick={() => dismissible && close()}
-    ></button>
+  <div class="backdrop" bind:this={backdrop}>
+    <!--
+      A plain div, not a button: a focusable element that is also hidden from
+      assistive technology is a contradiction, and clicking it left the dialog
+      with an activeElement it could not describe. Escape already closes
+      through the layer stack, so the scrim needs no keyboard role of its own.
+    -->
+    <div class="scrim" aria-hidden="true" onclick={() => dismissible && close()}></div>
     <div
       class="panel {size} {className}"
       role="dialog"
@@ -120,7 +124,10 @@
     display: flex;
     flex-direction: column;
     width: 100%;
-    max-height: calc(100vh - var(--z-space-12));
+    /* dvh, not vh: on iOS Safari 100vh is the viewport with the chrome
+       retracted, so a tall dialog put its footer -- and therefore its primary
+       action -- under the browser's own bar with no way to scroll to it. */
+    max-height: calc(100dvh - var(--z-space-12));
     border: 1px solid var(--z-border);
     border-radius: var(--z-radius-lg);
     background: var(--z-surface-raised);

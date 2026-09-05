@@ -134,10 +134,32 @@ class Session {
     username: string;
     password: string;
     email?: string;
-  }): Promise<void> {
+  }): Promise<Identity> {
     this.#identity = await bootstrapRequest(input);
     this.#meta = this.#meta ? { ...this.#meta, bootstrap_required: false } : this.#meta;
     this.#phase = 'ready';
+    return this.#identity;
+  }
+
+  /**
+   * Check that the cookie the last call was supposed to set actually works.
+   *
+   * Bootstrap answers 201 with the new identity even when the session could
+   * not be started -- the account exists either way, and the API says so. The
+   * browser cannot tell that 201 from a working one, so it used to render the
+   * product, take a 401 on its first fetch, and drop the operator on a sign-in
+   * screen with no message a moment after a form that appeared to succeed.
+   */
+  async confirmSignedIn(): Promise<boolean> {
+    try {
+      this.#identity = await getSession();
+      this.#phase = 'ready';
+      return true;
+    } catch {
+      this.#identity = null;
+      this.#phase = 'anonymous';
+      return false;
+    }
   }
 
   async changePassword(oldPassword: string | undefined, newPassword: string): Promise<void> {

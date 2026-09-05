@@ -456,6 +456,29 @@ func NextFreePort(host string, from int, tries int) (int, bool) {
 // Lines renders the detection as the block Run prints at the start. The shape
 // deliberately matches install.sh's own "Looking around" output, so the two
 // halves of one install read as one program.
+// Fields is Lines without the padding: the same key/value pairs, for a caller
+// that owns the column itself. `ui.field` is that caller, and it is not faint
+// -- which the host report ought not to be either, given install.sh has just
+// printed the same facts at full weight.
+func (d Detection) Fields() []Field {
+	out := make([]Field, 0, 12)
+	for _, line := range d.Lines() {
+		key := strings.TrimSpace(line[:min(12, len(line))])
+		value := ""
+		if len(line) > 12 {
+			value = line[12:]
+		}
+		out = append(out, Field{Key: key, Value: value})
+	}
+	return out
+}
+
+// Field is one key/value row of the host report.
+type Field struct {
+	Key   string
+	Value string
+}
+
 func (d Detection) Lines() []string {
 	out := []string{
 		fmt.Sprintf("%-12s%s/%s (%s)", "os", d.OS, d.Arch, d.Distro),

@@ -19,6 +19,18 @@
     /** Supply one when something outside needs to reference the control. */
     id?: string;
     hint?: string;
+    /**
+     * Something true about the control right now that is neither its
+     * permanent explanation nor a validation failure -- caps lock being on,
+     * most usefully.
+     *
+     * It has a slot of its own because error and hint are alternatives: a
+     * password that is too short shows its counter, and the caps-lock warning
+     * passed through `hint` used to vanish at exactly the moment caps lock was
+     * the reason the password was wrong. It is polite-live, so it is heard
+     * when it appears rather than only if the field is re-read.
+     */
+    notice?: string;
     error?: string;
     required?: boolean;
     /** Renders the label visually hidden, for a control whose purpose is obvious. */
@@ -31,6 +43,7 @@
     label,
     id: providedId,
     hint,
+    notice,
     error,
     required = false,
     hideLabel = false,
@@ -43,8 +56,14 @@
   const uid = $props.id();
   const id = $derived(providedId ?? `field-${uid}`);
   const hintId = $derived(hint ? `${id}-hint` : undefined);
+  const noticeId = $derived(notice ? `${id}-notice` : undefined);
   const errorId = $derived(error ? `${id}-error` : undefined);
-  const describedBy = $derived([errorId, hintId].filter(Boolean).join(' ') || undefined);
+  // The hint is dropped from the description when an error replaces it on
+  // screen: naming an element that is not in the document leaves the control
+  // describing itself by a dangling reference.
+  const describedBy = $derived(
+    [errorId, noticeId, error ? undefined : hintId].filter(Boolean).join(' ') || undefined,
+  );
 </script>
 
 <div class="field {className}">
@@ -55,8 +74,36 @@
       >{/if}
   </label>
   {@render children({ id, describedBy, invalid: Boolean(error) })}
+  {#if notice}
+    <p class="notice" id={noticeId} aria-live="polite">{notice}</p>
+  {/if}
+  <!--
+    Error and hint are rendered together, not as alternatives.
+
+    Two reasons. The describedby list names both, so dropping one left the
+    control pointing at an element that does not exist. And the hints here are
+    instructions, not decoration: the GitHub target field's hint explains that a
+    repository App is created on your own account, and it used to vanish the
+    moment the operator got the format wrong -- telling them what was wrong just
+    as it stopped telling them why.
+  -->
+  <!--
+    One message row, so a validation error never reflows the form.
+
+    An error rendered *in addition* to the hint adds a line, which moves
+    everything below it -- including the submit button, out from under a pointer
+    already on its way down. The click is then delivered to whatever lands in
+    its place, and the operator experiences a button that does nothing. So the
+    error takes the hint's place, and every field on a form worth clicking
+    carries a hint, so the row is occupied before it is needed.
+
+    Anything a field must say *alongside* an error goes in `notice`, which is
+    rendered independently. Caps lock is what that exists for.
+  -->
   {#if error}
-    <p class="error" id={errorId}>{error}</p>
+    <!-- role="alert" so a validation failure is spoken when it appears; the
+         describedby link alone is only read if the field is revisited. -->
+    <p class="error" id={errorId} role="alert">{error}</p>
   {:else if hint}
     <p class="hint" id={hintId}>{hint}</p>
   {/if}
@@ -78,6 +125,7 @@
     margin-inline-start: 2px;
   }
   .hint,
+  .notice,
   .error {
     margin: 0;
     font-size: var(--z-text-xs);
@@ -85,6 +133,16 @@
   }
   .hint {
     color: var(--z-text-subtle);
+  }
+  /*
+    Muted, not a status colour. The status palette is a fixed mapping operators
+    learn -- amber means provisioning -- and spending it on "caps lock is on"
+    teaches that association wrongly on the first screen of the product, before
+    they have ever seen a runner. Position and the live region do the work.
+  */
+  .notice {
+    color: var(--z-text-muted);
+    font-weight: var(--z-weight-medium);
   }
   .error {
     color: var(--z-danger);

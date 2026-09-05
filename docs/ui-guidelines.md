@@ -146,6 +146,24 @@ useful number of runners on screen. Prose in docs and empty states steps up to
 Numerals in tables use `font-variant-numeric: tabular-nums` so columns align.
 IDs use `--z-font-mono` at `--z-text-xs`.
 
+**Form controls are the one exception, and only on a phone.** Below 768px,
+`Input`, `Textarea` and `Select` step up to `--z-text-lg` (16px). Mobile Safari
+zooms the whole viewport whenever a focused control is under 16px, and the
+viewport meta deliberately sets no `maximum-scale`, so without this every field
+tap on the first-run screens jumped a 360px page to roughly 410px of effective
+width and ran the card off both edges — once per field. Control height comes
+from the space scale, so nothing reflows; only the glyphs grow.
+
+**A validation error takes the hint's place; it never appears beside it.**
+`Field` renders one message row, because an error rendered *in addition* to the
+hint adds a line and moves everything below it — including the submit button,
+out from under a pointer already on its way down, so the click lands on whatever
+takes its place and the operator experiences a button that does nothing. A field
+on a form worth clicking therefore carries a hint, so the row is occupied before
+an error needs it. Anything a field must say *alongside* an error goes in
+`notice`, which is rendered independently, is `aria-live="polite"`, and is what
+the caps-lock warning uses.
+
 ### 1.3 Spacing
 
 A 4px base with a restricted scale. Only these values exist:

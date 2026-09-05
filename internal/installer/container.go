@@ -698,26 +698,24 @@ func (i *Installer) containerSummary(p Plan, envPath string, reusedKey bool) {
 	file := filepath.Join(p.DeployDir, ComposeFileName)
 	i.ui.blank()
 	i.ui.step("Done")
-	i.ui.note("URL       " + p.ExternalURL)
-	i.ui.note("env       " + envPath + " (mode 0600 -- it holds the encryption key)")
+	// The helper owns the column, and it is not faint: the URL an operator must
+	// open and the file holding their encryption key were the dimmest lines on
+	// the screen that told them about both.
+	i.ui.field("URL", p.ExternalURL)
+	i.ui.field("env", envPath+" (mode 0600 -- it holds the encryption key)")
 	if p.Deployment == DeploymentCompose {
-		i.ui.note("compose   " + file)
+		i.ui.field("compose", file)
 	} else {
-		i.ui.note("container " + ContainerName + " from " + p.Image)
+		i.ui.field("container", ContainerName+" from "+p.Image)
 	}
-	i.ui.note("volume    " + VolumeName + " -- the database lives here, not in the container")
+	i.ui.field("volume", VolumeName+" -- the database lives here, not in the container")
 	i.ui.blank()
 
 	if !reusedKey {
-		i.ui.note("Open " + p.ExternalURL + " and create the first administrator.")
+		i.ui.warn("Back up " + envPath + " now: it holds this deployment's encryption key.")
+		i.ui.note("without it the stored GitHub App private key and every webhook secret are lost.")
 		i.ui.blank()
 	}
-
-	i.ui.note("The commands you will want:")
-	for _, line := range i.deploymentCommands(p) {
-		i.ui.note("  " + line)
-	}
-	i.ui.blank()
 
 	if p.PublishAddr == "127.0.0.1" {
 		i.ui.note("The container is published on loopback only, so reach it from your laptop with:")
@@ -725,10 +723,28 @@ func (i *Installer) containerSummary(p Plan, envPath string, reusedKey bool) {
 		i.ui.blank()
 	}
 
+	// A container keeps its database in a volume this process cannot reach, so
+	// none of the three things a native install does for the operator -- the
+	// administrator, the GitHub App, the first pool -- happened here. Naming
+	// them, in order, with the exact address of each, is the whole handover.
 	sug := SuggestPool(i.det.OS, i.det.Arch, p.Backend, p.Capacity)
-	i.ui.note("Your first pool -- this host is " + i.det.Arch + " with the " + string(p.Backend) + " backend:")
-	i.ui.note("  " + sug.Command())
-	i.ui.note("then put  runs-on: " + sug.RunsOn() + "  in a workflow.")
+	// The same four steps, in the same order and with the same names, as the
+	// browser's own checklist and the first-run card it hands over from.
+	i.ui.step("Next -- four steps: three in the browser, then one in a workflow")
+	i.ui.field("  1.", "Create the first administrator")
+	i.ui.field("", p.ExternalURL)
+	i.ui.field("  2.", "Connect GitHub -- nothing can run until an App is installed")
+	i.ui.field("", p.ExternalURL+"/installations")
+	i.ui.field("  3.", "Create a pool -- suggested for this "+i.det.Arch+" host: "+sug.Name)
+	i.ui.field("", p.ExternalURL+"/pools/new")
+	i.ui.field("  4.", "Point a workflow at it")
+	i.ui.field("", "runs-on: "+sug.RunsOn())
+	i.ui.blank()
+
+	i.ui.note("The commands you will want:")
+	for _, line := range i.deploymentCommands(p) {
+		i.ui.note("  " + line)
+	}
 }
 
 // deploymentCommands lists the four things an operator does to a running

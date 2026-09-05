@@ -37,6 +37,7 @@
   import PoolRunners from '$lib/pools/PoolRunners.svelte';
   import PoolScaling from '$lib/pools/PoolScaling.svelte';
   import PoolWarnings from '$lib/pools/PoolWarnings.svelte';
+  import RunsOnPreview from '$lib/pools/RunsOnPreview.svelte';
   import PoolWizardForm from '$lib/pools/PoolWizardForm.svelte';
   import { backendLabel } from '$lib/pools/PoolVocabulary.svelte';
 
@@ -79,6 +80,10 @@
   // The cache is live over SSE, so prefer it and fall back to our own fetch --
   // which is what a deep link into a cold tab actually hits.
   const pool = $derived(fleet.pool(id) ?? fetched);
+  /** Migrate reads installation_id, so it opens already scoped to this pool's App. */
+  const migrateHref = $derived(
+    pool?.installation_id ? `/migrate?installation_id=${pool.installation_id}` : '/migrate',
+  );
   const runners = $derived(fleet.runnersInPool(id));
   const counts = $derived(pool?.counts ?? {});
 
@@ -317,6 +322,23 @@
     </div>
 
     <div class="side">
+      <!--
+        The last mile, and it used to be missing. RunsOnPreview appeared only on
+        step two of the wizard and vanished the moment the pool existed -- so an
+        operator who had just created their first pool was told runners would
+        appear "as soon as a job asks for these labels" without being told what
+        to write. This is the line they copy into a workflow.
+      -->
+      <section class="panel" aria-labelledby="runs-on-heading">
+        <div class="panel-head">
+          <h2 id="runs-on-heading">Point a workflow here</h2>
+        </div>
+        <div class="panel-body">
+          <RunsOnPreview labels={pool.labels ?? []} />
+          <a class="migrate-link" href={migrateHref}>Rewrite runs-on across repositories</a>
+        </div>
+      </section>
+
       <section class="panel" aria-labelledby="warnings-heading">
         <div class="panel-head">
           <h2 id="warnings-heading">Warnings</h2>
@@ -397,6 +419,16 @@
     border: 1px solid var(--z-border);
     border-radius: var(--z-radius-md);
     background: var(--z-surface);
+  }
+  .panel-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-3);
+    padding: var(--z-space-4) var(--z-space-5);
+  }
+  .migrate-link {
+    font-size: var(--z-text-xs);
+    color: var(--z-accent);
   }
   .panel-head {
     display: flex;
