@@ -581,10 +581,12 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	s.settingsMu.Lock()
 	defer s.settingsMu.Unlock()
 
+	// Every key is checked before any is written. A request is one change:
+	// applying the keys that parsed and then answering 422 for the one that
+	// did not would leave the controller running settings the operator was
+	// told were refused, with no audit row to say so.
 	var fields []fieldError
-	applied := map[string]any{}
-	before := map[string]any{}
-
+	staged := map[string]func() any{}
 	for key, value := range flat {
 		if _, ok := runtimeWritable[key]; !ok {
 			if slices.Contains(restartRequiredKeys(), key) {
@@ -595,7 +597,7 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			fields = append(fields, fieldError{key, fmt.Sprintf("%q is not a setting this API knows about", key)})
 			continue
 		}
-		prev, err := s.applySetting(key, value)
+		apply, err := s.stageSetting(key, value)
 		if err != nil {
 			// The description says what the setting is for, which is what makes
 			// "5 munutes is not a duration" into a sentence an operator can act
@@ -603,12 +605,18 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 			fields = append(fields, fieldError{key, fmt.Sprintf("%s (%s): %s", key, runtimeWritable[key], err)})
 			continue
 		}
-		before[key], applied[key] = prev, value
+		staged[key] = apply
 	}
 
 	if len(fields) > 0 {
 		unprocessable(w, "these settings could not be changed", fields)
 		return
+	}
+
+	applied := map[string]any{}
+	before := map[string]any{}
+	for key, apply := range staged {
+		before[key], applied[key] = apply(), flat[key]
 	}
 	if len(applied) > 0 {
 		s.auth.Auditor().Updated(r.Context(), Identity(r.Context()), "settings", "settings", before, applied)
@@ -625,8 +633,10 @@ func (s *Server) configFileName() string {
 	return "zoomies.yaml"
 }
 
-// applySetting writes one setting into the live configuration, returning what
-// it was.
+// stageSetting checks one setting and returns the function that writes it into
+// the live configuration, which returns what the value was. Checking and
+// writing are separate so that a request can be refused as a whole before any
+// part of it has taken effect.
 //
 // The loops that read these values do so on every pass, so a change is in
 // effect immediately -- with two exceptions worth knowing about: the scheduler
@@ -634,7 +644,7 @@ func (s *Server) configFileName() string {
 // interval takes effect at the next restart, and the log level applies to
 // loggers built after it changes. Both are still accepted here because the
 // stored value is what the settings page shows and what a restart will use.
-func (s *Server) applySetting(key string, value any) (any, error) {
+func (s *Server) stageSetting(key string, value any) (func() any, error) {
 	switch key {
 	case "log.level":
 		v, err := stringValue(value)
@@ -645,20 +655,22 @@ func (s *Server) applySetting(key string, value any) (any, error) {
 		if !slices.Contains([]string{"debug", "info", "warn", "error"}, v) {
 			return nil, fmt.Errorf("%q is not a log level; use debug, info, warn or error", v)
 		}
-		prev := s.cfg.Log.Level
-		s.cfg.Log.Level = v
-		return prev, nil
+		return func() any {
+			prev := s.cfg.Log.Level
+			s.cfg.Log.Level = v
+			return prev
+		}, nil
 
 	case "github.poll_interval":
-		return applyDuration(value, &s.cfg.GitHub.PollInterval, time.Second)
+		return stageDuration(value, &s.cfg.GitHub.PollInterval, time.Second)
 	case "scheduler.interval":
-		return applyDuration(value, &s.cfg.Scheduler.Interval, time.Second)
+		return stageDuration(value, &s.cfg.Scheduler.Interval, time.Second)
 	case "scheduler.scale_up_delay":
-		return applyDuration(value, &s.cfg.Scheduler.ScaleUpDelay, 0)
+		return stageDuration(value, &s.cfg.Scheduler.ScaleUpDelay, 0)
 	case "scheduler.max_runner_lifetime":
-		return applyDuration(value, &s.cfg.Scheduler.MaxRunnerLifetime, 0)
+		return stageDuration(value, &s.cfg.Scheduler.MaxRunnerLifetime, 0)
 	case "scheduler.provision_timeout":
-		return applyDuration(value, &s.cfg.Scheduler.ProvisionTimeout, 0)
+		return stageDuration(value, &s.cfg.Scheduler.ProvisionTimeout, 0)
 	case "scheduler.max_creates_per_tick":
 		n, err := intValue(value)
 		if err != nil {
@@ -667,28 +679,30 @@ func (s *Server) applySetting(key string, value any) (any, error) {
 		if n < 0 {
 			return nil, errors.New("this cannot be negative; use 0 for no cap")
 		}
-		prev := s.cfg.Scheduler.MaxCreatesPerTick
-		s.cfg.Scheduler.MaxCreatesPerTick = n
-		return prev, nil
+		return func() any {
+			prev := s.cfg.Scheduler.MaxCreatesPerTick
+			s.cfg.Scheduler.MaxCreatesPerTick = n
+			return prev
+		}, nil
 
 	case "retention.jobs":
-		return applyDuration(value, &s.cfg.Retention.Jobs, 0)
+		return stageDuration(value, &s.cfg.Retention.Jobs, 0)
 	case "retention.runners":
-		return applyDuration(value, &s.cfg.Retention.Runners, 0)
+		return stageDuration(value, &s.cfg.Retention.Runners, 0)
 	case "retention.audit":
-		return applyDuration(value, &s.cfg.Retention.Audit, 0)
+		return stageDuration(value, &s.cfg.Retention.Audit, 0)
 	case "retention.samples":
-		return applyDuration(value, &s.cfg.Retention.Samples, 0)
+		return stageDuration(value, &s.cfg.Retention.Samples, 0)
 	case "retention.webhooks":
-		return applyDuration(value, &s.cfg.Retention.Webhooks, 0)
+		return stageDuration(value, &s.cfg.Retention.Webhooks, 0)
 	}
 	return nil, fmt.Errorf("%q is not a setting this API knows about", key)
 }
 
-// applyDuration parses a Go duration and writes it, refusing anything below
-// minimum -- a poll interval of one millisecond is a denial of service against
-// GitHub, not a configuration choice.
-func applyDuration(value any, into *time.Duration, minimum time.Duration) (any, error) {
+// stageDuration parses a Go duration, refusing anything below minimum -- a
+// poll interval of one millisecond is a denial of service against GitHub, not
+// a configuration choice -- and returns the write.
+func stageDuration(value any, into *time.Duration, minimum time.Duration) (func() any, error) {
 	raw, err := stringValue(value)
 	if err != nil {
 		return nil, err
@@ -703,9 +717,11 @@ func applyDuration(value any, into *time.Duration, minimum time.Duration) (any, 
 	if minimum > 0 && d > 0 && d < minimum {
 		return nil, fmt.Errorf("%s is too short; the smallest useful value is %s", d, minimum)
 	}
-	prev := into.String()
-	*into = d
-	return prev, nil
+	return func() any {
+		prev := into.String()
+		*into = d
+		return prev
+	}, nil
 }
 
 func stringValue(v any) (string, error) {
