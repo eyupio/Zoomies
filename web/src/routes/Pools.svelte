@@ -433,34 +433,36 @@
   {/if}
 </PageHeader>
 
-<FilterBar {chips} onclear={clearFilters}>
-  <div class="search">
-    <Input
-      bind:element={searchField}
-      value={search}
-      type="search"
-      icon={Search}
-      size="sm"
-      placeholder="Search pools by name, label or target"
-      ariaLabel="Search pools"
-      oninput={(event) =>
-        router.setQuery({ q: (event.currentTarget as HTMLInputElement).value || null })}
-    />
-  </div>
-  <div class="status-filter">
-    <Select
-      value={status}
-      size="sm"
-      ariaLabel="Filter by status"
-      options={[
-        { value: '', label: 'Any status' },
-        { value: 'enabled', label: 'Enabled' },
-        { value: 'disabled', label: 'Disabled' },
-      ]}
-      onchange={(value) => router.setQuery({ status: value || null })}
-    />
-  </div>
-</FilterBar>
+<div class="filters">
+  <FilterBar {chips} onclear={clearFilters}>
+    <div class="search">
+      <Input
+        bind:element={searchField}
+        value={search}
+        type="search"
+        icon={Search}
+        size="sm"
+        placeholder="Search pools by name, label or target"
+        ariaLabel="Search pools"
+        oninput={(event) =>
+          router.setQuery({ q: (event.currentTarget as HTMLInputElement).value || null })}
+      />
+    </div>
+    <div class="status-filter">
+      <Select
+        value={status}
+        size="sm"
+        ariaLabel="Filter by status"
+        options={[
+          { value: '', label: 'Any status' },
+          { value: 'enabled', label: 'Enabled' },
+          { value: 'disabled', label: 'Disabled' },
+        ]}
+        onchange={(value) => router.setQuery({ status: value || null })}
+      />
+    </div>
+  </FilterBar>
+</div>
 
 <DataGrid
   gridId="pools"
@@ -513,6 +515,9 @@
 </ConfirmDialog>
 
 <style>
+  .filters {
+    margin-bottom: var(--z-space-4);
+  }
   .search {
     min-width: 18rem;
     flex: 1 1 18rem;
