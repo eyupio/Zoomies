@@ -415,7 +415,7 @@ var runtimeWritable = map[string]string{
 	"scheduler.max_creates_per_tick": "how many runners may be created in one pass",
 	"retention.jobs":                 "how long job history is kept",
 	"retention.runners":              "how long finished runners are kept",
-	"retention.audit":                "how long the audit log is kept",
+	"retention.audit":                "how long scaling history is kept; audit rows themselves are never deleted",
 	"retention.samples":              "how long the Overview's samples are kept",
 	"retention.webhooks":             "how long webhook deliveries are kept",
 }

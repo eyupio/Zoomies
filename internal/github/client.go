@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -247,19 +248,11 @@ func SplitTarget(target string) (owner, repo string, kind store.TargetType) {
 // go-github expects: an absolute URL ending in a slash, with /api/v3 appended
 // for a bare GHES hostname.
 func NormalizeAPIBaseURL(raw string) (string, error) {
-	s := strings.TrimSpace(raw)
-	if s == "" || s == "https://github.com" || s == "https://api.github.com" {
-		return "https://api.github.com/", nil
-	}
-	if !strings.Contains(s, "://") {
-		s = "https://" + s
-	}
-	s = strings.TrimRight(s, "/")
-	if !strings.HasSuffix(s, "/api/v3") && !strings.HasSuffix(s, "/api/uploads") &&
-		!strings.Contains(s, "api.github.com") {
-		s += "/api/v3"
-	}
-	return s + "/", nil
+	// The rule lives in config so that zoomies.yaml is normalised by the same
+	// code as an installation row: the docs promise a bare GHES hostname works
+	// in both places, and two copies of the rule had already let the config
+	// side refuse what this side accepted.
+	return config.NormalizeGitHubAPIBaseURL(raw)
 }
 
 // IsEnterprise reports whether an API base URL points at GitHub Enterprise

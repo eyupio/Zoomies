@@ -48,9 +48,9 @@ server:
   trusted_proxies: []           # ZOOMIES_TRUSTED_PROXIES -- CIDRs, or [cloudflare]
   allowed_origins: []           # ZOOMIES_ALLOWED_ORIGINS
   allow_indexing: false         # ZOOMIES_ALLOW_INDEXING -- let search engines in
-  read_timeout: 30s
-  write_timeout: 0s             # 0: SSE and log tails must not be cut off
-  idle_timeout: 120s
+  read_timeout: 30s             # ZOOMIES_READ_TIMEOUT
+  write_timeout: 0s             # ZOOMIES_WRITE_TIMEOUT -- 0: SSE and log tails must not be cut off
+  idle_timeout: 120s            # ZOOMIES_IDLE_TIMEOUT
 
 database:
   path: /var/lib/zoomies/zoomies.db   # ZOOMIES_DB_PATH
@@ -135,7 +135,7 @@ metrics:
 retention:
   jobs: 720h                    # ZOOMIES_RETENTION_JOBS      (30 days)
   runners: 168h                 # ZOOMIES_RETENTION_RUNNERS   (7 days; the row, not the container -- see agent.finished_retention)
-  audit: 8760h                  # ZOOMIES_RETENTION_AUDIT     (365 days)
+  audit: 8760h                  # ZOOMIES_RETENTION_AUDIT     (365 days of scaling history; audit rows are never pruned)
   samples: 168h                 # ZOOMIES_RETENTION_SAMPLES
   webhooks: 168h                # ZOOMIES_RETENTION_WEBHOOKS
 ```
