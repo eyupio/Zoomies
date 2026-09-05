@@ -51,6 +51,40 @@ var demoPoolNames = []string{
 	"demo-linux-x64", "demo-linux-arm64",
 }
 
+// refuseSeedOnRealState is the second half of SeedDemo's guard: anything in the
+// database that is not a demo fixture means this is somebody's fleet.
+func (c *Controller) refuseSeedOnRealState(ctx context.Context) error {
+	refuse := func(what string) error {
+		return fmt.Errorf("refusing to seed demo data: this instance already has %s, and demo fixtures must never appear in a real fleet; unset %s", what, SeedEnvVar)
+	}
+	insts, err := c.st.ListInstallations(ctx)
+	if err != nil {
+		return fmt.Errorf("checking whether this instance is empty: %w", err)
+	}
+	for _, inst := range insts {
+		if !IsDemoID(inst.ID) {
+			return refuse(fmt.Sprintf("the installation %q", inst.Target))
+		}
+	}
+	hosts, err := c.st.ListHosts(ctx)
+	if err != nil {
+		return fmt.Errorf("checking whether this instance is empty: %w", err)
+	}
+	for _, h := range hosts {
+		if !IsDemoID(h.ID) {
+			return refuse(fmt.Sprintf("the host %q", h.Name))
+		}
+	}
+	n, err := c.st.CountUsers(ctx)
+	if err != nil {
+		return fmt.Errorf("checking whether this instance is empty: %w", err)
+	}
+	if n > 0 {
+		return refuse(plural(n, "account"))
+	}
+	return nil
+}
+
 // SeedDemo writes a deterministic fixture fleet: one installation, two pools, a
 // dozen runners spread across the state machine, fifty jobs with plausible
 // queue waits and outcomes, three hosts, some scaling history and an audit
@@ -81,6 +115,14 @@ func (c *Controller) SeedDemo(ctx context.Context) error {
 	if seeded {
 		c.log.Debug("demo fixtures are already present")
 		return nil
+	}
+	// A pool is what seeding writes, but it is not the only sign of a real
+	// deployment. A controller with an installation, a host or an account and
+	// no pool yet is the state every fresh production install passes through,
+	// and a compose file that kept ZOOMIES_SEED_DEMO from a trial run must not
+	// be able to drop a fixture fleet into it.
+	if err := c.refuseSeedOnRealState(ctx); err != nil {
+		return err
 	}
 
 	// Everything is placed relative to one instant so the fixture reads as a

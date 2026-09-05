@@ -196,3 +196,52 @@ func TestSeedDemoGivesJobsStepsATimelineAndOneLostRunner(t *testing.T) {
 		}
 	}
 }
+
+// A pool was the only thing the guard looked at. A production controller that
+// has an installation, a host and an administrator but no pool yet -- the
+// state every fresh install passes through -- got a fixture fleet if its
+// compose file kept ZOOMIES_SEED_DEMO from a trial run.
+func TestSeedDemoRefusesAnInstanceWithRealStateButNoPool(t *testing.T) {
+	cases := []struct {
+		name string
+		set  func(h *harness)
+		want string
+	}{
+		{"an installation", func(h *harness) { h.installation() }, "installation"},
+		{"a host", func(h *harness) { h.host("build-1") }, `host "build-1"`},
+		{"an account", func(h *harness) {
+			if err := h.st.CreateUser(h.ctx, &store.User{Username: "root", Role: store.RoleAdmin}); err != nil {
+				h.t.Fatalf("CreateUser: %v", err)
+			}
+		}, "1 account"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			tc.set(h)
+			err := h.c.SeedDemo(h.ctx)
+			if err == nil {
+				t.Fatalf("SeedDemo seeded an instance that already had %s", tc.name)
+			}
+			if !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), SeedEnvVar) {
+				t.Fatalf("error = %q, want it to name %s and how to turn seeding off", err, tc.want)
+			}
+			pools, err := h.st.ListPools(h.ctx)
+			if err != nil || len(pools) != 0 {
+				t.Fatalf("the refused seed still wrote %d pools (%v)", len(pools), err)
+			}
+		})
+	}
+}
+
+// And the demo's own fixtures are not "real state": a seeded instance is
+// still recognised as seeded on its next start.
+func TestSeedDemoStillRecognisesItsOwnFixtures(t *testing.T) {
+	h := newHarness(t)
+	if err := h.c.SeedDemo(h.ctx); err != nil {
+		t.Fatalf("first SeedDemo: %v", err)
+	}
+	if err := h.c.SeedDemo(h.ctx); err != nil {
+		t.Fatalf("second SeedDemo refused its own fixtures: %v", err)
+	}
+}
