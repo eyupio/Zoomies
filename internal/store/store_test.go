@@ -552,3 +552,53 @@ func TestUnmatchedOnlyStillAnswersWhenManagedOnlyIsAlsoSet(t *testing.T) {
 		t.Fatalf("total = %d, jobs = %d, want the unmatched job", total, len(got))
 	}
 }
+
+// last_idle_at is when a runner became idle, which is what the idle timeout
+// counts from. A repeated transition to idle used to move it forward, so a
+// second caller reporting "still idle" made the runner immortal.
+func TestASelfTransitionDoesNotRestartTheIdleClock(t *testing.T) {
+	now := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+	s, err := Open(context.Background(), Options{Path: ":memory:", Now: func() time.Time { return now }})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+	ctx := context.Background()
+	_, pool, host := seedPool(t, s)
+
+	r := &Runner{PoolID: pool.ID, HostID: host.ID, Name: "zoomies-abcd", Ephemeral: true}
+	if err := s.CreateRunner(ctx, r); err != nil {
+		t.Fatalf("CreateRunner: %v", err)
+	}
+	if _, err := s.TransitionRunner(ctx, r.ID, RunnerRegistering, ""); err != nil {
+		t.Fatal(err)
+	}
+	first, err := s.TransitionRunner(ctx, r.ID, RunnerIdle, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(10 * time.Minute)
+	again, err := s.TransitionRunner(ctx, r.ID, RunnerIdle, "still here")
+	if err != nil {
+		t.Fatalf("idle -> idle: %v", err)
+	}
+	if !again.LastIdleAt.Equal(*first.LastIdleAt) {
+		t.Fatalf("last_idle_at moved from %s to %s on a self-transition", first.LastIdleAt, again.LastIdleAt)
+	}
+	if again.Message != "still here" {
+		t.Fatalf("message = %q; a self-transition may still carry a message", again.Message)
+	}
+
+	failed, err := s.TransitionRunner(ctx, r.ID, RunnerFailed, "boom")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Hour)
+	failedAgain, err := s.TransitionRunner(ctx, r.ID, RunnerFailed, "boom again")
+	if err != nil {
+		t.Fatalf("failed -> failed: %v", err)
+	}
+	if !failedAgain.FinishedAt.Equal(*failed.FinishedAt) {
+		t.Fatalf("finished_at moved from %s to %s on a self-transition", failed.FinishedAt, failedAgain.FinishedAt)
+	}
+}
