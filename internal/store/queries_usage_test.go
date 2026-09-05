@@ -154,3 +154,20 @@ func TestAllocationIsAbsentForGroupingsThatCannotAttributeIt(t *testing.T) {
 		t.Fatal("UsageAllocationAttributable disagrees with what Usage actually fills in")
 	}
 }
+
+// A job GitHub ran on its own hosted runners has no pool, and the installation
+// grouping reaches the installation through the pool. That NULL used to fail
+// the whole query, so a window with a single hosted-runner job in it -- which
+// is most windows on a fleet still migrating -- answered with an error.
+func TestUsageByInstallationTolerantOfJobsWithoutAPool(t *testing.T) {
+	s := newTestStore(t)
+	seedUsageJob(t, s, "", "acme/widgets", 0, mins(1), mins(2))
+
+	rows, err := s.Usage(context.Background(), usageAt(0), usageAt(10), UsageByInstallation)
+	if err != nil {
+		t.Fatalf("Usage by installation with a pool-less job: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Key != "" || rows[0].Jobs != 1 {
+		t.Fatalf("got %+v, want one row under the empty key counting the job", rows)
+	}
+}
