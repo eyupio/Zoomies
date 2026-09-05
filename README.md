@@ -1,25 +1,37 @@
 <div align="center">
 
-<img src="docs/brand/logo-master-dark.png" alt="Zoomies" width="260">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/brand/logo-master-dark.png">
+  <img src="docs/brand/logo-light-background.png" alt="Zoomies: a cocker spaniel curling through a circular motion path, above the wordmark" width="260">
+</picture>
 
 # Zoomies
 
 **Off the lead, on the job.**
 
-A lightweight, self-hosted GitHub Actions runner fleet controller.
+A lightweight, self-hosted GitHub Actions runner fleet controller.<br>
 Ephemeral runners by default, GitHub App auth, webhook-driven autoscaling,
 multi-host agents, a live web UI, and a one-line installer.
 
-Single Go binary. SQLite. No Kubernetes.
+Single Go binary. SQLite. No Kubernetes. MIT licensed.
 
-[zoomies.sh](https://zoomies.sh) ·
-[Quick start](#quick-start) ·
-[How it works](docs/architecture.md) ·
-[Migrating](docs/migration.md) ·
-[Security](docs/security.md) ·
-[Configuration](docs/configuration.md) ·
-[API](docs/api-surface.md) ·
-[Brand](docs/brand.md)
+[![CI](https://github.com/eyupio/zoomies/actions/workflows/ci.yml/badge.svg)](https://github.com/eyupio/zoomies/actions/workflows/ci.yml)
+[![Website](https://github.com/eyupio/zoomies/actions/workflows/docs.yml/badge.svg)](https://zoomies.sh)
+[![Latest release](https://img.shields.io/github/v/release/eyupio/zoomies?display_name=tag&color=2F80ED&labelColor=080808)](https://github.com/eyupio/zoomies/releases/latest)
+[![Licence: MIT](https://img.shields.io/badge/licence-MIT-2F80ED?labelColor=080808)](LICENSE)
+
+```sh
+curl -fsSL https://zoomies.sh/install.sh | sh
+```
+
+**[zoomies.sh](https://zoomies.sh)** ·
+[Quick start](https://zoomies.sh/quickstart/) ·
+[Architecture](https://zoomies.sh/architecture/) ·
+[Configuration](https://zoomies.sh/configuration/) ·
+[Migrating](https://zoomies.sh/migration/) ·
+[Security](https://zoomies.sh/security/) ·
+[API](https://zoomies.sh/api-surface/) ·
+[FAQ](https://zoomies.sh/faq/)
 
 </div>
 
@@ -73,36 +85,36 @@ and asks once. Then it hands off to `zoomies init`.
 one fork worth knowing about before you start. Compose is the default whenever
 you have a `compose` command:
 
-=== "Native — finishes in the terminal"
+#### Native — finishes in the terminal
 
-    1. **Install mode** — single VM with an embedded agent, controller only, or
-       agent only.
-    2. **Service user and directories** — a dedicated unprivileged `zoomies` user.
-    3. **Backend** — rootless Docker if it finds one, otherwise Docker, Podman or
-       bare process, with the trade-off on every option.
-    4. **Bind address and TLS** — loopback, a certificate you provide, a
-       self-signed one, or reverse-proxy mode.
-    5. **Review** — the whole plan and the exact files it will write, before
-       anything is written. Install, change an answer, or stop.
-    6. **GitHub App** — opens your browser at a pre-filled App manifest with
-       exactly the permissions Zoomies needs and the webhook URL already set.
-       Create it, and the credentials come back to the installer automatically.
-    7. **First admin account**, and a **first pool** sized for the host.
-    8. **Service** — a hardened systemd unit (or launchd), started and
-       health-checked.
+1. **Install mode** — single VM with an embedded agent, controller only, or
+   agent only.
+2. **Service user and directories** — a dedicated unprivileged `zoomies` user.
+3. **Backend** — rootless Docker if it finds one, otherwise Docker, Podman or
+   bare process, with the trade-off on every option.
+4. **Bind address and TLS** — loopback, a certificate you provide, a
+   self-signed one, or reverse-proxy mode.
+5. **Review** — the whole plan and the exact files it will write, before
+   anything is written. Install, change an answer, or stop.
+6. **GitHub App** — opens your browser at a pre-filled App manifest with
+   exactly the permissions Zoomies needs and the webhook URL already set.
+   Create it, and the credentials come back to the installer automatically.
+7. **First admin account**, and a **first pool** sized for the host.
+8. **Service** — a hardened systemd unit (or launchd), started and
+   health-checked.
 
-    It finishes with the URL, your login, and the `runs-on:` line to put in a
-    workflow.
+It finishes with the URL, your login, and the `runs-on:` line to put in a
+workflow.
 
-=== "Compose or Docker — finishes in the browser"
+#### Compose or Docker — finishes in the browser
 
-    The same questions up to the review, then it writes the deployment
-    (`docker-compose.yml` and a fully populated `.env`, or one container and an
-    env file) and brings it up. The database lives in a volume this installer
-    cannot open, so the last three steps happen in the browser instead: create
-    the first administrator, connect GitHub, create a pool. The closing summary
-    prints all three with their exact addresses, and the Overview repeats them
-    as a checklist that ticks itself off.
+The same questions up to the review, then it writes the deployment
+(`docker-compose.yml` and a fully populated `.env`, or one container and an
+env file) and brings it up. The database lives in a volume this installer
+cannot open, so the last three steps happen in the browser instead: create
+the first administrator, connect GitHub, create a pool. The closing summary
+prints all three with their exact addresses, and the Overview repeats them
+as a checklist that ticks itself off.
 
 Prefer to read it first? That is the intended way:
 
@@ -326,15 +338,15 @@ is too much machinery — you have a VM or three, not a cluster — but a handfu
 hand-registered long-lived runners is too little.
 
 | | ARC | A few static runners | Zoomies |
-| --- | --- | --- | --- |
-| Needs Kubernetes | yes | no | no |
-| Ephemeral runners | yes | rarely | default |
-| Autoscaling | yes | no | yes |
-| Multi-host | yes | no | yes |
-| Auth model | GitHub App | a PAT per runner | GitHub App |
-| Web UI | no | sometimes | yes |
-| Audit log | no | no | yes |
-| To install | Helm, CRDs, a cluster | manual | one command |
+| --- | :---: | :---: | :---: |
+| Runs without Kubernetes | — | ✓ | ✓ |
+| Ephemeral runners | ✓ | rarely | **default** |
+| Autoscaling | ✓ | — | ✓ |
+| Multi-host | ✓ | — | ✓ |
+| Auth model | GitHub App | a PAT per runner | **GitHub App** |
+| Web UI | — | sometimes | ✓ |
+| Audit log | — | — | ✓ |
+| To install | Helm, CRDs, a cluster | manual | **one command** |
 
 ## Project layout
 
@@ -385,3 +397,14 @@ one-line justification, and that is enforced by review. UI changes should keep
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
+
+---
+
+<div align="center">
+
+<img src="docs/brand/paw-swish-white.png" alt="" width="28" height="28">
+
+**Zoomies** · Self-hosted Git runners<br>
+Developed by [EyUp.io](https://eyup.io)
+
+</div>

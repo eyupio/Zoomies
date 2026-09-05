@@ -84,6 +84,12 @@ markdown_extensions:
       permalink: true
       permalink_title: Link to this section
   - pymdownx.details
+  # Material's icon sets, as `:material-webhook:` shortcodes. The home page's
+  # feature cards and comparison table use them; they render as inline SVG that
+  # inherits the text colour, so there is no icon image to theme or to go stale.
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
   - pymdownx.highlight:
       anchor_linenums: true
       line_spans: __span
@@ -119,6 +125,13 @@ hooks:
   - hooks/seo.py
 
 extra:
+  # Who builds Zoomies. overrides/partials/copyright.html prints this in the
+  # footer of every page, beside the licence; the product's own footer says the
+  # same thing from web/src/lib/links.ts, so a fork renames it in two places
+  # rather than everywhere.
+  developer:
+    name: EyUp.io
+    url: https://eyup.io
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/eyupio/zoomies
