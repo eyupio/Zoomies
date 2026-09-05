@@ -195,6 +195,12 @@ type Backend interface {
 	List(ctx context.Context) ([]Workload, error)
 }
 
+// ImagePrewarmer is implemented by container backends. It prepares an image
+// without starting a runner and returns the immutable digest actually present.
+type ImagePrewarmer interface {
+	PrewarmImage(ctx context.Context, image string, policy store.PullPolicy) (string, error)
+}
+
 // Workload pairs a handle with the Zoomies identity recorded on it, so an agent
 // restarting into a host full of containers can work out what it owns.
 type Workload struct {

@@ -284,6 +284,9 @@ export const enablePool = (id: string) =>
 export const disablePool = (id: string) =>
   api.post<Result<'disablePool'>>(`/pools/${enc(id)}/disable`, {});
 
+export const prewarmPool = (id: string) =>
+  api.post<Result<'prewarmPool'>>(`/pools/${enc(id)}/prewarm`, {});
+
 /* -- runners -------------------------------------------------------------- */
 
 export const listRunners = (query?: Query<'listRunners'>, signal?: AbortSignal) =>

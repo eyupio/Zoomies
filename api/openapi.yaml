@@ -732,6 +732,25 @@ paths:
                   runners_affected: { type: integer }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /pools/{id}/prewarm:
+    post:
+      operationId: prewarmPool
+      tags: [pools]
+      summary: Prewarm the pool image on every matching host
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "202":
+          description: Tasks queued; hosts contains per-host pending or prior state.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  queued: { type: integer }
+                  hosts: { type: array, items: { $ref: "#/components/schemas/PoolPrewarm" } }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
   /pools/{id}/enable:
     parameters: [{ $ref: "#/components/parameters/PathID" }]
     post:
@@ -1625,6 +1644,12 @@ components:
     BackendKind:
       type: string
       enum: [docker, podman, process]
+    PullPolicy:
+      type: string
+      enum: [if-not-present, always, pinned-only]
+      default: if-not-present
+      description: pinned-only requires an image@sha256 digest and rejects mutable tags.
+
     DockerMode:
       type: string
       enum: [none, dind, host-socket]
@@ -1980,6 +2005,18 @@ components:
         disk_gb: { type: integer, format: int64 }
         pids_limit: { type: integer, format: int64 }
 
+    PoolPrewarm:
+      type: object
+      properties:
+        pool_id: { type: string }
+        host_id: { type: string }
+        host_name: { type: string }
+        image: { type: string }
+        state: { type: string, enum: [pending, succeeded, failed] }
+        digest: { type: string }
+        error: { type: string }
+        updated_at: { type: string, format: date-time }
+
     Pool:
       type: object
       properties:
@@ -1991,6 +2028,7 @@ components:
         runner_group: { type: string }
         backend: { $ref: "#/components/schemas/BackendKind" }
         image: { type: string }
+        pull_policy: { $ref: "#/components/schemas/PullPolicy" }
         runner_version: { type: string }
         min_runners: { type: integer }
         max_runners: { type: integer }
@@ -2051,6 +2089,7 @@ components:
         runner_group: { type: string }
         backend: { $ref: "#/components/schemas/BackendKind" }
         image: { type: string }
+        pull_policy: { $ref: "#/components/schemas/PullPolicy" }
         runner_version: { type: string }
         min_runners: { type: integer, default: 0, minimum: 0 }
         max_runners: { type: integer, default: 4, minimum: 1 }
@@ -2087,6 +2126,7 @@ components:
         runner_group: { type: string }
         backend: { $ref: "#/components/schemas/BackendKind" }
         image: { type: string }
+        pull_policy: { $ref: "#/components/schemas/PullPolicy" }
         runner_version: { type: string }
         min_runners: { type: integer, minimum: 0 }
         max_runners: { type: integer, minimum: 1 }
@@ -2117,6 +2157,7 @@ components:
         ephemeral: { type: boolean }
         labels: { type: array, items: { type: string } }
         image: { type: string }
+        image_digest: { type: string, description: Immutable digest resolved by the host backend. }
         runner_version: { type: string }
         current_job_id: { type: string }
         current_job: { $ref: "#/components/schemas/Job" }

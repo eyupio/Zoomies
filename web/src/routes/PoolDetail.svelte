@@ -6,7 +6,7 @@
   expects it to.
 -->
 <script lang="ts">
-  import { Pause, Pencil, Play, Trash2 } from '@lucide/svelte';
+  import { Download, Pause, Pencil, Play, Trash2 } from '@lucide/svelte';
   import {
     deletePool,
     disablePool,
@@ -14,6 +14,7 @@
     getPool,
     listJobs,
     listScalingEvents,
+    prewarmPool,
   } from '$lib/api/client';
   import { events } from '$lib/api/sse';
   import type { BackendKind, Job, Pool, Problem, ScalingEvent } from '$lib/api/types';
@@ -179,6 +180,16 @@
     );
   }
 
+  async function prewarm(): Promise<void> {
+    if (!pool?.id) return;
+    try {
+      const result = await prewarmPool(pool.id);
+      toasts.success('Image prewarm queued', `${result.queued ?? 0} matching host(s).`);
+    } catch (cause) {
+      toasts.fromError(cause, 'The image was not prewarmed');
+    }
+  }
+
   let deleteOpen = $state(false);
   let forceDelete = $state(false);
 
@@ -251,6 +262,7 @@
   {/snippet}
 
   {#if pool && canOperate && !editing}
+    <Button icon={Download} onclick={prewarm}>Prewarm image</Button>
     {#if pool.enabled === false}
       <Button icon={Play} onclick={() => setEnabled(true)}>Enable</Button>
     {:else}

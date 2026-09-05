@@ -747,6 +747,10 @@ func validateTask(task Task) error {
 		if task.StreamID == "" {
 			return errors.New("cancel_logs task has no stream ID")
 		}
+	case TaskPrewarmImage:
+		if task.PoolID == "" || task.Image == "" || !task.PullPolicy.Valid() {
+			return errors.New("prewarm_image task needs a pool, image, and valid pull policy")
+		}
 	default:
 		return fmt.Errorf("unknown task kind %q; this agent speaks protocol version %d, so upgrade it to match the controller", task.Kind, ProtocolVersion)
 	}
@@ -761,7 +765,31 @@ func (a *Agent) runTask(ctx context.Context, task Task, release func()) {
 		a.handleStop(ctx, task, release)
 	case TaskRemoveRunner:
 		a.handleRemove(ctx, task, release)
+	case TaskPrewarmImage:
+		a.handlePrewarm(ctx, task, release)
 	}
+}
+
+func (a *Agent) handlePrewarm(ctx context.Context, task Task, release func()) {
+	b, err := a.opts.Backends.Get(task.Backend)
+	if err != nil {
+		release()
+		a.reportFailure(ctx, task, err.Error())
+		return
+	}
+	p, ok := b.(backend.ImagePrewarmer)
+	if !ok {
+		release()
+		a.reportFailure(ctx, task, fmt.Sprintf("the %s backend does not support image prewarming", task.Backend))
+		return
+	}
+	digest, err := p.PrewarmImage(ctx, task.Image, task.PullPolicy)
+	release()
+	res := TaskResult{TaskID: task.ID, Kind: task.Kind, OK: err == nil, Digest: digest, CompletedAt: a.now()}
+	if err != nil {
+		res.Error = err.Error()
+	}
+	a.report(ctx, res)
 }
 
 func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
@@ -807,6 +835,10 @@ func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 		a.reportFailure(ctx, task, fmt.Sprintf("the %s backend could not create runner %s: %v", kind, spec.Name, err))
 		return
 	}
+	digest := ""
+	if p, ok := b.(backend.ImagePrewarmer); ok && spec.Image != "" {
+		digest, _ = p.PrewarmImage(cctx, spec.Image, store.PullIfNotPresent)
+	}
 
 	now := a.now()
 	a.mu.Lock()
@@ -832,6 +864,7 @@ func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 		RunnerID:    task.RunnerID,
 		OK:          true,
 		Handle:      handle,
+		Digest:      digest,
 		State:       store.RunnerRegistering,
 		CompletedAt: now,
 	})
