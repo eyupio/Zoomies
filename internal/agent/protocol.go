@@ -123,7 +123,13 @@ type Task struct {
 
 // TaskResult reports the outcome of a task back to the controller.
 type TaskResult struct {
-	TaskID   string         `json:"task_id"`
+	TaskID string `json:"task_id"`
+	// Kind is the kind of the task this answers. The controller uses it to
+	// tell a lifecycle task that failed -- which leaves the runner unusable --
+	// from a log relay that could not be opened, which leaves it exactly as it
+	// was. An agent from before this field is read from the controller's own
+	// record of the task instead.
+	Kind     TaskKind       `json:"kind,omitempty"`
 	RunnerID string         `json:"runner_id,omitempty"`
 	OK       bool           `json:"ok"`
 	Error    string         `json:"error,omitempty"`

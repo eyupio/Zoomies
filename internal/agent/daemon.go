@@ -665,7 +665,7 @@ func (a *Agent) taskLoop(ctx context.Context) error {
 func (a *Agent) dispatch(ctx context.Context, task Task) {
 	if err := validateTask(task); err != nil {
 		a.log.Warn("rejecting task", "task", task.ID, "kind", task.Kind, "error", err)
-		a.report(ctx, TaskResult{TaskID: task.ID, RunnerID: task.RunnerID, OK: false, Error: err.Error(), CompletedAt: a.now()})
+		a.report(ctx, TaskResult{TaskID: task.ID, Kind: task.Kind, RunnerID: task.RunnerID, OK: false, Error: err.Error(), CompletedAt: a.now()})
 		return
 	}
 
@@ -704,6 +704,7 @@ func (a *Agent) dispatch(ctx context.Context, task Task) {
 			release()
 			a.report(ctx, TaskResult{
 				TaskID:      task.ID,
+				Kind:        task.Kind,
 				RunnerID:    task.RunnerID,
 				OK:          false,
 				Error:       "agent shut down before this task started; it is safe to redeliver",
@@ -817,6 +818,7 @@ func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 	release()
 	a.report(ctx, TaskResult{
 		TaskID:      task.ID,
+		Kind:        task.Kind,
 		RunnerID:    task.RunnerID,
 		OK:          true,
 		Handle:      handle,
@@ -836,7 +838,7 @@ func (a *Agent) handleStop(ctx context.Context, task Task, release func()) {
 		// Nothing to stop is the outcome the controller wanted, not an error.
 		a.log.Info("stop task for a runner with no workload on this host; reporting it removed", "runner", task.RunnerID)
 		release()
-		a.report(ctx, TaskResult{TaskID: task.ID, RunnerID: task.RunnerID, OK: true, State: store.RunnerRemoved, CompletedAt: a.now()})
+		a.report(ctx, TaskResult{TaskID: task.ID, Kind: task.Kind, RunnerID: task.RunnerID, OK: true, State: store.RunnerRemoved, CompletedAt: a.now()})
 		return
 	}
 
@@ -854,6 +856,7 @@ func (a *Agent) handleStop(ctx context.Context, task Task, release func()) {
 		release()
 		a.report(ctx, TaskResult{
 			TaskID:      task.ID,
+			Kind:        task.Kind,
 			RunnerID:    task.RunnerID,
 			OK:          false,
 			Handle:      handle,
@@ -868,7 +871,7 @@ func (a *Agent) handleStop(ctx context.Context, task Task, release func()) {
 	// from the workload's actual exit by the reconciler, which knows whether it
 	// finished its job or died.
 	release()
-	a.report(ctx, TaskResult{TaskID: task.ID, RunnerID: task.RunnerID, OK: true, Handle: handle, CompletedAt: a.now()})
+	a.report(ctx, TaskResult{TaskID: task.ID, Kind: task.Kind, RunnerID: task.RunnerID, OK: true, Handle: handle, CompletedAt: a.now()})
 }
 
 func (a *Agent) handleRemove(ctx context.Context, task Task, release func()) {
@@ -882,7 +885,7 @@ func (a *Agent) handleRemove(ctx context.Context, task Task, release func()) {
 		// A workload that is already gone is exactly what this task asked for.
 		a.untrack(task.RunnerID)
 		release()
-		a.report(ctx, TaskResult{TaskID: task.ID, RunnerID: task.RunnerID, OK: true, State: store.RunnerRemoved, CompletedAt: a.now()})
+		a.report(ctx, TaskResult{TaskID: task.ID, Kind: task.Kind, RunnerID: task.RunnerID, OK: true, State: store.RunnerRemoved, CompletedAt: a.now()})
 		return
 	}
 
@@ -894,6 +897,7 @@ func (a *Agent) handleRemove(ctx context.Context, task Task, release func()) {
 		release()
 		a.report(ctx, TaskResult{
 			TaskID:      task.ID,
+			Kind:        task.Kind,
 			RunnerID:    task.RunnerID,
 			OK:          false,
 			Handle:      handle,
@@ -906,13 +910,13 @@ func (a *Agent) handleRemove(ctx context.Context, task Task, release func()) {
 	a.untrack(task.RunnerID)
 	a.log.Info("runner removed", "runner", task.RunnerID, "handle", handle)
 	release()
-	a.report(ctx, TaskResult{TaskID: task.ID, RunnerID: task.RunnerID, OK: true, Handle: handle, State: store.RunnerRemoved, CompletedAt: a.now()})
+	a.report(ctx, TaskResult{TaskID: task.ID, Kind: task.Kind, RunnerID: task.RunnerID, OK: true, Handle: handle, State: store.RunnerRemoved, CompletedAt: a.now()})
 }
 
 func (a *Agent) runLogTask(ctx context.Context, task Task) {
 	if task.Kind == TaskCancelLogs {
 		a.logs.cancel(task.StreamID)
-		a.report(ctx, TaskResult{TaskID: task.ID, RunnerID: task.RunnerID, OK: true, CompletedAt: a.now()})
+		a.report(ctx, TaskResult{TaskID: task.ID, Kind: task.Kind, RunnerID: task.RunnerID, OK: true, CompletedAt: a.now()})
 		return
 	}
 
@@ -924,6 +928,7 @@ func (a *Agent) runLogTask(ctx context.Context, task Task) {
 		}
 		a.report(ctx, TaskResult{
 			TaskID:      task.ID,
+			Kind:        task.Kind,
 			RunnerID:    task.RunnerID,
 			OK:          false,
 			Error:       fmt.Sprintf("no workload for runner %s on this host, so its logs are gone; an ephemeral runner's output is only available while its container exists", task.RunnerID),
@@ -939,6 +944,7 @@ func (a *Agent) runLogTask(ctx context.Context, task Task) {
 	if err = a.logs.start(ctx, task.StreamID, handle, b, opts); err != nil {
 		a.report(ctx, TaskResult{
 			TaskID:      task.ID,
+			Kind:        task.Kind,
 			RunnerID:    task.RunnerID,
 			OK:          false,
 			Handle:      handle,
@@ -947,7 +953,7 @@ func (a *Agent) runLogTask(ctx context.Context, task Task) {
 		})
 		return
 	}
-	a.report(ctx, TaskResult{TaskID: task.ID, RunnerID: task.RunnerID, OK: true, Handle: handle, CompletedAt: a.now()})
+	a.report(ctx, TaskResult{TaskID: task.ID, Kind: task.Kind, RunnerID: task.RunnerID, OK: true, Handle: handle, CompletedAt: a.now()})
 }
 
 // report sends a task result. It uses a context shutdown does not cancel,
@@ -971,6 +977,7 @@ func (a *Agent) reportUnsearchable(ctx context.Context, task Task, err error) {
 	a.log.Error("could not find the workload for a task", "task", task.ID, "kind", task.Kind, "runner", task.RunnerID, "error", err)
 	a.report(ctx, TaskResult{
 		TaskID:      task.ID,
+		Kind:        task.Kind,
 		RunnerID:    task.RunnerID,
 		OK:          false,
 		Error:       fmt.Sprintf("could not tell whether runner %s is still on this host because its backend would not answer, so nothing was changed: %v", task.RunnerID, err),
@@ -981,6 +988,7 @@ func (a *Agent) reportUnsearchable(ctx context.Context, task Task, err error) {
 func (a *Agent) reportFailure(ctx context.Context, task Task, msg string) {
 	a.report(ctx, TaskResult{
 		TaskID:      task.ID,
+		Kind:        task.Kind,
 		RunnerID:    task.RunnerID,
 		OK:          false,
 		Error:       msg,

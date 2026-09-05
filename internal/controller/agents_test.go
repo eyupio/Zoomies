@@ -340,3 +340,47 @@ func TestHeartbeatWithoutABackendProbeKeepsWhatIsKnown(t *testing.T) {
 		t.Fatalf("host = %+v, want the backends it joined with left alone", host)
 	}
 }
+
+// Opening the log viewer on a runner whose container is not there yet -- or
+// whose backend would not answer -- comes back as a failed stream_logs task.
+// That says nothing about the runner, and must not fail it: the next reconcile
+// would otherwise tear down a container that may be mid-job.
+func TestFailedLogTaskLeavesTheRunnerAlone(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		kind agent.TaskKind // what the agent puts in its result; "" is an older agent
+	}{
+		{"agent names the kind", agent.TaskStreamLogs},
+		{"older agent, controller's record decides", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			_, pool, host := h.fleet()
+			r := h.runnerRow(pool, host, store.RunnerProvisioning)
+
+			h.c.enqueue(host.ID, agent.Task{Kind: agent.TaskStreamLogs, RunnerID: r.ID, StreamID: "log_1"})
+			batch, err := h.c.PollTasks(h.ctx, host.ID, time.Second)
+			if err != nil {
+				t.Fatalf("PollTasks: %v", err)
+			}
+			err = h.c.ReportResult(h.ctx, host.ID, agent.TaskResult{
+				TaskID:   batch.Tasks[0].ID,
+				Kind:     tc.kind,
+				RunnerID: r.ID,
+				OK:       false,
+				Error:    "no workload for runner " + r.ID + " on this host, so its logs are gone",
+			})
+			if err != nil {
+				t.Fatalf("ReportResult: %v", err)
+			}
+
+			after, err := h.st.GetRunner(h.ctx, r.ID)
+			if err != nil {
+				t.Fatalf("GetRunner: %v", err)
+			}
+			if after.State != store.RunnerProvisioning {
+				t.Fatalf("state = %q after a failed log task, want it left at %q", after.State, store.RunnerProvisioning)
+			}
+		})
+	}
+}
