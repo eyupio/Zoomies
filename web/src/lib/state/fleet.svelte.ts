@@ -19,6 +19,15 @@
  *
  * Bumps are coalesced on an animation frame, so a burst of forty SSE frames
  * repaints once rather than forty times.
+ *
+ * Two counters come out of a bump. `version` moves on every change and is what
+ * a component reading a row depends on. `shape` moves only when something
+ * other than a live metric changed -- a runner appearing, changing state, pool,
+ * host or job; a host flipping health -- and is what a server-side grid
+ * refetches on. A runner's heartbeat updates its CPU and memory every thirty
+ * seconds, and on a fleet of fifty runners that is a frame every second or so;
+ * a grid that refetched on each of those would be a round trip per heartbeat,
+ * for two columns it can read from this cache instead.
  */
 import {
   ApiError,
@@ -35,13 +44,30 @@ import { toasts } from './toasts.svelte';
 
 interface FleetData {
   version: number;
+  shape: number;
   pools: Map<string, Pool>;
   runners: Map<string, Runner>;
   hosts: Map<string, Host>;
 }
 
 function emptyData(): FleetData {
-  return { version: 0, pools: new Map(), runners: new Map(), hosts: new Map() };
+  return { version: 0, shape: 0, pools: new Map(), runners: new Map(), hosts: new Map() };
+}
+
+/**
+ * The fields a frame may change without the fleet's shape having changed: the
+ * live metrics an agent reports on every heartbeat.
+ */
+const VOLATILE = new Set(['cpu_percent', 'memory_bytes', 'last_heartbeat']);
+
+/** True when two rows differ in anything but a live metric. */
+function shapeDiffers(a: Record<string, unknown> | undefined, b: Record<string, unknown>): boolean {
+  if (!a) return true;
+  for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    if (VOLATILE.has(key)) continue;
+    if (JSON.stringify(a[key]) !== JSON.stringify(b[key])) return true;
+  }
+  return false;
 }
 
 /** How many scaling decisions the Overview keeps in memory. */
@@ -65,6 +91,15 @@ class Fleet {
   #unsubscribers: Array<() => void> = [];
   #started = false;
   #reconciling: Promise<void> | null = null;
+  /** Set by a mutation that changed more than a live metric; read by #touch. */
+  #shapeChanged = false;
+  /**
+   * Frames that arrived while a reconcile was in flight. They are newer than
+   * the responses the reconcile is waiting on, so they are applied on top of
+   * the new Maps once those land rather than to the old Maps the reconcile
+   * is about to throw away.
+   */
+  #deferred: Array<() => void> = [];
 
   /* -- reads -------------------------------------------------------------- */
 
@@ -98,6 +133,13 @@ class Fleet {
   /** Bumped once per applied change. Useful as a `{#key}` or effect dependency. */
   get version(): number {
     return this.#data.version;
+  }
+  /**
+   * Bumped only when something other than a live metric changed. A grid that
+   * fetches its rows from the server refetches on this, not on `version`.
+   */
+  get shape(): number {
+    return this.#data.shape;
   }
 
   get pools(): Pool[] {
@@ -145,49 +187,58 @@ class Fleet {
       }),
     );
 
+    // Every handler goes through #live so that a frame landing mid-reconcile
+    // waits for the new Maps instead of being applied to the old ones.
     this.#unsubscribers.push(
-      events.subscribe(['runner.created', 'runner.updated'], (runner) => {
-        if (!runner.id) return;
-        // A removed runner is gone from the API's own listing, which is what a
-        // reconcile replaces this cache with, so keeping it here would make
-        // the two disagree until the next reconnect. On a busy fleet every
-        // ephemeral runner ends this way, so the Map would otherwise grow
-        // without bound between reconnects, and the palette's first few
-        // hundred entries would all be runners that no longer exist.
-        if (runner.state === 'removed') this.#data.runners.delete(runner.id);
-        else this.#data.runners.set(runner.id, runner);
-        this.#touch();
-      }),
-      events.subscribe('runner.deleted', ({ id }) => {
-        this.#data.runners.delete(id);
-        this.#touch();
-      }),
-      events.subscribe(['pool.created', 'pool.updated'], (pool) => {
-        if (pool.id) this.#data.pools.set(pool.id, pool);
-        this.#touch();
-      }),
-      events.subscribe('pool.deleted', ({ id }) => {
-        this.#data.pools.delete(id);
-        this.#touch();
-      }),
-      events.subscribe('host.updated', (host) => {
-        if (host.id) this.#data.hosts.set(host.id, host);
-        this.#touch();
-      }),
-      events.subscribe('host.deleted', ({ id }) => {
-        this.#data.hosts.delete(id);
-        this.#touch();
-      }),
-      events.subscribe('stats', (stats) => {
-        this.#stats = stats;
-      }),
-      events.subscribe('problems.updated', (payload) => {
-        this.#problems = payload.items ?? [];
-        this.#problemsOk = payload.ok !== false;
-      }),
-      events.subscribe('scaling', (event) => {
-        this.#scaling = [event, ...this.#scaling].slice(0, SCALING_LIMIT);
-      }),
+      events.subscribe(['runner.created', 'runner.updated'], (runner) =>
+        this.#live(() => {
+          if (!runner.id) return;
+          // A removed runner is gone from the API's own listing, which is
+          // what a reconcile replaces this cache with, so keeping it here
+          // would make the two disagree until the next reconnect. On a busy
+          // fleet every ephemeral runner ends this way, so the Map would
+          // otherwise grow without bound between reconnects, and the
+          // palette's first few hundred entries would all be runners that no
+          // longer exist.
+          if (runner.state === 'removed') this.#delete(this.#data.runners, runner.id);
+          else this.#set(this.#data.runners, runner.id, runner);
+        }),
+      ),
+      events.subscribe('runner.deleted', ({ id }) =>
+        this.#live(() => this.#delete(this.#data.runners, id)),
+      ),
+      events.subscribe(['pool.created', 'pool.updated'], (pool) =>
+        this.#live(() => {
+          if (pool.id) this.#set(this.#data.pools, pool.id, pool);
+        }),
+      ),
+      events.subscribe('pool.deleted', ({ id }) =>
+        this.#live(() => this.#delete(this.#data.pools, id)),
+      ),
+      events.subscribe('host.updated', (host) =>
+        this.#live(() => {
+          if (host.id) this.#set(this.#data.hosts, host.id, host);
+        }),
+      ),
+      events.subscribe('host.deleted', ({ id }) =>
+        this.#live(() => this.#delete(this.#data.hosts, id)),
+      ),
+      events.subscribe('stats', (stats) =>
+        this.#live(() => {
+          this.#stats = stats;
+        }),
+      ),
+      events.subscribe('problems.updated', (payload) =>
+        this.#live(() => {
+          this.#problems = payload.items ?? [];
+          this.#problemsOk = payload.ok !== false;
+        }),
+      ),
+      events.subscribe('scaling', (event) =>
+        this.#live(() => {
+          this.#scaling = [event, ...this.#scaling].slice(0, SCALING_LIMIT);
+        }),
+      ),
     );
 
     events.start();
@@ -206,11 +257,19 @@ class Fleet {
     this.#scaling = [];
     this.#loaded = false;
     this.#error = null;
+    this.#deferred = [];
   }
 
   /**
    * One authoritative fetch. Called at start-up and after every reconnect;
    * concurrent callers share the in-flight promise rather than stampeding.
+   *
+   * Frames that arrive while it runs are held and replayed once the new Maps
+   * are in place, because they are newer than anything the fetch returns: a
+   * reconcile runs on every reconnect, which is exactly when the server's
+   * replay burst lands, and applying that burst to Maps about to be replaced
+   * lost it, while a fetched `stats` overwrote a fresher frame the server
+   * would not send again until its numbers changed.
    */
   reconcile(): Promise<void> {
     if (this.#reconciling) return this.#reconciling;
@@ -218,6 +277,9 @@ class Fleet {
     this.#reconciling = this.#fetchAll().finally(() => {
       this.#loading = false;
       this.#reconciling = null;
+      // Whatever landed after #fetchAll's own replay and before this point
+      // is applied now, to whichever Maps are current.
+      this.#flushDeferred();
     });
     return this.#reconciling;
   }
@@ -234,6 +296,7 @@ class Fleet {
       ]);
       const next = emptyData();
       next.version = this.#data.version + 1;
+      next.shape = this.#data.shape + 1;
       for (const pool of pools.items ?? []) if (pool.id) next.pools.set(pool.id, pool);
       for (const host of hosts.items ?? []) if (host.id) next.hosts.set(host.id, host);
       for (const runner of runners.items ?? []) if (runner.id) next.runners.set(runner.id, runner);
@@ -244,6 +307,9 @@ class Fleet {
       this.#scaling = scaling.items ?? [];
       this.#loaded = true;
       this.#error = null;
+      // The frames that arrived meanwhile, on top of the fresh snapshot, so
+      // the first paint after a reconnect already shows them.
+      this.#flushDeferred();
     } catch (cause) {
       // A failed reconcile is a UI state, not an exception: the stream may well
       // recover on its own, and the page keeps showing what it last knew.
@@ -265,18 +331,15 @@ class Fleet {
    * can find a runner the operator is looking at without a second request.
    */
   ingestRunners(rows: readonly Runner[]): void {
-    for (const runner of rows) if (runner.id) this.#data.runners.set(runner.id, runner);
-    this.#touch();
+    for (const runner of rows) if (runner.id) this.#set(this.#data.runners, runner.id, runner);
   }
 
   ingestPools(rows: readonly Pool[]): void {
-    for (const pool of rows) if (pool.id) this.#data.pools.set(pool.id, pool);
-    this.#touch();
+    for (const pool of rows) if (pool.id) this.#set(this.#data.pools, pool.id, pool);
   }
 
   ingestHosts(rows: readonly Host[]): void {
-    for (const host of rows) if (host.id) this.#data.hosts.set(host.id, host);
-    this.#touch();
+    for (const host of rows) if (host.id) this.#set(this.#data.hosts, host.id, host);
   }
 
   /**
@@ -316,6 +379,29 @@ class Fleet {
 
   /* -- internals ------------------------------------------------------------ */
 
+  /** Run a frame's mutation now, or hold it until the reconcile in flight lands. */
+  #live(apply: () => void): void {
+    if (this.#reconciling) this.#deferred.push(apply);
+    else apply();
+  }
+
+  #flushDeferred(): void {
+    // A frame arriving during the flush is appended and taken in turn.
+    while (this.#deferred.length > 0) this.#deferred.shift()?.();
+  }
+
+  /** Write a row, noting whether the fleet's shape moved with it. */
+  #set<T extends Record<string, unknown>>(map: Map<string, T>, id: string, next: T): void {
+    if (shapeDiffers(map.get(id), next)) this.#shapeChanged = true;
+    map.set(id, next);
+    this.#touch();
+  }
+
+  #delete<T>(map: Map<string, T>, id: string): void {
+    if (map.delete(id)) this.#shapeChanged = true;
+    this.#touch();
+  }
+
   #mapFor(id: string): Map<string, Record<string, unknown>> | undefined {
     const data = this.#data as unknown as {
       runners: Map<string, Record<string, unknown>>;
@@ -337,7 +423,9 @@ class Fleet {
     if (this.#frame !== null) return;
     const publish = () => {
       this.#frame = null;
-      this.#data = { ...this.#data, version: this.#data.version + 1 };
+      const shape = this.#shapeChanged ? this.#data.shape + 1 : this.#data.shape;
+      this.#shapeChanged = false;
+      this.#data = { ...this.#data, version: this.#data.version + 1, shape };
     };
     if (typeof requestAnimationFrame === 'function') {
       this.#frame = requestAnimationFrame(publish);

@@ -152,10 +152,11 @@
    * Warm the fleet cache with the page on screen, so the command palette can
    * find a pool the operator is looking at.
    *
-   * Only when it would actually change something: ingesting bumps the fleet's
-   * version, and the fleet's version is this grid's `liveKey`, so warming the
-   * cache on every page unconditionally has the grid refetching itself for
-   * ever -- and, with no pools at all, never settling on the empty state.
+   * Only when it would actually change something: ingesting a row that differs
+   * bumps the fleet's shape, and the fleet's shape is this grid's `liveKey`,
+   * so warming the cache on every page unconditionally has the grid
+   * refetching itself for ever -- and, with no pools at all, never settling
+   * on the empty state.
    * Identity is what the palette needs, so identity is what is compared;
    * the live counts move on their own and are not worth a round trip.
    */
@@ -504,7 +505,7 @@
   defaultOrder="asc"
   selectable={canOperate}
   {bulkActions}
-  liveKey={fleet.version}
+  liveKey={fleet.shape}
   noun="pools"
   onopen={(row) => navigate(`/pools/${row.id ?? ''}`)}
   onrows={takeRows}

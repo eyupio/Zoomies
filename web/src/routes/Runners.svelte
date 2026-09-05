@@ -163,11 +163,12 @@
    * Warm the fleet cache with the page on screen, so the command palette can
    * find a runner the operator is looking at.
    *
-   * Only when it would actually change something: ingesting bumps the fleet's
-   * version, and the fleet's version is this grid's `liveKey`, so warming the
-   * cache on every page unconditionally would have the grid refetching itself
-   * for ever. Identity is what the palette needs, so identity is what is
-   * compared -- CPU and memory move constantly and are not worth a round trip.
+   * Only when it would actually change something: ingesting a row that differs
+   * bumps the fleet's shape, and the fleet's shape is this grid's `liveKey`,
+   * so warming the cache on every page unconditionally would have the grid
+   * refetching itself for ever. Identity is what the palette needs, so
+   * identity is what is compared -- CPU and memory move constantly and are
+   * not worth a round trip.
    */
   function takeRows(rows: Runner[]): void {
     onScreen = rows;
@@ -474,7 +475,7 @@
   defaultSort="created_at"
   defaultOrder="desc"
   selectable={canOperate}
-  liveKey={fleet.version}
+  liveKey={fleet.shape}
   noun="runners"
   onopen={(row) => navigate(`/runners/${row.id ?? ''}`)}
   onrows={takeRows}
