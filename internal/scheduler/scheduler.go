@@ -10,6 +10,7 @@
 package scheduler
 
 import (
+	"cmp"
 	"fmt"
 	"math"
 	"slices"
@@ -51,7 +52,7 @@ type Policy struct {
 	ProvisionTimeout time.Duration
 	// MaxCreatesPerTick caps creates across the whole fleet in one pass, so a
 	// thundering herd of queued jobs cannot fill every host at once. Pools are
-	// served in name order until the budget runs out; zero means no cap.
+	// shared fairly among pools at the same priority; zero means no cap.
 	MaxCreatesPerTick int
 }
 
@@ -158,6 +159,11 @@ func Decide(s Snapshot) Plan {
 	for _, p := range pools {
 		pp := t.decidePool(p, s.Runners[p.ID], demand[p.ID])
 		plan.Pools = append(plan.Pools, pp)
+	}
+	t.allocate(pools, plan.Pools, s.Runners, demand)
+	// Pool plans remain in name order, and their actions are flattened in that
+	// same stable order even though capacity was granted round by round.
+	for _, pp := range plan.Pools {
 		plan.Actions = append(plan.Actions, pp.Actions...)
 	}
 	return plan
@@ -226,12 +232,99 @@ func (t *tick) decidePool(p *store.Pool, runners []*store.Runner, queued []*stor
 	plan.Desired = clamp(max(p.MinRunners, busy+eligible), p.MinRunners, p.MaxRunners)
 
 	switch {
-	case plan.Desired > live:
-		t.scaleUp(p, &plan, live, busy, eligible)
 	case plan.Desired < live:
 		t.scaleDown(p, &plan, remaining, live)
 	}
 	return plan
+}
+
+// allocate shares creation capacity after every pool's desired size has been
+// calculated. Priority tiers are exhausted from highest to lowest; within a
+// tier each backlogged pool receives one slot per round.
+func (t *tick) allocate(pools []*store.Pool, plans []PoolPlan, runners map[string][]*store.Runner, demand map[string][]*store.Job) {
+	tiers := append([]*store.Pool(nil), pools...)
+	slices.SortStableFunc(tiers, func(a, b *store.Pool) int { return cmp.Compare(b.Priority, a.Priority) })
+	byID := make(map[string]*PoolPlan, len(plans))
+	for i := range plans {
+		byID[plans[i].PoolID] = &plans[i]
+	}
+
+	for start := 0; start < len(tiers); {
+		end := start + 1
+		for end < len(tiers) && tiers[end].Priority == tiers[start].Priority {
+			end++
+		}
+		active := append([]*store.Pool(nil), tiers[start:end]...)
+		for len(active) > 0 && t.budget > 0 {
+			next := active[:0]
+			for _, p := range active {
+				pp := byID[p.ID]
+				if !p.Enabled || pp.Desired <= pp.Current+creates(pp.Actions) {
+					continue
+				}
+				if !t.grant(p, pp, runners[p.ID], demand[p.ID]) {
+					continue
+				}
+				if pp.Desired > pp.Current+creates(pp.Actions) {
+					next = append(next, p)
+				}
+				if t.budget == 0 {
+					break
+				}
+			}
+			active = next
+		}
+		start = end
+		if t.budget == 0 {
+			break
+		}
+	}
+	for _, p := range pools {
+		pp := byID[p.ID]
+		got := creates(pp.Actions)
+		if !p.Enabled || pp.Desired <= pp.Current+got || pp.Blocked != "" {
+			continue
+		}
+		why := fmt.Sprintf("this tick's global limit of %s is exhausted; the next pass will continue", plural(t.policy.MaxCreatesPerTick, "new runner"))
+		pp.Reason = cannotScale(p.Name, pp.Current+got, pp.Desired, why)
+	}
+}
+
+func creates(actions []Action) int {
+	n := 0
+	for _, a := range actions {
+		if a.Kind == ActionCreate {
+			n++
+		}
+	}
+	return n
+}
+
+func (t *tick) grant(p *store.Pool, plan *PoolPlan, runners []*store.Runner, queued []*store.Job) bool {
+	hosts := t.hosts.place(p, 1)
+	if len(hosts) == 0 {
+		b := t.hosts.why(p)
+		plan.Reason = cannotScale(p.Name, plan.Current+creates(plan.Actions), plan.Desired, sentence(b.what, b.fix))
+		plan.Blocked, plan.BlockedFix = b.what, b.fix
+		plan.BlockedAtCapacity, plan.BlockedAlternatives = b.atCapacity, b.alternatives
+		return false
+	}
+	busy, eligible := 0, 0
+	for _, r := range runners {
+		if r.State == store.RunnerBusy {
+			busy++
+		}
+	}
+	for _, r := range queued {
+		if t.now.Sub(r.QueuedAt) >= t.policy.ScaleUpDelay {
+			eligible++
+		}
+	}
+	reason := upReason(p, busy, eligible, t.policy.ScaleUpDelay)
+	plan.Actions = append(plan.Actions, Action{Kind: ActionCreate, PoolID: p.ID, PoolName: p.Name, HostID: hosts[0], Reason: reason})
+	t.budget--
+	plan.Reason = scaled(p.Name, plan.Current, plan.Current+creates(plan.Actions), reason)
+	return true
 }
 
 // reap removes from consideration the runners the scheduler can no longer count
@@ -283,37 +376,6 @@ func (t *tick) disable(p *store.Pool, plan *PoolPlan, remaining []*store.Runner,
 	if n > 0 {
 		plan.Reason = scaled(p.Name, live, live-n, "pool is disabled")
 	}
-}
-
-// scaleUp emits the creates that close the gap to Desired, within the tick's
-// create budget and whatever capacity the hosts have left.
-func (t *tick) scaleUp(p *store.Pool, plan *PoolPlan, live, busy, eligible int) {
-	want := plan.Desired - live
-	reason := upReason(p, busy, eligible, t.policy.ScaleUpDelay)
-	if want > t.budget {
-		want = t.budget
-	}
-	if want == 0 {
-		plan.Reason = cannotScale(p.Name, live, plan.Desired, fmt.Sprintf(
-			"this tick's limit of %s is used up; the next pass will continue",
-			plural(t.policy.MaxCreatesPerTick, "new runner")))
-		return
-	}
-	hosts := t.hosts.place(p, want)
-	if len(hosts) == 0 {
-		b := t.hosts.why(p)
-		plan.Reason = cannotScale(p.Name, live, plan.Desired, sentence(b.what, b.fix))
-		plan.Blocked, plan.BlockedFix = b.what, b.fix
-		plan.BlockedAtCapacity, plan.BlockedAlternatives = b.atCapacity, b.alternatives
-		return
-	}
-	for _, hostID := range hosts {
-		plan.Actions = append(plan.Actions, Action{
-			Kind: ActionCreate, PoolID: p.ID, PoolName: p.Name, HostID: hostID, Reason: reason,
-		})
-	}
-	t.budget -= len(hosts)
-	plan.Reason = scaled(p.Name, live, live+len(hosts), reason)
 }
 
 // scaleDown drains surplus runners that have been idle for longer than the

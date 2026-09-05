@@ -134,8 +134,17 @@ reasons reliable enough to print.
 
 ## What does it cost?
 
-Nothing. Zoomies is free and open source under the MIT licence. You pay for the
-machines you run it on.
+Nothing. Zoomies is free and open source under the GNU Affero General Public
+License (AGPL-3.0). You pay for the machines you run it on.
+
+## Can I run Zoomies as a service for other people?
+
+Yes. The licence has one thing to say about it: if you change Zoomies and let
+other people use your changed version over a network, you have to offer those
+people the source of what you are running. That is the clause the AGPL adds to
+the GPL, and it is why Zoomies uses it. Running it for your own organisation,
+modified or not, asks nothing of you. The full text is in
+[LICENSE](https://github.com/eyupio/zoomies/blob/main/LICENSE).
 
 <script type="application/ld+json">
 {
@@ -227,7 +236,15 @@ machines you run it on.
       "name": "What does Zoomies cost?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Nothing. Zoomies is free and open source under the MIT licence. You pay only for the machines you run it on."
+        "text": "Nothing. Zoomies is free and open source under the GNU Affero General Public License (AGPL-3.0). You pay only for the machines you run it on."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can I run Zoomies as a service for other people?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. Zoomies is licensed under the GNU Affero General Public License, so if you modify it and let other people use the modified version over a network, you must offer those people the source of what you are running. Running it for your own organisation, modified or not, asks nothing of you."
       }
     }
   ]

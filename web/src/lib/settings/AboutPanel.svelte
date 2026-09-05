@@ -46,7 +46,7 @@
     },
     {
       label: 'Source on GitHub',
-      description: 'Zoomies is MIT licensed. Read it before you run it.',
+      description: 'Zoomies is AGPL-3.0 licensed. Read it before you run it.',
       href: REPO_URL,
     },
     {

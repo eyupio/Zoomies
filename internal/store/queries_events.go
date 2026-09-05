@@ -178,6 +178,14 @@ type JobFilter struct {
 	// itself -- and calling it unmatched would report a fleet-wide fault every
 	// time somebody kept one repository on runners this controller does not own.
 	UnmatchedOnly bool
+	// ManagedOnly narrows the list to jobs this controller has a hand in: one an
+	// enabled pool claimed, or one that ran on a runner this fleet started.
+	// GitHub tells us about every job in an installed repository, most of which
+	// are somebody else's hosted runners, and a Jobs page that mixes the two
+	// answers "why is my fleet slow?" with somebody else's numbers. Queued jobs
+	// no pool claims stay in: nothing ran them, so they are this fleet's
+	// problem to see, which is also why UnmatchedOnly wins over this flag.
+	ManagedOnly bool
 }
 
 var jobSortCols = map[string]string{
@@ -260,6 +268,12 @@ func jobWhere(f JobFilter) (string, []any) {
 	}
 	if f.UnmatchedOnly {
 		cond = append(cond, `matched = 0 AND state = ?`)
+		args = append(args, string(JobQueued))
+	} else if f.ManagedOnly {
+		// A queued job no pool claims is kept: it is unclaimed rather than
+		// somebody else's, and hiding it would hide the fault the page exists
+		// to show.
+		cond = append(cond, `(matched = 1 OR pool_id != '' OR runner_id != '' OR (matched = 0 AND state = ?))`)
 		args = append(args, string(JobQueued))
 	}
 	if q := strings.TrimSpace(f.Search); q != "" {

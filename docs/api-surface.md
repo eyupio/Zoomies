@@ -111,7 +111,7 @@ Conventions:
 
 | Method | Path | Role | Notes |
 | --- | --- | --- | --- |
-| GET | `/api/v1/jobs` | viewer | Filters: `repo`, `workflow`, `pool_id`, `runner_id`, `state`, `conclusion`, `label`, `q`, `since`, `until`, `unmatched`. Each item carries `queue_wait` and `duration`. |
+| GET | `/api/v1/jobs` | viewer | Filters: `repo`, `workflow`, `pool_id`, `runner_id`, `state`, `conclusion`, `label`, `q`, `since`, `until`, `unmatched`, `managed`. `managed=true` narrows the list to what this fleet has a hand in — a pool claims it, a runner here ran it, or it is queued and unclaimed — which is what the Jobs page asks for by default. Each item carries `queue_wait` and `duration`. |
 | GET | `/api/v1/jobs/{id}` | viewer | |
 | GET | `/api/v1/jobs/facets` | viewer | Distinct repos, workflows and conclusions, for the filter menus. |
 

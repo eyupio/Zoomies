@@ -80,6 +80,9 @@
     <dd class="tabular">
       {formatNumber(pool.min_runners ?? 0)} minimum, {formatNumber(pool.max_runners ?? 0)} maximum
     </dd>
+
+    <dt>Priority</dt>
+    <dd>{formatNumber(pool.priority ?? 0)}</dd>
   </div>
 
   <div class="pair">

@@ -427,3 +427,128 @@ func TestUnmatchedOnlyLeavesOutJobsThatAlreadyRan(t *testing.T) {
 		t.Fatalf("unmatched job = %q, want the queued one", got[0].JobName)
 	}
 }
+
+// The brand is put on here rather than only in the handler because the API is
+// not the only writer: the installer and the demo seeder create pools too, and
+// a pool whose name says nothing about this fleet is one an operator meets
+// again in GitHub's runner list next to registrations nobody here made.
+func TestPoolNamesAreBrandedWhoeverWritesThem(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	inst := &Installation{AppID: 1, InstallationID: 2, Target: "acme", TargetType: TargetOrg}
+	if err := s.CreateInstallation(ctx, inst); err != nil {
+		t.Fatalf("CreateInstallation: %v", err)
+	}
+
+	pool := &Pool{
+		Name: "gpu", InstallationID: inst.ID, Labels: StringSlice{"gpu"},
+		Backend: BackendDocker, MaxRunners: 4, DockerMode: DockerNone, Enabled: true,
+	}
+	if err := s.CreatePool(ctx, pool); err != nil {
+		t.Fatalf("CreatePool: %v", err)
+	}
+	if pool.Name != "zoomies-gpu" {
+		t.Fatalf("created name = %q, want it branded", pool.Name)
+	}
+
+	// A pool carried over from a build that did not brand names gains the
+	// prefix the next time it is written, rather than keeping a name no new
+	// pool could have.
+	pool.Name = "builders"
+	if err := s.UpdatePool(ctx, pool); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+	got, err := s.GetPool(ctx, pool.ID)
+	if err != nil {
+		t.Fatalf("GetPool: %v", err)
+	}
+	if got.Name != "zoomies-builders" {
+		t.Fatalf("updated name = %q, want it branded", got.Name)
+	}
+}
+
+// The Jobs page defaults to this fleet's own work, because GitHub reports every
+// job in an installed repository and most of them belong to somebody else's
+// runners. What counts as ours is deliberately generous: a pool claimed it, a
+// runner here ran it, or nothing has run it yet -- an unclaimed queued job is a
+// fault this fleet has to be able to see.
+func TestManagedOnlyKeepsThisFleetsWorkAndItsUnclaimedQueue(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	started := now.Add(time.Second)
+	done := now.Add(time.Minute)
+
+	jobs := []*Job{
+		{GitHubJobID: 1, Repo: "acme/widgets", JobName: "claimed", State: JobCompleted,
+			Conclusion: "success", PoolID: "pool_1", Matched: true,
+			QueuedAt: now, StartedAt: &started, CompletedAt: &done},
+		{GitHubJobID: 2, Repo: "acme/widgets", JobName: "ran here", State: JobCompleted,
+			Conclusion: "success", RunnerID: "run_1",
+			QueuedAt: now, StartedAt: &started, CompletedAt: &done},
+		{GitHubJobID: 3, Repo: "acme/widgets", JobName: "waiting", State: JobQueued,
+			QueuedAt: now, Labels: StringSlice{"typo-linux"}},
+		{GitHubJobID: 4, Repo: "acme/widgets", JobName: "hosted", State: JobCompleted,
+			Conclusion: "success", QueuedAt: now, StartedAt: &started, CompletedAt: &done,
+			Labels: StringSlice{"ubuntu-latest"}},
+	}
+	for _, j := range jobs {
+		if _, err := s.UpsertJob(ctx, j); err != nil {
+			t.Fatalf("UpsertJob %s: %v", j.JobName, err)
+		}
+	}
+
+	got, total, err := s.ListJobs(ctx, JobFilter{ManagedOnly: true}, Page{})
+	if err != nil {
+		t.Fatalf("ListJobs: %v", err)
+	}
+	names := map[string]bool{}
+	for _, j := range got {
+		names[j.JobName] = true
+	}
+	if total != 3 || len(got) != 3 {
+		t.Fatalf("total = %d, jobs = %d (%v), want the three this fleet has a hand in", total, len(got), names)
+	}
+	if names["hosted"] {
+		t.Error("a job run on a hosted runner is listed as this fleet's")
+	}
+	for _, want := range []string{"claimed", "ran here", "waiting"} {
+		if !names[want] {
+			t.Errorf("%q is missing from the managed list", want)
+		}
+	}
+
+	// Without the flag the page still shows everything, which is what the
+	// "include other runners" toggle asks for.
+	_, all, err := s.ListJobs(ctx, JobFilter{}, Page{})
+	if err != nil {
+		t.Fatalf("ListJobs unfiltered: %v", err)
+	}
+	if all != 4 {
+		t.Fatalf("unfiltered total = %d, want all 4 jobs", all)
+	}
+}
+
+// Both flags together must not cancel each other out: the unmatched view is a
+// narrower question about the same fleet, and answering it with an empty page
+// would send an operator looking for a bug that is not there.
+func TestUnmatchedOnlyStillAnswersWhenManagedOnlyIsAlsoSet(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Millisecond)
+
+	if _, err := s.UpsertJob(ctx, &Job{
+		GitHubJobID: 1, Repo: "acme/widgets", JobName: "waiting", State: JobQueued,
+		QueuedAt: now, Labels: StringSlice{"typo-linux"},
+	}); err != nil {
+		t.Fatalf("UpsertJob: %v", err)
+	}
+
+	got, total, err := s.ListJobs(ctx, JobFilter{UnmatchedOnly: true, ManagedOnly: true}, Page{})
+	if err != nil {
+		t.Fatalf("ListJobs: %v", err)
+	}
+	if total != 1 || len(got) != 1 {
+		t.Fatalf("total = %d, jobs = %d, want the unmatched job", total, len(got))
+	}
+}

@@ -114,7 +114,7 @@ def on_post_build(config):
         "",
         "Zoomies is a single Go binary that watches a GitHub organisation for",
         "queued Actions jobs, starts one ephemeral runner per job, and destroys",
-        "it when the job finishes. SQLite for state, no Kubernetes, MIT licensed.",
+        "it when the job finishes. SQLite for state, no Kubernetes, AGPL-3.0 licensed.",
         "",
         "## Documentation",
         "",

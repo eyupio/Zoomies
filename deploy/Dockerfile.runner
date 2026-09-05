@@ -35,7 +35,7 @@ ARG TARGETARCH
 LABEL org.opencontainers.image.title="zoomies-runner" \
       org.opencontainers.image.description="GitHub Actions runner image for Zoomies" \
       org.opencontainers.image.source="https://github.com/eyupio/zoomies" \
-      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
       io.zoomies.runner-version="${RUNNER_VERSION}"
 
 ENV DEBIAN_FRONTEND=noninteractive \

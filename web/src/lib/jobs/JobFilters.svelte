@@ -14,6 +14,12 @@
     since: string;
     until: string;
     unmatched: boolean;
+    /**
+     * Show every job GitHub reported, not only the ones this fleet has a hand in.
+     * Inverted on purpose: the default view is Zoomies' own jobs, so an absent
+     * URL key means the default rather than "show everything".
+     */
+    all: boolean;
   }
 
   export const EMPTY_JOB_FILTERS: JobFilterState = {
@@ -27,6 +33,7 @@
     since: '',
     until: '',
     unmatched: false,
+    all: false,
   };
 </script>
 
@@ -145,6 +152,16 @@
           },
         ]
       : []),
+    ...(value.all
+      ? [
+          {
+            id: 'all',
+            label: 'Showing',
+            value: 'jobs from every runner',
+            onremove: () => onchange({ all: false }),
+          },
+        ]
+      : []),
   ]);
 </script>
 
@@ -216,6 +233,13 @@
     description="Queued jobs no enabled pool claims"
     checked={value.unmatched}
     onchange={(on) => onchange({ unmatched: on })}
+  />
+
+  <Switch
+    label="Include other runners"
+    description="Also show jobs GitHub ran without this fleet"
+    checked={value.all}
+    onchange={(on) => onchange({ all: on })}
   />
 </FilterBar>
 

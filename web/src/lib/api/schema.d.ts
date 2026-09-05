@@ -1446,6 +1446,11 @@ export interface components {
             runner_version?: string;
             min_runners?: number;
             max_runners?: number;
+            /**
+             * @description Higher-priority pools receive creation capacity before lower-priority pools.
+             * @default 0
+             */
+            priority: number;
             idle_timeout?: components["schemas"]["Duration"];
             ephemeral?: boolean;
             docker_mode?: components["schemas"]["DockerMode"];
@@ -1497,7 +1502,10 @@ export interface components {
             source?: string;
         };
         PoolCreate: {
-            /** @example linux-x64 */
+            /**
+             * @description The pool's name. Every pool name carries the brand, so a name sent without the `zoomies-` prefix is stored with one: `gpu` becomes `zoomies-gpu`.
+             * @example zoomies-linux-x64
+             */
             name: string;
             installation_id: string;
             labels: string[];
@@ -1509,6 +1517,8 @@ export interface components {
             min_runners: number;
             /** @default 4 */
             max_runners: number;
+            /** @default 0 */
+            priority: number;
             /** @default 5m */
             idle_timeout: components["schemas"]["Duration"];
             /** @default true */
@@ -1529,7 +1539,10 @@ export interface components {
             enabled: boolean;
         };
         PoolUpdate: {
-            /** @example linux-x64 */
+            /**
+             * @description The pool's name. Every pool name carries the brand, so a name sent without the `zoomies-` prefix is stored with one: `gpu` becomes `zoomies-gpu`.
+             * @example zoomies-linux-x64
+             */
             name?: string;
             installation_id?: string;
             labels?: string[];
@@ -1539,6 +1552,7 @@ export interface components {
             runner_version?: string;
             min_runners?: number;
             max_runners?: number;
+            priority?: number;
             idle_timeout?: components["schemas"]["Duration"];
             ephemeral?: boolean;
             docker_mode?: components["schemas"]["DockerMode"];
@@ -2897,6 +2911,8 @@ export interface operations {
                 until?: string;
                 /** @description Only jobs that are still queued and that no enabled pool claims. A job that already started or finished was run by something else, so it is not included however its labels read. */
                 unmatched?: boolean;
+                /** @description Only jobs this controller has a hand in: one an enabled pool claims, one that ran on a runner this fleet started, and queued jobs no pool claims -- which nothing ran, so they belong here too. Leave it off to see every job GitHub has reported, including those run on hosted runners this fleet does not own. */
+                managed?: boolean;
                 limit?: components["parameters"]["Limit"];
                 offset?: components["parameters"]["Offset"];
                 /** @description A column name. An unknown value falls back to the default rather than erroring, so a stale bookmark does not break the page. */
