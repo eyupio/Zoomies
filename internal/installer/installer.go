@@ -293,6 +293,16 @@ func (i *Installer) Run(ctx context.Context) error {
 	if plan.Upgrade {
 		return i.runUpgrade(ctx, plan)
 	}
+	// A native install that ends in a compose file is two deployments that
+	// disagree: the key, database, App, administrator and first pool would be
+	// written on the host, and the compose file would then start a container
+	// whose named volume is an empty database, with the summary printing a
+	// login the container never sees. Refuse before anything is written.
+	if !plan.Deployment.Containerised() && plan.Service == ServiceCompose {
+		return errors.New("installer: this host has no systemd or launchd for Zoomies to install into. " +
+			"Run setup again with --deployment compose, which writes a compose project and a populated .env instead of installing the binary, " +
+			"or with --service none to run `zoomies controller` yourself")
+	}
 	// The last moment at which nothing has been written. Everything past here
 	// creates accounts, directories and files.
 	proceed, err := i.stepReview(ctx, plan)
@@ -2334,27 +2344,10 @@ func (i *Installer) stepService(ctx context.Context, p Plan) (ServiceManager, er
 
 	switch p.Service {
 	case ServiceCompose:
-		i.ui.note("this host has no service manager Zoomies can install into, so here is a compose file.")
-		i.ui.note("save it as docker-compose.yml and run `docker compose up -d`.")
-		i.ui.note("or re-run with --deployment compose and setup will write it, and a populated .env, for you.")
-		i.ui.blank()
-		spec := ComposeSpec{
-			ExternalURL: p.ExternalURL,
-			Backend:     string(p.Backend),
-			DockerHost:  p.DockerHost,
-			Capacity:    p.Capacity,
-			Embedded:    p.Embedded,
-			DockerGID:   p.DockerGID,
-		}
-		if _, port, err := splitBind(p.Bind); err == nil {
-			spec.Port = port
-		}
-		if err := RenderCompose(i.out, spec); err != nil {
-			return nil, err
-		}
-		i.ui.blank()
-		i.ui.note("put the encryption key in .env with:  echo ZOOMIES_ENCRYPTION_KEY=$(sudo cat " + p.KeyFile + ") >> .env")
-		return nil, nil
+		// Run refuses this plan before anything is written; reaching here
+		// would mean a native install whose state lives on the host and
+		// whose service is a container with an empty database.
+		return nil, errors.New("installer: a native install cannot be supervised by compose; run setup with --deployment compose or --service none")
 	case ServiceNone:
 		i.ui.note("no service installed. Start it yourself with:")
 		i.ui.note("  " + i.det.BinaryPath + " controller --config " + p.ConfigFile)
