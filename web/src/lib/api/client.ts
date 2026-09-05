@@ -348,6 +348,9 @@ export const listJoinTokens = (signal?: AbortSignal) =>
 export const createJoinToken = (body: Body<'createJoinToken'>) =>
   api.post<Result<'createJoinToken'>>('/join-tokens', { body });
 
+export const getJoinToken = (id: string, signal?: AbortSignal) =>
+  api.get<Result<'getJoinToken'>>(`/join-tokens/${enc(id)}`, { signal });
+
 export const deleteJoinToken = (id: string) =>
   api.del<Result<'deleteJoinToken'>>(`/join-tokens/${enc(id)}`);
 

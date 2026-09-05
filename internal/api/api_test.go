@@ -592,6 +592,7 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "DELETE", path: "/api/v1/hosts/missing", role: store.RoleAdmin},
 
 		{method: "GET", path: "/api/v1/join-tokens", role: store.RoleAdmin},
+		{method: "GET", path: "/api/v1/join-tokens/missing", role: store.RoleAdmin},
 		{method: "POST", path: "/api/v1/join-tokens", role: store.RoleAdmin, body: map[string]any{"ttl": "15m"}},
 		{method: "DELETE", path: "/api/v1/join-tokens/missing", role: store.RoleAdmin},
 

@@ -75,6 +75,26 @@ export const FIXTURE = {
   apiJobs: 17,
 } as const;
 
+/**
+ * Plant something a reload would lose, then check it is still there.
+ *
+ * A page that got its new numbers by reloading itself would pass a weaker
+ * test and still be the bug: there is no refresh button anywhere in Zoomies,
+ * and every page is expected to update in place.
+ */
+export async function plantMarker(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    (window as unknown as { __zoomiesStayedPut: boolean }).__zoomiesStayedPut = true;
+  });
+}
+
+export async function expectNoReload(page: Page): Promise<void> {
+  const stayed = await page.evaluate(
+    () => (window as unknown as { __zoomiesStayedPut?: boolean }).__zoomiesStayedPut === true,
+  );
+  expect(stayed, 'the page updated in place rather than reloading').toBe(true);
+}
+
 /** The page's `<h1>`, optionally by name. */
 export function pageHeading(page: Page, name?: string): Locator {
   return name === undefined

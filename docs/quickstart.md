@@ -189,8 +189,10 @@ repository. See [Migrating repositories](migration.md).
 
 ## Adding another host
 
-Generate a join token in the UI under **Hosts → Add a host**, or on the CLI, and
-run the one line it gives you on the new machine:
+**Hosts → Add a host** does the whole thing on one page. It comes filled in --
+the address your browser reached the controller on, the labels your pools
+already select hosts by, capacity left for the agent to decide -- and hands you
+one line to paste into a shell on the new machine:
 
 ```sh
 curl -fsSL https://zoomies.sh/install.sh | sh -s -- \
@@ -198,6 +200,12 @@ curl -fsSL https://zoomies.sh/install.sh | sh -s -- \
   --controller https://zoomies.example.com \
   --join-token zoojoin_...
 ```
+
+Leave the page open. It watches for the host and says the moment it has
+joined: what the machine is, which backends it offers, and which pools can
+place runners on it. If the binary is already on that machine, the same page
+offers the shorter `zoomies agent join` form, and the CLI can mint a token too
+with `zoomies hosts join-token create`.
 
 Join tokens are single-use and short-lived. The agent connects outbound only, so
 the new host needs no inbound firewall rule.

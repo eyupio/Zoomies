@@ -20,7 +20,7 @@ env:
 jobs:
   go:
     name: Go
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: zoomies-linux-x64
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -55,7 +55,7 @@ jobs:
 
   staticcheck:
     name: staticcheck
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: zoomies-linux-x64
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -70,7 +70,7 @@ jobs:
 
   ui:
     name: UI
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: zoomies-linux-x64
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -104,7 +104,7 @@ jobs:
 
   playwright:
     name: Playwright
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: zoomies-linux-x64
     needs: [ui]
     steps:
       - uses: actions/checkout@v7
@@ -137,7 +137,7 @@ jobs:
 
   build-matrix:
     name: Cross-compile
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: zoomies-linux-x64
     needs: [ui]
     strategy:
       fail-fast: false
@@ -165,7 +165,7 @@ jobs:
 
   installer:
     name: install.sh
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: zoomies-linux-x64
     steps:
       - uses: actions/checkout@v7
       - name: POSIX shell syntax
@@ -179,7 +179,7 @@ jobs:
 
   images:
     name: Images
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: zoomies-linux-x64
     # Publishing needs to write packages; everything else here only reads.
     permissions:
       contents: read

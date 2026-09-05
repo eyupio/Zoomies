@@ -1,8 +1,10 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -245,6 +247,11 @@ type createJoinTokenRequest struct {
 	TTL      string            `json:"ttl"`
 	Capacity int               `json:"capacity"`
 	Labels   map[string]string `json:"labels"`
+	// ControllerURL is the address the new host should join on, when the
+	// caller knows better than server.external_url does. The UI always does:
+	// the browser reached this controller on some address, and a machine on
+	// the same network will usually reach it there too.
+	ControllerURL string `json:"controller_url"`
 }
 
 // handleCreateJoinToken mints a single-use enrolment credential.
@@ -270,6 +277,12 @@ func (s *Server) handleCreateJoinToken(w http.ResponseWriter, r *http.Request) {
 	if req.Capacity < 0 {
 		fields = append(fields, fieldError{"capacity", "capacity cannot be negative; leave it at 0 to let the agent decide from the host's CPU count"})
 	}
+	controllerURL := strings.TrimRight(strings.TrimSpace(req.ControllerURL), "/")
+	if controllerURL != "" {
+		if msg := checkControllerURL(controllerURL); msg != "" {
+			fields = append(fields, fieldError{"controller_url", msg})
+		}
+	}
 	if len(fields) > 0 {
 		unprocessable(w, "this join token could not be created", fields)
 		return
@@ -292,48 +305,80 @@ func (s *Server) handleCreateJoinToken(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, createJoinTokenResponse{
 		joinTokenResponse: s.joinTokenResponse(token),
 		Token:             plaintext,
-		Command:           s.joinCommand(plaintext),
+		Command:           s.joinCommand(plaintext, controllerURL),
 	})
+}
+
+// checkControllerURL says what is wrong with an address a host is being told
+// to join, or nothing. The bar is "an agent could dial it": an absolute
+// http(s) URL with a host in it. Loopback is allowed on purpose -- an operator
+// enrolling a second agent on the controller's own machine means it -- and
+// the UI is what warns about it, since the UI knows which machine it is on.
+func checkControllerURL(raw string) string {
+	u, err := url.Parse(raw)
+	switch {
+	case err != nil:
+		return fmt.Sprintf("%q is not a URL an agent could join; write it like https://zoomies.example.com", raw)
+	case u.Scheme != "http" && u.Scheme != "https":
+		return fmt.Sprintf("the controller address has to start with http:// or https://, not %q", u.Scheme+"://")
+	case u.Host == "":
+		return "the controller address needs a host name or IP address, like https://zoomies.example.com"
+	case u.User != nil:
+		return "the controller address must not carry a username or password; the join token is the credential"
+	}
+	return ""
 }
 
 // joinCommand renders the one-liner for the new host.
 //
-// It names the controller's external URL because that is the address the agent
-// has to reach; when it is not configured the command is still printed, with
-// the placeholder in it, since an operator who has not set it yet needs to see
-// what is missing rather than a blank field.
-func (s *Server) joinCommand(token string) string {
-	controller := s.cfg.Server.ExternalURL
-	// A loopback external URL is as unusable here as no URL at all, and worse
-	// for being plausible: the default single-VM install makes it
-	// http://localhost:8080, so the command told the new machine to join
-	// itself, and the operator found out after a download, a system write and
-	// a spent single-use token. The placeholder makes the gap visible, and the
-	// UI fills it in.
-	if controller == "" || s.cfg.ExternalURLIsLocal() {
-		controller = "https://<this-controller>"
+// The caller's address wins when it gave one. Otherwise the command names the
+// controller's external URL, because that is the address the agent has to
+// reach; when that is not configured either the command is still printed,
+// with the placeholder in it, since an operator who has not set it yet needs
+// to see what is missing rather than a blank field.
+func (s *Server) joinCommand(token, controllerURL string) string {
+	controller := controllerURL
+	if controller == "" {
+		controller = s.cfg.Server.ExternalURL
+		// A loopback external URL is as unusable here as no URL at all, and
+		// worse for being plausible: the default single-VM install makes it
+		// http://localhost:8080, so the command told the new machine to join
+		// itself, and the operator found out after a download, a system
+		// write and a spent single-use token. The placeholder makes the gap
+		// visible, and the UI fills it in.
+		if controller == "" || s.cfg.ExternalURLIsLocal() {
+			controller = "https://<this-controller>"
+		}
 	}
 	return fmt.Sprintf("curl -fsSL https://zoomies.sh/install.sh | sh -s -- --mode agent --controller %s --join-token %s",
 		controller, token)
 }
 
+// handleGetJoinToken answers GET /api/v1/join-tokens/{id}.
+//
+// It is what the Add-a-host page polls while the operator is over on the new
+// machine: the fleet stream deliberately carries nothing about credentials, so
+// a token being redeemed is learnt by asking, and used_by_id is the host it
+// became.
+func (s *Server) handleGetJoinToken(w http.ResponseWriter, r *http.Request) {
+	t, err := s.ctrl.Store().GetJoinToken(r.Context(), chiURLParam(r, "id"))
+	if err != nil {
+		s.fail(w, r, "reading the join token", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.joinTokenResponse(t))
+}
+
 // handleDeleteJoinToken revokes an unused join token.
 func (s *Server) handleDeleteJoinToken(w http.ResponseWriter, r *http.Request) {
 	id := chiURLParam(r, "id")
-	tokens, err := s.ctrl.Store().ListJoinTokens(r.Context())
+	found, err := s.ctrl.Store().GetJoinToken(r.Context(), id)
 	if err != nil {
-		s.internal(w, r, "listing join tokens", err)
-		return
-	}
-	var found *store.JoinToken
-	for _, t := range tokens {
-		if t.ID == id {
-			found = t
-			break
+		if errors.Is(err, store.ErrNotFound) {
+			notFound(w, "there is no join token "+id+"; it may already have been used or revoked")
+			return
 		}
-	}
-	if found == nil {
-		notFound(w, "there is no join token "+id+"; it may already have been used or revoked")
+		s.internal(w, r, "reading the join token", err)
 		return
 	}
 	if err := s.ctrl.Store().DeleteJoinToken(r.Context(), id); err != nil {
