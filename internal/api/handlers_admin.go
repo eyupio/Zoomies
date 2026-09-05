@@ -435,6 +435,7 @@ var restartRequiredKeys = sync.OnceValue(func() []string {
 		"github.runner_image", "github.runner_version",
 		"agent.embedded", "agent.name", "agent.capacity", "agent.backend", "agent.docker_host",
 		"agent.work_dir", "agent.labels", "agent.network", "agent.heartbeat_interval",
+		"agent.finished_retention",
 		"log.format",
 		"oidc.enabled", "oidc.issuer", "oidc.client_id", "oidc.client_secret",
 		"oidc.redirect_url", "oidc.scopes", "oidc.username_claim", "oidc.groups_claim",
@@ -501,6 +502,7 @@ func (s *Server) settingsConfig() map[string]any {
 			"labels":             c.Agent.Labels,
 			"network":            c.Agent.Network,
 			"heartbeat_interval": c.Agent.HeartbeatInterval.String(),
+			"finished_retention": c.Agent.FinishedRetention.String(),
 		},
 		"scheduler": map[string]any{
 			"interval":             c.Scheduler.Interval.String(),

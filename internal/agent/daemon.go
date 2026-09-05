@@ -90,6 +90,18 @@ type Options struct {
 	// after several missed beats, so shortening it makes failure detection
 	// faster at the cost of more requests.
 	HeartbeatInterval time.Duration
+	// FinishedRetention is how long a runner's workload stays on the host
+	// after the controller has been told how the runner ended: the exited
+	// container with its output, its docker-in-docker sidecar and any scratch
+	// directory, or the process backend's runner directory. The window is
+	// what gives an operator time to read a finished runner's output. Once
+	// it has passed the agent deletes the workload itself, because nothing
+	// else will: a clean exit is the normal end of an ephemeral runner's life
+	// and the controller has no reason to send a task for a runner it already
+	// considers gone. Zero removes a finished workload on the first pass
+	// after it has been reported. The controller's retention.runners is a
+	// different window -- it keeps the row, not the container.
+	FinishedRetention time.Duration
 	Logger            *slog.Logger
 	// Clock is injectable so tests do not have to sleep.
 	Clock func() time.Time
@@ -106,8 +118,11 @@ type Agent struct {
 	tr       Transport
 	clock    func() time.Time
 	heartbtI time.Duration
-	logs     *logRelay
-	notify   *notifier
+	// retention is Options.FinishedRetention: how long a finished runner's
+	// workload outlives its report before the reconciler deletes it.
+	retention time.Duration
+	logs      *logRelay
+	notify    *notifier
 
 	// sem bounds concurrent lifecycle tasks at Capacity, so a burst of creates
 	// from a busy morning cannot fork-bomb the host.
@@ -160,6 +175,14 @@ type tracked struct {
 	// once already; reporting it every reconcile would be noise the controller
 	// has to reject.
 	terminal bool
+	// terminalAt is when that end of life was observed, which is what the
+	// retention window on its workload counts from.
+	terminalAt time.Time
+	// reported records that the controller accepted a report carrying the
+	// terminal state. Until it has, the workload stays on the host: removing
+	// it first would take the exit code with it, and leave the controller
+	// holding a live row for a runner that no longer exists.
+	reported bool
 
 	state      store.RunnerState
 	phase      backend.Phase
@@ -222,6 +245,9 @@ func New(opts Options) (*Agent, error) {
 	if interval < minHeartbeatInterval {
 		return nil, fmt.Errorf("agent: heartbeat interval %s is too short to be useful; set agent.heartbeat_interval to at least %s", interval, minHeartbeatInterval)
 	}
+	if opts.FinishedRetention < 0 {
+		return nil, fmt.Errorf("agent: finished retention %s is negative; set agent.finished_retention to how long a finished runner's output should stay readable on the host, or to 0s to remove it as soon as the controller has been told", opts.FinishedRetention)
+	}
 
 	log := opts.Logger
 	if log == nil {
@@ -235,15 +261,16 @@ func New(opts Options) (*Agent, error) {
 	}
 
 	a := &Agent{
-		opts:     opts,
-		log:      log,
-		tr:       opts.Transport,
-		clock:    clock,
-		heartbtI: interval,
-		sem:      make(chan struct{}, opts.Capacity),
-		runners:  make(map[string]*tracked),
-		inflight: make(map[string]bool),
-		orphans:  make(map[backend.Handle]time.Time),
+		opts:      opts,
+		log:       log,
+		tr:        opts.Transport,
+		clock:     clock,
+		heartbtI:  interval,
+		retention: opts.FinishedRetention,
+		sem:       make(chan struct{}, opts.Capacity),
+		runners:   make(map[string]*tracked),
+		inflight:  make(map[string]bool),
+		orphans:   make(map[backend.Handle]time.Time),
 	}
 	a.logs = newLogRelay(opts.Transport, log)
 	return a, nil
@@ -384,6 +411,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		"backends", kindList(kinds),
 		"default_backend", a.opts.DefaultBackend,
 		"heartbeat", a.heartbtI,
+		"finished_retention", a.retention,
 		"version", version.Short())
 
 	loopCtx, cancel := context.WithCancel(ctx)
@@ -485,6 +513,9 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// The beat carried every runner the agent tracks, so the controller now
+	// knows how each finished one ended, and its workload may go.
+	a.markReported(runners)
 
 	if !a.ready.Swap(true) {
 		// systemd holds dependent units until this arrives, so it is sent only

@@ -215,6 +215,7 @@ type fakeTransport struct {
 	joinErr   error
 	beatResp  *HeartbeatResponse
 	beatErr   error
+	reportErr error
 	pollErr   error
 	streams   map[string]*fakeStream
 	openErr   error
@@ -294,6 +295,12 @@ func (f *fakeTransport) ReportResult(_ context.Context, res TaskResult) error {
 }
 
 func (f *fakeTransport) ReportRunners(_ context.Context, reports []RunnerReport) error {
+	f.mu.Lock()
+	err := f.reportErr
+	f.mu.Unlock()
+	if err != nil {
+		return err
+	}
 	select {
 	case f.reports <- reports:
 	default:

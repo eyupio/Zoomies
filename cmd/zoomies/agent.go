@@ -93,6 +93,7 @@ func runAgentDaemon(ctx context.Context, e *env, args []string) error {
 		DefaultBackend:    store.BackendKind(cfg.Agent.Backend),
 		Transport:         transport,
 		HeartbeatInterval: cfg.Agent.HeartbeatInterval,
+		FinishedRetention: cfg.Agent.FinishedRetention,
 		Logger:            log,
 	})
 	if err != nil {

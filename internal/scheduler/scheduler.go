@@ -357,6 +357,8 @@ func (t *tick) reap(p *store.Pool, runners []*store.Runner) (actions []Action, r
 		switch {
 		case r.State == store.RunnerRemoved:
 			// Already gone; it neither costs capacity nor needs an action.
+			// Whatever it left on its host is the agent's to clean up, and
+			// it does so on its own once the retention window has passed.
 		case r.State == store.RunnerFailed:
 			removes = append(removes, t.action(ActionRemove, p, r,
 				"runner failed; removing it to free host capacity"))

@@ -169,6 +169,15 @@ type Agent struct {
 	HeartbeatInterval  time.Duration `yaml:"heartbeat_interval"`
 	// Network is an optional pre-existing container network to attach runners to.
 	Network string `yaml:"network"`
+	// FinishedRetention is how long a finished runner's workload -- the exited
+	// container with its output, its sidecar and scratch directory, or the
+	// process backend's runner directory -- stays on the host after the
+	// controller has been told how the runner ended, before the agent deletes
+	// it. It is the window an operator has to read a finished runner's log.
+	// Zero deletes on the next pass. Unlike retention.runners, which keeps the
+	// row, this is disk on the host: a busy host keeps one finished
+	// container per job for this long.
+	FinishedRetention time.Duration `yaml:"finished_retention"`
 }
 
 // Scheduler tunes the scaling loop.
@@ -264,6 +273,7 @@ func Default() *Config {
 			Backend:           "docker",
 			WorkDir:           defaultStatePath("work"),
 			HeartbeatInterval: 30 * time.Second,
+			FinishedRetention: 10 * time.Minute,
 		},
 		Scheduler: Scheduler{
 			Interval:          10 * time.Second,
@@ -606,6 +616,7 @@ func (c *Config) applyEnv() error {
 	boolean("ZOOMIES_AGENT_INSECURE_SKIP_VERIFY", &c.Agent.InsecureSkipVerify)
 	dur("ZOOMIES_HEARTBEAT_INTERVAL", &c.Agent.HeartbeatInterval)
 	str("ZOOMIES_AGENT_NETWORK", &c.Agent.Network)
+	dur("ZOOMIES_AGENT_FINISHED_RETENTION", &c.Agent.FinishedRetention)
 	if v, ok := os.LookupEnv("ZOOMIES_AGENT_LABELS"); ok {
 		m, err := parseKV(v)
 		if err != nil {

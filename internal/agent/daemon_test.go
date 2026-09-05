@@ -445,6 +445,7 @@ func TestNewValidatesOptions(t *testing.T) {
 		"transport": func(o *Options) { o.Transport = nil },
 		"backend":   func(o *Options) { o.DefaultBackend = store.BackendKind("kubernetes") },
 		"heartbeat": func(o *Options) { o.HeartbeatInterval = time.Millisecond },
+		"retention": func(o *Options) { o.FinishedRetention = -time.Minute },
 	}
 	for name, break_ := range cases {
 		t.Run(name, func(t *testing.T) {
