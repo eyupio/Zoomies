@@ -590,3 +590,28 @@ func TestCreateTaskDoesNotHandTheAgentsWorkDirToTheBackend(t *testing.T) {
 		t.Fatalf("the backend was given work dir %q; the runner should use its own filesystem", got)
 	}
 }
+
+// Delivery is at-least-once: a create whose result was lost is offered again
+// once its lease expires. The backend's Create begins by removing a workload of
+// the same name, so the redelivery used to destroy a runner that might be
+// mid-job and rebuild it with a JIT configuration GitHub had already used.
+func TestARedeliveredCreateReportsTheRunnerThatAlreadyExists(t *testing.T) {
+	h := newHarness(t, 2)
+	h.tr.tasks <- []Task{createTask("task-1", "runner-1")}
+	first := h.nextResult()
+	if !first.OK || first.Handle == "" {
+		t.Fatalf("first create: %+v", first)
+	}
+
+	h.tr.tasks <- []Task{createTask("task-1-again", "runner-1")}
+	again := h.nextResult()
+	if !again.OK || again.TaskID != "task-1-again" || again.RunnerID != "runner-1" {
+		t.Fatalf("redelivered create: %+v", again)
+	}
+	if again.Handle != first.Handle {
+		t.Fatalf("the redelivery reported handle %q, want the existing %q", again.Handle, first.Handle)
+	}
+	if created, _, _ := h.be.counts(); created != 1 {
+		t.Fatalf("Create called %d times, want the one that made the runner", created)
+	}
+}

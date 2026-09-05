@@ -838,6 +838,30 @@ func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 		return
 	}
 
+	// Delivery is at-least-once. A create whose result never reached the
+	// controller comes round again once its lease expires, and the backend's
+	// Create begins by removing any workload of the runner's name -- so a
+	// redelivery used to destroy a runner that may have been mid-job and
+	// rebuild it with a JIT configuration GitHub had already consumed. A
+	// workload this host already has for the runner is the answer to the task.
+	if existing, handle, ok, err := a.resolve(ctx, task.RunnerID); err == nil && ok {
+		state := store.RunnerRegistering
+		a.mu.Lock()
+		if r := a.runners[task.RunnerID]; r != nil && r.state != "" {
+			state = r.state
+		}
+		a.mu.Unlock()
+		a.log.Info("a create task came again for a runner this host already has; reporting the existing workload",
+			"runner", task.RunnerID, "backend", existing.Kind(), "handle", handle)
+		release()
+		now := a.now()
+		a.report(ctx, TaskResult{
+			TaskID: task.ID, Kind: task.Kind, RunnerID: task.RunnerID, OK: true,
+			Handle: handle, State: state, CompletedAt: now,
+		})
+		return
+	}
+
 	spec := *task.Spec
 	if spec.RunnerID == "" {
 		spec.RunnerID = task.RunnerID
