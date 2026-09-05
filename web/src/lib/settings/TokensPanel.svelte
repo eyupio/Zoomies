@@ -10,8 +10,8 @@
   import { KeyRound, Plus } from '@lucide/svelte';
   import { ApiError, createToken, listTokens, revokeToken } from '$lib/api/client';
   import type { APIToken, Role } from '$lib/api/types';
-  import { parseGoDuration } from '$lib/format';
   import { toasts } from '$lib/state/toasts.svelte';
+  import { apiTokenStatus } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
@@ -131,16 +131,6 @@
       toasts.fromError(cause, 'That token was not revoked');
     }
   }
-
-  function expiryState(token: APIToken): { label: string; tone: 'idle' | 'pending' | 'neutral' } {
-    if (token.revoked) return { label: 'Revoked', tone: 'neutral' };
-    if (!token.expires_at) return { label: 'Never expires', tone: 'pending' };
-    const remaining = new Date(token.expires_at).getTime() - Date.now();
-    if (remaining <= 0) return { label: 'Expired', tone: 'neutral' };
-    if (remaining < (parseGoDuration('168h') ?? 0))
-      return { label: 'Expires soon', tone: 'pending' };
-    return { label: 'Active', tone: 'idle' };
-  }
 </script>
 
 <div class="panel">
@@ -191,7 +181,7 @@
         </thead>
         <tbody>
           {#each tokens as token (token.id)}
-            {@const state = expiryState(token)}
+            {@const state = apiTokenStatus(token)}
             <tr class:revoked={token.revoked}>
               <td class="name">{token.name}</td>
               <td class="mono">{token.prefix ?? '--'}</td>
@@ -211,7 +201,7 @@
                 {/if}
               </td>
               <td>
-                <Badge tone={state.tone} label={state.label} size="sm" />
+                <Badge status={state} size="sm" />
                 {#if token.expires_at && !token.revoked}
                   <span class="second"><RelativeTime value={token.expires_at} plain /></span>
                 {/if}

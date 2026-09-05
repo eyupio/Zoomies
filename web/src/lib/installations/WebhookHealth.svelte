@@ -13,7 +13,7 @@
   import { listWebhookDeliveries, testWebhookReachability } from '$lib/api/client';
   import { events } from '$lib/api/sse';
   import type { WebhookCheck, WebhookDelivery } from '$lib/api/types';
-  import { deliveryStatus } from '$lib/status';
+  import { deliveryStatus, reachabilityStatus } from '$lib/status';
   import type { DeliveryStatus } from '$lib/status';
   import { session } from '$lib/state/session.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
@@ -123,11 +123,7 @@
     {#if check}
       <div class="check" class:bad={check.reachable === false} class:good={check.reachable}>
         <p class="check-head">
-          <Badge
-            tone={check.reachable ? 'idle' : 'danger'}
-            label={check.reachable ? 'Reachable' : 'Not reachable'}
-            size="sm"
-          />
+          <Badge status={reachabilityStatus(check.reachable)} size="sm" />
           {#if check.url}<span class="mono url">{check.url}</span>{/if}
         </p>
         {#if check.message}<p class="check-line">{check.message}</p>{/if}

@@ -11,6 +11,7 @@
   import type { JoinToken } from '$lib/api/types';
   import { formatNumber } from '$lib/format';
   import { toasts } from '$lib/state/toasts.svelte';
+  import { joinTokenStatus } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
@@ -77,13 +78,7 @@
           <tr>
             <td class="mono">{token.prefix ?? '--'}</td>
             <td>
-              {#if token.used_at}
-                <Badge tone="neutral" label="Used" size="sm" />
-              {:else if token.usable === false}
-                <Badge tone="draining" label="Expired" size="sm" />
-              {:else}
-                <Badge tone="idle" label="Usable" size="sm" />
-              {/if}
+              <Badge status={joinTokenStatus(token)} size="sm" />
             </td>
             <td class="tabular">{formatNumber(token.capacity ?? 0)}</td>
             <td class="mono labels">{labelText(token.labels) || '--'}</td>
