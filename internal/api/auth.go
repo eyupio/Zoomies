@@ -394,9 +394,12 @@ func (s *Server) resolveClientIP(r *http.Request) string {
 	// talked out of it, whereas X-Forwarded-For arrives as whatever the client
 	// sent with Cloudflare's own value appended. Both resolve correctly here,
 	// but only one of them is a single unambiguous value, so prefer it -- and
-	// only when the connection itself came from a trusted proxy, which is what
-	// stops a direct client from simply setting the header.
-	if cf := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); cf != "" {
+	// only when the connection itself came from one of Cloudflare's own
+	// addresses. A trusted proxy that is not Cloudflare -- nginx, HAProxy --
+	// forwards a header it does not recognise untouched, so from behind one of
+	// those the header is whatever the client chose to send, and believing it
+	// would let anyone pick the address the rate limiter and the audit log see.
+	if cf := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); cf != "" && s.isCloudflare(remote) {
 		if ip := net.ParseIP(strings.Trim(cf, "[]")); ip != nil {
 			return ip.String()
 		}
@@ -422,6 +425,16 @@ func (s *Server) resolveClientIP(r *http.Request) string {
 		}
 	}
 	return remote
+}
+
+// isCloudflare reports whether addr is one of Cloudflare's published edge
+// addresses -- the only peer whose CF-Connecting-IP means anything.
+func (s *Server) isCloudflare(addr string) bool {
+	ip := net.ParseIP(strings.Trim(addr, "[]"))
+	if ip == nil {
+		return false
+	}
+	return slices.ContainsFunc(s.cloudflare, func(n *net.IPNet) bool { return n.Contains(ip) })
 }
 
 func (s *Server) isTrustedProxy(addr string) bool {
