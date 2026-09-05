@@ -142,10 +142,10 @@ Options:
   --prefix <dir>        Where to put the binary (default: /usr/local/bin).
   --non-interactive     Never prompt. Requires --answers, or enough flags.
   --answers <file>      YAML answer file for unattended setup. Implies
-                        --non-interactive.
+                        --non-interactive and --yes.
   --no-init             Install the binary only; do not run `zoomies init`.
   --yes, -y             Do not ask before installing. Implied by
-                        --non-interactive.
+                        --non-interactive and --answers.
   --allow-unverified    Install even when the download's SHA-256 cannot be
                         checked against the release's checksums.txt. Only for
                         a private mirror that does not publish one.
@@ -201,12 +201,13 @@ while [ $# -gt 0 ]; do
         --version=*)   VERSION="${1#*=}"; shift ;;
         --prefix)      needs_value --prefix $# "a directory to install the binary into"; PREFIX="$2"; shift 2 ;;
         --prefix=*)    PREFIX="${1#*=}"; shift ;;
-        --answers)     needs_value --answers $# "a path to a YAML answer file"; ANSWERS="$2"; NON_INTERACTIVE=1; shift 2 ;;
-        --answers=*)   ANSWERS="${1#*=}"; NON_INTERACTIVE=1; shift ;;
-        # --yes is implied, and has to be: an unattended run has nobody to
-        # answer a confirmation, and the one that guards a same-version
-        # reinstall would otherwise exit 0 without ever reaching `zoomies init`
-        # -- reporting a host as configured that was never touched.
+        # --answers and --non-interactive both imply --yes, and have to: an
+        # unattended run has nobody to answer a confirmation, and the one that
+        # guards a same-version reinstall would otherwise exit 0 without ever
+        # reaching `zoomies init` -- reporting a host as configured that was
+        # never touched.
+        --answers)     needs_value --answers $# "a path to a YAML answer file"; ANSWERS="$2"; NON_INTERACTIVE=1; ASSUME_YES=1; shift 2 ;;
+        --answers=*)   ANSWERS="${1#*=}"; NON_INTERACTIVE=1; ASSUME_YES=1; shift ;;
         --non-interactive) NON_INTERACTIVE=1; ASSUME_YES=1; shift ;;
         --no-init)     RUN_INIT=0; shift ;;
         --uninstall)   DO_UNINSTALL=1; shift ;;
@@ -1036,9 +1037,15 @@ set -- init \
 # So the elevation the binary needed is carried through to setup as well, which
 # is what the operator expects from a script that has already asked for their
 # password.
+#
+# An agent join is not exempt. It writes the same kind of unit, and it redeems
+# its single-use join token before it gets that far, so a join that fails at
+# the unit has spent the token and left its credentials under the operator's
+# home -- the retry under sudo needs a new token and finds a different state
+# directory.
 # ---------------------------------------------------------------------------
 ELEVATE_INIT=""
-if [ -n "$ELEVATE" ] && [ "$OS" = linux ] && [ "$MODE" != agent ]; then
+if [ -n "$ELEVATE" ] && [ "$OS" = linux ]; then
     ELEVATE_INIT="$ELEVATE"
 fi
 
