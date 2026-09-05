@@ -236,9 +236,11 @@ fixed, because muscle memory is the point:
 9. **Settings** — users, tokens, appearance, danger zone
 
 The navigation is headed by the mark, the wordmark and the descriptor, and every
-page ends in a hairline footer carrying the mark, the name and the running
-version — so a signed-in screenshot says which product and which build it came
-from without anyone having to open Settings. On a phone the navigation moves to
+page ends in a hairline footer carrying the mark, the name, the running version,
+a link to the docs and the credit *Developed by EyUp.io* — so a signed-in
+screenshot says which product and which build it came from, and who makes it,
+without anyone having to open Settings. The credit opens in a new tab: it is the
+one link in the shell that leaves the product. On a phone the navigation moves to
 the bottom edge and loses its masthead, so the mark appears in the top bar
 instead.
 
