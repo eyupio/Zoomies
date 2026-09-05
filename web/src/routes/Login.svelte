@@ -15,7 +15,7 @@
   operator's fault.
 -->
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { Eye, EyeOff, TriangleAlert } from '@lucide/svelte';
   import { ApiError, oidcStartUrl } from '$lib/api/client';
   import { authFailureText, sentence } from '$lib/errors';
@@ -146,7 +146,10 @@
       password = '';
       touched = { ...touched, password: false };
       revealed = false;
-      passwordInput?.focus();
+      // After the flush: the failure box appears above the form and the field
+      // is emptied in the same update, and focus set before that lands on an
+      // element the render is about to move.
+      void tick().then(() => passwordInput?.focus());
     } finally {
       submitting = false;
     }
@@ -205,6 +208,7 @@
            when caps lock is most likely to be the reason for one. -->
       <Field
         label="Password"
+        hint="The one you chose when this controller was set up."
         error={passwordError}
         notice={capsLock ? 'Caps lock is on.' : undefined}
       >

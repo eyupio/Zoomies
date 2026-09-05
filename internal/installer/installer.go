@@ -263,9 +263,13 @@ func New(opts Options) (*Installer, error) {
 func (i *Installer) Run(ctx context.Context) error {
 	i.det = Detect(ctx, i.opts)
 
-	i.ui.step("Looking around")
-	for _, line := range i.det.Lines() {
-		i.ui.note(line)
+	// The same heading and the same column install.sh just used, at the same
+	// weight: an operator has read this inventory once already, seconds ago,
+	// and the second copy under a different name in a fainter style reads as
+	// two programs disagreeing rather than one carrying on.
+	i.ui.step("Checking this host")
+	for _, f := range i.det.Fields() {
+		i.ui.field(f.Key, f.Value)
 	}
 	i.ui.blank()
 
@@ -2690,8 +2694,11 @@ type ui struct {
 func newUI(w io.Writer) *ui {
 	r := lipgloss.NewRenderer(w)
 	return &ui{
-		w:      w,
-		step_:  r.NewStyle().Foreground(lipgloss.Color("99")).Bold(true),
+		w: w,
+		// Runner Blue, the same accent the web UI uses. lipgloss down-samples
+		// it for 256- and 16-colour terminals, so a truecolour terminal gets
+		// the brand colour and a limited one degrades cleanly.
+		step_:  r.NewStyle().Foreground(lipgloss.Color("#2F80ED")).Bold(true),
 		okS:    r.NewStyle().Foreground(lipgloss.Color("42")),
 		warnS:  r.NewStyle().Foreground(lipgloss.Color("214")),
 		noteS:  r.NewStyle().Faint(true),

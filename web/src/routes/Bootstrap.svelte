@@ -13,6 +13,7 @@
 -->
 <script lang="ts">
   import { Eye, EyeOff, TriangleAlert } from '@lucide/svelte';
+  import { tick } from 'svelte';
   import { ApiError } from '$lib/api/client';
   import { authFailureText } from '$lib/errors';
   import { MIN_PASSWORD_LENGTH, passwordStrength } from '$lib/passwords';
@@ -115,7 +116,11 @@
     event.preventDefault();
     touched = { username: true, password: true, confirm: true };
     if (!valid) {
-      firstInvalid()?.focus();
+      // After a tick, so the field carries its error before focus lands on it
+      // and the screen reader reads the two together. The old code queried the
+      // DOM for aria-invalid in the same synchronous block that set `touched`,
+      // which matched nothing at all -- Svelte had not rendered it yet.
+      void tick().then(() => firstInvalid()?.focus());
       return;
     }
     submitting = true;
@@ -141,7 +146,7 @@
       }
       toasts.success(
         `Signed in as ${identity?.name ?? username.trim()}`,
-        'Three steps left, and the Overview lists them.',
+        'Three steps left: connect GitHub, create a pool, then point a workflow at it.',
       );
       router.navigate('/');
     } catch (cause) {
@@ -188,7 +193,14 @@
   {/if}
 
   <form onsubmit={submit} novalidate>
-    <Field label="Username" error={usernameError ?? fieldErrors.username} required>
+    <!-- Every field carries a hint, so the message row is occupied before an
+         error needs it and the form does not move as one appears. -->
+    <Field
+      label="Username"
+      hint="You will sign in with this."
+      error={usernameError ?? fieldErrors.username}
+      required
+    >
       {#snippet children({ id, describedBy, invalid })}
         <Input
           bind:value={username}
@@ -248,6 +260,7 @@
 
     <Field
       label="Confirm the password"
+      hint="Type it again, so a slip cannot lock you out of your own controller."
       notice={capsLock ? 'Caps lock is on.' : undefined}
       error={confirmError}
       required

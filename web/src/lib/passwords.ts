@@ -20,6 +20,13 @@ export function passwordStrength(password: string): string {
   if (password.length < MIN_PASSWORD_LENGTH) {
     return `${password.length} of ${MIN_PASSWORD_LENGTH} characters.`;
   }
+  // Length is the thing worth asking for, and the one thing it cannot promise
+  // is variety: twenty of the same character is twenty characters long, and
+  // calling that "Strong." on the account that owns the whole fleet is the one
+  // claim this hint is not entitled to make.
+  if (new Set(password).size < 6) {
+    return 'Long, but it repeats. A few unrelated words beat one character held down.';
+  }
   if (password.length < 20) return 'Good. Longer is stronger than more punctuation.';
-  return 'Strong.';
+  return 'Long enough. Store it somewhere you will still have it next month.';
 }

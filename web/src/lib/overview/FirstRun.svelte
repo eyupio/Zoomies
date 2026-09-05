@@ -18,9 +18,19 @@
   on another machine.
 -->
 <script lang="ts">
-  import { ArrowRight, Boxes, Check, PlayCircle, Plug, UserCheck, X } from '@lucide/svelte';
+  import {
+    ArrowRight,
+    Boxes,
+    Check,
+    HardDrive,
+    PlayCircle,
+    Plug,
+    UserCheck,
+    X,
+  } from '@lucide/svelte';
   import { listInstallations } from '$lib/api/client';
   import { events } from '$lib/api/sse';
+  import { runsOn } from '$lib/brand';
   import { fleet } from '$lib/state/fleet.svelte';
   import { storage } from '$lib/state/prefs.svelte';
   import { session } from '$lib/state/session.svelte';
@@ -63,6 +73,16 @@
   const hasInstallation = $derived((installations ?? 0) > 0);
   const pools = $derived(fleet.pools);
   const hasPool = $derived(pools.length > 0);
+  /**
+   * Whether anything can actually run a runner.
+   *
+   * A `--mode controller` install has no embedded agent, so the fleet has no
+   * hosts at all: without this step the operator connects GitHub, creates a
+   * pool, pushes a workflow, and the job queues for ever with nothing to say
+   * why. Where the controller runs an agent of its own the host already exists
+   * and this row never appears, so the single-VM path is unchanged.
+   */
+  const hasHost = $derived(fleet.hosts.length > 0);
   /** A job has been seen here: queued, running or finished within the window. */
   const hasJobs = $derived.by(() => {
     const s = fleet.stats;
@@ -71,11 +91,15 @@
   });
 
   /**
-   * The label a workflow writes. Once a pool exists it is that pool's own, so
-   * the operator copies the real thing rather than a placeholder they have to
-   * translate.
+   * The line a workflow writes, by the product's one rule.
+   *
+   * Deriving it by hand -- taking the last label, since the store sorts them --
+   * gave a different answer from every other surface: a pool labelled
+   * [cuda, zoomies, zoomies-gpu] needs `[cuda, zoomies-gpu]`, and the last
+   * label alone would send jobs to a different pool. `runsOn` is what the
+   * wizard, the pool page and the installer all print.
    */
-  const runsOn = $derived(pools[0]?.labels?.[pools[0].labels.length - 1] ?? 'zoomies');
+  const runsOnValue = $derived(runsOn(pools[0]?.labels ?? []));
 
   /**
    * Shown only while the fleet has never done its job.
@@ -86,10 +110,10 @@
    */
   const show = $derived(!dismissed && installations !== null && !hasJobs);
 
-  const remaining = $derived.by(() => {
-    const left = [!hasInstallation, !hasPool, true].filter(Boolean).length;
-    return left === 1 ? 'One step' : `${left === 2 ? 'Two' : 'Three'} steps`;
-  });
+  const WORDS = ['No', 'One step', 'Two steps', 'Three steps', 'Four steps'];
+  const remaining = $derived(
+    WORDS[[!hasInstallation, !hasHost, !hasPool, true].filter(Boolean).length] ?? 'A few steps',
+  );
 
   $effect(() => {
     onpending?.(show);
@@ -159,6 +183,31 @@
         </div>
       </li>
 
+      {#if !hasHost}
+        <li>
+          <span class="marker" aria-hidden="true"><HardDrive size={13} /></span>
+          <div class="body">
+            <p class="title">
+              <HardDrive size={14} aria-hidden="true" />
+              Add a host
+            </p>
+            <p class="why">
+              A host is a machine running the Zoomies agent; it is where runners are actually
+              created. This controller is not running one, so nothing has anywhere to go yet.
+            </p>
+          </div>
+          <div class="action">
+            {#if canAdmin}
+              <Button variant="primary" size="sm" href="/hosts" iconAfter={ArrowRight}>
+                Add a host
+              </Button>
+            {:else}
+              <p class="blocked">An administrator enrols one.</p>
+            {/if}
+          </div>
+        </li>
+      {/if}
+
       <li class:done={hasPool} class:waiting={!hasInstallation}>
         <span class="marker" aria-hidden="true">
           {#if hasPool}<Check size={13} />{:else}3{/if}
@@ -204,8 +253,8 @@
           </p>
           {#if hasPool}
             <p class="runs-on">
-              <code>runs-on: {runsOn}</code>
-              <CopyButton value={`runs-on: ${runsOn}`} label="Copy the runs-on line" />
+              <code>runs-on: {runsOnValue}</code>
+              <CopyButton value={`runs-on: ${runsOnValue}`} label="Copy the runs-on line" />
             </p>
           {/if}
         </div>

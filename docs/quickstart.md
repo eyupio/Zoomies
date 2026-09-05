@@ -21,10 +21,19 @@ sh install.sh
 It works out your OS and architecture, your distribution and init system,
 whether Docker or Podman is present and whether its socket is actually
 reachable, whether that socket is rootless, which `compose` command you have,
-whether ports 8080 and 443 are free, and whether Zoomies is already installed —
-in which case it upgrades in place and says so. The download is verified against
-the release's `checksums.txt`, and a mismatch refuses to install rather than
-warning.
+whether ports 8080 and 443 are free — where `ss` or `netstat` exists to tell it,
+and it says so when neither does — and whether Zoomies is already installed, in
+which case it upgrades in place and says so.
+
+The download must verify. It is checked against the release's `checksums.txt`,
+and every way that can fail — a mismatch, no entry for this asset, no hashing
+tool on the host, a checksums file that could not be fetched — refuses the
+install rather than warning about it. A private mirror that publishes no
+checksums is the one supported exception, with `--allow-unverified`.
+
+Before it changes anything it prints what it is about to do — the version, where
+the binary goes, whether it needs `sudo`, and what it leaves alone — and asks
+once. `--yes` and `--non-interactive` skip the question.
 
 Everything it discovered is handed to `zoomies init`, so the interactive setup
 never asks a question the script already answered.
@@ -36,16 +45,26 @@ never asks a question the script already answered.
 === "Native"
 
     The binary under systemd, with a hardened unit. Leanest, starts fastest,
-    and needs no container runtime for the controller itself.
+    and needs no container runtime for the controller itself. **Setup finishes
+    here**, including the GitHub App, your administrator and your first pool.
 
 === "Docker Compose"
 
     Writes a `docker-compose.yml` and a fully populated `.env`, then brings it
-    up. Easiest to upgrade and to move to another host.
+    up. Easiest to upgrade and to move to another host. It is the default
+    whenever you have a `compose` command.
 
 === "Docker"
 
     A single container. Fewest files, but you manage the run command yourself.
+
+!!! note "The containerised options move the last three steps to the browser"
+
+    A container keeps its database in a volume the installer cannot open, so on
+    the compose and docker paths the administrator, the GitHub App and the first
+    pool are created in the browser afterwards rather than in the terminal. The
+    closing summary prints all three with their exact addresses, and the
+    Overview repeats them as a checklist that ticks itself off as you go.
 
 Whichever you choose, the containerised deployments write a **fully populated
 `.env`** -- no placeholders to go back and fill in. Every variable carries a
@@ -181,6 +200,49 @@ journalctl -u zoomies -n 50
 The Overview's problems panel, `GET /api/v1/problems` and `zoomies status` all
 render the same list, each entry with what is true, why it matters and what to
 change. When there is nothing wrong it is one quiet line.
+
+### When setup goes wrong
+
+Five things go wrong on a first run more often than anything else, and each has
+a way back.
+
+**Locked out of your own controller.** There is no password reset over the
+network, deliberately. On the host: stop the service, put
+`security: {disable_auth: true}` in `zoomies.yaml` *while the listener is still
+on loopback*, start it, create a replacement administrator under
+Settings → Users, take the setting out again, and restart. Anyone who can reach
+the listener while that is set is an administrator, which is why the loopback
+bind is not optional here.
+
+**The encryption key is gone.** Pools, runners, jobs and the audit log are not
+encrypted, so the fleet's state survives — but the GitHub App's private key and
+every webhook secret were sealed with that key and cannot be recovered. Generate
+a new private key on the App's settings page on GitHub, then
+Installations → Connect GitHub → **Use an App you already have**, and paste the
+new PEM and a fresh webhook secret. A new key is written on the next start; back
+that one up.
+
+**The App handshake did not come back.** The App and its private key are
+recorded the moment GitHub hands them over, before you are asked to install it —
+so a browser that wandered off has cost you nothing. Open
+Installations → Connect GitHub again: the flow resumes where it stopped and asks
+only for the installation ID, and it takes the whole URL GitHub left you on if
+that is what you have to hand.
+
+**A half-finished install.** Running `zoomies init` again is safe: it notices
+that setup did not finish and carries on from where it stopped, keeping your
+encryption key and database. To start over instead, `zoomies uninstall` (or
+`sh install.sh --uninstall`) stops the service, removes the unit, the service
+account and the data directory, and offers to deregister your runners from
+GitHub first.
+
+**No Docker or Podman on the host.** The native install works regardless — only
+the compose and docker *deployments* need a runtime. For running jobs, the
+process backend executes workflow steps directly on the host as the agent's
+user, with no container isolation and nothing cleaned up between jobs beyond the
+work directory. It is a reasonable choice for a machine that runs your own
+trusted workflows and a bad one for anything else; see
+[Security](security.md#agentbackend-process).
 
 ### A job that sits in the queue
 

@@ -428,8 +428,8 @@
    */
   const targetHint = $derived(
     targetType === 'repo'
-      ? 'A repository App is created on your own account, and GitHub only lets a private App be installed there. For a repository owned by an organisation, choose Organisation and pick just that repository when you install.'
-      : 'The account whose runners this App will manage.',
+      ? 'In owner/name form.'
+      : 'The name as it appears in the URL: github.com/<this>.',
   );
 
   /**
@@ -460,7 +460,28 @@
    * nothing to do with. The client already has the answer, so it says so first.
    */
   const externalURL = $derived(session.meta?.external_url ?? '');
-  const notReachable = $derived(externalURL === '');
+
+  /**
+   * Loopback counts as unreachable, not just an empty string.
+   *
+   * The default single-VM install sets external_url to http://localhost:8080,
+   * so an operator who skipped GitHub in the terminal, tunnelled in with the
+   * ssh line the summary printed, and then clicked Connect GitHub was shown
+   * `http://localhost:8080/webhooks/github` under "What GitHub will be told",
+   * with the button enabled. The App would be created, that address baked into
+   * it for ever, and the symptom weeks later is "scaling is slow". The terminal
+   * installer refuses this; so does this.
+   */
+  const localExternal = $derived.by(() => {
+    if (!externalURL) return false;
+    try {
+      const host = new URL(externalURL).hostname;
+      return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+    } catch {
+      return false;
+    }
+  });
+  const notReachable = $derived(externalURL === '' || localExternal);
 
   const targetError = $derived(
     target.trim() === ''
@@ -734,7 +755,7 @@
               </p>
             {:else}
               <p>
-                The connection is recorded. Use <em>Check</em> on its card to confirm the credentials
+                The connection is recorded. Use <em>Verify</em> on its card to confirm the credentials
                 work.
               </p>
             {/if}
@@ -816,12 +837,23 @@
               <div class="blocked" role="status">
                 <CircleAlert size={16} aria-hidden="true" />
                 <div>
-                  <p class="blocked-title">This controller has no external URL yet</p>
+                  <p class="blocked-title">
+                    {localExternal
+                      ? 'GitHub cannot reach this controller'
+                      : 'This controller has no external URL yet'}
+                  </p>
                   <p>
-                    GitHub is told where to deliver webhooks when the App is created, and that
-                    address cannot be changed from here afterwards. Set
-                    <code>server.external_url</code> to the address GitHub can reach, restart the controller,
-                    and come back.
+                    {#if localExternal}
+                      This controller believes it is reached at <code>{externalURL}</code>, which is
+                      an address only this machine has. GitHub is told where to deliver webhooks
+                      when the App is created, and that address cannot be changed from here
+                      afterwards -- so an App created now would carry one that never fires.
+                    {:else}
+                      GitHub is told where to deliver webhooks when the App is created, and that
+                      address cannot be changed from here afterwards.
+                    {/if}
+                    Set <code>server.external_url</code> to the address GitHub can reach, restart the
+                    controller, and come back.
                   </p>
                 </div>
               </div>
@@ -849,8 +881,38 @@
               </div>
             {/if}
 
+            <!--
+              The choice first, then the field it governs.
+
+              The field's label, placeholder and hint all switch on this radio,
+              so asking for a value before offering the choice meant the
+              operator read an example for a decision they had not been given,
+              typed something, then watched the hint above them rewrite itself.
+              The terminal installer asks in this order (askGitHubTarget).
+            -->
+            <RadioGroup
+              bind:value={targetType}
+              name="target-type"
+              legend="What this App will manage"
+              inline
+              options={[
+                { value: 'org', label: 'An organisation' },
+                { value: 'repo', label: 'A single repository' },
+              ]}
+            />
+
+            {#if targetType === 'repo'}
+              <!-- The caveat belongs under the option it is about, not inside
+                   the hint of a field further down arguing against it. -->
+              <p class="caveat">
+                GitHub creates a repository App on your own account, and will only install it there.
+                If the repository belongs to an organisation, choose
+                <strong>An organisation</strong> and tick just that repository when you install.
+              </p>
+            {/if}
+
             <Field
-              label="Organisation or repository"
+              label={targetType === 'repo' ? 'Repository' : 'Organisation login'}
               hint={targetHint}
               error={errors.target ?? targetError}
             >
@@ -865,17 +927,6 @@
                 />
               {/snippet}
             </Field>
-
-            <RadioGroup
-              bind:value={targetType}
-              name="target-type"
-              legend="Target type"
-              inline
-              options={[
-                { value: 'org', label: 'Organisation' },
-                { value: 'repo', label: 'A single repository' },
-              ]}
-            />
 
             <Field
               label="App name"
@@ -1120,8 +1171,22 @@
             </Field>
           </div>
 
+          <RadioGroup
+            bind:value={manualTargetType}
+            name="manual-target-type"
+            legend="What this App manages"
+            inline
+            options={[
+              { value: 'org', label: 'An organisation' },
+              { value: 'repo', label: 'A single repository' },
+            ]}
+          />
+
           <Field
-            label="Organisation or repository"
+            label={manualTargetType === 'repo' ? 'Repository' : 'Organisation login'}
+            hint={manualTargetType === 'repo'
+              ? 'In owner/name form.'
+              : 'The name as it appears in the URL: github.com/<this>.'}
             error={errors.target ?? manualTargetError}
             required
           >
@@ -1136,17 +1201,6 @@
               />
             {/snippet}
           </Field>
-
-          <RadioGroup
-            bind:value={manualTargetType}
-            name="manual-target-type"
-            legend="Target type"
-            inline
-            options={[
-              { value: 'org', label: 'Organisation' },
-              { value: 'repo', label: 'A single repository' },
-            ]}
-          />
 
           <Field
             label="API base URL"
@@ -1518,5 +1572,12 @@
   .settled ul {
     margin: 0 0 var(--z-space-2);
     padding-inline-start: var(--z-space-5);
+  }
+  .caveat {
+    margin: calc(var(--z-space-3) * -1) 0 0;
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+    color: var(--z-text-muted);
+    text-wrap: pretty;
   }
 </style>

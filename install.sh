@@ -53,6 +53,7 @@ DO_UNINSTALL=0
 ASSUME_YES=0
 ALLOW_UNVERIFIED=0
 EXISTING_OTHER=""
+EXISTING_UNIT=""
 # Something worked out during argument parsing that belongs in the "Looking
 # around" report rather than above the banner.
 note_deferred=""
@@ -65,7 +66,10 @@ if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-dumb}" != "dumb" ]; then
     C_RESET=$(printf '\033[0m')
     C_DIM=$(printf '\033[2m')
     C_BOLD=$(printf '\033[1m')
-    C_ACCENT=$(printf '\033[38;5;99m')
+    # Runner Blue. 33 is the nearest entry in the 256-colour cube to #2F80ED;
+    # 99 was a violet that is in neither the brand palette nor the UI tokens,
+    # so the first fifteen minutes changed accent colour twice.
+    C_ACCENT=$(printf '\033[38;5;33m')
     C_OK=$(printf '\033[32m')
     C_WARN=$(printf '\033[33m')
     C_ERR=$(printf '\033[31m')
@@ -519,9 +523,30 @@ detect_existing() {
         EXISTING_OTHER="$on_path"
     fi
 
+    # Both units, because a runner host runs zoomies-agent and no controller.
+    # The names come from internal/installer/service.go -- UnitController,
+    # UnitAgent, and the launchd labels -- rather than being guessed at.
     case "$INIT_SYSTEM" in
-        systemd) systemctl is-active --quiet zoomies 2>/dev/null && EXISTING_RUNNING=1 ;;
-        launchd) launchctl print system/sh.zoomies >/dev/null 2>&1 && EXISTING_RUNNING=1 ;;
+        systemd)
+            if systemctl is-active --quiet zoomies 2>/dev/null; then
+                EXISTING_RUNNING=1
+                EXISTING_UNIT=zoomies
+            elif systemctl is-active --quiet zoomies-agent 2>/dev/null; then
+                EXISTING_RUNNING=1
+                EXISTING_UNIT=zoomies-agent
+            fi
+            ;;
+        launchd)
+            for label in sh.zoomies.controller sh.zoomies.agent; do
+                # A non-root install's job is in the user domain, not system/.
+                if launchctl print "system/$label" >/dev/null 2>&1 ||
+                   launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1; then
+                    EXISTING_RUNNING=1
+                    EXISTING_UNIT="$label"
+                    break
+                fi
+            done
+            ;;
     esac
 }
 
@@ -529,10 +554,17 @@ detect_existing() {
 # has just been told their upgrade has not taken effect should not have to look
 # the command up.
 restart_hint() {
+    unit="${EXISTING_UNIT:-zoomies}"
     case "$INIT_SYSTEM" in
-        systemd) printf 'sudo systemctl restart zoomies' ;;
-        launchd) printf 'sudo launchctl kickstart -k system/sh.zoomies' ;;
-        openrc)  printf 'sudo rc-service zoomies restart' ;;
+        systemd) printf 'sudo systemctl restart %s' "$unit" ;;
+        launchd)
+            if [ "$(id -u)" = 0 ]; then
+                printf 'sudo launchctl kickstart -k system/%s' "$unit"
+            else
+                printf 'launchctl kickstart -k gui/%s/%s' "$(id -u)" "$unit"
+            fi
+            ;;
+        openrc)  printf 'sudo rc-service %s restart' "$unit" ;;
         *)       printf 'restart the zoomies process' ;;
     esac
 }
@@ -665,7 +697,18 @@ install_binary() {
         install -m 0755 "$tmp/zoomies" "$PREFIX/zoomies" ||
             die "could not write $PREFIX/zoomies."
     fi
-    NEW_VERSION=$("$PREFIX/zoomies" version --short 2>/dev/null || printf '%s' "$tag")
+    # A download that is not what it claims to be -- a mirror serving an HTML
+    # error page with a 200, the wrong architecture, a truncated transfer --
+    # used to be papered over here by `|| printf "$tag"`, and the operator's
+    # next line was the shell's "Exec format error" from the handoff.
+    if ! NEW_VERSION=$("$PREFIX/zoomies" version --short 2>/dev/null); then
+        if ! "$PREFIX/zoomies" --help >/dev/null 2>&1; then
+            die "$PREFIX/zoomies was written, but it will not run on this host." \
+                "The download may be for the wrong architecture ($OS/$ARCH was detected)," \
+                "or it may be incomplete. Try again, and if it happens twice, report it."
+        fi
+        NEW_VERSION="$tag"
+    fi
     if [ -n "$EXISTING_VERSION" ] && [ "$EXISTING_VERSION" != "$NEW_VERSION" ]; then
         ok "$EXISTING_VERSION replaced by $NEW_VERSION"
     else
@@ -708,6 +751,21 @@ do_uninstall() {
     note "your runners from GitHub first."
     args=""
     [ "$ASSUME_YES" -eq 1 ] && args="--yes"
+
+    # `zoomies uninstall` asks before it removes anything, and this script is
+    # most often reached through a pipe -- which leaves stdin consumed, so the
+    # question is answered by EOF, the uninstall reports "nothing was removed",
+    # and set -e stops us before the binary is deleted. The same /dev/tty that
+    # carries the setup interview carries this one.
+    if [ "$ASSUME_YES" -eq 0 ] && [ ! -t 0 ]; then
+        if have_tty; then
+            exec 0</dev/tty
+        else
+            die "there is no terminal here to confirm a removal on." \
+                "Re-run with --yes to remove Zoomies unattended."
+        fi
+    fi
+
     if [ -w "$EXISTING" ] || [ "$(id -u)" = 0 ]; then
         # shellcheck disable=SC2086
         "$EXISTING" uninstall $args
@@ -715,6 +773,8 @@ do_uninstall() {
         # shellcheck disable=SC2086
         run_privileged "$EXISTING" uninstall $args
     fi
+    # Only once the uninstall actually succeeded -- set -e achieves that today
+    # by accident, and an accident is a poor guard on a delete.
     if [ -w "$(dirname "$EXISTING")" ]; then rm -f "$EXISTING"; else run_privileged rm -f "$EXISTING"; fi
     ok "removed $EXISTING"
     exit 0
@@ -795,6 +855,31 @@ if [ "$PORT_CHECKED" -eq 0 ]; then
     field ports "not checked -- no ss or netstat here"
 fi
 
+# A missing downloader surfaces as "could not work out the latest release",
+# which sends the operator to look at their network and at a --version flag
+# that fails the same way one step later. It is a missing package, and saying
+# so is one line.
+if ! have curl && ! have wget; then
+    die "neither curl nor wget is installed, and one of them is needed to download Zoomies." \
+        "Debian or Ubuntu:  sudo apt install curl" \
+        "Alpine:            sudo apk add curl" \
+        "Fedora:            sudo dnf install curl"
+fi
+
+# ~40 MB of binary lands in $TMPDIR and is then copied into $PREFIX. A full
+# /tmp otherwise surfaces as a truncated download and therefore a checksum
+# mismatch, carrying "Do not run this binary ... report it" for what is a disk
+# problem.
+check_space() {
+    have df || return 0
+    free=$(df -Pk "$1" 2>/dev/null | awk 'NR==2 {print $4}')
+    [ -n "$free" ] || return 0
+    [ "$free" -ge 102400 ] ||
+        die "$1 has only $((free / 1024)) MB free, and Zoomies needs about 100 MB." \
+            "Free some space there, or point TMPDIR somewhere with room."
+}
+check_space "${TMPDIR:-/tmp}"
+
 preflight_prefix
 detect_existing
 if [ -n "$EXISTING" ]; then
@@ -859,7 +944,14 @@ if [ -n "$EXISTING" ]; then
 else
     field install "zoomies $VERSION ($OS/$ARCH) to $PREFIX/zoomies"
 fi
-[ -z "$ELEVATE" ] || field privilege "$ELEVATE, to write to $PREFIX -- it may ask for your password"
+if [ -n "$ELEVATE" ]; then
+    if [ "$RUN_INIT" -eq 1 ] && [ "$OS" = linux ] && [ "$MODE" != agent ]; then
+        field privilege "$ELEVATE, to write to $PREFIX and to install the service"
+    else
+        field privilege "$ELEVATE, to write to $PREFIX"
+    fi
+    field "" "it may ask for your password"
+fi
 if [ "$RUN_INIT" -eq 0 ]; then
     field then "nothing -- --no-init was given, so setup is yours to run"
 elif [ -n "$MODE" ]; then
@@ -929,8 +1021,35 @@ set -- init \
 [ "$NON_INTERACTIVE" -eq 1 ] && set -- "$@" --non-interactive
 [ "$ASSUME_YES" -eq 1 ] && set -- "$@" --yes
 
+# ---------------------------------------------------------------------------
+# The interview has to be able to finish
+#
+# On the documented one-liner as an ordinary user, the binary is installed with
+# sudo and setup then runs unprivileged. `zoomies init` quietly retargets
+# everything at the operator's home -- ~/.config/zoomies rather than
+# /etc/zoomies, the service running as them rather than a dedicated account --
+# still offers "the binary under systemd", and fails at the second-to-last step
+# with "writing /etc/systemd/system/zoomies.service: permission denied". By
+# then the GitHub App and the administrator have been created against a
+# configuration directory that a re-run under sudo will not look in.
+#
+# So the elevation the binary needed is carried through to setup as well, which
+# is what the operator expects from a script that has already asked for their
+# password.
+# ---------------------------------------------------------------------------
+ELEVATE_INIT=""
+if [ -n "$ELEVATE" ] && [ "$OS" = linux ] && [ "$MODE" != agent ]; then
+    ELEVATE_INIT="$ELEVATE"
+fi
+
 say ""
-step "Handing over to \`zoomies init\`"
+if [ -n "$ELEVATE_INIT" ]; then
+    step "Handing over to \`$ELEVATE_INIT zoomies init\`"
+    note "setup installs a service and writes to /etc/zoomies, so it runs as root --"
+    note "the same $ELEVATE_INIT that installed the binary a moment ago."
+else
+    step "Handing over to \`zoomies init\`"
+fi
 say ""
 
 # Piping this script into sh leaves stdin consumed, so an interactive setup has
@@ -938,6 +1057,8 @@ say ""
 # have_tty opens /dev/tty rather than testing its permission bits, because the
 # bits are readable in plenty of places the open is not.
 if [ "$NON_INTERACTIVE" -eq 0 ] && [ ! -t 0 ] && have_tty; then
-    exec "$PREFIX/zoomies" "$@" < /dev/tty
+    # shellcheck disable=SC2086
+    exec $ELEVATE_INIT "$PREFIX/zoomies" "$@" < /dev/tty
 fi
-exec "$PREFIX/zoomies" "$@"
+# shellcheck disable=SC2086
+exec $ELEVATE_INIT "$PREFIX/zoomies" "$@"

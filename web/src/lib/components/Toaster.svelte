@@ -7,7 +7,7 @@
   import Toast from './Toast.svelte';
 </script>
 
-<div class="toaster">
+<div class="toaster" data-inert-exempt>
   <div aria-live="polite" aria-atomic="false" class="region">
     {#each toasts.polite as toast (toast.id)}
       <Toast {toast} />

@@ -125,16 +125,21 @@ export function trapFocus(node: HTMLElement, initial?: HTMLElement | null) {
   return {
     destroy(): void {
       document.removeEventListener('keydown', onKeydown, true);
-      // An overlay opened by a redirect rather than a click -- GitHub sending
-      // the operator back with a code in the URL -- was focused on <body> when
-      // it mounted, and focusing <body> back is a no-op that leaves the
-      // keyboard at the very top of the document. Fall back to the page's own
-      // landing points, the same chain a route change uses.
-      const target =
-        restoreTo && restoreTo !== document.body && document.contains(restoreTo)
-          ? restoreTo
-          : (document.getElementById('page-heading') ?? document.getElementById('main'));
-      target?.focus();
+      // A frame's delay, because the overlay's own teardown also clears the
+      // `inert` it put on the rest of the page, and an inert element cannot
+      // take focus -- restoring in the same turn silently did nothing.
+      requestAnimationFrame(() => {
+        // An overlay opened by a redirect rather than a click -- GitHub sending
+        // the operator back with a code in the URL -- was focused on <body>
+        // when it mounted, and focusing <body> back is a no-op that leaves the
+        // keyboard at the very top of the document. Fall back to the page's own
+        // landing points, the same chain a route change uses.
+        const target =
+          restoreTo && restoreTo !== document.body && document.contains(restoreTo)
+            ? restoreTo
+            : (document.getElementById('page-heading') ?? document.getElementById('main'));
+        target?.focus();
+      });
     },
   };
 }
@@ -321,18 +326,30 @@ export function focusSearch(): boolean {
  * unwinds in the right order.
  */
 export function pageInert(except: HTMLElement | null): () => void {
-  if (typeof document === 'undefined') return () => {};
+  if (typeof document === 'undefined' || !except) return () => {};
   const root = document.documentElement;
   const depth = Number(root.dataset.inertDepth ?? '0') + 1;
   root.dataset.inertDepth = String(depth);
 
-  let marked: HTMLElement[] = [];
+  // Walk from the overlay up to <body>, marking every sibling on the way.
+  // Inerting only the top-level children would do nothing here: the app mounts
+  // into #app and the dialog renders inside it, so #app is the one child that
+  // contains the overlay and would be skipped, leaving the whole page live.
+  const marked: HTMLElement[] = [];
   if (depth === 1) {
-    marked = Array.from(document.body.children).filter(
-      (el): el is HTMLElement =>
-        el instanceof HTMLElement && !el.inert && (except === null || !el.contains(except)),
-    );
-    for (const el of marked) el.inert = true;
+    for (let node: HTMLElement | null = except; node && node !== document.body;) {
+      const parent: HTMLElement | null = node.parentElement;
+      if (!parent) break;
+      for (const sibling of parent.children) {
+        if (sibling === node || !(sibling instanceof HTMLElement) || sibling.inert) continue;
+        // A live region has to stay announceable: a toast raised while a
+        // dialog is open is usually about the dialog.
+        if (sibling.hasAttribute('data-inert-exempt')) continue;
+        sibling.inert = true;
+        marked.push(sibling);
+      }
+      node = parent;
+    }
   }
 
   let released = false;

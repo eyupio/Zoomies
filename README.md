@@ -58,26 +58,45 @@ Five minutes on a fresh Ubuntu, Debian, Fedora or Alpine host.
 curl -fsSL https://zoomies.sh/install.sh | sh
 ```
 
-The script detects your OS, architecture, container runtime and init system,
-then hands off to `zoomies init`, which walks you through:
+The script checks what it needs before it downloads anything — the platform it
+is fetching for, whether the install prefix can be written and with what,
+whether there is a terminal to run setup on — shows you what it is about to do,
+and asks once. Then it hands off to `zoomies init`.
 
-1. **Install mode** — single VM with an embedded agent, controller only, or
-   agent only.
-2. **Binary** — downloaded to `/usr/local/bin` and checksum-verified.
-3. **Service user and directories** — a dedicated unprivileged `zoomies` user.
-4. **Backend** — rootless Docker if it finds one, otherwise Docker, Podman or
-   bare process, with the trade-off spelled out.
-5. **Bind address and TLS** — loopback, a certificate you provide, a self-signed
-   one, or reverse-proxy mode.
-6. **GitHub App** — opens your browser at a pre-filled App manifest with exactly
-   the permissions Zoomies needs and the webhook URL already set. Create it, and
-   the credentials come back to the installer automatically.
-7. **First admin account.**
-8. **Service** — a hardened systemd unit (or launchd, or a printed
-   `docker-compose.yml`), started and health-checked.
+**How setup finishes depends on how you choose to run Zoomies**, and that is the
+one fork worth knowing about before you start. Compose is the default whenever
+you have a `compose` command:
 
-It finishes by telling you the URL, your login, and a first pool suggestion
-based on the host's architecture and backend.
+=== "Native — finishes in the terminal"
+
+    1. **Install mode** — single VM with an embedded agent, controller only, or
+       agent only.
+    2. **Service user and directories** — a dedicated unprivileged `zoomies` user.
+    3. **Backend** — rootless Docker if it finds one, otherwise Docker, Podman or
+       bare process, with the trade-off on every option.
+    4. **Bind address and TLS** — loopback, a certificate you provide, a
+       self-signed one, or reverse-proxy mode.
+    5. **Review** — the whole plan and the exact files it will write, before
+       anything is written. Install, change an answer, or stop.
+    6. **GitHub App** — opens your browser at a pre-filled App manifest with
+       exactly the permissions Zoomies needs and the webhook URL already set.
+       Create it, and the credentials come back to the installer automatically.
+    7. **First admin account**, and a **first pool** sized for the host.
+    8. **Service** — a hardened systemd unit (or launchd), started and
+       health-checked.
+
+    It finishes with the URL, your login, and the `runs-on:` line to put in a
+    workflow.
+
+=== "Compose or Docker — finishes in the browser"
+
+    The same questions up to the review, then it writes the deployment
+    (`docker-compose.yml` and a fully populated `.env`, or one container and an
+    env file) and brings it up. The database lives in a volume this installer
+    cannot open, so the last three steps happen in the browser instead: create
+    the first administrator, connect GitHub, create a pool. The closing summary
+    prints all three with their exact addresses, and the Overview repeats them
+    as a checklist that ticks itself off.
 
 Prefer to read it first? That is the intended way:
 

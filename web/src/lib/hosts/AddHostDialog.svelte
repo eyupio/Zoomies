@@ -8,6 +8,7 @@
 <script lang="ts">
   import { ApiError, createJoinToken } from '$lib/api/client';
   import type { JoinToken } from '$lib/api/types';
+  import { session } from '$lib/state/session.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
   import Button from '$lib/components/Button.svelte';
   import Dialog from '$lib/components/Dialog.svelte';
@@ -116,6 +117,13 @@
   {#if minted}
     <div class="done">
       {#if needsControllerURL}
+        <p class="unreachable">
+          {session.meta?.external_url
+            ? `This controller's external URL is ${session.meta.external_url}, which no other machine can reach.`
+            : 'This controller does not know its own address.'}
+          A host cannot join a controller on an address only that controller can reach, so the command
+          below needs one the new machine will actually use.
+        </p>
         <!--
           The command the server built carries a placeholder, because this
           controller does not know its own address. Presenting that under "Run
@@ -124,7 +132,7 @@
         -->
         <Field
           label="Controller URL"
-          hint="This controller has no server.external_url set, so it does not know the address the new host should reach it on. Set it in the configuration and every operator gets the right command; for now, this fills in the line below."
+          hint="Set server.external_url in the configuration and every operator gets the right command; for now, this fills in the line below."
         >
           {#snippet children({ id, describedBy, invalid })}
             <Input bind:value={controllerURL} {id} {describedBy} {invalid} type="url" mono />
@@ -223,5 +231,16 @@
     background: var(--z-surface-sunken);
     font-size: var(--z-text-xs);
     overflow-wrap: anywhere;
+  }
+  .unreachable {
+    margin: 0;
+    padding: var(--z-space-3);
+    border: 1px solid var(--z-pending-border);
+    border-radius: var(--z-radius-sm);
+    background: var(--z-pending-subtle);
+    font-size: var(--z-text-sm);
+    line-height: var(--z-leading-sm);
+    color: var(--z-text);
+    text-wrap: pretty;
   }
 </style>

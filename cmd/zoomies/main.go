@@ -188,7 +188,12 @@ func report(e *env, name string, err error) int {
 		return exitUsage
 	}
 
-	fmt.Fprintf(e.err, "zoomies %s: %s\n", name, err)
+	// The installer prefixes its own errors with its package name, which reads
+	// correctly in a log line and as a stutter under "zoomies init:" -- and the
+	// first thing an operator does with a mistyped flag is read
+	// `zoomies init: installer: "bogus" is not an install mode`, which looks
+	// like a fault in the tool rather than in the command.
+	fmt.Fprintf(e.err, "zoomies %s: %s\n", name, strings.TrimPrefix(err.Error(), "installer: "))
 	return exitError
 }
 

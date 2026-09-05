@@ -164,7 +164,13 @@ func (i *Installer) appFromManifest(ctx context.Context, st *store.Store, key *c
 		URL:          p.ExternalURL,
 		WebhookURL:   webhookURL,
 		Organization: org,
-		SetupURL:     srv.CallbackURL(),
+		// The durable address: the route the controller serves as soon as it
+		// starts, a few steps below in this same run. The temporary loopback
+		// listener catches only this handshake, and putting it here instead
+		// meant every future "install on another repository" ended on a
+		// refused connection to a port that stopped existing years earlier.
+		SetupURL:    strings.TrimRight(p.ExternalURL, "/") + "/settings/github/setup",
+		RedirectURL: srv.CallbackURL(),
 	})
 	if err != nil {
 		return err
@@ -806,9 +812,9 @@ func (i *Installer) clearLine() {
 var manifestPage = template.Must(template.New("manifest").Parse(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Zoomies -- create the GitHub App</title>
 <style>
- body{font:16px/1.5 system-ui,sans-serif;margin:4rem auto;max-width:34rem;padding:0 1rem;color:#111}
- @media (prefers-color-scheme:dark){body{background:#111;color:#eee}}
- button{font:inherit;padding:.6rem 1.1rem;border-radius:.4rem;border:0;background:#6c3fd8;color:#fff;cursor:pointer}
+ body{font:16px/1.5 system-ui,sans-serif;margin:4rem auto;max-width:34rem;padding:0 1rem;color:#0B0C0E}
+ @media (prefers-color-scheme:dark){body{background:#0A0B0D;color:#F4F5F7}}
+ button{font:inherit;padding:.6rem 1.1rem;border-radius:.4rem;border:0;background:#1A63D8;color:#fff;cursor:pointer}
 </style></head>
 <body>
 <h1>Creating your GitHub App</h1>
@@ -825,8 +831,8 @@ If nothing happens, press the button.</p>
 var donePage = template.Must(template.New("done").Parse(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Zoomies</title>
 <style>
- body{font:16px/1.5 system-ui,sans-serif;margin:4rem auto;max-width:34rem;padding:0 1rem;color:#111}
- @media (prefers-color-scheme:dark){body{background:#111;color:#eee}}
+ body{font:16px/1.5 system-ui,sans-serif;margin:4rem auto;max-width:34rem;padding:0 1rem;color:#0B0C0E}
+ @media (prefers-color-scheme:dark){body{background:#0A0B0D;color:#F4F5F7}}
 </style></head>
 <body>
 {{if .Installed}}
