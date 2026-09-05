@@ -430,6 +430,13 @@ func TestAPIClientLogs(t *testing.T) {
 		"GET " + v + "/containers/tty/logs": func(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte("raw output\n"))
 		},
+		"GET " + v + "/containers/legacy/json": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusOK, ContainerInspect{ID: "legacy", Config: &ContainerConfig{Tty: false}, State: &ContainerState{Running: true}})
+		},
+		"GET " + v + "/containers/legacy/logs": func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/vnd.docker.raw-stream")
+			_, _ = w.Write(framed.Bytes())
+		},
 	})
 	c := f.client(t)
 	ctx := context.Background()
@@ -464,6 +471,24 @@ func TestAPIClientLogs(t *testing.T) {
 		got, _ := io.ReadAll(rc)
 		if string(got) != "raw output\n" {
 			t.Fatalf("got %q", got)
+		}
+	})
+
+	// Every daemon before API 1.42 labels a framed stream "raw-stream", and so
+	// does Podman's compatibility endpoint. Taking that at its word left the
+	// 8-byte frame headers in the log an operator downloaded.
+	t.Run("a raw-stream label does not override a container without a TTY", func(t *testing.T) {
+		rc, err := c.ContainerLogs(ctx, "legacy", LogQuery{})
+		if err != nil {
+			t.Fatalf("logs: %v", err)
+		}
+		defer rc.Close()
+		got, err := io.ReadAll(rc)
+		if err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		if string(got) != "job started\nnpm WARN\n" {
+			t.Fatalf("got %q, want the demultiplexed output", got)
 		}
 	})
 
