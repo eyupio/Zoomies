@@ -305,9 +305,6 @@ func (t *tick) allocate(pools []*store.Pool, plans []PoolPlan, runners map[strin
 		if !p.Enabled || pp.Desired <= pp.Current+got || pp.Blocked != "" {
 			continue
 		}
-		if got > 0 && t.poolCount == 1 {
-			continue // retain the truthful partial scale-up reason
-		}
 		why := fmt.Sprintf("this tick's global limit of %s is exhausted; the next pass will continue", plural(t.policy.MaxCreatesPerTick, "new runner"))
 		pp.Reason = cannotScale(p.Name, pp.Current+got, pp.Desired, why)
 	}
@@ -327,9 +324,7 @@ func (t *tick) grant(p *store.Pool, plan *PoolPlan, runners []*store.Runner, que
 	hosts := t.hosts.place(p, 1)
 	if len(hosts) == 0 {
 		b := t.hosts.why(p)
-		if creates(plan.Actions) == 0 || t.poolCount > 1 {
-			plan.Reason = cannotScale(p.Name, plan.Current, plan.Desired, sentence(b.what, b.fix))
-		}
+		plan.Reason = cannotScale(p.Name, plan.Current+creates(plan.Actions), plan.Desired, sentence(b.what, b.fix))
 		plan.Blocked, plan.BlockedFix = b.what, b.fix
 		plan.BlockedAtCapacity, plan.BlockedAlternatives = b.atCapacity, b.alternatives
 		return false

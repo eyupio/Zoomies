@@ -542,6 +542,8 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "GET", path: "/api/v1/problems", role: store.RoleViewer},
 		{method: "GET", path: "/api/v1/scaling-events", role: store.RoleViewer},
 		{method: "GET", path: "/api/v1/events", role: store.RoleViewer},
+		{method: "GET", path: "/api/v1/usage", role: store.RoleViewer},
+		{method: "GET", path: "/api/v1/usage.csv", role: store.RoleViewer},
 
 		{method: "GET", path: "/api/v1/installations", role: store.RoleViewer},
 		{method: "POST", path: "/api/v1/installations", role: store.RoleAdmin, body: map[string]any{}},
@@ -566,6 +568,7 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "DELETE", path: "/api/v1/pools/missing", role: store.RoleOperator},
 		{method: "POST", path: "/api/v1/pools/" + ids.pool + "/enable", role: store.RoleOperator},
 		{method: "POST", path: "/api/v1/pools/" + ids.pool + "/disable", role: store.RoleOperator},
+		{method: "POST", path: "/api/v1/pools/" + ids.pool + "/prewarm", role: store.RoleOperator},
 
 		{method: "GET", path: "/api/v1/runners", role: store.RoleViewer},
 		{method: "GET", path: "/api/v1/runners/" + ids.runner, role: store.RoleViewer},
