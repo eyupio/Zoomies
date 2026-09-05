@@ -414,6 +414,13 @@ install_binary() {
       Re-run as root, or use --prefix \"\$HOME/.local/bin\"."
     fi
     ok "$("$PREFIX/zoomies" version --short 2>/dev/null || printf '%s' "$tag") installed"
+
+    # The script ends in an exec, which never runs the EXIT trap, so the
+    # download directory -- and, on the sudo path, the whole binary -- would be
+    # left under /tmp after every install. Clean up here, while there is still
+    # a shell to do it.
+    rm -rf "$tmp"
+    trap - EXIT INT TERM
 }
 
 # ---------------------------------------------------------------------------
