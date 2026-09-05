@@ -74,6 +74,7 @@ type poolInput struct {
 	RunnerVersion  *string            `json:"runner_version"`
 	MinRunners     *int               `json:"min_runners"`
 	MaxRunners     *int               `json:"max_runners"`
+	Priority       *int               `json:"priority"`
 	IdleTimeout    *string            `json:"idle_timeout"`
 	Ephemeral      *bool              `json:"ephemeral"`
 	DockerMode     *string            `json:"docker_mode"`
@@ -144,6 +145,9 @@ func (in *poolInput) apply(p *store.Pool) []fieldError {
 	}
 	if in.MaxRunners != nil {
 		p.MaxRunners = *in.MaxRunners
+	}
+	if in.Priority != nil {
+		p.Priority = *in.Priority
 	}
 	if in.IdleTimeout != nil {
 		raw := strings.TrimSpace(*in.IdleTimeout)

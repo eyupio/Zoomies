@@ -1440,6 +1440,11 @@ export interface components {
             runner_version?: string;
             min_runners?: number;
             max_runners?: number;
+            /**
+             * @description Higher-priority pools receive creation capacity before lower-priority pools.
+             * @default 0
+             */
+            priority: number;
             idle_timeout?: components["schemas"]["Duration"];
             ephemeral?: boolean;
             docker_mode?: components["schemas"]["DockerMode"];
@@ -1506,6 +1511,8 @@ export interface components {
             min_runners: number;
             /** @default 4 */
             max_runners: number;
+            /** @default 0 */
+            priority: number;
             /** @default 5m */
             idle_timeout: components["schemas"]["Duration"];
             /** @default true */
@@ -1539,6 +1546,7 @@ export interface components {
             runner_version?: string;
             min_runners?: number;
             max_runners?: number;
+            priority?: number;
             idle_timeout?: components["schemas"]["Duration"];
             ephemeral?: boolean;
             docker_mode?: components["schemas"]["DockerMode"];
