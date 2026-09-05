@@ -39,6 +39,7 @@ export const SECTIONS = [
   { path: '/pools', label: 'Pools' },
   { path: '/runners', label: 'Runners' },
   { path: '/jobs', label: 'Jobs' },
+  { path: '/usage', label: 'Usage' },
   { path: '/hosts', label: 'Hosts' },
   { path: '/installations', label: 'Installations' },
   { path: '/migrate', label: 'Migrate', heading: 'Migrate repositories' },

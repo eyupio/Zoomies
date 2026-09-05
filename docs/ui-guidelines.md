@@ -272,11 +272,12 @@ fixed, because muscle memory is the point:
 2. **Pools** — what runners to make
 3. **Runners** — what runners exist right now
 4. **Jobs** — what has run
-5. **Hosts** — where runners can go
-6. **Installations** — GitHub App connections
-7. **Migrate** — move repositories off GitHub's runners onto this fleet
-8. **Audit** — who did what
-9. **Settings** — users, tokens, appearance, danger zone
+5. **Usage** — runner-hours and job activity by pool, repository or workflow
+6. **Hosts** — where runners can go
+7. **Installations** — GitHub App connections
+8. **Migrate** — move repositories off GitHub's runners onto this fleet
+9. **Audit** — who did what
+10. **Settings** — users, tokens, appearance, danger zone
 
 Every page is shown, in both themes, in [The UI](ui.md).
 
@@ -458,7 +459,7 @@ action inline:
 
 Everything reachable, in a sensible order, with a visible focus ring
 (`2px` `--z-accent`, `2px` offset — never removed). `Cmd/Ctrl+K` palette,
-`g` then `o/p/r/j/h/i/a/s` to jump between sections, `/` focuses the current
+`g` then `o/p/r/j/u/h/i/m/a/s` to jump between sections, `/` focuses the current
 page's search, `?` opens the shortcut sheet, `Esc` closes the topmost layer.
 
 ### Responsive

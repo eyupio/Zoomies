@@ -77,7 +77,7 @@
   </p>
 {/if}
 {#if loading}<p>Loading usage…</p>{:else if error}<p role="alert">{error}</p>{:else}
-  <div class="table">
+  <div class="frame">
     <table>
       <thead
         ><tr
@@ -136,8 +136,15 @@
   .note {
     color: var(--z-text-muted);
   }
-  .table {
-    overflow: auto;
+  /*
+    Not `.table`: Tailwind's utility of that name sets `display: table`, which
+    made this frame size itself to the nine columns inside it instead of
+    scrolling them. On a phone the whole document then grew to the table's
+    width, the fixed navigation bar grew with it, and taps on the bar landed
+    on the footer underneath.
+  */
+  .frame {
+    overflow-x: auto;
   }
   table {
     width: 100%;

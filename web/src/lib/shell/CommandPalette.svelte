@@ -8,6 +8,7 @@
 <script lang="ts">
   import {
     Boxes,
+    ChartNoAxesCombined,
     CircleSlash,
     GitPullRequestArrow,
     HardDrive,
@@ -93,6 +94,13 @@
         label: 'Jobs',
         icon: ListChecks,
         run: () => router.navigate('/jobs'),
+      },
+      {
+        id: 'go-usage',
+        group: 'Go to',
+        label: 'Usage',
+        icon: ChartNoAxesCombined,
+        run: () => router.navigate('/usage'),
       },
       {
         id: 'go-hosts',
