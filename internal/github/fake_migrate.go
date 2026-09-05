@@ -11,6 +11,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 )
 
 // The fake's half of the migration surface: repository contents, refs and pull
@@ -25,6 +26,8 @@ import (
 
 // fakeRepo is one repository's contents, as far as the migration cares.
 type fakeRepo struct {
+	// pushedAt is what the poller sorts repositories by; a queued job bumps it.
+	pushedAt      time.Time
 	defaultBranch string
 	// files maps a repository-relative path to its contents.
 	files map[string]string
