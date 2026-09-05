@@ -394,8 +394,28 @@ func TestProcessProbe(t *testing.T) {
 	}
 	// Availability depends on the host: on Linux without libicu the runner
 	// cannot start, and the detail has to say which of the two it is.
-	if !info.Available && !strings.Contains(info.Detail, "libicu") && !strings.Contains(info.Detail, "does not support") && !strings.Contains(info.Detail, "work directory") {
+	if !info.Available && !strings.Contains(info.Detail, "libicu") && !strings.Contains(info.Detail, "does not support") && !strings.Contains(info.Detail, "work directory") && !strings.Contains(info.Detail, "shell") {
 		t.Fatalf("unavailable for an unexplained reason: %q", info.Detail)
+	}
+}
+
+// The published image is distroless. An agent in it probing the process
+// backend used to be told to apt-get install libicu -- into an image with no
+// apt, no shell and no way to run the runner at all -- when the honest answer
+// is that this backend is not for containers.
+func TestProcessProbeWithoutAShellSaysSoBeforeAnythingElse(t *testing.T) {
+	b, _ := newStubProcessBackend(t)
+	t.Setenv("PATH", t.TempDir())
+
+	info := b.Probe(context.Background())
+	if info.Available {
+		t.Fatal("a host with no shell cannot run the runner")
+	}
+	if !strings.Contains(info.Detail, "no shell is installed") || !strings.Contains(info.Detail, "docker or podman backend") {
+		t.Fatalf("detail = %q, want the missing shell and the backend to use instead", info.Detail)
+	}
+	if strings.Contains(info.Detail, "apt-get") {
+		t.Fatalf("a package manager is no use in an image without one: %q", info.Detail)
 	}
 }
 

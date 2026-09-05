@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/store"
 )
 
 func TestControllerRefusesToStartOnAConfigurationError(t *testing.T) {
@@ -170,5 +171,59 @@ func TestBuildBackendsRefusesABackendThisHostCannotProvide(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "agent.backend") {
 		t.Errorf("the error does not name the setting: %v", err)
+	}
+}
+
+// The compose deployment names one socket, for one backend. Giving that socket
+// to the Podman backend as well made the Hosts page show the same permission
+// denial twice, and -- worse -- a reachable Docker socket answered the Podman
+// probe too, so a Docker host advertised a Podman backend it did not have.
+func TestBuildBackendsGivesTheExplicitSocketOnlyToTheConfiguredBackend(t *testing.T) {
+	cfg := config.Default()
+	cfg.Agent.WorkDir = t.TempDir()
+	cfg.Agent.Backend = "docker"
+	cfg.Agent.DockerHost = "unix://" + filepath.Join(t.TempDir(), "docker.sock")
+
+	reg, err := buildBackends(context.Background(), cfg, discardLogger())
+	if err != nil {
+		t.Fatalf("buildBackends: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for _, info := range reg.Probe(ctx) {
+		switch info.Kind {
+		case store.BackendDocker:
+			if info.Endpoint != cfg.Agent.DockerHost {
+				t.Errorf("docker endpoint = %q, want the configured %q", info.Endpoint, cfg.Agent.DockerHost)
+			}
+		case store.BackendPodman:
+			if info.Endpoint == cfg.Agent.DockerHost {
+				t.Errorf("the podman backend was given the docker socket %q", info.Endpoint)
+			}
+		}
+	}
+}
+
+// The compose deployment configures docker and nothing else, and the image it
+// runs in has neither a Podman socket nor a shell. Registering Podman and the
+// process backend anyway gave the Hosts page two red rows of advice that could
+// not be followed -- "install Podman", "apt-get install libicu" -- on every
+// such host.
+func TestBuildBackendsLeavesOutBackendsThisHostVisiblyLacks(t *testing.T) {
+	cfg := config.Default()
+	cfg.Agent.WorkDir = t.TempDir()
+	cfg.Agent.Backend = "docker"
+	cfg.Agent.DockerHost = "unix://" + filepath.Join(t.TempDir(), "docker.sock")
+	// No shell, and nowhere a per-user Podman socket could be found.
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+
+	reg, err := buildBackends(context.Background(), cfg, discardLogger())
+	if err != nil {
+		t.Fatalf("buildBackends: %v", err)
+	}
+	kinds := reg.Kinds()
+	if len(kinds) != 1 || kinds[0] != store.BackendDocker {
+		t.Fatalf("registered %v, want only the configured docker backend (its socket may be down, and is still reported on)", kinds)
 	}
 }

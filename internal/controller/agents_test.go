@@ -426,3 +426,29 @@ func TestHeartbeatLeavesCapacityToTheOperator(t *testing.T) {
 		t.Fatalf("last heartbeat was not recorded")
 	}
 }
+
+// A compose deployment joined under whatever hostname Docker gave its first
+// container, before the compose file set one, and kept that random name for
+// life: the identity is the persisted credential, so the row is renamed rather
+// than joined again. Unless something else already has the name.
+func TestAdoptingEmbeddedCredentialsRenamesTheHostToItsConfiguredName(t *testing.T) {
+	h := newHarness(t)
+	host := h.host("7096d9a9b798")
+
+	h.c.renameEmbeddedHost(h.ctx, host, "zoomies")
+	got, err := h.st.GetHost(h.ctx, host.ID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if got.Name != "zoomies" {
+		t.Fatalf("name = %q, want the configured one", got.Name)
+	}
+
+	// Two hosts called zoomies would be worse than one called by its
+	// container ID, so a name that is taken stays where it is.
+	other := h.host("build-box")
+	h.c.renameEmbeddedHost(h.ctx, other, "zoomies")
+	if got, _ := h.st.GetHost(h.ctx, other.ID); got.Name != "build-box" {
+		t.Fatalf("name = %q; a taken name must not be duplicated", got.Name)
+	}
+}

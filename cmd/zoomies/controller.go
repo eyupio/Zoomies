@@ -269,6 +269,16 @@ func loadOrCreateKey(cfg *config.Config, log *slog.Logger) (*cryptox.Key, error)
 	return key, nil
 }
 
+// socketExists reports whether a unix socket path is present. A TCP endpoint
+// has no path and is taken on trust.
+func socketExists(path string) bool {
+	if path == "" {
+		return true
+	}
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 // buildBackends prepares the runner backends this host can use.
 //
 // Construction does not contact a daemon -- that is Probe's job -- so a host
@@ -277,29 +287,54 @@ func loadOrCreateKey(cfg *config.Config, log *slog.Logger) (*cryptox.Key, error)
 func buildBackends(ctx context.Context, cfg *config.Config, log *slog.Logger) (*backend.Registry, error) {
 	var backends []backend.Backend
 	opts := backend.DockerOptions{
-		Host:    cfg.Agent.DockerHost,
 		Network: cfg.Agent.Network,
 		WorkDir: cfg.Agent.WorkDir,
 		Logger:  log,
 	}
-	if b, err := backend.NewDocker(opts); err == nil {
-		backends = append(backends, b)
-	} else {
-		log.Debug("the Docker backend is not available on this host", "error", err)
+	// An explicit agent.docker_host belongs to the backend it was configured
+	// for; the other container backend keeps autodetecting its own socket.
+	// Handing one socket to both made the Hosts page report the same denial
+	// twice -- once as docker, once as "podman" at /var/run/docker.sock -- and,
+	// once the socket was reachable, made a Docker host claim it offered Podman
+	// too, since the two speak the same API.
+	hostFor := func(kind store.BackendKind) string {
+		if cfg.Agent.Backend == "" || cfg.Agent.Backend == string(kind) {
+			return cfg.Agent.DockerHost
+		}
+		return ""
 	}
-	if b, err := backend.NewPodman(opts); err == nil {
+	// A backend nobody configured is registered only when the host visibly
+	// has it: a socket that exists, a shell to run the runner with. The
+	// configured one is registered regardless, so that a daemon which is not
+	// up yet is still re-probed and reported on. Registering the rest anyway
+	// put a red row with install advice on every Docker host's Hosts page --
+	// "install Podman", "apt-get install libicu" into a distroless image --
+	// when the honest answer is that the host does not offer them.
+	configured := func(kind store.BackendKind) bool {
+		return cfg.Agent.Backend == "" || cfg.Agent.Backend == string(kind)
+	}
+	docker := opts
+	docker.Host = hostFor(store.BackendDocker)
+	if b, err := backend.NewDocker(docker); err != nil {
+		log.Debug("the Docker backend is not available on this host", "error", err)
+	} else if configured(b.Kind()) || socketExists(b.SocketPath()) {
 		backends = append(backends, b)
-	} else {
+	}
+	podman := opts
+	podman.Host = hostFor(store.BackendPodman)
+	if b, err := backend.NewPodman(podman); err != nil {
 		log.Debug("the Podman backend is not available on this host", "error", err)
+	} else if configured(b.Kind()) || socketExists(b.SocketPath()) {
+		backends = append(backends, b)
 	}
 	if b, err := backend.NewProcess(backend.ProcessOptions{
 		WorkDir:       cfg.Agent.WorkDir,
 		RunnerVersion: cfg.GitHub.RunnerVersion,
 		Logger:        log,
-	}); err == nil {
-		backends = append(backends, b)
-	} else {
+	}); err != nil {
 		log.Debug("the process backend could not be prepared", "error", err)
+	} else if configured(b.Kind()) || backend.HasShell() {
+		backends = append(backends, b)
 	}
 
 	reg := backend.NewRegistry(backends...)
