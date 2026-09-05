@@ -126,6 +126,7 @@ oidc:
   admin_groups: []              # ZOOMIES_OIDC_ADMIN_GROUPS
   operator_groups: []           # ZOOMIES_OIDC_OPERATOR_GROUPS
   allow_signup: false           # ZOOMIES_OIDC_ALLOW_SIGNUP
+  link_by_username: false       # ZOOMIES_OIDC_LINK_BY_USERNAME -- let SSO take over a password account of the same name; warned about
 
 metrics:
   enabled: true                 # ZOOMIES_METRICS_ENABLED

@@ -239,6 +239,13 @@ type OIDC struct {
 	OperatorGroups []string `yaml:"operator_groups"`
 	// AllowSignup provisions an account on first successful login.
 	AllowSignup bool `yaml:"allow_signup"`
+	// LinkByUsername lets a first single sign-on login take over an existing
+	// local account that has a password and the same username. Off, the
+	// username alone links only to an account created for SSO -- one with no
+	// password -- because with an identity provider whose users can influence
+	// their own username claim, a sign-in as "admin" would otherwise inherit
+	// the local admin's role.
+	LinkByUsername bool `yaml:"link_by_username"`
 }
 
 // Metrics configures the Prometheus endpoint.
@@ -700,6 +707,7 @@ func (c *Config) applyEnv() error {
 	strs("ZOOMIES_OIDC_ADMIN_GROUPS", &c.OIDC.AdminGroups)
 	strs("ZOOMIES_OIDC_OPERATOR_GROUPS", &c.OIDC.OperatorGroups)
 	boolean("ZOOMIES_OIDC_ALLOW_SIGNUP", &c.OIDC.AllowSignup)
+	boolean("ZOOMIES_OIDC_LINK_BY_USERNAME", &c.OIDC.LinkByUsername)
 
 	boolean("ZOOMIES_METRICS_ENABLED", &c.Metrics.Enabled)
 	str("ZOOMIES_METRICS_PATH", &c.Metrics.Path)

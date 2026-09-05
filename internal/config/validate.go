@@ -451,6 +451,14 @@ func (c *Config) Validate() Findings {
 				Fix:    "use the issuer's https:// address.",
 			})
 		}
+		if c.OIDC.LinkByUsername {
+			add(Finding{
+				Code: "oidc.link_by_username", Severity: SeverityWarning, Setting: "oidc.link_by_username",
+				Title:  "a first single sign-on login may take over a password account of the same name",
+				Detail: "whoever the identity provider says is \"admin\" signs in as the local admin, with its role; that is safe only when nobody at the provider can influence their own username claim.",
+				Fix:    "leave it on only for the migration to single sign-on, then turn it off; or link accounts by hand and leave it off.",
+			})
+		}
 		if c.OIDC.AllowSignup && len(c.OIDC.AdminGroups) == 0 && len(c.OIDC.OperatorGroups) == 0 {
 			add(Finding{
 				Code: "oidc.open_signup", Severity: SeverityWarning, Setting: "oidc.allow_signup",

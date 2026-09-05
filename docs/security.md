@@ -328,6 +328,17 @@ Turns the sign-in rate limit off, so a password can be guessed from one address
 as fast as the controller answers. The default of ten attempts per address per
 minute is generous for a person and hopeless for a dictionary.
 
+### `oidc.link_by_username: true`
+
+Lets the first single sign-on login by a username take over an existing local
+account of that name, password and role included. Off, a username alone links
+only to an account created for SSO — one with no password — so an identity
+provider whose users can influence their own username claim cannot hand someone
+the local `admin` account. Turn it on for the migration from local passwords to
+SSO, when every account is known and the provider is trusted to spell names
+correctly, and turn it off again afterwards; or link the accounts by hand and
+leave it off.
+
 ### `oidc.issuer: http://…`
 
 Discovery, the token exchange and the client secret all travel to the identity
