@@ -138,7 +138,11 @@
       description="A pool decides what labels your runners answer to and how many of them exist."
     >
       {#if canCreate}
-        <Button variant="primary" href="/pools/new">Create a pool</Button>
+        <!-- The checklist above owns the first-run path, and offers this step
+             only once it can be completed. Repeating the button here would
+             send an operator with no installation into a wizard that refuses
+             on its first screen. -->
+        <Button variant="secondary" href="/pools/new">Create a pool</Button>
       {/if}
     </EmptyState>
   {:else}

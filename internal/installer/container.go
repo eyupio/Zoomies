@@ -709,15 +709,10 @@ func (i *Installer) containerSummary(p Plan, envPath string, reusedKey bool) {
 	i.ui.blank()
 
 	if !reusedKey {
-		i.ui.note("Open " + p.ExternalURL + " and create the first administrator.")
+		i.ui.warn("Back up " + envPath + " now: it holds this deployment's encryption key.")
+		i.ui.note("without it the stored GitHub App private key and every webhook secret are lost.")
 		i.ui.blank()
 	}
-
-	i.ui.note("The commands you will want:")
-	for _, line := range i.deploymentCommands(p) {
-		i.ui.note("  " + line)
-	}
-	i.ui.blank()
 
 	if p.PublishAddr == "127.0.0.1" {
 		i.ui.note("The container is published on loopback only, so reach it from your laptop with:")
@@ -725,10 +720,26 @@ func (i *Installer) containerSummary(p Plan, envPath string, reusedKey bool) {
 		i.ui.blank()
 	}
 
+	// A container keeps its database in a volume this process cannot reach, so
+	// none of the three things a native install does for the operator -- the
+	// administrator, the GitHub App, the first pool -- happened here. Naming
+	// them, in order, with the exact address of each, is the whole handover.
 	sug := SuggestPool(i.det.OS, i.det.Arch, p.Backend, p.Capacity)
-	i.ui.note("Your first pool -- this host is " + i.det.Arch + " with the " + string(p.Backend) + " backend:")
-	i.ui.note("  " + sug.Command())
+	i.ui.step("Next -- three steps, in the browser")
+	i.ui.field("  1.", "Create the first administrator")
+	i.ui.field("", p.ExternalURL)
+	i.ui.field("  2.", "Connect GitHub -- nothing can run until an App is installed")
+	i.ui.field("", p.ExternalURL+"/installations")
+	i.ui.field("  3.", "Create a pool -- suggested for this "+i.det.Arch+" host: "+sug.Name)
+	i.ui.field("", p.ExternalURL+"/pools/new")
+	i.ui.blank()
 	i.ui.note("then put  runs-on: " + sug.RunsOn() + "  in a workflow.")
+	i.ui.blank()
+
+	i.ui.note("The commands you will want:")
+	for _, line := range i.deploymentCommands(p) {
+		i.ui.note("  " + line)
+	}
 }
 
 // deploymentCommands lists the four things an operator does to a running

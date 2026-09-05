@@ -95,7 +95,16 @@ export function trapFocus(node: HTMLElement, initial?: HTMLElement | null) {
     const last = items[items.length - 1];
     if (!first || !last) return;
     const active = document.activeElement;
-    if (e.shiftKey && (active === first || !node.contains(active))) {
+    // Focus can be outside the panel entirely -- the browser blurs an element
+    // that becomes hidden or unavailable, and lands on <body>. From there a
+    // Tab would walk the page behind an open modal, so it is pulled back in
+    // rather than let go.
+    if (!node.contains(active)) {
+      e.preventDefault();
+      (e.shiftKey ? last : first).focus();
+      return;
+    }
+    if (e.shiftKey && active === first) {
       e.preventDefault();
       last.focus();
     } else if (!e.shiftKey && active === last) {
@@ -105,14 +114,27 @@ export function trapFocus(node: HTMLElement, initial?: HTMLElement | null) {
   }
 
   if (!node.hasAttribute('tabindex')) node.setAttribute('tabindex', '-1');
-  node.addEventListener('keydown', onKeydown);
+  // Listened for on the document, in capture, rather than on the panel: a
+  // keystroke made while focus has slipped outside the panel never reaches a
+  // handler bound to the panel, which is exactly the case the pull-back above
+  // exists to answer.
+  document.addEventListener('keydown', onKeydown, true);
   // A frame's delay lets a transition finish laying the panel out first.
   requestAnimationFrame(focusFirst);
 
   return {
     destroy(): void {
-      node.removeEventListener('keydown', onKeydown);
-      if (restoreTo && document.contains(restoreTo)) restoreTo.focus();
+      document.removeEventListener('keydown', onKeydown, true);
+      // An overlay opened by a redirect rather than a click -- GitHub sending
+      // the operator back with a code in the URL -- was focused on <body> when
+      // it mounted, and focusing <body> back is a no-op that leaves the
+      // keyboard at the very top of the document. Fall back to the page's own
+      // landing points, the same chain a route change uses.
+      const target =
+        restoreTo && restoreTo !== document.body && document.contains(restoreTo)
+          ? restoreTo
+          : (document.getElementById('page-heading') ?? document.getElementById('main'));
+      target?.focus();
     },
   };
 }
@@ -285,6 +307,48 @@ export function focusSearch(): boolean {
  * --------------------------------------------------------------------- */
 
 /** Freeze background scrolling. Returns the function that releases it. */
+/**
+ * Mark everything outside an overlay unavailable, and undo it on release.
+ *
+ * A focus trap stops Tab leaving a modal, but it says nothing to a screen
+ * reader's virtual cursor: without this, an operator reading down from the
+ * Connect GitHub dialog carries straight on into the installation cards, the
+ * webhook panel and the navigation behind it, with no sign they have left the
+ * dialog, and can activate a control there. `inert` is the one attribute that
+ * removes an element from both the accessibility tree and the tab order.
+ *
+ * Depth-counted like lockScroll, so a dialog opened from inside a drawer
+ * unwinds in the right order.
+ */
+export function pageInert(except: HTMLElement | null): () => void {
+  if (typeof document === 'undefined') return () => {};
+  const root = document.documentElement;
+  const depth = Number(root.dataset.inertDepth ?? '0') + 1;
+  root.dataset.inertDepth = String(depth);
+
+  let marked: HTMLElement[] = [];
+  if (depth === 1) {
+    marked = Array.from(document.body.children).filter(
+      (el): el is HTMLElement =>
+        el instanceof HTMLElement && !el.inert && (except === null || !el.contains(except)),
+    );
+    for (const el of marked) el.inert = true;
+  }
+
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const next = Number(root.dataset.inertDepth ?? '1') - 1;
+    if (next <= 0) {
+      delete root.dataset.inertDepth;
+      for (const el of marked) el.inert = false;
+    } else {
+      root.dataset.inertDepth = String(next);
+    }
+  };
+}
+
 export function lockScroll(): () => void {
   if (typeof document === 'undefined') return () => {};
   const root = document.documentElement;

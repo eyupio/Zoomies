@@ -47,6 +47,14 @@ import (
 // failure for something the operator chose.
 var ErrAborted = errors.New("installer: setup cancelled")
 
+// ErrAbortedDirty is ErrAborted after the host has already been changed. The
+// two are distinct because "Nothing was changed" is a true and calming thing to
+// say at the third question and a false one at the ninth -- by which point a
+// system account exists, an encryption key is on disk and a GitHub App may
+// have been created on the operator's organisation. Somebody told the machine
+// is untouched does not go looking for what to undo.
+var ErrAbortedDirty = errors.New("installer: setup cancelled after changes were made")
+
 // Mode is what this host is being set up as.
 type Mode string
 
@@ -187,7 +195,21 @@ type Installer struct {
 	// interactive is decided once at construction, so a mid-run change of
 	// heart cannot leave half the questions asked.
 	interactive bool
+	// written records, in order, everything this run has put on the host. It
+	// is what an abort prints instead of claiming nothing happened, and what a
+	// failure prints so the operator knows what to clean up.
+	written []string
 }
+
+// wrote records a change to the host and reports it in one move, so a step
+// cannot print that it did something without the ledger learning about it.
+func (i *Installer) wrote(what string) {
+	i.written = append(i.written, what)
+	i.ui.ok(what)
+}
+
+// Written is what this run has changed on the host, oldest first.
+func (i *Installer) Written() []string { return append([]string(nil), i.written...) }
 
 // New validates the options and prepares an installer. It reads the answer
 // file eagerly, because a typo in it should stop the run before anything on
@@ -267,10 +289,77 @@ func (i *Installer) Run(ctx context.Context) error {
 	if plan.Upgrade {
 		return i.runUpgrade(ctx, plan)
 	}
+	// The last moment at which nothing has been written. Everything past here
+	// creates accounts, directories and files.
+	proceed, err := i.stepReview(ctx, plan)
+	if err != nil {
+		return err
+	}
+	if !proceed {
+		return nil
+	}
 	if plan.Deployment.Containerised() {
 		return i.runContainer(ctx, plan)
 	}
 	return i.runInstall(ctx, plan)
+}
+
+// stepReview shows the whole plan and asks. It returns false when the operator
+// chose to stop, which is not an error: nothing has been written, and telling
+// them so is the point of the screen.
+//
+// An unattended run is not asked, but it is still shown the block, so the log
+// of an automated install records the plan it acted on.
+func (i *Installer) stepReview(ctx context.Context, p Plan) (bool, error) {
+	i.ui.blank()
+	i.ui.step("Ready to install")
+	for _, line := range p.Review() {
+		i.ui.field(line.Key, line.Value)
+	}
+	i.ui.blank()
+	i.ui.note("writes")
+	for _, path := range p.Writes() {
+		i.ui.field("", path)
+	}
+	if !p.Deployment.Containerised() {
+		i.ui.field("", "the "+p.ServiceUser+" system account, if it does not exist")
+	}
+	i.ui.blank()
+
+	if !i.interactive || i.opts.AssumeYes {
+		i.ui.note("nothing is asked here: this run has no terminal, or --yes was given.")
+		i.ui.blank()
+		return true, nil
+	}
+
+	const (
+		optGo     = "go"
+		optAgain  = "again"
+		optCancel = "cancel"
+	)
+	choice := optGo
+	if err := i.selectOne(ctx, "Install with these settings?",
+		"Nothing has been written yet. Stopping here leaves this host exactly as it is.",
+		[]huh.Option[string]{
+			huh.NewOption("Install (default)", optGo),
+			huh.NewOption("Change an answer -- ask the questions again", optAgain),
+			huh.NewOption("Stop -- nothing has been written", optCancel),
+		}, &choice); err != nil {
+		return false, err
+	}
+	switch choice {
+	case optCancel:
+		i.ui.blank()
+		i.ui.ok("Stopped. Nothing on this host was changed.")
+		return false, nil
+	case optAgain:
+		revised, err := i.ask(ctx, p)
+		if err != nil {
+			return false, err
+		}
+		return i.stepReview(ctx, containerise(revised))
+	}
+	return true, nil
 }
 
 // resolveMode settles what is being installed. install.sh's --mode wins, then
@@ -663,6 +752,19 @@ func backendChoices(d Detection) []BackendChoice {
 	add(d.Docker, false)
 	add(d.Podman, false)
 
+	out = append(out, BackendChoice{
+		Kind:      store.BackendProcess,
+		Label:     "Process -- run jobs directly on this host",
+		Available: true,
+		Warning: "There is no container isolation: workflow steps run as the agent's user, " +
+			"sharing this host's filesystem, package manager and network. Nothing is cleaned up between jobs beyond the work directory.",
+	})
+
+	// Installed-but-dead runtimes come last, after the process backend, so
+	// that the first entry -- which is what the prompt and defaultPlan both
+	// pre-select -- is always something that can actually run a job. Offering
+	// them at all is right: a stopped daemon is a fixable problem and naming
+	// it is more use than hiding it.
 	for _, r := range []RuntimeInfo{d.Docker, d.Podman} {
 		if r.Available || !r.Installed {
 			continue
@@ -674,14 +776,6 @@ func backendChoices(d Detection) []BackendChoice {
 			Fix:     startCommand(r.Kind),
 		})
 	}
-
-	out = append(out, BackendChoice{
-		Kind:      store.BackendProcess,
-		Label:     "Process -- run jobs directly on this host",
-		Available: true,
-		Warning: "There is no container isolation: workflow steps run as the agent's user, " +
-			"sharing this host's filesystem, package manager and network. Nothing is cleaned up between jobs beyond the work directory.",
-	})
 	return out
 }
 
@@ -777,9 +871,118 @@ func (p *PoolSuggestion) applyAnswers(a AnswersPool) {
 func (p PoolSuggestion) RunsOn() string { return store.RunsOn(p.Labels) }
 
 // Command renders the suggestion as a line the operator can paste.
-func (p PoolSuggestion) Command() string {
-	return fmt.Sprintf("zoomies pools create --name %s --labels %s --backend %s --max %d",
-		p.Name, strings.Join(p.Labels, ","), p.Backend, p.MaxRunners)
+//
+// --installation is not optional to `pools create`, so a command printed
+// without it cannot run -- which is what the installer's closing advice used to
+// be. When the installation is not known here, a placeholder goes in with the
+// command that finds it, rather than a line that fails on paste.
+func (p PoolSuggestion) Command(installationID string) string {
+	if installationID == "" {
+		installationID = "<id from `zoomies installations list`>"
+	}
+	return fmt.Sprintf("zoomies pools create --name %s --labels %s --backend %s --max %d --installation %s",
+		p.Name, strings.Join(p.Labels, ","), p.Backend, p.MaxRunners, installationID)
+}
+
+// ReviewLine is one row of the plan an operator is shown before anything is
+// written. Key is the twelve-column label; Value is what will happen.
+type ReviewLine struct {
+	Key   string
+	Value string
+}
+
+// Review renders the whole plan as the operator will read it.
+//
+// It is a method on Plan, and a pure one, for the same reason Config is: the
+// screen an operator approves and the deployment they get are then the same
+// object, and a test can assert that every setting which changes the host
+// appears on it. An installer that writes to /etc and /var/lib without ever
+// saying what it is about to do is the reason people ctrl-c at the last
+// question.
+func (p Plan) Review() []ReviewLine {
+	kind := "a controller with an embedded agent"
+	switch p.Mode {
+	case ModeController:
+		kind = "a controller; runner hosts join it separately"
+	case ModeAgent:
+		kind = "a runner host"
+	}
+	how := "the binary under " + string(p.Service)
+	switch p.Deployment {
+	case DeploymentCompose:
+		how = "a compose project in " + p.DeployDir
+	case DeploymentDocker:
+		how = "one container from " + p.Image
+	case DeploymentNative:
+		if p.Service == ServiceNone {
+			how = "the binary, with no service manager to restart it"
+		}
+	}
+
+	out := []ReviewLine{
+		{"this host", kind},
+		{"run as", how},
+	}
+	if !p.Deployment.Containerised() {
+		out = append(out, ReviewLine{"account", p.ServiceUser + ":" + p.ServiceGroup})
+	}
+	if p.Embedded {
+		backend := string(p.Backend)
+		if p.DockerHost != "" {
+			backend += " -- " + p.DockerHost
+		}
+		if p.Rootless {
+			backend += " (rootless)"
+		}
+		out = append(out,
+			ReviewLine{"backend", backend},
+			ReviewLine{"capacity", fmt.Sprintf("%d %s at once", p.Capacity, pluralise(p.Capacity, "runner"))},
+		)
+	}
+	listener := p.Bind + ", TLS " + string(p.TLSMode)
+	if p.PublishedPort > 0 {
+		listener = fmt.Sprintf("%s:%d on this host -> %s in the container, TLS %s",
+			p.PublishAddr, p.PublishedPort, p.Bind, p.TLSMode)
+	}
+	out = append(out, ReviewLine{"listener", listener})
+	if len(p.TrustedProxies) > 0 {
+		out = append(out, ReviewLine{"proxies", "trusting " + strings.Join(p.TrustedProxies, ", ")})
+	}
+	out = append(out, ReviewLine{"reached at", p.ExternalURL})
+
+	switch {
+	case p.GitHub.Skip:
+		out = append(out, ReviewLine{"github", "not now -- connect it later in the browser"})
+	case p.GitHub.Target != "":
+		out = append(out, ReviewLine{"github", p.GitHub.Target + " (" + string(p.GitHub.TargetType) + ")"})
+	default:
+		out = append(out, ReviewLine{"github", "a new App, created in your browser"})
+	}
+	if !p.Deployment.Containerised() {
+		out = append(out, ReviewLine{"admin", p.AdminUser})
+	} else {
+		out = append(out, ReviewLine{"admin", "created in the browser once the container is up"})
+	}
+	return out
+}
+
+// Writes lists the paths this plan will create or overwrite. Naming them is
+// most of what makes the review screen worth reading: an operator who can see
+// exactly which four files are involved can decide in a second.
+func (p Plan) Writes() []string {
+	var out []string
+	if p.Deployment.Containerised() {
+		return append(out,
+			filepath.Join(p.DeployDir, "docker-compose.yml"),
+			filepath.Join(p.DeployDir, ".env"),
+			p.StateDir+" (the database, in a volume)",
+		)
+	}
+	out = append(out, p.ConfigFile, p.KeyFile+" (mode 0600 -- the encryption key)", p.DBPath)
+	if p.Service == ServiceSystemd {
+		out = append(out, SystemdUnitPath(UnitController))
+	}
+	return out
 }
 
 // Config renders the zoomies.yaml this plan describes.
@@ -1011,7 +1214,19 @@ func targetTypeFor(target, declared string) store.TargetType {
 // operator, then a check that nothing required is still missing.
 func (i *Installer) resolvePlan(ctx context.Context, mode Mode) (Plan, error) {
 	p := defaultPlan(i.det, mode)
-	p.Upgrade = i.det.Existing.ConfigFile != ""
+	// "Installed" has to mean "finished", not "started". zoomies.yaml is
+	// written at step five of ten -- before the GitHub App, the administrator
+	// and the first pool -- so a run that died at the App step left behind
+	// exactly the file this used to read as proof of a working install. The
+	// next run then "upgraded" it, skipped the three remaining steps and told
+	// the operator to go and log in to a controller with no account on it.
+	p.Upgrade = i.det.Existing.ConfigFile != "" && finished(ctx, i.det.Existing.Database)
+	if i.det.Existing.ConfigFile != "" && !p.Upgrade {
+		i.ui.step("A previous run stopped part-way")
+		i.ui.note("there is a configuration here but no administrator account, so setup did not finish.")
+		i.ui.note("this run carries on from where it stopped; your encryption key and database are kept.")
+		i.ui.blank()
+	}
 
 	var err error
 	if p, err = applyAnswers(p, i.answers); err != nil {
@@ -1049,6 +1264,24 @@ func (i *Installer) resolvePlan(ctx context.Context, mode Mode) (Plan, error) {
 		return p, errors.New(strings.TrimRight(b.String(), "\n"))
 	}
 	return p, nil
+}
+
+// finished reports whether a previous run got as far as creating an
+// administrator. It is the one question whose answer distinguishes a finished
+// install from an abandoned one, and it is asked read-only: a database that
+// cannot be opened is not evidence of anything, so it answers false and the
+// remaining steps run again -- all of which are safe to repeat.
+func finished(ctx context.Context, dbPath string) bool {
+	if dbPath == "" || !exists(dbPath) {
+		return false
+	}
+	st, err := store.Open(ctx, store.Options{Path: dbPath})
+	if err != nil {
+		return false
+	}
+	defer func() { _ = st.Close() }()
+	n, err := st.CountUsers(ctx)
+	return err == nil && n > 0
 }
 
 // resolveDeployment settles how this host will run Zoomies.
@@ -1247,6 +1480,13 @@ func (i *Installer) askBackend(ctx context.Context, p Plan) (Plan, error) {
 		label := c.Label
 		if !c.Available {
 			label += "  (not usable yet)"
+		} else if c.Warning != "" {
+			// Every other select in this installer carries its consequence in
+			// the label. This one printed the warning only after the choice
+			// was made, which is the one place the installer's own promise --
+			// that each question says what the non-default choice costs --
+			// was not kept.
+			label += " -- " + firstSentence(c.Warning)
 		}
 		opts = append(opts, huh.NewOption(label, key))
 	}
@@ -1311,6 +1551,15 @@ func (i *Installer) askBackend(ctx context.Context, p Plan) (Plan, error) {
 	}
 	p.Capacity, _ = strconv.Atoi(strings.TrimSpace(capacity))
 	return p, nil
+}
+
+// firstSentence trims a multi-sentence consequence down to something that fits
+// on one line of a select.
+func firstSentence(s string) string {
+	if n := strings.Index(s, ". "); n > 0 {
+		return s[:n+1]
+	}
+	return s
 }
 
 func socketSuffix(socket string) string {
@@ -1555,10 +1804,11 @@ func splitList(s string) []string {
 // on, and anything that weakens the default posture says so where it happens
 // rather than only in the summary.
 func (i *Installer) runInstall(ctx context.Context, p Plan) error {
+	i.ui.total = nativeStepCount(p)
 	if err := i.stepUserAndDirs(ctx, &p); err != nil {
 		return err
 	}
-	key, err := i.stepKey(p)
+	key, freshKey, err := i.stepKey(p)
 	if err != nil {
 		return err
 	}
@@ -1577,11 +1827,24 @@ func (i *Installer) runInstall(ctx context.Context, p Plan) error {
 			_ = st.Close()
 		}
 	}()
-	i.ui.ok("database ready at " + p.DBPath)
+	i.wrote("database ready at " + p.DBPath)
 	i.chown(&p, p.DBPath)
 
+	// The GitHub step can change the external URL: it refuses to create an App
+	// whose webhook would point at loopback, and offers to take the real
+	// address there and then. zoomies.yaml has already been written by this
+	// point, so without this the operator ends up with an App pointing one way
+	// and a controller configured the other -- session cookies, the webhook the
+	// controller verifies against, and every link in the UI all built from an
+	// address they were never shown.
+	urlBefore := p.ExternalURL
 	if err := i.stepGitHubApp(ctx, st, key, &p); err != nil {
 		return err
+	}
+	if p.ExternalURL != urlBefore {
+		if cfg, err = i.resaveConfig(p); err != nil {
+			return err
+		}
 	}
 	if err := i.stepAdmin(ctx, st, cfg, p); err != nil {
 		return err
@@ -1604,8 +1867,24 @@ func (i *Installer) runInstall(ctx context.Context, p Plan) error {
 	if mgr != nil && p.StartService {
 		i.stepHealth(ctx, p, mgr)
 	}
-	i.stepSummary(p)
+	i.stepSummary(p, freshKey)
 	return nil
+}
+
+// nativeStepCount is how many `->` headings a native install will print, so
+// each one can say where it is in the sequence. An operator halfway through a
+// five-minute browser handshake wants to know whether they are nearly done.
+func nativeStepCount(p Plan) int {
+	// Service user and directories, encryption key, configuration, GitHub App,
+	// administrator, service, done.
+	n := 7
+	if p.Mode == ModeSingle {
+		n++ // first pool
+	}
+	if p.StartService {
+		n++ // health check
+	}
+	return n
 }
 
 // runUpgrade rewrites what a new binary needs -- the unit -- and leaves
@@ -1672,7 +1951,7 @@ func (i *Installer) stepUserAndDirs(ctx context.Context, p *Plan) error {
 			return err
 		}
 		if created {
-			i.ui.ok(fmt.Sprintf("created the system user %s (no login shell, no home directory of its own)", p.ServiceUser))
+			i.wrote(fmt.Sprintf("created the system user %s (no login shell, no home directory of its own)", p.ServiceUser))
 		} else {
 			i.ui.note(fmt.Sprintf("user %s already exists", p.ServiceUser))
 		}
@@ -1693,7 +1972,7 @@ func (i *Installer) stepUserAndDirs(ctx context.Context, p *Plan) error {
 		}
 		i.chown(p, dir)
 	}
-	i.ui.ok(fmt.Sprintf("%s and %s are mode 0750, owned by %s", p.ConfigDir, p.StateDir, p.ServiceUser))
+	i.wrote(fmt.Sprintf("%s and %s are mode 0750, owned by %s", p.ConfigDir, p.StateDir, p.ServiceUser))
 
 	i.ensureSocketAccess(ctx, p)
 	return nil
@@ -1783,7 +2062,7 @@ func (i *Installer) ensureSocketAccess(ctx context.Context, p *Plan) {
 		i.ui.note("check `ls -l " + socket + "` and the directories above it, or run a rootless daemon instead.")
 		return
 	}
-	i.ui.ok(p.ServiceUser + " joined the " + group + " group and can now reach " + socket)
+	i.wrote(p.ServiceUser + " joined the " + group + " group and can now reach " + socket)
 }
 
 // ownerName is a uid as an operator would see it in `ls -l`.
@@ -1812,32 +2091,37 @@ func (i *Installer) chown(p *Plan, path string) {
 
 // stepKey generates or keeps the instance encryption key, and says plainly
 // what losing it costs.
-func (i *Installer) stepKey(p Plan) (*cryptox.Key, error) {
+// stepKey loads or mints the instance key. The second return value says
+// whether this run made it, which the summary needs: the backup instruction
+// printed here scrolls off behind the GitHub handshake, the administrator and
+// the service install, and it is the one thing in the whole setup that cannot
+// be reconstructed afterwards.
+func (i *Installer) stepKey(p Plan) (*cryptox.Key, bool, error) {
 	i.ui.step("Encryption key")
 	if exists(p.KeyFile) {
 		key, err := cryptox.LoadKeyFile(p.KeyFile)
 		if err != nil {
-			return nil, fmt.Errorf("installer: the existing key at %s cannot be used: %w", p.KeyFile, err)
+			return nil, false, fmt.Errorf("installer: the existing key at %s cannot be used: %w", p.KeyFile, err)
 		}
 		i.ui.ok("keeping the existing key at " + p.KeyFile)
-		return key, nil
+		return key, false, nil
 	}
 
 	key, err := cryptox.GenerateKey()
 	if err != nil {
-		return nil, fmt.Errorf("installer: generating an encryption key: %w", err)
+		return nil, false, fmt.Errorf("installer: generating an encryption key: %w", err)
 	}
 	if err := cryptox.WriteKeyFile(p.KeyFile, key); err != nil {
-		return nil, fmt.Errorf("installer: writing the encryption key to %s: %w", p.KeyFile, err)
+		return nil, false, fmt.Errorf("installer: writing the encryption key to %s: %w", p.KeyFile, err)
 	}
 	i.chown(&p, p.KeyFile)
-	i.ui.ok("wrote a new 32-byte key to " + p.KeyFile + " (mode 0600)")
+	i.wrote("wrote a new 32-byte key to " + p.KeyFile + " (mode 0600)")
 	i.ui.warn("Back this key up now, somewhere that is not the same backup as the database.")
 	i.ui.note("without it, the stored GitHub App private key and every webhook secret cannot be decrypted")
 	i.ui.note("and must be entered again. Pools, runners, jobs and the audit log are not encrypted:")
 	i.ui.note("the fleet's state survives, the credentials do not.")
 	i.ui.note("copy it with:  sudo cat " + p.KeyFile)
-	return key, nil
+	return key, true, nil
 }
 
 // stepConfig writes zoomies.yaml and prints every finding the configuration
@@ -1871,7 +2155,25 @@ func (i *Installer) stepConfig(p Plan) (*config.Config, error) {
 		return nil, fmt.Errorf("installer: writing %s: %w", p.ConfigFile, err)
 	}
 	i.chown(&p, p.ConfigFile)
-	i.ui.ok("wrote " + p.ConfigFile)
+	i.wrote("wrote " + p.ConfigFile)
+	return cfg, nil
+}
+
+// resaveConfig rewrites zoomies.yaml after a later step changed the plan.
+//
+// It is deliberately quiet about the backup the first write already made: the
+// operator has not touched the file in between, so a second ".bak" note would
+// only be noise.
+func (i *Installer) resaveConfig(p Plan) (*config.Config, error) {
+	cfg := p.Config()
+	if err := cfg.Validate().Err(); err != nil {
+		return nil, err
+	}
+	if err := cfg.Save(p.ConfigFile); err != nil {
+		return nil, fmt.Errorf("installer: rewriting %s with the new external URL: %w", p.ConfigFile, err)
+	}
+	i.chown(&p, p.ConfigFile)
+	i.ui.ok("updated " + p.ConfigFile + " -- external URL is now " + p.ExternalURL)
 	return cfg, nil
 }
 
@@ -1903,7 +2205,7 @@ func (i *Installer) stepAdmin(ctx context.Context, st *store.Store, cfg *config.
 	if _, err := svc.CreateFirstAdmin(ctx, p.AdminUser, p.adminPassword); err != nil {
 		return fmt.Errorf("installer: creating the administrator %q: %w", p.AdminUser, err)
 	}
-	i.ui.ok("created the administrator " + p.AdminUser)
+	i.wrote("created the administrator " + p.AdminUser)
 	return nil
 }
 
@@ -1972,7 +2274,8 @@ func (i *Installer) stepFirstPool(ctx context.Context, st *store.Store, cfg *con
 		}
 	}
 	if !create {
-		i.ui.note("skipped. Create one on the Pools page; " + sug.Command() + " does the same thing.")
+		i.ui.note("skipped. Create one at " + p.ExternalURL + "/pools/new, or with:")
+		i.ui.note("  " + sug.Command(insts[0].ID))
 		return nil
 	}
 
@@ -1996,7 +2299,7 @@ func (i *Installer) stepFirstPool(ctx context.Context, st *store.Store, cfg *con
 		return fmt.Errorf("installer: creating the %s pool: %w", sug.Name, err)
 	}
 	p.PoolName = pool.Name
-	i.ui.ok(fmt.Sprintf("created the %q pool for %s, up to %d %s",
+	i.wrote(fmt.Sprintf("created the %q pool for %s, up to %d %s",
 		pool.Name, insts[0].Target, pool.MaxRunners, pluralise(pool.MaxRunners, "runner")))
 	i.ui.note("put  runs-on: " + sug.RunsOn() + "  in a workflow and it will run here.")
 	return nil
@@ -2072,7 +2375,7 @@ func (i *Installer) stepService(ctx context.Context, p Plan) (ServiceManager, er
 	if err != nil {
 		return nil, err
 	}
-	i.ui.ok("installed " + path)
+	i.wrote("installed " + path)
 
 	if p.EnableService {
 		if err := mgr.Enable(ctx); err != nil {
@@ -2185,16 +2488,32 @@ func waitHealthy(ctx context.Context, client *http.Client, target string, timeou
 	}
 }
 
-// stepSummary is the last thing the operator reads, so it is the three things
-// they need next and nothing else.
-func (i *Installer) stepSummary(p Plan) {
+// stepSummary is the last thing the operator reads. It answers four questions
+// in order: where do I go, how do I get in, what do I have to keep, and what
+// do I do next -- and the "what next" is a numbered list of the steps that are
+// genuinely still outstanding, not a list of everything setup can do.
+//
+// Values are rendered with `field` rather than `note`, because `note` is faint
+// and this block is the most important output of the whole install.
+func (i *Installer) stepSummary(p Plan, freshKey bool) {
 	i.ui.blank()
 	i.ui.step("Done")
-	i.ui.note("URL       " + p.ExternalURL)
-	i.ui.note("login     " + p.AdminUser)
-	i.ui.note("config    " + p.ConfigFile)
-	i.ui.note("logs      " + logHint(p))
+	i.ui.field("URL", p.ExternalURL)
+	i.ui.field("login", p.AdminUser)
+	i.ui.field("config", p.ConfigFile)
+	i.ui.field("key", p.KeyFile)
+	i.ui.field("logs", logHint(p))
 	i.ui.blank()
+
+	if freshKey {
+		// Repeated on purpose. The instruction was printed thirty to fifty
+		// lines ago, behind a browser handshake and a health check, and it is
+		// the only thing here that cannot be recreated.
+		i.ui.warn("Back up " + p.KeyFile + " now, separately from the database.")
+		i.ui.note("without it the stored GitHub App private key and every webhook secret are lost.")
+		i.ui.note("copy it with:  sudo cat " + p.KeyFile)
+		i.ui.blank()
+	}
 
 	if p.Listen == ListenLoopback {
 		i.ui.note("The listener is on loopback, so reach it from your laptop with:")
@@ -2202,21 +2521,41 @@ func (i *Installer) stepSummary(p Plan) {
 		i.ui.note(fmt.Sprintf("  ssh -L %d:127.0.0.1:%d %s", port, port, i.det.Hostname))
 		i.ui.blank()
 	}
-	if p.GitHub.Skip {
-		i.ui.note("GitHub is not connected yet. Finish it on the Installations page, or run `zoomies init` again.")
-		i.ui.blank()
-	}
 
-	if p.PoolName != "" {
-		i.ui.note("This host is ready: the " + p.PoolName + " pool runs on it.")
-		i.ui.note("  runs-on: " + store.BrandedLabel(p.PoolName))
-		return
+	// What is genuinely left. An empty list is the good case, and saying so
+	// beats printing instructions for work that is already done.
+	i.ui.step("Next")
+	n := 0
+	next := func(what, where string) {
+		n++
+		i.ui.field(fmt.Sprintf("  %d.", n), what)
+		if where != "" {
+			i.ui.field("", where)
+		}
 	}
-	sug := SuggestPool(i.det.OS, i.det.Arch, p.Backend, p.Capacity)
-	i.ui.note("Nothing can run until a pool exists. This host is " + i.det.Arch + " with the " +
-		string(p.Backend) + " backend:")
-	i.ui.note("  " + sug.Command())
-	i.ui.note("then put  runs-on: " + sug.RunsOn() + "  in a workflow.")
+	if p.GitHub.Skip {
+		next("Connect GitHub -- nothing can run until an App is installed",
+			p.ExternalURL+"/installations")
+	}
+	if p.PoolName == "" {
+		sug := SuggestPool(i.det.OS, i.det.Arch, p.Backend, p.Capacity)
+		next("Create a pool -- it decides what labels your runners answer to",
+			p.ExternalURL+"/pools/new")
+		i.ui.field("", "suggested for this "+i.det.Arch+" host: "+sug.Name+
+			", up to "+strconv.Itoa(sug.MaxRunners))
+	}
+	runsOn := ""
+	if p.PoolName != "" {
+		runsOn = store.BrandedLabel(p.PoolName)
+	} else {
+		runsOn = SuggestPool(i.det.OS, i.det.Arch, p.Backend, p.Capacity).RunsOn()
+	}
+	next("Point a workflow at it", "runs-on: "+runsOn)
+	if n == 1 {
+		// Only the workflow line: GitHub is connected and a pool exists.
+		i.ui.blank()
+		i.ui.ok("This host is ready -- the " + p.PoolName + " pool runs on it.")
+	}
 }
 
 func logHint(p Plan) string {
@@ -2340,6 +2679,12 @@ type ui struct {
 	warnS  lipgloss.Style
 	noteS  lipgloss.Style
 	titleS lipgloss.Style
+	// total is how many steps this run will print, and n how many it has.
+	// Together they answer the question an operator asks halfway through a
+	// five-minute browser handshake: is it nearly done, or have I just
+	// started? Zero means the run does not know, and no counter is shown.
+	total int
+	n     int
 }
 
 func newUI(w io.Writer) *ui {
@@ -2355,6 +2700,12 @@ func newUI(w io.Writer) *ui {
 }
 
 func (u *ui) step(msg string) {
+	if u.total > 0 {
+		u.n++
+		fmt.Fprintf(u.w, "%s %s\n", u.step_.Render("->"),
+			u.titleS.Render(fmt.Sprintf("[%d/%d] %s", u.n, u.total, msg)))
+		return
+	}
 	fmt.Fprintf(u.w, "%s %s\n", u.step_.Render("->"), u.titleS.Render(msg))
 }
 
@@ -2370,6 +2721,14 @@ func (u *ui) note(msg string) {
 	fmt.Fprintf(u.w, "      %s\n", u.noteS.Render(msg))
 }
 
+// field is a key and its value in the installer's aligned two-column blocks --
+// "Checking this host", the plan review, the final summary. It is deliberately
+// not faint: install.sh's report uses the same twelve-column key, and the most
+// important output of the whole install should not be the dimmest.
+func (u *ui) field(key, value string) {
+	fmt.Fprintf(u.w, "      %-12s%s\n", key, value)
+}
+
 func (u *ui) blank() { fmt.Fprintln(u.w) }
 
 // ---------------------------------------------------------------------------
@@ -2380,11 +2739,28 @@ func (i *Installer) runForm(ctx context.Context, f *huh.Form) error {
 	err := f.RunWithContext(ctx)
 	switch {
 	case errors.Is(err, huh.ErrUserAborted):
-		return fmt.Errorf("%w: nothing further has been changed", ErrAborted)
+		if len(i.written) > 0 {
+			return &AbortedError{Written: i.Written()}
+		}
+		return ErrAborted
 	case err != nil:
 		return err
 	}
 	return nil
+}
+
+// AbortedError carries what a cancelled run had already done, so the CLI can
+// list it rather than saying "Nothing was changed" over the top of a system
+// account, an encryption key and a live GitHub App.
+type AbortedError struct{ Written []string }
+
+func (e *AbortedError) Error() string {
+	return fmt.Sprintf("installer: setup cancelled after %d %s to this host",
+		len(e.Written), pluralise(len(e.Written), "change"))
+}
+
+func (e *AbortedError) Is(target error) bool {
+	return target == ErrAborted || target == ErrAbortedDirty
 }
 
 func (i *Installer) selectOne(ctx context.Context, title, description string, opts []huh.Option[string], value *string) error {

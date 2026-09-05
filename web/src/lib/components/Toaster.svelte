@@ -39,4 +39,20 @@
   .region > :global(*) {
     pointer-events: auto;
   }
+
+  /*
+    On a phone the navigation is fixed to the bottom edge, so a toast pinned
+    there landed on top of it -- covering the navigation the operator needs
+    next with the confirmation they just earned. index.html asks for
+    viewport-fit=cover, so the home-indicator gap is honoured here too rather
+    than declared and ignored.
+  */
+  @media (max-width: 768px) {
+    .toaster {
+      left: var(--z-space-3);
+      right: var(--z-space-3);
+      bottom: calc(var(--z-space-16) + env(safe-area-inset-bottom, 0px));
+      max-width: none;
+    }
+  }
 </style>

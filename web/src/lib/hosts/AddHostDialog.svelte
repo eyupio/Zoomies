@@ -79,6 +79,25 @@
     }
   }
 
+  /**
+   * The address the new host will reach this controller on.
+   *
+   * The server substitutes a placeholder when server.external_url is unset --
+   * which is every deployment that did not come from `zoomies init` -- so the
+   * command it returns cannot run. Rather than hand that over, the dialog asks,
+   * defaulting to the address this browser is already using, which is right
+   * far more often than not.
+   */
+  const PLACEHOLDER = 'https://<this-controller>';
+  const needsControllerURL = $derived(Boolean(minted?.command?.includes(PLACEHOLDER)));
+  let controllerURL = $state(location.origin);
+
+  const joinCommand = $derived.by(() => {
+    const command = minted?.command ?? minted?.token ?? '';
+    if (!needsControllerURL) return command;
+    return command.replace(PLACEHOLDER, controllerURL.trim().replace(/\/+$/, ''));
+  });
+
   function close(): void {
     open = false;
     onclose?.();
@@ -96,11 +115,23 @@
 >
   {#if minted}
     <div class="done">
-      <OneTimeSecret
-        what="join token"
-        value={minted.command ?? minted.token ?? ''}
-        copyLabel="Copy the install command"
-      />
+      {#if needsControllerURL}
+        <!--
+          The command the server built carries a placeholder, because this
+          controller does not know its own address. Presenting that under "Run
+          this on the new host" hands the operator a line that cannot work --
+          and the token is single use, so the failure costs them another one.
+        -->
+        <Field
+          label="Controller URL"
+          hint="This controller has no server.external_url set, so it does not know the address the new host should reach it on. Set it in the configuration and every operator gets the right command; for now, this fills in the line below."
+        >
+          {#snippet children({ id, describedBy, invalid })}
+            <Input bind:value={controllerURL} {id} {describedBy} {invalid} type="url" mono />
+          {/snippet}
+        </Field>
+      {/if}
+      <OneTimeSecret what="join token" value={joinCommand} copyLabel="Copy the install command" />
       <p class="expiry">
         It can be used once, and expires <RelativeTime value={minted.expires_at} plain />. If nobody
         gets to it in time, mint another.

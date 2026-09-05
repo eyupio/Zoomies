@@ -15,6 +15,18 @@
     invalid?: boolean;
     describedBy?: string;
     autocomplete?: HTMLInputAttributes['autocomplete'];
+    /**
+     * A numeric field that must still hand back what was pasted.
+     * `type="number"` makes the browser report an empty string for anything it
+     * cannot parse, so an operator pasting a URL that contains the number sees
+     * the field stay blank with no explanation. text + inputmode keeps the
+     * phone keypad without the silent discard.
+     */
+    inputmode?: HTMLInputAttributes['inputmode'];
+    /** Read by password managers when they generate one. */
+    minlength?: number;
+    autocapitalize?: HTMLInputAttributes['autocapitalize'];
+    spellcheck?: boolean;
     ariaLabel?: string;
     /** IDs, labels and durations are monospaced. */
     mono?: boolean;
@@ -49,6 +61,10 @@
     invalid = false,
     describedBy,
     autocomplete,
+    inputmode,
+    minlength,
+    autocapitalize,
+    spellcheck,
     ariaLabel,
     mono = false,
     size = 'md',
@@ -99,6 +115,10 @@
     {readonly}
     {required}
     {autocomplete}
+    {inputmode}
+    {minlength}
+    {autocapitalize}
+    {spellcheck}
     {min}
     {max}
     {step}
@@ -188,5 +208,22 @@
   }
   input[type='search']::-webkit-search-cancel-button {
     appearance: none;
+  }
+
+  /*
+    16px on a phone, and only on a phone.
+
+    The base control size is 14px, which is right for a dense operator UI on a
+    desktop -- but mobile Safari zooms the whole viewport whenever a focused
+    control's font-size is under 16px, and the viewport meta deliberately does
+    not set maximum-scale. So every field tap on the first-run screens jumped
+    the 360px page to roughly 410px effective width and ran the card off both
+    edges, once per field. Height comes from the space scale, so nothing
+    reflows; only the glyphs grow.
+  */
+  @media (max-width: 768px) {
+    input {
+      font-size: var(--z-text-lg);
+    }
   }
 </style>

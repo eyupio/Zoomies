@@ -6,8 +6,14 @@
   dangerous switched on -- is answerable without opening a row.
 -->
 <script lang="ts">
-  import { Pause, Pencil, Play, Plus, Search, Trash2 } from '@lucide/svelte';
-  import { deletePool, disablePool, enablePool, listPools } from '$lib/api/client';
+  import { Pause, Pencil, Play, Plug, Plus, Search, Trash2 } from '@lucide/svelte';
+  import {
+    deletePool,
+    disablePool,
+    enablePool,
+    listInstallations,
+    listPools,
+  } from '$lib/api/client';
   import type { Pool } from '$lib/api/types';
   import { formatGoDuration, formatNumber, parseGoDuration, pluralise } from '$lib/format';
   import { registerSearch } from '$lib/keys';
@@ -40,6 +46,22 @@
   import { backendLabel, dockerModeLabel } from '$lib/pools/PoolVocabulary.svelte';
 
   const canOperate = $derived(session.can('operator'));
+
+  /**
+   * Whether a pool is even possible yet.
+   *
+   * The wizard's first step already refuses without an installation; knowing it
+   * here means the page can offer the step that unblocks it rather than the one
+   * that cannot be completed. Null while the answer is unknown, so neither
+   * button flickers into the wrong label on load.
+   */
+  let installationCount = $state<number | null>(null);
+  const noInstallation = $derived(installationCount === 0);
+  $effect(() => {
+    void listInstallations()
+      .then((result) => (installationCount = (result.items ?? []).length))
+      .catch(() => (installationCount = null));
+  });
 
   /* -- filters, kept in the URL so a view can be pasted to a colleague ------ */
 
@@ -429,7 +451,14 @@
   subtitle="A pool decides what labels your runners answer to, and how many of them exist."
 >
   {#if canOperate}
-    <Button variant="primary" icon={Plus} href="/pools/new">Create a pool</Button>
+    {#if noInstallation}
+      <!-- A pool registers its runners with a GitHub App installation, so the
+           wizard's first step refuses without one. Offering the answer here
+           beats offering a button whose first screen is a refusal. -->
+      <Button variant="primary" icon={Plug} href="/installations">Connect GitHub</Button>
+    {:else}
+      <Button variant="primary" icon={Plus} href="/pools/new">Create a pool</Button>
+    {/if}
   {/if}
 </PageHeader>
 
@@ -482,11 +511,15 @@
   emptyTitle={filtering ? 'No pools match those filters' : 'No pools yet'}
   emptyDescription={filtering
     ? 'Every pool is hidden by the search or the status filter currently applied.'
-    : 'A pool decides what labels your runners answer to and how many of them exist.'}
+    : noInstallation
+      ? 'A pool decides what labels your runners answer to and how many of them exist. It registers those runners with a GitHub App installation, so that comes first.'
+      : 'A pool decides what labels your runners answer to and how many of them exist.'}
 >
   {#snippet emptyAction()}
     {#if filtering}
       <Button onclick={clearFilters}>Clear filters</Button>
+    {:else if canOperate && noInstallation}
+      <Button variant="primary" icon={Plug} href="/installations">Connect GitHub</Button>
     {:else if canOperate}
       <Button variant="primary" icon={Plus} href="/pools/new">Create a pool</Button>
     {:else}

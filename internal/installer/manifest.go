@@ -106,7 +106,7 @@ func (i *Installer) appFromAnswers(ctx context.Context, st *store.Store, key *cr
 	if err != nil {
 		return err
 	}
-	i.ui.ok(fmt.Sprintf("recorded installation %s for %s", inst.ID, inst.Target))
+	i.wrote(fmt.Sprintf("recorded installation %s for %s", inst.ID, inst.Target))
 	i.verifyInstallation(ctx, inst, pem)
 	return nil
 }
@@ -132,6 +132,18 @@ func (i *Installer) appFromManifest(ctx context.Context, st *store.Store, key *c
 
 	if err := i.askGitHubTarget(ctx, p); err != nil {
 		return err
+	}
+
+	// A webhook URL is fixed when the App is created, and GitHub cannot deliver
+	// to loopback. Loopback is also the default listener, so the flagship
+	// handshake would otherwise cheerfully create a real App on the operator's
+	// organisation whose webhook can never fire -- discovered weeks later as
+	// "scaling is slow", and fixable only by editing the App on GitHub.
+	if err := i.checkWebhookReachable(ctx, p); err != nil {
+		return err
+	}
+	if p.GitHub.Skip {
+		return nil
 	}
 
 	cfg := p.Config()
@@ -193,7 +205,31 @@ func (i *Installer) appFromManifest(ctx context.Context, st *store.Store, key *c
 		i.ui.warn("GitHub returned no webhook secret for this App, so deliveries cannot be verified yet; " +
 			"set one on the App's settings page and paste it into the Installations page.")
 	}
-	i.ui.ok(fmt.Sprintf("created the App %q (id %d)", creds.Name, creds.AppID))
+	i.wrote(fmt.Sprintf("created the GitHub App %q (id %d) on %s", creds.Name, creds.AppID, p.GitHub.Target))
+
+	// Seal the credentials now, before the operator is asked to go and do
+	// something on GitHub.
+	//
+	// GitHub hands the private key over exactly once. Holding it in a local
+	// variable across an install page, a five-minute countdown and possibly a
+	// typed installation ID meant that a ctrl-c anywhere in that window --
+	// entirely natural when the browser is on another machine -- left a real
+	// App on the operator's organisation whose key existed nowhere. Recording
+	// it with installation 0 costs nothing: storeInstallation updates the row
+	// for this target rather than duplicating it, so the call below finishes
+	// the same record.
+	if _, err := storeInstallation(ctx, st, key, installationInput{
+		AppID:         creds.AppID,
+		Target:        p.GitHub.Target,
+		TargetType:    p.GitHub.TargetType,
+		APIBaseURL:    p.GitHub.APIBaseURL,
+		AppSlug:       creds.Slug,
+		PrivateKeyPEM: creds.PEM,
+		WebhookSecret: secret,
+	}); err != nil {
+		return err
+	}
+	i.wrote("sealed the App's private key with this instance's encryption key, before anything else can go wrong")
 
 	// The App exists but is installed nowhere yet, so it can do nothing. The
 	// operator has to say yes on GitHub's own page.
@@ -244,8 +280,60 @@ func (i *Installer) appFromManifest(ctx context.Context, st *store.Store, key *c
 	if err != nil {
 		return err
 	}
-	i.ui.ok("sealed the App's private key and webhook secret with this instance's encryption key")
+	i.ui.ok("recorded installation " + strconv.FormatInt(p.GitHub.InstallationID, 10) + " against the sealed key")
 	i.verifyInstallation(ctx, inst, creds.PEM)
+	return nil
+}
+
+// checkWebhookReachable stops an App being created with a webhook URL GitHub
+// cannot reach. It offers the three real answers rather than a warning that
+// scrolls past: fix the URL, accept the poller, or connect GitHub later.
+func (i *Installer) checkWebhookReachable(ctx context.Context, p *Plan) error {
+	host := p.ExternalURL
+	if u, err := url.Parse(p.ExternalURL); err == nil {
+		host = u.Hostname()
+	}
+	if host != "localhost" && !isLoopbackHost(host) {
+		return nil
+	}
+
+	i.ui.warn("GitHub cannot deliver webhooks to " + p.ExternalURL + ".")
+	i.ui.note("an App created now would carry that address for ever, and its webhook would never fire;")
+	i.ui.note("scaling would fall back to the poller, which reacts in tens of seconds rather than instantly.")
+
+	if !i.interactive {
+		return nil
+	}
+
+	const (
+		optFix   = "fix"
+		optAny   = "anyway"
+		optLater = "later"
+	)
+	choice := optFix
+	if err := i.selectOne(ctx, "What should this be reached at?",
+		"The webhook URL is baked into the App when GitHub creates it.",
+		[]huh.Option[string]{
+			huh.NewOption("Enter the address GitHub will use (default)", optFix),
+			huh.NewOption("Create it anyway -- I will fix the App's webhook URL on GitHub", optAny),
+			huh.NewOption("Skip GitHub for now -- connect it later in the browser", optLater),
+		}, &choice); err != nil {
+		return err
+	}
+	switch choice {
+	case optLater:
+		p.GitHub.Skip = true
+		i.ui.note("skipped. Connect GitHub on the Installations page.")
+		return nil
+	case optAny:
+		return nil
+	}
+
+	updated, err := i.askExternalURL(ctx, *p)
+	if err != nil {
+		return err
+	}
+	*p = updated
 	return nil
 }
 

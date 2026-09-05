@@ -28,7 +28,14 @@
         <span class="version" title="The controller build this page is talking to">{version}</span>
       {/if}
     </span>
-    <span class="descriptor">Self-hosted Git runners</span>
+    <span class="right">
+      <!-- The only link out of the product. An operator in their first fifteen
+           minutes who wants to know what a runner group is, or what the
+           host-socket option costs them, had to leave and guess a URL. It is a
+           hyperlink, not a fetch, so an air-gapped install is unaffected. -->
+      <a class="docs" href="https://zoomies.sh/quickstart/" rel="noreferrer">Docs</a>
+      <span class="descriptor">Self-hosted Git runners</span>
+    </span>
   </div>
 </footer>
 
@@ -81,5 +88,16 @@
     .descriptor {
       display: none;
     }
+  }
+  .right {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-4);
+  }
+  .docs {
+    color: var(--z-text-subtle);
+  }
+  .docs:hover {
+    color: var(--z-text-muted);
   }
 </style>

@@ -77,24 +77,31 @@ type DeploymentOption struct {
 // supervisor turns out to be the operator.
 func DeploymentOptions(d Detection) []DeploymentOption {
 	def := DefaultDeployment(d)
+	// The containerised options change the shape of the rest of setup, not
+	// only where the process lives: the database is in a volume this installer
+	// cannot open, so the administrator, the GitHub App and the first pool are
+	// all done in the browser afterwards. Saying so here is the difference
+	// between choosing that and discovering it.
+	const deferred = " The administrator, the GitHub App and the first pool are then set up in the browser, not here."
 	out := []DeploymentOption{{
-		Deployment:  DeploymentNative,
-		Label:       "Native -- " + nativeSupervisor(d),
-		Description: "Leanest, starts fastest, and needs no container runtime for the controller itself.",
+		Deployment: DeploymentNative,
+		Label:      "Native -- " + nativeSupervisor(d),
+		Description: "Leanest, starts fastest, and needs no container runtime for the controller itself. " +
+			"Setup finishes everything here, including your first pool.",
 	}}
 	if d.Compose.Available {
 		out = append(out, DeploymentOption{
 			Deployment: DeploymentCompose,
 			Label:      "Compose -- docker-compose.yml and .env in " + d.ConfigDir,
 			Description: "Writes both, then brings them up with `" + d.Compose.String() +
-				" up -d`. Easiest to upgrade and to move to another host.",
+				" up -d`. Easiest to upgrade and to move to another host." + deferred,
 		})
 	}
 	if d.Docker.Available {
 		out = append(out, DeploymentOption{
 			Deployment:  DeploymentDocker,
 			Label:       "Docker -- a single container",
-			Description: "Fewest files: an env file and one container. You manage the run command yourself.",
+			Description: "Fewest files: an env file and one container. You manage the run command yourself." + deferred,
 		})
 	}
 	for n := range out {

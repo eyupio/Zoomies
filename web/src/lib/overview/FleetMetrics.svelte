@@ -13,7 +13,7 @@
   import { events } from '$lib/api/sse';
   import type { Stats } from '$lib/api/types';
   import { fleet } from '$lib/state/fleet.svelte';
-  import { formatDuration, formatNumber, toMillis } from '$lib/format';
+  import { formatDuration, formatNumber, pluralise, toMillis } from '$lib/format';
   import MetricTile from '$lib/components/MetricTile.svelte';
 
   interface Props {
@@ -135,6 +135,21 @@
   const live = $derived(liveRunners(stats));
   // Undefined rather than zero when the controller has nothing to say: a
   // median of "0ms" is a claim, and "--" is the truth.
+  /**
+   * Where the capacity actually is.
+   *
+   * Four tiles about work and none about capacity leaves the operator's real
+   * question -- "has this thing got anywhere to run a job yet?" -- unanswerable
+   * without a trip to Hosts, and it is the number that explains a queue that is
+   * not moving. `/stats` already carries it and the page already fetches it.
+   */
+  const capacityHint = $derived.by(() => {
+    const hosts = stats?.hosts;
+    if (!hosts) return undefined;
+    if ((hosts.total ?? 0) === 0) return 'No hosts connected';
+    return `${hosts.used ?? 0} of ${hosts.capacity ?? 0} slots on ${pluralise(hosts.healthy ?? 0, 'healthy host')}`;
+  });
+
   const medianWait = $derived(stats?.median_wait_ms);
   const p95Wait = $derived(stats?.p95_wait_ms);
 
@@ -183,6 +198,7 @@
   <MetricTile
     label="Live runners"
     value={formatNumber(live)}
+    hint={capacityHint}
     href="/runners"
     tone="idle"
     delta={delta(liveSeries, live)}
