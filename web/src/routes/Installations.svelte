@@ -42,13 +42,20 @@
   let reload = $state(0);
   let rates = $state<Record<string, RateLimit>>({});
 
+  // First load and refetch are different things. `reload` bumps on every
+  // `installation.updated` event, after every verify and after every delete, so
+  // swapping the cards for skeletons each time made the one page an operator
+  // watches during their first job blink its content away -- which reads as the
+  // page being broken. The last known truth is better than a blank panel.
+  let loadedOnce = false;
   $effect(() => {
     void reload;
     const controller = new AbortController();
-    loading = true;
+    loading = !loadedOnce;
     void listInstallations(controller.signal)
       .then((result) => {
         installations = result.items ?? [];
+        loadedOnce = true;
         error = null;
         void readRateLimits(installations, controller.signal);
       })

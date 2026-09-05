@@ -316,3 +316,47 @@ func TestManifestAsksForTheLeastItCan(t *testing.T) {
 		t.Errorf("an org App needs the runner permission: %v", m.DefaultPermissions)
 	}
 }
+
+// TestTheAppSetupURLOutlivesTheHandshake pins the split between the two
+// addresses GitHub is given.
+//
+// setup_url is permanent App configuration: GitHub sends the operator there
+// after every future install or reconfiguration -- adding a repository to the
+// installation, most often, long after setup finished. It used to be the
+// installer's temporary callback listener, so every App `zoomies init` created
+// pointed its operator at a loopback port that stopped existing minutes later.
+func TestTheAppSetupURLOutlivesTheHandshake(t *testing.T) {
+	srv, err := newCallbackServer()
+	if err != nil {
+		t.Fatalf("newCallbackServer: %v", err)
+	}
+	defer srv.Close()
+
+	raw, err := github.Manifest(github.ManifestOptions{
+		Name:        "zoomies-acme",
+		URL:         "https://zoomies.example.com",
+		WebhookURL:  "https://zoomies.example.com/webhooks/github",
+		SetupURL:    "https://zoomies.example.com/settings/github/setup",
+		RedirectURL: srv.CallbackURL(),
+	})
+	if err != nil {
+		t.Fatalf("Manifest: %v", err)
+	}
+
+	var got struct {
+		RedirectURL string `json:"redirect_url"`
+		SetupURL    string `json:"setup_url"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshalling the manifest: %v", err)
+	}
+	if got.SetupURL != "https://zoomies.example.com/settings/github/setup" {
+		t.Errorf("setup_url = %q, want the controller's own durable route", got.SetupURL)
+	}
+	if strings.Contains(got.SetupURL, "127.0.0.1") || strings.Contains(got.SetupURL, "localhost") {
+		t.Errorf("setup_url must never be a loopback address, got %q", got.SetupURL)
+	}
+	if got.RedirectURL != srv.CallbackURL() {
+		t.Errorf("redirect_url = %q, want this handshake's listener %q", got.RedirectURL, srv.CallbackURL())
+	}
+}

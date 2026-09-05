@@ -95,7 +95,16 @@ export function trapFocus(node: HTMLElement, initial?: HTMLElement | null) {
     const last = items[items.length - 1];
     if (!first || !last) return;
     const active = document.activeElement;
-    if (e.shiftKey && (active === first || !node.contains(active))) {
+    // Focus can be outside the panel entirely -- the browser blurs an element
+    // that becomes hidden or unavailable, and lands on <body>. From there a
+    // Tab would walk the page behind an open modal, so it is pulled back in
+    // rather than let go.
+    if (!node.contains(active)) {
+      e.preventDefault();
+      (e.shiftKey ? last : first).focus();
+      return;
+    }
+    if (e.shiftKey && active === first) {
       e.preventDefault();
       last.focus();
     } else if (!e.shiftKey && active === last) {
@@ -105,14 +114,32 @@ export function trapFocus(node: HTMLElement, initial?: HTMLElement | null) {
   }
 
   if (!node.hasAttribute('tabindex')) node.setAttribute('tabindex', '-1');
-  node.addEventListener('keydown', onKeydown);
+  // Listened for on the document, in capture, rather than on the panel: a
+  // keystroke made while focus has slipped outside the panel never reaches a
+  // handler bound to the panel, which is exactly the case the pull-back above
+  // exists to answer.
+  document.addEventListener('keydown', onKeydown, true);
   // A frame's delay lets a transition finish laying the panel out first.
   requestAnimationFrame(focusFirst);
 
   return {
     destroy(): void {
-      node.removeEventListener('keydown', onKeydown);
-      if (restoreTo && document.contains(restoreTo)) restoreTo.focus();
+      document.removeEventListener('keydown', onKeydown, true);
+      // A frame's delay, because the overlay's own teardown also clears the
+      // `inert` it put on the rest of the page, and an inert element cannot
+      // take focus -- restoring in the same turn silently did nothing.
+      requestAnimationFrame(() => {
+        // An overlay opened by a redirect rather than a click -- GitHub sending
+        // the operator back with a code in the URL -- was focused on <body>
+        // when it mounted, and focusing <body> back is a no-op that leaves the
+        // keyboard at the very top of the document. Fall back to the page's own
+        // landing points, the same chain a route change uses.
+        const target =
+          restoreTo && restoreTo !== document.body && document.contains(restoreTo)
+            ? restoreTo
+            : (document.getElementById('page-heading') ?? document.getElementById('main'));
+        target?.focus();
+      });
     },
   };
 }
@@ -285,6 +312,60 @@ export function focusSearch(): boolean {
  * --------------------------------------------------------------------- */
 
 /** Freeze background scrolling. Returns the function that releases it. */
+/**
+ * Mark everything outside an overlay unavailable, and undo it on release.
+ *
+ * A focus trap stops Tab leaving a modal, but it says nothing to a screen
+ * reader's virtual cursor: without this, an operator reading down from the
+ * Connect GitHub dialog carries straight on into the installation cards, the
+ * webhook panel and the navigation behind it, with no sign they have left the
+ * dialog, and can activate a control there. `inert` is the one attribute that
+ * removes an element from both the accessibility tree and the tab order.
+ *
+ * Depth-counted like lockScroll, so a dialog opened from inside a drawer
+ * unwinds in the right order.
+ */
+export function pageInert(except: HTMLElement | null): () => void {
+  if (typeof document === 'undefined' || !except) return () => {};
+  const root = document.documentElement;
+  const depth = Number(root.dataset.inertDepth ?? '0') + 1;
+  root.dataset.inertDepth = String(depth);
+
+  // Walk from the overlay up to <body>, marking every sibling on the way.
+  // Inerting only the top-level children would do nothing here: the app mounts
+  // into #app and the dialog renders inside it, so #app is the one child that
+  // contains the overlay and would be skipped, leaving the whole page live.
+  const marked: HTMLElement[] = [];
+  if (depth === 1) {
+    for (let node: HTMLElement | null = except; node && node !== document.body;) {
+      const parent: HTMLElement | null = node.parentElement;
+      if (!parent) break;
+      for (const sibling of parent.children) {
+        if (sibling === node || !(sibling instanceof HTMLElement) || sibling.inert) continue;
+        // A live region has to stay announceable: a toast raised while a
+        // dialog is open is usually about the dialog.
+        if (sibling.hasAttribute('data-inert-exempt')) continue;
+        sibling.inert = true;
+        marked.push(sibling);
+      }
+      node = parent;
+    }
+  }
+
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const next = Number(root.dataset.inertDepth ?? '1') - 1;
+    if (next <= 0) {
+      delete root.dataset.inertDepth;
+      for (const el of marked) el.inert = false;
+    } else {
+      root.dataset.inertDepth = String(next);
+    }
+  };
+}
+
 export function lockScroll(): () => void {
   if (typeof document === 'undefined') return () => {};
   const root = document.documentElement;

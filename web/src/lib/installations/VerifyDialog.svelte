@@ -8,7 +8,7 @@
   this.
 -->
 <script lang="ts">
-  import { Check, X } from '@lucide/svelte';
+  import { Check, ExternalLink, X } from '@lucide/svelte';
   import type { Installation, InstallationHealth } from '$lib/api/types';
   import { formatNumber, joinWords } from '$lib/format';
   import Button from '$lib/components/Button.svelte';
@@ -39,6 +39,33 @@
   const missingEvents = $derived(health?.missing_events ?? []);
   const events = $derived(health?.events ?? []);
   const ok = $derived(health?.ok === true);
+
+  /**
+   * Where the operator actually fixes this.
+   *
+   * The dialog names the missing permission and then says "open the App's
+   * settings on GitHub" -- a page whose URL is not guessable, among however
+   * many Apps the organisation has. Both halves are already in hand:
+   * `installation.web_url` is GitHub's base for this deployment, and
+   * `health.app_slug` names the App.
+   */
+  const settingsURL = $derived.by(() => {
+    const base = installation?.web_url?.replace(/\/+$/, '');
+    const slug = health?.app_slug;
+    if (!base || !slug) return '';
+    return installation?.target_type === 'org'
+      ? `${base}/organizations/${installation.target}/settings/apps/${slug}`
+      : `${base}/settings/apps/${slug}`;
+  });
+
+  /** Where the organisation accepts a permission change the App has requested. */
+  const installationsURL = $derived.by(() => {
+    const base = installation?.web_url?.replace(/\/+$/, '');
+    if (!base || !installation?.target) return '';
+    return installation.target_type === 'org'
+      ? `${base}/organizations/${installation.target}/settings/installations`
+      : `${base}/settings/installations`;
+  });
 </script>
 
 <Dialog
@@ -54,9 +81,12 @@
       <Skeleton lines={4} />
     </div>
   {:else if error}
-    <p class="verdict bad">{error}</p>
+    <p class="verdict bad" role="alert">{error}</p>
   {:else if health}
-    <div class="stack">
+    <!-- role="status": the verdict, the missing lists and the remedy all
+         replace a skeleton with no focus move, so without this the operator who
+         pressed Verify is left holding a Close button and nothing was said. -->
+    <div class="stack" role="status">
       <p class="verdict" class:bad={!ok} class:good={ok}>
         {#if ok}
           <Check size={15} aria-hidden="true" />
@@ -94,6 +124,17 @@
             Open the App's settings on GitHub, grant {joinWords([...missingPermissions])}, then
             accept the updated permissions on the installation.
           </p>
+          {#if settingsURL}
+            <p class="fix-actions">
+              <Button variant="primary" size="sm" href={settingsURL} iconAfter={ExternalLink}>
+                Open the App's settings
+              </Button>
+              {#if installationsURL}
+                <a href={installationsURL} rel="noreferrer">Accept the change on the installation</a
+                >
+              {/if}
+            </p>
+          {/if}
         </section>
       {/if}
 
@@ -223,5 +264,16 @@
   }
   .muted {
     color: var(--z-text-subtle);
+  }
+  .fix-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--z-space-3);
+    margin: var(--z-space-3) 0 0;
+  }
+  .fix-actions a {
+    font-size: var(--z-text-xs);
+    color: var(--z-accent);
   }
 </style>

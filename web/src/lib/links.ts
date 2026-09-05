@@ -23,6 +23,7 @@ export const REPO_URL = 'https://github.com/eyupio/zoomies';
 export const DOCS_URL = `${SITE_URL}/`;
 
 /** Individual pages, as the site publishes them. */
+export const QUICKSTART_URL = `${SITE_URL}/quickstart/`;
 export const CONFIGURATION_URL = `${SITE_URL}/configuration/`;
 export const API_SURFACE_URL = `${SITE_URL}/api-surface/`;
 export const SECURITY_URL = `${SITE_URL}/security/`;

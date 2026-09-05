@@ -454,6 +454,32 @@ func (c *Config) ExternalURLValid() bool {
 	return err == nil && u.Scheme != "" && u.Host != ""
 }
 
+// ExternalURLIsLocal reports whether the address this controller believes it is
+// reached at is one only this machine can reach.
+//
+// It is the question behind three separate failures, so there is one answer to
+// it: GitHub cannot deliver a webhook to loopback, and a webhook URL is fixed
+// when the App is created; a join command naming loopback tells the new host to
+// join itself; and a "check reachability" probe made from the controller only
+// proves the controller can reach itself. A loopback external URL is a
+// perfectly good default for a fleet reached through an SSH tunnel -- it is not
+// a misconfiguration, which is why this is a question and not a warning.
+func (c *Config) ExternalURLIsLocal() bool {
+	if c.Server.ExternalURL == "" {
+		return false
+	}
+	u, err := url.Parse(c.Server.ExternalURL)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	host := u.Hostname()
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 // applyEnv overlays ZOOMIES_* environment variables.
 func (c *Config) applyEnv() error {
 	str := func(key string, dst *string) {

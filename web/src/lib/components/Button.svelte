@@ -14,6 +14,14 @@
     variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
     size?: 'sm' | 'md';
     type?: 'button' | 'submit' | 'reset';
+    /**
+     * The id of the form this button submits.
+     *
+     * A dialog pins its actions in a footer outside the scrolling body, so the
+     * primary cannot be a descendant of the form it belongs to. This is how it
+     * stays where it is and still means Enter.
+     */
+    form?: string;
     disabled?: boolean;
     loading?: boolean;
     /** Renders an anchor styled as a button. Use for navigation, not for actions. */
@@ -35,6 +43,7 @@
     variant = 'secondary',
     size = 'md',
     type = 'button',
+    form,
     disabled = false,
     loading = false,
     href,
@@ -79,18 +88,36 @@
     {@render body()}
   </a>
 {:else}
+  <!--
+    Loading is `aria-disabled`, not `disabled`.
+
+    Disabling the element the operator has just activated makes the browser
+    blur it, so focus falls to <body>. Inside a Dialog that also disarms the
+    focus trap, which listens on the panel: a Tab pressed from <body> is never
+    intercepted, and the operator walks out of an open modal into the page
+    behind it. aria-disabled keeps the button focused and announced, the
+    pointer is stopped in CSS, and the click handler refuses while busy.
+  -->
   <button
     {type}
+    {form}
     {title}
     class="btn {variant} {size} {className}"
     class:full
-    disabled={disabled || loading}
+    {disabled}
+    aria-disabled={loading ? 'true' : undefined}
     aria-label={ariaLabel}
     aria-busy={loading ? 'true' : undefined}
     aria-expanded={ariaExpanded}
     aria-controls={ariaControls}
     aria-haspopup={ariaHaspopup}
-    {onclick}
+    onclick={(event) => {
+      if (loading) {
+        event.preventDefault();
+        return;
+      }
+      onclick?.(event);
+    }}
   >
     {@render body()}
   </button>
@@ -115,6 +142,11 @@
       background-color var(--z-motion-fast) var(--z-ease),
       border-color var(--z-motion-fast) var(--z-ease),
       color var(--z-motion-fast) var(--z-ease);
+  }
+  /* A button that is busy still holds focus, so it must not also be clickable
+     -- otherwise a second press fires the same request again. */
+  .btn[aria-disabled='true'] {
+    pointer-events: none;
   }
   .btn.full {
     width: 100%;

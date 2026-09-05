@@ -49,11 +49,16 @@
   let checking = $state(false);
   let check = $state<WebhookCheck | null>(null);
 
+  // `reload` bumps on every arriving delivery, which is the moment the operator
+  // is watching this list hardest -- during their first workflow run. Swapping
+  // it for skeletons on each one made the panel flicker exactly when it was
+  // being read. A refetch over rows already on screen leaves them there.
+  let loadedOnce = false;
   $effect(() => {
     const filter = status;
     void reload;
     const controller = new AbortController();
-    loading = true;
+    loading = !loadedOnce;
     void listWebhookDeliveries(
       { status: (filter || undefined) as 'accepted' | 'rejected' | 'error' | undefined, limit: 25 },
       controller.signal,
@@ -61,6 +66,7 @@
       .then((result) => {
         deliveries = result.items ?? [];
         lastReceived = result.last_received_at ?? null;
+        loadedOnce = true;
         error = null;
       })
       .catch((cause: unknown) => {
@@ -203,6 +209,7 @@
   }
   header {
     display: flex;
+    flex-wrap: wrap;
     align-items: flex-start;
     justify-content: space-between;
     gap: var(--z-space-4);

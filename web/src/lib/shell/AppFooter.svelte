@@ -12,14 +12,14 @@
   It stays a hairline. This is an operations dashboard, and nothing down here
   may compete with the fleet above it.
 
-  The descriptor is also the one outbound link in the signed-in shell. Somebody
-  reading this page is looking at a controller their colleague installed, and a
-  hairline link to the project is how they find out what it is and how to run
-  their own -- see docs/brand.md.
+  Its one outbound link is also the only thing in the signed-in shell that says
+  where Zoomies came from. Somebody reading this page is usually looking at a
+  controller a colleague installed, so the link earns its place twice over --
+  see docs/brand.md.
 -->
 <script lang="ts">
   import { session } from '../state/session.svelte';
-  import { SITE_URL } from '../links';
+  import { QUICKSTART_URL } from '../links';
   import Logo from '../components/Logo.svelte';
 
   const version = $derived(session.meta?.version);
@@ -34,15 +34,14 @@
         <span class="version" title="The controller build this page is talking to">{version}</span>
       {/if}
     </span>
-    <a
-      class="descriptor"
-      href={SITE_URL}
-      target="_blank"
-      rel="noopener noreferrer"
-      title="Zoomies is open source. This is the project it comes from."
-    >
-      Self-hosted Git runners
-    </a>
+    <span class="right">
+      <!-- The only link out of the product. An operator in their first fifteen
+           minutes who wants to know what a runner group is, or what the
+           host-socket option costs them, had to leave and guess a URL. It is a
+           hyperlink, not a fetch, so an air-gapped install is unaffected. -->
+      <a class="docs" href={QUICKSTART_URL} rel="noreferrer">Docs</a>
+      <span class="descriptor">Self-hosted Git runners</span>
+    </span>
   </div>
 </footer>
 
@@ -86,13 +85,6 @@
     flex: none;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: inherit;
-    text-decoration: none;
-  }
-  .descriptor:hover,
-  .descriptor:focus-visible {
-    color: var(--z-text-muted);
-    text-decoration: underline;
   }
   @media (max-width: 768px) {
     .inner {
@@ -102,5 +94,16 @@
     .descriptor {
       display: none;
     }
+  }
+  .right {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-4);
+  }
+  .docs {
+    color: var(--z-text-subtle);
+  }
+  .docs:hover {
+    color: var(--z-text-muted);
   }
 </style>

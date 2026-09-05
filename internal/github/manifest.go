@@ -25,10 +25,20 @@ type ManifestOptions struct {
 	// Organization is the org the App is created under. Empty creates it on
 	// the operator's own account, which is the right choice for repo targets.
 	Organization string
-	// SetupURL is the Zoomies page GitHub returns the operator to, both after
-	// creating the App (carrying ?code=) and after installing it (carrying
-	// ?installation_id=).
+	// SetupURL is permanent App configuration: GitHub sends the operator here
+	// after every future install or reconfiguration of the App -- adding a
+	// repository to the installation, most commonly, years later. It has to be
+	// an address that still answers then.
 	SetupURL string
+	// RedirectURL is where GitHub returns during *this* handshake, carrying
+	// ?code=. Empty means "the same as SetupURL", which is right when the
+	// handshake is driven from the controller's own web UI.
+	//
+	// They are separate because the installer is not: it catches the callback
+	// on a temporary loopback listener that is gone minutes later, and writing
+	// that ephemeral port into setup_url left every App `zoomies init` ever
+	// created sending its operator to a refused connection.
+	RedirectURL string
 	// Public allows the App to be installed on accounts other than the one
 	// that created it. Zoomies defaults it off: a fleet controller's App has
 	// no business being installable by strangers.
@@ -89,13 +99,18 @@ func Manifest(o ManifestOptions) ([]byte, error) {
 			"server.external_url in zoomies.yaml so GitHub can reach this controller")
 	}
 
+	redirect := o.RedirectURL
+	if redirect == "" {
+		redirect = o.SetupURL
+	}
+
 	m := manifest{
 		Name: name,
 		URL:  o.URL,
 		// No secret is sent: GitHub generates one for a manifest-created App
 		// and returns it through the conversion, which Zoomies then seals.
 		HookAttributes: hookAttributes{URL: o.WebhookURL, Active: true},
-		RedirectURL:    o.SetupURL,
+		RedirectURL:    redirect,
 		SetupURL:       o.SetupURL,
 		Description:    "Self-hosted runner fleet managed by Zoomies.",
 		Public:         o.Public,

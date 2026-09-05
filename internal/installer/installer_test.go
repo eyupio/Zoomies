@@ -234,23 +234,29 @@ func TestSuggestPool(t *testing.T) {
 		wantCmd  string
 	}{
 		{"linux", "amd64", store.BackendDocker, 4, "zoomies-linux-x64",
-			"zoomies pools create --name zoomies-linux-x64 --labels zoomies,zoomies-linux-x64 --backend docker --max 4"},
+			"zoomies pools create --name zoomies-linux-x64 --labels zoomies,zoomies-linux-x64 --backend docker --max 4 --installation inst_x"},
 		{"linux", "arm64", store.BackendPodman, 2, "zoomies-linux-arm64",
-			"zoomies pools create --name zoomies-linux-arm64 --labels zoomies,zoomies-linux-arm64 --backend podman --max 2"},
+			"zoomies pools create --name zoomies-linux-arm64 --labels zoomies,zoomies-linux-arm64 --backend podman --max 2 --installation inst_x"},
 		{"linux", "amd64", store.BackendProcess, 1, "zoomies-linux-x64-host",
-			"zoomies pools create --name zoomies-linux-x64-host --labels zoomies,zoomies-linux-x64-host --backend process --max 1"},
+			"zoomies pools create --name zoomies-linux-x64-host --labels zoomies,zoomies-linux-x64-host --backend process --max 1 --installation inst_x"},
 		{"darwin", "arm64", store.BackendDocker, 8, "zoomies-macos-arm64",
-			"zoomies pools create --name zoomies-macos-arm64 --labels zoomies,zoomies-macos-arm64 --backend docker --max 8"},
+			"zoomies pools create --name zoomies-macos-arm64 --labels zoomies,zoomies-macos-arm64 --backend docker --max 8 --installation inst_x"},
 		{"linux", "amd64", store.BackendDocker, 0, "zoomies-linux-x64",
-			"zoomies pools create --name zoomies-linux-x64 --labels zoomies,zoomies-linux-x64 --backend docker --max 1"},
+			"zoomies pools create --name zoomies-linux-x64 --labels zoomies,zoomies-linux-x64 --backend docker --max 1 --installation inst_x"},
 	}
 	for _, tc := range cases {
 		got := SuggestPool(tc.os, tc.arch, tc.backend, tc.capacity)
 		if got.Name != tc.wantName {
 			t.Errorf("SuggestPool(%s/%s, %s).Name = %q, want %q", tc.os, tc.arch, tc.backend, got.Name, tc.wantName)
 		}
-		if cmd := got.Command(); cmd != tc.wantCmd {
+		// `pools create` refuses without --installation, so a suggestion that
+		// omitted it printed a line that could not run -- which was the only
+		// action the installer's closing summary gave the operator.
+		if cmd := got.Command("inst_x"); cmd != tc.wantCmd {
 			t.Errorf("Command() = %q\nwant %q", cmd, tc.wantCmd)
+		}
+		if cmd := got.Command(""); !strings.Contains(cmd, "--installation ") {
+			t.Errorf("Command(\"\") = %q, want it to still carry --installation", cmd)
 		}
 		// The line the installer prints is the one a workflow copies, so it is
 		// the branded label on its own rather than a list to decode.
@@ -298,8 +304,24 @@ func TestBackendChoicesNameWhatToStart(t *testing.T) {
 	if unavailable.Fix == "" {
 		t.Fatalf("the choice must say what to start: %+v", unavailable)
 	}
-	if choices[len(choices)-1].Kind != store.BackendProcess {
+	var hasProcess bool
+	for _, c := range choices {
+		if c.Kind == store.BackendProcess {
+			hasProcess = true
+		}
+	}
+	if !hasProcess {
 		t.Fatal("the process backend must still be offered when no runtime answered")
+	}
+	// The prompt and defaultPlan both take the first choice, so the first
+	// choice has to be one that can run a job. Offering a dead daemon at the
+	// top is how an unattended install ended up writing backend: docker on a
+	// host whose socket was unreachable.
+	if !choices[0].Available {
+		t.Fatalf("the first choice must be usable, got %+v", choices[0])
+	}
+	if choices[len(choices)-1].Available {
+		t.Fatalf("an unusable runtime belongs last, got %+v", choices[len(choices)-1])
 	}
 }
 

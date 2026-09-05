@@ -75,7 +75,7 @@
       {describedBy}
       {invalid}
       mono
-      placeholder="linux-x64"
+      placeholder="zoomies-linux-x64"
       autocomplete="off"
       onblur={() => touch('name')}
     />
@@ -92,10 +92,10 @@
 {:else if installations.length === 0}
   <EmptyState
     icon={Plug}
-    title="No GitHub installations yet"
+    title="No GitHub connection yet"
     description="A pool registers its runners with a GitHub App installation, so Zoomies needs one before it can make a pool."
   >
-    <Button variant="primary" href="/installations">Connect an installation</Button>
+    <Button variant="primary" href="/installations">Connect GitHub</Button>
   </EmptyState>
 {:else}
   <Field
