@@ -66,7 +66,14 @@ export const ROUTES: readonly RouteDef[] = [
     load: () => import('../routes/RunnerDetail.svelte'),
   },
   { name: 'jobs', path: '/jobs', title: 'Jobs', load: () => import('../routes/Jobs.svelte') },
+  { name: 'usage', path: '/usage', title: 'Usage', load: () => import('../routes/Usage.svelte') },
   { name: 'hosts', path: '/hosts', title: 'Hosts', load: () => import('../routes/Hosts.svelte') },
+  {
+    name: 'host-new',
+    path: '/hosts/new',
+    title: 'Add a host',
+    load: () => import('../routes/AddHost.svelte'),
+  },
   {
     name: 'installations',
     path: '/installations',

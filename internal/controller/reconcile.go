@@ -99,17 +99,23 @@ func (c *Controller) snapshot(ctx context.Context) (scheduler.Snapshot, error) {
 	if err != nil {
 		return scheduler.Snapshot{}, fmt.Errorf("listing queued jobs: %w", err)
 	}
+	activeByRepository, queuedByRepository, err := c.st.RepositoryJobCounts(ctx)
+	if err != nil {
+		return scheduler.Snapshot{}, fmt.Errorf("counting jobs by repository: %w", err)
+	}
 	hosts, err := c.st.ListHosts(ctx)
 	if err != nil {
 		return scheduler.Snapshot{}, fmt.Errorf("listing hosts: %w", err)
 	}
 	return scheduler.Snapshot{
-		Now:     c.Now(),
-		Pools:   pools,
-		Runners: runners,
-		Jobs:    jobs,
-		Hosts:   hosts,
-		Policy:  c.policy(),
+		Now:                c.Now(),
+		Pools:              pools,
+		Runners:            runners,
+		Jobs:               jobs,
+		ActiveByRepository: activeByRepository,
+		QueuedByRepository: queuedByRepository,
+		Hosts:              hosts,
+		Policy:             c.policy(),
 	}, nil
 }
 

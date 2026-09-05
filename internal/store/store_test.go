@@ -187,6 +187,38 @@ func TestJoinTokenIsSingleUse(t *testing.T) {
 	}
 }
 
+// TestJoinTokenRemembersWhichHostUsedIt is what lets a page that handed out a
+// token find the machine that arrived with it.
+func TestJoinTokenRemembersWhichHostUsedIt(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	tok := &JoinToken{TokenHash: "hash", Prefix: "abcd", Capacity: 2, ExpiresAt: now.Add(time.Hour)}
+	if err := s.CreateJoinToken(ctx, tok); err != nil {
+		t.Fatalf("CreateJoinToken: %v", err)
+	}
+	fresh, err := s.GetJoinToken(ctx, tok.ID)
+	if err != nil {
+		t.Fatalf("GetJoinToken before redeem: %v", err)
+	}
+	if !fresh.Usable(now) || fresh.UsedByID != "" {
+		t.Fatalf("an unredeemed token reads as %+v", fresh)
+	}
+	if _, err := s.RedeemJoinToken(ctx, "hash", "host_1", now); err != nil {
+		t.Fatalf("redeem: %v", err)
+	}
+	spent, err := s.GetJoinToken(ctx, tok.ID)
+	if err != nil {
+		t.Fatalf("GetJoinToken after redeem: %v", err)
+	}
+	if spent.UsedAt == nil || spent.UsedByID != "host_1" {
+		t.Errorf("after redeem the token reads %+v, want used by host_1", spent)
+	}
+	if _, err := s.GetJoinToken(ctx, "join_missing"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("GetJoinToken of a missing id = %v, want ErrNotFound", err)
+	}
+}
+
 func TestSecretSettingsAreNotListed(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

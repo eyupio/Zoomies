@@ -146,7 +146,7 @@ type TaskResult struct {
 	ImagePullDuration  *time.Duration `json:"image_pull_duration,omitempty"`
 	CreateDuration     time.Duration  `json:"create_duration,omitempty"`
 	ContainerStartedAt *time.Time     `json:"container_started_at,omitempty"`
-	Digest   string         `json:"digest,omitempty"`
+	Digest             string         `json:"digest,omitempty"`
 	// State is the runner state the agent believes the runner reached.
 	State       store.RunnerState `json:"state,omitempty"`
 	CompletedAt time.Time         `json:"completed_at"`

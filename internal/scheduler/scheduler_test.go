@@ -85,6 +85,23 @@ func actionsOf(as []Action, kind ActionKind) []Action {
 	return out
 }
 
+func TestRepositoryQuotaDoesNotConsumeAnotherRepositoriesCapacity(t *testing.T) {
+	p := testPool("shared", "self-hosted")
+	p.RepositoryConcurrencyLimit = 1
+	blocked := queued("blocked", time.Minute, "self-hosted")
+	other := queued("other", time.Minute, "self-hosted")
+	other.Repo = "acme/other"
+	s := snap([]*store.Pool{p}, nil, []*store.Job{blocked, other}, []*store.Host{testHost("host_a", 2, 0)})
+	s.ActiveByRepository = map[string]int{p.ID + "\x00acme/widgets": 1}
+	plan := Decide(s)
+	if got := len(actionsOf(plan.Actions, ActionCreate)); got != 1 {
+		t.Fatalf("creates = %d, want one for unblocked repository", got)
+	}
+	if !strings.Contains(plan.Pools[0].Blocked, "repository concurrency quota") {
+		t.Fatalf("quota reason = %q", plan.Pools[0].Blocked)
+	}
+}
+
 func countOf(as []Action, kind ActionKind) int { return len(actionsOf(as, kind)) }
 
 func runnerIDs(as []Action, kind ActionKind) []string {

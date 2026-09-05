@@ -409,12 +409,17 @@ type Pool struct {
 	RunnerVersion  string      `json:"runner_version,omitempty"`
 	MinRunners     int         `json:"min_runners"`
 	MaxRunners     int         `json:"max_runners"`
-	Priority       int         `json:"priority"`
-	IdleTimeout    Duration    `json:"idle_timeout"`
-	Ephemeral      bool        `json:"ephemeral"`
-	DockerMode     DockerMode  `json:"docker_mode"`
-	Resources      Resources   `json:"resources"`
-	Cache          CacheConfig `json:"cache"`
+	// RepositoryConcurrencyLimit caps active runners attributable to any one
+	// repository. Zero leaves the pool unrestricted.
+	RepositoryConcurrencyLimit int `json:"repository_concurrency_limit,omitempty"`
+	// CostPerRunnerHour is administrator supplied; Zoomies never embeds prices.
+	CostPerRunnerHour *float64    `json:"cost_per_runner_hour,omitempty"`
+	Priority          int         `json:"priority"`
+	IdleTimeout       Duration    `json:"idle_timeout"`
+	Ephemeral         bool        `json:"ephemeral"`
+	DockerMode        DockerMode  `json:"docker_mode"`
+	Resources         Resources   `json:"resources"`
+	Cache             CacheConfig `json:"cache"`
 	// HostSelector matches Host.Labels; empty means "any host".
 	HostSelector StringMap `json:"host_selector"`
 	// Env is injected into every runner this pool creates.

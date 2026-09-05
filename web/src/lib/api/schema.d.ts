@@ -4,6 +4,40 @@
  */
 
 export interface paths {
+    "/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Aggregate bounded fleet usage */
+        get: operations["getUsage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/usage.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export bounded fleet usage as CSV */
+        get: operations["exportUsageCSV"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/meta": {
         parameters: {
             query?: never;
@@ -840,7 +874,13 @@ export interface paths {
             };
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Get a join token
+         * @description The token's state, never its secret. Once a host has redeemed it,
+         *     `used_by_id` is that host's id -- which is how the Add-a-host page
+         *     knows the machine it is waiting for has arrived.
+         */
+        get: operations["getJoinToken"];
         put?: never;
         post?: never;
         /** Revoke an unused join token */
@@ -1465,6 +1505,26 @@ export interface components {
             /** Format: int64 */
             pids_limit?: number;
         };
+        UsageResponse: {
+            /** Format: date-time */
+            from: string;
+            /** Format: date-time */
+            to: string;
+            /** @enum {string} */
+            group_by: "installation" | "repository" | "workflow" | "pool";
+            /** @constant */
+            costs_are_estimates: true;
+            items: {
+                key: string;
+                job_execution_seconds: number;
+                allocated_runner_seconds: number;
+                jobs: number;
+                average_queue_wait_seconds: number;
+                peak_concurrency: number;
+                /** @description Estimate from administrator-assigned pool rates; omitted when no rate exists. */
+                estimated_cost?: number;
+            }[];
+        };
         PoolPrewarm: {
             pool_id?: string;
             host_id?: string;
@@ -1490,6 +1550,10 @@ export interface components {
             runner_version?: string;
             min_runners?: number;
             max_runners?: number;
+            /** @description Per-repository active runner cap; zero disables it. */
+            repository_concurrency_limit?: number;
+            /** @description Optional administrator-assigned rate used only for estimates. */
+            cost_per_runner_hour?: number | null;
             /**
              * @description Higher-priority pools receive creation capacity before lower-priority pools.
              * @default 0
@@ -1562,6 +1626,8 @@ export interface components {
             min_runners: number;
             /** @default 4 */
             max_runners: number;
+            repository_concurrency_limit?: number;
+            cost_per_runner_hour?: number | null;
             /** @default 0 */
             priority: number;
             /** @default 5m */
@@ -1598,6 +1664,8 @@ export interface components {
             runner_version?: string;
             min_runners?: number;
             max_runners?: number;
+            repository_concurrency_limit?: number;
+            cost_per_runner_hour?: number | null;
             priority?: number;
             idle_timeout?: components["schemas"]["Duration"];
             ephemeral?: boolean;
@@ -1902,6 +1970,54 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    getUsage: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+                group_by?: "installation" | "repository" | "workflow" | "pool";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Usage totals; monetary values are administrator-configured estimates. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UsageResponse"];
+                };
+            };
+        };
+    };
+    exportUsageCSV: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+                group_by?: "installation" | "repository" | "workflow" | "pool";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description CSV export */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+        };
+    };
     getMeta: {
         parameters: {
             query?: never;
@@ -3235,11 +3351,24 @@ export interface operations {
                      * @example 1h
                      */
                     ttl?: string;
-                    /** @default 2 */
+                    /**
+                     * @description 0 lets the agent decide from the host's CPU count.
+                     * @default 2
+                     */
                     capacity?: number;
                     labels?: {
                         [key: string]: string;
                     };
+                    /**
+                     * Format: uri
+                     * @description The address the new host should join on, used in the
+                     *     returned command in place of `server.external_url`. The
+                     *     UI sends the address the browser reached this controller
+                     *     on, which is the one a machine beside it can usually reach
+                     *     too. Must be an absolute http or https URL.
+                     * @example https://zoomies.example.com
+                     */
+                    controller_url?: string;
                 };
             };
         };
@@ -3261,6 +3390,30 @@ export interface operations {
                     };
                 };
             };
+        };
+    };
+    getJoinToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JoinToken"];
+                };
+            };
+            404: components["responses"]["NotFound"];
         };
     };
     deleteJoinToken: {

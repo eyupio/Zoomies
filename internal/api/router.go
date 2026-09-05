@@ -156,6 +156,8 @@ func (s *Server) apiRoutes() chi.Router {
 		})
 
 		// Jobs.
+		r.With(s.require(auth.ActionUsageRead)).Get("/usage", s.handleUsage)
+		r.With(s.require(auth.ActionUsageRead)).Get("/usage.csv", s.handleUsageCSV)
 		r.Route("/jobs", func(r chi.Router) {
 			r.Use(s.require(auth.ActionJobsRead))
 			r.Get("/", s.handleListJobs)
@@ -173,6 +175,7 @@ func (s *Server) apiRoutes() chi.Router {
 		})
 		r.Route("/join-tokens", func(r chi.Router) {
 			r.With(s.require(auth.ActionJoinsRead)).Get("/", s.handleListJoinTokens)
+			r.With(s.require(auth.ActionJoinsRead)).Get("/{id}", s.handleGetJoinToken)
 			r.With(s.require(auth.ActionJoinsWrite)).Post("/", s.handleCreateJoinToken)
 			r.With(s.require(auth.ActionJoinsWrite)).Delete("/{id}", s.handleDeleteJoinToken)
 		})

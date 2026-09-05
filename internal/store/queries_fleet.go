@@ -177,7 +177,8 @@ func (s *Store) DeleteInstallation(ctx context.Context, id string) error {
 
 const poolCols = `id, name, installation_id, labels, runner_group, backend, image, pull_policy,
 	runner_version, min_runners, max_runners, priority, idle_timeout_ms, ephemeral, docker_mode,
-	resources, cache, host_selector, env, run_as_root, enabled, created_at, updated_at`
+	resources, cache, host_selector, env, run_as_root, enabled, created_at, updated_at,
+	repository_concurrency_limit, cost_per_runner_hour`
 
 func scanPool(sc interface{ Scan(...any) error }) (*Pool, error) {
 	var p Pool
@@ -187,7 +188,7 @@ func scanPool(sc interface{ Scan(...any) error }) (*Pool, error) {
 	err := sc.Scan(&p.ID, &p.Name, &p.InstallationID, &p.Labels, &p.RunnerGroup, &p.Backend,
 		&p.Image, &p.PullPolicy, &p.RunnerVersion, &p.MinRunners, &p.MaxRunners, &p.Priority, &idle, &ephemeral,
 		&p.DockerMode, &resources, &cache, &p.HostSelector, &p.Env, &runAsRoot, &enabled,
-		&created, &updated)
+		&created, &updated, &p.RepositoryConcurrencyLimit, &p.CostPerRunnerHour)
 	if err != nil {
 		return nil, err
 	}
@@ -227,11 +228,13 @@ func (s *Store) CreatePool(ctx context.Context, p *Pool) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.exec(ctx, `INSERT INTO pools (`+poolCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		p.ID, p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend), p.Image, string(p.PullPolicy),
+	_, err = s.exec(ctx, `INSERT INTO pools (`+poolCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		p.ID, p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend), p.Image,
+		string(p.PullPolicy),
 		p.RunnerVersion, p.MinRunners, p.MaxRunners, p.Priority, p.IdleTimeout.Duration().Milliseconds(),
 		boolInt(p.Ephemeral), string(p.DockerMode), res, cache, p.HostSelector, p.Env,
-		boolInt(p.RunAsRoot), boolInt(p.Enabled), ms(p.CreatedAt), ms(p.UpdatedAt))
+		boolInt(p.RunAsRoot), boolInt(p.Enabled), ms(p.CreatedAt), ms(p.UpdatedAt),
+		p.RepositoryConcurrencyLimit, p.CostPerRunnerHour)
 	return wrapWrite(err)
 }
 
@@ -294,11 +297,13 @@ func (s *Store) UpdatePool(ctx context.Context, p *Pool) error {
 	r, err := s.exec(ctx, `UPDATE pools SET name=?, installation_id=?, labels=?, runner_group=?,
 		backend=?, image=?, pull_policy=?, runner_version=?, min_runners=?, max_runners=?, priority=?, idle_timeout_ms=?,
 		ephemeral=?, docker_mode=?, resources=?, cache=?, host_selector=?, env=?, run_as_root=?,
-		enabled=?, updated_at=? WHERE id=?`,
-		p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend), p.Image, string(p.PullPolicy),
+		enabled=?, updated_at=?, repository_concurrency_limit=?, cost_per_runner_hour=? WHERE id=?`,
+		p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend), p.Image,
+		string(p.PullPolicy),
 		p.RunnerVersion, p.MinRunners, p.MaxRunners, p.Priority, p.IdleTimeout.Duration().Milliseconds(),
 		boolInt(p.Ephemeral), string(p.DockerMode), res, cache, p.HostSelector, p.Env,
-		boolInt(p.RunAsRoot), boolInt(p.Enabled), ms(p.UpdatedAt), p.ID)
+		boolInt(p.RunAsRoot), boolInt(p.Enabled), ms(p.UpdatedAt), p.RepositoryConcurrencyLimit,
+		p.CostPerRunnerHour, p.ID)
 	if err != nil {
 		return wrapWrite(err)
 	}
