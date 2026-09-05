@@ -808,14 +808,21 @@ func (s *Store) ListRunnersForHost(ctx context.Context, hostID string, states ..
 
 // UpdateRunner persists a full runner row.
 func (s *Store) UpdateRunner(ctx context.Context, r *Runner) error {
+	// Every column the row has. The driver binds positionally and ignores a
+	// surplus argument, so an argument without a placeholder shifts every
+	// later column onto its neighbour's value and binds WHERE id to a number
+	// -- which updates nothing and reports the runner as not found. The
+	// round-trip test is what keeps the two lists the same length.
 	res, err := s.exec(ctx, `UPDATE runners SET pool_id=?, host_id=?, name=?, state=?,
-		github_runner_id=?, container_id=?, ephemeral=?, labels=?, image=?, runner_version=?,
-		current_job_id=?, started_at=?, last_idle_at=?, finished_at=?, message=?,
-		jobs_handled=?, cpu_percent=?, memory_bytes=? WHERE id=?`,
+		github_runner_id=?, container_id=?, ephemeral=?, labels=?, image=?, image_digest=?,
+		runner_version=?, current_job_id=?, started_at=?, last_idle_at=?, finished_at=?,
+		message=?, jobs_handled=?, cpu_percent=?, memory_bytes=?, image_pull_ms=?,
+		container_started_at=?, registered_at=? WHERE id=?`,
 		r.PoolID, r.HostID, r.Name, string(r.State), r.GitHubRunnerID, r.ContainerID,
 		boolInt(r.Ephemeral), r.Labels, r.Image, r.ImageDigest, r.RunnerVersion, r.CurrentJobID,
 		msp(r.StartedAt), msp(r.LastIdleAt), msp(r.FinishedAt), r.Message,
-		r.JobsHandled, r.CPUPercent, r.MemoryBytes, r.ID)
+		r.JobsHandled, r.CPUPercent, r.MemoryBytes, durationMS(r.ImagePullDuration),
+		msp(r.ContainerStartedAt), msp(r.RegisteredAt), r.ID)
 	if err != nil {
 		return wrapWrite(err)
 	}
