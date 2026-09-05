@@ -36,7 +36,12 @@
     label: string;
     icon?: LucideIcon;
     danger?: boolean;
-    run: (ids: string[]) => void | Promise<void>;
+    /**
+     * Act on the selected ids. Once it settles the selection is cleared, so
+     * the same rows cannot be acted on twice by accident; resolve `false` to
+     * keep it -- a confirmation the operator cancelled, say.
+     */
+    run: (ids: string[]) => void | boolean | Promise<void | boolean>;
   }
 </script>
 
@@ -142,6 +147,14 @@
   let rows = $state<T[]>([]);
   let total = $state(0);
   let loading = $state(true);
+  /**
+   * True once the first request has answered, either way. The skeleton is
+   * for the page that has nothing to show yet; a later fetch -- a live
+   * refresh, a filter change -- keeps whatever is on screen until its answer
+   * lands, because a grid that flashes back to grey bars every time an event
+   * arrives is a grid nobody can read.
+   */
+  let settled = $state(false);
   let error = $state<unknown>(null);
   let lastFilterKey = '';
 
@@ -150,11 +163,15 @@
 
   $effect(() => {
     const { query, filterKey } = request;
-    // A filter change means the operator is looking at a different set; page one.
-    if (lastFilterKey && lastFilterKey !== filterKey && query.offset !== 0) {
-      lastFilterKey = filterKey;
-      router.setQuery({ offset: null });
-      return;
+    // A filter change means the operator is looking at a different set: page
+    // one, and nothing selected from the old set still ticked out of sight.
+    if (lastFilterKey && lastFilterKey !== filterKey) {
+      selected = [];
+      if (query.offset !== 0) {
+        lastFilterKey = filterKey;
+        router.setQuery({ offset: null });
+        return;
+      }
     }
     lastFilterKey = filterKey;
 
@@ -175,7 +192,10 @@
           if (cause instanceof DOMException && cause.name === 'AbortError') return;
           error = cause;
         } finally {
-          if (!cancelled) loading = false;
+          if (!cancelled) {
+            loading = false;
+            settled = true;
+          }
         }
       })();
     }, DEBOUNCE_MS);
@@ -282,6 +302,11 @@
       : [...new Set([...selected, ...pageIds])];
   }
 
+  async function runBulk(action: BulkAction): Promise<void> {
+    const ids = selected;
+    if ((await action.run(ids)) !== false) selected = [];
+  }
+
   function selectRange(from: number, to: number): void {
     const [lo, hi] = from < to ? [from, to] : [to, from];
     const ids = pageIds.slice(lo, hi + 1);
@@ -361,7 +386,7 @@
   });
 
   const hideable = $derived(columns.filter((c) => c.hideable !== false));
-  const isEmpty = $derived(!loading && !error && modelRows.length === 0);
+  const isEmpty = $derived(settled && !error && modelRows.length === 0);
 </script>
 
 <div class="grid {className}">
@@ -374,7 +399,7 @@
             size="sm"
             variant={action.danger ? 'danger' : 'secondary'}
             icon={action.icon}
-            onclick={() => void action.run(selected)}
+            onclick={() => void runBulk(action)}
           >
             {action.label}
           </Button>
@@ -448,7 +473,7 @@
         </tr>
       </thead>
       <tbody bind:this={body}>
-        {#if loading && modelRows.length === 0}
+        {#if !settled}
           {#each Array.from({ length: 8 }, (_, i) => i) as line (line)}
             <tr class="skeleton-row">
               {#if selectable}<td class="pick"><Skeleton width="15px" height="15px" /></td>{/if}

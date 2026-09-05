@@ -46,11 +46,14 @@ type JoinResponse struct {
 // HeartbeatRequest is sent on every interval. It carries the agent's own view
 // of its runners so the controller can detect drift without polling.
 type HeartbeatRequest struct {
-	ProtocolVersion int            `json:"protocol_version"`
-	Capacity        int            `json:"capacity"`
-	Version         string         `json:"version"`
-	Backends        []backend.Info `json:"backends,omitempty"`
-	Runners         []RunnerReport `json:"runners,omitempty"`
+	ProtocolVersion int `json:"protocol_version"`
+	// Capacity is the agent's configured value, sent for the log and for
+	// older controllers. The controller does not write it: capacity is set
+	// at join and belongs to the operator after that.
+	Capacity int            `json:"capacity"`
+	Version  string         `json:"version"`
+	Backends []backend.Info `json:"backends,omitempty"`
+	Runners  []RunnerReport `json:"runners,omitempty"`
 }
 
 // HeartbeatResponse tells the agent whether the controller still recognises it.
@@ -123,7 +126,13 @@ type Task struct {
 
 // TaskResult reports the outcome of a task back to the controller.
 type TaskResult struct {
-	TaskID   string         `json:"task_id"`
+	TaskID string `json:"task_id"`
+	// Kind is the kind of the task this answers. The controller uses it to
+	// tell a lifecycle task that failed -- which leaves the runner unusable --
+	// from a log relay that could not be opened, which leaves it exactly as it
+	// was. An agent from before this field is read from the controller's own
+	// record of the task instead.
+	Kind     TaskKind       `json:"kind,omitempty"`
 	RunnerID string         `json:"runner_id,omitempty"`
 	OK       bool           `json:"ok"`
 	Error    string         `json:"error,omitempty"`

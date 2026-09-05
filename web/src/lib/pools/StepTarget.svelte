@@ -27,6 +27,8 @@
     installations: readonly Installation[];
     loading: boolean;
     error: unknown;
+    /** Fetch the installations again after a failure. */
+    onretry?: () => void;
     groups: readonly RunnerGroup[];
     groupsLoading: boolean;
     groupsError: unknown;
@@ -39,6 +41,7 @@
     installations,
     loading,
     error,
+    onretry,
     groups,
     groupsLoading,
     groupsError,
@@ -80,7 +83,7 @@
 </Field>
 
 {#if error}
-  <ErrorState {error} title="Installations could not be listed" />
+  <ErrorState {error} title="Installations could not be listed" {onretry} />
 {:else if loading}
   <div class="loading">
     <Skeleton width="30%" height="0.75rem" />

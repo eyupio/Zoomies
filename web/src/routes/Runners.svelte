@@ -194,11 +194,29 @@
   let confirmAction = $state<'drain' | 'delete'>('drain');
   let confirmTargets = $state<Runner[]>([]);
 
-  function ask(action: 'drain' | 'delete', targets: Runner[]): void {
-    if (targets.length === 0) return;
+  /** Settles the bulk action that opened the confirmation, once it closes. */
+  let confirmSettled: ((done: boolean) => void) | null = null;
+
+  /**
+   * Open the confirmation. Resolves when it closes: true once the controller
+   * accepted the request, so the grid clears its selection; false on cancel,
+   * so the rows stay ticked for a second thought.
+   */
+  function ask(action: 'drain' | 'delete', targets: Runner[]): Promise<boolean> {
+    if (targets.length === 0) return Promise.resolve(false);
     confirmAction = action;
     confirmTargets = targets;
     confirmOpen = true;
+    return new Promise((resolve) => {
+      confirmSettled?.(false);
+      confirmSettled = resolve;
+    });
+  }
+
+  function settleConfirm(done: boolean): void {
+    if (done) confirmTargets = [];
+    confirmSettled?.(done);
+    confirmSettled = null;
   }
 
   const bulkActions = $derived<BulkAction[]>(
@@ -478,7 +496,8 @@
   bind:open={confirmOpen}
   action={confirmAction}
   targets={confirmTargets}
-  ondone={() => (confirmTargets = [])}
+  ondone={() => settleConfirm(true)}
+  oncancel={() => settleConfirm(false)}
 />
 
 <style>

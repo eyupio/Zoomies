@@ -567,12 +567,17 @@ func CheckPassword(p string) error {
 // NewUser describes an account to create. Password may be empty for an account
 // that will sign in through OIDC.
 type NewUser struct {
-	Username           string
-	Password           string
-	Email              string
-	DisplayName        string
-	Role               store.Role
-	OIDCSubject        string
+	Username    string
+	Password    string
+	Email       string
+	DisplayName string
+	Role        store.Role
+	OIDCSubject string
+	// SSOOnly creates an account with no password and no subject yet: one an
+	// administrator makes ahead of the person's first single sign-on, which
+	// links it by username. The caller checks that SSO is actually on, since
+	// an account nobody can ever sign in to is what this guards against.
+	SSOOnly            bool
 	MustChangePassword bool
 }
 
@@ -600,7 +605,7 @@ func (s *Service) createUser(ctx context.Context, in NewUser) (*store.User, erro
 		if hash, err = cryptox.HashPassword(in.Password); err != nil {
 			return nil, err
 		}
-	} else if in.OIDCSubject == "" {
+	} else if in.OIDCSubject == "" && !in.SSOOnly {
 		return nil, errors.New("an account needs either a password or an OIDC subject; give a password, or enable single sign-on")
 	}
 

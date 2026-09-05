@@ -25,7 +25,16 @@ import {
   TriangleAlert,
 } from '@lucide/svelte';
 import type { LucideIcon } from '@lucide/svelte';
-import type { Host, JobState, Pool, Runner, RunnerState, Severity } from './api/types';
+import type {
+  APIToken,
+  Host,
+  JobState,
+  JoinToken,
+  Pool,
+  Runner,
+  RunnerState,
+  Severity,
+} from './api/types';
 
 /** The six status hues from the token file. Nothing else may use them. */
 export type StatusTone = 'idle' | 'busy' | 'pending' | 'draining' | 'danger' | 'neutral';
@@ -273,4 +282,90 @@ export function accountStatus(disabled: boolean | undefined): StatusMeta {
   return disabled
     ? meta('disabled', 'Disabled', 'draining', 'slash', CircleSlash)
     : meta('active', 'Active', 'idle', 'hollow', Circle);
+}
+
+/* -- credentials ---------------------------------------------------------- */
+
+/** How soon "expires soon" is: a week, so the warning lands on a working day. */
+const EXPIRY_WARNING_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Where an API token is in its life: revoked, expired, expiring, or good. */
+export function apiTokenStatus(
+  token: Pick<APIToken, 'revoked' | 'expires_at'>,
+  now: number = Date.now(),
+): StatusMeta {
+  if (token.revoked) {
+    return meta(
+      'revoked',
+      'Revoked',
+      'draining',
+      'slash',
+      CircleSlash,
+      'Switched off by an administrator.',
+    );
+  }
+  if (!token.expires_at) {
+    return meta(
+      'never_expires',
+      'Never expires',
+      'pending',
+      'triangle',
+      TriangleAlert,
+      'A token with no expiry stays valid until it is revoked.',
+    );
+  }
+  const remaining = new Date(token.expires_at).getTime() - now;
+  if (remaining <= 0) return meta('expired', 'Expired', 'neutral', 'square', CircleMinus);
+  if (remaining < EXPIRY_WARNING_MS) {
+    return meta(
+      'expiring',
+      'Expires soon',
+      'pending',
+      'dashed',
+      Clock,
+      'Create a replacement before it does.',
+    );
+  }
+  return meta('active', 'Active', 'idle', 'hollow', Circle);
+}
+
+/** Whether a join token can still enrol a host. */
+export function joinTokenStatus(token: Pick<JoinToken, 'used_at' | 'usable'>): StatusMeta {
+  if (token.used_at) {
+    return meta(
+      'used',
+      'Used',
+      'neutral',
+      'square',
+      CircleMinus,
+      'A join token enrols one host, once.',
+    );
+  }
+  if (token.usable === false) {
+    return meta(
+      'expired',
+      'Expired',
+      'draining',
+      'slash',
+      CircleSlash,
+      'Create a new one to add a host.',
+    );
+  }
+  return meta('usable', 'Usable', 'idle', 'hollow', Circle);
+}
+
+/** Whether the webhook address answered the controller's own probe. */
+export function reachabilityStatus(reachable: boolean | undefined): StatusMeta {
+  if (reachable === true) return meta('reachable', 'Reachable', 'idle', 'filled', CircleCheck);
+  if (reachable === false) {
+    return meta(
+      'unreachable',
+      'Not reachable',
+      'danger',
+      'triangle',
+      TriangleAlert,
+      'Nothing answered at the webhook address, so GitHub cannot deliver to it either.',
+    );
+  }
+  return meta('unchecked', 'Not checked', 'neutral', 'dashed', CircleDashed);
 }

@@ -62,6 +62,31 @@ func TestPollerStandsDownWhenWebhooksAreRecent(t *testing.T) {
 	}
 }
 
+// A rejected delivery -- a mistyped webhook secret, say -- records a job for
+// nobody. The poller must not take it as proof that webhooks work, or a fleet
+// with the wrong secret never starts a runner and never says why.
+func TestPollerKeepsGoingWhenDeliveriesAreRejected(t *testing.T) {
+	h := newHarness(t)
+	h.fleet()
+	h.gh.AddQueuedJob("acme/widgets", "CI", "build", []string{"self-hosted", "linux", "x64", "demo"})
+
+	if err := h.st.RecordDelivery(h.ctx, &store.WebhookDelivery{
+		DeliveryID: "bad-secret", Event: "workflow_job", Status: "rejected", ReceivedAt: time.Now(),
+	}); err != nil {
+		t.Fatalf("RecordDelivery: %v", err)
+	}
+	before := len(h.gh.Requests())
+
+	h.c.pollOnce(h.ctx)
+
+	if after := len(h.gh.Requests()); after == before {
+		t.Fatal("the poller stood down on a delivery whose signature did not verify")
+	}
+	if !h.c.PollingOnly() {
+		t.Fatal("no delivery has verified, so the controller is still polling-only")
+	}
+}
+
 // A rate-limited installation must make the poller stand down rather than
 // spend the quota the webhook path's own calls need.
 func TestPollerBacksOffWhenRateLimited(t *testing.T) {

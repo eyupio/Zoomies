@@ -126,6 +126,31 @@
     };
   }
 
+  /**
+   * Warm the fleet cache with the page on screen, so the command palette can
+   * find a pool the operator is looking at.
+   *
+   * Only when it would actually change something: ingesting bumps the fleet's
+   * version, and the fleet's version is this grid's `liveKey`, so warming the
+   * cache on every page unconditionally has the grid refetching itself for
+   * ever -- and, with no pools at all, never settling on the empty state.
+   * Identity is what the palette needs, so identity is what is compared;
+   * the live counts move on their own and are not worth a round trip.
+   */
+  function takeRows(rows: Pool[]): void {
+    const changed = rows.some((row) => {
+      const cached = fleet.pool(row.id);
+      return (
+        !cached ||
+        cached.name !== row.name ||
+        cached.enabled !== row.enabled ||
+        cached.installation_target !== row.installation_target ||
+        (cached.labels ?? []).join(',') !== (row.labels ?? []).join(',')
+      );
+    });
+    if (changed) fleet.ingestPools(rows);
+  }
+
   /* -- actions --------------------------------------------------------------- */
 
   function setEnabled(pool: Pool, enabled: boolean): void {
@@ -408,34 +433,36 @@
   {/if}
 </PageHeader>
 
-<FilterBar {chips} onclear={clearFilters}>
-  <div class="search">
-    <Input
-      bind:element={searchField}
-      value={search}
-      type="search"
-      icon={Search}
-      size="sm"
-      placeholder="Search pools by name, label or target"
-      ariaLabel="Search pools"
-      oninput={(event) =>
-        router.setQuery({ q: (event.currentTarget as HTMLInputElement).value || null })}
-    />
-  </div>
-  <div class="status-filter">
-    <Select
-      value={status}
-      size="sm"
-      ariaLabel="Filter by status"
-      options={[
-        { value: '', label: 'Any status' },
-        { value: 'enabled', label: 'Enabled' },
-        { value: 'disabled', label: 'Disabled' },
-      ]}
-      onchange={(value) => router.setQuery({ status: value || null })}
-    />
-  </div>
-</FilterBar>
+<div class="filters">
+  <FilterBar {chips} onclear={clearFilters}>
+    <div class="search">
+      <Input
+        bind:element={searchField}
+        value={search}
+        type="search"
+        icon={Search}
+        size="sm"
+        placeholder="Search pools by name, label or target"
+        ariaLabel="Search pools"
+        oninput={(event) =>
+          router.setQuery({ q: (event.currentTarget as HTMLInputElement).value || null })}
+      />
+    </div>
+    <div class="status-filter">
+      <Select
+        value={status}
+        size="sm"
+        ariaLabel="Filter by status"
+        options={[
+          { value: '', label: 'Any status' },
+          { value: 'enabled', label: 'Enabled' },
+          { value: 'disabled', label: 'Disabled' },
+        ]}
+        onchange={(value) => router.setQuery({ status: value || null })}
+      />
+    </div>
+  </FilterBar>
+</div>
 
 <DataGrid
   gridId="pools"
@@ -451,7 +478,7 @@
   liveKey={fleet.version}
   noun="pools"
   onopen={(row) => navigate(`/pools/${row.id ?? ''}`)}
-  onrows={(rows) => fleet.ingestPools(rows)}
+  onrows={takeRows}
   emptyTitle={filtering ? 'No pools match those filters' : 'No pools yet'}
   emptyDescription={filtering
     ? 'Every pool is hidden by the search or the status filter currently applied.'
@@ -488,6 +515,9 @@
 </ConfirmDialog>
 
 <style>
+  .filters {
+    margin-bottom: var(--z-space-4);
+  }
   .search {
     min-width: 18rem;
     flex: 1 1 18rem;

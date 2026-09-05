@@ -1,13 +1,27 @@
 package api
 
 import (
+	"crypto/subtle"
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/eyupio/zoomies/internal/auth"
 	"github.com/eyupio/zoomies/internal/store"
 )
+
+// oidcStateCookie carries the state of a single sign-on handshake in the
+// browser that started it, so that the callback can only be finished from
+// there. The server's own record of the state proves the handshake was begun
+// on this controller; the cookie proves it was begun by this browser, which
+// is what stops an attacker from handing their own half-finished sign-in to
+// a victim and signing the victim in as them.
+const oidcStateCookie = "zoomies_oidc_state"
+
+// oidcCookiePath scopes the cookie to the two SSO routes, so it rides along
+// with nothing else.
+const oidcCookiePath = "/api/v1/auth/oidc"
 
 // identityResponse is the caller, as the UI's session store holds it.
 type identityResponse struct {
@@ -236,12 +250,37 @@ func (s *Server) handleOIDCStart(w http.ResponseWriter, r *http.Request) {
 		s.ssoUnavailable(w)
 		return
 	}
-	authURL, _, err := s.oidc.Start()
+	authURL, state, err := s.oidc.Start()
 	if err != nil {
 		s.internal(w, r, "starting the single sign-on handshake", err)
 		return
 	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     oidcStateCookie,
+		Value:    state,
+		Path:     oidcCookiePath,
+		HttpOnly: true,
+		Secure:   s.cfg.CookieSecureValue(),
+		// Lax, because the provider brings the browser back with a top-level
+		// GET, which is exactly the navigation Lax still sends cookies on.
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(auth.OIDCStateTTL / time.Second),
+	})
 	http.Redirect(w, r, authURL, http.StatusFound)
+}
+
+// clearOIDCStateCookie forgets the handshake, whichever way it ended.
+func (s *Server) clearOIDCStateCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     oidcStateCookie,
+		Value:    "",
+		Path:     oidcCookiePath,
+		HttpOnly: true,
+		Secure:   s.cfg.CookieSecureValue(),
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+		Expires:  time.Unix(0, 0),
+	})
 }
 
 // handleOIDCCallback finishes the handshake and drops the browser back into the
@@ -261,9 +300,23 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		if desc == "" {
 			desc = e
 		}
+		s.clearOIDCStateCookie(w)
 		s.redirectToLogin(w, r, "the identity provider refused the sign-in: "+desc)
 		return
 	}
+
+	// The state has to be the one this browser was handed when it started.
+	// Checked before the server-side state is spent, so a callback that
+	// arrives in the wrong browser leaves the real one able to finish.
+	if c, err := r.Cookie(oidcStateCookie); err != nil || c.Value == "" ||
+		subtle.ConstantTimeCompare([]byte(c.Value), []byte(q.Get("state"))) != 1 {
+		s.logger(r).Warn("a single sign-on callback arrived in a browser that did not start it")
+		s.clearOIDCStateCookie(w)
+		s.redirectToLogin(w, r, "this sign-in did not start in this browser, or took longer than "+
+			auth.OIDCStateTTL.String()+"; start again from the login page")
+		return
+	}
+	s.clearOIDCStateCookie(w)
 
 	claims, err := s.oidc.Complete(r.Context(), q.Get("state"), q.Get("code"))
 	if err != nil {

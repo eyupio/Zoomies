@@ -515,6 +515,16 @@ func TestCreateUserValidation(t *testing.T) {
 	if _, err := s.CreateUser(ctx, NewUser{Username: "bad user", Password: testPassword}); err == nil {
 		t.Error("a username with a space was accepted")
 	}
+	// An account made ahead of its owner's first single sign-on has no
+	// password and, until that sign-in links it, no subject either.
+	if sso, err := s.CreateUser(ctx, NewUser{Username: "sso-only", SSOOnly: true}); err != nil {
+		t.Fatalf("CreateUser(SSOOnly): %v", err)
+	} else if sso.PasswordHash != "" || sso.OIDCSubject != "" {
+		t.Fatalf("SSO-only user = %+v, want no password hash and no subject yet", sso)
+	}
+	if _, _, err := s.Login(ctx, "sso-only", testPassword, "10.0.0.1", "test"); !errors.Is(err, ErrSSOOnly) {
+		t.Fatalf("Login(sso-only) = %v, want ErrSSOOnly", err)
+	}
 	if _, err := s.CreateUser(ctx, NewUser{Username: "nopass"}); err == nil {
 		t.Error("an account with neither a password nor an OIDC subject was accepted")
 	}

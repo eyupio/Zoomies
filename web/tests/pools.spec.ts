@@ -63,6 +63,29 @@ test('the list shows both pools and names the risk the arm64 one carries', async
   await expect(linux).toContainText('One job');
 });
 
+test('a filter that matches nothing settles on the empty state, not the skeleton', async ({
+  page,
+}) => {
+  await goto(page, '/pools', 'Pools');
+  const rows = dataRows(grid(page, 'Pools'));
+  await expect(rows).toHaveCount(2);
+
+  await page.getByRole('searchbox', { name: 'Search pools' }).fill('nothing-is-called-this');
+  const empty = page.getByText('No pools match those filters');
+  await expect(empty).toBeVisible();
+
+  // The grid used to refetch itself on every result and flip back to its
+  // loading skeleton each time, so the empty state never stayed. Give it
+  // a moment and check it is still the empty state on screen.
+  await page.waitForTimeout(800);
+  await expect(empty).toBeVisible();
+  await expect(page.locator('tr.skeleton-row')).toHaveCount(0);
+
+  // The empty state offers the way out.
+  await page.getByRole('button', { name: 'Clear filters' }).click();
+  await expect(rows).toHaveCount(2);
+});
+
 test('the wizard walks target, labels, backend, scaling and review', async ({ page }) => {
   await goto(page, '/pools/new', 'Create a pool');
 

@@ -122,6 +122,31 @@ func TestSettings(t *testing.T) {
 	bad := h.do(request{method: http.MethodPatch, path: "/api/v1/settings", cookie: cookie,
 		body: map[string]any{"retention.audit": "forever"}})
 	bad.mustStatus(t, http.StatusUnprocessableEntity, "patch with a bad duration")
+
+	// A request is refused as a whole: a good key sent beside a bad one is not
+	// applied behind the operator's back, and nothing is audited.
+	countAudit := func() int {
+		res := h.do(request{method: http.MethodGet, path: "/api/v1/audit?action=settings.update", cookie: cookie})
+		res.mustStatus(t, http.StatusOK, "audit")
+		var page struct {
+			Total int `json:"total"`
+		}
+		res.into(t, &page)
+		return page.Total
+	}
+	audited := countAudit()
+	mixed := h.do(request{method: http.MethodPatch, path: "/api/v1/settings", cookie: cookie,
+		body: map[string]any{"retention.jobs": "1h", "log.level": "bogus"}})
+	mixed.mustStatus(t, http.StatusUnprocessableEntity, "patch a good key beside a bad one")
+	if h.cfg.Retention.Jobs.String() != "48h0m0s" {
+		t.Errorf("retention.jobs = %s after a refused request, want it left at 48h0m0s", h.cfg.Retention.Jobs)
+	}
+	if h.cfg.Log.Level != "debug" {
+		t.Errorf("log.level = %q after a refused request, want it left at debug", h.cfg.Log.Level)
+	}
+	if n := countAudit(); n != audited {
+		t.Errorf("a refused request wrote %d audit rows", n-audited)
+	}
 }
 
 // TestJoinTokenLifecycle covers minting the credential a new host enrols with.

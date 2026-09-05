@@ -156,10 +156,10 @@
     font-size: var(--z-text-2xs);
     font-variant-numeric: tabular-nums;
   }
+  /* The panel is in the tab order, so it keeps the shared focus ring: a
+     keyboard user tabbing out of the tab list must be able to see where they
+     landed. Mouse focus is already ringless through :focus-visible. */
   [role='tabpanel'] {
     padding-top: var(--z-space-4);
-  }
-  [role='tabpanel']:focus {
-    outline: none;
   }
 </style>

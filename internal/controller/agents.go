@@ -164,11 +164,31 @@ func (q *taskQueue) take(n int, now time.Time) []agent.Task {
 	return out
 }
 
-// complete clears a task's lease once its result has arrived.
-func (q *taskQueue) complete(taskID string) {
+// complete clears a task's lease once its result has arrived, returning the
+// task if it was still on record -- it is not after a controller restart.
+func (q *taskQueue) complete(taskID string) (agent.Task, bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	delete(q.inflight, taskID)
+	lt, ok := q.inflight[taskID]
+	if ok {
+		delete(q.inflight, taskID)
+		return lt.task, true
+	}
+	return agent.Task{}, false
+}
+
+// lifecycleTask reports whether a task's failure leaves its runner unusable.
+//
+// A create, stop or remove that fails does; a log relay that could not be
+// opened says nothing about the runner at all -- the container is where it
+// was, doing what it was doing. An unknown kind is treated as lifecycle,
+// which is the only safe reading of a failure whose task nobody can name.
+func lifecycleTask(kind agent.TaskKind) bool {
+	switch kind {
+	case agent.TaskStreamLogs, agent.TaskCancelLogs:
+		return false
+	}
+	return true
 }
 
 // sweep re-queues tasks whose lease has expired and drops the ones that have
@@ -359,11 +379,13 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 
 	now := c.Now()
 	wasHealthy := h.Healthy(now)
-	capacity := req.Capacity
-	if capacity < 1 {
-		capacity = h.Capacity
-	}
-	if err := c.st.Heartbeat(ctx, hostID, capacity, now); err != nil {
+	// The heartbeat's capacity is deliberately not written. Capacity is set
+	// at join -- from the join token when it carries one, else from the
+	// agent -- and from then on the host row is what an operator edits: the
+	// Hosts API says "use 0 to stop this host taking new runners", and a
+	// heartbeat writing the agent's configured number back thirty seconds
+	// later would undo exactly that.
+	if err := c.st.Heartbeat(ctx, hostID, now); err != nil {
 		return nil, err
 	}
 
@@ -380,8 +402,7 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 	backendsChanged := len(probed) > 0 && !slices.Equal(kinds, h.Backends)
 	changed := backendsChanged ||
 		(len(probed) > 0 && !slices.Equal(probed, h.BackendInfo)) ||
-		(req.Version != "" && req.Version != h.Version) ||
-		capacity != h.Capacity
+		(req.Version != "" && req.Version != h.Version)
 	if changed {
 		was := h.Backends
 		if len(probed) > 0 {
@@ -389,7 +410,6 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 			h.BackendInfo = probed
 		}
 		h.Version = firstNonEmpty(req.Version, h.Version)
-		h.Capacity = capacity
 		h.LastHeartbeat = now
 		if err := c.st.UpdateHost(ctx, h); err != nil {
 			c.log.Warn("could not record what a host reported about itself", "host", hostID, "error", err)
@@ -409,7 +429,6 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 	}
 
 	h.LastHeartbeat = now
-	h.Capacity = capacity
 	if !wasHealthy {
 		// The host was over its heartbeat window and has come back; the Hosts
 		// page should say so without waiting for the health sweep.
@@ -459,7 +478,11 @@ func (c *Controller) PollTasks(ctx context.Context, hostID string, wait time.Dur
 
 // ReportResult applies the outcome of one task and clears its lease.
 func (c *Controller) ReportResult(ctx context.Context, hostID string, res agent.TaskResult) error {
-	c.queues.get(hostID).complete(res.TaskID)
+	task, known := c.queues.get(hostID).complete(res.TaskID)
+	kind := res.Kind
+	if kind == "" && known {
+		kind = task.Kind
+	}
 	if res.RunnerID == "" {
 		return nil
 	}
@@ -486,8 +509,16 @@ func (c *Controller) ReportResult(ctx context.Context, hostID string, res agent.
 	state := res.State
 	message := res.Error
 	if !res.OK {
-		// A task that failed leaves the runner unusable; saying so on the
-		// Runners page is the whole point of reporting it.
+		if !lifecycleTask(kind) {
+			// The relay could not be opened, which the viewer has been told;
+			// the runner itself is untouched, and failing it here would have
+			// the next reconcile tear down a container that may be mid-job.
+			c.log.Info("a log task failed; the runner is left as it is",
+				"runner", r.ID, "task", res.TaskID, "kind", kind, "error", res.Error)
+			return nil
+		}
+		// A lifecycle task that failed leaves the runner unusable; saying so
+		// on the Runners page is the whole point of reporting it.
 		state = store.RunnerFailed
 		if message == "" {
 			message = "the agent could not complete task " + res.TaskID

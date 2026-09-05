@@ -340,3 +340,89 @@ func TestHeartbeatWithoutABackendProbeKeepsWhatIsKnown(t *testing.T) {
 		t.Fatalf("host = %+v, want the backends it joined with left alone", host)
 	}
 }
+
+// Opening the log viewer on a runner whose container is not there yet -- or
+// whose backend would not answer -- comes back as a failed stream_logs task.
+// That says nothing about the runner, and must not fail it: the next reconcile
+// would otherwise tear down a container that may be mid-job.
+func TestFailedLogTaskLeavesTheRunnerAlone(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		kind agent.TaskKind // what the agent puts in its result; "" is an older agent
+	}{
+		{"agent names the kind", agent.TaskStreamLogs},
+		{"older agent, controller's record decides", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			_, pool, host := h.fleet()
+			r := h.runnerRow(pool, host, store.RunnerProvisioning)
+
+			h.c.enqueue(host.ID, agent.Task{Kind: agent.TaskStreamLogs, RunnerID: r.ID, StreamID: "log_1"})
+			batch, err := h.c.PollTasks(h.ctx, host.ID, time.Second)
+			if err != nil {
+				t.Fatalf("PollTasks: %v", err)
+			}
+			err = h.c.ReportResult(h.ctx, host.ID, agent.TaskResult{
+				TaskID:   batch.Tasks[0].ID,
+				Kind:     tc.kind,
+				RunnerID: r.ID,
+				OK:       false,
+				Error:    "no workload for runner " + r.ID + " on this host, so its logs are gone",
+			})
+			if err != nil {
+				t.Fatalf("ReportResult: %v", err)
+			}
+
+			after, err := h.st.GetRunner(h.ctx, r.ID)
+			if err != nil {
+				t.Fatalf("GetRunner: %v", err)
+			}
+			if after.State != store.RunnerProvisioning {
+				t.Fatalf("state = %q after a failed log task, want it left at %q", after.State, store.RunnerProvisioning)
+			}
+		})
+	}
+}
+
+// Capacity belongs to the operator once a host has joined: the Hosts API lets
+// them set it to 0 to stop placement, and a heartbeat must not put the agent's
+// configured number back.
+func TestHeartbeatLeavesCapacityToTheOperator(t *testing.T) {
+	h := newHarness(t)
+	tr := h.c.EmbeddedTransport()
+
+	resp, err := tr.Join(h.ctx, agent.JoinRequest{
+		ProtocolVersion: agent.ProtocolVersion,
+		Name:            "vm-1",
+		Capacity:        4,
+		Backends:        []backend.Info{{Kind: store.BackendDocker, Available: true}},
+	})
+	if err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	tr.SetCredentials(resp.HostID, resp.AgentToken)
+
+	host, err := h.st.GetHost(h.ctx, resp.HostID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	host.Capacity = 0
+	if err := h.st.UpdateHost(h.ctx, host); err != nil {
+		t.Fatalf("UpdateHost: %v", err)
+	}
+
+	if _, err := tr.Heartbeat(h.ctx, agent.HeartbeatRequest{ProtocolVersion: agent.ProtocolVersion, Capacity: 4}); err != nil {
+		t.Fatalf("Heartbeat: %v", err)
+	}
+	after, err := h.st.GetHost(h.ctx, resp.HostID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if after.Capacity != 0 {
+		t.Fatalf("capacity = %d after a heartbeat, want the operator's 0 kept", after.Capacity)
+	}
+	if after.LastHeartbeat.IsZero() {
+		t.Fatalf("last heartbeat was not recorded")
+	}
+}

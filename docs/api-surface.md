@@ -128,7 +128,7 @@ only touch its own host's runners.
 | Method | Path | Notes |
 | --- | --- | --- |
 | POST | `/api/v1/agent/join` | Redeems a join token, returns host id + agent token. |
-| POST | `/api/v1/agent/heartbeat` | Liveness, capacity, backend capabilities, runner observations. |
+| POST | `/api/v1/agent/heartbeat` | Liveness, backend capabilities, runner observations. |
 | GET | `/api/v1/agent/tasks` | Long-poll, up to 25s, returns a `TaskBatch`. |
 | POST | `/api/v1/agent/results` | Task outcomes. |
 | POST | `/api/v1/agent/report` | Out-of-band runner state reports. |

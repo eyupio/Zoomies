@@ -19,6 +19,7 @@
   import { router } from '$lib/router';
   import { fleet } from '$lib/state/fleet.svelte';
   import Badge from '$lib/components/Badge.svelte';
+  import Button from '$lib/components/Button.svelte';
   import DataGrid from '$lib/components/DataGrid.svelte';
   import type { GridColumn, GridPage, GridQuery } from '$lib/components/DataGrid.svelte';
   import Drawer from '$lib/components/Drawer.svelte';
@@ -424,7 +425,13 @@
     emptyDescription={anyFilter
       ? 'Try a wider date range, or clear a filter.'
       : 'Zoomies writes a row here whenever somebody changes something: a pool, a runner, a user, a setting. Reading things is not recorded.'}
-  />
+  >
+    {#snippet emptyAction()}
+      {#if anyFilter}
+        <Button onclick={clearFilters}>Clear filters</Button>
+      {/if}
+    {/snippet}
+  </DataGrid>
 
   <p class="footnote">
     Open an event to see exactly what changed. Secrets were redacted when the row was written, so

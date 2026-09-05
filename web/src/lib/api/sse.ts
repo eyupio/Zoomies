@@ -19,7 +19,7 @@
  * than waiting out the backoff -- an operator who has just opened the laptop
  * lid should not stare at "reconnecting" for fifteen seconds.
  */
-import { apiBase } from './client';
+import { api, apiBase } from './client';
 import type { EventKind, EventPayloads } from './types';
 
 export type SseStatus = 'connecting' | 'live' | 'reconnecting' | 'offline';
@@ -223,9 +223,30 @@ class EventStream {
     }, WATCHDOG_MS);
   }
 
+  /**
+   * Find out whether the server is refusing us rather than merely absent.
+   *
+   * EventSource cannot see why a connection was closed, and a 401 -- the
+   * session expiring while the Overview sat on a second monitor -- looks
+   * exactly like a controller restart from here: "Reconnecting" for ever
+   * over numbers that have quietly stopped moving. One ordinary request per
+   * retry answers the question. A 401 runs the client's sign-out hook, which
+   * takes the operator to the login page; anything else is left to the retry.
+   */
+  async #probeSession(): Promise<void> {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+    try {
+      await api.get('/auth/session');
+    } catch {
+      // Either the 401 hook has already acted, or the controller is not
+      // answering at all, which the retry is for.
+    }
+  }
+
   #scheduleRetry(): void {
     if (!this.#started) return;
     this.#setStatus(navigator?.onLine === false ? 'offline' : 'reconnecting');
+    void this.#probeSession();
     const delay = Math.min(BACKOFF_CAP, BACKOFF_BASE * 2 ** this.#attempt);
     // A little jitter so a controller restart does not bring every open dashboard
     // back at exactly the same instant.

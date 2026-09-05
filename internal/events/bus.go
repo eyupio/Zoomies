@@ -113,21 +113,26 @@ func (b *Bus) Publish(kind Kind, topic string, v any) {
 	})
 }
 
+// publish appends to the ring and hands the event to every subscriber.
+//
+// The sends happen under the lock on purpose. Close closes a subscriber's
+// channel under that same lock, and a send on a closed channel panics even
+// from a select with a default case -- so sending from a snapshot taken
+// before releasing the lock let a browser tab closing at the wrong instant
+// panic whichever loop was publishing, and the reconcile loop does not come
+// back from that. Every send here is non-blocking, so holding the lock costs
+// the other publishers microseconds.
 func (b *Bus) publish(e Event) {
 	b.mu.Lock()
+	defer b.mu.Unlock()
 	if b.ringCap > 0 {
 		b.ring = append(b.ring, e)
 		if len(b.ring) > b.ringCap {
 			b.ring = b.ring[len(b.ring)-b.ringCap:]
 		}
 	}
-	subs := make([]*subscriber, 0, len(b.subs))
-	for _, s := range b.subs {
-		subs = append(subs, s)
-	}
-	b.mu.Unlock()
 
-	for _, s := range subs {
+	for _, s := range b.subs {
 		if s.filter != nil && !s.filter(e) {
 			continue
 		}

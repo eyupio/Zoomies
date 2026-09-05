@@ -112,6 +112,20 @@ const NOT_FOUND: RouteDef = {
 
 /* -- matching -------------------------------------------------------------- */
 
+/**
+ * A path segment as typed, or as it was if it is not valid percent-encoding.
+ * decodeURIComponent throws on a stray `%`, and a throw here would leave the
+ * app on its loading skeleton for good; an id that does not decode simply
+ * matches nothing, and the page says so.
+ */
+function decodeSegment(v: string): string {
+  try {
+    return decodeURIComponent(v);
+  } catch {
+    return v;
+  }
+}
+
 function match(pathname: string): { route: RouteDef; params: Record<string, string> } {
   const parts = pathname.replace(/\/+$/, '').split('/').filter(Boolean);
   for (const route of ROUTES) {
@@ -122,7 +136,7 @@ function match(pathname: string): { route: RouteDef; params: Record<string, stri
     for (let i = 0; i < pattern.length; i++) {
       const p = pattern[i] ?? '';
       const v = parts[i] ?? '';
-      if (p.startsWith(':')) params[p.slice(1)] = decodeURIComponent(v);
+      if (p.startsWith(':')) params[p.slice(1)] = decodeSegment(v);
       else if (p !== v) {
         ok = false;
         break;

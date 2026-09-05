@@ -68,6 +68,8 @@
   let installations = $state<Installation[]>([]);
   let loadingInstallations = $state(true);
   let installationsError = $state('');
+  /** Bumped by the error state's retry, which re-runs the fetch below. */
+  let installationsAttempt = $state(0);
   // Seeded from the query string once, then owned by the wizard: navigating
   // back to step one must not snap the choice back to whatever the link said.
   let selected = $state(untrack(() => installationId));
@@ -86,6 +88,9 @@
   let outcome = $state<MigrationOutcome | null>(null);
 
   $effect(() => {
+    void installationsAttempt;
+    loadingInstallations = true;
+    installationsError = '';
     void (async () => {
       try {
         const result = await listInstallations();
@@ -180,8 +185,11 @@
         return;
       }
       case 2: {
-        // The mapping changed, so every diff downstream is stale.
-        await scan(chosen);
+        // The mapping changed, so every diff downstream is stale. A scan
+        // that failed leaves the old plan in place, and the review must not
+        // show it as if it were the new mapping's -- the pull requests it
+        // would open are built from the mapping, not from what is on screen.
+        if (!(await scan(chosen))) step -= 1;
         return;
       }
       default:
@@ -252,7 +260,11 @@
     <Skeleton width="100%" height="12rem" />
   </div>
 {:else if installationsError}
-  <ErrorState title="GitHub is not reachable" description={installationsError} />
+  <ErrorState
+    title="GitHub is not reachable"
+    description={installationsError}
+    onretry={() => (installationsAttempt += 1)}
+  />
 {:else if installations.length === 0}
   <ErrorState
     title="No installation to migrate"
@@ -325,10 +337,10 @@
   .failure {
     margin: 0 0 var(--z-space-4);
     padding: var(--z-space-3) var(--z-space-4);
-    border: 1px solid var(--z-failed-border);
+    border: 1px solid var(--z-danger-border);
     border-radius: var(--z-radius-md);
-    background: var(--z-failed-subtle);
-    color: var(--z-failed);
+    background: var(--z-danger-subtle);
+    color: var(--z-danger);
     font-size: var(--z-text-base);
     line-height: var(--z-leading-base);
   }

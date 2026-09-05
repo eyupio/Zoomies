@@ -206,7 +206,7 @@ func (c *Controller) Start(ctx context.Context) error {
 
 	// Knowing up front whether a webhook has ever arrived means the Overview
 	// can answer "are we event-driven?" without waiting for the first poll.
-	if last, err := c.st.LastDeliveryAt(ctx); err == nil {
+	if last, err := c.st.LastAcceptedDeliveryAt(ctx); err == nil {
 		c.pollingOnly.Store(last.IsZero())
 	}
 
