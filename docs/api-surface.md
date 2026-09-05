@@ -178,7 +178,16 @@ for: Contents (write), Pull requests (write) and Workflows (write).
 ## SSE event kinds
 
 Emitted on `/api/v1/events`; the `event:` field carries the kind and `data:` the
-JSON payload.
+JSON payload. One stream carries the lot, and a client narrows it rather than
+opening several:
+
+```mermaid
+flowchart LR
+    src["a webhook, a reconcile pass,<br/>an operator action"] --> bus["internal/events<br/>in-process pub/sub"]
+    bus --> sse["GET /api/v1/events"]
+    sse -->|"kinds= and topic= narrow it"| ui["the UI, updating in place"]
+    sse -.->|"a dropped connection resumes<br/>from Last-Event-ID"| ui
+```
 
 `runner.created` · `runner.updated` · `runner.deleted` · `pool.created` ·
 `pool.updated` · `pool.deleted` · `job.updated` · `host.updated` ·

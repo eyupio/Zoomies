@@ -51,6 +51,18 @@ Build and test only:
 | `eslint`, `typescript-eslint`, `eslint-plugin-svelte`, `@eslint/js`, `globals` | Linting. |
 | `prettier`, `prettier-plugin-svelte` | Formatting. |
 
+## The docs site
+
+`docs/requirements.txt`, pinned. These never reach a user's machine — they
+build [zoomies.sh](https://zoomies.sh) and nothing else.
+
+| Package | Why |
+| --- | --- |
+| `mkdocs` | Turns `docs/` into the site, so the website is the repository's own documentation rather than a second copy of it. Pinned below 2.0 deliberately; the reason is in `docs/requirements.txt`. |
+| `mkdocs-material` | The theme. It carries the search, the light/dark palettes, the tabbed blocks the quick start uses, and the Mermaid integration below. |
+| `pymdown-extensions` | The fenced-block, tabbed and admonition syntax the pages are written in, including the custom `mermaid` fence. |
+| Mermaid | Diagrams. Material fetches it from a CDN in the reader's browser, only on a page that has one, and colours it from the palette above — so a diagram lives in the Markdown beside what it explains, renders on GitHub as well, and there is no exported image to go stale. |
+
 ## Deliberate omissions
 
 **`github.com/docker/docker`.** The official client drags in a very large
@@ -65,8 +77,8 @@ headers, is unit-tested.
 Those are inline SVG paths of a few dozen lines each. The smallest credible
 charting library is larger than the entire rest of the app shell.
 
-**A client-side router.** Eight routes with a couple of parameter segments does
-not need a routing library. `web/src/lib/router.ts` is small enough to read in
+**A client-side router.** Fourteen routes, two of them with a parameter segment,
+do not need a routing library. `web/src/lib/router.ts` is small enough to read in
 one sitting and does exactly what the History API already offers.
 
 **A state-management library.** Svelte 5 runes are the state management library.

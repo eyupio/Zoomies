@@ -21,6 +21,19 @@ Open it at **Migrate** in the navigation, or `g` then `m`.
 
 Nothing before step four writes anything.
 
+```mermaid
+flowchart LR
+    read["read every workflow the<br/>installation can see"] --> dec{"what does<br/>runs-on say?"}
+    dec -->|"a hosted label you mapped"| rw["rewrite that one line"]
+    dec -->|"a matrix expression"| skip["left alone,<br/>and the reason recorded"]
+    dec -->|"already self-hosted"| skip
+    dec -->|"another vendor's label"| skip
+    dec -->|"a hosted label you did not map"| skip
+    rw --> rev["review: the exact diff,<br/>nothing written yet"]
+    skip --> rev
+    rev --> pr["one pull request per repository,<br/>each on its own branch"]
+```
+
 ## What it changes, and what it will not
 
 It rewrites `runs-on` and nothing else. Comments, indentation, quoting, key

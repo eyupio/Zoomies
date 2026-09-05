@@ -26,47 +26,74 @@ after an hour. That works until it doesn't:
 
 ## The picture
 
-```
-                         ┌──────────────────────────────────────┐
-   workflow_job          │              GitHub                  │
-   webhooks  ───────────▶│  api.github.com  or  GHES            │
-                         └──────────────────────────────────────┘
-                            ▲          ▲                  ▲
-              App JWT ──────┘          │ JIT config       │ runner
-              + installation           │ registration     │ long-poll
-              token                    │ tokens           │ for jobs
-                                       │                  │
-┌──────────────────────────────────────┴───────────┐      │
-│  zoomies controller                              │      │
-│                                                  │      │
-│  ┌────────────┐  ┌───────────┐  ┌─────────────┐  │      │
-│  │  HTTP API  │  │ scheduler │  │   github    │  │      │
-│  │  + SSE     │◀─│  (pure)   │─▶│   client    │  │      │
-│  │  + /metrics│  └───────────┘  └─────────────┘  │      │
-│  └─────┬──────┘        ▲                         │      │
-│        │               │                         │      │
-│  ┌─────▼──────┐  ┌─────┴──────┐  ┌────────────┐  │      │
-│  │  Svelte UI │  │ reconciler │  │   SQLite   │  │      │
-│  │ (embedded) │  │   loop     │─▶│  (WAL)     │  │      │
-│  └────────────┘  └─────┬──────┘  └────────────┘  │      │
-│                        │ tasks                    │      │
-│                  ┌─────▼──────────┐               │      │
-│                  │ embedded agent │───────────────┼──────┤
-│                  └────────────────┘   containers  │      │
-└───────────────────────▲──────────────────────────┘      │
-                        │ outbound HTTPS only              │
-              ┌─────────┴─────────┐                        │
-              │  zoomies agent    │  (any number, any      │
-              │  on another host  │   network, behind NAT) │
-              │                   │                        │
-              │  docker | podman  │───── runner containers ─┘
-              │  | process        │
-              └───────────────────┘
+Follow the arrowheads: they are connections, not data. GitHub is the only thing
+that ever dials in, and only as far as the controller's webhook endpoint.
+Everything else reaches outward -- agents to the controller, runners to GitHub --
+so a host that runs jobs needs no inbound firewall rule at all. Everything an
+agent does travels on connections it opened itself: it long-polls for tasks, and
+posts results and logs back the same way.
+
+```mermaid
+flowchart LR
+    subgraph host["a runner host -- any number of them, behind NAT"]
+        ag["zoomies agent<br/>docker | podman | process"]
+        run["runner containers<br/>one job each, then destroyed"]
+    end
+
+    ctrl["zoomies controller<br/>API, UI, scheduler, SQLite,<br/>and an embedded agent on a single VM"]
+
+    subgraph gh["GitHub -- github.com or Enterprise Server"]
+        ghapi["REST API"]
+        ghq["Actions job queue"]
+    end
+
+    ag -->|"outbound HTTPS only"| ctrl
+    ag -->|"start, inspect, destroy"| run
+    ctrl -->|"App JWT, installation tokens,<br/>single-use JIT configurations"| ghapi
+    ghapi -->|"workflow_job webhooks"| ctrl
+    run -->|"the runner long-polls for its own job"| ghq
 ```
 
 ## Request and event flow
 
 ### A job arrives
+
+One queued job, from the webhook that announces it to the row the controller
+reaps when it is over:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant GH as GitHub
+    participant C as controller
+    participant S as scheduler
+    participant DB as SQLite
+    participant A as agent
+    participant R as runner container
+
+    GH->>C: POST /webhooks/github -- workflow_job, queued
+    C->>C: verify the HMAC, record the delivery
+    C->>DB: upsert the job, never backwards
+    C->>S: snapshot -- pools, runners, queued jobs, hosts
+    S-->>C: plan -- "create 1 in zoomies-linux-x64: 1 job queued > 30s"
+    C->>GH: ask for a single-use JIT configuration
+    GH-->>C: JIT configuration
+    C->>DB: runner row, state provisioning
+    A->>C: long-poll for tasks
+    C-->>A: create_runner, with the JIT configuration
+    A->>R: start the container
+    R->>GH: register, then wait for a job
+    A-->>C: registering, then idle
+    GH->>C: workflow_job, in_progress
+    C->>DB: runner busy, job linked to the runner
+    GH-->>R: the job runs here
+    GH->>C: workflow_job, completed
+    R->>R: an ephemeral runner exits after one job
+    A-->>C: removed
+    C->>DB: reap the row
+```
+
+In detail:
 
 1. GitHub POSTs `workflow_job` (action `queued`) to `/webhooks/github`.
 2. The controller verifies the HMAC signature, records the delivery, and upserts
@@ -80,7 +107,10 @@ after an hour. That works until it doesn't:
    comes from.
 5. For each `create` action the controller picks the installation, asks GitHub
    for a JIT configuration, writes a `runners` row in `provisioning`, and queues
-   a task for the chosen host's agent.
+   a task for the chosen host's agent. A JIT configuration registers exactly one
+   runner and cannot be replayed, which is what makes it safe to hand to a
+   container in its environment; a non-ephemeral pool has to run `config.sh`, so
+   it gets a registration token instead.
 6. The agent long-polls, picks up the task, and starts a container with the JIT
    config in its environment. It reports back: `registering`, then `idle`.
 7. GitHub hands the job to the runner. A `workflow_job` `in_progress` webhook
@@ -114,16 +144,25 @@ silently stopped receiving webhooks looks exactly like a quiet fleet.
 | `internal/agent` | The runner-executing half and its transport to the controller. |
 | `internal/installer` | `zoomies init`, `zoomies uninstall`, the GitHub App manifest flow, service installation. |
 | `internal/events` | In-process pub/sub that the SSE endpoint fans out. |
+| `internal/migrate` | Rewriting a workflow's `runs-on` line, and nothing else in the file. |
 
 ## The runner state machine
 
-```
-  provisioning ──▶ registering ──▶ idle ⇄ busy
-        │               │            │      │
-        │               │            ▼      ▼
-        └───────────────┴────────▶ draining ──▶ removed
-                        │
-                        └────────▶ failed ──▶ removed
+```mermaid
+stateDiagram-v2
+    [*] --> provisioning: the reconcile loop wrote the row
+    provisioning --> registering: the agent started the container
+    registering --> idle: online at GitHub, waiting
+    registering --> busy: GitHub assigned a job straight away
+    idle --> busy: job assigned
+    busy --> idle: job finished, and the pool is not ephemeral
+    idle --> draining: idle timeout, scale-down, or an operator
+    busy --> draining: finish this job, then stop
+    provisioning --> failed: the agent could not start it
+    registering --> failed: it never came online
+    draining --> removed: the container is gone
+    failed --> removed
+    removed --> [*]
 ```
 
 * **provisioning** -- the row exists, the agent has not started the workload.
@@ -133,6 +172,11 @@ silently stopped receiving webhooks looks exactly like a quiet fleet.
 * **draining** -- told to finish and exit. A busy runner in `draining` keeps its
   job; nothing kills a running job.
 * **removed** / **failed** -- terminal.
+
+Any live state can also go straight to `failed` or `removed`: a host that
+vanishes takes its runners with it, and the drawing leaves those edges out to
+stay readable. The allow-list itself is `validRunnerTransitions` in
+`internal/store/models.go`.
 
 Transitions are validated in `store.TransitionRunner`, not in the caller. An
 agent cannot report a nonsensical state and corrupt the fleet's accounting.
@@ -147,10 +191,34 @@ results. This means:
 * the blast radius of a compromised agent is bounded -- it can claim tasks for
   itself, not reach into the controller.
 
-The cost is that log streaming has to be inverted: the UI asks the controller,
-the controller queues a `stream_logs` task, and the agent opens an outbound
-chunked POST that the controller relays to the browser's SSE connection. For the
-embedded agent this is all in-process.
+The cost is that log streaming has to be inverted. Nothing can ask the agent for
+a runner's output, so the request travels as a task and the output comes back as
+a POST that the controller relays to whoever is watching:
+
+```mermaid
+sequenceDiagram
+    participant B as browser
+    participant C as controller
+    participant A as agent
+    participant R as runner container
+
+    B->>C: GET /api/v1/runners/{id}/logs -- SSE
+    C->>C: open a stream, remember who is watching
+    A->>C: long-poll for tasks
+    C-->>A: stream_logs, with the stream ID
+    A->>R: read the container's output
+    A->>C: POST /api/v1/agent/logs/{stream_id}, chunked
+    C-->>B: relayed as SSE events
+    B->>C: the last viewer goes away
+    C-->>A: cancel_logs
+```
+
+For the embedded agent this is all in-process. A second viewer following the
+same runner joins the stream that already exists rather than starting a second
+one, and the last one to leave is what tells the agent to stop reading. Each
+viewer's queue is bounded, and a viewer that falls behind loses bytes rather
+than growing it: a backgrounded tab nobody is reading must not make the
+controller hold a compiler's output for ever.
 
 ## Storage
 
@@ -160,6 +228,21 @@ Access is split deliberately: **one** writer connection behind a mutex, and a
 pooled reader in WAL mode. SQLite permits exactly one writer, and funnelling
 writes through a single connection is what keeps `database is locked` -- the
 usual reason small SQLite services fall over -- out of the codebase.
+
+```mermaid
+flowchart LR
+    api["API handlers"] --> st["store.Store"]
+    recon["reconcile loop"] --> st
+    hooks["webhook ingest"] --> st
+    agents["agent task queue"] --> st
+    st -->|"every write, serialised by a mutex"| w["one writer connection"]
+    st -->|"reads, concurrent"| r["pooled readers"]
+    w --> db[("zoomies.db -- WAL")]
+    r --> db
+```
+
+Only `internal/store` imports `database/sql`, so there is one place to look
+when a query is slow, and one place a second writer could be added by mistake.
 
 Migrations are embedded and applied on startup, recorded in a
 `schema_migrations` ledger.

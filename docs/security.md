@@ -25,6 +25,39 @@ blast radius of each execution as small as it can reasonably be:
 
 ## 2. Threat model
 
+Three places, and every credential that crosses between them:
+
+```mermaid
+flowchart TB
+    subgraph net["the network"]
+        gh["GitHub"]
+        ops["operators, the CLI, Prometheus"]
+    end
+
+    subgraph ch["the controller host"]
+        ctrl["zoomies controller"]
+        db[("SQLite -- App keys, webhook and OIDC<br/>secrets sealed with a key kept outside it")]
+    end
+
+    subgraph rh["a runner host -- the blast radius of one job"]
+        ag["zoomies agent"]
+        run["runner container<br/>non-root, capabilities dropped,<br/>no docker.sock unless you asked for one"]
+    end
+
+    ops -->|"session cookie or zoo_ token, over TLS"| ctrl
+    gh -->|"webhook, HMAC-SHA256, constant-time"| ctrl
+    ctrl -->|"App JWT, installation token"| gh
+    ctrl <--> db
+    ag -->|"agent token -- reaches /api/v1/agent/* and nothing else"| ctrl
+    ag -->|"a single-use JIT config, in the environment"| run
+    run -->|"registers once, then runs your workflow"| gh
+```
+
+The runner container is the only place untrusted code runs, and the credential
+it is given registers one runner and then expires. The host's own credential
+reaches `/api/v1/agent/*` and nothing else: an agent can claim tasks and report
+on its own runners, and cannot read pools, jobs, users or the audit log.
+
 ### In scope
 
 | Threat | Mitigation |
@@ -116,6 +149,26 @@ The mapping from every individual API action to its minimum role is a table in
 endpoint cannot be added without deciding who may call it.
 
 The API refuses to remove or demote the last enabled admin.
+
+### How one request is authorised
+
+```mermaid
+flowchart LR
+    req["a request"] --> who{"which credential?"}
+    who -->|"session cookie"| csrf["Origin and Sec-Fetch-Site<br/>must be same-origin"]
+    who -->|"Bearer zoo_ token"| scope["role, plus any scopes<br/>the token was narrowed to"]
+    who -->|"agent token"| only["/api/v1/agent/* only"]
+    who -->|"none"| pub["the handful of<br/>unauthenticated routes"]
+    csrf --> rbac{"the minimum role<br/>for this action"}
+    scope --> rbac
+    rbac -->|"met"| h["the handler runs, and a mutating<br/>one writes an audit row"]
+    rbac -->|"not met"| deny["403 naming the role you are missing"]
+```
+
+The action-to-role table is `internal/auth/rbac.go`. A mutating handler that
+succeeds writes an audit row naming the actor, the target and a redacted
+before/after; a refused login writes one too, because a burst of those is
+something you want to see.
 
 ### Sessions
 

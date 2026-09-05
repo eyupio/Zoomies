@@ -12,6 +12,16 @@ makes the container image work with nothing but environment variables.
 The parser is strict. A misspelled key is an error naming the line, not a
 setting that silently does nothing.
 
+```mermaid
+flowchart LR
+    d["built-in defaults"] --> f["zoomies.yaml"]
+    f --> e["ZOOMIES_* environment"]
+    e --> v{"config.Validate"}
+    v -->|"an error"| stop["startup stops, and the message<br/>names what to change"]
+    v -->|"a warning"| warn["startup continues -- printed here, and shown<br/>in the UI's problems panel while it is true"]
+    v -->|"nothing to say"| ok["running"]
+```
+
 ---
 
 ## Everything at once
