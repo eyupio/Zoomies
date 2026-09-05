@@ -3,19 +3,26 @@
   and a way to get to the thing it is about.
 -->
 <script lang="ts">
-  import { Wrench } from '@lucide/svelte';
+  import { Undo2, Wrench, X } from '@lucide/svelte';
   import type { Problem } from '$lib/api/types';
   import { severityStatus } from '$lib/status';
+  import IconButton from '$lib/components/IconButton.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import RemedyText from '$lib/components/RemedyText.svelte';
   import StatusDot from '$lib/components/StatusDot.svelte';
 
   interface Props {
     problem: Problem;
+    /** Put this one away. Offered on everything the operator has not read yet. */
+    ondismiss?: (problem: Problem) => void;
+    /** Bring a dismissed one back. */
+    onrestore?: (problem: Problem) => void;
+    /** When it was dismissed, so a decision can be dated before it is undone. */
+    dismissedAt?: string;
     class?: string;
   }
 
-  let { problem, class: className = '' }: Props = $props();
+  let { problem, ondismiss, onrestore, dismissedAt, class: className = '' }: Props = $props();
 
   interface Target {
     href: string;
@@ -53,7 +60,7 @@
   const link = $derived(target(problem));
 </script>
 
-<li class="problem {className}" data-severity={status.key}>
+<li class="problem {className}" class:dimmed={!!onrestore} data-severity={status.key}>
   <span class="shape"><StatusDot {status} /></span>
   <div class="body">
     <p class="title">{problem.title}</p>
@@ -70,9 +77,29 @@
       <code>{problem.code}</code>
       {#if problem.setting}<code>{problem.setting}</code>{/if}
       {#if problem.since}<RelativeTime value={problem.since} prefix="since " />{/if}
+      {#if dismissedAt}<RelativeTime value={dismissedAt} prefix="dismissed " />{/if}
       {#if link}<a href={link.href}>{link.label}</a>{/if}
     </p>
   </div>
+  {#if ondismiss}
+    <span class="action">
+      <IconButton
+        icon={X}
+        label="Dismiss: {problem.title}"
+        size="sm"
+        onclick={() => ondismiss(problem)}
+      />
+    </span>
+  {:else if onrestore}
+    <span class="action">
+      <IconButton
+        icon={Undo2}
+        label="Restore: {problem.title}"
+        size="sm"
+        onclick={() => onrestore(problem)}
+      />
+    </span>
+  {/if}
 </li>
 
 <style>
@@ -94,6 +121,11 @@
   .problem[data-severity='warning'] {
     border-left-color: var(--z-pending);
   }
+  /* Something already read is still legible, but it has stopped asking. */
+  .problem.dimmed {
+    background: none;
+    opacity: 0.72;
+  }
   .shape {
     display: inline-flex;
     align-items: center;
@@ -101,7 +133,14 @@
     flex: none;
   }
   .body {
+    flex: 1;
     min-width: 0;
+  }
+  /* The dismiss control is the operator's, not the fault's: it sits out of the
+     reading order of the four sentences and never competes with the fix. */
+  .action {
+    flex: none;
+    margin-top: calc(var(--z-space-1) * -1);
   }
   .title {
     margin: 0;

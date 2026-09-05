@@ -25,7 +25,7 @@ const (
 )
 
 // Finding is one validation result, phrased so that it can be printed to a
-// terminal and rendered in the UI's problems panel without rewording.
+// terminal and rendered in the UI's problems drawer without rewording.
 type Finding struct {
 	// Code is a stable identifier, e.g. "bind.public_no_tls".
 	Code     string   `json:"code"`
@@ -77,7 +77,7 @@ func (fs Findings) bySeverity(s Severity) Findings {
 // nginx, Caddy -- which is the arrangement its own fix recommends and by far
 // the most common way Zoomies is run. The controller cannot see that proxy
 // from behind it, so the warning sat permanently on the Overview of correctly
-// configured fleets, and a panel that is always amber is a panel nobody reads.
+// configured fleets, and a count that is always amber is a count nobody reads.
 //
 // It is not dropped: `zoomies config check` and the startup banner still print
 // it, where it is read once by the person doing the deploying rather than
@@ -88,7 +88,7 @@ var uiHidden = map[string]bool{
 
 // ForUI drops the findings the web UI does not surface, leaving the CLI's own
 // output alone. It returns an empty, non-nil slice when nothing is left, which
-// is what the problems panel renders "nothing needs your attention" from.
+// is what the problems drawer renders "nothing needs your attention" from.
 func (fs Findings) ForUI() Findings {
 	out := make(Findings, 0, len(fs))
 	for _, f := range fs {

@@ -76,7 +76,7 @@ func TestSeedDemoBuildsAFleet(t *testing.T) {
 			completed, queued, running)
 	}
 	if unmatched == 0 {
-		t.Fatal("no seeded job is unmatched, so the problems panel has nothing to show")
+		t.Fatal("no seeded job is unmatched, so the problems drawer has nothing to show")
 	}
 
 	// The Overview's history and the audit page both need rows.

@@ -138,7 +138,7 @@ func (v *poolView) response(p *store.Pool) poolResponse {
 
 // poolWarnings renders a pool's dangerous settings as problems.
 //
-// They are the same sentences the Overview's problems panel shows, because an
+// They are the same sentences the UI's problems drawer shows, because an
 // operator should not have to learn that "host-socket" on the pool page and
 // "any job on this pool can become root on the host" on the Overview are the
 // same fact.

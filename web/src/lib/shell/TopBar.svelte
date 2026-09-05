@@ -5,6 +5,10 @@
   The connection state is never silent. A quiet dot when live; the word
   "Reconnecting" when not. An operator must never be looking at a frozen screen
   that claims to be live.
+
+  The problems bell is here for the same reason: whatever page an operator is
+  on, the count of things that need them is on screen, and the list is one click
+  away rather than only on the Overview.
 -->
 <script lang="ts">
   import { Keyboard, LogOut, Monitor, Moon, Search, Sun, User } from '@lucide/svelte';
@@ -14,6 +18,7 @@
   import { session } from '../state/session.svelte';
   import { theme } from '../state/theme.svelte';
   import { toasts } from '../state/toasts.svelte';
+  import ProblemsBell from '../problems/ProblemsBell.svelte';
   import DropdownMenu from '../components/DropdownMenu.svelte';
   import IconButton from '../components/IconButton.svelte';
   import Logo from '../components/Logo.svelte';
@@ -109,6 +114,8 @@
       <span class="connection-text" class:sr-only={connection === 'live'}>{connectionText}</span>
     </p>
     <output class="sr-only" aria-live="polite">Connection: {connectionText}</output>
+
+    <ProblemsBell />
 
     <button type="button" class="palette-hint" onclick={onpalette}>
       <Search size={13} aria-hidden="true" />

@@ -157,7 +157,7 @@ func (s *Server) handleOpenAPI(w http.ResponseWriter, r *http.Request) {
 // names appear in the label set and an unauthenticated /metrics publishes the
 // shape of somebody's engineering organisation. metrics.public turns the check
 // off for a Prometheus that cannot hold a token; the configuration validator
-// warns about it, and so does the problems panel.
+// warns about it, and so does the problems drawer.
 func (s *Server) metricsHandler() http.Handler {
 	h := promhttp.HandlerFor(s.ctrl.Registry(), promhttp.HandlerOpts{
 		ErrorLog:          promLogger{s.log},

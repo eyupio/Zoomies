@@ -103,14 +103,14 @@ type PoolPlan struct {
 	// Blocked is set when this pool needed runners and the fleet had nowhere to
 	// put them: no host offers its backend, matches its host selector, or has
 	// room left. It holds the sentence naming which, and it is what the
-	// problems panel reports -- a pool in this state looks completely healthy
+	// problems drawer reports -- a pool in this state looks completely healthy
 	// while its jobs queue forever, so it has to be said out loud somewhere.
 	//
 	// It stays empty when the shortfall was only this tick's create budget,
 	// which the next pass clears on its own and which no operator can act on.
 	Blocked string `json:"blocked,omitempty"`
 	// BlockedFix is what to change to unblock it, kept apart from Blocked
-	// because the problems panel shows the two differently.
+	// because the problems drawer shows the two differently.
 	BlockedFix string `json:"blocked_fix,omitempty"`
 	// BlockedAtCapacity distinguishes a fleet that is merely full -- every host
 	// could run this pool and all of them are busy, which the next finished job
@@ -121,7 +121,7 @@ type PoolPlan struct {
 	// already offer. "Point this pool at a backend they already offer" is half
 	// the fix for a pool blocked on its backend, and an operator cannot act on
 	// it without being told which backend that is -- so the answer travels with
-	// the reason, to the problems panel, the pool page and the CLI.
+	// the reason, to the problems drawer, the pool page and the CLI.
 	BlockedAlternatives []string `json:"blocked_alternatives,omitempty"`
 	Actions             []Action `json:"actions,omitempty"`
 }
@@ -443,7 +443,7 @@ type blockage struct {
 
 // why explains why no host could take a runner for p, naming the counts an
 // operator can act on. It is split into what is true and what to change,
-// because the problems panel shows those as two different things; sentence
+// because the problems drawer shows those as two different things; sentence
 // joins them for the one-line scaling reason.
 func (hs *hostSet) why(p *store.Pool) blockage {
 	if len(hs.hosts) == 0 {
@@ -551,7 +551,7 @@ func (hs *hostSet) otherBackends(p *store.Pool) []string {
 // switchTo turns the alternatives into the second half of the fix, or into an
 // honest full stop when there is no second half: a fleet that offers nothing
 // else needs a daemon fixed, and saying "or use another backend" to an operator
-// who has none is how a problems panel stops being believed.
+// who has none is how a problems drawer stops being believed.
 func (hs *hostSet) switchTo(p *store.Pool, alternatives []string) string {
 	switch len(alternatives) {
 	case 0:
