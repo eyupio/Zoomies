@@ -10,9 +10,9 @@ require (
 	github.com/go-chi/chi/v5 v5.3.2
 	github.com/google/go-github/v88 v88.0.0
 	github.com/prometheus/client_golang v1.24.1
-	golang.org/x/crypto v0.56.0
+	golang.org/x/crypto v0.48.0
 	golang.org/x/oauth2 v0.36.0
-	golang.org/x/term v0.45.0
+	golang.org/x/term v0.40.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.58.0
 )
