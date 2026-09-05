@@ -428,7 +428,10 @@ func cacheSource(spec Spec) (string, error) {
 	key := spec.PoolID
 	if c.Scope == store.CacheScopeRepository {
 		if !strings.Contains(spec.Repository, "/") {
-			return "", fmt.Errorf("backend: repository cache scope requires a repository-targeted installation")
+			// An organisation-registered runner can be given any repository's
+			// job, so there is no repository to key the cache on that would
+			// hold for the job it ends up running.
+			return "", fmt.Errorf("backend: repository cache scope needs a repository-targeted installation; this runner is registered to %q, which is not one", spec.Repository)
 		}
 		key += "-" + spec.Repository
 	}

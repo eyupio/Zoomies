@@ -115,6 +115,13 @@ Conventions:
 | GET | `/api/v1/jobs/{id}` | viewer | |
 | GET | `/api/v1/jobs/facets` | viewer | Distinct repos, workflows and conclusions, for the filter menus. |
 
+## Usage
+
+| Method | Path | Role | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/usage` | viewer | Aggregates over a bounded `from`/`to` range of at most 366 days, grouped by `group_by`: `pool` (the default), `installation`, `repository` or `workflow`. Jobs and their queue wait belong to the interval they were queued in, so adjacent ranges add up; execution seconds and peak concurrency are clipped to the interval. The average wait is over the jobs that reached a runner — jobs still waiting count as jobs but not as zero-second waits. Runner-hours and cost appear for pools and installations only, because idle runner time belongs to no one repository or workflow; the other groupings omit them rather than print zero. Costs are estimates from administrator-set pool rates — Zoomies embeds no prices. |
+| GET | `/api/v1/usage.csv` | viewer | The same rows as a `text/csv` download, with the omitted figures left as empty cells. |
+
 ## Hosts and agents
 
 | Method | Path | Role | Notes |

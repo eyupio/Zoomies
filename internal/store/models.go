@@ -389,10 +389,19 @@ func (s CacheScope) Valid() bool { return s == CacheScopePool || s == CacheScope
 // It is not persistent workflow storage and may be evicted. Source is either an
 // absolute host directory prefix or a named-volume prefix.
 type CacheConfig struct {
-	Enabled   bool       `json:"enabled"`
-	Scope     CacheScope `json:"scope"`
-	SizeLimit int64      `json:"size_limit,omitempty"` // approximate bytes; zero is unlimited
-	Source    string     `json:"source,omitempty"`
+	Enabled bool `json:"enabled"`
+	// Scope is the isolation boundary. Repository scope is only offered on a
+	// repository-targeted installation: a runner registered to an organisation
+	// can be handed any repository's job, so a cache keyed to the repository
+	// whose job prompted the scale-up could be mounted into another
+	// repository's job -- the very sharing the scope exists to prevent.
+	Scope CacheScope `json:"scope"`
+	// SizeLimit is advisory. It is recorded as a label on the runner for
+	// operators and tooling to read, but nothing measures the cache or evicts
+	// against it; the host's disk remains the operator's to watch. Zero means
+	// no figure was given.
+	SizeLimit int64  `json:"size_limit,omitempty"`
+	Source    string `json:"source,omitempty"`
 }
 
 // Pool is a named group of interchangeable runners: what labels they answer to,

@@ -18,11 +18,28 @@ const (
 )
 
 // UsageRow is one aggregate over a bounded half-open [from,to) interval.
+//
+// Two of its measures are clipped to the interval and two belong to it whole,
+// and the difference is what keeps adjacent reports additive. Execution
+// seconds and peak concurrency count only the part of a job that fell inside
+// the interval, so a job spanning midnight is split between the two days.
+// Jobs and their queue wait are attributed, whole, to the interval the job
+// was queued in, so that same job is one job on one day rather than one on
+// each.
 type UsageRow struct {
-	Key                     string   `json:"key"`
-	JobExecutionSeconds     float64  `json:"job_execution_seconds"`
-	AllocatedRunnerSeconds  float64  `json:"allocated_runner_seconds"`
-	Jobs                    int      `json:"jobs"`
+	Key                 string  `json:"key"`
+	JobExecutionSeconds float64 `json:"job_execution_seconds"`
+	// AllocatedRunnerSeconds is runner lifetime inside the interval, idle time
+	// included. It is nil for the repository and workflow groupings: a runner's
+	// idle time belongs to no single repository or workflow, and a zero there
+	// would read as "used no capacity" rather than "cannot be known".
+	AllocatedRunnerSeconds *float64 `json:"allocated_runner_seconds,omitempty"`
+	// Jobs is how many jobs were queued inside the interval, whatever became
+	// of them afterwards.
+	Jobs int `json:"jobs"`
+	// AverageQueueWaitSeconds is the mean wait of the counted jobs that reached
+	// a runner. Jobs still waiting are left out rather than counted as zero,
+	// which would make an incident look calmer the worse it got.
 	AverageQueueWaitSeconds float64  `json:"average_queue_wait_seconds"`
 	PeakConcurrency         int      `json:"peak_concurrency"`
 	EstimatedCost           *float64 `json:"estimated_cost,omitempty"`
@@ -52,11 +69,15 @@ func (s *Store) Usage(ctx context.Context, from, to time.Time, group UsageGroup)
 		delta int
 	}
 	type acc struct {
-		row    UsageRow
-		wait   float64
-		events []event
+		row     UsageRow
+		wait    float64
+		started int
+		events  []event
 	}
 	a := map[string]*acc{}
+	// Every job that overlaps the interval is needed for the clipped measures;
+	// the whole-job measures then take the subset queued inside it, which the
+	// overlap already contains.
 	rows, err := s.read.QueryContext(ctx, `SELECT `+expr+`, j.queued_at, j.started_at, j.completed_at
 		FROM jobs j LEFT JOIN pools p ON p.id=j.pool_id
 		WHERE j.queued_at < ? AND COALESCE(j.completed_at, ?) >= ?`, ms(to), ms(to), ms(from))
@@ -76,9 +97,12 @@ func (s *Store) Usage(ctx context.Context, from, to time.Time, group UsageGroup)
 			x = &acc{row: UsageRow{Key: key}}
 			a[key] = x
 		}
-		x.row.Jobs++
-		if st != nil {
-			x.wait += float64(max64(0, *st-q)) / 1000
+		if q >= ms(from) && q < ms(to) {
+			x.row.Jobs++
+			if st != nil {
+				x.started++
+				x.wait += float64(max64(0, *st-q)) / 1000
+			}
 		}
 		if st != nil && done != nil {
 			lo, hi := max64(*st, ms(from)), min64(*done, ms(to))
@@ -92,8 +116,10 @@ func (s *Store) Usage(ctx context.Context, from, to time.Time, group UsageGroup)
 		return nil, err
 	}
 	// Runner allocation belongs naturally to pools/installations. Repository and
-	// workflow allocation cannot be attributed while a runner is idle.
-	if group == UsageByPool || group == UsageByInstallation {
+	// workflow allocation cannot be attributed while a runner is idle, so those
+	// groupings leave the field out altogether rather than report a zero.
+	attributable := group == UsageByPool || group == UsageByInstallation
+	if attributable {
 		rExpr := "r.pool_id"
 		if group == UsageByInstallation {
 			rExpr = "p.installation_id"
@@ -119,7 +145,10 @@ func (s *Store) Usage(ctx context.Context, from, to time.Time, group UsageGroup)
 			if secs < 0 {
 				secs = 0
 			}
-			x.row.AllocatedRunnerSeconds += secs
+			if x.row.AllocatedRunnerSeconds == nil {
+				x.row.AllocatedRunnerSeconds = new(float64)
+			}
+			*x.row.AllocatedRunnerSeconds += secs
 			if cost != nil {
 				if x.row.EstimatedCost == nil {
 					x.row.EstimatedCost = new(float64)
@@ -133,8 +162,12 @@ func (s *Store) Usage(ctx context.Context, from, to time.Time, group UsageGroup)
 	}
 	out := make([]UsageRow, 0, len(a))
 	for _, x := range a {
-		if x.row.Jobs > 0 {
-			x.row.AverageQueueWaitSeconds = x.wait / float64(x.row.Jobs)
+		if attributable && x.row.AllocatedRunnerSeconds == nil {
+			// Known to be zero, which is different from unknowable.
+			x.row.AllocatedRunnerSeconds = new(float64)
+		}
+		if x.started > 0 {
+			x.row.AverageQueueWaitSeconds = x.wait / float64(x.started)
 		}
 		sort.Slice(x.events, func(i, j int) bool {
 			if x.events[i].at == x.events[j].at {

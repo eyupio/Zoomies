@@ -304,14 +304,14 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 			add("cache.scope", "use pool or repository")
 		}
 		if p.Cache.SizeLimit < 0 {
-			add("cache.size_limit", "the approximate cache size limit cannot be negative")
+			add("cache.size_limit", "the advisory cache size cannot be negative; use 0 to give no figure")
 		}
 		if strings.Contains(p.Cache.Source, "..") {
 			add("cache.source", "path traversal is not allowed")
 		}
 		if p.Cache.Scope == store.CacheScopeRepository {
 			if inst, err := s.ctrl.Store().GetInstallation(ctx, p.InstallationID); err == nil && inst.TargetType != store.TargetRepo {
-				add("cache.scope", "repository scope requires a repository-targeted installation; pool scope never shares across pools")
+				add("cache.scope", "repository scope needs a repository-targeted installation: a runner registered to an organisation can be given any repository's job, so a repository cache would be shared between repositories; use pool scope, or install the App on the repository itself")
 			}
 		}
 	}

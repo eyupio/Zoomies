@@ -415,6 +415,7 @@ the CLI or the API. These are their fields:
 | `ephemeral` | One job per runner. Leave it on. |
 | `docker_mode` | `none`, `dind`, or `host-socket`. Needs an image with a Docker client — see [below](#jobs-that-build-container-images) and [security.md](security.md). |
 | `resources` | `cpus`, `memory_mb`, `pids_limit` per runner. |
+| `cache` | An optional disposable build cache shared between jobs. Off. See [below](#the-performance-cache). |
 | `host_selector` | Restricts the pool to matching hosts. |
 | `env` | Injected into every runner. |
 | `run_as_root` | Off. Turning it on is warned about. |
@@ -475,6 +476,32 @@ runner's `PATH`.
 On a `host-socket` pool Zoomies also adds the group that owns the host's
 `docker.sock` to the runner container, because the runner is not root inside it
 and a socket it cannot open is the same failure with a different message.
+
+### The performance cache
+
+A pool can mount a disposable cache at `/opt/zoomies-cache` in every runner it
+creates, so a job can reuse the dependencies and build outputs the jobs before
+it downloaded. It is build acceleration, not workflow storage: nothing in it is
+promised to survive, and an operator may empty it at any time.
+
+| Field | Meaning |
+| --- | --- |
+| `cache.enabled` | Off by default; ephemeral runners share nothing unless this is on. |
+| `cache.scope` | `pool` shares one cache among every job the pool runs. `repository` keeps one per repository, and is only offered on a repository-targeted installation — see below. |
+| `cache.size_limit` | Advisory. Zoomies records it on each runner for operators and tooling to read, but nothing measures the cache or evicts against it, so the host's disk stays yours to watch. `0` gives no figure. |
+| `cache.source` | Where it lives: an absolute host directory, or a name prefix for a volume on the container backends. Volumes named `zoomies-cache-…` by default. |
+
+Repository scope needs a repository-targeted installation because of how
+GitHub hands out work. A runner registered to an organisation can be given any
+repository's job that matches its labels, and Zoomies has no say in which. A
+cache keyed to the repository whose job prompted the scale-up could therefore
+be mounted into another repository's job — exactly the sharing the scope
+exists to prevent. Install the App on the repository itself, or use pool scope
+and treat the pool as the trust boundary.
+
+Turning the cache on is a deliberate step away from the clean-slate default:
+what one job leaves in it, the next job in the same scope can read, so keep
+the scope as narrow as the workload allows.
 
 ### How a job finds a pool
 

@@ -71,11 +71,16 @@ func (s *Server) handleUsageCSV(w http.ResponseWriter, r *http.Request) {
 	c := csv.NewWriter(w)
 	_ = c.Write([]string{"group", "job_execution_seconds", "allocated_runner_seconds", "jobs", "average_queue_wait_seconds", "peak_concurrency", "estimated_cost"})
 	for _, x := range rows {
-		cost := ""
+		// Empty rather than zero where the grouping cannot attribute runner
+		// time, for the same reason the JSON omits it.
+		allocated, cost := "", ""
+		if x.AllocatedRunnerSeconds != nil {
+			allocated = fmt.Sprint(*x.AllocatedRunnerSeconds)
+		}
 		if x.EstimatedCost != nil {
 			cost = strconv.FormatFloat(*x.EstimatedCost, 'f', 2, 64)
 		}
-		_ = c.Write([]string{x.Key, fmt.Sprint(x.JobExecutionSeconds), fmt.Sprint(x.AllocatedRunnerSeconds), strconv.Itoa(x.Jobs), fmt.Sprint(x.AverageQueueWaitSeconds), strconv.Itoa(x.PeakConcurrency), cost})
+		_ = c.Write([]string{x.Key, fmt.Sprint(x.JobExecutionSeconds), allocated, strconv.Itoa(x.Jobs), fmt.Sprint(x.AverageQueueWaitSeconds), strconv.Itoa(x.PeakConcurrency), cost})
 	}
 	c.Flush()
 }

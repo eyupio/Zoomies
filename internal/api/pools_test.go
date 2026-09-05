@@ -158,6 +158,16 @@ func TestPoolValidationNamesTheField(t *testing.T) {
 		{"bad duration", func(b map[string]any) { b["idle_timeout"] = "5 munutes" }, "idle_timeout", "5m"},
 		{"unknown installation", func(b map[string]any) { b["installation_id"] = "ins_nope" }, "installation_id", "no installation"},
 		{"docker on the process backend", func(b map[string]any) { b["backend"] = "process"; b["docker_mode"] = "dind" }, "docker_mode", "process backend"},
+		// The harness's installation targets an organisation, whose runners
+		// can be handed any repository's job; the message has to say that,
+		// because "requires a repository-targeted installation" alone reads
+		// as an arbitrary rule.
+		{"repository cache on an organisation installation", func(b map[string]any) {
+			b["cache"] = map[string]any{"enabled": true, "scope": "repository"}
+		}, "cache.scope", "any repository's job"},
+		{"negative cache size", func(b map[string]any) {
+			b["cache"] = map[string]any{"enabled": true, "scope": "pool", "size_limit": -1}
+		}, "cache.size_limit", "advisory"},
 	}
 
 	for _, tc := range cases {

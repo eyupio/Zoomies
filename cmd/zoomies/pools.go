@@ -235,8 +235,8 @@ func registerPoolFlags(fs *flagSet) *poolSpec {
 	spec.memoryMB = fs.Int64("memory-mb", 0, "memory limit per runner, in MiB")
 	spec.diskGB = fs.Int64("disk-gb", 0, "disk limit per runner, in GiB")
 	spec.cacheEnabled = fs.Bool("cache", false, "mount a disposable performance cache (not workflow storage)")
-	spec.cacheScope = fs.String("cache-scope", "pool", "cache isolation: pool or repository")
-	spec.cacheSize = fs.Int64("cache-size", 0, "approximate cache limit in bytes (0 is unlimited)")
+	spec.cacheScope = fs.String("cache-scope", "pool", "cache isolation: pool, or repository on a repository-targeted installation")
+	spec.cacheSize = fs.Int64("cache-size", 0, "advisory cache size in bytes, recorded but not enforced (0 gives no figure)")
 	spec.cacheSource = fs.String("cache-source", "", "absolute host path or named-volume prefix")
 	return spec
 }

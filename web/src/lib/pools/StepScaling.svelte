@@ -170,7 +170,8 @@
   <legend>Performance cache</legend>
   <p class="hint">
     Mounted at <code>/opt/zoomies-cache</code>. This is disposable build acceleration, not
-    persistent workflow storage.
+    persistent workflow storage. The size limit is advisory: Zoomies records it on each runner but
+    nothing measures the cache or evicts on its behalf, so the host's disk stays yours to watch.
   </p>
   <Checkbox
     bind:checked={draft.cache_enabled}
@@ -189,7 +190,7 @@
             ></select
           >{/snippet}
       </Field>
-      <Field label="Approximate limit (bytes)" error={errors['cache.size_limit']}>
+      <Field label="Advisory size (bytes)" error={errors['cache.size_limit']}>
         {#snippet children({ id, describedBy, invalid })}<Input
             bind:value={draft.cache_size_limit}
             {id}

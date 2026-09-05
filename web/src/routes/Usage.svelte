@@ -5,7 +5,12 @@
   type Row = {
     key: string;
     job_execution_seconds: number;
-    allocated_runner_seconds: number;
+    /**
+     * Absent when grouping by repository or workflow: a runner's idle time
+     * belongs to neither, and the API leaves the figure out rather than say
+     * zero.
+     */
+    allocated_runner_seconds?: number;
     jobs: number;
     average_queue_wait_seconds: number;
     peak_concurrency: number;
@@ -15,6 +20,10 @@
   let error = $state('');
   let loading = $state(true);
   let group = $state('pool');
+  // The grouping the rows on screen came from, which is not the select's value
+  // once the operator has changed it and not yet applied.
+  let shownGroup = $state('pool');
+  const attributable = $derived(shownGroup === 'pool' || shownGroup === 'installation');
   const now = new Date(),
     monthAgo = new Date(now.getTime() - 30 * 86400000);
   let from = $state(monthAgo.toISOString().slice(0, 10)),
@@ -32,12 +41,23 @@
       const r = await fetch('/api/v1/usage?' + params());
       if (!r.ok) throw new Error((await r.json()).error?.message ?? 'Could not load usage');
       items = (await r.json()).items;
+      shownGroup = group;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
       loading = false;
     }
   }
+  const hours = (row: Row) =>
+    row.allocated_runner_seconds === undefined
+      ? 'Not attributable'
+      : (row.allocated_runner_seconds / 3600).toFixed(2);
+  const cost = (row: Row) =>
+    row.allocated_runner_seconds === undefined
+      ? 'Not attributable'
+      : row.estimated_cost === undefined
+        ? 'Not configured'
+        : row.estimated_cost.toFixed(2);
   onMount(load);
 </script>
 
@@ -65,25 +85,24 @@
   embed cloud prices.
 </p>
 {#if loading}<p>Loading usage…</p>{:else if error}<p role="alert">{error}</p>{:else}
+  {#if !attributable}
+    <p class="note">
+      Runner-hours and cost are shown for pools and installations only. A runner's idle time belongs
+      to no single {shownGroup}, so they are not attributed here rather than shown as zero.
+    </p>
+  {/if}
   <div class="table">
     <table>
       <thead
         ><tr
-          ><th>{group}</th><th>Runner-hours</th><th>Jobs</th><th>Average queue wait</th><th
-            >Peak concurrency</th
-          ><th>Estimated cost</th></tr
+          ><th>{shownGroup}</th><th>Runner-hours</th><th>Jobs queued</th><th>Average queue wait</th
+          ><th>Peak concurrency</th><th>Estimated cost</th></tr
         ></thead
       ><tbody>
         {#each items as row (row.key)}<tr
-            ><td>{row.key || 'Unknown'}</td><td
-              >{(row.allocated_runner_seconds / 3600).toFixed(2)}</td
-            ><td>{row.jobs}</td><td>{row.average_queue_wait_seconds.toFixed(1)}s</td><td
-              >{row.peak_concurrency}</td
-            ><td
-              >{row.estimated_cost === undefined
-                ? 'Not configured'
-                : row.estimated_cost.toFixed(2)}</td
-            ></tr
+            ><td>{row.key || 'Unknown'}</td><td>{hours(row)}</td><td>{row.jobs}</td><td
+              >{row.average_queue_wait_seconds.toFixed(1)}s</td
+            ><td>{row.peak_concurrency}</td><td>{cost(row)}</td></tr
           >{/each}
       </tbody>
     </table>

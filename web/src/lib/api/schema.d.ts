@@ -1516,12 +1516,17 @@ export interface components {
             costs_are_estimates: true;
             items: {
                 key: string;
+                /** @description Job running time that fell inside the interval. */
                 job_execution_seconds: number;
-                allocated_runner_seconds: number;
+                /** @description Runner lifetime inside the interval, idle time included. Present for the pool and installation groupings only: a runner's idle time belongs to no single repository or workflow, so those groupings omit the figure rather than report a zero that would read as "used no capacity". */
+                allocated_runner_seconds?: number;
+                /** @description Jobs queued inside the interval, whatever became of them afterwards. */
                 jobs: number;
+                /** @description Mean wait of the counted jobs that reached a runner. Jobs still waiting are left out rather than counted as zero, so a backed-up queue does not make the average fall. */
                 average_queue_wait_seconds: number;
+                /** @description The most of this group's jobs running at once inside the interval. */
                 peak_concurrency: number;
-                /** @description Estimate from administrator-assigned pool rates; omitted when no rate exists. */
+                /** @description Estimate from administrator-assigned pool rates. Omitted when no rate exists, and wherever allocated_runner_seconds is omitted. */
                 estimated_cost?: number;
             }[];
         };
@@ -1596,14 +1601,14 @@ export interface components {
             /** @default false */
             enabled: boolean;
             /**
-             * @description Repository scope requires a repository-targeted installation.
+             * @description Repository scope needs a repository-targeted installation. A runner registered to an organisation can be given any repository's job, so a cache keyed to one repository would end up mounted into another's job.
              * @default pool
              * @enum {string}
              */
             scope: "pool" | "repository";
             /**
              * Format: int64
-             * @description Approximate maximum bytes; zero is unlimited.
+             * @description Advisory. Zoomies records it as a label on each runner for operators and tooling to read, but nothing measures the cache or evicts against it, so the host's disk remains the operator's to watch. Zero gives no figure.
              */
             size_limit?: number;
             /** @description Optional absolute host directory or safe named-volume prefix. */
