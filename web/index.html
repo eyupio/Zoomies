@@ -6,9 +6,50 @@
     <meta name="color-scheme" content="light dark" />
     <meta
       name="description"
-      content="Zoomies -- self-hosted GitHub Actions runner fleet controller"
+      content="Zoomies -- self-hosted GitHub Actions runner fleet controller. Ephemeral runners by default, GitHub App auth, webhook-driven autoscaling, a single Go binary and SQLite."
     />
     <title>Zoomies</title>
+
+    <!--
+      Sharing and discovery.
+
+      A controller is usually private, so this is not about search rankings: it
+      is about what an operator's colleagues see when the address gets pasted
+      into a chat window, and about the fact that most people meet Zoomies for
+      the first time on somebody else's screen. Every one of these tags names
+      the project and links back to the site that explains it.
+
+      __ZOOMIES_ORIGIN__ is replaced by server.external_url when the controller
+      starts. A scraper cannot resolve a relative address against a page it
+      fetched over a private link, so an instance that has been told its own
+      address gets absolute URLs and one that has not gets relative ones, which
+      is the best either case can do.
+    -->
+    <meta name="application-name" content="Zoomies" />
+    <meta name="author" content="Zoomies contributors" />
+    <meta name="generator" content="Zoomies -- https://zoomies.sh" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Zoomies" />
+    <meta property="og:title" content="Zoomies -- self-hosted Git runners" />
+    <meta
+      property="og:description"
+      content="A GitHub Actions runner fleet controller you host yourself. Ephemeral runners by default, webhook-driven autoscaling, a single Go binary and SQLite."
+    />
+    <meta property="og:url" content="__ZOOMIES_ORIGIN__/" />
+    <meta property="og:image" content="__ZOOMIES_ORIGIN__/brand/social-card.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="The Zoomies logo: a cocker spaniel curling through a circular motion path"
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Zoomies -- self-hosted Git runners" />
+    <meta
+      name="twitter:description"
+      content="A GitHub Actions runner fleet controller you host yourself. Single Go binary, SQLite, no Kubernetes."
+    />
+    <meta name="twitter:image" content="__ZOOMIES_ORIGIN__/brand/social-card.png" />
 
     <!-- The paw/swish is the official favicon-scale mark. Larger installed-app
          icons keep the primary circular dog identity. -->

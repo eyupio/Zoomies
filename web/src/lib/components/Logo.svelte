@@ -3,7 +3,8 @@
 
   The v2.1 hierarchy is deliberate:
 
-  * lockup is the unchanged primary full logo, never below 220px wide;
+  * lockup is the unchanged primary full logo, never below 220px wide, and
+    given real room on the screens where it is the only thing on the page;
   * mark at 48px and above is the secondary head/swish;
   * mark below 48px is the paw/swish, the official smallest-size shorthand.
 
@@ -74,11 +75,24 @@
     color: var(--z-text);
     line-height: 0;
   }
+  /*
+    The frame is square and capped at the container rather than fixed, so asking
+    for a bigger lockup on a sign-in card cannot push the card wider than the
+    phone it is being read on. The artwork keeps its supplied padding -- the
+    brand guide forbids cropping it -- so the frame is deliberately larger than
+    the dog inside it.
+  */
+  .logo.lockup {
+    display: flex;
+    width: 100%;
+    justify-content: center;
+  }
   .lockup-frame {
     display: grid;
-    width: var(--lockup-width);
-    height: var(--lockup-width);
+    width: min(100%, var(--lockup-width));
+    aspect-ratio: 1;
     place-items: center;
+    border-radius: var(--z-radius-lg);
     background: var(--z-brand-black);
   }
   .chip {

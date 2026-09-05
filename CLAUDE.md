@@ -207,5 +207,6 @@ web/                the Svelte 5 UI
 api/openapi.yaml    the API contract both clients are generated from
 deploy/             images, compose, systemd units
 docs/               the zoomies.sh site, built by mkdocs.yml
+overrides/          the site's theme overrides: sharing tags and structured data
 install.sh          the one-line installer, served from the site root
 ```

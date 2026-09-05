@@ -112,7 +112,7 @@
 
 <div class="card">
   <div class="brand">
-    <Logo variant="lockup" size={72} label="" />
+    <Logo variant="lockup" size={96} label="" />
   </div>
   <h1>Create the first administrator</h1>
   <p class="lede">

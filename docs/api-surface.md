@@ -60,12 +60,12 @@ Conventions:
 
 | Method | Path | Role | Notes |
 | --- | --- | --- | --- |
-| GET | `/api/v1/installations` | viewer | Never includes key material. |
+| GET | `/api/v1/installations` | viewer | Never includes key material. Carries `settings_url`, the App's own page on GitHub, once its slug is known. |
 | POST | `/api/v1/installations` | admin | `{app_id, installation_id, target, target_type, api_base_url, private_key, webhook_secret}`. The key is sealed before it touches the database. |
 | GET | `/api/v1/installations/{id}` | viewer | |
 | PATCH | `/api/v1/installations/{id}` | admin | |
 | DELETE | `/api/v1/installations/{id}` | admin | Cascades to pools; the response says how many. |
-| POST | `/api/v1/installations/{id}/verify` | operator | Probes credentials and permissions. On 403 the message names the missing permission. |
+| POST | `/api/v1/installations/{id}/verify` | operator | Probes credentials and permissions. On 403 the message names the missing permission. Records the App's slug, which is how a hand-added installation learns it. |
 | GET | `/api/v1/installations/{id}/runner-groups` | viewer | Populates the pool wizard. |
 | GET | `/api/v1/installations/{id}/rate-limit` | viewer | Remaining GitHub API quota. |
 | POST | `/api/v1/installations/manifest` | admin | Builds the GitHub App manifest and returns the URL to POST it to. |

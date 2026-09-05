@@ -147,6 +147,21 @@ func (s *Store) SetInstallationHealth(ctx context.Context, id string, errMsg str
 	return err
 }
 
+// SetInstallationAppSlug records the App's slug, which is learned from GitHub
+// rather than supplied.
+//
+// An installation added by hand carries an App ID and nothing else -- the slug
+// is not on the form, because an operator reading it off a settings page is one
+// more thing to mistype. The first credential probe knows it, and it is what
+// every link to the App on GitHub is built from, including the page where its
+// avatar is uploaded. The write is skipped when nothing changed so a probe on a
+// healthy installation does not bump updated_at every minute.
+func (s *Store) SetInstallationAppSlug(ctx context.Context, id, slug string) error {
+	_, err := s.exec(ctx, `UPDATE installations SET app_slug=?, updated_at=? WHERE id=? AND app_slug<>?`,
+		slug, ms(s.Now()), id, slug)
+	return err
+}
+
 // DeleteInstallation removes an installation and, by cascade, its pools.
 func (s *Store) DeleteInstallation(ctx context.Context, id string) error {
 	res, err := s.exec(ctx, `DELETE FROM installations WHERE id = ?`, id)

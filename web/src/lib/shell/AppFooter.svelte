@@ -11,9 +11,15 @@
 
   It stays a hairline. This is an operations dashboard, and nothing down here
   may compete with the fleet above it.
+
+  The descriptor is also the one outbound link in the signed-in shell. Somebody
+  reading this page is looking at a controller their colleague installed, and a
+  hairline link to the project is how they find out what it is and how to run
+  their own -- see docs/brand.md.
 -->
 <script lang="ts">
   import { session } from '../state/session.svelte';
+  import { SITE_URL } from '../links';
   import Logo from '../components/Logo.svelte';
 
   const version = $derived(session.meta?.version);
@@ -28,7 +34,15 @@
         <span class="version" title="The controller build this page is talking to">{version}</span>
       {/if}
     </span>
-    <span class="descriptor">Self-hosted Git runners</span>
+    <a
+      class="descriptor"
+      href={SITE_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      title="Zoomies is open source. This is the project it comes from."
+    >
+      Self-hosted Git runners
+    </a>
   </div>
 </footer>
 
@@ -72,6 +86,13 @@
     flex: none;
     letter-spacing: 0.08em;
     text-transform: uppercase;
+    color: inherit;
+    text-decoration: none;
+  }
+  .descriptor:hover,
+  .descriptor:focus-visible {
+    color: var(--z-text-muted);
+    text-decoration: underline;
   }
   @media (max-width: 768px) {
     .inner {

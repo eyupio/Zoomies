@@ -1,0 +1,73 @@
+{#
+  Sharing and search metadata for zoomies.sh.
+
+  Material's own social plugin is not used: it renders a card image per page
+  with Cairo and Pillow, which would put two native libraries into the docs
+  build for a picture the brand pack already supplies. These blocks are the part
+  that matters -- a title, a description and one card image, absolute, on every
+  page -- and they cost nothing.
+
+  Everything here is derived from the page rather than written twice: the
+  description falls back to site_description, and the canonical URL is the one
+  MkDocs already computes.
+#}
+{% extends "base.html" %}
+
+{% block extrahead %}
+  {% set title = config.site_name %}
+  {% if page and page.title and not page.is_homepage %}
+    {% set title = page.title ~ " -- " ~ config.site_name %}
+  {% endif %}
+  {% set description = config.site_description %}
+  {% if page and page.meta and page.meta.description %}
+    {% set description = page.meta.description %}
+  {% endif %}
+  {% set image = config.site_url ~ "brand/social-card.png" %}
+  {% set canonical = page.canonical_url if page else config.site_url %}
+
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="{{ config.site_name }}" />
+  <meta property="og:title" content="{{ title }}" />
+  <meta property="og:description" content="{{ description }}" />
+  <meta property="og:url" content="{{ canonical }}" />
+  <meta property="og:image" content="{{ image }}" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="The Zoomies logo: a cocker spaniel curling through a circular motion path" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="{{ title }}" />
+  <meta name="twitter:description" content="{{ description }}" />
+  <meta name="twitter:image" content="{{ image }}" />
+
+  {#
+    The structured description search engines and AI assistants read. It says
+    what Zoomies is, what it runs on and what it costs, because those are the
+    three questions someone asks before installing a runner controller.
+
+    It is on the home page only. Repeating one application's description on
+    every page of its documentation is how a site ends up with fifteen
+    competing answers to "what is this".
+  #}
+  {% if page and page.is_homepage %}
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "Zoomies",
+      "alternateName": "Zoomies runner fleet controller",
+      "applicationCategory": "DeveloperApplication",
+      "applicationSubCategory": "Continuous integration",
+      "operatingSystem": "Linux, macOS, Windows",
+      "url": "{{ config.site_url }}",
+      "downloadUrl": "{{ config.site_url }}quickstart/",
+      "codeRepository": "{{ config.repo_url }}",
+      "license": "https://opensource.org/licenses/MIT",
+      "description": "{{ config.site_description | trim }}",
+      "image": "{{ image }}",
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+      "isAccessibleForFree": true,
+      "keywords": "self-hosted GitHub Actions runner, ephemeral runners, autoscaling CI runners, GitHub Actions runner controller, self-hosted CI"
+    }
+  </script>
+  {% endif %}
+{% endblock %}

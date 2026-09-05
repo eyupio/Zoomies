@@ -12,26 +12,42 @@
   import type { Settings } from '$lib/api/types';
   import { formatNumber, pluralise } from '$lib/format';
   import { session } from '$lib/state/session.svelte';
+  import { API_SURFACE_URL, CONFIGURATION_URL, DOCS_URL, REPO_URL, SECURITY_URL } from '$lib/links';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import LoadingBoundary from '$lib/components/LoadingBoundary.svelte';
   import Logo from '$lib/components/Logo.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
 
+  /*
+    These point at the site rather than at Markdown files in the repository:
+    the site renders the same files, and it is the address worth passing on to
+    whoever asks what this thing is.
+  */
   const DOCS: { label: string; description: string; href: string }[] = [
     {
-      label: 'README',
-      description: 'What Zoomies is and how to run it.',
-      href: 'https://github.com/eyupio/zoomies#readme',
+      label: 'Documentation',
+      description: 'What Zoomies is, how to run it, and how to look after it.',
+      href: DOCS_URL,
     },
     {
       label: 'Configuration',
       description: 'Every setting, what it does and what it defaults to.',
-      href: 'https://github.com/eyupio/zoomies/blob/main/docs/configuration.md',
+      href: CONFIGURATION_URL,
+    },
+    {
+      label: 'Security',
+      description: 'What each setting costs, and what the safe defaults protect.',
+      href: SECURITY_URL,
     },
     {
       label: 'API surface',
       description: 'Every endpoint this UI and the CLI are built on.',
-      href: 'https://github.com/eyupio/zoomies/blob/main/docs/api-surface.md',
+      href: API_SURFACE_URL,
+    },
+    {
+      label: 'Source on GitHub',
+      description: 'Zoomies is MIT licensed. Read it before you run it.',
+      href: REPO_URL,
     },
     {
       label: 'This instance’s OpenAPI document',

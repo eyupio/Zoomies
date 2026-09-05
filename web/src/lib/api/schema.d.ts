@@ -1240,6 +1240,11 @@ export interface components {
             api_base_url?: string;
             app_slug?: string;
             web_url?: string;
+            /**
+             * @description The App's own settings page on GitHub, which is the only place its avatar can be uploaded. Absent when the App's slug is unknown.
+             * @example https://github.com/organizations/acme/settings/apps/zoomies-acme
+             */
+            settings_url?: string;
             enterprise?: boolean;
             healthy?: boolean;
             last_error?: string;

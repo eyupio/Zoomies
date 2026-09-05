@@ -37,6 +37,18 @@ const placeholderMarker = "The UI was not built"
 // safe; index.html is the one file that is not hashed and is never cached.
 const immutableMaxAge = 365 * 24 * time.Hour
 
+// originToken is the placeholder the page's sharing tags carry in place of this
+// controller's own address.
+//
+// og:url and og:image have to be absolute for a link preview to render at all:
+// the service fetching the page is not a browser and has no base to resolve a
+// relative path against. The address is a deployment fact rather than a build
+// one, so it is substituted when the controller starts. A controller with no
+// server.external_url set is left with relative paths, which is the honest
+// answer -- it does not know its own address, and inventing one would produce a
+// preview pointing at the wrong host.
+const originToken = "__ZOOMIES_ORIGIN__"
+
 // spaHandler serves the embedded single-page application.
 type spaHandler struct {
 	files fs.FS
@@ -49,7 +61,9 @@ type spaHandler struct {
 	hashes  []string
 }
 
-func newSPAHandler() (*spaHandler, error) {
+// newSPAHandler prepares the embedded UI for serving. externalURL is the
+// address operators reach this controller on, and may be empty.
+func newSPAHandler(externalURL string) (*spaHandler, error) {
 	sub, err := fs.Sub(webdist, "webdist")
 	if err != nil {
 		return nil, fmt.Errorf("api: the embedded UI directory is unusable: %w", err)
@@ -58,6 +72,11 @@ func newSPAHandler() (*spaHandler, error) {
 	if err != nil {
 		return nil, fmt.Errorf("api: the embedded UI has no index.html; run `make ui` (or `make build-nogui` for the placeholder): %w", err)
 	}
+	// The substitution touches attribute values only, never a script body, so
+	// the inline-script hashes below still describe what the browser executes.
+	index = bytes.ReplaceAll(index, []byte(originToken),
+		[]byte(strings.TrimRight(strings.TrimSpace(externalURL), "/")))
+
 	h := &spaHandler{
 		files:   sub,
 		index:   index,

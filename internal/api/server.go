@@ -100,7 +100,7 @@ func New(opts Options) (*Server, error) {
 		manifests: newManifestStates(opts.Controller.Now),
 	}
 
-	spa, err := newSPAHandler()
+	spa, err := newSPAHandler(cfg.Server.ExternalURL)
 	if err != nil {
 		return nil, err
 	}
