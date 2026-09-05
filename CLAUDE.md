@@ -82,7 +82,11 @@ Other invariants worth knowing before you edit:
   pass and sent only when they change, so a new kind of problem needs no
   publish call of its own.
 * **Sentinel errors** from the store: `ErrNotFound`, `ErrConflict`,
-  `ErrInvalidTransition`. Match with `errors.Is`.
+  `ErrInvalidTransition`, and `ErrJoinTokenUsed` / `ErrJoinTokenExpired` for
+  the two ways a join token that exists is still refused. Match with
+  `errors.Is`. Refusals the auth service makes for a reason the caller can
+  act on are `auth.ErrInvalidInput`; the API answers those with a 422 and
+  everything else with a 500 and a request ID.
 * **IDs are prefixed** (`pool_`, `run_`, `job_`, `usr_`…) via `store.NewID`, so a
   pasted ID is self-describing in a log line or bug report. Add new prefixes to
   `internal/store/ids.go`.

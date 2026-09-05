@@ -363,3 +363,30 @@ func TestLoginRefusesAPageThatWouldDropTheSecureCookieButNotLocalhost(t *testing
 		body: map[string]any{"username": "alice", "password": testPassword}})
 	local.mustStatus(t, http.StatusOK, "login from localhost")
 }
+
+// A database that stops answering used to come back through the anonymous
+// routes as a 422 quoting the driver's error, as though the caller had typed
+// something wrong; it never reached the error log either, because the 422
+// path does not log. The cause belongs in the log and the caller gets a
+// request ID to quote.
+func TestDatabaseFailuresAreInternalErrorsNotValidationMessages(t *testing.T) {
+	h := newHarness(t)
+	if err := h.st.Close(); err != nil {
+		t.Fatalf("closing the store: %v", err)
+	}
+
+	boot := h.do(request{method: http.MethodPost, path: "/api/v1/auth/bootstrap", body: map[string]any{
+		"username": "root", "password": testPassword,
+	}})
+	boot.mustStatus(t, http.StatusInternalServerError, "bootstrap against a closed database")
+	if msg := boot.errorMessage(t); strings.Contains(strings.ToLower(msg), "sql") || strings.Contains(msg, "closed") {
+		t.Fatalf("the database error reached an anonymous caller: %q", msg)
+	}
+
+	ready := h.do(request{method: http.MethodGet, path: "/readyz"})
+	ready.mustStatus(t, http.StatusServiceUnavailable, "readiness against a closed database")
+	body := ready.json(t)
+	if msg, _ := body["message"].(string); strings.Contains(strings.ToLower(msg), "sql") || strings.Contains(msg, "closed") {
+		t.Fatalf("the readiness probe quoted the database error: %q", msg)
+	}
+}

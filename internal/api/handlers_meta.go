@@ -92,10 +92,12 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := contextWithTimeout(r, 5*time.Second)
 	defer cancel()
 	if _, err := s.ctrl.Store().CountUsers(ctx); err != nil {
+		// The cause goes to the log. This route is anonymous, and a database
+		// error names paths and drivers that are nobody else's business.
 		s.logger(r).Warn("readiness probe failed", "error", err)
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"ok":      false,
-			"message": "the database is not answering: " + err.Error(),
+			"message": "the database is not answering; the cause is in the controller's log",
 		})
 		return
 	}

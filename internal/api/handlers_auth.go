@@ -90,11 +90,16 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 
 	u, err := s.auth.CreateFirstAdmin(r.Context(), req.Username, req.Password)
 	if err != nil {
-		if errors.Is(err, auth.ErrAlreadyBootstrapped) {
+		switch {
+		case errors.Is(err, auth.ErrAlreadyBootstrapped):
 			conflict(w, err.Error())
-			return
+		case errors.Is(err, auth.ErrInvalidInput):
+			unprocessable(w, err.Error(), nil)
+		default:
+			// This route is anonymous, so a database error must not come back
+			// as the text of a validation message.
+			s.fail(w, r, "creating the first administrator", err)
 		}
-		unprocessable(w, err.Error(), nil)
 		return
 	}
 

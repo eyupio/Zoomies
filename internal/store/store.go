@@ -31,6 +31,15 @@ var ErrConflict = errors.New("already exists")
 // ErrInvalidTransition is returned when a runner state change is not legal.
 var ErrInvalidTransition = errors.New("invalid state transition")
 
+// ErrJoinTokenUsed and ErrJoinTokenExpired are the two ways a join token that
+// exists can still be refused. They are sentinels rather than prose so the
+// caller can tell a refusal, which is the agent operator's to act on, from a
+// failure of the database, which is not.
+var (
+	ErrJoinTokenUsed    = errors.New("join token has already been used")
+	ErrJoinTokenExpired = errors.New("join token has expired")
+)
+
 // Store is the single owner of the SQLite database.
 //
 // SQLite allows exactly one writer at a time. Rather than hope callers behave,

@@ -123,11 +123,14 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		MustChangePassword: req.Password != "",
 	})
 	if err != nil {
-		if errors.Is(err, store.ErrConflict) || strings.Contains(err.Error(), "already exists") {
+		switch {
+		case errors.Is(err, store.ErrConflict):
 			conflict(w, err.Error())
-			return
+		case errors.Is(err, auth.ErrInvalidInput):
+			unprocessable(w, err.Error(), nil)
+		default:
+			s.fail(w, r, "creating the account", err)
 		}
-		unprocessable(w, err.Error(), nil)
 		return
 	}
 
@@ -345,7 +348,11 @@ func (s *Server) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 		Scopes: req.Scopes, ExpiresAt: expiresAt,
 	})
 	if err != nil {
-		unprocessable(w, err.Error(), nil)
+		if errors.Is(err, auth.ErrInvalidInput) {
+			unprocessable(w, err.Error(), nil)
+			return
+		}
+		s.fail(w, r, "creating the token", err)
 		return
 	}
 	// The audit row records that a credential was minted, never the credential.

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/eyupio/zoomies/internal/agent"
+	"github.com/eyupio/zoomies/internal/auth"
 	"github.com/eyupio/zoomies/internal/controller"
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -31,9 +32,16 @@ func (s *Server) handleAgentJoin(w http.ResponseWriter, r *http.Request) {
 	resp, err := s.ctrl.Join(r.Context(), req, ClientIP(r.Context()))
 	if err != nil {
 		// A refused join is almost always a spent or mistyped token, which is
-		// the agent operator's to fix rather than an internal failure.
-		s.logger(r).Warn("refused an agent join", "name", req.Name, "error", err)
-		unprocessable(w, err.Error(), nil)
+		// the agent operator's to fix and is told to them in as many words.
+		// Anything else -- the database not answering -- is this controller's
+		// failure, logged with a request ID and never quoted to an anonymous
+		// caller as though it were their mistake.
+		if errors.Is(err, auth.ErrInvalidInput) {
+			s.logger(r).Warn("refused an agent join", "name", req.Name, "error", err)
+			unprocessable(w, err.Error(), nil)
+			return
+		}
+		s.internal(w, r, "enrolling a host", err)
 		return
 	}
 	// The controller's join already wrote the host.join audit row, with the

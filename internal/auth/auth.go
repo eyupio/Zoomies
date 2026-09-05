@@ -86,7 +86,17 @@ var (
 	// instance.
 	ErrLastAdmin = errors.New("this is the last enabled administrator; give another account the admin role before changing this one")
 	// ErrPasswordTooShort is returned by every path that sets a password.
-	ErrPasswordTooShort = fmt.Errorf("password must be at least %d characters", MinPasswordLength)
+	ErrPasswordTooShort error = &refusal{kind: ErrInvalidInput, msg: fmt.Sprintf("password must be at least %d characters", MinPasswordLength)}
+
+	// ErrInvalidInput marks a refusal the caller can act on: a username with a
+	// character it may not carry, a role that does not exist, a token without
+	// a name, a join token that has been spent. The API answers one with a 422
+	// carrying the message. Every other error this package returns is a
+	// failure of the controller's own -- the database not answering, most
+	// likely -- and is answered with a 500 and a request ID, so that a SQLite
+	// error is never handed to an anonymous caller as the text of a
+	// validation message.
+	ErrInvalidInput = errors.New("invalid input")
 )
 
 // Identity is the authenticated caller: a person with a session, a token used
@@ -256,6 +266,30 @@ func (s *Service) NeedsBootstrap(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("counting accounts: %w", err)
 	}
 	return n == 0, nil
+}
+
+// refusal is an error with a message written for the caller and a kind the
+// API switches on. The kind is what errors.Is answers to, so a refusal reads
+// as its message and matches as its sentinel.
+type refusal struct {
+	kind error
+	msg  string
+}
+
+func (r *refusal) Error() string        { return r.msg }
+func (r *refusal) Is(target error) bool { return target == r.kind }
+
+// Invalid builds an error that is ErrInvalidInput and reads as the message.
+// It is exported for the controller's join path, which refuses an agent for
+// reasons of the same kind -- a protocol mismatch, a nameless host -- and
+// wants the API to answer them the same way.
+func Invalid(format string, args ...any) error {
+	return &refusal{kind: ErrInvalidInput, msg: fmt.Sprintf(format, args...)}
+}
+
+// conflict builds an error that is store.ErrConflict and reads as the message.
+func conflict(format string, args ...any) error {
+	return &refusal{kind: store.ErrConflict, msg: fmt.Sprintf(format, args...)}
 }
 
 // CreateFirstAdmin creates the initial administrator.
@@ -595,7 +629,7 @@ func (s *Service) createUser(ctx context.Context, in NewUser) (*store.User, erro
 		in.Role = store.RoleViewer
 	}
 	if !in.Role.Valid() {
-		return nil, fmt.Errorf("%q is not a role; use viewer, operator or admin", in.Role)
+		return nil, Invalid("%q is not a role; use viewer, operator or admin", in.Role)
 	}
 	var hash string
 	if in.Password != "" {
@@ -606,7 +640,7 @@ func (s *Service) createUser(ctx context.Context, in NewUser) (*store.User, erro
 			return nil, err
 		}
 	} else if in.OIDCSubject == "" && !in.SSOOnly {
-		return nil, errors.New("an account needs either a password or an OIDC subject; give a password, or enable single sign-on")
+		return nil, Invalid("an account needs either a password or an OIDC subject; give a password, or enable single sign-on")
 	}
 
 	u := &store.User{
@@ -620,7 +654,7 @@ func (s *Service) createUser(ctx context.Context, in NewUser) (*store.User, erro
 	}
 	if err := s.store.CreateUser(ctx, u); err != nil {
 		if errors.Is(err, store.ErrConflict) {
-			return nil, fmt.Errorf("an account named %q already exists", username)
+			return nil, conflict("an account named %q already exists", username)
 		}
 		return nil, fmt.Errorf("creating account %q: %w", username, err)
 	}
@@ -635,7 +669,7 @@ func (s *Service) UpdateUser(ctx context.Context, u *store.User) error {
 		return err
 	}
 	if !u.Role.Valid() {
-		return fmt.Errorf("%q is not a role; use viewer, operator or admin", u.Role)
+		return Invalid("%q is not a role; use viewer, operator or admin", u.Role)
 	}
 	if err := s.ensureAdminRemains(ctx, existing, u.Role, u.Disabled); err != nil {
 		return err
@@ -645,7 +679,7 @@ func (s *Service) UpdateUser(ctx context.Context, u *store.User) error {
 	u.PasswordHash = existing.PasswordHash
 	if err := s.store.UpdateUser(ctx, u); err != nil {
 		if errors.Is(err, store.ErrConflict) {
-			return fmt.Errorf("an account named %q already exists", u.Username)
+			return conflict("an account named %q already exists", u.Username)
 		}
 		return err
 	}
@@ -766,19 +800,19 @@ type NewToken struct {
 func (s *Service) CreateAPIToken(ctx context.Context, in NewToken) (*store.APIToken, string, error) {
 	name := strings.TrimSpace(in.Name)
 	if name == "" {
-		return nil, "", errors.New("a token needs a name; it is how you will recognise it later")
+		return nil, "", Invalid("a token needs a name; it is how you will recognise it later")
 	}
 	if in.Role == "" {
 		in.Role = store.RoleViewer
 	}
 	if !in.Role.Valid() {
-		return nil, "", fmt.Errorf("%q is not a role; use viewer, operator or admin", in.Role)
+		return nil, "", Invalid("%q is not a role; use viewer, operator or admin", in.Role)
 	}
 	if err := ValidateScopes(in.Scopes); err != nil {
-		return nil, "", err
+		return nil, "", Invalid("%v", err)
 	}
 	if in.ExpiresAt != nil && !in.ExpiresAt.After(s.Now()) {
-		return nil, "", errors.New("the expiry date is in the past; leave it empty for a token that never expires")
+		return nil, "", Invalid("the expiry date is in the past; leave it empty for a token that never expires")
 	}
 
 	id := store.NewID(store.PrefixToken)
@@ -823,7 +857,7 @@ func (s *Service) CreateJoinToken(ctx context.Context, ttl time.Duration, labels
 		ttl = DefaultJoinTTL
 	}
 	if capacity < 0 {
-		return nil, "", errors.New("capacity cannot be negative; leave it at 0 to let the agent decide from its CPU count")
+		return nil, "", Invalid("capacity cannot be negative; leave it at 0 to let the agent decide from its CPU count")
 	}
 	id := store.NewID(store.PrefixJoin)
 	prefix := JoinTokenPrefix + idFragment(id)
@@ -849,11 +883,16 @@ func (s *Service) CreateJoinToken(ctx context.Context, ttl time.Duration, labels
 // with the same token cannot both enrol.
 func (s *Service) RedeemJoinToken(ctx context.Context, token, hostID string) (*store.JoinToken, error) {
 	if strings.TrimSpace(token) == "" {
-		return nil, errors.New("no join token supplied; create one with `zoomies hosts join-token create`")
+		return nil, Invalid("no join token supplied; create one with `zoomies hosts join-token create`")
 	}
 	t, err := s.store.RedeemJoinToken(ctx, cryptox.HashToken(token), hostID, s.Now())
-	if errors.Is(err, store.ErrNotFound) {
-		return nil, errors.New("this join token is not valid; create a new one with `zoomies hosts join-token create`")
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		return nil, Invalid("this join token is not valid; create a new one with `zoomies hosts join-token create`")
+	case errors.Is(err, store.ErrJoinTokenUsed):
+		return nil, Invalid("this join token has already been used; each one enrols exactly one host, so create another with `zoomies hosts join-token create`")
+	case errors.Is(err, store.ErrJoinTokenExpired):
+		return nil, Invalid("this join token has expired; create a new one with `zoomies hosts join-token create`")
 	}
 	return t, err
 }
@@ -889,17 +928,17 @@ func idFragment(id string) string {
 func normalizeUsername(in string) (string, error) {
 	u := strings.ToLower(strings.TrimSpace(in))
 	if u == "" {
-		return "", errors.New("username is required")
+		return "", Invalid("username is required")
 	}
 	if len(u) > 64 {
-		return "", errors.New("username must be 64 characters or fewer")
+		return "", Invalid("username must be 64 characters or fewer")
 	}
 	for _, r := range u {
 		switch {
 		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
 		case r == '.' || r == '-' || r == '_' || r == '@' || r == '+':
 		default:
-			return "", fmt.Errorf("username %q contains %q; use letters, digits and . - _ @ +", in, string(r))
+			return "", Invalid("username %q contains %q; use letters, digits and . - _ @ +", in, string(r))
 		}
 	}
 	return u, nil
