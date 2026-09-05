@@ -83,6 +83,10 @@ agent:
   network: ""                   # ZOOMIES_AGENT_NETWORK
   heartbeat_interval: 30s       # ZOOMIES_HEARTBEAT_INTERVAL
   finished_retention: 10m       # ZOOMIES_AGENT_FINISHED_RETENTION -- how long a finished runner stays on disk
+  # Process backend only:
+  runner_sha256: ""             # ZOOMIES_AGENT_RUNNER_SHA256 -- digest of the runner archive, when github.runner_version is pinned
+  allow_unverified_runner_download: false   # ZOOMIES_AGENT_ALLOW_UNVERIFIED_RUNNER_DOWNLOAD -- warned about
+  runner_download_url: ""       # ZOOMIES_AGENT_RUNNER_DOWNLOAD_URL -- an internal mirror of the actions/runner releases
   # Standalone agents only:
   controller_url: ""            # ZOOMIES_CONTROLLER_URL
   join_token: ""                # ZOOMIES_JOIN_TOKEN
@@ -384,6 +388,20 @@ long window is disk: a busy host keeps one finished container per job for that
 long, and a setting over a day is flagged in the problems drawer for that
 reason. It is separate from `retention.runners`, which keeps the runner's row
 in the database for the history page.
+
+### `agent.runner_sha256` and the process backend's download
+
+The process backend downloads the `actions/runner` release itself, and it
+refuses to install an archive it cannot verify. Zoomies ships the SHA-256 of
+every archive for the release it pins by default, so the common case needs no
+setting at all. Pin a different release with `github.runner_version` and give
+its digest here -- every actions/runner release lists them in its notes -- and
+the download is verified against that instead.
+
+`agent.allow_unverified_runner_download` accepts an archive with no known
+digest. It is warned about at startup, because it means executing whatever the
+network handed over. `agent.runner_download_url` points the download at an
+internal mirror that keeps GitHub's release layout underneath it.
 
 ### `scheduler.scale_up_delay`
 

@@ -328,9 +328,12 @@ func buildBackends(ctx context.Context, cfg *config.Config, log *slog.Logger) (*
 		backends = append(backends, b)
 	}
 	if b, err := backend.NewProcess(backend.ProcessOptions{
-		WorkDir:       cfg.Agent.WorkDir,
-		RunnerVersion: cfg.GitHub.RunnerVersion,
-		Logger:        log,
+		WorkDir:                 cfg.Agent.WorkDir,
+		RunnerVersion:           cfg.GitHub.RunnerVersion,
+		RunnerSHA256:            cfg.Agent.RunnerSHA256,
+		AllowUnverifiedDownload: cfg.Agent.AllowUnverifiedRunnerDownload,
+		DownloadBaseURL:         cfg.Agent.RunnerDownloadURL,
+		Logger:                  log,
 	}); err != nil {
 		log.Debug("the process backend could not be prepared", "error", err)
 	} else if configured(b.Kind()) || backend.HasShell() {

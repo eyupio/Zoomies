@@ -169,6 +169,20 @@ type Agent struct {
 	HeartbeatInterval  time.Duration `yaml:"heartbeat_interval"`
 	// Network is an optional pre-existing container network to attach runners to.
 	Network string `yaml:"network"`
+	// RunnerSHA256 is the expected digest of the actions/runner archive the
+	// process backend downloads for this host's OS and architecture. Zoomies
+	// ships the digests for the release it pins; an operator who pins another
+	// release with github.runner_version supplies its digest here, from the
+	// actions/runner release notes, and gets a verified download.
+	RunnerSHA256 string `yaml:"runner_sha256"`
+	// AllowUnverifiedRunnerDownload lets the process backend install a runner
+	// archive whose digest it cannot check. Off by default and warned about:
+	// the alternative is executing whatever the network handed over.
+	AllowUnverifiedRunnerDownload bool `yaml:"allow_unverified_runner_download"`
+	// RunnerDownloadURL replaces github.com/actions/runner/releases/download as
+	// the place the process backend fetches archives from, for hosts that
+	// mirror releases internally. The path below it is the same.
+	RunnerDownloadURL string `yaml:"runner_download_url"`
 	// FinishedRetention is how long a finished runner's workload -- the exited
 	// container with its output, its sidecar and scratch directory, or the
 	// process backend's runner directory -- stays on the host after the
@@ -617,6 +631,9 @@ func (c *Config) applyEnv() error {
 	dur("ZOOMIES_HEARTBEAT_INTERVAL", &c.Agent.HeartbeatInterval)
 	str("ZOOMIES_AGENT_NETWORK", &c.Agent.Network)
 	dur("ZOOMIES_AGENT_FINISHED_RETENTION", &c.Agent.FinishedRetention)
+	str("ZOOMIES_AGENT_RUNNER_SHA256", &c.Agent.RunnerSHA256)
+	boolean("ZOOMIES_AGENT_ALLOW_UNVERIFIED_RUNNER_DOWNLOAD", &c.Agent.AllowUnverifiedRunnerDownload)
+	str("ZOOMIES_AGENT_RUNNER_DOWNLOAD_URL", &c.Agent.RunnerDownloadURL)
 	if v, ok := os.LookupEnv("ZOOMIES_AGENT_LABELS"); ok {
 		m, err := parseKV(v)
 		if err != nil {

@@ -430,6 +430,14 @@ func (c *Config) Validate() Findings {
 				Fix:    "pin the controller CA with agent.ca_file instead.",
 			})
 		}
+		if c.Agent.AllowUnverifiedRunnerDownload {
+			add(Finding{
+				Code: "agent.unverified_runner_download", Severity: SeverityWarning, Setting: "agent.allow_unverified_runner_download",
+				Title:  "the process backend may install a runner it cannot verify",
+				Detail: "an actions/runner archive whose SHA-256 Zoomies does not know will be downloaded and executed on this host as the agent's user; anything between this host and the download source could substitute its own.",
+				Fix:    "pin the release with github.runner_version and give its digest in agent.runner_sha256 (it is in the actions/runner release notes), then turn this off.",
+			})
+		}
 		if c.Agent.WorkDir == "" {
 			add(Finding{
 				Code: "agent.workdir", Severity: SeverityError, Setting: "agent.work_dir",

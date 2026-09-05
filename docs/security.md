@@ -324,6 +324,21 @@ that it is a Zoomies fleet all become public knowledge, findable by anyone
 searching for exactly that. Leave it off unless the instance is deliberately
 public.
 
+### `agent.allow_unverified_runner_download: true`
+
+**What it does.** Lets the process backend install an `actions/runner` archive
+whose SHA-256 Zoomies does not know.
+
+**What it costs.** The runner is downloaded and then executed on the host as the
+agent's user. Without a digest to check, anything between the host and the
+download source -- a mirror, a proxy, a compromised network -- can substitute its
+own archive, and the agent will run it. Zoomies ships the digests for the
+release it pins, so the setting is only ever needed for a release it does not
+know about.
+
+**Do this instead.** Pin the release with `github.runner_version` and put its
+digest, from the actions/runner release notes, in `agent.runner_sha256`.
+
 ### `agent.insecure_skip_verify: true`
 
 The agent does not verify the controller's TLS certificate. Anything on the
