@@ -146,7 +146,7 @@
   }
   .repos li {
     padding: var(--z-space-2) 0;
-    border-bottom: 1px solid var(--z-border-subtle, var(--z-border));
+    border-bottom: 1px solid var(--z-border);
   }
   .repos li.inert {
     opacity: 0.6;

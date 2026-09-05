@@ -109,8 +109,8 @@
     color: var(--z-idle);
   }
   .results li.failed {
-    border-color: var(--z-failed-border);
-    color: var(--z-failed);
+    border-color: var(--z-danger-border);
+    color: var(--z-danger);
   }
   .results li.skipped {
     color: var(--z-text-subtle);

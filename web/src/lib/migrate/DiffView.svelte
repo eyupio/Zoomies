@@ -87,8 +87,8 @@
     color: var(--z-idle);
   }
   .remove {
-    background: var(--z-failed-subtle);
-    color: var(--z-failed);
+    background: var(--z-danger-subtle);
+    color: var(--z-danger);
   }
   .hunk {
     color: var(--z-text-subtle);
