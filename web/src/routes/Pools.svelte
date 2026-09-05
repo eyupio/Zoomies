@@ -126,6 +126,31 @@
     };
   }
 
+  /**
+   * Warm the fleet cache with the page on screen, so the command palette can
+   * find a pool the operator is looking at.
+   *
+   * Only when it would actually change something: ingesting bumps the fleet's
+   * version, and the fleet's version is this grid's `liveKey`, so warming the
+   * cache on every page unconditionally has the grid refetching itself for
+   * ever -- and, with no pools at all, never settling on the empty state.
+   * Identity is what the palette needs, so identity is what is compared;
+   * the live counts move on their own and are not worth a round trip.
+   */
+  function takeRows(rows: Pool[]): void {
+    const changed = rows.some((row) => {
+      const cached = fleet.pool(row.id);
+      return (
+        !cached ||
+        cached.name !== row.name ||
+        cached.enabled !== row.enabled ||
+        cached.installation_target !== row.installation_target ||
+        (cached.labels ?? []).join(',') !== (row.labels ?? []).join(',')
+      );
+    });
+    if (changed) fleet.ingestPools(rows);
+  }
+
   /* -- actions --------------------------------------------------------------- */
 
   function setEnabled(pool: Pool, enabled: boolean): void {
@@ -451,7 +476,7 @@
   liveKey={fleet.version}
   noun="pools"
   onopen={(row) => navigate(`/pools/${row.id ?? ''}`)}
-  onrows={(rows) => fleet.ingestPools(rows)}
+  onrows={takeRows}
   emptyTitle={filtering ? 'No pools match those filters' : 'No pools yet'}
   emptyDescription={filtering
     ? 'Every pool is hidden by the search or the status filter currently applied.'

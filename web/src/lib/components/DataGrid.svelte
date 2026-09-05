@@ -142,6 +142,14 @@
   let rows = $state<T[]>([]);
   let total = $state(0);
   let loading = $state(true);
+  /**
+   * True once the first request has answered, either way. The skeleton is
+   * for the page that has nothing to show yet; a later fetch -- a live
+   * refresh, a filter change -- keeps whatever is on screen until its answer
+   * lands, because a grid that flashes back to grey bars every time an event
+   * arrives is a grid nobody can read.
+   */
+  let settled = $state(false);
   let error = $state<unknown>(null);
   let lastFilterKey = '';
 
@@ -175,7 +183,10 @@
           if (cause instanceof DOMException && cause.name === 'AbortError') return;
           error = cause;
         } finally {
-          if (!cancelled) loading = false;
+          if (!cancelled) {
+            loading = false;
+            settled = true;
+          }
         }
       })();
     }, DEBOUNCE_MS);
@@ -361,7 +372,7 @@
   });
 
   const hideable = $derived(columns.filter((c) => c.hideable !== false));
-  const isEmpty = $derived(!loading && !error && modelRows.length === 0);
+  const isEmpty = $derived(settled && !error && modelRows.length === 0);
 </script>
 
 <div class="grid {className}">
@@ -448,7 +459,7 @@
         </tr>
       </thead>
       <tbody bind:this={body}>
-        {#if loading && modelRows.length === 0}
+        {#if !settled}
           {#each Array.from({ length: 8 }, (_, i) => i) as line (line)}
             <tr class="skeleton-row">
               {#if selectable}<td class="pick"><Skeleton width="15px" height="15px" /></td>{/if}
