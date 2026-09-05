@@ -199,7 +199,13 @@ them apart:
   runs as `zoomies`, so a `usermod` copied from a shell adds the wrong user and
   changes nothing. When that account is already in the group, the agent says so
   and asks to be restarted instead, because a running process cannot gain a
-  group it did not start with. In the controller, if your hosts offer a backend
+  group it did not start with. When the agent is itself a container -- the
+  compose and `docker run` deployments -- it says so and gives the container's
+  fix instead, because its account exists only inside the image and a `usermod`
+  on the host answers `user 'nonroot' does not exist`: the group is granted at
+  creation with `--group-add <gid>`, or `group_add` in compose with
+  `DOCKER_GID=<gid>` in `.env`, and the container is recreated. Setup checks the
+  same thing before it starts one. In the controller, if your hosts offer a backend
   this pool is not using, the problem names it and the pool's own page offers
   the change as a button -- the runners it already has finish their jobs first.
   Wherever one of these sentences carries a command, the UI shows it as a

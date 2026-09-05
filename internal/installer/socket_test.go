@@ -3,6 +3,7 @@ package installer
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io/fs"
 	"net"
 	"os"
@@ -129,5 +130,78 @@ func TestEnsureSocketAccessSkipsTheProcessBackend(t *testing.T) {
 	})
 	if out.Len() != 0 {
 		t.Errorf("a process-backend install has no socket to talk about: %s", out)
+	}
+}
+
+// The container deployment has no usermod to fall back on: a wrong DOCKER_GID
+// is a container that comes up healthy and can run nothing, so the verdict is
+// reached before the thing is started.
+func TestJudgeContainerSocket(t *testing.T) {
+	cases := []struct {
+		name string
+		s    socketFacts
+		gid  int
+		want containerSocketVerdict
+	}{
+		{"the gid that owns it", sock(0o660, 0, 987), 987, socketUsable},
+		{"a gid that does not", sock(0o660, 0, 987), 986, socketWrongGID},
+		{"no gid added at all", sock(0o660, 0, 987), 0, socketWrongGID},
+		{"a mode with no group bits", sock(0o600, 0, 987), 987, socketNoGroupBits},
+		{"group root, which is never added", sock(0o660, 0, 0), 0, socketRootGroup},
+		{"a world-writable socket needs no group", sock(0o666, 0, 0), 0, socketUsable},
+		// The image's own uid owning the socket is the rootless case.
+		{"owned by the image's account", sock(0o600, ImageUID, 0), 0, socketUsable},
+	}
+	for _, c := range cases {
+		if got := judgeContainerSocket(c.s, c.gid); got != c.want {
+			t.Errorf("%s: verdict = %d, want %d", c.name, got, c.want)
+		}
+	}
+}
+
+// And the printing says the one thing an operator has to change.
+func TestCheckContainerSocketAccessNamesTheGidToSet(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "docker.sock")
+	l, err := net.Listen("unix", path)
+	if err != nil {
+		t.Skipf("unix sockets unavailable here: %v", err)
+	}
+	defer l.Close()
+	if err := os.Chmod(path, 0o660); err != nil {
+		t.Fatal(err)
+	}
+	facts, ok := statSocket(path)
+	if !ok {
+		t.Fatal("the socket must be readable by this test")
+	}
+	if facts.gid == 0 {
+		// Running as root: the socket belongs to group root, which is the one
+		// case that is deliberately never answered with a gid.
+		t.Skip("this socket belongs to group root, covered by TestJudgeContainerSocket")
+	}
+
+	out := &bytes.Buffer{}
+	i := &Installer{ui: newUI(out)}
+	i.checkContainerSocketAccess(Plan{
+		Deployment: DeploymentCompose, Mode: ModeSingle, Backend: store.BackendDocker,
+		DockerHost: "unix://" + path, DockerGID: facts.gid + 1, Embedded: true,
+	})
+
+	if !strings.Contains(out.String(), fmt.Sprintf("DOCKER_GID=%d", facts.gid)) {
+		t.Errorf("want the gid that actually owns the socket, got: %s", out)
+	}
+}
+
+// A socket that is not there yet is not a failure: the agent re-probes.
+func TestCheckContainerSocketAccessOnAHostWithNoSocket(t *testing.T) {
+	out := &bytes.Buffer{}
+	i := &Installer{ui: newUI(out)}
+	i.checkContainerSocketAccess(Plan{
+		Deployment: DeploymentCompose, Mode: ModeSingle, Backend: store.BackendDocker,
+		DockerHost: "unix://" + filepath.Join(t.TempDir(), "absent.sock"), Embedded: true,
+	})
+	if !strings.Contains(out.String(), "re-probes") {
+		t.Errorf("want the daemon-not-up-yet note, got: %s", out)
 	}
 }

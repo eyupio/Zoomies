@@ -11,9 +11,16 @@ package backend
 // process that predates the change: the membership is real, the running agent
 // does not hold it, and no amount of repeating the same command helps.
 //
-// So the denial is diagnosed against three facts the agent can read for itself:
-// who it is, what owns the socket, and which groups the process actually holds
-// as opposed to which ones the user database lists.
+// So the denial is diagnosed against four facts the agent can read for itself:
+// who it is, whether it is in a container, what owns the socket, and which
+// groups the process actually holds as opposed to which ones the user database
+// lists.
+//
+// The container case is the one that makes the group advice actively wrong. An
+// agent in the published image runs as a user that exists only inside that
+// image, so `usermod -aG 987 nonroot` on the host answers "user does not exist"
+// and there is nothing the operator can do to make it work. A container is
+// given a group when it is created, not afterwards.
 
 import (
 	"fmt"
@@ -23,6 +30,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 )
 
 // agentIdentity is the agent's view of itself, injected so that every branch of
@@ -46,6 +54,10 @@ type agentIdentity struct {
 	// a command that exists on this host. Empty means no systemd, or no unit
 	// this agent could recognise, and the hint stays generic.
 	unit string
+	// containerized reports that this agent is itself in a container, which
+	// changes the fix completely: its account is the image's, not the host's,
+	// and the group has to be granted when the container is created.
+	containerized bool
 }
 
 func realIdentity() agentIdentity {
@@ -58,8 +70,9 @@ func realIdentity() agentIdentity {
 			}
 			return g.Name
 		},
-		stat: statOwner,
-		unit: agentUnit(),
+		stat:          statOwner,
+		unit:          agentUnit(),
+		containerized: inContainer(),
 	}
 	// The effective gid is not guaranteed to appear in the supplementary list,
 	// so it is added explicitly: a socket owned by the agent's own primary group
@@ -107,6 +120,22 @@ func deniedDetail(id agentIdentity, path string) string {
 	perm := fmt.Sprintf("%04o", mode.Perm())
 
 	switch {
+	case ok && id.containerized && !id.holdsGroup(gid):
+		// Nothing an operator does on the host to a user that only exists in
+		// the image will help. The container needs the host gid at creation.
+		return fmt.Sprintf("permission denied on %s: this agent runs in a container as %s, and the host socket mounted into it is group-owned by %s (mode %s). "+
+			"A usermod on the host cannot help -- that account exists only inside the image. Give the container the group instead: "+
+			"`--group-add %s` with docker run, or `group_add: [\"%s\"]` in compose (set DOCKER_GID=%s in .env), then recreate the container.",
+			path, id.name(), group, perm, group, group, group)
+
+	case !ok && id.containerized:
+		// The socket cannot even be examined from in here, which usually means
+		// it was never mounted.
+		return fmt.Sprintf("permission denied on %s: this agent runs in a container as %s and cannot open that socket. "+
+			"Mount the host's socket into the container and give the container the group that owns it -- "+
+			"`stat -c '%%g' %s` on the host says which gid, then `--group-add <gid>` or `group_add` in compose.",
+			path, id.name(), path)
+
 	case ok && id.holdsGroup(gid):
 		// The agent is in the group and was still refused, so the group is not
 		// what is in the way: the mode, or a directory above the socket.
@@ -200,4 +229,28 @@ func (id agentIdentity) restartClause() string {
 func (id agentIdentity) rootlessAlternative() string {
 	return fmt.Sprintf("run a rootless daemon and set agent.docker_host to %s",
 		filepath.Join("/run/user", strconv.Itoa(id.uid), "docker.sock"))
+}
+
+// inContainer reports whether this agent is itself running in a container.
+//
+// Docker writes /.dockerenv and Podman /run/.containerenv; the cgroup line is
+// the fallback for runtimes that write neither, and for a container started
+// with an unusual entrypoint. A false negative only costs the sharper wording,
+// so none of these checks needs to be certain.
+func inContainer() bool {
+	for _, marker := range []string{"/.dockerenv", "/run/.containerenv"} {
+		if _, err := os.Stat(marker); err == nil {
+			return true
+		}
+	}
+	cgroup, err := os.ReadFile("/proc/self/cgroup")
+	if err != nil {
+		return false
+	}
+	for _, needle := range []string{"docker", "containerd", "libpod", "kubepods"} {
+		if strings.Contains(string(cgroup), needle) {
+			return true
+		}
+	}
+	return false
 }

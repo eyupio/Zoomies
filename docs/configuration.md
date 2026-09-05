@@ -278,7 +278,10 @@ Empty autodetects, **preferring a rootless socket**, in this order:
 5. `/var/run/docker.sock`
 
 The group a service account must join to reach a root socket is read from the
-socket itself, not from the name `docker`. A socket that exists but cannot be
+socket itself, not from the name `docker`. In a containerised deployment that
+gid is `DOCKER_GID` in the environment file, and it is checked against the
+socket before the container is started -- a container is given a group when it
+is created, and no `usermod` on the host can add one afterwards. A socket that exists but cannot be
 opened is diagnosed rather than guessed at:
 the agent reports the account it runs as, the group that owns the socket, and
 whether that account is already a member. If it is, the fix is a restart of the
