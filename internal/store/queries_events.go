@@ -630,11 +630,29 @@ func (s *Store) CountFailedDeliveries(ctx context.Context, since time.Time) (int
 	return n, err
 }
 
-// LastDeliveryAt returns when a webhook was last received, or the zero time.
-// The Overview uses it to tell "webhooks are quiet" from "webhooks are broken".
+// LastDeliveryAt returns when a webhook was last received, whether or not it
+// verified, or the zero time. The webhook health check uses it to tell
+// "webhooks are quiet" from "GitHub has never reached this address".
 func (s *Store) LastDeliveryAt(ctx context.Context) (time.Time, error) {
+	return s.lastDeliveryAt(ctx, "")
+}
+
+// LastAcceptedDeliveryAt returns when a webhook last verified, or the zero
+// time. This is the one the poller stands down on: a delivery whose signature
+// did not verify started no runner, so a stream of them -- a mistyped secret,
+// say -- is exactly the case the fallback poller exists for.
+func (s *Store) LastAcceptedDeliveryAt(ctx context.Context) (time.Time, error) {
+	return s.lastDeliveryAt(ctx, "accepted")
+}
+
+func (s *Store) lastDeliveryAt(ctx context.Context, status string) (time.Time, error) {
 	var v sql.NullInt64
-	err := s.read.QueryRowContext(ctx, `SELECT MAX(received_at) FROM webhook_deliveries`).Scan(&v)
+	var err error
+	if status == "" {
+		err = s.read.QueryRowContext(ctx, `SELECT MAX(received_at) FROM webhook_deliveries`).Scan(&v)
+	} else {
+		err = s.read.QueryRowContext(ctx, `SELECT MAX(received_at) FROM webhook_deliveries WHERE status = ?`, status).Scan(&v)
+	}
 	if err != nil || !v.Valid {
 		return time.Time{}, err
 	}

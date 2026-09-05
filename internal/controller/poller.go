@@ -61,7 +61,10 @@ func (c *Controller) pollOnce(ctx context.Context) {
 		return
 	}
 
-	last, err := c.st.LastDeliveryAt(ctx)
+	// Accepted deliveries only: one that was rejected recorded a job for
+	// nobody, and a run of them is the mistyped-secret case this poller is
+	// the safety net for.
+	last, err := c.st.LastAcceptedDeliveryAt(ctx)
 	if err != nil {
 		c.log.Error("could not tell when the last webhook arrived", "error", err)
 		return
