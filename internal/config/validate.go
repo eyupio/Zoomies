@@ -24,6 +24,11 @@ const (
 	SeverityInfo Severity = "info"
 )
 
+// maxQuietFinishedRetention is the longest agent.finished_retention that passes
+// without a warning. Past a day, finished containers stop being something an
+// operator reads and start being the reason the host has no disk.
+const maxQuietFinishedRetention = 24 * time.Hour
+
 // Finding is one validation result, phrased so that it can be printed to a
 // terminal and rendered in the UI's problems drawer without rewording.
 type Finding struct {
@@ -430,6 +435,26 @@ func (c *Config) Validate() Findings {
 				Code: "agent.workdir", Severity: SeverityError, Setting: "agent.work_dir",
 				Title: "no work directory",
 				Fix:   "set agent.work_dir, e.g. /var/lib/zoomies/work.",
+			})
+		}
+		if c.Agent.FinishedRetention < 0 {
+			add(Finding{
+				Code: "agent.finished_retention", Severity: SeverityError, Setting: "agent.finished_retention",
+				Title: "agent.finished_retention cannot be negative",
+				Fix:   "set it to how long a finished runner's output should stay readable on the host, e.g. 10m, or 0s to remove it straight away.",
+			})
+		}
+		if c.Agent.FinishedRetention > maxQuietFinishedRetention {
+			// Not a security setting, but the failure it leads to is the same
+			// shape as the ones this list exists for: a toggle that looks
+			// harmless until the host stops working. A day of finished
+			// containers on a busy host is a full disk, and a full disk is
+			// every job on it failing at once.
+			add(Finding{
+				Code: "agent.finished_retention_long", Severity: SeverityWarning, Setting: "agent.finished_retention",
+				Title:  fmt.Sprintf("finished runners stay on the host for %s", c.Agent.FinishedRetention),
+				Detail: "every finished runner leaves its container, sidecar and scratch directory on disk for that long, so a busy host accumulates a day's worth of job residue.",
+				Fix:    "keep agent.finished_retention to minutes: long enough to read a finished runner's log, not long enough to fill the disk.",
 			})
 		}
 	}

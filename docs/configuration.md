@@ -82,6 +82,7 @@ agent:
   labels: {}                    # ZOOMIES_AGENT_LABELS   -- "gpu=true,zone=eu"
   network: ""                   # ZOOMIES_AGENT_NETWORK
   heartbeat_interval: 30s       # ZOOMIES_HEARTBEAT_INTERVAL
+  finished_retention: 10m       # ZOOMIES_AGENT_FINISHED_RETENTION -- how long a finished runner stays on disk
   # Standalone agents only:
   controller_url: ""            # ZOOMIES_CONTROLLER_URL
   join_token: ""                # ZOOMIES_JOIN_TOKEN
@@ -129,7 +130,7 @@ metrics:
 
 retention:
   jobs: 720h                    # ZOOMIES_RETENTION_JOBS      (30 days)
-  runners: 168h                 # ZOOMIES_RETENTION_RUNNERS   (7 days)
+  runners: 168h                 # ZOOMIES_RETENTION_RUNNERS   (7 days; the row, not the container -- see agent.finished_retention)
   audit: 8760h                  # ZOOMIES_RETENTION_AUDIT     (365 days)
   samples: 168h                 # ZOOMIES_RETENTION_SAMPLES
   webhooks: 168h                # ZOOMIES_RETENTION_WEBHOOKS
@@ -358,6 +359,27 @@ agent:
 # in the pool
 host_selector: { gpu: "true" }
 ```
+
+### `agent.finished_retention`
+
+How long a finished runner's workload stays on the host before the agent
+deletes it: the exited container with the runner's log and its writable layer,
+its docker-in-docker sidecar, and any scratch directory Zoomies created for it
+-- or, on the process backend, the runner's directory under `agent.work_dir`.
+The default is `10m`.
+
+A runner that has exited is finished business as far as the controller is
+concerned: the row is marked removed and nothing sends the host another task
+for it. So the host cleans up after itself. Once the controller has been told
+how the runner ended, and this window has passed, the agent removes the
+workload and logs a line saying so. Until then its output is still readable
+from the Runners page, which is what the window is for.
+
+`0s` removes a finished runner on the next pass after it has been reported. A
+long window is disk: a busy host keeps one finished container per job for that
+long, and a setting over a day is flagged in the problems drawer for that
+reason. It is separate from `retention.runners`, which keeps the runner's row
+in the database for the history page.
 
 ### `scheduler.scale_up_delay`
 

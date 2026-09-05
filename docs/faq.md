@@ -47,6 +47,14 @@ one workflow run to the next -- not a clone, not a cache, not a credential a
 previous job left on disk. It is the single most useful property a self-hosted
 runner can have, and it is why it is the default rather than an option.
 
+Destroyed means destroyed on the host, too. A finished runner's container, its
+log and its scratch directory are deleted by the agent a few minutes after the
+job, once the controller has recorded how it ended; the window is
+[`agent.finished_retention`](configuration.md#agentfinished_retention), and it
+is there so you can still read a runner's output right after it finishes. A
+host that runs a thousand jobs a week does not end the week with a thousand
+stopped containers.
+
 ## Do I have to paste a runner registration token anywhere?
 
 No. Zoomies authenticates as a GitHub App and mints a single-use JIT

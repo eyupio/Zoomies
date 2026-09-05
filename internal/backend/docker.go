@@ -358,7 +358,8 @@ func buildRunnerConfig(spec Spec, fl flavor, o containerOptions) ContainerCreate
 		HostConfig: &HostConfig{
 			// AutoRemove would delete the container the instant it exits, taking
 			// its exit code and its logs with it -- and those are the two things
-			// a failed job investigation needs.
+			// a failed job investigation needs. The agent removes it itself once
+			// the exit has been reported and agent.finished_retention has passed.
 			AutoRemove:    false,
 			RestartPolicy: RestartPolicy{Name: "no"},
 			SecurityOpt:   slices.Clone(fl.securityOpt),

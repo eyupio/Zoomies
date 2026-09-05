@@ -87,3 +87,28 @@ func hasCode(fs Findings, code string) bool {
 	}
 	return false
 }
+
+// A finished runner's container is disk the host never gets back until the
+// agent deletes it, so the window has to be a real duration, and a window long
+// enough to fill a busy host has to be said out loud rather than found out.
+func TestFinishedRetentionIsBoundedInBothDirections(t *testing.T) {
+	c := Default()
+	c.Agent.Embedded = true
+	if f := c.Validate(); hasCode(f, "agent.finished_retention") || hasCode(f, "agent.finished_retention_long") {
+		t.Fatalf("the default finished retention drew a finding: %+v", f)
+	}
+
+	c.Agent.FinishedRetention = -1
+	if f := c.Validate(); !hasCode(f, "agent.finished_retention") {
+		t.Fatal("a negative agent.finished_retention passed validation")
+	}
+
+	c.Agent.FinishedRetention = maxQuietFinishedRetention + 1
+	f := c.Validate()
+	if hasCode(f, "agent.finished_retention") {
+		t.Fatal("a long agent.finished_retention was reported as an error; it is a warning, not a reason to refuse to start")
+	}
+	if !hasCode(f, "agent.finished_retention_long") {
+		t.Fatal("a day-long agent.finished_retention drew no warning")
+	}
+}

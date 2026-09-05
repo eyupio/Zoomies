@@ -98,6 +98,7 @@ sequenceDiagram
     R->>R: an ephemeral runner exits after one job
     A-->>C: removed
     C->>DB: reap the row
+    A->>R: delete the container and its scratch space,<br/>once the report is in and finished_retention has passed
 ```
 
 In detail:
@@ -124,6 +125,15 @@ In detail:
    moves the runner to `busy` and links the job row to the runner row.
 8. On `completed`, the ephemeral runner exits by itself. The agent notices,
    reports `removed`, and the controller reaps the row.
+9. The host cleans up after itself. The controller has no reason to send a
+   task for a runner it already considers gone, so the agent deletes the
+   finished workload on its own -- the exited container with the runner's log,
+   its docker-in-docker sidecar, any scratch directory Zoomies made for it, or
+   the process backend's runner directory -- once the controller has accepted
+   the report and [`agent.finished_retention`](configuration.md#agentfinished_retention)
+   has passed. The window is what keeps a finished runner's output readable
+   from the Runners page for a while; the report gate is what keeps the exit
+   code from being deleted before anyone has heard it.
 
 Every one of those steps publishes on the event bus, and the UI is watching a
 Server-Sent Events stream, so the operator sees it happen without refreshing.
