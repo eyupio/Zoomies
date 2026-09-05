@@ -2065,23 +2065,39 @@ components:
 
     UsageResponse:
       type: object
-      required: [from, to, group_by, items, costs_are_estimates]
+      required: [from, to, group_by, items, costs_are_estimates, allocation_attributable]
       properties:
         from: { type: string, format: date-time }
         to: { type: string, format: date-time }
         group_by: { type: string, enum: [installation, repository, workflow, pool] }
         costs_are_estimates: { type: boolean, const: true }
+        allocation_attributable:
+          type: boolean
+          description: |
+            Whether allocated runner lifetime, and therefore cost, can be
+            attributed to this grouping at all. A runner idles on behalf of a
+            pool, never on behalf of a repository or a workflow, so it is false
+            for the repository and workflow groupings and every row's
+            allocated_runner_seconds is null.
         items:
           type: array
           items:
             type: object
-            required: [key, job_execution_seconds, allocated_runner_seconds, jobs, average_queue_wait_seconds, peak_concurrency]
+            required: [key, job_execution_seconds, allocated_runner_seconds, jobs, jobs_started, jobs_completed, average_queue_wait_seconds, peak_concurrency]
             properties:
               key: { type: string }
-              job_execution_seconds: { type: number }
-              allocated_runner_seconds: { type: number }
-              jobs: { type: integer }
-              average_queue_wait_seconds: { type: number }
+              job_execution_seconds: { type: number, description: Job execution time clipped to the reported interval. }
+              allocated_runner_seconds:
+                type: number
+                nullable: true
+                description: Runner lifetime clipped to the interval, or null when the grouping cannot attribute it. Null is not zero.
+              jobs: { type: integer, description: "Jobs queued within the interval. Counts are additive: adjacent reports sum." }
+              jobs_started: { type: integer, description: Jobs whose run began within the interval. }
+              jobs_completed: { type: integer, description: Jobs that finished within the interval. }
+              average_queue_wait_seconds:
+                type: number
+                nullable: true
+                description: Mean wait of the jobs_started jobs, so the denominator is the population with an observed wait. Null when nothing started in the interval.
               peak_concurrency: { type: integer }
               estimated_cost: { type: number, description: Estimate from administrator-assigned pool rates; omitted when no rate exists. }
 
@@ -2149,9 +2165,31 @@ components:
       required: [enabled, scope]
       properties:
         enabled: { type: boolean, default: false }
-        scope: { type: string, enum: [pool, repository], default: pool, description: Repository scope requires a repository-targeted installation. }
-        size_limit: { type: integer, format: int64, minimum: 0, description: Approximate maximum bytes; zero is unlimited. }
+        scope:
+          type: string
+          enum: [pool, repository]
+          default: pool
+          description: >-
+            Repository scope gives each repository its own cache. Under an
+            organisation-targeted installation it needs `repository` set,
+            because the installation alone does not say which repository the
+            pool serves.
+        size_limit:
+          type: integer
+          format: int64
+          minimum: 0
+          description: >-
+            Maximum bytes, enforced between one runner and the next by evicting
+            whole cache entries, least recently modified first. Only a cache in
+            a host directory can be measured, so a non-zero limit requires
+            `source` to be an absolute host path. Zero is unlimited.
         source: { type: string, description: Optional absolute host directory or safe named-volume prefix. }
+        repository:
+          type: string
+          description: >-
+            The repository a repository-scoped cache belongs to, as owner/name.
+            Required when the pool's installation targets an organisation, and
+            left empty when it targets a single repository, which supplies it.
 
     PoolCreate:
       type: object

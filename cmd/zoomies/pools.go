@@ -203,6 +203,7 @@ type poolSpec struct {
 	cacheScope   *string
 	cacheSize    *int64
 	cacheSource  *string
+	cacheRepo    *string
 }
 
 // registerPoolFlags declares them, with the API's own defaults so that a
@@ -236,8 +237,9 @@ func registerPoolFlags(fs *flagSet) *poolSpec {
 	spec.diskGB = fs.Int64("disk-gb", 0, "disk limit per runner, in GiB")
 	spec.cacheEnabled = fs.Bool("cache", false, "mount a disposable performance cache (not workflow storage)")
 	spec.cacheScope = fs.String("cache-scope", "pool", "cache isolation: pool or repository")
-	spec.cacheSize = fs.Int64("cache-size", 0, "approximate cache limit in bytes (0 is unlimited)")
+	spec.cacheSize = fs.Int64("cache-size", 0, "cache limit in bytes, enforced by eviction; needs an absolute cache-source (0 is unlimited)")
 	spec.cacheSource = fs.String("cache-source", "", "absolute host path or named-volume prefix")
+	spec.cacheRepo = fs.String("cache-repository", "", "owner/name for a repository-scoped cache under an organisation installation")
 	return spec
 }
 
@@ -264,8 +266,12 @@ func (spec *poolSpec) body(fs *flagSet, onlyChanged bool) map[string]any {
 	put("docker-mode", "docker_mode", *spec.dockerMode)
 	put("run-as-root", "run_as_root", *spec.runAsRoot)
 	put("enabled", "enabled", *spec.enabled)
-	if !onlyChanged || fs.changed("cache") || fs.changed("cache-scope") || fs.changed("cache-size") || fs.changed("cache-source") {
-		body["cache"] = map[string]any{"enabled": *spec.cacheEnabled, "scope": *spec.cacheScope, "size_limit": *spec.cacheSize, "source": *spec.cacheSource}
+	if !onlyChanged || fs.changed("cache") || fs.changed("cache-scope") || fs.changed("cache-size") ||
+		fs.changed("cache-source") || fs.changed("cache-repository") {
+		body["cache"] = map[string]any{
+			"enabled": *spec.cacheEnabled, "scope": *spec.cacheScope, "size_limit": *spec.cacheSize,
+			"source": *spec.cacheSource, "repository": *spec.cacheRepo,
+		}
 	}
 	if fs.changed("image") {
 		body["image"] = *spec.image

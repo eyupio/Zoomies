@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -304,14 +305,34 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 			add("cache.scope", "use pool or repository")
 		}
 		if p.Cache.SizeLimit < 0 {
-			add("cache.size_limit", "the approximate cache size limit cannot be negative")
+			add("cache.size_limit", "the cache size limit cannot be negative; use 0 for no limit")
 		}
 		if strings.Contains(p.Cache.Source, "..") {
 			add("cache.source", "path traversal is not allowed")
 		}
+		// A size limit is kept by evicting entries from a directory on the
+		// host. There is no directory to measure behind a named volume, so
+		// accepting the number there would promise an enforcement that does
+		// not exist -- which is worse than refusing it.
+		if p.Cache.SizeLimit > 0 && !filepath.IsAbs(strings.TrimSpace(p.Cache.Source)) {
+			add("cache.size_limit", "a size limit is enforced by evicting from a host directory, so set the cache source to an absolute host path, or leave the limit at 0")
+		}
 		if p.Cache.Scope == store.CacheScopeRepository {
-			if inst, err := s.ctrl.Store().GetInstallation(ctx, p.InstallationID); err == nil && inst.TargetType != store.TargetRepo {
-				add("cache.scope", "repository scope requires a repository-targeted installation; pool scope never shares across pools")
+			repo := strings.TrimSpace(p.Cache.Repository)
+			inst, err := s.ctrl.Store().GetInstallation(ctx, p.InstallationID)
+			switch {
+			case err != nil:
+				// The installation itself is already reported as invalid.
+			case inst.TargetType == store.TargetRepo:
+				if repo != "" && !strings.EqualFold(repo, inst.Target) {
+					add("cache.repository", "this pool's installation is scoped to "+inst.Target+", so its repository cache can only be for that repository; leave it empty")
+				}
+			case repo == "":
+				add("cache.repository", "this pool's installation covers all of "+inst.Target+", so a repository cache has to name the repository it is for, as "+inst.Target+"/name")
+			case !validRepositoryPath(repo):
+				add("cache.repository", "name the repository as owner/name, for example "+inst.Target+"/widgets")
+			case !strings.EqualFold(strings.SplitN(repo, "/", 2)[0], inst.Target):
+				add("cache.repository", "this pool's installation covers "+inst.Target+", so its cache repository has to be under that owner")
 			}
 		}
 	}
@@ -328,6 +349,16 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 		}
 	}
 	return errs
+}
+
+// validRepositoryPath accepts exactly "owner/name" with both halves present and
+// nothing that could climb out of a cache directory built from it.
+func validRepositoryPath(repo string) bool {
+	owner, name, ok := strings.Cut(repo, "/")
+	if !ok || owner == "" || name == "" || strings.Contains(name, "/") {
+		return false
+	}
+	return owner != "." && owner != ".." && name != "." && name != ".."
 }
 
 func digestReference(ref string) bool {

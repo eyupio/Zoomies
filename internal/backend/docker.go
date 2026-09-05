@@ -415,43 +415,6 @@ func buildRunnerConfig(spec Spec, fl flavor, o containerOptions) ContainerCreate
 	return cfg
 }
 
-// cacheSource derives an isolated daemon volume or host directory without
-// placing unchecked pool/repository values into it.
-func cacheSource(spec Spec) (string, error) {
-	c := spec.Cache
-	if !c.Enabled {
-		return "", nil
-	}
-	if !c.Scope.Valid() {
-		return "", fmt.Errorf("backend: %q is not a cache scope", c.Scope)
-	}
-	key := spec.PoolID
-	if c.Scope == store.CacheScopeRepository {
-		if !strings.Contains(spec.Repository, "/") {
-			return "", fmt.Errorf("backend: repository cache scope requires a repository-targeted installation")
-		}
-		key += "-" + spec.Repository
-	}
-	safe := sanitizeHostname(key)
-	if safe == "" || safe == "." || safe == ".." {
-		return "", fmt.Errorf("backend: unsafe cache identity")
-	}
-	prefix := strings.TrimSpace(c.Source)
-	if strings.Contains(prefix, "..") {
-		return "", fmt.Errorf("backend: unsafe cache source %q: path traversal is not allowed", prefix)
-	}
-	if prefix == "" {
-		prefix = "zoomies-cache"
-	}
-	if filepath.IsAbs(prefix) {
-		return filepath.Join(prefix, safe), nil
-	}
-	if strings.ContainsAny(prefix, `/\\:`) {
-		return "", fmt.Errorf("backend: unsafe cache volume prefix %q", prefix)
-	}
-	return prefix + "-" + safe, nil
-}
-
 // runnerEnv builds the environment in a stable order, credentials first, so
 // that two identical specs produce identical containers.
 func runnerEnv(spec Spec, o containerOptions) []string {
@@ -580,6 +543,12 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (Create
 		return CreateResult{}, err
 	}
 	opts.WorkDirMount, opts.WorkDirOwned = workDir, owned
+
+	// The cache is idle exactly now, between the runner that last used it and
+	// the one about to, so this is the only safe moment to evict from it.
+	if dir, ok := cacheDirectory(spec); ok {
+		pruneCache(dir, spec.Cache.SizeLimit, b.log)
+	}
 
 	var dindID string
 	switch spec.DockerMode {
