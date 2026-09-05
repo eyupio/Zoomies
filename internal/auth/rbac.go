@@ -38,6 +38,7 @@ const (
 
 // Job actions. Jobs are observed, never mutated, so there is only a read.
 const ActionJobsRead Action = "jobs.read"
+const ActionUsageRead Action = "usage.read"
 
 // Host actions.
 const (
@@ -112,7 +113,8 @@ var actionRoles = map[Action]store.Role{
 	ActionRunnersDrain:  store.RoleOperator,
 	ActionRunnersDelete: store.RoleOperator,
 
-	ActionJobsRead: store.RoleViewer,
+	ActionJobsRead:  store.RoleViewer,
+	ActionUsageRead: store.RoleViewer,
 
 	ActionHostsRead:   store.RoleViewer,
 	ActionHostsWrite:  store.RoleOperator,
