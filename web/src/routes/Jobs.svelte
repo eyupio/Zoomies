@@ -8,6 +8,11 @@
   unmatched filter, which finds the queued jobs no enabled pool claims. A job
   that already ran is never counted there: its labels may name a hosted or vendor
   runner this controller does not own, and something ran it.
+
+  GitHub reports every job in an installed repository, most of which this fleet
+  never touches. The page therefore shows Zoomies' own work by default -- jobs a
+  pool claims, jobs its runners ran, and queued jobs nothing claims -- and the
+  "Include other runners" switch widens it to everything GitHub has reported.
 -->
 <script lang="ts">
   import { getJobFacets, listJobs } from '$lib/api/client';
@@ -49,6 +54,7 @@
     since: router.param('since'),
     until: router.param('until'),
     unmatched: router.param('unmatched') === 'true',
+    all: router.param('all') === 'true',
   });
 
   /**
@@ -80,6 +86,7 @@
       since: null,
       until: null,
       unmatched: null,
+      all: null,
       offset: null,
     });
   }
@@ -115,6 +122,28 @@
 
   const unmatchedOnPage = $derived(pageRows.filter(stuckUnmatched).length);
 
+  /* -- the empty state ------------------------------------------------------
+   * An empty grid means something different in each of the three views, and
+   * saying "no jobs recorded yet" to somebody whose jobs all ran on hosted
+   * runners would be a lie the page can easily avoid telling.
+   * ---------------------------------------------------------------------- */
+
+  const emptyTitle = $derived(
+    filters.unmatched
+      ? 'No unmatched jobs'
+      : filters.all
+        ? 'No jobs recorded yet'
+        : 'No jobs have run on this fleet',
+  );
+
+  const emptyDescription = $derived(
+    filters.unmatched
+      ? 'Nothing is queued with labels no pool claims, which is how it should be. Jobs that already ran are not counted here however their labels read.'
+      : filters.all
+        ? 'Zoomies records a job the first time GitHub tells it about one, over a webhook delivery. If workflows are running and nothing appears here, the delivery is not arriving.'
+        : 'This view shows jobs a pool claims or a runner here ran. Include other runners to see everything GitHub has reported, hosted runners included.',
+  );
+
   /* -- the grid ---------------------------------------------------------------- */
 
   async function fetchJobs(query: GridQuery, signal: AbortSignal): Promise<GridPage<Job>> {
@@ -130,6 +159,7 @@
         since: startOfDay(filters.since),
         until: endOfDay(filters.until),
         unmatched: filters.unmatched ? true : undefined,
+        managed: filters.all ? undefined : true,
         limit: query.limit,
         offset: query.offset,
         sort: query.sort,
@@ -275,7 +305,12 @@
   />
 {/snippet}
 
-<PageHeader title="Jobs" subtitle="Every workflow job GitHub has told this controller about." />
+<PageHeader
+  title="Jobs"
+  subtitle={filters.all
+    ? 'Every workflow job GitHub has told this controller about, whatever ran it.'
+    : 'The workflow jobs this fleet claims, runs, or is waiting to run.'}
+/>
 
 <div class="content">
   <JobFilters
@@ -304,14 +339,18 @@
     {liveKey}
     onopen={open}
     onrows={takePage}
-    emptyTitle={filters.unmatched ? 'No unmatched jobs' : 'No jobs recorded yet'}
-    emptyDescription={filters.unmatched
-      ? 'Nothing is queued with labels no pool claims, which is how it should be. Jobs that already ran are not counted here however their labels read.'
-      : 'Zoomies records a job the first time GitHub tells it about one, over a webhook delivery. If workflows are running and nothing appears here, the delivery is not arriving.'}
+    {emptyTitle}
+    {emptyDescription}
   >
     {#snippet emptyAction()}
       {#if !filters.unmatched}
-        <Button variant="secondary" href="/installations">Check webhook delivery</Button>
+        {#if filters.all}
+          <Button variant="secondary" href="/installations">Check webhook delivery</Button>
+        {:else}
+          <Button variant="secondary" onclick={() => patch({ all: true })}>
+            Include other runners
+          </Button>
+        {/if}
       {/if}
     {/snippet}
   </DataGrid>
