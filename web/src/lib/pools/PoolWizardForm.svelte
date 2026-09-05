@@ -269,6 +269,8 @@
     validatePool,
   } from '$lib/api/client';
   import type { Body, Result } from '$lib/api/types';
+  import { BRAND_LABEL, brandedLabel } from '$lib/brand';
+  import { poolName, spinWord } from './names';
   import { fleet } from '$lib/state/fleet.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
   import Wizard from '$lib/components/Wizard.svelte';
@@ -297,6 +299,25 @@
   let touched = $state<Record<string, boolean>>({});
   let serverErrors = $state<Record<string, string>>({});
   let socketConfirmed = $state(untrack(() => pool?.docker_mode === 'host-socket'));
+
+  /*
+    Auto-naming, on creation only.
+
+    `autoName` is the last name the wizard produced. While the field still
+    holds it the name is the wizard's to keep current -- so choosing Podman on
+    the backend step renames the pool -- and the moment an operator types over
+    it the wizard stops touching it, because a field that rewrites itself under
+    someone's cursor is worse than no help at all. Editing an existing pool
+    never generates anything: its name is already in workflows.
+
+    `autoLabel` plays the same part for the labels, with one more state:
+    `null`, meaning the operator has taken the labels over. Removing the
+    suggested chip has to stick, and without that third state an empty list
+    looks exactly like a list nothing has been put in yet.
+  */
+  let kennelWord = $state(spinWord());
+  let autoName = $state('');
+  let autoLabel = $state<string | null>('');
   let submitting = $state(false);
   let panel = $state<HTMLDivElement | null>(null);
 
@@ -414,6 +435,51 @@
     return () => controller.abort();
   });
 
+  /* -- the name, and the label it implies ---------------------------------- */
+
+  // The infrastructure half of the name follows the backend and the fleet, so
+  // a name generated before any host had connected does not go on claiming the
+  // pool is x64 after an arm64 host joins.
+  $effect(() => {
+    if (editing) return;
+    const suggested = poolName(kennelWord, draft.backend, fleet.hosts);
+    untrack(() => {
+      if (draft.name !== '' && draft.name !== autoName) return;
+      draft.name = suggested;
+      autoName = suggested;
+    });
+  });
+
+  $effect(() => {
+    if (editing) return;
+    const suggested = brandedLabel(draft.name);
+    untrack(() => {
+      if (autoLabel === null) return;
+      const pristine =
+        autoLabel === '' ? draft.labels.length === 0 : draft.labels.join() === autoLabel;
+      if (!pristine) {
+        autoLabel = null;
+        return;
+      }
+      // A name that reduces to the brand alone says nothing the server does not
+      // already add on save, so there is nothing worth filling in yet.
+      if (suggested === BRAND_LABEL) return;
+      if (draft.labels.join() === suggested) return;
+      draft.labels = [suggested];
+      autoLabel = suggested;
+    });
+  });
+
+  /** Roll a new name from the kennel, whatever is in the field now. */
+  function spin(): void {
+    if (editing) return;
+    kennelWord = spinWord(kennelWord);
+    const next = poolName(kennelWord, draft.backend, fleet.hosts);
+    draft.name = next;
+    autoName = next;
+    touch('name');
+  }
+
   /* -- the server's verdict, before anything is created --------------------- */
 
   $effect(() => {
@@ -526,6 +592,7 @@
           {groups}
           {groupsLoading}
           {groupsError}
+          onspin={editing ? undefined : spin}
         />
       {:else if step.id === 'labels'}
         <StepLabels {draft} {errors} {touch} />

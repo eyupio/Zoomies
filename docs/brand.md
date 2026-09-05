@@ -127,6 +127,20 @@ The descriptor is set in Inter -- small, uppercase, letter-spaced -- rather than
 cropped out of the wordmark artwork, whose own descriptor line is drawn for
 240px and is a smudge at sidebar width.
 
+### Names from the kennel
+
+The mark is a cocker spaniel, so the names the product invents come from one.
+The pool wizard opens with a name already filled in: the brand, a spaniel from
+`web/src/lib/pools/names.ts`, and what the pool will actually run on --
+`zoomies-truffle-docker-linux`. The kennel half is what makes one pool tellable
+from another in a list; the infrastructure half is what an operator wants to
+know before sending a job to it.
+
+The `zoomies-` prefix is not decoration and is never dropped: in GitHub's own
+runner settings it is the only thing distinguishing our runners from anyone
+else's. Names are offered, never imposed -- the dice roll another one, and a
+name typed over is left alone.
+
 ## Clear space and minimum sizes
 
 * Full logo clear space: the height of the **O** in the wordmark on every side.

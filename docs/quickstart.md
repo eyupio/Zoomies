@@ -144,6 +144,15 @@ it yourself on the **Pools** page:
 | **Ephemeral** | yes |
 | **Docker in jobs** | none |
 
+The wizard does not make you invent the first two rows. It opens with a name
+already in the field -- the brand, a name from the kennel and the
+infrastructure the runners will land on, so `zoomies-biscuit-docker-linux` --
+and a label derived from that name, so the pool is reachable by a workflow
+before you have typed anything. The dice beside the field roll another name;
+type over it and the wizard leaves the name and the label alone from then on.
+Every name it offers starts with `zoomies-`, which is what tells you a runner
+in GitHub's own settings is one of yours.
+
 Decline it, or set `pool.skip` in an answer file, and the Pools page starts
 empty; nothing runs until a pool exists. Either way, always set a maximum. It
 is your only backstop against a runaway workflow.
