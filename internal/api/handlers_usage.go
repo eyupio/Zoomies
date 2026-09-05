@@ -83,7 +83,7 @@ func (s *Server) handleUsageCSV(w http.ResponseWriter, r *http.Request) {
 		}
 		// A blank cell is the honest rendering of "not calculated for this
 		// grouping"; a spreadsheet would sum a zero.
-		_ = c.Write([]string{x.Key, fmt.Sprint(x.JobExecutionSeconds), optionalFloat(x.AllocatedRunnerSeconds),
+		_ = c.Write([]string{csvText(x.Key), fmt.Sprint(x.JobExecutionSeconds), optionalFloat(x.AllocatedRunnerSeconds),
 			strconv.Itoa(x.Jobs), strconv.Itoa(x.JobsStarted), strconv.Itoa(x.JobsCompleted),
 			optionalFloat(x.AverageQueueWaitSeconds), strconv.Itoa(x.PeakConcurrency), cost})
 	}
@@ -95,4 +95,24 @@ func optionalFloat(v *float64) string {
 		return ""
 	}
 	return fmt.Sprint(*v)
+}
+
+// csvText makes a free-text cell safe to open in a spreadsheet.
+//
+// Excel and Sheets evaluate a cell that begins with =, +, -, @, a tab or a
+// carriage return, and CSV quoting does not stop them: the quotes are gone by
+// the time the cell is read. The group column carries names that GitHub
+// payloads supplied -- a workflow can be called anything, by anyone who can
+// push to a repository the App can see -- so a leading formula character is
+// somebody else's to choose. A leading apostrophe is the spreadsheet
+// convention for "this is text", and it is not shown in the cell.
+func csvText(s string) string {
+	if s == "" {
+		return s
+	}
+	switch s[0] {
+	case '=', '+', '-', '@', '\t', '\r':
+		return "'" + s
+	}
+	return s
 }
