@@ -45,7 +45,7 @@ info:
     * Errors are `{ "error": { code, message, field?, detail? } }` with a
       message written for a human to read.
   license:
-    name: MIT
+    name: AGPL-3.0-only
     url: https://github.com/eyupio/zoomies/blob/main/LICENSE
   contact:
     name: Zoomies
@@ -968,6 +968,14 @@ paths:
             Only jobs that are still queued and that no enabled pool claims. A job that
             already started or finished was run by something else, so it is not included
             however its labels read.
+          schema: { type: boolean }
+        - name: managed
+          in: query
+          description: >-
+            Only jobs this controller has a hand in: one an enabled pool claims, one that
+            ran on a runner this fleet started, and queued jobs no pool claims -- which
+            nothing ran, so they belong here too. Leave it off to see every job GitHub has
+            reported, including those run on hosted runners this fleet does not own.
           schema: { type: boolean }
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/Offset"
@@ -1990,6 +1998,7 @@ components:
         runner_version: { type: string }
         min_runners: { type: integer }
         max_runners: { type: integer }
+        priority: { type: integer, default: 0, description: Higher-priority pools receive creation capacity before lower-priority pools. }
         idle_timeout: { $ref: "#/components/schemas/Duration" }
         ephemeral: { type: boolean }
         docker_mode: { $ref: "#/components/schemas/DockerMode" }
@@ -2032,7 +2041,15 @@ components:
       type: object
       required: [name, installation_id, labels, backend]
       properties:
-        name: { type: string, minLength: 1, maxLength: 64, examples: [linux-x64] }
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: >-
+            The pool's name. Every pool name carries the brand, so a name sent
+            without the `zoomies-` prefix is stored with one: `gpu` becomes
+            `zoomies-gpu`.
+          examples: [zoomies-linux-x64]
         installation_id: { type: string }
         labels: { type: array, items: { type: string }, minItems: 1 }
         runner_group: { type: string }
@@ -2041,6 +2058,7 @@ components:
         runner_version: { type: string }
         min_runners: { type: integer, default: 0, minimum: 0 }
         max_runners: { type: integer, default: 4, minimum: 1 }
+        priority: { type: integer, default: 0 }
         idle_timeout: { allOf: [{ $ref: "#/components/schemas/Duration" }], default: "5m" }
         ephemeral: { type: boolean, default: true }
         docker_mode: { allOf: [{ $ref: "#/components/schemas/DockerMode" }], default: none }
@@ -2059,7 +2077,15 @@ components:
     PoolUpdate:
       type: object
       properties:
-        name: { type: string, minLength: 1, maxLength: 64, examples: [linux-x64] }
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: >-
+            The pool's name. Every pool name carries the brand, so a name sent
+            without the `zoomies-` prefix is stored with one: `gpu` becomes
+            `zoomies-gpu`.
+          examples: [zoomies-linux-x64]
         installation_id: { type: string }
         labels: { type: array, items: { type: string }, minItems: 1 }
         runner_group: { type: string }
@@ -2068,6 +2094,7 @@ components:
         runner_version: { type: string }
         min_runners: { type: integer, minimum: 0 }
         max_runners: { type: integer, minimum: 1 }
+        priority: { type: integer }
         idle_timeout: { $ref: "#/components/schemas/Duration" }
         ephemeral: { type: boolean }
         docker_mode: { $ref: "#/components/schemas/DockerMode" }

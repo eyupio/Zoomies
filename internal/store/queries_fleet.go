@@ -176,7 +176,7 @@ func (s *Store) DeleteInstallation(ctx context.Context, id string) error {
 // ---------------------------------------------------------------------------
 
 const poolCols = `id, name, installation_id, labels, runner_group, backend, image,
-	runner_version, min_runners, max_runners, idle_timeout_ms, ephemeral, docker_mode,
+	runner_version, min_runners, max_runners, priority, idle_timeout_ms, ephemeral, docker_mode,
 	resources, cache, host_selector, env, run_as_root, enabled, created_at, updated_at`
 
 func scanPool(sc interface{ Scan(...any) error }) (*Pool, error) {
@@ -185,7 +185,7 @@ func scanPool(sc interface{ Scan(...any) error }) (*Pool, error) {
 	var ephemeral, runAsRoot, enabled int
 	var resources, cache string
 	err := sc.Scan(&p.ID, &p.Name, &p.InstallationID, &p.Labels, &p.RunnerGroup, &p.Backend,
-		&p.Image, &p.RunnerVersion, &p.MinRunners, &p.MaxRunners, &idle, &ephemeral,
+		&p.Image, &p.RunnerVersion, &p.MinRunners, &p.MaxRunners, &p.Priority, &idle, &ephemeral,
 		&p.DockerMode, &resources, &cache, &p.HostSelector, &p.Env, &runAsRoot, &enabled,
 		&created, &updated)
 	if err != nil {
@@ -203,14 +203,18 @@ func scanPool(sc interface{ Scan(...any) error }) (*Pool, error) {
 	return &p, nil
 }
 
-// CreatePool inserts a pool. Labels are normalised on the way in so that the
-// scheduler never has to think about case or whitespace.
+// CreatePool inserts a pool. The name is branded and the labels normalised on
+// the way in, here rather than only in the handler, so that no caller -- the
+// API, the installer, the seeder -- can put a pool in the database that GitHub
+// would show under a name saying nothing about which fleet it belongs to. The
+// scheduler then never has to think about case or whitespace either.
 func (s *Store) CreatePool(ctx context.Context, p *Pool) error {
 	if p.ID == "" {
 		p.ID = NewID(PrefixPool)
 	}
 	now := s.Now()
 	p.CreatedAt, p.UpdatedAt = now, now
+	p.Name = BrandedName(p.Name)
 	p.Labels = NormalizeLabels(p.Labels)
 	res, err := marshalJSON(p.Resources)
 	if err != nil {
@@ -220,9 +224,9 @@ func (s *Store) CreatePool(ctx context.Context, p *Pool) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.exec(ctx, `INSERT INTO pools (`+poolCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err = s.exec(ctx, `INSERT INTO pools (`+poolCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		p.ID, p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend), p.Image,
-		p.RunnerVersion, p.MinRunners, p.MaxRunners, p.IdleTimeout.Duration().Milliseconds(),
+		p.RunnerVersion, p.MinRunners, p.MaxRunners, p.Priority, p.IdleTimeout.Duration().Milliseconds(),
 		boolInt(p.Ephemeral), string(p.DockerMode), res, cache, p.HostSelector, p.Env,
 		boolInt(p.RunAsRoot), boolInt(p.Enabled), ms(p.CreatedAt), ms(p.UpdatedAt))
 	return wrapWrite(err)
@@ -266,9 +270,12 @@ func (s *Store) ListPools(ctx context.Context) ([]*Pool, error) {
 	return out, rows.Err()
 }
 
-// UpdatePool persists changes to a pool.
+// UpdatePool persists changes to a pool. The name is branded on the way in for
+// the reason CreatePool brands it, which also means a pool carried over from a
+// build that did not brand names gains the prefix the next time it is edited.
 func (s *Store) UpdatePool(ctx context.Context, p *Pool) error {
 	p.UpdatedAt = s.Now()
+	p.Name = BrandedName(p.Name)
 	p.Labels = NormalizeLabels(p.Labels)
 	res, err := marshalJSON(p.Resources)
 	if err != nil {
@@ -279,11 +286,11 @@ func (s *Store) UpdatePool(ctx context.Context, p *Pool) error {
 		return err
 	}
 	r, err := s.exec(ctx, `UPDATE pools SET name=?, installation_id=?, labels=?, runner_group=?,
-		backend=?, image=?, runner_version=?, min_runners=?, max_runners=?, idle_timeout_ms=?,
+		backend=?, image=?, runner_version=?, min_runners=?, max_runners=?, priority=?, idle_timeout_ms=?,
 		ephemeral=?, docker_mode=?, resources=?, cache=?, host_selector=?, env=?, run_as_root=?,
 		enabled=?, updated_at=? WHERE id=?`,
 		p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend), p.Image,
-		p.RunnerVersion, p.MinRunners, p.MaxRunners, p.IdleTimeout.Duration().Milliseconds(),
+		p.RunnerVersion, p.MinRunners, p.MaxRunners, p.Priority, p.IdleTimeout.Duration().Milliseconds(),
 		boolInt(p.Ephemeral), string(p.DockerMode), res, cache, p.HostSelector, p.Env,
 		boolInt(p.RunAsRoot), boolInt(p.Enabled), ms(p.UpdatedAt), p.ID)
 	if err != nil {

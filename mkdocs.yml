@@ -13,7 +13,7 @@ site_description: >-
   runners by default, GitHub App auth, webhook-driven autoscaling, multi-host
   agents, a live web UI, and a one-line installer.
 site_author: Zoomies contributors
-copyright: Zoomies is MIT licensed.
+copyright: Zoomies is AGPL-3.0 licensed.
 
 repo_url: https://github.com/eyupio/zoomies
 repo_name: eyupio/zoomies

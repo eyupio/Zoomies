@@ -95,6 +95,18 @@ runner directly on the host without a container. Zoomies talks to the Engine API
 over a socket and Podman's socket speaks the same protocol, so both are the same
 code path.
 
+## Can jobs build container images?
+
+Yes, with two settings on the pool. `docker_mode: dind` gives its runners a
+private Docker daemon, and `image: ghcr.io/eyupio/zoomies-runner-docker:latest`
+gives them a client to drive it with. The default runner image has no Docker CLI
+on purpose — most pools never build an image, and the client is cold-start time
+they would pay for nothing.
+
+Set only the first and the daemon sits there unused: the job fails at its first
+Docker step with `Unable to locate executable file: docker`. See [Jobs that build
+container images](configuration.md#jobs-that-build-container-images).
+
 ## Which platforms does it run on?
 
 Linux on x86-64 and arm64 is what the controller, the agents and the runner
@@ -122,8 +134,17 @@ reasons reliable enough to print.
 
 ## What does it cost?
 
-Nothing. Zoomies is free and open source under the MIT licence. You pay for the
-machines you run it on.
+Nothing. Zoomies is free and open source under the GNU Affero General Public
+License (AGPL-3.0). You pay for the machines you run it on.
+
+## Can I run Zoomies as a service for other people?
+
+Yes. The licence has one thing to say about it: if you change Zoomies and let
+other people use your changed version over a network, you have to offer those
+people the source of what you are running. That is the clause the AGPL adds to
+the GPL, and it is why Zoomies uses it. Running it for your own organisation,
+modified or not, asks nothing of you. The full text is in
+[LICENSE](https://github.com/eyupio/zoomies/blob/main/LICENSE).
 
 <script type="application/ld+json">
 {
@@ -215,7 +236,15 @@ machines you run it on.
       "name": "What does Zoomies cost?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Nothing. Zoomies is free and open source under the MIT licence. You pay only for the machines you run it on."
+        "text": "Nothing. Zoomies is free and open source under the GNU Affero General Public License (AGPL-3.0). You pay only for the machines you run it on."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Can I run Zoomies as a service for other people?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. Zoomies is licensed under the GNU Affero General Public License, so if you modify it and let other people use the modified version over a network, you must offer those people the source of what you are running. Running it for your own organisation, modified or not, asks nothing of you."
       }
     }
   ]

@@ -65,6 +65,24 @@
 </div>
 
 <Field
+  label="Priority"
+  error={errors['priority']}
+  hint="Higher-priority pools receive the global creation budget first. Pools at the same priority share it round-robin."
+>
+  {#snippet children({ id, describedBy, invalid })}
+    <Input
+      bind:value={draft.priority}
+      {id}
+      {describedBy}
+      {invalid}
+      type="number"
+      step={1}
+      onblur={() => touch('priority')}
+    />
+  {/snippet}
+</Field>
+
+<Field
   label="Idle timeout"
   error={errors['idle_timeout']}
   hint="How long a runner waits for work before it is destroyed. A Go duration: 5m, 90s, 1h30m."

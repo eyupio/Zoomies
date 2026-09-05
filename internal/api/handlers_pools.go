@@ -74,6 +74,7 @@ type poolInput struct {
 	RunnerVersion  *string            `json:"runner_version"`
 	MinRunners     *int               `json:"min_runners"`
 	MaxRunners     *int               `json:"max_runners"`
+	Priority       *int               `json:"priority"`
 	IdleTimeout    *string            `json:"idle_timeout"`
 	Ephemeral      *bool              `json:"ephemeral"`
 	DockerMode     *string            `json:"docker_mode"`
@@ -111,7 +112,10 @@ func (in *poolInput) apply(p *store.Pool) []fieldError {
 	add := func(field, msg string) { errs = append(errs, fieldError{field, msg}) }
 
 	if in.Name != nil {
-		p.Name = strings.TrimSpace(*in.Name)
+		// Branded here as well as in the store, so that the uniqueness check
+		// below and the error messages that quote the name are talking about
+		// the name the pool will actually have.
+		p.Name = store.BrandedName(*in.Name)
 	}
 	if in.InstallationID != nil {
 		p.InstallationID = strings.TrimSpace(*in.InstallationID)
@@ -141,6 +145,9 @@ func (in *poolInput) apply(p *store.Pool) []fieldError {
 	}
 	if in.MaxRunners != nil {
 		p.MaxRunners = *in.MaxRunners
+	}
+	if in.Priority != nil {
+		p.Priority = *in.Priority
 	}
 	if in.IdleTimeout != nil {
 		raw := strings.TrimSpace(*in.IdleTimeout)

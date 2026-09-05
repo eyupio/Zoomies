@@ -357,6 +357,7 @@ type PoolView struct {
 	RunnerVersion      string            `json:"runner_version,omitempty"`
 	MinRunners         int               `json:"min_runners"`
 	MaxRunners         int               `json:"max_runners"`
+	Priority           int               `json:"priority"`
 	IdleTimeout        store.Duration    `json:"idle_timeout"`
 	Ephemeral          bool              `json:"ephemeral"`
 	DockerMode         store.DockerMode  `json:"docker_mode"`
@@ -433,6 +434,7 @@ func (v *PoolRenderer) View(p *store.Pool) PoolView {
 		RunnerVersion:      p.RunnerVersion,
 		MinRunners:         p.MinRunners,
 		MaxRunners:         p.MaxRunners,
+		Priority:           p.Priority,
 		IdleTimeout:        p.IdleTimeout,
 		Ephemeral:          p.Ephemeral,
 		DockerMode:         p.DockerMode,

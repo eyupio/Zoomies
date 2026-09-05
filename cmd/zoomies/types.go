@@ -37,6 +37,7 @@ type poolItem struct {
 	RunnerVersion      string            `json:"runner_version"`
 	MinRunners         int               `json:"min_runners"`
 	MaxRunners         int               `json:"max_runners"`
+	Priority           int               `json:"priority"`
 	IdleTimeout        string            `json:"idle_timeout"`
 	Ephemeral          bool              `json:"ephemeral"`
 	DockerMode         string            `json:"docker_mode"`

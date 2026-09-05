@@ -71,6 +71,22 @@ export function brandedLabel(name: string): string {
   return s.startsWith(RUNNER_NAME_PREFIX) ? s : RUNNER_NAME_PREFIX + s;
 }
 
+/**
+ * The name a pool of this name will be saved under: the brand, then the name.
+ *
+ * The server brands every pool name on the way in, so a field left saying
+ * "gpu" would be showing the operator a name that is not the one they get.
+ * A name that already carries the brand keeps it rather than gaining a second.
+ * An empty name stays empty, because "give the pool a name" is what should be
+ * said about it, not "zoomies-".
+ */
+export function brandedName(name: string): string {
+  const s = name.trim();
+  const lower = normalizeLabel(s);
+  if (s === '' || lower === BRAND || lower.startsWith(RUNNER_NAME_PREFIX)) return s;
+  return RUNNER_NAME_PREFIX + s.replace(/^-+/, '');
+}
+
 /** These labels, with the brand guaranteed present. */
 export function brandLabels(labels: readonly string[]): string[] {
   return normalizeLabels([BRAND_LABEL, ...labels]);

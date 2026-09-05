@@ -396,6 +396,7 @@ type Pool struct {
 	RunnerVersion  string      `json:"runner_version,omitempty"`
 	MinRunners     int         `json:"min_runners"`
 	MaxRunners     int         `json:"max_runners"`
+	Priority       int         `json:"priority"`
 	IdleTimeout    Duration    `json:"idle_timeout"`
 	Ephemeral      bool        `json:"ephemeral"`
 	DockerMode     DockerMode  `json:"docker_mode"`

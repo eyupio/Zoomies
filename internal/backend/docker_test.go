@@ -207,6 +207,53 @@ func TestBuildRunnerConfigDockerModes(t *testing.T) {
 		}
 	})
 
+	// Mounting the socket is only half of it. The runner is a non-root user
+	// inside the container and the socket is root:docker on the host, so a
+	// mount without the owning group is a socket the job cannot open -- and
+	// the error it gets ("permission denied while trying to connect to the
+	// Docker daemon socket") points at the host, where nothing is wrong.
+	t.Run("host socket carries its owning group", func(t *testing.T) {
+		spec := jitSpec()
+		spec.DockerMode = store.DockerHostSocket
+		cfg := buildRunnerConfig(spec, dockerFlavor(), containerOptions{
+			Now: time.Now(), HostSocket: "/var/run/docker.sock", SocketGID: 987,
+		})
+		if !slices.Contains(cfg.HostConfig.GroupAdd, "987") {
+			t.Fatalf("group_add = %v, want it to contain the socket's gid 987", cfg.HostConfig.GroupAdd)
+		}
+	})
+
+	// Root reaches the socket already; adding the group would only widen what a
+	// root container can do, for nothing.
+	t.Run("a root runner is not given the socket group", func(t *testing.T) {
+		spec := jitSpec()
+		spec.DockerMode = store.DockerHostSocket
+		spec.RunAsRoot = true
+		cfg := buildRunnerConfig(spec, dockerFlavor(), containerOptions{
+			Now: time.Now(), HostSocket: "/var/run/docker.sock", SocketGID: 987,
+		})
+		if len(cfg.HostConfig.GroupAdd) != 0 {
+			t.Fatalf("group_add = %v, want none", cfg.HostConfig.GroupAdd)
+		}
+	})
+
+	// A socket Zoomies could not stat is still mounted: the pool asked for it,
+	// and a world-writable or root-run case works anyway. Failing the create
+	// here would take away a mode that does work.
+	t.Run("an unreadable socket owner still mounts", func(t *testing.T) {
+		spec := jitSpec()
+		spec.DockerMode = store.DockerHostSocket
+		cfg := buildRunnerConfig(spec, dockerFlavor(), containerOptions{
+			Now: time.Now(), HostSocket: "/var/run/docker.sock",
+		})
+		if len(cfg.HostConfig.Binds) == 0 {
+			t.Fatal("the socket must still be mounted when its owner is unknown")
+		}
+		if len(cfg.HostConfig.GroupAdd) != 0 {
+			t.Fatalf("group_add = %v, want none", cfg.HostConfig.GroupAdd)
+		}
+	})
+
 	t.Run("dind joins the sidecar's network namespace", func(t *testing.T) {
 		spec := jitSpec()
 		spec.DockerMode = store.DockerDinD

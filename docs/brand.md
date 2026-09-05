@@ -138,8 +138,11 @@ know before sending a job to it.
 
 The `zoomies-` prefix is not decoration and is never dropped: in GitHub's own
 runner settings it is the only thing distinguishing our runners from anyone
-else's. Names are offered, never imposed -- the dice roll another one, and a
-name typed over is left alone.
+else's. So the name is offered and the prefix is not. The dice roll another
+name and a name typed over is left alone, but a name given without the brand
+gains it -- in the wizard's field as soon as it loses focus, and again in the
+store, so that a pool created from the CLI, the API or an answer file is
+branded exactly as one created from the wizard is.
 
 ## Clear space and minimum sizes
 
@@ -188,8 +191,9 @@ not try to set it in type.
 | CLI | `zoomies` |
 | Service | `zoomies` (controller), `zoomies-agent` (agent) |
 | Config directory | `/etc/zoomies`, or `.zoomies/` for a per-user install |
-| Container images | `ghcr.io/eyupio/zoomies`, `ghcr.io/eyupio/zoomies-runner` |
+| Container images | `ghcr.io/eyupio/zoomies`, `ghcr.io/eyupio/zoomies-runner`, `ghcr.io/eyupio/zoomies-runner-docker` |
 | Runner names | `zoomies-k3f9qz2m` — the brand and eight random characters |
+| Pool names | `zoomies-truffle-docker-linux`; a name given without the prefix gains one |
 | Pool labels | `zoomies-linux-x64`, `zoomies-gpu`; every pool also answers to `zoomies` |
 | Migration branch | `zoomies/migrate-runners-<timestamp>` |
 

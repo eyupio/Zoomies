@@ -206,9 +206,11 @@ github:
   runner_image: ghcr.io/eyupio/zoomies-runner:latest
 ```
 
-Both images — `ghcr.io/eyupio/zoomies` (the controller) and
-`ghcr.io/eyupio/zoomies-runner` — are published to GHCR under four kinds of
-tag:
+Three images are published to GHCR — `ghcr.io/eyupio/zoomies` (the controller),
+`ghcr.io/eyupio/zoomies-runner` (the runner) and
+`ghcr.io/eyupio/zoomies-runner-docker` (the runner plus a Docker CLI, for pools
+that build container images — see [Jobs that build container
+images](#jobs-that-build-container-images)) — each under four kinds of tag:
 
 | Tag | Points at | Published by |
 | --- | --- | --- |
@@ -227,9 +229,11 @@ release": drop it from the `images` job in `ci.yml`, and let `release.yml` be
 the only thing that moves it. Leaving both in place means the next merge to
 `main` overwrites the release's `latest` with an untagged build.
 
-The runner image is only rebuilt when something that goes into it changes —
-`deploy/Dockerfile.runner` or `deploy/runner-entrypoint.sh` — so its `main` tag
-can be older than the controller's, and correctly so.
+The runner images are only rebuilt when something that goes into them changes —
+`deploy/Dockerfile.runner` or `deploy/runner-entrypoint.sh` — so their `main` tag
+can be older than the controller's, and correctly so. Both come out of the same
+Dockerfile, as its `runner` and `runner-docker` targets, so they are never out of
+step with each other.
 
 ### Deployment models
 
@@ -386,7 +390,7 @@ the CLI or the API. These are their fields:
 | `max_runners` | Hard ceiling. **Always set this** — it is your backstop against a runaway workflow. |
 | `idle_timeout` | How long an idle runner waits before being drained. |
 | `ephemeral` | One job per runner. Leave it on. |
-| `docker_mode` | `none`, `dind`, or `host-socket`. See [security.md](security.md). |
+| `docker_mode` | `none`, `dind`, or `host-socket`. Needs an image with a Docker client — see [below](#jobs-that-build-container-images) and [security.md](security.md). |
 | `resources` | `cpus`, `memory_mb`, `pids_limit` per runner. |
 | `host_selector` | Restricts the pool to matching hosts. |
 | `env` | Injected into every runner. |
@@ -410,6 +414,44 @@ repository nobody has assigned a pool to yet.
 
 Runners are named for the brand too: `zoomies-k3f9qz2m`, which is what GitHub
 shows in its runner list and in every job's log header.
+
+### Jobs that build container images
+
+A job that runs `docker`, `docker buildx` or `docker compose` — which includes
+`docker/setup-qemu-action`, `docker/setup-buildx-action` and
+`docker/build-push-action` — needs two things from its pool, and setting only
+one of them is the common mistake:
+
+1. **A daemon.** Set the pool's `docker_mode` to `dind` or `host-socket`. The
+   default, `none`, gives the job no daemon at all. Both alternatives weaken the
+   pool's isolation and both are warned about at startup;
+   [security.md](security.md#6-the-dangerous-toggles) says what each costs, and
+   `dind` is the one to prefer.
+2. **A client.** Set the pool's `image` to
+   `ghcr.io/eyupio/zoomies-runner-docker:latest`. The default runner image
+   deliberately carries no Docker CLI, because most pools never build an image
+   and a client on every runner is cold-start time spent for nothing.
+
+Miss the second and the daemon is there, reachable, and unused: the job fails at
+its first Docker step with
+
+```
+Error: Unable to locate executable file: docker.
+```
+
+which names the missing binary and not the reason. A runner that starts with a
+daemon it has no client for says so in its own log, at the top, before the job
+runs.
+
+`ghcr.io/eyupio/zoomies-runner-docker` is the stock runner image plus
+`docker-ce-cli`, `docker-buildx-plugin` and `docker-compose-plugin` — the client
+only. It never runs a daemon of its own; that is what `docker_mode` is for. An
+image of your own works just as well, and only has to put `docker` on the
+runner's `PATH`.
+
+On a `host-socket` pool Zoomies also adds the group that owns the host's
+`docker.sock` to the runner container, because the runner is not root inside it
+and a socket it cannot open is the same failure with a different message.
 
 ### How a job finds a pool
 
