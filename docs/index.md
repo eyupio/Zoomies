@@ -56,8 +56,9 @@ The Overview, on a fleet part-way through a morning. [Every page, in both themes
 
 ## How it works
 
-Point Zoomies at a GitHub organisation. It watches for queued jobs, starts a
-fresh runner for each one, and destroys the runner when the job finishes.
+Point Zoomies at a GitHub organisation, or at a repository on a personal
+account. It watches for queued jobs, starts a fresh runner for each one, and
+destroys the runner when the job finishes.
 
 ```mermaid
 flowchart LR

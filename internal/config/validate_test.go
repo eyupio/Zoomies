@@ -2,6 +2,8 @@ package config
 
 import (
 	"net"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -110,5 +112,57 @@ func TestFinishedRetentionIsBoundedInBothDirections(t *testing.T) {
 	}
 	if !hasCode(f, "agent.finished_retention_long") {
 		t.Fatal("a day-long agent.finished_retention drew no warning")
+	}
+}
+
+// The warning is about a key written into zoomies.yaml, where backups and
+// configuration management can read it. A key that arrived from the
+// environment while a config file merely existed used to trip it too, and its
+// fix text told the operator to do what they had already done.
+func TestKeyInConfigWarningLooksAtWhereTheKeyCameFrom(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "zoomies.yaml")
+	if err := os.WriteFile(path, []byte("server:\n  bind: 127.0.0.1:8080\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ZOOMIES_ENCRYPTION_KEY", "0000000000000000000000000000000000000000000=")
+
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if hasCode(c.Validate(), "crypto.key_in_config") {
+		t.Fatal("a key from the environment was reported as written in the config file")
+	}
+
+	if err := os.WriteFile(path, []byte("security:\n  encryption_key: 0000000000000000000000000000000000000000000=\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err = Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !hasCode(c.Validate(), "crypto.key_in_config") {
+		t.Fatal("a key written in the config file was not warned about")
+	}
+}
+
+// docs/configuration.md says a bare Enterprise Server hostname is accepted and
+// /api/v3 appended. The loader used to leave it alone and the validator then
+// refused to start on it.
+func TestABareEnterpriseHostnameIsNormalisedNotRefused(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "zoomies.yaml")
+	if err := os.WriteFile(path, []byte("github:\n  api_base_url: ghes.example.com\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.GitHub.APIBaseURL != "https://ghes.example.com/api/v3" {
+		t.Fatalf("api_base_url = %q, want https://ghes.example.com/api/v3", c.GitHub.APIBaseURL)
+	}
+	if hasCode(c.Validate(), "github.api_base_malformed") {
+		t.Fatal("a bare hostname the docs accept was refused by the validator")
 	}
 }

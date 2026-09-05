@@ -46,8 +46,9 @@ curl -fsSL https://zoomies.sh/install.sh | sh
 
 ## What it does
 
-You point Zoomies at a GitHub organisation. It watches for queued jobs, starts a
-fresh runner for each one, and destroys the runner when the job finishes.
+You point Zoomies at a GitHub organisation, or at a repository on a personal
+account. It watches for queued jobs, starts a fresh runner for each one, and
+destroys the runner when the job finishes.
 
 ```mermaid
 flowchart LR
@@ -308,7 +309,7 @@ from one that is not reachable from the other.
 ```sh
 zoomies status                       # the Overview, in a terminal
 zoomies pools list
-zoomies pools create --name zoomies-linux-x64 --labels zoomies-linux-x64 --max 8
+zoomies pools create --name zoomies-linux-x64 --labels zoomies-linux-x64 --installation ins_k3f9qz2m --max 8
 zoomies runners list --state busy
 zoomies runners drain run_k3f9qz2m
 zoomies runners logs run_k3f9qz2m --follow

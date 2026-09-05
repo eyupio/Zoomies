@@ -166,8 +166,8 @@ func (c *Controller) hostProblems(ctx context.Context, out *[]Problem) error {
 				// Runners on a silent host are unaccounted for, which is worse
 				// than a spare host being down.
 				severity = config.SeverityError
-				detail = fmt.Sprintf("no heartbeat for %s, and %d runner(s) are recorded on it, so their state is unknown.",
-					now.Sub(h.LastHeartbeat).Round(time.Second), h.ActiveRunners)
+				detail = fmt.Sprintf("no heartbeat for %s, with %s recorded on it, so their state is unknown.",
+					now.Sub(h.LastHeartbeat).Round(time.Second), plural(h.ActiveRunners, "runner"))
 			}
 			*out = append(*out, Problem{
 				Code:       "host.unhealthy",
@@ -183,7 +183,7 @@ func (c *Controller) hostProblems(ctx context.Context, out *[]Problem) error {
 			*out = append(*out, Problem{
 				Code:       "host.cordoned_with_work",
 				Severity:   config.SeverityWarning,
-				Title:      fmt.Sprintf("host %s is cordoned while %d job(s) are queued", h.Name, len(queued)),
+				Title:      fmt.Sprintf("host %s is cordoned with %s queued", h.Name, plural(len(queued), "job")),
 				Detail:     "a cordoned host keeps its runners but accepts no new ones, so its capacity is not available to the queue.",
 				Fix:        fmt.Sprintf("uncordon %s on the Hosts page if the maintenance it was cordoned for is over.", h.Name),
 				TargetKind: "host", TargetID: h.ID,
@@ -225,7 +225,7 @@ func (c *Controller) webhookProblems(ctx context.Context, out *[]Problem) error 
 			Code:     "webhook.rejected",
 			Severity: config.SeverityWarning,
 			Setting:  "github.webhook_path",
-			Title:    fmt.Sprintf("%d webhook deliveries were rejected in the last hour", rejected),
+			Title:    fmt.Sprintf("%s rejected in the last hour", pluralDeliveries(rejected)),
 			Detail:   "a rejected delivery is one whose signature did not verify. Either the App's webhook secret no longer matches the one Zoomies holds, or something other than GitHub is posting to this endpoint.",
 			Fix:      "compare the webhook secret on the GitHub App with the one on the Installations page, then use GitHub's Redeliver button.",
 			Since:    &since,
@@ -346,12 +346,21 @@ func (c *Controller) PoolCapacityProblems() []Problem {
 	return out
 }
 
-// plural writes "1 job" and "3 jobs".
+// plural writes "1 job" and "3 jobs". Titles are read as headings in the
+// problems drawer, so "job(s)" is not an option there.
 func plural(n int, noun string) string {
 	if n == 1 {
 		return "1 " + noun
 	}
 	return fmt.Sprintf("%d %ss", n, noun)
+}
+
+// pluralDeliveries is plural for the one noun whose plural is not an s.
+func pluralDeliveries(n int) string {
+	if n == 1 {
+		return "1 webhook delivery"
+	}
+	return fmt.Sprintf("%d webhook deliveries", n)
 }
 
 func (c *Controller) jobProblems(ctx context.Context, out *[]Problem) error {
@@ -370,7 +379,7 @@ func (c *Controller) jobProblems(ctx context.Context, out *[]Problem) error {
 	*out = append(*out, Problem{
 		Code:     "jobs.unmatched",
 		Severity: config.SeverityWarning,
-		Title:    fmt.Sprintf("%d queued job(s) match no enabled pool", len(unmatched)),
+		Title:    fmt.Sprintf("no enabled pool matches %s", plural(len(unmatched), "queued job")),
 		Detail: fmt.Sprintf("nothing will run them. The oldest is %s in %s, asking for [%s].",
 			example.JobName, example.Repo, labels),
 		Fix:        "create or enable a pool advertising those labels, or change the workflow's runs-on.",
@@ -455,7 +464,7 @@ func (c *Controller) runnerProblems(ctx context.Context, out *[]Problem) error {
 	*out = append(*out, Problem{
 		Code:       "runners.failed",
 		Severity:   config.SeverityWarning,
-		Title:      fmt.Sprintf("%d runner(s) are in the failed state", len(failed)),
+		Title:      fmt.Sprintf("%s in the failed state", plural(len(failed), "runner")),
 		Detail:     fmt.Sprintf("the most recent is %s: %s", example.Name, example.Message),
 		Fix:        "look at the runner's logs on the Runners page; failed runners are cleaned up automatically but the cause is not.",
 		TargetKind: "runner", TargetID: example.ID, Since: &example.CreatedAt,

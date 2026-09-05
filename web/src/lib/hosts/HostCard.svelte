@@ -10,7 +10,7 @@
 <script lang="ts">
   import { Pencil, ServerCog, Trash2 } from '@lucide/svelte';
   import type { Host } from '$lib/api/types';
-  import { formatNumber, pluralise } from '$lib/format';
+  import { formatNumber } from '$lib/format';
   import { hostStatus } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
   import DropdownMenu from '$lib/components/DropdownMenu.svelte';
@@ -112,8 +112,7 @@
 
   {#if host.cordoned}
     <p class="cordoned">
-      Cordoned. Its {pluralise(active, 'runner')} keep going and finish their jobs; no new runner is placed
-      here until it is uncordoned.
+      Cordoned. Its running work finishes; no new runner is placed here until it is uncordoned.
     </p>
   {/if}
 

@@ -380,21 +380,26 @@ type PoolView struct {
 	MinRunners         int               `json:"min_runners"`
 	MaxRunners         int               `json:"max_runners"`
 	Priority           int               `json:"priority"`
-	IdleTimeout        store.Duration    `json:"idle_timeout"`
-	Ephemeral          bool              `json:"ephemeral"`
-	DockerMode         store.DockerMode  `json:"docker_mode"`
-	Resources          store.Resources   `json:"resources"`
-	Cache              store.CacheConfig `json:"cache"`
-	HostSelector       map[string]string `json:"host_selector"`
-	Env                map[string]string `json:"env"`
-	RunAsRoot          bool              `json:"run_as_root"`
-	Enabled            bool              `json:"enabled"`
-	CreatedAt          time.Time         `json:"created_at"`
-	UpdatedAt          time.Time         `json:"updated_at"`
-	Counts             PoolCountsView    `json:"counts"`
-	QueuedJobs         int               `json:"queued_jobs"`
-	Utilisation        float64           `json:"utilisation"`
-	Warnings           []Problem         `json:"warnings,omitempty"`
+	// RepositoryScaleUpLimit and CostPerRunnerHour are accepted on the way in,
+	// so they are rendered on the way out: a field the API takes but never
+	// shows again is a field an operator cannot check, edit or explain.
+	RepositoryScaleUpLimit int               `json:"repository_scale_up_limit"`
+	CostPerRunnerHour      *float64          `json:"cost_per_runner_hour"`
+	IdleTimeout            store.Duration    `json:"idle_timeout"`
+	Ephemeral              bool              `json:"ephemeral"`
+	DockerMode             store.DockerMode  `json:"docker_mode"`
+	Resources              store.Resources   `json:"resources"`
+	Cache                  store.CacheConfig `json:"cache"`
+	HostSelector           map[string]string `json:"host_selector"`
+	Env                    map[string]string `json:"env"`
+	RunAsRoot              bool              `json:"run_as_root"`
+	Enabled                bool              `json:"enabled"`
+	CreatedAt              time.Time         `json:"created_at"`
+	UpdatedAt              time.Time         `json:"updated_at"`
+	Counts                 PoolCountsView    `json:"counts"`
+	QueuedJobs             int               `json:"queued_jobs"`
+	Utilisation            float64           `json:"utilisation"`
+	Warnings               []Problem         `json:"warnings,omitempty"`
 }
 
 // PoolRenderer is everything needed to render pools without one query per
@@ -450,30 +455,32 @@ func (v *PoolRenderer) View(p *store.Pool) PoolView {
 		target = inst.Target
 	}
 	return PoolView{
-		ID:                 p.ID,
-		Name:               p.Name,
-		InstallationID:     p.InstallationID,
-		InstallationTarget: target,
-		Labels:             emptySlice(p.Labels),
-		RunnerGroup:        p.RunnerGroup,
-		Backend:            p.Backend,
-		Image:              p.Image,
-		PullPolicy:         p.PullPolicy,
-		RunnerVersion:      p.RunnerVersion,
-		MinRunners:         p.MinRunners,
-		MaxRunners:         p.MaxRunners,
-		Priority:           p.Priority,
-		IdleTimeout:        p.IdleTimeout,
-		Ephemeral:          p.Ephemeral,
-		DockerMode:         p.DockerMode,
-		Resources:          p.Resources,
-		Cache:              p.Cache,
-		HostSelector:       emptyMap(p.HostSelector),
-		Env:                emptyMap(p.Env),
-		RunAsRoot:          p.RunAsRoot,
-		Enabled:            p.Enabled,
-		CreatedAt:          p.CreatedAt,
-		UpdatedAt:          p.UpdatedAt,
+		ID:                     p.ID,
+		Name:                   p.Name,
+		InstallationID:         p.InstallationID,
+		InstallationTarget:     target,
+		Labels:                 emptySlice(p.Labels),
+		RunnerGroup:            p.RunnerGroup,
+		Backend:                p.Backend,
+		Image:                  p.Image,
+		PullPolicy:             p.PullPolicy,
+		RunnerVersion:          p.RunnerVersion,
+		MinRunners:             p.MinRunners,
+		MaxRunners:             p.MaxRunners,
+		Priority:               p.Priority,
+		RepositoryScaleUpLimit: p.RepositoryScaleUpLimit,
+		CostPerRunnerHour:      p.CostPerRunnerHour,
+		IdleTimeout:            p.IdleTimeout,
+		Ephemeral:              p.Ephemeral,
+		DockerMode:             p.DockerMode,
+		Resources:              p.Resources,
+		Cache:                  p.Cache,
+		HostSelector:           emptyMap(p.HostSelector),
+		Env:                    emptyMap(p.Env),
+		RunAsRoot:              p.RunAsRoot,
+		Enabled:                p.Enabled,
+		CreatedAt:              p.CreatedAt,
+		UpdatedAt:              p.UpdatedAt,
 		Counts: PoolCountsView{
 			Provisioning: cnt.Provisioning, Registering: cnt.Registering,
 			Idle: cnt.Idle, Busy: cnt.Busy, Draining: cnt.Draining, Failed: cnt.Failed,

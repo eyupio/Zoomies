@@ -464,9 +464,12 @@ page's search, `?` opens the shortcut sheet, `Esc` closes the topmost layer.
 
 ### Responsive
 
-Three breakpoints only: `< 768px` (phone — read-only monitoring: metric tiles
-stack, grids become cards, mutating actions are hidden rather than broken),
-`768–1180px` (tablet — nav collapses to icons), `> 1180px` (full).
+Three breakpoints only: `< 768px` (phone — the navigation becomes a bar along
+the bottom edge, metric tiles stack, a grid scrolls inside its own frame rather
+than widening the page, and every control stays usable: the Playwright suite's
+mobile project runs the whole suite at this width, drains and wizard included),
+`768–1180px` (tablet — the nav starts collapsed to icons unless the operator has
+chosen otherwise), `> 1180px` (full).
 
 ---
 

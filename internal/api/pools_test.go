@@ -482,3 +482,31 @@ func TestARenameCannotDropTheBrand(t *testing.T) {
 		t.Fatalf("stored name = %q, want the response and the database to agree", stored.Name)
 	}
 }
+
+// The two fields the API accepts for a pool and used to forget: a PATCH that
+// set them answered 200 with a body that did not show them, and nothing ever
+// read them back -- not GET, not the event stream, not the CLI.
+func TestPoolResponsesCarryTheRepositoryLimitAndTheCostRate(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	u, _ := h.user("operator", store.RoleOperator)
+
+	body := poolBody(inst.ID)
+	body["repository_scale_up_limit"] = 2
+	body["cost_per_runner_hour"] = 0.25
+	created := h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: h.session(u), body: body})
+	created.mustStatus(t, http.StatusCreated, "create pool")
+	got := created.json(t)
+	if got["repository_scale_up_limit"] != float64(2) || got["cost_per_runner_hour"] != 0.25 {
+		t.Fatalf("create response: repository_scale_up_limit=%v cost_per_runner_hour=%v, want 2 and 0.25",
+			got["repository_scale_up_limit"], got["cost_per_runner_hour"])
+	}
+
+	fetched := h.do(request{method: http.MethodGet, path: "/api/v1/pools/" + got["id"].(string), cookie: h.session(u)})
+	fetched.mustStatus(t, http.StatusOK, "get pool")
+	again := fetched.json(t)
+	if again["repository_scale_up_limit"] != float64(2) || again["cost_per_runner_hour"] != 0.25 {
+		t.Fatalf("GET: repository_scale_up_limit=%v cost_per_runner_hour=%v, want 2 and 0.25",
+			again["repository_scale_up_limit"], again["cost_per_runner_hour"])
+	}
+}

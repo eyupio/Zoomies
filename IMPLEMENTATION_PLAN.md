@@ -43,27 +43,27 @@ they describe.
 
 ## Wave 2: remaining bugs
 
-- [ ] **A01** [bug] Pool responses omit two fields the API accepts, so they are write-only — `internal/controller/views.go:369-398`
-- [ ] **A05** [bug] `retention.audit` never prunes the audit log; it prunes scaling events — `internal/controller/background.go:116-119`
-- [ ] **A06** [bug] Every agent join is audited twice — `internal/controller/agents.go:377`
-- [ ] **C04** [bug] `crypto.key_in_config` warns when the key came from the environment and a config file merely exists — `internal/config/validate.go:320`
-- [ ] **C05** [bug] The docs say a bare GHES hostname is accepted; the validator refuses to start on one — `docs/configuration.md:200`
-- [ ] **C06** [bug] Three server timeouts have no `ZOOMIES_*` override — `internal/config/config.go:66-68`
-- [ ] **D01** [bug] The sitemap never receives the per-page git date the SEO hook exists to provide — `hooks/seo.py:100-104`
-- [ ] **D02** [bug] The README's headline `pools create` example is rejected — `README.md:311`
-- [ ] **D03** [bug] Installation IDs are shown as `inst_`; the store mints `ins_` — `docs/hosts-and-pools.md:129`
+- [x] **A01** [bug] Pool responses omit two fields the API accepts, so they are write-only — `internal/controller/views.go:369-398` — done, PoolView renders repository_scale_up_limit and cost_per_runner_hour; round-trip test
+- [x] **A05** [bug] `retention.audit` never prunes the audit log; it prunes scaling events — `internal/controller/background.go:116-119` — done, described as scaling-history retention in the settings API and the docs; audit rows are never pruned
+- [x] **A06** [bug] Every agent join is audited twice — `internal/controller/agents.go:377` — done, the handler's duplicate host.join row removed; the controller's remains
+- [x] **C04** [bug] `crypto.key_in_config` warns when the key came from the environment and a config file merely exists — `internal/config/validate.go:320` — done, the warning looks at whether the key was in the file, with a test for both origins
+- [x] **C05** [bug] The docs say a bare GHES hostname is accepted; the validator refuses to start on one — `docs/configuration.md:200` — done, the normaliser moved to config and the loader applies it; github.NormalizeAPIBaseURL wraps it; test
+- [x] **C06** [bug] Three server timeouts have no `ZOOMIES_*` override — `internal/config/config.go:66-68` — done, ZOOMIES_READ_TIMEOUT, ZOOMIES_WRITE_TIMEOUT, ZOOMIES_IDLE_TIMEOUT, documented
+- [x] **D01** [bug] The sitemap never receives the per-page git date the SEO hook exists to provide — `hooks/seo.py:100-104` — done, git_date is set in on_page_markdown, before the sitemap template renders
+- [x] **D02** [bug] The README's headline `pools create` example is rejected — `README.md:311` — done, the README example carries --installation
+- [x] **D03** [bug] Installation IDs are shown as `inst_`; the store mints `ins_` — `docs/hosts-and-pools.md:129` — done, ins_ everywhere, including the CLI's own examples (E29)
 - [x] **D04** [bug] The UI guidelines list nine pages and eight chords; the product has ten and nine — `docs/ui-guidelines.md:271-279` — done, folded into U01: the guidelines list ten pages and the u and m chords
-- [ ] **D05** [bug] The security page says every dangerous toggle produces a startup warning and a UI entry; half do not — `docs/security.md:218-222`
+- [x] **D05** [bug] The security page says every dangerous toggle produces a startup warning and a UI entry; half do not — `docs/security.md:218-222` — done, §6 says which toggles warn at startup, which stay off the drawer, and which are per-pool
 - [x] **E02** [bug] The two runner version pins have diverged and only one is bumped automatically — `internal/backend/process.go:63` — done, folded into E01: DefaultRunnerVersion is 2.337.0 and the workflow bumps it
-- [ ] **E03** [bug] The agent's version-skew warning fires on every release build — `internal/agent/daemon.go:634`
+- [x] **E03** [bug] The agent's version-skew warning fires on every release build — `internal/agent/daemon.go:634` — done, agent and controller compare version.Short() with version.Short()
 - [x] **E05** [bug] The documented add-a-host one-liner spends the join token and then fails to install the unit — `install.sh:1041` — done, folded into E04
-- [ ] **E06** [bug] Answer-file keys `agent.name`, `agent.labels` and `agent.ca_file` are silently ignored — `internal/installer/join.go:57`
-- [ ] **P01** [bug] A `startup_failure` job renders as a neutral 'Completed' with a check icon — `web/src/lib/status.ts:164-173`
-- [ ] **P02** [bug] The tablet navigation never auto-collapses, though the guidelines promise it — `web/src/lib/shell/Nav.svelte:228`
-- [ ] **P03** [bug] On a phone, grids never become cards and mutating actions are not hidden — `web/src/lib/components/DataGrid.svelte`
-- [ ] **P04** [bug] Host card grammar: 'Its 1 runner keep going and finish their jobs' — `web/src/lib/hosts/HostCard.svelte:115-116`
-- [ ] **P05** [bug] Problem titles are lowercase fragments with 'job(s)' — `internal/controller/problems.go:186`
-- [ ] **U02** [bug] The grid's table-level key handler hijacks Enter, Space and arrows for every control inside a row — `web/src/lib/components/DataGrid.svelte:350-353`
+- [x] **E06** [bug] Answer-file keys `agent.name`, `agent.labels` and `agent.ca_file` are silently ignored — `internal/installer/join.go:57` — done, agent.name, agent.labels and agent.ca_file from the answer file reach Join
+- [x] **P01** [bug] A `startup_failure` job renders as a neutral 'Completed' with a check icon — `web/src/lib/status.ts:164-173` — done, startup_failure is a danger triangle labelled Startup failure
+- [x] **P02** [bug] The tablet navigation never auto-collapses, though the guidelines promise it — `web/src/lib/shell/Nav.svelte:228` — done, with no recorded choice the nav starts collapsed at tablet width, before first paint too
+- [x] **P03** [bug] On a phone, grids never become cards and mutating actions are not hidden — `web/src/lib/components/DataGrid.svelte` — done, the promise was rewritten to match the tested behaviour: every control stays usable on a phone and the mobile Playwright project proves it; hiding them broke seven of its tests
+- [x] **P04** [bug] Host card grammar: 'Its 1 runner keep going and finish their jobs' — `web/src/lib/hosts/HostCard.svelte:115-116` — done, the cordoned sentence no longer conjugates a count
+- [x] **P05** [bug] Problem titles are lowercase fragments with 'job(s)' — `internal/controller/problems.go:186` — done, titles pluralise properly; they stay in the drawer's lowercase-fragment voice, which the validator's titles share, so sentence case is a separate sweep
+- [x] **U02** [bug] The grid's table-level key handler hijacks Enter, Space and arrows for every control inside a row — `web/src/lib/components/DataGrid.svelte:350-353` — done, the grid handles keys only when the row itself has focus; menus stop the keys they handle
 
 ## Wave 3: risks
 
@@ -135,7 +135,7 @@ they describe.
 - [ ] **E25** [polish] `install.sh` hints name a wrong path and a service that is never installed — `install.sh:977`
 - [ ] **E26** [polish] The process backend puts the JIT config on the command line — `internal/backend/process.go:311`
 - [ ] **E27** [polish] `deploy/*.service` are static copies that have already drifted from the installer templates — `deploy/zoomies.service`
-- [ ] **E29** [polish] The CLI's own examples use the wrong ID prefix and an unbranded label list — `cmd/zoomies/pools.go:95`
+- [x] **E29** [polish] The CLI's own examples use the wrong ID prefix and an unbranded label list — `cmd/zoomies/pools.go:95` — done, branded labels and ins_ IDs in the CLI examples
 - [ ] **E28** [nit] Small installer, agent and deploy nits — `install.sh:584`
 
 ### Web UI: behaviour and state
@@ -191,6 +191,11 @@ they describe.
 
 ## Decisions worth recording
 
+- The product targets an organisation or a single repository, and a repository
+  target is how a personal account is used; the README, home page, quick start
+  and FAQ now say so, and the FAQ answers the question directly.
+- On a phone every control stays usable and the mobile Playwright project proves
+  it; the guideline's earlier "read-only monitoring" wording was the error.
 - `:latest` on the published images now means the most recent release, moved by
   `release.yml` only; `main` is the moving tag.
 - A host that has not heartbeated for `hostLostAfter` has its runners failed and

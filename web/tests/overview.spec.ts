@@ -115,7 +115,7 @@ test('the problems drawer names the seeded faults, with a fix for each', async (
   await expect(problems).toContainText(
     `pool ${FIXTURE.armPool}: persistent runners: job state and credentials leak between workflow runs`,
   );
-  await expect(problems).toContainText('queued job(s) match no enabled pool');
+  await expect(problems).toContainText(/no enabled pool matches \d+ queued jobs?/);
 
   // Errors are listed before warnings, so the worst thing is the first thing.
   await expect(problems.getByRole('heading', { level: 3 }).first()).toContainText(/error/);

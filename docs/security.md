@@ -217,9 +217,14 @@ If your controller is not reachable from GitHub, turn on `github.poll_fallback`
 
 ## 6. The dangerous toggles
 
-Each of these is off by default, each produces a startup warning and a UI
-problems-panel entry when on, and each is listed here with what it actually
-costs.
+Each of these is off by default and is named when it is on, and each is listed
+here with what it actually costs. The instance-wide settings are warned about at
+startup and shown in the UI's problems drawer -- except `server.bind` without
+TLS, which is printed at startup and by `zoomies config check` but kept off the
+drawer, because it is true of every fleet behind a TLS-terminating proxy and a
+count that is always amber is a count nobody reads. The per-pool settings are
+not startup matters at all: they are shown on the pool's own page and in the
+drawer for as long as the pool has them.
 
 ### `pool.docker_mode: host-socket`
 

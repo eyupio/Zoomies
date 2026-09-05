@@ -167,6 +167,7 @@ const CONCLUSIONS: Record<string, StatusMeta> = {
   cancelled: meta('cancelled', 'Cancelled', 'neutral', 'square', Ban),
   skipped: meta('skipped', 'Skipped', 'neutral', 'hollow', Minus),
   timed_out: meta('timed_out', 'Timed out', 'danger', 'triangle', Clock),
+  startup_failure: meta('startup_failure', 'Startup failure', 'danger', 'triangle', CircleX),
   action_required: meta('action_required', 'Action required', 'pending', 'triangle', TriangleAlert),
   neutral: meta('neutral', 'Neutral', 'neutral', 'hollow', Minus),
   stale: meta('stale', 'Stale', 'neutral', 'square', CircleMinus),

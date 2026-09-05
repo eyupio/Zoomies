@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/eyupio/zoomies/internal/agent"
-	"github.com/eyupio/zoomies/internal/auth"
 	"github.com/eyupio/zoomies/internal/controller"
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -37,17 +36,8 @@ func (s *Server) handleAgentJoin(w http.ResponseWriter, r *http.Request) {
 		unprocessable(w, err.Error(), nil)
 		return
 	}
-	// The host is its own actor: the join is the moment it becomes one, and an
-	// audit row that says "system enrolled a host" answers a different question
-	// from the one an operator is asking.
-	joined := &auth.Identity{
-		Kind: auth.KindAgent, ID: resp.HostID, Name: req.Name,
-		Role: store.RoleViewer, IP: ClientIP(r.Context()),
-	}
-	s.auth.Auditor().Act(r.Context(), joined, "host.join", "host", resp.HostID, map[string]any{
-		"name": req.Name, "os": req.OS, "arch": req.Arch, "capacity": req.Capacity,
-		"version": req.Version, "ip": ClientIP(r.Context()),
-	})
+	// The controller's join already wrote the host.join audit row, with the
+	// host as its own actor; a second one here showed every enrolment twice.
 	s.ctrl.Nudge()
 	writeJSON(w, http.StatusOK, resp)
 }

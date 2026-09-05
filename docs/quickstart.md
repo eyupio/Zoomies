@@ -106,7 +106,7 @@ host still works — with exactly the permissions it needs and no more:
 | Permission | Why |
 | --- | --- |
 | `organization_self_hosted_runners: write` | register and remove runners (org targets) |
-| `administration: write` | the same, for a repository target |
+| `administration: write` | the same, for a repository target (a single repository, which is also how a personal account is used) |
 | `actions: read` | read workflow runs and jobs for the fallback poller |
 | `metadata: read` | required by GitHub for any App |
 | `contents: write` | read and rewrite workflow files for the [migration wizard](migration.md) |
@@ -121,9 +121,11 @@ installation, and until they do the wizard cannot read a workflow at all. If you
 never migrate anything, remove them on the App's **Permissions & events** page —
 nothing else in Zoomies writes to a repository.
 
-Create the App, install it on your organisation, and the credentials come back
-to the installer automatically. The private key is sealed with your instance
-encryption key before it touches the database, and is never returned by the API.
+Create the App, install it on your organisation -- or, for a repository target,
+on your own account scoped to that repository, which is how a personal account
+is used -- and the credentials come back to the installer automatically. The
+private key is sealed with your instance encryption key before it touches the
+database, and is never returned by the API.
 
 ## 4. Your first pool
 

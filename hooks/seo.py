@@ -97,12 +97,19 @@ def on_nav(nav, config, files):
     return nav
 
 
-def on_page_context(context, page, config, nav):
-    """Hand the page's own last-edited date to the templates."""
+def on_page_markdown(markdown, page, config, files):
+    """Hand the page's own last-edited date to the templates.
+
+    This runs while the pages are being read, which is before MkDocs renders
+    the theme's static templates. sitemap.xml is one of those, and it reads
+    ``page.meta.git_date`` for every page; set any later -- in
+    ``on_page_context``, say -- the sitemap has already been written with the
+    build date for every URL.
+    """
     date = _dates.get(page.file.src_uri)
     if date:
         page.meta.setdefault("git_date", date)
-    return context
+    return markdown
 
 
 def on_post_build(config):

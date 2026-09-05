@@ -317,7 +317,7 @@ func (c *Config) Validate() Findings {
 			Fix: "run `zoomies init` to generate and record one, or set ZOOMIES_ENCRYPTION_KEY.",
 		})
 	}
-	if c.Security.EncryptionKey != "" && c.path != "" {
+	if c.keyInFile {
 		add(Finding{
 			Code: "crypto.key_in_config", Severity: SeverityWarning, Setting: "security.encryption_key",
 			Title:  "the encryption key is written in the config file",

@@ -38,6 +38,11 @@ type Config struct {
 
 	// path records where this config was read from, for error messages.
 	path string `yaml:"-"`
+	// keyInFile records that the encryption key was written in that file, as
+	// opposed to arriving from the environment after the file was read. The
+	// warning about a key in the config file has to look at where the key came
+	// from, not at whether one is present.
+	keyInFile bool `yaml:"-"`
 }
 
 // CapacityDemand publishes signed requests for host capacity to an external
@@ -393,6 +398,7 @@ func Load(path string) (*Config, error) {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}
 		cfg.path = path
+		cfg.keyInFile = cfg.Security.EncryptionKey != ""
 	case os.IsNotExist(err) && !explicit:
 		// Defaults plus environment.
 	default:
@@ -440,6 +446,14 @@ func (c *Config) normalize() {
 	}
 	c.Server.ExternalURL = strings.TrimRight(c.Server.ExternalURL, "/")
 	c.Agent.ControllerURL = strings.TrimRight(c.Agent.ControllerURL, "/")
+	// A bare Enterprise Server hostname is accepted, as the docs promise: it
+	// gains its scheme and /api/v3 here rather than failing validation for the
+	// lack of them. github.com in any spelling is left as the default reads.
+	if s := strings.TrimSpace(c.GitHub.APIBaseURL); s != "" && !strings.Contains(s, "api.github.com") && s != "https://github.com" {
+		if n, err := NormalizeGitHubAPIBaseURL(s); err == nil {
+			c.GitHub.APIBaseURL = strings.TrimRight(n, "/")
+		}
+	}
 	c.CapacityDemand.DestinationURL = strings.TrimSpace(c.CapacityDemand.DestinationURL)
 	if c.Agent.Name == "" {
 		if h, err := os.Hostname(); err == nil {
@@ -452,6 +466,26 @@ func (c *Config) normalize() {
 		secure := strings.HasPrefix(c.Server.ExternalURL, "https://") || c.Server.TLS.Mode != TLSOff
 		c.Security.CookieSecure = &secure
 	}
+}
+
+// NormalizeGitHubAPIBaseURL turns whatever an operator wrote for a GitHub API
+// base into the form the client needs: github.com in any spelling becomes
+// https://api.github.com/, and an Enterprise Server host gains https:// and
+// /api/v3 when it lacks them. The result always ends in a slash.
+func NormalizeGitHubAPIBaseURL(raw string) (string, error) {
+	s := strings.TrimSpace(raw)
+	if s == "" || s == "https://github.com" || s == "https://api.github.com" {
+		return "https://api.github.com/", nil
+	}
+	if !strings.Contains(s, "://") {
+		s = "https://" + s
+	}
+	s = strings.TrimRight(s, "/")
+	if !strings.HasSuffix(s, "/api/v3") && !strings.HasSuffix(s, "/api/uploads") &&
+		!strings.Contains(s, "api.github.com") {
+		s += "/api/v3"
+	}
+	return s + "/", nil
 }
 
 // WebhookURL returns the URL GitHub should deliver to, or "" if the external
@@ -572,6 +606,9 @@ func (c *Config) applyEnv() error {
 	}
 
 	str("ZOOMIES_BIND", &c.Server.Bind)
+	dur("ZOOMIES_READ_TIMEOUT", &c.Server.ReadTimeout)
+	dur("ZOOMIES_WRITE_TIMEOUT", &c.Server.WriteTimeout)
+	dur("ZOOMIES_IDLE_TIMEOUT", &c.Server.IdleTimeout)
 	str("ZOOMIES_EXTERNAL_URL", &c.Server.ExternalURL)
 	if v, ok := os.LookupEnv("ZOOMIES_TLS_MODE"); ok {
 		c.Server.TLS.Mode = TLSMode(strings.ToLower(strings.TrimSpace(v)))
