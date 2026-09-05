@@ -214,14 +214,18 @@ input,
 .md-typeset .highlight span.filename + pre > code {
   border-top: 0;
 }
-.md-typeset .md-clipboard {
+/* The copy button sits in a chip Material pins to the block's top-right corner,
+   offset for its own padding. Ours is deeper and has a border, so the chip is
+   pushed in far enough to stay centred on the first line of code and clear of
+   the rounded corner rather than riding high against it. */
+.md-typeset .md-code__nav {
+  top: 0.5em;
+  right: 0.5em;
   border-radius: var(--z-radius-sm);
-  transition:
-    color var(--z-motion-fast) var(--z-ease),
-    opacity var(--z-motion-fast) var(--z-ease);
+  transition: background-color var(--z-motion-fast) var(--z-ease);
 }
-.md-typeset .md-clipboard:is(:hover, :focus-visible) {
-  color: var(--md-accent-fg-color);
+.md-typeset .md-code__button {
+  transition: color var(--z-motion-fast) var(--z-ease);
 }
 
 /* Tables: a bordered card with a quiet header row, rather than lines drawn
@@ -762,10 +766,29 @@ input,
     0 0 0 4px rgba(47, 128, 237, 0.08),
     0 12px 40px -16px rgba(47, 128, 237, 0.5);
 }
-.zoomies-hero .md-clipboard {
+/* The command is a single line, so its copy button is centred on it the way an
+   input's button would be, not pinned to the top corner as on a block that may
+   run to many lines. On a phone the command is wider than the box and scrolls;
+   the extra right padding lets its tail scroll clear of the button instead of
+   disappearing under it. */
+.md-typeset .zoomies-install pre > code {
+  padding-right: 3.25em;
+}
+.md-typeset .zoomies-install .md-code__nav {
+  top: 50%;
+  right: 0.75em;
+  transform: translateY(-50%);
+  /* The chip takes its colour from the active scheme's code palette, which on
+     this always-dark box would be a pale square in the light theme. */
+  background: rgba(255, 255, 255, 0.06);
+}
+.md-typeset .zoomies-install pre:hover > .md-code__nav {
+  background: rgba(255, 255, 255, 0.12);
+}
+.zoomies-install .md-code__button {
   color: rgba(244, 245, 247, 0.55);
 }
-.zoomies-hero .md-clipboard:is(:hover, :focus-visible) {
+.zoomies-install .md-code__button:is(:hover, :focus-visible) {
   color: #f4f5f7;
 }
 
