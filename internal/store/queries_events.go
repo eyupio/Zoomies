@@ -83,64 +83,52 @@ func (s *Store) ApplyJob(ctx context.Context, j *Job) (*Job, JobChange, error) {
 		}
 
 		// Merge: never move a job backwards through its lifecycle.
+		//
+		// A delivery that is current -- at or past the row's state -- may
+		// change anything it carries. A stale one -- a "queued" arriving after
+		// "completed" -- may only fill in what the row does not have yet: it
+		// is old news about the same job, so a label set or a runner name it
+		// carries is at best what the row already says and at worst what was
+		// true before the job moved on. The steps are the sharpest case: an
+		// "in_progress" that arrives after "completed" would put every step
+		// back to "queued".
 		merged := *existing
 		current := jobRank(j.State) >= jobRank(existing.State)
 		if current {
 			merged.State = j.State
-			// The steps travel with the delivery that reports them, and a
-			// stale delivery's steps are as stale as its state: an
-			// "in_progress" that arrives after "completed" must not replace
-			// every step's conclusion with "queued".
 			if len(j.Steps) > 0 {
 				merged.Steps = j.Steps
 			}
 		}
-		if j.HeadBranch != "" {
-			merged.HeadBranch = j.HeadBranch
+		text := func(dst *string, v string) {
+			if v != "" && (current || *dst == "") {
+				*dst = v
+			}
 		}
-		if j.HeadSHA != "" {
-			merged.HeadSHA = j.HeadSHA
-		}
-		if j.RunAttempt != 0 {
+		text(&merged.HeadBranch, j.HeadBranch)
+		text(&merged.HeadSHA, j.HeadSHA)
+		text(&merged.RunnerFault, j.RunnerFault)
+		text(&merged.Conclusion, j.Conclusion)
+		text(&merged.Repo, j.Repo)
+		text(&merged.Workflow, j.Workflow)
+		text(&merged.JobName, j.JobName)
+		text(&merged.PoolID, j.PoolID)
+		text(&merged.RunnerID, j.RunnerID)
+		text(&merged.RunnerName, j.RunnerName)
+		text(&merged.HTMLURL, j.HTMLURL)
+		if j.RunAttempt != 0 && (current || merged.RunAttempt == 0) {
 			merged.RunAttempt = j.RunAttempt
 		}
-		if j.RunnerFault != "" {
-			merged.RunnerFault = j.RunnerFault
-		}
-		if j.Conclusion != "" {
-			merged.Conclusion = j.Conclusion
-		}
-		if j.GitHubRunID != 0 {
+		if j.GitHubRunID != 0 && (current || merged.GitHubRunID == 0) {
 			merged.GitHubRunID = j.GitHubRunID
 		}
-		if j.Repo != "" {
-			merged.Repo = j.Repo
-		}
-		if j.Workflow != "" {
-			merged.Workflow = j.Workflow
-		}
-		if j.JobName != "" {
-			merged.JobName = j.JobName
-		}
-		if len(j.Labels) > 0 {
+		if len(j.Labels) > 0 && (current || len(merged.Labels) == 0) {
 			merged.Labels = NormalizeLabels(j.Labels)
-		}
-		if j.PoolID != "" {
-			merged.PoolID = j.PoolID
-		}
-		if j.RunnerID != "" {
-			merged.RunnerID = j.RunnerID
-		}
-		if j.RunnerName != "" {
-			merged.RunnerName = j.RunnerName
-		}
-		if j.HTMLURL != "" {
-			merged.HTMLURL = j.HTMLURL
 		}
 		if j.StartedAt != nil && merged.StartedAt == nil {
 			merged.StartedAt = j.StartedAt
 		}
-		if j.CompletedAt != nil {
+		if j.CompletedAt != nil && (current || merged.CompletedAt == nil) {
 			merged.CompletedAt = j.CompletedAt
 		}
 		merged.Matched = merged.Matched || j.Matched
@@ -254,7 +242,6 @@ func jobRank(s JobState) int {
 	}
 	return 0
 }
-
 // GetJob returns one job by internal ID.
 func (s *Store) GetJob(ctx context.Context, id string) (*Job, error) {
 	row := s.read.QueryRowContext(ctx, `SELECT `+jobCols+` FROM jobs WHERE id = ?`, id)
@@ -528,16 +515,23 @@ func percentile(sorted []time.Duration, p float64) time.Duration {
 	return sorted[i]
 }
 
-// PruneJobs deletes completed jobs older than the cutoff, and their timelines
-// with them: an event whose job is gone answers nothing.
+// PruneJobs deletes jobs older than the cutoff, and their timelines with them:
+// an event whose job is gone answers nothing.
+//
+// A job that finished is aged from when it finished. One that never did -- a
+// completed delivery that was lost, a repository deleted while its job was
+// queued -- is aged from when it was queued, so that it cannot sit in the
+// table for ever as demand nothing will ever meet; the controller marks such
+// a job stale long before this, and this is the backstop.
 func (s *Store) PruneJobs(ctx context.Context, before time.Time) (int64, error) {
+	const old = `(state = 'completed' AND completed_at < ?) OR (state != 'completed' AND queued_at < ?)`
 	var pruned int64
 	err := s.tx(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM job_events WHERE job_id IN
-			(SELECT id FROM jobs WHERE state='completed' AND completed_at < ?)`, ms(before)); err != nil {
+			(SELECT id FROM jobs WHERE `+old+`)`, ms(before), ms(before)); err != nil {
 			return err
 		}
-		res, err := tx.ExecContext(ctx, `DELETE FROM jobs WHERE state='completed' AND completed_at < ?`, ms(before))
+		res, err := tx.ExecContext(ctx, `DELETE FROM jobs WHERE `+old, ms(before), ms(before))
 		if err != nil {
 			return err
 		}

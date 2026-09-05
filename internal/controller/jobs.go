@@ -238,3 +238,58 @@ func roundDuration(d time.Duration) string {
 	}
 	return fmt.Sprintf("%dh %02dm", int(d.Hours()), int(d.Minutes())%60)
 }
+
+// staleQueuedAfter is how long a job may sit queued before the controller
+// stops believing GitHub still has it. GitHub itself cancels a job that no
+// runner has picked up within a day, and it is the completed delivery for a
+// job like that -- or one whose repository was deleted, or whose run was
+// cancelled while the poller was rate-limited -- that goes missing.
+const staleQueuedAfter = 24 * time.Hour
+
+// expireStaleQueuedJobs retires queued jobs older than staleQueuedAfter.
+//
+// A queued row is scheduler demand for as long as it exists: it keeps a pool's
+// desired count up, so a runner is created for it, idles out, and is created
+// again, for ever. Nothing else reconciles a row GitHub no longer lists, so
+// this marks it completed with the conclusion GitHub uses for the same thing,
+// "stale", and the timeline says why.
+func (c *Controller) expireStaleQueuedJobs(ctx context.Context, now time.Time) {
+	queued, err := c.st.ListQueuedJobs(ctx)
+	if err != nil {
+		c.log.Warn("could not list queued jobs to retire stale ones", "error", err)
+		return
+	}
+	retired := 0
+	for _, j := range queued {
+		age := now.Sub(j.QueuedAt)
+		if age < staleQueuedAfter {
+			continue
+		}
+		done := now
+		saved, change, err := c.st.ApplyJob(ctx, &store.Job{
+			GitHubJobID: j.GitHubJobID, State: store.JobCompleted, Conclusion: "stale", CompletedAt: &done,
+		})
+		if err != nil {
+			c.log.Warn("could not retire a stale queued job", "job", j.ID, "error", err)
+			continue
+		}
+		if !change.StateChanged {
+			continue
+		}
+		message := fmt.Sprintf("queued for %s with no word from GitHub that it started; GitHub gives up on a job after a day, so this one is presumed cancelled or lost and is no longer counted as demand",
+			age.Truncate(time.Minute))
+		if err := c.st.AppendJobEvent(ctx, &store.JobEvent{
+			JobID: saved.ID, Kind: store.JobEventCompleted, Source: sourceController, Message: message, At: now,
+		}); err != nil {
+			c.log.Warn("could not record a job timeline entry", "job", saved.ID, "kind", store.JobEventCompleted, "error", err)
+		}
+		c.log.Warn("retired a queued job GitHub never started", "job", saved.ID, "repo", saved.Repo, "queued_for", age.Truncate(time.Minute))
+		c.publishJob(ctx, saved)
+		retired++
+	}
+	if retired > 0 {
+		// Demand has dropped, and a runner created for the retired job may
+		// now be surplus.
+		c.Nudge()
+	}
+}

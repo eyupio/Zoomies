@@ -324,3 +324,49 @@ func TestARunnerThatDiesOnCreationIsNotReplacedUntilTheWaitIsOut(t *testing.T) {
 	}
 	_ = pool
 }
+
+// A queued row is demand for as long as it exists. A job whose completed
+// delivery was lost -- repository deleted, run cancelled while the poller was
+// rate-limited -- used to hold a pool's desired count up for ever, with a
+// runner created for it, idling out, and created again. GitHub gives up on a
+// job nobody picked up within a day; so does the controller.
+func TestAQueuedJobGitHubNeverStartedIsRetiredAfterADay(t *testing.T) {
+	h := newHarness(t)
+	h.fleet()
+	now := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+	h.c.clock = func() time.Time { return now }
+
+	h.deliverJob(jobEvent{Action: "queued", JobID: 8001, QueuedAt: now.Add(-25 * time.Hour),
+		Labels: []string{"self-hosted", "linux", "x64", "demo"}})
+	h.deliverJob(jobEvent{Action: "queued", JobID: 8002, QueuedAt: now.Add(-2 * time.Hour),
+		Labels: []string{"self-hosted", "linux", "x64", "demo"}})
+
+	h.c.expireStaleQueuedJobs(h.ctx, now)
+
+	old, err := h.st.GetJobByGitHubID(h.ctx, 8001)
+	if err != nil {
+		t.Fatalf("GetJobByGitHubID: %v", err)
+	}
+	if old.State != store.JobCompleted || old.Conclusion != "stale" || old.CompletedAt == nil {
+		t.Fatalf("the day-old job = state %q conclusion %q; want completed as stale", old.State, old.Conclusion)
+	}
+	recent, err := h.st.GetJobByGitHubID(h.ctx, 8002)
+	if err != nil {
+		t.Fatalf("GetJobByGitHubID: %v", err)
+	}
+	if recent.State != store.JobQueued {
+		t.Fatalf("a two-hour-old job was retired: %q", recent.State)
+	}
+	queued, err := h.st.ListQueuedJobs(h.ctx)
+	if err != nil || len(queued) != 1 {
+		t.Fatalf("queued jobs after retiring = %d (%v), want the recent one only", len(queued), err)
+	}
+	timeline, err := h.st.ListJobEvents(h.ctx, old.ID)
+	if err != nil {
+		t.Fatalf("ListJobEvents: %v", err)
+	}
+	last := timeline[len(timeline)-1]
+	if last.Kind != store.JobEventCompleted || !strings.Contains(last.Message, "presumed cancelled or lost") {
+		t.Fatalf("the timeline does not say why the job was retired: %+v", last)
+	}
+}
