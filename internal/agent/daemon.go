@@ -631,7 +631,10 @@ func availableKinds(infos []backend.Info) []string {
 }
 
 func (a *Agent) warnSkew(controllerVersion string) {
-	if controllerVersion == "" || controllerVersion == version.Version {
+	// The controller sends version.Short(), which carries the commit, so it is
+	// compared with the agent's Short(): comparing it with the bare Version
+	// made every release build warn on every join.
+	if controllerVersion == "" || controllerVersion == version.Short() {
 		return
 	}
 	a.mu.Lock()
@@ -640,7 +643,7 @@ func (a *Agent) warnSkew(controllerVersion string) {
 	a.mu.Unlock()
 	if first {
 		a.log.Warn("controller and agent versions differ; upgrade both to the same release before reporting a bug",
-			"controller_version", controllerVersion, "agent_version", version.Version)
+			"controller_version", controllerVersion, "agent_version", version.Short())
 	}
 }
 
