@@ -22,9 +22,9 @@ import (
 // constant rather than something an operator can drift out of sync.
 const OIDCCallbackPath = "/api/v1/auth/oidc/callback"
 
-// oidcStateTTL is how long a login may sit half-finished at the identity
+// OIDCStateTTL is how long a login may sit half-finished at the identity
 // provider before its state and nonce are forgotten.
-const oidcStateTTL = 10 * time.Minute
+const OIDCStateTTL = 10 * time.Minute
 
 // Claims is what a completed OIDC login tells us about the person, already
 // mapped onto Zoomies' own vocabulary.
@@ -104,7 +104,7 @@ func NewOIDC(ctx context.Context, cfg config.OIDC, externalURL string) (*OIDCPro
 			Scopes:       scopes,
 		},
 		verifier: provider.Verifier(&oidc.Config{ClientID: cfg.ClientID}),
-		states:   newStateCache(oidcStateTTL, time.Now),
+		states:   newStateCache(OIDCStateTTL, time.Now),
 		logger:   slog.Default(),
 	}, nil
 }
@@ -146,8 +146,9 @@ func (p *OIDCProvider) AuthCodeURL(state, nonce string) string {
 
 // Complete finishes a login begun by Start: it spends the state, exchanges the
 // code and returns the claims. A state that is unknown, already spent or too
-// old is refused -- that is what makes the flow single-use and is the defence
-// against a login CSRF.
+// old is refused -- that is what makes the flow single-use. It proves the
+// handshake began on this controller, not that it began in this browser; the
+// API layer adds that half by binding the state to a cookie set at Start.
 func (p *OIDCProvider) Complete(ctx context.Context, state, code string) (*Claims, error) {
 	if p == nil {
 		return nil, errors.New("single sign-on is not configured on this instance")
