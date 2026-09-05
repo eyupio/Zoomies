@@ -147,7 +147,15 @@ class Fleet {
 
     this.#unsubscribers.push(
       events.subscribe(['runner.created', 'runner.updated'], (runner) => {
-        if (runner.id) this.#data.runners.set(runner.id, runner);
+        if (!runner.id) return;
+        // A removed runner is gone from the API's own listing, which is what a
+        // reconcile replaces this cache with, so keeping it here would make
+        // the two disagree until the next reconnect. On a busy fleet every
+        // ephemeral runner ends this way, so the Map would otherwise grow
+        // without bound between reconnects, and the palette's first few
+        // hundred entries would all be runners that no longer exist.
+        if (runner.state === 'removed') this.#data.runners.delete(runner.id);
+        else this.#data.runners.set(runner.id, runner);
         this.#touch();
       }),
       events.subscribe('runner.deleted', ({ id }) => {
