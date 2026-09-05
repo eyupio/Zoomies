@@ -567,6 +567,10 @@ func (b *ProcessBackend) Stop(ctx context.Context, h Handle, timeout time.Durati
 	if err != nil {
 		return nil
 	}
+	if runtime.GOOS == "windows" {
+		// Windows does not support sending os.Interrupt to arbitrary processes.
+		return b.kill(proc, dir)
+	}
 	if err := proc.Signal(os.Interrupt); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		b.log.Warn("could not interrupt the runner; killing it", "dir", dir, "pid", pid, "error", err)
 		return b.kill(proc, dir)

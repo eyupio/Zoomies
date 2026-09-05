@@ -352,11 +352,11 @@ func (s *Server) handleDeleteInstallation(w http.ResponseWriter, r *http.Request
 			if run.State.Terminal() {
 				continue
 			}
-			// Drained rather than killed: removing an installation is an
-			// administrative act, not a reason to interrupt somebody's build.
-			if _, derr := s.ctrl.DrainRunner(r.Context(), run.ID, "installation "+inst.Target+" was removed"); derr != nil {
-				s.logger(r).Warn("could not drain a runner while removing its installation",
-					"installation", id, "runner", run.ID, "error", derr)
+			// Runners must be removed and deregistered from GitHub now, while the
+			// installation credentials are still active and before Forget clears them.
+			if _, rerr := s.ctrl.RemoveRunner(r.Context(), run.ID, "installation "+inst.Target+" was removed", true); rerr != nil {
+				s.logger(r).Warn("could not remove a runner while removing its installation",
+					"installation", id, "runner", run.ID, "error", rerr)
 				continue
 			}
 			affected++
