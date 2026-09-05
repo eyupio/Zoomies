@@ -98,8 +98,8 @@ type migrationPlanResponse struct {
 	// A repository with nothing to do is information: it means its workflows
 	// are already somewhere deliberate.
 	Repositories []migrate.RepoPlan `json:"repositories"`
-	// HostedLabels is every GitHub-hosted label found across them, which is
-	// what the mapping step lists.
+	// HostedLabels is every hosted-runner label found across them -- GitHub's
+	// own and the vendors' -- which is what the mapping step lists.
 	HostedLabels []string `json:"hosted_labels"`
 	// Mapping is what was applied -- the request's, or the proposal the server
 	// made from the pools that exist.

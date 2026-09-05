@@ -152,8 +152,8 @@ func TestFileSkipsWhatItCannotBeSureOf(t *testing.T) {
 			wantReason: "already runs on a self-hosted runner",
 		},
 		{
-			name:       "somebody else's label",
-			in:         "jobs:\n  build:\n    runs-on: buildjet-4vcpu-ubuntu-2204\n",
+			name:       "a label the organisation invented",
+			in:         "jobs:\n  build:\n    runs-on: acme-bigbox\n",
 			wantReason: "already pointed somewhere deliberate",
 		},
 		{
@@ -289,5 +289,61 @@ func TestEmptyFile(t *testing.T) {
 	got := File("", zoomies)
 	if got.Content != "" || got.Changed() {
 		t.Fatalf("an empty file produced %+v", got)
+	}
+}
+
+// A repository on a hosted-runner vendor is the one this fleet most wants to
+// take over, so its labels have to be migratable. Before this, every one of
+// them was read as "already pointed somewhere deliberate" and an operator was
+// shown a wizard with nothing in it and no reason why.
+func TestFileRewritesVendorHostedLabels(t *testing.T) {
+	m := Mapping{Labels: map[string]string{
+		"blacksmith-4vcpu-ubuntu-2404":  "zoomies-linux-x64",
+		"warp-ubuntu-latest-x64-4x":     "zoomies-linux-x64",
+		"nscloud-ubuntu-22.04-amd64-4x": "zoomies-linux-x64",
+	}}
+	for _, label := range []string{"blacksmith-4vcpu-ubuntu-2404", "warp-ubuntu-latest-x64-4x", "nscloud-ubuntu-22.04-amd64-4x"} {
+		t.Run(label, func(t *testing.T) {
+			got := File("jobs:\n  build:\n    runs-on: "+label+"\n", m)
+			if !got.Changed() {
+				t.Fatalf("%q was not rewritten; skips = %+v", label, got.Skips)
+			}
+			if !strings.Contains(got.Content, "runs-on: zoomies-linux-x64") {
+				t.Fatalf("content = %q", got.Content)
+			}
+		})
+	}
+}
+
+// The mapping step is built from this, so a vendor label has to reach it or an
+// operator has nothing to map.
+func TestHostedLabelsInFindsVendorLabels(t *testing.T) {
+	in := "jobs:\n  a:\n    runs-on: blacksmith-4vcpu-ubuntu-2404\n  b:\n    runs-on: ubuntu-latest\n  c:\n    runs-on: acme-bigbox\n"
+	got := HostedLabelsIn(in)
+	want := []string{"blacksmith-4vcpu-ubuntu-2404", "ubuntu-latest"}
+	if len(got) != len(want) {
+		t.Fatalf("HostedLabelsIn = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("HostedLabelsIn = %v, want %v", got, want)
+		}
+	}
+}
+
+func TestIsManagedLabelSeparatesRentedFromOurs(t *testing.T) {
+	rented := []string{"ubuntu-latest", "macOS-13", "blacksmith", "blacksmith-8vcpu-ubuntu-2404",
+		"buildjet-4vcpu-ubuntu-2204", "warp-ubuntu-latest-x64-2x", "namespace-profile-default",
+		"nscloud-ubuntu-22.04-amd64-4x", "depot-ubuntu-24.04", "ubicloud-standard-4"}
+	for _, l := range rented {
+		if !IsManagedLabel(l) {
+			t.Errorf("IsManagedLabel(%q) = false, want true", l)
+		}
+	}
+	ours := []string{"self-hosted", "zoomies-linux-x64", "acme-bigbox", "linux", "x64", ""}
+	for _, l := range ours {
+		if IsManagedLabel(l) {
+			t.Errorf("IsManagedLabel(%q) = true, want false", l)
+		}
 	}
 }

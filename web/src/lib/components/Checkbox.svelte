@@ -89,6 +89,12 @@
     color: var(--z-text);
     cursor: pointer;
   }
+  /* A label that still invites a click is how a disabled row reads as broken
+     rather than as a state, so it stops inviting one. */
+  .row:has(input:disabled) label {
+    color: var(--z-text-muted);
+    cursor: not-allowed;
+  }
   p {
     margin: 0;
     font-size: var(--z-text-xs);

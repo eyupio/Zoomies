@@ -117,6 +117,51 @@ func IsHostedLabel(label string) bool {
 	return false
 }
 
+// managedPrefixes are the label shapes of the hosted-runner vendors that sit in
+// front of GitHub Actions -- Blacksmith, BuildJet, WarpBuild, Namespace, Depot
+// and Ubicloud.
+//
+// They belong here for the same reason GitHub's own labels do. A repository on
+// "blacksmith-4vcpu-ubuntu-2404" is renting somebody else's machines by the
+// minute, which is exactly the bill this fleet exists to replace, so a wizard
+// that called that label "already pointed somewhere deliberate" would offer an
+// operator nothing to migrate and no reason why. Their labels encode the same
+// two facts GitHub's do -- an operating system and a size -- so mapping one to
+// a pool is the same decision, with the same review step in front of it.
+//
+// A prefix list again, and for the same reason: every one of these vendors
+// keeps adding sizes, and an exact list would go quietly blind as they do.
+var managedPrefixes = []string{
+	"blacksmith",
+	"buildjet-",
+	"warp-",
+	"namespace-profile-",
+	"nscloud-",
+	"depot-",
+	"ubicloud",
+}
+
+// IsManagedLabel reports whether label names a runner somebody else operates:
+// GitHub's own, or one of the vendors in managedPrefixes.
+//
+// This, not IsHostedLabel, is what the wizard migrates. The distinction the
+// operator cares about is not "GitHub or not" but "rented or ours".
+func IsManagedLabel(label string) bool {
+	l := strings.ToLower(strings.TrimSpace(label))
+	if l == "" {
+		return false
+	}
+	if IsHostedLabel(l) {
+		return true
+	}
+	for _, p := range managedPrefixes {
+		if strings.HasPrefix(l, p) {
+			return true
+		}
+	}
+	return false
+}
+
 // runsOnKey matches a `runs-on:` key and splits it into the parts that must be
 // preserved byte for byte.
 //
@@ -230,23 +275,23 @@ func rewriteLabelSet(items []string, m Mapping) (string, string) {
 		if item == "" {
 			continue
 		}
-		if IsHostedLabel(item) {
+		if IsManagedLabel(item) {
 			hosted = append(hosted, item)
 			continue
 		}
-		// Anything that is not one of GitHub's own labels is a deliberate
-		// choice somebody already made: a self-hosted fleet, a larger runner
-		// group, a label from another vendor. Migrating it would be guessing.
+		// Anything that is not a rented runner is a deliberate choice somebody
+		// already made: a self-hosted fleet, a runner group, a label an
+		// organisation invented. Migrating it would be guessing.
 		if strings.EqualFold(item, "self-hosted") {
 			return "", "this job already runs on a self-hosted runner"
 		}
-		return "", fmt.Sprintf("%q is not one of GitHub's hosted labels, so this job is already pointed somewhere deliberate", item)
+		return "", fmt.Sprintf("%q is not a hosted-runner label, so this job is already pointed somewhere deliberate", item)
 	}
 	if len(hosted) == 0 {
-		return "", "no GitHub-hosted label to migrate"
+		return "", "no hosted-runner label to migrate"
 	}
 	if len(hosted) > 1 {
-		return "", fmt.Sprintf("%d hosted labels on one job (%s) is not a combination GitHub runs, so it is left for a person to read",
+		return "", fmt.Sprintf("%d hosted labels on one job (%s) is not a combination that resolves to one runner, so it is left for a person to read",
 			len(hosted), strings.Join(hosted, ", "))
 	}
 	to, ok := m.To(hosted[0])
@@ -319,8 +364,9 @@ func rewriteBlockSequence(lines []line, at int, m Mapping) (int, bool, blockOutc
 	return consumed, true, blockOutcome{from: from, to: to}
 }
 
-// HostedLabelsIn returns every GitHub-hosted label a workflow's runs-on lines
-// name, in the order they first appear.
+// HostedLabelsIn returns every hosted-runner label a workflow's runs-on lines
+// name, in the order they first appear -- GitHub's own and the vendor labels
+// IsManagedLabel recognises.
 //
 // This is what the wizard's mapping step is built from: an operator maps the
 // labels their own workflows actually use, not the twenty GitHub publishes.
@@ -329,7 +375,7 @@ func HostedLabelsIn(content string) []string {
 	seen := map[string]bool{}
 	add := func(raw string) {
 		l := strings.ToLower(strings.Trim(strings.TrimSpace(raw), `"'`))
-		if l == "" || seen[l] || !IsHostedLabel(l) {
+		if l == "" || seen[l] || !IsManagedLabel(l) {
 			return
 		}
 		seen[l] = true

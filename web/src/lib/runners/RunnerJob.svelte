@@ -9,7 +9,7 @@
   import { ExternalLink } from '@lucide/svelte';
   import type { Job } from '$lib/api/types';
   import { formatDuration } from '$lib/format';
-  import { UNMATCHED, jobStatus } from '$lib/status';
+  import { UNMATCHED, jobStatus, stuckUnmatched } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import Duration from '$lib/components/Duration.svelte';
@@ -26,7 +26,7 @@
   let { job, idle = true, class: className = '' }: Props = $props();
 
   const status = $derived(
-    job ? (job.matched === false ? UNMATCHED : jobStatus(job.state, job.conclusion)) : null,
+    job ? (stuckUnmatched(job) ? UNMATCHED : jobStatus(job.state, job.conclusion)) : null,
   );
   const running = $derived(job?.state === 'in_progress');
 </script>

@@ -42,8 +42,11 @@ type RepoPlan struct {
 	Repo          string         `json:"repo"`
 	DefaultBranch string         `json:"default_branch"`
 	Workflows     []WorkflowPlan `json:"workflows"`
-	// HostedLabels are the GitHub-hosted labels this repository's workflows
-	// ask for, whether or not they are mapped.
+	// HostedLabels are the hosted-runner labels this repository's workflows ask
+	// for -- GitHub's own and the vendors' -- whether or not they are mapped.
+	// It is what makes a repository selectable in the wizard: the labels are
+	// mapped on the step after the one that chooses repositories, so "would
+	// change under the mapping so far" is the wrong question to ask here.
 	HostedLabels []string `json:"hosted_labels"`
 	// Error is set when the repository could not be read at all. The rest of
 	// the plan is still returned: one unreadable repository must not cost the
@@ -160,8 +163,16 @@ func Suggest(pools []*store.Pool, hosted []string) map[string]string {
 // describeHosted reads the operating system and architecture out of one of
 // GitHub's runner labels: "ubuntu-24.04-arm" is linux on arm64,
 // "windows-latest" is windows on x64.
+//
+// A vendor label is read the same way, one step later. "blacksmith-4vcpu-ubuntu-2404"
+// says linux as plainly as "ubuntu-latest" does; it just says it after a size
+// nobody but the vendor cares about, so the size is skipped and the rest is
+// read with the same rules.
 func describeHosted(label string) (os, arch string) {
 	l := strings.ToLower(strings.TrimSpace(label))
+	if !IsHostedLabel(l) && IsManagedLabel(l) {
+		return describeVendor(l)
+	}
 	switch {
 	case strings.HasPrefix(l, "ubuntu-"):
 		os = "linux"
@@ -182,6 +193,33 @@ func describeHosted(label string) (os, arch string) {
 		if v := macosVersion(l); v >= 14 {
 			arch = "arm64"
 		}
+	}
+	return os, arch
+}
+
+// describeVendor reads a hosted-runner vendor's label.
+//
+// Vendors spell the platform somewhere in a dash-separated name rather than at
+// the front of it, and there is no shared grammar for the rest, so the only
+// thing worth reading is the platform itself. A label that names no platform
+// gets no proposal, which is the same answer an unrecognised GitHub label
+// gets: an operator maps it by hand, and a skip they can see beats a wrong
+// mapping that hangs a workflow.
+func describeVendor(label string) (os, arch string) {
+	switch {
+	case strings.Contains(label, "ubuntu"), strings.Contains(label, "linux"),
+		strings.Contains(label, "debian"):
+		os = "linux"
+	case strings.Contains(label, "windows"):
+		os = "windows"
+	case strings.Contains(label, "macos"), strings.Contains(label, "darwin"):
+		os = "macos"
+	default:
+		return "", ""
+	}
+	arch = "x64"
+	if strings.Contains(label, "arm") {
+		arch = "arm64"
 	}
 	return os, arch
 }

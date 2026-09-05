@@ -964,7 +964,10 @@ paths:
         - { name: until, in: query, schema: { type: string, format: date-time } }
         - name: unmatched
           in: query
-          description: Only jobs no enabled pool claims. These will never run, and are almost always a typo in `runs-on`.
+          description: >-
+            Only jobs that are still queued and that no enabled pool claims. A job that
+            already started or finished was run by something else, so it is not included
+            however its labels read.
           schema: { type: boolean }
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/Offset"
@@ -1886,7 +1889,7 @@ components:
         hosted_labels:
           type: array
           items: { type: string }
-          description: The GitHub-hosted labels this repository asks for, mapped or not.
+          description: The hosted-runner labels this repository asks for - GitHub's own and the vendors' - mapped or not.
         error: { type: string, description: Set when this repository could not be read; the rest of the plan still stands. }
 
     MigrationPoolOption:
@@ -2116,7 +2119,7 @@ components:
         runner_id: { type: string }
         runner_name: { type: string }
         html_url: { type: string, description: The run on GitHub. }
-        matched: { type: boolean, description: False when no enabled pool claims this job's labels. }
+        matched: { type: boolean, description: "False when no enabled pool claims this job's labels. On a job that is not queued this only says the job ran somewhere else." }
         queued_at: { type: string, format: date-time }
         started_at: { type: [string, "null"], format: date-time }
         completed_at: { type: [string, "null"], format: date-time }

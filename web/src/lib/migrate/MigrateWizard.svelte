@@ -162,10 +162,13 @@
         mapping = next;
       }
       if (repos.length === 0) {
-        // Default to every repository that would actually change. Repositories
-        // with nothing to do stay visible but unticked.
+        // Default to every repository that asks for a rented runner, not only
+        // the ones the server's provisional mapping already rewrites. The
+        // mapping is chosen on the step after this one, so ticking on
+        // "would change right now" would hide from an operator the very
+        // repositories they came here to map.
         chosen = (result.repositories ?? [])
-          .filter((r) => (r.workflows ?? []).some((w) => (w.rewrites ?? []).length > 0))
+          .filter((r) => !r.error && (r.hosted_labels ?? []).length > 0)
           .map((r) => r.repo ?? '')
           .filter(Boolean);
       }

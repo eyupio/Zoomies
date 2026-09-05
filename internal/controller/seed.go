@@ -380,6 +380,15 @@ func (c *Controller) seedJobs(ctx context.Context, now time.Time, rng *rand.Rand
 			j.PoolID, j.Matched = "", false
 		}
 
+		// One repository still on a hosted-runner vendor, which is what a fleet
+		// looks like part-way through a migration. Its jobs carry labels no pool
+		// here claims and they run anyway, so they are the case that must never
+		// be reported as "nothing will run this".
+		if i == 12 {
+			j.Labels = store.StringSlice{"blacksmith-4vcpu-ubuntu-2404"}
+			j.PoolID, j.Matched = "", false
+		}
+
 		if _, err := c.st.UpsertJob(ctx, j); err != nil {
 			return fmt.Errorf("seeding job %d: %w", i, err)
 		}
