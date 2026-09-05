@@ -105,6 +105,10 @@ test('the wizard walks target, labels, backend, scaling and review', async ({ pa
   await next(page).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Labels' })).toBeVisible();
   await expect(page.getByText('Step 2 of 5')).toBeVisible();
+  // The name has already produced a label; a second one is added on top.
+  await expect(
+    page.getByRole('button', { name: 'Remove the label zoomies-e2e-pool' }),
+  ).toBeVisible();
   await addLabel(page, 'gpu');
 
   await next(page).click();
@@ -129,9 +133,13 @@ test('the labels step previews the runs-on line those labels produce', async ({ 
   await expect(page.getByRole('heading', { level: 2, name: 'Labels' })).toBeVisible();
 
   const preview = page.locator('figure');
-  // Every pool answers to the brand, so that is what an unlabelled one would
-  // be reached by -- and the preview says that reaches everything, rather than
-  // looking finished.
+  // The wizard filled the label in from the name, so the preview is already a
+  // line that reaches this pool rather than one that reaches the whole fleet.
+  await expect(preview).toContainText('runs-on: zoomies-e2e-pool');
+
+  // Take that away and the pool answers only to the brand, which the preview
+  // says reaches everything rather than letting it look finished.
+  await page.getByRole('button', { name: 'Remove the label zoomies-e2e-pool' }).click();
   await expect(preview).toContainText('runs-on: zoomies');
   await expect(preview).toContainText('answers every job that asks for this fleet');
 
@@ -309,6 +317,79 @@ test('editing the maximum runners still lets the wizard reach review', async ({ 
   await expect(page.getByRole('region', { name: /What will be created/ })).toContainText(
     '6 maximum',
   );
+});
+
+test('a new pool arrives named after a spaniel and after what it will run on', async ({ page }) => {
+  // A blank name field is answered with "test", and that name is then in every
+  // runner name and every runs-on for the life of the pool. So the wizard
+  // fills one in: the brand, a name from the kennel, and the infrastructure
+  // the runners actually land on -- the demo fleet is all Linux Docker hosts
+  // of two architectures, so it can say linux and honestly cannot say x64.
+  await goto(page, '/pools/new', 'Create a pool');
+  const name = nameField(page);
+  await expect(name).toHaveValue(/^zoomies-[a-z]+-docker-linux$/);
+  const first = await name.inputValue();
+
+  // The label follows the name, so a pool is reachable without typing at all.
+  await next(page).click();
+  await expect(page.getByRole('button', { name: `Remove the label ${first}` })).toBeVisible();
+
+  await back(page).click();
+  await page.getByRole('button', { name: 'Spin a new name' }).click();
+  await expect(name).not.toHaveValue(first);
+  await expect(name).toHaveValue(/^zoomies-[a-z]+-docker-linux$/);
+  const second = await name.inputValue();
+
+  // And the label follows the roll, rather than leaving the pool answering to
+  // a name it no longer has.
+  await next(page).click();
+  await expect(page.getByRole('button', { name: `Remove the label ${second}` })).toBeVisible();
+  await expect(page.getByRole('button', { name: `Remove the label ${first}` })).toHaveCount(0);
+});
+
+test('the generated name follows the backend until somebody types their own', async ({ page }) => {
+  await goto(page, '/pools/new', 'Create a pool');
+  const name = nameField(page);
+  await expect(name).toHaveValue(/-docker-linux$/);
+
+  // The infrastructure half is a claim about where the runners land, so it
+  // stops being true the moment the backend changes. Podman is the one no
+  // demo host offers, which is beside the point here: the wizard renames the
+  // pool on the way to finding that out.
+  await next(page).click();
+  await next(page).click();
+  await radio(page, 'backend', 'podman').check();
+  await back(page).click();
+  await back(page).click();
+  await expect(name).toHaveValue(/^zoomies-[a-z]+-podman-linux$/);
+
+  // Once a name is typed it belongs to the operator, and choosing another
+  // backend must not rewrite it under their cursor.
+  await name.fill('e2e-mine');
+  await next(page).click();
+  await next(page).click();
+  await radio(page, 'backend', 'docker').check();
+  await back(page).click();
+  await back(page).click();
+  await expect(name).toHaveValue('e2e-mine');
+});
+
+test('a label the operator has changed is never filled in again', async ({ page }) => {
+  // Removing the suggested chip has to stick. Refilling it on the next
+  // keystroke would make the field impossible to empty, and would quietly put
+  // back a label somebody deliberately took off.
+  await goto(page, '/pools/new', 'Create a pool');
+  await next(page).click();
+  const suggested = page.getByRole('button', { name: /^Remove the label zoomies-/ });
+  await expect(suggested).toBeVisible();
+  await suggested.click();
+  await addLabel(page, 'gpu');
+
+  await back(page).click();
+  await page.getByRole('button', { name: 'Spin a new name' }).click();
+  await next(page).click();
+  await expect(page.getByRole('button', { name: 'Remove the label gpu' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Remove the label zoomies-/ })).toHaveCount(0);
 });
 
 test('the pools page offers the wizard and the wizard can be abandoned', async ({ page }) => {

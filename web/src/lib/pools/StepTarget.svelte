@@ -7,7 +7,7 @@
   select the operator would poke at.
 -->
 <script lang="ts">
-  import { Plug } from '@lucide/svelte';
+  import { Dices, Plug } from '@lucide/svelte';
   import type { Installation, RunnerGroup } from '$lib/api/types';
   import { installationStatus } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
@@ -15,6 +15,7 @@
   import EmptyState from '$lib/components/EmptyState.svelte';
   import ErrorState from '$lib/components/ErrorState.svelte';
   import Field from '$lib/components/Field.svelte';
+  import IconButton from '$lib/components/IconButton.svelte';
   import Input from '$lib/components/Input.svelte';
   import Select from '$lib/components/Select.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
@@ -32,6 +33,8 @@
     groups: readonly RunnerGroup[];
     groupsLoading: boolean;
     groupsError: unknown;
+    /** Roll another name. Left out when editing, where a name is already in use. */
+    onspin?: () => void;
   }
 
   let {
@@ -45,7 +48,19 @@
     groups,
     groupsLoading,
     groupsError,
+    onspin,
   }: Props = $props();
+
+  // Purely so the dice turn when they are rolled. Cleared on animationend
+  // rather than on a timer, so the two cannot disagree about how long the
+  // animation is -- and under prefers-reduced-motion, where the token is 1ms,
+  // it ends immediately and nothing spins.
+  let rolling = $state(false);
+
+  function spin(): void {
+    rolling = true;
+    onspin?.();
+  }
 
   const installationOptions = $derived(
     installations.map((entry) => ({
@@ -66,7 +81,9 @@
   label="Pool name"
   required
   error={errors['name']}
-  hint="Operators see this everywhere: in runner names, the audit log and the CLI."
+  hint={onspin
+    ? 'Filled in from the kennel and what the fleet runs on. Type over it, or roll the dice for another.'
+    : 'Operators see this everywhere: in runner names, the audit log and the CLI.'}
 >
   {#snippet children({ id, describedBy, invalid })}
     <Input
@@ -78,7 +95,15 @@
       placeholder="zoomies-linux-x64"
       autocomplete="off"
       onblur={() => touch('name')}
-    />
+    >
+      {#snippet trailing()}
+        {#if onspin}
+          <span class="dice" class:rolling onanimationend={() => (rolling = false)}>
+            <IconButton icon={Dices} label="Spin a new name" size="sm" onclick={spin} />
+          </span>
+        {/if}
+      {/snippet}
+    </Input>
   {/snippet}
 </Field>
 
@@ -168,6 +193,20 @@
 {/if}
 
 <style>
+  .dice {
+    display: inline-flex;
+  }
+  .rolling {
+    animation: roll var(--z-motion-slow) var(--z-ease);
+  }
+  @keyframes roll {
+    from {
+      transform: rotate(0turn);
+    }
+    to {
+      transform: rotate(1turn);
+    }
+  }
   .loading {
     display: flex;
     flex-direction: column;
