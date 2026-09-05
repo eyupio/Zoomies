@@ -19,6 +19,9 @@ services:
   zoomies:
     image: {{.Image}}
     restart: unless-stopped
+    # The name the embedded agent registers this host under; without it that
+    # is the container's random ID.
+    hostname: zoomies
     command: ["controller"]
     environment:
       ZOOMIES_EXTERNAL_URL: ${ZOOMIES_EXTERNAL_URL:?set this in .env}
@@ -31,8 +34,14 @@ services:
       ZOOMIES_AGENT_BACKEND: {{.Backend}}
       ZOOMIES_DOCKER_HOST: {{.DockerHost}}
       ZOOMIES_AGENT_CAPACITY: "{{.Capacity}}"
+      # The network runner containers are attached to: the one declared at the
+      # bottom of this file, so they stay off the daemon's default bridge.
+      ZOOMIES_AGENT_NETWORK: zoomies
       ZOOMIES_WORK_DIR: /var/lib/zoomies/work
       ZOOMIES_LOG_FORMAT: json
+      # The gid group_add below is given, echoed in so that if it is ever
+      # wrong the Hosts page can say so and name the value to change.
+      DOCKER_GID: "{{.DockerGID}}"
     ports:
       # Loopback only. Change to "{{.Port}}:{{.Port}}" once something terminates TLS.
       - "127.0.0.1:{{.Port}}:{{.Port}}"

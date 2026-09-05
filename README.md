@@ -98,14 +98,40 @@ sh install.sh --non-interactive --answers zoomies-answers.yaml
 ```sh
 git clone https://github.com/eyupio/zoomies && cd zoomies
 cp .env.example .env
-$EDITOR .env          # set ZOOMIES_ENCRYPTION_KEY
-mkdir -p data && chown 65532:65532 data   # the container runs as 65532
+$EDITOR .env          # ZOOMIES_EXTERNAL_URL, ZOOMIES_ENCRYPTION_KEY, DOCKER_GID
+mkdir -p data && sudo chown 65532:65532 data   # the container runs as 65532
 docker compose up -d
 ```
 
-The database and the runners' work area live in `./data` beside the compose
-file, so a backup is a copy of a directory. It has to be owned by uid 65532: a
-bind mount keeps the host directory's ownership, and the container is not root.
+Three values are required, and compose will not start without them:
+
+* `ZOOMIES_EXTERNAL_URL` — the https address you and GitHub reach the
+  controller at. Webhooks are delivered there, and creating the GitHub App
+  sends your browser back there.
+* `ZOOMIES_ENCRYPTION_KEY` — `openssl rand -base64 32`. Back it up; without it
+  the stored App key cannot be read.
+* `DOCKER_GID` — the gid that owns `/var/run/docker.sock`, which
+  `stat -c '%g' /var/run/docker.sock` prints. It is not always the group called
+  `docker`. The container is put in that group so it can create runner
+  containers; with the wrong number it comes up healthy and can start nothing.
+  If that happens, the Hosts page says which group the container holds and
+  which line to change, and `docker compose up -d` recreates it. If `stat`
+  prints `0`, the socket belongs to root's group: give it a group of its own
+  (`sudo groupadd docker`, then restart the daemon) or use a rootless daemon
+  rather than putting the container in group 0.
+
+The database lives in `./data` beside the compose file, so a backup is a copy
+of a directory. It has to be owned by uid 65532: a bind mount keeps the host
+directory's ownership, and the container is not root, so the `chown` needs
+`sudo`.
+
+Open the https address, not `http://<ip>`: the session cookie is marked Secure
+because the external URL is https, and a browser on a plain-http page throws
+it away. Zoomies refuses to sign you in from such a page and says why.
+
+This path has no `zoomies init`, so nothing creates a pool for you. Once
+GitHub is connected, make the first one on the **Pools** page; nothing runs
+until a pool exists.
 
 The compose file is set up for running behind Cloudflare: the origin serves
 plain HTTP on port 80 and Cloudflare terminates TLS, with `ZOOMIES_EXTERNAL_URL`

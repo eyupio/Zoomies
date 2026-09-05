@@ -1,11 +1,24 @@
 # Zoomies on a single VM, behind Cloudflare.
 #
-#   1. cp .env.example .env  and fill in ZOOMIES_ENCRYPTION_KEY
-#   2. mkdir -p data && chown 65532:65532 data
+#   1. cp .env.example .env  and fill in the three values it asks for:
+#        ZOOMIES_EXTERNAL_URL    the https address GitHub and you reach this at
+#        ZOOMIES_ENCRYPTION_KEY  openssl rand -base64 32
+#        DOCKER_GID              stat -c '%g' /var/run/docker.sock
+#   2. mkdir -p data && sudo chown 65532:65532 data
 #   3. docker compose up -d
-#   4. open https://zoomies.sh and create the first admin
+#   4. open ZOOMIES_EXTERNAL_URL and create the first admin
 #
-# Step 2 is not optional. The database lives in ./data next to this file, bind
+# Compose refuses to start with any of the three missing, on purpose: each one
+# left to a default produces a container that is healthy and useless. A wrong
+# external URL sends GitHub's webhooks and its App-creation redirect to the
+# wrong site; a missing key means nothing secret can be stored; and a wrong
+# DOCKER_GID leaves the agent unable to open the socket, so every pool queues
+# for ever. The Hosts page diagnoses that last one and names the line to
+# change, but it is quicker not to have to.
+#
+# Step 2 is not optional, and the chown needs root: handing a directory to
+# another uid is not something the docker group lets you do. The database
+# lives in ./data next to this file, bind
 # mounted into the container, and a bind mount keeps the host directory's
 # ownership -- unlike a named volume, it does not inherit anything from the
 # image. The container runs as uid 65532, so a ./data owned by anyone else (and
@@ -33,6 +46,10 @@ services:
     #   dockerfile: deploy/Dockerfile
     #   target: controller
     restart: unless-stopped
+    # The embedded agent registers this host under the container's hostname.
+    # Without one that is the container's random twelve-hex-digit ID, which
+    # then follows the host into every scheduler reason and problem message.
+    hostname: zoomies
     command: ["controller"]
     # Compose already reads .env to interpolate the ${...} below; this passes it
     # into the container as well, so any of the ZOOMIES_* settings in
@@ -47,9 +64,10 @@ services:
         required: false
     environment:
       # How GitHub and your browser reach this controller. Webhooks are
-      # delivered to $ZOOMIES_EXTERNAL_URL/webhooks/github, and the https here
-      # is what makes Zoomies mark its session cookie Secure.
-      ZOOMIES_EXTERNAL_URL: ${ZOOMIES_EXTERNAL_URL:-https://zoomies.sh}
+      # delivered to $ZOOMIES_EXTERNAL_URL/webhooks/github, the GitHub App
+      # created from the Installations page redirects back to it, and the
+      # https here is what makes Zoomies mark its session cookie Secure.
+      ZOOMIES_EXTERNAL_URL: ${ZOOMIES_EXTERNAL_URL:?set this in .env to the https address this controller is reached at}
 
       # 32 bytes, base64. Generate with: openssl rand -base64 32
       # Back it up: without it the stored GitHub App key cannot be decrypted.
@@ -74,18 +92,29 @@ services:
       ZOOMIES_AGENT_BACKEND: docker
       ZOOMIES_DOCKER_HOST: unix:///var/run/docker.sock
       ZOOMIES_AGENT_CAPACITY: ${ZOOMIES_AGENT_CAPACITY:-4}
+      # The network runner containers are attached to: the one declared at the
+      # bottom of this file. Without this line the agent leaves them on the
+      # daemon's default bridge, whatever the comment down there promises.
+      ZOOMIES_AGENT_NETWORK: zoomies
       ZOOMIES_WORK_DIR: /var/lib/zoomies/work
       ZOOMIES_LOG_FORMAT: json
+
+      # The gid group_add below is given, echoed into the container so that
+      # when it is wrong the Hosts page can say "the container holds 999 and
+      # the socket is owned by 987; change DOCKER_GID in .env" rather than
+      # leaving you to work out which file the number came from.
+      DOCKER_GID: ${DOCKER_GID:?set this in .env to the gid that owns /var/run/docker.sock, which stat -c %g /var/run/docker.sock prints}
     ports:
       # Cloudflare connects here over HTTP. Nothing but Cloudflare should be
       # able to: put the origin behind a firewall that allows only Cloudflare's
       # ranges, or use a Cloudflare Tunnel and publish no port at all.
       - "80:8080"
     volumes:
-      # The database, and the runners' work area, in ./data beside this file --
-      # so backing Zoomies up is copying a directory, and inspecting it does not
-      # need `docker volume inspect`. See step 2 above: this directory must be
-      # owned by 65532.
+      # The database, in ./data beside this file -- so backing Zoomies up is
+      # copying a directory, and inspecting it does not need `docker volume
+      # inspect`. See step 2 above: this directory must be owned by 65532.
+      # (Runner containers keep their scratch space in their own filesystem;
+      # nothing of theirs lands here.)
       - type: bind
         source: ./data
         target: /var/lib/zoomies
@@ -99,10 +128,14 @@ services:
       # This is Zoomies' own access to Docker -- it is NOT the same thing as
       # pool.docker_mode=host-socket, which would hand the socket to your jobs.
       - /var/run/docker.sock:/var/run/docker.sock
-    # The image runs as uid 65532; that user must be able to use the socket.
-    # On most hosts that means adding the docker group's gid here.
+    # The image runs as uid 65532; that user must be able to use the socket,
+    # which means joining the group that owns it. That group is read from the
+    # socket, not assumed to be called docker: it is 987 on one distribution,
+    # 999 or 998 on another, and something else again for a rootless daemon.
+    # A container is given its groups when it is created, so after changing
+    # DOCKER_GID run `docker compose up -d` again and compose recreates it.
     group_add:
-      - ${DOCKER_GID:-999}
+      - ${DOCKER_GID}
     networks: [zoomies]
     healthcheck:
       test: ["CMD", "/usr/local/bin/zoomies", "healthcheck", "--url", "http://127.0.0.1:8080"]

@@ -93,9 +93,11 @@ encryption key before it touches the database, and is never returned by the API.
 ## 4. Your first pool
 
 A pool says what labels your runners answer to and how many may exist.
-On a single-host install, setup creates this one for you once GitHub is
-connected -- it is derived from what the host actually is, so the numbers below
-are what you get on a 4-CPU Linux box with Docker:
+On a single-host install made by `zoomies init`, setup creates this one for you
+once GitHub is connected -- it is derived from what the host actually is, so the
+numbers below are what you get on a 4-CPU Linux box with Docker. The
+repository's `docker-compose.yml` has no installer, so on that path you create
+it yourself on the **Pools** page:
 
 | | |
 | --- | --- |
@@ -202,10 +204,16 @@ them apart:
   group it did not start with. When the agent is itself a container -- the
   compose and `docker run` deployments -- it says so and gives the container's
   fix instead, because its account exists only inside the image and a `usermod`
-  on the host answers `user 'nonroot' does not exist`: the group is granted at
-  creation with `--group-add <gid>`, or `group_add` in compose with
-  `DOCKER_GID=<gid>` in `.env`, and the container is recreated. Setup checks the
-  same thing before it starts one. In the controller, if your hosts offer a backend
+  on the host answers `user 'nonroot' does not exist`. A container is given
+  its groups when it is created, so the sentence names the group the
+  container actually holds against the one that owns the socket -- "holds
+  999, socket is 987" -- and gives the two steps: with compose, change
+  `DOCKER_GID` in `.env` and run `docker compose up -d`, which recreates the
+  container (no `down` first, and never `down -v`, which deletes the volume
+  with the database in it); with `docker run`, recreate it with
+  `--group-add <gid>`. Setup checks the same thing before it starts one, and
+  the repository's compose file refuses to start without a `DOCKER_GID` at
+  all. In the controller, if your hosts offer a backend
   this pool is not using, the problem names it and the pool's own page offers
   the change as a button -- the runners it already has finish their jobs first.
   Wherever one of these sentences carries a command, the UI shows it as a

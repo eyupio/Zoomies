@@ -3,7 +3,10 @@ package api
 import (
 	"crypto/subtle"
 	"errors"
+	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -77,6 +80,13 @@ func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		unprocessable(w, "the first administrator could not be created", fields)
 		return
 	}
+	// Refused before the account exists: this endpoint closes for good the
+	// moment it succeeds, and an administrator whose session the browser then
+	// throws away has no second try at it.
+	if msg := s.cookieWouldBeDropped(r); msg != "" {
+		badRequest(w, msg)
+		return
+	}
 
 	u, err := s.auth.CreateFirstAdmin(r.Context(), req.Username, req.Password)
 	if err != nil {
@@ -134,6 +144,10 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
+	if msg := s.cookieWouldBeDropped(r); msg != "" {
+		badRequest(w, msg)
+		return
+	}
 	ip := ClientIP(r.Context())
 
 	u, token, err := s.auth.Login(r.Context(), req.Username, req.Password, ip, r.UserAgent())
@@ -159,6 +173,53 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	id := &auth.Identity{Kind: auth.KindUser, ID: u.ID, Name: u.Username, Role: u.Role, IP: ip}
 	s.auth.Auditor().Auth(r.Context(), id, "auth.login", map[string]any{"role": u.Role})
 	writeJSON(w, http.StatusOK, newIdentityResponse(id, u.MustChangePassword))
+}
+
+// cookieWouldBeDropped says why a session minted for this request would never
+// be seen again, or "" when it would be kept.
+//
+// The compose deployment tells Zoomies its external URL is https, because a
+// proxy terminates TLS in front of it, and the session cookie is marked Secure
+// accordingly. An operator who then opens the container directly -- by IP,
+// over plain http, to check it is up before DNS exists -- creates the first
+// administrator, is signed in by a 201, and is immediately signed out again:
+// the browser refuses to keep a Secure cookie from an insecure page, every
+// later request is anonymous, and each login answers 200 and changes nothing.
+// Nothing in that loop is an error anyone sees.
+//
+// The browser's own Origin header says which scheme the page was loaded over,
+// which is the one fact the server cannot otherwise know: the request itself
+// may arrive over plain http from a perfectly good TLS-terminating proxy. A
+// loopback origin is left alone, because browsers treat localhost as a secure
+// context and do keep the cookie there.
+func (s *Server) cookieWouldBeDropped(r *http.Request) string {
+	if !s.cfg.CookieSecureValue() {
+		return ""
+	}
+	from := strings.TrimSpace(r.Header.Get("Origin"))
+	if from == "" {
+		from = strings.TrimSpace(r.Header.Get("Referer"))
+	}
+	u, err := url.Parse(from)
+	if err != nil || !strings.EqualFold(u.Scheme, "http") || u.Host == "" {
+		return ""
+	}
+	host := u.Hostname()
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return ""
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return ""
+	}
+	where := s.cfg.Server.ExternalURL
+	if where == "" {
+		where = "the https address"
+	}
+	return fmt.Sprintf("this page was opened over plain http (%s), and the session cookie is marked Secure "+
+		"(security.cookie_secure, which an https server.external_url turns on), so your browser would throw the cookie away "+
+		"and signing in would appear to do nothing. Open %s instead, through whatever terminates TLS in front of this controller; "+
+		"to test over plain http, set security.cookie_secure to false (ZOOMIES_COOKIE_SECURE=false).",
+		u.Scheme+"://"+u.Host, where)
 }
 
 // handleLogout ends the session behind the cookie and clears it.

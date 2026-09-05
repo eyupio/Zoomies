@@ -233,7 +233,11 @@ than loud:
 * **The external URL is `https://`, not `http://`.** It is what the session
   cookie's `Secure` flag is derived from, what the webhook URL is built from,
   and what the UI links to. The container serving HTTP does not change any of
-  that.
+  that. It does mean the UI has to be opened through the https address: a
+  browser on a plain-http page -- `http://<ip>` to check the container is up --
+  throws a Secure cookie away, so Zoomies refuses to sign you in from one and
+  says why, rather than signing you in and out in the same second. To test over
+  plain http, set `cookie_secure: false` for the duration.
 * **`trusted_proxies` must list Cloudflare's ranges.** Without them the origin
   sees Cloudflare's address on every connection, so the audit log records
   Cloudflare for every action and the login rate limiter throttles the whole
@@ -279,14 +283,17 @@ Empty autodetects, **preferring a rootless socket**, in this order:
 
 The group a service account must join to reach a root socket is read from the
 socket itself, not from the name `docker`. In a containerised deployment that
-gid is `DOCKER_GID` in the environment file, and it is checked against the
-socket before the container is started -- a container is given a group when it
-is created, and no `usermod` on the host can add one afterwards. A socket that exists but cannot be
-opened is diagnosed rather than guessed at:
-the agent reports the account it runs as, the group that owns the socket, and
-whether that account is already a member. If it is, the fix is a restart of the
-agent and not another `usermod` -- supplementary groups are fixed when a process
-starts.
+gid is `DOCKER_GID` in the environment file: `group_add` reads it, the compose
+files also pass it into the container's environment, and `zoomies init` checks
+it against the socket before the container is started -- a container is given
+a group when it is created, and no `usermod` on the host can add one
+afterwards. A socket that exists but cannot be opened is diagnosed rather than
+guessed at: the agent reports the account it runs as, the group that owns the
+socket, and whether that account is already a member. If it is, the fix is a
+restart of the agent and not another `usermod` -- supplementary groups are
+fixed when a process starts. In a container it reports the group the container
+holds against the one it needs, and names the `DOCKER_GID` line to change and
+the `docker compose up -d` that recreates the container.
 
 ### `agent.labels` and pool host selectors
 
