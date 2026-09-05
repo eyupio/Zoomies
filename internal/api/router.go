@@ -137,6 +137,7 @@ func (s *Server) apiRoutes() chi.Router {
 			r.With(s.require(auth.ActionPoolsDelete)).Delete("/{id}", s.handleDeletePool)
 			r.With(s.require(auth.ActionPoolsWrite)).Post("/{id}/enable", s.handleEnablePool)
 			r.With(s.require(auth.ActionPoolsWrite)).Post("/{id}/disable", s.handleDisablePool)
+			r.With(s.require(auth.ActionPoolsWrite)).Post("/{id}/prewarm", s.handlePrewarmPool)
 		})
 
 		// Runners.
