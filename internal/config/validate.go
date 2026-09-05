@@ -463,6 +463,23 @@ func (c *Config) Validate() Findings {
 		})
 	}
 
+	// --- External capacity provisioner -----------------------------------
+	if c.CapacityDemand.DestinationURL != "" {
+		u, err := url.Parse(c.CapacityDemand.DestinationURL)
+		if err != nil || u.Scheme == "" || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+			add(Finding{Code: "capacity_demand.url", Severity: SeverityError, Setting: "capacity_demand.destination_url", Title: "capacity-demand destination is not an absolute HTTP URL"})
+		}
+		if c.CapacityDemand.SigningSecret == "" {
+			add(Finding{Code: "capacity_demand.secret", Severity: SeverityError, Setting: "capacity_demand.signing_secret", Title: "capacity-demand signing secret is empty", Fix: "set a high-entropy shared secret."})
+		}
+		if c.CapacityDemand.Cooldown <= 0 {
+			add(Finding{Code: "capacity_demand.cooldown", Severity: SeverityError, Setting: "capacity_demand.cooldown", Title: "capacity-demand cooldown must be positive"})
+		}
+		if c.CapacityDemand.Timeout <= 0 {
+			add(Finding{Code: "capacity_demand.timeout", Severity: SeverityError, Setting: "capacity_demand.timeout", Title: "capacity-demand timeout must be positive"})
+		}
+	}
+
 	// --- Metrics and logging ---------------------------------------------
 	if c.Metrics.Enabled && c.Metrics.Public {
 		add(Finding{

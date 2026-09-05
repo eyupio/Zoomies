@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"strconv"
 	"sync"
@@ -66,19 +67,22 @@ type Options struct {
 	Logger   *slog.Logger
 	// Clock is injectable so tests can freeze time.
 	Clock func() time.Time
+	// HTTPClient delivers capacity-demand events. Tests may inject a transport.
+	HTTPClient *http.Client
 }
 
 // Controller owns the control plane's moving parts and their lifecycles.
 type Controller struct {
-	st       *store.Store
-	cfg      *config.Config
-	key      *cryptox.Key
-	authsvc  *auth.Service
-	bus      *events.Bus
-	factory  github.Factory
-	backends *backend.Registry
-	log      *slog.Logger
-	clock    func() time.Time
+	st         *store.Store
+	cfg        *config.Config
+	key        *cryptox.Key
+	authsvc    *auth.Service
+	bus        *events.Bus
+	factory    github.Factory
+	backends   *backend.Registry
+	log        *slog.Logger
+	clock      func() time.Time
+	httpClient *http.Client
 
 	metrics *metrics
 	clients *clientCache
@@ -176,9 +180,13 @@ func New(opts Options) (*Controller, error) {
 		backends:    opts.Backends,
 		log:         log,
 		clock:       clock,
+		httpClient:  opts.HTTPClient,
 		nudges:      make(chan struct{}, 1),
 		hostHealthy: map[string]bool{},
 		resynced:    map[string]bool{},
+	}
+	if c.httpClient == nil {
+		c.httpClient = &http.Client{}
 	}
 	c.metrics = newMetrics(c)
 	c.clients = newClientCache(c)

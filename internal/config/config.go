@@ -24,19 +24,30 @@ import (
 
 // Config is the complete on-disk configuration.
 type Config struct {
-	Server    Server    `yaml:"server"`
-	Database  Database  `yaml:"database"`
-	Security  Security  `yaml:"security"`
-	GitHub    GitHub    `yaml:"github"`
-	Agent     Agent     `yaml:"agent"`
-	Scheduler Scheduler `yaml:"scheduler"`
-	Log       Log       `yaml:"log"`
-	OIDC      OIDC      `yaml:"oidc"`
-	Metrics   Metrics   `yaml:"metrics"`
-	Retention Retention `yaml:"retention"`
+	Server         Server         `yaml:"server"`
+	Database       Database       `yaml:"database"`
+	Security       Security       `yaml:"security"`
+	GitHub         GitHub         `yaml:"github"`
+	Agent          Agent          `yaml:"agent"`
+	Scheduler      Scheduler      `yaml:"scheduler"`
+	Log            Log            `yaml:"log"`
+	OIDC           OIDC           `yaml:"oidc"`
+	Metrics        Metrics        `yaml:"metrics"`
+	Retention      Retention      `yaml:"retention"`
+	CapacityDemand CapacityDemand `yaml:"capacity_demand"`
 
 	// path records where this config was read from, for error messages.
 	path string `yaml:"-"`
+}
+
+// CapacityDemand publishes signed requests for host capacity to an external
+// provisioner. An empty DestinationURL disables the integration.
+type CapacityDemand struct {
+	DestinationURL string        `yaml:"destination_url"`
+	SigningSecret  string        `yaml:"signing_secret"`
+	Cooldown       time.Duration `yaml:"cooldown"`
+	Timeout        time.Duration `yaml:"timeout"`
+	Pools          []string      `yaml:"pools"`
 }
 
 // Server controls the HTTP listener.
@@ -271,6 +282,7 @@ func Default() *Config {
 			Samples:  7 * 24 * time.Hour,
 			Webhooks: 7 * 24 * time.Hour,
 		},
+		CapacityDemand: CapacityDemand{Cooldown: 10 * time.Minute, Timeout: 10 * time.Second},
 	}
 }
 
@@ -400,6 +412,7 @@ func (c *Config) normalize() {
 	}
 	c.Server.ExternalURL = strings.TrimRight(c.Server.ExternalURL, "/")
 	c.Agent.ControllerURL = strings.TrimRight(c.Agent.ControllerURL, "/")
+	c.CapacityDemand.DestinationURL = strings.TrimSpace(c.CapacityDemand.DestinationURL)
 	if c.Agent.Name == "" {
 		if h, err := os.Hostname(); err == nil {
 			c.Agent.Name = h
@@ -627,6 +640,11 @@ func (c *Config) applyEnv() error {
 	dur("ZOOMIES_RETENTION_AUDIT", &c.Retention.Audit)
 	dur("ZOOMIES_RETENTION_SAMPLES", &c.Retention.Samples)
 	dur("ZOOMIES_RETENTION_WEBHOOKS", &c.Retention.Webhooks)
+	str("ZOOMIES_CAPACITY_DEMAND_URL", &c.CapacityDemand.DestinationURL)
+	str("ZOOMIES_CAPACITY_DEMAND_SIGNING_SECRET", &c.CapacityDemand.SigningSecret)
+	dur("ZOOMIES_CAPACITY_DEMAND_COOLDOWN", &c.CapacityDemand.Cooldown)
+	dur("ZOOMIES_CAPACITY_DEMAND_TIMEOUT", &c.CapacityDemand.Timeout)
+	strs("ZOOMIES_CAPACITY_DEMAND_POOLS", &c.CapacityDemand.Pools)
 
 	if len(errs) > 0 {
 		return fmt.Errorf("invalid environment configuration:\n  - %s", strings.Join(errs, "\n  - "))
