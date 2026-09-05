@@ -1,0 +1,27 @@
+{#-
+  The site's sitemap, in place of the MkDocs default.
+
+  The default stamps every URL with the build date, which tells a crawler the
+  whole site changed every time anything did -- the same as telling it nothing.
+  Here each URL carries the date its page was last edited, taken from git by
+  hooks/seo.py, and falls back to the build date only when there is no history
+  to read (a shallow checkout).
+
+  Priority is a hint most crawlers ignore, so it says one true thing rather than
+  a graded guess: the home page is the entry point, every documentation page
+  matters equally after that. A page can override it with `sitemap_priority` in
+  its front matter.
+-#}
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+{%- for file in pages %}
+  {%- if file.page and not file.page.is_link %}
+  <url>
+    <loc>{{ file.page.canonical_url }}</loc>
+    <lastmod>{{ file.page.meta.git_date | default(build_date_utc.strftime('%Y-%m-%d'), true) }}</lastmod>
+    <changefreq>{{ 'weekly' if file.page.is_homepage else 'monthly' }}</changefreq>
+    <priority>{{ file.page.meta.sitemap_priority | default('1.0' if file.page.is_homepage else '0.8', true) }}</priority>
+  </url>
+  {%- endif %}
+{%- endfor %}
+</urlset>

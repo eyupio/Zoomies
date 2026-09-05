@@ -1,3 +1,10 @@
+---
+description: >-
+  What Zoomies protects, what it does not, and what each dangerous setting
+  costs: ephemeral runners, the Docker socket, disabled authentication, and
+  the warnings they raise.
+---
+
 # Zoomies security
 
 This document says what Zoomies protects, what it does not, and what every
@@ -278,6 +285,18 @@ development.
 
 `/metrics` served without authentication. Repository names, workflow names and
 pool names appear in metric labels. Prefer giving Prometheus a viewer API token.
+
+### `server.allow_indexing: true`
+
+`robots.txt` invites search engines into the interface, advertises
+`/sitemap.xml`, and the page's own directive changes from `noindex, nofollow` to
+`index, follow`.
+
+Nothing behind authentication becomes readable — the API still refuses a request
+without a session — but the sign-in page, this controller's address and the fact
+that it is a Zoomies fleet all become public knowledge, findable by anyone
+searching for exactly that. Leave it off unless the instance is deliberately
+public.
 
 ### `agent.insecure_skip_verify: true`
 

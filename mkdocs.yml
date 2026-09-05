@@ -39,6 +39,7 @@ theme:
     code: JetBrains Mono
   features:
     - navigation.instant
+    - navigation.instant.progress
     - navigation.tracking
     - navigation.sections
     - navigation.top
@@ -46,6 +47,7 @@ theme:
     - toc.follow
     - search.suggest
     - search.highlight
+    - search.share
     - content.code.copy
     - content.code.annotate
     - content.action.edit
@@ -103,7 +105,18 @@ markdown_extensions:
       custom_checkbox: true
 
 plugins:
-  - search
+  # The built-in search index, told where a Zoomies identifier stops being one
+  # word: the default separator does not split on a dot or a hyphen, so
+  # `scheduler.scale_up_delay` and `zoomies-linux-x64` were each a single term
+  # nobody would type in full.
+  - search:
+      separator: '[\s\-,:!=\[\]()"/]+|(?!\b)(?=[A-Z][a-z])|\.(?!\d)|&[lg]t;'
+
+# Build-time SEO metadata: a real last-edited date per page for the sitemap and
+# the sharing tags, and llms.txt generated from the navigation. It is a hook
+# rather than a plugin so the docs build keeps to its pinned dependencies.
+hooks:
+  - hooks/seo.py
 
 extra:
   social:
@@ -121,10 +134,16 @@ nav:
       - Migrating repositories: migration.md
       - Security: security.md
       - API: api-surface.md
+  - FAQ: faq.md
   - Reference:
       - Dependencies: dependencies.md
       - UI guidelines: ui-guidelines.md
       - Brand: brand.md
+
+# The brand pack's own guide is published because docs/brand.md links to it, but
+# it is not a section of the site's navigation.
+not_in_nav: |
+  brand/BRANDING_GUIDE.md
 
 # A link in the docs that points nowhere is a broken promise, so a broken one
 # fails the build rather than shipping.

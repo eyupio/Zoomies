@@ -10,12 +10,16 @@ on:
     branches: [main]
     paths:
       - "docs/**"
+      - "overrides/**"
+      - "hooks/**"
       - "mkdocs.yml"
       - "install.sh"
       - ".github/workflows/docs.yml"
   pull_request:
     paths:
       - "docs/**"
+      - "overrides/**"
+      - "hooks/**"
       - "mkdocs.yml"
       - "install.sh"
       - ".github/workflows/docs.yml"
@@ -34,6 +38,12 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The sitemap stamps each URL with the date its page was last edited,
+          # which is in the history. A shallow checkout has none, and every page
+          # would claim to have changed on the day of the build.
+          fetch-depth: 0
+
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
@@ -46,6 +56,15 @@ jobs:
       # shipping. The docs cross-reference each other heavily.
       - name: Build
         run: mkdocs build --strict
+
+      # The two files a crawler and an assistant look for first. Both are
+      # generated, so a build that quietly stopped producing one would
+      # otherwise ship a site nothing can index.
+      - name: The sitemap and llms.txt were produced
+        run: |
+          set -eu
+          grep -q "https://zoomies.sh/quickstart/" site/sitemap.xml
+          grep -q "https://zoomies.sh/faq/" site/llms.txt
 
       - name: Publish install.sh at the site root
         run: |

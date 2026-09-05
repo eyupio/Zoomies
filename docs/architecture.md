@@ -1,3 +1,10 @@
+---
+description: >-
+  How Zoomies is put together: one Go binary, SQLite, a pure scheduler and
+  outbound-only agents -- and why a self-hosted runner controller needs no
+  Kubernetes.
+---
+
 # Zoomies architecture
 
 Zoomies is a self-hosted controller for GitHub Actions self-hosted runners. It
