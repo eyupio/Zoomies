@@ -117,7 +117,10 @@
             document.documentElement.setAttribute('data-theme', t);
           }
           var n = localStorage.getItem('zoomies.nav.collapsed');
-          if (n === '1') document.documentElement.setAttribute('data-nav', 'collapsed');
+          // No choice recorded: a tablet-width window starts collapsed, as
+          // the guidelines promise. prefs.svelte.ts applies the same default.
+          var tablet = n === null && window.matchMedia && matchMedia('(max-width: 1180px)').matches;
+          if (n === '1' || tablet) document.documentElement.setAttribute('data-nav', 'collapsed');
         } catch (e) {
           /* private mode: fall back to the system preference */
         }

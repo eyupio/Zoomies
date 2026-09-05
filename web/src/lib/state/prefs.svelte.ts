@@ -55,6 +55,21 @@ interface StoredPrefs {
   dismissed?: string[];
 }
 
+/** The nav choice recorded under NAV_KEY, or undefined when none has been made. */
+function navChoiceFromStorage(): boolean | undefined {
+  const raw = storage.get(NAV_KEY);
+  return raw === null ? undefined : raw === '1';
+}
+
+/** Whether the window is the tablet width the guidelines collapse the nav at. */
+function tabletWidth(): boolean {
+  try {
+    return typeof matchMedia === 'function' && matchMedia('(max-width: 1180px)').matches;
+  } catch {
+    return false;
+  }
+}
+
 function load(): StoredPrefs {
   const raw = storage.get(PREFS_KEY);
   if (!raw) return {};
@@ -77,7 +92,12 @@ class Prefs {
 
   constructor() {
     const stored = load();
-    this.#navCollapsed = stored.navCollapsed ?? storage.get(NAV_KEY) === '1';
+    // An operator's choice, in either place it may have been recorded, wins.
+    // With no choice made, a tablet-width window starts collapsed: the
+    // guidelines promise icons-only navigation between 768 and 1180px, and the
+    // inline script in index.html applies the same default before first paint.
+    const chosen = stored.navCollapsed ?? navChoiceFromStorage();
+    this.#navCollapsed = chosen ?? tabletWidth();
     this.#grids = stored.grids ?? {};
     this.#dismissed = stored.dismissed ?? [];
     this.#applyNav();
