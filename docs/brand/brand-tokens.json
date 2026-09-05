@@ -7,7 +7,8 @@
     "coolGrey": "#B9BCC2",
     "midGrey": "#666A73",
     "runnerBlue": "#2F80ED",
-    "fastCyan": "#22D3EE"
+    "fastCyan": "#22D3EE",
+    "pawBlack": "#000000"
   },
   "typography": {
     "primary": "Inter",
@@ -17,7 +18,13 @@
     ]
   },
   "assets": {
-    "primaryLogo": "logos/zoomies-logo-master-dark.png",
-    "mark": "logos/zoomies-mark-dark.png"
+    "primaryLogo": "logo-master-dark.png",
+    "primaryLogoLight": "logo-light-background.png",
+    "circularMark": "mark-dark.png",
+    "secondaryMark": "head-swish-black.png",
+    "smallMark": "paw-swish-black.png",
+    "githubAvatar": "github-avatar.png",
+    "githubSocialPreview": "github-social-preview.png",
+    "openGraph": "social-card.png"
   }
 }

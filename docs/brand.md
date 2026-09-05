@@ -9,9 +9,12 @@ why the mark is never rotated: the circular movement already communicates speed.
 
 Personality: fast, playful, capable, technical, friendly.
 
-**[Zoomies_Brand_Guide.pdf](brand/Zoomies_Brand_Guide.pdf) is the authority.**
+**[Branding Guide v2.1](brand/BRANDING_GUIDE.md) is the authority.**
 This page records what the product actually does with it, and
 [ui-guidelines.md](ui-guidelines.md) is where the derived design tokens live.
+The older PDF remains in the repository as a historical source, not as current
+guidance. Asset provenance is recorded in
+[`ASSET_MANIFEST.json`](brand/ASSET_MANIFEST.json).
 
 ## Colour
 
@@ -26,6 +29,7 @@ logo stays monochrome, always.
 | Mid Grey | `#666A73` | Secondary text in the light theme |
 | Runner Blue | `#2F80ED` | The interactive accent — see the note below |
 | Fast Cyan | `#22D3EE` | The *busy* runner state, and nothing else |
+| Paw Black | `#000000` | The official favicon and smallest-size artwork |
 
 They are available in `brand/brand-tokens.json` and as CSS custom properties
 (`--z-brand-black`, `--z-brand-runner-blue`, …) at the top of
@@ -44,53 +48,56 @@ sparingly. In an operations dashboard the single most valuable "look here"
 signal is *this runner is executing a job right now*, so that is what Fast Cyan
 marks, and nothing else does.
 
-## Logo files
+## Logo system
 
-Everything in `docs/brand/` is derived from the approved master. The
-full-resolution originals live in the brand pack.
+Use the artwork in this order. Moving down the list is a response to less
+available space; it is not a choice between interchangeable logos.
 
 | File | Use |
 | --- | --- |
-| `brand/logo-master-dark.png` | The approved master, on Zoomies Black |
-| `brand/logo-white-transparent.png` | White knockout, for any dark or coloured ground |
-| `brand/mark-white-transparent.png` | The dog and circle alone — avatars, favicons, compact navigation |
+| `brand/logo-master-dark.png` | Primary full logo on Zoomies Black or another dark ground |
+| `brand/logo-light-background.png` | Primary full logo on white or a very light ground |
+| `brand/logo-white-transparent.png` | Transparent white primary logo on a dark or coloured ground |
+| `brand/mark-dark.png`, `brand/mark-white-transparent.png` | Original circular dog mark where the name is already visible |
+| `brand/head-swish-black.png`, `brand/head-swish-white.png` | Compact navigation, badges and app UI at 48px and above |
+| `brand/paw-swish-black.png`, `brand/paw-swish-white.png` | Favicons and equivalent tiny UI marks from 16–64px only |
 | `brand/wordmark-dark.png`, `brand/wordmark-white-transparent.png` | The wordmark alone |
-| `brand/social-card.png` | 1200×630, for the repository's social preview |
+| `brand/github-avatar.png` | Original-dog artwork with safe space for GitHub's circular crop |
+| `brand/github-social-preview.png` | 1280×640 GitHub social preview |
+| `brand/social-card.png` | 1200×630 Open Graph sharing image |
 
 The product's own copies live in `web/public/` and are the sizes the app
 actually serves: `favicon.ico` (16/32/48), `favicon-16.png`, `favicon-32.png`,
-`apple-touch-icon.png`, `icon-192.png`, `icon-512.png`, and
-`brand/mark-white.png`, `brand/wordmark-white.png`, `brand/logo-white.png`, and
-`brand/app-logo.png` — a 512px square of the mark on Zoomies Black, which is
-what an operator uploads as their GitHub App's avatar. An App manifest cannot
-carry a logo, so the connect flow hands them this file and a link to the page
-that takes it; without it the App wears GitHub's grey default and signs every
-"Set up job" line in the organisation's logs anonymously.
+`apple-touch-icon.png`, `icon-192.png`, `icon-512.png`, the dedicated
+`maskable-icon-512.png`, and the three web UI assets under `brand/`.
 
-## Using the mark in the product
+`brand/app-logo.png` is the original-dog GitHub avatar with circular-crop safe
+space. An App manifest cannot carry a logo, so the connect flow hands the
+operator this file and a link to the page that takes it; without it the App
+wears GitHub's grey default and signs every "Set up job" line anonymously.
 
-The mark is monochrome line art with white outlines, drawn to sit on a dark
-ground. Inverting it for a light theme washes it out, and at 24px in a sidebar
-the detail disappears either way.
+## Using the system in the product
 
-So the UI does the thing the brand guide sanctions — the white knockout over a
-dark surface — and draws it on a small Zoomies Black chip
-(`--z-mark-chip`) with a `--z-radius-md` corner. One asset, correct in both
-themes, legible at 24px, and it keeps the circular shape intact.
+The full primary logo appears on the sign-in, first-run, boot and connection
+failure screens. It is the identity, so it is shown at no less than 220px wide
+on a Zoomies Black holding shape.
 
-The full lock-up appears on the sign-in, first-run and boot screens, and on the
-one that says the controller cannot be reached -- the four screens that are
-nothing but the lock-up, where there is room for it at its 240px minimum.
+The secondary head/swish carries spacious product identity slots at 48px, such
+as Settings → About. The paw/swish carries the navbar, where the detailed dog
+does not read clearly, plus genuinely tiny placements such as the mobile top
+bar, page footer and command palette. Both use the supplied white reverse
+artwork on a Zoomies Black chip, so the artwork is unchanged and remains
+legible in either theme.
 
-Once somebody is signed in, the identity is carried in five quieter places:
+Once somebody is signed in, the identity is carried in these quieter places:
 
 | Where | What |
 | --- | --- |
-| The navigation masthead | Mark and wordmark, over the descriptor; the mark alone when collapsed |
-| The top bar, on a phone | The mark alone, because the masthead is not on screen there |
-| The foot of every page | The mark, the name, the running version and the descriptor, in a hairline |
-| The command palette | The mark and the name, in the footer beside the key hints |
-| Settings → About | The mark at 44px beside the name and the descriptor |
+| The navigation masthead | 32px paw/swish beside the name and descriptor; icon alone when collapsed |
+| The top bar, on a phone | Paw/swish, because the masthead is not on screen there |
+| The foot of every page | Paw/swish, name, running version and descriptor |
+| The command palette | Paw/swish and name beside the key hints |
+| Settings → About | 48px head/swish beside the name and descriptor |
 
 The descriptor is set in Inter -- small, uppercase, letter-spaced -- rather than
 cropped out of the wordmark artwork, whose own descriptor line is drawn for
@@ -98,11 +105,13 @@ cropped out of the wordmark artwork, whose own descriptor line is drawn for
 
 ## Clear space and minimum sizes
 
-* Clear space: roughly the height of the lowercase **o** in *Zoomies*. Nothing
-  crowds the dog circle.
-* Full logo: 240px wide minimum.
-* Mark: 32px minimum, 64px or more where there is room.
-* Favicon: the supplied ICO, or the 32×32 PNG.
+* Full logo clear space: the height of the **O** in the wordmark on every side.
+* Standalone mark clear space: at least 12.5% of its longest dimension. The
+  supplied square icon files already include this padding; do not crop it away.
+* Primary full logo: 220px wide minimum.
+* Circular dog mark: 128px square minimum.
+* Head/swish: 48px square minimum.
+* Paw/swish: 16px square minimum and 64px maximum.
 
 ## Do and do not
 
@@ -110,8 +119,10 @@ cropped out of the wordmark artwork, whose own descriptor line is drawn for
 
 * Use the dark master on dark surfaces.
 * Use the white knockout over dark photography or a coloured UI.
-* Use the mark alone for avatars, favicons, app icons and compact navigation.
-* Keep the circular motion shape intact.
+* Use the original circular dog for avatars, touch icons, PWA icons and social artwork.
+* Use the head/swish for compact UI at 48px and above.
+* Use the paw/swish only for favicons and equivalent tiny UI marks.
+* Keep every mark's supplied swish and safe padding intact.
 
 **Do not**
 
@@ -120,6 +131,7 @@ cropped out of the wordmark artwork, whose own descriptor line is drawn for
 * Add a shadow, gradient or glow.
 * Put the dark master on a busy background.
 * Rotate the mark.
+* Promote the paw/swish into a primary or social logo.
 
 ## Typography
 
@@ -159,5 +171,6 @@ part GitHub truncated.
 ## For print, signage or merchandise
 
 The SVG files in the original pack are raster wrappers, not true vector
-redraws. Commission a proper redraw from the approved master rather than
-enlarging them.
+redraws. The secondary head/swish is a restored reconstruction because its
+approved source binary was not available. For large-format work, commission a
+proper vector redraw from the approved masters rather than enlarging them.

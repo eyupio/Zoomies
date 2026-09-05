@@ -26,7 +26,8 @@ theme:
   name: material
   language: en
   favicon: brand/favicon.ico
-  logo: brand/mark-white-transparent.png
+  # The header renders at favicon scale, where v2.1 reserves the paw/swish.
+  logo: brand/paw-swish-white.png
   icon:
     repo: fontawesome/brands/github
   font:

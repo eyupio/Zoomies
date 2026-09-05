@@ -1,18 +1,14 @@
 <!--
-  The Zoomies mark and wordmark.
+  The Zoomies logo system.
 
-  Two different techniques, for a reason each:
+  The v2.1 hierarchy is deliberate:
 
-  * The mark is monochrome line art with white outlines, drawn to sit on a dark
-    ground. Only about two per cent of its pixels are fully opaque -- it is
-    outlines, not a silhouette -- so recolouring or inverting it does not work.
-    The brand guide sanctions the white knockout over a dark surface, so that is
-    what this does: the supplied asset on a small Zoomies Black chip. One asset,
-    correct in both themes, legible at 24px, circular shape intact.
+  * lockup is the unchanged primary full logo, never below 220px wide;
+  * mark at 48px and above is the secondary head/swish;
+  * mark below 48px is the paw/swish, the official smallest-size shorthand.
 
-  * The wordmark IS a solid shape, so it is applied as a CSS mask over
-    `currentColor`. That gives a crisp, correctly themed wordmark from a single
-    white PNG, instead of shipping a light and a dark copy and swapping them.
+  All artwork is the supplied white reverse on Zoomies Black. Nothing is
+  recoloured, cropped or reconstructed in CSS.
 
   See docs/brand.md.
 -->
@@ -29,15 +25,12 @@
 
   const { variant = 'full', size = 24, label = 'Zoomies', class: klass = '' }: Props = $props();
 
-  // The lock-up uses the full wordmark, which carries the descriptor line; the
-  // nav uses the compact one, where that line would be too small to read.
-  const wordmarkSrc = $derived(
-    variant === 'lockup' ? '/brand/wordmark-white.png' : '/brand/wordmark-compact-white.png',
+  const markSrc = $derived(
+    size >= 48 ? '/brand/head-swish-white.png' : '/brand/paw-swish-white.png',
   );
-  const wordmarkRatio = $derived(variant === 'lockup' ? 320 / 82 : 260 / 44);
-  const wordHeight = $derived(
-    variant === 'lockup' ? Math.round(size * 0.34) : Math.round(size * 0.62),
-  );
+  const wordmarkRatio = 975 / 250;
+  const wordHeight = $derived(Math.round(size * 0.62));
+  const lockupWidth = $derived(Math.max(220, Math.round(size * 3.1)));
 </script>
 
 <span
@@ -46,23 +39,27 @@
   aria-label={label || undefined}
   aria-hidden={label ? undefined : 'true'}
 >
-  {#if variant !== 'wordmark'}
-    <span class="chip" style="--chip: {size}px">
+  {#if variant === 'lockup'}
+    <span class="lockup-frame" style="--lockup-width: {lockupWidth}px">
       <img
-        src="/brand/mark-white.png"
-        srcset="/brand/mark-white.png 1x, /brand/mark-white@2x.png 2x"
-        width={size}
-        height={size}
+        class="primary"
+        src="/brand/logo-white.png"
+        width={lockupWidth}
+        height={lockupWidth}
         alt=""
         decoding="async"
       />
     </span>
+  {:else if variant !== 'wordmark'}
+    <span class="chip" style="--chip: {size}px">
+      <img src={markSrc} width={size} height={size} alt="" decoding="async" />
+    </span>
   {/if}
 
-  {#if variant !== 'mark'}
+  {#if variant !== 'mark' && variant !== 'lockup'}
     <span
       class="wordmark"
-      style="--mark-src: url({wordmarkSrc}); --word-h: {wordHeight}px; --word-w: {Math.round(
+      style="--mark-src: url('/brand/wordmark-white.png'); --word-h: {wordHeight}px; --word-w: {Math.round(
         wordHeight * wordmarkRatio,
       )}px"
     ></span>
@@ -77,27 +74,27 @@
     color: var(--z-text);
     line-height: 0;
   }
-  .logo.lockup {
-    flex-direction: column;
-    gap: var(--z-space-4);
+  .lockup-frame {
+    display: grid;
+    width: var(--lockup-width);
+    height: var(--lockup-width);
+    place-items: center;
+    background: var(--z-brand-black);
   }
-
   .chip {
     display: inline-grid;
+    width: var(--chip);
+    height: var(--chip);
     place-items: center;
-    /* The mark's own artwork already carries generous internal margin, so the
-       chip only needs a hairline of breathing room around it. */
-    padding: calc(var(--chip) * 0.06);
     border-radius: var(--z-radius-md);
     background: var(--z-mark-chip);
   }
-  .logo.lockup .chip {
-    border-radius: var(--z-radius-lg);
-  }
+  .primary,
   .chip img {
     display: block;
-    width: var(--chip);
-    height: var(--chip);
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
   }
 
   /* The wordmark is a mask over currentColor, so it inherits the theme's text
@@ -115,9 +112,5 @@
     mask-size: contain;
     -webkit-mask-position: left center;
     mask-position: left center;
-  }
-  .logo.lockup .wordmark {
-    -webkit-mask-position: center;
-    mask-position: center;
   }
 </style>

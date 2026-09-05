@@ -57,7 +57,8 @@
 <nav class="nav" class:collapsed aria-label="Sections">
   <div class="brand">
     <a href="/" class="mark" aria-label="Zoomies, go to the overview">
-      <Logo variant={collapsed ? 'mark' : 'full'} size={collapsed ? 26 : 24} label="" />
+      <Logo variant="mark" size={32} label="" />
+      {#if !collapsed}<span class="brand-name">Zoomies</span>{/if}
     </a>
     {#if !collapsed}
       <p class="descriptor">Self-hosted Git runners</p>
@@ -115,11 +116,9 @@
     padding-inline: var(--z-space-2);
   }
   /*
-    The masthead. The wordmark alone is a logo in a corner; the wordmark over
-    the descriptor is the product introducing itself, which is what an operator
-    who has just signed in to an unfamiliar controller needs to read. The rule
-    under it separates the identity from the sections, so the two are not read
-    as one list.
+    The masthead is too small for the detailed dog artwork to read cleanly, so
+    it uses the paw/swish shorthand at 32px and sets the product name as
+    ordinary interface text. It does not imitate or crop the wordmark.
   */
   .brand {
     padding: var(--z-space-2) var(--z-space-2) var(--z-space-3);
@@ -139,13 +138,19 @@
     border-radius: var(--z-radius-md);
   }
   .mark:hover {
-    /* The mark is a fixed asset and must not be recoloured, so the hover is
-       carried by the wordmark's currentColor and nothing else. */
+    /* The mark is fixed artwork; the text carries the hover state. */
     color: var(--z-accent);
+  }
+  .brand-name {
+    margin-left: var(--z-space-3);
+    font-size: var(--z-text-xl);
+    line-height: 1;
+    font-weight: var(--z-weight-semibold);
+    letter-spacing: -0.02em;
   }
   /*
     Set in Inter, not taken from the artwork: the descriptor line inside the
-    full wordmark PNG is drawn for 240px and would be unreadable at this width.
+    full logo is not separated or cropped for compact UI.
   */
   .descriptor {
     margin: var(--z-space-2) 0 0;
