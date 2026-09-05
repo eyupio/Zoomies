@@ -407,6 +407,8 @@ func (i *Installer) runAgent(ctx context.Context) error {
 	}
 	token := i.opts.JoinToken
 	controller := i.opts.ControllerURL
+	var name, caFile string
+	var labels map[string]string
 	if i.answers != nil {
 		if controller == "" {
 			controller = i.answers.Agent.ControllerURL
@@ -418,10 +420,17 @@ func (i *Installer) runAgent(ctx context.Context) error {
 			}
 			token = t
 		}
+		// The answer file documents these three, and an unattended join is
+		// the one place they can come from; left unread, a private-CA
+		// controller failed TLS verification and host labels never arrived.
+		name, labels, caFile = i.answers.Agent.Name, i.answers.Agent.Labels, i.answers.Agent.CAFile
 	}
 	return Join(ctx, JoinOptions{
 		ControllerURL:  controller,
 		JoinToken:      token,
+		Name:           name,
+		Labels:         labels,
+		CAFile:         caFile,
 		ConfigDir:      i.opts.configDir(),
 		StateDir:       i.opts.stateDir(),
 		BinaryPath:     i.opts.binaryPath(),
