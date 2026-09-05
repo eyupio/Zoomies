@@ -969,6 +969,14 @@ paths:
             already started or finished was run by something else, so it is not included
             however its labels read.
           schema: { type: boolean }
+        - name: managed
+          in: query
+          description: >-
+            Only jobs this controller has a hand in: one an enabled pool claims, one that
+            ran on a runner this fleet started, and queued jobs no pool claims -- which
+            nothing ran, so they belong here too. Leave it off to see every job GitHub has
+            reported, including those run on hosted runners this fleet does not own.
+          schema: { type: boolean }
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/Offset"
         - $ref: "#/components/parameters/Sort"

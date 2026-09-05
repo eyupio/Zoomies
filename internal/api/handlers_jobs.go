@@ -50,6 +50,9 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 	if unmatched := queryBoolPtr(r, "unmatched"); unmatched != nil {
 		filter.UnmatchedOnly = *unmatched
 	}
+	if managed := queryBoolPtr(r, "managed"); managed != nil {
+		filter.ManagedOnly = *managed
+	}
 
 	p := parsePage(r)
 	jobs, total, err := s.ctrl.Store().ListJobs(r.Context(), filter, p)
