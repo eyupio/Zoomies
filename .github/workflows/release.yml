@@ -14,7 +14,7 @@ env:
 
 jobs:
   binaries:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: zoomies-linux-x64
     steps:
       - uses: actions/checkout@v7
         with: { fetch-depth: 0 }
@@ -37,7 +37,7 @@ jobs:
           draft: true
 
   images:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: zoomies-linux-x64
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-qemu-action@v3
