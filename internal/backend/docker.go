@@ -485,6 +485,21 @@ func buildDinDConfig(spec Spec, fl flavor, o containerOptions) ContainerCreateRe
 			NetworkMode:   o.Network,
 		},
 	}
+	// With docker_mode: dind the builds themselves run inside this sidecar,
+	// not the runner, so a pool's memory, CPU and pids limits are worth nothing
+	// unless they bind the sidecar too.
+	hc := cfg.HostConfig
+	if spec.Resources.CPUs > 0 {
+		hc.NanoCPUs = int64(spec.Resources.CPUs * 1e9)
+	}
+	if spec.Resources.MemoryMB > 0 {
+		hc.Memory = spec.Resources.MemoryMB * 1024 * 1024
+		hc.MemorySwap = hc.Memory
+	}
+	if spec.Resources.PidsLimit > 0 {
+		limit := spec.Resources.PidsLimit
+		hc.PidsLimit = &limit
+	}
 	if o.Network != "" {
 		cfg.NetworkingConfig = &NetworkingConfig{
 			EndpointsConfig: map[string]*EndpointSettings{

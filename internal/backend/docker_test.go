@@ -759,3 +759,16 @@ func TestDockerStatsNeverFailsAHeartbeat(t *testing.T) {
 		t.Fatalf("stats = %+v", got)
 	}
 }
+
+// With docker_mode: dind the builds run inside the sidecar, so a pool's limits
+// were worth nothing while only the runner carried them.
+func TestBuildDinDConfigCarriesThePoolsResourceLimits(t *testing.T) {
+	spec := jitSpec()
+	spec.DockerMode = store.DockerDinD
+	spec.Resources = store.Resources{CPUs: 2, MemoryMB: 4096, PidsLimit: 512}
+	cfg := buildDinDConfig(spec, dockerFlavor(), containerOptions{Now: time.Now(), DinDImage: DefaultDinDImage, Network: "zoomies"})
+	hc := cfg.HostConfig
+	if hc.NanoCPUs != 2e9 || hc.Memory != 4096*1024*1024 || hc.MemorySwap != hc.Memory || hc.PidsLimit == nil || *hc.PidsLimit != 512 {
+		t.Fatalf("the sidecar carries cpus=%d memory=%d swap=%d pids=%v; want the pool's limits", hc.NanoCPUs, hc.Memory, hc.MemorySwap, hc.PidsLimit)
+	}
+}
