@@ -20,10 +20,15 @@ const (
 	// belongs in.
 	BrandLabel = Brand
 
+	// BrandPrefix is what every name this fleet puts in front of somebody
+	// else's eyes starts with: a pool's name, and the runner names derived
+	// from it.
+	BrandPrefix = Brand + "-"
+
 	// RunnerNamePrefix is what every name NewRunnerName mints starts with. The
 	// reaper uses it to tell a registration Zoomies created from one somebody
 	// else registered by hand, so it must not appear in front of anything else.
-	RunnerNamePrefix = Brand + "-"
+	RunnerNamePrefix = BrandPrefix
 
 	// runnerNameEntropy is how many random bytes go into a runner name. Five
 	// encodes to eight base32 characters, which is a name a person can read
@@ -79,6 +84,36 @@ func BrandedLabel(name string) string {
 	default:
 		return RunnerNamePrefix + s
 	}
+}
+
+// BrandedName returns a pool name carrying the brand, which every pool name
+// has to.
+//
+// A pool's name is not private to Zoomies. It is what BrandedLabel turns into
+// the label a workflow's `runs-on` spells out, it is the word in an audit line
+// somebody reads months later, and it is how the pool is named in the runner
+// list of an account that also has runners nobody here registered. A pool
+// called "gpu" makes all of those say something that could have come from
+// anywhere, and renaming it afterwards does not un-write the workflows already
+// pointing at it -- so a name arriving without the brand gains it here rather
+// than being refused, which is the treatment BrandLabels already gives a label
+// list, for the same reason.
+//
+// An empty name is returned unchanged: "a pool needs a name" is a better thing
+// for an operator to be told than a pool called "zoomies-".
+func BrandedName(name string) string {
+	s := strings.TrimSpace(name)
+	if s == "" || IsBrandedName(s) {
+		return s
+	}
+	return BrandPrefix + strings.TrimLeft(s, "-")
+}
+
+// IsBrandedName reports whether name already carries the brand, comparing the
+// way GitHub compares labels so that "Zoomies-GPU" is not given a second one.
+func IsBrandedName(name string) bool {
+	s := NormalizeLabel(name)
+	return s == Brand || strings.HasPrefix(s, BrandPrefix)
 }
 
 // SanitizeLabel reduces an arbitrary string to the characters GitHub accepts in

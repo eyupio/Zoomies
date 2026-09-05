@@ -82,3 +82,35 @@ func TestSanitizeLabelCollapsesRunsOfPunctuation(t *testing.T) {
 		t.Fatalf("SanitizeLabel = %q, want %q", got, "big-builders")
 	}
 }
+
+// A pool name is what a workflow's runs-on ends up spelling and what GitHub
+// shows next to runners somebody else may also have registered, so a name
+// arriving without the brand has to come out of here with it.
+func TestBrandedNameAlwaysCarriesTheBrand(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"adds the brand", "gpu", "zoomies-gpu"},
+		{"keeps one it already has", "zoomies-gpu", "zoomies-gpu"},
+		{"does not duplicate it in another case", "Zoomies-GPU", "Zoomies-GPU"},
+		{"the brand alone is branded enough", "zoomies", "zoomies"},
+		{"trims what an operator pasted", "  gpu  ", "zoomies-gpu"},
+		{"does not double the hyphen", "-gpu", "zoomies-gpu"},
+		{"a name that only looks branded is not", "zoomiesgpu", "zoomies-zoomiesgpu"},
+		// "a pool needs a name" is a better thing to be told than to be given
+		// a pool called "zoomies-".
+		{"leaves an empty name empty", "   ", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := BrandedName(c.in); got != c.want {
+				t.Fatalf("BrandedName(%q) = %q, want %q", c.in, got, c.want)
+			}
+			if c.want != "" && !IsBrandedName(c.want) {
+				t.Fatalf("IsBrandedName(%q) = false for a name BrandedName just produced", c.want)
+			}
+		})
+	}
+}

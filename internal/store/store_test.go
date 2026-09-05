@@ -395,3 +395,42 @@ func TestUnmatchedOnlyLeavesOutJobsThatAlreadyRan(t *testing.T) {
 		t.Fatalf("unmatched job = %q, want the queued one", got[0].JobName)
 	}
 }
+
+// The brand is put on here rather than only in the handler because the API is
+// not the only writer: the installer and the demo seeder create pools too, and
+// a pool whose name says nothing about this fleet is one an operator meets
+// again in GitHub's runner list next to registrations nobody here made.
+func TestPoolNamesAreBrandedWhoeverWritesThem(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	inst := &Installation{AppID: 1, InstallationID: 2, Target: "acme", TargetType: TargetOrg}
+	if err := s.CreateInstallation(ctx, inst); err != nil {
+		t.Fatalf("CreateInstallation: %v", err)
+	}
+
+	pool := &Pool{
+		Name: "gpu", InstallationID: inst.ID, Labels: StringSlice{"gpu"},
+		Backend: BackendDocker, MaxRunners: 4, DockerMode: DockerNone, Enabled: true,
+	}
+	if err := s.CreatePool(ctx, pool); err != nil {
+		t.Fatalf("CreatePool: %v", err)
+	}
+	if pool.Name != "zoomies-gpu" {
+		t.Fatalf("created name = %q, want it branded", pool.Name)
+	}
+
+	// A pool carried over from a build that did not brand names gains the
+	// prefix the next time it is written, rather than keeping a name no new
+	// pool could have.
+	pool.Name = "builders"
+	if err := s.UpdatePool(ctx, pool); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+	got, err := s.GetPool(ctx, pool.ID)
+	if err != nil {
+		t.Fatalf("GetPool: %v", err)
+	}
+	if got.Name != "zoomies-builders" {
+		t.Fatalf("updated name = %q, want it branded", got.Name)
+	}
+}

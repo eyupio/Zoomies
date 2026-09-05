@@ -203,14 +203,18 @@ func scanPool(sc interface{ Scan(...any) error }) (*Pool, error) {
 	return &p, nil
 }
 
-// CreatePool inserts a pool. Labels are normalised on the way in so that the
-// scheduler never has to think about case or whitespace.
+// CreatePool inserts a pool. The name is branded and the labels normalised on
+// the way in, here rather than only in the handler, so that no caller -- the
+// API, the installer, the seeder -- can put a pool in the database that GitHub
+// would show under a name saying nothing about which fleet it belongs to. The
+// scheduler then never has to think about case or whitespace either.
 func (s *Store) CreatePool(ctx context.Context, p *Pool) error {
 	if p.ID == "" {
 		p.ID = NewID(PrefixPool)
 	}
 	now := s.Now()
 	p.CreatedAt, p.UpdatedAt = now, now
+	p.Name = BrandedName(p.Name)
 	p.Labels = NormalizeLabels(p.Labels)
 	res, err := marshalJSON(p.Resources)
 	if err != nil {
@@ -266,9 +270,12 @@ func (s *Store) ListPools(ctx context.Context) ([]*Pool, error) {
 	return out, rows.Err()
 }
 
-// UpdatePool persists changes to a pool.
+// UpdatePool persists changes to a pool. The name is branded on the way in for
+// the reason CreatePool brands it, which also means a pool carried over from a
+// build that did not brand names gains the prefix the next time it is edited.
 func (s *Store) UpdatePool(ctx context.Context, p *Pool) error {
 	p.UpdatedAt = s.Now()
+	p.Name = BrandedName(p.Name)
 	p.Labels = NormalizeLabels(p.Labels)
 	res, err := marshalJSON(p.Resources)
 	if err != nil {

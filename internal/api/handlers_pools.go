@@ -111,7 +111,10 @@ func (in *poolInput) apply(p *store.Pool) []fieldError {
 	add := func(field, msg string) { errs = append(errs, fieldError{field, msg}) }
 
 	if in.Name != nil {
-		p.Name = strings.TrimSpace(*in.Name)
+		// Branded here as well as in the store, so that the uniqueness check
+		// below and the error messages that quote the name are talking about
+		// the name the pool will actually have.
+		p.Name = store.BrandedName(*in.Name)
 	}
 	if in.InstallationID != nil {
 		p.InstallationID = strings.TrimSpace(*in.InstallationID)

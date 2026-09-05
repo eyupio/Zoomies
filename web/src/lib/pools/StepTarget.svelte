@@ -19,6 +19,7 @@
   import Input from '$lib/components/Input.svelte';
   import Select from '$lib/components/Select.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
+  import { brandedName } from '$lib/brand';
   import type { PoolDraft } from './PoolWizardForm.svelte';
 
   interface Props {
@@ -82,8 +83,8 @@
   required
   error={errors['name']}
   hint={onspin
-    ? 'Filled in from the kennel and what the fleet runs on. Type over it, or roll the dice for another.'
-    : 'Operators see this everywhere: in runner names, the audit log and the CLI.'}
+    ? 'Filled in from the kennel and what the fleet runs on. Type over it, or roll the dice for another. Every pool name starts with zoomies-, so one typed without it gains it.'
+    : 'Operators see this everywhere: in runner names, the audit log and the CLI. Every pool name starts with zoomies-, so one typed without it gains it.'}
 >
   {#snippet children({ id, describedBy, invalid })}
     <Input
@@ -94,7 +95,12 @@
       mono
       placeholder="zoomies-linux-x64"
       autocomplete="off"
-      onblur={() => touch('name')}
+      onblur={() => {
+        // Branded here as well as on save, so the field shows the name the
+        // server will store rather than the one that was typed.
+        draft.name = brandedName(draft.name);
+        touch('name');
+      }}
     >
       {#snippet trailing()}
         {#if onspin}

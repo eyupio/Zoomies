@@ -11,6 +11,9 @@ import (
 )
 
 // poolBody is a valid pool definition, which each test then breaks in one way.
+// poolBody is a create request with a name that does not carry the brand,
+// because that is what an operator types and the server is what makes every
+// pool name branded.
 func poolBody(instID string) map[string]any {
 	return map[string]any{
 		"name":            "linux-x64",
@@ -60,8 +63,8 @@ func TestPoolRoundTrip(t *testing.T) {
 	created.mustStatus(t, http.StatusCreated, "create")
 	var pool poolResponse
 	created.into(t, &pool)
-	if pool.ID == "" || pool.Name != "linux-x64" {
-		t.Fatalf("created pool = %+v", pool)
+	if pool.ID == "" || pool.Name != "zoomies-linux-x64" {
+		t.Fatalf("created pool = %+v, want the name branded on the way in", pool)
 	}
 	if pool.InstallationTarget != "acme" {
 		t.Errorf("installation_target = %q, want acme", pool.InstallationTarget)
@@ -87,7 +90,7 @@ func TestPoolRoundTrip(t *testing.T) {
 		t.Errorf("max_runners = %d, want 8", updated.MaxRunners)
 	}
 	// Four labels as asked for, plus the brand every pool answers to.
-	if updated.Name != "linux-x64" || len(updated.Labels) != 5 {
+	if updated.Name != "zoomies-linux-x64" || len(updated.Labels) != 5 {
 		t.Errorf("a partial update lost fields: %+v", updated)
 	}
 	if !slices.Contains(updated.Labels, store.BrandLabel) {
@@ -366,5 +369,39 @@ func TestPoolResponseCarriesWhyItCannotScale(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("warnings = %+v, want one saying the pool has nowhere to run", out.Warnings)
+	}
+}
+
+// A pool's name is in every runner it registers and in the label a workflow
+// asks for, so renaming one to something that says nothing about this fleet is
+// not something the API lets an operator do by accident: the name is branded on
+// the way in, and what comes back is the name that was stored.
+func TestARenameCannotDropTheBrand(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	h.host("vm-1")
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	created := h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: cookie, body: poolBody(inst.ID)})
+	created.mustStatus(t, http.StatusCreated, "create")
+	var pool poolResponse
+	created.into(t, &pool)
+
+	renamed := h.do(request{method: http.MethodPatch, path: "/api/v1/pools/" + pool.ID, cookie: cookie,
+		body: map[string]any{"name": "gpu"}})
+	renamed.mustStatus(t, http.StatusOK, "rename")
+	var updated poolResponse
+	renamed.into(t, &updated)
+	if updated.Name != "zoomies-gpu" {
+		t.Fatalf("name = %q, want the rename branded", updated.Name)
+	}
+
+	stored, err := h.st.GetPool(h.ctx, pool.ID)
+	if err != nil {
+		t.Fatalf("GetPool: %v", err)
+	}
+	if stored.Name != "zoomies-gpu" {
+		t.Fatalf("stored name = %q, want the response and the database to agree", stored.Name)
 	}
 }
