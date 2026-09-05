@@ -3,8 +3,8 @@ package api
 import (
 	"fmt"
 	"net/http"
-	"time"
 
+	"github.com/eyupio/zoomies/internal/controller"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -13,53 +13,10 @@ import (
 // queue_wait_ms and duration_ms are computed here rather than stored: they are
 // derived from the three timestamps, and a stored copy would be one more thing
 // that can disagree with them.
-type jobResponse struct {
-	ID          string         `json:"id"`
-	GitHubJobID int64          `json:"github_job_id"`
-	GitHubRunID int64          `json:"github_run_id"`
-	Repo        string         `json:"repo"`
-	Workflow    string         `json:"workflow"`
-	JobName     string         `json:"job_name"`
-	Labels      []string       `json:"labels"`
-	State       store.JobState `json:"state"`
-	Conclusion  string         `json:"conclusion,omitempty"`
-	PoolID      string         `json:"pool_id,omitempty"`
-	PoolName    string         `json:"pool_name,omitempty"`
-	RunnerID    string         `json:"runner_id,omitempty"`
-	RunnerName  string         `json:"runner_name,omitempty"`
-	HTMLURL     string         `json:"html_url,omitempty"`
-	Matched     bool           `json:"matched"`
-	QueuedAt    time.Time      `json:"queued_at"`
-	StartedAt   *time.Time     `json:"started_at"`
-	CompletedAt *time.Time     `json:"completed_at"`
-	QueueWaitMS int64          `json:"queue_wait_ms"`
-	DurationMS  int64          `json:"duration_ms"`
-}
-
-func newJobResponse(j *store.Job, poolName string) jobResponse {
-	return jobResponse{
-		ID:          j.ID,
-		GitHubJobID: j.GitHubJobID,
-		GitHubRunID: j.GitHubRunID,
-		Repo:        j.Repo,
-		Workflow:    j.Workflow,
-		JobName:     j.JobName,
-		Labels:      emptySlice(j.Labels),
-		State:       j.State,
-		Conclusion:  j.Conclusion,
-		PoolID:      j.PoolID,
-		PoolName:    poolName,
-		RunnerID:    j.RunnerID,
-		RunnerName:  j.RunnerName,
-		HTMLURL:     j.HTMLURL,
-		Matched:     j.Matched,
-		QueuedAt:    j.QueuedAt,
-		StartedAt:   j.StartedAt,
-		CompletedAt: j.CompletedAt,
-		QueueWaitMS: millis(j.QueueWait()),
-		DurationMS:  millis(j.Duration()),
-	}
-}
+// jobResponse is the shape GET /jobs returns, rendered by the controller so
+// the event stream's job.updated frames are the same JSON. See
+// controller/views.go for why the renderer lives there.
+type jobResponse = controller.JobView
 
 // handleListJobs answers GET /api/v1/jobs.
 func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
@@ -109,7 +66,7 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 
 	out := make([]jobResponse, 0, len(jobs))
 	for _, j := range jobs {
-		out = append(out, newJobResponse(j, names[j.PoolID]))
+		out = append(out, controller.NewJobView(j, names[j.PoolID]))
 	}
 	writeJSON(w, http.StatusOK, newPage(out, total, p))
 }
@@ -127,7 +84,7 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 			poolName = p.Name
 		}
 	}
-	writeJSON(w, http.StatusOK, newJobResponse(j, poolName))
+	writeJSON(w, http.StatusOK, controller.NewJobView(j, poolName))
 }
 
 // jobFacetsResponse populates the filter menus.

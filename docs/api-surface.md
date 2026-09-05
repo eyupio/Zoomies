@@ -199,8 +199,30 @@ flowchart LR
 
 `runner.created` · `runner.updated` · `runner.deleted` · `pool.created` ·
 `pool.updated` · `pool.deleted` · `job.updated` · `host.updated` ·
-`host.deleted` · `scaling` · `installation.updated` · `problems.updated` ·
-`stats` · `audit` · `webhook.delivery` · `heartbeat`
+`host.deleted` · `scaling` · `installation.updated` · `installation.deleted` ·
+`problems.updated` · `stats` · `audit` · `webhook.delivery` · `heartbeat`
+
+Three rules are what make the stream enough to keep a page current, so that no
+client ever has to poll or ask the operator to reload:
+
+* **A `*.created` or `*.updated` frame is the resource's `GET` response**, in
+  exactly that shape: `host.updated` carries `healthy` and `free`,
+  `runner.updated` carries `pool_name` and `host_name`, `pool.updated` carries
+  its counts and warnings. A client replaces the row it holds rather than
+  merging into it. The views are rendered once, in
+  `internal/controller/views.go`, for both transports, so the two cannot drift.
+  A `*.deleted` frame carries `{ "id": … }` and nothing else.
+* **`stats` and `problems.updated` are computed, not stored**, so no row change
+  can announce them. The controller works both out after every reconcile pass
+  and every housekeeping tick, and sends each only when its JSON changed.
+  `stats` summarises the same one-hour window `GET /stats` defaults to;
+  `problems.updated` is the whole `GET /problems` response. Neither is computed
+  while nobody is connected to the stream.
+* **An operator's change is announced by the handler that made it.** Creating,
+  editing, enabling, disabling or deleting a pool; editing, cordoning or
+  deleting a host; adding, editing or removing an installation -- each
+  publishes before its response is written, so every other open dashboard sees
+  it. Removing an installation announces each of its pools as deleted first.
 
 ## CLI mapping
 

@@ -1,50 +1,25 @@
 package api
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/auth"
+	"github.com/eyupio/zoomies/internal/controller"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
-// runnerResponse is one runner, with the pool and host named rather than only
-// referenced: a runner grid that shows two opaque IDs per row is a grid nobody
-// can read.
-type runnerResponse struct {
-	ID             string            `json:"id"`
-	Name           string            `json:"name"`
-	PoolID         string            `json:"pool_id"`
-	PoolName       string            `json:"pool_name,omitempty"`
-	HostID         string            `json:"host_id"`
-	HostName       string            `json:"host_name,omitempty"`
-	State          store.RunnerState `json:"state"`
-	GitHubRunnerID int64             `json:"github_runner_id,omitempty"`
-	ContainerID    string            `json:"container_id,omitempty"`
-	Ephemeral      bool              `json:"ephemeral"`
-	Labels         []string          `json:"labels"`
-	Image          string            `json:"image,omitempty"`
-	RunnerVersion  string            `json:"runner_version,omitempty"`
-	CurrentJobID   string            `json:"current_job_id,omitempty"`
-	CurrentJob     *jobResponse      `json:"current_job,omitempty"`
-	Message        string            `json:"message,omitempty"`
-	JobsHandled    int               `json:"jobs_handled"`
-	CPUPercent     float64           `json:"cpu_percent,omitempty"`
-	MemoryBytes    int64             `json:"memory_bytes,omitempty"`
-	CreatedAt      time.Time         `json:"created_at"`
-	StartedAt      *time.Time        `json:"started_at"`
-	LastIdleAt     *time.Time        `json:"last_idle_at"`
-	FinishedAt     *time.Time        `json:"finished_at"`
-}
+// runnerResponse is the shape GET /runners returns, rendered by the controller
+// so the event stream's runner.* frames are the same JSON. See
+// controller/views.go for why the renderer lives there.
+type runnerResponse = controller.RunnerView
 
 // runnerDetailResponse adds what the detail page shows and a list would not:
 // the host and pool in full, the state history, and whether logs can be had at
 // all -- so the log pane can say why it is empty instead of just being empty.
 type runnerDetailResponse struct {
-	runnerResponse
+	controller.RunnerView
 	Host          *hostResponse   `json:"host,omitempty"`
 	Pool          *poolResponse   `json:"pool,omitempty"`
 	Timeline      []timelineEntry `json:"timeline"`
@@ -57,79 +32,6 @@ type timelineEntry struct {
 	At         time.Time         `json:"at"`
 	DurationMS int64             `json:"duration_ms"`
 	Message    string            `json:"message,omitempty"`
-}
-
-// runnerView names pools and hosts without a query per runner.
-type runnerView struct {
-	pools map[string]string
-	hosts map[string]string
-	jobs  map[string]*store.Job
-}
-
-func (s *Server) buildRunnerView(ctx context.Context, runners []*store.Runner) (*runnerView, error) {
-	pools, err := s.ctrl.Store().ListPools(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("listing pools: %w", err)
-	}
-	hosts, err := s.ctrl.Store().ListHosts(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("listing hosts: %w", err)
-	}
-	v := &runnerView{pools: poolNames(pools), hosts: map[string]string{}, jobs: map[string]*store.Job{}}
-	for _, h := range hosts {
-		v.hosts[h.ID] = h.Name
-	}
-	// Only the runners that are actually executing something need a job, which
-	// on an idle fleet is none of them.
-	for _, run := range runners {
-		if run.CurrentJobID == "" {
-			continue
-		}
-		if _, done := v.jobs[run.CurrentJobID]; done {
-			continue
-		}
-		j, err := s.ctrl.Store().GetJob(ctx, run.CurrentJobID)
-		if err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				continue
-			}
-			return nil, fmt.Errorf("reading the job a runner is executing: %w", err)
-		}
-		v.jobs[run.CurrentJobID] = j
-	}
-	return v, nil
-}
-
-func (v *runnerView) response(r *store.Runner) runnerResponse {
-	out := runnerResponse{
-		ID:             r.ID,
-		Name:           r.Name,
-		PoolID:         r.PoolID,
-		PoolName:       v.pools[r.PoolID],
-		HostID:         r.HostID,
-		HostName:       v.hosts[r.HostID],
-		State:          r.State,
-		GitHubRunnerID: r.GitHubRunnerID,
-		ContainerID:    r.ContainerID,
-		Ephemeral:      r.Ephemeral,
-		Labels:         emptySlice(r.Labels),
-		Image:          r.Image,
-		RunnerVersion:  r.RunnerVersion,
-		CurrentJobID:   r.CurrentJobID,
-		Message:        r.Message,
-		JobsHandled:    r.JobsHandled,
-		CPUPercent:     r.CPUPercent,
-		MemoryBytes:    r.MemoryBytes,
-		CreatedAt:      r.CreatedAt,
-		StartedAt:      r.StartedAt,
-		LastIdleAt:     r.LastIdleAt,
-		FinishedAt:     r.FinishedAt,
-	}
-	if j := v.jobs[r.CurrentJobID]; j != nil {
-		job := newJobResponse(j, v.pools[j.PoolID])
-		out.CurrentJob = &job
-	}
-	return out
 }
 
 // handleListRunners answers GET /api/v1/runners.
@@ -155,14 +57,14 @@ func (s *Server) handleListRunners(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, "listing runners", err)
 		return
 	}
-	view, err := s.buildRunnerView(r.Context(), runners)
+	view, err := s.ctrl.RunnerRenderer(r.Context(), runners)
 	if err != nil {
 		s.internal(w, r, "listing runners", err)
 		return
 	}
 	out := make([]runnerResponse, 0, len(runners))
 	for _, run := range runners {
-		out = append(out, view.response(run))
+		out = append(out, view.View(run))
 	}
 	writeJSON(w, http.StatusOK, newPage(out, total, p))
 }
@@ -174,18 +76,18 @@ func (s *Server) handleGetRunner(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, "reading the runner", err)
 		return
 	}
-	view, err := s.buildRunnerView(r.Context(), []*store.Runner{run})
+	view, err := s.ctrl.RunnerRenderer(r.Context(), []*store.Runner{run})
 	if err != nil {
 		s.internal(w, r, "reading the runner", err)
 		return
 	}
 	detail := runnerDetailResponse{
-		runnerResponse: view.response(run),
-		Timeline:       runnerTimeline(run, s.ctrl.Now()),
+		RunnerView: view.View(run),
+		Timeline:   runnerTimeline(run, s.ctrl.Now()),
 	}
 
 	if host, herr := s.ctrl.Store().GetHost(r.Context(), run.HostID); herr == nil {
-		h := s.hostResponse(host)
+		h := s.ctrl.HostView(host)
 		detail.Host = &h
 		// Logs come from the runner's own agent, so a host that is not
 		// checking in cannot produce them and a removed runner no longer has a
@@ -193,8 +95,8 @@ func (s *Server) handleGetRunner(w http.ResponseWriter, r *http.Request) {
 		detail.LogsAvailable = host.Healthy(s.ctrl.Now()) && run.State != store.RunnerRemoved
 	}
 	if pool, perr := s.ctrl.Store().GetPool(r.Context(), run.PoolID); perr == nil {
-		if pv, verr := s.buildPoolView(r.Context()); verr == nil {
-			p := pv.response(pool)
+		if pv, verr := s.ctrl.PoolRenderer(r.Context()); verr == nil {
+			p := pv.View(pool)
 			detail.Pool = &p
 		}
 	}
@@ -303,12 +205,12 @@ func (s *Server) handleDrainRunner(w http.ResponseWriter, r *http.Request) {
 	})
 	s.ctrl.Nudge()
 
-	view, verr := s.buildRunnerView(r.Context(), []*store.Runner{run})
+	view, verr := s.ctrl.RunnerRenderer(r.Context(), []*store.Runner{run})
 	if verr != nil {
 		s.internal(w, r, "reading the runner back", verr)
 		return
 	}
-	writeJSON(w, http.StatusAccepted, view.response(run))
+	writeJSON(w, http.StatusAccepted, view.View(run))
 }
 
 // handleDeleteRunner removes a runner, draining first unless forced.

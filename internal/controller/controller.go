@@ -125,6 +125,13 @@ type Controller struct {
 	// with a context the controller does not otherwise control.
 	embeddedCancel context.CancelFunc
 
+	// derivedMu guards the last published form of the stats and problems
+	// payloads, which the reconcile loop and the housekeeping loop both
+	// compare against.
+	derivedMu    sync.Mutex
+	lastStats    []byte
+	lastProblems []byte
+
 	startMu sync.Mutex
 	started bool
 	cancel  context.CancelFunc
@@ -356,20 +363,89 @@ func (c *Controller) publish(kind events.Kind, topic string, payload any) {
 }
 
 // publishRunner announces a runner change so the Runners page updates live.
-func (c *Controller) publishRunner(kind events.Kind, r *store.Runner) {
-	if r == nil {
+//
+// The frame carries the same JSON as GET /runners/{id}, not the store row: the
+// UI drops it straight into its cache, and a row without the pool and host
+// names would blank those columns until the next full fetch.
+func (c *Controller) publishRunner(ctx context.Context, kind events.Kind, r *store.Runner) {
+	if r == nil || c.bus == nil {
 		return
 	}
-	c.publish(kind, "runner:"+r.ID, r)
+	c.publish(kind, "runner:"+r.ID, c.runnerView(ctx, r))
 }
 
 // publishHost announces a host change, which is how the Hosts page shows an
-// agent going quiet without the operator refreshing.
+// agent going quiet without the operator refreshing. The frame is the API's
+// host shape, with `healthy` worked out, because that is the field the event
+// exists to change.
 func (c *Controller) publishHost(h *store.Host) {
-	if h == nil {
+	if h == nil || c.bus == nil {
 		return
 	}
-	c.publish(events.KindHostUpdated, "host:"+h.ID, h)
+	c.publish(events.KindHostUpdated, "host:"+h.ID, c.HostView(h))
+}
+
+// publishJob announces a job change in the shape GET /jobs/{id} returns.
+func (c *Controller) publishJob(ctx context.Context, j *store.Job) {
+	if j == nil || c.bus == nil {
+		return
+	}
+	c.publish(events.KindJobUpdated, "job:"+j.ID, c.jobView(ctx, j))
+}
+
+// publishInstallation announces an installation change in the shape
+// GET /installations/{id} returns.
+func (c *Controller) publishInstallation(ctx context.Context, inst *store.Installation) {
+	if inst == nil || c.bus == nil {
+		return
+	}
+	c.publish(events.KindInstallation, "installation:"+inst.ID, c.installationView(ctx, inst))
+}
+
+// PublishPool announces a pool an operator created or changed, in the shape
+// GET /pools/{id} returns. The API calls it after its own write: the operator
+// who made the change is looking at the response, but every other open
+// dashboard learns about it from here.
+func (c *Controller) PublishPool(ctx context.Context, kind events.Kind, p *store.Pool) {
+	if p == nil || c.bus == nil {
+		return
+	}
+	view, err := c.PoolRenderer(ctx)
+	if err != nil {
+		c.log.Warn("could not render a pool for the event stream", "pool", p.ID, "error", err)
+		return
+	}
+	c.publish(kind, "pool:"+p.ID, view.View(p))
+}
+
+// PublishPoolDeleted announces that a pool is gone.
+func (c *Controller) PublishPoolDeleted(id string) {
+	c.publish(events.KindPoolDeleted, "pool:"+id, deletedPayload{ID: id})
+}
+
+// PublishHost announces a host an operator changed: its capacity, its labels,
+// or whether it is cordoned.
+func (c *Controller) PublishHost(h *store.Host) { c.publishHost(h) }
+
+// PublishHostDeleted announces that a host is gone.
+func (c *Controller) PublishHostDeleted(id string) {
+	c.publish(events.KindHostDeleted, "host:"+id, deletedPayload{ID: id})
+}
+
+// PublishInstallation announces an installation an operator added or edited.
+func (c *Controller) PublishInstallation(ctx context.Context, inst *store.Installation) {
+	c.publishInstallation(ctx, inst)
+}
+
+// PublishInstallationDeleted announces that an installation is gone.
+func (c *Controller) PublishInstallationDeleted(id string) {
+	c.publish(events.KindInstallationDeleted, "installation:"+id, deletedPayload{ID: id})
+}
+
+// deletedPayload is what every *.deleted frame carries: the id, and nothing
+// else, because the resource no longer exists to render.
+type deletedPayload struct {
+	ID string `json:"id"`
 }
 
 // setLastPlan records the most recent decision for Problems to report on.

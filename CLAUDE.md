@@ -51,8 +51,8 @@ review.
 | --- | --- |
 | `internal/store` | The **only** place SQL is written. Domain types, embedded migrations, every query. No other package imports `database/sql`. |
 | `internal/scheduler` | **Pure.** `Decide` takes a snapshot and returns a `Plan`. No clock reads, no database, no network — that is what makes scaling behaviour testable, and it is where every decision's operator-facing *reason string* comes from. |
-| `internal/api` | Transport only. A handler reads a request, asks the controller / auth / store, and renders the shape `api/openapi.yaml` promises. It has no opinions about the fleet. |
-| `internal/controller` | Wiring: the reconcile loop, webhook ingest, the agent task queue, the log relay. |
+| `internal/api` | Transport only. A handler reads a request, asks the controller / auth / store, and renders the shape `api/openapi.yaml` promises. It has no opinions about the fleet. The resource views themselves (`HostView`, `PoolView`, …) are `internal/controller/views.go` types the handlers alias, because the event stream renders the same JSON and is fed from the controller. |
+| `internal/controller` | Wiring: the reconcile loop, webhook ingest, the agent task queue, the log relay, and every payload the event stream carries (`views.go`, `derived.go`). |
 | `internal/config` | `zoomies.yaml` + `ZOOMIES_*` overrides, and the validator. |
 | `internal/github` | App auth, JIT configs, webhook validation, the fallback poller, and `fake.go`, a fake GitHub used by tests. |
 | `internal/backend` | Docker, Podman, bare process. The Docker API is hand-rolled `net/http` against the Engine API on purpose (see below). |
@@ -73,6 +73,13 @@ Other invariants worth knowing before you edit:
   the agent opens a chunked POST that gets relayed to the browser's SSE stream.
 * **Webhook deliveries are at-least-once and can arrive out of order.** The jobs
   upsert refuses to move a job backwards through its lifecycle. Keep it that way.
+* **Every `*.updated` event is the resource's `GET` shape.** The UI drops a frame
+  straight into its cache, so a `host.updated` carrying a bare store row -- no
+  `healthy`, no `free` -- repaints the host wrong. Publish through the
+  controller's `publish*`/`Publish*` helpers, which render the view; never put a
+  store row on the bus. `stats` and `problems.updated` are computed after every
+  pass and sent only when they change, so a new kind of problem needs no
+  publish call of its own.
 * **Sentinel errors** from the store: `ErrNotFound`, `ErrConflict`,
   `ErrInvalidTransition`. Match with `errors.Is`.
 * **IDs are prefixed** (`pool_`, `run_`, `job_`, `usr_`…) via `store.NewID`, so a

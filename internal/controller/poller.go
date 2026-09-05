@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
@@ -165,7 +164,7 @@ func (c *Controller) ingestQueuedJobs(ctx context.Context, jobs []github.QueuedJ
 		if saved.State == store.JobQueued {
 			changed++
 		}
-		c.publish(events.KindJobUpdated, "job:"+saved.ID, saved)
+		c.publishJob(ctx, saved)
 	}
 	return changed, nil
 }

@@ -70,6 +70,10 @@ func (c *Controller) Reconcile(ctx context.Context) error {
 	c.setLastPlan(plan)
 	c.apply(ctx, snap, plan)
 	c.publishCapacitySignals(ctx, snap, plan)
+	// The pass may have changed what the queue and the fleet look like, and
+	// time alone changes the wait percentiles; this is the moment the Overview
+	// learns either way.
+	c.publishDerived(ctx)
 	c.passes.Add(1)
 	c.metrics.reconcileDuration.Observe(time.Since(started).Seconds())
 	return nil
@@ -229,13 +233,13 @@ func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, a sched
 	if err := c.st.CreateRunner(ctx, r); err != nil {
 		return fmt.Errorf("creating the runner row for %s: %w", name, err)
 	}
-	c.publishRunner(events.KindRunnerCreated, r)
+	c.publishRunner(ctx, events.KindRunnerCreated, r)
 
 	creds, ghID, err := c.mintCredentials(ctx, inst, pool, name)
 	if err != nil {
 		msg := fmt.Sprintf("GitHub would not register %s: %v", name, err)
 		if failed, ferr := c.st.TransitionRunner(ctx, r.ID, store.RunnerFailed, msg); ferr == nil {
-			c.publishRunner(events.KindRunnerUpdated, failed)
+			c.publishRunner(ctx, events.KindRunnerUpdated, failed)
 		} else {
 			c.log.Error("could not mark a runner failed after its registration failed",
 				"runner", r.ID, "error", ferr)
@@ -387,7 +391,7 @@ func (c *Controller) drainRunner(ctx context.Context, r *store.Runner, reason st
 	if err != nil {
 		return nil, err
 	}
-	c.publishRunner(events.KindRunnerUpdated, updated)
+	c.publishRunner(ctx, events.KindRunnerUpdated, updated)
 	c.enqueue(r.HostID, agent.Task{
 		Kind:        agent.TaskStopRunner,
 		RunnerID:    r.ID,
@@ -423,7 +427,7 @@ func (c *Controller) removeRunner(ctx context.Context, r *store.Runner, reason s
 	if err != nil {
 		return nil, err
 	}
-	c.publishRunner(events.KindRunnerUpdated, updated)
+	c.publishRunner(ctx, events.KindRunnerUpdated, updated)
 	c.log.Info("removed a runner", "runner", r.ID, "name", r.Name, "reason", reason)
 	return updated, nil
 }
@@ -433,7 +437,7 @@ func (c *Controller) failRunnerID(ctx context.Context, id, reason string) error 
 	if err != nil {
 		return err
 	}
-	c.publishRunner(events.KindRunnerUpdated, updated)
+	c.publishRunner(ctx, events.KindRunnerUpdated, updated)
 	c.log.Warn("a runner failed", "runner", updated.ID, "name", updated.Name, "reason", reason)
 	return nil
 }

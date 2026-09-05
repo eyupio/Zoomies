@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -257,7 +256,7 @@ func (c *Controller) ProbeInstallation(ctx context.Context, installationID strin
 	inst.LastError = msg
 	now := c.Now()
 	inst.LastCheckedAt = &now
-	c.publish(events.KindInstallation, "installation:"+inst.ID, inst)
+	c.publishInstallation(ctx, inst)
 
 	if err != nil {
 		return nil, err

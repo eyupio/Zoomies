@@ -592,7 +592,7 @@ func (c *Controller) applyRunnerState(ctx context.Context, r *store.Runner, stat
 		c.log.Warn("could not apply a runner state an agent reported", "runner", r.ID, "state", state, "error", err)
 		return
 	}
-	c.publishRunner(events.KindRunnerUpdated, updated)
+	c.publishRunner(ctx, events.KindRunnerUpdated, updated)
 	if state.Terminal() {
 		// A runner that has gone frees host capacity, so the next placement
 		// decision should happen now rather than on the next tick.

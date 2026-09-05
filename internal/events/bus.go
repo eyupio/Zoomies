@@ -33,10 +33,13 @@ const (
 	KindHostDeleted   Kind = "host.deleted"
 	KindScaling       Kind = "scaling"
 	KindInstallation  Kind = "installation.updated"
-	KindProblems      Kind = "problems.updated"
-	KindStats         Kind = "stats"
-	KindAudit         Kind = "audit"
-	KindWebhook       Kind = "webhook.delivery"
+	// KindInstallationDeleted is sent when an installation is removed; the
+	// pools that depended on it go with it, each with its own pool.deleted.
+	KindInstallationDeleted Kind = "installation.deleted"
+	KindProblems            Kind = "problems.updated"
+	KindStats               Kind = "stats"
+	KindAudit               Kind = "audit"
+	KindWebhook             Kind = "webhook.delivery"
 	// KindHeartbeat is an empty keep-alive so that proxies do not close an
 	// idle SSE connection.
 	KindHeartbeat Kind = "heartbeat"

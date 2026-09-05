@@ -11,158 +11,14 @@ import (
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/controller"
+	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
-// poolCounts is a pool's live runner tally, in the shape the OpenAPI document's
-// Pool.counts has.
-type poolCounts struct {
-	Provisioning int `json:"provisioning"`
-	Registering  int `json:"registering"`
-	Idle         int `json:"idle"`
-	Busy         int `json:"busy"`
-	Draining     int `json:"draining"`
-	Failed       int `json:"failed"`
-	Live         int `json:"live"`
-}
-
-// poolResponse is a pool plus what an operator needs to see next to it: which
-// installation it belongs to, how many runners it has in each state, how much
-// of itself it is using, and every dangerous setting it has in effect.
-type poolResponse struct {
-	ID                 string               `json:"id"`
-	Name               string               `json:"name"`
-	InstallationID     string               `json:"installation_id"`
-	InstallationTarget string               `json:"installation_target,omitempty"`
-	Labels             []string             `json:"labels"`
-	RunnerGroup        string               `json:"runner_group,omitempty"`
-	Backend            store.BackendKind    `json:"backend"`
-	Image              string               `json:"image"`
-	RunnerVersion      string               `json:"runner_version,omitempty"`
-	MinRunners         int                  `json:"min_runners"`
-	MaxRunners         int                  `json:"max_runners"`
-	IdleTimeout        store.Duration       `json:"idle_timeout"`
-	Ephemeral          bool                 `json:"ephemeral"`
-	DockerMode         store.DockerMode     `json:"docker_mode"`
-	Resources          store.Resources      `json:"resources"`
-	Cache              store.CacheConfig    `json:"cache"`
-	HostSelector       map[string]string    `json:"host_selector"`
-	Env                map[string]string    `json:"env"`
-	RunAsRoot          bool                 `json:"run_as_root"`
-	Enabled            bool                 `json:"enabled"`
-	CreatedAt          time.Time            `json:"created_at"`
-	UpdatedAt          time.Time            `json:"updated_at"`
-	Counts             poolCounts           `json:"counts"`
-	QueuedJobs         int                  `json:"queued_jobs"`
-	Utilisation        float64              `json:"utilisation"`
-	Warnings           []controller.Problem `json:"warnings,omitempty"`
-}
-
-// poolView is everything needed to render pools without one query per pool.
-type poolView struct {
-	counts  map[string]store.PoolCounts
-	targets map[string]string
-	queued  map[string]int
-	// blocked holds, per pool, the scheduler's reason for not placing the
-	// runners that pool wanted. It is the answer to the question the pool page
-	// is opened to ask.
-	blocked map[string][]controller.Problem
-}
-
-// buildPoolView gathers the per-pool counts, installation targets and queue
-// depths in three queries rather than three per pool.
-func (s *Server) buildPoolView(ctx context.Context) (*poolView, error) {
-	counts, err := s.ctrl.Store().CountRunnersByPool(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("counting runners by pool: %w", err)
-	}
-	insts, err := s.ctrl.Store().ListInstallations(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("listing installations: %w", err)
-	}
-	targets := make(map[string]string, len(insts))
-	for _, i := range insts {
-		targets[i.ID] = i.Target
-	}
-	jobs, err := s.ctrl.Store().ListQueuedJobs(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("listing queued jobs: %w", err)
-	}
-	queued := map[string]int{}
-	for _, j := range jobs {
-		if j.PoolID != "" {
-			queued[j.PoolID]++
-		}
-	}
-	blocked := map[string][]controller.Problem{}
-	for _, p := range s.ctrl.PoolCapacityProblems() {
-		blocked[p.TargetID] = append(blocked[p.TargetID], p)
-	}
-	return &poolView{counts: counts, targets: targets, queued: queued, blocked: blocked}, nil
-}
-
-func (v *poolView) response(p *store.Pool) poolResponse {
-	c := v.counts[p.ID]
-	out := poolResponse{
-		ID:                 p.ID,
-		Name:               p.Name,
-		InstallationID:     p.InstallationID,
-		InstallationTarget: v.targets[p.InstallationID],
-		Labels:             emptySlice(p.Labels),
-		RunnerGroup:        p.RunnerGroup,
-		Backend:            p.Backend,
-		Image:              p.Image,
-		RunnerVersion:      p.RunnerVersion,
-		MinRunners:         p.MinRunners,
-		MaxRunners:         p.MaxRunners,
-		IdleTimeout:        p.IdleTimeout,
-		Ephemeral:          p.Ephemeral,
-		DockerMode:         p.DockerMode,
-		Resources:          p.Resources,
-		Cache:              p.Cache,
-		HostSelector:       emptyMap(p.HostSelector),
-		Env:                emptyMap(p.Env),
-		RunAsRoot:          p.RunAsRoot,
-		Enabled:            p.Enabled,
-		CreatedAt:          p.CreatedAt,
-		UpdatedAt:          p.UpdatedAt,
-		Counts: poolCounts{
-			Provisioning: c.Provisioning, Registering: c.Registering,
-			Idle: c.Idle, Busy: c.Busy, Draining: c.Draining, Failed: c.Failed,
-			Live: c.Live(),
-		},
-		QueuedJobs:  v.queued[p.ID],
-		Utilisation: c.Utilisation(),
-		Warnings:    append(poolWarnings(p), v.blocked[p.ID]...),
-	}
-	return out
-}
-
-// poolWarnings renders a pool's dangerous settings as problems.
-//
-// They are the same sentences the UI's problems drawer shows, because an
-// operator should not have to learn that "host-socket" on the pool page and
-// "any job on this pool can become root on the host" on the Overview are the
-// same fact.
-func poolWarnings(p *store.Pool) []controller.Problem {
-	dangers := p.Dangerous()
-	if len(dangers) == 0 {
-		return nil
-	}
-	out := make([]controller.Problem, 0, len(dangers))
-	for _, d := range dangers {
-		out = append(out, controller.Problem{
-			Code:       "pool.dangerous",
-			Severity:   config.SeverityWarning,
-			Title:      fmt.Sprintf("pool %s: %s", p.Name, d),
-			Detail:     "this pool was configured to weaken the isolation between a workflow job and the host it runs on.",
-			Fix:        fmt.Sprintf("edit the %s pool if this was not deliberate.", p.Name),
-			TargetKind: "pool",
-			TargetID:   p.ID,
-		})
-	}
-	return out
-}
+// poolResponse is the shape GET /pools returns, rendered by the controller so
+// the event stream's pool.* frames are the same JSON. See controller/views.go
+// for why the renderer lives there.
+type poolResponse = controller.PoolView
 
 // handleListPools answers GET /api/v1/pools.
 func (s *Server) handleListPools(w http.ResponseWriter, r *http.Request) {
@@ -171,14 +27,14 @@ func (s *Server) handleListPools(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, "listing pools", err)
 		return
 	}
-	view, err := s.buildPoolView(r.Context())
+	view, err := s.ctrl.PoolRenderer(r.Context())
 	if err != nil {
 		s.internal(w, r, "listing pools", err)
 		return
 	}
 	out := make([]poolResponse, 0, len(pools))
 	for _, p := range pools {
-		out = append(out, view.response(p))
+		out = append(out, view.View(p))
 	}
 	writeJSON(w, http.StatusOK, newList(out))
 }
@@ -190,12 +46,12 @@ func (s *Server) handleGetPool(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, "reading the pool", err)
 		return
 	}
-	view, err := s.buildPoolView(r.Context())
+	view, err := s.ctrl.PoolRenderer(r.Context())
 	if err != nil {
 		s.internal(w, r, "reading the pool", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, view.response(p))
+	writeJSON(w, http.StatusOK, view.View(p))
 }
 
 // ---------------------------------------------------------------------------
@@ -544,16 +400,17 @@ func (s *Server) handleCreatePool(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.auth.Auditor().Created(r.Context(), Identity(r.Context()), "pool", p.ID, p)
+	s.ctrl.PublishPool(r.Context(), events.KindPoolCreated, p)
 	// A new pool with a minimum above zero has runners to create; a new pool
 	// with none may still claim jobs that are queued right now.
 	s.ctrl.Nudge()
 
-	view, err := s.buildPoolView(r.Context())
+	view, err := s.ctrl.PoolRenderer(r.Context())
 	if err != nil {
 		s.internal(w, r, "reading the pool back", err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, view.response(p))
+	writeJSON(w, http.StatusCreated, view.View(p))
 }
 
 // validatePoolResponse is the wizard's review step: the errors that would stop
@@ -581,7 +438,7 @@ func (s *Server) handleValidatePool(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, "counting the hosts that could run this pool", err)
 		return
 	}
-	warnings := poolWarnings(p)
+	warnings := controller.PoolWarnings(p)
 	if fit.count == 0 {
 		why := fmt.Sprintf("no healthy, uncordoned host offers the %s backend and matches this pool's host selector, "+
 			"so every runner it asks for would wait for a host that does not exist.", p.Backend)
@@ -659,16 +516,17 @@ func (s *Server) handleUpdatePool(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.auth.Auditor().Updated(r.Context(), Identity(r.Context()), "pool", id, &before, &updated)
+	s.ctrl.PublishPool(r.Context(), events.KindPoolUpdated, &updated)
 	// The pool's shape decides how many runners should exist, so the scheduler
 	// should look again rather than wait out its interval.
 	s.ctrl.Nudge()
 
-	view, verr := s.buildPoolView(r.Context())
+	view, verr := s.ctrl.PoolRenderer(r.Context())
 	if verr != nil {
 		s.internal(w, r, "reading the pool back", verr)
 		return
 	}
-	writeJSON(w, http.StatusOK, view.response(&updated))
+	writeJSON(w, http.StatusOK, view.View(&updated))
 }
 
 // deletePoolResponse says how much of the fleet the deletion took with it.
@@ -720,6 +578,7 @@ func (s *Server) handleDeletePool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.auth.Auditor().Deleted(r.Context(), Identity(r.Context()), "pool", id, p)
+	s.ctrl.PublishPoolDeleted(id)
 	s.ctrl.Nudge()
 	writeJSON(w, http.StatusOK, deletePoolResponse{RunnersAffected: affected})
 }
@@ -756,15 +615,16 @@ func (s *Server) setPoolEnabled(w http.ResponseWriter, r *http.Request, enabled 
 		s.auth.Auditor().Act(r.Context(), Identity(r.Context()), action, "pool", id, map[string]any{
 			"name": p.Name, "enabled": enabled, "was": before.Enabled,
 		})
+		s.ctrl.PublishPool(r.Context(), events.KindPoolUpdated, p)
 		s.ctrl.Nudge()
 	}
 
-	view, verr := s.buildPoolView(r.Context())
+	view, verr := s.ctrl.PoolRenderer(r.Context())
 	if verr != nil {
 		s.internal(w, r, "reading the pool back", verr)
 		return
 	}
-	writeJSON(w, http.StatusOK, view.response(p))
+	writeJSON(w, http.StatusOK, view.View(p))
 }
 
 // emptySlice and emptyMap keep a JSON response from carrying null where the UI

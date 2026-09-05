@@ -6,93 +6,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/controller"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
-// backendInfoResponse describes one backend a host offers.
-type backendInfoResponse struct {
-	Kind      store.BackendKind `json:"kind"`
-	Available bool              `json:"available"`
-	Version   string            `json:"version,omitempty"`
-	Rootless  bool              `json:"rootless"`
-	Endpoint  string            `json:"endpoint,omitempty"`
-	Detail    string            `json:"detail,omitempty"`
-	DinD      bool              `json:"supports_dind"`
-}
+// hostResponse is the shape GET /hosts returns, rendered by the controller
+// so the event stream's host.updated frames are the same JSON. See
+// controller/views.go for why the renderer lives there.
+type hostResponse = controller.HostView
 
-// hostResponse is one agent host and the room it has left.
-type hostResponse struct {
-	ID            string                `json:"id"`
-	Name          string                `json:"name"`
-	Address       string                `json:"address,omitempty"`
-	Embedded      bool                  `json:"embedded"`
-	Capacity      int                   `json:"capacity"`
-	ActiveRunners int                   `json:"active_runners"`
-	Free          int                   `json:"free"`
-	Backends      []string              `json:"backends"`
-	BackendInfo   []backendInfoResponse `json:"backend_info"`
-	Labels        map[string]string     `json:"labels"`
-	OS            string                `json:"os,omitempty"`
-	Arch          string                `json:"arch,omitempty"`
-	Version       string                `json:"version,omitempty"`
-	Cordoned      bool                  `json:"cordoned"`
-	Healthy       bool                  `json:"healthy"`
-	LastHeartbeat time.Time             `json:"last_heartbeat"`
-	CreatedAt     time.Time             `json:"created_at"`
-}
-
-// hostResponse renders a host as the API returns it.
-//
-// backend_info is the agent's own probe, which includes the backends it could
-// not use and the sentence explaining why: that sentence is the whole answer to
-// "this host is connected, so why is nothing running on it?". A host that
-// joined an older controller has no probe stored, so its available kinds are
-// rendered as the bare list they are, and nothing is invented about the
-// backends it never reported on.
-func (s *Server) hostResponse(h *store.Host) hostResponse {
-	now := s.ctrl.Now()
-	out := hostResponse{
-		ID:            h.ID,
-		Name:          h.Name,
-		Address:       h.Address,
-		Embedded:      h.Embedded,
-		Capacity:      h.Capacity,
-		ActiveRunners: h.ActiveRunners,
-		Free:          h.Free(),
-		Backends:      emptySlice(h.Backends),
-		Labels:        emptyMap(h.Labels),
-		OS:            h.OS,
-		Arch:          h.Arch,
-		Version:       h.Version,
-		Cordoned:      h.Cordoned,
-		Healthy:       h.Healthy(now),
-		LastHeartbeat: h.LastHeartbeat,
-		CreatedAt:     h.CreatedAt,
-	}
-	if len(h.BackendInfo) > 0 {
-		out.BackendInfo = make([]backendInfoResponse, 0, len(h.BackendInfo))
-		for _, b := range h.BackendInfo {
-			out.BackendInfo = append(out.BackendInfo, backendInfoResponse{
-				Kind:      b.Kind,
-				Available: b.Available,
-				Version:   b.Version,
-				Rootless:  b.Rootless,
-				Endpoint:  b.Endpoint,
-				Detail:    b.Detail,
-				DinD:      b.SupportsDinD,
-			})
-		}
-		return out
-	}
-	out.BackendInfo = make([]backendInfoResponse, 0, len(h.Backends))
-	for _, kind := range h.Backends {
-		out.BackendInfo = append(out.BackendInfo, backendInfoResponse{
-			Kind:      store.BackendKind(kind),
-			Available: true,
-		})
-	}
-	return out
-}
+// backendInfoResponse is one entry of hostResponse.backend_info.
+type backendInfoResponse = controller.BackendInfoView
 
 // handleListHosts answers GET /api/v1/hosts.
 func (s *Server) handleListHosts(w http.ResponseWriter, r *http.Request) {
@@ -103,7 +27,7 @@ func (s *Server) handleListHosts(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]hostResponse, 0, len(hosts))
 	for _, h := range hosts {
-		out = append(out, s.hostResponse(h))
+		out = append(out, s.ctrl.HostView(h))
 	}
 	writeJSON(w, http.StatusOK, newList(out))
 }
@@ -115,7 +39,7 @@ func (s *Server) handleGetHost(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, "reading the host", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.hostResponse(h))
+	writeJSON(w, http.StatusOK, s.ctrl.HostView(h))
 }
 
 type hostUpdateRequest struct {
@@ -175,9 +99,10 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.auth.Auditor().Updated(r.Context(), Identity(r.Context()), "host", id, &before, h)
+	s.ctrl.PublishHost(h)
 	// Capacity and labels both decide where runners may be placed.
 	s.ctrl.Nudge()
-	writeJSON(w, http.StatusOK, s.hostResponse(h))
+	writeJSON(w, http.StatusOK, s.ctrl.HostView(h))
 }
 
 type cordonRequest struct {
@@ -214,9 +139,10 @@ func (s *Server) handleCordonHost(w http.ResponseWriter, r *http.Request) {
 		s.auth.Auditor().Act(r.Context(), Identity(r.Context()), action, "host", id, map[string]any{
 			"name": h.Name, "cordoned": req.Cordoned, "active_runners": h.ActiveRunners,
 		})
+		s.ctrl.PublishHost(h)
 		s.ctrl.Nudge()
 	}
-	writeJSON(w, http.StatusOK, s.hostResponse(h))
+	writeJSON(w, http.StatusOK, s.ctrl.HostView(h))
 }
 
 // handleDeleteHost removes a host.
@@ -254,6 +180,7 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.auth.Auditor().Deleted(r.Context(), Identity(r.Context()), "host", id, h)
+	s.ctrl.PublishHostDeleted(id)
 	s.ctrl.Nudge()
 	noContent(w)
 }
