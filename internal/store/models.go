@@ -632,6 +632,16 @@ type AuditEvent struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
+// CapacityDemandDelivery is the durable deduplication and delivery record for
+// one kind of capacity signal for a pool.
+type CapacityDemandDelivery struct {
+	PoolID, EventType, EventID, Payload string
+	ObservedSince                       time.Time
+	AttemptedAt, DeliveredAt            *time.Time
+	StatusCode, Attempts                int
+	LastError                           string
+}
+
 // ScalingEvent records one scheduler decision, with the reason in the words the
 // UI shows: "scaled linux-x64 2 -> 4: 3 jobs queued > 30s".
 type ScalingEvent struct {

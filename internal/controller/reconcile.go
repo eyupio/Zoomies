@@ -69,6 +69,7 @@ func (c *Controller) Reconcile(ctx context.Context) error {
 	plan := scheduler.Decide(snap)
 	c.setLastPlan(plan)
 	c.apply(ctx, snap, plan)
+	c.publishCapacitySignals(ctx, snap, plan)
 	c.passes.Add(1)
 	c.metrics.reconcileDuration.Observe(time.Since(started).Seconds())
 	return nil
