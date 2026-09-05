@@ -45,7 +45,7 @@ info:
     * Errors are `{ "error": { code, message, field?, detail? } }` with a
       message written for a human to read.
   license:
-    name: MIT
+    name: AGPL-3.0-only
     url: https://github.com/eyupio/zoomies/blob/main/LICENSE
   contact:
     name: Zoomies

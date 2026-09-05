@@ -384,4 +384,11 @@ one-line justification, and that is enforced by review. UI changes should keep
 
 ## Licence
 
-MIT. See [LICENSE](LICENSE).
+GNU Affero General Public License, version 3 (`AGPL-3.0-only`). See
+[LICENSE](LICENSE). Copyright (C) 2026 Zoomies contributors.
+
+The AGPL is the GPL with one addition, and the addition is the point: anyone
+who modifies Zoomies and lets other people use the modified version over a
+network -- a hosted runner service built on it, say -- has to offer those
+people the source of what they are running. Running it for your own
+organisation, changed or not, asks nothing of you.
