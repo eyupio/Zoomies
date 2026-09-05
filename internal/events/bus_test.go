@@ -77,14 +77,14 @@ func TestReplayDeliversMissedEvents(t *testing.T) {
 	}
 }
 
-func TestSlowSubscriberIsDroppedNotBlocking(t *testing.T) {
+func TestSlowSubscriberIsCutOffNotBlocking(t *testing.T) {
 	b := New()
 	b.buffer = 2
 	sub := b.Subscribe(context.Background(), SubscribeOptions{})
 	defer sub.Close()
 
 	// A wedged browser tab must not be able to stop the fleet from scaling, so
-	// publishing past a full queue drops rather than blocks.
+	// publishing past a full queue never blocks.
 	done := make(chan struct{})
 	go func() {
 		for i := 0; i < 500; i++ {
@@ -96,6 +96,21 @@ func TestSlowSubscriberIsDroppedNotBlocking(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("Publish blocked on a subscriber that was not reading")
+	}
+
+	// And the subscriber that fell behind is told so, by its feed ending. A
+	// stream quietly thinned by dropped events would leave its dashboard wrong
+	// until somebody reloaded it; an ended stream makes the browser reconnect
+	// and replay. It keeps what it had already been handed.
+	received := 0
+	for range sub.C {
+		received++
+	}
+	if received != b.buffer {
+		t.Fatalf("received %d buffered events before the feed ended, want %d", received, b.buffer)
+	}
+	if n := b.Subscribers(); n != 0 {
+		t.Fatalf("%d subscribers remain after the slow one was cut off, want 0", n)
 	}
 }
 

@@ -61,8 +61,12 @@ type Event struct {
 
 // Bus fans events out to subscribers.
 //
-// A slow subscriber is dropped rather than allowed to block the publisher: an
+// A slow subscriber is cut off rather than allowed to block the publisher: an
 // operator whose browser tab is wedged must not stop the fleet from scaling.
+// Cut off, not thinned: its feed ends, the SSE handler closes the response,
+// and the browser reconnects with its last event ID and catches up from the
+// ring. Dropping single events would leave that tab quietly showing a fleet
+// that no longer exists, with no polling to ever put it right.
 type Bus struct {
 	mu     sync.RWMutex
 	subs   map[int]*subscriber
@@ -81,8 +85,6 @@ type subscriber struct {
 	id     int
 	ch     chan Event
 	filter func(Event) bool
-	// dropped counts events discarded because this subscriber fell behind.
-	dropped atomic.Uint64
 }
 
 // New returns a bus with sensible queue depths.
@@ -142,12 +144,15 @@ func (b *Bus) publish(e Event) {
 		select {
 		case s.ch <- e:
 		default:
-			// The subscriber is not keeping up. Drop rather than block; the
-			// client will resynchronise on its next full fetch.
-			if n := s.dropped.Add(1); n == 1 || n%100 == 0 {
-				slog.Warn("events: subscriber is behind, dropping events",
-					"subscriber", s.id, "dropped", n)
-			}
+			// The subscriber is not keeping up. Ending its feed here, under
+			// the same lock Close takes and after removing it from the map,
+			// is what stops Close from closing the channel a second time.
+			// What it has already been handed stays in the channel for it to
+			// drain; only then does it see the end and reconnect.
+			slog.Warn("events: subscriber is behind; ending its feed so the client resynchronises",
+				"subscriber", s.id, "buffer", b.buffer)
+			delete(b.subs, s.id)
+			close(s.ch)
 		}
 	}
 }
