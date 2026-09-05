@@ -50,7 +50,7 @@ func poolsList(ctx context.Context, e *env, args []string) error {
 		return p.emit(raw)
 	}
 	if len(out.Items) == 0 {
-		p.note("No pools yet. Create one with: zoomies pools create --name linux-x64 --labels self-hosted,linux-x64 --installation <id>")
+		p.note("No pools yet. Create one with: zoomies pools create --name zoomies-linux-x64 --labels self-hosted,linux-x64 --installation <id>")
 		return nil
 	}
 
@@ -167,7 +167,7 @@ func registerPoolFlags(fs *flagSet) *poolSpec {
 		hostSelector: kvValue{},
 		envVars:      kvValue{},
 	}
-	spec.name = fs.String("name", "", "the pool's name, e.g. linux-x64")
+	spec.name = fs.String("name", "", "the pool's name; it is stored with the zoomies- prefix, e.g. zoomies-linux-x64")
 	spec.installation = fs.String("installation", "", "the GitHub App installation this pool registers runners with")
 	fs.Var(spec.labels, "labels", "the labels a workflow's runs-on must ask for (repeatable, or comma-separated)")
 	spec.backend = fs.String("backend", "docker", "docker, podman or process")
@@ -255,8 +255,8 @@ func poolsCreate(ctx context.Context, e *env, args []string) error {
 	spec := registerPoolFlags(fs)
 	dryRun := fs.Bool("dry-run", false, "validate the pool and print the verdict without creating anything")
 	fs.example(
-		"zoomies pools create --name linux-x64 --labels self-hosted,linux-x64 --installation inst_k3f9qz2m --max 8",
-		"zoomies pools create --name arm --labels linux-arm64 --installation inst_k3f9qz2m --host-selector arch=arm64 --dry-run",
+		"zoomies pools create --name zoomies-linux-x64 --labels self-hosted,linux-x64 --installation inst_k3f9qz2m --max 8",
+		"zoomies pools create --name zoomies-arm --labels linux-arm64 --installation inst_k3f9qz2m --host-selector arch=arm64 --dry-run",
 	)
 	if err := fs.parse(args); err != nil {
 		return err

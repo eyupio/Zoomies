@@ -1491,7 +1491,10 @@ export interface components {
             source?: string;
         };
         PoolCreate: {
-            /** @example linux-x64 */
+            /**
+             * @description The pool's name. Every pool name carries the brand, so a name sent without the `zoomies-` prefix is stored with one: `gpu` becomes `zoomies-gpu`.
+             * @example zoomies-linux-x64
+             */
             name: string;
             installation_id: string;
             labels: string[];
@@ -1523,7 +1526,10 @@ export interface components {
             enabled: boolean;
         };
         PoolUpdate: {
-            /** @example linux-x64 */
+            /**
+             * @description The pool's name. Every pool name carries the brand, so a name sent without the `zoomies-` prefix is stored with one: `gpu` becomes `zoomies-gpu`.
+             * @example zoomies-linux-x64
+             */
             name?: string;
             installation_id?: string;
             labels?: string[];

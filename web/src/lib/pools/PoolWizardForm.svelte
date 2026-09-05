@@ -152,7 +152,7 @@
     if (pids !== undefined) resources.pids_limit = pids;
 
     const body: PoolCreate = {
-      name: draft.name.trim(),
+      name: brandedName(draft.name),
       installation_id: draft.installation_id,
       labels: draft.labels.map((label) => label.trim()).filter(Boolean),
       backend: draft.backend,
@@ -269,7 +269,7 @@
     validatePool,
   } from '$lib/api/client';
   import type { Body, Result } from '$lib/api/types';
-  import { BRAND_LABEL, brandedLabel } from '$lib/brand';
+  import { BRAND_LABEL, brandedLabel, brandedName } from '$lib/brand';
   import { poolName, spinWord } from './names';
   import { fleet } from '$lib/state/fleet.svelte';
   import { toasts } from '$lib/state/toasts.svelte';

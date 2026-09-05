@@ -104,7 +104,8 @@ type AnswersPool struct {
 	// nothing runs until one is created.
 	Skip bool `yaml:"skip"`
 	// Name overrides the suggested pool name, which is derived from this
-	// host's OS, architecture and backend.
+	// host's OS, architecture and backend. It is branded on the way in, so a
+	// name written here without the "zoomies-" prefix is given one.
 	Name string `yaml:"name"`
 	// Labels are what a workflow's runs-on has to ask for. Empty means the
 	// pool answers to its own name.
@@ -429,9 +430,10 @@ admin:
 pool:
   # Set skip to true to finish setup with no pool and create one yourself.
   skip: false
-  # Defaults to this host's OS and architecture, e.g. linux-x64 (and
-  # linux-x64-host for the process backend, which gives jobs no container).
-  # name: linux-x64
+  # Defaults to this host's OS and architecture, e.g. zoomies-linux-x64 (and
+  # zoomies-linux-x64-host for the process backend, which gives jobs no
+  # container). A name given without the zoomies- prefix is stored with one.
+  # name: zoomies-linux-x64
   # What a workflow's runs-on has to ask for. Defaults to the pool's name.
   # labels: [linux-x64]
   # Defaults to capacity above. Always set a maximum somewhere: it is the only

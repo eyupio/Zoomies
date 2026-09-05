@@ -2036,7 +2036,15 @@ components:
       type: object
       required: [name, installation_id, labels, backend]
       properties:
-        name: { type: string, minLength: 1, maxLength: 64, examples: [linux-x64] }
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: >-
+            The pool's name. Every pool name carries the brand, so a name sent
+            without the `zoomies-` prefix is stored with one: `gpu` becomes
+            `zoomies-gpu`.
+          examples: [zoomies-linux-x64]
         installation_id: { type: string }
         labels: { type: array, items: { type: string }, minItems: 1 }
         runner_group: { type: string }
@@ -2063,7 +2071,15 @@ components:
     PoolUpdate:
       type: object
       properties:
-        name: { type: string, minLength: 1, maxLength: 64, examples: [linux-x64] }
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: >-
+            The pool's name. Every pool name carries the brand, so a name sent
+            without the `zoomies-` prefix is stored with one: `gpu` becomes
+            `zoomies-gpu`.
+          examples: [zoomies-linux-x64]
         installation_id: { type: string }
         labels: { type: array, items: { type: string }, minItems: 1 }
         runner_group: { type: string }
