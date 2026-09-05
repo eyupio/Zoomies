@@ -259,7 +259,8 @@ const (
 	LabelRunnerID = LabelPrefix + "runner-id"
 	LabelPoolID   = LabelPrefix + "pool-id"
 	LabelPoolName = LabelPrefix + "pool-name"
-	// Cache diagnostics identify the shared volume and configured approximate cap.
+	// Cache diagnostics identify the shared volume and the size limit enforced
+	// against it between one runner and the next.
 	LabelCacheVolume    = LabelPrefix + "cache-volume"
 	LabelCacheSizeLimit = LabelPrefix + "cache-size-limit"
 	LabelName           = LabelPrefix + "name"

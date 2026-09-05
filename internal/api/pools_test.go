@@ -158,6 +158,20 @@ func TestPoolValidationNamesTheField(t *testing.T) {
 		{"bad duration", func(b map[string]any) { b["idle_timeout"] = "5 munutes" }, "idle_timeout", "5m"},
 		{"unknown installation", func(b map[string]any) { b["installation_id"] = "ins_nope" }, "installation_id", "no installation"},
 		{"docker on the process backend", func(b map[string]any) { b["backend"] = "process"; b["docker_mode"] = "dind" }, "docker_mode", "process backend"},
+		{"repository cache without a repository", func(b map[string]any) {
+			b["cache"] = map[string]any{"enabled": true, "scope": "repository"}
+		}, "cache.repository", "acme/name"},
+		{"repository cache under another owner", func(b map[string]any) {
+			b["cache"] = map[string]any{"enabled": true, "scope": "repository", "repository": "other/widgets"}
+		}, "cache.repository", "under that owner"},
+		{"repository cache that is not a repository", func(b map[string]any) {
+			b["cache"] = map[string]any{"enabled": true, "scope": "repository", "repository": "acme"}
+		}, "cache.repository", "owner/name"},
+		// A limit the fleet cannot keep is refused rather than accepted and
+		// forgotten: there is no directory to measure inside a named volume.
+		{"size limit on a named volume", func(b map[string]any) {
+			b["cache"] = map[string]any{"enabled": true, "scope": "pool", "size_limit": 1 << 30, "source": "zoomies-cache"}
+		}, "cache.size_limit", "absolute host path"},
 	}
 
 	for _, tc := range cases {
@@ -198,6 +212,35 @@ func TestPoolValidationNamesTheField(t *testing.T) {
 				t.Errorf("validate reported %d errors, create reported %d", len(verdict.Errors), len(env.Errors))
 			}
 		})
+	}
+}
+
+// An organisation-wide installation is the ordinary deployment -- one app, one
+// fleet -- and it must not cost every repository its own cache. Naming the
+// repository is what the installation cannot do for itself.
+func TestARepositoryCacheIsAllowedUnderAnOrganisationInstallation(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	h.host("vm-1")
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	body := poolBody(inst.ID)
+	body["cache"] = map[string]any{
+		"enabled": true, "scope": "repository", "repository": "acme/widgets",
+		"source": "/var/lib/zoomies/cache", "size_limit": 1 << 30,
+	}
+	created := h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: cookie, body: body})
+	created.mustStatus(t, http.StatusCreated, "create")
+	var pool poolResponse
+	created.into(t, &pool)
+
+	stored, err := h.st.GetPool(h.ctx, pool.ID)
+	if err != nil {
+		t.Fatalf("GetPool: %v", err)
+	}
+	if stored.Cache.Repository != "acme/widgets" || stored.Cache.Scope != store.CacheScopeRepository {
+		t.Fatalf("cache = %+v, want a repository cache for acme/widgets", stored.Cache)
 	}
 }
 

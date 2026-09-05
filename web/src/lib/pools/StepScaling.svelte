@@ -189,7 +189,7 @@
             ></select
           >{/snippet}
       </Field>
-      <Field label="Approximate limit (bytes)" error={errors['cache.size_limit']}>
+      <Field label="Size limit (bytes)" error={errors['cache.size_limit']}>
         {#snippet children({ id, describedBy, invalid })}<Input
             bind:value={draft.cache_size_limit}
             {id}
@@ -210,6 +210,27 @@
           />{/snippet}
       </Field>
     </div>
+    <p class="hint">
+      A size limit is kept by evicting whole cache entries, least recently used first, between one
+      runner and the next. It needs an absolute host path above: there is nothing to measure inside
+      a named volume.
+    </p>
+    {#if draft.cache_scope === 'repository'}
+      <Field label="Cache repository (owner/name)" error={errors['cache.repository']}>
+        {#snippet children({ id, describedBy, invalid })}<Input
+            bind:value={draft.cache_repository}
+            {id}
+            {describedBy}
+            {invalid}
+            placeholder="acme/widgets"
+          />{/snippet}
+      </Field>
+      <p class="hint">
+        Leave this empty when the pool's installation is scoped to a single repository -- it already
+        says which one. An organisation-wide installation does not, so name the repository this
+        pool's cache is for.
+      </p>
+    {/if}
   {/if}
 </fieldset>
 
