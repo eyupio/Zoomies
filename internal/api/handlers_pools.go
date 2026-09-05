@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -71,6 +72,7 @@ type poolInput struct {
 	RunnerGroup                *string            `json:"runner_group"`
 	Backend                    *string            `json:"backend"`
 	Image                      *string            `json:"image"`
+	PullPolicy                 *string            `json:"pull_policy"`
 	RunnerVersion              *string            `json:"runner_version"`
 	MinRunners                 *int               `json:"min_runners"`
 	MaxRunners                 *int               `json:"max_runners"`
@@ -95,6 +97,7 @@ func (s *Server) defaultPool() *store.Pool {
 	return &store.Pool{
 		Backend:     store.BackendDocker,
 		Image:       s.cfg.GitHub.RunnerImage,
+		PullPolicy:  store.PullIfNotPresent,
 		MinRunners:  0,
 		MaxRunners:  4,
 		IdleTimeout: store.Duration(5 * time.Minute),
@@ -138,6 +141,9 @@ func (in *poolInput) apply(p *store.Pool) []fieldError {
 	}
 	if in.Image != nil {
 		p.Image = strings.TrimSpace(*in.Image)
+	}
+	if in.PullPolicy != nil {
+		p.PullPolicy = store.PullPolicy(strings.ToLower(strings.TrimSpace(*in.PullPolicy)))
 	}
 	if in.RunnerVersion != nil {
 		p.RunnerVersion = strings.TrimSpace(*in.RunnerVersion)
@@ -255,6 +261,12 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 	if p.Image == "" && p.Backend != store.BackendProcess {
 		add("image", "a container backend needs a runner image; leave it blank only for the process backend")
 	}
+	if !p.PullPolicy.Valid() {
+		add("pull_policy", "use if-not-present, always, or pinned-only")
+	}
+	if p.PullPolicy == store.PullPinnedOnly && !digestReference(p.Image) {
+		add("image", "pinned-only requires an immutable digest reference such as image@sha256:…; mutable tags are rejected")
+	}
 
 	if p.MinRunners < 0 {
 		add("min_runners", "the minimum cannot be negative")
@@ -316,6 +328,19 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 		}
 	}
 	return errs
+}
+
+func digestReference(ref string) bool {
+	parts := strings.Split(ref, "@sha256:")
+	if len(parts) != 2 || parts[0] == "" || len(parts[1]) != 64 {
+		return false
+	}
+	for _, c := range parts[1] {
+		if !strings.ContainsRune("0123456789abcdefABCDEF", c) {
+			return false
+		}
+	}
+	return true
 }
 
 // hasDistinctiveLabel reports whether a pool advertises anything beyond the
@@ -425,6 +450,7 @@ func (s *Server) handleCreatePool(w http.ResponseWriter, r *http.Request) {
 	// A new pool with a minimum above zero has runners to create; a new pool
 	// with none may still claim jobs that are queued right now.
 	s.ctrl.Nudge()
+	_, _ = s.ctrl.PrewarmPool(r.Context(), p)
 
 	view, err := s.ctrl.PoolRenderer(r.Context())
 	if err != nil {
@@ -541,6 +567,9 @@ func (s *Server) handleUpdatePool(w http.ResponseWriter, r *http.Request) {
 	// The pool's shape decides how many runners should exist, so the scheduler
 	// should look again rather than wait out its interval.
 	s.ctrl.Nudge()
+	if before.Image != updated.Image || before.PullPolicy != updated.PullPolicy || before.Backend != updated.Backend || !maps.Equal(before.HostSelector, updated.HostSelector) {
+		_, _ = s.ctrl.PrewarmPool(r.Context(), &updated)
+	}
 
 	view, verr := s.ctrl.PoolRenderer(r.Context())
 	if verr != nil {
@@ -548,6 +577,25 @@ func (s *Server) handleUpdatePool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, view.View(&updated))
+}
+
+func (s *Server) handlePrewarmPool(w http.ResponseWriter, r *http.Request) {
+	p, err := s.ctrl.Store().GetPool(r.Context(), chiURLParam(r, "id"))
+	if err != nil {
+		s.fail(w, r, "reading the pool", err)
+		return
+	}
+	n, err := s.ctrl.PrewarmPool(r.Context(), p)
+	if err != nil {
+		unprocessable(w, err.Error(), nil)
+		return
+	}
+	states, err := s.ctrl.Store().ListPoolPrewarms(r.Context(), p.ID)
+	if err != nil {
+		s.internal(w, r, "reading prewarm state", err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"queued": n, "hosts": states})
 }
 
 // deletePoolResponse says how much of the fleet the deletion took with it.

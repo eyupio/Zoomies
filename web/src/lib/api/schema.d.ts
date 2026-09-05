@@ -512,6 +512,23 @@ export interface paths {
         patch: operations["updatePool"];
         trace?: never;
     };
+    "/pools/{id}/prewarm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Prewarm the pool image on every matching host */
+        post: operations["prewarmPool"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/pools/{id}/enable": {
         parameters: {
             query?: never;
@@ -1111,6 +1128,12 @@ export interface components {
         /** @enum {string} */
         BackendKind: "docker" | "podman" | "process";
         /**
+         * @description pinned-only requires an image@sha256 digest and rejects mutable tags.
+         * @default if-not-present
+         * @enum {string}
+         */
+        PullPolicy: "if-not-present" | "always" | "pinned-only";
+        /**
          * @description How much Docker a job on this pool gets.
          *     `none` is the default and the only one that is not a warning.
          *     `dind` gives a private, privileged sidecar daemon.
@@ -1482,6 +1505,18 @@ export interface components {
                 estimated_cost?: number;
             }[];
         };
+        PoolPrewarm: {
+            pool_id?: string;
+            host_id?: string;
+            host_name?: string;
+            image?: string;
+            /** @enum {string} */
+            state?: "pending" | "succeeded" | "failed";
+            digest?: string;
+            error?: string;
+            /** Format: date-time */
+            updated_at?: string;
+        };
         Pool: {
             id?: string;
             name?: string;
@@ -1491,6 +1526,7 @@ export interface components {
             runner_group?: string;
             backend?: components["schemas"]["BackendKind"];
             image?: string;
+            pull_policy?: components["schemas"]["PullPolicy"];
             runner_version?: string;
             min_runners?: number;
             max_runners?: number;
@@ -1564,6 +1600,7 @@ export interface components {
             runner_group?: string;
             backend: components["schemas"]["BackendKind"];
             image?: string;
+            pull_policy?: components["schemas"]["PullPolicy"];
             runner_version?: string;
             /** @default 0 */
             min_runners: number;
@@ -1603,6 +1640,7 @@ export interface components {
             runner_group?: string;
             backend?: components["schemas"]["BackendKind"];
             image?: string;
+            pull_policy?: components["schemas"]["PullPolicy"];
             runner_version?: string;
             min_runners?: number;
             max_runners?: number;
@@ -1637,6 +1675,8 @@ export interface components {
             ephemeral?: boolean;
             labels?: string[];
             image?: string;
+            /** @description Immutable digest resolved by the host backend. */
+            image_digest?: string;
             runner_version?: string;
             current_job_id?: string;
             current_job?: components["schemas"]["Job"];
@@ -2722,6 +2762,33 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    prewarmPool: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tasks queued; hosts contains per-host pending or prior state. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        queued?: number;
+                        hosts?: components["schemas"]["PoolPrewarm"][];
+                    };
+                };
+            };
             422: components["responses"]["Unprocessable"];
         };
     };
