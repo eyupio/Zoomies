@@ -119,8 +119,16 @@
     return parsed !== undefined && Number.isInteger(parsed) ? parsed : undefined;
   }
 
-  /** The request body this draft produces. Empty optional fields are left out. */
-  export function toPoolBody(draft: PoolDraft): PoolCreate {
+  /**
+   * The request body this draft produces.
+   *
+   * On create, empty optional fields are left out and the server fills in its
+   * defaults. On edit they are sent as empty: a PATCH treats an absent key as
+   * "leave it as it is", so leaving them out would make clearing the image, a
+   * resource limit or the last host-selector entry a change the server never
+   * hears about -- while the toast says it was saved.
+   */
+  export function toPoolBody(draft: PoolDraft, options: { complete?: boolean } = {}): PoolCreate {
     const resources: Resources = {};
     const cpus = toNumber(draft.cpus);
     const memory = toInteger(draft.memory_mb);
@@ -144,12 +152,15 @@
       run_as_root: draft.run_as_root,
       enabled: draft.enabled,
     };
-    if (draft.runner_group.trim()) body.runner_group = draft.runner_group.trim();
-    if (draft.image.trim()) body.image = draft.image.trim();
-    if (draft.runner_version.trim()) body.runner_version = draft.runner_version.trim();
-    if (Object.keys(resources).length > 0) body.resources = resources;
-    if (Object.keys(draft.host_selector).length > 0) body.host_selector = draft.host_selector;
-    if (Object.keys(draft.env).length > 0) body.env = draft.env;
+    const complete = options.complete === true;
+    if (complete || draft.runner_group.trim()) body.runner_group = draft.runner_group.trim();
+    if (complete || draft.image.trim()) body.image = draft.image.trim();
+    if (complete || draft.runner_version.trim()) body.runner_version = draft.runner_version.trim();
+    if (complete || Object.keys(resources).length > 0) body.resources = resources;
+    if (complete || Object.keys(draft.host_selector).length > 0) {
+      body.host_selector = draft.host_selector;
+    }
+    if (complete || Object.keys(draft.env).length > 0) body.env = draft.env;
     return body;
   }
 
@@ -448,7 +459,7 @@
     }
     submitting = true;
     try {
-      const payload = toPoolBody(draft);
+      const payload = toPoolBody(draft, { complete: editing });
       const saved =
         pool && pool.id
           ? await updatePool(pool.id, payload as Body<'updatePool'>)
