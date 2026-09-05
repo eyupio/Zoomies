@@ -388,6 +388,7 @@ the CLI or the API. These are their fields:
 | `image` | Runner image for the container backends. |
 | `min_runners` | Kept warm even with nothing queued. `0` is usually right. |
 | `max_runners` | Hard ceiling. **Always set this** — it is your backstop against a runaway workflow. |
+| `repository_scale_up_limit` | Best-effort limit on new capacity attributed to one repository; `0` disables it. This is a creation throttle, **not** a strict concurrency or isolation boundary: GitHub can assign any matching queued job to an existing compatible idle runner. Strict isolation requires repository-specific pools and corresponding repository-specific `runs-on` labels in workflows. |
 | `idle_timeout` | How long an idle runner waits before being drained. |
 | `ephemeral` | One job per runner. Leave it on. |
 | `docker_mode` | `none`, `dind`, or `host-socket`. Needs an image with a Docker client — see [below](#jobs-that-build-container-images) and [security.md](security.md). |

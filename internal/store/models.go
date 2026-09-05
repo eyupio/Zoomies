@@ -409,9 +409,11 @@ type Pool struct {
 	RunnerVersion  string      `json:"runner_version,omitempty"`
 	MinRunners     int         `json:"min_runners"`
 	MaxRunners     int         `json:"max_runners"`
-	// RepositoryConcurrencyLimit caps active runners attributable to any one
-	// repository. Zero leaves the pool unrestricted.
-	RepositoryConcurrencyLimit int `json:"repository_concurrency_limit,omitempty"`
+	// RepositoryScaleUpLimit is a best-effort throttle on runner creation
+	// attributable to any one repository. GitHub may assign queued work to any
+	// compatible idle runner, so this is not a strict execution concurrency cap.
+	// Zero leaves the pool unrestricted.
+	RepositoryScaleUpLimit int `json:"repository_scale_up_limit,omitempty"`
 	// CostPerRunnerHour is administrator supplied; Zoomies never embeds prices.
 	CostPerRunnerHour *float64    `json:"cost_per_runner_hour,omitempty"`
 	Priority          int         `json:"priority"`

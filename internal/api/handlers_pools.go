@@ -66,28 +66,28 @@ func (s *Server) handleGetPool(w http.ResponseWriter, r *http.Request) {
 // min_runners to 0, which on a pool with warm runners is a fleet-wide change
 // nobody asked for.
 type poolInput struct {
-	Name                       *string            `json:"name"`
-	InstallationID             *string            `json:"installation_id"`
-	Labels                     *[]string          `json:"labels"`
-	RunnerGroup                *string            `json:"runner_group"`
-	Backend                    *string            `json:"backend"`
-	Image                      *string            `json:"image"`
-	PullPolicy                 *string            `json:"pull_policy"`
-	RunnerVersion              *string            `json:"runner_version"`
-	MinRunners                 *int               `json:"min_runners"`
-	MaxRunners                 *int               `json:"max_runners"`
-	RepositoryConcurrencyLimit *int               `json:"repository_concurrency_limit"`
-	CostPerRunnerHour          *float64           `json:"cost_per_runner_hour"`
-	Priority                   *int               `json:"priority"`
-	IdleTimeout                *string            `json:"idle_timeout"`
-	Ephemeral                  *bool              `json:"ephemeral"`
-	DockerMode                 *string            `json:"docker_mode"`
-	Resources                  *store.Resources   `json:"resources"`
-	Cache                      *store.CacheConfig `json:"cache"`
-	HostSelector               *map[string]string `json:"host_selector"`
-	Env                        *map[string]string `json:"env"`
-	RunAsRoot                  *bool              `json:"run_as_root"`
-	Enabled                    *bool              `json:"enabled"`
+	Name                   *string            `json:"name"`
+	InstallationID         *string            `json:"installation_id"`
+	Labels                 *[]string          `json:"labels"`
+	RunnerGroup            *string            `json:"runner_group"`
+	Backend                *string            `json:"backend"`
+	Image                  *string            `json:"image"`
+	PullPolicy             *string            `json:"pull_policy"`
+	RunnerVersion          *string            `json:"runner_version"`
+	MinRunners             *int               `json:"min_runners"`
+	MaxRunners             *int               `json:"max_runners"`
+	RepositoryScaleUpLimit *int               `json:"repository_scale_up_limit"`
+	CostPerRunnerHour      *float64           `json:"cost_per_runner_hour"`
+	Priority               *int               `json:"priority"`
+	IdleTimeout            *string            `json:"idle_timeout"`
+	Ephemeral              *bool              `json:"ephemeral"`
+	DockerMode             *string            `json:"docker_mode"`
+	Resources              *store.Resources   `json:"resources"`
+	Cache                  *store.CacheConfig `json:"cache"`
+	HostSelector           *map[string]string `json:"host_selector"`
+	Env                    *map[string]string `json:"env"`
+	RunAsRoot              *bool              `json:"run_as_root"`
+	Enabled                *bool              `json:"enabled"`
 }
 
 // defaultPool is a new pool before the request is applied: the defaults the
@@ -154,8 +154,8 @@ func (in *poolInput) apply(p *store.Pool) []fieldError {
 	if in.MaxRunners != nil {
 		p.MaxRunners = *in.MaxRunners
 	}
-	if in.RepositoryConcurrencyLimit != nil {
-		p.RepositoryConcurrencyLimit = *in.RepositoryConcurrencyLimit
+	if in.RepositoryScaleUpLimit != nil {
+		p.RepositoryScaleUpLimit = *in.RepositoryScaleUpLimit
 	}
 	if in.CostPerRunnerHour != nil {
 		p.CostPerRunnerHour = in.CostPerRunnerHour
@@ -271,8 +271,8 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 	if p.MinRunners < 0 {
 		add("min_runners", "the minimum cannot be negative")
 	}
-	if p.RepositoryConcurrencyLimit < 0 {
-		add("repository_concurrency_limit", "must be zero or greater")
+	if p.RepositoryScaleUpLimit < 0 {
+		add("repository_scale_up_limit", "must be zero or greater")
 	}
 	if p.CostPerRunnerHour != nil && *p.CostPerRunnerHour < 0 {
 		add("cost_per_runner_hour", "must be zero or greater")

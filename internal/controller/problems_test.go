@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -286,6 +287,25 @@ func TestPoolWithNoHostToRunItIsReported(t *testing.T) {
 	}
 	if !strings.Contains(found.Fix, "docker") {
 		t.Fatalf("fix = %q, want it to name the backend to switch to", found.Fix)
+	}
+}
+
+func TestRepositoryScaleUpDeferralIsAccurateInProblemsDrawer(t *testing.T) {
+	h := newHarness(t)
+	h.c.setLastPlan(scheduler.Plan{Pools: []scheduler.PoolPlan{{
+		PoolID: "pool_shared", PoolName: "shared", QueuedMatched: 3,
+		QuotaDeferredJobs: 2, QuotaDeferredRepositories: []string{"acme/api", "acme/web"},
+	}}})
+
+	ps := h.c.PoolCapacityProblems()
+	if len(ps) != 1 || ps[0].Code != "pool.repository_scale_up_deferred" {
+		t.Fatalf("problems = %+v, want one scale-up deferral", ps)
+	}
+	if ps[0].Severity != config.SeverityWarning || !strings.Contains(ps[0].Detail, "Compatible idle runners may still accept") {
+		t.Fatalf("problem = %+v, want best-effort GitHub assignment caveat", ps[0])
+	}
+	if !strings.Contains(ps[0].Detail, "acme/api, acme/web") || !strings.Contains(ps[0].Fix, "repository-specific pools") {
+		t.Fatalf("problem = %+v, want affected repositories and strict-isolation guidance", ps[0])
 	}
 }
 

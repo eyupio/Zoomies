@@ -1,0 +1,1 @@
+ALTER TABLE pools RENAME COLUMN repository_concurrency_limit TO repository_scale_up_limit;

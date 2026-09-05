@@ -2112,7 +2112,7 @@ components:
         runner_version: { type: string }
         min_runners: { type: integer }
         max_runners: { type: integer }
-        repository_concurrency_limit: { type: integer, minimum: 0, description: Per-repository active runner cap; zero disables it. }
+        repository_scale_up_limit: { type: integer, minimum: 0, description: Best-effort per-repository runner creation throttle; zero disables it. This cannot prevent GitHub from assigning work to compatible idle runners and is not a strict execution concurrency cap. }
         cost_per_runner_hour: { type: number, minimum: 0, nullable: true, description: Optional administrator-assigned rate used only for estimates. }
         priority: { type: integer, default: 0, description: Higher-priority pools receive creation capacity before lower-priority pools. }
         idle_timeout: { $ref: "#/components/schemas/Duration" }
@@ -2175,7 +2175,7 @@ components:
         runner_version: { type: string }
         min_runners: { type: integer, default: 0, minimum: 0 }
         max_runners: { type: integer, default: 4, minimum: 1 }
-        repository_concurrency_limit: { type: integer, minimum: 0 }
+        repository_scale_up_limit: { type: integer, minimum: 0, description: Best-effort creation throttle, not a strict execution concurrency cap. }
         cost_per_runner_hour: { type: number, minimum: 0, nullable: true }
         priority: { type: integer, default: 0 }
         idle_timeout: { allOf: [{ $ref: "#/components/schemas/Duration" }], default: "5m" }
@@ -2214,7 +2214,7 @@ components:
         runner_version: { type: string }
         min_runners: { type: integer, minimum: 0 }
         max_runners: { type: integer, minimum: 1 }
-        repository_concurrency_limit: { type: integer, minimum: 0 }
+        repository_scale_up_limit: { type: integer, minimum: 0, description: Best-effort creation throttle, not a strict execution concurrency cap. }
         cost_per_runner_hour: { type: number, minimum: 0, nullable: true }
         priority: { type: integer }
         idle_timeout: { $ref: "#/components/schemas/Duration" }
