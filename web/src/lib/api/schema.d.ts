@@ -1354,7 +1354,7 @@ export interface components {
             repo?: string;
             default_branch?: string;
             workflows?: components["schemas"]["MigrationWorkflow"][];
-            /** @description The GitHub-hosted labels this repository asks for, mapped or not. */
+            /** @description The hosted-runner labels this repository asks for - GitHub's own and the vendors' - mapped or not. */
             hosted_labels?: string[];
             /** @description Set when this repository could not be read; the rest of the plan still stands. */
             error?: string;
@@ -1600,7 +1600,7 @@ export interface components {
             runner_name?: string;
             /** @description The run on GitHub. */
             html_url?: string;
-            /** @description False when no enabled pool claims this job's labels. */
+            /** @description False when no enabled pool claims this job's labels. On a job that is not queued this only says the job ran somewhere else. */
             matched?: boolean;
             /** Format: date-time */
             queued_at?: string;
@@ -2868,7 +2868,7 @@ export interface operations {
                 q?: string;
                 since?: string;
                 until?: string;
-                /** @description Only jobs no enabled pool claims. These will never run, and are almost always a typo in `runs-on`. */
+                /** @description Only jobs that are still queued and that no enabled pool claims. A job that already started or finished was run by something else, so it is not included however its labels read. */
                 unmatched?: boolean;
                 limit?: components["parameters"]["Limit"];
                 offset?: components["parameters"]["Offset"];

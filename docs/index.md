@@ -83,7 +83,7 @@ history with queue waits, and an audit row for every mutating action.
 <div markdown>
 ### Safe by default
 Loopback bind, authentication on, no Docker socket in your jobs, no root. Every
-deviation is named at startup and in the UI's problems panel.
+deviation is named at startup and in the UI's problems drawer.
 </div>
 
 <div markdown>

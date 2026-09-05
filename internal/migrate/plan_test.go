@@ -36,6 +36,29 @@ func TestSuggestMatchesTheMachineAHostedLabelPromises(t *testing.T) {
 	}
 }
 
+// A vendor spells the platform after a size, and the proposal has to read past
+// the size to find it -- otherwise a fleet full of Blacksmith repositories gets
+// a mapping step with every label unmapped.
+func TestSuggestReadsThePlatformOutOfAVendorLabel(t *testing.T) {
+	pools := []*store.Pool{
+		pool("zoomies-linux-x64", "zoomies-linux-x64"),
+		pool("zoomies-linux-arm64", "zoomies-linux-arm64"),
+	}
+	got := Suggest(pools, []string{"blacksmith-4vcpu-ubuntu-2404", "blacksmith-8vcpu-ubuntu-2404-arm", "ubicloud-standard-4"})
+
+	if got["blacksmith-4vcpu-ubuntu-2404"] != "zoomies-linux-x64" {
+		t.Errorf("blacksmith-4vcpu-ubuntu-2404 -> %q, want the x64 pool", got["blacksmith-4vcpu-ubuntu-2404"])
+	}
+	if got["blacksmith-8vcpu-ubuntu-2404-arm"] != "zoomies-linux-arm64" {
+		t.Errorf("blacksmith-8vcpu-ubuntu-2404-arm -> %q, want the arm64 pool", got["blacksmith-8vcpu-ubuntu-2404-arm"])
+	}
+	// This one names no platform at all, and guessing linux from the fleet's
+	// shape is the kind of guess that hangs a workflow.
+	if to, ok := got["ubicloud-standard-4"]; ok {
+		t.Errorf("ubicloud-standard-4 -> %q, want no suggestion at all", to)
+	}
+}
+
 func TestSuggestUsesAPoolThatPromisesNothing(t *testing.T) {
 	// The shape a single-host fleet ends up with: one pool, no os or arch
 	// label, willing to take anything.

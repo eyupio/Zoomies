@@ -29,7 +29,7 @@ const (
 // The fixtures have no GitHub behind them, so the two places that would
 // otherwise reach out on their behalf -- the credential prober and the
 // registration reaper -- check this and skip. Without it a demo or a UI test
-// run fills the problems panel with "this installation is not usable" and the
+// run fills the problems drawer with "this installation is not usable" and the
 // log with parse failures, none of which says anything about the fleet.
 func IsDemoID(id string) bool {
 	_, rest, ok := strings.Cut(id, "_")
@@ -163,7 +163,7 @@ func (c *Controller) seedHosts(ctx context.Context, now time.Time) ([]*store.Hos
 	}{
 		{demoHostPrefix + "a", "demo-builder-1", "amd64", 6, true, false, 0},
 		{demoHostPrefix + "b", "demo-builder-2", "amd64", 4, false, false, 0},
-		// One cordoned host, so the Hosts page and the problems panel both
+		// One cordoned host, so the Hosts page and the problems drawer both
 		// have something real to render.
 		{demoHostPrefix + "c", "demo-arm-1", "arm64", 2, false, true, 0},
 	}
@@ -227,7 +227,7 @@ func (c *Controller) seedPools(ctx context.Context) (*store.Pool, *store.Pool, e
 		MinRunners:     0,
 		MaxRunners:     4,
 		IdleTimeout:    store.Duration(10 * time.Minute),
-		// Persistent runners, so the problems panel has a dangerous setting to
+		// Persistent runners, so the problems drawer has a dangerous setting to
 		// show and the UI's warning styling is exercised.
 		Ephemeral:    false,
 		DockerMode:   store.DockerDinD,
@@ -372,11 +372,20 @@ func (c *Controller) seedJobs(ctx context.Context, now time.Time, rng *rand.Rand
 			j.State = store.JobQueued
 			j.QueuedAt = now.Add(-time.Duration(20+i) * time.Second)
 		default:
-			// One job nothing claims, so the problems panel has its
+			// One job nothing claims, so the problems drawer has its
 			// "no pool wants this" entry.
 			j.State = store.JobQueued
 			j.QueuedAt = now.Add(-4 * time.Minute)
 			j.Labels = store.StringSlice{"self-hosted", "linux", "gpu", "cuda12"}
+			j.PoolID, j.Matched = "", false
+		}
+
+		// One repository still on a hosted-runner vendor, which is what a fleet
+		// looks like part-way through a migration. Its jobs carry labels no pool
+		// here claims and they run anyway, so they are the case that must never
+		// be reported as "nothing will run this".
+		if i == 12 {
+			j.Labels = store.StringSlice{"blacksmith-4vcpu-ubuntu-2404"}
 			j.PoolID, j.Matched = "", false
 		}
 

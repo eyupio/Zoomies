@@ -584,7 +584,7 @@ func TestHostSelection(t *testing.T) {
 					t.Fatalf("reason = %q, want it to mention %q", pp.Reason, tc.wantWhy)
 				}
 				// A pool that wanted a runner and got nowhere to put it is
-				// reported as blocked, which is what the problems panel shows:
+				// reported as blocked, which is what the problems drawer shows:
 				// nothing else in the product says this happened.
 				if pp.Blocked == "" || pp.BlockedFix == "" {
 					t.Fatalf("plan = %+v, want it marked blocked with a fix", pp)

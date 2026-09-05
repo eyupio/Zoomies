@@ -20,15 +20,18 @@
     Search,
     Server,
     Settings,
+    TriangleAlert,
   } from '@lucide/svelte';
   import type { LucideIcon } from '@lucide/svelte';
   import { cordonHost, drainRunner } from '../api/client';
   import { layers, trapFocus } from '../keys';
   import { router } from '../router';
   import { fleet } from '../state/fleet.svelte';
+  import { notifications } from '../state/notifications.svelte';
   import { session } from '../state/session.svelte';
   import { theme } from '../state/theme.svelte';
   import { toasts } from '../state/toasts.svelte';
+  import { pluralise } from '../format';
   import { runnerStatus } from '../status';
   import EmptyState from '../components/EmptyState.svelte';
   import Logo from '../components/Logo.svelte';
@@ -125,6 +128,17 @@
         label: 'Settings',
         icon: Settings,
         run: () => router.navigate('/settings'),
+      },
+      {
+        id: 'problems',
+        group: 'Action',
+        label: 'Show problems',
+        detail:
+          notifications.active.length === 0
+            ? 'nothing needs your attention'
+            : pluralise(notifications.active.length, 'problem'),
+        icon: TriangleAlert,
+        run: () => (notifications.open = true),
       },
       {
         id: 'theme',

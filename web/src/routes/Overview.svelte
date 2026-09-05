@@ -7,6 +7,12 @@
   operator watches when nothing is wrong -- where the capacity is going, and
   what the scheduler decided -- and finally the work itself.
 
+  What needs a person is one line here rather than a full panel. The list it
+  summarises lives in the problems drawer, reachable from the top bar on every
+  page: a fleet whose deliberate configuration warnings pushed its pools and its
+  running jobs below the fold was answering "what is happening right now?" with
+  a month-old decision.
+
   Nothing on this page polls, and nothing on it can be refreshed by hand. The
   fleet cache subscribes to `stats`, `scaling`, `problems.updated`, `runner.*`,
   `pool.*` and `host.*`; the panels below add `job.updated` for the running
@@ -21,11 +27,11 @@
   import FirstRun from '$lib/overview/FirstRun.svelte';
   import FleetMetrics from '$lib/overview/FleetMetrics.svelte';
   import PoolUtilisation from '$lib/overview/PoolUtilisation.svelte';
-  import ProblemsPanel from '$lib/overview/ProblemsPanel.svelte';
+  import ProblemsSummary from '$lib/overview/ProblemsSummary.svelte';
   import ScalingFeed from '$lib/overview/ScalingFeed.svelte';
 
-  // Raised by the checklist while it is on screen, so the problems panel knows
-  // not to also claim that nothing needs attention.
+  // Raised by the checklist while it is on screen, so the problems summary
+  // knows not to also claim that nothing needs attention.
   let setupPending = $state(false);
 
   const loading = $derived(!fleet.loaded);
@@ -54,7 +60,7 @@
          for good once a job has run here. -->
     <FirstRun onpending={(pending) => (setupPending = pending)} />
     <FleetMetrics {loading} />
-    <ProblemsPanel {loading} {setupPending} />
+    <ProblemsSummary {loading} {setupPending} />
     <div class="split">
       <PoolUtilisation {loading} />
       <ScalingFeed {loading} />

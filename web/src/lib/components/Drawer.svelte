@@ -13,6 +13,8 @@
     title: string;
     description?: string;
     width?: 'sm' | 'md' | 'lg';
+    /** Drop the body padding, for lists that draw their own full-width rows. */
+    flush?: boolean;
     onclose?: () => void;
     footer?: Snippet;
     class?: string;
@@ -24,6 +26,7 @@
     title,
     description,
     width = 'md',
+    flush = false,
     onclose,
     footer,
     class: className = '',
@@ -73,7 +76,7 @@
         </div>
         <IconButton icon={X} label="Close" size="sm" onclick={close} />
       </header>
-      <div class="body">{@render children()}</div>
+      <div class="body" class:flush>{@render children()}</div>
       {#if footer}<footer>{@render footer()}</footer>{/if}
     </div>
   </div>
@@ -143,6 +146,9 @@
     flex: 1;
     padding: var(--z-space-5);
     overflow-y: auto;
+  }
+  .body.flush {
+    padding: 0;
   }
   footer {
     display: flex;

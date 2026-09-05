@@ -52,7 +52,7 @@ Conventions:
 | --- | --- | --- | --- |
 | GET | `/api/v1/stats` | viewer | Queued/running counts, live runner counts by state, median and p95 queue wait, per-pool utilisation. `?window=1h`. |
 | GET | `/api/v1/samples` | viewer | Fleet samples for the sparklines. `?since=` or `?window=1h`. |
-| GET | `/api/v1/problems` | viewer | The problems panel: unhealthy hosts, failed registrations, webhook delivery failures, unmatched queued jobs, and every configuration warning from `config.Validate`. Returns `{ "items": [...], "ok": true }` — `ok` is true and `items` empty when there is nothing wrong. |
+| GET | `/api/v1/problems` | viewer | The problems drawer: unhealthy hosts, failed registrations, webhook delivery failures, unmatched queued jobs, and every configuration warning from `config.Validate`. Returns `{ "items": [...], "ok": true }` — `ok` is true and `items` empty when there is nothing wrong. |
 | GET | `/api/v1/scaling-events` | viewer | Recent scheduler decisions with their reason strings. `?pool_id=&limit=`. |
 | GET | `/api/v1/events` | viewer | **SSE.** All live updates. Honours `Last-Event-ID`. Query `kinds=` and `topic=` narrow it. Sends a `heartbeat` comment every 20s. |
 

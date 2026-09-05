@@ -2,9 +2,15 @@
   What an unmatched job is, said in full.
 
   This is the one thing on the Jobs page that an operator cannot work out from
-  the row itself: the job is not slow, it is never going to start. The
-  explanation appears wherever unmatched jobs do -- above the grid when the
-  filter is on or the page contains one, and again in the drawer.
+  the row itself: the job is not slow, nothing in this fleet is going to start
+  it. The explanation appears wherever unmatched jobs do -- above the grid when
+  the filter is on or the page contains one, and again in the drawer.
+
+  It says "this fleet" rather than "never", and only queued jobs reach it. A
+  controller cannot see the whole of GitHub: a repository still on hosted or
+  vendor runners has labels no pool here claims and runs perfectly well, and
+  telling an operator mid-migration that those jobs will never run would be both
+  alarming and false.
 -->
 <script lang="ts">
   import { TriangleAlert } from '@lucide/svelte';
@@ -26,10 +32,10 @@
 
   const heading = $derived(
     count === undefined
-      ? 'No enabled pool claims these labels'
+      ? 'No enabled pool here claims these labels'
       : count === 1
-        ? '1 job here will never run'
-        : `${pluralise(count, 'job')} here will never run`,
+        ? '1 queued job here has no pool to run it'
+        : `${pluralise(count, 'queued job')} here have no pool to run them`,
   );
 </script>
 
@@ -38,15 +44,15 @@
   <div class="body">
     <p class="heading">{heading}</p>
     <p class="detail">
-      No enabled pool answers
+      No enabled pool here answers
       {#if labels && labels.length > 0}
-        <span class="mono">{labels.join(', ')}</span>, so GitHub
+        <span class="mono">{labels.join(', ')}</span>, so
       {:else}
-        their labels, so GitHub
+        their labels, so
       {/if}
-      has nothing to hand the job to and it will sit queued until it is cancelled. It is almost always
-      a typo in <span class="mono">runs-on</span>, and otherwise a pool that is disabled or was
-      never created.
+      nothing in this fleet will start the job. Unless another runner elsewhere answers those labels,
+      it sits queued until the run is cancelled. It is almost always a typo in
+      <span class="mono">runs-on</span>, and otherwise a pool that is disabled or was never created.
     </p>
     {#if action}
       <Button size="sm" variant="secondary" href="/pools">Check the pools and their labels</Button>

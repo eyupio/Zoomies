@@ -5,8 +5,13 @@
  * this slow?" needs the queue wait and the run duration on every row. "Why has
  * this not started?" needs the unmatched filter to find the job no pool claims
  * and, more importantly, to say in full what that means -- an unmatched job is
- * not slow, it is never going to run, and that is the one thing the row itself
- * cannot tell you.
+ * not slow, nothing in this fleet is going to start it, and that is the one
+ * thing the row itself cannot tell you.
+ *
+ * The same warning must stay off every job that already ran. A repository still
+ * on a hosted-runner vendor produces jobs with labels no pool here claims, and
+ * they run perfectly well; flagging them turned the page into a wall of red
+ * during exactly the migration this fleet exists to make.
  */
 import { expect, test, type Page } from '@playwright/test';
 import {
@@ -101,9 +106,30 @@ test('the unmatched filter finds the job no pool claims and explains it', async 
   // And the explanation, which is the part an operator cannot infer.
   const note = page.getByRole('note');
   await expect(note).toBeVisible();
-  await expect(note).toContainText('1 job here will never run');
-  await expect(note).toContainText('No enabled pool answers');
-  await expect(note).toContainText('it will sit queued until it is cancelled');
+  await expect(note).toContainText('1 queued job here has no pool to run it');
+  await expect(note).toContainText('No enabled pool here answers');
+  await expect(note).toContainText('it sits queued until the run is cancelled');
   await expect(note).toContainText('typo in');
   await expect(note.getByRole('link', { name: 'Check the pools and their labels' })).toBeVisible();
+});
+
+test('a job that already ran is never called unmatched, whatever its labels say', async ({
+  page,
+}) => {
+  // The seed has one finished job on a hosted-runner vendor's label. It is
+  // exactly as unclaimed as the queued one, and it plainly did run.
+  await goto(page, '/jobs?label=blacksmith-4vcpu-ubuntu-2404', 'Jobs');
+
+  const vendor = dataRows(jobs(page)).first();
+  await expect(vendor).toBeVisible();
+  await expect(vendor).toContainText('Unclaimed');
+  await expect(vendor).not.toContainText('Unmatched');
+
+  // No banner either: it speaks for queued work, and there is none here.
+  await expect(page.getByRole('note')).toHaveCount(0);
+
+  // And on the unfiltered page the banner counts the one job that is actually
+  // waiting, not every job whose labels this fleet does not answer.
+  await goto(page, '/jobs', 'Jobs');
+  await expect(page.getByRole('note')).toContainText('1 queued job here has no pool to run it');
 });

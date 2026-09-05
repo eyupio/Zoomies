@@ -124,7 +124,7 @@ Server-Sent Events stream, so the operator sees it happen without refreshing.
 ### When webhooks cannot reach you
 
 If `github.poll_fallback` is on (the default), a poller lists queued jobs on an
-interval and feeds the same code path. The Overview's problems panel says
+interval and feeds the same code path. The UI's problems drawer says
 plainly when the controller is running on polling alone, because a fleet that
 silently stopped receiving webhooks looks exactly like a quiet fleet.
 
@@ -254,7 +254,7 @@ ephemeral runners, no Docker daemon exposed to jobs, no root.
 
 Every deviation from that is named. `config.Validate` returns `Finding`s with a
 severity, a title, why it matters and how to fix it; the same list is printed at
-startup and rendered in the UI's problems panel. See [security.md](security.md)
+startup and rendered in the UI's problems drawer. See [security.md](security.md)
 for the threat model and each individual toggle.
 
 ## What this is not

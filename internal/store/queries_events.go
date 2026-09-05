@@ -172,7 +172,11 @@ type JobFilter struct {
 	Search      string
 	Since       *time.Time
 	Until       *time.Time
-	// UnmatchedOnly surfaces queued jobs that no pool claims.
+	// UnmatchedOnly surfaces queued jobs that no pool claims. It is deliberately
+	// narrower than "matched = 0": a job that has already started or finished
+	// was run by something -- another fleet, a hosted-runner vendor, GitHub
+	// itself -- and calling it unmatched would report a fleet-wide fault every
+	// time somebody kept one repository on runners this controller does not own.
 	UnmatchedOnly bool
 }
 
@@ -255,7 +259,8 @@ func jobWhere(f JobFilter) (string, []any) {
 		args = append(args, ms(*f.Until))
 	}
 	if f.UnmatchedOnly {
-		cond = append(cond, `matched = 0`)
+		cond = append(cond, `matched = 0 AND state = ?`)
+		args = append(args, string(JobQueued))
 	}
 	if q := strings.TrimSpace(f.Search); q != "" {
 		cond = append(cond, `(repo LIKE ? OR workflow LIKE ? OR job_name LIKE ? OR runner_name LIKE ?)`)

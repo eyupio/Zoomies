@@ -51,7 +51,10 @@ test('the Overview is readable without scrolling sideways', async ({ page }) => 
   for (let i = 0; i < 3; i++) {
     await expect(tiles.nth(i)).toBeVisible();
   }
-  await expect(page.getByRole('region', { name: 'Problems' })).toBeVisible();
+  // The problems summary is a line, not a panel, and the count that opens the
+  // full list is in the top bar where it is on every other page too.
+  await expect(page.getByText(/needs? your attention\.$/).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Problems\./ })).toBeVisible();
 
   await expectNoSidewaysScroll(page, 'the Overview');
 });

@@ -3,7 +3,7 @@
 This document says what Zoomies protects, what it does not, and what every
 dangerous setting actually costs you. Nothing here is hypothetical — each toggle
 below is a real setting, and each one produces a named warning at startup and in
-the UI's problems panel when it is on.
+the UI's problems drawer when it is on.
 
 ---
 

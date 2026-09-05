@@ -5,7 +5,9 @@
   sorting on queue wait or duration, which is why those two columns are sorted
   by the server rather than by the browser -- the interesting job is rarely on
   the page you are looking at. "Why has this not started?" is answered by the
-  unmatched filter, which finds the jobs no enabled pool claims.
+  unmatched filter, which finds the queued jobs no enabled pool claims. A job
+  that already ran is never counted there: its labels may name a hosted or vendor
+  runner this controller does not own, and something ran it.
 -->
 <script lang="ts">
   import { getJobFacets, listJobs } from '$lib/api/client';
@@ -14,7 +16,7 @@
   import { formatDuration } from '$lib/format';
   import { router } from '$lib/router';
   import { fleet } from '$lib/state/fleet.svelte';
-  import { jobStatus, UNMATCHED } from '$lib/status';
+  import { jobStatus, stuckUnmatched, UNMATCHED } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
   import DataGrid from '$lib/components/DataGrid.svelte';
@@ -111,7 +113,7 @@
     return Object.keys(seen).sort((a, b) => a.localeCompare(b));
   });
 
-  const unmatchedOnPage = $derived(pageRows.filter((job) => job.matched === false).length);
+  const unmatchedOnPage = $derived(pageRows.filter(stuckUnmatched).length);
 
   /* -- the grid ---------------------------------------------------------------- */
 
@@ -213,7 +215,7 @@
 {#snippet stateCell(job: Job)}
   <span class="state">
     <StatusDot status={jobStatus(job.state, job.conclusion)} showLabel />
-    {#if job.matched === false}
+    {#if stuckUnmatched(job)}
       <Badge status={UNMATCHED} size="sm" title={UNMATCHED.hint} />
     {/if}
   </span>
@@ -304,7 +306,7 @@
     onrows={takePage}
     emptyTitle={filters.unmatched ? 'No unmatched jobs' : 'No jobs recorded yet'}
     emptyDescription={filters.unmatched
-      ? 'Every job here has a pool that claims its labels, which is how it should be.'
+      ? 'Nothing is queued with labels no pool claims, which is how it should be. Jobs that already ran are not counted here however their labels read.'
       : 'Zoomies records a job the first time GitHub tells it about one, over a webhook delivery. If workflows are running and nothing appears here, the delivery is not arriving.'}
   >
     {#snippet emptyAction()}

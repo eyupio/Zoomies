@@ -18,7 +18,7 @@ flowchart LR
     f --> e["ZOOMIES_* environment"]
     e --> v{"config.Validate"}
     v -->|"an error"| stop["startup stops, and the message<br/>names what to change"]
-    v -->|"a warning"| warn["startup continues -- printed here, and shown<br/>in the UI's problems panel while it is true"]
+    v -->|"a warning"| warn["startup continues -- printed here, and shown<br/>in the UI's problems drawer while it is true"]
     v -->|"nothing to say"| ok["running"]
 ```
 
@@ -269,9 +269,9 @@ as an error. The controller cannot see the proxy from behind it, so it has no
 way to tell this deployment from an origin genuinely exposed in the clear.
 
 The web UI does not repeat it: `bind.public_no_tls` is printed at startup and
-by `zoomies config check`, but it is left off the Overview's problems panel
-and the Settings page, because a panel that is permanently amber on a
-correctly configured fleet is a panel nobody reads.
+by `zoomies config check`, but it is left off the UI's problems drawer
+and the Settings page, because a count that is permanently amber on a
+correctly configured fleet is a count nobody reads.
 
 ### `agent.capacity`
 
@@ -414,5 +414,7 @@ zoomies config print          # the effective config, secrets blanked
 ```
 
 The same findings are served at `GET /api/v1/problems` and rendered in the UI's
-problems panel, so a warning cannot be missed just because nobody was reading
-the logs the day it appeared.
+problems drawer, so a warning cannot be missed just because nobody was reading
+the logs the day it appeared. An operator can dismiss one they have read; that
+is a per-browser preference and changes nothing the API or `zoomies status`
+reports.
