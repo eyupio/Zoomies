@@ -179,9 +179,11 @@ func loadKey(cfg *config.Config) (*cryptox.Key, error) {
 
 // parseTrustedProxies turns the configured CIDRs into networks, accepting a
 // bare address as a single host so an operator does not have to write /32.
+// The cloudflare token expands to Cloudflare's published ranges first, so
+// what is believed is exactly what the operator named.
 func parseTrustedProxies(in []string) ([]*net.IPNet, error) {
 	var out []*net.IPNet
-	for _, raw := range in {
+	for _, raw := range config.ExpandTrustedProxies(in) {
 		raw = strings.TrimSpace(raw)
 		if raw == "" {
 			continue

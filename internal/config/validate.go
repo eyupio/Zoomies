@@ -163,16 +163,19 @@ func (c *Config) Validate() Findings {
 			Code: "proxy.untrusted", Severity: SeverityInfo, Setting: "server.trusted_proxies",
 			Title:  "client IPs come from the socket, not X-Forwarded-For",
 			Detail: "audit entries and login rate limiting will record your proxy's address for every request.",
-			Fix:    "list your proxy's CIDR in server.trusted_proxies.",
+			Fix:    "list your proxy's CIDR in server.trusted_proxies, or the word `cloudflare` when Cloudflare is in front.",
 		})
 	}
 	for _, cidr := range c.Server.TrustedProxies {
+		if strings.TrimSpace(cidr) == TrustedProxyCloudflare {
+			continue
+		}
 		if _, _, err := net.ParseCIDR(cidr); err != nil {
 			if net.ParseIP(cidr) == nil {
 				add(Finding{
 					Code: "proxy.bad_cidr", Severity: SeverityError, Setting: "server.trusted_proxies",
 					Title: fmt.Sprintf("%q is not an IP address or CIDR", cidr),
-					Fix:   `use a form like "10.0.0.0/8" or "192.168.1.5".`,
+					Fix:   `use a form like "10.0.0.0/8" or "192.168.1.5", or the word "cloudflare".`,
 				})
 			}
 		}

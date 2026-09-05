@@ -24,7 +24,14 @@
 #        docker   a single `docker run` container with an env file
 #
 #      Either way `zoomies init` does the rest: service user, directories,
-#      encryption key, backend, TLS, the GitHub App, and your admin account.
+#      encryption key, backend, the GitHub App, and your admin account. It
+#      also asks how the controller is reached: loopback, a certificate you
+#      have, a self-signed one, or a reverse proxy.
+#
+#      Behind Cloudflare, pick "Cloudflare in front" (or put
+#      `trusted_proxies: [cloudflare]` in the answer file): TLS stays off
+#      here, Cloudflare's published ranges are trusted as proxies, and audit
+#      entries and rate limits record the real client instead of Cloudflare.
 #
 # POSIX sh. No bashisms -- it is checked with dash and shellcheck in CI.
 
@@ -122,6 +129,15 @@ Examples:
 
   # Unattended
   sh install.sh --non-interactive --answers /etc/zoomies/answers.yaml
+
+  # Behind Cloudflare, unattended: the same answer file, with the listener
+  # told that Cloudflare terminates TLS and may speak for the client:
+  #   bind: 0.0.0.0:8080
+  #   tls:
+  #     mode: "off"
+  #   trusted_proxies: [cloudflare]
+  # Interactively, `zoomies init` offers "Cloudflare in front" at the
+  # reachability question and writes all three for you.
 EOF
 }
 

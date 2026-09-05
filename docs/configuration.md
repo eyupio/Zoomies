@@ -28,7 +28,7 @@ server:
     cert_file: ""               # ZOOMIES_TLS_CERT_FILE
     key_file: ""                # ZOOMIES_TLS_KEY_FILE
     hosts: []                   # ZOOMIES_TLS_HOSTS     -- names for a generated cert
-  trusted_proxies: []           # ZOOMIES_TRUSTED_PROXIES
+  trusted_proxies: []           # ZOOMIES_TRUSTED_PROXIES -- CIDRs, or [cloudflare]
   allowed_origins: []           # ZOOMIES_ALLOWED_ORIGINS
   read_timeout: 30s
   write_timeout: 0s             # 0: SSE and log tails must not be cut off
@@ -224,7 +224,7 @@ server:
   external_url: https://zoomies.sh
   tls:
     mode: off                 # Cloudflare holds the certificate
-  trusted_proxies: [ ... ]    # Cloudflare's published ranges
+  trusted_proxies: [cloudflare]
 ```
 
 Three things follow from that, and getting any of them wrong is quiet rather
@@ -238,14 +238,15 @@ than loud:
   throws a Secure cookie away, so Zoomies refuses to sign you in from one and
   says why, rather than signing you in and out in the same second. To test over
   plain http, set `cookie_secure: false` for the duration.
-* **`trusted_proxies` must list Cloudflare's ranges.** Without them the origin
-  sees Cloudflare's address on every connection, so the audit log records
-  Cloudflare for every action and the login rate limiter throttles the whole
-  internet as one client. With them, Zoomies takes the address from
-  `CF-Connecting-IP` — which Cloudflare sets and a client cannot override —
-  falling back to the right-most non-proxy entry of `X-Forwarded-For`. The
-  current list is in `.env.example`; refresh it from
-  <https://www.cloudflare.com/ips/> when Cloudflare publishes a change.
+* **`trusted_proxies` must trust Cloudflare.** Write the word `cloudflare` and
+  Zoomies expands it to Cloudflare's published ranges, embedded in the binary.
+  Without them the origin sees Cloudflare's address on every connection, so
+  the audit log records Cloudflare for every action and the login rate limiter
+  throttles the whole internet as one client. With them, Zoomies takes the
+  address from `CF-Connecting-IP` — which Cloudflare sets and a client cannot
+  override — falling back to the right-most non-proxy entry of
+  `X-Forwarded-For`. The ranges move when the binary does, and `zoomies init`
+  offers a "Cloudflare in front" choice that writes the token for you.
 * **Only Cloudflare should be able to reach the origin.** Publishing port 80
   puts an unauthenticated webhook endpoint on the public internet with
   Cloudflare merely in front of it, not in the way. Firewall the origin to
