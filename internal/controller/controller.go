@@ -18,8 +18,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
+	"runtime/debug"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -153,7 +155,27 @@ type Controller struct {
 	started bool
 	cancel  context.CancelFunc
 	wg      sync.WaitGroup
+	// loopRestartDelay is how long a loop that panicked waits before it is
+	// started again. It doubles on each further panic up to loopRestartMax,
+	// and a test sets it short.
+	loopRestartDelay time.Duration
+	// loopPanics is what the problems drawer reports about a loop that has
+	// crashed: how often, and what the last panic said.
+	loopPanics map[string]loopPanic
 }
+
+// loopPanic is the record of one background loop's crashes.
+type loopPanic struct {
+	Count int
+	Last  string
+	At    time.Time
+}
+
+// loopRestartMax caps the wait between restarts of a loop that keeps
+// panicking; a minute is long enough not to flood the log and short enough
+// that a bug which clears itself -- a bad row that was since pruned -- does
+// not leave scaling stopped for the rest of the day.
+const loopRestartMax = time.Minute
 
 // New validates the options and builds a controller that is not yet running.
 func New(opts Options) (*Controller, error) {
@@ -195,21 +217,22 @@ func New(opts Options) (*Controller, error) {
 	}
 
 	c := &Controller{
-		st:              opts.Store,
-		live:            config.NewLive(opts.Config),
-		logLevel:        opts.LogLevel,
-		key:             opts.Key,
-		authsvc:         authsvc,
-		bus:             bus,
-		factory:         factory,
-		backends:        opts.Backends,
-		log:             log,
-		clock:           clock,
-		httpClient:      opts.HTTPClient,
-		nudges:          make(chan struct{}, 1),
-		settingsChanged: make(chan struct{}, 1),
-		hostHealthy:     map[string]bool{},
-		resynced:        map[string]bool{},
+		st:               opts.Store,
+		live:             config.NewLive(opts.Config),
+		logLevel:         opts.LogLevel,
+		key:              opts.Key,
+		authsvc:          authsvc,
+		bus:              bus,
+		factory:          factory,
+		backends:         opts.Backends,
+		log:              log,
+		clock:            clock,
+		httpClient:       opts.HTTPClient,
+		nudges:           make(chan struct{}, 1),
+		settingsChanged:  make(chan struct{}, 1),
+		hostHealthy:      map[string]bool{},
+		loopRestartDelay: time.Second,
+		resynced:         map[string]bool{},
 	}
 	if c.httpClient == nil {
 		c.httpClient = &http.Client{}
@@ -264,19 +287,69 @@ func (c *Controller) Start(ctx context.Context) error {
 
 // spawn runs one named loop until its context is cancelled, tracking it so
 // Stop can wait for it.
+//
+// A panic in one loop must not take the whole controller with it, but a loop
+// that has stopped is not something the process can be allowed to be quiet
+// about either: a scheduler that died on one bad snapshot used to leave
+// /readyz answering 200 and every job queued for good. The loop is started
+// again after a wait that doubles with each crash, and the crash is on the
+// problems drawer until the process restarts.
 func (c *Controller) spawn(name string, ctx context.Context, fn func(context.Context)) {
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
-		defer func() {
-			// A panic in one loop must not take the whole controller with it:
-			// the fleet keeps running, and the operator gets a stack.
-			if r := recover(); r != nil {
-				c.log.Error("controller loop panicked", "loop", name, "panic", r)
+		delay := c.loopRestartDelay
+		for {
+			value, stack := runGuarded(ctx, fn)
+			if value == nil || ctx.Err() != nil {
+				return
 			}
-		}()
-		fn(ctx)
+			c.notePanic(name, value)
+			c.log.Error("controller loop panicked; it will be restarted",
+				"loop", name, "panic", value, "restart_in", delay, "stack", stack)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(delay):
+			}
+			delay = min(2*delay, loopRestartMax)
+		}
 	}()
+}
+
+// runGuarded runs fn and reports the value it panicked with, or nil when it
+// returned. The stack is captured at the panic, which is the only place it is
+// still there to capture.
+func runGuarded(ctx context.Context, fn func(context.Context)) (value any, stack string) {
+	defer func() {
+		if r := recover(); r != nil {
+			value, stack = r, string(debug.Stack())
+		}
+	}()
+	fn(ctx)
+	return nil, ""
+}
+
+// notePanic records a loop's crash for the problems drawer.
+func (c *Controller) notePanic(name string, value any) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.loopPanics == nil {
+		c.loopPanics = map[string]loopPanic{}
+	}
+	p := c.loopPanics[name]
+	p.Count++
+	p.Last = fmt.Sprint(value)
+	p.At = c.Now()
+	c.loopPanics[name] = p
+}
+
+// LoopPanics returns the crashes recorded against each background loop since
+// the process started, for the problems drawer.
+func (c *Controller) LoopPanics() map[string]loopPanic {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return maps.Clone(c.loopPanics)
 }
 
 // Stop shuts the loops down gracefully and flushes what is worth keeping.

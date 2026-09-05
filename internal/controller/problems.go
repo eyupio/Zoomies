@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -98,6 +99,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 		return nil, err
 	}
 	out = append(out, c.PoolCapacityProblems()...)
+	out = append(out, c.loopProblems()...)
 	if err := c.runnerProblems(ctx, &out); err != nil {
 		return nil, err
 	}
@@ -468,6 +470,34 @@ func (c *Controller) unmatchedQueuedJobs(ctx context.Context) ([]*store.Job, err
 		return nil, fmt.Errorf("listing unmatched jobs: %w", err)
 	}
 	return jobs, nil
+}
+
+// loopProblems reports every background loop that has panicked since the
+// process started. The loop was restarted, so the fleet is still being run;
+// the entry is here because a crash is a bug, and a bug that fixes itself
+// after a minute is one nobody would otherwise report.
+func (c *Controller) loopProblems() []Problem {
+	panics := c.LoopPanics()
+	names := slices.Sorted(maps.Keys(panics))
+	out := make([]Problem, 0, len(names))
+	for _, name := range names {
+		p := panics[name]
+		title := fmt.Sprintf("the %s loop crashed and was restarted", name)
+		if p.Count > 1 {
+			title = fmt.Sprintf("the %s loop has crashed %d times and was restarted each time", name, p.Count)
+		}
+		at := p.At
+		out = append(out, Problem{
+			Code:     "controller.loop_panicked",
+			Severity: config.SeverityError,
+			Title:    title,
+			Detail:   "the last panic said: " + p.Last,
+			Fix: "this is a bug in Zoomies. The stack is in the controller's log under \"controller loop panicked\"; " +
+				"please report it with that stack. Restarting the controller clears this entry.",
+			Since: &at,
+		})
+	}
+	return out
 }
 
 func (c *Controller) runnerProblems(ctx context.Context, out *[]Problem) error {
