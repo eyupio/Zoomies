@@ -62,10 +62,14 @@ type Server struct {
 	oidc    *auth.OIDCProvider
 	oidcErr error
 
-	spa       *spaHandler
-	csp       string
-	trusted   []*net.IPNet
-	manifests *manifestStates
+	spa *spaHandler
+	csp string
+	// formTargets are the GitHub origins the page policy lets the App
+	// manifest form post to; handleCreateManifest refuses to build a manifest
+	// for any other, since the browser would refuse to send it.
+	formTargets []string
+	trusted     []*net.IPNet
+	manifests   *manifestStates
 
 	// settingsMu serialises PATCH /settings against itself. The configuration
 	// it writes into is the one the controller's loops read, so two operators
@@ -101,7 +105,8 @@ func New(opts Options) (*Server, error) {
 		return nil, err
 	}
 	s.spa = spa
-	s.csp = contentSecurityPolicy(spa.inlineScriptHashes())
+	s.formTargets = manifestFormTargets(cfg.GitHub.APIBaseURL)
+	s.csp = contentSecurityPolicy(spa.inlineScriptHashes(), s.formTargets)
 
 	s.key, s.keyErr = loadKey(cfg)
 	if s.keyErr != nil {

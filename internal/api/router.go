@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"net/url"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/auth"
+	"github.com/eyupio/zoomies/internal/github"
 )
 
 // maxBodyBytes bounds an ordinary JSON request. It is generous for a pool
@@ -326,10 +328,22 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 // it is allowed by its hash rather than by 'unsafe-inline', so any other inline
 // script (an injected one, for instance) is still refused. Styles need
 // 'unsafe-inline' because the component framework sets element styles directly.
-func contentSecurityPolicy(scriptHashes []string) string {
+//
+// formTargets are the origins a form on the page may post to besides this
+// one. The App manifest flow is a real HTML form that posts to GitHub -- that
+// is how GitHub's API works, there is no JSON equivalent -- and a form-action
+// of 'self' alone makes the browser refuse the submission. It does so silently
+// from the operator's point of view: the new tab opens on nothing, a reload
+// turns the POST into a GET, and GitHub answers that with an empty "create an
+// App" form that looks as if Zoomies had sent one with no fields in it.
+func contentSecurityPolicy(scriptHashes, formTargets []string) string {
 	script := "'self'"
 	for _, h := range scriptHashes {
 		script += " '" + h + "'"
+	}
+	form := "'self'"
+	for _, t := range formTargets {
+		form += " " + t
 	}
 	return strings.Join([]string{
 		"default-src 'self'",
@@ -341,9 +355,58 @@ func contentSecurityPolicy(scriptHashes []string) string {
 		"worker-src 'self' blob:",
 		"object-src 'none'",
 		"base-uri 'none'",
-		"form-action 'self'",
+		"form-action " + form,
 		"frame-ancestors 'none'",
 	}, "; ")
+}
+
+// manifestFormTargets lists the GitHub origins the App manifest form may be
+// posted to: github.com always, and the Enterprise Server this controller is
+// configured against when there is one.
+//
+// It is a startup-time list because the policy is a response header on every
+// page, not something the manifest endpoint can adjust per request. An
+// Enterprise host named only in the connect dialog, and not in the
+// configuration, is therefore refused by handleCreateManifest with a message
+// saying which setting to change -- the alternative is a form the browser
+// blocks without telling anyone why.
+func manifestFormTargets(apiBaseURL string) []string {
+	targets := []string{"https://github.com"}
+	if normalised, err := github.NormalizeAPIBaseURL(apiBaseURL); err == nil {
+		apiBaseURL = normalised
+	}
+	if origin := formOrigin(github.WebURLForAPI(apiBaseURL)); origin != "" && origin != targets[0] {
+		targets = append(targets, origin)
+	}
+	return targets
+}
+
+// formOrigin reduces a URL to the scheme and host a CSP source expression
+// wants; anything unparseable yields "" rather than a directive that is
+// itself invalid.
+func formOrigin(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host
+}
+
+// formAllowed reports whether the page's policy lets a form post to raw.
+func (s *Server) formAllowed(raw string) bool {
+	origin := formOrigin(raw)
+	if origin == "" {
+		return false
+	}
+	if self := formOrigin(s.cfg.Server.ExternalURL); self != "" && strings.EqualFold(self, origin) {
+		return true
+	}
+	for _, t := range s.formTargets {
+		if strings.EqualFold(t, origin) {
+			return true
+		}
+	}
+	return false
 }
 
 // limitBody caps how much of a request body a handler can be made to read.

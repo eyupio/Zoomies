@@ -93,6 +93,13 @@ func TestSecurityHeaders(t *testing.T) {
 		t.Log("the embedded UI is the placeholder, so there is no inline script to allow; " +
 			"run `make ui` to exercise the hashed-script path")
 	}
+	// The App manifest is a real form that posts to GitHub, and a form-action
+	// of 'self' alone makes the browser refuse it -- silently, as a new tab
+	// that opens on nothing. This is the directive that lets the connect flow
+	// leave the page.
+	if !strings.Contains(csp, "form-action 'self' https://github.com") {
+		t.Errorf("the CSP does not let a form post to github.com, so the App manifest flow cannot work: %s", csp)
+	}
 	if got := resp.header.Get("X-Content-Type-Options"); got != "nosniff" {
 		t.Errorf("X-Content-Type-Options = %q", got)
 	}
@@ -347,5 +354,23 @@ func TestCloudflareConnectingIPIsIgnoredFromAnUntrustedPeer(t *testing.T) {
 	}
 	if events[0].IP == "198.51.100.7" {
 		t.Fatal("an untrusted client's CF-Connecting-IP was believed")
+	}
+}
+
+// A controller configured against GitHub Enterprise Server posts its manifests
+// there, so that origin has to be in the policy too -- and only that origin,
+// derived from the API base, not a wildcard that would let an injected form
+// post anywhere.
+func TestSecurityHeadersLetTheManifestFormReachEnterpriseServer(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) {
+		c.GitHub.APIBaseURL = "https://ghes.example.com/api/v3/"
+	})
+	csp := h.do(request{method: http.MethodGet, path: "/"}).header.Get("Content-Security-Policy")
+
+	if !strings.Contains(csp, "form-action 'self' https://github.com https://ghes.example.com;") {
+		t.Errorf("the CSP does not name the Enterprise host the manifest posts to: %s", csp)
+	}
+	if strings.Contains(csp, "https:;") || strings.Contains(csp, "form-action 'self' https: ") {
+		t.Errorf("form-action must name origins, not a scheme: %s", csp)
 	}
 }

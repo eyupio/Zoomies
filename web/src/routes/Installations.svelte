@@ -247,6 +247,7 @@
   initialState={returnedState}
   initialInstallationId={returnedInstallationId}
   oncreated={() => (reload += 1)}
+  onexchanged={() => router.setQuery({ code: null, state: null })}
   onclose={clearReturnedParams}
 />
 
