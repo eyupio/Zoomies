@@ -166,6 +166,21 @@
   --z-motion-slow: 320ms;
   --z-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
 
+  /* Scrollbars ----------------------------------------------------------
+   * The one control the browser draws for us, and so the one that is easiest
+   * to leave too faint to find. The thumb borrows the weakest text colour,
+   * which is never below 4.1:1 light or 4.8:1 dark on any surface it can sit
+   * on -- past the 3:1 bar for a control -- and the column is wide enough to
+   * aim at. The track is a tint rather than a colour so it reads on a white
+   * card and a sunken well alike.
+   * ------------------------------------------------------------------ */
+  --z-scrollbar-size: 14px;
+  --z-scrollbar-inset: 3px;
+  --z-scrollbar-thumb: var(--z-text-subtle);
+  --z-scrollbar-thumb-hover: var(--z-text-muted);
+  --z-scrollbar-thumb-active: var(--z-text);
+  --z-scrollbar-track: rgb(8 12 20 / 0.06);
+
   /* Layout --------------------------------------------------------------- */
   --z-nav-width: 232px;
   --z-nav-width-collapsed: 56px;
@@ -248,6 +263,8 @@
     --z-shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.6);
     --z-shadow-lg: 0 16px 40px -8px rgb(0 0 0 / 0.7);
 
+    --z-scrollbar-track: rgb(255 255 255 / 0.07);
+
     color-scheme: dark;
   }
 }
@@ -308,6 +325,8 @@
   --z-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.5);
   --z-shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.6);
   --z-shadow-lg: 0 16px 40px -8px rgb(0 0 0 / 0.7);
+
+  --z-scrollbar-track: rgb(255 255 255 / 0.07);
 
   color-scheme: dark;
 }

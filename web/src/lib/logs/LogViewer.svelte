@@ -170,6 +170,12 @@
       selectionBackground: resolve('--z-accent-subtle'),
       selectionForeground: foreground,
       selectionInactiveBackground: resolve('--z-neutral-subtle'),
+      // xterm draws its own scrollbar rather than the browser's, so the theme's
+      // thumb has to be handed over; left alone it is a fifth of the foreground,
+      // the same faint sliver the rest of the UI has stopped drawing.
+      scrollbarSliderBackground: resolve('--z-scrollbar-thumb'),
+      scrollbarSliderHoverBackground: resolve('--z-scrollbar-thumb-hover'),
+      scrollbarSliderActiveBackground: resolve('--z-scrollbar-thumb-active'),
     };
     for (const [name, token] of Object.entries(ANSI)) {
       const colour = resolve(token);
