@@ -219,20 +219,15 @@ images](#jobs-that-build-container-images)) — each under four kinds of tag:
 
 | Tag | Points at | Published by |
 | --- | --- | --- |
-| `latest` | The tip of `main`, for now | `ci.yml`, on every push to `main` |
+| `latest` | The most recent release | `release.yml`, on a `v*` tag |
+| `vX.Y.Z` | One tagged release | `release.yml`, on a `v*` tag |
 | `main` | The tip of `main` | `ci.yml`, on every push to `main` |
 | `sha-<commit>` | One exact commit | `ci.yml`, on every push to `main` |
-| `vX.Y.Z` | One tagged release | `release.yml`, on a `v*` tag |
 
-`latest` is the default, and until the first release it is the same image as
-`main` — Zoomies has no `v*` tag yet, so there is no release for it to point at.
-It therefore moves on every merge. Pin `sha-<commit>` when you want an image
-that never changes at all.
-
-Once the first release is tagged, `latest` should go back to meaning "the last
-release": drop it from the `images` job in `ci.yml`, and let `release.yml` be
-the only thing that moves it. Leaving both in place means the next merge to
-`main` overwrites the release's `latest` with an untagged build.
+`latest` is the default and means the most recent release, so a pool that names
+no tag moves only when a release is cut, never on a merge. Pin `vX.Y.Z` to stay
+on one release, or `sha-<commit>` for an image that never changes at all. `main`
+is for running ahead of the releases, and moves with every merge.
 
 The runner images are only rebuilt when something that goes into them changes —
 `deploy/Dockerfile.runner` or `deploy/runner-entrypoint.sh` — so their `main` tag
