@@ -582,8 +582,8 @@ func TestDockerCreateUsesPoolPullPolicyAndResolvedDigest(t *testing.T) {
 	if pulls != 2 || firstResult.ImagePullDuration == nil || secondResult.ImagePullDuration == nil {
 		t.Fatalf("always policy pulled %d times; durations %v, %v", pulls, firstResult.ImagePullDuration, secondResult.ImagePullDuration)
 	}
-	if firstResult.Digest != first || secondResult.Digest != second || !slices.Equal(used, []string{first, second}) {
-		t.Fatalf("results %q/%q and create refs %v do not track moving tag", firstResult.Digest, secondResult.Digest, used)
+	if firstResult.Digest != first || secondResult.Digest != second || !slices.Equal(used, []string{"ghcr.io/acme/runner@" + first, "ghcr.io/acme/runner@" + second}) {
+		t.Fatalf("results %q/%q and create refs %v do not track the moving tag by a reference the daemon resolves", firstResult.Digest, secondResult.Digest, used)
 	}
 }
 
