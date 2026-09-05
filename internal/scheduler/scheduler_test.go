@@ -251,9 +251,49 @@ func TestMaxCreatesPerTickIsAFleetBudget(t *testing.T) {
 	if len(plan.Actions) != 1 || plan.Actions[0].PoolName != "aaa" {
 		t.Fatalf("the budget was not spent on the first pool by name: %+v", plan.Actions)
 	}
-	want := "cannot scale zzz 0 -> 1: this tick's limit of 1 new runner is used up; the next pass will continue"
+	want := "cannot scale zzz 0 -> 1: this tick's global limit of 1 new runner is exhausted; the next pass will continue"
 	if got := plan.Pools[1].Reason; got != want {
 		t.Fatalf("reason = %q, want %q", got, want)
+	}
+}
+
+func TestCreateBudgetIsRoundRobinAcrossUnequalShortfalls(t *testing.T) {
+	a, b, c := testPool("aaa", "aaa"), testPool("bbb", "bbb"), testPool("ccc", "ccc")
+	jobs := []*store.Job{queued("a1", time.Minute, "aaa"), queued("a2", time.Minute, "aaa"), queued("a3", time.Minute, "aaa"),
+		queued("b1", time.Minute, "bbb"), queued("c1", time.Minute, "ccc"), queued("c2", time.Minute, "ccc")}
+	s := snap([]*store.Pool{c, a, b}, nil, jobs, []*store.Host{testHost("host_a", 20, 0)})
+	s.Policy.MaxCreatesPerTick = 4
+
+	plan := Decide(s)
+	want := map[string]int{"aaa": 2, "bbb": 1, "ccc": 1}
+	for _, pp := range plan.Pools {
+		if got := countOf(pp.Actions, ActionCreate); got != want[pp.PoolName] {
+			t.Errorf("%s creates = %d, want %d", pp.PoolName, got, want[pp.PoolName])
+		}
+	}
+	if !strings.Contains(plan.Pools[2].Reason, "global limit") {
+		t.Fatalf("deferred pool reason = %q, want global budget", plan.Pools[2].Reason)
+	}
+}
+
+func TestCreateBudgetHonoursPriorityAndReportsCapacitySeparately(t *testing.T) {
+	highA, highB := testPool("high-a", "ha"), testPool("high-b", "hb")
+	low := testPool("low", "low")
+	highA.Priority, highB.Priority, low.Priority = 10, 10, 0
+	jobs := []*store.Job{queued("ha1", time.Minute, "ha"), queued("ha2", time.Minute, "ha"),
+		queued("hb1", time.Minute, "hb"), queued("hb2", time.Minute, "hb"), queued("low1", time.Minute, "low")}
+	s := snap([]*store.Pool{low, highB, highA}, nil, jobs, []*store.Host{testHost("host_a", 3, 0)})
+	s.Policy.MaxCreatesPerTick = 5
+
+	plan := Decide(s)
+	if countOf(plan.Pools[0].Actions, ActionCreate) != 2 || countOf(plan.Pools[1].Actions, ActionCreate) != 1 {
+		t.Fatalf("high-priority tier was not served round-robin: %+v", plan.Actions)
+	}
+	if plan.Pools[1].Blocked == "" || !strings.Contains(plan.Pools[1].Reason, "at capacity") {
+		t.Fatalf("capacity-deferred high pool = %+v, want host-capacity reason", plan.Pools[1])
+	}
+	if plan.Pools[2].Blocked == "" || !strings.Contains(plan.Pools[2].Reason, "at capacity") {
+		t.Fatalf("capacity-deferred low pool = %+v, want host-capacity reason", plan.Pools[2])
 	}
 }
 
