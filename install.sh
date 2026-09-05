@@ -953,11 +953,11 @@ if [ -n "$ELEVATE" ]; then
     field "" "it may ask for your password"
 fi
 if [ "$RUN_INIT" -eq 0 ]; then
-    field then "nothing -- --no-init was given, so setup is yours to run"
+    field "then" "nothing -- --no-init was given, so setup is yours to run"
 elif [ -n "$MODE" ]; then
-    field then "run \`zoomies init\` to set this host up as $MODE"
+    field "then" "run \`zoomies init\` to set this host up as $MODE"
 else
-    field then "run \`zoomies init\`, which asks what this host should be"
+    field "then" "run \`zoomies init\`, which asks what this host should be"
 fi
 if [ -n "$EXISTING" ]; then
     field keeps "your configuration, encryption key, database and runners"
