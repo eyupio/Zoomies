@@ -60,11 +60,10 @@ func (s *Server) handleSamples(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, newList(samples))
 }
 
-// problemsResponse is what GET /problems returns and what a problems.updated
-// frame carries; the controller renders both.
-type problemsResponse = controller.ProblemsView
-
 // handleProblems answers the UI's problems drawer.
+//
+// The body is controller.ProblemsView, which is also what a problems.updated
+// frame carries, so the drawer cannot see two shapes for the same list.
 func (s *Server) handleProblems(w http.ResponseWriter, r *http.Request) {
 	items, err := s.ctrl.Problems(r.Context())
 	if err != nil {
