@@ -180,6 +180,11 @@ func (i *Installer) appFromManifest(ctx context.Context, st *store.Store, key *c
 
 	i.ui.note("webhook URL   " + webhookURL)
 	i.ui.note("permissions   actions:read, metadata:read, " + runnerPermission(p.GitHub.TargetType) + ":write, event workflow_job")
+	// The migration wizard's three are named separately because they are the
+	// ones an operator may not expect a runner controller to ask for, and a
+	// permission list that quietly grew is worse than one that says why.
+	i.ui.note("              contents:write, pull_requests:write, workflows:write -- for the")
+	i.ui.note("              migration wizard, which rewrites runs-on lines by pull request")
 	i.ui.blank()
 	i.ui.note("Open this to create the App:")
 	i.ui.note("  " + srv.URL())

@@ -440,6 +440,11 @@
    * things somebody about to install an App on their organisation actually
    * wants to read. The promise "exactly the permissions it needs, and nothing
    * more" is worth more when it is followed by the list.
+   *
+   * The migration wizard's three are in that list because they are asked for
+   * at creation. Adding them afterwards is not a click: GitHub holds the
+   * change until the account's owner accepts it, and until then the wizard
+   * cannot read a single workflow.
    */
   const webhookURL = $derived(session.meta?.webhook_url ?? '');
   const permissions = $derived([
@@ -448,6 +453,9 @@
       : "organization_self_hosted_runners: write -- register and remove the org's runners",
     'actions: read -- read workflow runs and jobs for the fallback poller',
     'metadata: read -- required by GitHub for every App',
+    'contents: write -- read and rewrite workflow files for the migration wizard',
+    "pull_requests: write -- open the migration wizard's pull request",
+    'workflows: write -- required by GitHub to change files under .github/workflows',
     'workflow_job events -- the webhook that makes scaling instant',
   ]);
 

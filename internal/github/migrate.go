@@ -109,7 +109,7 @@ func (c *appClient) ListWorkflows(ctx context.Context, repo string) ([]WorkflowF
 		if errors.Is(e, ErrNotFound) {
 			return nil, fmt.Errorf("%s: %w", repo, ErrNoWorkflows)
 		}
-		return nil, c.decorate("list "+workflowDir+" in "+repo, e)
+		return nil, c.migrationError("list "+workflowDir+" in "+repo, e)
 	}
 
 	var out []WorkflowFile
@@ -136,7 +136,7 @@ func (c *appClient) ListWorkflows(ctx context.Context, repo string) ([]WorkflowF
 func (c *appClient) fileContent(ctx context.Context, owner, repo, filePath string) (string, error) {
 	file, _, resp, err := c.asInstallation.Repositories.GetContents(ctx, owner, repo, filePath, nil)
 	if err != nil {
-		return "", c.fail(fmt.Sprintf("read %s in %s/%s", filePath, owner, repo), resp, err)
+		return "", c.migrationError(fmt.Sprintf("read %s in %s/%s", filePath, owner, repo), classify(resp, err))
 	}
 	if file == nil {
 		return "", fmt.Errorf("github: read %s in %s/%s: GitHub returned a directory where a file was expected", filePath, owner, repo)
@@ -196,7 +196,7 @@ func (c *appClient) OpenPullRequest(ctx context.Context, req PullRequestRequest)
 		SHA: baseRef.GetObject().GetSHA(),
 	})
 	if err != nil {
-		return nil, c.decorate(fmt.Sprintf("create branch %s on %s", head, req.Repo), c.writeError(classify(resp, err)))
+		return nil, c.migrationError(fmt.Sprintf("create branch %s on %s", head, req.Repo), classify(resp, err))
 	}
 
 	message := strings.TrimSpace(req.CommitMessage)
@@ -214,7 +214,7 @@ func (c *appClient) OpenPullRequest(ctx context.Context, req PullRequestRequest)
 		}
 		_, resp, err := c.asInstallation.Repositories.UpdateFile(ctx, owner, name, f.Path, opts)
 		if err != nil {
-			return nil, c.decorate(fmt.Sprintf("commit %s to %s on %s", f.Path, head, req.Repo), c.writeError(classify(resp, err)))
+			return nil, c.migrationError(fmt.Sprintf("commit %s to %s on %s", f.Path, head, req.Repo), classify(resp, err))
 		}
 	}
 
@@ -225,32 +225,40 @@ func (c *appClient) OpenPullRequest(ctx context.Context, req PullRequestRequest)
 		Base:  gh.Ptr(base),
 	})
 	if err != nil {
-		return nil, c.decorate("open a pull request on "+req.Repo, c.writeError(classify(resp, err)))
+		return nil, c.migrationError("open a pull request on "+req.Repo, classify(resp, err))
 	}
 	return &PullRequest{Number: pr.GetNumber(), HTMLURL: pr.GetHTMLURL(), Branch: head}, nil
 }
 
-// writeError turns a 403 on one of the migration calls into the sentence that
-// actually fixes it.
+// migrationError turns a 403 on one of the migration calls into the sentence
+// that actually fixes it.
 //
 // The permission hint the rest of this package uses names the runner
-// permissions, which is the right answer everywhere except here: these three
-// calls need permissions Zoomies' own App manifest deliberately does not ask
-// for, and an operator sent to check "Self-hosted runners" would find it
-// correctly set and conclude Zoomies was broken.
-func (c *appClient) writeError(e error) error {
-	if e == nil || !errors.Is(e, ErrForbidden) {
-		return e
+// permissions, which is the right answer everywhere except here: these calls
+// need repository permissions an App created before Zoomies asked for them does
+// not hold, and an operator sent to check "Self-hosted runners" would find it
+// correctly set and conclude Zoomies was broken. Reading a workflow is wrapped
+// as well as writing one -- a scan that cannot read is the first thing an
+// operator hits, and "could not be read" with the runner hint under it sends
+// them to the wrong settings page 25 times over.
+func (c *appClient) migrationError(op string, e error) error {
+	if e == nil {
+		return nil
 	}
-	return fmt.Errorf("%w; %s", e, MigrationPermissionHint)
+	if errors.Is(e, ErrForbidden) {
+		return fmt.Errorf("github: %s: %w; %s", op, e, MigrationPermissionHint)
+	}
+	return errorf(op, e)
 }
 
-// MigrationPermissionHint names what an App needs before it can open a
-// migration pull request, in the words GitHub's own settings page uses.
-const MigrationPermissionHint = `the migration wizard needs three repository permissions the rest of Zoomies does not: ` +
+// MigrationPermissionHint names what an App needs before it can read a
+// repository's workflows and open a migration pull request, in the words
+// GitHub's own settings page uses.
+const MigrationPermissionHint = `the migration wizard needs three repository permissions: ` +
 	`"Contents" (contents) read and write, "Pull requests" (pull_requests) read and write, and ` +
 	`"Workflows" (workflows) write, which GitHub requires specifically to change files under .github/workflows. ` +
-	`Add them under the App's Permissions & events, then accept the change on the installation`
+	`An App created by Zoomies asks for all three at creation, so this one either predates that or had them ` +
+	`removed: add them under the App's Permissions & events, then accept the change on the installation`
 
 // MigrationPermissions is the same requirement as data: permission name to the
 // level needed. The API compares it against what an installation was granted so
