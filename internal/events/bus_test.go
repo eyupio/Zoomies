@@ -142,3 +142,28 @@ func TestContextCancellationUnsubscribes(t *testing.T) {
 		t.Errorf("subscribers = %d after cancellation, want 0", n)
 	}
 }
+
+// A subscriber closing while a publish is in flight is the everyday case: a
+// browser tab closes and its SSE handler's context ends while the reconcile
+// loop is announcing a state change. Sending on the closed channel panics,
+// and the loop that was publishing does not come back from a panic.
+func TestPublishRacesClose(t *testing.T) {
+	b := New()
+	for i := 0; i < 2000; i++ {
+		sub := b.Subscribe(context.Background(), SubscribeOptions{})
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			b.Publish(KindRunnerUpdated, "runner:r1", map[string]string{"id": "r1"})
+		}()
+		go func() {
+			defer wg.Done()
+			sub.Close()
+		}()
+		wg.Wait()
+	}
+	if n := b.Subscribers(); n != 0 {
+		t.Errorf("%d subscriptions leaked", n)
+	}
+}
