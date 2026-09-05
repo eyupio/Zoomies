@@ -274,6 +274,8 @@
   let installations = $state<Installation[]>([]);
   let installationsLoading = $state(true);
   let installationsError = $state<unknown>(null);
+  /** Bumped by the error state's retry, which re-runs the fetch below. */
+  let installationsAttempt = $state(0);
 
   let groups = $state<RunnerGroup[]>([]);
   let groupsLoading = $state(false);
@@ -334,6 +336,7 @@
   /* -- what the fleet and GitHub can offer --------------------------------- */
 
   $effect(() => {
+    void installationsAttempt;
     const controller = new AbortController();
     installationsLoading = true;
     installationsError = null;
@@ -490,6 +493,7 @@
           {installations}
           loading={installationsLoading}
           error={installationsError}
+          onretry={() => (installationsAttempt += 1)}
           {groups}
           {groupsLoading}
           {groupsError}

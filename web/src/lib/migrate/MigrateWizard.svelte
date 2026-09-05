@@ -68,6 +68,8 @@
   let installations = $state<Installation[]>([]);
   let loadingInstallations = $state(true);
   let installationsError = $state('');
+  /** Bumped by the error state's retry, which re-runs the fetch below. */
+  let installationsAttempt = $state(0);
   // Seeded from the query string once, then owned by the wizard: navigating
   // back to step one must not snap the choice back to whatever the link said.
   let selected = $state(untrack(() => installationId));
@@ -86,6 +88,9 @@
   let outcome = $state<MigrationOutcome | null>(null);
 
   $effect(() => {
+    void installationsAttempt;
+    loadingInstallations = true;
+    installationsError = '';
     void (async () => {
       try {
         const result = await listInstallations();
@@ -252,7 +257,11 @@
     <Skeleton width="100%" height="12rem" />
   </div>
 {:else if installationsError}
-  <ErrorState title="GitHub is not reachable" description={installationsError} />
+  <ErrorState
+    title="GitHub is not reachable"
+    description={installationsError}
+    onretry={() => (installationsAttempt += 1)}
+  />
 {:else if installations.length === 0}
   <ErrorState
     title="No installation to migrate"
