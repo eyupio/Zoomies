@@ -339,6 +339,12 @@
   }
   .scroll {
     overflow-x: auto;
+    /* The table is wider than a phone and scrolls inside this box, but a
+       mobile browser still counts what it clips towards the page's width,
+       grows the layout viewport to fit, and the fixed bottom navigation grows
+       with it -- so the whole page scrolls sideways. Paint containment says
+       what is clipped here stays here. */
+    contain: paint;
   }
   table {
     width: 100%;
