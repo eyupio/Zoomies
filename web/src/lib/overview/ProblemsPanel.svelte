@@ -22,9 +22,15 @@
   interface Props {
     loading?: boolean;
     class?: string;
+    /**
+     * True while the first-run checklist above is on screen. The all-clear line
+     * is then suppressed: two panels competing to explain the same emptiness is
+     * worse than one, and only one of them is right.
+     */
+    setupPending?: boolean;
   }
 
-  let { loading = false, class: className = '' }: Props = $props();
+  let { loading = false, setupPending = false, class: className = '' }: Props = $props();
 
   const ORDER: readonly Severity[] = ['error', 'warning', 'info'];
   const NOUN: Record<Severity, string> = {
@@ -33,6 +39,7 @@
     info: 'note',
   };
 
+  /** True while the first-run checklist is on screen saying what is missing. */
   const problems = $derived(fleet.problems);
   const clear = $derived(problems.length === 0 && fleet.problemsOk);
 
@@ -71,7 +78,16 @@
       <Skeleton width="12rem" height="var(--z-text-base)" />
     </div>
   {:else if clear}
-    <p class="quiet" aria-hidden="true">Nothing needs your attention.</p>
+    <!--
+      "Nothing needs your attention" is true of a working fleet and false of a
+      controller that cannot register a runner. The problems endpoint stays
+      deliberately quiet on an unconfigured instance -- an instance with no
+      installation is not yet misconfigured, it is unfinished -- so the line has
+      to stand down while the setup checklist above is the message.
+    -->
+    {#if !setupPending}
+      <p class="quiet" aria-hidden="true">Nothing needs your attention.</p>
+    {/if}
   {:else}
     <Panel title="Problems" description="Worst first, with the fix the controller suggests." flush>
       {#each groups as group (group.severity)}

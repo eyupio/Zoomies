@@ -15,9 +15,10 @@
   operator's fault.
 -->
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { Eye, EyeOff, TriangleAlert } from '@lucide/svelte';
   import { ApiError, oidcStartUrl } from '$lib/api/client';
+  import { authFailureText, sentence } from '$lib/errors';
   import { router } from '$lib/router';
   import { session } from '$lib/state/session.svelte';
   import Logo from '$lib/components/Logo.svelte';
@@ -42,7 +43,6 @@
   );
   let revealed = $state(false);
   let capsLock = $state(false);
-  let form = $state<HTMLFormElement | null>(null);
   let usernameInput = $state<HTMLInputElement | null>(null);
   let passwordInput = $state<HTMLInputElement | null>(null);
 
@@ -63,14 +63,6 @@
   $effect(() => {
     if (ssoFailure) router.setQuery({ error: null });
   });
-
-  /** The server's sentences are lowercase and terse; read them as a sentence. */
-  function sentence(text: string): string {
-    const trimmed = text.trim();
-    if (trimmed === '') return '';
-    const capitalised = trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
-    return /[.!?]$/.test(capitalised) ? capitalised : `${capitalised}.`;
-  }
 
   const usernameError = $derived(
     touched.username && username.trim() === '' ? 'Enter your username.' : undefined,
@@ -95,16 +87,7 @@
     if (failure.status === 429) {
       return 'Too many sign-in attempts from this address. Wait a minute, then try again.';
     }
-    if (failure.status === 401 || failure.status === 403) {
-      return sentence(failure.message);
-    }
-    if (failure.status === 0) {
-      return 'The controller did not answer. Check that it is running and that this address can reach it.';
-    }
-    if (failure.status >= 500) {
-      return 'The controller answered with an error. Its logs will say more than this page can.';
-    }
-    return failure.message;
+    return authFailureText(failure);
   });
 
   /*
@@ -137,7 +120,11 @@
     event.preventDefault();
     touched = { username: true, password: true };
     if (username.trim() === '' || password === '') {
-      form?.querySelector<HTMLInputElement>('input[aria-invalid="true"]')?.focus();
+      // Derived from the model, not from the DOM: Svelte batches state into a
+      // microtask, so a query for `aria-invalid="true"` here matches nothing on
+      // the first submit of an empty form -- which is precisely the keyboard
+      // user pressing Enter that this line exists for.
+      (username.trim() === '' ? usernameInput : passwordInput)?.focus();
       return;
     }
     submitting = true;
@@ -159,7 +146,10 @@
       password = '';
       touched = { ...touched, password: false };
       revealed = false;
-      passwordInput?.focus();
+      // After the flush: the failure box appears above the form and the field
+      // is emptied in the same update, and focus set before that lands on an
+      // element the render is about to move.
+      void tick().then(() => passwordInput?.focus());
     } finally {
       submitting = false;
     }
@@ -168,7 +158,7 @@
 
 <div class="card">
   <div class="brand">
-    <Logo variant="lockup" size={72} label="" />
+    <Logo variant="lockup" size={72} label="Zoomies" />
   </div>
 
   {#if meta?.auth_disabled}
@@ -193,7 +183,7 @@
       </p>
     {/if}
 
-    <form bind:this={form} onsubmit={submit} novalidate>
+    <form onsubmit={submit} novalidate>
       <Field label="Username" error={usernameError}>
         {#snippet children({ id, describedBy, invalid })}
           <Input
@@ -204,6 +194,8 @@
             {invalid}
             name="username"
             autocomplete="username"
+            autocapitalize="none"
+            spellcheck={false}
             disabled={submitting}
             onkeydown={readCapsLock}
             onblur={() => (touched = { ...touched, username: true })}
@@ -211,10 +203,14 @@
         {/snippet}
       </Field>
 
+      <!-- The caps-lock warning goes in `notice`, not `hint`: hint is the
+           branch Field drops the moment there is an error, which is exactly
+           when caps lock is most likely to be the reason for one. -->
       <Field
         label="Password"
+        hint="The one you chose when this controller was set up."
         error={passwordError}
-        hint={capsLock ? 'Caps lock is on.' : undefined}
+        notice={capsLock ? 'Caps lock is on.' : undefined}
       >
         {#snippet children({ id, describedBy, invalid })}
           <Input

@@ -51,6 +51,12 @@ ANSWERS=""
 RUN_INIT=1
 DO_UNINSTALL=0
 ASSUME_YES=0
+ALLOW_UNVERIFIED=0
+EXISTING_OTHER=""
+EXISTING_UNIT=""
+# Something worked out during argument parsing that belongs in the "Looking
+# around" report rather than above the banner.
+note_deferred=""
 
 # ---------------------------------------------------------------------------
 # Output
@@ -60,7 +66,10 @@ if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-dumb}" != "dumb" ]; then
     C_RESET=$(printf '\033[0m')
     C_DIM=$(printf '\033[2m')
     C_BOLD=$(printf '\033[1m')
-    C_ACCENT=$(printf '\033[38;5;99m')
+    # Runner Blue. 33 is the nearest entry in the 256-colour cube to #2F80ED;
+    # 99 was a violet that is in neither the brand palette nor the UI tokens,
+    # so the first fifteen minutes changed accent colour twice.
+    C_ACCENT=$(printf '\033[38;5;33m')
     C_OK=$(printf '\033[32m')
     C_WARN=$(printf '\033[33m')
     C_ERR=$(printf '\033[31m')
@@ -68,18 +77,41 @@ else
     C_RESET='' C_DIM='' C_BOLD='' C_ACCENT='' C_OK='' C_WARN='' C_ERR=''
 fi
 
+# Every line in this script starts in the same three-column gutter, so the
+# shape of the output is scannable before a word of it is read: `->` for a
+# step, `ok` for a result, `!!` for something the operator should look at.
+# Errors are the one message that has to be easiest to find, so they share the
+# gutter rather than starting at column 1 the way they used to.
 say()  { printf '%s\n' "$*"; }
 step() { printf '%s->%s %s\n' "$C_ACCENT" "$C_RESET" "$*"; }
 ok()   { printf '%s   ok%s %s\n' "$C_OK" "$C_RESET" "$*"; }
 note() { printf '%s      %s%s\n' "$C_DIM" "$*" "$C_RESET"; }
 warn() { printf '%s   !!%s %s\n' "$C_WARN" "$C_RESET" "$*" >&2; }
-die()  { printf '%s error:%s %s\n' "$C_ERR" "$C_RESET" "$*" >&2; exit 1; }
+die()  { printf '%s   xx%s %s\n' "$C_ERR" "$C_RESET" "$1" >&2; shift; hint "$@"; exit 1; }
+# hint prints the continuation lines of a warning or an error at the gutter's
+# own indent. The alternative -- six literal spaces inside the message string --
+# drifts silently the moment the gutter changes, and it did.
+hint() { for h in "$@"; do printf '%s      %s%s\n' "$C_DIM" "$h" "$C_RESET" >&2; done; }
+
+# A key/value line in the "Checking this host" table. One helper so no call
+# site hand-counts spaces, which is what let the port lines drift out of the
+# column everything else lines up in.
+field() { k="$1"; shift; printf '%s      %-12s%s%s\n' "$C_DIM" "$k" "$*" "$C_RESET"; }
 
 # Three lines, and every one of them says something. The dog is the mark; the
 # tagline is the product; the third line is where to look when this goes wrong.
 banner() {
-    printf '\n%s%s   ⟋●⟍%s   %s%sZoomies%s  %soff the lead, on the job%s\n' \
-        "$C_BOLD" "$C_ACCENT" "$C_RESET" "$C_BOLD" "$C_ACCENT" "$C_RESET" "$C_DIM" "$C_RESET"
+    # The mark is three characters no ASCII terminal has. A dumb terminal, or a
+    # locale that is not UTF-8, gets mojibake where the brand should be -- so it
+    # gets a plain stand-in instead.
+    mark='⟋●⟍'
+    case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
+        *UTF-8*|*utf8*|*UTF8*|*utf-8*) ;;
+        *) mark='[o]' ;;
+    esac
+    [ "${TERM:-dumb}" != "dumb" ] || mark='[o]'
+    printf '\n%s%s   %s%s   %s%sZoomies%s  %soff the lead, on the job%s\n' \
+        "$C_BOLD" "$C_ACCENT" "$mark" "$C_RESET" "$C_BOLD" "$C_ACCENT" "$C_RESET" "$C_DIM" "$C_RESET"
     printf '%s        %s  ephemeral GitHub Actions runners that clean up after themselves%s\n' \
         "$C_DIM" "$C_RESET" "$C_RESET"
     printf '%s           https://github.com/%s%s\n\n' "$C_DIM" "$REPO" "$C_RESET"
@@ -109,9 +141,14 @@ Options:
   --version <v>         Release to install (default: latest).
   --prefix <dir>        Where to put the binary (default: /usr/local/bin).
   --non-interactive     Never prompt. Requires --answers, or enough flags.
-  --answers <file>      YAML answer file for unattended setup.
+  --answers <file>      YAML answer file for unattended setup. Implies
+                        --non-interactive.
   --no-init             Install the binary only; do not run `zoomies init`.
-  --yes, -y             Assume yes for install-time confirmations.
+  --yes, -y             Do not ask before installing. Implied by
+                        --non-interactive.
+  --allow-unverified    Install even when the download's SHA-256 cannot be
+                        checked against the release's checksums.txt. Only for
+                        a private mirror that does not publish one.
   --uninstall           Run `zoomies uninstall`, then remove the binary.
   --help, -h            This.
 
@@ -141,36 +178,123 @@ Examples:
 EOF
 }
 
+# A flag whose value is missing is a typo, and it deserves the same error
+# format as everything else here. `${2:?...}` reports it as "install.sh: 154:
+# 2: --version needs a value", which names the shell's positional parameter
+# rather than the flag the operator typed, and exits 2 instead of 1.
+needs_value() {
+    # needs_value <flag> <args-remaining> <what it takes>
+    [ "$2" -ge 2 ] || die "$1 needs a value: $3."
+}
+
 while [ $# -gt 0 ]; do
     case "$1" in
-        --mode)        MODE="${2:?--mode needs a value}"; shift 2 ;;
+        --mode)        needs_value --mode $# "single, controller or agent"; MODE="$2"; shift 2 ;;
         --mode=*)      MODE="${1#*=}"; shift ;;
-        --deployment)  DEPLOYMENT="${2:?--deployment needs a value}"; shift 2 ;;
+        --deployment)  needs_value --deployment $# "native, compose or docker"; DEPLOYMENT="$2"; shift 2 ;;
         --deployment=*) DEPLOYMENT="${1#*=}"; shift ;;
-        --controller)  CONTROLLER_URL="${2:?--controller needs a URL}"; shift 2 ;;
+        --controller)  needs_value --controller $# "the controller's URL"; CONTROLLER_URL="$2"; shift 2 ;;
         --controller=*) CONTROLLER_URL="${1#*=}"; shift ;;
-        --join-token)  JOIN_TOKEN="${2:?--join-token needs a value}"; shift 2 ;;
+        --join-token)  needs_value --join-token $# "a token that starts zoojoin_"; JOIN_TOKEN="$2"; shift 2 ;;
         --join-token=*) JOIN_TOKEN="${1#*=}"; shift ;;
-        --version)     VERSION="${2:?--version needs a value}"; shift 2 ;;
+        --version)     needs_value --version $# "a release tag such as v1.2.3, or latest"; VERSION="$2"; shift 2 ;;
         --version=*)   VERSION="${1#*=}"; shift ;;
-        --prefix)      PREFIX="${2:?--prefix needs a value}"; shift 2 ;;
+        --prefix)      needs_value --prefix $# "a directory to install the binary into"; PREFIX="$2"; shift 2 ;;
         --prefix=*)    PREFIX="${1#*=}"; shift ;;
-        --answers)     ANSWERS="${2:?--answers needs a path}"; NON_INTERACTIVE=1; shift 2 ;;
+        --answers)     needs_value --answers $# "a path to a YAML answer file"; ANSWERS="$2"; NON_INTERACTIVE=1; shift 2 ;;
         --answers=*)   ANSWERS="${1#*=}"; NON_INTERACTIVE=1; shift ;;
-        --non-interactive) NON_INTERACTIVE=1; shift ;;
+        # --yes is implied, and has to be: an unattended run has nobody to
+        # answer a confirmation, and the one that guards a same-version
+        # reinstall would otherwise exit 0 without ever reaching `zoomies init`
+        # -- reporting a host as configured that was never touched.
+        --non-interactive) NON_INTERACTIVE=1; ASSUME_YES=1; shift ;;
         --no-init)     RUN_INIT=0; shift ;;
         --uninstall)   DO_UNINSTALL=1; shift ;;
         -y|--yes)      ASSUME_YES=1; shift ;;
+        --allow-unverified) ALLOW_UNVERIFIED=1; shift ;;
         -h|--help)     usage; exit 0 ;;
         *)             die "unknown option: $1 (try --help)" ;;
     esac
 done
 
 # ---------------------------------------------------------------------------
+# The answers we already have, checked before anything is downloaded
+#
+# A value this script does not understand used to travel all the way through a
+# release lookup, a 25 MB download and a system write before `zoomies init`
+# rejected it. Every check below is one this script can make in a millisecond,
+# so it makes it first.
+# ---------------------------------------------------------------------------
+
+case "$MODE" in
+    ""|single|controller|agent) ;;
+    *) die "\"$MODE\" is not an install mode; use single, controller or agent." \
+            "single      a controller with an embedded agent -- one VM, the common case" \
+            "controller  a controller that runner hosts join" \
+            "agent       a runner host that joins an existing controller" ;;
+esac
+
+case "$DEPLOYMENT" in
+    ""|native|compose|docker) ;;
+    *) die "\"$DEPLOYMENT\" is not a deployment; use native, compose or docker." \
+            "native   the binary under systemd or launchd" \
+            "compose  a docker-compose.yml and a populated .env" \
+            "docker   a single container with an env file" ;;
+esac
+
+case "$VERSION" in
+    *[!A-Za-z0-9._-]*) die "--version $VERSION does not look like a release tag. Try latest, or v1.2.3." ;;
+esac
+
+if [ -n "$ANSWERS" ] && [ ! -r "$ANSWERS" ]; then
+    die "the answer file $ANSWERS cannot be read." \
+        "\`zoomies init --print-answers\` writes an annotated one you can start from."
+fi
+
+# An agent has nothing to prompt for and nothing to guess: it needs a
+# controller to join and a token to join it with. Interactively `zoomies init`
+# asks; with no terminal there is nobody to ask, so say it now rather than
+# after the download.
+if [ "$MODE" = agent ] && [ "$NON_INTERACTIVE" -eq 1 ] && [ -z "$ANSWERS" ]; then
+    [ -n "$CONTROLLER_URL" ] ||
+        die "--mode agent --non-interactive also needs --controller <url>." \
+            "It is the address the Hosts -> Add a host page shows."
+    [ -n "$JOIN_TOKEN" ] ||
+        die "--mode agent --non-interactive also needs --join-token <token>." \
+            "Mint one on the Hosts page, or with \`zoomies hosts join-token create --ttl 15m\`."
+fi
+
+# Flags that only mean something for an agent, on a host that is not one.
+# Silently ignoring them is how an operator ends up believing a host joined a
+# controller it has never heard of.
+if [ "$MODE" != agent ] && { [ -n "$CONTROLLER_URL" ] || [ -n "$JOIN_TOKEN" ]; }; then
+    if [ -z "$MODE" ]; then
+        MODE=agent
+        note_deferred="--controller/--join-token were given, so this host is being set up as an agent."
+    else
+        die "--controller and --join-token belong to --mode agent, and this is --mode $MODE." \
+            "Drop them, or pass --mode agent to join this host to a controller."
+    fi
+fi
+
+if [ "$DO_UNINSTALL" -eq 1 ] && [ "$RUN_INIT" -eq 0 ]; then
+    warn "--no-init has no meaning alongside --uninstall; ignoring it."
+fi
+
+# ---------------------------------------------------------------------------
 # Detection -- never ask what we can find out
 # ---------------------------------------------------------------------------
 
 have() { command -v "$1" >/dev/null 2>&1; }
+
+# Whether there is a controlling terminal to ask questions on.
+#
+# `[ -r /dev/tty ]` tests the device node's permission bits, which are readable
+# in a container, a CI job and a cloud-init run that have no terminal at all --
+# so the old check passed and the open then failed with ENXIO *after* the
+# binary was installed, leaving `cannot open /dev/tty` as the last word. Only
+# opening it actually answers the question.
+have_tty() { (exec 3</dev/tty) 2>/dev/null; }
 
 detect_platform() {
     OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -286,10 +410,14 @@ docker_ok() {
 # Compose v2 is a docker subcommand; v1 was a separate binary. Both are still
 # in the field, so both are accepted and the one found is passed through rather
 # than re-derived later.
+# Compose is worth reporting whenever it is installed, not only when the
+# socket happens to be reachable: a stopped daemon is a fixable thing, and
+# `zoomies init` re-detects compose regardless -- so restricting this to a live
+# docker socket only made the two halves of one install disagree on screen.
 detect_compose() {
     COMPOSE_CMD=""
     case "$RUNTIME" in
-        docker) ;;
+        docker|docker-unavailable|podman|podman-unavailable) ;;
         *) return 0 ;;
     esac
     if have docker && docker compose version >/dev/null 2>&1; then
@@ -299,6 +427,9 @@ detect_compose() {
     fi
 }
 
+# Sets PORT_CHECKED to 0 when neither tool is installed, so the report can say
+# that the check did not happen rather than implying the port is free.
+PORT_CHECKED=1
 port_free() {
     p="$1"
     if have ss; then
@@ -309,37 +440,155 @@ port_free() {
         if netstat -ltn 2>/dev/null | grep -qE "[:.]${p}[[:space:]]"; then
             return 1
         fi
+    else
+        PORT_CHECKED=0
     fi
     # Neither tool is present, so we cannot tell. Say the port is free rather
-    # than blocking an install on a check we were unable to make.
+    # than blocking an install on a check we were unable to make -- but
+    # PORT_CHECKED records that nobody looked, because silence that reads as
+    # "all clear" is worse than admitting the gap.
     return 0
 }
 
+# Run a command as root, by whichever route this host has. One helper, because
+# the install path used to check for sudo and doas carefully while the
+# uninstall path called `sudo` bare -- so `--uninstall` on a doas host ended in
+# `sudo: not found` rather than in this script's own message.
+run_privileged() {
+    if [ "$(id -u)" = 0 ]; then
+        "$@"
+    elif have sudo; then
+        sudo "$@"
+    elif have doas; then
+        doas "$@"
+    else
+        die "this needs root, and neither sudo nor doas is installed." \
+            "Re-run it as root."
+    fi
+}
+
+# Work out now whether the binary can be written at all, and with what.
+#
+# This used to be discovered after the download, which meant an operator with
+# no sudo on a locked-down host watched 25 MB arrive before being told the
+# install was never going to happen. Sets ELEVATE to the command that will do
+# the writing, or empty for a plain move.
+preflight_prefix() {
+    ELEVATE=""
+    dir="$PREFIX"
+    # A prefix that does not exist yet is the parent's problem to permit.
+    while [ ! -d "$dir" ] && [ "$dir" != "/" ] && [ "$dir" != "." ]; do
+        dir=$(dirname "$dir")
+    done
+    [ -d "$dir" ] || die "$PREFIX does not exist and neither does anything above it."
+    [ -w "$dir" ] && return 0
+    if have sudo; then
+        ELEVATE="sudo"
+    elif have doas; then
+        ELEVATE="doas"
+    else
+        die "$PREFIX is not writable by $(id -un), and neither sudo nor doas is installed." \
+            "Re-run this as root, or install somewhere you own:" \
+            "  sh install.sh --prefix \"\$HOME/.local/bin\""
+    fi
+}
+
+# Sets EXISTING, EXISTING_VERSION and EXISTING_RUNNING.
+#
+# The last one matters more than it looks: replacing the file under a running
+# service leaves the old build running on the old inode, so an install that
+# reports success has changed nothing the operator can see until the service is
+# restarted. Saying so is the difference between an upgrade and a mystery.
 detect_existing() {
     EXISTING=""
     EXISTING_VERSION=""
-    for p in "$PREFIX/zoomies" /usr/local/bin/zoomies /usr/bin/zoomies; do
+    EXISTING_RUNNING=0
+    # `command -v` is consulted too, because the script's own advice for an
+    # unprivileged host is --prefix "$HOME/.local/bin" -- and an operator who
+    # took it was then told Zoomies was not installed.
+    on_path=$(command -v zoomies 2>/dev/null || printf '')
+    for p in "$PREFIX/zoomies" "$on_path" /usr/local/bin/zoomies /usr/bin/zoomies; do
+        [ -n "$p" ] || continue
         if [ -x "$p" ]; then
             EXISTING="$p"
             EXISTING_VERSION=$("$p" version --short 2>/dev/null || printf 'unknown')
             break
         fi
     done
+    [ -n "$EXISTING" ] || return 0
+
+    # Two copies on one host is a real state, and the one the shell runs is not
+    # necessarily the one being replaced.
+    if [ -n "$on_path" ] && [ "$on_path" != "$PREFIX/zoomies" ] && [ -x "$PREFIX/zoomies" ]; then
+        EXISTING_OTHER="$on_path"
+    fi
+
+    # Both units, because a runner host runs zoomies-agent and no controller.
+    # The names come from internal/installer/service.go -- UnitController,
+    # UnitAgent, and the launchd labels -- rather than being guessed at.
+    case "$INIT_SYSTEM" in
+        systemd)
+            if systemctl is-active --quiet zoomies 2>/dev/null; then
+                EXISTING_RUNNING=1
+                EXISTING_UNIT=zoomies
+            elif systemctl is-active --quiet zoomies-agent 2>/dev/null; then
+                EXISTING_RUNNING=1
+                EXISTING_UNIT=zoomies-agent
+            fi
+            ;;
+        launchd)
+            for label in sh.zoomies.controller sh.zoomies.agent; do
+                # A non-root install's job is in the user domain, not system/.
+                if launchctl print "system/$label" >/dev/null 2>&1 ||
+                   launchctl print "gui/$(id -u)/$label" >/dev/null 2>&1; then
+                    EXISTING_RUNNING=1
+                    EXISTING_UNIT="$label"
+                    break
+                fi
+            done
+            ;;
+    esac
+}
+
+# Restarting is spelled differently on each init system, and an operator who
+# has just been told their upgrade has not taken effect should not have to look
+# the command up.
+restart_hint() {
+    unit="${EXISTING_UNIT:-zoomies}"
+    case "$INIT_SYSTEM" in
+        systemd) printf 'sudo systemctl restart %s' "$unit" ;;
+        launchd)
+            if [ "$(id -u)" = 0 ]; then
+                printf 'sudo launchctl kickstart -k system/%s' "$unit"
+            else
+                printf 'launchctl kickstart -k gui/%s/%s' "$(id -u)" "$unit"
+            fi
+            ;;
+        openrc)  printf 'sudo rc-service %s restart' "$unit" ;;
+        *)       printf 'restart the zoomies process' ;;
+    esac
 }
 
 # ---------------------------------------------------------------------------
 # Download
 # ---------------------------------------------------------------------------
 
+# fetch <url> <dest>. Sets FETCH_ERROR to whatever the transfer tool said, so
+# the caller can put it under its own message rather than letting curl print
+# `curl: (22) The requested URL returned error: 404` above it -- unbranded,
+# outside the gutter, and the first thing the operator's eye lands on.
+FETCH_ERROR=""
 fetch() {
-    # fetch <url> <dest>
+    FETCH_ERROR=""
     if have curl; then
-        curl -fsSL --retry 3 --retry-delay 1 -o "$2" "$1"
+        FETCH_ERROR=$(curl -fsSL --retry 3 --retry-delay 1 -o "$2" "$1" 2>&1) && return 0
     elif have wget; then
-        wget -qO "$2" "$1"
+        FETCH_ERROR=$(wget -qO "$2" "$1" 2>&1) && return 0
     else
-        die "neither curl nor wget is installed; one of them is needed to download Zoomies."
+        die "neither curl nor wget is installed." \
+            "Install one of them, then run this again."
     fi
+    return 1
 }
 
 fetch_stdout() {
@@ -392,44 +641,93 @@ install_binary() {
 
     step "Downloading $asset $tag"
     fetch "$url" "$tmp/zoomies" ||
-        die "could not download $url
-      Check that $tag exists at $BASE_URL and that this host can reach it."
+        die "could not download $asset $tag." \
+            "$url" \
+            "${FETCH_ERROR:-the transfer failed with no message.}" \
+            "Check that $tag exists at $BASE_URL," \
+            "and that this host can reach it."
 
+    # A download that cannot be verified is refused, not warned about. All
+    # three ways verification can fail to happen used to print one dim line and
+    # carry on -- and on the `curl | sh` path that line scrolls away above the
+    # sudo password prompt, so nobody ever saw it. --allow-unverified is the
+    # deliberate opt-in for a private mirror that publishes no checksums.
     step "Verifying the checksum"
+    unverified=""
     if sums=$(fetch_stdout "$BASE_URL/download/$tag/checksums.txt" 2>/dev/null) && [ -n "$sums" ]; then
         want=$(printf '%s\n' "$sums" | awk -v a="$asset" '$2 == a || $2 == "*"a {print $1; exit}')
         got=$(sha256_of "$tmp/zoomies")
         if [ -z "$want" ]; then
-            warn "checksums.txt has no entry for $asset; cannot verify this download."
+            unverified="checksums.txt has no entry for $asset."
         elif [ -z "$got" ]; then
-            warn "no sha256sum, shasum or openssl on this host; cannot verify this download."
+            unverified="no sha256sum, shasum or openssl on this host to hash the download with."
         elif [ "$want" != "$got" ]; then
-            die "checksum mismatch for $asset.
-      expected $want
-      got      $got
-      Do not run this binary. Try again, and if it happens twice, report it."
+            die "checksum mismatch for $asset." \
+                "expected $want" \
+                "got      $got" \
+                "Do not run this binary. Try again, and if it happens twice, report it."
         else
             ok "sha256 ${got%"${got#????????}"}... matches"
         fi
     else
-        warn "could not fetch checksums.txt; skipping verification."
+        unverified="$BASE_URL/download/$tag/checksums.txt could not be fetched."
+    fi
+
+    if [ -n "$unverified" ]; then
+        if [ "$ALLOW_UNVERIFIED" -eq 1 ]; then
+            warn "installing an unverified binary: $unverified"
+        else
+            die "this download cannot be verified: $unverified" \
+                "Zoomies will not install a binary it has not checked." \
+                "If this is a mirror that publishes no checksums, pass --allow-unverified."
+        fi
     fi
 
     chmod +x "$tmp/zoomies"
 
+    # preflight_prefix already settled whether this can be written and with
+    # what, before the download, so there is nothing left here to discover.
     step "Installing to $PREFIX/zoomies"
-    if [ -w "$PREFIX" ]; then
-        mv "$tmp/zoomies" "$PREFIX/zoomies"
-    elif have sudo; then
-        note "$PREFIX needs root; using sudo"
-        sudo install -m 0755 "$tmp/zoomies" "$PREFIX/zoomies"
-    elif have doas; then
-        doas install -m 0755 "$tmp/zoomies" "$PREFIX/zoomies"
+    if [ -n "$ELEVATE" ]; then
+        run_privileged mkdir -p "$PREFIX" || die "could not create $PREFIX."
+        run_privileged install -m 0755 "$tmp/zoomies" "$PREFIX/zoomies" ||
+            die "could not write $PREFIX/zoomies."
     else
-        die "$PREFIX is not writable and neither sudo nor doas is available.
-      Re-run as root, or use --prefix \"\$HOME/.local/bin\"."
+        mkdir -p "$PREFIX" || die "could not create $PREFIX."
+        install -m 0755 "$tmp/zoomies" "$PREFIX/zoomies" ||
+            die "could not write $PREFIX/zoomies."
     fi
-    ok "$("$PREFIX/zoomies" version --short 2>/dev/null || printf '%s' "$tag") installed"
+    # A download that is not what it claims to be -- a mirror serving an HTML
+    # error page with a 200, the wrong architecture, a truncated transfer --
+    # used to be papered over here by `|| printf "$tag"`, and the operator's
+    # next line was the shell's "Exec format error" from the handoff.
+    if ! NEW_VERSION=$("$PREFIX/zoomies" version --short 2>/dev/null); then
+        if ! "$PREFIX/zoomies" --help >/dev/null 2>&1; then
+            die "$PREFIX/zoomies was written, but it will not run on this host." \
+                "The download may be for the wrong architecture ($OS/$ARCH was detected)," \
+                "or it may be incomplete. Try again, and if it happens twice, report it."
+        fi
+        NEW_VERSION="$tag"
+    fi
+    if [ -n "$EXISTING_VERSION" ] && [ "$EXISTING_VERSION" != "$NEW_VERSION" ]; then
+        ok "$EXISTING_VERSION replaced by $NEW_VERSION"
+    else
+        ok "$NEW_VERSION installed"
+    fi
+    if [ "$EXISTING_RUNNING" -eq 1 ]; then
+        # The running process still holds the old inode, so nothing an operator
+        # can see has changed yet.
+        note "the running service is still on the old build; pick this one up with:"
+        note "  $(restart_hint)"
+    fi
+
+    # A prefix off the operator's PATH is a working install they cannot run,
+    # and the symptom -- "zoomies: command not found" straight after a
+    # successful install -- looks like the install failed.
+    case ":${PATH}:" in
+        *":$PREFIX:"*) ;;
+        *) note "$PREFIX is not on your PATH; add it, or run $PREFIX/zoomies by its full path" ;;
+    esac
 
     # The script ends in an exec, which never runs the EXIT trap, so the
     # download directory -- and, on the sudo path, the whole binary -- would be
@@ -445,21 +743,39 @@ install_binary() {
 
 do_uninstall() {
     detect_existing
-    [ -n "$EXISTING" ] || die "Zoomies does not appear to be installed."
+    [ -n "$EXISTING" ] || die "Zoomies does not appear to be installed." \
+        "If it went somewhere else, name it: sh install.sh --uninstall --prefix <dir>."
     step "Removing Zoomies"
     note "this runs \`zoomies uninstall\`, which stops the service, removes the"
     note "unit, the service user and the data directory, and can deregister"
     note "your runners from GitHub first."
     args=""
     [ "$ASSUME_YES" -eq 1 ] && args="--yes"
+
+    # `zoomies uninstall` asks before it removes anything, and this script is
+    # most often reached through a pipe -- which leaves stdin consumed, so the
+    # question is answered by EOF, the uninstall reports "nothing was removed",
+    # and set -e stops us before the binary is deleted. The same /dev/tty that
+    # carries the setup interview carries this one.
+    if [ "$ASSUME_YES" -eq 0 ] && [ ! -t 0 ]; then
+        if have_tty; then
+            exec 0</dev/tty
+        else
+            die "there is no terminal here to confirm a removal on." \
+                "Re-run with --yes to remove Zoomies unattended."
+        fi
+    fi
+
     if [ -w "$EXISTING" ] || [ "$(id -u)" = 0 ]; then
         # shellcheck disable=SC2086
         "$EXISTING" uninstall $args
     else
         # shellcheck disable=SC2086
-        sudo "$EXISTING" uninstall $args
+        run_privileged "$EXISTING" uninstall $args
     fi
-    if [ -w "$(dirname "$EXISTING")" ]; then rm -f "$EXISTING"; else sudo rm -f "$EXISTING"; fi
+    # Only once the uninstall actually succeeded -- set -e achieves that today
+    # by accident, and an accident is a poor guard on a delete.
+    if [ -w "$(dirname "$EXISTING")" ]; then rm -f "$EXISTING"; else run_privileged rm -f "$EXISTING"; fi
     ok "removed $EXISTING"
     exit 0
 }
@@ -476,15 +792,27 @@ detect_compose
 
 [ "$DO_UNINSTALL" -eq 1 ] && do_uninstall
 
-step "Looking around"
-note "os          $OS/$ARCH ($DISTRO)"
-note "init        $INIT_SYSTEM"
+# ---------------------------------------------------------------------------
+# What this host is, and what that means for the install about to happen
+#
+# `zoomies init` prints its own, fuller environment report a few seconds later,
+# so this one deliberately covers only what bears on the download and the write
+# -- and says what each finding costs, rather than reporting a fact and leaving
+# the operator to work out whether it matters.
+# ---------------------------------------------------------------------------
+
+step "Checking this host"
+field os "$OS/$ARCH ($DISTRO)"
+case "$INIT_SYSTEM" in
+    none) field init "none -- nothing here will restart Zoomies after a reboot" ;;
+    *)    field init "$INIT_SYSTEM" ;;
+esac
 case "$RUNTIME" in
     docker|podman)
         if [ "$RUNTIME_ROOTLESS" -eq 1 ]; then
-            note "runtime     $RUNTIME, rootless -- $RUNTIME_SOCKET"
+            field runtime "$RUNTIME, rootless -- $RUNTIME_SOCKET"
         else
-            note "runtime     $RUNTIME, root -- $RUNTIME_SOCKET"
+            field runtime "$RUNTIME, root -- $RUNTIME_SOCKET"
         fi
         ;;
     docker-unavailable)
@@ -497,44 +825,179 @@ case "$RUNTIME" in
             denied_group=$(stat -c '%G' "$RUNTIME_DENIED" 2>/dev/null \
                 || stat -f '%Sg' "$RUNTIME_DENIED" 2>/dev/null \
                 || echo docker)
-            note "runtime     docker is running but $RUNTIME_DENIED is not usable by $(id -un)"
-            note "            it is owned by group $denied_group; setup adds the service account to that group,"
-            note "            and for your own shell: sudo usermod -aG $denied_group $(id -un), then log in again"
+            field runtime "docker is running, but $RUNTIME_DENIED is not yours to open"
+            field "" "it belongs to group $denied_group. Setup adds the service account"
+            field "" "to it; for your own shell, sudo usermod -aG $denied_group $(id -un),"
+            field "" "then log in again."
         else
-            note "runtime     docker is installed but its socket is not reachable"
-            note "            try: sudo systemctl start docker  (or start rootless: systemctl --user start docker)"
+            field runtime "docker is installed, but its socket is not answering"
+            field "" "start it: sudo systemctl start docker"
+            field "" "or rootless: systemctl --user start docker"
         fi
+        field "" "native works regardless; compose and docker need this fixed."
         ;;
     podman-unavailable)
-        note "runtime     podman is installed but its API socket is not running"
-        note "            try: systemctl --user enable --now podman.socket"
+        field runtime "podman is installed, but its API socket is not running"
+        field "" "start it: systemctl --user enable --now podman.socket"
+        field "" "native works regardless; compose and docker need this fixed."
         ;;
     *)
-        note "runtime     none found -- the process backend will run jobs directly on this host"
+        field runtime "none -- jobs would run directly on this host, unisolated"
         ;;
 esac
 if [ -n "$COMPOSE_CMD" ]; then
-    note "compose     $COMPOSE_CMD"
+    field compose "$COMPOSE_CMD"
 fi
 for p in 8080 443; do
-    port_free "$p" || note "port $p     already in use; setup will offer another"
+    port_free "$p" || field ports "$p is already in use; setup will offer another"
 done
+if [ "$PORT_CHECKED" -eq 0 ]; then
+    field ports "not checked -- no ss or netstat here"
+fi
 
+# A missing downloader surfaces as "could not work out the latest release",
+# which sends the operator to look at their network and at a --version flag
+# that fails the same way one step later. It is a missing package, and saying
+# so is one line.
+if ! have curl && ! have wget; then
+    die "neither curl nor wget is installed, and one of them is needed to download Zoomies." \
+        "Debian or Ubuntu:  sudo apt install curl" \
+        "Alpine:            sudo apk add curl" \
+        "Fedora:            sudo dnf install curl"
+fi
+
+# ~40 MB of binary lands in $TMPDIR and is then copied into $PREFIX. A full
+# /tmp otherwise surfaces as a truncated download and therefore a checksum
+# mismatch, carrying "Do not run this binary ... report it" for what is a disk
+# problem.
+check_space() {
+    have df || return 0
+    free=$(df -Pk "$1" 2>/dev/null | awk 'NR==2 {print $4}')
+    [ -n "$free" ] || return 0
+    [ "$free" -ge 102400 ] ||
+        die "$1 has only $((free / 1024)) MB free, and Zoomies needs about 100 MB." \
+            "Free some space there, or point TMPDIR somewhere with room."
+}
+check_space "${TMPDIR:-/tmp}"
+
+preflight_prefix
 detect_existing
 if [ -n "$EXISTING" ]; then
-    note "installed   $EXISTING_VERSION at $EXISTING"
-    say ""
-    step "Zoomies is already installed -- this will upgrade it in place."
-    note "your configuration, database and runners are left alone."
+    if [ "$EXISTING_RUNNING" -eq 1 ]; then
+        field installed "$EXISTING_VERSION at $EXISTING, and running"
+    else
+        field installed "$EXISTING_VERSION at $EXISTING"
+    fi
+fi
+if [ -n "$EXISTING_OTHER" ]; then
+    field "" "your shell runs $EXISTING_OTHER, which this install does not replace"
+fi
+[ -z "$note_deferred" ] || field "" "$note_deferred"
+say ""
+
+# ---------------------------------------------------------------------------
+# There has to be somebody to ask
+#
+# `zoomies init` is a conversation, and a host with no controlling terminal
+# cannot have one. This used to be found out after the binary was installed, by
+# which point the last line on screen was `cannot open /dev/tty` and the host
+# was half set up -- exactly the automated contexts where nobody is watching.
+# ---------------------------------------------------------------------------
+if [ "$RUN_INIT" -eq 1 ] && [ "$NON_INTERACTIVE" -eq 0 ] && ! have_tty; then
+    die "there is no terminal here to run the interactive setup on." \
+        "Choose one of:" \
+        "  --no-init                         install the binary now, and run \`zoomies init\` yourself later" \
+        "  --non-interactive --answers FILE  unattended setup" \
+        "     \`zoomies init --print-answers\` writes an annotated file to start from."
+fi
+
+resolve_version
+
+# ---------------------------------------------------------------------------
+# Say what is about to happen, then ask
+#
+# Between the banner and the first change to this host there used to be nothing
+# -- `curl | sh` went straight from detection to writing an executable into
+# /usr/local/bin with sudo. One honest checkpoint, skipped by --yes and by
+# --non-interactive, is what makes that a decision rather than a surprise.
+# ---------------------------------------------------------------------------
+
+# `zoomies version --short` prints "1.4.0 (abc1234)"; the tag is "v1.4.0". Both
+# are reduced to bare digits before they are compared, so the two spellings of
+# one version are not mistaken for two versions.
+INSTALLED_TAG="${EXISTING_VERSION%% *}"
+INSTALLED_TAG="${INSTALLED_TAG#v}"
+WANTED_TAG="${VERSION#v}"
+
+# Same version, nothing asked for: there is nothing to do, and saying so beats
+# re-downloading 27 MB to arrive back where we started.
+if [ -n "$INSTALLED_TAG" ] && [ "$INSTALLED_TAG" = "$WANTED_TAG" ] && [ "$ASSUME_YES" -eq 0 ]; then
+    ok "$EXISTING_VERSION is already installed at $EXISTING."
+    note "to set this host up, run: zoomies init"
+    note "to reinstall the same version anyway, add --yes"
+    exit 0
+fi
+
+step "About to"
+if [ -n "$EXISTING" ]; then
+    field install "$VERSION over $EXISTING_VERSION, at $PREFIX/zoomies"
+else
+    field install "zoomies $VERSION ($OS/$ARCH) to $PREFIX/zoomies"
+fi
+if [ -n "$ELEVATE" ]; then
+    if [ "$RUN_INIT" -eq 1 ] && [ "$OS" = linux ] && [ "$MODE" != agent ]; then
+        field privilege "$ELEVATE, to write to $PREFIX and to install the service"
+    else
+        field privilege "$ELEVATE, to write to $PREFIX"
+    fi
+    field "" "it may ask for your password"
+fi
+if [ "$RUN_INIT" -eq 0 ]; then
+    field "then" "nothing -- --no-init was given, so setup is yours to run"
+elif [ -n "$MODE" ]; then
+    field "then" "run \`zoomies init\` to set this host up as $MODE"
+else
+    field "then" "run \`zoomies init\`, which asks what this host should be"
+fi
+if [ -n "$EXISTING" ]; then
+    field keeps "your configuration, encryption key, database and runners"
+else
+    field keeps "nothing under /etc/zoomies or /var/lib/zoomies is touched by this script"
 fi
 say ""
 
-resolve_version
+# A downgrade is a decision, not a step, because a database written by a newer
+# build may not be readable by an older one. `sort -V` is GNU and BusyBox only
+# -- BSD sort, which is what macOS ships, does not have it -- so the check is
+# skipped rather than wrong where it cannot be made.
+if [ -n "$INSTALLED_TAG" ] && [ "$INSTALLED_TAG" != "$WANTED_TAG" ] &&
+   printf '1\n' | sort -V >/dev/null 2>&1 &&
+   [ "$(printf '%s\n%s\n' "$INSTALLED_TAG" "$WANTED_TAG" | sort -V | tail -1)" = "$INSTALLED_TAG" ]; then
+    warn "$VERSION is older than the installed $EXISTING_VERSION, so this is a downgrade."
+    hint "Back up $PREFIX/../zoomies.db first: an older build may not read a schema a newer one wrote."
+fi
+
+if [ "$NON_INTERACTIVE" -eq 0 ] && [ "$ASSUME_YES" -eq 0 ] && have_tty; then
+    printf '%s   ?? %sContinue? [Y/n] ' "$C_ACCENT" "$C_RESET"
+    # Piping this script into sh consumes stdin, so the answer is read from the
+    # terminal directly -- the same one the handoff at the bottom reconnects.
+    read -r reply < /dev/tty || reply=""
+    case "$reply" in
+        ""|y|Y|yes|Yes) ;;
+        *) say ""; ok "Nothing was installed."; exit 0 ;;
+    esac
+    say ""
+fi
+
 install_binary
 
 if [ "$RUN_INIT" -eq 0 ]; then
     say ""
-    ok "Binary installed. Run \`zoomies init\` when you are ready to set it up."
+    if [ -n "$EXISTING" ]; then
+        ok "Binary upgraded. Nothing else on this host was touched."
+    else
+        ok "Binary installed. Run \`zoomies init\` when you are ready to set it up."
+    fi
     exit 0
 fi
 
@@ -558,13 +1021,44 @@ set -- init \
 [ "$NON_INTERACTIVE" -eq 1 ] && set -- "$@" --non-interactive
 [ "$ASSUME_YES" -eq 1 ] && set -- "$@" --yes
 
+# ---------------------------------------------------------------------------
+# The interview has to be able to finish
+#
+# On the documented one-liner as an ordinary user, the binary is installed with
+# sudo and setup then runs unprivileged. `zoomies init` quietly retargets
+# everything at the operator's home -- ~/.config/zoomies rather than
+# /etc/zoomies, the service running as them rather than a dedicated account --
+# still offers "the binary under systemd", and fails at the second-to-last step
+# with "writing /etc/systemd/system/zoomies.service: permission denied". By
+# then the GitHub App and the administrator have been created against a
+# configuration directory that a re-run under sudo will not look in.
+#
+# So the elevation the binary needed is carried through to setup as well, which
+# is what the operator expects from a script that has already asked for their
+# password.
+# ---------------------------------------------------------------------------
+ELEVATE_INIT=""
+if [ -n "$ELEVATE" ] && [ "$OS" = linux ] && [ "$MODE" != agent ]; then
+    ELEVATE_INIT="$ELEVATE"
+fi
+
 say ""
-step "Handing over to \`zoomies init\`"
+if [ -n "$ELEVATE_INIT" ]; then
+    step "Handing over to \`$ELEVATE_INIT zoomies init\`"
+    note "setup installs a service and writes to /etc/zoomies, so it runs as root --"
+    note "the same $ELEVATE_INIT that installed the binary a moment ago."
+else
+    step "Handing over to \`zoomies init\`"
+fi
 say ""
 
 # Piping this script into sh leaves stdin consumed, so an interactive setup has
-# no terminal to read from. Reconnect one when there is a terminal to reconnect.
-if [ "$NON_INTERACTIVE" -eq 0 ] && [ ! -t 0 ] && [ -r /dev/tty ]; then
-    exec "$PREFIX/zoomies" "$@" < /dev/tty
+# no terminal to read from. Reconnect one when there is a terminal to reconnect;
+# have_tty opens /dev/tty rather than testing its permission bits, because the
+# bits are readable in plenty of places the open is not.
+if [ "$NON_INTERACTIVE" -eq 0 ] && [ ! -t 0 ] && have_tty; then
+    # shellcheck disable=SC2086
+    exec $ELEVATE_INIT "$PREFIX/zoomies" "$@" < /dev/tty
 fi
-exec "$PREFIX/zoomies" "$@"
+# shellcheck disable=SC2086
+exec $ELEVATE_INIT "$PREFIX/zoomies" "$@"
