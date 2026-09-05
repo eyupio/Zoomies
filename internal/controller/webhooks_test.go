@@ -61,6 +61,9 @@ func TestQueuedJobWebhookProducesARunnerAndACreateTask(t *testing.T) {
 	if task.Spec.Name != r.Name || task.Backend != pool.Backend {
 		t.Fatalf("spec = %+v, want name %s on the %s backend", task.Spec, r.Name, pool.Backend)
 	}
+	if task.Spec.PullPolicy != pool.PullPolicy {
+		t.Fatalf("create task pull policy = %q, want pool policy %q", task.Spec.PullPolicy, pool.PullPolicy)
+	}
 }
 
 func TestWebhookWithABadSignatureIsRejectedAndRecorded(t *testing.T) {
