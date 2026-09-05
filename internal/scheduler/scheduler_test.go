@@ -85,9 +85,9 @@ func actionsOf(as []Action, kind ActionKind) []Action {
 	return out
 }
 
-func TestRepositoryQuotaDoesNotConsumeAnotherRepositoriesCapacity(t *testing.T) {
+func TestRepositoryScaleUpLimitDoesNotConsumeAnotherRepositoriesCapacity(t *testing.T) {
 	p := testPool("shared", "self-hosted")
-	p.RepositoryConcurrencyLimit = 1
+	p.RepositoryScaleUpLimit = 1
 	blocked := queued("blocked", time.Minute, "self-hosted")
 	other := queued("other", time.Minute, "self-hosted")
 	other.Repo = "acme/other"
@@ -97,8 +97,44 @@ func TestRepositoryQuotaDoesNotConsumeAnotherRepositoriesCapacity(t *testing.T) 
 	if got := len(actionsOf(plan.Actions, ActionCreate)); got != 1 {
 		t.Fatalf("creates = %d, want one for unblocked repository", got)
 	}
-	if !strings.Contains(plan.Pools[0].Blocked, "repository concurrency quota") {
-		t.Fatalf("quota reason = %q", plan.Pools[0].Blocked)
+	if plan.Pools[0].Blocked != "" {
+		t.Fatalf("blocked = %q, want admitted work to keep the pool unblocked", plan.Pools[0].Blocked)
+	}
+	if plan.Pools[0].QuotaDeferredJobs != 1 || !slices.Equal(plan.Pools[0].QuotaDeferredRepositories, []string{"acme/widgets"}) {
+		t.Fatalf("quota deferral = %+v", plan.Pools[0])
+	}
+}
+
+func TestRepositoryScaleUpLimitWithWarmIdleRunnerIsOnlyAThrottle(t *testing.T) {
+	p := testPool("shared", "self-hosted")
+	p.RepositoryScaleUpLimit = 1
+	idle := idleRunner("warm", p, time.Minute)
+	job := queued("deferred", time.Minute, "self-hosted")
+	s := snap([]*store.Pool{p}, []*store.Runner{idle}, []*store.Job{job}, []*store.Host{testHost("host_a", 2, 1)})
+	s.ActiveByRepository = map[string]int{p.ID + "\x00" + job.Repo: 1}
+
+	pp := only(t, Decide(s))
+	if pp.Blocked != "" || countOf(pp.Actions, ActionCreate) != 0 {
+		t.Fatalf("plan = %+v, want a deferral rather than pool blockage or creation", pp)
+	}
+	if pp.QuotaDeferredJobs != 1 || pp.Current != 1 || pp.Desired != 0 {
+		t.Fatalf("plan = %+v, want the not-yet-expired idle runner retained and the job reported deferred", pp)
+	}
+}
+
+func TestRepositoryScaleUpLimitPreservesMinimumForNonEphemeralPool(t *testing.T) {
+	p := testPool("durable", "self-hosted")
+	p.RepositoryScaleUpLimit, p.MinRunners, p.Ephemeral = 1, 2, false
+	job := queued("deferred", time.Minute, "self-hosted")
+	s := snap([]*store.Pool{p}, nil, []*store.Job{job}, []*store.Host{testHost("host_a", 4, 0)})
+	s.ActiveByRepository = map[string]int{p.ID + "\x00" + job.Repo: 1}
+
+	pp := only(t, Decide(s))
+	if pp.Desired != 2 || countOf(pp.Actions, ActionCreate) != 2 {
+		t.Fatalf("plan = %+v, want min_runners to create two durable warm runners", pp)
+	}
+	if pp.QuotaDeferredJobs != 1 || pp.Blocked != "" {
+		t.Fatalf("plan = %+v, want quota metadata separate from blocked", pp)
 	}
 }
 

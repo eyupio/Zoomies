@@ -1550,8 +1550,8 @@ export interface components {
             runner_version?: string;
             min_runners?: number;
             max_runners?: number;
-            /** @description Per-repository active runner cap; zero disables it. */
-            repository_concurrency_limit?: number;
+            /** @description Best-effort per-repository runner creation throttle; zero disables it. This cannot prevent GitHub from assigning work to compatible idle runners and is not a strict execution concurrency cap. */
+            repository_scale_up_limit?: number;
             /** @description Optional administrator-assigned rate used only for estimates. */
             cost_per_runner_hour?: number | null;
             /**
@@ -1626,7 +1626,8 @@ export interface components {
             min_runners: number;
             /** @default 4 */
             max_runners: number;
-            repository_concurrency_limit?: number;
+            /** @description Best-effort creation throttle */
+            repository_scale_up_limit?: number;
             cost_per_runner_hour?: number | null;
             /** @default 0 */
             priority: number;
@@ -1664,7 +1665,8 @@ export interface components {
             runner_version?: string;
             min_runners?: number;
             max_runners?: number;
-            repository_concurrency_limit?: number;
+            /** @description Best-effort creation throttle */
+            repository_scale_up_limit?: number;
             cost_per_runner_hour?: number | null;
             priority?: number;
             idle_timeout?: components["schemas"]["Duration"];
