@@ -405,3 +405,29 @@ func TestAJobWaitingForApprovalIsNotDemandUntilItIsQueued(t *testing.T) {
 		t.Fatalf("the approved job had %d runners created for it, want 1", got)
 	}
 }
+
+// A runner registered with a registration token -- a non-ephemeral pool -- has
+// no GitHub ID on its row, so removing it deleted nothing, and the container's
+// own config.sh remove ran with a token that had usually expired. The
+// registration is found by name instead.
+func TestRemovingATokenRegisteredRunnerDeletesItsRegistrationByName(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	r := h.runnerRow(pool, host, store.RunnerIdle)
+	if r.GitHubRunnerID != 0 {
+		t.Fatalf("the fixture runner carries GitHub ID %d; this test is about a runner without one", r.GitHubRunnerID)
+	}
+	h.gh.AddRunner(r.Name, []string{"self-hosted", "linux"})
+	h.gh.AddRunner("somebody-elses-runner", []string{"self-hosted"})
+
+	if _, err := h.c.RemoveRunner(h.ctx, r.ID, "test", true); err != nil {
+		t.Fatalf("RemoveRunner: %v", err)
+	}
+	names := make([]string, 0, 1)
+	for _, gr := range h.gh.Runners() {
+		names = append(names, gr.Name)
+	}
+	if !slices.Equal(names, []string{"somebody-elses-runner"}) {
+		t.Fatalf("registrations after removal = %v, want only the runner that was never ours", names)
+	}
+}
