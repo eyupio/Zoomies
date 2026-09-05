@@ -544,10 +544,15 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (Create
 	}
 
 	pullStarted := time.Now()
-	if err := b.ensureImage(ctx, spec.Image); err != nil {
+	pulled, err := b.ensureImage(ctx, spec.Image)
+	if err != nil {
 		return CreateResult{}, err
 	}
-	pullDuration := time.Since(pullStarted)
+	var pullDuration *time.Duration
+	if pulled {
+		d := time.Since(pullStarted)
+		pullDuration = &d
+	}
 	createStarted := time.Now()
 
 	opts := containerOptions{Now: time.Now(), DinDImage: b.dind}
@@ -568,7 +573,7 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (Create
 	var dindID string
 	switch spec.DockerMode {
 	case store.DockerDinD:
-		if err := b.ensureImage(ctx, b.dind); err != nil {
+		if _, err := b.ensureImage(ctx, b.dind); err != nil {
 			return CreateResult{}, err
 		}
 		dindID, err = b.startDinD(ctx, spec, opts)
@@ -608,7 +613,7 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (Create
 	b.log.Info("runner container started",
 		"runner", spec.Name, "pool", spec.PoolName, "image", spec.Image,
 		"container", shortID(id), "docker_mode", string(spec.DockerMode))
-	return CreateResult{Handle: Handle(id), ImagePullDuration: &pullDuration, CreateDuration: time.Since(createStarted)}, nil
+	return CreateResult{Handle: Handle(id), ImagePullDuration: pullDuration, CreateDuration: time.Since(createStarted)}, nil
 }
 
 // startDinD creates and starts the sidecar, waiting until the daemon reports it
@@ -655,28 +660,28 @@ func (b *DockerBackend) cleanupFailedCreate(ctx context.Context, dindID, workDir
 }
 
 // ensureImage applies the pull policy.
-func (b *DockerBackend) ensureImage(ctx context.Context, image string) error {
+func (b *DockerBackend) ensureImage(ctx context.Context, image string) (bool, error) {
 	if b.pull == PullAlways {
 		if err := b.api.ImagePull(ctx, image, b.auth); err != nil {
-			return fmt.Errorf("backend: pulling %s: %w", image, err)
+			return false, fmt.Errorf("backend: pulling %s: %w", image, err)
 		}
-		return nil
+		return true, nil
 	}
 
 	present, err := b.api.ImageInspect(ctx, image)
 	if err != nil {
-		return fmt.Errorf("backend: looking for image %s: %w", image, err)
+		return false, fmt.Errorf("backend: looking for image %s: %w", image, err)
 	}
 	if present {
-		return nil
+		return false, nil
 	}
 	if b.pull == PullNever {
-		return fmt.Errorf("backend: image %s is not on this host and the pull policy is %q; pull it here first (docker pull %s) or set the pull policy to if-missing", image, b.pull, image)
+		return false, fmt.Errorf("backend: image %s is not on this host and the pull policy is %q; pull it here first (docker pull %s) or set the pull policy to if-missing", image, b.pull, image)
 	}
 	if err := b.api.ImagePull(ctx, image, b.auth); err != nil {
-		return fmt.Errorf("backend: pulling %s: %w", image, err)
+		return false, fmt.Errorf("backend: pulling %s: %w", image, err)
 	}
-	return nil
+	return true, nil
 }
 
 // ensureNetwork creates a user-defined network on demand. The daemon's built-in

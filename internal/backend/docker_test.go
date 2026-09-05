@@ -468,9 +468,13 @@ func TestDockerCreate(t *testing.T) {
 	})
 	b := dockerBackendFor(t, f, DockerOptions{})
 
-	h, err := b.Create(context.Background(), jitSpec())
+	result, err := b.CreateWithResult(context.Background(), jitSpec())
 	if err != nil {
 		t.Fatalf("create: %v", err)
+	}
+	h := result.Handle
+	if result.ImagePullDuration != nil {
+		t.Fatalf("cached image reported a pull duration: %v", *result.ImagePullDuration)
 	}
 	if h != "c1" {
 		t.Fatalf("handle = %q", h)
