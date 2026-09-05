@@ -391,7 +391,12 @@ func buildRunnerConfig(spec Spec, fl flavor, o containerOptions) ContainerCreate
 	}
 
 	if o.HostSocket != "" {
-		hc.Binds = append(hc.Binds, o.HostSocket+":/var/run/docker.sock"+fl.mountSuffix)
+		// No relabel suffix here. ":z" relabels the *source*, and the source
+		// is the host's own Docker or Podman socket; Podman's documentation
+		// warns against relabelling system files, and a socket the daemon
+		// itself can no longer open is every container on the host failing.
+		// The work and cache directories below are Zoomies' own to label.
+		hc.Binds = append(hc.Binds, o.HostSocket+":/var/run/docker.sock")
 		// Root already reaches the socket, and adding a group to a root
 		// container only widens what it can do for no gain.
 		if o.SocketGID > 0 && !spec.RunAsRoot {

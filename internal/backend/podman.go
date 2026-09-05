@@ -37,8 +37,10 @@ func podmanFlavor() flavor {
 	f.displayName = "Podman"
 	f.supportsDinD = false
 	// :z relabels the host path so an SELinux-enforcing host lets the container
-	// read it. It is shared rather than private (:Z) because a host socket may
-	// legitimately be mounted into more than one container.
+	// read it. It is shared rather than private (:Z) because the cache is
+	// mounted into one runner after another. It applies to the directories
+	// Zoomies creates -- the work and cache binds -- and never to the host
+	// socket, which is the system's file to label.
 	f.mountSuffix = ":z"
 	return f
 }
