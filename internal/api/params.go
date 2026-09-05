@@ -183,12 +183,18 @@ func clamp(v, lo, hi int) int {
 // has been told its change was applied when it was not, which is a far worse
 // outcome than being told about the typo.
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
+	return decodeWith(w, r, v, true)
+}
+
+func decodeWith(w http.ResponseWriter, r *http.Request, v any, strict bool) bool {
 	if ct := r.Header.Get("Content-Type"); ct != "" && !isJSONContentType(ct) {
 		badRequest(w, "this endpoint takes a JSON body; send Content-Type: application/json")
 		return false
 	}
 	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
+	if strict {
+		dec.DisallowUnknownFields()
+	}
 	if err := dec.Decode(v); err != nil {
 		var maxErr *http.MaxBytesError
 		switch {
@@ -211,6 +217,21 @@ func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 		return false
 	}
 	return true
+}
+
+// decodeLenient is decode for the agent protocol, where an unknown field is
+// tolerated rather than refused.
+//
+// The two halves of that protocol are the same binary at different versions
+// for as long as an upgrade is rolling across a fleet, and a newer agent that
+// adds one optional field to its heartbeat must not be answered 400 by an
+// older controller and stop heartbeating -- that turns a routine upgrade into
+// every host going unhealthy at once. ProtocolVersion is for changes a peer
+// cannot tolerate; an additive one is not that. The strictness the user API
+// keeps is for a person's typo, which is a different failure with a different
+// remedy.
+func decodeLenient(w http.ResponseWriter, r *http.Request, v any) bool {
+	return decodeWith(w, r, v, false)
 }
 
 // decodeOptional is decode for an endpoint whose body may be omitted entirely,

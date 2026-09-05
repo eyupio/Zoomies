@@ -184,3 +184,24 @@ func TestAgentLogPostForAnUnknownStream(t *testing.T) {
 		rawBody: "some output", headers: map[string]string{"Content-Type": "application/octet-stream"}})
 	resp.mustStatus(t, http.StatusNotFound, "log post for an unknown stream")
 }
+
+// The two halves of the agent protocol are the same binary at different
+// versions while an upgrade rolls across a fleet. A newer agent that adds one
+// optional field to its heartbeat used to be answered 400 by an older
+// controller, and stopped heartbeating -- every host unhealthy at once, for a
+// change ProtocolVersion was never meant to cover.
+func TestAgentRoutesTolerateFieldsTheyDoNotKnow(t *testing.T) {
+	h := newHarness(t)
+	_, token := h.agentToken("vm-1")
+
+	beat := h.do(request{method: http.MethodPost, path: "/api/v1/agent/heartbeat", token: token,
+		body: map[string]any{"protocol_version": 1, "capacity": 2, "version": "test", "load_average": 0.42}})
+	beat.mustStatus(t, http.StatusOK, "a heartbeat carrying a field this controller does not know")
+
+	// The user API keeps its strictness: there the unknown field is a typo
+	// that would otherwise be silently ignored.
+	admin, _ := h.user("root", store.RoleAdmin)
+	typo := h.do(request{method: http.MethodPost, path: "/api/v1/users", cookie: h.session(admin),
+		body: map[string]any{"username": "sam", "password": "correct-horse-battery", "rolle": "viewer"}})
+	typo.mustStatus(t, http.StatusBadRequest, "a typo in a user API field")
+}

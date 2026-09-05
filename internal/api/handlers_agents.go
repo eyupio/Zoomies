@@ -25,7 +25,7 @@ func agentHost(r *http.Request) *store.Host {
 // short-lived, and the agent token it returns is shown exactly once.
 func (s *Server) handleAgentJoin(w http.ResponseWriter, r *http.Request) {
 	var req agent.JoinRequest
-	if !decode(w, r, &req) {
+	if !decodeLenient(w, r, &req) {
 		return
 	}
 	resp, err := s.ctrl.Join(r.Context(), req, ClientIP(r.Context()))
@@ -50,7 +50,7 @@ func (s *Server) handleAgentJoin(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 	host := agentHost(r)
 	var req agent.HeartbeatRequest
-	if !decode(w, r, &req) {
+	if !decodeLenient(w, r, &req) {
 		return
 	}
 	resp, err := s.ctrl.Heartbeat(r.Context(), host.ID, req)
@@ -98,7 +98,7 @@ func (s *Server) handleAgentTasks(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAgentResult(w http.ResponseWriter, r *http.Request) {
 	host := agentHost(r)
 	var res agent.TaskResult
-	if !decode(w, r, &res) {
+	if !decodeLenient(w, r, &res) {
 		return
 	}
 	if err := s.ctrl.ReportResult(r.Context(), host.ID, res); err != nil {
@@ -116,7 +116,7 @@ func (s *Server) handleAgentResult(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAgentReport(w http.ResponseWriter, r *http.Request) {
 	host := agentHost(r)
 	var reports []agent.RunnerReport
-	if !decode(w, r, &reports) {
+	if !decodeLenient(w, r, &reports) {
 		return
 	}
 	if err := s.ctrl.ReportRunners(r.Context(), host.ID, reports); err != nil {
