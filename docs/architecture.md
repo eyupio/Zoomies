@@ -127,6 +127,11 @@ In detail:
 
 Every one of those steps publishes on the event bus, and the UI is watching a
 Server-Sent Events stream, so the operator sees it happen without refreshing.
+So does every change an operator makes through the API, and the two things
+that are computed rather than stored -- the Overview's statistics and the
+problems list -- are worked out again after every pass and sent when they
+differ. Each frame is the resource's `GET` shape, rendered by the same code
+(see [api-surface.md](api-surface.md#sse-event-kinds)).
 
 ### When webhooks cannot reach you
 

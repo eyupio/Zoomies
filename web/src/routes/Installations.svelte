@@ -69,7 +69,9 @@
 
   // An installation going unhealthy is news; the list reloads rather than
   // patching one row, because pool counts move with it.
-  $effect(() => events.subscribe('installation.updated', () => (reload += 1)));
+  $effect(() =>
+    events.subscribe(['installation.updated', 'installation.deleted'], () => (reload += 1)),
+  );
 
   /**
    * Read each App's remaining quota.

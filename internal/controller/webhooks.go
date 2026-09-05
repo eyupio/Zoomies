@@ -249,7 +249,7 @@ func (c *Controller) handleWorkflowJob(ctx context.Context, body []byte) error {
 			"job", saved.ID, "repo", saved.Repo, "labels", strings.Join(saved.Labels, ","))
 	}
 
-	c.publish(events.KindJobUpdated, "job:"+saved.ID, saved)
+	c.publishJob(ctx, saved)
 	// Wake the reconcile loop rather than scheduling inline: GitHub is holding
 	// this connection open, and a reconcile can take as long as GitHub's API
 	// does to answer.

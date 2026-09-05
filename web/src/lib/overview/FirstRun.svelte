@@ -68,7 +68,9 @@
   $effect(() => {
     void count();
   });
-  $effect(() => events.subscribe('installation.updated', () => void count()));
+  $effect(() =>
+    events.subscribe(['installation.updated', 'installation.deleted'], () => void count()),
+  );
 
   const hasInstallation = $derived((installations ?? 0) > 0);
   const pools = $derived(fleet.pools);

@@ -9,86 +9,16 @@ import (
 	"sync"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/controller"
 	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/version"
 )
 
-// installationResponse is a GitHub App installation as the API returns it.
-//
-// The private key and the webhook secret are absent, and there is no field they
-// could be put in: the store keeps them sealed and tagged `json:"-"`, and this
-// type names every field explicitly so that adding one to the domain model
-// cannot leak it here by accident.
-type installationResponse struct {
-	ID             string           `json:"id"`
-	AppID          int64            `json:"app_id"`
-	InstallationID int64            `json:"installation_id"`
-	Target         string           `json:"target"`
-	TargetType     store.TargetType `json:"target_type"`
-	APIBaseURL     string           `json:"api_base_url"`
-	AppSlug        string           `json:"app_slug,omitempty"`
-	WebURL         string           `json:"web_url,omitempty"`
-	// SettingsURL is the App's own settings page on GitHub. It is carried on
-	// every installation, not only on the one the connect flow just created,
-	// because the one thing a manifest cannot do is set the App's avatar --
-	// GitHub takes it as an upload -- and an operator who missed that step
-	// during setup has nowhere else to be told about it. Empty when the slug
-	// is unknown, which is what a hand-added installation looks like.
-	SettingsURL   string     `json:"settings_url,omitempty"`
-	Enterprise    bool       `json:"enterprise"`
-	Healthy       bool       `json:"healthy"`
-	LastError     string     `json:"last_error,omitempty"`
-	LastCheckedAt *time.Time `json:"last_checked_at"`
-	PoolCount     int        `json:"pool_count"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
-}
-
-// settingsOrgOf names the organisation an App's settings live under, which is
-// the target for an org App and nothing at all for a repo App: GitHub answers
-// the wrong one with a 404 rather than a redirect.
-func settingsOrgOf(i *store.Installation) string {
-	if i.TargetType == store.TargetOrg {
-		return i.Target
-	}
-	return ""
-}
-
-func installationResponseOf(i *store.Installation, pools int) installationResponse {
-	return installationResponse{
-		ID:             i.ID,
-		AppID:          i.AppID,
-		InstallationID: i.InstallationID,
-		Target:         i.Target,
-		TargetType:     i.TargetType,
-		APIBaseURL:     i.APIBaseURL,
-		AppSlug:        i.AppSlug,
-		WebURL:         github.WebURLForAPI(i.APIBaseURL),
-		SettingsURL:    github.SettingsURL(i.APIBaseURL, i.AppSlug, settingsOrgOf(i)),
-		Enterprise:     github.IsEnterprise(i.APIBaseURL),
-		Healthy:        i.Healthy(),
-		LastError:      i.LastError,
-		LastCheckedAt:  i.LastCheckedAt,
-		PoolCount:      pools,
-		CreatedAt:      i.CreatedAt,
-		UpdatedAt:      i.UpdatedAt,
-	}
-}
-
-// poolCountsByInstallation answers "how much depends on this installation?",
-// which is what makes the delete confirmation honest.
-func (s *Server) poolCountsByInstallation(ctx context.Context) (map[string]int, error) {
-	pools, err := s.ctrl.Store().ListPools(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("listing pools: %w", err)
-	}
-	out := map[string]int{}
-	for _, p := range pools {
-		out[p.InstallationID]++
-	}
-	return out, nil
-}
+// installationResponse is the shape GET /installations returns, rendered by
+// the controller so the event stream's installation.updated frames are the
+// same JSON. See controller/views.go for why the renderer lives there.
+type installationResponse = controller.InstallationView
 
 // handleListInstallations answers GET /api/v1/installations.
 func (s *Server) handleListInstallations(w http.ResponseWriter, r *http.Request) {
@@ -97,14 +27,14 @@ func (s *Server) handleListInstallations(w http.ResponseWriter, r *http.Request)
 		s.internal(w, r, "listing installations", err)
 		return
 	}
-	counts, err := s.poolCountsByInstallation(r.Context())
+	counts, err := s.ctrl.PoolCountsByInstallation(r.Context())
 	if err != nil {
 		s.internal(w, r, "listing installations", err)
 		return
 	}
 	out := make([]installationResponse, 0, len(insts))
 	for _, i := range insts {
-		out = append(out, installationResponseOf(i, counts[i.ID]))
+		out = append(out, controller.NewInstallationView(i, counts[i.ID]))
 	}
 	writeJSON(w, http.StatusOK, newList(out))
 }
@@ -116,12 +46,12 @@ func (s *Server) handleGetInstallation(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, "reading the installation", err)
 		return
 	}
-	counts, err := s.poolCountsByInstallation(r.Context())
+	counts, err := s.ctrl.PoolCountsByInstallation(r.Context())
 	if err != nil {
 		s.internal(w, r, "reading the installation", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, installationResponseOf(i, counts[i.ID]))
+	writeJSON(w, http.StatusOK, controller.NewInstallationView(i, counts[i.ID]))
 }
 
 type installationCreateRequest struct {
@@ -256,9 +186,10 @@ func (s *Server) handleCreateInstallation(w http.ResponseWriter, r *http.Request
 	s.manifests.forget(req.AppID)
 
 	s.auth.Auditor().Created(r.Context(), Identity(r.Context()), "installation", inst.ID, inst)
+	s.ctrl.PublishInstallation(r.Context(), inst)
 	// A fresh installation may already own queued jobs.
 	s.ctrl.Nudge()
-	writeJSON(w, http.StatusCreated, installationResponseOf(inst, 0))
+	writeJSON(w, http.StatusCreated, controller.NewInstallationView(inst, 0))
 }
 
 type installationUpdateRequest struct {
@@ -337,13 +268,14 @@ func (s *Server) handleUpdateInstallation(w http.ResponseWriter, r *http.Request
 	// call would still use them.
 	s.ctrl.Forget(id)
 	s.auth.Auditor().Updated(r.Context(), Identity(r.Context()), "installation", id, &before, inst)
+	s.ctrl.PublishInstallation(r.Context(), inst)
 
-	counts, cerr := s.poolCountsByInstallation(r.Context())
+	counts, cerr := s.ctrl.PoolCountsByInstallation(r.Context())
 	if cerr != nil {
 		s.internal(w, r, "reading the installation back", cerr)
 		return
 	}
-	writeJSON(w, http.StatusOK, installationResponseOf(inst, counts[id]))
+	writeJSON(w, http.StatusOK, controller.NewInstallationView(inst, counts[id]))
 }
 
 type deleteInstallationResponse struct {
@@ -366,12 +298,13 @@ func (s *Server) handleDeleteInstallation(w http.ResponseWriter, r *http.Request
 		s.internal(w, r, "listing the installation's pools", err)
 		return
 	}
-	deleted, affected := 0, 0
+	affected := 0
+	var deleted []string
 	for _, p := range pools {
 		if p.InstallationID != id {
 			continue
 		}
-		deleted++
+		deleted = append(deleted, p.ID)
 		runners, rerr := s.ctrl.Store().ListRunnersForPool(r.Context(), p.ID)
 		if rerr != nil {
 			s.internal(w, r, "listing a pool's runners", rerr)
@@ -398,8 +331,15 @@ func (s *Server) handleDeleteInstallation(w http.ResponseWriter, r *http.Request
 	}
 	s.ctrl.Forget(id)
 	s.auth.Auditor().Deleted(r.Context(), Identity(r.Context()), "installation", id, inst)
+	// The pools went with the installation, so each is announced as gone
+	// before the installation is: a page that removes the pools first has
+	// nothing left to explain when the installation disappears.
+	for _, poolID := range deleted {
+		s.ctrl.PublishPoolDeleted(poolID)
+	}
+	s.ctrl.PublishInstallationDeleted(id)
 	s.ctrl.Nudge()
-	writeJSON(w, http.StatusOK, deleteInstallationResponse{PoolsDeleted: deleted, RunnersAffected: affected})
+	writeJSON(w, http.StatusOK, deleteInstallationResponse{PoolsDeleted: len(deleted), RunnersAffected: affected})
 }
 
 // installationHealthResponse is what a credential probe found.

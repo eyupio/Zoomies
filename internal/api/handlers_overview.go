@@ -60,25 +60,17 @@ func (s *Server) handleSamples(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, newList(samples))
 }
 
-// problemsResponse carries the panel's own "nothing is wrong" flag rather than
-// leaving the UI to infer it from an empty array, so that "we checked and all
-// is well" and "we have not looked yet" cannot be rendered the same way.
-type problemsResponse struct {
-	OK    bool                 `json:"ok"`
-	Items []controller.Problem `json:"items"`
-}
-
 // handleProblems answers the UI's problems drawer.
+//
+// The body is controller.ProblemsView, which is also what a problems.updated
+// frame carries, so the drawer cannot see two shapes for the same list.
 func (s *Server) handleProblems(w http.ResponseWriter, r *http.Request) {
 	items, err := s.ctrl.Problems(r.Context())
 	if err != nil {
 		s.internal(w, r, "gathering the current problems", err)
 		return
 	}
-	if items == nil {
-		items = []controller.Problem{}
-	}
-	writeJSON(w, http.StatusOK, problemsResponse{OK: len(items) == 0, Items: items})
+	writeJSON(w, http.StatusOK, controller.NewProblemsView(items))
 }
 
 // handleScalingEvents lists the scheduler's recent decisions, each with the

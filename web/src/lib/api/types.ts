@@ -148,6 +148,7 @@ export interface EventPayloads {
   'host.deleted': Deleted;
   scaling: ScalingEvent;
   'installation.updated': Installation;
+  'installation.deleted': Deleted;
   'problems.updated': { ok: boolean; items: Problem[] };
   stats: Stats;
   audit: AuditEvent;
