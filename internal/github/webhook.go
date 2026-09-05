@@ -207,14 +207,17 @@ func ParseWorkflowJob(payload []byte) (*WorkflowJobEvent, error) {
 
 // State maps the delivery's action onto the job state machine.
 //
-// "waiting" means the job is held for a deployment review and GitHub will send
-// a real "queued" delivery once it is approved. It maps to queued rather than
-// to something further along because the store refuses to move a job
-// backwards: recording a waiting job as in_progress would make the later
-// "queued" delivery a no-op and the job would never be scheduled at all.
+// "waiting" means the job is held for a deployment review, which can take
+// hours or days, and GitHub sends a real "queued" delivery once it is approved.
+// It is its own state, ahead of queued in the lifecycle so the approval moves
+// the job forward, and one the scheduler does not count: recording it as
+// queued started a runner that idled out and was started again on the next
+// pass, for as long as the review took.
 func (e *WorkflowJobEvent) State() store.JobState {
 	switch e.Action {
-	case "queued", "waiting":
+	case "waiting":
+		return store.JobWaiting
+	case "queued":
 		return store.JobQueued
 	case "in_progress":
 		return store.JobInProgress

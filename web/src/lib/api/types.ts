@@ -35,7 +35,7 @@ export const RUNNER_STATES: readonly RunnerState[] = [
 ];
 
 /** Every job state. */
-export const JOB_STATES: readonly JobState[] = ['queued', 'in_progress', 'completed'];
+export const JOB_STATES: readonly JobState[] = ['waiting', 'queued', 'in_progress', 'completed'];
 
 /** The roles, weakest first. `atLeast` below compares by this order. */
 export const ROLES: readonly Role[] = ['viewer', 'operator', 'admin'];
@@ -158,7 +158,6 @@ export interface EventPayloads {
   'webhook.delivery': WebhookDelivery;
   heartbeat: unknown;
 }
-
 export type EventKind = keyof EventPayloads;
 
 export const EVENT_KINDS: readonly EventKind[] = [

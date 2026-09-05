@@ -370,3 +370,38 @@ func TestAQueuedJobGitHubNeverStartedIsRetiredAfterADay(t *testing.T) {
 		t.Fatalf("the timeline does not say why the job was retired: %+v", last)
 	}
 }
+
+// A job GitHub is holding for a deployment review is not demand. Recorded as
+// queued, it had the scheduler start a runner that idled out and was started
+// again on the next pass, for as long as the review took.
+func TestAJobWaitingForApprovalIsNotDemandUntilItIsQueued(t *testing.T) {
+	h := newHarness(t)
+	h.fleet()
+	labels := []string{"self-hosted", "linux", "x64", "demo"}
+
+	h.deliverJob(jobEvent{Action: "waiting", JobID: 8101, Labels: labels})
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if got := len(h.runners()); got != 0 {
+		t.Fatalf("a waiting job had %d runners created for it", got)
+	}
+	j, err := h.st.GetJobByGitHubID(h.ctx, 8101)
+	if err != nil || j.State != store.JobWaiting {
+		t.Fatalf("job = %+v, %v; want it recorded as waiting", j, err)
+	}
+
+	// The approval arrives as an ordinary queued delivery, and moves the job
+	// forward into demand.
+	h.deliverJob(jobEvent{Action: "queued", JobID: 8101, Labels: labels})
+	j, err = h.st.GetJobByGitHubID(h.ctx, 8101)
+	if err != nil || j.State != store.JobQueued {
+		t.Fatalf("job after approval = %+v, %v; want queued", j, err)
+	}
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if got := len(h.runners()); got != 1 {
+		t.Fatalf("the approved job had %d runners created for it, want 1", got)
+	}
+}

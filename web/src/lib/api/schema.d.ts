@@ -245,7 +245,7 @@ export interface paths {
          * @description `text/event-stream`. Every state change the operator would want to see.
          *     Honours `Last-Event-ID` on reconnect and replays what the server still
          *     holds. A `heartbeat` event every 20 seconds keeps proxies from closing
-         *     an idle connection.
+         *     an idle connection.      x-zoomies-role: viewer
          */
         get: operations["streamEvents"];
         put?: never;
@@ -1173,7 +1173,7 @@ export interface components {
         /** @enum {string} */
         RunnerState: "provisioning" | "registering" | "idle" | "busy" | "draining" | "removed" | "failed";
         /** @enum {string} */
-        JobState: "queued" | "in_progress" | "completed";
+        JobState: "waiting" | "queued" | "in_progress" | "completed";
         /** @enum {string} */
         Severity: "error" | "warning" | "info";
         /**

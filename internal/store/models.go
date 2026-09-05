@@ -148,6 +148,12 @@ func CanTransition(from, to RunnerState) bool {
 type JobState string
 
 const (
+	// JobWaiting is a job GitHub is holding for a deployment review. It is not
+	// demand: nothing may run it until somebody approves it, and GitHub sends
+	// a real "queued" delivery when they do. Recording it as queued made the
+	// scheduler start a runner that idled out and was started again on the
+	// next pass, for as long as the review took.
+	JobWaiting    JobState = "waiting"
 	JobQueued     JobState = "queued"
 	JobInProgress JobState = "in_progress"
 	JobCompleted  JobState = "completed"
@@ -155,7 +161,7 @@ const (
 
 func (s JobState) Valid() bool {
 	switch s {
-	case JobQueued, JobInProgress, JobCompleted:
+	case JobWaiting, JobQueued, JobInProgress, JobCompleted:
 		return true
 	}
 	return false

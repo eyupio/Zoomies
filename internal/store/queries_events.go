@@ -233,15 +233,18 @@ func (s *Store) ListJobEvents(ctx context.Context, jobID string) ([]*JobEvent, e
 // jobRank orders job states so a stale webhook cannot rewind one.
 func jobRank(s JobState) int {
 	switch s {
-	case JobQueued:
+	case JobWaiting:
 		return 1
-	case JobInProgress:
+	case JobQueued:
 		return 2
-	case JobCompleted:
+	case JobInProgress:
 		return 3
+	case JobCompleted:
+		return 4
 	}
 	return 0
 }
+
 // GetJob returns one job by internal ID.
 func (s *Store) GetJob(ctx context.Context, id string) (*Job, error) {
 	row := s.read.QueryRowContext(ctx, `SELECT `+jobCols+` FROM jobs WHERE id = ?`, id)

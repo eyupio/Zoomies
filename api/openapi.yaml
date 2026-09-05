@@ -337,8 +337,7 @@ paths:
         `text/event-stream`. Every state change the operator would want to see.
         Honours `Last-Event-ID` on reconnect and replays what the server still
         holds. A `heartbeat` event every 20 seconds keeps proxies from closing
-        an idle connection.
-      x-zoomies-role: viewer
+        an idle connection.      x-zoomies-role: viewer
       parameters:
         - name: kinds
           in: query
@@ -1750,7 +1749,7 @@ components:
       enum: [provisioning, registering, idle, busy, draining, removed, failed]
     JobState:
       type: string
-      enum: [queued, in_progress, completed]
+      enum: [waiting, queued, in_progress, completed]
     Severity:
       type: string
       enum: [error, warning, info]
