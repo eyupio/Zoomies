@@ -264,11 +264,17 @@ func checkICU() error {
 
 // Create lays out one runner directory, registers it and starts it.
 func (b *ProcessBackend) Create(ctx context.Context, spec Spec) (Handle, error) {
+	r, err := b.CreateWithResult(ctx, spec)
+	return r.Handle, err
+}
+
+func (b *ProcessBackend) CreateWithResult(ctx context.Context, spec Spec) (CreateResult, error) {
+	started := time.Now()
 	if err := spec.Validate(); err != nil {
-		return "", err
+		return CreateResult{}, err
 	}
 	if spec.DockerMode == store.DockerDinD {
-		return "", fmt.Errorf("backend: pool %q asks for docker-in-docker, which the process backend cannot provide; move the pool to the docker backend", spec.PoolName)
+		return CreateResult{}, fmt.Errorf("backend: pool %q asks for docker-in-docker, which the process backend cannot provide; move the pool to the docker backend", spec.PoolName)
 	}
 
 	version := strings.TrimPrefix(strings.TrimSpace(spec.RunnerVersion), "v")
@@ -277,22 +283,22 @@ func (b *ProcessBackend) Create(ctx context.Context, spec Spec) (Handle, error) 
 	}
 	tools, err := b.ensureRelease(ctx, version)
 	if err != nil {
-		return "", err
+		return CreateResult{}, err
 	}
 
 	dir := b.runnerDir(spec.Name)
 	if err := b.wipe(ctx, dir); err != nil {
-		return "", err
+		return CreateResult{}, err
 	}
 	if err := os.MkdirAll(filepath.Join(dir, runnerWorkDir), 0o750); err != nil {
-		return "", fmt.Errorf("backend: creating the runner directory %s: %w", dir, err)
+		return CreateResult{}, fmt.Errorf("backend: creating the runner directory %s: %w", dir, err)
 	}
 	// Each runner needs its own copy of the tree, because the runner keeps its
 	// credentials and its state next to the binary. Files are hard-linked where
 	// the filesystem allows it, so the copy costs inodes rather than gigabytes.
 	if err := cloneTree(tools, dir); err != nil {
 		_ = os.RemoveAll(dir)
-		return "", fmt.Errorf("backend: laying out the runner in %s: %w", dir, err)
+		return CreateResult{}, fmt.Errorf("backend: laying out the runner in %s: %w", dir, err)
 	}
 
 	env := b.childEnv(spec, dir)
@@ -305,15 +311,15 @@ func (b *ProcessBackend) Create(ctx context.Context, spec Spec) (Handle, error) 
 		args = append(args, "--jitconfig", jit)
 	} else if err := b.configure(ctx, dir, spec, env); err != nil {
 		_ = os.RemoveAll(dir)
-		return "", err
+		return CreateResult{}, err
 	}
 
 	if err := b.start(dir, args, env, spec, version); err != nil {
 		_ = os.RemoveAll(dir)
-		return "", err
+		return CreateResult{}, err
 	}
 	b.log.Info("runner process started", "runner", spec.Name, "pool", spec.PoolName, "dir", dir, "runner_version", version)
-	return Handle(dir), nil
+	return CreateResult{Handle: Handle(dir), CreateDuration: time.Since(started)}, nil
 }
 
 // configure runs config.sh for the registration-token path, which is how a

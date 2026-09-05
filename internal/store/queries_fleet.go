@@ -539,23 +539,29 @@ func (s *Store) DeleteHost(ctx context.Context, id string) error {
 
 const runnerCols = `id, pool_id, host_id, name, state, github_runner_id, container_id,
 	ephemeral, labels, image, runner_version, current_job_id, created_at, started_at,
-	last_idle_at, finished_at, message, jobs_handled, cpu_percent, memory_bytes`
+	last_idle_at, finished_at, message, jobs_handled, cpu_percent, memory_bytes,
+	image_pull_ms, container_started_at, registered_at`
 
 func scanRunner(sc interface{ Scan(...any) error }) (*Runner, error) {
 	var r Runner
 	var ephemeral int
 	var created int64
-	var started, idle, finished sql.NullInt64
+	var started, idle, finished, pullMS, containerStarted, registered sql.NullInt64
 	err := sc.Scan(&r.ID, &r.PoolID, &r.HostID, &r.Name, &r.State, &r.GitHubRunnerID,
 		&r.ContainerID, &ephemeral, &r.Labels, &r.Image, &r.RunnerVersion, &r.CurrentJobID,
 		&created, &started, &idle, &finished, &r.Message, &r.JobsHandled,
-		&r.CPUPercent, &r.MemoryBytes)
+		&r.CPUPercent, &r.MemoryBytes, &pullMS, &containerStarted, &registered)
 	if err != nil {
 		return nil, err
 	}
 	r.Ephemeral = ephemeral == 1
 	r.CreatedAt = at(created)
 	r.StartedAt, r.LastIdleAt, r.FinishedAt = atp(started), atp(idle), atp(finished)
+	if pullMS.Valid {
+		d := time.Duration(pullMS.Int64) * time.Millisecond
+		r.ImagePullDuration = &d
+	}
+	r.ContainerStartedAt, r.RegisteredAt = atp(containerStarted), atp(registered)
 	return &r, nil
 }
 
@@ -569,12 +575,27 @@ func (s *Store) CreateRunner(ctx context.Context, r *Runner) error {
 	}
 	r.CreatedAt = s.Now()
 	_, err := s.exec(ctx, `INSERT INTO runners (`+runnerCols+`)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		r.ID, r.PoolID, r.HostID, r.Name, string(r.State), r.GitHubRunnerID, r.ContainerID,
 		boolInt(r.Ephemeral), r.Labels, r.Image, r.RunnerVersion, r.CurrentJobID,
 		ms(r.CreatedAt), msp(r.StartedAt), msp(r.LastIdleAt), msp(r.FinishedAt),
-		r.Message, r.JobsHandled, r.CPUPercent, r.MemoryBytes)
+		r.Message, r.JobsHandled, r.CPUPercent, r.MemoryBytes, durationMS(r.ImagePullDuration),
+		msp(r.ContainerStartedAt), msp(r.RegisteredAt))
 	return wrapWrite(err)
+}
+
+func durationMS(d *time.Duration) any {
+	if d == nil {
+		return nil
+	}
+	return d.Milliseconds()
+}
+
+// SetRunnerStartup records backend timings without inventing an image pull for
+// backends that cannot report one.
+func (s *Store) SetRunnerStartup(ctx context.Context, id string, pull *time.Duration, started *time.Time) error {
+	_, err := s.exec(ctx, `UPDATE runners SET image_pull_ms=?, container_started_at=? WHERE id=?`, durationMS(pull), msp(started), id)
+	return err
 }
 
 // GetRunner returns one runner by ID.
@@ -780,6 +801,10 @@ func (s *Store) TransitionRunner(ctx context.Context, id string, to RunnerState,
 		}
 		switch to {
 		case RunnerIdle:
+			if r.RegisteredAt == nil {
+				t := now
+				r.RegisteredAt = &t
+			}
 			if r.StartedAt == nil {
 				t := now
 				r.StartedAt = &t
@@ -792,6 +817,10 @@ func (s *Store) TransitionRunner(ctx context.Context, id string, to RunnerState,
 			}
 			r.CurrentJobID = ""
 		case RunnerBusy:
+			if r.RegisteredAt == nil {
+				t := now
+				r.RegisteredAt = &t
+			}
 			if r.StartedAt == nil {
 				t := now
 				r.StartedAt = &t
@@ -803,9 +832,9 @@ func (s *Store) TransitionRunner(ctx context.Context, id string, to RunnerState,
 			r.CurrentJobID = ""
 		}
 		_, err = tx.ExecContext(ctx, `UPDATE runners SET state=?, message=?, started_at=?,
-			last_idle_at=?, finished_at=?, jobs_handled=?, current_job_id=? WHERE id=?`,
+			last_idle_at=?, finished_at=?, jobs_handled=?, current_job_id=?, registered_at=? WHERE id=?`,
 			string(r.State), r.Message, msp(r.StartedAt), msp(r.LastIdleAt), msp(r.FinishedAt),
-			r.JobsHandled, r.CurrentJobID, r.ID)
+			r.JobsHandled, r.CurrentJobID, msp(r.RegisteredAt), r.ID)
 		if err != nil {
 			return err
 		}

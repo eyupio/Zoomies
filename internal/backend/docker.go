@@ -517,43 +517,51 @@ func buildDinDConfig(spec Spec, fl flavor, o containerOptions) ContainerCreateRe
 // Create materialises one runner. It replaces any container of the same name,
 // so that a redelivered task converges instead of failing.
 func (b *DockerBackend) Create(ctx context.Context, spec Spec) (Handle, error) {
+	r, err := b.CreateWithResult(ctx, spec)
+	return r.Handle, err
+}
+
+func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (CreateResult, error) {
 	if err := spec.Validate(); err != nil {
-		return "", err
+		return CreateResult{}, err
 	}
 	if _, err := cacheSource(spec); err != nil {
-		return "", err
+		return CreateResult{}, err
 	}
 	if strings.TrimSpace(spec.Image) == "" {
-		return "", fmt.Errorf("backend: pool %q has no image; set the pool's image to a runner image before creating runners", spec.PoolName)
+		return CreateResult{}, fmt.Errorf("backend: pool %q has no image; set the pool's image to a runner image before creating runners", spec.PoolName)
 	}
 	if spec.DockerMode == store.DockerDinD && !b.fl.supportsDinD {
-		return "", fmt.Errorf("backend: the %s backend cannot run docker-in-docker", b.fl.kind)
+		return CreateResult{}, fmt.Errorf("backend: the %s backend cannot run docker-in-docker", b.fl.kind)
 	}
 
 	name := containerName(spec.Name)
 	if err := b.removeByName(ctx, name); err != nil {
-		return "", err
+		return CreateResult{}, err
 	}
 	if err := b.removeByName(ctx, dindName(name)); err != nil {
-		return "", err
+		return CreateResult{}, err
 	}
 
+	pullStarted := time.Now()
 	if err := b.ensureImage(ctx, spec.Image); err != nil {
-		return "", err
+		return CreateResult{}, err
 	}
+	pullDuration := time.Since(pullStarted)
+	createStarted := time.Now()
 
 	opts := containerOptions{Now: time.Now(), DinDImage: b.dind}
 	network := firstNonEmpty(strings.TrimSpace(spec.Network), b.network)
 	if network != "" {
 		if err := b.ensureNetwork(ctx, network); err != nil {
-			return "", err
+			return CreateResult{}, err
 		}
 		opts.Network = network
 	}
 
 	workDir, owned, err := b.ensureWorkDir(spec)
 	if err != nil {
-		return "", err
+		return CreateResult{}, err
 	}
 	opts.WorkDirMount, opts.WorkDirOwned = workDir, owned
 
@@ -561,11 +569,11 @@ func (b *DockerBackend) Create(ctx context.Context, spec Spec) (Handle, error) {
 	switch spec.DockerMode {
 	case store.DockerDinD:
 		if err := b.ensureImage(ctx, b.dind); err != nil {
-			return "", err
+			return CreateResult{}, err
 		}
 		dindID, err = b.startDinD(ctx, spec, opts)
 		if err != nil {
-			return "", err
+			return CreateResult{}, err
 		}
 		// The runner lives in the sidecar's network namespace, so it has no
 		// network attachment of its own.
@@ -575,7 +583,7 @@ func (b *DockerBackend) Create(ctx context.Context, spec Spec) (Handle, error) {
 	case store.DockerHostSocket:
 		sock := b.api.SocketPath()
 		if sock == "" {
-			return "", fmt.Errorf("backend: pool %q asks for the host docker socket, but %s is a TCP endpoint with no socket to mount; use docker mode dind or none", spec.PoolName, b.api.Endpoint())
+			return CreateResult{}, fmt.Errorf("backend: pool %q asks for the host docker socket, but %s is a TCP endpoint with no socket to mount; use docker mode dind or none", spec.PoolName, b.api.Endpoint())
 		}
 		opts.HostSocket = sock
 		// Logged on every create, not once: this is the setting that turns any
@@ -589,18 +597,18 @@ func (b *DockerBackend) Create(ctx context.Context, spec Spec) (Handle, error) {
 	id, err := b.api.ContainerCreate(ctx, name, cfg)
 	if err != nil {
 		b.cleanupFailedCreate(ctx, dindID, workDir, owned)
-		return "", fmt.Errorf("backend: creating container %s: %w", name, err)
+		return CreateResult{}, fmt.Errorf("backend: creating container %s: %w", name, err)
 	}
 	if err := b.api.ContainerStart(ctx, id); err != nil {
 		_ = b.api.ContainerRemove(ctx, id, true)
 		b.cleanupFailedCreate(ctx, dindID, workDir, owned)
-		return "", fmt.Errorf("backend: starting container %s: %w", name, err)
+		return CreateResult{}, fmt.Errorf("backend: starting container %s: %w", name, err)
 	}
 
 	b.log.Info("runner container started",
 		"runner", spec.Name, "pool", spec.PoolName, "image", spec.Image,
 		"container", shortID(id), "docker_mode", string(spec.DockerMode))
-	return Handle(id), nil
+	return CreateResult{Handle: Handle(id), ImagePullDuration: &pullDuration, CreateDuration: time.Since(createStarted)}, nil
 }
 
 // startDinD creates and starts the sidecar, waiting until the daemon reports it

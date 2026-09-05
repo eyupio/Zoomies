@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/store"
@@ -17,13 +18,17 @@ const defaultStatsWindow = 24 * time.Hour
 // doing, and how long jobs are waiting.
 type Stats struct {
 	// Window is the period Completed, Failed and the wait percentiles cover.
-	Window       string `json:"window"`
-	QueuedJobs   int    `json:"queued_jobs"`
-	RunningJobs  int    `json:"running_jobs"`
-	Completed    int    `json:"completed"`
-	Failed       int    `json:"failed"`
-	MedianWaitMS int64  `json:"median_wait_ms"`
-	P95WaitMS    int64  `json:"p95_wait_ms"`
+	Window            string `json:"window"`
+	QueuedJobs        int    `json:"queued_jobs"`
+	RunningJobs       int    `json:"running_jobs"`
+	Completed         int    `json:"completed"`
+	Failed            int    `json:"failed"`
+	MedianWaitMS      int64  `json:"median_wait_ms"`
+	P95WaitMS         int64  `json:"p95_wait_ms"`
+	P50StartupMS      int64  `json:"p50_startup_ms"`
+	P95StartupMS      int64  `json:"p95_startup_ms"`
+	P50RegistrationMS int64  `json:"p50_registration_ms"`
+	P95RegistrationMS int64  `json:"p95_registration_ms"`
 
 	Runners RunnerStats `json:"runners"`
 	Hosts   HostStats   `json:"hosts"`
@@ -101,6 +106,23 @@ func (c *Controller) Stats(ctx context.Context, window time.Duration) (*Stats, e
 	for _, j := range queued {
 		queuedByPool[j.PoolID]++
 	}
+	runners, _, err := c.st.ListRunners(ctx, store.RunnerFilter{IncludeRemoved: true}, store.Page{Limit: 10000})
+	if err == nil {
+		var startup, registration []int64
+		for _, r := range runners {
+			if r.CreatedAt.Before(since) {
+				continue
+			}
+			if r.ContainerStartedAt != nil && !r.ContainerStartedAt.Before(r.CreatedAt) {
+				startup = append(startup, r.ContainerStartedAt.Sub(r.CreatedAt).Milliseconds())
+			}
+			if r.ContainerStartedAt != nil && r.RegisteredAt != nil && !r.RegisteredAt.Before(*r.ContainerStartedAt) {
+				registration = append(registration, r.RegisteredAt.Sub(*r.ContainerStartedAt).Milliseconds())
+			}
+		}
+		out.P50StartupMS, out.P95StartupMS = percentile(startup, .50), percentile(startup, .95)
+		out.P50RegistrationMS, out.P95RegistrationMS = percentile(registration, .50), percentile(registration, .95)
+	}
 
 	out.Pools = make([]PoolStats, 0, len(pools))
 	for _, p := range pools {
@@ -147,6 +169,15 @@ func (c *Controller) Stats(ctx context.Context, window time.Duration) (*Stats, e
 		out.Hosts.Used += h.ActiveRunners
 	}
 	return out, nil
+}
+
+func percentile(values []int64, q float64) int64 {
+	if len(values) == 0 {
+		return 0
+	}
+	slices.Sort(values)
+	i := int(float64(len(values)-1)*q + .5)
+	return values[i]
 }
 
 // Samples returns the Overview's sparkline points since a cutoff.

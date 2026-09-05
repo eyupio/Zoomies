@@ -233,6 +233,14 @@ func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, a sched
 	if err := c.st.CreateRunner(ctx, r); err != nil {
 		return fmt.Errorf("creating the runner row for %s: %w", name, err)
 	}
+	if queued, err := c.st.ListQueuedJobs(ctx); err == nil {
+		for _, j := range queued {
+			if j.PoolID == pool.ID {
+				observeDuration(c.metrics.queuedToCreate, pool.Name, string(pool.Backend), j.QueuedAt, r.CreatedAt)
+				break
+			}
+		}
+	}
 	c.publishRunner(ctx, events.KindRunnerCreated, r)
 
 	creds, ghID, err := c.mintCredentials(ctx, inst, pool, name)

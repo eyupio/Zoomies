@@ -800,7 +800,12 @@ func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 	defer cancel()
 
 	start := a.now()
-	handle, err := b.Create(cctx, spec)
+	var created backend.CreateResult
+	if timed, ok := b.(backend.TimedCreator); ok {
+		created, err = timed.CreateWithResult(cctx, spec)
+	} else {
+		created.Handle, err = b.Create(cctx, spec)
+	}
 	if err != nil {
 		a.log.Error("creating runner failed", "runner", task.RunnerID, "name", spec.Name, "backend", kind, "error", err)
 		release()
@@ -809,6 +814,7 @@ func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 	}
 
 	now := a.now()
+	handle := created.Handle
 	a.mu.Lock()
 	a.runners[task.RunnerID] = &tracked{
 		runnerID:   task.RunnerID,
@@ -827,13 +833,16 @@ func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 	a.log.Info("runner created", "runner", task.RunnerID, "name", spec.Name, "backend", kind, "handle", handle, "took", now.Sub(start))
 	release()
 	a.report(ctx, TaskResult{
-		TaskID:      task.ID,
-		Kind:        task.Kind,
-		RunnerID:    task.RunnerID,
-		OK:          true,
-		Handle:      handle,
-		State:       store.RunnerRegistering,
-		CompletedAt: now,
+		TaskID:             task.ID,
+		Kind:               task.Kind,
+		RunnerID:           task.RunnerID,
+		OK:                 true,
+		Handle:             handle,
+		ImagePullDuration:  created.ImagePullDuration,
+		CreateDuration:     created.CreateDuration,
+		ContainerStartedAt: &now,
+		State:              store.RunnerRegistering,
+		CompletedAt:        now,
 	})
 }
 

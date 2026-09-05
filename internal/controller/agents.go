@@ -505,6 +505,12 @@ func (c *Controller) ReportResult(ctx context.Context, hostID string, res agent.
 			c.log.Warn("could not record a runner's workload handle", "runner", r.ID, "error", err)
 		}
 	}
+	if kind == agent.TaskCreateRunner && res.OK && res.ContainerStartedAt != nil {
+		_ = c.st.SetRunnerStartup(ctx, r.ID, res.ImagePullDuration, res.ContainerStartedAt)
+		if p, err := c.st.GetPool(ctx, r.PoolID); err == nil {
+			observeDuration(c.metrics.createToContainer, p.Name, string(p.Backend), r.CreatedAt, *res.ContainerStartedAt)
+		}
+	}
 
 	state := res.State
 	message := res.Error
@@ -591,6 +597,14 @@ func (c *Controller) applyRunnerState(ctx context.Context, r *store.Runner, stat
 	if err != nil {
 		c.log.Warn("could not apply a runner state an agent reported", "runner", r.ID, "state", state, "error", err)
 		return
+	}
+	if (state == store.RunnerIdle || state == store.RunnerBusy) && updated.RegisteredAt != nil {
+		if p, e := c.st.GetPool(ctx, r.PoolID); e == nil {
+			if r.ContainerStartedAt != nil {
+				observeDuration(c.metrics.containerToRegistered, p.Name, string(p.Backend), *r.ContainerStartedAt, *updated.RegisteredAt)
+			}
+			observeDuration(c.metrics.registeredToReady, p.Name, string(p.Backend), *updated.RegisteredAt, c.Now())
+		}
 	}
 	c.publishRunner(ctx, events.KindRunnerUpdated, updated)
 	if state.Terminal() {
