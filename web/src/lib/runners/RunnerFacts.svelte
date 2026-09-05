@@ -45,8 +45,13 @@
   </div>
 
   <div class="row">
-    <dt>Image</dt>
+    <dt>Requested image</dt>
     <dd class="mono break">{runner.image || '--'}</dd>
+  </div>
+
+  <div class="row">
+    <dt>Resolved digest</dt>
+    <dd class="mono break">{runner.image_digest || 'Not reported'}</dd>
   </div>
 
   <div class="row">

@@ -175,7 +175,7 @@ func (s *Store) DeleteInstallation(ctx context.Context, id string) error {
 // Pools
 // ---------------------------------------------------------------------------
 
-const poolCols = `id, name, installation_id, labels, runner_group, backend, image,
+const poolCols = `id, name, installation_id, labels, runner_group, backend, image, pull_policy,
 	runner_version, min_runners, max_runners, priority, idle_timeout_ms, ephemeral, docker_mode,
 	resources, cache, host_selector, env, run_as_root, enabled, created_at, updated_at`
 
@@ -185,7 +185,7 @@ func scanPool(sc interface{ Scan(...any) error }) (*Pool, error) {
 	var ephemeral, runAsRoot, enabled int
 	var resources, cache string
 	err := sc.Scan(&p.ID, &p.Name, &p.InstallationID, &p.Labels, &p.RunnerGroup, &p.Backend,
-		&p.Image, &p.RunnerVersion, &p.MinRunners, &p.MaxRunners, &p.Priority, &idle, &ephemeral,
+		&p.Image, &p.PullPolicy, &p.RunnerVersion, &p.MinRunners, &p.MaxRunners, &p.Priority, &idle, &ephemeral,
 		&p.DockerMode, &resources, &cache, &p.HostSelector, &p.Env, &runAsRoot, &enabled,
 		&created, &updated)
 	if err != nil {
@@ -216,6 +216,9 @@ func (s *Store) CreatePool(ctx context.Context, p *Pool) error {
 	p.CreatedAt, p.UpdatedAt = now, now
 	p.Name = BrandedName(p.Name)
 	p.Labels = NormalizeLabels(p.Labels)
+	if p.PullPolicy == "" {
+		p.PullPolicy = PullIfNotPresent
+	}
 	res, err := marshalJSON(p.Resources)
 	if err != nil {
 		return err
@@ -224,8 +227,8 @@ func (s *Store) CreatePool(ctx context.Context, p *Pool) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.exec(ctx, `INSERT INTO pools (`+poolCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		p.ID, p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend), p.Image,
+	_, err = s.exec(ctx, `INSERT INTO pools (`+poolCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		p.ID, p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend), p.Image, string(p.PullPolicy),
 		p.RunnerVersion, p.MinRunners, p.MaxRunners, p.Priority, p.IdleTimeout.Duration().Milliseconds(),
 		boolInt(p.Ephemeral), string(p.DockerMode), res, cache, p.HostSelector, p.Env,
 		boolInt(p.RunAsRoot), boolInt(p.Enabled), ms(p.CreatedAt), ms(p.UpdatedAt))
@@ -277,6 +280,9 @@ func (s *Store) UpdatePool(ctx context.Context, p *Pool) error {
 	p.UpdatedAt = s.Now()
 	p.Name = BrandedName(p.Name)
 	p.Labels = NormalizeLabels(p.Labels)
+	if p.PullPolicy == "" {
+		p.PullPolicy = PullIfNotPresent
+	}
 	res, err := marshalJSON(p.Resources)
 	if err != nil {
 		return err
@@ -286,10 +292,10 @@ func (s *Store) UpdatePool(ctx context.Context, p *Pool) error {
 		return err
 	}
 	r, err := s.exec(ctx, `UPDATE pools SET name=?, installation_id=?, labels=?, runner_group=?,
-		backend=?, image=?, runner_version=?, min_runners=?, max_runners=?, priority=?, idle_timeout_ms=?,
+		backend=?, image=?, pull_policy=?, runner_version=?, min_runners=?, max_runners=?, priority=?, idle_timeout_ms=?,
 		ephemeral=?, docker_mode=?, resources=?, cache=?, host_selector=?, env=?, run_as_root=?,
 		enabled=?, updated_at=? WHERE id=?`,
-		p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend), p.Image,
+		p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend), p.Image, string(p.PullPolicy),
 		p.RunnerVersion, p.MinRunners, p.MaxRunners, p.Priority, p.IdleTimeout.Duration().Milliseconds(),
 		boolInt(p.Ephemeral), string(p.DockerMode), res, cache, p.HostSelector, p.Env,
 		boolInt(p.RunAsRoot), boolInt(p.Enabled), ms(p.UpdatedAt), p.ID)
@@ -306,6 +312,37 @@ func (s *Store) DeletePool(ctx context.Context, id string) error {
 		return err
 	}
 	return affected(res, "pool", id)
+}
+
+func (s *Store) SetPoolPrewarm(ctx context.Context, poolID, hostID, image, state, digest, failure string) error {
+	_, err := s.exec(ctx, `INSERT INTO pool_prewarms(pool_id,host_id,image,state,digest,error,updated_at) VALUES(?,?,?,?,?,?,?)
+		ON CONFLICT(pool_id,host_id) DO UPDATE SET image=excluded.image,state=excluded.state,digest=excluded.digest,error=excluded.error,updated_at=excluded.updated_at`,
+		poolID, hostID, image, state, digest, failure, ms(s.Now()))
+	return err
+}
+
+func (s *Store) ListPoolPrewarms(ctx context.Context, poolID string) ([]PoolPrewarm, error) {
+	rows, err := s.read.QueryContext(ctx, `SELECT p.pool_id,p.host_id,h.name,p.image,p.state,p.digest,p.error,p.updated_at FROM pool_prewarms p JOIN hosts h ON h.id=p.host_id WHERE p.pool_id=? ORDER BY h.name`, poolID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PoolPrewarm
+	for rows.Next() {
+		var x PoolPrewarm
+		var updated int64
+		if err := rows.Scan(&x.PoolID, &x.HostID, &x.HostName, &x.Image, &x.State, &x.Digest, &x.Error, &updated); err != nil {
+			return nil, err
+		}
+		x.UpdatedAt = at(updated)
+		out = append(out, x)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) SetRunnerImageDigest(ctx context.Context, id, digest string) error {
+	_, err := s.exec(ctx, `UPDATE runners SET image_digest=? WHERE id=?`, digest, id)
+	return err
 }
 
 // PoolCounts is the per-state runner tally used by the scheduler and the UI's
@@ -545,7 +582,7 @@ func (s *Store) DeleteHost(ctx context.Context, id string) error {
 // ---------------------------------------------------------------------------
 
 const runnerCols = `id, pool_id, host_id, name, state, github_runner_id, container_id,
-	ephemeral, labels, image, runner_version, current_job_id, created_at, started_at,
+	ephemeral, labels, image, image_digest, runner_version, current_job_id, created_at, started_at,
 	last_idle_at, finished_at, message, jobs_handled, cpu_percent, memory_bytes,
 	image_pull_ms, container_started_at, registered_at`
 
@@ -555,7 +592,7 @@ func scanRunner(sc interface{ Scan(...any) error }) (*Runner, error) {
 	var created int64
 	var started, idle, finished, pullMS, containerStarted, registered sql.NullInt64
 	err := sc.Scan(&r.ID, &r.PoolID, &r.HostID, &r.Name, &r.State, &r.GitHubRunnerID,
-		&r.ContainerID, &ephemeral, &r.Labels, &r.Image, &r.RunnerVersion, &r.CurrentJobID,
+		&r.ContainerID, &ephemeral, &r.Labels, &r.Image, &r.ImageDigest, &r.RunnerVersion, &r.CurrentJobID,
 		&created, &started, &idle, &finished, &r.Message, &r.JobsHandled,
 		&r.CPUPercent, &r.MemoryBytes, &pullMS, &containerStarted, &registered)
 	if err != nil {
@@ -582,9 +619,9 @@ func (s *Store) CreateRunner(ctx context.Context, r *Runner) error {
 	}
 	r.CreatedAt = s.Now()
 	_, err := s.exec(ctx, `INSERT INTO runners (`+runnerCols+`)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		r.ID, r.PoolID, r.HostID, r.Name, string(r.State), r.GitHubRunnerID, r.ContainerID,
-		boolInt(r.Ephemeral), r.Labels, r.Image, r.RunnerVersion, r.CurrentJobID,
+		boolInt(r.Ephemeral), r.Labels, r.Image, r.ImageDigest, r.RunnerVersion, r.CurrentJobID,
 		ms(r.CreatedAt), msp(r.StartedAt), msp(r.LastIdleAt), msp(r.FinishedAt),
 		r.Message, r.JobsHandled, r.CPUPercent, r.MemoryBytes, durationMS(r.ImagePullDuration),
 		msp(r.ContainerStartedAt), msp(r.RegisteredAt))
@@ -771,7 +808,7 @@ func (s *Store) UpdateRunner(ctx context.Context, r *Runner) error {
 		current_job_id=?, started_at=?, last_idle_at=?, finished_at=?, message=?,
 		jobs_handled=?, cpu_percent=?, memory_bytes=? WHERE id=?`,
 		r.PoolID, r.HostID, r.Name, string(r.State), r.GitHubRunnerID, r.ContainerID,
-		boolInt(r.Ephemeral), r.Labels, r.Image, r.RunnerVersion, r.CurrentJobID,
+		boolInt(r.Ephemeral), r.Labels, r.Image, r.ImageDigest, r.RunnerVersion, r.CurrentJobID,
 		msp(r.StartedAt), msp(r.LastIdleAt), msp(r.FinishedAt), r.Message,
 		r.JobsHandled, r.CPUPercent, r.MemoryBytes, r.ID)
 	if err != nil {

@@ -19,7 +19,49 @@ func runPools(ctx context.Context, e *env, args []string) error {
 		{"delete", "<pool-id>", "Delete a pool, draining its runners first", poolsDelete},
 		{"enable", "<pool-id>", "Let a pool create runners again", poolsEnable},
 		{"disable", "<pool-id>", "Stop creating runners; existing ones drain", poolsDisable},
+		{"prewarm", "<pool-id>", "Pre-pull the image on every matching host", poolsPrewarm},
 	}, args)
+}
+
+func poolsPrewarm(ctx context.Context, e *env, args []string) error {
+	fs := newFlagSet(e, "zoomies pools prewarm <pool-id>", "Pre-pull a pool image on every matching host.")
+	cf := registerClientFlags(fs, true)
+	if err := fs.parse(args); err != nil {
+		return err
+	}
+	id, err := fs.oneArg("a pool ID")
+	if err != nil {
+		return err
+	}
+	client, err := cf.client()
+	if err != nil {
+		return err
+	}
+	p, err := cf.printer(e)
+	if err != nil {
+		return err
+	}
+	var out struct {
+		Queued int `json:"queued"`
+		Hosts  []struct {
+			HostName string `json:"host_name"`
+			State    string `json:"state"`
+			Digest   string `json:"digest"`
+			Error    string `json:"error"`
+		} `json:"hosts"`
+	}
+	raw, err := client.post(ctx, "/pools/"+url.PathEscape(id)+"/prewarm", nil, nil, &out)
+	if err != nil {
+		return err
+	}
+	if p.structured() {
+		return p.emit(raw)
+	}
+	p.note(fmt.Sprintf("Queued image prewarm on %d host(s).", out.Queued))
+	for _, h := range out.Hosts {
+		p.note(fmt.Sprintf("%s: %s %s%s", h.HostName, h.State, h.Digest, h.Error))
+	}
+	return nil
 }
 
 func poolsList(ctx context.Context, e *env, args []string) error {
@@ -140,6 +182,7 @@ type poolSpec struct {
 	installation *string
 	backend      *string
 	image        *string
+	pullPolicy   *string
 	version      *string
 	group        *string
 	idleTimeout  *string
@@ -175,6 +218,7 @@ func registerPoolFlags(fs *flagSet) *poolSpec {
 	fs.Var(spec.labels, "labels", "the labels a workflow's runs-on must ask for (repeatable, or comma-separated)")
 	spec.backend = fs.String("backend", "docker", "docker, podman or process")
 	spec.image = fs.String("image", "", "runner image (default: the controller's github.runner_image)")
+	spec.pullPolicy = fs.String("pull-policy", "if-not-present", "if-not-present, always, or pinned-only")
 	spec.version = fs.String("runner-version", "", "pin the actions/runner release")
 	spec.group = fs.String("runner-group", "", "the GitHub runner group to register into")
 	spec.minRunners = fs.Int("min", 0, "runners to keep even when nothing is queued")
@@ -211,6 +255,7 @@ func (spec *poolSpec) body(fs *flagSet, onlyChanged bool) map[string]any {
 	put("installation", "installation_id", *spec.installation)
 	put("labels", "labels", []string(*spec.labels))
 	put("backend", "backend", *spec.backend)
+	put("pull-policy", "pull_policy", *spec.pullPolicy)
 	put("min", "min_runners", *spec.minRunners)
 	put("max", "max_runners", *spec.maxRunners)
 	put("priority", "priority", *spec.priority)

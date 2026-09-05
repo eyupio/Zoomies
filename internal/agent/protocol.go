@@ -98,7 +98,8 @@ const (
 	// TaskStreamLogs opens an outbound log relay for a UI viewer.
 	TaskStreamLogs TaskKind = "stream_logs"
 	// TaskCancelLogs closes one.
-	TaskCancelLogs TaskKind = "cancel_logs"
+	TaskCancelLogs   TaskKind = "cancel_logs"
+	TaskPrewarmImage TaskKind = "prewarm_image"
 )
 
 // Task is one unit of work handed to an agent. Tasks are idempotent: the
@@ -114,7 +115,10 @@ type Task struct {
 	// the agent transport requires TLS in any non-loopback deployment.
 	Spec *backend.Spec `json:"spec,omitempty"`
 	// Backend selects which registered backend handles this task.
-	Backend store.BackendKind `json:"backend,omitempty"`
+	Backend    store.BackendKind `json:"backend,omitempty"`
+	PoolID     string            `json:"pool_id,omitempty"`
+	Image      string            `json:"image,omitempty"`
+	PullPolicy store.PullPolicy  `json:"pull_policy,omitempty"`
 	// StopTimeout bounds a graceful stop.
 	StopTimeout time.Duration `json:"stop_timeout,omitempty"`
 	// StreamID identifies a log relay for TaskStreamLogs and TaskCancelLogs.
@@ -142,6 +146,7 @@ type TaskResult struct {
 	ImagePullDuration  *time.Duration `json:"image_pull_duration,omitempty"`
 	CreateDuration     time.Duration  `json:"create_duration,omitempty"`
 	ContainerStartedAt *time.Time     `json:"container_started_at,omitempty"`
+	Digest   string         `json:"digest,omitempty"`
 	// State is the runner state the agent believes the runner reached.
 	State       store.RunnerState `json:"state,omitempty"`
 	CompletedAt time.Time         `json:"completed_at"`

@@ -12,9 +12,11 @@
  * the last of them creates the administrator the rest sign in with.
  */
 import { test, expect } from '@playwright/test';
+import { browserOverride } from './support/fixtures';
 
 const ADMIN = { username: 'ada', password: 'correct horse battery staple' };
 
+test.use(browserOverride);
 test.describe.configure({ mode: 'serial' });
 
 /** Each test gets its own context, so anything after the bootstrap signs in. */
@@ -105,6 +107,20 @@ test('signing out and back in reports the three kinds of failure differently', a
   await page.goto('/login');
 
   await expect(page.getByRole('heading', { name: 'Sign in', level: 1 })).toBeVisible();
+  // The colophon under the card is where somebody who did not install this
+  // controller learns what it is and who makes it. Both links leave the page
+  // for another site, so both open a new tab.
+  for (const [name, href] of [
+    ['zoomies.sh', 'https://zoomies.sh'],
+    ['EyUp.io', 'https://eyup.io'],
+  ] as const) {
+    const link = page.getByRole('link', { name, exact: true });
+    await expect(link).toHaveAttribute('href', href);
+    await expect(link).toHaveAttribute('target', '_blank');
+    await expect(link).toHaveAttribute('rel', /noopener/);
+  }
+  await expect(page.getByText(/Developed by/)).toBeVisible();
+
   await page.fill('input[name="username"]', ADMIN.username);
   await page.fill('input[name="password"]', 'not the password');
   await page.getByRole('button', { name: 'Sign in' }).click();

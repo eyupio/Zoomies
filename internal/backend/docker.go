@@ -5,6 +5,7 @@ package backend
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -700,6 +701,37 @@ func (b *DockerBackend) ensureImage(ctx context.Context, image string) (bool, er
 		return false, fmt.Errorf("backend: pulling %s: %w", image, err)
 	}
 	return true, nil
+}
+
+func (b *DockerBackend) PrewarmImage(ctx context.Context, image string, policy store.PullPolicy) (string, error) {
+	if policy == store.PullPinnedOnly && !isDigestReference(image) {
+		return "", fmt.Errorf("backend: pinned-only requires an image digest")
+	}
+	if policy == store.PullAlways {
+		if err := b.api.ImagePull(ctx, image, b.auth); err != nil {
+			return "", err
+		}
+	} else {
+		present, err := b.api.ImageInspect(ctx, image)
+		if err != nil {
+			return "", err
+		}
+		if !present {
+			if err := b.api.ImagePull(ctx, image, b.auth); err != nil {
+				return "", err
+			}
+		}
+	}
+	return b.api.ImageDigest(ctx, image)
+}
+
+func isDigestReference(ref string) bool {
+	parts := strings.Split(ref, "@sha256:")
+	if len(parts) != 2 || parts[0] == "" || len(parts[1]) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(parts[1])
+	return err == nil
 }
 
 // ensureNetwork creates a user-defined network on demand. The daemon's built-in

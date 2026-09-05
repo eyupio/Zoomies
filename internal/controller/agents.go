@@ -91,6 +91,9 @@ type leasedTask struct {
 // per runner. A reconcile that decides "remove this failed runner" on every
 // pass therefore leaves one remove task, not one every ten seconds.
 func taskKey(t agent.Task) string {
+	if t.Kind == agent.TaskPrewarmImage {
+		return string(t.Kind) + ":" + t.PoolID + ":" + t.Image
+	}
 	if t.StreamID != "" {
 		return string(t.Kind) + "|stream:" + t.StreamID
 	}
@@ -185,7 +188,7 @@ func (q *taskQueue) complete(taskID string) (agent.Task, bool) {
 // which is the only safe reading of a failure whose task nobody can name.
 func lifecycleTask(kind agent.TaskKind) bool {
 	switch kind {
-	case agent.TaskStreamLogs, agent.TaskCancelLogs:
+	case agent.TaskStreamLogs, agent.TaskCancelLogs, agent.TaskPrewarmImage:
 		return false
 	}
 	return true
@@ -236,6 +239,38 @@ func (c *Controller) enqueue(hostID string, t agent.Task) bool {
 		t.IssuedAt = c.Now()
 	}
 	return c.queues.get(hostID).enqueue(t)
+}
+
+// PrewarmPool queues one idempotent image preparation task on every matching
+// healthy host. A failure is recorded per host and never affects scheduling.
+func (c *Controller) PrewarmPool(ctx context.Context, p *store.Pool) (int, error) {
+	hosts, err := c.st.ListHosts(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if p.Backend == store.BackendProcess {
+		return 0, fmt.Errorf("the process backend does not support image prewarming")
+	}
+	n := 0
+	for _, h := range hosts {
+		if !h.Healthy(c.Now()) || h.Cordoned || !slices.Contains(h.Backends, string(p.Backend)) || !matchesSelector(p.HostSelector, h.Labels) {
+			continue
+		}
+		_ = c.st.SetPoolPrewarm(ctx, p.ID, h.ID, p.Image, "pending", "", "")
+		if c.enqueue(h.ID, agent.Task{Kind: agent.TaskPrewarmImage, PoolID: p.ID, Backend: p.Backend, Image: p.Image, PullPolicy: p.PullPolicy, IssuedAt: c.Now()}) {
+			n++
+		}
+	}
+	return n, nil
+}
+
+func matchesSelector(want, got store.StringMap) bool {
+	for k, v := range want {
+		if got[k] != v {
+			return false
+		}
+	}
+	return true
 }
 
 // ---------------------------------------------------------------------------
@@ -479,6 +514,13 @@ func (c *Controller) PollTasks(ctx context.Context, hostID string, wait time.Dur
 // ReportResult applies the outcome of one task and clears its lease.
 func (c *Controller) ReportResult(ctx context.Context, hostID string, res agent.TaskResult) error {
 	task, known := c.queues.get(hostID).complete(res.TaskID)
+	if known && task.Kind == agent.TaskPrewarmImage {
+		state := "succeeded"
+		if !res.OK {
+			state = "failed"
+		}
+		return c.st.SetPoolPrewarm(ctx, task.PoolID, hostID, task.Image, state, res.Digest, res.Error)
+	}
 	kind := res.Kind
 	if kind == "" && known {
 		kind = task.Kind
@@ -510,6 +552,9 @@ func (c *Controller) ReportResult(ctx context.Context, hostID string, res agent.
 		if p, err := c.st.GetPool(ctx, r.PoolID); err == nil {
 			observeDuration(c.metrics.createToContainer, p.Name, string(p.Backend), r.CreatedAt, *res.ContainerStartedAt)
 		}
+	}
+	if res.Digest != "" {
+		_ = c.st.SetRunnerImageDigest(ctx, r.ID, res.Digest)
 	}
 
 	state := res.State
