@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/xml"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -353,8 +354,34 @@ func TestUnknownJSONFieldIsRefused(t *testing.T) {
 
 // Behind Cloudflare the origin sees Cloudflare's address on every connection.
 // Without honouring its header the audit log records Cloudflare for every
-// action and the login rate limiter throttles the whole internet as one client.
-func TestCloudflareConnectingIPIsBelievedFromATrustedProxy(t *testing.T) {
+// action and the login rate limiter throttles the whole internet as one
+// client. But the header is only Cloudflare's to set when the peer *is*
+// Cloudflare: nginx and HAProxy forward a header they do not know untouched,
+// so from behind one of those it is the client's to forge. The test server's
+// peer is loopback, so the Cloudflare half is exercised on the resolver
+// directly with a peer address from Cloudflare's published ranges.
+func TestCloudflareConnectingIPIsBelievedOnlyFromCloudflare(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) {
+		c.Server.TrustedProxies = []string{config.TrustedProxyCloudflare, "10.0.0.0/8"}
+	})
+	forwarded := func(peer string) *http.Request {
+		r := httptest.NewRequest(http.MethodGet, "/api/v1/meta", nil)
+		r.RemoteAddr = peer
+		r.Header.Set("CF-Connecting-IP", "198.51.100.7")
+		r.Header.Set("X-Forwarded-For", "203.0.113.1")
+		return r
+	}
+	if got := h.api.resolveClientIP(forwarded("173.245.48.10:443")); got != "198.51.100.7" {
+		t.Errorf("from a Cloudflare edge: resolved %q, want the header's 198.51.100.7", got)
+	}
+	if got := h.api.resolveClientIP(forwarded("10.0.0.2:443")); got != "203.0.113.1" {
+		t.Errorf("from a trusted proxy that is not Cloudflare: resolved %q, want X-Forwarded-For's 203.0.113.1", got)
+	}
+}
+
+// End to end: a proxy the operator trusts that is not Cloudflare. The header
+// must not decide the address the audit log records.
+func TestCloudflareConnectingIPIsIgnoredFromAProxyThatIsNotCloudflare(t *testing.T) {
 	h := newHarness(t, func(c *config.Config) {
 		c.Server.TrustedProxies = []string{"127.0.0.0/8", "::1/128"}
 	})
@@ -363,9 +390,7 @@ func TestCloudflareConnectingIPIsBelievedFromATrustedProxy(t *testing.T) {
 	resp := h.do(request{method: http.MethodPost, path: "/api/v1/auth/login",
 		headers: map[string]string{
 			"CF-Connecting-IP": "198.51.100.7",
-			// What the client sent, with Cloudflare's value appended. The
-			// unambiguous header wins.
-			"X-Forwarded-For": "203.0.113.1, 198.51.100.7",
+			"X-Forwarded-For":  "203.0.113.1",
 		},
 		body: map[string]any{"username": "alice", "password": testPassword}})
 	resp.mustStatus(t, http.StatusOK, "login")
@@ -377,8 +402,8 @@ func TestCloudflareConnectingIPIsBelievedFromATrustedProxy(t *testing.T) {
 	if len(events) == 0 {
 		t.Fatal("the login was not audited")
 	}
-	if events[0].IP != "198.51.100.7" {
-		t.Errorf("recorded address = %q, want the client's 198.51.100.7", events[0].IP)
+	if events[0].IP != "203.0.113.1" {
+		t.Errorf("recorded address = %q, want X-Forwarded-For's 203.0.113.1, not the forgeable header", events[0].IP)
 	}
 }
 

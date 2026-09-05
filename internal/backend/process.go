@@ -60,7 +60,12 @@ const (
 )
 
 // DefaultRunnerVersion is used when neither the pool nor the agent pins one.
-const DefaultRunnerVersion = "2.328.0"
+//
+// It is the same release deploy/Dockerfile.runner and the Makefile pin, and
+// the digests in runner_digests.go are its digests: bump all of them together
+// (.github/workflows/runner-version.yml does), or the process backend will
+// refuse to install the version it defaults to.
+const DefaultRunnerVersion = "2.337.0"
 
 // defaultRunnerDownloadURL is where actions/runner releases live.
 const defaultRunnerDownloadURL = "https://github.com/actions/runner/releases/download"
@@ -70,15 +75,6 @@ const configureTimeout = 3 * time.Minute
 
 // tailPoll is how often a followed log file is re-read. See followReader.
 const tailPoll = 250 * time.Millisecond
-
-// knownRunnerSHA256 holds digests Zoomies ships for the runner releases it has
-// been tested against, keyed "<version>/<asset file name>".
-//
-// It is deliberately empty in the source tree rather than filled with digests
-// that would go stale: an operator who pins a version supplies its digest with
-// ProcessOptions.RunnerSHA256, and a release of Zoomies that pins a default
-// runner version adds the entry here at the same time.
-var knownRunnerSHA256 = map[string]string{}
 
 // ProcessOptions configures the process backend.
 type ProcessOptions struct {

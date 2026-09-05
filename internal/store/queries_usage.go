@@ -64,7 +64,10 @@ func (s *Store) Usage(ctx context.Context, from, to time.Time, group UsageGroup)
 	var expr string
 	switch group {
 	case UsageByInstallation:
-		expr = "p.installation_id"
+		// A job GitHub ran on one of its own hosted runners has no pool, so
+		// the LEFT JOIN yields NULL here, and scanning NULL into a string
+		// fails the whole query. Most real windows contain such a job.
+		expr = "COALESCE(p.installation_id, '')"
 	case UsageByRepository:
 		expr = "j.repo"
 	case UsageByWorkflow:

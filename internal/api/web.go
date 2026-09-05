@@ -215,6 +215,7 @@ var uiRoutes = []string{
 	"/pools",
 	"/runners",
 	"/jobs",
+	"/usage",
 	"/hosts",
 	"/installations",
 	"/migrate",

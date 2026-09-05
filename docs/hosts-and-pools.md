@@ -67,7 +67,7 @@ connection runs that way round.
 | Backends | Probed by the agent at startup, and again as sockets appear | A pool is only placed on a host that offers its backend. |
 | Labels | `agent.labels` or `--labels` | What a pool's `host_selector` matches against. |
 | OS, arch, version | The agent | Shown in **Hosts**, and how you tell an arm64 box from an x64 one. |
-| Health | A heartbeat every `agent.heartbeat_interval` | A host silent for 90 seconds — three times the default interval — is unhealthy, and takes no new runners until it checks in again. |
+| Health | A heartbeat every `agent.heartbeat_interval` | A host silent for 90 seconds — three times the default interval — is unhealthy, and takes no new runners until it checks in again. After five minutes of silence it is presumed gone: the runners still recorded on it are failed so the pool can replace them, and a job one of them was running is marked as lost by the fleet. |
 
 A host that offers no backend is connected, healthy and useless: nothing will
 ever be scheduled on it. `zoomies hosts list` says so rather than printing a

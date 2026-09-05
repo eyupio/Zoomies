@@ -69,7 +69,11 @@ type Server struct {
 	// for any other, since the browser would refuse to send it.
 	formTargets []string
 	trusted     []*net.IPNet
-	manifests   *manifestStates
+	// cloudflare is Cloudflare's own edge ranges, kept apart from trusted so
+	// that CF-Connecting-IP is believed only from a peer that is Cloudflare,
+	// never from another proxy an operator happens to trust.
+	cloudflare []*net.IPNet
+	manifests  *manifestStates
 
 	// settingsMu serialises PATCH /settings against itself. The configuration
 	// it writes into is the one the controller's loops read, so two operators
@@ -119,6 +123,11 @@ func New(opts Options) (*Server, error) {
 
 	s.trusted, err = parseTrustedProxies(cfg.Server.TrustedProxies)
 	if err != nil {
+		return nil, err
+	}
+	// The ranges are the binary's own, so parsing them cannot fail on an
+	// operator's input; a failure here is a broken build.
+	if s.cloudflare, err = parseTrustedProxies([]string{config.TrustedProxyCloudflare}); err != nil {
 		return nil, err
 	}
 

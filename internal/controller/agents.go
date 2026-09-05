@@ -195,8 +195,9 @@ func lifecycleTask(kind agent.TaskKind) bool {
 }
 
 // sweep re-queues tasks whose lease has expired and drops the ones that have
-// been tried too often. It returns how many of each happened.
-func (q *taskQueue) sweep(now time.Time) (requeued, dropped int) {
+// been tried too often. It returns how many were re-queued and which were
+// dropped, because a dropped stop is a runner nothing will ever stop.
+func (q *taskQueue) sweep(now time.Time) (requeued int, dropped []agent.Task) {
 	q.mu.Lock()
 	for id, lt := range q.inflight {
 		if lt.expires.IsZero() || now.Before(lt.expires) {
@@ -204,7 +205,7 @@ func (q *taskQueue) sweep(now time.Time) (requeued, dropped int) {
 		}
 		delete(q.inflight, id)
 		if lt.attempts >= maxTaskAttempts {
-			dropped++
+			dropped = append(dropped, lt.task)
 			continue
 		}
 		q.pending = append(q.pending, lt)
@@ -669,8 +670,17 @@ func (c *Controller) applyRunnerState(ctx context.Context, r *store.Runner, stat
 // Host health
 // ---------------------------------------------------------------------------
 
+// hostLostAfter is how long a host may be silent before its runners are given
+// up on. store.HeartbeatTimeout is the earlier, softer judgement: the host is
+// unhealthy, so nothing new is placed on it. This is the later, harder one:
+// the runners already there are not coming back. It is longer than an agent
+// restart, a daemon upgrade or a network blip, and shorter than a pool pinned
+// at its maximum by dead runners can be left creating nothing.
+const hostLostAfter = 5 * time.Minute
+
 // checkHostHealth publishes a host event whenever a host's health flips, so
-// the UI shows an agent going quiet without anyone refreshing.
+// the UI shows an agent going quiet without anyone refreshing, and reclaims
+// the runners of a host that has been quiet for long enough to be gone.
 func (c *Controller) checkHostHealth(ctx context.Context) {
 	hosts, err := c.st.ListHosts(ctx)
 	if err != nil {
@@ -691,6 +701,49 @@ func (c *Controller) checkHostHealth(ctx context.Context) {
 				c.Nudge()
 			}
 		}
+		if !healthy && now.Sub(h.LastHeartbeat) > hostLostAfter {
+			c.reclaimLostRunners(ctx, h, now)
+		}
+	}
+}
+
+// reclaimLostRunners fails every runner still recorded as live on a host that
+// has been silent past hostLostAfter.
+//
+// Until they are failed those rows count as capacity: a pool at its maximum
+// with four runners on a dead host created nothing, for ever, while looking
+// perfectly healthy, because nothing sends a task to a host that is gone and
+// the rows never reached a terminal state on their own. Failing them lets the
+// next reconcile pass replace them, and marks the job a busy one was running as
+// the fleet's failure rather than the workflow's. The demo fleet's hosts are
+// left alone: some are silent on purpose, so the UI can be looked at with an
+// unhealthy host on it.
+func (c *Controller) reclaimLostRunners(ctx context.Context, h *store.Host, now time.Time) {
+	if IsDemoID(h.ID) {
+		return
+	}
+	runners, err := c.st.ListRunnersForHost(ctx, h.ID,
+		store.RunnerProvisioning, store.RunnerRegistering, store.RunnerIdle, store.RunnerBusy, store.RunnerDraining)
+	if err != nil || len(runners) == 0 {
+		return
+	}
+	silent := now.Sub(h.LastHeartbeat).Round(time.Second)
+	reason := fmt.Sprintf("host %s has not sent a heartbeat for %s, so this runner cannot be reached or stopped; it is presumed gone with the host",
+		h.Name, silent)
+	failed := 0
+	for _, r := range runners {
+		if err := c.failRunnerID(ctx, r.ID, reason); err != nil {
+			if !errors.Is(err, store.ErrNotFound) && !errors.Is(err, store.ErrInvalidTransition) {
+				c.log.Warn("could not fail a runner on a silent host", "runner", r.ID, "host", h.ID, "error", err)
+			}
+			continue
+		}
+		failed++
+	}
+	if failed > 0 {
+		c.log.Warn("gave up on the runners of a silent host; the next pass replaces them",
+			"host", h.ID, "name", h.Name, "runners", failed, "silent_for", silent)
+		c.Nudge()
 	}
 }
 

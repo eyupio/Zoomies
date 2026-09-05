@@ -83,6 +83,10 @@ agent:
   network: ""                   # ZOOMIES_AGENT_NETWORK
   heartbeat_interval: 30s       # ZOOMIES_HEARTBEAT_INTERVAL
   finished_retention: 10m       # ZOOMIES_AGENT_FINISHED_RETENTION -- how long a finished runner stays on disk
+  # Process backend only:
+  runner_sha256: ""             # ZOOMIES_AGENT_RUNNER_SHA256 -- digest of the runner archive, when github.runner_version is pinned
+  allow_unverified_runner_download: false   # ZOOMIES_AGENT_ALLOW_UNVERIFIED_RUNNER_DOWNLOAD -- warned about
+  runner_download_url: ""       # ZOOMIES_AGENT_RUNNER_DOWNLOAD_URL -- an internal mirror of the actions/runner releases
   # Standalone agents only:
   controller_url: ""            # ZOOMIES_CONTROLLER_URL
   join_token: ""                # ZOOMIES_JOIN_TOKEN
@@ -215,20 +219,15 @@ images](#jobs-that-build-container-images)) — each under four kinds of tag:
 
 | Tag | Points at | Published by |
 | --- | --- | --- |
-| `latest` | The tip of `main`, for now | `ci.yml`, on every push to `main` |
+| `latest` | The most recent release | `release.yml`, on a `v*` tag |
+| `vX.Y.Z` | One tagged release | `release.yml`, on a `v*` tag |
 | `main` | The tip of `main` | `ci.yml`, on every push to `main` |
 | `sha-<commit>` | One exact commit | `ci.yml`, on every push to `main` |
-| `vX.Y.Z` | One tagged release | `release.yml`, on a `v*` tag |
 
-`latest` is the default, and until the first release it is the same image as
-`main` — Zoomies has no `v*` tag yet, so there is no release for it to point at.
-It therefore moves on every merge. Pin `sha-<commit>` when you want an image
-that never changes at all.
-
-Once the first release is tagged, `latest` should go back to meaning "the last
-release": drop it from the `images` job in `ci.yml`, and let `release.yml` be
-the only thing that moves it. Leaving both in place means the next merge to
-`main` overwrites the release's `latest` with an untagged build.
+`latest` is the default and means the most recent release, so a pool that names
+no tag moves only when a release is cut, never on a merge. Pin `vX.Y.Z` to stay
+on one release, or `sha-<commit>` for an image that never changes at all. `main`
+is for running ahead of the releases, and moves with every merge.
 
 The runner images are only rebuilt when something that goes into them changes —
 `deploy/Dockerfile.runner` or `deploy/runner-entrypoint.sh` — so their `main` tag
@@ -384,6 +383,20 @@ long window is disk: a busy host keeps one finished container per job for that
 long, and a setting over a day is flagged in the problems drawer for that
 reason. It is separate from `retention.runners`, which keeps the runner's row
 in the database for the history page.
+
+### `agent.runner_sha256` and the process backend's download
+
+The process backend downloads the `actions/runner` release itself, and it
+refuses to install an archive it cannot verify. Zoomies ships the SHA-256 of
+every archive for the release it pins by default, so the common case needs no
+setting at all. Pin a different release with `github.runner_version` and give
+its digest here -- every actions/runner release lists them in its notes -- and
+the download is verified against that instead.
+
+`agent.allow_unverified_runner_download` accepts an archive with no known
+digest. It is warned about at startup, because it means executing whatever the
+network handed over. `agent.runner_download_url` points the download at an
+internal mirror that keeps GitHub's release layout underneath it.
 
 ### `scheduler.scale_up_delay`
 
