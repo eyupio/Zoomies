@@ -121,9 +121,14 @@
 </PageHeader>
 
 <div class="content">
+  <!--
+    A failed reconcile once the hosts are on screen is not an error state: the
+    cache still holds every host and the stream keeps updating them. Only a
+    first load that never landed gets one, as the Overview does.
+  -->
   <LoadingBoundary
     loading={fleet.loading && !fleet.loaded}
-    error={fleet.error}
+    error={fleet.loaded ? null : fleet.error}
     empty={fleet.loaded && hosts.length === 0}
     onretry={() => void fleet.reconcile()}
   >
