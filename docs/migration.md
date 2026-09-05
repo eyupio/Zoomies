@@ -88,7 +88,7 @@ pool for yet.
 ## Permissions
 
 This is the only thing in Zoomies that writes to a repository, and it needs
-three App permissions the rest of Zoomies deliberately does not ask for:
+three App permissions the rest of Zoomies has no use for:
 
 | Permission | Level | Why |
 | --- | --- | --- |
@@ -96,9 +96,18 @@ three App permissions the rest of Zoomies deliberately does not ask for:
 | Pull requests | read and write | To open the pull request. |
 | Workflows | write | GitHub requires it specifically to change files under `.github/workflows`. |
 
-They are not in the App manifest the installer builds, because an App that
-manages a fleet's runners is a high-value credential and most fleets never
-migrate anything. Add them yourself, once, when you want to:
+They are in the App manifest the installer builds, so an App created by Zoomies
+already has them and there is nothing to do. Asking at creation is a deliberate
+trade: an App that manages a fleet's runners is a high-value credential and most
+fleets never migrate anything, but adding a permission to an App that already
+exists is not a setting you can flip. GitHub holds the change until the
+account's owner accepts it on the installation, and until they do the wizard
+cannot even *read* a workflow — it reports every repository as unreadable, which
+looks like a broken product rather than a missing permission. One consent
+screen, at the point you are already reading one, is the honest version.
+
+If your App predates this — or you removed them, which is a reasonable thing to
+do in a fleet that will never migrate — add them once:
 
 1. Open the App's settings — the review step links straight to the page.
 2. **Permissions & events**, set the three above.

@@ -75,6 +75,9 @@ func TestManifestOrgShape(t *testing.T) {
 		"organization_self_hosted_runners": "write",
 		"actions":                          "read",
 		"metadata":                         "read",
+		"contents":                         "write",
+		"pull_requests":                    "write",
+		"workflows":                        "write",
 	}
 	if got := permissions(t, m); !maps.Equal(got, want) {
 		t.Fatalf("permissions = %v, want %v", got, want)
@@ -136,6 +139,9 @@ func TestManifestRepoShape(t *testing.T) {
 		"administration": "write",
 		"actions":        "read",
 		"metadata":       "read",
+		"contents":       "write",
+		"pull_requests":  "write",
+		"workflows":      "write",
 	}
 	got := permissions(t, m)
 	if !maps.Equal(got, want) {
@@ -305,7 +311,10 @@ func TestExchangeManifestCodeErrors(t *testing.T) {
 
 func TestManifestPermissionsAreMinimal(t *testing.T) {
 	// Every permission in the manifest has to be one Zoomies actually uses.
-	allowed := []string{"actions", "metadata", "administration", "organization_self_hosted_runners"}
+	allowed := []string{
+		"actions", "metadata", "administration", "organization_self_hosted_runners",
+		"contents", "pull_requests", "workflows",
+	}
 	for _, org := range []string{"", "acme"} {
 		m := decodeManifest(t, ManifestOptions{
 			Name: "zoomies", URL: "https://z.example", WebhookURL: "https://z.example/w",

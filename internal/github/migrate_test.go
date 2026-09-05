@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -196,6 +197,57 @@ func TestOpenPullRequestExplainsAForbidden(t *testing.T) {
 	for _, want := range []string{"Contents", "Pull requests", "Workflows"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("err = %v, want it to name the %q permission", err, want)
+		}
+	}
+}
+
+// A scan is the first thing an operator runs, and a 403 there used to be
+// decorated with the runner permissions -- which are set correctly, so the
+// operator checks them, finds nothing wrong, and concludes Zoomies is broken.
+// Reading needs the same three permissions writing does, and says so.
+func TestListWorkflowsExplainsAForbidden(t *testing.T) {
+	f, c := migrationFake(t)
+	f.SetError("/contents/", http.StatusForbidden, "Resource not accessible by integration")
+
+	_, err := c.ListWorkflows(context.Background(), "acme/widgets")
+	if err == nil {
+		t.Fatal("expected a failure")
+	}
+	if !errors.Is(err, ErrForbidden) {
+		t.Errorf("err = %v, want it to wrap ErrForbidden", err)
+	}
+	for _, want := range []string{"Contents", "Pull requests", "Workflows"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want it to name the %q permission", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "Self-hosted runners") {
+		t.Errorf("err = %v, sends the operator to the runner permissions, which are not the problem", err)
+	}
+}
+
+// The migration permissions are asked for when the App is created, because
+// adding one afterwards is held by GitHub until the account's owner accepts it
+// -- and until they do the wizard cannot read a workflow at all. An App made
+// from this manifest can run the wizard the day it is installed.
+func TestManifestGrantsWhatTheMigrationNeeds(t *testing.T) {
+	for _, org := range []string{"", "acme"} {
+		b, err := Manifest(ManifestOptions{
+			Name: "zoomies", URL: "https://z.example", WebhookURL: "https://z.example/w",
+			Organization: org,
+		})
+		if err != nil {
+			t.Fatalf("Manifest: %v", err)
+		}
+		var m struct {
+			Permissions map[string]string `json:"default_permissions"`
+		}
+		if err := json.Unmarshal(b, &m); err != nil {
+			t.Fatalf("decode manifest: %v", err)
+		}
+		info := &AppInfo{Permissions: m.Permissions}
+		if missing := info.MissingForMigration(); len(missing) != 0 {
+			t.Errorf("an App created for org=%q still cannot migrate: %v", org, missing)
 		}
 	}
 }
