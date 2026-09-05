@@ -35,10 +35,14 @@
   const authenticated = $derived(session.phase === 'ready');
 
   onMount(() => {
+    // A session that has lapsed shows the sign-in form in place: the shell
+    // renders Login whenever nobody is signed in, and leaving the address
+    // alone is what lets Login read it and send the operator back to the
+    // runner they were looking at once they have signed in again. Navigating
+    // to /login here threw that away and landed everyone on the Overview.
     onUnauthorized(() => {
       session.clear();
       fleet.stop();
-      if (router.pathname !== '/login') router.navigate('/login');
     });
     router.start();
     void session.boot();

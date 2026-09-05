@@ -19,6 +19,15 @@ import (
 	_ "modernc.org/sqlite" // pure-Go driver: no cgo, so the binary stays static
 )
 
+// The migrations run in lexical order of their full file name, and the ledger
+// that records what has been applied is keyed by that full name too. Two
+// things follow, and a test holds both. A shipped file's name is immutable:
+// renaming one re-applies its DDL on every existing database, which fails or
+// worse. And a new file takes the next unused numeric prefix, alone: two files
+// sharing a prefix sort on what follows the underscore, which is a fact about
+// spelling and not about the order the schema needs. Two such pairs already
+// shipped (0005 and 0006) and stay as they are, because of the first rule.
+//
 //go:embed migrations/*.sql
 var migrationFS embed.FS
 
@@ -30,6 +39,15 @@ var ErrConflict = errors.New("already exists")
 
 // ErrInvalidTransition is returned when a runner state change is not legal.
 var ErrInvalidTransition = errors.New("invalid state transition")
+
+// ErrJoinTokenUsed and ErrJoinTokenExpired are the two ways a join token that
+// exists can still be refused. They are sentinels rather than prose so the
+// caller can tell a refusal, which is the agent operator's to act on, from a
+// failure of the database, which is not.
+var (
+	ErrJoinTokenUsed    = errors.New("join token has already been used")
+	ErrJoinTokenExpired = errors.New("join token has expired")
+)
 
 // Store is the single owner of the SQLite database.
 //

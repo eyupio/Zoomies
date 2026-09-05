@@ -18,8 +18,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"os"
+	"runtime/debug"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -69,12 +71,22 @@ type Options struct {
 	Clock func() time.Time
 	// HTTPClient delivers capacity-demand events. Tests may inject a transport.
 	HTTPClient *http.Client
+	// LogLevel is the gate the process logger is filtered at, when the caller
+	// built one that can move. UpdateConfig sets it from log.level, so that a
+	// level changed through PATCH /settings or SIGHUP is the level the process
+	// actually logs at, not merely the one the settings page shows.
+	LogLevel *slog.LevelVar
 }
 
 // Controller owns the control plane's moving parts and their lifecycles.
 type Controller struct {
-	st         *store.Store
-	cfg        *config.Config
+	st *store.Store
+	// live is the configuration as this process currently sees it. It is a
+	// snapshot behind an atomic pointer rather than a struct shared by
+	// reference, because PATCH /settings changes it while every loop in here
+	// is reading it; see config.Live. Read it through cfg().
+	live       *config.Live
+	logLevel   *slog.LevelVar
 	key        *cryptox.Key
 	authsvc    *auth.Service
 	bus        *events.Bus
@@ -98,6 +110,13 @@ type Controller struct {
 	reconcileMu sync.Mutex
 	// passes counts completed reconciles; tests assert on coalescing with it.
 	passes atomic.Uint64
+	// polls counts completed poller sweeps, for the same reason.
+	polls atomic.Uint64
+	// settingsChanged wakes the loops whose timers are built from the
+	// configuration, so that a new interval is in force from the moment it is
+	// accepted rather than from the next restart. Capacity 1, like nudges: it
+	// is a flag, and the loop re-reads every tunable when it wakes.
+	settingsChanged chan struct{}
 
 	// pollingOnly records that no webhook has ever arrived, which the Overview
 	// says out loud because a fleet scaling on the poller looks healthy until
@@ -136,7 +155,32 @@ type Controller struct {
 	started bool
 	cancel  context.CancelFunc
 	wg      sync.WaitGroup
+	// deliveries tracks capacity-demand requests in flight, which run apart
+	// from the reconcile pass that decided them; Stop waits for them, and so
+	// do the tests.
+	deliveries sync.WaitGroup
+
+	// loopRestartDelay is how long a loop that panicked waits before it is
+	// started again. It doubles on each further panic up to loopRestartMax,
+	// and a test sets it short.
+	loopRestartDelay time.Duration
+	// loopPanics is what the problems drawer reports about a loop that has
+	// crashed: how often, and what the last panic said.
+	loopPanics map[string]loopPanic
 }
+
+// loopPanic is the record of one background loop's crashes.
+type loopPanic struct {
+	Count int
+	Last  string
+	At    time.Time
+}
+
+// loopRestartMax caps the wait between restarts of a loop that keeps
+// panicking; a minute is long enough not to flood the log and short enough
+// that a bug which clears itself -- a bad row that was since pruned -- does
+// not leave scaling stopped for the rest of the day.
+const loopRestartMax = time.Minute
 
 // New validates the options and builds a controller that is not yet running.
 func New(opts Options) (*Controller, error) {
@@ -178,19 +222,22 @@ func New(opts Options) (*Controller, error) {
 	}
 
 	c := &Controller{
-		st:          opts.Store,
-		cfg:         opts.Config,
-		key:         opts.Key,
-		authsvc:     authsvc,
-		bus:         bus,
-		factory:     factory,
-		backends:    opts.Backends,
-		log:         log,
-		clock:       clock,
-		httpClient:  opts.HTTPClient,
-		nudges:      make(chan struct{}, 1),
-		hostHealthy: map[string]bool{},
-		resynced:    map[string]bool{},
+		st:               opts.Store,
+		live:             config.NewLive(opts.Config),
+		logLevel:         opts.LogLevel,
+		key:              opts.Key,
+		authsvc:          authsvc,
+		bus:              bus,
+		factory:          factory,
+		backends:         opts.Backends,
+		log:              log,
+		clock:            clock,
+		httpClient:       opts.HTTPClient,
+		nudges:           make(chan struct{}, 1),
+		settingsChanged:  make(chan struct{}, 1),
+		hostHealthy:      map[string]bool{},
+		loopRestartDelay: time.Second,
+		resynced:         map[string]bool{},
 	}
 	if c.httpClient == nil {
 		c.httpClient = &http.Client{}
@@ -237,27 +284,77 @@ func (c *Controller) Start(ctx context.Context) error {
 
 	c.log.Info("controller started",
 		"interval", c.schedulerInterval(),
-		"webhook_path", c.cfg.GitHub.WebhookPath,
-		"poll_fallback", c.cfg.GitHub.PollFallback,
+		"webhook_path", c.cfg().GitHub.WebhookPath,
+		"poll_fallback", c.cfg().GitHub.PollFallback,
 		"version", version.Short())
 	return nil
 }
 
 // spawn runs one named loop until its context is cancelled, tracking it so
 // Stop can wait for it.
+//
+// A panic in one loop must not take the whole controller with it, but a loop
+// that has stopped is not something the process can be allowed to be quiet
+// about either: a scheduler that died on one bad snapshot used to leave
+// /readyz answering 200 and every job queued for good. The loop is started
+// again after a wait that doubles with each crash, and the crash is on the
+// problems drawer until the process restarts.
 func (c *Controller) spawn(name string, ctx context.Context, fn func(context.Context)) {
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
-		defer func() {
-			// A panic in one loop must not take the whole controller with it:
-			// the fleet keeps running, and the operator gets a stack.
-			if r := recover(); r != nil {
-				c.log.Error("controller loop panicked", "loop", name, "panic", r)
+		delay := c.loopRestartDelay
+		for {
+			value, stack := runGuarded(ctx, fn)
+			if value == nil || ctx.Err() != nil {
+				return
 			}
-		}()
-		fn(ctx)
+			c.notePanic(name, value)
+			c.log.Error("controller loop panicked; it will be restarted",
+				"loop", name, "panic", value, "restart_in", delay, "stack", stack)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(delay):
+			}
+			delay = min(2*delay, loopRestartMax)
+		}
 	}()
+}
+
+// runGuarded runs fn and reports the value it panicked with, or nil when it
+// returned. The stack is captured at the panic, which is the only place it is
+// still there to capture.
+func runGuarded(ctx context.Context, fn func(context.Context)) (value any, stack string) {
+	defer func() {
+		if r := recover(); r != nil {
+			value, stack = r, string(debug.Stack())
+		}
+	}()
+	fn(ctx)
+	return nil, ""
+}
+
+// notePanic records a loop's crash for the problems drawer.
+func (c *Controller) notePanic(name string, value any) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.loopPanics == nil {
+		c.loopPanics = map[string]loopPanic{}
+	}
+	p := c.loopPanics[name]
+	p.Count++
+	p.Last = fmt.Sprint(value)
+	p.At = c.Now()
+	c.loopPanics[name] = p
+}
+
+// LoopPanics returns the crashes recorded against each background loop since
+// the process started, for the problems drawer.
+func (c *Controller) LoopPanics() map[string]loopPanic {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return maps.Clone(c.loopPanics)
 }
 
 // Stop shuts the loops down gracefully and flushes what is worth keeping.
@@ -283,6 +380,10 @@ func (c *Controller) Stop(ctx context.Context) error {
 	done := make(chan struct{})
 	go func() {
 		c.wg.Wait()
+		// A capacity-demand request decided in the last pass finishes on its
+		// own bounded context; letting the process exit under it would lose
+		// the record of how it went.
+		c.deliveries.Wait()
 		close(done)
 	}()
 	select {
@@ -304,8 +405,38 @@ func (c *Controller) Stop(ctx context.Context) error {
 // Store returns the database handle the API reads through.
 func (c *Controller) Store() *store.Store { return c.st }
 
-// Config returns the configuration this controller was built with.
-func (c *Controller) Config() *config.Config { return c.cfg }
+// Config returns the configuration as it currently stands: what the controller
+// was built with, as changed since by UpdateConfig. It is a snapshot and must
+// not be written through; the next UpdateConfig would silently discard the
+// write, and until then every loop would be reading it unsynchronised.
+func (c *Controller) Config() *config.Config { return c.live.Load() }
+
+// cfg is Config for the controller's own code, kept short because it is read
+// on every pass.
+func (c *Controller) cfg() *config.Config { return c.live.Load() }
+
+// UpdateConfig changes the running configuration.
+//
+// fn is applied to a copy of the current snapshot, which then replaces it, so
+// a loop in the middle of a pass finishes on the values it started with and
+// the next pass sees the new ones. Anything built once from the configuration
+// -- the log level's gate, the scheduler's and poller's timers -- is retuned
+// here, which is what lets PATCH /settings promise that an accepted change is
+// in effect and not merely recorded.
+func (c *Controller) UpdateConfig(fn func(*config.Config)) *config.Config {
+	before, after := c.live.Update(fn)
+	if c.logLevel != nil && before.Log.Level != after.Log.Level {
+		c.logLevel.Set(config.ParseLogLevel(after.Log.Level))
+	}
+	select {
+	case c.settingsChanged <- struct{}{}:
+	default:
+	}
+	// The scheduler tunables change what the next pass decides, and a new
+	// interval takes effect once a pass has run and reset the timer.
+	c.Nudge()
+	return after
+}
 
 // Auth returns the authentication and audit service.
 func (c *Controller) Auth() *auth.Service { return c.authsvc }
@@ -338,7 +469,7 @@ func (c *Controller) PollingOnly() bool { return c.pollingOnly.Load() }
 // schedulerInterval is the reconcile period, with a floor so that a
 // misconfigured zero does not spin the loop.
 func (c *Controller) schedulerInterval() time.Duration {
-	if d := c.cfg.Scheduler.Interval; d > 0 {
+	if d := c.cfg().Scheduler.Interval; d > 0 {
 		return d
 	}
 	return 10 * time.Second
@@ -347,10 +478,10 @@ func (c *Controller) schedulerInterval() time.Duration {
 // policy converts the configured tunables into the scheduler's Policy.
 func (c *Controller) policy() scheduler.Policy {
 	return scheduler.Policy{
-		ScaleUpDelay:      c.cfg.Scheduler.ScaleUpDelay,
-		MaxRunnerLifetime: c.cfg.Scheduler.MaxRunnerLifetime,
-		ProvisionTimeout:  c.cfg.Scheduler.ProvisionTimeout,
-		MaxCreatesPerTick: c.cfg.Scheduler.MaxCreatesPerTick,
+		ScaleUpDelay:      c.cfg().Scheduler.ScaleUpDelay,
+		MaxRunnerLifetime: c.cfg().Scheduler.MaxRunnerLifetime,
+		ProvisionTimeout:  c.cfg().Scheduler.ProvisionTimeout,
+		MaxCreatesPerTick: c.cfg().Scheduler.MaxCreatesPerTick,
 	}
 }
 

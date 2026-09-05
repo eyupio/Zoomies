@@ -244,13 +244,18 @@ func (c *Controller) enqueue(hostID string, t agent.Task) bool {
 
 // PrewarmPool queues one idempotent image preparation task on every matching
 // healthy host. A failure is recorded per host and never affects scheduling.
+// ErrPrewarmUnsupported is returned for a pool whose backend has no image to
+// pull ahead of time. It is a refusal the caller can act on, kept apart from a
+// failure to list hosts so the API can answer the two differently.
+var ErrPrewarmUnsupported = errors.New("the process backend does not support image prewarming; its runners install the runner archive themselves")
+
 func (c *Controller) PrewarmPool(ctx context.Context, p *store.Pool) (int, error) {
 	hosts, err := c.st.ListHosts(ctx)
 	if err != nil {
 		return 0, err
 	}
 	if p.Backend == store.BackendProcess {
-		return 0, fmt.Errorf("the process backend does not support image prewarming")
+		return 0, ErrPrewarmUnsupported
 	}
 	n := 0
 	for _, h := range hosts {
@@ -286,13 +291,16 @@ func (c *Controller) Join(ctx context.Context, req agent.JoinRequest, ip string)
 }
 
 func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string, embedded bool) (*agent.JoinResponse, error) {
+	// Refusals the agent's operator can act on are auth.Invalid, so the API
+	// answers them with the reason; anything else below is this controller
+	// failing, which the API answers with a request ID and logs.
 	if req.ProtocolVersion != 0 && req.ProtocolVersion != agent.ProtocolVersion {
-		return nil, fmt.Errorf("this agent speaks protocol version %d and this controller speaks %d; "+
+		return nil, auth.Invalid("this agent speaks protocol version %d and this controller speaks %d; "+
 			"upgrade whichever is older so the two match", req.ProtocolVersion, agent.ProtocolVersion)
 	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		return nil, errors.New("the join request carried no host name; start the agent with --name or set agent.name, since it is how this host appears in the UI")
+		return nil, auth.Invalid("the join request carried no host name; start the agent with --name or set agent.name, since it is how this host appears in the UI")
 	}
 
 	// Reuse the row when a host of this name already exists, so re-joining a
@@ -771,7 +779,7 @@ func (c *Controller) markHostSeen(id string, force bool) bool {
 }
 
 func (c *Controller) heartbeatInterval() time.Duration {
-	if d := c.cfg.Agent.HeartbeatInterval; d > 0 {
+	if d := c.cfg().Agent.HeartbeatInterval; d > 0 {
 		return d
 	}
 	return 30 * time.Second
@@ -902,7 +910,7 @@ func (t *embeddedTransport) Describe() string { return "embedded controller" }
 // their own controller would be ceremony without a threat model behind it.
 func (c *Controller) StartEmbeddedAgent(ctx context.Context, cfg *config.Config) error {
 	if cfg == nil {
-		cfg = c.cfg
+		cfg = c.cfg()
 	}
 	if c.backends == nil || len(c.backends.Kinds()) == 0 {
 		return errors.New("controller: no runner backends are registered, so the embedded agent has no way to start runners; " +

@@ -264,3 +264,170 @@ func (h *harness) runnerRow(pool *store.Pool, host *store.Host, state store.Runn
 	}
 	return r
 }
+
+// A runner that died on creation used to be replaced in the same pass that
+// noticed: the agent's failure report nudged a pass, the pass removed the
+// failed runner and created another, the agent failed that one too, and a pool
+// with a bad image churned through a runner a second -- two GitHub API calls a
+// time -- with the reason gone from the page before anyone could read it.
+func TestARunnerThatDiesOnCreationIsNotReplacedUntilTheWaitIsOut(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	h.deliverJob(jobEvent{Action: "queued", JobID: 7001, Labels: []string{"self-hosted", "linux", "x64", "demo"}})
+
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	first := h.runners()
+	if len(first) != 1 || first[0].State != store.RunnerProvisioning {
+		t.Fatalf("after the first pass: %+v, want one provisioning runner", first)
+	}
+
+	batch, err := h.c.PollTasks(h.ctx, host.ID, time.Second)
+	if err != nil || len(batch.Tasks) != 1 {
+		t.Fatalf("PollTasks: %v, %d tasks", err, len(batch.Tasks))
+	}
+	if err := h.c.ReportResult(h.ctx, host.ID, agent.TaskResult{
+		TaskID: batch.Tasks[0].ID, RunnerID: first[0].ID, OK: false,
+		Error: "the docker backend could not create runner: No such image: sha256:9f2c",
+	}); err != nil {
+		t.Fatalf("ReportResult: %v", err)
+	}
+
+	// The pass the failure provokes.
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("second Reconcile: %v", err)
+	}
+	after := h.runners()
+	if len(after) != 1 {
+		t.Fatalf("the failed runner was replaced straight away: %+v", after)
+	}
+	if after[0].State != store.RunnerFailed {
+		t.Fatalf("the failed runner is %q; it should stay on the page as failed, with its reason", after[0].State)
+	}
+	if after[0].Message != "the docker backend could not create runner: No such image: sha256:9f2c" {
+		t.Fatalf("the failure's reason was lost: %q", after[0].Message)
+	}
+	plan, _ := h.c.getLastPlan()
+	if plan == nil || len(plan.Pools) != 1 || plan.Pools[0].Failing == "" {
+		t.Fatalf("the plan does not say the pool is waiting: %+v", plan)
+	}
+	if !strings.Contains(plan.Pools[0].Failing, "No such image") || !strings.Contains(plan.Pools[0].Failing, "trying again in") {
+		t.Fatalf("the wait is not explained in the plan: %q", plan.Pools[0].Failing)
+	}
+	codes := h.problemCodes()
+	if !contains(codes, "pool.runners_failing") || !contains(codes, "runners.failed") {
+		t.Fatalf("problems = %v, want the pool held back and the failed runner both reported", codes)
+	}
+	if n := len(h.gh.Runners()); n != 1 {
+		t.Fatalf("GitHub was asked for %d registrations, want the one the first runner used", n)
+	}
+	_ = pool
+}
+
+// A queued row is demand for as long as it exists. A job whose completed
+// delivery was lost -- repository deleted, run cancelled while the poller was
+// rate-limited -- used to hold a pool's desired count up for ever, with a
+// runner created for it, idling out, and created again. GitHub gives up on a
+// job nobody picked up within a day; so does the controller.
+func TestAQueuedJobGitHubNeverStartedIsRetiredAfterADay(t *testing.T) {
+	h := newHarness(t)
+	h.fleet()
+	now := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+	h.c.clock = func() time.Time { return now }
+
+	h.deliverJob(jobEvent{Action: "queued", JobID: 8001, QueuedAt: now.Add(-25 * time.Hour),
+		Labels: []string{"self-hosted", "linux", "x64", "demo"}})
+	h.deliverJob(jobEvent{Action: "queued", JobID: 8002, QueuedAt: now.Add(-2 * time.Hour),
+		Labels: []string{"self-hosted", "linux", "x64", "demo"}})
+
+	h.c.expireStaleQueuedJobs(h.ctx, now)
+
+	old, err := h.st.GetJobByGitHubID(h.ctx, 8001)
+	if err != nil {
+		t.Fatalf("GetJobByGitHubID: %v", err)
+	}
+	if old.State != store.JobCompleted || old.Conclusion != "stale" || old.CompletedAt == nil {
+		t.Fatalf("the day-old job = state %q conclusion %q; want completed as stale", old.State, old.Conclusion)
+	}
+	recent, err := h.st.GetJobByGitHubID(h.ctx, 8002)
+	if err != nil {
+		t.Fatalf("GetJobByGitHubID: %v", err)
+	}
+	if recent.State != store.JobQueued {
+		t.Fatalf("a two-hour-old job was retired: %q", recent.State)
+	}
+	queued, err := h.st.ListQueuedJobs(h.ctx)
+	if err != nil || len(queued) != 1 {
+		t.Fatalf("queued jobs after retiring = %d (%v), want the recent one only", len(queued), err)
+	}
+	timeline, err := h.st.ListJobEvents(h.ctx, old.ID)
+	if err != nil {
+		t.Fatalf("ListJobEvents: %v", err)
+	}
+	last := timeline[len(timeline)-1]
+	if last.Kind != store.JobEventCompleted || !strings.Contains(last.Message, "presumed cancelled or lost") {
+		t.Fatalf("the timeline does not say why the job was retired: %+v", last)
+	}
+}
+
+// A job GitHub is holding for a deployment review is not demand. Recorded as
+// queued, it had the scheduler start a runner that idled out and was started
+// again on the next pass, for as long as the review took.
+func TestAJobWaitingForApprovalIsNotDemandUntilItIsQueued(t *testing.T) {
+	h := newHarness(t)
+	h.fleet()
+	labels := []string{"self-hosted", "linux", "x64", "demo"}
+
+	h.deliverJob(jobEvent{Action: "waiting", JobID: 8101, Labels: labels})
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if got := len(h.runners()); got != 0 {
+		t.Fatalf("a waiting job had %d runners created for it", got)
+	}
+	j, err := h.st.GetJobByGitHubID(h.ctx, 8101)
+	if err != nil || j.State != store.JobWaiting {
+		t.Fatalf("job = %+v, %v; want it recorded as waiting", j, err)
+	}
+
+	// The approval arrives as an ordinary queued delivery, and moves the job
+	// forward into demand.
+	h.deliverJob(jobEvent{Action: "queued", JobID: 8101, Labels: labels})
+	j, err = h.st.GetJobByGitHubID(h.ctx, 8101)
+	if err != nil || j.State != store.JobQueued {
+		t.Fatalf("job after approval = %+v, %v; want queued", j, err)
+	}
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if got := len(h.runners()); got != 1 {
+		t.Fatalf("the approved job had %d runners created for it, want 1", got)
+	}
+}
+
+// A runner registered with a registration token -- a non-ephemeral pool -- has
+// no GitHub ID on its row, so removing it deleted nothing, and the container's
+// own config.sh remove ran with a token that had usually expired. The
+// registration is found by name instead.
+func TestRemovingATokenRegisteredRunnerDeletesItsRegistrationByName(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	r := h.runnerRow(pool, host, store.RunnerIdle)
+	if r.GitHubRunnerID != 0 {
+		t.Fatalf("the fixture runner carries GitHub ID %d; this test is about a runner without one", r.GitHubRunnerID)
+	}
+	h.gh.AddRunner(r.Name, []string{"self-hosted", "linux"})
+	h.gh.AddRunner("somebody-elses-runner", []string{"self-hosted"})
+
+	if _, err := h.c.RemoveRunner(h.ctx, r.ID, "test", true); err != nil {
+		t.Fatalf("RemoveRunner: %v", err)
+	}
+	names := make([]string, 0, 1)
+	for _, gr := range h.gh.Runners() {
+		names = append(names, gr.Name)
+	}
+	if !slices.Equal(names, []string{"somebody-elses-runner"}) {
+		t.Fatalf("registrations after removal = %v, want only the runner that was never ours", names)
+	}
+}

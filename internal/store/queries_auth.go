@@ -393,9 +393,9 @@ func (s *Store) RedeemJoinToken(ctx context.Context, hash, hostID string, now ti
 		}
 		if !t.Usable(now) {
 			if t.UsedAt != nil {
-				return errors.New("join token has already been used")
+				return ErrJoinTokenUsed
 			}
-			return errors.New("join token has expired")
+			return ErrJoinTokenExpired
 		}
 		if _, err := tx.ExecContext(ctx,
 			`UPDATE join_tokens SET used_at=?, used_by_id=? WHERE id=?`,

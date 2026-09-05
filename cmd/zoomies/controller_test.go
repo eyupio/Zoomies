@@ -119,22 +119,6 @@ func TestLogLevelCanBeChangedWhileRunning(t *testing.T) {
 	}
 }
 
-func TestParseLevel(t *testing.T) {
-	cases := map[string]slog.Level{
-		"debug":   slog.LevelDebug,
-		"INFO":    slog.LevelInfo,
-		" warn ":  slog.LevelWarn,
-		"warning": slog.LevelWarn,
-		"error":   slog.LevelError,
-		"":        slog.LevelInfo,
-	}
-	for in, want := range cases {
-		if got := parseLevel(in); got != want {
-			t.Errorf("parseLevel(%q) = %v, want %v", in, got, want)
-		}
-	}
-}
-
 func TestBuildBackendsRefusesABackendThisHostCannotProvide(t *testing.T) {
 	cfg := config.Default()
 	cfg.Agent.WorkDir = t.TempDir()

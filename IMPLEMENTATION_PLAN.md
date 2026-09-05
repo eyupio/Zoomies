@@ -28,78 +28,38 @@ they describe.
 
 ## Wave 1: fix first
 
-- [x] **E01** [bug] The process backend cannot download a runner in any shipped configuration — `internal/backend/process.go:81` — done, digests shipped for 2.337.0 in a generated table, three agent.* settings with env overrides and docs, bump workflow regenerates the table
-- [x] **C01** [bug] `UpdateRunner` binds 20 arguments to 19 placeholders, so it can never update a row — `internal/store/queries_fleet.go:810-818` — done, every column bound, round-trip test
-- [x] **C02** [bug] Usage grouped by installation fails whenever a job in the window has no pool — `internal/store/queries_usage.go:67` — done, COALESCE on the join key, test with a pool-less job
-- [x] **A03** [bug] Runners on a host that stops heartbeating are never failed, and a stuck draining runner is never reaped — `internal/controller/agents.go:681-685` — done, runners on a host silent past hostLostAfter (5m) are failed and their job marked lost; a stop dropped after three deliveries fails its runner
-- [x] **C03** [bug] A draining runner absorbs a queued job's demand, so the job waits for the drain to finish — `internal/scheduler/scheduler.go:224-260` — done, draining counted on the demand side, two tests
-- [x] **A02** [bug] A slow dashboard silently loses frames; the SSE handler's recovery branch is dead code — `internal/events/bus.go:142-151` — done, the bus ends a slow subscriber's feed so the browser reconnects and replays
-- [x] **U03** [bug] Removed runners never leave the fleet cache — `web/src/lib/state/fleet.svelte.ts:149-153` — done, removed frames delete the cache entry
-- [x] **A04** [bug] The usage CSV is open to formula injection — `internal/api/handlers_usage.go:86-88` — done, csvText prefixes formula characters with an apostrophe
-- [x] **A07** [risk] `CF-Connecting-IP` is believed from any trusted proxy, not only Cloudflare — `internal/api/auth.go:399-403` — done, header believed only from Cloudflare's own ranges; tests for both peers
-- [x] **E04** [bug] `install.sh --answers` does not imply `--yes`, so an unattended run can exit 0 without configuring the host — `install.sh:204-205` — done, --answers implies --yes; agent mode is elevated like the controller (E05)
-- [x] **B01** [risk] CI still overwrites `:latest` from main now that a release exists — `.github/workflows/ci.yml` — done, :latest dropped from the main images job; docs and summary rewritten
-- [x] **U01** [bug] The Usage page is half-registered: `g u` is advertised in the navigation but does nothing — `web/src/lib/shell/Nav.svelte:43` — done, g u, palette entry, sitemap, Playwright sections and the guidelines all list Usage; the page's scroll frame no longer collides with Tailwind's .table utility, which widened the phone viewport and put the footer under the bottom bar
+Done: 12 items, shipped in PR #62 (merged as 066806b): E01, C01, C02, A03, C03,
+A02, U03, A04, A07, E04, B01, U01. Each has its commit on the branch and its
+reasoning in the review document; the notes that outlived the wave are under
+*Decisions worth recording*.
 
 ## Wave 2: remaining bugs
 
-- [x] **A01** [bug] Pool responses omit two fields the API accepts, so they are write-only — `internal/controller/views.go:369-398` — done, PoolView renders repository_scale_up_limit and cost_per_runner_hour; round-trip test
-- [x] **A05** [bug] `retention.audit` never prunes the audit log; it prunes scaling events — `internal/controller/background.go:116-119` — done, described as scaling-history retention in the settings API and the docs; audit rows are never pruned
-- [x] **A06** [bug] Every agent join is audited twice — `internal/controller/agents.go:377` — done, the handler's duplicate host.join row removed; the controller's remains
-- [x] **C04** [bug] `crypto.key_in_config` warns when the key came from the environment and a config file merely exists — `internal/config/validate.go:320` — done, the warning looks at whether the key was in the file, with a test for both origins
-- [x] **C05** [bug] The docs say a bare GHES hostname is accepted; the validator refuses to start on one — `docs/configuration.md:200` — done, the normaliser moved to config and the loader applies it; github.NormalizeAPIBaseURL wraps it; test
-- [x] **C06** [bug] Three server timeouts have no `ZOOMIES_*` override — `internal/config/config.go:66-68` — done, ZOOMIES_READ_TIMEOUT, ZOOMIES_WRITE_TIMEOUT, ZOOMIES_IDLE_TIMEOUT, documented
-- [x] **D01** [bug] The sitemap never receives the per-page git date the SEO hook exists to provide — `hooks/seo.py:100-104` — done, git_date is set in on_page_markdown, before the sitemap template renders
-- [x] **D02** [bug] The README's headline `pools create` example is rejected — `README.md:311` — done, the README example carries --installation
-- [x] **D03** [bug] Installation IDs are shown as `inst_`; the store mints `ins_` — `docs/hosts-and-pools.md:129` — done, ins_ everywhere, including the CLI's own examples (E29)
-- [x] **D04** [bug] The UI guidelines list nine pages and eight chords; the product has ten and nine — `docs/ui-guidelines.md:271-279` — done, folded into U01: the guidelines list ten pages and the u and m chords
-- [x] **D05** [bug] The security page says every dangerous toggle produces a startup warning and a UI entry; half do not — `docs/security.md:218-222` — done, §6 says which toggles warn at startup, which stay off the drawer, and which are per-pool
-- [x] **E02** [bug] The two runner version pins have diverged and only one is bumped automatically — `internal/backend/process.go:63` — done, folded into E01: DefaultRunnerVersion is 2.337.0 and the workflow bumps it
-- [x] **E03** [bug] The agent's version-skew warning fires on every release build — `internal/agent/daemon.go:634` — done, agent and controller compare version.Short() with version.Short()
-- [x] **E05** [bug] The documented add-a-host one-liner spends the join token and then fails to install the unit — `install.sh:1041` — done, folded into E04
-- [x] **E06** [bug] Answer-file keys `agent.name`, `agent.labels` and `agent.ca_file` are silently ignored — `internal/installer/join.go:57` — done, agent.name, agent.labels and agent.ca_file from the answer file reach Join
-- [x] **P01** [bug] A `startup_failure` job renders as a neutral 'Completed' with a check icon — `web/src/lib/status.ts:164-173` — done, startup_failure is a danger triangle labelled Startup failure
-- [x] **P02** [bug] The tablet navigation never auto-collapses, though the guidelines promise it — `web/src/lib/shell/Nav.svelte:228` — done, with no recorded choice the nav starts collapsed at tablet width, before first paint too
-- [x] **P03** [bug] On a phone, grids never become cards and mutating actions are not hidden — `web/src/lib/components/DataGrid.svelte` — done, the promise was rewritten to match the tested behaviour: every control stays usable on a phone and the mobile Playwright project proves it; hiding them broke seven of its tests
-- [x] **P04** [bug] Host card grammar: 'Its 1 runner keep going and finish their jobs' — `web/src/lib/hosts/HostCard.svelte:115-116` — done, the cordoned sentence no longer conjugates a count
-- [x] **P05** [bug] Problem titles are lowercase fragments with 'job(s)' — `internal/controller/problems.go:186` — done, titles pluralise properly; they stay in the drawer's lowercase-fragment voice, which the validator's titles share, so sentence case is a separate sweep
-- [x] **U02** [bug] The grid's table-level key handler hijacks Enter, Space and arrows for every control inside a row — `web/src/lib/components/DataGrid.svelte:350-353` — done, the grid handles keys only when the row itself has focus; menus stop the keys they handle
+Done: 21 items, shipped in PR #63 (merged as 28520e8): A01, A05, A06, C04, C05,
+C06, D01, D02, D03, D04, D05, E02, E03, E05, E06, P01, P02, P03, P04, P05, U02.
+Each has its commit on the branch and its reasoning in the review document; the
+notes that outlived the wave are under *Decisions worth recording*.
 
 ## Wave 3: risks
 
-- [ ] **A08** [risk] `allowed_origins: ["*"]` switches CSRF protection off with no warning — `internal/api/auth.go:256`
-- [ ] **A09** [risk] `PATCH /settings` returns 200 for changes the running process does not apply — `internal/api/handlers_admin.go:628`
-- [ ] **A10** [risk] Runtime settings are written into the live config unsynchronised, and one is not a machine word — `internal/api/handlers_admin.go`
-- [ ] **A11** [risk] Capacity-demand delivery runs synchronously inside the reconcile pass — `internal/controller/reconcile.go:72`
-- [ ] **A12** [risk] A panicking loop stays dead while the process reports healthy — `internal/controller/controller.go:248-261`
-- [ ] **A13** [risk] Database errors surface as 422s carrying raw error text, bypassing the 500 path and its logging — `internal/api/handlers_agents.go:37`
-- [ ] **A14** [risk] Agent protocol decoding rejects unknown fields, so any additive change breaks mixed versions — `internal/api/handlers_agents.go`
-- [ ] **A15** [risk] Demo seeding is guarded only by the absence of pools — `internal/controller/seed.go:60-75`
-- [ ] **C08** [risk] Migration files share numeric prefixes — `internal/store/migrations/0005_pool_priority.sql`
-- [ ] **C09** [risk] A self-transition `idle → idle` re-stamps `last_idle_at` and resets the idle timer — `internal/store/models.go:140-142`
-- [ ] **C10** [risk] A stale webhook delivery still overwrites identity and linkage fields — `internal/store/queries_events.go:87-140`
-- [ ] **C11** [risk] Phantom `queued` jobs live for ever and remain scheduler demand — `internal/store/queries_events.go:533`
-- [ ] **C12** [risk] `StatsSince` scans the whole completed set on every reconcile pass — `internal/store/queries_events.go:479-486`
-- [ ] **C13** [risk] Four dangerous values draw no validator finding — `internal/config/validate.go:187`
-- [ ] **C14** [risk] Event replay has no gap signal and IDs restart at 1 after a controller restart — `internal/events/bus.go:221`
-- [ ] **C22** [risk] `internal/cryptox` has no tests — `internal/cryptox`
-- [ ] **E07** [risk] A redelivered `create_runner` task destroys a live runner and reuses a spent JIT config — `internal/agent/daemon.go`
-- [ ] **E08** [risk] The process backend has no process group and the units set no `KillMode`, so an agent restart kills every job — `internal/backend/process.go:381-386`
-- [ ] **E09** [risk] `extractTarGz` accepts absolute symlink targets — `internal/backend/process.go:883-890`
-- [ ] **E10** [risk] Deployment-approval jobs are recorded as `queued` and drive scale-ups nobody can use — `internal/github/webhook.go:215-218`
-- [ ] **E11** [risk] OIDC adopts an existing local account by username — `internal/auth/oidc.go:280-287`
-- [ ] **E12** [risk] The fallback poller can spend the hourly API quota in the exact failure it exists for — `internal/github/app.go:484-544`
-- [ ] **E13** [risk] `runner-entrypoint.sh` deregisters non-ephemeral runners with a one-hour token that has usually expired — `deploy/runner-entrypoint.sh:66-70`
-- [ ] **E14** [risk] The runner image fetches the actions/runner tarball without a checksum and hides dependency failures — `deploy/Dockerfile.runner:72-76`
-- [ ] **E15** [risk] The dind sidecar carries none of the pool's resource limits — `internal/backend/docker.go:459-491`
-- [ ] **E16** [risk] Podman's `:z` relabel is applied to the host socket bind — `internal/backend/docker.go:394`
-- [ ] **E17** [risk] `zoomies uninstall` deregisters every `zoomies-*` runner in the organisation — `internal/installer/uninstall.go:482`
-- [ ] **E18** [risk] A native install on a host without systemd or launchd renders a compose file that starts from an empty database — `internal/installer/service.go:350-361`
-- [ ] **E19** [risk] Containers may be created from the manifest digest, which classic Docker cannot resolve as an image — `internal/backend/dockerapi.go:541-546`
-- [ ] **U04** [risk] Session expiry throws away the return path — `web/src/App.svelte:38-42`
-- [ ] **U05** [risk] Frames that arrive during a reconcile are discarded, and `stats` can regress — `web/src/lib/state/fleet.svelte.ts:219-236`
-- [ ] **U06** [risk] `liveKey={fleet.version}` refetches the Runners and Pools grids on every frame, and a sustained stream starves the fetch — `web/src/lib/components/DataGrid.svelte:164-208`
-- [ ] **U07** [risk] Global shortcuts stay live under a modal, and two focus traps then fight — `web/src/lib/keys.ts:235-277`
+Done: 33 items, shipped in the Wave 3 pull request from this branch: A08, A09,
+A10, A11, A12, A13, A14, A15, C08, C09, C10, C11, C12, C13, C14, C22, E07, E08,
+E09, E10, E11, E12, E13, E14, E15, E16, E17, E18, E19, U04, U05, U06, U07. Each
+has its commit on the branch and its reasoning in the review document; the notes
+that outlived the wave are under *Decisions worth recording*.
+
+## Reported since the review
+
+Things found in use rather than in the review, kept here so the plan stays the
+one list.
+
+- [x] **N01** [bug] A runner that died on creation was replaced in the same pass that
+  noticed, so a pool with a bad image churned through a runner a second and spent two
+  GitHub API calls each time — `internal/scheduler/scheduler.go` — done, the scheduler
+  holds a pool back after a start failure (10 s, doubling to 5 min), keeps failed runners
+  on the page for ten minutes, and raises `pool.runners_failing`; seen on the dev
+  instance (video, 5 September). The cause of that instance's failures is still to be
+  read off its Runners page now that the message stays there.
 
 ## Wave 4: polish, gaps and nits
 
@@ -191,11 +151,6 @@ they describe.
 
 ## Decisions worth recording
 
-- The product targets an organisation or a single repository, and a repository
-  target is how a personal account is used; the README, home page, quick start
-  and FAQ now say so, and the FAQ answers the question directly.
-- On a phone every control stays usable and the mobile Playwright project proves
-  it; the guideline's earlier "read-only monitoring" wording was the error.
 - `:latest` on the published images now means the most recent release, moved by
   `release.yml` only; `main` is the moving tag.
 - A host that has not heartbeated for `hostLostAfter` has its runners failed and
@@ -205,4 +160,26 @@ they describe.
   whatever else is in `trusted_proxies`.
 - The process backend ships digests for the runner release it pins; the digest
   table is generated (`go run internal/backend/gen_runner_digests.go`) and the
-  version bump workflow regenerates it.
+  version bump workflow regenerates it, and the runner image checks its download
+  against the same numbers.
+- A repository on a personal account is a target too: the docs say organisation
+  *or* repository wherever they used to say organisation.
+- The running configuration is an immutable snapshot (`config.Live`); the
+  controller's `UpdateConfig` is the only writer and retunes the timers and the
+  log level, so a runtime setting is in effect when the API says it is.
+- A failed runner stays on the Runners page for ten minutes, and a pool whose
+  runners die before registering waits before creating another, doubling from
+  ten seconds to five minutes. Runners that ran a job and then failed do not
+  count against the pool.
+- A job GitHub holds for a deployment review is `waiting`, a state of its own
+  ahead of `queued`; the jobs table was rebuilt (migration 0009) to admit it.
+- A queued job GitHub has said nothing about for a day is retired as
+  `completed` / `stale`, which is what GitHub itself does with it.
+- Event ids are `<epoch>.<sequence>`; a stream whose gap could not be replayed
+  opens with a `resync` frame and the UI fetches afresh on it.
+- A single sign-on identity links by username only to an account made for SSO;
+  taking over a password account is `oidc.link_by_username`, off and warned about.
+- Process-backend runners lead their own process group and the units say
+  `KillMode=process`, so a stop or restart of the agent reaches the agent only.
+- Refusals the auth service makes are `auth.ErrInvalidInput` and answer 422; every
+  other error is a 500 with a request ID, never quoted to an anonymous caller.

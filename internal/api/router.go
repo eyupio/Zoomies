@@ -63,13 +63,13 @@ func (s *Server) routes() http.Handler {
 	// The webhook. Mounted for every method rather than POST alone so that
 	// GitHub's own "wrong method" case gets the controller's message, which
 	// says what the endpoint is for, instead of a bare 405.
-	r.Handle(s.cfg.GitHub.WebhookPath, http.HandlerFunc(s.ctrl.HandleWebhook))
+	r.Handle(s.cfg().GitHub.WebhookPath, http.HandlerFunc(s.ctrl.HandleWebhook))
 
 	r.Mount("/api/v1/agent", s.agentRoutes())
 	r.Mount("/api/v1", s.apiRoutes())
 
-	if s.cfg.Metrics.Enabled {
-		r.Handle(s.cfg.Metrics.Path, s.metricsHandler())
+	if s.cfg().Metrics.Enabled {
+		r.Handle(s.cfg().Metrics.Path, s.metricsHandler())
 	}
 
 	return r
@@ -411,7 +411,7 @@ func (s *Server) formAllowed(raw string) bool {
 	if origin == "" {
 		return false
 	}
-	if self := formOrigin(s.cfg.Server.ExternalURL); self != "" && strings.EqualFold(self, origin) {
+	if self := formOrigin(s.cfg().Server.ExternalURL); self != "" && strings.EqualFold(self, origin) {
 		return true
 	}
 	for _, t := range s.formTargets {

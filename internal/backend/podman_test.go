@@ -60,7 +60,7 @@ func TestPodmanFlavorDiffersFromDocker(t *testing.T) {
 	cfg := buildRunnerConfig(spec, p, containerOptions{
 		Now: time.Now(), HostSocket: "/run/user/1000/podman/podman.sock",
 	})
-	want := "/run/user/1000/podman/podman.sock:/var/run/docker.sock:z"
+	want := "/run/user/1000/podman/podman.sock:/var/run/docker.sock"
 	if !slices.Contains(cfg.HostConfig.Binds, want) {
 		t.Fatalf("binds = %v, want %q", cfg.HostConfig.Binds, want)
 	}

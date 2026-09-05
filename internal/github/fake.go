@@ -210,6 +210,8 @@ func (f *FakeGitHub) AddQueuedJob(repo, workflow, jobName string, labels []strin
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.addRepoLocked(repo)
+	// A queued job usually follows a push; the poller sorts on it.
+	f.repoLocked(repo).pushedAt = time.Now().UTC()
 	j := &fakeJob{
 		QueuedJob: QueuedJob{
 			ID:           f.nextJobID,
@@ -466,6 +468,7 @@ func (f *FakeGitHub) listInstallationRepos(w http.ResponseWriter, _ *http.Reques
 			"private":        true,
 			"archived":       false,
 			"html_url":       "https://github.com/" + full,
+			"pushed_at":      f.repoLocked(full).pushedAt.UTC().Format(time.RFC3339),
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(repos), "repositories": repos})

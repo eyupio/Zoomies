@@ -98,8 +98,8 @@ func TestSettings(t *testing.T) {
 	if retention["jobs"] != "48h0m0s" {
 		t.Errorf("retention.jobs = %v, want 48h0m0s", retention["jobs"])
 	}
-	if h.cfg.Retention.Jobs.String() != "48h0m0s" {
-		t.Errorf("the running configuration was not changed: %s", h.cfg.Retention.Jobs)
+	if h.ctrl.Config().Retention.Jobs.String() != "48h0m0s" {
+		t.Errorf("the running configuration was not changed: %s", h.ctrl.Config().Retention.Jobs)
 	}
 
 	// A setting that needs a restart is refused with a message that says so.
@@ -114,7 +114,7 @@ func TestSettings(t *testing.T) {
 	if !strings.Contains(env.Errors[0].Message, "restart") {
 		t.Errorf("the message does not say a restart is needed: %q", env.Errors[0].Message)
 	}
-	if h.cfg.Server.Bind == "0.0.0.0:9000" {
+	if h.ctrl.Config().Server.Bind == "0.0.0.0:9000" {
 		t.Error("a refused setting was applied anyway")
 	}
 
@@ -138,11 +138,11 @@ func TestSettings(t *testing.T) {
 	mixed := h.do(request{method: http.MethodPatch, path: "/api/v1/settings", cookie: cookie,
 		body: map[string]any{"retention.jobs": "1h", "log.level": "bogus"}})
 	mixed.mustStatus(t, http.StatusUnprocessableEntity, "patch a good key beside a bad one")
-	if h.cfg.Retention.Jobs.String() != "48h0m0s" {
-		t.Errorf("retention.jobs = %s after a refused request, want it left at 48h0m0s", h.cfg.Retention.Jobs)
+	if h.ctrl.Config().Retention.Jobs.String() != "48h0m0s" {
+		t.Errorf("retention.jobs = %s after a refused request, want it left at 48h0m0s", h.ctrl.Config().Retention.Jobs)
 	}
-	if h.cfg.Log.Level != "debug" {
-		t.Errorf("log.level = %q after a refused request, want it left at debug", h.cfg.Log.Level)
+	if h.ctrl.Config().Log.Level != "debug" {
+		t.Errorf("log.level = %q after a refused request, want it left at debug", h.ctrl.Config().Log.Level)
 	}
 	if n := countAudit(); n != audited {
 		t.Errorf("a refused request wrote %d audit rows", n-audited)

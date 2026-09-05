@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -43,6 +44,12 @@ const (
 	// KindHeartbeat is an empty keep-alive so that proxies do not close an
 	// idle SSE connection.
 	KindHeartbeat Kind = "heartbeat"
+	// KindResync tells a reconnecting client that the events between its last
+	// ID and now could not all be replayed -- the ring had moved on, or the
+	// controller restarted and the IDs began again -- so what it holds may be
+	// stale and it should fetch the resources afresh. It is the first frame
+	// on such a connection and is never in the ring.
+	KindResync Kind = "resync"
 )
 
 // Event is one published change.
@@ -73,6 +80,14 @@ type Bus struct {
 	nextID int
 	seq    atomic.Uint64
 
+	// epoch names this process's run. Event IDs restart at one with every
+	// controller start, so a client's Last-Event-ID from before a restart is
+	// a number from a different sequence -- usually one this process has not
+	// reached yet, which replayed nothing and said nothing. The epoch travels
+	// with the ID on the wire so a client that comes back with the wrong one
+	// is told to resynchronise instead.
+	epoch string
+
 	// buffer is the per-subscriber queue depth.
 	buffer int
 	// ring keeps recent events so a client that reconnects within a few
@@ -91,9 +106,37 @@ type subscriber struct {
 func New() *Bus {
 	return &Bus{
 		subs:    map[int]*subscriber{},
+		epoch:   strconv.FormatInt(time.Now().UnixNano(), 36),
 		buffer:  256,
 		ringCap: 256,
 	}
+}
+
+// Epoch identifies this process's run of the sequence; see Bus.epoch.
+func (b *Bus) Epoch() string { return b.epoch }
+
+// WireID renders an event ID for the wire: the epoch, a dot, the sequence
+// number. ParseWireID reads it back.
+func (b *Bus) WireID(id uint64) string {
+	return b.epoch + "." + strconv.FormatUint(id, 10)
+}
+
+// ParseWireID reads a Last-Event-ID the client sent back. It returns the
+// sequence number to replay from and whether that number belongs to this
+// process's sequence at all; a bare number, from a client that predates the
+// epoch, is taken as this epoch's so an upgrade does not resync every tab for
+// nothing.
+func (b *Bus) ParseWireID(raw string) (id uint64, sameEpoch bool) {
+	raw = strings.TrimSpace(raw)
+	epoch, seq, dotted := strings.Cut(raw, ".")
+	if !dotted {
+		seq, epoch = raw, b.epoch
+	}
+	n, err := strconv.ParseUint(seq, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return n, epoch == b.epoch
 }
 
 // Publish marshals v and delivers it to every matching subscriber. Marshalling
@@ -162,6 +205,12 @@ type Subscription struct {
 	C   <-chan Event
 	bus *Bus
 	id  int
+	// Complete reports whether the subscriber has everything it asked for: a
+	// subscription that asked for no replay, or one whose Replay the ring
+	// still reached back to. When it is false the client missed events it
+	// will never be sent, and the SSE handler tells it so with a resync
+	// frame before anything else.
+	Complete bool
 	// once makes Close idempotent AND race-free. Both matter: Subscribe spawns
 	// a goroutine that closes the subscription when the context ends, so an
 	// explicit Close from the handler and that goroutine routinely run at the
@@ -195,6 +244,10 @@ type SubscribeOptions struct {
 	// Replay delivers buffered events with an ID greater than this before any
 	// new ones, so a reconnecting client can catch up.
 	Replay uint64
+	// Incomplete says the caller already knows the client missed events --
+	// its Last-Event-ID was from another run of the process -- so the
+	// subscription is marked incomplete whatever the ring holds.
+	Incomplete bool
 }
 
 // Subscribe returns a feed. The caller must Close it.
@@ -221,7 +274,19 @@ func (b *Bus) Subscribe(ctx context.Context, opts SubscribeOptions) *Subscriptio
 	b.subs[sub.id] = sub
 	// Replay under the same lock so an event cannot slip between the replay
 	// and the subscription taking effect.
+	complete := true
 	if opts.Replay > 0 {
+		// The ring covers the gap when the event after Replay is still in
+		// it, or when nothing has been published since. A Replay beyond the
+		// sequence is from another run of the process and covers nothing.
+		last := b.seq.Load()
+		switch {
+		case opts.Replay > last:
+			complete = false
+		case opts.Replay == last:
+		case len(b.ring) == 0 || b.ring[0].ID > opts.Replay+1:
+			complete = false
+		}
 		for _, e := range b.ring {
 			if e.ID > opts.Replay && filter(e) {
 				select {
@@ -231,9 +296,12 @@ func (b *Bus) Subscribe(ctx context.Context, opts SubscribeOptions) *Subscriptio
 			}
 		}
 	}
+	if opts.Incomplete {
+		complete = false
+	}
 	b.mu.Unlock()
 
-	s := &Subscription{C: ch, bus: b, id: sub.id}
+	s := &Subscription{C: ch, bus: b, id: sub.id, Complete: complete}
 	if ctx != nil {
 		go func() {
 			<-ctx.Done()

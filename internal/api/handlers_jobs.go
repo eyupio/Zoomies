@@ -32,7 +32,7 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 	for _, raw := range queryList(r, "state") {
 		st := store.JobState(raw)
 		if !st.Valid() {
-			badRequestField(w, "state", fmt.Sprintf("%q is not a job state; use queued, in_progress or completed", raw))
+			badRequestField(w, "state", fmt.Sprintf("%q is not a job state; use waiting, queued, in_progress or completed", raw))
 			return
 		}
 		filter.States = append(filter.States, st)

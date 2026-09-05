@@ -37,16 +37,24 @@ jobs:
 
       # Three places pin the release and one table holds its digests, and the
       # process backend refuses to install a version whose digests it lacks --
-      # so the bump is only a bump when all four move together.
+      # so the bump is only a bump when all four move together. The runner
+      # image checks its download against the same digests, read back out of
+      # the regenerated table so the two can never disagree.
       - name: Bump
         if: steps.latest.outputs.latest != steps.latest.outputs.current
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          sed -i "s/ARG RUNNER_VERSION=.*/ARG RUNNER_VERSION=${{ steps.latest.outputs.latest }}/" deploy/Dockerfile.runner
-          sed -i "s/^RUNNER_VERSION ?= .*/RUNNER_VERSION ?= ${{ steps.latest.outputs.latest }}/" Makefile
-          sed -i 's/^const DefaultRunnerVersion = ".*"/const DefaultRunnerVersion = "${{ steps.latest.outputs.latest }}"/' internal/backend/process.go
-          go run internal/backend/gen_runner_digests.go "${{ steps.latest.outputs.latest }}"
+          v="${{ steps.latest.outputs.latest }}"
+          sed -i "s/ARG RUNNER_VERSION=.*/ARG RUNNER_VERSION=$v/" deploy/Dockerfile.runner
+          sed -i "s/^RUNNER_VERSION ?= .*/RUNNER_VERSION ?= $v/" Makefile
+          sed -i "s/^const DefaultRunnerVersion = \".*\"/const DefaultRunnerVersion = \"$v\"/" internal/backend/process.go
+          go run internal/backend/gen_runner_digests.go "$v"
+          x64=$(grep -oP "actions-runner-linux-x64-$v.tar.gz\":\s*\"\K[0-9a-f]{64}" internal/backend/runner_digests.go)
+          arm64=$(grep -oP "actions-runner-linux-arm64-$v.tar.gz\":\s*\"\K[0-9a-f]{64}" internal/backend/runner_digests.go)
+          test -n "$x64" && test -n "$arm64"
+          sed -i "s/^ARG RUNNER_SHA256_X64=.*/ARG RUNNER_SHA256_X64=$x64/" deploy/Dockerfile.runner
+          sed -i "s/^ARG RUNNER_SHA256_ARM64=.*/ARG RUNNER_SHA256_ARM64=$arm64/" deploy/Dockerfile.runner
 
       - name: Open a pull request
         if: steps.latest.outputs.latest != steps.latest.outputs.current

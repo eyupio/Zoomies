@@ -196,7 +196,11 @@ stateDiagram-v2
 * **busy** -- executing a job.
 * **draining** -- told to finish and exit. A busy runner in `draining` keeps its
   job; nothing kills a running job.
-* **removed** / **failed** -- terminal.
+* **removed** / **failed** -- terminal. A failed runner stays on the Runners
+  page for ten minutes before it is removed, because its message is the only
+  record of why it failed, and the scheduler reads the failures still on the
+  page to decide how long to wait before creating another
+  ([how the wait works](hosts-and-pools.md#when-runners-keep-failing-to-start)).
 
 Any live state can also go straight to `failed` or `removed`: a host that
 vanishes takes its runners with it, and the drawing leaves those edges out to

@@ -23,6 +23,11 @@ RestartSec=5s
 # Generous, because a graceful stop waits for in-flight jobs to finish.
 TimeoutStopSec=600s
 KillSignal=SIGTERM
+# The main process only. The default, control-group, would send SIGTERM to
+# every process in the unit's cgroup on a stop or restart -- with the process
+# backend that is every runner and the job it is running. The agent is told to
+# stop and waits for its jobs; the runners are not part of that conversation.
+KillMode=process
 
 StateDirectory=zoomies
 StateDirectoryMode=0750

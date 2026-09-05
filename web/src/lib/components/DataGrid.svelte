@@ -98,7 +98,11 @@
     onopen?: (row: T) => void;
     /** Called with every page as it lands, for warming the fleet cache. */
     onrows?: (rows: T[], total: number) => void;
-    /** Bump to refetch -- pages pass the fleet version so SSE keeps the grid live. */
+    /**
+     * Bump to refetch. Pages pass the fleet's `shape`, so SSE keeps the grid
+     * live without a round trip for every heartbeat; the grid itself refreshes
+     * at most about once a second however fast the key moves.
+     */
     liveKey?: number;
     noun?: string;
     emptyTitle?: string;
@@ -141,7 +145,6 @@
   const request = $derived({
     query: { limit, offset, sort, order } satisfies GridQuery,
     filterKey: JSON.stringify(filters ?? null),
-    liveKey,
   });
 
   let rows = $state<T[]>([]);
@@ -158,8 +161,76 @@
   let error = $state<unknown>(null);
   let lastFilterKey = '';
 
-  /** A short debounce so a burst of live events costs one request, not forty. */
+  /** A short debounce so a burst of changes costs one request, not forty. */
   const DEBOUNCE_MS = 120;
+  /**
+   * How often a live refresh may run, and how long the grid will go without
+   * one while frames keep arriving. A trailing debounce alone was reset by
+   * every frame, so a stream busier than one frame per 120ms -- a crash loop,
+   * a busy fleet's heartbeats -- meant the timer never fired and the page
+   * never refreshed; below that rate it was a round trip per frame.
+   */
+  const LIVE_EVERY_MS = 1000;
+
+  /** The request in flight, so a newer one can end it. */
+  let inflight: AbortController | null = null;
+  /** The query the rows on screen answer, for a live refresh to repeat. */
+  let current: GridQuery | null = null;
+  let liveTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastLiveAt = 0;
+  /** A live change landed while a fetch was in flight: refresh once it lands. */
+  let liveAgain = false;
+
+  function fetchNow(query: GridQuery): void {
+    inflight?.abort();
+    const controller = new AbortController();
+    inflight = controller;
+    loading = true;
+    void (async () => {
+      try {
+        const page = await fetcher(query, controller.signal);
+        if (controller.signal.aborted) return;
+        rows = page.items;
+        total = page.total;
+        error = null;
+        onrows?.(page.items, page.total);
+      } catch (cause) {
+        if (controller.signal.aborted) return;
+        if (cause instanceof DOMException && cause.name === 'AbortError') return;
+        error = cause;
+      } finally {
+        if (!controller.signal.aborted) {
+          loading = false;
+          settled = true;
+          if (inflight === controller) inflight = null;
+          if (liveAgain) {
+            liveAgain = false;
+            scheduleLive();
+          }
+        }
+      }
+    })();
+  }
+
+  /**
+   * Refresh for a live change: soon, but not more than once a second, and
+   * never by abandoning a request that is already on its way -- under a
+   * sustained stream that would be a page that never finishes loading.
+   */
+  function scheduleLive(): void {
+    if (liveTimer !== null) return;
+    const wait = Math.max(DEBOUNCE_MS, lastLiveAt + LIVE_EVERY_MS - Date.now());
+    liveTimer = setTimeout(() => {
+      liveTimer = null;
+      if (!current) return;
+      if (inflight) {
+        liveAgain = true;
+        return;
+      }
+      lastLiveAt = Date.now();
+      fetchNow(current);
+    }, wait);
+  }
 
   $effect(() => {
     const { query, filterKey } = request;
@@ -174,37 +245,41 @@
       }
     }
     lastFilterKey = filterKey;
+    current = query;
 
-    const controller = new AbortController();
-    let cancelled = false;
+    // A live refresh waiting for the old query would answer the wrong
+    // question; the fetch below covers it.
+    if (liveTimer !== null) {
+      clearTimeout(liveTimer);
+      liveTimer = null;
+    }
     loading = true;
-    const timer = setTimeout(() => {
-      void (async () => {
-        try {
-          const page = await fetcher(query, controller.signal);
-          if (cancelled) return;
-          rows = page.items;
-          total = page.total;
-          error = null;
-          onrows?.(page.items, page.total);
-        } catch (cause) {
-          if (cancelled) return;
-          if (cause instanceof DOMException && cause.name === 'AbortError') return;
-          error = cause;
-        } finally {
-          if (!cancelled) {
-            loading = false;
-            settled = true;
-          }
-        }
-      })();
-    }, DEBOUNCE_MS);
-
+    const timer = setTimeout(() => fetchNow(query), DEBOUNCE_MS);
     return () => {
-      cancelled = true;
       clearTimeout(timer);
-      controller.abort();
+      // The rows on screen must never answer a query the operator has left.
+      inflight?.abort();
+      inflight = null;
     };
+  });
+
+  // The first value of liveKey is the one the initial fetch already answers;
+  // every later change is a live event worth a refresh.
+  let liveSeen = false;
+  $effect(() => {
+    void liveKey;
+    untrack(() => {
+      if (!liveSeen) {
+        liveSeen = true;
+        return;
+      }
+      scheduleLive();
+    });
+  });
+
+  $effect(() => () => {
+    if (liveTimer !== null) clearTimeout(liveTimer);
+    inflight?.abort();
   });
 
   /* -- the table model ------------------------------------------------------ */

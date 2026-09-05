@@ -88,6 +88,7 @@ func runController(ctx context.Context, e *env, args []string) error {
 		Key:      key,
 		Backends: backends,
 		Logger:   log,
+		LogLevel: level,
 	})
 	if err != nil {
 		return err
@@ -101,8 +102,14 @@ func runController(ctx context.Context, e *env, args []string) error {
 	// SIGHUP re-reads the log level and nothing else. Everything else in the
 	// configuration is either safe to change through PATCH /settings or needs
 	// the process restarted, and pretending otherwise -- rebinding a listener
-	// under live connections, say -- is how a reload becomes an outage.
-	stopHUP := watchSIGHUP(ctx, *cfgPath, level, log)
+	// under live connections, say -- is how a reload becomes an outage. The
+	// level goes through the controller's live configuration, the same way a
+	// PATCH does, so the settings page shows the level the process is at.
+	stopHUP := watchSIGHUP(ctx, *cfgPath, func(level string) string {
+		var previous string
+		ctrl.UpdateConfig(func(c *config.Config) { previous, c.Log.Level = c.Log.Level, level })
+		return previous
+	}, log)
 	defer stopHUP()
 
 	if err := ctrl.Start(ctx); err != nil {
@@ -138,7 +145,7 @@ func runController(ctx context.Context, e *env, args []string) error {
 // and the API have already captured.
 func setupLogging(cfg *config.Config) (*slog.Logger, *slog.LevelVar) {
 	level := new(slog.LevelVar)
-	level.Set(parseLevel(cfg.Log.Level))
+	level.Set(config.ParseLogLevel(cfg.Log.Level))
 
 	// The inner handler is built at debug so that it never filters anything
 	// out itself; the wrapper below is the only gate, and it is the one whose
@@ -168,22 +175,10 @@ func (h *levelHandler) WithGroup(name string) slog.Handler {
 	return &levelHandler{Handler: h.Handler.WithGroup(name), level: h.level}
 }
 
-func parseLevel(s string) slog.Level {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "debug":
-		return slog.LevelDebug
-	case "warn", "warning":
-		return slog.LevelWarn
-	case "error":
-		return slog.LevelError
-	default:
-		return slog.LevelInfo
-	}
-}
-
-// watchSIGHUP re-reads the configuration on SIGHUP and applies the log level
-// from it. It returns a function that stops watching.
-func watchSIGHUP(ctx context.Context, cfgPath string, level *slog.LevelVar, log *slog.Logger) func() {
+// watchSIGHUP re-reads the configuration on SIGHUP and hands the log level from
+// it to apply, which sets it and returns the level that was in force. It
+// returns a function that stops watching.
+func watchSIGHUP(ctx context.Context, cfgPath string, apply func(level string) (previous string), log *slog.Logger) func() {
 	hup := make(chan os.Signal, 1)
 	signal.Notify(hup, syscall.SIGHUP)
 
@@ -205,9 +200,8 @@ func watchSIGHUP(ctx context.Context, cfgPath string, level *slog.LevelVar, log 
 						"error", err, "fix", "correct the file and send SIGHUP again")
 					continue
 				}
-				was := level.Level()
-				now := parseLevel(fresh.Log.Level)
-				level.Set(now)
+				was := config.ParseLogLevel(apply(fresh.Log.Level))
+				now := config.ParseLogLevel(fresh.Log.Level)
 				if was == now {
 					log.Info("SIGHUP: log level re-read and unchanged", "log_level", now.String())
 				} else {

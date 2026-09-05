@@ -552,3 +552,139 @@ func TestUnmatchedOnlyStillAnswersWhenManagedOnlyIsAlsoSet(t *testing.T) {
 		t.Fatalf("total = %d, jobs = %d, want the unmatched job", total, len(got))
 	}
 }
+
+// last_idle_at is when a runner became idle, which is what the idle timeout
+// counts from. A repeated transition to idle used to move it forward, so a
+// second caller reporting "still idle" made the runner immortal.
+func TestASelfTransitionDoesNotRestartTheIdleClock(t *testing.T) {
+	now := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
+	s, err := Open(context.Background(), Options{Path: ":memory:", Now: func() time.Time { return now }})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+	ctx := context.Background()
+	_, pool, host := seedPool(t, s)
+
+	r := &Runner{PoolID: pool.ID, HostID: host.ID, Name: "zoomies-abcd", Ephemeral: true}
+	if err := s.CreateRunner(ctx, r); err != nil {
+		t.Fatalf("CreateRunner: %v", err)
+	}
+	if _, err := s.TransitionRunner(ctx, r.ID, RunnerRegistering, ""); err != nil {
+		t.Fatal(err)
+	}
+	first, err := s.TransitionRunner(ctx, r.ID, RunnerIdle, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(10 * time.Minute)
+	again, err := s.TransitionRunner(ctx, r.ID, RunnerIdle, "still here")
+	if err != nil {
+		t.Fatalf("idle -> idle: %v", err)
+	}
+	if !again.LastIdleAt.Equal(*first.LastIdleAt) {
+		t.Fatalf("last_idle_at moved from %s to %s on a self-transition", first.LastIdleAt, again.LastIdleAt)
+	}
+	if again.Message != "still here" {
+		t.Fatalf("message = %q; a self-transition may still carry a message", again.Message)
+	}
+
+	failed, err := s.TransitionRunner(ctx, r.ID, RunnerFailed, "boom")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(time.Hour)
+	failedAgain, err := s.TransitionRunner(ctx, r.ID, RunnerFailed, "boom again")
+	if err != nil {
+		t.Fatalf("failed -> failed: %v", err)
+	}
+	if !failedAgain.FinishedAt.Equal(*failed.FinishedAt) {
+		t.Fatalf("finished_at moved from %s to %s on a self-transition", failed.FinishedAt, failedAgain.FinishedAt)
+	}
+}
+
+// The jobs table was rebuilt to admit the waiting state. A rebuild that lost a
+// row, a column or the unique index the upsert keys on would be a quiet
+// disaster on every existing database, so an existing database is what this
+// migrates.
+func TestTheJobsRebuildKeepsEveryRowAndItsIndexes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "zoomies.db")
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Millisecond)
+
+	// A database at the schema before the rebuild: open it normally, then
+	// pretend the rebuild has not happened by removing its ledger row and
+	// putting the old table back the way 0008 left it.
+	s, err := Open(ctx, Options{Path: path})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	for _, stmt := range []string{
+		`DELETE FROM schema_migrations WHERE name = '0009_jobs_waiting_state.sql'`,
+		`DROP TABLE jobs`,
+		`CREATE TABLE jobs (
+			id TEXT PRIMARY KEY, github_job_id INTEGER NOT NULL, github_run_id INTEGER NOT NULL DEFAULT 0,
+			repo TEXT NOT NULL DEFAULT '', workflow TEXT NOT NULL DEFAULT '', job_name TEXT NOT NULL DEFAULT '',
+			labels TEXT NOT NULL DEFAULT '[]', state TEXT NOT NULL CHECK (state IN ('queued','in_progress','completed')),
+			conclusion TEXT NOT NULL DEFAULT '', pool_id TEXT NOT NULL DEFAULT '', runner_id TEXT NOT NULL DEFAULT '',
+			runner_name TEXT NOT NULL DEFAULT '', html_url TEXT NOT NULL DEFAULT '', queued_at INTEGER NOT NULL,
+			started_at INTEGER, completed_at INTEGER, matched INTEGER NOT NULL DEFAULT 0,
+			head_branch TEXT NOT NULL DEFAULT '', head_sha TEXT NOT NULL DEFAULT '', run_attempt INTEGER NOT NULL DEFAULT 0,
+			steps TEXT NOT NULL DEFAULT '[]', runner_fault TEXT NOT NULL DEFAULT '')`,
+		`CREATE UNIQUE INDEX idx_jobs_github ON jobs(github_job_id)`,
+	} {
+		if _, err := s.write.ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("preparing the old schema: %v: %s", err, stmt)
+		}
+	}
+	done := now.Add(time.Minute)
+	if _, err := s.UpsertJob(ctx, &Job{GitHubJobID: 501, Repo: "acme/widgets", State: JobCompleted, Conclusion: "success",
+		Labels: StringSlice{"self-hosted"}, QueuedAt: now, CompletedAt: &done, HeadBranch: "main", RunAttempt: 2,
+		Steps: JobSteps{{Number: 1, Name: "Checkout", Status: "completed", Conclusion: "success"}}}); err != nil {
+		t.Fatalf("writing a row into the old schema: %v", err)
+	}
+	if _, err := s.UpsertJob(ctx, &Job{GitHubJobID: 502, State: JobQueued, QueuedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	migrated, err := Open(ctx, Options{Path: path})
+	if err != nil {
+		t.Fatalf("Open after the rebuild: %v", err)
+	}
+	t.Cleanup(func() { migrated.Close() })
+
+	got, err := migrated.GetJobByGitHubID(ctx, 501)
+	if err != nil {
+		t.Fatalf("the completed row did not survive the rebuild: %v", err)
+	}
+	if got.Repo != "acme/widgets" || got.Conclusion != "success" || got.HeadBranch != "main" || got.RunAttempt != 2 ||
+		len(got.Steps) != 1 || !got.CompletedAt.Equal(done) {
+		t.Fatalf("the rebuilt row lost a column: %+v", got)
+	}
+	if _, err := migrated.GetJobByGitHubID(ctx, 502); err != nil {
+		t.Fatalf("the queued row did not survive the rebuild: %v", err)
+	}
+	// The unique index is what the upsert keys on: a second delivery for a
+	// job must find the first row, not add another.
+	if _, err := migrated.UpsertJob(ctx, &Job{GitHubJobID: 502, State: JobInProgress}); err != nil {
+		t.Fatal(err)
+	}
+	if _, total, err := migrated.ListJobs(ctx, JobFilter{}, Page{Limit: 10}); err != nil || total != 2 {
+		t.Fatalf("jobs after an upsert = %d (%v), want 2", total, err)
+	}
+	// And the state the rebuild was for is admitted.
+	if _, err := migrated.UpsertJob(ctx, &Job{GitHubJobID: 503, State: JobWaiting, QueuedAt: now}); err != nil {
+		t.Fatalf("a waiting job was refused after the rebuild: %v", err)
+	}
+	var indexes int
+	if err := migrated.read.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND tbl_name = 'jobs' AND name LIKE 'idx_jobs_%'`).Scan(&indexes); err != nil {
+		t.Fatal(err)
+	}
+	if indexes != 6 {
+		t.Fatalf("the rebuilt jobs table has %d indexes, want 6", indexes)
+	}
+}

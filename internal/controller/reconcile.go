@@ -24,7 +24,8 @@ const reapInterval = 10 * time.Minute
 // reconcileLoop runs a pass on the configured interval and immediately on
 // every nudge, with only one pass in flight at a time.
 func (c *Controller) reconcileLoop(ctx context.Context) {
-	ticker := time.NewTicker(c.schedulerInterval())
+	interval := c.schedulerInterval()
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	// One pass at startup so a controller that was down while jobs queued
@@ -42,6 +43,12 @@ func (c *Controller) reconcileLoop(ctx context.Context) {
 			// collapsed into the single token we just took, so this is one
 			// pass for the whole burst.
 			c.reconcileNow(ctx)
+		}
+		// The interval is a runtime setting, and UpdateConfig nudges this
+		// loop, so a change is in force from the pass after it was accepted.
+		if d := c.schedulerInterval(); d != interval {
+			interval = d
+			ticker.Reset(d)
 		}
 	}
 }
@@ -285,7 +292,7 @@ func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, a sched
 		Repository:    firstNonEmpty(strings.TrimSpace(pool.Cache.Repository), inst.Target),
 		DockerMode:    pool.DockerMode,
 		RunAsRoot:     pool.RunAsRoot,
-		Network:       c.cfg.Agent.Network,
+		Network:       c.cfg().Agent.Network,
 		RunnerVersion: r.RunnerVersion,
 	}
 	c.enqueue(a.HostID, agent.Task{
@@ -344,14 +351,14 @@ func (c *Controller) runnerImage(p *store.Pool) string {
 	if strings.TrimSpace(p.Image) != "" {
 		return p.Image
 	}
-	return c.cfg.GitHub.RunnerImage
+	return c.cfg().GitHub.RunnerImage
 }
 
 func (c *Controller) runnerVersion(p *store.Pool) string {
 	if strings.TrimSpace(p.RunnerVersion) != "" {
 		return p.RunnerVersion
 	}
-	return c.cfg.GitHub.RunnerVersion
+	return c.cfg().GitHub.RunnerVersion
 }
 
 // ---------------------------------------------------------------------------
@@ -474,8 +481,15 @@ func (c *Controller) failRunnerID(ctx context.Context, id, reason string) error 
 // deleteRegistration removes a runner's registration from GitHub. Failures are
 // logged rather than returned: the reaper will find it again, and a GitHub
 // outage must not stop Zoomies from freeing the host's capacity.
+//
+// A JIT-registered runner carries the ID GitHub minted for it. One registered
+// with a registration token -- a non-ephemeral pool -- has none until GitHub
+// is asked, so it is looked up by name; the alternative was the container's
+// own config.sh remove on exit, with a registration token that expires after
+// an hour and had usually expired, leaving exactly the ghost that comment
+// promised to prevent.
 func (c *Controller) deleteRegistration(ctx context.Context, r *store.Runner, pool *store.Pool) {
-	if r.GitHubRunnerID == 0 {
+	if r.GitHubRunnerID == 0 && !store.IsRunnerName(r.Name) {
 		return
 	}
 	if pool == nil {
@@ -498,11 +512,31 @@ func (c *Controller) deleteRegistration(ctx context.Context, r *store.Runner, po
 		c.log.Warn("could not delete a GitHub runner registration", "runner", r.ID, "error", err)
 		return
 	}
-	err = client.DeleteRunner(ctx, r.GitHubRunnerID)
+	id := r.GitHubRunnerID
+	if id == 0 {
+		remote, err := client.ListRunners(ctx)
+		c.observeGitHub(inst.ID, err)
+		if err != nil {
+			c.log.Warn("could not list GitHub runners to find a registration to delete", "runner", r.ID, "name", r.Name, "error", err)
+			return
+		}
+		for _, gr := range remote {
+			if gr.Name == r.Name {
+				id = gr.ID
+				break
+			}
+		}
+		if id == 0 {
+			// Never registered, or already gone: either way there is nothing
+			// to delete, and nothing worth a warning.
+			return
+		}
+	}
+	err = client.DeleteRunner(ctx, id)
 	c.observeGitHub(inst.ID, err)
 	if err != nil {
 		c.log.Warn("could not delete a GitHub runner registration",
-			"runner", r.ID, "github_runner_id", r.GitHubRunnerID, "error", err)
+			"runner", r.ID, "github_runner_id", id, "error", err)
 	}
 }
 

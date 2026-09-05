@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -58,7 +59,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	// whether or not anything has gone wrong yet. ForUI drops the handful that
 	// only the CLI says, because they are expected in a normal deployment and
 	// a list that is never clear stops being read.
-	for _, f := range c.cfg.Validate().ForUI() {
+	for _, f := range c.cfg().Validate().ForUI() {
 		if f.Severity != config.SeverityError && f.Severity != config.SeverityWarning {
 			continue
 		}
@@ -98,6 +99,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 		return nil, err
 	}
 	out = append(out, c.PoolCapacityProblems()...)
+	out = append(out, c.loopProblems()...)
 	if err := c.runnerProblems(ctx, &out); err != nil {
 		return nil, err
 	}
@@ -253,7 +255,7 @@ func (c *Controller) webhookProblems(ctx context.Context, out *[]Problem) error 
 				"instead of within a second of them being queued.", c.pollInterval()),
 			Fix: fmt.Sprintf("point the App's webhook at %s and check that GitHub can reach it.", c.webhookURLOrPath()),
 		}
-		if !c.cfg.GitHub.PollFallback {
+		if !c.cfg().GitHub.PollFallback {
 			// With no webhooks and no poller, nothing will ever start a runner.
 			p.Severity = config.SeverityError
 			p.Title = "no webhook has ever arrived and the fallback poller is off, so nothing is scaling"
@@ -268,7 +270,7 @@ func (c *Controller) webhookProblems(ctx context.Context, out *[]Problem) error 
 // controllerAddress is how an agent reaches this controller, phrased for a
 // message even when the external URL has not been set.
 func (c *Controller) controllerAddress() string {
-	if u := c.cfg.Server.ExternalURL; u != "" {
+	if u := c.cfg().Server.ExternalURL; u != "" {
 		return u
 	}
 	return "this controller (server.external_url is not set, so Zoomies cannot name the address)"
@@ -278,10 +280,10 @@ func (c *Controller) controllerAddress() string {
 // the external URL has not been configured -- which is itself one of the
 // findings above, so the fix stays actionable either way.
 func (c *Controller) webhookURLOrPath() string {
-	if u := c.cfg.WebhookURL(); u != "" {
+	if u := c.cfg().WebhookURL(); u != "" {
 		return u
 	}
-	return c.cfg.GitHub.WebhookPath + " (set server.external_url so Zoomies can tell you the full URL)"
+	return c.cfg().GitHub.WebhookPath + " (set server.external_url so Zoomies can tell you the full URL)"
 }
 
 // PoolCapacityProblems reports the pools the scheduler wanted to grow and could
@@ -312,6 +314,26 @@ func (c *Controller) PoolCapacityProblems() []Problem {
 				Detail: fmt.Sprintf("The best-effort repository scale-up limit deferred runner creation for %s (%s). Compatible idle runners may still accept these jobs because GitHub controls assignment.",
 					plural(len(pp.QuotaDeferredRepositories), "repository"), repositories),
 				Fix:        "increase the pool repository scale-up limit or wait for that repository's active jobs to finish; use repository-specific pools and workflow labels if strict isolation is required",
+				TargetKind: "pool", TargetID: pp.PoolID,
+			})
+		}
+		if pp.Failing != "" {
+			// The scheduler is holding the pool back because its runners keep
+			// dying before they register. The failed runners themselves are
+			// listed under runners.failed with their messages; this entry is
+			// about the pool, and about the wait, which is otherwise invisible.
+			severity := config.SeverityWarning
+			if pp.QueuedMatched > 0 {
+				severity = config.SeverityError
+			}
+			out = append(out, Problem{
+				Code:     "pool.runners_failing",
+				Severity: severity,
+				Title:    fmt.Sprintf("pool %s's runners are failing to start", pp.PoolName),
+				Detail:   pp.Failing,
+				Fix: "the failed runners are on the Runners page with their reasons; the usual causes are an image " +
+					"that cannot be pulled, a host whose agent cannot reach GitHub, or a runner version that does " +
+					"not exist. The pool tries again on its own, less often with each failure.",
 				TargetKind: "pool", TargetID: pp.PoolID,
 			})
 		}
@@ -448,6 +470,34 @@ func (c *Controller) unmatchedQueuedJobs(ctx context.Context) ([]*store.Job, err
 		return nil, fmt.Errorf("listing unmatched jobs: %w", err)
 	}
 	return jobs, nil
+}
+
+// loopProblems reports every background loop that has panicked since the
+// process started. The loop was restarted, so the fleet is still being run;
+// the entry is here because a crash is a bug, and a bug that fixes itself
+// after a minute is one nobody would otherwise report.
+func (c *Controller) loopProblems() []Problem {
+	panics := c.LoopPanics()
+	names := slices.Sorted(maps.Keys(panics))
+	out := make([]Problem, 0, len(names))
+	for _, name := range names {
+		p := panics[name]
+		title := fmt.Sprintf("the %s loop crashed and was restarted", name)
+		if p.Count > 1 {
+			title = fmt.Sprintf("the %s loop has crashed %d times and was restarted each time", name, p.Count)
+		}
+		at := p.At
+		out = append(out, Problem{
+			Code:     "controller.loop_panicked",
+			Severity: config.SeverityError,
+			Title:    title,
+			Detail:   "the last panic said: " + p.Last,
+			Fix: "this is a bug in Zoomies. The stack is in the controller's log under \"controller loop panicked\"; " +
+				"please report it with that stack. Restarting the controller clears this entry.",
+			Since: &at,
+		})
+	}
+	return out
 }
 
 func (c *Controller) runnerProblems(ctx context.Context, out *[]Problem) error {

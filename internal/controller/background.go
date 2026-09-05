@@ -37,6 +37,7 @@ func (c *Controller) backgroundLoop(ctx context.Context) {
 		now := c.Now()
 		c.sweepTasks(ctx, now)
 		c.checkHostHealth(ctx)
+		c.expireStaleQueuedJobs(ctx, now)
 		// A host going quiet is a problem and a capacity change, and neither
 		// waits for the next reconcile pass to be told about.
 		c.publishDerived(ctx)
@@ -118,7 +119,7 @@ func (c *Controller) sample(ctx context.Context) error {
 // function.
 func (c *Controller) prune(ctx context.Context) {
 	now := c.Now()
-	r := c.cfg.Retention
+	r := c.cfg().Retention
 
 	type job struct {
 		what   string

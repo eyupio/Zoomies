@@ -283,15 +283,17 @@ func TestParseWorkflowJobCarriesTheStepsAndTheRunContext(t *testing.T) {
 	}
 }
 
-func TestParseWorkflowJobWaitingIsQueued(t *testing.T) {
-	// The store refuses to move a job backwards, so a waiting job must not be
-	// recorded past "queued" or the later queued delivery becomes a no-op.
+func TestParseWorkflowJobWaitingIsItsOwnState(t *testing.T) {
+	// A job held for a deployment review is not demand: recorded as queued it
+	// had the scheduler starting a runner nobody could use for as long as the
+	// review took. It is "waiting", which sits before queued in the lifecycle
+	// so that the approval's queued delivery still moves it forward.
 	e, err := ParseWorkflowJob(jobPayload("waiting", "waiting", "", false, false))
 	if err != nil {
 		t.Fatalf("ParseWorkflowJob: %v", err)
 	}
-	if got := e.ToJob().State; got != store.JobQueued {
-		t.Fatalf("state = %q, want %q", got, store.JobQueued)
+	if got := e.ToJob().State; got != store.JobWaiting {
+		t.Fatalf("state = %q, want %q", got, store.JobWaiting)
 	}
 }
 

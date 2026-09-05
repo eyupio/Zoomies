@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -819,5 +820,57 @@ func TestProcessDownloadMissingVersion(t *testing.T) {
 	_, err = b.ensureRelease(context.Background(), "0.0.1")
 	if err == nil || !strings.Contains(err.Error(), "pinned runner version") {
 		t.Fatalf("got %v, want a message about the pinned version", err)
+	}
+}
+
+// The runner leads a process group of its own. Without that, interrupting the
+// listener orphaned the worker running the job, and a service manager stopping
+// the agent's unit took every runner in the cgroup down with it -- the
+// opposite of "restarting an agent must never kill a job".
+func TestProcessRunnerLeadsItsOwnProcessGroup(t *testing.T) {
+	requireUnix(t)
+	b, _ := newStubProcessBackend(t)
+	ctx := context.Background()
+
+	h, err := b.Create(ctx, processSpec())
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	t.Cleanup(func() { _ = b.Remove(ctx, h) })
+	waitForPhase(t, b, h, PhaseRunning, 5*time.Second)
+
+	pid := readPID(string(h))
+	if pid <= 0 {
+		t.Fatal("no pid recorded")
+	}
+	pgid, err := syscall.Getpgid(pid)
+	if err != nil {
+		t.Fatalf("Getpgid: %v", err)
+	}
+	if pgid != pid {
+		t.Fatalf("the runner's process group is %d, want its own pid %d; it is sharing the agent's group", pgid, pid)
+	}
+}
+
+// The runner image verifies its download against digests written into the
+// Dockerfile, and the process backend against the generated table. They are
+// the same release, so they had better be the same numbers; the bump workflow
+// copies them from the table, and this is what catches a hand edit of one.
+func TestTheRunnerImagePinsTheSameDigestsAsTheProcessBackend(t *testing.T) {
+	dockerfile, err := os.ReadFile(filepath.Join("..", "..", "deploy", "Dockerfile.runner"))
+	if err != nil {
+		t.Fatalf("reading the runner Dockerfile: %v", err)
+	}
+	for arch, arg := range map[string]string{"x64": "RUNNER_SHA256_X64", "arm64": "RUNNER_SHA256_ARM64"} {
+		want := knownRunnerSHA256[DefaultRunnerVersion+"/actions-runner-linux-"+arch+"-"+DefaultRunnerVersion+".tar.gz"]
+		if want == "" {
+			t.Fatalf("the digest table has no linux-%s entry for %s", arch, DefaultRunnerVersion)
+		}
+		if !strings.Contains(string(dockerfile), "ARG "+arg+"="+want) {
+			t.Fatalf("deploy/Dockerfile.runner does not pin %s to the table's digest %s for %s", arg, want, DefaultRunnerVersion)
+		}
+	}
+	if !strings.Contains(string(dockerfile), "ARG RUNNER_VERSION="+DefaultRunnerVersion) {
+		t.Fatalf("deploy/Dockerfile.runner pins a different runner version from DefaultRunnerVersion %s", DefaultRunnerVersion)
 	}
 }

@@ -412,9 +412,16 @@ addon handles the rendering; the constraints on our side are:
 There is no refresh button. A single SSE connection to `/api/v1/events` feeds a
 client-side cache; each page subscribes to the event kinds it cares about. On
 reconnect the client sends `Last-Event-ID` and the server replays what it
-buffered, then the page does one reconciling fetch. The connection state is
-visible in the top bar: a quiet dot when live, an explicit "reconnecting…" when
-not — never a silent stall.
+buffered, then the page does one reconciling fetch; frames that land while that
+fetch is in flight are held and applied on top of its result, because they are
+newer than it. The connection state is visible in the top bar: a quiet dot when
+live, an explicit "reconnecting…" when not — never a silent stall.
+
+A grid that fetches its rows from the server refetches on the cache's *shape*
+— a runner appearing, changing state, pool, host or job — not on every frame,
+so a heartbeat that only moves a runner's CPU and memory costs no round trip;
+and it refreshes at most about once a second however fast the shape moves, so
+a fleet in trouble is still readable while it is in trouble.
 
 The one page that asks rather than listens is *Add a host*: while it waits for
 the new machine it fetches its own join token every few seconds, because
@@ -461,6 +468,10 @@ Everything reachable, in a sensible order, with a visible focus ring
 (`2px` `--z-accent`, `2px` offset — never removed). `Cmd/Ctrl+K` palette,
 `g` then `o/p/r/j/u/h/i/m/a/s` to jump between sections, `/` focuses the current
 page's search, `?` opens the shortcut sheet, `Esc` closes the topmost layer.
+While a dialog, drawer, menu or the palette is open, `Esc` is the only one of
+these the shell answers; the rest belong to the overlay, so a `g r` typed into a
+confirmation cannot navigate away from the thing being confirmed. Tab stays
+inside the innermost open overlay, and everything outside it is `inert`.
 
 ### Responsive
 

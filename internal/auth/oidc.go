@@ -257,9 +257,11 @@ func (p *OIDCProvider) mapsRoles() bool {
 //
 // It links by subject first, because that is the only identifier a provider
 // promises not to reuse. Failing that it adopts an existing account with the
-// same username -- which is how an instance moves from local passwords to SSO
-// without recreating everyone -- and only then, if allowSignup is on, creates
-// one.
+// same username, but only one made for single sign-on -- one with no password
+// -- unless oidc.link_by_username says otherwise: with a provider whose users
+// can influence their own username claim, adopting any account by name would
+// let a login as "admin" inherit the local admin's role. Only then, if
+// allowSignup is on, does it create one.
 func (p *OIDCProvider) EnsureUser(ctx context.Context, st *store.Store, claims *Claims, allowSignup bool) (*store.User, error) {
 	if claims == nil || claims.Subject == "" {
 		return nil, errors.New("no verified claims to sign in with")
@@ -282,6 +284,10 @@ func (p *OIDCProvider) EnsureUser(ctx context.Context, st *store.Store, claims *
 	case err == nil:
 		if u.OIDCSubject != "" && u.OIDCSubject != claims.Subject {
 			return nil, fmt.Errorf("the account %q is already linked to a different single sign-on identity; an administrator must unlink or rename it", username)
+		}
+		if u.PasswordHash != "" && !p.cfg.LinkByUsername {
+			return nil, fmt.Errorf("an account named %q already exists and signs in with a password, so this single sign-on identity was not linked to it; "+
+				"an administrator can set oidc.link_by_username for the migration, or create an SSO account under another name", username)
 		}
 		u.OIDCSubject = claims.Subject
 		return p.sync(ctx, st, u, claims, username)

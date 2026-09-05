@@ -209,6 +209,29 @@ which clears itself, and one that is **misconfigured**, which never will.
 [The quick start's troubleshooting section](quickstart.md#a-job-that-sits-in-the-queue)
 walks the same tree from a queued job's point of view.
 
+### When runners keep failing to start
+
+A runner that dies before it ever registers -- the image will not pull, the
+host cannot reach GitHub, the runner version does not exist -- is not replaced
+in the same pass that notices. The pool waits ten seconds after the first such
+failure, and doubles the wait with each one after it, up to five minutes:
+
+```
+cannot scale linux-x64 0 -> 1: the last 3 runners failed to start, most recently
+30s ago (No such image: sha256:9f2c…); trying again in 10s
+```
+
+Without the wait a pool with a bad image creates, fails and removes a runner
+every second, and pays GitHub two API calls a time for the privilege. The
+failed runners stay on the Runners page for ten minutes with their reasons,
+which is where the sentence above points; the problems drawer lists the pool
+under *runners are failing to start* for as long as it is waiting. Nothing
+needs resetting once the cause is fixed: the next attempt succeeds, no new
+failure lands on the page, and the wait runs out on its own.
+
+A runner that ran jobs and then failed does not count. That says something
+about the job, not about whether the next runner will start.
+
 ## Worked shapes
 
 **A GPU box beside the general fleet.** Label the machine on the way in, then

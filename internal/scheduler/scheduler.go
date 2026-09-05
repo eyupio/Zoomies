@@ -42,6 +42,25 @@ type Snapshot struct {
 	Policy Policy
 }
 
+const (
+	// failedRetention is how long a failed runner stays on the Runners page
+	// before the reap removes it. Removing it at once, as the scheduler used
+	// to, freed nothing -- a failed runner holds no host slot -- and took the
+	// only record of why it failed off the page within a second of it
+	// appearing. Ten minutes is long enough to read, and the failures still
+	// on the page are also what the start backoff below is decided on.
+	failedRetention = 10 * time.Minute
+
+	// startBackoff is how long a pool waits after a runner fails to start
+	// before it creates another; each further failure doubles the wait, up to
+	// maxStartBackoff. Without it a runner that dies on creation is replaced
+	// in the same pass that notices, and a pool whose image cannot be pulled
+	// creates, fails and removes a runner every second -- two GitHub API
+	// calls a time, until the installation's hourly quota is spent on nothing.
+	startBackoff    = 10 * time.Second
+	maxStartBackoff = 5 * time.Minute
+)
+
 // Policy carries the tunables from config.Scheduler.
 //
 // Every duration here is disabled by a zero or negative value, so a caller that
@@ -136,7 +155,13 @@ type PoolPlan struct {
 	// it without being told which backend that is -- so the answer travels with
 	// the reason, to the problems drawer, the pool page and the CLI.
 	BlockedAlternatives []string `json:"blocked_alternatives,omitempty"`
-	Actions             []Action `json:"actions,omitempty"`
+	// Failing is set when the pool's recent runners died before they ever
+	// registered and the scheduler is holding off creating more for a while.
+	// It says how many failed, the latest reason and when the next attempt
+	// is, because a pool in this state has jobs waiting on runners that keep
+	// failing, and the problems drawer has to be able to say why.
+	Failing string   `json:"failing,omitempty"`
+	Actions []Action `json:"actions,omitempty"`
 }
 
 // Plan is one tick's worth of decisions.
@@ -264,12 +289,85 @@ func (t *tick) decidePool(p *store.Pool, runners []*store.Runner, queued []*stor
 	// what keeps the pool under its maximum, but it will never take a job, so
 	// it must not stand in for the runner a queued job is waiting on.
 	plan.Desired = clamp(max(p.MinRunners, busy+draining+eligible), p.MinRunners, p.MaxRunners)
+	plan.Failing = t.holdAfterStartFailures(runners)
 
 	switch {
 	case plan.Desired < live:
 		t.scaleDown(p, &plan, remaining, live)
 	}
 	return plan
+}
+
+// holdAfterStartFailures decides whether a pool's recent failures should stop
+// it creating for now, and returns the sentence that says so, or "" when it
+// may go ahead.
+//
+// Only runners that died before registering count: they are evidence that
+// the pool cannot start a runner at the moment -- an image that will not
+// pull, a host that cannot reach GitHub -- whereas a runner that ran jobs
+// and then failed says nothing about the next create. The wait doubles with
+// each failure still on the page, so a broken pool settles at one attempt
+// every few minutes rather than one a second; it recovers on its own, because
+// a pass that creates nothing adds no failure and the wait simply runs out.
+func (t *tick) holdAfterStartFailures(runners []*store.Runner) string {
+	failed := startFailures(runners, t.now)
+	if len(failed) == 0 {
+		return ""
+	}
+	wait := maxStartBackoff
+	if shift := len(failed) - 1; shift < 8 && startBackoff<<shift < maxStartBackoff {
+		wait = startBackoff << shift
+	}
+	since := t.now.Sub(failedAt(failed[0]))
+	if since >= wait {
+		return ""
+	}
+	which := "the last runner"
+	if len(failed) > 1 {
+		which = "the last " + plural(len(failed), "runner")
+	}
+	return fmt.Sprintf("%s failed to start, most recently %s ago (%s); trying again in %s",
+		which, formatDuration(since.Truncate(time.Second)), summarise(failed[0].Message),
+		formatDuration((wait - since).Round(time.Second)))
+}
+
+// startFailures returns the runners that failed before ever registering and
+// whose failure is still on the page, newest first.
+func startFailures(runners []*store.Runner, now time.Time) []*store.Runner {
+	var out []*store.Runner
+	for _, r := range runners {
+		if r.State == store.RunnerFailed && r.RegisteredAt == nil && now.Sub(failedAt(r)) < failedRetention {
+			out = append(out, r)
+		}
+	}
+	slices.SortStableFunc(out, func(a, b *store.Runner) int {
+		return failedAt(b).Compare(failedAt(a))
+	})
+	return out
+}
+
+// failedAt is when a runner failed. The store stamps finished_at on the
+// transition; a row without one falls back to its creation, which is the
+// conservative reading for a failure of unknown age.
+func failedAt(r *store.Runner) time.Time {
+	if r.FinishedAt != nil {
+		return *r.FinishedAt
+	}
+	return r.CreatedAt
+}
+
+// summarise keeps a runner's failure message to one clause of a sentence. The
+// full text is on the Runners page; here it is the hint, not the report.
+func summarise(message string) string {
+	message = strings.Join(strings.Fields(message), " ")
+	if message == "" {
+		return "no reason was recorded"
+	}
+	const limit = 160
+	if len(message) > limit {
+		return message[:limit-1] + "…"
+	}
+	return message
 }
 
 // allocate shares creation capacity after every pool's desired size has been
@@ -296,6 +394,13 @@ func (t *tick) allocate(pools []*store.Pool, plans []PoolPlan, runners map[strin
 				if !p.Enabled || pp.Desired <= pp.Current+creates(pp.Actions) {
 					continue
 				}
+				if pp.Failing != "" {
+					// Held back, not blocked: there is somewhere to put a
+					// runner, and the pool will try again on its own once the
+					// wait is out. The reason still says what went unserved.
+					pp.Reason = cannotScale(p.Name, pp.Current, pp.Desired, pp.Failing)
+					continue
+				}
 				if !t.grant(p, pp, runners[p.ID], demand[p.ID]) {
 					continue
 				}
@@ -316,7 +421,7 @@ func (t *tick) allocate(pools []*store.Pool, plans []PoolPlan, runners map[strin
 	for _, p := range pools {
 		pp := byID[p.ID]
 		got := creates(pp.Actions)
-		if !p.Enabled || pp.Desired <= pp.Current+got || pp.Blocked != "" {
+		if !p.Enabled || pp.Desired <= pp.Current+got || pp.Blocked != "" || pp.Failing != "" {
 			continue
 		}
 		why := fmt.Sprintf("this tick's global limit of %s is exhausted; the next pass will continue", plural(t.policy.MaxCreatesPerTick, "new runner"))
@@ -374,8 +479,15 @@ func (t *tick) reap(p *store.Pool, runners []*store.Runner) (actions []Action, r
 			// Whatever it left on its host is the agent's to clean up, and
 			// it does so on its own once the retention window has passed.
 		case r.State == store.RunnerFailed:
-			removes = append(removes, t.action(ActionRemove, p, r,
-				"runner failed; removing it to free host capacity"))
+			// A failed runner holds no host slot, so there is nothing to free
+			// by removing it quickly, and everything to lose: the message on
+			// it is the only record of why it failed. It stays on the page
+			// for the retention, then goes.
+			if t.now.Sub(failedAt(r)) >= failedRetention {
+				removes = append(removes, t.action(ActionRemove, p, r, fmt.Sprintf(
+					"runner failed %s ago; its failure has been on the Runners page long enough",
+					formatDuration(t.now.Sub(failedAt(r)).Truncate(time.Minute)))))
+			}
 		case starting(r.State) && t.policy.ProvisionTimeout > 0 && age > t.policy.ProvisionTimeout:
 			fails = append(fails, t.action(ActionFail, p, r, fmt.Sprintf(
 				"stuck in %s for %s, past the %s provision timeout; check the host's agent log",

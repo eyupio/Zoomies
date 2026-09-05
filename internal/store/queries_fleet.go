@@ -855,6 +855,11 @@ func (s *Store) TransitionRunner(ctx context.Context, id string, to RunnerState,
 		if message != "" {
 			r.Message = message
 		}
+		// A transition to the state the runner is already in is legal and
+		// changes no timestamp. last_idle_at in particular is when the runner
+		// *became* idle, which is what the idle timeout counts from; an agent
+		// or a second caller reporting "still idle" used to move it forward and
+		// make the runner immortal.
 		switch to {
 		case RunnerIdle:
 			if r.RegisteredAt == nil {
@@ -865,8 +870,10 @@ func (s *Store) TransitionRunner(ctx context.Context, id string, to RunnerState,
 				t := now
 				r.StartedAt = &t
 			}
-			t := now
-			r.LastIdleAt = &t
+			if prev != RunnerIdle {
+				t := now
+				r.LastIdleAt = &t
+			}
 			// Leaving busy means a job just finished on this runner.
 			if prev == RunnerBusy {
 				r.JobsHandled++
@@ -883,8 +890,10 @@ func (s *Store) TransitionRunner(ctx context.Context, id string, to RunnerState,
 			}
 			r.LastIdleAt = nil
 		case RunnerRemoved, RunnerFailed:
-			t := now
-			r.FinishedAt = &t
+			if prev != to {
+				t := now
+				r.FinishedAt = &t
+			}
 			r.CurrentJobID = ""
 		}
 		_, err = tx.ExecContext(ctx, `UPDATE runners SET state=?, message=?, started_at=?,

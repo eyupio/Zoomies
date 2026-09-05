@@ -69,12 +69,16 @@ elif [ -n "${ZOOMIES_RUNNER_TOKEN:-}" ]; then
 
   ./config.sh "${args[@]}"
 
-  # Deregister on the way out so a crashed container does not leave a ghost
-  # runner in the GitHub UI. Ephemeral runners deregister themselves, so this
-  # only matters on the persistent path.
+  # Best effort, and only that: a registration token expires an hour after it
+  # was minted, so this succeeds for a runner that lived less than an hour and
+  # quietly fails for one that lived longer. What actually keeps the GitHub
+  # runner list clean is the controller, which deletes a persistent runner's
+  # registration by name when it removes the runner, and whose reaper deletes
+  # any offline registration of a runner it knows to be gone. Ephemeral
+  # runners deregister themselves.
   # shellcheck disable=SC2317  # invoked by trap, which shellcheck cannot see
   cleanup() {
-    log "removing this runner's registration"
+    log "removing this runner's registration, if the token is still good"
     ./config.sh remove --token "${ZOOMIES_RUNNER_TOKEN}" >/dev/null 2>&1 || true
   }
   trap cleanup EXIT

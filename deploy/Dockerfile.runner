@@ -26,10 +26,17 @@
 # built with --target runner-docker.
 
 ARG RUNNER_VERSION=2.337.0
+# The SHA-256 GitHub publishes for each release archive, from the release
+# notes; internal/backend/runner_digests.go carries the same values for the
+# process backend, and the runner-version workflow moves all of them together.
+ARG RUNNER_SHA256_X64=70920811a4f8ad4328818682bca5c6469c1c942fab52448868071d0063816613
+ARG RUNNER_SHA256_ARM64=9b1dc70626422526e3c94767cf024896beb15da5342a3f4819bf2feac13e0393
 ARG BASE=ubuntu:24.04
 
 FROM ${BASE} AS runner-base
 ARG RUNNER_VERSION
+ARG RUNNER_SHA256_X64
+ARG RUNNER_SHA256_ARM64
 ARG TARGETARCH
 
 LABEL org.opencontainers.image.title="zoomies-runner" \
@@ -62,18 +69,26 @@ RUN set -eux; \
     echo "runner ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/runner; \
     chmod 0440 /etc/sudoers.d/runner
 
+# The archive is checked against the digest GitHub published before it is
+# unpacked: this image runs whatever is inside it, on every job, and a mirror
+# or a proxy between the build and github.com is a place to substitute it.
+# The dependency script is allowed to fail the build, too. It used to be
+# silenced, which shipped an image that was missing a library the runner dies
+# without on the first job rather than failing here, where the log says why.
 WORKDIR /home/runner
 RUN set -eux; \
     case "${TARGETARCH}" in \
-      amd64) RUNNER_ARCH=x64 ;; \
-      arm64) RUNNER_ARCH=arm64 ;; \
+      amd64) RUNNER_ARCH=x64; RUNNER_SHA256="${RUNNER_SHA256_X64}" ;; \
+      arm64) RUNNER_ARCH=arm64; RUNNER_SHA256="${RUNNER_SHA256_ARM64}" ;; \
       *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
     curl -fsSL -o runner.tar.gz \
       "https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-${RUNNER_ARCH}-${RUNNER_VERSION}.tar.gz"; \
+    echo "${RUNNER_SHA256}  runner.tar.gz" | sha256sum -c -; \
     tar xzf runner.tar.gz; \
     rm runner.tar.gz; \
-    ./bin/installdependencies.sh || true; \
+    ./bin/installdependencies.sh; \
+    rm -rf /var/lib/apt/lists/*; \
     mkdir -p /home/runner/_work; \
     chown -R runner:runner /home/runner
 

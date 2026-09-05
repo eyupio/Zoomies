@@ -3,8 +3,11 @@ package installer
 import (
 	"bytes"
 	"context"
+	"github.com/eyupio/zoomies/internal/github"
+	"github.com/eyupio/zoomies/internal/store"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -232,4 +235,28 @@ func TestAskYesNo(t *testing.T) {
 func TestRemoveServiceUserNeedsRoot(t *testing.T) {
 	t.Skip("creating and removing system accounts changes the machine the tests run on; " +
 		"exercised in the packaging tests that run in a throwaway container")
+}
+
+// Runner names carry no instance identity, so the "zoomies-" prefix used to
+// be the whole test of ownership: uninstalling a staging controller deleted a
+// production controller's idle runners on the same organisation.
+func TestUninstallDeregistersOnlyTheRunnersThisDatabaseKnows(t *testing.T) {
+	remote := []github.Runner{
+		{ID: 1, Name: "zoomies-ours-by-id"},
+		{ID: 2, Name: "zoomies-ours-by-name"},
+		{ID: 3, Name: "zoomies-someone-elses-controller"},
+		{ID: 4, Name: "hand-registered"},
+	}
+	local := []*store.Runner{
+		{Name: "zoomies-renamed-on-github", GitHubRunnerID: 1},
+		{Name: "zoomies-ours-by-name"},
+	}
+	got := fleetRunners(remote, local)
+	ids := make([]int64, 0, len(got))
+	for _, r := range got {
+		ids = append(ids, r.ID)
+	}
+	if !slices.Equal(ids, []int64{1, 2}) {
+		t.Fatalf("would deregister %v, want only the two this database has rows for", ids)
+	}
 }

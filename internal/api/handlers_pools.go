@@ -97,7 +97,7 @@ type poolInput struct {
 func (s *Server) defaultPool() *store.Pool {
 	return &store.Pool{
 		Backend:     store.BackendDocker,
-		Image:       s.cfg.GitHub.RunnerImage,
+		Image:       s.cfg().GitHub.RunnerImage,
 		PullPolicy:  store.PullIfNotPresent,
 		MinRunners:  0,
 		MaxRunners:  4,
@@ -624,7 +624,11 @@ func (s *Server) handlePrewarmPool(w http.ResponseWriter, r *http.Request) {
 	}
 	n, err := s.ctrl.PrewarmPool(r.Context(), p)
 	if err != nil {
-		unprocessable(w, err.Error(), nil)
+		if errors.Is(err, controller.ErrPrewarmUnsupported) {
+			unprocessable(w, err.Error(), nil)
+			return
+		}
+		s.fail(w, r, "queueing the image pull", err)
 		return
 	}
 	states, err := s.ctrl.Store().ListPoolPrewarms(r.Context(), p.ID)

@@ -391,7 +391,12 @@ func buildRunnerConfig(spec Spec, fl flavor, o containerOptions) ContainerCreate
 	}
 
 	if o.HostSocket != "" {
-		hc.Binds = append(hc.Binds, o.HostSocket+":/var/run/docker.sock"+fl.mountSuffix)
+		// No relabel suffix here. ":z" relabels the *source*, and the source
+		// is the host's own Docker or Podman socket; Podman's documentation
+		// warns against relabelling system files, and a socket the daemon
+		// itself can no longer open is every container on the host failing.
+		// The work and cache directories below are Zoomies' own to label.
+		hc.Binds = append(hc.Binds, o.HostSocket+":/var/run/docker.sock")
 		// Root already reaches the socket, and adding a group to a root
 		// container only widens what it can do for no gain.
 		if o.SocketGID > 0 && !spec.RunAsRoot {
@@ -480,6 +485,21 @@ func buildDinDConfig(spec Spec, fl flavor, o containerOptions) ContainerCreateRe
 			NetworkMode:   o.Network,
 		},
 	}
+	// With docker_mode: dind the builds themselves run inside this sidecar,
+	// not the runner, so a pool's memory, CPU and pids limits are worth nothing
+	// unless they bind the sidecar too.
+	hc := cfg.HostConfig
+	if spec.Resources.CPUs > 0 {
+		hc.NanoCPUs = int64(spec.Resources.CPUs * 1e9)
+	}
+	if spec.Resources.MemoryMB > 0 {
+		hc.Memory = spec.Resources.MemoryMB * 1024 * 1024
+		hc.MemorySwap = hc.Memory
+	}
+	if spec.Resources.PidsLimit > 0 {
+		limit := spec.Resources.PidsLimit
+		hc.PidsLimit = &limit
+	}
 	if o.Network != "" {
 		cfg.NetworkingConfig = &NetworkingConfig{
 			EndpointsConfig: map[string]*EndpointSettings{
@@ -519,14 +539,15 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (Create
 		return CreateResult{}, err
 	}
 
-	digest, pulled, pullDuration, err := b.prepareImage(ctx, spec.Image, spec.PullPolicy)
+	createRef, digest, pulled, pullDuration, err := b.prepareImage(ctx, spec.Image, spec.PullPolicy)
 	if err != nil {
 		return CreateResult{}, err
 	}
 	_ = pulled // pullDuration deliberately carries whether a pull occurred.
-	// Create from exactly the immutable image we just resolved. This prevents a
-	// moving tag from changing between preparation and the create request.
-	spec.Image = digest
+	// Create from exactly the immutable image we just resolved, by a reference
+	// the daemon can look up. This prevents a moving tag from changing between
+	// preparation and the create request.
+	spec.Image = createRef
 	createStarted := time.Now()
 
 	opts := containerOptions{Now: time.Now(), DinDImage: b.dind}
@@ -604,7 +625,7 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (Create
 
 // prepareImage applies the task's pool policy, then resolves the image before
 // container creation. Empty policy is the wire-compatible legacy case.
-func (b *DockerBackend) prepareImage(ctx context.Context, image string, policy store.PullPolicy) (string, bool, *time.Duration, error) {
+func (b *DockerBackend) prepareImage(ctx context.Context, image string, policy store.PullPolicy) (createRef, digest string, pulled bool, pullDuration *time.Duration, err error) {
 	pull := false
 	switch policy {
 	case store.PullAlways:
@@ -612,7 +633,7 @@ func (b *DockerBackend) prepareImage(ctx context.Context, image string, policy s
 	case store.PullIfNotPresent, store.PullPinnedOnly:
 		present, err := b.api.ImageInspect(ctx, image)
 		if err != nil {
-			return "", false, nil, fmt.Errorf("backend: looking for image %s: %w", image, err)
+			return "", "", false, nil, fmt.Errorf("backend: looking for image %s: %w", image, err)
 		}
 		pull = !present
 	case "":
@@ -621,33 +642,33 @@ func (b *DockerBackend) prepareImage(ctx context.Context, image string, policy s
 		} else {
 			present, err := b.api.ImageInspect(ctx, image)
 			if err != nil {
-				return "", false, nil, fmt.Errorf("backend: looking for image %s: %w", image, err)
+				return "", "", false, nil, fmt.Errorf("backend: looking for image %s: %w", image, err)
 			}
 			if !present && b.pull == PullNever {
-				return "", false, nil, fmt.Errorf("backend: image %s is not on this host and the pull policy is %q; pull it here first (docker pull %s) or set the pull policy to if-missing", image, b.pull, image)
+				return "", "", false, nil, fmt.Errorf("backend: image %s is not on this host and the pull policy is %q; pull it here first (docker pull %s) or set the pull policy to if-missing", image, b.pull, image)
 			}
 			pull = !present
 		}
 	default:
-		return "", false, nil, fmt.Errorf("backend: %q is not a pool pull policy", policy)
+		return "", "", false, nil, fmt.Errorf("backend: %q is not a pool pull policy", policy)
 	}
 	var duration *time.Duration
 	if pull {
 		started := time.Now()
 		if err := b.api.ImagePull(ctx, image, b.auth); err != nil {
-			return "", false, nil, fmt.Errorf("backend: pulling %s: %w", image, err)
+			return "", "", false, nil, fmt.Errorf("backend: pulling %s: %w", image, err)
 		}
 		d := time.Since(started)
 		duration = &d
 	}
-	digest, err := b.api.ImageDigest(ctx, image)
+	createRef, digest, err = b.api.ImageIdentity(ctx, image)
 	if err != nil {
-		return "", pull, duration, fmt.Errorf("backend: resolving image %s digest: %w", image, err)
+		return "", "", pull, duration, fmt.Errorf("backend: resolving image %s digest: %w", image, err)
 	}
 	if digest == "" {
-		return "", pull, duration, fmt.Errorf("backend: image %s has no immutable digest", image)
+		return "", "", pull, duration, fmt.Errorf("backend: image %s has no immutable digest", image)
 	}
-	return digest, pull, duration, nil
+	return createRef, digest, pull, duration, nil
 }
 
 // startDinD creates and starts the sidecar, waiting until the daemon reports it
@@ -722,7 +743,7 @@ func (b *DockerBackend) PrewarmImage(ctx context.Context, image string, policy s
 	if policy == store.PullPinnedOnly && !isDigestImageReference(image) {
 		return "", fmt.Errorf("backend: pinned-only requires an image digest")
 	}
-	digest, _, _, err := b.prepareImage(ctx, image, policy)
+	_, digest, _, _, err := b.prepareImage(ctx, image, policy)
 	return digest, err
 }
 

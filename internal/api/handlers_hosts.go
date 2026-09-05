@@ -339,14 +339,14 @@ func checkControllerURL(raw string) string {
 func (s *Server) joinCommand(token, controllerURL string) string {
 	controller := controllerURL
 	if controller == "" {
-		controller = s.cfg.Server.ExternalURL
+		controller = s.cfg().Server.ExternalURL
 		// A loopback external URL is as unusable here as no URL at all, and
 		// worse for being plausible: the default single-VM install makes it
 		// http://localhost:8080, so the command told the new machine to join
 		// itself, and the operator found out after a download, a system
 		// write and a spent single-use token. The placeholder makes the gap
 		// visible, and the UI fills it in.
-		if controller == "" || s.cfg.ExternalURLIsLocal() {
+		if controller == "" || s.cfg().ExternalURLIsLocal() {
 			controller = "https://<this-controller>"
 		}
 	}

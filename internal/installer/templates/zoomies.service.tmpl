@@ -36,6 +36,11 @@ TimeoutStopSec={{.StopTimeout}}
 # Long enough for in-flight jobs to be left alone; the controller does not kill
 # runners on shutdown.
 KillSignal=SIGTERM
+# The main process only. The default, control-group, would send SIGTERM to
+# every process in the unit's cgroup on a stop or restart -- with the process
+# backend that is every runner and the job it is running. The agent is told to
+# stop and waits for its jobs; the runners are not part of that conversation.
+KillMode=process
 
 {{- if .StandardDirs}}
 

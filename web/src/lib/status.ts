@@ -160,6 +160,14 @@ const JOB_QUEUED = meta(
   'Waiting for a runner that answers its labels.',
 );
 const JOB_RUNNING = meta('in_progress', 'Running', 'busy', 'filled', Play);
+const JOB_WAITING = meta(
+  'waiting',
+  'Waiting',
+  'neutral',
+  'hollow',
+  Clock,
+  'Held by GitHub for a deployment review. Nothing runs it until someone approves it.',
+);
 
 const CONCLUSIONS: Record<string, StatusMeta> = {
   success: meta('success', 'Success', 'idle', 'filled', CircleCheck),
@@ -175,6 +183,7 @@ const CONCLUSIONS: Record<string, StatusMeta> = {
 
 /** A job's status is its state, except once it is complete, when it is its conclusion. */
 export function jobStatus(state: JobState | undefined, conclusion?: string | null): StatusMeta {
+  if (state === 'waiting') return JOB_WAITING;
   if (state === 'queued') return JOB_QUEUED;
   if (state === 'in_progress') return JOB_RUNNING;
   if (state === 'completed') {

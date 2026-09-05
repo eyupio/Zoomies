@@ -29,6 +29,33 @@ const (
 // operator reads and start being the reason the host has no disk.
 const maxQuietFinishedRetention = 24 * time.Hour
 
+// HostLostAfter is how long a host may go without a heartbeat before the
+// controller counts it unhealthy. It is the store's HeartbeatTimeout, restated
+// here because this package sits below the store and cannot import it; a test
+// in internal/controller holds the two equal.
+const HostLostAfter = 90 * time.Second
+
+// MaxQuietHeartbeatInterval is the longest agent.heartbeat_interval that draws
+// no warning: half the silence that loses a host, so that one late heartbeat
+// does not.
+const MaxQuietHeartbeatInterval = HostLostAfter / 2
+
+// isLoopbackHost reports whether a URL's hostname can only ever be this
+// machine, which is when a plaintext scheme costs nothing.
+func isLoopbackHost(host string) bool {
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
+}
+
+// servesTLS reports whether browsers reach this controller over HTTPS, whether
+// the listener terminates it or a proxy named in server.external_url does.
+func (c *Config) servesTLS() bool {
+	if c.Server.TLS.Mode != TLSOff {
+		return true
+	}
+	u, err := url.Parse(c.Server.ExternalURL)
+	return err == nil && u.Scheme == "https"
+}
+
 // Finding is one validation result, phrased so that it can be printed to a
 // terminal and rendered in the UI's problems drawer without rewording.
 type Finding struct {
@@ -184,7 +211,8 @@ func (c *Config) Validate() Findings {
 		if strings.TrimSpace(cidr) == TrustedProxyCloudflare {
 			continue
 		}
-		if _, _, err := net.ParseCIDR(cidr); err != nil {
+		_, network, err := net.ParseCIDR(cidr)
+		if err != nil {
 			if net.ParseIP(cidr) == nil {
 				add(Finding{
 					Code: "proxy.bad_cidr", Severity: SeverityError, Setting: "server.trusted_proxies",
@@ -192,6 +220,43 @@ func (c *Config) Validate() Findings {
 					Fix:   `use a form like "10.0.0.0/8" or "192.168.1.5", or the word "cloudflare".`,
 				})
 			}
+			continue
+		}
+		// A zero-length prefix is every address there is. It is what an
+		// operator writes to make a header-based setup "just work", and what
+		// it does is let any client choose the address the audit log records
+		// and the login limiter counts.
+		if ones, _ := network.Mask.Size(); ones == 0 {
+			add(Finding{
+				Code: "proxy.trust_everyone", Severity: SeverityWarning, Setting: "server.trusted_proxies",
+				Title: fmt.Sprintf("%s trusts every client to say where it came from", cidr),
+				Detail: "X-Forwarded-For is believed from any address, so a caller can pick the IP the audit log " +
+					"records for it and defeat login rate limiting by rotating the one it claims.",
+				Fix: "list only your proxy's own address range, or the word `cloudflare` when Cloudflare is in front.",
+			})
+		}
+	}
+	for _, origin := range c.Server.AllowedOrigins {
+		o := strings.TrimSpace(origin)
+		if o == "*" {
+			add(Finding{
+				Code: "origins.any", Severity: SeverityWarning, Setting: "server.allowed_origins",
+				Title: "any website may act with a signed-in operator's session",
+				Detail: `"*" switches the origin check off: a page on any site an operator visits while signed in ` +
+					"can create pools, drain runners and mint tokens with their session cookie, which is the " +
+					"cross-site request forgery the check exists to stop.",
+				Fix: "list the origins that host the UI, e.g. https://zoomies.example.com, instead of \"*\".",
+			})
+			continue
+		}
+		if u, err := url.Parse(o); err == nil && u.Scheme == "http" && !isLoopbackHost(u.Hostname()) && c.servesTLS() {
+			add(Finding{
+				Code: "origins.insecure", Severity: SeverityWarning, Setting: "server.allowed_origins",
+				Title: fmt.Sprintf("%s is allowed to act on this controller over plaintext", o),
+				Detail: "a page served over http:// can be rewritten by anything on the network path, and whatever " +
+					"rewrites it inherits the permission this entry grants: to make changes with an operator's session.",
+				Fix: "serve that origin over https:// and list the https:// address here.",
+			})
 		}
 	}
 
@@ -247,8 +312,7 @@ func (c *Config) Validate() Findings {
 			Fix:   "include the scheme, e.g. https://zoomies.example.com.",
 		})
 	} else if u, err := url.Parse(c.Server.ExternalURL); err == nil && u.Scheme == "http" {
-		host := u.Hostname()
-		if host != "localhost" && host != "127.0.0.1" && host != "::1" {
+		if !isLoopbackHost(u.Hostname()) {
 			add(Finding{
 				Code: "external_url.insecure", Severity: SeverityWarning, Setting: "server.external_url",
 				Title:  "external URL uses http://",
@@ -343,6 +407,14 @@ func (c *Config) Validate() Findings {
 			Fix: fix,
 		})
 	}
+	if c.Security.RateLimitLogins <= 0 {
+		add(Finding{
+			Code: "auth.no_login_limit", Severity: SeverityWarning, Setting: "security.rate_limit_logins",
+			Title:  "password guessing is not rate limited",
+			Detail: "the sign-in form answers every attempt as fast as it can, so a password can be brute-forced from one address at whatever rate the controller sustains.",
+			Fix:    "set security.rate_limit_logins to a small number of attempts per address per minute; the default is 10.",
+		})
+	}
 	if c.Security.SessionTTL <= 0 {
 		add(Finding{
 			Code: "auth.session_ttl", Severity: SeverityError, Setting: "security.session_ttl",
@@ -369,6 +441,22 @@ func (c *Config) Validate() Findings {
 				Code: "oidc.no_redirect", Severity: SeverityError, Setting: "oidc.redirect_url",
 				Title: "OIDC needs a redirect URL",
 				Fix:   "set oidc.redirect_url, or set server.external_url and it will be derived.",
+			})
+		}
+		if u, err := url.Parse(c.OIDC.Issuer); err == nil && u.Scheme == "http" && !isLoopbackHost(u.Hostname()) {
+			add(Finding{
+				Code: "oidc.insecure_issuer", Severity: SeverityWarning, Setting: "oidc.issuer",
+				Title:  "single sign-on talks to its identity provider in the clear",
+				Detail: "discovery, the token exchange and the client secret all travel to " + c.OIDC.Issuer + " over plaintext HTTP, where anything on the path can read or replace them and sign in as anyone.",
+				Fix:    "use the issuer's https:// address.",
+			})
+		}
+		if c.OIDC.LinkByUsername {
+			add(Finding{
+				Code: "oidc.link_by_username", Severity: SeverityWarning, Setting: "oidc.link_by_username",
+				Title:  "a first single sign-on login may take over a password account of the same name",
+				Detail: "whoever the identity provider says is \"admin\" signs in as the local admin, with its role; that is safe only when nobody at the provider can influence their own username claim.",
+				Fix:    "leave it on only for the migration to single sign-on, then turn it off; or link accounts by hand and leave it off.",
 			})
 		}
 		if c.OIDC.AllowSignup && len(c.OIDC.AdminGroups) == 0 && len(c.OIDC.OperatorGroups) == 0 {
@@ -465,6 +553,18 @@ func (c *Config) Validate() Findings {
 				Fix:    "keep agent.finished_retention to minutes: long enough to read a finished runner's log, not long enough to fill the disk.",
 			})
 		}
+	}
+	if c.Agent.HeartbeatInterval > MaxQuietHeartbeatInterval {
+		// The controller hands this interval to every agent at join, and it
+		// counts a host as lost after a fixed silence. Past half of that
+		// silence one late heartbeat is enough to flip the host unhealthy, and
+		// a host that flaps is one the scheduler keeps leaving runners off.
+		add(Finding{
+			Code: "agent.heartbeat_interval_long", Severity: SeverityWarning, Setting: "agent.heartbeat_interval",
+			Title:  fmt.Sprintf("hosts heartbeat every %s but are counted lost after %s", c.Agent.HeartbeatInterval, HostLostAfter),
+			Detail: "a single delayed heartbeat is enough to mark a host unhealthy and keep new runners off it until the next one lands, so the fleet flaps in and out of capacity.",
+			Fix:    fmt.Sprintf("keep agent.heartbeat_interval at %s or less.", MaxQuietHeartbeatInterval),
+		})
 	}
 	if !c.Agent.Embedded && c.Agent.ControllerURL == "" {
 		add(Finding{

@@ -24,7 +24,7 @@ func jobsList(ctx context.Context, e *env, args []string) error {
 	fs.Var(repos, "repo", "only this repository, e.g. acme/widgets (repeatable)")
 	fs.Var(workflows, "workflow", "only this workflow (repeatable)")
 	fs.Var(pools, "pool", "only jobs that ran in this pool (repeatable)")
-	fs.Var(states, "state", "queued, in_progress or completed (repeatable)")
+	fs.Var(states, "state", "waiting, queued, in_progress or completed (repeatable)")
 	fs.Var(conclusions, "conclusion", "success, failure, cancelled or skipped (repeatable)")
 	query := fs.String("q", "", "substring match on repository, workflow or job name")
 	since := fs.String("since", "", "only jobs queued since then: a duration like 24h, or an RFC 3339 timestamp")

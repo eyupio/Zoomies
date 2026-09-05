@@ -582,8 +582,8 @@ func TestDockerCreateUsesPoolPullPolicyAndResolvedDigest(t *testing.T) {
 	if pulls != 2 || firstResult.ImagePullDuration == nil || secondResult.ImagePullDuration == nil {
 		t.Fatalf("always policy pulled %d times; durations %v, %v", pulls, firstResult.ImagePullDuration, secondResult.ImagePullDuration)
 	}
-	if firstResult.Digest != first || secondResult.Digest != second || !slices.Equal(used, []string{first, second}) {
-		t.Fatalf("results %q/%q and create refs %v do not track moving tag", firstResult.Digest, secondResult.Digest, used)
+	if firstResult.Digest != first || secondResult.Digest != second || !slices.Equal(used, []string{"ghcr.io/acme/runner@" + first, "ghcr.io/acme/runner@" + second}) {
+		t.Fatalf("results %q/%q and create refs %v do not track the moving tag by a reference the daemon resolves", firstResult.Digest, secondResult.Digest, used)
 	}
 }
 
@@ -757,5 +757,18 @@ func TestDockerStatsNeverFailsAHeartbeat(t *testing.T) {
 	}
 	if got != (Stats{}) {
 		t.Fatalf("stats = %+v", got)
+	}
+}
+
+// With docker_mode: dind the builds run inside the sidecar, so a pool's limits
+// were worth nothing while only the runner carried them.
+func TestBuildDinDConfigCarriesThePoolsResourceLimits(t *testing.T) {
+	spec := jitSpec()
+	spec.DockerMode = store.DockerDinD
+	spec.Resources = store.Resources{CPUs: 2, MemoryMB: 4096, PidsLimit: 512}
+	cfg := buildDinDConfig(spec, dockerFlavor(), containerOptions{Now: time.Now(), DinDImage: DefaultDinDImage, Network: "zoomies"})
+	hc := cfg.HostConfig
+	if hc.NanoCPUs != 2e9 || hc.Memory != 4096*1024*1024 || hc.MemorySwap != hc.Memory || hc.PidsLimit == nil || *hc.PidsLimit != 512 {
+		t.Fatalf("the sidecar carries cpus=%d memory=%d swap=%d pids=%v; want the pool's limits", hc.NanoCPUs, hc.Memory, hc.MemorySwap, hc.PidsLimit)
 	}
 }

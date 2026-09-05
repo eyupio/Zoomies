@@ -231,3 +231,34 @@ test('the keyboard alone moves through the rows and opens one', async ({ page })
   await expect(pageHeading(page, expected)).toBeVisible();
   await expect(page).toHaveURL(/\/runners\/run_demo\d+$/);
 });
+
+// A confirmation dialog owns the keyboard while it is up. `g` then `o` used to
+// be answered by the shell underneath it, so an operator half-way through
+// confirming a drain could be moved to the Overview with the question still
+// open behind them.
+test('a shortcut typed into an open dialog stays in the dialog', async ({ page }) => {
+  await goto(page, '/runners', 'Runners');
+  const rows = await runnerRows(page);
+  const row = rows.filter({ hasText: FIXTURE.busyRunner }).first();
+  const name = await nameOf(row);
+
+  await page.getByRole('button', { name: `Actions for ${name}` }).click();
+  await page.getByRole('menuitem', { name: 'Drain', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+
+  // Typed at the dialog, not at a field: the chord is the shell's, and the
+  // shell must decline it.
+  await dialog.getByRole('heading', { name: 'Drain runner' }).click();
+  await page.keyboard.press('g');
+  await page.keyboard.press('o');
+  await expect(dialog).toBeVisible();
+  await expect(page).toHaveURL(/\/runners$/);
+
+  // Escape closes it, and only then does the same chord go somewhere.
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await page.keyboard.press('g');
+  await page.keyboard.press('o');
+  await expect(page).toHaveURL(/\/$/);
+});

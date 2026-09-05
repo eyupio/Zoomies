@@ -46,14 +46,14 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 		Version:           version.Short(),
 		Commit:            version.Commit,
 		BootstrapRequired: needsBootstrap,
-		AuthDisabled:      s.cfg.Security.DisableAuth,
+		AuthDisabled:      s.cfg().Security.DisableAuth,
 		OIDCEnabled:       s.oidc.Enabled(),
-		ExternalURL:       s.cfg.Server.ExternalURL,
-		WebhookURL:        s.cfg.WebhookURL(),
+		ExternalURL:       s.cfg().Server.ExternalURL,
+		WebhookURL:        s.cfg().WebhookURL(),
 		PollingOnly:       s.ctrl.PollingOnly(),
 	}
 	if out.OIDCEnabled {
-		out.OIDCLabel = oidcLabel(s.cfg.OIDC.Issuer)
+		out.OIDCLabel = oidcLabel(s.cfg().OIDC.Issuer)
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -92,10 +92,12 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := contextWithTimeout(r, 5*time.Second)
 	defer cancel()
 	if _, err := s.ctrl.Store().CountUsers(ctx); err != nil {
+		// The cause goes to the log. This route is anonymous, and a database
+		// error names paths and drivers that are nobody else's business.
 		s.logger(r).Warn("readiness probe failed", "error", err)
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
 			"ok":      false,
-			"message": "the database is not answering: " + err.Error(),
+			"message": "the database is not answering; the cause is in the controller's log",
 		})
 		return
 	}
@@ -164,7 +166,7 @@ func (s *Server) metricsHandler() http.Handler {
 		ErrorHandling:     promhttp.ContinueOnError,
 		EnableOpenMetrics: true,
 	})
-	if s.cfg.Metrics.Public {
+	if s.cfg().Metrics.Public {
 		return h
 	}
 	return s.authenticate(s.require(auth.ActionMetricsRead)(h))

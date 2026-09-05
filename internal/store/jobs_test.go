@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"errors"
+	"slices"
 	"testing"
 	"time"
 )
@@ -240,5 +242,86 @@ func TestJobTimelineIsKeptInOrderAndPrunedWithItsJob(t *testing.T) {
 	}
 	if kept, _ := s.ListJobEvents(ctx, fresh.ID); len(kept) != 2 {
 		t.Fatalf("the live job's timeline was pruned too: %+v", kept)
+	}
+}
+
+// Only the state and the steps used to be gated on the delivery being current.
+// A late "queued" after "completed" replaced the labels, the runner's name and
+// the run URL with what they were before the job moved on, which is exactly
+// the "never backwards" rule the upsert exists for. A stale delivery may fill
+// in what the row does not have; it may not change what it does.
+func TestAStaleDeliveryFillsGapsButChangesNothing(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	done := now.Add(time.Minute)
+
+	if _, _, err := s.ApplyJob(ctx, &Job{
+		GitHubJobID: 9, GitHubRunID: 90, Repo: "acme/widgets", State: JobCompleted, Conclusion: "success",
+		Labels: StringSlice{"self-hosted", "linux"}, RunnerName: "zoomies-final", HTMLURL: "https://github.com/acme/widgets/runs/final",
+		RunnerID: "run_final", PoolID: "pool_a", QueuedAt: now, CompletedAt: &done,
+	}); err != nil {
+		t.Fatalf("completed: %v", err)
+	}
+
+	earlier := now.Add(-time.Minute)
+	got, change, err := s.ApplyJob(ctx, &Job{
+		GitHubJobID: 9, State: JobQueued, Labels: StringSlice{"self-hosted", "windows"}, RunnerName: "zoomies-earlier",
+		HTMLURL: "https://github.com/acme/widgets/runs/earlier", RunnerID: "run_earlier", PoolID: "pool_b",
+		Conclusion: "cancelled", CompletedAt: &earlier, HeadBranch: "main", RunAttempt: 1,
+	})
+	if err != nil {
+		t.Fatalf("stale queued: %v", err)
+	}
+	if change.StateChanged || got.State != JobCompleted || got.Conclusion != "success" {
+		t.Fatalf("a stale delivery moved the job: %+v", got)
+	}
+	if !slices.Equal(got.Labels, StringSlice{"linux", "self-hosted"}) || got.RunnerName != "zoomies-final" ||
+		got.HTMLURL != "https://github.com/acme/widgets/runs/final" || got.RunnerID != "run_final" || got.PoolID != "pool_a" {
+		t.Fatalf("a stale delivery changed what the row already knew: %+v", got)
+	}
+	if !got.CompletedAt.Equal(done) {
+		t.Fatalf("completed_at moved to %s on a stale delivery", got.CompletedAt)
+	}
+	// What the row lacked, it may learn from any delivery.
+	if got.HeadBranch != "main" || got.RunAttempt != 1 {
+		t.Fatalf("a stale delivery could not fill in the branch and attempt: %+v", got)
+	}
+}
+
+// A job that never finished used to be kept for ever: PruneJobs deleted only
+// completed rows, so a lost completed delivery left a row that outlived the
+// history around it. Aged from when it was queued, it goes with the rest.
+func TestPruneJobsAlsoDropsAJobThatNeverFinished(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Millisecond)
+
+	stuck, err := s.UpsertJob(ctx, &Job{GitHubJobID: 11, State: JobQueued, QueuedAt: now.Add(-72 * time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AppendJobEvent(ctx, &JobEvent{JobID: stuck.ID, Kind: JobEventQueued, Source: "webhook", Message: "queued", At: now.Add(-72 * time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpsertJob(ctx, &Job{GitHubJobID: 12, State: JobQueued, QueuedAt: now.Add(-time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+
+	pruned, err := s.PruneJobs(ctx, now.Add(-48*time.Hour))
+	if err != nil {
+		t.Fatalf("PruneJobs: %v", err)
+	}
+	if pruned != 1 {
+		t.Fatalf("pruned %d jobs, want the one stuck for three days", pruned)
+	}
+	if _, err := s.GetJob(ctx, stuck.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("the stuck job is still there: %v", err)
+	}
+	if left, _ := s.ListJobEvents(ctx, stuck.ID); len(left) != 0 {
+		t.Fatalf("the pruned job's timeline survived: %+v", left)
+	}
+	if queued, _ := s.ListQueuedJobs(ctx); len(queued) != 1 {
+		t.Fatalf("queued jobs after pruning = %d, want the recent one", len(queued))
 	}
 }

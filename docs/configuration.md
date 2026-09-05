@@ -45,8 +45,8 @@ server:
     cert_file: ""               # ZOOMIES_TLS_CERT_FILE
     key_file: ""                # ZOOMIES_TLS_KEY_FILE
     hosts: []                   # ZOOMIES_TLS_HOSTS     -- names for a generated cert
-  trusted_proxies: []           # ZOOMIES_TRUSTED_PROXIES -- CIDRs, or [cloudflare]
-  allowed_origins: []           # ZOOMIES_ALLOWED_ORIGINS
+  trusted_proxies: []           # ZOOMIES_TRUSTED_PROXIES -- CIDRs, or [cloudflare]; 0.0.0.0/0 is warned about
+  allowed_origins: []           # ZOOMIES_ALLOWED_ORIGINS -- extra browser origins; "*" is warned about
   allow_indexing: false         # ZOOMIES_ALLOW_INDEXING -- let search engines in
   read_timeout: 30s             # ZOOMIES_READ_TIMEOUT
   write_timeout: 0s             # ZOOMIES_WRITE_TIMEOUT -- 0: SSE and log tails must not be cut off
@@ -61,7 +61,7 @@ security:
   session_ttl: 168h                         # ZOOMIES_SESSION_TTL
   cookie_secure: null                       # ZOOMIES_COOKIE_SECURE (derived when unset)
   disable_auth: false                       # ZOOMIES_DISABLE_AUTH
-  rate_limit_logins: 10                     # ZOOMIES_RATE_LIMIT_LOGINS (per IP per minute)
+  rate_limit_logins: 10                     # ZOOMIES_RATE_LIMIT_LOGINS (per IP per minute); 0 disables it and is warned about
 
 github:
   api_base_url: https://api.github.com   # ZOOMIES_GITHUB_API_BASE_URL
@@ -81,7 +81,7 @@ agent:
   work_dir: /var/lib/zoomies/work   # ZOOMIES_WORK_DIR
   labels: {}                    # ZOOMIES_AGENT_LABELS   -- "gpu=true,zone=eu"
   network: ""                   # ZOOMIES_AGENT_NETWORK
-  heartbeat_interval: 30s       # ZOOMIES_HEARTBEAT_INTERVAL
+  heartbeat_interval: 30s       # ZOOMIES_HEARTBEAT_INTERVAL -- a host is lost after 90s of silence; above 45s is warned about
   finished_retention: 10m       # ZOOMIES_AGENT_FINISHED_RETENTION -- how long a finished runner stays on disk
   # Process backend only:
   runner_sha256: ""             # ZOOMIES_AGENT_RUNNER_SHA256 -- digest of the runner archive, when github.runner_version is pinned
@@ -126,6 +126,7 @@ oidc:
   admin_groups: []              # ZOOMIES_OIDC_ADMIN_GROUPS
   operator_groups: []           # ZOOMIES_OIDC_OPERATOR_GROUPS
   allow_signup: false           # ZOOMIES_OIDC_ALLOW_SIGNUP
+  link_by_username: false       # ZOOMIES_OIDC_LINK_BY_USERNAME -- let SSO take over a password account of the same name; warned about
 
 metrics:
   enabled: true                 # ZOOMIES_METRICS_ENABLED
