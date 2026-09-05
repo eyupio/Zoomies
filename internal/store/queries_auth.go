@@ -364,6 +364,20 @@ func (s *Store) ListJoinTokens(ctx context.Context) ([]*JoinToken, error) {
 	return out, rows.Err()
 }
 
+// GetJoinToken returns one join token by ID, spent or not.
+//
+// It exists for the page that waits for a host to arrive: once the token is
+// redeemed, used_by_id is the host the agent became, and that is the only link
+// between the credential an operator handed out and the machine that used it.
+func (s *Store) GetJoinToken(ctx context.Context, id string) (*JoinToken, error) {
+	row := s.read.QueryRowContext(ctx, `SELECT `+joinCols+` FROM join_tokens WHERE id = ?`, id)
+	t, err := scanJoin(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("join token %s: %w", id, ErrNotFound)
+	}
+	return t, err
+}
+
 // RedeemJoinToken atomically marks a join token used and returns it. A second
 // attempt with the same token fails, which is what makes it single-use.
 func (s *Store) RedeemJoinToken(ctx context.Context, hash, hostID string, now time.Time) (*JoinToken, error) {

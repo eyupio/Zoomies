@@ -210,7 +210,7 @@
           </div>
           <div class="action">
             {#if canAdmin}
-              <Button variant="primary" size="sm" href="/hosts" iconAfter={ArrowRight}>
+              <Button variant="primary" size="sm" href="/hosts/new" iconAfter={ArrowRight}>
                 Add a host
               </Button>
             {:else}

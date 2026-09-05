@@ -125,7 +125,8 @@ Conventions:
 | POST | `/api/v1/hosts/{id}/cordon` | operator | `{cordoned: bool}`. Keeps existing runners, accepts no new ones. |
 | DELETE | `/api/v1/hosts/{id}` | admin | Refuses while the host has live runners unless `?force=true`. |
 | GET | `/api/v1/join-tokens` | admin | Outstanding and spent join tokens. Never the secret. |
-| POST | `/api/v1/join-tokens` | admin | `{ttl, labels, capacity}` → returns the plaintext token **once**, plus the ready-to-paste `zoomies agent join …` command. |
+| POST | `/api/v1/join-tokens` | admin | `{ttl, labels, capacity, controller_url}` → returns the plaintext token **once**, plus the ready-to-paste install command. `controller_url` is optional and replaces `server.external_url` in that command; `capacity` 0 lets the agent decide from the host's CPU count. |
+| GET | `/api/v1/join-tokens/{id}` | admin | One token's state. Once redeemed, `used_by_id` is the host it became, which is what the Add-a-host page waits for. |
 | DELETE | `/api/v1/join-tokens/{id}` | admin | Revokes an unused token. |
 
 ### Agent routes

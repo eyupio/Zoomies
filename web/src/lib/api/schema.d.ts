@@ -823,7 +823,13 @@ export interface paths {
             };
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Get a join token
+         * @description The token's state, never its secret. Once a host has redeemed it,
+         *     `used_by_id` is that host's id -- which is how the Add-a-host page
+         *     knows the machine it is waiting for has arrived.
+         */
+        get: operations["getJoinToken"];
         put?: never;
         post?: never;
         /** Revoke an unused join token */
@@ -3133,11 +3139,24 @@ export interface operations {
                      * @example 1h
                      */
                     ttl?: string;
-                    /** @default 2 */
+                    /**
+                     * @description 0 lets the agent decide from the host's CPU count.
+                     * @default 2
+                     */
                     capacity?: number;
                     labels?: {
                         [key: string]: string;
                     };
+                    /**
+                     * Format: uri
+                     * @description The address the new host should join on, used in the
+                     *     returned command in place of `server.external_url`. The
+                     *     UI sends the address the browser reached this controller
+                     *     on, which is the one a machine beside it can usually reach
+                     *     too. Must be an absolute http or https URL.
+                     * @example https://zoomies.example.com
+                     */
+                    controller_url?: string;
                 };
             };
         };
@@ -3159,6 +3178,30 @@ export interface operations {
                     };
                 };
             };
+        };
+    };
+    getJoinToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JoinToken"];
+                };
+            };
+            404: components["responses"]["NotFound"];
         };
     };
     deleteJoinToken: {

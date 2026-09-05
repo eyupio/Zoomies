@@ -357,6 +357,12 @@ buffered, then the page does one reconciling fetch. The connection state is
 visible in the top bar: a quiet dot when live, an explicit "reconnecting…" when
 not — never a silent stall.
 
+The one page that asks rather than listens is *Add a host*: while it waits for
+the new machine it fetches its own join token every few seconds, because
+credentials are deliberately not on the stream. Even there the stream is the
+fast path — a host's first frame is the cue to ask at once — and the page says
+in words that it is waiting and how.
+
 ### Optimistic updates
 
 User actions apply locally first and roll back on failure with a toast that says

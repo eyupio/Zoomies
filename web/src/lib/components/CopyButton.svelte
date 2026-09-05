@@ -11,6 +11,12 @@
     size?: 'sm' | 'md';
     /** Show the value next to the button, monospaced. */
     showValue?: boolean;
+    /**
+     * Print the label on the button as well as naming it. The icon alone is
+     * right beside an ID in a dense row; where copying is the whole point of
+     * the screen -- a command to paste on another machine -- it needs words.
+     */
+    showLabel?: boolean;
     class?: string;
   }
 
@@ -19,6 +25,7 @@
     label = 'Copy',
     size = 'sm',
     showValue = false,
+    showLabel = false,
     class: className = '',
   }: Props = $props();
 
@@ -50,6 +57,7 @@
   <button
     type="button"
     class="btn {size}"
+    class:labelled={showLabel}
     aria-label={copied ? `${label}: copied` : label}
     title={label}
     onclick={copy}
@@ -59,6 +67,7 @@
     {:else}
       <Copy size={size === 'sm' ? 12 : 14} aria-hidden="true" />
     {/if}
+    {#if showLabel}<span class="text">{copied ? 'Copied' : label}</span>{/if}
   </button>
   <span class="sr-only" aria-live="polite">
     {#if copied}Copied to the clipboard{:else if failed}Copying needs a secure connection{/if}
@@ -102,5 +111,21 @@
   .btn:hover {
     color: var(--z-text);
     background: var(--z-surface-hover);
+  }
+  .labelled {
+    width: auto;
+    height: auto;
+    gap: var(--z-space-2);
+    padding: var(--z-space-2) var(--z-space-3);
+    border: 1px solid var(--z-border-strong);
+    background: var(--z-surface);
+    color: var(--z-text);
+    font-size: var(--z-text-sm);
+    font-weight: var(--z-weight-medium);
+    white-space: nowrap;
+  }
+  .labelled.sm {
+    padding: var(--z-space-1) var(--z-space-2);
+    font-size: var(--z-text-xs);
   }
 </style>
