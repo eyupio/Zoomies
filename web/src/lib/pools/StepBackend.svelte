@@ -88,6 +88,25 @@
 
   const usesImage = $derived(draft.backend !== 'process');
 
+  // A pool's docker_mode gives its jobs a daemon; the image has to bring the
+  // client. The stock runner image carries none on purpose, so choosing a
+  // Docker mode and leaving the image alone is the one combination that looks
+  // complete here and fails in the job, with an error ("Unable to locate
+  // executable file: docker") that names the missing binary rather than the
+  // reason. Say it while the operator is still on the step that caused it.
+  //
+  // Only for an image we recognise as the stock one: an image of somebody's
+  // own may well have a client, and nagging about it would teach them to
+  // ignore this line.
+  const DOCKER_IMAGE = 'ghcr.io/eyupio/zoomies-runner-docker:latest';
+
+  const needsDockerClient = $derived.by(() => {
+    if (!usesImage || (draft.docker_mode ?? 'none') === 'none') return false;
+    const image = draft.image?.trim() ?? '';
+    if (image === '') return true;
+    return /(^|\/)zoomies-runner(:|$)/.test(image);
+  });
+
   function chooseBackend(value: string): void {
     draft.backend = value as BackendKind;
     touch('backend');
@@ -138,6 +157,9 @@
     label="Image"
     error={errors['image']}
     hint="The container image runners are built from. Leave it empty to use the controller's default."
+    notice={needsDockerClient
+      ? `This image has no Docker client, so jobs that run docker will fail even with a daemon attached. Use ${DOCKER_IMAGE}, or an image of your own with docker installed.`
+      : undefined}
   >
     {#snippet children({ id, describedBy, invalid })}
       <Input

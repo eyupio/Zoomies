@@ -68,8 +68,23 @@ jobs:
         with:
           context: .
           file: deploy/Dockerfile.runner
+          target: runner
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ghcr.io/eyupio/zoomies-runner:${{ github.ref_name }}
             ghcr.io/eyupio/zoomies-runner:latest
+
+      # The same file's other target: the runner plus a Docker CLI, for pools
+      # whose docker_mode gives jobs a daemon to talk to. It shares every layer
+      # below the client, so the second build is cheap.
+      - uses: useblacksmith/build-push-action@v2
+        with:
+          context: .
+          file: deploy/Dockerfile.runner
+          target: runner-docker
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/eyupio/zoomies-runner-docker:${{ github.ref_name }}
+            ghcr.io/eyupio/zoomies-runner-docker:latest

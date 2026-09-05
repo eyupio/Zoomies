@@ -8,11 +8,27 @@
 # is a runner, and what a job needs beyond it belongs in the job's own container
 # or setup steps. A smaller image means a faster cold start, which is the whole
 # point of ephemeral runners.
+#
+# Two targets come out of this file:
+#
+#   runner         the image above, published as ghcr.io/eyupio/zoomies-runner
+#   runner-docker  that plus the Docker CLI, published as
+#                  ghcr.io/eyupio/zoomies-runner-docker
+#
+# The second exists because a pool's docker_mode gives a job a *daemon* and
+# nothing else. Without a client on PATH, `docker/setup-qemu-action` and every
+# other step that shells out to docker dies with "Unable to locate executable
+# file: docker", which says nothing about the daemon being right there. The
+# split keeps that cost off the pools that never build an image.
+#
+# `runner` is the last stage on purpose, so that a plain `docker build -f
+# deploy/Dockerfile.runner .` still produces the small image; the variant is
+# built with --target runner-docker.
 
 ARG RUNNER_VERSION=2.337.0
 ARG BASE=ubuntu:24.04
 
-FROM ${BASE}
+FROM ${BASE} AS runner-base
 ARG RUNNER_VERSION
 ARG TARGETARCH
 
@@ -66,3 +82,47 @@ COPY --chmod=0755 deploy/runner-entrypoint.sh /usr/local/bin/entrypoint.sh
 USER runner
 ENV RUNNER_ALLOW_RUNASROOT=0
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+
+
+# --- runner-docker ------------------------------------------------------------
+#
+# The Docker CLI, buildx and compose, for pools whose docker_mode is dind or
+# host-socket. Only the client: the daemon is the pool's business, and this
+# image never starts one.
+#
+# From Docker's own apt repository rather than Ubuntu's docker.io package,
+# because that one drags in the daemon, containerd and runc -- a few hundred MB
+# of software this image must never run.
+FROM runner-base AS runner-docker
+USER root
+
+LABEL org.opencontainers.image.title="zoomies-runner-docker" \
+      org.opencontainers.image.description="GitHub Actions runner image for Zoomies, with the Docker CLI"
+
+RUN set -eux; \
+    install -m 0755 -d /etc/apt/keyrings; \
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+      -o /etc/apt/keyrings/docker.asc; \
+    chmod a+r /etc/apt/keyrings/docker.asc; \
+    arch="$(dpkg --print-architecture)"; \
+    codename="$(. /etc/os-release && echo "${VERSION_CODENAME}")"; \
+    printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu %s stable\n' \
+      "$arch" "$codename" > /etc/apt/sources.list.d/docker.list; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        docker-ce-cli docker-buildx-plugin docker-compose-plugin; \
+    rm -rf /var/lib/apt/lists/*
+# Prove the client landed somewhere the runner will actually find it: a plugin
+# installed but unreachable is the same failure as no client at all, and it is
+# far cheaper to catch here than in somebody's workflow.
+RUN set -eux; \
+    docker --version; \
+    docker buildx version
+USER runner
+
+
+# --- runner -------------------------------------------------------------------
+#
+# The default target, and the small one. Last in the file so that a bare build
+# with no --target produces it.
+FROM runner-base AS runner

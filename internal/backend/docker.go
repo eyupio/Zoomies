@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -311,6 +312,12 @@ type containerOptions struct {
 	NetworkMode string
 	// HostSocket is a host daemon socket to bind-mount, for host-socket pools.
 	HostSocket string
+	// SocketGID owns that socket. The runner is uid 1001 inside the container
+	// and the socket is typically root:docker on the host, so without the gid
+	// as a supplementary group the mount is there and unopenable -- "permission
+	// denied while trying to connect to the Docker daemon socket", which reads
+	// like a host misconfiguration and is not one.
+	SocketGID int
 	// DockerHost is the value of DOCKER_HOST inside the runner.
 	DockerHost string
 	// WorkDirMount is a host directory to bind at RunnerWorkMount.
@@ -384,6 +391,11 @@ func buildRunnerConfig(spec Spec, fl flavor, o containerOptions) ContainerCreate
 
 	if o.HostSocket != "" {
 		hc.Binds = append(hc.Binds, o.HostSocket+":/var/run/docker.sock"+fl.mountSuffix)
+		// Root already reaches the socket, and adding a group to a root
+		// container only widens what it can do for no gain.
+		if o.SocketGID > 0 && !spec.RunAsRoot {
+			hc.GroupAdd = append(hc.GroupAdd, strconv.Itoa(o.SocketGID))
+		}
 	}
 	if o.WorkDirMount != "" {
 		hc.Binds = append(hc.Binds, o.WorkDirMount+":"+RunnerWorkMount+fl.mountSuffix)
@@ -578,6 +590,12 @@ func (b *DockerBackend) Create(ctx context.Context, spec Spec) (Handle, error) {
 			return "", fmt.Errorf("backend: pool %q asks for the host docker socket, but %s is a TCP endpoint with no socket to mount; use docker mode dind or none", spec.PoolName, b.api.Endpoint())
 		}
 		opts.HostSocket = sock
+		// A socket whose owner we cannot read still gets mounted rather than
+		// failing the create: the pool asked for it, and a runner that is root,
+		// or a socket that is world-writable, needs no group to open it.
+		if _, gid, ok := statOwner(sock); ok {
+			opts.SocketGID = gid
+		}
 		// Logged on every create, not once: this is the setting that turns any
 		// workflow on this pool into root on this host, and it should be visible
 		// in the log of every runner it applies to.
