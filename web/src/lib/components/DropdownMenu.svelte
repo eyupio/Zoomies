@@ -100,21 +100,27 @@
 
   function onMenuKeydown(event: KeyboardEvent): void {
     switch (event.key) {
+      // The keys this menu handles stop here: a menu opened from a grid row
+      // otherwise moved the grid's focused row as well.
       case 'ArrowDown':
         event.preventDefault();
+        event.stopPropagation();
         step(1);
         break;
       case 'ArrowUp':
         event.preventDefault();
+        event.stopPropagation();
         step(-1);
         break;
       case 'Home':
         event.preventDefault();
+        event.stopPropagation();
         active = items.findIndex((i) => !i.disabled);
         focusActive();
         break;
       case 'End':
         event.preventDefault();
+        event.stopPropagation();
         for (let i = items.length - 1; i >= 0; i--) {
           if (!items[i]?.disabled) {
             active = i;

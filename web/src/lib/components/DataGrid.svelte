@@ -325,6 +325,11 @@
   }
 
   function onBodyKeydown(event: KeyboardEvent): void {
+    // Only the row itself. A link, a copy button or a menu inside a cell has
+    // its own meaning for Enter, Space and the arrows, and swallowing them
+    // here opened the row instead of the link and moved the grid's focus
+    // while a menu was open.
+    if (!(event.target instanceof HTMLTableRowElement)) return;
     const index = focused;
     switch (event.key) {
       case 'ArrowDown':
@@ -571,6 +576,7 @@
     align-items: center;
     gap: var(--z-space-2);
   }
+
   .bulk-count {
     font-size: var(--z-text-xs);
     font-weight: var(--z-weight-medium);
