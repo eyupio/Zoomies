@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/store"
 )
 
 // fakeIssuer serves just enough OpenID discovery for NewOIDC to build a
@@ -109,5 +110,31 @@ func TestOIDCCallbackIsBoundToTheBrowserThatStartedIt(t *testing.T) {
 		headers: map[string]string{"Cookie": oidcStateCookie + "=" + state}}))
 	if strings.Contains(reason, "did not start in this browser") || strings.Contains(reason, "already been used") {
 		t.Fatalf("with its own cookie the browser was refused: %q", reason)
+	}
+}
+
+// With single sign-on on, an administrator can make an account ahead of its
+// owner's first sign-in, which links it by username. The CLI and the Users
+// panel both offer this; the API has to actually allow it.
+func TestCreateUserWithoutPasswordWhenSSOIsOn(t *testing.T) {
+	h := oidcHarness(t)
+	admin, _ := h.user("root", store.RoleAdmin)
+	cookie := h.session(admin)
+
+	created := h.do(request{method: http.MethodPost, path: "/api/v1/users", cookie: cookie,
+		body: map[string]any{"username": "alex", "role": "operator"}})
+	created.mustStatus(t, http.StatusCreated, "create an SSO-only account")
+	var alex userResponse
+	created.into(t, &alex)
+	if alex.MustChangePassword {
+		t.Error("an account with no password has none to change")
+	}
+
+	// It cannot be signed in to with a password, and the refusal says why.
+	login := h.do(request{method: http.MethodPost, path: "/api/v1/auth/login",
+		body: map[string]any{"username": "alex", "password": testPassword}})
+	login.mustStatus(t, http.StatusUnauthorized, "password login to an SSO-only account")
+	if !strings.Contains(string(login.body), "single sign-on") {
+		t.Errorf("the refusal does not point at single sign-on: %s", login.body)
 	}
 }

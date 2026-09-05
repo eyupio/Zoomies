@@ -79,9 +79,9 @@ type createUserRequest struct {
 // handleCreateUser adds an account.
 //
 // The password may be omitted for an account that will sign in through the
-// identity provider; the auth service refuses one that has neither a password
-// nor an OIDC subject, which is what stops an account being created that nobody
-// can ever use.
+// identity provider: the first single sign-on with that username links it.
+// That is only allowed while SSO is on, which is what stops an account being
+// created that nobody can ever use.
 func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	var req createUserRequest
 	if !decode(w, r, &req) {
@@ -117,6 +117,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		Email:       req.Email,
 		DisplayName: req.DisplayName,
 		Role:        role,
+		SSOOnly:     req.Password == "",
 		// Somebody else chose this password, so its owner picks their own at
 		// first sign-in.
 		MustChangePassword: req.Password != "",
