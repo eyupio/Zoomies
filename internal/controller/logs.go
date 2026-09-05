@@ -80,17 +80,25 @@ func (c *Controller) OpenLogStream(ctx context.Context, runnerID string, opts ba
 // subscribe attaches a viewer, starting the stream if this is the first one.
 func (lr *logRelay) subscribe(r *store.Runner, opts backend.LogOptions) (<-chan []byte, func(), error) {
 	lr.mu.Lock()
-	streamID, ok := lr.byRunner[r.ID]
 	var s *logStream
-	if ok {
-		s = lr.streams[streamID]
+	var streamID string
+	fresh := true
+	if opts.Follow {
+		if curID, ok := lr.byRunner[r.ID]; ok {
+			s = lr.streams[curID]
+			if s != nil && !s.isClosed() {
+				streamID = curID
+				fresh = false
+			}
+		}
 	}
-	fresh := s == nil
 	if fresh {
 		streamID = "log_" + store.NewSecret(8)
 		s = &logStream{id: streamID, runnerID: r.ID, hostID: r.HostID, subs: map[int]chan []byte{}}
 		lr.streams[streamID] = s
-		lr.byRunner[r.ID] = streamID
+		if opts.Follow {
+			lr.byRunner[r.ID] = streamID
+		}
 	}
 	lr.mu.Unlock()
 
@@ -123,6 +131,8 @@ func (lr *logRelay) unsubscribe(s *logStream, subID int) {
 	lr.mu.Lock()
 	if lr.streams[s.id] == s {
 		delete(lr.streams, s.id)
+	}
+	if lr.byRunner[s.runnerID] == s.id {
 		delete(lr.byRunner, s.runnerID)
 	}
 	lr.mu.Unlock()
@@ -148,6 +158,20 @@ func (c *Controller) AcceptLogStream(streamID string, r io.Reader) error {
 		return fmt.Errorf("%w: %s", ErrStreamUnknown, streamID)
 	}
 
+	// Clean up registration on any exit path (error, viewer cancellation, EOF)
+	// so closed streams are never leaked in relay maps.
+	defer func() {
+		c.relay.mu.Lock()
+		if c.relay.streams[streamID] == s {
+			delete(c.relay.streams, streamID)
+		}
+		if c.relay.byRunner[s.runnerID] == streamID {
+			delete(c.relay.byRunner, s.runnerID)
+		}
+		c.relay.mu.Unlock()
+		s.close()
+	}()
+
 	buf := make([]byte, logReadChunk)
 	for {
 		n, err := r.Read(buf)
@@ -165,21 +189,9 @@ func (c *Controller) AcceptLogStream(streamID string, r io.Reader) error {
 			if errors.Is(err, io.EOF) {
 				break
 			}
-			s.close()
 			return fmt.Errorf("log stream %s ended: %w", streamID, err)
 		}
 	}
-
-	// The runner's output has finished, which for an ephemeral runner means
-	// the job is over. Closing the subscriber channels is what ends the SSE
-	// responses rather than leaving browsers holding an open connection.
-	c.relay.mu.Lock()
-	if c.relay.streams[streamID] == s {
-		delete(c.relay.streams, streamID)
-		delete(c.relay.byRunner, s.runnerID)
-	}
-	c.relay.mu.Unlock()
-	s.close()
 	return nil
 }
 
@@ -263,3 +275,11 @@ func (s *logStream) close() {
 		close(ch)
 	}
 }
+
+// isClosed reports whether the stream has already ended.
+func (s *logStream) isClosed() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.closed
+}
+
