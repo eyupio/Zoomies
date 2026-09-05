@@ -155,6 +155,8 @@ func (s *Server) apiRoutes() chi.Router {
 		})
 
 		// Jobs.
+		r.With(s.require(auth.ActionUsageRead)).Get("/usage", s.handleUsage)
+		r.With(s.require(auth.ActionUsageRead)).Get("/usage.csv", s.handleUsageCSV)
 		r.Route("/jobs", func(r chi.Router) {
 			r.Use(s.require(auth.ActionJobsRead))
 			r.Get("/", s.handleListJobs)

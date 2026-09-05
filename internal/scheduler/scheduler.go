@@ -32,6 +32,11 @@ type Snapshot struct {
 	// Jobs holds queued and in-progress jobs. Only queued jobs create demand:
 	// an in-progress job is already represented by the busy runner running it.
 	Jobs []*store.Job
+	// ActiveByRepository and QueuedByRepository make repository fair-share
+	// state explicit at the scheduler boundary rather than hiding database reads
+	// inside the policy engine.
+	ActiveByRepository map[string]int
+	QueuedByRepository map[string]int
 	// Hosts is every registered agent host, with ActiveRunners filled in.
 	Hosts  []*store.Host
 	Policy Policy
@@ -145,10 +150,12 @@ func Decide(s Snapshot) Plan {
 	demand, unmatched := assign(pools, s.Jobs)
 
 	t := &tick{
-		now:    s.Now,
-		policy: s.Policy,
-		hosts:  newHostSet(s.Hosts, s.Now),
-		budget: s.Policy.MaxCreatesPerTick,
+		now:                s.Now,
+		policy:             s.Policy,
+		hosts:              newHostSet(s.Hosts, s.Now),
+		budget:             s.Policy.MaxCreatesPerTick,
+		activeByRepository: s.ActiveByRepository,
+		poolCount:          len(pools),
 	}
 	if t.budget <= 0 {
 		// An unset cap must not stall the fleet; host capacity still bounds us.
@@ -172,10 +179,12 @@ func Decide(s Snapshot) Plan {
 // tick is the mutable state of a single Decide call: capacity handed out so
 // far, and the create budget left for the pools that have not been served yet.
 type tick struct {
-	now    time.Time
-	policy Policy
-	hosts  *hostSet
-	budget int
+	now                time.Time
+	policy             Policy
+	hosts              *hostSet
+	budget             int
+	activeByRepository map[string]int
+	poolCount          int
 }
 
 // assign maps every queued job onto the pool that will run it, and collects the
@@ -221,10 +230,21 @@ func (t *tick) decidePool(p *store.Pool, runners []*store.Runner, queued []*stor
 	}
 
 	eligible := 0
+	quotaBlocked := 0
+	admitted := map[string]int{}
 	for _, j := range queued {
+		if p.RepositoryConcurrencyLimit > 0 && t.activeByRepository[p.ID+"\x00"+j.Repo]+admitted[j.Repo] >= p.RepositoryConcurrencyLimit {
+			quotaBlocked++
+			continue
+		}
 		if t.now.Sub(j.QueuedAt) >= t.policy.ScaleUpDelay {
 			eligible++
+			admitted[j.Repo]++
 		}
+	}
+	if quotaBlocked > 0 {
+		plan.Blocked = fmt.Sprintf("%s queued by repository concurrency quota", plural(quotaBlocked, "job"))
+		plan.BlockedFix = "increase the pool repository concurrency limit or wait for that repository's active jobs to finish"
 	}
 	// Idle runners are already counted in live, so subtracting live from the
 	// target is what stops the scheduler from creating a runner for a job an
@@ -285,6 +305,9 @@ func (t *tick) allocate(pools []*store.Pool, plans []PoolPlan, runners map[strin
 		if !p.Enabled || pp.Desired <= pp.Current+got || pp.Blocked != "" {
 			continue
 		}
+		if got > 0 && t.poolCount == 1 {
+			continue // retain the truthful partial scale-up reason
+		}
 		why := fmt.Sprintf("this tick's global limit of %s is exhausted; the next pass will continue", plural(t.policy.MaxCreatesPerTick, "new runner"))
 		pp.Reason = cannotScale(p.Name, pp.Current+got, pp.Desired, why)
 	}
@@ -304,7 +327,9 @@ func (t *tick) grant(p *store.Pool, plan *PoolPlan, runners []*store.Runner, que
 	hosts := t.hosts.place(p, 1)
 	if len(hosts) == 0 {
 		b := t.hosts.why(p)
-		plan.Reason = cannotScale(p.Name, plan.Current+creates(plan.Actions), plan.Desired, sentence(b.what, b.fix))
+		if creates(plan.Actions) == 0 || t.poolCount > 1 {
+			plan.Reason = cannotScale(p.Name, plan.Current, plan.Desired, sentence(b.what, b.fix))
+		}
 		plan.Blocked, plan.BlockedFix = b.what, b.fix
 		plan.BlockedAtCapacity, plan.BlockedAlternatives = b.atCapacity, b.alternatives
 		return false

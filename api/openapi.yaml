@@ -86,6 +86,30 @@ tags:
     description: Routes used by agents. Not for general clients.
 
 paths:
+  /usage:
+    get:
+      operationId: getUsage
+      tags: [jobs]
+      summary: Aggregate bounded fleet usage
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: group_by, in: query, schema: { type: string, enum: [installation, repository, workflow, pool], default: pool } }
+      responses:
+        "200":
+          description: Usage totals; monetary values are administrator-configured estimates.
+          content: { application/json: { schema: { $ref: "#/components/schemas/UsageResponse" } } }
+  /usage.csv:
+    get:
+      operationId: exportUsageCSV
+      tags: [jobs]
+      summary: Export bounded fleet usage as CSV
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date-time } }
+        - { name: group_by, in: query, schema: { type: string, enum: [installation, repository, workflow, pool], default: pool } }
+      responses:
+        "200": { description: CSV export, content: { text/csv: { schema: { type: string } } } }
   # ==========================================================================
   # Meta
   # ==========================================================================
@@ -1980,6 +2004,28 @@ components:
         disk_gb: { type: integer, format: int64 }
         pids_limit: { type: integer, format: int64 }
 
+    UsageResponse:
+      type: object
+      required: [from, to, group_by, items, costs_are_estimates]
+      properties:
+        from: { type: string, format: date-time }
+        to: { type: string, format: date-time }
+        group_by: { type: string, enum: [installation, repository, workflow, pool] }
+        costs_are_estimates: { type: boolean, const: true }
+        items:
+          type: array
+          items:
+            type: object
+            required: [key, job_execution_seconds, allocated_runner_seconds, jobs, average_queue_wait_seconds, peak_concurrency]
+            properties:
+              key: { type: string }
+              job_execution_seconds: { type: number }
+              allocated_runner_seconds: { type: number }
+              jobs: { type: integer }
+              average_queue_wait_seconds: { type: number }
+              peak_concurrency: { type: integer }
+              estimated_cost: { type: number, description: Estimate from administrator-assigned pool rates; omitted when no rate exists. }
+
     Pool:
       type: object
       properties:
@@ -1994,6 +2040,8 @@ components:
         runner_version: { type: string }
         min_runners: { type: integer }
         max_runners: { type: integer }
+        repository_concurrency_limit: { type: integer, minimum: 0, description: Per-repository active runner cap; zero disables it. }
+        cost_per_runner_hour: { type: number, minimum: 0, nullable: true, description: Optional administrator-assigned rate used only for estimates. }
         priority: { type: integer, default: 0, description: Higher-priority pools receive creation capacity before lower-priority pools. }
         idle_timeout: { $ref: "#/components/schemas/Duration" }
         ephemeral: { type: boolean }
@@ -2054,6 +2102,8 @@ components:
         runner_version: { type: string }
         min_runners: { type: integer, default: 0, minimum: 0 }
         max_runners: { type: integer, default: 4, minimum: 1 }
+        repository_concurrency_limit: { type: integer, minimum: 0 }
+        cost_per_runner_hour: { type: number, minimum: 0, nullable: true }
         priority: { type: integer, default: 0 }
         idle_timeout: { allOf: [{ $ref: "#/components/schemas/Duration" }], default: "5m" }
         ephemeral: { type: boolean, default: true }
@@ -2090,6 +2140,8 @@ components:
         runner_version: { type: string }
         min_runners: { type: integer, minimum: 0 }
         max_runners: { type: integer, minimum: 1 }
+        repository_concurrency_limit: { type: integer, minimum: 0 }
+        cost_per_runner_hour: { type: number, minimum: 0, nullable: true }
         priority: { type: integer }
         idle_timeout: { $ref: "#/components/schemas/Duration" }
         ephemeral: { type: boolean }

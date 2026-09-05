@@ -19,6 +19,7 @@
     ScrollText,
     Server,
     Settings,
+    ChartNoAxesCombined,
   } from '@lucide/svelte';
   import type { LucideIcon } from '@lucide/svelte';
   import { router } from '../router';
@@ -39,6 +40,7 @@
     { path: '/pools', label: 'Pools', icon: Boxes, key: 'p' },
     { path: '/runners', label: 'Runners', icon: Server, key: 'r' },
     { path: '/jobs', label: 'Jobs', icon: ListChecks, key: 'j' },
+    { path: '/usage', label: 'Usage', icon: ChartNoAxesCombined, key: 'u' },
     { path: '/hosts', label: 'Hosts', icon: HardDrive, key: 'h' },
     { path: '/installations', label: 'Installations', icon: Plug, key: 'i' },
     { path: '/migrate', label: 'Migrate', icon: GitPullRequestArrow, key: 'm' },

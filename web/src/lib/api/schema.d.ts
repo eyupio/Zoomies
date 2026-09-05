@@ -4,6 +4,40 @@
  */
 
 export interface paths {
+    "/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Aggregate bounded fleet usage */
+        get: operations["getUsage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/usage.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export bounded fleet usage as CSV */
+        get: operations["exportUsageCSV"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/meta": {
         parameters: {
             query?: never;
@@ -1428,6 +1462,26 @@ export interface components {
             /** Format: int64 */
             pids_limit?: number;
         };
+        UsageResponse: {
+            /** Format: date-time */
+            from: string;
+            /** Format: date-time */
+            to: string;
+            /** @enum {string} */
+            group_by: "installation" | "repository" | "workflow" | "pool";
+            /** @constant */
+            costs_are_estimates: true;
+            items: {
+                key: string;
+                job_execution_seconds: number;
+                allocated_runner_seconds: number;
+                jobs: number;
+                average_queue_wait_seconds: number;
+                peak_concurrency: number;
+                /** @description Estimate from administrator-assigned pool rates; omitted when no rate exists. */
+                estimated_cost?: number;
+            }[];
+        };
         Pool: {
             id?: string;
             name?: string;
@@ -1440,6 +1494,10 @@ export interface components {
             runner_version?: string;
             min_runners?: number;
             max_runners?: number;
+            /** @description Per-repository active runner cap; zero disables it. */
+            repository_concurrency_limit?: number;
+            /** @description Optional administrator-assigned rate used only for estimates. */
+            cost_per_runner_hour?: number | null;
             /**
              * @description Higher-priority pools receive creation capacity before lower-priority pools.
              * @default 0
@@ -1511,6 +1569,8 @@ export interface components {
             min_runners: number;
             /** @default 4 */
             max_runners: number;
+            repository_concurrency_limit?: number;
+            cost_per_runner_hour?: number | null;
             /** @default 0 */
             priority: number;
             /** @default 5m */
@@ -1546,6 +1606,8 @@ export interface components {
             runner_version?: string;
             min_runners?: number;
             max_runners?: number;
+            repository_concurrency_limit?: number;
+            cost_per_runner_hour?: number | null;
             priority?: number;
             idle_timeout?: components["schemas"]["Duration"];
             ephemeral?: boolean;
@@ -1843,6 +1905,54 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    getUsage: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+                group_by?: "installation" | "repository" | "workflow" | "pool";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Usage totals; monetary values are administrator-configured estimates. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UsageResponse"];
+                };
+            };
+        };
+    };
+    exportUsageCSV: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+                group_by?: "installation" | "repository" | "workflow" | "pool";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description CSV export */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+        };
+    };
     getMeta: {
         parameters: {
             query?: never;
