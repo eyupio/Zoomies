@@ -389,10 +389,20 @@ func (s CacheScope) Valid() bool { return s == CacheScopePool || s == CacheScope
 // It is not persistent workflow storage and may be evicted. Source is either an
 // absolute host directory prefix or a named-volume prefix.
 type CacheConfig struct {
-	Enabled   bool       `json:"enabled"`
-	Scope     CacheScope `json:"scope"`
-	SizeLimit int64      `json:"size_limit,omitempty"` // approximate bytes; zero is unlimited
-	Source    string     `json:"source,omitempty"`
+	Enabled bool       `json:"enabled"`
+	Scope   CacheScope `json:"scope"`
+	// SizeLimit is enforced by evicting whole cache entries, least recently
+	// modified first, in the gap between one runner and the next. Only a cache
+	// in a host directory can be measured, so a limit is refused on a named
+	// volume rather than accepted and quietly ignored. Zero is unlimited.
+	SizeLimit int64  `json:"size_limit,omitempty"`
+	Source    string `json:"source,omitempty"`
+	// Repository names the repository a repository-scoped cache belongs to,
+	// as "owner/name". A repository-targeted installation supplies it on its
+	// own; an organisation-targeted one cannot, because the fleet it serves has
+	// many repositories, and this is what lets such a pool have a repository
+	// cache without an installation of its own per repository.
+	Repository string `json:"repository,omitempty"`
 }
 
 // Pool is a named group of interchangeable runners: what labels they answer to,
@@ -409,9 +419,11 @@ type Pool struct {
 	RunnerVersion  string      `json:"runner_version,omitempty"`
 	MinRunners     int         `json:"min_runners"`
 	MaxRunners     int         `json:"max_runners"`
-	// RepositoryConcurrencyLimit caps active runners attributable to any one
-	// repository. Zero leaves the pool unrestricted.
-	RepositoryConcurrencyLimit int `json:"repository_concurrency_limit,omitempty"`
+	// RepositoryScaleUpLimit is a best-effort throttle on runner creation
+	// attributable to any one repository. GitHub may assign queued work to any
+	// compatible idle runner, so this is not a strict execution concurrency cap.
+	// Zero leaves the pool unrestricted.
+	RepositoryScaleUpLimit int `json:"repository_scale_up_limit,omitempty"`
 	// CostPerRunnerHour is administrator supplied; Zoomies never embeds prices.
 	CostPerRunnerHour *float64    `json:"cost_per_runner_hour,omitempty"`
 	Priority          int         `json:"priority"`

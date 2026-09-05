@@ -98,6 +98,7 @@ sequenceDiagram
     R->>R: an ephemeral runner exits after one job
     A-->>C: removed
     C->>DB: reap the row
+    A->>R: delete the container and its scratch space,<br/>once the report is in and finished_retention has passed
 ```
 
 In detail:
@@ -111,7 +112,10 @@ In detail:
    jobs, hosts, and the tunables -- and returns a `Plan`. It is a pure function:
    no clock reads, no database, no network. That is what makes the scaling
    behaviour testable, and it is where every scaling decision's *reason string*
-   comes from.
+   comes from. Which host each new runner is placed on is decided here too --
+   healthy, uncordoned, offering the pool's backend, matching its host selector,
+   with room left -- and [Hosts and pools](hosts-and-pools.md) is that rule in
+   operator terms.
 5. For each `create` action the controller picks the installation, asks GitHub
    for a JIT configuration, writes a `runners` row in `provisioning`, and queues
    a task for the chosen host's agent. A JIT configuration registers exactly one
@@ -124,6 +128,15 @@ In detail:
    moves the runner to `busy` and links the job row to the runner row.
 8. On `completed`, the ephemeral runner exits by itself. The agent notices,
    reports `removed`, and the controller reaps the row.
+9. The host cleans up after itself. The controller has no reason to send a
+   task for a runner it already considers gone, so the agent deletes the
+   finished workload on its own -- the exited container with the runner's log,
+   its docker-in-docker sidecar, any scratch directory Zoomies made for it, or
+   the process backend's runner directory -- once the controller has accepted
+   the report and [`agent.finished_retention`](configuration.md#agentfinished_retention)
+   has passed. The window is what keeps a finished runner's output readable
+   from the Runners page for a while; the report gate is what keeps the exit
+   code from being deleted before anyone has heard it.
 
 Every one of those steps publishes on the event bus, and the UI is watching a
 Server-Sent Events stream, so the operator sees it happen without refreshing.

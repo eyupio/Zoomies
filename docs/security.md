@@ -94,9 +94,11 @@ on its own runners, and cannot read pools, jobs, users or the audit log.
   cannot merge one. Rotate the key in GitHub and re-enter it in Zoomies; a fleet
   that will never migrate anything can drop those three permissions on the App's
   **Permissions & events** page.
-* **Denial of service.** There is no per-repository quota in v1. A repository
-  that queues thousands of jobs will pin your pools at their maximum, which is
-  what `max_runners` is for.
+* **Denial of service.** `repository_scale_up_limit` can best-effort throttle
+  new runner creation attributed to one repository, but it is not a security
+  boundary or strict concurrency quota: GitHub can assign that repository's
+  jobs to compatible idle runners. Use `max_runners` as the pool-wide backstop;
+  strict separation requires repository-specific pools and workflow labels.
 
 ---
 

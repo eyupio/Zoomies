@@ -268,17 +268,21 @@ func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, a sched
 	}
 
 	spec := backend.Spec{
-		Name:          name,
-		RunnerID:      r.ID,
-		PoolID:        pool.ID,
-		PoolName:      pool.Name,
-		Image:         r.Image,
-		Credentials:   creds,
-		Env:           pool.Env,
-		Ephemeral:     pool.Ephemeral,
-		Resources:     pool.Resources,
-		Cache:         pool.Cache,
-		Repository:    inst.Target,
+		Name:        name,
+		RunnerID:    r.ID,
+		PoolID:      pool.ID,
+		PoolName:    pool.Name,
+		Image:       r.Image,
+		PullPolicy:  pool.PullPolicy,
+		Credentials: creds,
+		Env:         pool.Env,
+		Ephemeral:   pool.Ephemeral,
+		Resources:   pool.Resources,
+		Cache:       pool.Cache,
+		// An organisation installation's target is the organisation, which is
+		// no repository at all; a pool under one names its cache's repository
+		// itself, and that is the identity the runner should carry.
+		Repository:    firstNonEmpty(strings.TrimSpace(pool.Cache.Repository), inst.Target),
 		DockerMode:    pool.DockerMode,
 		RunAsRoot:     pool.RunAsRoot,
 		Network:       c.cfg.Agent.Network,

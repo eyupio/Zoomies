@@ -866,6 +866,7 @@ func (c *Controller) StartEmbeddedAgent(ctx context.Context, cfg *config.Config)
 		DefaultBackend:    store.BackendKind(cfg.Agent.Backend),
 		Transport:         tr,
 		HeartbeatInterval: cfg.Agent.HeartbeatInterval,
+		FinishedRetention: cfg.Agent.FinishedRetention,
 		Logger:            c.log,
 		Clock:             c.clock,
 	})

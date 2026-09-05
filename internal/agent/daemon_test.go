@@ -111,6 +111,15 @@ func createTask(id, runnerID string) Task {
 	}
 }
 
+func TestCreatePropagatesBackendDigest(t *testing.T) {
+	h := newHarness(t, 1)
+	h.tr.tasks <- []Task{createTask("digest-task", "digest-runner")}
+	res := h.nextResult()
+	if !res.OK || res.Digest != "sha256:resolved" {
+		t.Fatalf("create result = %+v, want resolved backend digest", res)
+	}
+}
+
 func TestJoinPersistsCredentials(t *testing.T) {
 	a, tr, _, _ := newAgent(t, 1)
 	if err := a.Join(context.Background(), "join-token"); err != nil {
@@ -436,6 +445,7 @@ func TestNewValidatesOptions(t *testing.T) {
 		"transport": func(o *Options) { o.Transport = nil },
 		"backend":   func(o *Options) { o.DefaultBackend = store.BackendKind("kubernetes") },
 		"heartbeat": func(o *Options) { o.HeartbeatInterval = time.Millisecond },
+		"retention": func(o *Options) { o.FinishedRetention = -time.Minute },
 	}
 	for name, break_ := range cases {
 		t.Run(name, func(t *testing.T) {

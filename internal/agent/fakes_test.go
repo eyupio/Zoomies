@@ -109,6 +109,11 @@ func (f *fakeBackend) Create(ctx context.Context, spec backend.Spec) (backend.Ha
 	return handle, nil
 }
 
+func (f *fakeBackend) CreateWithResult(ctx context.Context, spec backend.Spec) (backend.CreateResult, error) {
+	h, err := f.Create(ctx, spec)
+	return backend.CreateResult{Handle: h, Digest: "sha256:resolved"}, err
+}
+
 func (f *fakeBackend) Status(_ context.Context, h backend.Handle) (backend.Status, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -210,6 +215,7 @@ type fakeTransport struct {
 	joinErr   error
 	beatResp  *HeartbeatResponse
 	beatErr   error
+	reportErr error
 	pollErr   error
 	streams   map[string]*fakeStream
 	openErr   error
@@ -289,6 +295,12 @@ func (f *fakeTransport) ReportResult(_ context.Context, res TaskResult) error {
 }
 
 func (f *fakeTransport) ReportRunners(_ context.Context, reports []RunnerReport) error {
+	f.mu.Lock()
+	err := f.reportErr
+	f.mu.Unlock()
+	if err != nil {
+		return err
+	}
 	select {
 	case f.reports <- reports:
 	default:

@@ -82,6 +82,7 @@ agent:
   labels: {}                    # ZOOMIES_AGENT_LABELS   -- "gpu=true,zone=eu"
   network: ""                   # ZOOMIES_AGENT_NETWORK
   heartbeat_interval: 30s       # ZOOMIES_HEARTBEAT_INTERVAL
+  finished_retention: 10m       # ZOOMIES_AGENT_FINISHED_RETENTION -- how long a finished runner stays on disk
   # Standalone agents only:
   controller_url: ""            # ZOOMIES_CONTROLLER_URL
   join_token: ""                # ZOOMIES_JOIN_TOKEN
@@ -129,7 +130,7 @@ metrics:
 
 retention:
   jobs: 720h                    # ZOOMIES_RETENTION_JOBS      (30 days)
-  runners: 168h                 # ZOOMIES_RETENTION_RUNNERS   (7 days)
+  runners: 168h                 # ZOOMIES_RETENTION_RUNNERS   (7 days; the row, not the container -- see agent.finished_retention)
   audit: 8760h                  # ZOOMIES_RETENTION_AUDIT     (365 days)
   samples: 168h                 # ZOOMIES_RETENTION_SAMPLES
   webhooks: 168h                # ZOOMIES_RETENTION_WEBHOOKS
@@ -359,6 +360,31 @@ agent:
 host_selector: { gpu: "true" }
 ```
 
+An empty selector matches any host, so once a specialised machine joins, give
+the general pools a selector of their own — otherwise they are eligible for the
+GPU box too. [Hosts and pools](hosts-and-pools.md) works that shape through.
+
+### `agent.finished_retention`
+
+How long a finished runner's workload stays on the host before the agent
+deletes it: the exited container with the runner's log and its writable layer,
+its docker-in-docker sidecar, and any scratch directory Zoomies created for it
+-- or, on the process backend, the runner's directory under `agent.work_dir`.
+The default is `10m`.
+
+A runner that has exited is finished business as far as the controller is
+concerned: the row is marked removed and nothing sends the host another task
+for it. So the host cleans up after itself. Once the controller has been told
+how the runner ended, and this window has passed, the agent removes the
+workload and logs a line saying so. Until then its output is still readable
+from the Runners page, which is what the window is for.
+
+`0s` removes a finished runner on the next pass after it has been reported. A
+long window is disk: a busy host keeps one finished container per job for that
+long, and a setting over a day is flagged in the problems drawer for that
+reason. It is separate from `retention.runners`, which keeps the runner's row
+in the database for the history page.
+
 ### `scheduler.scale_up_delay`
 
 How long a job must have been queued before it counts as demand. `0s` reacts
@@ -386,12 +412,18 @@ the CLI or the API. These are their fields:
 | `runner_group` | Optional GitHub runner group. |
 | `backend` | `docker`, `podman` or `process`. |
 | `image` | Runner image for the container backends. |
+| `pull_policy` | `if-not-present` (the default), `always`, or `pinned-only`, which refuses to run anything but the digest the pool names. |
+| `runner_version` | Pin an `actions/runner` release instead of tracking the latest. |
 | `min_runners` | Kept warm even with nothing queued. `0` is usually right. |
 | `max_runners` | Hard ceiling. **Always set this** — it is your backstop against a runaway workflow. |
+| `repository_scale_up_limit` | Best-effort limit on new capacity attributed to one repository; `0` disables it. This is a creation throttle, **not** a strict concurrency or isolation boundary: GitHub can assign any matching queued job to an existing compatible idle runner. Strict isolation requires repository-specific pools and corresponding repository-specific `runs-on` labels in workflows. |
+| `priority` | Higher-priority pools are given creation capacity first when the fleet cannot satisfy every pool at once. Pools at the same priority share it fairly. |
 | `idle_timeout` | How long an idle runner waits before being drained. |
 | `ephemeral` | One job per runner. Leave it on. |
 | `docker_mode` | `none`, `dind`, or `host-socket`. Needs an image with a Docker client — see [below](#jobs-that-build-container-images) and [security.md](security.md). |
-| `resources` | `cpus`, `memory_mb`, `pids_limit` per runner. |
+| `resources` | `cpus`, `memory_mb`, `disk_gb`, `pids_limit` per runner. `disk_gb` is advisory, and enforced only where the backend can. |
+| `cache` | A disposable accelerator directory mounted at `/opt/zoomies-cache`, scoped `pool` or `repository`, with an enforced `size_limit`. It is not workflow storage and may be evicted — see [below](#the-pool-cache). |
+| `cost_per_runner_hour` | An optional rate you supply, used only to estimate what the fleet costs. Zoomies never embeds prices of its own. |
 | `host_selector` | Restricts the pool to matching hosts. |
 | `env` | Injected into every runner. |
 | `run_as_root` | Off. Turning it on is warned about. |
@@ -414,6 +446,56 @@ repository nobody has assigned a pool to yet.
 
 Runners are named for the brand too: `zoomies-k3f9qz2m`, which is what GitHub
 shows in its runner list and in every job's log header.
+
+### The pool cache
+
+`cache` mounts a directory at `/opt/zoomies-cache` inside every runner the pool
+creates, and keeps it between runners. It exists to stop an ephemeral fleet
+paying for the same download twice — a package or layer cache, a toolchain, a
+warm module directory.
+
+It is **not** workflow storage. Nothing guarantees a hit, an operator may empty
+it at any time, and a job that cannot run without it is a job that will fail one
+morning. Use `actions/cache` for anything a workflow depends on.
+
+```yaml
+cache:
+  enabled: true
+  scope: pool         # or: repository
+  size_limit: 0       # bytes; 0 is unlimited
+  source: ""          # a named-volume prefix, or an absolute host path
+  repository: ""      # owner/name, for a repository cache under an org installation
+```
+
+`scope` decides who shares it. `pool` gives every runner in the pool the same
+cache, which is the faster of the two and assumes the repositories in the pool
+may see each other's build artefacts. `repository` gives each repository its own,
+which is what to use when the pool serves repositories that should not.
+
+A repository cache needs to know which repository it is for. An installation
+scoped to a single repository says so by itself and `repository` stays empty.
+An installation scoped to a whole organisation — one App over one shared fleet,
+which is the usual deployment — does not, so name it there as `owner/name`
+under that organisation. Without this a shared fleet would need a separate
+installation per repository to give each one a cache.
+
+`source` is left empty for a daemon-managed volume, which is the easy answer. An
+absolute path puts the cache on a disk you chose; anything else is treated as a
+volume-name prefix. Zoomies appends the scope's own identity to whichever you
+give, so two pools never collide, and refuses a source containing `..`.
+
+`size_limit` is enforced, not advisory. In the gap between one runner finishing
+and the next starting — the only moment the cache is certainly idle, and so the
+only safe moment to delete from it — whole cache entries are removed, least
+recently modified first, until the cache is back under the limit. That bounds
+how far it drifts over the limit from one job to the next. It is not a
+filesystem quota: a single job can still fill the disk before the next runner
+starts, and if that matters, give the cache its own filesystem.
+
+Only a directory can be measured, so a non-zero `size_limit` requires `source`
+to be an absolute host path. On a named volume the bytes are the daemon's, on a
+filesystem the agent may not even share, and a limit there would be a number in
+a form that controlled nothing — so it is refused rather than accepted.
 
 ### Jobs that build container images
 

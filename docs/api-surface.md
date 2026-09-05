@@ -91,8 +91,29 @@ Conventions:
 | GET | `/api/v1/pools/{id}` | viewer | |
 | PATCH | `/api/v1/pools/{id}` | operator | |
 | DELETE | `/api/v1/pools/{id}` | operator | `?drain=true` (default) drains runners first; `?force=true` removes them immediately. The response says how many runners were affected. |
+| POST | `/api/v1/pools/{id}/prewarm` | operator | Queues an image pull on every host the pool could be placed on, so the first job does not pay for it. `202` with the per-host state. |
 | POST | `/api/v1/pools/{id}/enable` | operator | |
 | POST | `/api/v1/pools/{id}/disable` | operator | Existing runners drain; no new ones are made. |
+
+A pool's `cache` is disposable build acceleration mounted at
+`/opt/zoomies-cache`, not workflow storage, and two of its fields have rules
+worth stating plainly.
+
+`cache.size_limit` is enforced, not advisory: in the gap between one runner and
+the next, whole cache entries are deleted least-recently-modified-first until
+the cache is back under the limit. That gap is the only moment the cache is
+certainly idle, so it is the only safe moment to evict. It bounds how far a
+cache drifts over its limit across jobs; it is not a filesystem quota, and one
+job can still fill a disk before the next runner starts. Only a directory can
+be measured, so a non-zero limit requires `cache.source` to be an absolute host
+path — a limit on a named volume is refused rather than accepted and ignored.
+
+`cache.scope: repository` gives each repository its own cache. A
+repository-targeted installation says which repository that is; an
+organisation-targeted one — one app over a whole organisation, which is the
+usual deployment — does not, so the pool names it in `cache.repository` as
+`owner/name` under the installation's owner. That is what lets a shared fleet
+give each repository a cache without an installation per repository.
 
 ## Runners
 
@@ -115,6 +136,34 @@ Conventions:
 | GET | `/api/v1/jobs/{id}` | viewer | |
 | GET | `/api/v1/jobs/{id}/events` | viewer | The job's timeline: what Zoomies observed and did about it, oldest first, each entry a sentence with its `kind` (`queued`, `claimed`, `unmatched`, `started`, `completed`, `runner_lost`) and `source` (`webhook`, `poller`, `agent`, `controller`). Written from what each delivery changed rather than from the delivery itself, so a redelivery adds nothing. `runner_lost` is the one entry GitHub cannot produce: the runner died under the job, and GitHub will report an ordinary failure. Every change to it is accompanied by a `job.updated` frame, which is when the UI refetches it. |
 | GET | `/api/v1/jobs/facets` | viewer | Distinct repos, workflows and conclusions, for the filter menus. |
+
+## Usage
+
+| Method | Path | Role | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/usage` | viewer | `from` and `to` are required RFC 3339 instants no more than 366 days apart; `group_by` is `pool` (default), `installation`, `repository` or `workflow`. |
+| GET | `/api/v1/usage.csv` | viewer | The same aggregate as a `text/csv` attachment. A value the grouping cannot produce is an empty cell, not a zero. |
+
+Two things about the shape are worth knowing before a figure is quoted at
+anyone.
+
+**The job counts are additive.** `jobs` counts jobs *queued* inside the
+interval, `jobs_started` those that began running in it, and `jobs_completed`
+those that finished in it. Each job contributes to exactly one interval per
+count, so two adjacent reports sum to the report over both. A job that is
+merely *present* — queued last week and still queued — is not counted again in
+every window it spans. `job_execution_seconds` and `peak_concurrency` are
+clipped to the interval and are about time rather than counts, so they behave
+the same way.
+
+**`null` is not zero.** `average_queue_wait_seconds` is the mean over the
+`jobs_started` jobs, which is the population with an observed wait, and is
+`null` when nothing started in the interval — during an incident that reads as
+"no job got off the queue" instead of a flatteringly small average.
+`allocated_runner_seconds` and `estimated_cost` are `null` for the repository
+and workflow groupings, because a runner idles on behalf of a pool and never on
+behalf of a repository; the response's `allocation_attributable` says so once
+for the whole report, so a client can drop the column rather than print zeroes.
 
 ## Hosts and agents
 
@@ -232,7 +281,7 @@ The CLI is a client of this API and nothing more. Every command below is one or
 two calls to a route above.
 
 ```
-zoomies pools list | get | create | edit | delete | enable | disable
+zoomies pools list | get | create | edit | delete | enable | disable | prewarm
 zoomies runners list | get | drain | delete | logs
 zoomies jobs list | get
 zoomies hosts list | cordon | uncordon | delete

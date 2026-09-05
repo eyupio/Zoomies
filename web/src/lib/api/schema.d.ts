@@ -1537,12 +1537,28 @@ export interface components {
             group_by: "installation" | "repository" | "workflow" | "pool";
             /** @constant */
             costs_are_estimates: true;
+            /**
+             * @description Whether allocated runner lifetime, and therefore cost, can be
+             *     attributed to this grouping at all. A runner idles on behalf of a
+             *     pool, never on behalf of a repository or a workflow, so it is false
+             *     for the repository and workflow groupings and every row's
+             *     allocated_runner_seconds is null.
+             */
+            allocation_attributable: boolean;
             items: {
                 key: string;
+                /** @description Job execution time clipped to the reported interval. */
                 job_execution_seconds: number;
-                allocated_runner_seconds: number;
+                /** @description Runner lifetime clipped to the interval, or null when the grouping cannot attribute it. Null is not zero. */
+                allocated_runner_seconds: number | null;
+                /** @description Jobs queued within the interval. Counts are additive: adjacent reports sum. */
                 jobs: number;
-                average_queue_wait_seconds: number;
+                /** @description Jobs whose run began within the interval. */
+                jobs_started: number;
+                /** @description Jobs that finished within the interval. */
+                jobs_completed: number;
+                /** @description Mean wait of the jobs_started jobs, so the denominator is the population with an observed wait. Null when nothing started in the interval. */
+                average_queue_wait_seconds: number | null;
                 peak_concurrency: number;
                 /** @description Estimate from administrator-assigned pool rates; omitted when no rate exists. */
                 estimated_cost?: number;
@@ -1573,8 +1589,8 @@ export interface components {
             runner_version?: string;
             min_runners?: number;
             max_runners?: number;
-            /** @description Per-repository active runner cap; zero disables it. */
-            repository_concurrency_limit?: number;
+            /** @description Best-effort per-repository runner creation throttle; zero disables it. This cannot prevent GitHub from assigning work to compatible idle runners and is not a strict execution concurrency cap. */
+            repository_scale_up_limit?: number;
             /** @description Optional administrator-assigned rate used only for estimates. */
             cost_per_runner_hour?: number | null;
             /**
@@ -1619,18 +1635,20 @@ export interface components {
             /** @default false */
             enabled: boolean;
             /**
-             * @description Repository scope requires a repository-targeted installation.
+             * @description Repository scope gives each repository its own cache. Under an organisation-targeted installation it needs `repository` set, because the installation alone does not say which repository the pool serves.
              * @default pool
              * @enum {string}
              */
             scope: "pool" | "repository";
             /**
              * Format: int64
-             * @description Approximate maximum bytes; zero is unlimited.
+             * @description Maximum bytes, enforced between one runner and the next by evicting whole cache entries, least recently modified first. Only a cache in a host directory can be measured, so a non-zero limit requires `source` to be an absolute host path. Zero is unlimited.
              */
             size_limit?: number;
             /** @description Optional absolute host directory or safe named-volume prefix. */
             source?: string;
+            /** @description The repository a repository-scoped cache belongs to, as owner/name. Required when the pool's installation targets an organisation, and left empty when it targets a single repository, which supplies it. */
+            repository?: string;
         };
         PoolCreate: {
             /**
@@ -1649,7 +1667,8 @@ export interface components {
             min_runners: number;
             /** @default 4 */
             max_runners: number;
-            repository_concurrency_limit?: number;
+            /** @description Best-effort creation throttle */
+            repository_scale_up_limit?: number;
             cost_per_runner_hour?: number | null;
             /** @default 0 */
             priority: number;
@@ -1687,7 +1706,8 @@ export interface components {
             runner_version?: string;
             min_runners?: number;
             max_runners?: number;
-            repository_concurrency_limit?: number;
+            /** @description Best-effort creation throttle */
+            repository_scale_up_limit?: number;
             cost_per_runner_hour?: number | null;
             priority?: number;
             idle_timeout?: components["schemas"]["Duration"];

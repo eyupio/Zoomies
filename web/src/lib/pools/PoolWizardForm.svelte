@@ -49,6 +49,7 @@
     cache_scope: 'pool' | 'repository';
     cache_size_limit: string;
     cache_source: string;
+    cache_repository: string;
     /** Carried through untouched: the wizard does not edit it, and must not lose it. */
     pids_limit: string;
     host_selector: Record<string, string>;
@@ -79,6 +80,7 @@
       cache_scope: 'pool',
       cache_size_limit: '',
       cache_source: '',
+      cache_repository: '',
       pids_limit: '',
       host_selector: {},
       env: {},
@@ -116,6 +118,7 @@
       cache_scope: pool.cache?.scope ?? 'pool',
       cache_size_limit: fromNumber(pool.cache?.size_limit),
       cache_source: pool.cache?.source ?? '',
+      cache_repository: pool.cache?.repository ?? '',
       pids_limit: fromNumber(resources.pids_limit),
       host_selector: { ...(pool.host_selector ?? {}) },
       env: { ...(pool.env ?? {}) },
@@ -172,6 +175,7 @@
         scope: draft.cache_scope,
         size_limit: toInteger(draft.cache_size_limit) ?? 0,
         source: draft.cache_source.trim(),
+        repository: draft.cache_scope === 'repository' ? draft.cache_repository.trim() : '',
       },
     };
     const complete = options.complete === true;

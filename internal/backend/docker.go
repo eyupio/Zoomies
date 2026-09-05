@@ -5,7 +5,6 @@ package backend
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -358,7 +357,8 @@ func buildRunnerConfig(spec Spec, fl flavor, o containerOptions) ContainerCreate
 		HostConfig: &HostConfig{
 			// AutoRemove would delete the container the instant it exits, taking
 			// its exit code and its logs with it -- and those are the two things
-			// a failed job investigation needs.
+			// a failed job investigation needs. The agent removes it itself once
+			// the exit has been reported and agent.finished_retention has passed.
 			AutoRemove:    false,
 			RestartPolicy: RestartPolicy{Name: "no"},
 			SecurityOpt:   slices.Clone(fl.securityOpt),
@@ -413,43 +413,6 @@ func buildRunnerConfig(spec Spec, fl flavor, o containerOptions) ContainerCreate
 		}
 	}
 	return cfg
-}
-
-// cacheSource derives an isolated daemon volume or host directory without
-// placing unchecked pool/repository values into it.
-func cacheSource(spec Spec) (string, error) {
-	c := spec.Cache
-	if !c.Enabled {
-		return "", nil
-	}
-	if !c.Scope.Valid() {
-		return "", fmt.Errorf("backend: %q is not a cache scope", c.Scope)
-	}
-	key := spec.PoolID
-	if c.Scope == store.CacheScopeRepository {
-		if !strings.Contains(spec.Repository, "/") {
-			return "", fmt.Errorf("backend: repository cache scope requires a repository-targeted installation")
-		}
-		key += "-" + spec.Repository
-	}
-	safe := sanitizeHostname(key)
-	if safe == "" || safe == "." || safe == ".." {
-		return "", fmt.Errorf("backend: unsafe cache identity")
-	}
-	prefix := strings.TrimSpace(c.Source)
-	if strings.Contains(prefix, "..") {
-		return "", fmt.Errorf("backend: unsafe cache source %q: path traversal is not allowed", prefix)
-	}
-	if prefix == "" {
-		prefix = "zoomies-cache"
-	}
-	if filepath.IsAbs(prefix) {
-		return filepath.Join(prefix, safe), nil
-	}
-	if strings.ContainsAny(prefix, `/\\:`) {
-		return "", fmt.Errorf("backend: unsafe cache volume prefix %q", prefix)
-	}
-	return prefix + "-" + safe, nil
 }
 
 // runnerEnv builds the environment in a stable order, credentials first, so
@@ -556,16 +519,14 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (Create
 		return CreateResult{}, err
 	}
 
-	pullStarted := time.Now()
-	pulled, err := b.ensureImage(ctx, spec.Image)
+	digest, pulled, pullDuration, err := b.prepareImage(ctx, spec.Image, spec.PullPolicy)
 	if err != nil {
 		return CreateResult{}, err
 	}
-	var pullDuration *time.Duration
-	if pulled {
-		d := time.Since(pullStarted)
-		pullDuration = &d
-	}
+	_ = pulled // pullDuration deliberately carries whether a pull occurred.
+	// Create from exactly the immutable image we just resolved. This prevents a
+	// moving tag from changing between preparation and the create request.
+	spec.Image = digest
 	createStarted := time.Now()
 
 	opts := containerOptions{Now: time.Now(), DinDImage: b.dind}
@@ -582,6 +543,12 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (Create
 		return CreateResult{}, err
 	}
 	opts.WorkDirMount, opts.WorkDirOwned = workDir, owned
+
+	// The cache is idle exactly now, between the runner that last used it and
+	// the one about to, so this is the only safe moment to evict from it.
+	if dir, ok := cacheDirectory(spec); ok {
+		pruneCache(dir, spec.Cache.SizeLimit, b.log)
+	}
 
 	var dindID string
 	switch spec.DockerMode {
@@ -632,7 +599,55 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (Create
 	b.log.Info("runner container started",
 		"runner", spec.Name, "pool", spec.PoolName, "image", spec.Image,
 		"container", shortID(id), "docker_mode", string(spec.DockerMode))
-	return CreateResult{Handle: Handle(id), ImagePullDuration: pullDuration, CreateDuration: time.Since(createStarted)}, nil
+	return CreateResult{Handle: Handle(id), Digest: digest, ImagePullDuration: pullDuration, CreateDuration: time.Since(createStarted)}, nil
+}
+
+// prepareImage applies the task's pool policy, then resolves the image before
+// container creation. Empty policy is the wire-compatible legacy case.
+func (b *DockerBackend) prepareImage(ctx context.Context, image string, policy store.PullPolicy) (string, bool, *time.Duration, error) {
+	pull := false
+	switch policy {
+	case store.PullAlways:
+		pull = true
+	case store.PullIfNotPresent, store.PullPinnedOnly:
+		present, err := b.api.ImageInspect(ctx, image)
+		if err != nil {
+			return "", false, nil, fmt.Errorf("backend: looking for image %s: %w", image, err)
+		}
+		pull = !present
+	case "":
+		if b.pull == PullAlways {
+			pull = true
+		} else {
+			present, err := b.api.ImageInspect(ctx, image)
+			if err != nil {
+				return "", false, nil, fmt.Errorf("backend: looking for image %s: %w", image, err)
+			}
+			if !present && b.pull == PullNever {
+				return "", false, nil, fmt.Errorf("backend: image %s is not on this host and the pull policy is %q; pull it here first (docker pull %s) or set the pull policy to if-missing", image, b.pull, image)
+			}
+			pull = !present
+		}
+	default:
+		return "", false, nil, fmt.Errorf("backend: %q is not a pool pull policy", policy)
+	}
+	var duration *time.Duration
+	if pull {
+		started := time.Now()
+		if err := b.api.ImagePull(ctx, image, b.auth); err != nil {
+			return "", false, nil, fmt.Errorf("backend: pulling %s: %w", image, err)
+		}
+		d := time.Since(started)
+		duration = &d
+	}
+	digest, err := b.api.ImageDigest(ctx, image)
+	if err != nil {
+		return "", pull, duration, fmt.Errorf("backend: resolving image %s digest: %w", image, err)
+	}
+	if digest == "" {
+		return "", pull, duration, fmt.Errorf("backend: image %s has no immutable digest", image)
+	}
+	return digest, pull, duration, nil
 }
 
 // startDinD creates and starts the sidecar, waiting until the daemon reports it
@@ -704,34 +719,11 @@ func (b *DockerBackend) ensureImage(ctx context.Context, image string) (bool, er
 }
 
 func (b *DockerBackend) PrewarmImage(ctx context.Context, image string, policy store.PullPolicy) (string, error) {
-	if policy == store.PullPinnedOnly && !isDigestReference(image) {
+	if policy == store.PullPinnedOnly && !isDigestImageReference(image) {
 		return "", fmt.Errorf("backend: pinned-only requires an image digest")
 	}
-	if policy == store.PullAlways {
-		if err := b.api.ImagePull(ctx, image, b.auth); err != nil {
-			return "", err
-		}
-	} else {
-		present, err := b.api.ImageInspect(ctx, image)
-		if err != nil {
-			return "", err
-		}
-		if !present {
-			if err := b.api.ImagePull(ctx, image, b.auth); err != nil {
-				return "", err
-			}
-		}
-	}
-	return b.api.ImageDigest(ctx, image)
-}
-
-func isDigestReference(ref string) bool {
-	parts := strings.Split(ref, "@sha256:")
-	if len(parts) != 2 || parts[0] == "" || len(parts[1]) != 64 {
-		return false
-	}
-	_, err := hex.DecodeString(parts[1])
-	return err == nil
+	digest, _, _, err := b.prepareImage(ctx, image, policy)
+	return digest, err
 }
 
 // ensureNetwork creates a user-defined network on demand. The daemon's built-in

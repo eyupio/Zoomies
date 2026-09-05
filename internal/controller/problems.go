@@ -302,6 +302,19 @@ func (c *Controller) PoolCapacityProblems() []Problem {
 	}
 	var out []Problem
 	for _, pp := range plan.Pools {
+		if pp.QuotaDeferredJobs > 0 {
+			repositories := strings.Join(pp.QuotaDeferredRepositories, ", ")
+			out = append(out, Problem{
+				Code:     "pool.repository_scale_up_deferred",
+				Severity: config.SeverityWarning,
+				Title: fmt.Sprintf("pool %s deferred %s from scaling", pp.PoolName,
+					plural(pp.QuotaDeferredJobs, "job")),
+				Detail: fmt.Sprintf("The best-effort repository scale-up limit deferred runner creation for %s (%s). Compatible idle runners may still accept these jobs because GitHub controls assignment.",
+					plural(len(pp.QuotaDeferredRepositories), "repository"), repositories),
+				Fix:        "increase the pool repository scale-up limit or wait for that repository's active jobs to finish; use repository-specific pools and workflow labels if strict isolation is required",
+				TargetKind: "pool", TargetID: pp.PoolID,
+			})
+		}
 		if pp.Blocked == "" {
 			continue
 		}

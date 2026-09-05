@@ -52,7 +52,13 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, "querying usage", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"from": f, "to": t, "group_by": g, "items": rows, "costs_are_estimates": true})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"from": f, "to": t, "group_by": g, "items": rows,
+		"costs_are_estimates": true,
+		// Told to the client even when items is empty, so the page can explain
+		// an absent runner-hours column rather than leaving it blank.
+		"allocation_attributable": store.UsageAllocationAttributable(g),
+	})
 }
 
 func (s *Server) handleUsageCSV(w http.ResponseWriter, r *http.Request) {
@@ -69,13 +75,24 @@ func (s *Server) handleUsageCSV(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="zoomies-usage.csv"`)
 	c := csv.NewWriter(w)
-	_ = c.Write([]string{"group", "job_execution_seconds", "allocated_runner_seconds", "jobs", "average_queue_wait_seconds", "peak_concurrency", "estimated_cost"})
+	_ = c.Write([]string{"group", "job_execution_seconds", "allocated_runner_seconds", "jobs_queued", "jobs_started", "jobs_completed", "average_queue_wait_seconds", "peak_concurrency", "estimated_cost"})
 	for _, x := range rows {
 		cost := ""
 		if x.EstimatedCost != nil {
 			cost = strconv.FormatFloat(*x.EstimatedCost, 'f', 2, 64)
 		}
-		_ = c.Write([]string{x.Key, fmt.Sprint(x.JobExecutionSeconds), fmt.Sprint(x.AllocatedRunnerSeconds), strconv.Itoa(x.Jobs), fmt.Sprint(x.AverageQueueWaitSeconds), strconv.Itoa(x.PeakConcurrency), cost})
+		// A blank cell is the honest rendering of "not calculated for this
+		// grouping"; a spreadsheet would sum a zero.
+		_ = c.Write([]string{x.Key, fmt.Sprint(x.JobExecutionSeconds), optionalFloat(x.AllocatedRunnerSeconds),
+			strconv.Itoa(x.Jobs), strconv.Itoa(x.JobsStarted), strconv.Itoa(x.JobsCompleted),
+			optionalFloat(x.AverageQueueWaitSeconds), strconv.Itoa(x.PeakConcurrency), cost})
 	}
 	c.Flush()
+}
+
+func optionalFloat(v *float64) string {
+	if v == nil {
+		return ""
+	}
+	return fmt.Sprint(*v)
 }

@@ -102,6 +102,13 @@ type PoolPlan struct {
 	// QueuedMatched counts every queued job this pool claims, including jobs
 	// still inside ScaleUpDelay and therefore not yet driving a create.
 	QueuedMatched int `json:"queued_matched"`
+	// QuotaDeferredJobs counts queued jobs which did not contribute to desired
+	// capacity because their repository reached the pool's best-effort scale-up
+	// limit. It is separate from Blocked because admitted work may still scale.
+	QuotaDeferredJobs int `json:"quota_deferred_jobs,omitempty"`
+	// QuotaDeferredRepositories names the repositories represented by those
+	// deferred jobs, in stable order.
+	QuotaDeferredRepositories []string `json:"quota_deferred_repositories,omitempty"`
 	// Reason is the sentence shown in the UI, e.g.
 	// "scaled linux-x64 2 -> 4: 3 jobs queued > 30s". It is empty when the
 	// pool's size did not change.
@@ -230,11 +237,12 @@ func (t *tick) decidePool(p *store.Pool, runners []*store.Runner, queued []*stor
 	}
 
 	eligible := 0
-	quotaBlocked := 0
+	quotaRepositories := map[string]bool{}
 	admitted := map[string]int{}
 	for _, j := range queued {
-		if p.RepositoryConcurrencyLimit > 0 && t.activeByRepository[p.ID+"\x00"+j.Repo]+admitted[j.Repo] >= p.RepositoryConcurrencyLimit {
-			quotaBlocked++
+		if p.RepositoryScaleUpLimit > 0 && t.activeByRepository[p.ID+"\x00"+j.Repo]+admitted[j.Repo] >= p.RepositoryScaleUpLimit {
+			plan.QuotaDeferredJobs++
+			quotaRepositories[j.Repo] = true
 			continue
 		}
 		if t.now.Sub(j.QueuedAt) >= t.policy.ScaleUpDelay {
@@ -242,10 +250,10 @@ func (t *tick) decidePool(p *store.Pool, runners []*store.Runner, queued []*stor
 			admitted[j.Repo]++
 		}
 	}
-	if quotaBlocked > 0 {
-		plan.Blocked = fmt.Sprintf("%s queued by repository concurrency quota", plural(quotaBlocked, "job"))
-		plan.BlockedFix = "increase the pool repository concurrency limit or wait for that repository's active jobs to finish"
+	for repo := range quotaRepositories {
+		plan.QuotaDeferredRepositories = append(plan.QuotaDeferredRepositories, repo)
 	}
+	slices.Sort(plan.QuotaDeferredRepositories)
 	// Idle runners are already counted in live, so subtracting live from the
 	// target is what stops the scheduler from creating a runner for a job an
 	// idle one will pick up within the second.
@@ -357,6 +365,8 @@ func (t *tick) reap(p *store.Pool, runners []*store.Runner) (actions []Action, r
 		switch {
 		case r.State == store.RunnerRemoved:
 			// Already gone; it neither costs capacity nor needs an action.
+			// Whatever it left on its host is the agent's to clean up, and
+			// it does so on its own once the retention window has passed.
 		case r.State == store.RunnerFailed:
 			removes = append(removes, t.action(ActionRemove, p, r,
 				"runner failed; removing it to free host capacity"))

@@ -3,6 +3,7 @@ package backend
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -535,6 +536,79 @@ func TestDockerCreate(t *testing.T) {
 	// Idempotence: an existing container of the same name is removed first.
 	if f.request(http.MethodDelete, v+"/containers/zoomies-linux-x64-7f3a") == nil {
 		t.Fatal("create must replace an existing container of the same name")
+	}
+}
+
+func TestDockerCreateUsesPoolPullPolicyAndResolvedDigest(t *testing.T) {
+	const first = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const second = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	current, pulls, creates := first, 0, 0
+	var used []string
+	f := newFakeEngine(t, map[string]http.HandlerFunc{
+		"DELETE " + v + "/containers/{id}": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"message": "absent"})
+		},
+		"GET " + v + "/images/{ref...}": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusOK, map[string]any{"Id": current, "RepoDigests": []string{"ghcr.io/acme/runner@" + current}})
+		},
+		"POST " + v + "/images/create": func(w http.ResponseWriter, r *http.Request) {
+			pulls++
+			if pulls > 1 {
+				current = second
+			}
+			_, _ = w.Write([]byte("{}\n"))
+		},
+		"POST " + v + "/containers/create": func(w http.ResponseWriter, r *http.Request) {
+			var req ContainerCreateRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			used = append(used, req.Image)
+			creates++
+			writeJSON(w, http.StatusCreated, map[string]any{"Id": fmt.Sprintf("c%d", creates)})
+		},
+		"POST " + v + "/containers/c1/start": func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) },
+		"POST " + v + "/containers/c2/start": func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) },
+	})
+	b := dockerBackendFor(t, f, DockerOptions{PullPolicy: PullNever})
+	spec := jitSpec()
+	spec.PullPolicy = store.PullAlways
+	firstResult, err := b.CreateWithResult(context.Background(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondResult, err := b.CreateWithResult(context.Background(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pulls != 2 || firstResult.ImagePullDuration == nil || secondResult.ImagePullDuration == nil {
+		t.Fatalf("always policy pulled %d times; durations %v, %v", pulls, firstResult.ImagePullDuration, secondResult.ImagePullDuration)
+	}
+	if firstResult.Digest != first || secondResult.Digest != second || !slices.Equal(used, []string{first, second}) {
+		t.Fatalf("results %q/%q and create refs %v do not track moving tag", firstResult.Digest, secondResult.Digest, used)
+	}
+}
+
+func TestDockerCreateIfNotPresentAndPinnedOnly(t *testing.T) {
+	const digest = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	pulls := 0
+	f := newFakeEngine(t, map[string]http.HandlerFunc{
+		"DELETE " + v + "/containers/{id}": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, 404, map[string]string{"message": "absent"})
+		},
+		"GET " + v + "/images/{ref...}":      func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, map[string]string{"Id": digest}) },
+		"POST " + v + "/images/create":       func(w http.ResponseWriter, r *http.Request) { pulls++; _, _ = w.Write([]byte("{}\n")) },
+		"POST " + v + "/containers/create":   func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 201, map[string]string{"Id": "c1"}) },
+		"POST " + v + "/containers/c1/start": func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) },
+	})
+	b := dockerBackendFor(t, f, DockerOptions{PullPolicy: PullAlways})
+	spec := jitSpec()
+	spec.PullPolicy = store.PullIfNotPresent
+	result, err := b.CreateWithResult(context.Background(), spec)
+	if err != nil || result.Digest != digest || pulls != 0 || result.ImagePullDuration != nil {
+		t.Fatalf("if-not-present result=%+v pulls=%d err=%v", result, pulls, err)
+	}
+	spec.PullPolicy = store.PullPinnedOnly
+	if _, err := b.Create(context.Background(), spec); err == nil || !strings.Contains(err.Error(), "pinned-only") {
+		t.Fatalf("pinned-only accepted tag: %v", err)
 	}
 }
 
