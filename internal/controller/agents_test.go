@@ -384,3 +384,45 @@ func TestFailedLogTaskLeavesTheRunnerAlone(t *testing.T) {
 		})
 	}
 }
+
+// Capacity belongs to the operator once a host has joined: the Hosts API lets
+// them set it to 0 to stop placement, and a heartbeat must not put the agent's
+// configured number back.
+func TestHeartbeatLeavesCapacityToTheOperator(t *testing.T) {
+	h := newHarness(t)
+	tr := h.c.EmbeddedTransport()
+
+	resp, err := tr.Join(h.ctx, agent.JoinRequest{
+		ProtocolVersion: agent.ProtocolVersion,
+		Name:            "vm-1",
+		Capacity:        4,
+		Backends:        []backend.Info{{Kind: store.BackendDocker, Available: true}},
+	})
+	if err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	tr.SetCredentials(resp.HostID, resp.AgentToken)
+
+	host, err := h.st.GetHost(h.ctx, resp.HostID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	host.Capacity = 0
+	if err := h.st.UpdateHost(h.ctx, host); err != nil {
+		t.Fatalf("UpdateHost: %v", err)
+	}
+
+	if _, err := tr.Heartbeat(h.ctx, agent.HeartbeatRequest{ProtocolVersion: agent.ProtocolVersion, Capacity: 4}); err != nil {
+		t.Fatalf("Heartbeat: %v", err)
+	}
+	after, err := h.st.GetHost(h.ctx, resp.HostID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if after.Capacity != 0 {
+		t.Fatalf("capacity = %d after a heartbeat, want the operator's 0 kept", after.Capacity)
+	}
+	if after.LastHeartbeat.IsZero() {
+		t.Fatalf("last heartbeat was not recorded")
+	}
+}

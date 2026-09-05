@@ -379,11 +379,13 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 
 	now := c.Now()
 	wasHealthy := h.Healthy(now)
-	capacity := req.Capacity
-	if capacity < 1 {
-		capacity = h.Capacity
-	}
-	if err := c.st.Heartbeat(ctx, hostID, capacity, now); err != nil {
+	// The heartbeat's capacity is deliberately not written. Capacity is set
+	// at join -- from the join token when it carries one, else from the
+	// agent -- and from then on the host row is what an operator edits: the
+	// Hosts API says "use 0 to stop this host taking new runners", and a
+	// heartbeat writing the agent's configured number back thirty seconds
+	// later would undo exactly that.
+	if err := c.st.Heartbeat(ctx, hostID, now); err != nil {
 		return nil, err
 	}
 
@@ -400,8 +402,7 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 	backendsChanged := len(probed) > 0 && !slices.Equal(kinds, h.Backends)
 	changed := backendsChanged ||
 		(len(probed) > 0 && !slices.Equal(probed, h.BackendInfo)) ||
-		(req.Version != "" && req.Version != h.Version) ||
-		capacity != h.Capacity
+		(req.Version != "" && req.Version != h.Version)
 	if changed {
 		was := h.Backends
 		if len(probed) > 0 {
@@ -409,7 +410,6 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 			h.BackendInfo = probed
 		}
 		h.Version = firstNonEmpty(req.Version, h.Version)
-		h.Capacity = capacity
 		h.LastHeartbeat = now
 		if err := c.st.UpdateHost(ctx, h); err != nil {
 			c.log.Warn("could not record what a host reported about itself", "host", hostID, "error", err)
@@ -429,7 +429,6 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 	}
 
 	h.LastHeartbeat = now
-	h.Capacity = capacity
 	if !wasHealthy {
 		// The host was over its heartbeat window and has come back; the Hosts
 		// page should say so without waiting for the health sweep.

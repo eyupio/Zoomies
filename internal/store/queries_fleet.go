@@ -481,9 +481,8 @@ func (s *Store) UpdateHost(ctx context.Context, h *Host) error {
 }
 
 // Heartbeat records that an agent is alive and refreshes its live capacity.
-func (s *Store) Heartbeat(ctx context.Context, id string, capacity int, now time.Time) error {
-	res, err := s.exec(ctx, `UPDATE hosts SET last_heartbeat=?, capacity=? WHERE id=?`,
-		ms(now), capacity, id)
+func (s *Store) Heartbeat(ctx context.Context, id string, now time.Time) error {
+	res, err := s.exec(ctx, `UPDATE hosts SET last_heartbeat=? WHERE id=?`, ms(now), id)
 	if err != nil {
 		return err
 	}
