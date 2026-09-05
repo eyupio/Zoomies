@@ -282,4 +282,3 @@ func (s *logStream) isClosed() bool {
 	defer s.mu.Unlock()
 	return s.closed
 }
-

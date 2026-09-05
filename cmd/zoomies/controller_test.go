@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/store"
@@ -117,7 +118,6 @@ func TestLogLevelCanBeChangedWhileRunning(t *testing.T) {
 		t.Errorf("a derived logger ignored the level change: %s", buf.String())
 	}
 }
-
 
 func TestParseLevel(t *testing.T) {
 	cases := map[string]slog.Level{
