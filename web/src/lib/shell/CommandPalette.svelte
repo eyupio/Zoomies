@@ -376,7 +376,7 @@
         <span><kbd>Esc</kbd> to close</span>
         <!-- The palette floats clear of the page, so it is the one surface that
              has to say for itself whose it is. -->
-        <span class="brand"><Logo variant="mark" size={14} label="" /> Zoomies</span>
+        <span class="brand"><Logo variant="mark" size={16} label="" /> Zoomies</span>
       </footer>
     </div>
   </div>

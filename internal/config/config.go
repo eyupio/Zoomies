@@ -50,6 +50,7 @@ type Server struct {
 	TLS         TLS    `yaml:"tls"`
 	// TrustedProxies lists CIDRs whose X-Forwarded-For header is believed.
 	// Empty means client IPs come from the socket, which is the safe default.
+	// The word "cloudflare" expands to Cloudflare's published ranges.
 	TrustedProxies []string      `yaml:"trusted_proxies"`
 	ReadTimeout    time.Duration `yaml:"read_timeout"`
 	WriteTimeout   time.Duration `yaml:"write_timeout"`

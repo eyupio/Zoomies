@@ -389,7 +389,8 @@ tls:
   # hosts: [zoomies.example.com]
 
 # CIDRs whose X-Forwarded-For header is believed. Set this when a proxy
-# terminates TLS, or every audit entry records the proxy's address.
+# terminates TLS, or every audit entry records the proxy's address. The word
+# cloudflare stands for Cloudflare's published ranges.
 # trusted_proxies: [10.0.0.0/8]
 
 # REQUIRED. How GitHub and your browser reach this controller. Webhook

@@ -74,10 +74,10 @@
   <!--
     The one place in the product that is allowed to be about the product rather
     than about the fleet, so the lock-up gets the room the brand guide asks for
-    instead of the 24px it gets in the sidebar.
+    instead of the favicon-scale paw used by the smallest UI placements.
   -->
   <div class="identity">
-    <Logo variant="mark" size={44} label="" />
+    <Logo variant="mark" size={48} label="" />
     <div>
       <p class="name">Zoomies</p>
       <p class="descriptor">Self-hosted Git runners</p>

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -82,6 +83,14 @@ func TestPlanConfigIsValidForEveryListenerChoice(t *testing.T) {
 			// HTTP and the operator is told so.
 			wantCodes:   []string{"bind.public_no_tls"},
 			unwantCodes: []string{"external_url.insecure"},
+		},
+		{
+			name:   "cloudflare trusts its published ranges",
+			mutate: func(p *Plan) { ListenCloudflare.apply(p, 8080, "zoomies.example.com") },
+			// The same plain-HTTP story as any proxy, but the proxy question
+			// is answered already, so no untrusted-proxy finding.
+			wantCodes:   []string{"bind.public_no_tls"},
+			unwantCodes: []string{"proxy.untrusted", "proxy.bad_cidr", "external_url.insecure"},
 		},
 		{
 			name:        "self-signed says GitHub will refuse it",
@@ -162,6 +171,7 @@ func TestDefaultExternalURL(t *testing.T) {
 		{"tls files", ListenTLSFiles, "0.0.0.0:8443", config.TLSFiles, "zoomies.example.com", "https://zoomies.example.com:8443"},
 		{"tls on 443", ListenTLSFiles, "0.0.0.0:443", config.TLSFiles, "zoomies.example.com", "https://zoomies.example.com"},
 		{"behind a proxy", ListenProxy, "0.0.0.0:8080", config.TLSOff, "zoomies.example.com", "https://zoomies.example.com"},
+		{"behind cloudflare", ListenCloudflare, "0.0.0.0:8080", config.TLSOff, "zoomies.example.com", "https://zoomies.example.com"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -174,20 +184,44 @@ func TestDefaultExternalURL(t *testing.T) {
 
 func TestListenChoiceFor(t *testing.T) {
 	cases := []struct {
-		bind string
-		mode config.TLSMode
-		want ListenChoice
+		bind    string
+		mode    config.TLSMode
+		trusted []string
+		want    ListenChoice
 	}{
-		{"127.0.0.1:8080", config.TLSOff, ListenLoopback},
-		{"[::1]:8080", config.TLSOff, ListenLoopback},
-		{"0.0.0.0:8080", config.TLSOff, ListenProxy},
-		{"0.0.0.0:8443", config.TLSFiles, ListenTLSFiles},
-		{"0.0.0.0:8443", config.TLSSelfSigned, ListenSelfSigned},
+		{"127.0.0.1:8080", config.TLSOff, nil, ListenLoopback},
+		{"[::1]:8080", config.TLSOff, nil, ListenLoopback},
+		{"0.0.0.0:8080", config.TLSOff, nil, ListenProxy},
+		{"0.0.0.0:8080", config.TLSOff, []string{"cloudflare"}, ListenCloudflare},
+		{"0.0.0.0:8443", config.TLSFiles, nil, ListenTLSFiles},
+		{"0.0.0.0:8443", config.TLSSelfSigned, nil, ListenSelfSigned},
 	}
 	for _, tc := range cases {
-		if got := listenChoiceFor(tc.bind, tc.mode); got != tc.want {
-			t.Errorf("listenChoiceFor(%q, %q) = %q, want %q", tc.bind, tc.mode, got, tc.want)
+		if got := listenChoiceFor(tc.bind, tc.mode, tc.trusted); got != tc.want {
+			t.Errorf("listenChoiceFor(%q, %q, %v) = %q, want %q", tc.bind, tc.mode, tc.trusted, got, tc.want)
 		}
+	}
+}
+
+// The Cloudflare choice must answer the proxy question itself, or choosing it
+// quietly leaves every audit row recording Cloudflare.
+func TestCloudflareChoiceTrustsCloudflare(t *testing.T) {
+	p := testPlan(t)
+	ListenCloudflare.apply(&p, 8080, "zoomies.example.com")
+	if !slices.Contains(p.TrustedProxies, config.TrustedProxyCloudflare) {
+		t.Fatal("the Cloudflare choice did not trust the cloudflare token")
+	}
+	if p.Bind != "0.0.0.0:8080" || p.TLSMode != config.TLSOff {
+		t.Fatalf("bind %s TLS %s, want 0.0.0.0:8080 with TLS off", p.Bind, p.TLSMode)
+	}
+}
+
+func TestValidateCIDRListAcceptsTheCloudflareToken(t *testing.T) {
+	if err := validateCIDRList("cloudflare, 10.0.0.0/8"); err != nil {
+		t.Fatalf("the token and a CIDR must both pass: %v", err)
+	}
+	if err := validateCIDRList("the load balancer"); err == nil {
+		t.Fatal("a nonsense entry was accepted")
 	}
 }
 

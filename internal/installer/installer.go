@@ -28,6 +28,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -510,6 +511,9 @@ const (
 	ListenSelfSigned ListenChoice = "self-signed"
 	// ListenProxy binds every interface with TLS off, for a proxy in front.
 	ListenProxy ListenChoice = "reverse-proxy"
+	// ListenCloudflare is the proxy choice specialised for Cloudflare: TLS off,
+	// and Cloudflare's published ranges trusted as proxies.
+	ListenCloudflare ListenChoice = "cloudflare"
 )
 
 // listenOption describes one listener choice for the prompt: what it does, why
@@ -530,6 +534,8 @@ func listenOptions() []listenOption {
 			"Binds every interface. Browsers will warn, and GitHub will refuse to deliver webhooks to it -- scaling will depend on the fallback poller."},
 		{ListenProxy, "Reverse proxy in front (0.0.0.0, TLS off here)",
 			"The proxy terminates TLS and forwards plain HTTP. List the proxy's CIDR as a trusted proxy, or every audit entry and rate limit records the proxy's address instead of the client's."},
+		{ListenCloudflare, "Cloudflare in front (0.0.0.0, TLS off here)",
+			"Cloudflare terminates TLS and forwards plain HTTP. Its published edge ranges are trusted as proxies, so audit entries and rate limits record the real client instead of Cloudflare."},
 	}
 }
 
@@ -549,9 +555,12 @@ func (c ListenChoice) apply(p *Plan, port int, hostname string) {
 		if len(p.TLSHosts) == 0 && hostname != "" {
 			p.TLSHosts = []string{hostname}
 		}
-	case ListenProxy:
+	case ListenProxy, ListenCloudflare:
 		p.Bind = net.JoinHostPort("0.0.0.0", strconv.Itoa(port))
 		p.TLSMode = config.TLSOff
+		if c == ListenCloudflare && !slices.Contains(p.TrustedProxies, config.TrustedProxyCloudflare) {
+			p.TrustedProxies = append([]string{config.TrustedProxyCloudflare}, p.TrustedProxies...)
+		}
 	}
 	p.Listen = c
 	p.ExternalURL = defaultExternalURL(c, p.Bind, p.TLSMode, hostname)
@@ -566,7 +575,7 @@ func defaultExternalURL(c ListenChoice, bind string, mode config.TLSMode, hostna
 	if err != nil {
 		return ""
 	}
-	if c == ListenProxy {
+	if c == ListenProxy || c == ListenCloudflare {
 		// The proxy terminates TLS on 443, so the URL is the host's name and
 		// nothing else.
 		return "https://" + hostname
@@ -921,7 +930,7 @@ func applyAnswers(p Plan, a *Answers) (Plan, error) {
 	}
 	// The listener choice is derived rather than asked for, so that an answer
 	// file that sets only bind and tls still produces the right warnings.
-	p.Listen = listenChoiceFor(p.Bind, p.TLSMode)
+	p.Listen = listenChoiceFor(p.Bind, p.TLSMode, p.TrustedProxies)
 
 	if a.GitHub.APIBaseURL != "" {
 		p.GitHub.APIBaseURL = a.GitHub.APIBaseURL
@@ -965,7 +974,9 @@ func applyAnswers(p Plan, a *Answers) (Plan, error) {
 
 // listenChoiceFor recovers the listener choice from a bind address and TLS
 // mode, which is what an answer file gives us instead of the choice itself.
-func listenChoiceFor(bind string, mode config.TLSMode) ListenChoice {
+// Trusting the cloudflare token is what tells a plain-HTTP public bind apart
+// from Cloudflare specifically.
+func listenChoiceFor(bind string, mode config.TLSMode, trusted []string) ListenChoice {
 	host, _, err := splitBind(bind)
 	if err == nil && isLoopbackHost(host) {
 		return ListenLoopback
@@ -976,6 +987,9 @@ func listenChoiceFor(bind string, mode config.TLSMode) ListenChoice {
 	case config.TLSSelfSigned:
 		return ListenSelfSigned
 	default:
+		if slices.Contains(trusted, config.TrustedProxyCloudflare) {
+			return ListenCloudflare
+		}
 		return ListenProxy
 	}
 }
@@ -1371,10 +1385,11 @@ func (i *Installer) askListener(ctx context.Context, p Plan) (Plan, error) {
 	case ListenSelfSigned:
 		i.ui.warn("GitHub will not deliver webhooks to a self-signed certificate.")
 		i.ui.note("scaling will fall back to the queued-job poller, which reacts in tens of seconds rather than instantly.")
-	case ListenProxy:
+	case ListenProxy, ListenCloudflare:
 		proxies := strings.Join(p.TrustedProxies, ",")
 		if err := i.input(ctx, "Which proxies may set X-Forwarded-For?",
-			"Comma-separated CIDRs, e.g. 10.0.0.0/8. Leave empty to take client addresses from the socket: safe, but every "+
+			"Comma-separated CIDRs, e.g. 10.0.0.0/8; the word cloudflare stands for Cloudflare's published ranges. "+
+				"Leave empty to take client addresses from the socket: safe, but every "+
 				"audit entry and every login rate limit will then record your proxy's address instead of the real client's.",
 			proxies, &proxies, validateCIDRList); err != nil {
 			return p, err
@@ -1510,6 +1525,9 @@ func validateAbsoluteURL(s string) error {
 
 func validateCIDRList(s string) error {
 	for _, part := range splitList(s) {
+		if part == config.TrustedProxyCloudflare {
+			continue
+		}
 		if _, _, err := net.ParseCIDR(part); err != nil {
 			if net.ParseIP(part) == nil {
 				return fmt.Errorf("%q is not an IP address or CIDR, e.g. 10.0.0.0/8", part)

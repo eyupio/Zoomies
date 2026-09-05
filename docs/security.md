@@ -206,7 +206,8 @@ setup all cross the network in cleartext.
 This is legitimate *behind a TLS-terminating reverse proxy* — which is why it is
 a warning rather than an error. If that is your setup, also set
 `server.trusted_proxies` so audit entries record the real client address rather
-than your proxy's.
+than your proxy's. The word `cloudflare` stands for Cloudflare's published
+ranges when Cloudflare is the proxy.
 
 ### `security.disable_auth: true`
 

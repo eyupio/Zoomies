@@ -1,0 +1,28 @@
+{
+  "pack": "Zoomies Media & Brand Pack",
+  "version": "2.1",
+  "date": "2026-09",
+  "assetHierarchy": [
+    "primary full logo",
+    "primary circular dog mark",
+    "secondary front-view cocker-spaniel head and swish",
+    "small-size paw print and swish"
+  ],
+  "provenance": {
+    "primary": {
+      "status": "exact approved source",
+      "source": "Zoomies_Brand_Pack_v1.zip",
+      "handling": "files copied unchanged"
+    },
+    "pawSwish": {
+      "status": "exact approved source",
+      "source": "attached codex-clipboard PNG",
+      "handling": "original preserved; used only for 16, 32, 48, and 64 px favicon/small-mark derivatives"
+    },
+    "frontViewHead": {
+      "status": "restored reconstruction",
+      "source": "approved conversation direction; original binary absent from supplied v1 archive",
+      "handling": "included transparently as a reconstructed secondary asset"
+    }
+  }
+}

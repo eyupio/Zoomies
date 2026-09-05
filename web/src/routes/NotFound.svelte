@@ -17,7 +17,7 @@
   description="It may have been a link to something that has since been deleted. The overview is a good place to start again."
 >
   {#snippet visual()}
-    <Logo variant="mark" size={40} label="" />
+    <Logo variant="mark" size={48} label="" />
   {/snippet}
   <Button variant="primary" href="/">Go to the overview</Button>
 </EmptyState>

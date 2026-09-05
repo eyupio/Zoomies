@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -213,6 +214,29 @@ func TestTrustedProxyParsing(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "trusted_proxies") {
 		t.Errorf("the error does not name the setting: %v", err)
+	}
+}
+
+// The cloudflare token must expand to Cloudflare's published ranges, so a
+// connection from any edge address is trusted without copying CIDRs about.
+func TestTrustedProxyCloudflareTokenExpandsToThePublishedRanges(t *testing.T) {
+	nets, err := parseTrustedProxies([]string{"cloudflare"})
+	if err != nil {
+		t.Fatalf("parseTrustedProxies: %v", err)
+	}
+	if len(nets) != len(config.CloudflareCIDRs) {
+		t.Fatalf("expanded to %d networks, want the %d published ranges", len(nets), len(config.CloudflareCIDRs))
+	}
+	for _, addr := range []string{"104.16.0.1", "162.158.5.5", "2606:4700::1"} {
+		ip := net.ParseIP(addr)
+		if !slices.ContainsFunc(nets, func(n *net.IPNet) bool { return n.Contains(ip) }) {
+			t.Errorf("Cloudflare edge address %s is not trusted by the token", addr)
+		}
+	}
+	// And an address outside the ranges stays untrusted, or the token would
+	// open the trust boundary wider than Cloudflare.
+	if ip := net.ParseIP("192.0.2.7"); slices.ContainsFunc(nets, func(n *net.IPNet) bool { return n.Contains(ip) }) {
+		t.Error("a non-Cloudflare address is trusted by the token")
 	}
 }
 
