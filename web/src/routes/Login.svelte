@@ -21,6 +21,7 @@
   import { authFailureText, sentence } from '$lib/errors';
   import { router } from '$lib/router';
   import { session } from '$lib/state/session.svelte';
+  import { SITE_HOST, SITE_URL } from '$lib/links';
   import Logo from '$lib/components/Logo.svelte';
   import Button from '$lib/components/Button.svelte';
   import Field from '$lib/components/Field.svelte';
@@ -158,7 +159,7 @@
 
 <div class="card">
   <div class="brand">
-    <Logo variant="lockup" size={72} label="Zoomies" />
+    <Logo variant="lockup" size={96} label="Zoomies" />
   </div>
 
   {#if meta?.auth_disabled}
@@ -256,9 +257,10 @@
   {/if}
 </div>
 
-{#if meta?.version}
-  <p class="version">Zoomies {meta.version}</p>
-{/if}
+<p class="colophon">
+  {#if meta?.version}<span class="version">Zoomies {meta.version}</span>{/if}
+  <a href={SITE_URL} target="_blank" rel="noopener noreferrer">{SITE_HOST}</a>
+</p>
 
 <style>
   /*
@@ -353,13 +355,33 @@
     color: var(--z-text-muted);
     text-align: center;
   }
-  /* Outside the card: a build number is about the installation, not about
-     signing in, and it should not be the last thing inside the box. */
-  .version {
+  /*
+    Outside the card: a build number is about the installation, not about
+    signing in, and it should not be the last thing inside the box.
+
+    The project link sits beside it because this page is where Zoomies is met
+    by people who did not install it -- a developer sent a URL by the operator
+    who did. One quiet line is enough to tell them what they are looking at.
+  */
+  .colophon {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--z-space-1) var(--z-space-3);
     margin: 0;
-    font-family: var(--z-font-mono);
     font-size: var(--z-text-2xs);
     color: var(--z-text-subtle);
-    text-align: center;
+  }
+  .version {
+    font-family: var(--z-font-mono);
+  }
+  .colophon a {
+    color: inherit;
+    text-decoration: none;
+  }
+  .colophon a:hover,
+  .colophon a:focus-visible {
+    color: var(--z-text-muted);
+    text-decoration: underline;
   }
 </style>

@@ -29,13 +29,30 @@ type installationResponse struct {
 	APIBaseURL     string           `json:"api_base_url"`
 	AppSlug        string           `json:"app_slug,omitempty"`
 	WebURL         string           `json:"web_url,omitempty"`
-	Enterprise     bool             `json:"enterprise"`
-	Healthy        bool             `json:"healthy"`
-	LastError      string           `json:"last_error,omitempty"`
-	LastCheckedAt  *time.Time       `json:"last_checked_at"`
-	PoolCount      int              `json:"pool_count"`
-	CreatedAt      time.Time        `json:"created_at"`
-	UpdatedAt      time.Time        `json:"updated_at"`
+	// SettingsURL is the App's own settings page on GitHub. It is carried on
+	// every installation, not only on the one the connect flow just created,
+	// because the one thing a manifest cannot do is set the App's avatar --
+	// GitHub takes it as an upload -- and an operator who missed that step
+	// during setup has nowhere else to be told about it. Empty when the slug
+	// is unknown, which is what a hand-added installation looks like.
+	SettingsURL   string     `json:"settings_url,omitempty"`
+	Enterprise    bool       `json:"enterprise"`
+	Healthy       bool       `json:"healthy"`
+	LastError     string     `json:"last_error,omitempty"`
+	LastCheckedAt *time.Time `json:"last_checked_at"`
+	PoolCount     int        `json:"pool_count"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+}
+
+// settingsOrgOf names the organisation an App's settings live under, which is
+// the target for an org App and nothing at all for a repo App: GitHub answers
+// the wrong one with a 404 rather than a redirect.
+func settingsOrgOf(i *store.Installation) string {
+	if i.TargetType == store.TargetOrg {
+		return i.Target
+	}
+	return ""
 }
 
 func installationResponseOf(i *store.Installation, pools int) installationResponse {
@@ -48,6 +65,7 @@ func installationResponseOf(i *store.Installation, pools int) installationRespon
 		APIBaseURL:     i.APIBaseURL,
 		AppSlug:        i.AppSlug,
 		WebURL:         github.WebURLForAPI(i.APIBaseURL),
+		SettingsURL:    github.SettingsURL(i.APIBaseURL, i.AppSlug, settingsOrgOf(i)),
 		Enterprise:     github.IsEnterprise(i.APIBaseURL),
 		Healthy:        i.Healthy(),
 		LastError:      i.LastError,

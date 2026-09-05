@@ -1,0 +1,5 @@
+# zoomies.sh is meant to be found. Everything here is public documentation.
+User-agent: *
+Allow: /
+
+Sitemap: https://zoomies.sh/sitemap.xml

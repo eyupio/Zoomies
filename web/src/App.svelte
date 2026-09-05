@@ -99,12 +99,12 @@
 
 {#if session.phase === 'booting'}
   <div class="boot" aria-busy="true">
-    <Logo variant="lockup" size={72} label="" />
+    <Logo variant="lockup" size={96} label="" />
     <span class="sr-only">Loading Zoomies</span>
   </div>
 {:else if session.phase === 'failed'}
   <main id="main" class="centred">
-    <div class="brand"><Logo variant="lockup" size={56} label="" /></div>
+    <div class="brand"><Logo variant="lockup" size={80} label="" /></div>
     <ErrorState
       error={session.error}
       title="Cannot reach the Zoomies controller"

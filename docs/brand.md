@@ -76,11 +76,29 @@ space. An App manifest cannot carry a logo, so the connect flow hands the
 operator this file and a link to the page that takes it; without it the App
 wears GitHub's grey default and signs every "Set up job" line anonymously.
 
+That is one step in a wizard somebody sees once, so it is also on every
+installation's card on the Installations page, with the same download and the
+same link, until it is dismissed. Whether an App has an avatar is not something
+GitHub will tell us -- its API serves a generated identicon for an App without
+one, indistinguishable from an upload -- so the reminder is offered rather than
+detected, and the operator is the one who says it is done.
+
+To set it by hand: open the App's settings (**Installations -> the connection ->
+Open the App's settings**, or `https://github.com/organizations/<org>/settings/apps/<app>`
+for an organisation App and `https://github.com/settings/apps/<app>` for a
+personal one) and upload `brand/github-avatar.png` under **Display
+information**. GitHub crops it to a circle, which the file already allows for.
+
 ## Using the system in the product
 
 The full primary logo appears on the sign-in, first-run, boot and connection
-failure screens. It is the identity, so it is shown at no less than 220px wide
-on a Zoomies Black holding shape.
+failure screens. It is the identity, and on those screens it is the only thing
+on the page, so it is given room: about 300px on the sign-in and first-run
+screens, 250px on the two transient ones, and never below the 220px minimum. The
+holding shape is Zoomies Black, and it is capped at the width of whatever
+contains it, so a phone shrinks the lockup rather than overflowing. The artwork
+carries its own clear space, so the shape is deliberately larger than the dog
+inside it -- that padding is part of the supplied file and is not cropped away.
 
 The secondary head/swish carries spacious product identity slots at 48px, such
 as Settings → About. The paw/swish carries the navbar, where the detailed dog
@@ -167,6 +185,27 @@ part GitHub truncated.
 
 `internal/store/brand.go` is the one place these are spelled out;
 `web/src/lib/brand.ts` is the browser's copy of it.
+
+## Sharing and discovery
+
+Most people meet Zoomies on somebody else's screen: a controller their
+colleague installed, or a link pasted into a chat window. Two places carry the
+identity outwards, and both are part of the brand rather than an afterthought.
+
+**A controller's own page.** `web/index.html` carries Open Graph and Twitter
+card tags, `brand/social-card.png` as the card image, and one hairline link to
+[zoomies.sh](https://zoomies.sh) in the sign-in colophon and the footer of every
+signed-in page. `og:url` and `og:image` have to be absolute for a preview to
+render at all -- the service fetching the page is not a browser and has no base
+to resolve a relative path against -- so the controller substitutes
+`server.external_url` into them when it starts. An instance that has not been
+told its own address keeps relative paths rather than guessing at one.
+
+**The site.** `overrides/main.html` extends the Material theme with the same
+tags, derived per page, plus a `SoftwareApplication` description in JSON-LD on
+the home page. Material's own social plugin is not used: it renders a card
+image per page with Cairo and Pillow, which is two native libraries in the docs
+build for a picture the brand pack already supplies.
 
 ## For print, signage or merchandise
 

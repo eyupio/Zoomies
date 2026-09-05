@@ -166,7 +166,7 @@
 
 <div class="card">
   <div class="brand">
-    <Logo variant="lockup" size={72} label="Zoomies" />
+    <Logo variant="lockup" size={96} label="Zoomies" />
   </div>
   <p class="step">Step 1 of 4</p>
   <h1>Create the first administrator</h1>

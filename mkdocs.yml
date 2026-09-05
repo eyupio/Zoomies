@@ -24,6 +24,10 @@ site_dir: site
 
 theme:
   name: material
+  # Sharing and structured metadata that Material does not emit by itself.
+  # overrides/main.html extends the theme rather than replacing anything. It is
+  # outside docs/ so the template is not also published as a page.
+  custom_dir: overrides
   language: en
   favicon: brand/favicon.ico
   # The header renders at favicon scale, where v2.1 reserves the paw/swish.

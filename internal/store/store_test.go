@@ -316,6 +316,49 @@ func TestHostWithNoStoredProbeReadsBack(t *testing.T) {
 	}
 }
 
+// TestSetInstallationAppSlugRecordsWhatTheProbeLearned covers the field an
+// installation added by hand never carries. Every link to the App on GitHub is
+// built from its slug -- including the settings page where its avatar is
+// uploaded, the one setup step an App manifest cannot do -- so an installation
+// whose slug is never learned has no way of offering that link at all.
+func TestSetInstallationAppSlugRecordsWhatTheProbeLearned(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	inst := &Installation{AppID: 1, InstallationID: 2, Target: "acme", TargetType: TargetOrg}
+	if err := s.CreateInstallation(ctx, inst); err != nil {
+		t.Fatalf("CreateInstallation: %v", err)
+	}
+	if inst.AppSlug != "" {
+		t.Fatalf("a hand-added installation started with the slug %q", inst.AppSlug)
+	}
+
+	if err := s.SetInstallationAppSlug(ctx, inst.ID, "zoomies-acme"); err != nil {
+		t.Fatalf("SetInstallationAppSlug: %v", err)
+	}
+	got, err := s.GetInstallation(ctx, inst.ID)
+	if err != nil {
+		t.Fatalf("GetInstallation: %v", err)
+	}
+	if got.AppSlug != "zoomies-acme" {
+		t.Errorf("app slug = %q, want zoomies-acme", got.AppSlug)
+	}
+
+	// Writing the same slug again must not touch the row: the probe runs on a
+	// timer, and a row whose updated_at moves every minute makes the change
+	// feed useless for telling what actually changed.
+	before := got.UpdatedAt
+	if err := s.SetInstallationAppSlug(ctx, inst.ID, "zoomies-acme"); err != nil {
+		t.Fatalf("SetInstallationAppSlug again: %v", err)
+	}
+	again, err := s.GetInstallation(ctx, inst.ID)
+	if err != nil {
+		t.Fatalf("GetInstallation: %v", err)
+	}
+	if !again.UpdatedAt.Equal(before) {
+		t.Errorf("updated_at moved on an unchanged slug: %v -> %v", before, again.UpdatedAt)
+	}
+}
+
 // The unmatched filter is what the Jobs page's "these will never run" banner is
 // counted from, so it must not include a job that demonstrably already ran. A
 // repository left on a hosted-runner vendor produces exactly that: labels no

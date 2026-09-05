@@ -114,7 +114,7 @@ func TestSecurityHeaders(t *testing.T) {
 }
 
 func TestInlineScriptHashesMatchTheEmbeddedPage(t *testing.T) {
-	h, err := newSPAHandler()
+	h, err := newSPAHandler("https://zoomies.test")
 	if err != nil {
 		t.Fatalf("newSPAHandler: %v", err)
 	}
@@ -126,6 +126,54 @@ func TestInlineScriptHashesMatchTheEmbeddedPage(t *testing.T) {
 	}
 	if strings.Contains(string(h.index), "localStorage") && len(found) == 0 {
 		t.Error("the page has an inline script but no hash was computed for it")
+	}
+}
+
+// TestSharingTagsCarryTheControllersOwnAddress covers the substitution the
+// sharing tags depend on. A link preview is rendered by a service fetching the
+// page on its own, with no base URL to resolve a relative image against, so an
+// og:image that still said __ZOOMIES_ORIGIN__ -- or that said nothing absolute
+// at all -- would render a card with no picture on it.
+func TestSharingTagsCarryTheControllersOwnAddress(t *testing.T) {
+	h, err := newSPAHandler("https://zoomies.test/")
+	if err != nil {
+		t.Fatalf("newSPAHandler: %v", err)
+	}
+	page := string(h.index)
+	if strings.Contains(page, originToken) {
+		t.Errorf("the served page still carries %s", originToken)
+	}
+	// The placeholder page has no sharing tags at all, so there is nothing
+	// further to check on a build that skipped the UI.
+	if !h.built {
+		return
+	}
+	if want := `content="https://zoomies.test/brand/social-card.png"`; !strings.Contains(page, want) {
+		t.Errorf("the page does not carry an absolute og:image; want %s", want)
+	}
+	// A trailing slash on external_url must not survive into a doubled one.
+	if strings.Contains(page, "zoomies.test//") {
+		t.Error("external_url's trailing slash was not trimmed")
+	}
+}
+
+// TestSharingTagsStayRelativeWithoutAnExternalURL covers the other half: a
+// controller that has not been told its own address must not guess at one, or
+// the preview points at somebody else's host.
+func TestSharingTagsStayRelativeWithoutAnExternalURL(t *testing.T) {
+	h, err := newSPAHandler("")
+	if err != nil {
+		t.Fatalf("newSPAHandler: %v", err)
+	}
+	page := string(h.index)
+	if strings.Contains(page, originToken) {
+		t.Errorf("the served page still carries %s", originToken)
+	}
+	if !h.built {
+		return
+	}
+	if want := `content="/brand/social-card.png"`; !strings.Contains(page, want) {
+		t.Errorf("the page does not carry a relative og:image; want %s", want)
 	}
 }
 

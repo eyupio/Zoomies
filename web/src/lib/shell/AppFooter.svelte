@@ -11,9 +11,15 @@
 
   It stays a hairline. This is an operations dashboard, and nothing down here
   may compete with the fleet above it.
+
+  Its one outbound link is also the only thing in the signed-in shell that says
+  where Zoomies came from. Somebody reading this page is usually looking at a
+  controller a colleague installed, so the link earns its place twice over --
+  see docs/brand.md.
 -->
 <script lang="ts">
   import { session } from '../state/session.svelte';
+  import { QUICKSTART_URL } from '../links';
   import Logo from '../components/Logo.svelte';
 
   const version = $derived(session.meta?.version);
@@ -33,7 +39,7 @@
            minutes who wants to know what a runner group is, or what the
            host-socket option costs them, had to leave and guess a URL. It is a
            hyperlink, not a fetch, so an air-gapped install is unaffected. -->
-      <a class="docs" href="https://zoomies.sh/quickstart/" rel="noreferrer">Docs</a>
+      <a class="docs" href={QUICKSTART_URL} rel="noreferrer">Docs</a>
       <span class="descriptor">Self-hosted Git runners</span>
     </span>
   </div>

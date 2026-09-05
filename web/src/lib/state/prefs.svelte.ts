@@ -1,6 +1,7 @@
 /**
  * Per-operator preferences: whether the navigation is collapsed, which columns
- * a grid shows, and how many rows it asks for.
+ * a grid shows, how many rows it asks for, and which one-off notices have been
+ * put away.
  *
  * Every localStorage access is wrapped, because private-browsing modes throw on
  * access rather than returning null, and a dashboard that will not boot in a
@@ -45,6 +46,13 @@ export interface GridPrefs {
 interface StoredPrefs {
   navCollapsed?: boolean;
   grids?: Record<string, GridPrefs>;
+  /**
+   * Notices this browser has been told to stop showing. They are stored as a
+   * list of ids rather than a flag per notice so a notice that is retired
+   * leaves nothing behind, and they live here rather than on the server
+   * because a nudge is one operator's business, not the fleet's.
+   */
+  dismissed?: string[];
 }
 
 function load(): StoredPrefs {
@@ -65,11 +73,13 @@ export const DEFAULT_PAGE_SIZE = 50;
 class Prefs {
   #navCollapsed = $state(false);
   #grids = $state<Record<string, GridPrefs>>({});
+  #dismissed = $state<string[]>([]);
 
   constructor() {
     const stored = load();
     this.#navCollapsed = stored.navCollapsed ?? storage.get(NAV_KEY) === '1';
     this.#grids = stored.grids ?? {};
+    this.#dismissed = stored.dismissed ?? [];
     this.#applyNav();
   }
 
@@ -116,6 +126,17 @@ class Prefs {
     this.#persist();
   }
 
+  /** Whether this browser has put a one-off notice away. */
+  isDismissed(notice: string): boolean {
+    return this.#dismissed.includes(notice);
+  }
+
+  dismiss(notice: string): void {
+    if (this.#dismissed.includes(notice)) return;
+    this.#dismissed = [...this.#dismissed, notice];
+    this.#persist();
+  }
+
   #applyNav(): void {
     if (typeof document === 'undefined') return;
     if (this.#navCollapsed) document.documentElement.setAttribute('data-nav', 'collapsed');
@@ -128,6 +149,7 @@ class Prefs {
       JSON.stringify({
         navCollapsed: this.#navCollapsed,
         grids: this.#grids,
+        dismissed: this.#dismissed,
       } satisfies StoredPrefs),
     );
   }

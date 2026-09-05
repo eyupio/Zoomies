@@ -1786,6 +1786,12 @@ components:
         api_base_url: { type: string }
         app_slug: { type: string }
         web_url: { type: string }
+        settings_url:
+          type: string
+          description: >-
+            The App's own settings page on GitHub, which is the only place its
+            avatar can be uploaded. Absent when the App's slug is unknown.
+          examples: ["https://github.com/organizations/acme/settings/apps/zoomies-acme"]
         enterprise: { type: boolean }
         healthy: { type: boolean }
         last_error: { type: string }
