@@ -185,8 +185,11 @@
         return;
       }
       case 2: {
-        // The mapping changed, so every diff downstream is stale.
-        await scan(chosen);
+        // The mapping changed, so every diff downstream is stale. A scan
+        // that failed leaves the old plan in place, and the review must not
+        // show it as if it were the new mapping's -- the pull requests it
+        // would open are built from the mapping, not from what is on screen.
+        if (!(await scan(chosen))) step -= 1;
         return;
       }
       default:
