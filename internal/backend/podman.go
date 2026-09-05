@@ -82,3 +82,7 @@ func (b *PodmanBackend) Create(ctx context.Context, spec Spec) (Handle, error) {
 	}
 	return b.DockerBackend.Create(ctx, spec)
 }
+
+func (b *PodmanBackend) CreateWithResult(ctx context.Context, spec Spec) (CreateResult, error) {
+	return b.DockerBackend.CreateWithResult(ctx, spec)
+}

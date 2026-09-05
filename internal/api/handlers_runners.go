@@ -29,6 +29,7 @@ type runnerDetailResponse struct {
 // timelineEntry is one step of a runner's life.
 type timelineEntry struct {
 	State      store.RunnerState `json:"state"`
+	Stage      string            `json:"stage,omitempty"`
 	At         time.Time         `json:"at"`
 	DurationMS int64             `json:"duration_ms"`
 	Message    string            `json:"message,omitempty"`
@@ -128,6 +129,18 @@ func runnerTimeline(r *store.Runner, now time.Time) []timelineEntry {
 		At:      r.CreatedAt,
 		Message: "the controller asked an agent to create this runner",
 	}}
+	if r.ImagePullDuration != nil && r.ContainerStartedAt != nil {
+		at := r.ContainerStartedAt.Add(-*r.ImagePullDuration)
+		if !at.Before(r.CreatedAt) {
+			entries = append(entries, timelineEntry{State: store.RunnerProvisioning, Stage: "image_pulling", At: at, Message: "pulling the runner image"})
+		}
+	}
+	if r.ContainerStartedAt != nil {
+		entries = append(entries, timelineEntry{State: store.RunnerRegistering, Stage: "container_started", At: *r.ContainerStartedAt, Message: "the runner container started"})
+	}
+	if r.RegisteredAt != nil {
+		entries = append(entries, timelineEntry{State: store.RunnerRegistering, Stage: "registered", At: *r.RegisteredAt, Message: "registered with GitHub"})
+	}
 	if r.StartedAt != nil {
 		entries = append(entries, timelineEntry{
 			State:   store.RunnerRegistering,

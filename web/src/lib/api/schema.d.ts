@@ -1236,6 +1236,20 @@ export interface components {
             median_wait_ms?: number;
             /** Format: int64 */
             p95_wait_ms?: number;
+            /**
+             * Format: int64
+             * @description Median runner creation-to-container-start latency.
+             */
+            p50_startup_ms?: number;
+            /** Format: int64 */
+            p95_startup_ms?: number;
+            /**
+             * Format: int64
+             * @description Median container-start-to-registration latency.
+             */
+            p50_registration_ms?: number;
+            /** Format: int64 */
+            p95_registration_ms?: number;
             runners?: {
                 provisioning?: number;
                 registering?: number;
@@ -1675,6 +1689,11 @@ export interface components {
             host_id?: string;
             host_name?: string;
             state?: components["schemas"]["RunnerState"];
+            /**
+             * @description More precise startup stage when observed.
+             * @enum {string}
+             */
+            stage?: "image_pulling" | "container_started" | "registered";
             /** Format: int64 */
             github_runner_id?: number;
             container_id?: string;

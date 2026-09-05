@@ -584,9 +584,12 @@ type Runner struct {
 	ImageDigest   string      `json:"image_digest,omitempty"`
 	RunnerVersion string      `json:"runner_version,omitempty"`
 	// CurrentJobID points at the jobs row this runner is executing, if any.
-	CurrentJobID string     `json:"current_job_id,omitempty"`
-	CreatedAt    time.Time  `json:"created_at"`
-	StartedAt    *time.Time `json:"started_at,omitempty"`
+	CurrentJobID       string         `json:"current_job_id,omitempty"`
+	CreatedAt          time.Time      `json:"created_at"`
+	ImagePullDuration  *time.Duration `json:"image_pull_duration,omitempty"`
+	ContainerStartedAt *time.Time     `json:"container_started_at,omitempty"`
+	RegisteredAt       *time.Time     `json:"registered_at,omitempty"`
+	StartedAt          *time.Time     `json:"started_at,omitempty"`
 	// LastIdleAt is when the runner most recently became idle; the scale-down
 	// path measures the idle timeout from here.
 	LastIdleAt  *time.Time `json:"last_idle_at,omitempty"`

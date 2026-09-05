@@ -1804,6 +1804,10 @@ components:
         failed: { type: integer }
         median_wait_ms: { type: integer, format: int64 }
         p95_wait_ms: { type: integer, format: int64 }
+        p50_startup_ms: { type: integer, format: int64, description: Median runner creation-to-container-start latency. }
+        p95_startup_ms: { type: integer, format: int64 }
+        p50_registration_ms: { type: integer, format: int64, description: Median container-start-to-registration latency. }
+        p95_registration_ms: { type: integer, format: int64 }
         runners:
           type: object
           properties:
@@ -2234,6 +2238,7 @@ components:
         host_id: { type: string }
         host_name: { type: string }
         state: { $ref: "#/components/schemas/RunnerState" }
+        stage: { type: string, description: More precise startup stage when observed., enum: [image_pulling, container_started, registered] }
         github_runner_id: { type: integer, format: int64 }
         container_id: { type: string }
         ephemeral: { type: boolean }

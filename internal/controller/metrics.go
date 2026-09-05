@@ -25,14 +25,15 @@ const collectTimeout = 5 * time.Second
 type metrics struct {
 	reg *prometheus.Registry
 
-	jobsTotal         *prometheus.CounterVec
-	queueWait         prometheus.Histogram
-	jobDuration       prometheus.Histogram
-	scalingEvents     *prometheus.CounterVec
-	webhookDeliveries *prometheus.CounterVec
-	githubRequests    *prometheus.CounterVec
-	reconcileDuration prometheus.Histogram
-	buildInfo         *prometheus.GaugeVec
+	jobsTotal                                                                                    *prometheus.CounterVec
+	queueWait                                                                                    prometheus.Histogram
+	jobDuration                                                                                  prometheus.Histogram
+	queuedToCreate, createToContainer, containerToRegistered, registeredToReady, queuedToStarted *prometheus.HistogramVec
+	scalingEvents                                                                                *prometheus.CounterVec
+	webhookDeliveries                                                                            *prometheus.CounterVec
+	githubRequests                                                                               *prometheus.CounterVec
+	reconcileDuration                                                                            prometheus.Histogram
+	buildInfo                                                                                    *prometheus.GaugeVec
 }
 
 func newMetrics(c *Controller) *metrics {
@@ -54,6 +55,11 @@ func newMetrics(c *Controller) *metrics {
 			Help:    "How long jobs took to run once they started.",
 			Buckets: []float64{10, 30, 60, 300, 600, 1800, 3600, 7200, 21600},
 		}),
+		queuedToCreate:        startupHistogram("zoomies_runner_queued_to_create_seconds", "Time from a queued job to runner creation."),
+		createToContainer:     startupHistogram("zoomies_runner_create_to_container_started_seconds", "Time from runner creation to its container starting."),
+		containerToRegistered: startupHistogram("zoomies_runner_container_started_to_registered_seconds", "Time from container start to GitHub registration."),
+		registeredToReady:     startupHistogram("zoomies_runner_registered_to_ready_seconds", "Time from registration to the runner becoming idle or busy."),
+		queuedToStarted:       startupHistogram("zoomies_runner_queued_to_job_started_seconds", "Total time from queueing to job start."),
 		scalingEvents: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "zoomies_scaling_events_total",
 			Help: "Scheduler decisions that changed a pool's size, by direction.",
@@ -81,11 +87,25 @@ func newMetrics(c *Controller) *metrics {
 	m.reg.MustRegister(
 		m.jobsTotal, m.queueWait, m.jobDuration, m.scalingEvents,
 		m.webhookDeliveries, m.githubRequests, m.reconcileDuration, m.buildInfo,
+		m.queuedToCreate, m.createToContainer, m.containerToRegistered, m.registeredToReady, m.queuedToStarted,
 		&fleetCollector{c: c},
 		collectors.NewGoCollector(),
 		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)
 	return m
+}
+
+func startupHistogram(name, help string) *prometheus.HistogramVec {
+	return prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: name, Help: help,
+		Buckets: []float64{.1, .5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600, 1800}}, []string{"pool", "backend"})
+}
+
+func observeDuration(h *prometheus.HistogramVec, pool, backend string, from, to time.Time) bool {
+	if from.IsZero() || to.IsZero() || to.Before(from) {
+		return false
+	}
+	h.WithLabelValues(pool, backend).Observe(to.Sub(from).Seconds())
+	return true
 }
 
 // Registry returns the Prometheus registry the API serves at the configured

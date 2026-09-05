@@ -223,6 +223,13 @@ func (c *Controller) handleWorkflowJob(ctx context.Context, body []byte) error {
 	if err != nil {
 		return fmt.Errorf("recording job %d: %w", e.JobID, err)
 	}
+	if saved.StartedAt != nil {
+		poolName, backendName := "unmatched", "unknown"
+		if p, e := c.st.GetPool(ctx, saved.PoolID); e == nil {
+			poolName, backendName = p.Name, string(p.Backend)
+		}
+		observeDuration(c.metrics.queuedToStarted, poolName, backendName, saved.QueuedAt, *saved.StartedAt)
+	}
 
 	if runner != nil {
 		switch saved.State {

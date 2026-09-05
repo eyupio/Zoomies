@@ -140,10 +140,14 @@ func TestProcessCreateLayout(t *testing.T) {
 	b, root := newStubProcessBackend(t)
 	ctx := context.Background()
 
-	h, err := b.Create(ctx, processSpec())
+	result, err := b.CreateWithResult(ctx, processSpec())
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
+	if result.ImagePullDuration != nil {
+		t.Fatalf("process backend invented an image pull duration: %v", *result.ImagePullDuration)
+	}
+	h := result.Handle
 	t.Cleanup(func() { _ = b.Remove(context.Background(), h) })
 
 	dir := string(h)

@@ -27,6 +27,15 @@ var ErrUnavailable = errors.New("backend: not available on this host")
 // container ID; for the process backend it is the runner's work directory.
 type Handle string
 
+// CreateResult separates time spent fetching container images from the work
+// needed to create and start the workload. ImagePullDuration is nil when a
+// backend cannot observe an image pull (notably the process backend).
+type CreateResult struct {
+	Handle            Handle         `json:"handle"`
+	ImagePullDuration *time.Duration `json:"image_pull_duration,omitempty"`
+	CreateDuration    time.Duration  `json:"create_duration"`
+}
+
 // Phase is the backend's view of a workload, which is coarser than the runner
 // state machine: the backend knows whether the process is alive, not whether
 // GitHub has given it a job.
@@ -193,6 +202,13 @@ type Backend interface {
 	// List returns every workload this backend owns, including ones the agent
 	// has forgotten about. The agent uses it to reap orphans after a restart.
 	List(ctx context.Context) ([]Workload, error)
+}
+
+// TimedCreator is implemented by backends that expose creation timing. It is
+// optional so third-party and older backends retain the explicit unavailable
+// path rather than fabricating an image-pull duration.
+type TimedCreator interface {
+	CreateWithResult(context.Context, Spec) (CreateResult, error)
 }
 
 // ImagePrewarmer is implemented by container backends. It prepares an image

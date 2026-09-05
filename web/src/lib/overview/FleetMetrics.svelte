@@ -152,6 +152,10 @@
 
   const medianWait = $derived(stats?.median_wait_ms);
   const p95Wait = $derived(stats?.p95_wait_ms);
+  const p50Startup = $derived(stats?.p50_startup_ms);
+  const p95Startup = $derived(stats?.p95_startup_ms);
+  const p50Registration = $derived(stats?.p50_registration_ms);
+  const p95Registration = $derived(stats?.p95_registration_ms);
 
   /** A series is only worth drawing, or comparing against, once it has a shape. */
   function trend(values: readonly number[]): readonly number[] | undefined {
@@ -216,6 +220,24 @@
     deltaLabel="s in the hour"
     sparkline={trend(waitSeries)}
     hint={p95Wait === undefined ? undefined : `p95 ${formatDuration(p95Wait)}`}
+    {loading}
+  />
+  <MetricTile
+    label="Runner startup p50"
+    value={formatDuration(p50Startup)}
+    hint={p95Startup === undefined ? undefined : `p95 ${formatDuration(p95Startup)}`}
+    href="/runners"
+    tone="pending"
+    goodWhen="down"
+    {loading}
+  />
+  <MetricTile
+    label="Registration p50"
+    value={formatDuration(p50Registration)}
+    hint={p95Registration === undefined ? undefined : `p95 ${formatDuration(p95Registration)}`}
+    href="/runners"
+    tone="pending"
+    goodWhen="down"
     {loading}
   />
 </div>
