@@ -125,3 +125,54 @@ test('a grid is still usable at this width', async ({ page }) => {
   await expect(pageHeading(page, name)).toBeVisible();
   await expect(page.getByRole('region', { name: 'Timeline' })).toBeVisible();
 });
+
+test('the Settings tables stay inside the screen once they have rows', async ({ page }) => {
+  // The join-tokens table caught this one: a table wider than a phone scrolls
+  // inside its own box, yet mobile Chrome still counted the clipped part
+  // towards the page's width, grew the layout viewport to fit, and the fixed
+  // bottom navigation grew with it -- so the whole page scrolled sideways. The
+  // accounts and API-token tables are the same shape, and the test server
+  // starts with neither, so each is given a row here. Unique names, so a retry
+  // does not trip over a leftover from a failed run.
+  const stamp = Date.now();
+  let userId = '';
+  let tokenId = '';
+  try {
+    const user = await page.request.post('/api/v1/users', {
+      data: {
+        username: `e2e-user-${stamp}`,
+        password: 'correct horse battery staple',
+        display_name: 'Someone With A Long Display Name',
+        email: `e2e-user-${stamp}@example.com`,
+        role: 'viewer',
+      },
+    });
+    expect(user.ok(), 'the account was created').toBeTruthy();
+    userId = ((await user.json()) as { id: string }).id;
+    const token = await page.request.post('/api/v1/tokens', {
+      data: {
+        name: `e2e-token-${stamp}`,
+        role: 'operator',
+        scopes: ['pools:read', 'runners:read', 'jobs:read'],
+        expires_in: '1h',
+      },
+    });
+    expect(token.ok(), 'the token was created').toBeTruthy();
+    tokenId = ((await token.json()) as { id: string }).id;
+
+    await goto(page, '/settings', 'Settings');
+    const accounts = page.getByRole('table', { name: 'Accounts' });
+    await expect(accounts.getByRole('row').filter({ hasText: `e2e-user-${stamp}` })).toBeVisible();
+    await expectNoSidewaysScroll(page, 'the Settings page listing an account');
+
+    await page.getByRole('tab', { name: 'API tokens' }).click();
+    const tokens = page.getByRole('table', { name: 'API tokens' });
+    await expect(tokens.getByRole('row').filter({ hasText: `e2e-token-${stamp}` })).toBeVisible();
+    await expectNoSidewaysScroll(page, 'the Settings page listing an API token');
+  } finally {
+    // A token cannot be deleted, only revoked: its row stays, marked revoked,
+    // so the audit trail keeps pointing at something.
+    if (tokenId) await page.request.delete(`/api/v1/tokens/${tokenId}`);
+    if (userId) await page.request.delete(`/api/v1/users/${userId}`);
+  }
+});
