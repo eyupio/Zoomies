@@ -15,6 +15,11 @@
     until: string;
     unmatched: boolean;
     /**
+     * Only jobs that went wrong, on either side: a failing conclusion, or a
+     * runner of this fleet that stopped under the job.
+     */
+    failed: boolean;
+    /**
      * Show every job GitHub reported, not only the ones this fleet has a hand in.
      * Inverted on purpose: the default view is Zoomies' own jobs, so an absent
      * URL key means the default rather than "show everything".
@@ -33,6 +38,7 @@
     since: '',
     until: '',
     unmatched: false,
+    failed: false,
     all: false,
   };
 </script>
@@ -152,6 +158,16 @@
           },
         ]
       : []),
+    ...(value.failed
+      ? [
+          {
+            id: 'failed',
+            label: 'Only',
+            value: 'jobs that went wrong',
+            onremove: () => onchange({ failed: false }),
+          },
+        ]
+      : []),
     ...(value.all
       ? [
           {
@@ -233,6 +249,13 @@
     description="Queued jobs no enabled pool claims"
     checked={value.unmatched}
     onchange={(on) => onchange({ unmatched: on })}
+  />
+
+  <Switch
+    label="Failed only"
+    description="Failing conclusions, and runners that stopped under a job"
+    checked={value.failed}
+    onchange={(on) => onchange({ failed: on })}
   />
 
   <Switch

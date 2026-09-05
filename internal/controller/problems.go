@@ -355,6 +355,9 @@ func plural(n int, noun string) string {
 }
 
 func (c *Controller) jobProblems(ctx context.Context, out *[]Problem) error {
+	if err := c.lostRunnerProblems(ctx, out); err != nil {
+		return err
+	}
 	unmatched, err := c.unmatchedQueuedJobs(ctx)
 	if err != nil {
 		return err
@@ -372,6 +375,51 @@ func (c *Controller) jobProblems(ctx context.Context, out *[]Problem) error {
 			example.JobName, example.Repo, labels),
 		Fix:        "create or enable a pool advertising those labels, or change the workflow's runs-on.",
 		TargetKind: "job", TargetID: example.ID, Since: &example.QueuedAt,
+	})
+	return nil
+}
+
+// lostRunnerProblems reports jobs whose runner stopped under them in the last
+// hour. GitHub records these as failures like any test failure, and a team
+// that sees "CI is flaky" when the fleet is killing their jobs will blame the
+// wrong thing; this is where the fleet owns up.
+func (c *Controller) lostRunnerProblems(ctx context.Context, out *[]Problem) error {
+	faulted, _, err := c.st.ListJobs(ctx, store.JobFilter{FaultedOnly: true},
+		store.Page{Limit: 100, Sort: "queued_at", Desc: true})
+	if err != nil {
+		return fmt.Errorf("listing jobs that lost their runner: %w", err)
+	}
+	since := c.Now().Add(-problemWindow)
+	recent := faulted[:0]
+	for _, j := range faulted {
+		// Filtered here rather than in SQL because the moment that matters
+		// is when the runner went, and the nearest stored stamp to that is
+		// the job's completion -- or, for a job GitHub still thinks is
+		// running, now.
+		if j.CompletedAt == nil || j.CompletedAt.After(since) {
+			recent = append(recent, j)
+		}
+	}
+	if len(recent) == 0 {
+		return nil
+	}
+	example := recent[0]
+	at := example.StartedAt
+	if at == nil {
+		at = &example.QueuedAt
+	}
+	title := fmt.Sprintf("%d jobs lost the runners they were running on in the last hour", len(recent))
+	if len(recent) == 1 {
+		title = "1 job lost the runner it was running on in the last hour"
+	}
+	*out = append(*out, Problem{
+		Code:     "jobs.runner_lost",
+		Severity: config.SeverityWarning,
+		Title:    title,
+		Detail: fmt.Sprintf("GitHub records these as ordinary failures. The most recent is %s in %s: %s.",
+			example.JobName, example.Repo, example.RunnerFault),
+		Fix:        "open the job for its timeline and the runner for its last output; a runner that dies mid-job has usually run out of memory or disk, or was removed with force. Re-run the workflow once the cause is fixed.",
+		TargetKind: "job", TargetID: example.ID, Since: at,
 	})
 	return nil
 }

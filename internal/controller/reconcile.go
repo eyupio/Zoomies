@@ -447,16 +447,27 @@ func (c *Controller) removeRunner(ctx context.Context, r *store.Runner, reason s
 	}
 	c.publishRunner(ctx, events.KindRunnerUpdated, updated)
 	c.log.Info("removed a runner", "runner", r.ID, "name", r.Name, "reason", reason)
+	if r.State == store.RunnerBusy {
+		// Only a forced removal reaches here with a job still running, and
+		// that job is about to fail on GitHub for a reason only this fleet
+		// knows.
+		c.noteRunnerLost(ctx, r, sourceController, reason)
+	}
 	return updated, nil
 }
 
 func (c *Controller) failRunnerID(ctx context.Context, id, reason string) error {
+	before, err := c.st.GetRunner(ctx, id)
+	if err != nil {
+		return err
+	}
 	updated, err := c.st.TransitionRunner(ctx, id, store.RunnerFailed, reason)
 	if err != nil {
 		return err
 	}
 	c.publishRunner(ctx, events.KindRunnerUpdated, updated)
 	c.log.Warn("a runner failed", "runner", updated.ID, "name", updated.Name, "reason", reason)
+	c.noteRunnerLost(ctx, before, sourceController, reason)
 	return nil
 }
 

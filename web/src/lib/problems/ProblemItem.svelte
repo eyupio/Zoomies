@@ -47,6 +47,13 @@
         case 'installation':
           return { href: '/installations', label: 'Open installations' };
         case 'job':
+          // The list that holds the thing, already narrowed to it: the
+          // unmatched job among the unmatched, the lost runner's job among
+          // the failed.
+          if (p.code === 'jobs.runner_lost')
+            return { href: '/jobs?failed=true', label: 'Open failed jobs' };
+          if (p.code === 'jobs.unmatched')
+            return { href: '/jobs?unmatched=true', label: 'Open unmatched jobs' };
           return { href: '/jobs', label: 'Open jobs' };
         default:
           break;

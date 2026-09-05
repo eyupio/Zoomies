@@ -28,6 +28,8 @@ import type { LucideIcon } from '@lucide/svelte';
 import type {
   APIToken,
   Host,
+  Job,
+  JobEventKind,
   JobState,
   JoinToken,
   Pool,
@@ -206,6 +208,67 @@ export const UNMATCHED: StatusMeta = meta(
  */
 export function stuckUnmatched(job: { matched?: boolean; state?: JobState }): boolean {
   return job.matched === false && job.state === 'queued';
+}
+
+/**
+ * A job whose runner stopped under it. GitHub records the job as an ordinary
+ * failure; this badge is how the fleet owns up to having caused it.
+ */
+export const RUNNER_LOST: StatusMeta = meta(
+  'runner_lost',
+  'Runner lost',
+  'danger',
+  'triangle',
+  TriangleAlert,
+  "The runner executing this job stopped before GitHub reported the job over. The failure is the fleet's, not the workflow's.",
+);
+
+/** The conclusions GitHub counts as a job going wrong, as the failed filter does. */
+const FAILING_CONCLUSIONS = new Set(['failure', 'timed_out', 'startup_failure']);
+
+/**
+ * Whether a job went wrong on either side: a failing conclusion, or a runner
+ * that stopped under it -- including one GitHub still believes is running.
+ */
+export function jobFailed(job: Pick<Job, 'conclusion' | 'runner_fault'>): boolean {
+  return Boolean(job.runner_fault) || FAILING_CONCLUSIONS.has((job.conclusion ?? '').toLowerCase());
+}
+
+/**
+ * One step of a job, coloured like the job it belongs to: a step still running
+ * is busy, one that has not started is pending, and a finished one takes its
+ * conclusion.
+ */
+export function stepStatus(step: { status?: string; conclusion?: string }): StatusMeta {
+  if (step.status === 'completed' || step.conclusion) {
+    return jobStatus('completed', step.conclusion);
+  }
+  if (step.status === 'in_progress') return JOB_RUNNING;
+  return meta('queued', 'Not started', 'pending', 'hollow', Clock);
+}
+
+/* -- the job timeline ----------------------------------------------------- */
+
+const JOB_EVENTS: Record<JobEventKind, StatusMeta> = {
+  queued: JOB_QUEUED,
+  claimed: meta('claimed', 'Claimed', 'idle', 'hollow', Circle),
+  unmatched: UNMATCHED,
+  started: JOB_RUNNING,
+  completed: meta('completed', 'Completed', 'neutral', 'square', CircleCheck),
+  runner_lost: RUNNER_LOST,
+};
+
+/**
+ * The status a timeline entry is drawn with. A `completed` entry takes the
+ * job's own conclusion when it is known, so the last mark on a failed job's
+ * timeline is red rather than a neutral "it ended".
+ */
+export function jobEventStatus(
+  kind: JobEventKind | undefined,
+  conclusion?: string | null,
+): StatusMeta {
+  if (kind === 'completed' && conclusion) return jobStatus('completed', conclusion);
+  return kind ? (JOB_EVENTS[kind] ?? UNKNOWN) : UNKNOWN;
 }
 
 /* -- hosts ---------------------------------------------------------------- */

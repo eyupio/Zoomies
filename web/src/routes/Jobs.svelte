@@ -21,7 +21,7 @@
   import { formatDuration } from '$lib/format';
   import { router } from '$lib/router';
   import { fleet } from '$lib/state/fleet.svelte';
-  import { jobStatus, stuckUnmatched, UNMATCHED } from '$lib/status';
+  import { jobStatus, RUNNER_LOST, stuckUnmatched, UNMATCHED } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
   import DataGrid from '$lib/components/DataGrid.svelte';
@@ -54,6 +54,7 @@
     since: router.param('since'),
     until: router.param('until'),
     unmatched: router.param('unmatched') === 'true',
+    failed: router.param('failed') === 'true',
     all: router.param('all') === 'true',
   });
 
@@ -86,6 +87,7 @@
       since: null,
       until: null,
       unmatched: null,
+      failed: null,
       all: null,
       offset: null,
     });
@@ -110,7 +112,15 @@
 
   // A job changing state anywhere refetches the current page, debounced by the
   // grid. There is no refresh button because there is never anything to press.
-  $effect(() => events.subscribe('job.updated', () => (liveKey += 1)));
+  // The job open in the drawer is replaced outright: the frame is the job's
+  // GET shape, so the drawer moves from "running" to "failed at step 3" the
+  // moment GitHub says so, without the operator closing and reopening it.
+  $effect(() =>
+    events.subscribe('job.updated', (job) => {
+      liveKey += 1;
+      if (selected && job.id === selected.id) selected = job;
+    }),
+  );
 
   /** Labels worth offering in the filter: what the pools answer to, plus what this page asked for. */
   const labelOptions = $derived.by(() => {
@@ -131,17 +141,21 @@
   const emptyTitle = $derived(
     filters.unmatched
       ? 'No unmatched jobs'
-      : filters.all
-        ? 'No jobs recorded yet'
-        : 'No jobs have run on this fleet',
+      : filters.failed
+        ? 'No failed jobs'
+        : filters.all
+          ? 'No jobs recorded yet'
+          : 'No jobs have run on this fleet',
   );
 
   const emptyDescription = $derived(
     filters.unmatched
       ? 'Nothing is queued with labels no pool claims, which is how it should be. Jobs that already ran are not counted here however their labels read.'
-      : filters.all
-        ? 'Zoomies records a job the first time GitHub tells it about one, over a webhook delivery. If workflows are running and nothing appears here, the delivery is not arriving.'
-        : 'This view shows jobs a pool claims or a runner here ran. Include other runners to see everything GitHub has reported, hosted runners included.',
+      : filters.failed
+        ? 'Nothing GitHub reported as failed or timed out, and no runner here has stopped under a job. Widen the dates to look further back.'
+        : filters.all
+          ? 'Zoomies records a job the first time GitHub tells it about one, over a webhook delivery. If workflows are running and nothing appears here, the delivery is not arriving.'
+          : 'This view shows jobs a pool claims or a runner here ran. Include other runners to see everything GitHub has reported, hosted runners included.',
   );
 
   /* -- the grid ---------------------------------------------------------------- */
@@ -159,6 +173,7 @@
         since: startOfDay(filters.since),
         until: endOfDay(filters.until),
         unmatched: filters.unmatched ? true : undefined,
+        failed: filters.failed ? true : undefined,
         managed: filters.all ? undefined : true,
         limit: query.limit,
         offset: query.offset,
@@ -189,6 +204,16 @@
     return job.id ?? '';
   }
 
+  /**
+   * The one phrase a row has room for on a job that went wrong: the step it
+   * failed at, or that its runner stopped under it. The drawer says the rest.
+   */
+  function failedAt(job: Job): string {
+    if (job.runner_fault) return 'Runner lost';
+    if (job.failed_step) return job.failed_step.name ?? `step ${job.failed_step.number ?? '?'}`;
+    return '';
+  }
+
   // The sortable ids are the column names the store understands: queued_at,
   // started_at, completed_at, repo, workflow, state, duration and queue_wait.
   const columns = $derived<GridColumn<Job>[]>([
@@ -201,6 +226,7 @@
       value: (job) => jobStatus(job.state, job.conclusion).label,
       cell: stateCell,
     },
+    { id: 'failed_at', header: 'Failed at', value: failedAt, cell: failedAtCell },
     { id: 'repo', header: 'Repository', sortable: true, value: (job) => job.repo ?? '' },
     { id: 'workflow', header: 'Workflow', sortable: true, value: (job) => job.workflow ?? '' },
     { id: 'job_name', header: 'Job', value: (job) => job.job_name ?? '' },
@@ -245,10 +271,25 @@
 {#snippet stateCell(job: Job)}
   <span class="state">
     <StatusDot status={jobStatus(job.state, job.conclusion)} showLabel />
+    {#if job.runner_fault}
+      <Badge status={RUNNER_LOST} size="sm" title={RUNNER_LOST.hint} />
+    {/if}
     {#if stuckUnmatched(job)}
       <Badge status={UNMATCHED} size="sm" title={UNMATCHED.hint} />
     {/if}
   </span>
+{/snippet}
+
+{#snippet failedAtCell(job: Job)}
+  {#if job.runner_fault}
+    <span class="failed-at danger" title={job.runner_fault}>Runner lost</span>
+  {:else if job.failed_step}
+    <span class="failed-at" title="Step {job.failed_step.number}: {job.failed_step.name}">
+      {job.failed_step.name}
+    </span>
+  {:else}
+    <span class="none">--</span>
+  {/if}
 {/snippet}
 
 {#snippet labelsCell(job: Job)}
@@ -385,6 +426,14 @@
   .waiting {
     color: var(--z-pending);
     white-space: nowrap;
+  }
+  .failed-at {
+    color: var(--z-text);
+    overflow-wrap: anywhere;
+  }
+  .failed-at.danger {
+    color: var(--z-danger);
+    font-weight: var(--z-weight-medium);
   }
   .footnote {
     margin: 0;

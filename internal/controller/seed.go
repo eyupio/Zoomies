@@ -330,6 +330,8 @@ func (c *Controller) seedJobs(ctx context.Context, now time.Time, rng *rand.Rand
 		}
 	}
 
+	branches := []string{"main", "main", "main", "feature/faster-builds", "release/2.4", "renovate/deps"}
+
 	for i := range 50 {
 		pool := pools[i%len(pools)]
 		queued := now.Add(-time.Duration(6*60-i*7) * time.Minute)
@@ -345,6 +347,9 @@ func (c *Controller) seedJobs(ctx context.Context, now time.Time, rng *rand.Rand
 			Matched:     true,
 			QueuedAt:    queued,
 			HTMLURL:     fmt.Sprintf("https://github.com/%s/actions/runs/%d", repos[i%len(repos)], 40000+i/2),
+			HeadBranch:  branches[i%len(branches)],
+			HeadSHA:     fmt.Sprintf("%040x", 0xC0FFEE+i*7919),
+			RunAttempt:  1 + i%7/6,
 		}
 
 		switch {
@@ -359,8 +364,22 @@ func (c *Controller) seedJobs(ctx context.Context, now time.Time, rng *rand.Rand
 			completed := started.Add(time.Duration(40+rng.IntN(600)) * time.Second)
 			j.State = store.JobCompleted
 			j.Conclusion = conclusions[i%len(conclusions)]
+			// One failure the fleet owns: the runner died under the job, which
+			// is what the "runner lost" badge, the timeline entry and the
+			// problems drawer entry all have as their fixture. It is the most
+			// recent finished job, so that it falls inside the hour the
+			// problems drawer looks back over.
+			lostRunner := i == 43
+			if lostRunner {
+				j.Conclusion = "failure"
+			}
 			j.StartedAt, j.CompletedAt = &started, &completed
-			j.RunnerName = fmt.Sprintf("%sdemo%04d", store.RunnerNamePrefix, i%12)
+			r := runners[i%12]
+			j.RunnerID, j.RunnerName = r.ID, r.Name
+			j.Steps = demoSteps(j.JobName, j.Conclusion, started, completed)
+			if lostRunner {
+				j.RunnerFault = fmt.Sprintf("runner %s stopped while this job was running: runner exited with code 137: the container was killed for exceeding its memory limit", r.Name)
+			}
 		case i < 47 && len(busy) > 0:
 			// Running right now, on one of the busy runners.
 			r := busy[i%len(busy)]
@@ -368,6 +387,7 @@ func (c *Controller) seedJobs(ctx context.Context, now time.Time, rng *rand.Rand
 			j.State = store.JobInProgress
 			j.StartedAt = &started
 			j.RunnerID, j.RunnerName = r.ID, r.Name
+			j.Steps = demoSteps(j.JobName, "", started, time.Time{})
 		case i < 49:
 			j.State = store.JobQueued
 			j.QueuedAt = now.Add(-time.Duration(20+i) * time.Second)
@@ -387,10 +407,15 @@ func (c *Controller) seedJobs(ctx context.Context, now time.Time, rng *rand.Rand
 		if i == 12 {
 			j.Labels = store.StringSlice{"blacksmith-4vcpu-ubuntu-2404"}
 			j.PoolID, j.Matched = "", false
+			j.RunnerID, j.RunnerName = "", "blacksmith-4vcpu-ubuntu-2404-9f2c"
 		}
 
-		if _, err := c.st.UpsertJob(ctx, j); err != nil {
+		saved, change, err := c.st.ApplyJob(ctx, j)
+		if err != nil {
 			return fmt.Errorf("seeding job %d: %w", i, err)
+		}
+		if err := c.seedJobTimeline(ctx, saved, change); err != nil {
+			return err
 		}
 	}
 
@@ -402,6 +427,83 @@ func (c *Controller) seedJobs(ctx context.Context, now time.Time, rng *rand.Rand
 			continue
 		}
 		if err := c.st.AssignRunnerJob(ctx, r.ID, jobID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// demoSteps renders the steps a job of this name would have, concluded the way
+// the job was: a failure fails on the step that does the work and skips the
+// rest, a cancellation stops there, and a job still running is part-way through
+// it.
+func demoSteps(jobName, conclusion string, started, completed time.Time) store.JobSteps {
+	work := map[string]string{"build": "Build", "test": "Run tests", "lint": "Lint", "package": "Package artefacts"}[jobName]
+	if work == "" {
+		work = "Run " + jobName
+	}
+	names := []string{"Set up job", "Checkout", "Set up toolchain", work, "Post checkout", "Complete job"}
+	steps := make(store.JobSteps, 0, len(names))
+	span := completed.Sub(started)
+	if completed.IsZero() {
+		span = 4 * time.Minute
+	}
+	// The working step takes most of the time; the rest are seconds each.
+	cuts := []float64{0, 0.02, 0.05, 0.12, 0.96, 0.98, 1}
+	for i, name := range names {
+		at := started.Add(time.Duration(cuts[i] * float64(span)))
+		end := started.Add(time.Duration(cuts[i+1] * float64(span)))
+		step := store.JobStep{Number: i + 1, Name: name, Status: "completed", Conclusion: "success", StartedAt: &at, CompletedAt: &end}
+		switch {
+		case conclusion == "" && i == 3:
+			step.Status, step.Conclusion, step.CompletedAt = "in_progress", "", nil
+		case conclusion == "" && i > 3:
+			step.Status, step.Conclusion, step.StartedAt, step.CompletedAt = "queued", "", nil, nil
+		case (conclusion == "failure" || conclusion == "cancelled") && i == 3:
+			step.Conclusion = conclusion
+		case (conclusion == "failure" || conclusion == "cancelled") && i == 4:
+			step.Conclusion = "skipped"
+		}
+		steps = append(steps, step)
+	}
+	return steps
+}
+
+// seedJobTimeline writes the entries a seeded job would have earned had its
+// deliveries really arrived, stamped at the times the job's own timestamps say
+// they happened rather than at seeding time.
+func (c *Controller) seedJobTimeline(ctx context.Context, j *store.Job, change store.JobChange) error {
+	if !change.Created {
+		return nil
+	}
+	add := func(kind store.JobEventKind, source, message string, at time.Time, runner bool) error {
+		e := &store.JobEvent{JobID: j.ID, Kind: kind, Source: source, Message: message, At: at}
+		if runner {
+			e.RunnerID, e.RunnerName = j.RunnerID, j.RunnerName
+		}
+		return c.st.AppendJobEvent(ctx, e)
+	}
+	if err := add(store.JobEventQueued, sourceWebhook, fmt.Sprintf("GitHub queued %s in %s, asking for [%s]",
+		jobTitle(j), j.Repo, strings.Join(j.Labels, ", ")), j.QueuedAt, false); err != nil {
+		return err
+	}
+	if err := add(c.claimKind(j), sourceWebhook, c.claimMessage(ctx, j), j.QueuedAt.Add(time.Second), false); err != nil {
+		return err
+	}
+	if j.StartedAt != nil {
+		if err := add(store.JobEventStarted, sourceWebhook, c.startMessage(ctx, j, nil), *j.StartedAt, true); err != nil {
+			return err
+		}
+	}
+	if j.RunnerFault != "" && j.CompletedAt != nil {
+		if err := add(store.JobEventRunnerLost, sourceAgent,
+			j.RunnerFault+"; GitHub will report the job failed once the runner's absence is noticed",
+			j.CompletedAt.Add(-20*time.Second), true); err != nil {
+			return err
+		}
+	}
+	if j.CompletedAt != nil {
+		if err := add(store.JobEventCompleted, sourceWebhook, completionMessage(j), *j.CompletedAt, true); err != nil {
 			return err
 		}
 	}

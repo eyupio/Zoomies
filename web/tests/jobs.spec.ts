@@ -17,6 +17,7 @@ import { expect, test, type Page } from '@playwright/test';
 import {
   browserOverride,
   cellUnder,
+  columnTexts,
   dataRows,
   facetTrigger,
   FIXTURE,
@@ -79,9 +80,7 @@ test('a repository facet narrows the rows and is shareable', async ({ page }) =>
   await expect(rowCount(page)).toContainText(`of ${FIXTURE.apiJobs} jobs`);
   await expect(page).toHaveURL(/[?&]repo=acme%2Fapi/);
   await expect(page.getByRole('group', { name: 'Filters in effect' })).toContainText('acme/api');
-  for (const repo of await dataRows(jobs(page)).evaluateAll((rows) =>
-    rows.map((row) => (row.querySelectorAll('td')[1] as HTMLElement | undefined)?.innerText ?? ''),
-  )) {
+  for (const repo of await columnTexts(jobs(page), 'Repository')) {
     expect(repo.trim()).toBe('acme/api');
   }
 
@@ -162,4 +161,111 @@ test('other runners are hidden by default and one switch brings them back', asyn
   // ran it, so it is this fleet's problem to see.
   await goto(page, '/jobs', 'Jobs');
   await expect(page.getByRole('note')).toContainText('1 queued job here has no pool to run it');
+});
+
+/*
+ * The drawer is where "what happened to my job?" gets answered without leaving
+ * for GitHub: which step it failed at, and the story of how it got there, in
+ * sentences. A job whose runner died under it says so first, because GitHub
+ * records that as an ordinary failure and the workflow's owner would otherwise
+ * go looking for a bug that is not there.
+ */
+test('opening a failed job names the step and tells the story', async ({ page }) => {
+  await goto(page, '/jobs?failed=true', 'Jobs');
+  const rows = dataRows(jobs(page));
+  await expect(rows.first()).toBeVisible();
+
+  // Every row in the failed view says where it went wrong, on the row itself.
+  const stepFailure = rows
+    .filter({ hasText: 'Failure' })
+    .filter({ hasNotText: 'Runner lost' })
+    .first();
+  await expect(stepFailure).toBeVisible();
+  await expect(await cellUnder(jobs(page), stepFailure, 'Failed at')).not.toContainText('--');
+
+  await stepFailure.click();
+  const drawer = page.getByRole('dialog');
+  await expect(drawer).toBeVisible();
+
+  // Why, first.
+  const why = drawer.getByRole('note', { name: 'Why this job went wrong' });
+  await expect(why).toContainText(/Failure at step \d+, /);
+  await expect(why.getByRole('link', { name: /Open the failed step's log/ })).toBeVisible();
+
+  // The steps, with the failed one among them.
+  const steps = drawer.getByRole('list', { name: 'Steps' });
+  await expect(steps.getByRole('listitem')).toHaveCount(6);
+  await expect(steps).toContainText('Set up job');
+
+  // And the timeline, oldest first, ending with how it ended.
+  const timeline = drawer.getByRole('list', { name: 'Timeline' });
+  const entries = timeline.getByRole('listitem');
+  await expect(entries.first()).toContainText('GitHub queued');
+  await expect(entries.first()).toContainText('via webhook');
+  await expect(entries.last()).toContainText(/failed at step \d+/);
+  await expect(timeline).toContainText('started on runner');
+});
+
+test("a job whose runner died under it is called the fleet's failure", async ({ page }) => {
+  await goto(page, '/jobs?failed=true', 'Jobs');
+  const lost = dataRows(jobs(page)).filter({ hasText: 'Runner lost' }).first();
+  await expect(lost).toBeVisible();
+  await expect(await cellUnder(jobs(page), lost, 'Failed at')).toContainText('Runner lost');
+
+  await lost.click();
+  const drawer = page.getByRole('dialog');
+  const why = drawer.getByRole('note', { name: 'Why this job went wrong' });
+  await expect(why).toContainText('The runner stopped under this job');
+  await expect(why).toContainText('the workflow did nothing wrong');
+  await expect(why.getByRole('link', { name: 'Open the runner' })).toBeVisible();
+
+  const timeline = drawer.getByRole('list', { name: 'Timeline' });
+  await expect(timeline).toContainText('Runner lost');
+  await expect(timeline).toContainText('via agent');
+
+  // The problems drawer says the same thing, and sends the operator here.
+  await page.keyboard.press('Escape');
+  await expect(drawer).toBeHidden();
+  await page.getByRole('button', { name: /^Problems\./ }).click();
+  const problems = page.getByRole('dialog', { name: 'Problems' });
+  await expect(problems).toContainText('lost the runner it was running on');
+  await expect(problems.getByRole('link', { name: 'Open failed jobs' })).toBeVisible();
+});
+
+test('the failed filter is one switch and survives a copied link', async ({ page }) => {
+  await goto(page, '/jobs', 'Jobs');
+  await expect(dataRows(jobs(page)).first()).toBeVisible();
+  await expect(rowCount(page)).toContainText(`of ${FIXTURE.managedJobs} jobs`);
+
+  await page.getByRole('switch', { name: 'Failed only' }).click();
+  await expect(page).toHaveURL(/[?&]failed=true/);
+  await expect(page.getByRole('group', { name: 'Filters in effect' })).toContainText(
+    'jobs that went wrong',
+  );
+  // Fewer than everything, and every one of them a failure of some kind. The
+  // grid keeps the old count until the narrowed page lands, so wait for it.
+  await expect(rowCount(page)).not.toContainText(`of ${FIXTURE.managedJobs} jobs`);
+  const total = await rowCount(page).innerText();
+  const shown = Number(/of (\d+) jobs?/.exec(total)?.[1] ?? '0');
+  expect(shown).toBeGreaterThan(0);
+  expect(shown).toBeLessThan(FIXTURE.managedJobs);
+  for (const state of await columnTexts(jobs(page), 'State')) {
+    expect(state).toMatch(/Failure|Timed out|Runner lost/);
+  }
+});
+
+test('a queued job says what the fleet is doing about it', async ({ page }) => {
+  await goto(page, '/jobs?state=queued', 'Jobs');
+  // The queued job a pool claims, not the unmatched one: that one has its own note.
+  const waiting = dataRows(jobs(page)).filter({ hasNotText: 'Unmatched' }).first();
+  await expect(waiting).toBeVisible();
+  await waiting.click();
+
+  const drawer = page.getByRole('dialog');
+  const status = drawer.getByRole('status', { name: 'What is happening to this job' });
+  await expect(status).toContainText('Waiting');
+  await expect(status).toContainText(/zoomies-demo-linux-(x64|arm64)/);
+  // The pool's live counts, so the wait has a reason next to it.
+  await expect(status).toContainText('Starting');
+  await expect(status).toContainText('Idle');
 });

@@ -307,6 +307,11 @@ The one page that has to earn the second monitor.
   It is the one panel whose length says nothing about the fleet, so it never
   decides the height of the page: a fleet with one pool does not get a screen
   of blank space under it because the scheduler has been busy.
+* **Active jobs**, under the pools, and **Recent outcomes**, across the bottom
+  of the page — what is running this moment, and how the last jobs ended,
+  newest first. An outcome names the step a job failed at, and a job whose
+  runner stopped under it is badged *Runner lost*: that failure is the fleet's,
+  not the workflow's, and the page is where the two are told apart.
 * **Problems summary** — one line saying how many things need a person, worst
   severity first, with a *Review* button that opens the problems drawer.
   **When everything is fine it is a single quiet line, not an empty box and not
@@ -320,7 +325,8 @@ The one page that has to earn the second monitor.
 Reachable from the count in the top bar on every page, from the Overview's
 *Review*, and from the command palette. It holds the list itself — unhealthy
 hosts, failed registrations, webhook delivery failures, unmatched queued jobs,
-and every dangerous configuration setting the validator flagged — worst first,
+jobs whose runner stopped under them in the last hour, and every dangerous
+configuration setting the validator flagged — worst first,
 each entry saying what is true, why it matters and what to change, with a link
 to the pool, host, runner or installation it is about.
 

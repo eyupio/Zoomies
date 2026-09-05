@@ -96,10 +96,44 @@ func jobPayload(action, status, conclusion string, started, completed bool) []by
 	    "created_at": "2024-05-01T10:00:00Z",
 	    "started_at": ` + timeOrNull("2024-05-01T10:00:30Z", started) + `,
 	    "completed_at": ` + timeOrNull("2024-05-01T10:05:00Z", completed) + `,
-	    "html_url": "https://github.com/acme/widgets/actions/runs/5544/job/998877"
+	    "html_url": "https://github.com/acme/widgets/actions/runs/5544/job/998877",
+	    "head_branch": "main",
+	    "head_sha": "0123456789abcdef0123456789abcdef01234567",
+	    "run_attempt": 2,
+	    "steps": [
+	      {"number": 1, "name": "Set up job", "status": "completed", "conclusion": "success",
+	       "started_at": "2024-05-01T10:00:30Z", "completed_at": "2024-05-01T10:00:35Z"},
+	      {"number": 2, "name": "Run tests", "status": "` + stepStatus(completed) + `", "conclusion": ` + jsonOrNull(stepConclusion(conclusion, completed)) + `,
+	       "started_at": "2024-05-01T10:00:35Z", "completed_at": ` + timeOrNull("2024-05-01T10:04:50Z", completed) + `},
+	      {"number": 3, "name": "Upload", "status": "` + stepStatus(completed) + `", "conclusion": ` + jsonOrNull(skippedIf(completed)) + `}
+	    ]
 	  }
 	}`
 	return []byte(body)
+}
+
+// stepStatus, stepConclusion and skippedIf render the steps the way GitHub
+// does: all of them "completed" with a conclusion once the job is over, and
+// mid-flight before that.
+func stepStatus(completed bool) string {
+	if completed {
+		return "completed"
+	}
+	return "in_progress"
+}
+
+func stepConclusion(conclusion string, completed bool) string {
+	if !completed {
+		return ""
+	}
+	return conclusion
+}
+
+func skippedIf(completed bool) string {
+	if completed {
+		return "skipped"
+	}
+	return ""
 }
 
 func jsonOrNull(s string) string {
@@ -200,6 +234,52 @@ func TestParseWorkflowJobCompleted(t *testing.T) {
 	}
 	if got := j.Duration(); got != 4*time.Minute+30*time.Second {
 		t.Fatalf("duration = %v", got)
+	}
+}
+
+// The steps are what let a failed job say where it failed without the operator
+// leaving for GitHub, and the branch and attempt are what make "CI failed" mean
+// something.
+func TestParseWorkflowJobCarriesTheStepsAndTheRunContext(t *testing.T) {
+	e, err := ParseWorkflowJob(jobPayload("completed", "completed", "failure", true, true))
+	if err != nil {
+		t.Fatalf("ParseWorkflowJob: %v", err)
+	}
+	if e.HeadBranch != "main" || e.HeadSHA != "0123456789abcdef0123456789abcdef01234567" || e.RunAttempt != 2 {
+		t.Fatalf("run context = %q %q %d", e.HeadBranch, e.HeadSHA, e.RunAttempt)
+	}
+	if len(e.Steps) != 3 {
+		t.Fatalf("steps = %+v, want 3", e.Steps)
+	}
+	j := e.ToJob()
+	if j.HeadBranch != "main" || j.RunAttempt != 2 || len(j.Steps) != 3 {
+		t.Fatalf("ToJob dropped the run context or the steps: %+v", j)
+	}
+	step := j.FailedStep()
+	if step == nil || step.Number != 2 || step.Name != "Run tests" || step.Conclusion != "failure" {
+		t.Fatalf("FailedStep = %+v, want step 2 'Run tests' failed", step)
+	}
+	if step.StartedAt == nil || step.CompletedAt == nil || step.CompletedAt.Sub(*step.StartedAt) != 4*time.Minute+15*time.Second {
+		t.Fatalf("failed step timestamps = %v .. %v", step.StartedAt, step.CompletedAt)
+	}
+	// The step after the failure was skipped as a consequence, and must not be
+	// the one reported.
+	if j.Steps[2].Conclusion != "skipped" {
+		t.Fatalf("step 3 conclusion = %q, want skipped", j.Steps[2].Conclusion)
+	}
+
+	// A job still running has steps too, but none of them has failed yet.
+	running, err := ParseWorkflowJob(jobPayload("in_progress", "in_progress", "", true, false))
+	if err != nil {
+		t.Fatalf("ParseWorkflowJob in_progress: %v", err)
+	}
+	if rj := running.ToJob(); rj.FailedStep() != nil || len(rj.Steps) != 3 || rj.Steps[1].Status != "in_progress" {
+		t.Fatalf("running job steps = %+v", rj.Steps)
+	}
+	// And a success has no failed step to name.
+	ok, _ := ParseWorkflowJob(jobPayload("completed", "completed", "success", true, true))
+	if ok.ToJob().FailedStep() != nil {
+		t.Fatal("a successful job named a failed step")
 	}
 }
 

@@ -21,6 +21,7 @@ const (
 	PrefixJoin         = "join"
 	PrefixScaling      = "scl"
 	PrefixDelivery     = "whd"
+	PrefixJobEvent     = "jev"
 )
 
 var idEncoding = base32.NewEncoding("abcdefghijklmnopqrstuvwxyz234567").WithPadding(base32.NoPadding)

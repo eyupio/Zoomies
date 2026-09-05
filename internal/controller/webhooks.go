@@ -219,10 +219,11 @@ func (c *Controller) handleWorkflowJob(ctx context.Context, body []byte) error {
 		}
 	}
 
-	saved, err := c.st.UpsertJob(ctx, job)
+	saved, change, err := c.st.ApplyJob(ctx, job)
 	if err != nil {
 		return fmt.Errorf("recording job %d: %w", e.JobID, err)
 	}
+	c.recordJobChange(ctx, saved, change, sourceWebhook, runner)
 	if saved.StartedAt != nil {
 		poolName, backendName := "unmatched", "unknown"
 		if p, e := c.st.GetPool(ctx, saved.PoolID); e == nil {

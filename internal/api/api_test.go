@@ -583,6 +583,7 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "GET", path: "/api/v1/jobs", role: store.RoleViewer},
 		{method: "GET", path: "/api/v1/jobs/facets", role: store.RoleViewer},
 		{method: "GET", path: "/api/v1/jobs/" + ids.job, role: store.RoleViewer},
+		{method: "GET", path: "/api/v1/jobs/" + ids.job + "/events", role: store.RoleViewer},
 
 		{method: "GET", path: "/api/v1/hosts", role: store.RoleViewer},
 		{method: "GET", path: "/api/v1/hosts/" + ids.host, role: store.RoleViewer},

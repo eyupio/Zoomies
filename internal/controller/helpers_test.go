@@ -204,6 +204,18 @@ type jobEvent struct {
 	RunnerName string
 	Conclusion string
 	QueuedAt   time.Time
+	// Steps, when set, are rendered as GitHub's steps array.
+	Steps []map[string]any
+}
+
+// failingSteps renders the steps of a job that failed on its second step, which
+// is the shape a completed delivery with a failure has.
+func failingSteps() []map[string]any {
+	return []map[string]any{
+		{"number": 1, "name": "Checkout", "status": "completed", "conclusion": "success"},
+		{"number": 2, "name": "Run tests", "status": "completed", "conclusion": "failure"},
+		{"number": 3, "name": "Upload", "status": "completed", "conclusion": "skipped"},
+	}
 }
 
 func (e jobEvent) body() []byte {
@@ -234,6 +246,9 @@ func (e jobEvent) body() []byte {
 	if e.Action == "completed" {
 		job["completed_at"] = e.QueuedAt.Add(2 * time.Minute).Format(time.RFC3339)
 		job["conclusion"] = e.Conclusion
+	}
+	if e.Steps != nil {
+		job["steps"] = e.Steps
 	}
 	b, _ := json.Marshal(map[string]any{
 		"action":       e.Action,

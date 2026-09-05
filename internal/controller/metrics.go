@@ -26,6 +26,7 @@ type metrics struct {
 	reg *prometheus.Registry
 
 	jobsTotal                                                                                    *prometheus.CounterVec
+	jobsRunnerLost                                                                               *prometheus.CounterVec
 	queueWait                                                                                    prometheus.Histogram
 	jobDuration                                                                                  prometheus.Histogram
 	queuedToCreate, createToContainer, containerToRegistered, registeredToReady, queuedToStarted *prometheus.HistogramVec
@@ -43,6 +44,10 @@ func newMetrics(c *Controller) *metrics {
 			Name: "zoomies_jobs_total",
 			Help: "Workflow jobs Zoomies has seen complete, by pool and conclusion.",
 		}, []string{"pool", "conclusion"}),
+		jobsRunnerLost: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zoomies_jobs_runner_lost_total",
+			Help: "Jobs whose runner stopped before GitHub reported the job over, by pool. These are the fleet's failures rather than the workflows'.",
+		}, []string{"pool"}),
 		queueWait: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Name: "zoomies_job_queue_wait_seconds",
 			Help: "How long jobs waited between being queued and a runner picking them up.",
@@ -85,7 +90,7 @@ func newMetrics(c *Controller) *metrics {
 	m.buildInfo.WithLabelValues(version.Version, version.Commit).Set(1)
 
 	m.reg.MustRegister(
-		m.jobsTotal, m.queueWait, m.jobDuration, m.scalingEvents,
+		m.jobsTotal, m.jobsRunnerLost, m.queueWait, m.jobDuration, m.scalingEvents,
 		m.webhookDeliveries, m.githubRequests, m.reconcileDuration, m.buildInfo,
 		m.queuedToCreate, m.createToContainer, m.containerToRegistered, m.registeredToReady, m.queuedToStarted,
 		&fleetCollector{c: c},

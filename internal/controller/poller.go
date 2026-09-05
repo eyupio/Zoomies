@@ -156,11 +156,12 @@ func (c *Controller) ingestQueuedJobs(ctx context.Context, jobs []github.QueuedJ
 			job.PoolID = p.ID
 			job.Matched = true
 		}
-		saved, err := c.st.UpsertJob(ctx, job)
+		saved, change, err := c.st.ApplyJob(ctx, job)
 		if err != nil {
 			c.log.Warn("could not record a polled job", "github_job_id", q.ID, "error", err)
 			continue
 		}
+		c.recordJobChange(ctx, saved, change, sourcePoller, nil)
 		if saved.State == store.JobQueued {
 			changed++
 		}

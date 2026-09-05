@@ -15,7 +15,7 @@ import (
 
 const jobCols = `id, github_job_id, github_run_id, repo, workflow, job_name, labels, state,
 	conclusion, pool_id, runner_id, runner_name, html_url, queued_at, started_at,
-	completed_at, matched`
+	completed_at, matched, head_branch, head_sha, run_attempt, steps, runner_fault`
 
 func scanJob(sc interface{ Scan(...any) error }) (*Job, error) {
 	var j Job
@@ -24,7 +24,8 @@ func scanJob(sc interface{ Scan(...any) error }) (*Job, error) {
 	var matched int
 	err := sc.Scan(&j.ID, &j.GitHubJobID, &j.GitHubRunID, &j.Repo, &j.Workflow, &j.JobName,
 		&j.Labels, &j.State, &j.Conclusion, &j.PoolID, &j.RunnerID, &j.RunnerName,
-		&j.HTMLURL, &queued, &started, &completed, &matched)
+		&j.HTMLURL, &queued, &started, &completed, &matched,
+		&j.HeadBranch, &j.HeadSHA, &j.RunAttempt, &j.Steps, &j.RunnerFault)
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +41,19 @@ func scanJob(sc interface{ Scan(...any) error }) (*Job, error) {
 // merges rather than overwrites: a late "queued" delivery must not resurrect a
 // job that has already completed.
 func (s *Store) UpsertJob(ctx context.Context, j *Job) (*Job, error) {
+	out, _, err := s.ApplyJob(ctx, j)
+	return out, err
+}
+
+// ApplyJob is UpsertJob that also says what changed.
+//
+// The change is worked out inside the write transaction, against the row as it
+// was, so two deliveries for the same job arriving together cannot both be
+// told they moved it: exactly one of them did. That is what lets the caller
+// write a job's timeline from deliveries GitHub may send twice.
+func (s *Store) ApplyJob(ctx context.Context, j *Job) (*Job, JobChange, error) {
 	var out *Job
+	var change JobChange
 	err := s.tx(ctx, func(tx *sql.Tx) error {
 		row := tx.QueryRowContext(ctx, `SELECT `+jobCols+` FROM jobs WHERE github_job_id = ?`, j.GitHubJobID)
 		existing, err := scanJob(row)
@@ -54,14 +67,16 @@ func (s *Store) UpsertJob(ctx context.Context, j *Job) (*Job, error) {
 			}
 			j.Labels = NormalizeLabels(j.Labels)
 			_, err := tx.ExecContext(ctx, `INSERT INTO jobs (`+jobCols+`)
-				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 				j.ID, j.GitHubJobID, j.GitHubRunID, j.Repo, j.Workflow, j.JobName, j.Labels,
 				string(j.State), j.Conclusion, j.PoolID, j.RunnerID, j.RunnerName, j.HTMLURL,
-				ms(j.QueuedAt), msp(j.StartedAt), msp(j.CompletedAt), boolInt(j.Matched))
+				ms(j.QueuedAt), msp(j.StartedAt), msp(j.CompletedAt), boolInt(j.Matched),
+				j.HeadBranch, j.HeadSHA, j.RunAttempt, j.Steps, j.RunnerFault)
 			if err != nil {
 				return err
 			}
 			out = j
+			change = JobChange{Created: true, StateChanged: true, Claimed: j.Matched, RunnerLinked: j.RunnerID != ""}
 			return nil
 		case err != nil:
 			return err
@@ -69,8 +84,28 @@ func (s *Store) UpsertJob(ctx context.Context, j *Job) (*Job, error) {
 
 		// Merge: never move a job backwards through its lifecycle.
 		merged := *existing
-		if jobRank(j.State) >= jobRank(existing.State) {
+		current := jobRank(j.State) >= jobRank(existing.State)
+		if current {
 			merged.State = j.State
+			// The steps travel with the delivery that reports them, and a
+			// stale delivery's steps are as stale as its state: an
+			// "in_progress" that arrives after "completed" must not replace
+			// every step's conclusion with "queued".
+			if len(j.Steps) > 0 {
+				merged.Steps = j.Steps
+			}
+		}
+		if j.HeadBranch != "" {
+			merged.HeadBranch = j.HeadBranch
+		}
+		if j.HeadSHA != "" {
+			merged.HeadSHA = j.HeadSHA
+		}
+		if j.RunAttempt != 0 {
+			merged.RunAttempt = j.RunAttempt
+		}
+		if j.RunnerFault != "" {
+			merged.RunnerFault = j.RunnerFault
 		}
 		if j.Conclusion != "" {
 			merged.Conclusion = j.Conclusion
@@ -112,18 +147,99 @@ func (s *Store) UpsertJob(ctx context.Context, j *Job) (*Job, error) {
 
 		_, err = tx.ExecContext(ctx, `UPDATE jobs SET github_run_id=?, repo=?, workflow=?,
 			job_name=?, labels=?, state=?, conclusion=?, pool_id=?, runner_id=?, runner_name=?,
-			html_url=?, started_at=?, completed_at=?, matched=? WHERE id=?`,
+			html_url=?, started_at=?, completed_at=?, matched=?, head_branch=?, head_sha=?,
+			run_attempt=?, steps=?, runner_fault=? WHERE id=?`,
 			merged.GitHubRunID, merged.Repo, merged.Workflow, merged.JobName, merged.Labels,
 			string(merged.State), merged.Conclusion, merged.PoolID, merged.RunnerID,
 			merged.RunnerName, merged.HTMLURL, msp(merged.StartedAt), msp(merged.CompletedAt),
-			boolInt(merged.Matched), merged.ID)
+			boolInt(merged.Matched), merged.HeadBranch, merged.HeadSHA, merged.RunAttempt,
+			merged.Steps, merged.RunnerFault, merged.ID)
 		if err != nil {
 			return err
 		}
 		out = &merged
+		change = JobChange{
+			PreviousState: existing.State,
+			StateChanged:  merged.State != existing.State,
+			Claimed:       !existing.Matched && merged.Matched,
+			RunnerLinked:  existing.RunnerID == "" && merged.RunnerID != "",
+		}
 		return nil
 	})
-	return out, err
+	return out, change, err
+}
+
+// SetJobRunnerFault records what the runner executing a job said when it
+// stopped before GitHub reported the job over, and returns the job as it now
+// is, along with whether this call is the one that recorded the fault.
+//
+// Only the first fault is kept. The agent may report the same exit more than
+// once -- a runner report and then a task result -- and the first message is
+// the one closest to the event. The flag is what lets the caller write the
+// timeline entry and count the metric exactly once, decided inside the write
+// rather than by a read that two reports could both make first.
+func (s *Store) SetJobRunnerFault(ctx context.Context, jobID, fault string) (*Job, bool, error) {
+	var out *Job
+	var recorded bool
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `UPDATE jobs SET runner_fault=? WHERE id=? AND runner_fault=''`, fault, jobID)
+		if err != nil {
+			return err
+		}
+		if n, err := res.RowsAffected(); err == nil && n > 0 {
+			recorded = true
+		}
+		j, err := scanJob(tx.QueryRowContext(ctx, `SELECT `+jobCols+` FROM jobs WHERE id = ?`, jobID))
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("job %s: %w", jobID, ErrNotFound)
+		}
+		out = j
+		return err
+	})
+	return out, recorded, err
+}
+
+// ---------------------------------------------------------------------------
+// Job timeline
+// ---------------------------------------------------------------------------
+
+const jobEventCols = `id, job_id, at, kind, source, message, runner_id, runner_name`
+
+// AppendJobEvent adds one entry to a job's timeline.
+func (s *Store) AppendJobEvent(ctx context.Context, e *JobEvent) error {
+	if e.ID == "" {
+		e.ID = NewID(PrefixJobEvent)
+	}
+	if e.At.IsZero() {
+		e.At = s.Now()
+	}
+	_, err := s.exec(ctx, `INSERT INTO job_events (`+jobEventCols+`) VALUES (?,?,?,?,?,?,?,?)`,
+		e.ID, e.JobID, ms(e.At), string(e.Kind), e.Source, e.Message, e.RunnerID, e.RunnerName)
+	return err
+}
+
+// ListJobEvents returns a job's timeline, oldest first.
+func (s *Store) ListJobEvents(ctx context.Context, jobID string) ([]*JobEvent, error) {
+	// Two entries written in the same millisecond -- "queued" and then
+	// "claimed", every time -- keep the order they were written in, which
+	// the rowid records and a random ID would not.
+	rows, err := s.read.QueryContext(ctx, `SELECT `+jobEventCols+` FROM job_events
+		WHERE job_id = ? ORDER BY at, rowid`, jobID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*JobEvent
+	for rows.Next() {
+		var e JobEvent
+		var at64 int64
+		if err := rows.Scan(&e.ID, &e.JobID, &at64, &e.Kind, &e.Source, &e.Message, &e.RunnerID, &e.RunnerName); err != nil {
+			return nil, err
+		}
+		e.At = at(at64)
+		out = append(out, &e)
+	}
+	return out, rows.Err()
 }
 
 // jobRank orders job states so a stale webhook cannot rewind one.
@@ -186,6 +302,14 @@ type JobFilter struct {
 	// no pool claims stay in: nothing ran them, so they are this fleet's
 	// problem to see, which is also why UnmatchedOnly wins over this flag.
 	ManagedOnly bool
+	// FailedOnly keeps the jobs that went wrong, on either side: a conclusion
+	// GitHub counts as a failure, or a runner that stopped under the job. A
+	// job whose runner died while GitHub still thinks it is running is
+	// included -- that is the case an operator most wants to find.
+	FailedOnly bool
+	// FaultedOnly keeps only the jobs whose runner stopped under them. This is
+	// the fleet's own failure rate, as distinct from the workflows'.
+	FaultedOnly bool
 }
 
 var jobSortCols = map[string]string{
@@ -275,6 +399,11 @@ func jobWhere(f JobFilter) (string, []any) {
 		// to show.
 		cond = append(cond, `(matched = 1 OR pool_id != '' OR runner_id != '' OR (matched = 0 AND state = ?))`)
 		args = append(args, string(JobQueued))
+	}
+	if f.FaultedOnly {
+		cond = append(cond, `runner_fault != ''`)
+	} else if f.FailedOnly {
+		cond = append(cond, `(conclusion IN ('failure','timed_out','startup_failure') OR runner_fault != '')`)
 	}
 	if q := strings.TrimSpace(f.Search); q != "" {
 		cond = append(cond, `(repo LIKE ? OR workflow LIKE ? OR job_name LIKE ? OR runner_name LIKE ?)`)
@@ -399,13 +528,23 @@ func percentile(sorted []time.Duration, p float64) time.Duration {
 	return sorted[i]
 }
 
-// PruneJobs deletes completed jobs older than the cutoff.
+// PruneJobs deletes completed jobs older than the cutoff, and their timelines
+// with them: an event whose job is gone answers nothing.
 func (s *Store) PruneJobs(ctx context.Context, before time.Time) (int64, error) {
-	res, err := s.exec(ctx, `DELETE FROM jobs WHERE state='completed' AND completed_at < ?`, ms(before))
-	if err != nil {
-		return 0, err
-	}
-	return res.RowsAffected()
+	var pruned int64
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM job_events WHERE job_id IN
+			(SELECT id FROM jobs WHERE state='completed' AND completed_at < ?)`, ms(before)); err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx, `DELETE FROM jobs WHERE state='completed' AND completed_at < ?`, ms(before))
+		if err != nil {
+			return err
+		}
+		pruned, err = res.RowsAffected()
+		return err
+	})
+	return pruned, err
 }
 
 // ---------------------------------------------------------------------------
