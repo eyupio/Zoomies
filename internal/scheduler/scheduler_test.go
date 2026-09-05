@@ -391,6 +391,38 @@ func TestBusyRunnersDoNotAbsorbQueuedJobs(t *testing.T) {
 	}
 }
 
+// A runner that has been told to stop will never pick up a job, so it cannot
+// stand in for the one a queued job needs. A drain that hangs used to starve
+// the pool while it looked healthy: one draining runner absorbed one queued
+// job's demand until the drain completed.
+func TestDrainingRunnersDoNotAbsorbQueuedJobs(t *testing.T) {
+	p := testPool("linux-x64", "linux")
+	runners := []*store.Runner{testRunner("r1", p, store.RunnerDraining, time.Minute)}
+	jobs := []*store.Job{queued("j1", time.Minute, "linux")}
+
+	pp := only(t, Decide(snap([]*store.Pool{p}, runners, jobs, []*store.Host{testHost("host_a", 8, 1)})))
+	if pp.Desired != 2 {
+		t.Fatalf("desired = %d, want 2 (1 draining + 1 queued)", pp.Desired)
+	}
+	if n := countOf(pp.Actions, ActionCreate); n != 1 {
+		t.Fatalf("got %d creates, want 1: a draining runner is not capacity for a queued job", n)
+	}
+}
+
+// The other half of the same rule: until the drain finishes the runner still
+// occupies a slot, so a pool at its maximum waits rather than overshooting.
+func TestDrainingRunnerStillCountsAgainstTheMaximum(t *testing.T) {
+	p := testPool("linux-x64", "linux")
+	p.MaxRunners = 1
+	runners := []*store.Runner{testRunner("r1", p, store.RunnerDraining, time.Minute)}
+	jobs := []*store.Job{queued("j1", time.Minute, "linux")}
+
+	pp := only(t, Decide(snap([]*store.Pool{p}, runners, jobs, []*store.Host{testHost("host_a", 8, 1)})))
+	if n := countOf(pp.Actions, ActionCreate); n != 0 {
+		t.Fatalf("got %d creates, want 0: the slot is not free until the drain finishes", n)
+	}
+}
+
 func TestProvisioningRunnersCountTowardsDemand(t *testing.T) {
 	p := testPool("linux-x64", "linux")
 	runners := []*store.Runner{

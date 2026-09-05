@@ -220,13 +220,16 @@ func (t *tick) decidePool(p *store.Pool, runners []*store.Runner, queued []*stor
 	actions, remaining := t.reap(p, sortedRunners(runners))
 	plan.Actions = actions
 
-	live, busy := 0, 0
+	live, busy, draining := 0, 0, 0
 	for _, r := range remaining {
 		if r.State.Live() {
 			live++
 		}
-		if r.State == store.RunnerBusy {
+		switch r.State {
+		case store.RunnerBusy:
 			busy++
+		case store.RunnerDraining:
+			draining++
 		}
 	}
 	plan.Current = live
@@ -256,8 +259,11 @@ func (t *tick) decidePool(p *store.Pool, runners []*store.Runner, queued []*stor
 	slices.Sort(plan.QuotaDeferredRepositories)
 	// Idle runners are already counted in live, so subtracting live from the
 	// target is what stops the scheduler from creating a runner for a job an
-	// idle one will pick up within the second.
-	plan.Desired = clamp(max(p.MinRunners, busy+eligible), p.MinRunners, p.MaxRunners)
+	// idle one will pick up within the second. A draining runner is counted on
+	// both sides: it still holds a slot on its host until it is gone, which is
+	// what keeps the pool under its maximum, but it will never take a job, so
+	// it must not stand in for the runner a queued job is waiting on.
+	plan.Desired = clamp(max(p.MinRunners, busy+draining+eligible), p.MinRunners, p.MaxRunners)
 
 	switch {
 	case plan.Desired < live:
