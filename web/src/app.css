@@ -158,28 +158,56 @@ pre,
   color: var(--z-text);
 }
 
-/* Scrollbars that belong to the theme rather than to the browser. */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--z-border-strong) transparent;
-}
-*::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-*::-webkit-scrollbar-track {
-  background: transparent;
-}
-*::-webkit-scrollbar-thumb {
-  background: var(--z-border-strong);
-  border: 3px solid transparent;
-  border-radius: var(--z-radius-full);
-  background-clip: content-box;
-}
-*::-webkit-scrollbar-thumb:hover {
-  background: var(--z-text-subtle);
-  border: 3px solid transparent;
-  background-clip: content-box;
+/*
+ * Scrollbars that belong to the theme rather than to the browser.
+ *
+ * Only where there is a pointer to aim with. On a touchscreen the thumb is not
+ * a control -- a finger scrolls the content, never the bar -- and the browser's
+ * own overlay scrollbar, which takes no space and fades when idle, is the right
+ * thing there. Styling it would turn it into a permanent column down the edge
+ * of a phone.
+ *
+ * Two mechanisms, deliberately kept apart. Chromium and WebKit draw from the
+ * `::-webkit-scrollbar` pseudo-elements, which is the only way to get a thumb
+ * that is inset in its track and rounded. The standard `scrollbar-width` and
+ * `scrollbar-color` properties must not be set alongside them: a browser that
+ * knows both ignores the pseudo-elements the moment the standard properties are
+ * set, and draws its own thin bar instead -- which, in a hairline border grey,
+ * is what an operator used to get here. So the standard properties are set only
+ * where the pseudo-elements are unknown, which today means Firefox.
+ */
+@media (pointer: fine) {
+  @supports not selector(::-webkit-scrollbar) {
+    * {
+      scrollbar-width: auto;
+      scrollbar-color: var(--z-scrollbar-thumb) var(--z-scrollbar-track);
+    }
+  }
+  *::-webkit-scrollbar {
+    width: var(--z-scrollbar-size);
+    height: var(--z-scrollbar-size);
+  }
+  *::-webkit-scrollbar-track,
+  *::-webkit-scrollbar-corner {
+    background: var(--z-scrollbar-track);
+  }
+  /*
+   * The transparent border is the inset: the whole column is the hit target,
+   * and the visible thumb is the column less the inset on each side. It darkens
+   * under the pointer and again while held, like any other control here.
+   */
+  *::-webkit-scrollbar-thumb {
+    background-color: var(--z-scrollbar-thumb);
+    border: var(--z-scrollbar-inset) solid transparent;
+    border-radius: var(--z-radius-full);
+    background-clip: content-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: var(--z-scrollbar-thumb-hover);
+  }
+  *::-webkit-scrollbar-thumb:active {
+    background-color: var(--z-scrollbar-thumb-active);
+  }
 }
 
 /* Visually hidden but available to assistive technology. */
