@@ -666,12 +666,14 @@ func (c *APIClient) ContainerLogs(ctx context.Context, id string, opts LogQuery)
 	if err != nil {
 		return nil, err
 	}
-	// Since API 1.42 the daemon states the framing outright; trust it over the
-	// inspect when it does.
-	switch resp.Header.Get("Content-Type") {
-	case "application/vnd.docker.raw-stream":
-		tty = true
-	case "application/vnd.docker.multiplexed-stream":
+	// Since API 1.42 the daemon distinguishes the two framings by content type,
+	// but only one of the values is worth anything. "multiplexed-stream" is
+	// only ever sent for a framed stream, so it can override the inspect.
+	// "raw-stream" cannot: it is what every daemon before 1.42 sends for both
+	// framings, and what Podman's compatibility endpoint sends for a framed
+	// stream today -- believing it left Docker's 8-byte frame headers in the
+	// middle of every line of a downloaded runner log.
+	if resp.Header.Get("Content-Type") == "application/vnd.docker.multiplexed-stream" {
 		tty = false
 	}
 	if tty {
