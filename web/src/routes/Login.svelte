@@ -31,6 +31,15 @@
   let touched = $state({ username: false, password: false });
   let submitting = $state(false);
   let failure = $state<ApiError | null>(null);
+  /**
+   * Why a single sign-on attempt was sent back here. The controller cannot
+   * render a page of its own for a failed SSO callback, so it redirects to
+   * /login with the reason in the query string; it is read once and then
+   * dropped from the address, so a reload does not repeat a stale complaint.
+   */
+  let ssoFailure = $state(
+    untrack(() => new URLSearchParams(location.search).get('error')?.trim() ?? ''),
+  );
   let revealed = $state(false);
   let capsLock = $state(false);
   let form = $state<HTMLFormElement | null>(null);
@@ -51,6 +60,18 @@
 
   const meta = $derived(session.meta);
 
+  $effect(() => {
+    if (ssoFailure) router.setQuery({ error: null });
+  });
+
+  /** The server's sentences are lowercase and terse; read them as a sentence. */
+  function sentence(text: string): string {
+    const trimmed = text.trim();
+    if (trimmed === '') return '';
+    const capitalised = trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+    return /[.!?]$/.test(capitalised) ? capitalised : `${capitalised}.`;
+  }
+
   const usernameError = $derived(
     touched.username && username.trim() === '' ? 'Enter your username.' : undefined,
   );
@@ -62,14 +83,20 @@
    * What actually went wrong, in the operator's terms. A controller that never
    * answered and a password that was refused look identical in a generic
    * "sign-in failed", and they need completely different next steps.
+   *
+   * A 401 and a 403 are shown in the server's own words. It distinguishes a
+   * wrong password from a disabled account and from an account that signs in
+   * through SSO, and a 403 on this route is the origin check refusing the
+   * request -- a proxy or external_url problem, which "wrong password" would
+   * send the operator off to fix in entirely the wrong place.
    */
   const failureText = $derived.by(() => {
-    if (!failure) return '';
+    if (!failure) return ssoFailure ? sentence(ssoFailure) : '';
     if (failure.status === 429) {
       return 'Too many sign-in attempts from this address. Wait a minute, then try again.';
     }
     if (failure.status === 401 || failure.status === 403) {
-      return 'That username and password do not match an account.';
+      return sentence(failure.message);
     }
     if (failure.status === 0) {
       return 'The controller did not answer. Check that it is running and that this address can reach it.';
@@ -115,6 +142,7 @@
     }
     submitting = true;
     failure = null;
+    ssoFailure = '';
     try {
       await session.login(username.trim(), password);
       router.navigate(destination);
@@ -158,7 +186,7 @@
     <h1>Sign in</h1>
     <p class="lede">Manage the runner fleet on this controller.</p>
 
-    {#if failure}
+    {#if failureText}
       <p class="failure" role="alert">
         <TriangleAlert size={15} aria-hidden="true" />
         <span>{failureText}</span>
