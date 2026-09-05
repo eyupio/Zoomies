@@ -105,11 +105,34 @@ type jobItem struct {
 	RunnerName  string     `json:"runner_name"`
 	HTMLURL     string     `json:"html_url"`
 	Matched     bool       `json:"matched"`
+	HeadBranch  string     `json:"head_branch"`
+	HeadSHA     string     `json:"head_sha"`
+	RunAttempt  int        `json:"run_attempt"`
+	Steps       []jobStep  `json:"steps"`
+	FailedStep  *jobStep   `json:"failed_step"`
+	RunnerFault string     `json:"runner_fault"`
 	QueuedAt    time.Time  `json:"queued_at"`
 	StartedAt   *time.Time `json:"started_at"`
 	CompletedAt *time.Time `json:"completed_at"`
 	QueueWaitMS int64      `json:"queue_wait_ms"`
 	DurationMS  int64      `json:"duration_ms"`
+}
+
+type jobStep struct {
+	Number      int        `json:"number"`
+	Name        string     `json:"name"`
+	Status      string     `json:"status"`
+	Conclusion  string     `json:"conclusion"`
+	StartedAt   *time.Time `json:"started_at"`
+	CompletedAt *time.Time `json:"completed_at"`
+}
+
+type jobEventItem struct {
+	Kind       string    `json:"kind"`
+	Source     string    `json:"source"`
+	Message    string    `json:"message"`
+	RunnerName string    `json:"runner_name"`
+	At         time.Time `json:"at"`
 }
 
 type backendInfo struct {

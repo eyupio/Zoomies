@@ -1020,6 +1020,13 @@ paths:
             nothing ran, so they belong here too. Leave it off to see every job GitHub has
             reported, including those run on hosted runners this fleet does not own.
           schema: { type: boolean }
+        - name: failed
+          in: query
+          description: >-
+            Only jobs that went wrong, on either side: a conclusion GitHub counts as a
+            failure (failure, timed_out, startup_failure), or a runner of this fleet that
+            stopped under the job -- including one GitHub still believes is running.
+          schema: { type: boolean }
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/Offset"
         - $ref: "#/components/parameters/Sort"
@@ -1051,6 +1058,32 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Job" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /jobs/{id}/events:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    get:
+      operationId: getJobEvents
+      tags: [jobs]
+      summary: A job's timeline
+      description: >-
+        What Zoomies observed and did about one job, oldest first, each entry a sentence
+        an operator can read. Entries are written from what each delivery changed rather
+        than from the delivery itself, so GitHub redelivering one adds nothing. Every
+        change to the timeline is accompanied by a `job.updated` frame on the event
+        stream, which is when a client refetches it.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/JobEvent" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /jobs/facets:
@@ -2294,11 +2327,65 @@ components:
         runner_name: { type: string }
         html_url: { type: string, description: The run on GitHub. }
         matched: { type: boolean, description: "False when no enabled pool claims this job's labels. On a job that is not queued this only says the job ran somewhere else." }
+        head_branch: { type: string, description: The branch the run was for. }
+        head_sha: { type: string }
+        run_attempt: { type: integer, description: "1 for a first run; higher when the run was re-run." }
+        steps:
+          type: array
+          description: >-
+            The job's steps as GitHub last reported them. A completed job carries every
+            step with its conclusion; a running one carries them mid-flight.
+          items: { $ref: "#/components/schemas/JobStep" }
+        failed_step:
+          description: >-
+            The first step that did not succeed, on a job that failed on a step it ran.
+            Null otherwise. Worked out by the server so every client names the same step.
+          oneOf:
+            - $ref: "#/components/schemas/JobStep"
+            - type: "null"
+        runner_fault:
+          type: string
+          description: >-
+            Set when the runner of this fleet that was executing the job stopped before
+            GitHub reported the job over -- the fleet's own explanation of a failure GitHub
+            records like any other. Empty when the runner did nothing wrong.
         queued_at: { type: string, format: date-time }
         started_at: { type: [string, "null"], format: date-time }
         completed_at: { type: [string, "null"], format: date-time }
         queue_wait_ms: { type: integer, format: int64 }
         duration_ms: { type: integer, format: int64 }
+
+    JobStep:
+      type: object
+      properties:
+        number: { type: integer }
+        name: { type: string }
+        status: { type: string, examples: [queued, in_progress, completed] }
+        conclusion: { type: string, examples: [success, failure, cancelled, skipped] }
+        started_at: { type: [string, "null"], format: date-time }
+        completed_at: { type: [string, "null"], format: date-time }
+
+    JobEventKind:
+      type: string
+      description: >-
+        What happened. `runner_lost` is the one entry GitHub cannot produce: the runner
+        stopped under the job, and GitHub will report an ordinary failure.
+      enum: [queued, claimed, unmatched, started, completed, runner_lost]
+
+    JobEvent:
+      type: object
+      properties:
+        id: { type: string }
+        job_id: { type: string }
+        kind: { $ref: "#/components/schemas/JobEventKind" }
+        source:
+          type: string
+          description: Who observed it. A timeline that is all `poller` is a controller no webhook reaches.
+          enum: [webhook, poller, agent, controller]
+        message: { type: string, description: One sentence, written for an operator. }
+        runner_id: { type: string }
+        runner_name: { type: string }
+        at: { type: string, format: date-time }
 
     # --- hosts ------------------------------------------------------------
     BackendInfo:

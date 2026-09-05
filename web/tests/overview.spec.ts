@@ -223,3 +223,26 @@ test('there is no refresh button anywhere on the Overview', async ({ page }) => 
   await expect(page.getByRole('link', { name: refreshy })).toHaveCount(0);
   await expect(page.locator('[title*="efresh" i]')).toHaveCount(0);
 });
+
+/*
+ * The recent past is where "is CI broken?" gets answered, and the panel has to
+ * do it without a click: the outcome, where it went wrong, and whether the
+ * fleet or the workflow is to blame.
+ */
+test('recent outcomes name the failures and blame the right party', async ({ page }) => {
+  const outcomes = page.getByRole('region', { name: 'Recent outcomes' });
+  await expect(outcomes).toBeVisible();
+  const rows = outcomes.getByRole('listitem');
+  await expect(rows.first()).toBeVisible();
+
+  // A step failure says the step; a lost runner says so, and is badged.
+  await expect(outcomes.getByText(/^at /).first()).toBeVisible();
+  await expect(outcomes).toContainText('Success');
+  await expect(outcomes.getByRole('link', { name: 'Every failed job' })).toHaveAttribute(
+    'href',
+    '/jobs?failed=true',
+  );
+
+  // Running jobs stay in their own panel beside it.
+  await expect(page.getByRole('region', { name: 'Active jobs' })).toBeVisible();
+});

@@ -302,6 +302,11 @@ The one page that has to earn the second monitor.
   so an operator can see a pool pinned at its ceiling.
 * **Recent scaling activity** — a reverse-chronological list of decisions in the
   scheduler's own words: *"scaled `linux-x64` 2 → 4: 3 jobs queued > 30s"*.
+* **Active jobs** and **Recent outcomes**, side by side — what is running this
+  moment, and how the last jobs ended, newest first. An outcome names the step
+  a job failed at, and a job whose runner stopped under it is badged *Runner
+  lost*: that failure is the fleet's, not the workflow's, and the page is where
+  the two are told apart.
 * **Problems summary** — one line saying how many things need a person, worst
   severity first, with a *Review* button that opens the problems drawer.
   **When everything is fine it is a single quiet line, not an empty box and not
@@ -315,7 +320,8 @@ The one page that has to earn the second monitor.
 Reachable from the count in the top bar on every page, from the Overview's
 *Review*, and from the command palette. It holds the list itself — unhealthy
 hosts, failed registrations, webhook delivery failures, unmatched queued jobs,
-and every dangerous configuration setting the validator flagged — worst first,
+jobs whose runner stopped under them in the last hour, and every dangerous
+configuration setting the validator flagged — worst first,
 each entry saying what is true, why it matters and what to change, with a link
 to the pool, host, runner or installation it is about.
 

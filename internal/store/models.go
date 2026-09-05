@@ -633,6 +633,133 @@ type Job struct {
 	// Matched records whether any enabled pool claimed this job's labels. An
 	// unmatched queued job is a configuration problem worth surfacing.
 	Matched bool `json:"matched"`
+	// HeadBranch, HeadSHA and RunAttempt say what the job ran for. A failure
+	// on a release branch and one on a feature branch are different news.
+	HeadBranch string `json:"head_branch,omitempty"`
+	HeadSHA    string `json:"head_sha,omitempty"`
+	RunAttempt int    `json:"run_attempt,omitempty"`
+	// Steps are the job's steps as GitHub last reported them. The completed
+	// delivery carries every step with its conclusion, which is how a failed
+	// job can say which step it stopped at.
+	Steps JobSteps `json:"steps"`
+	// RunnerFault is the fleet's own side of a failure: what the runner that
+	// was executing this job said when it stopped before GitHub reported the
+	// job over. GitHub records such a job as "failure" like any test failure;
+	// this is what tells "the tests failed" from "the runner died".
+	RunnerFault string `json:"runner_fault,omitempty"`
+}
+
+// JobStep is one step of a workflow job as GitHub reported it.
+type JobStep struct {
+	Number      int        `json:"number"`
+	Name        string     `json:"name"`
+	Status      string     `json:"status"` // queued | in_progress | completed
+	Conclusion  string     `json:"conclusion,omitempty"`
+	StartedAt   *time.Time `json:"started_at,omitempty"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+}
+
+// JobSteps is persisted as a JSON array in a TEXT column.
+type JobSteps []JobStep
+
+func (s *JobSteps) Scan(v any) error {
+	*s = nil
+	switch t := v.(type) {
+	case nil:
+		return nil
+	case []byte:
+		if len(t) == 0 {
+			return nil
+		}
+		return json.Unmarshal(t, s)
+	case string:
+		if t == "" {
+			return nil
+		}
+		return json.Unmarshal([]byte(t), s)
+	}
+	return fmt.Errorf("store: cannot scan %T into JobSteps", v)
+}
+
+func (s JobSteps) Value() (driver.Value, error) {
+	if s == nil {
+		s = JobSteps{}
+	}
+	b, err := json.Marshal([]JobStep(s))
+	return string(b), err
+}
+
+// JobEventKind names one thing that happened to a job.
+type JobEventKind string
+
+const (
+	// JobEventQueued: GitHub announced the job and it is waiting for a runner.
+	JobEventQueued JobEventKind = "queued"
+	// JobEventClaimed: an enabled pool answers the job's labels.
+	JobEventClaimed JobEventKind = "claimed"
+	// JobEventUnmatched: no enabled pool does, so nothing here will start it.
+	JobEventUnmatched JobEventKind = "unmatched"
+	// JobEventStarted: a runner picked the job up.
+	JobEventStarted JobEventKind = "started"
+	// JobEventCompleted: GitHub reported the job over, with its conclusion.
+	JobEventCompleted JobEventKind = "completed"
+	// JobEventRunnerLost: the runner executing the job stopped before GitHub
+	// reported the job over. This is the fleet's fault, not the workflow's.
+	JobEventRunnerLost JobEventKind = "runner_lost"
+)
+
+// JobEvent is one entry in a job's timeline: what happened, who observed it,
+// and the sentence the UI shows for it.
+type JobEvent struct {
+	ID    string       `json:"id"`
+	JobID string       `json:"job_id"`
+	Kind  JobEventKind `json:"kind"`
+	// Source is who saw it happen: "webhook", "poller", "agent" or
+	// "controller". A timeline that is all "poller" is a controller that no
+	// webhook is reaching, which is worth being able to see.
+	Source     string    `json:"source"`
+	Message    string    `json:"message"`
+	RunnerID   string    `json:"runner_id,omitempty"`
+	RunnerName string    `json:"runner_name,omitempty"`
+	At         time.Time `json:"at"`
+}
+
+// JobChange reports what an upsert actually changed, so the caller can write
+// the timeline from the transition rather than from the delivery: webhook
+// deliveries are at-least-once, and a redelivered "queued" must not add a
+// second "queued" entry.
+type JobChange struct {
+	// Created is true when the store had never seen this job.
+	Created bool
+	// PreviousState is the state before the upsert; empty when Created.
+	PreviousState JobState
+	// StateChanged is true when the job moved forward through its lifecycle.
+	StateChanged bool
+	// Claimed is true when the job was unclaimed before and a pool claims it now.
+	Claimed bool
+	// RunnerLinked is true when the job was linked to one of this fleet's
+	// runner rows for the first time.
+	RunnerLinked bool
+}
+
+// FailedStep returns the step a job stopped at, or nil when it did not fail
+// on a step it ran.
+//
+// GitHub's conclusion says that a job failed; the steps say where. The first
+// step that did not succeed is the one whose output the operator wants, because
+// every step after it is skipped or cancelled as a consequence.
+func (j *Job) FailedStep() *JobStep {
+	if j.State != JobCompleted {
+		return nil
+	}
+	for i := range j.Steps {
+		st := &j.Steps[i]
+		switch st.Conclusion {
+		case "failure", "timed_out", "cancelled", "startup_failure", "action_required":
+			return st
+		}
+	}
+	return nil
 }
 
 // QueueWait returns how long the job waited before a runner picked it up.

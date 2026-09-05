@@ -53,6 +53,9 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 	if managed := queryBoolPtr(r, "managed"); managed != nil {
 		filter.ManagedOnly = *managed
 	}
+	if failed := queryBoolPtr(r, "failed"); failed != nil {
+		filter.FailedOnly = *failed
+	}
 
 	p := parsePage(r)
 	jobs, total, err := s.ctrl.Store().ListJobs(r.Context(), filter, p)
@@ -88,6 +91,28 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, controller.NewJobView(j, poolName))
+}
+
+// jobEventResponse is one entry of a job's timeline. The store's record is the
+// documented shape: it has no derived fields, so there is nothing for a
+// renderer to add.
+type jobEventResponse = store.JobEvent
+
+// handleJobEvents answers GET /api/v1/jobs/{id}/events: what happened to a
+// job, in order, in sentences. The drawer fetches it when it opens and again
+// on every job.updated frame for that job, so the list is never stale for
+// longer than the stream is.
+func (s *Server) handleJobEvents(w http.ResponseWriter, r *http.Request) {
+	events, err := s.ctrl.JobEvents(r.Context(), chiURLParam(r, "id"))
+	if err != nil {
+		s.fail(w, r, "reading the job's timeline", err)
+		return
+	}
+	out := make([]jobEventResponse, 0, len(events))
+	for _, e := range events {
+		out = append(out, *e)
+	}
+	writeJSON(w, http.StatusOK, newList(out))
 }
 
 // jobFacetsResponse populates the filter menus.

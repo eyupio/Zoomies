@@ -757,6 +757,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/jobs/{id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * A job's timeline
+         * @description What Zoomies observed and did about one job, oldest first, each entry a sentence an operator can read. Entries are written from what each delivery changed rather than from the delivery itself, so GitHub redelivering one adds nothing. Every change to the timeline is accompanied by a `job.updated` frame on the event stream, which is when a client refetches it.
+         */
+        get: operations["getJobEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/jobs/facets": {
         parameters: {
             query?: never;
@@ -1764,6 +1787,17 @@ export interface components {
             html_url?: string;
             /** @description False when no enabled pool claims this job's labels. On a job that is not queued this only says the job ran somewhere else. */
             matched?: boolean;
+            /** @description The branch the run was for. */
+            head_branch?: string;
+            head_sha?: string;
+            /** @description 1 for a first run; higher when the run was re-run. */
+            run_attempt?: number;
+            /** @description The job's steps as GitHub last reported them. A completed job carries every step with its conclusion; a running one carries them mid-flight. */
+            steps?: components["schemas"]["JobStep"][];
+            /** @description The first step that did not succeed, on a job that failed on a step it ran. Null otherwise. Worked out by the server so every client names the same step. */
+            failed_step?: components["schemas"]["JobStep"] | null;
+            /** @description Set when the runner of this fleet that was executing the job stopped before GitHub reported the job over -- the fleet's own explanation of a failure GitHub records like any other. Empty when the runner did nothing wrong. */
+            runner_fault?: string;
             /** Format: date-time */
             queued_at?: string;
             /** Format: date-time */
@@ -1774,6 +1808,48 @@ export interface components {
             queue_wait_ms?: number;
             /** Format: int64 */
             duration_ms?: number;
+        };
+        JobStep: {
+            number?: number;
+            name?: string;
+            /**
+             * @example queued
+             * @example in_progress
+             * @example completed
+             */
+            status?: string;
+            /**
+             * @example success
+             * @example failure
+             * @example cancelled
+             * @example skipped
+             */
+            conclusion?: string;
+            /** Format: date-time */
+            started_at?: string | null;
+            /** Format: date-time */
+            completed_at?: string | null;
+        };
+        /**
+         * @description What happened. `runner_lost` is the one entry GitHub cannot produce: the runner stopped under the job, and GitHub will report an ordinary failure.
+         * @enum {string}
+         */
+        JobEventKind: "queued" | "claimed" | "unmatched" | "started" | "completed" | "runner_lost";
+        JobEvent: {
+            id?: string;
+            job_id?: string;
+            kind?: components["schemas"]["JobEventKind"];
+            /**
+             * @description Who observed it. A timeline that is all `poller` is a controller no webhook reaches.
+             * @enum {string}
+             */
+            source?: "webhook" | "poller" | "agent" | "controller";
+            /** @description One sentence */
+            message?: string;
+            runner_id?: string;
+            runner_name?: string;
+            /** Format: date-time */
+            at?: string;
         };
         BackendInfo: {
             kind?: components["schemas"]["BackendKind"];
@@ -3109,6 +3185,8 @@ export interface operations {
                 unmatched?: boolean;
                 /** @description Only jobs this controller has a hand in: one an enabled pool claims, one that ran on a runner this fleet started, and queued jobs no pool claims -- which nothing ran, so they belong here too. Leave it off to see every job GitHub has reported, including those run on hosted runners this fleet does not own. */
                 managed?: boolean;
+                /** @description Only jobs that went wrong, on either side: a conclusion GitHub counts as a failure (failure, timed_out, startup_failure), or a runner of this fleet that stopped under the job -- including one GitHub still believes is running. */
+                failed?: boolean;
                 limit?: components["parameters"]["Limit"];
                 offset?: components["parameters"]["Offset"];
                 /** @description A column name. An unknown value falls back to the default rather than erroring, so a stale bookmark does not break the page. */
@@ -3153,6 +3231,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Job"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getJobEvents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items?: components["schemas"]["JobEvent"][];
+                    };
                 };
             };
             404: components["responses"]["NotFound"];

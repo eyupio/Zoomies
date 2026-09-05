@@ -16,8 +16,13 @@
   Nothing on this page polls, and nothing on it can be refreshed by hand. The
   fleet cache subscribes to `stats`, `scaling`, `problems.updated`, `runner.*`,
   `pool.*` and `host.*`; the panels below add `job.updated` for the running
-  jobs. A reconnect ends in one reconciling fetch, which is the only fetch that
-  ever happens twice.
+  jobs and the recent outcomes. A reconnect ends in one reconciling fetch,
+  which is the only fetch that ever happens twice.
+
+  The work itself is two panels side by side: what is running now, and how the
+  last jobs ended. The second is where "is CI broken?" is answered, and where a
+  runner that died under a job is called the fleet's failure rather than the
+  workflow's.
 -->
 <script lang="ts">
   import ErrorState from '$lib/components/ErrorState.svelte';
@@ -28,6 +33,7 @@
   import FleetMetrics from '$lib/overview/FleetMetrics.svelte';
   import PoolUtilisation from '$lib/overview/PoolUtilisation.svelte';
   import ProblemsSummary from '$lib/overview/ProblemsSummary.svelte';
+  import RecentOutcomes from '$lib/overview/RecentOutcomes.svelte';
   import ScalingFeed from '$lib/overview/ScalingFeed.svelte';
 
   // Raised by the checklist while it is on screen, so the problems summary
@@ -65,7 +71,10 @@
       <PoolUtilisation {loading} />
       <ScalingFeed {loading} />
     </div>
-    <ActiveJobs />
+    <div class="split work">
+      <ActiveJobs />
+      <RecentOutcomes />
+    </div>
   </div>
 {/if}
 
@@ -80,6 +89,9 @@
     grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
     gap: var(--z-space-6);
     align-items: start;
+  }
+  .split.work {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
   @media (max-width: 1180px) {
     .split {

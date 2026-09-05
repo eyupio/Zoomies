@@ -136,3 +136,63 @@ func TestSeedDemoRefusesARealFleet(t *testing.T) {
 		t.Fatalf("the refused seed still wrote %d runners", got)
 	}
 }
+
+// The Jobs page's drawer, its failed filter and the problems drawer's "runner
+// lost" entry all need a fixture behind them, and the timeline needs one job
+// whose story it can tell in full.
+func TestSeedDemoGivesJobsStepsATimelineAndOneLostRunner(t *testing.T) {
+	h := newHarness(t)
+	if err := h.c.SeedDemo(h.ctx); err != nil {
+		t.Fatalf("SeedDemo: %v", err)
+	}
+
+	failed, total, err := h.st.ListJobs(h.ctx, store.JobFilter{FailedOnly: true}, store.Page{Limit: 100})
+	if err != nil {
+		t.Fatalf("ListJobs: %v", err)
+	}
+	if total == 0 {
+		t.Fatal("the seed has no failed job for the failed filter to find")
+	}
+	var lost *store.Job
+	for _, j := range failed {
+		if j.Conclusion == "failure" && j.FailedStep() == nil {
+			t.Errorf("failed job %s names no failed step", j.ID)
+		}
+		if j.RunnerFault != "" {
+			lost = j
+		}
+	}
+	if lost == nil {
+		t.Fatal("no seeded job lost its runner, so the runner_lost badge has no fixture")
+	}
+
+	events, err := h.c.JobEvents(h.ctx, lost.ID)
+	if err != nil {
+		t.Fatalf("JobEvents: %v", err)
+	}
+	kinds := kindsOfEvents(events)
+	for _, want := range []store.JobEventKind{store.JobEventQueued, store.JobEventClaimed, store.JobEventStarted, store.JobEventRunnerLost, store.JobEventCompleted} {
+		found := false
+		for _, k := range kinds {
+			found = found || k == want
+		}
+		if !found {
+			t.Errorf("the lost-runner job's timeline %v lacks %s", kinds, want)
+		}
+	}
+	for i := 1; i < len(events); i++ {
+		if events[i].At.Before(events[i-1].At) {
+			t.Errorf("timeline out of order at %d: %v after %v", i, events[i].At, events[i-1].At)
+		}
+	}
+
+	running, _, err := h.st.ListJobs(h.ctx, store.JobFilter{States: []store.JobState{store.JobInProgress}}, store.Page{})
+	if err != nil {
+		t.Fatalf("ListJobs running: %v", err)
+	}
+	for _, j := range running {
+		if len(j.Steps) == 0 || j.FailedStep() != nil {
+			t.Errorf("running job %s has steps %+v, want some in flight and none failed", j.ID, j.Steps)
+		}
+	}
+}

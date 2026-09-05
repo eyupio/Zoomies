@@ -99,6 +99,15 @@ type WorkflowJobEvent struct {
 	StartedAt   time.Time
 	CompletedAt time.Time
 	HTMLURL     string
+
+	// HeadBranch, HeadSHA and RunAttempt say what the job ran for.
+	HeadBranch string
+	HeadSHA    string
+	RunAttempt int
+	// Steps are the job's steps as this delivery reports them. On a completed
+	// delivery every step carries its conclusion, which is what lets a failed
+	// job say where it failed.
+	Steps []store.JobStep
 }
 
 // workflowJobPayload mirrors the wire format. Timestamps are pointers because
@@ -119,6 +128,17 @@ type workflowJobPayload struct {
 		StartedAt    *time.Time `json:"started_at"`
 		CompletedAt  *time.Time `json:"completed_at"`
 		HTMLURL      string     `json:"html_url"`
+		HeadBranch   string     `json:"head_branch"`
+		HeadSHA      string     `json:"head_sha"`
+		RunAttempt   int        `json:"run_attempt"`
+		Steps        []struct {
+			Number      int        `json:"number"`
+			Name        string     `json:"name"`
+			Status      string     `json:"status"`
+			Conclusion  string     `json:"conclusion"`
+			StartedAt   *time.Time `json:"started_at"`
+			CompletedAt *time.Time `json:"completed_at"`
+		} `json:"steps"`
 	} `json:"workflow_job"`
 	Repository struct {
 		FullName string `json:"full_name"`
@@ -152,6 +172,26 @@ func ParseWorkflowJob(payload []byte) (*WorkflowJobEvent, error) {
 		Status:         strings.ToLower(strings.TrimSpace(p.WorkflowJob.Status)),
 		Conclusion:     strings.ToLower(strings.TrimSpace(p.WorkflowJob.Conclusion)),
 		HTMLURL:        p.WorkflowJob.HTMLURL,
+		HeadBranch:     p.WorkflowJob.HeadBranch,
+		HeadSHA:        p.WorkflowJob.HeadSHA,
+		RunAttempt:     p.WorkflowJob.RunAttempt,
+	}
+	for _, st := range p.WorkflowJob.Steps {
+		step := store.JobStep{
+			Number:     st.Number,
+			Name:       st.Name,
+			Status:     strings.ToLower(strings.TrimSpace(st.Status)),
+			Conclusion: strings.ToLower(strings.TrimSpace(st.Conclusion)),
+		}
+		if st.StartedAt != nil {
+			t := st.StartedAt.UTC()
+			step.StartedAt = &t
+		}
+		if st.CompletedAt != nil {
+			t := st.CompletedAt.UTC()
+			step.CompletedAt = &t
+		}
+		e.Steps = append(e.Steps, step)
 	}
 	if t := p.WorkflowJob.CreatedAt; t != nil {
 		e.QueuedAt = t.UTC()
@@ -207,6 +247,10 @@ func (e *WorkflowJobEvent) ToJob() *store.Job {
 		RunnerName:  e.RunnerName,
 		HTMLURL:     e.HTMLURL,
 		QueuedAt:    e.QueuedAt,
+		HeadBranch:  e.HeadBranch,
+		HeadSHA:     e.HeadSHA,
+		RunAttempt:  e.RunAttempt,
+		Steps:       e.Steps,
 	}
 	if j.QueuedAt.IsZero() {
 		// A delivery without created_at still has to sort somewhere in the
