@@ -72,17 +72,17 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	if err != nil {
 		return nil, fmt.Errorf("listing pools: %w", err)
 	}
+	insts, err := c.st.ListInstallations(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing installations: %w", err)
+	}
+	installations := make(map[string]*store.Installation, len(insts))
+	for _, i := range insts {
+		installations[i.ID] = i
+	}
 	for _, p := range pools {
-		for _, d := range p.Dangerous() {
-			out = append(out, Problem{
-				Code:       "pool.dangerous",
-				Severity:   config.SeverityWarning,
-				Title:      fmt.Sprintf("pool %s: %s", p.Name, d),
-				Detail:     "this pool was configured to weaken the isolation between a workflow job and the host it runs on.",
-				Fix:        fmt.Sprintf("edit the %s pool if this was not deliberate.", p.Name),
-				TargetKind: "pool", TargetID: p.ID,
-			})
-		}
+		// The same sentences the pool's own page shows, from the same place.
+		out = append(out, PoolWarnings(p, installations[p.InstallationID])...)
 	}
 
 	if err := c.hostProblems(ctx, &out); err != nil {

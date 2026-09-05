@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/config"
@@ -381,9 +382,9 @@ type PoolView struct {
 // PoolRenderer is everything needed to render pools without one query per
 // pool.
 type PoolRenderer struct {
-	counts  map[string]store.PoolCounts
-	targets map[string]string
-	queued  map[string]int
+	counts        map[string]store.PoolCounts
+	installations map[string]*store.Installation
+	queued        map[string]int
 	// blocked holds, per pool, the scheduler's reason for not placing the
 	// runners that pool wanted. It is the answer to the question the pool page
 	// is opened to ask.
@@ -401,9 +402,9 @@ func (c *Controller) PoolRenderer(ctx context.Context) (*PoolRenderer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("listing installations: %w", err)
 	}
-	targets := make(map[string]string, len(insts))
+	installations := make(map[string]*store.Installation, len(insts))
 	for _, i := range insts {
-		targets[i.ID] = i.Target
+		installations[i.ID] = i
 	}
 	jobs, err := c.st.ListQueuedJobs(ctx)
 	if err != nil {
@@ -419,17 +420,22 @@ func (c *Controller) PoolRenderer(ctx context.Context) (*PoolRenderer, error) {
 	for _, p := range c.PoolCapacityProblems() {
 		blocked[p.TargetID] = append(blocked[p.TargetID], p)
 	}
-	return &PoolRenderer{counts: counts, targets: targets, queued: queued, blocked: blocked}, nil
+	return &PoolRenderer{counts: counts, installations: installations, queued: queued, blocked: blocked}, nil
 }
 
 // View renders one pool.
 func (v *PoolRenderer) View(p *store.Pool) PoolView {
 	cnt := v.counts[p.ID]
+	inst := v.installations[p.InstallationID]
+	target := ""
+	if inst != nil {
+		target = inst.Target
+	}
 	return PoolView{
 		ID:                 p.ID,
 		Name:               p.Name,
 		InstallationID:     p.InstallationID,
-		InstallationTarget: v.targets[p.InstallationID],
+		InstallationTarget: target,
 		Labels:             emptySlice(p.Labels),
 		RunnerGroup:        p.RunnerGroup,
 		Backend:            p.Backend,
@@ -457,7 +463,7 @@ func (v *PoolRenderer) View(p *store.Pool) PoolView {
 		},
 		QueuedJobs:  v.queued[p.ID],
 		Utilisation: cnt.Utilisation(),
-		Warnings:    append(PoolWarnings(p), v.blocked[p.ID]...),
+		Warnings:    append(PoolWarnings(p, inst), v.blocked[p.ID]...),
 	}
 }
 
@@ -467,13 +473,13 @@ func (v *PoolRenderer) View(p *store.Pool) PoolView {
 // operator should not have to learn that "host-socket" on the pool page and
 // "any job on this pool can become root on the host" on the Overview are the
 // same fact.
-func PoolWarnings(p *store.Pool) []Problem {
-	dangers := p.Dangerous()
-	if len(dangers) == 0 {
-		return nil
-	}
-	out := make([]Problem, 0, len(dangers))
-	for _, d := range dangers {
+//
+// The installation is there for the one risk a pool cannot see in itself,
+// the repository cache below. Nil when it is unknown, which validation
+// reports on its own.
+func PoolWarnings(p *store.Pool, inst *store.Installation) []Problem {
+	var out []Problem
+	for _, d := range p.Dangerous() {
 		out = append(out, Problem{
 			Code:       "pool.dangerous",
 			Severity:   config.SeverityWarning,
@@ -484,7 +490,44 @@ func PoolWarnings(p *store.Pool) []Problem {
 			TargetID:   p.ID,
 		})
 	}
+	if w, ok := cacheSharingWarning(p, inst); ok {
+		out = append(out, w)
+	}
 	return out
+}
+
+// cacheSharingWarning names the way a repository cache stops being one.
+//
+// Under an organisation installation a pool's runners register to the
+// organisation, and GitHub gives a runner any queued job whose runs-on matches
+// its labels; Zoomies has no say in which repository that job comes from. A
+// cache keyed to one repository is therefore only that repository's for as
+// long as no other repository's workflow asks for this pool's labels -- a
+// discipline kept in other people's workflow files, which is why it is a
+// standing warning rather than a line in the docs. A repository-targeted
+// installation registers runners only that repository's jobs can reach, so
+// there the cache is as private as it looks.
+func cacheSharingWarning(p *store.Pool, inst *store.Installation) (Problem, bool) {
+	if inst == nil || inst.TargetType == store.TargetRepo {
+		return Problem{}, false
+	}
+	if !p.Cache.Enabled || p.Cache.Scope != store.CacheScopeRepository {
+		return Problem{}, false
+	}
+	repo := strings.TrimSpace(p.Cache.Repository)
+	if repo == "" {
+		repo = "the repository"
+	}
+	return Problem{
+		Code:     "pool.cache_shared",
+		Severity: config.SeverityWarning,
+		Title:    fmt.Sprintf("pool %s: the %s cache is only as private as the pool's labels", p.Name, repo),
+		Detail: fmt.Sprintf("runners in this pool register to %s, so GitHub can hand them any repository's job whose runs-on asks for this pool's labels, "+
+			"and that job reads and writes the cache. Nothing in Zoomies stops another repository's workflow doing so.", inst.Target),
+		Fix:        fmt.Sprintf("give the %s pool a branded label that only %s's workflows use in runs-on, and keep it that way.", p.Name, repo),
+		TargetKind: "pool",
+		TargetID:   p.ID,
+	}, true
 }
 
 // ---------------------------------------------------------------------------

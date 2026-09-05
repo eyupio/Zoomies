@@ -516,7 +516,13 @@ func (s *Server) handleValidatePool(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, "counting the hosts that could run this pool", err)
 		return
 	}
-	warnings := controller.PoolWarnings(p)
+	// The installation is part of what a warning is about; when it does not
+	// exist, validatePool has already said so in the errors.
+	var inst *store.Installation
+	if i, err := s.ctrl.Store().GetInstallation(r.Context(), p.InstallationID); err == nil {
+		inst = i
+	}
+	warnings := controller.PoolWarnings(p, inst)
 	if fit.count == 0 {
 		why := fmt.Sprintf("no healthy, uncordoned host offers the %s backend and matches this pool's host selector, "+
 			"so every runner it asks for would wait for a host that does not exist.", p.Backend)

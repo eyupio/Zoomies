@@ -215,6 +215,40 @@ func TestPoolValidationNamesTheField(t *testing.T) {
 	}
 }
 
+// The review step is where an operator decides, so the dry run has to carry
+// the warning that a repository cache under an organisation installation is
+// only as private as the pool's labels -- the installation is the harness's,
+// which targets an organisation.
+func TestPoolValidateWarnsThatARepositoryCacheIsOnlyAsPrivateAsItsLabels(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	h.host("vm-1")
+	u, _ := h.user("operator", store.RoleOperator)
+
+	body := poolBody(inst.ID)
+	body["cache"] = map[string]any{"enabled": true, "scope": "repository", "repository": "acme/widgets"}
+
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/pools/validate", cookie: h.session(u), body: body})
+	resp.mustStatus(t, http.StatusOK, "validate")
+	var verdict validatePoolResponse
+	resp.into(t, &verdict)
+	if !verdict.Valid {
+		t.Fatalf("a repository cache under an organisation installation is allowed: %+v", verdict.Errors)
+	}
+	found := false
+	for _, w := range verdict.Warnings {
+		if w.Code == "pool.cache_shared" {
+			found = true
+			if !strings.Contains(w.Detail, "acme") || w.Fix == "" {
+				t.Errorf("the warning should name the organisation and say what to do: %+v", w)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("no shared-cache warning in %+v", verdict.Warnings)
+	}
+}
+
 // An organisation-wide installation is the ordinary deployment -- one app, one
 // fleet -- and it must not cost every repository its own cache. Naming the
 // repository is what the installation cannot do for itself.
