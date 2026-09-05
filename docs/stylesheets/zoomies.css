@@ -194,6 +194,16 @@ input,
   color: var(--md-default-fg-color--light);
 }
 
+/* Diagrams. Material derives every --md-mermaid-* colour from the palette
+   above, so a diagram follows whichever theme the reader is in without any
+   colour of its own. What it does not do is bound the width: a topology drawn
+   for a laptop is wider than a phone, and it has to scroll inside its own box
+   rather than push the article sideways. */
+.md-typeset .mermaid {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
 @media screen and (max-width: 44.9375em) {
   .zoomies-hero {
     padding: 1.75rem 0.75rem 1.25rem;

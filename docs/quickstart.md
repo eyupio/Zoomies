@@ -187,6 +187,16 @@ change. When there is nothing wrong it is one quiet line.
 Two different faults look the same from GitHub, and the problems panel tells
 them apart:
 
+```mermaid
+flowchart TB
+    j["a job sits in the queue"] --> p{"does an enabled pool<br/>claim its labels?"}
+    p -->|"no"| unm["unmatched: fix the workflow's<br/>labels, or the pool's"]
+    p -->|"yes"| h{"can a host run that pool?"}
+    h -->|"nothing offers its backend"| b["fix the socket on that host, or point the<br/>pool at a backend your hosts already offer"]
+    h -->|"nothing matches its host selector"| sel["relax the selector,<br/>or label a host to match"]
+    h -->|"every host that could is full"| full["not a fault: the next<br/>finished job starts this one"]
+```
+
 * **No pool claims the job.** Its `runs-on` labels match no enabled pool. Change
   the workflow's labels, or the pool's.
 * **No host can run the pool.** A pool is claiming the job and nothing in the

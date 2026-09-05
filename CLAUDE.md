@@ -176,6 +176,11 @@ has a consistent voice, and matching it is part of a change looking finished.
   who gets a 403 should be told which role they are missing. Findings say what
   to change; API errors carry a human message and a stable code.
 * `--` is used for an em dash in Go comments.
+* **Diagrams are Mermaid**, in a `mermaid` fenced block beside the prose they
+  explain -- never ASCII art. The site renders them (`mkdocs.yml` registers the
+  fence) and so does GitHub, so a diagram lives in the Markdown it belongs to and
+  there is no exported image to go stale. Do not colour one by hand: Material
+  themes it for light and dark, and a hard-coded fill is wrong in one of them.
 * **Commit messages are imperative sentences in plain prose**, sentence case, no
   Conventional Commits prefix: *"Say why a pool has no host, and let a host say
   it can run again"*, *"Make both halves of 'no capacity' something an operator

@@ -84,7 +84,15 @@ markdown_extensions:
       pygments_lang_class: true
   - pymdownx.inlinehilite
   - pymdownx.snippets
-  - pymdownx.superfences
+  # Diagrams are Mermaid, rendered in the browser and themed by Material to
+  # follow whichever palette the reader is in. A diagram is a fenced block in
+  # the same file as the prose it explains, so GitHub renders it too and there
+  # is no exported image to go stale.
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.tabbed:
       alternate_style: true
   - pymdownx.tasklist:

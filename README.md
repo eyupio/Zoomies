@@ -30,10 +30,16 @@ Single Go binary. SQLite. No Kubernetes.
 You point Zoomies at a GitHub organisation. It watches for queued jobs, starts a
 fresh runner for each one, and destroys the runner when the job finishes.
 
-```
-  job queued ──▶ webhook ──▶ scheduler decides ──▶ agent starts a container
-                                                        │
-  job done ◀── runner exits ◀── GitHub assigns the job ◀─┘
+```mermaid
+flowchart LR
+    q["a job is queued<br/>on GitHub"]
+    w["workflow_job<br/>webhook"]
+    d["the scheduler decides,<br/>and says why"]
+    s["an agent starts<br/>a runner container"]
+    a["GitHub hands<br/>the job to it"]
+    e["the job finishes,<br/>the container is destroyed"]
+
+    q --> w --> d --> s --> a --> e
 ```
 
 * **Ephemeral by default.** One job per runner. Nothing leaks from one workflow
@@ -325,10 +331,15 @@ internal/api        REST, SSE, metrics, and the embedded UI
 internal/controller the reconcile loop and the agent task queue
 internal/agent      the runner-executing half
 internal/installer  zoomies init / uninstall / agent join
+internal/cryptox    AES-256-GCM at rest, argon2id, token hashing
+internal/events     in-process pub/sub that the SSE endpoint fans out
+internal/migrate    rewriting workflows' runs-on lines
 web/                the Svelte 5 UI
+api/openapi.yaml    the contract both clients are generated from
 deploy/             images, compose, systemd units
 docs/               the zoomies.sh site: architecture, security, UI guidelines,
                     configuration, brand
+install.sh          the one-line installer, served from the site root
 mkdocs.yml          how docs/ becomes zoomies.sh
 ```
 

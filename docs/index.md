@@ -36,10 +36,16 @@ curl -fsSL https://zoomies.sh/install.sh | sh
 Point Zoomies at a GitHub organisation. It watches for queued jobs, starts a
 fresh runner for each one, and destroys the runner when the job finishes.
 
-```
-  job queued ──▶ webhook ──▶ scheduler decides ──▶ agent starts a container
-                                                        │
-  job done ◀── runner exits ◀── GitHub assigns the job ◀─┘
+```mermaid
+flowchart LR
+    q["a job is queued<br/>on GitHub"]
+    w["workflow_job<br/>webhook"]
+    d["the scheduler decides,<br/>and says why"]
+    s["an agent starts<br/>a runner container"]
+    a["GitHub hands<br/>the job to it"]
+    e["the job finishes,<br/>the container is destroyed"]
+
+    q --> w --> d --> s --> a --> e
 ```
 
 <div class="zoomies-grid" markdown>
