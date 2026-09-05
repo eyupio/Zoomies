@@ -309,7 +309,7 @@ from one that is not reachable from the other.
 ```sh
 zoomies status                       # the Overview, in a terminal
 zoomies pools list
-zoomies pools create --name zoomies-linux-x64 --labels zoomies-linux-x64 --max 8
+zoomies pools create --name zoomies-linux-x64 --labels zoomies-linux-x64 --installation ins_k3f9qz2m --max 8
 zoomies runners list --state busy
 zoomies runners drain run_k3f9qz2m
 zoomies runners logs run_k3f9qz2m --follow

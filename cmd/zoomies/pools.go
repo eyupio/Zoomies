@@ -92,7 +92,7 @@ func poolsList(ctx context.Context, e *env, args []string) error {
 		return p.emit(raw)
 	}
 	if len(out.Items) == 0 {
-		p.note("No pools yet. Create one with: zoomies pools create --name zoomies-linux-x64 --labels self-hosted,linux-x64 --installation <id>")
+		p.note("No pools yet. Create one with: zoomies pools create --name zoomies-linux-x64 --labels zoomies-linux-x64 --installation <id>")
 		return nil
 	}
 
@@ -311,8 +311,8 @@ func poolsCreate(ctx context.Context, e *env, args []string) error {
 	spec := registerPoolFlags(fs)
 	dryRun := fs.Bool("dry-run", false, "validate the pool and print the verdict without creating anything")
 	fs.example(
-		"zoomies pools create --name zoomies-linux-x64 --labels self-hosted,linux-x64 --installation inst_k3f9qz2m --max 8",
-		"zoomies pools create --name zoomies-arm --labels linux-arm64 --installation inst_k3f9qz2m --host-selector arch=arm64 --dry-run",
+		"zoomies pools create --name zoomies-linux-x64 --labels zoomies-linux-x64 --installation ins_k3f9qz2m --max 8",
+		"zoomies pools create --name zoomies-arm --labels linux-arm64 --installation ins_k3f9qz2m --host-selector arch=arm64 --dry-run",
 	)
 	if err := fs.parse(args); err != nil {
 		return err
@@ -386,7 +386,7 @@ func poolsEdit(ctx context.Context, e *env, args []string) error {
 		"Change the settings you name. Anything you do not name is left alone.")
 	cf := registerClientFlags(fs, true)
 	spec := registerPoolFlags(fs)
-	fs.example("zoomies pools edit pool_k3f9qz2m --max 12", "zoomies pools edit pool_k3f9qz2m --labels self-hosted,linux-x64,gpu")
+	fs.example("zoomies pools edit pool_k3f9qz2m --max 12", "zoomies pools edit pool_k3f9qz2m --labels zoomies-linux-x64,gpu")
 	if err := fs.parse(args); err != nil {
 		return err
 	}

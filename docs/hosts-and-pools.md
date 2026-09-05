@@ -126,7 +126,7 @@ The UI's wizard is the easiest way in, and the CLI takes the same fields:
 zoomies pools create \
   --name zoomies-gpu \
   --labels zoomies-gpu \
-  --installation inst_k3f9qz2m \
+  --installation ins_k3f9qz2m \
   --host-selector gpu=true \
   --max 4 \
   --dry-run
@@ -217,7 +217,7 @@ require the label:
 ```sh
 zoomies agent join https://zoomies.example.com --token zoojoin_... --labels gpu=true
 zoomies pools create --name zoomies-gpu --labels zoomies-gpu \
-  --installation inst_k3f9qz2m --host-selector gpu=true --max 2
+  --installation ins_k3f9qz2m --host-selector gpu=true --max 2
 ```
 
 Workflows reach it with `runs-on: zoomies-gpu`. Nothing else lands there,
