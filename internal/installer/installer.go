@@ -854,7 +854,7 @@ func archLabel(osName, arch string) string {
 // applyAnswers overlays what an answer file said, leaving the derived defaults
 // wherever it said nothing.
 func (p *PoolSuggestion) applyAnswers(a AnswersPool) {
-	if name := strings.TrimSpace(a.Name); name != "" {
+	if name := store.BrandedName(a.Name); name != "" {
 		p.Name = name
 		// The labels default to the name, so a renamed pool that was not given
 		// labels of its own follows the new name rather than answering to the

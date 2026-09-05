@@ -283,7 +283,8 @@ test('going back a step does not lose what was typed', async ({ page }) => {
 
   await back(page).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Target' })).toBeVisible();
-  await expect(nameField(page)).toHaveValue('e2e-remembered');
+  // Branded on the way out of the field, and that is what comes back.
+  await expect(nameField(page)).toHaveValue('zoomies-e2e-remembered');
 
   // Forward again, and the later steps are as they were left too.
   await next(page).click();
@@ -364,14 +365,34 @@ test('the generated name follows the backend until somebody types their own', as
   await expect(name).toHaveValue(/^zoomies-[a-z]+-podman-linux$/);
 
   // Once a name is typed it belongs to the operator, and choosing another
-  // backend must not rewrite it under their cursor.
+  // backend must not rewrite it under their cursor. The brand is the one part
+  // that is not theirs to drop, so it is put back on the typed name and left
+  // at that.
   await name.fill('e2e-mine');
   await next(page).click();
   await next(page).click();
   await radio(page, 'backend', 'docker').check();
   await back(page).click();
   await back(page).click();
-  await expect(name).toHaveValue('e2e-mine');
+  await expect(name).toHaveValue('zoomies-e2e-mine');
+});
+
+test('a name typed without the brand gains it', async ({ page }) => {
+  // In GitHub's runner settings the prefix is the only thing telling our
+  // runners from anyone else's, so it is not something an operator can type
+  // their way out of. The field shows what will be saved rather than letting
+  // the name change on its way to the server.
+  await goto(page, '/pools/new', 'Create a pool');
+  const name = nameField(page);
+
+  await name.fill('gpu');
+  await name.blur();
+  await expect(name).toHaveValue('zoomies-gpu');
+
+  // A name that already carries the brand keeps exactly one.
+  await name.fill('zoomies-gpu');
+  await name.blur();
+  await expect(name).toHaveValue('zoomies-gpu');
 });
 
 test('a label the operator has changed is never filled in again', async ({ page }) => {

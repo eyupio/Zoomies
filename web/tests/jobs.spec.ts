@@ -42,7 +42,9 @@ test('the grid lists jobs with their queue wait and duration', async ({ page }) 
   await expect(rows.first()).toBeVisible();
 
   // The seed writes fifty jobs and nothing adds more: no webhook ever arrives.
-  await expect(rowCount(page)).toContainText(`of ${FIXTURE.totalJobs} jobs`);
+  // One of them ran on a hosted-runner vendor, and the default view leaves it
+  // out.
+  await expect(rowCount(page)).toContainText(`of ${FIXTURE.managedJobs} jobs`);
   await expect(jobs(page).getByRole('columnheader', { name: 'Queue wait' })).toBeVisible();
   await expect(jobs(page).getByRole('columnheader', { name: 'Duration' })).toBeVisible();
 
@@ -62,7 +64,7 @@ test('the grid lists jobs with their queue wait and duration', async ({ page }) 
 test('a repository facet narrows the rows and is shareable', async ({ page }) => {
   await goto(page, '/jobs', 'Jobs');
   await expect(dataRows(jobs(page)).first()).toBeVisible();
-  await expect(rowCount(page)).toContainText(`of ${FIXTURE.totalJobs} jobs`);
+  await expect(rowCount(page)).toContainText(`of ${FIXTURE.managedJobs} jobs`);
 
   await facetTrigger(page, 'Repository').click();
   const menu = page.getByRole('group', { name: 'Filter by repository' });
@@ -85,7 +87,7 @@ test('a repository facet narrows the rows and is shareable', async ({ page }) =>
 
   // Removing the chip puts every job back.
   await page.getByRole('button', { name: 'Remove the Repository filter acme/api' }).click();
-  await expect(rowCount(page)).toContainText(`of ${FIXTURE.totalJobs} jobs`);
+  await expect(rowCount(page)).toContainText(`of ${FIXTURE.managedJobs} jobs`);
 });
 
 test('the unmatched filter finds the job no pool claims and explains it', async ({ page }) => {
@@ -117,8 +119,9 @@ test('a job that already ran is never called unmatched, whatever its labels say'
   page,
 }) => {
   // The seed has one finished job on a hosted-runner vendor's label. It is
-  // exactly as unclaimed as the queued one, and it plainly did run.
-  await goto(page, '/jobs?label=blacksmith-4vcpu-ubuntu-2404', 'Jobs');
+  // exactly as unclaimed as the queued one, and it plainly did run -- so it
+  // takes the "other runners" view to see it at all.
+  await goto(page, '/jobs?label=blacksmith-4vcpu-ubuntu-2404&all=true', 'Jobs');
 
   const vendor = dataRows(jobs(page)).first();
   await expect(vendor).toBeVisible();
@@ -130,6 +133,33 @@ test('a job that already ran is never called unmatched, whatever its labels say'
 
   // And on the unfiltered page the banner counts the one job that is actually
   // waiting, not every job whose labels this fleet does not answer.
+  await goto(page, '/jobs', 'Jobs');
+  await expect(page.getByRole('note')).toContainText('1 queued job here has no pool to run it');
+});
+
+/*
+ * The default view is this fleet's own work. GitHub tells the controller about
+ * every job in an installed repository, and a page that mixes a migration's
+ * leftover hosted-runner jobs into the fleet's own history answers "how is my
+ * fleet doing?" with somebody else's numbers. Seeing them is a deliberate act,
+ * and it survives a copied link.
+ */
+test('other runners are hidden by default and one switch brings them back', async ({ page }) => {
+  await goto(page, '/jobs', 'Jobs');
+  await expect(dataRows(jobs(page)).first()).toBeVisible();
+  await expect(rowCount(page)).toContainText(`of ${FIXTURE.managedJobs} jobs`);
+  await expect(jobs(page).getByText('blacksmith-4vcpu-ubuntu-2404')).toHaveCount(0);
+
+  await page.getByRole('switch', { name: 'Include other runners' }).click();
+
+  await expect(rowCount(page)).toContainText(`of ${FIXTURE.totalJobs} jobs`);
+  await expect(page).toHaveURL(/[?&]all=true/);
+  await expect(page.getByRole('group', { name: 'Filters in effect' })).toContainText(
+    'jobs from every runner',
+  );
+
+  // A queued job nothing claims stays in the default view either way: nothing
+  // ran it, so it is this fleet's problem to see.
   await goto(page, '/jobs', 'Jobs');
   await expect(page.getByRole('note')).toContainText('1 queued job here has no pool to run it');
 });

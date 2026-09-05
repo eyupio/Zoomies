@@ -50,7 +50,7 @@ func poolsList(ctx context.Context, e *env, args []string) error {
 		return p.emit(raw)
 	}
 	if len(out.Items) == 0 {
-		p.note("No pools yet. Create one with: zoomies pools create --name linux-x64 --labels self-hosted,linux-x64 --installation <id>")
+		p.note("No pools yet. Create one with: zoomies pools create --name zoomies-linux-x64 --labels self-hosted,linux-x64 --installation <id>")
 		return nil
 	}
 
@@ -65,6 +65,7 @@ func poolsList(ctx context.Context, e *env, args []string) error {
 			item.ID,
 			truncate(strings.Join(item.Labels, ","), 34),
 			item.Backend,
+			strconv.Itoa(item.Priority),
 			fmt.Sprintf("%d/%d", item.Counts.Live, item.MaxRunners),
 			strconv.Itoa(item.Counts.Busy),
 			strconv.Itoa(item.QueuedJobs),
@@ -72,7 +73,7 @@ func poolsList(ctx context.Context, e *env, args []string) error {
 			enabled,
 		})
 	}
-	p.table([]string{"name", "id", "labels", "backend", "live/max", "busy", "queued", "utilisation", "enabled"}, rows)
+	p.table([]string{"name", "id", "labels", "backend", "priority", "live/max", "busy", "queued", "utilisation", "enabled"}, rows)
 	return nil
 }
 
@@ -115,6 +116,7 @@ func poolsGet(ctx context.Context, e *env, args []string) error {
 		{"image", dash(pool.Image)},
 		{"runner version", dash(pool.RunnerVersion)},
 		{"runners", fmt.Sprintf("%d live of %d max, %d minimum", pool.Counts.Live, pool.MaxRunners, pool.MinRunners)},
+		{"priority", strconv.Itoa(pool.Priority)},
 		{"states", fmt.Sprintf("%d idle, %d busy, %d draining, %d provisioning, %d failed",
 			pool.Counts.Idle, pool.Counts.Busy, pool.Counts.Draining, pool.Counts.Provisioning, pool.Counts.Failed)},
 		{"queued jobs", strconv.Itoa(pool.QueuedJobs)},
@@ -147,6 +149,7 @@ type poolSpec struct {
 	envVars      kvValue
 	minRunners   *int
 	maxRunners   *int
+	priority     *int
 	ephemeral    *bool
 	runAsRoot    *bool
 	enabled      *bool
@@ -167,7 +170,7 @@ func registerPoolFlags(fs *flagSet) *poolSpec {
 		hostSelector: kvValue{},
 		envVars:      kvValue{},
 	}
-	spec.name = fs.String("name", "", "the pool's name, e.g. linux-x64")
+	spec.name = fs.String("name", "", "the pool's name; it is stored with the zoomies- prefix, e.g. zoomies-linux-x64")
 	spec.installation = fs.String("installation", "", "the GitHub App installation this pool registers runners with")
 	fs.Var(spec.labels, "labels", "the labels a workflow's runs-on must ask for (repeatable, or comma-separated)")
 	spec.backend = fs.String("backend", "docker", "docker, podman or process")
@@ -176,6 +179,7 @@ func registerPoolFlags(fs *flagSet) *poolSpec {
 	spec.group = fs.String("runner-group", "", "the GitHub runner group to register into")
 	spec.minRunners = fs.Int("min", 0, "runners to keep even when nothing is queued")
 	spec.maxRunners = fs.Int("max", 4, "the most runners this pool may have at once")
+	spec.priority = fs.Int("priority", 0, "scheduling priority; higher-priority pools receive create slots first")
 	spec.idleTimeout = fs.String("idle-timeout", "5m", "how long an idle runner waits before being drained")
 	spec.ephemeral = fs.Bool("ephemeral", true, "one job per runner; the safe default")
 	spec.dockerMode = fs.String("docker-mode", "none", "none, dind or host-socket (host-socket gives jobs root on the host)")
@@ -209,6 +213,7 @@ func (spec *poolSpec) body(fs *flagSet, onlyChanged bool) map[string]any {
 	put("backend", "backend", *spec.backend)
 	put("min", "min_runners", *spec.minRunners)
 	put("max", "max_runners", *spec.maxRunners)
+	put("priority", "priority", *spec.priority)
 	put("idle-timeout", "idle_timeout", *spec.idleTimeout)
 	put("ephemeral", "ephemeral", *spec.ephemeral)
 	put("docker-mode", "docker_mode", *spec.dockerMode)
@@ -255,8 +260,8 @@ func poolsCreate(ctx context.Context, e *env, args []string) error {
 	spec := registerPoolFlags(fs)
 	dryRun := fs.Bool("dry-run", false, "validate the pool and print the verdict without creating anything")
 	fs.example(
-		"zoomies pools create --name linux-x64 --labels self-hosted,linux-x64 --installation inst_k3f9qz2m --max 8",
-		"zoomies pools create --name arm --labels linux-arm64 --installation inst_k3f9qz2m --host-selector arch=arm64 --dry-run",
+		"zoomies pools create --name zoomies-linux-x64 --labels self-hosted,linux-x64 --installation inst_k3f9qz2m --max 8",
+		"zoomies pools create --name zoomies-arm --labels linux-arm64 --installation inst_k3f9qz2m --host-selector arch=arm64 --dry-run",
 	)
 	if err := fs.parse(args); err != nil {
 		return err

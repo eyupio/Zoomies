@@ -43,7 +43,7 @@ func TestPoolChangesReachEveryOpenDashboard(t *testing.T) {
 
 	var announced poolResponse
 	decodeFrame(t, await(t, frames, "pool.created", ofKind(events.KindPoolCreated)), &announced)
-	if announced.ID != pool.ID || announced.Name != "linux-x64" {
+	if announced.ID != pool.ID || announced.Name != "zoomies-linux-x64" {
 		t.Fatalf("pool.created = %+v, want the pool just created", announced)
 	}
 	if announced.InstallationTarget != inst.Target {

@@ -13,12 +13,12 @@ A lightweight, self-hosted GitHub Actions runner fleet controller.<br>
 Ephemeral runners by default, GitHub App auth, webhook-driven autoscaling,
 multi-host agents, a live web UI, and a one-line installer.
 
-Single Go binary. SQLite. No Kubernetes. MIT licensed.
+Single Go binary. SQLite. No Kubernetes. AGPL-3.0 licensed.
 
 [![CI](https://github.com/eyupio/zoomies/actions/workflows/ci.yml/badge.svg)](https://github.com/eyupio/zoomies/actions/workflows/ci.yml)
 [![Website](https://github.com/eyupio/zoomies/actions/workflows/docs.yml/badge.svg)](https://zoomies.sh)
 [![Latest release](https://img.shields.io/github/v/release/eyupio/zoomies?display_name=tag&color=2F80ED&labelColor=080808)](https://github.com/eyupio/zoomies/releases/latest)
-[![Licence: MIT](https://img.shields.io/badge/licence-MIT-2F80ED?labelColor=080808)](LICENSE)
+[![Licence: AGPL-3.0](https://img.shields.io/badge/licence-AGPL--3.0-2F80ED?labelColor=080808)](LICENSE)
 
 ```sh
 curl -fsSL https://zoomies.sh/install.sh | sh
@@ -396,7 +396,14 @@ one-line justification, and that is enforced by review. UI changes should keep
 
 ## Licence
 
-MIT. See [LICENSE](LICENSE).
+GNU Affero General Public License, version 3 (`AGPL-3.0-only`). See
+[LICENSE](LICENSE). Copyright (C) 2026 Zoomies contributors.
+
+The AGPL is the GPL with one addition, and the addition is the point: anyone
+who modifies Zoomies and lets other people use the modified version over a
+network -- a hosted runner service built on it, say -- has to offer those
+people the source of what they are running. Running it for your own
+organisation, changed or not, asks nothing of you.
 
 ---
 

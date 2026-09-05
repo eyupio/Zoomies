@@ -36,6 +36,7 @@
     runner_version: string;
     min_runners: string;
     max_runners: string;
+    priority: string;
     idle_timeout: string;
     ephemeral: boolean;
     docker_mode: DockerMode;
@@ -65,6 +66,7 @@
       runner_version: '',
       min_runners: '0',
       max_runners: '4',
+      priority: '0',
       idle_timeout: '5m',
       ephemeral: true,
       docker_mode: 'none',
@@ -101,6 +103,7 @@
       runner_version: pool.runner_version ?? '',
       min_runners: fromNumber(pool.min_runners),
       max_runners: fromNumber(pool.max_runners),
+      priority: fromNumber(pool.priority),
       idle_timeout: pool.idle_timeout ?? base.idle_timeout,
       ephemeral: pool.ephemeral !== false,
       docker_mode: pool.docker_mode ?? 'none',
@@ -152,12 +155,13 @@
     if (pids !== undefined) resources.pids_limit = pids;
 
     const body: PoolCreate = {
-      name: draft.name.trim(),
+      name: brandedName(draft.name),
       installation_id: draft.installation_id,
       labels: draft.labels.map((label) => label.trim()).filter(Boolean),
       backend: draft.backend,
       min_runners: toInteger(draft.min_runners) ?? 0,
       max_runners: toInteger(draft.max_runners) ?? 1,
+      priority: toInteger(draft.priority) ?? 0,
       idle_timeout: draft.idle_timeout.trim() || '5m',
       ephemeral: draft.ephemeral,
       docker_mode: draft.docker_mode,
@@ -211,10 +215,12 @@
 
     const min = toInteger(draft.min_runners);
     const max = toInteger(draft.max_runners);
+    const priority = toInteger(draft.priority);
     if (min === undefined || min < 0) errors['min_runners'] = 'Use a whole number, zero or more.';
     if (max === undefined || max < 1) errors['max_runners'] = 'Use a whole number, one or more.';
     else if (min !== undefined && max < min)
       errors['max_runners'] = `The maximum must be at least the minimum, which is ${min}.`;
+    if (priority === undefined) errors['priority'] = 'Use a whole number.';
 
     if (parseGoDuration(draft.idle_timeout) === null)
       errors['idle_timeout'] = 'Use a Go duration such as 5m, 90s or 1h30m.';
@@ -269,7 +275,7 @@
     validatePool,
   } from '$lib/api/client';
   import type { Body, Result } from '$lib/api/types';
-  import { BRAND_LABEL, brandedLabel } from '$lib/brand';
+  import { BRAND_LABEL, brandedLabel, brandedName } from '$lib/brand';
   import { poolName, spinWord } from './names';
   import { fleet } from '$lib/state/fleet.svelte';
   import { toasts } from '$lib/state/toasts.svelte';

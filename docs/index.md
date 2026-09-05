@@ -3,7 +3,7 @@ description: >-
   Zoomies is a lightweight, self-hosted GitHub Actions runner fleet
   controller:
   ephemeral runners by default, webhook-driven autoscaling, one Go binary and
-  SQLite. No Kubernetes, no pasted tokens, MIT licensed.
+  SQLite. No Kubernetes, no pasted tokens, AGPL-3.0 licensed.
 hide:
   - navigation
   - toc
@@ -38,7 +38,7 @@ curl -fsSL https://zoomies.sh/install.sh | sh
 </div>
 
 <ul class="pills">
-  <li>Open source · MIT</li>
+  <li>Open source · AGPL-3.0</li>
   <li>Self-hosted</li>
   <li>Single Go binary</li>
   <li>No Kubernetes</li>

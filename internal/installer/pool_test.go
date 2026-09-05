@@ -99,7 +99,7 @@ func TestFirstPoolLeavesAnExistingFleetAlone(t *testing.T) {
 	inst := installedInstallation(t, st)
 
 	existing := &store.Pool{
-		Name: "big-builders", InstallationID: inst.ID,
+		Name: "zoomies-big-builders", InstallationID: inst.ID,
 		Labels: store.StringSlice{"big-builders"}, Backend: store.BackendDocker,
 		DockerMode: store.DockerNone, MaxRunners: 20, Enabled: true,
 	}
@@ -114,7 +114,7 @@ func TestFirstPoolLeavesAnExistingFleetAlone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListPools: %v", err)
 	}
-	if len(pools) != 1 || pools[0].Name != "big-builders" {
+	if len(pools) != 1 || pools[0].Name != "zoomies-big-builders" {
 		t.Fatalf("existing fleet was modified: %+v", pools)
 	}
 	if p.PoolName != "" {
@@ -189,8 +189,10 @@ func TestFirstPoolHonoursTheAnswerFile(t *testing.T) {
 		if len(pools) != 1 {
 			t.Fatalf("got %d pools, want one", len(pools))
 		}
-		if pools[0].Name != "gpu" || pools[0].MaxRunners != 2 {
-			t.Fatalf("pool = %+v, want the answer file's name and cap", pools[0])
+		// The answer file said "gpu"; every pool name carries the brand, so
+		// what it gets is the branded form of it.
+		if pools[0].Name != "zoomies-gpu" || pools[0].MaxRunners != 2 {
+			t.Fatalf("pool = %+v, want the answer file's name, branded, and its cap", pools[0])
 		}
 		// A renamed pool that was given no labels answers to a branded form
 		// of its new name, not the architecture label it would have had.
