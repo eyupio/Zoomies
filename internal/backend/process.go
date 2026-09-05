@@ -861,6 +861,12 @@ func extractTarGz(archive, dest string) error {
 		if err != nil {
 			return err
 		}
+		// A symlink extracted earlier must not become a path component now:
+		// "lib -> /etc" followed by "lib/cron.d/x" is the second half of the
+		// classic escape, and safeJoin sees only the text of the name.
+		if err := noSymlinkParents(dest, target); err != nil {
+			return err
+		}
 
 		switch hdr.Typeflag {
 		case tar.TypeDir:
@@ -883,6 +889,13 @@ func extractTarGz(archive, dest string) error {
 				return err
 			}
 		case tar.TypeSymlink:
+			// filepath.Join cleans "/etc" to "etc" under the entry's directory,
+			// which is why an absolute target used to pass the check below;
+			// it is refused outright, since nothing in a runner release links
+			// to an absolute path.
+			if filepath.IsAbs(hdr.Linkname) || strings.HasPrefix(hdr.Linkname, `\`) {
+				return fmt.Errorf("archive entry %q links to the absolute path %q", hdr.Name, hdr.Linkname)
+			}
 			if _, err := safeJoin(dest, filepath.Join(filepath.Dir(hdr.Name), hdr.Linkname)); err != nil {
 				return fmt.Errorf("archive entry %q links outside the archive", hdr.Name)
 			}
@@ -895,6 +908,35 @@ func extractTarGz(archive, dest string) error {
 			}
 		}
 	}
+}
+
+// noSymlinkParents refuses to write through a symlink: every directory between
+// root and target that already exists must be a real directory. The archive is
+// extracted into a fresh directory, so the only way one of them is a symlink is
+// that an earlier entry of the same archive made it so.
+func noSymlinkParents(root, target string) error {
+	rel, err := filepath.Rel(root, filepath.Dir(target))
+	if err != nil {
+		return err
+	}
+	dir := root
+	for _, part := range strings.Split(rel, string(os.PathSeparator)) {
+		if part == "." || part == "" {
+			continue
+		}
+		dir = filepath.Join(dir, part)
+		info, err := os.Lstat(dir)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("archive entry %q would be written through the symlink %q", target, dir)
+		}
+	}
+	return nil
 }
 
 // safeJoin resolves name under root, rejecting anything that escapes it. A
