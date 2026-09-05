@@ -35,7 +35,7 @@ concurrency:
 jobs:
   build:
     name: Build
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: zoomies-linux-x64
     steps:
       - uses: actions/checkout@v7
         with:
@@ -96,7 +96,7 @@ jobs:
     # site to prove it still builds, and publishes nothing.
     if: github.event.repository.has_pages && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     needs: build
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: zoomies-linux-x64
     permissions:
       pages: write
       id-token: write
