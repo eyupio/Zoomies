@@ -999,3 +999,36 @@ input,
     padding: 1.75rem 1rem;
   }
 }
+
+/* ------------------------------------------------------------------------ */
+/* Screenshots.                                                              */
+/* ------------------------------------------------------------------------ */
+
+/* docs/screenshots/ is captured from the real product by `make screenshots`,
+   in both themes, and a page shows whichever matches the reader's palette
+   (Material's #only-dark / #only-light). The frame is the hairline and radius
+   the product's own panels use, so a screenshot reads as a window onto it
+   rather than a picture pasted in. No `display` here on purpose: Material
+   hides the other theme's image with a rule of equal specificity, and setting
+   display would win over it and show both. */
+.md-typeset .zoomies-shot {
+  width: 100%;
+  border: 1px solid var(--z-line);
+  border-radius: var(--z-radius-lg);
+  box-shadow: var(--z-shadow-lg);
+  background: var(--z-surface);
+}
+.md-typeset .zoomies-shot.zoomies-phone {
+  width: min(20rem, 100%);
+}
+/* Centred through its paragraph: an auto margin needs a block, and making the
+   image one would override the hiding rule above. */
+.md-typeset p:has(> .zoomies-phone) {
+  text-align: center;
+}
+.md-typeset .zoomies-shot-caption {
+  margin-top: 0.75rem;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--md-default-fg-color--light);
+}

@@ -278,6 +278,8 @@ fixed, because muscle memory is the point:
 8. **Audit** — who did what
 9. **Settings** — users, tokens, appearance, danger zone
 
+Every page is shown, in both themes, in [The UI](ui.md).
+
 The navigation is headed by the mark, the wordmark and the descriptor, and every
 page ends in a hairline footer carrying the mark, the name, the running version,
 a link to the docs and the credit *Developed by EyUp.io* — so a signed-in
@@ -517,3 +519,23 @@ Every PR that touches the UI should be able to answer yes to all of these:
 3. If it is a status, add it to the state map (colour **and** shape).
 4. Write the empty, loading and error states before the happy path. They are
    most of what an operator actually sees.
+
+---
+
+## 8. Screenshots
+
+The screenshots in `docs/screenshots/` — the ones [The UI](ui.md), the site's
+home page and the repository README embed — are captured from the real binary,
+never from a design file or a retouched page. `make screenshots` builds, boots
+a controller with the demo fleet (`ZOOMIES_SEED_DEMO`) and authentication on,
+signs in as a freshly bootstrapped administrator, and photographs every page in
+both themes at 1440×900 on a 2× display, plus the Overview on a phone. The
+files are lossless WebP. The script is `web/tests/support/screenshots.mjs`,
+and it needs Pillow (`pip install pillow`) to encode them.
+
+Refresh them when a page changes in a way a reader would notice, and commit
+the whole set: a gallery in which one page has the new navigation and the rest
+the old one is worse than one that is uniformly a release behind. If a shot
+needs the fixture to show something new, change the fixture in
+`internal/controller/seed.go` rather than the image — that is the fleet the
+Playwright suite asserts on, so the picture and the tests stay honest together.

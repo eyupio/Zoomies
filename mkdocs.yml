@@ -141,6 +141,7 @@ extra:
 nav:
   - Home: index.md
   - Quick start: quickstart.md
+  - The UI: ui.md
   - Guide:
       - Architecture: architecture.md
       - Configuration: configuration.md

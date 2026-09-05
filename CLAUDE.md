@@ -29,6 +29,7 @@ make dev           # controller with auth off, on :8080, for UI work
 make ui-dev        # Vite dev server proxying /api to that controller
 make test-ui       # Playwright against a real built binary
 make openapi       # regenerate the UI's TypeScript client from api/openapi.yaml
+make screenshots   # recapture docs/screenshots from the real UI, both themes (needs Pillow)
 ```
 
 `go build ./...` fails on a clean checkout: `internal/api` embeds

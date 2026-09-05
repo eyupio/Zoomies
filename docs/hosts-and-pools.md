@@ -18,6 +18,9 @@ machine without touching a pool, and add a pool without touching a machine.
 
 ## Adding a host
 
+![The Hosts page: a card per host with its health, slots in use, detected backends and labels, above the join tokens panel](screenshots/hosts-dark.webp#only-dark){ .zoomies-shot }
+![The Hosts page: a card per host with its health, slots in use, detected backends and labels, above the join tokens panel](screenshots/hosts-light.webp#only-light){ .zoomies-shot }
+
 **Hosts → Add a host** in the UI does the whole thing on one page: it mints a
 join token and prints the command to paste on the new machine, already filled in
 with the address your browser reached the controller on and the labels your
@@ -101,6 +104,9 @@ Relabelling a host changes which pools can select it on the very next scheduler
 pass; the runners already on it stay where they are.
 
 ## Adding a pool
+
+![The Pools page: each pool's labels, target, backend, busy-against-live bar, queue depth, idle timeout, lifetime and Docker mode](screenshots/pools-dark.webp#only-dark){ .zoomies-shot }
+![The Pools page: each pool's labels, target, backend, busy-against-live bar, queue depth, idle timeout, lifetime and Docker mode](screenshots/pools-light.webp#only-light){ .zoomies-shot }
 
 One pool is enough until the fleet has to answer two different questions. Add a
 second when a job needs something the first cannot give it:

@@ -180,6 +180,12 @@ scheduler's reasoning, in its own words:
 scaled zoomies-linux-x64 0 -> 1: 1 job queued > 30s
 ```
 
+The Jobs page keeps the record: how long each job waited, how long it ran,
+which runner took it, and — for anything that failed — the step it failed at.
+
+![The Jobs page: the fleet's queued, running and finished jobs with their labels, pool, runner, queue wait and duration](screenshots/jobs-dark.webp#only-dark){ .zoomies-shot }
+![The Jobs page: the fleet's queued, running and finished jobs with their labels, pool, runner, queue wait and duration](screenshots/jobs-light.webp#only-light){ .zoomies-shot }
+
 ## Moving the rest of your repositories
 
 Editing every workflow by hand is the part nobody does. **Migrate** in the

@@ -33,6 +33,13 @@ curl -fsSL https://zoomies.sh/install.sh | sh
 [API](https://zoomies.sh/api-surface/) ·
 [FAQ](https://zoomies.sh/faq/)
 
+<br>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/overview-dark.webp">
+  <img src="docs/screenshots/overview-light.webp" alt="The Zoomies Overview: four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and the scheduler's recent decisions in its own words" width="100%">
+</picture>
+
 </div>
 
 ---
@@ -245,13 +252,51 @@ it tries anything. See [docs/migration.md](docs/migration.md).
 
 ## The UI
 
-Nine pages, one job each: **Overview** (fleet health, queue depth, scaling
+Ten pages, one job each: **Overview** (fleet health, queue depth, scaling
 decisions in plain words, and a problems panel that is quiet when nothing is
-wrong), **Pools**, **Runners**, **Jobs**, **Hosts**, **Installations**,
-**Migrate**, **Audit**, **Settings**.
+wrong), **Pools**, **Runners**, **Jobs**, **Usage**, **Hosts**,
+**Installations**, **Migrate**, **Audit**, **Settings**.
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/problems-dark.webp">
+  <img src="docs/screenshots/problems-light.webp" alt="The problems drawer open over the Overview, each entry saying what is true, why it matters and what to change" width="100%">
+</picture>
+      <p align="center"><sub>The problems drawer: what is true, why it matters, what to change.</sub></p>
+    </td>
+    <td width="50%" valign="top">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/job-dark.webp">
+  <img src="docs/screenshots/job-light.webp" alt="A failed job's drawer, naming the step it failed at and linking to that step's log" width="100%">
+</picture>
+      <p align="center"><sub>A job that went wrong, and where.</sub></p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/hosts-dark.webp">
+  <img src="docs/screenshots/hosts-light.webp" alt="The Hosts page: a card per host with its health, slots in use, detected backends and labels" width="100%">
+</picture>
+      <p align="center"><sub>Hosts, their room left, and the backends their agents found.</sub></p>
+    </td>
+    <td width="50%" valign="top">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/migrate-dark.webp">
+  <img src="docs/screenshots/migrate-light.webp" alt="The migration wizard's review step: the exact diff, and the jobs it will not touch" width="100%">
+</picture>
+      <p align="center"><sub>Migrate: the exact diff before a pull request is opened.</sub></p>
+    </td>
+  </tr>
+</table>
 
 Light and dark, keyboard-driven, a `⌘K` command palette, live everywhere, and a
-log viewer that handles a hundred thousand lines. Design system in
+log viewer that handles a hundred thousand lines. Every page is shown at
+[zoomies.sh/ui](https://zoomies.sh/ui/). The screenshots are taken from the
+real binary against its demo fleet by `make screenshots`, so they cannot show
+a page the product does not have. Design system in
 [docs/ui-guidelines.md](docs/ui-guidelines.md), identity in
 [docs/brand.md](docs/brand.md).
 
