@@ -74,7 +74,26 @@ else
 fi
 
 # wait returns early when a trap fires, so loop until the child is really gone.
-while ! wait "$child"; do :; done
-status=$?
+#
+# Two things the obvious `while ! wait "$child"; do :; done` gets wrong: bash
+# answers a second wait on a pid it has already reaped with 127, so a runner
+# that exits non-zero would spin here for ever; and the loop's own status is
+# what `$?` reports afterwards, so the exit code was always 0. The controller
+# reads that code to tell "finished" from "failed", which is the whole point of
+# passing it on.
+status=0
+while :; do
+  if wait "$child"; then
+    status=0
+    break
+  else
+    status=$?
+  fi
+  # Above 128 is either a trap interrupting wait or the child dying of a
+  # signal; only keep waiting if the child is in fact still there.
+  if [ "$status" -le 128 ] || ! kill -0 "$child" 2>/dev/null; then
+    break
+  fi
+done
 log "runner exited with status ${status}"
 exit "$status"
