@@ -44,6 +44,10 @@
     cpus: string;
     memory_mb: string;
     disk_gb: string;
+	cache_enabled: boolean;
+	cache_scope: 'pool' | 'repository';
+	cache_size_limit: string;
+	cache_source: string;
     /** Carried through untouched: the wizard does not edit it, and must not lose it. */
     pids_limit: string;
     host_selector: Record<string, string>;
@@ -69,6 +73,10 @@
       cpus: '',
       memory_mb: '',
       disk_gb: '',
+	  cache_enabled: false,
+	  cache_scope: 'pool',
+	  cache_size_limit: '',
+	  cache_source: '',
       pids_limit: '',
       host_selector: {},
       env: {},
@@ -101,6 +109,10 @@
       cpus: fromNumber(resources.cpus),
       memory_mb: fromNumber(resources.memory_mb),
       disk_gb: fromNumber(resources.disk_gb),
+	  cache_enabled: pool.cache?.enabled === true,
+	  cache_scope: pool.cache?.scope ?? 'pool',
+	  cache_size_limit: fromNumber(pool.cache?.size_limit),
+	  cache_source: pool.cache?.source ?? '',
       pids_limit: fromNumber(resources.pids_limit),
       host_selector: { ...(pool.host_selector ?? {}) },
       env: { ...(pool.env ?? {}) },
@@ -151,6 +163,7 @@
       docker_mode: draft.docker_mode,
       run_as_root: draft.run_as_root,
       enabled: draft.enabled,
+	  cache: { enabled: draft.cache_enabled, scope: draft.cache_scope, size_limit: toInteger(draft.cache_size_limit) ?? 0, source: draft.cache_source.trim() },
     };
     const complete = options.complete === true;
     if (complete || draft.runner_group.trim()) body.runner_group = draft.runner_group.trim();

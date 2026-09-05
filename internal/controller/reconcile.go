@@ -258,6 +258,8 @@ func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, a sched
 		Env:           pool.Env,
 		Ephemeral:     pool.Ephemeral,
 		Resources:     pool.Resources,
+		Cache:         pool.Cache,
+		Repository:    inst.Target,
 		DockerMode:    pool.DockerMode,
 		RunAsRoot:     pool.RunAsRoot,
 		Network:       c.cfg.Agent.Network,

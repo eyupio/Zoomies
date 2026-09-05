@@ -45,6 +45,7 @@ type poolResponse struct {
 	Ephemeral          bool                 `json:"ephemeral"`
 	DockerMode         store.DockerMode     `json:"docker_mode"`
 	Resources          store.Resources      `json:"resources"`
+	Cache              store.CacheConfig    `json:"cache"`
 	HostSelector       map[string]string    `json:"host_selector"`
 	Env                map[string]string    `json:"env"`
 	RunAsRoot          bool                 `json:"run_as_root"`
@@ -118,6 +119,7 @@ func (v *poolView) response(p *store.Pool) poolResponse {
 		Ephemeral:          p.Ephemeral,
 		DockerMode:         p.DockerMode,
 		Resources:          p.Resources,
+		Cache:              p.Cache,
 		HostSelector:       emptyMap(p.HostSelector),
 		Env:                emptyMap(p.Env),
 		RunAsRoot:          p.RunAsRoot,
@@ -220,6 +222,7 @@ type poolInput struct {
 	Ephemeral      *bool              `json:"ephemeral"`
 	DockerMode     *string            `json:"docker_mode"`
 	Resources      *store.Resources   `json:"resources"`
+	Cache          *store.CacheConfig `json:"cache"`
 	HostSelector   *map[string]string `json:"host_selector"`
 	Env            *map[string]string `json:"env"`
 	RunAsRoot      *bool              `json:"run_as_root"`
@@ -238,6 +241,7 @@ func (s *Server) defaultPool() *store.Pool {
 		IdleTimeout: store.Duration(5 * time.Minute),
 		Ephemeral:   true,
 		DockerMode:  store.DockerNone,
+		Cache:       store.CacheConfig{Scope: store.CacheScopePool},
 		Enabled:     true,
 	}
 }
@@ -307,6 +311,10 @@ func (in *poolInput) apply(p *store.Pool) []fieldError {
 	}
 	if in.Resources != nil {
 		p.Resources = *in.Resources
+	}
+	if in.Cache != nil {
+		p.Cache = *in.Cache
+		p.Cache.Source = strings.TrimSpace(p.Cache.Source)
 	}
 	if in.HostSelector != nil {
 		p.HostSelector = store.StringMap(*in.HostSelector)
@@ -401,6 +409,22 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 	}
 	if p.Resources.PidsLimit < 0 {
 		add("resources.pids_limit", "a process limit cannot be negative; use 0 for no limit")
+	}
+	if p.Cache.Enabled {
+		if !p.Cache.Scope.Valid() {
+			add("cache.scope", "use pool or repository")
+		}
+		if p.Cache.SizeLimit < 0 {
+			add("cache.size_limit", "the approximate cache size limit cannot be negative")
+		}
+		if strings.Contains(p.Cache.Source, "..") {
+			add("cache.source", "path traversal is not allowed")
+		}
+		if p.Cache.Scope == store.CacheScopeRepository {
+			if inst, err := s.ctrl.Store().GetInstallation(ctx, p.InstallationID); err == nil && inst.TargetType != store.TargetRepo {
+				add("cache.scope", "repository scope requires a repository-targeted installation; pool scope never shares across pools")
+			}
+		}
 	}
 	for k := range p.Env {
 		if strings.TrimSpace(k) == "" {

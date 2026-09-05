@@ -364,6 +364,25 @@ type Resources struct {
 	PidsLimit int64   `json:"pids_limit,omitempty"` // container pids cgroup limit
 }
 
+type CacheScope string
+
+const (
+	CacheScopePool       CacheScope = "pool"
+	CacheScopeRepository CacheScope = "repository"
+)
+
+func (s CacheScope) Valid() bool { return s == CacheScopePool || s == CacheScopeRepository }
+
+// CacheConfig describes disposable accelerator data mounted at /opt/zoomies-cache.
+// It is not persistent workflow storage and may be evicted. Source is either an
+// absolute host directory prefix or a named-volume prefix.
+type CacheConfig struct {
+	Enabled   bool       `json:"enabled"`
+	Scope     CacheScope `json:"scope"`
+	SizeLimit int64      `json:"size_limit,omitempty"` // approximate bytes; zero is unlimited
+	Source    string     `json:"source,omitempty"`
+}
+
 // Pool is a named group of interchangeable runners: what labels they answer to,
 // how they are built, and how many of them may exist.
 type Pool struct {
@@ -381,6 +400,7 @@ type Pool struct {
 	Ephemeral      bool        `json:"ephemeral"`
 	DockerMode     DockerMode  `json:"docker_mode"`
 	Resources      Resources   `json:"resources"`
+	Cache          CacheConfig `json:"cache"`
 	// HostSelector matches Host.Labels; empty means "any host".
 	HostSelector StringMap `json:"host_selector"`
 	// Env is injected into every runner this pool creates.

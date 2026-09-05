@@ -162,16 +162,16 @@ func (s *Store) DeleteInstallation(ctx context.Context, id string) error {
 
 const poolCols = `id, name, installation_id, labels, runner_group, backend, image,
 	runner_version, min_runners, max_runners, idle_timeout_ms, ephemeral, docker_mode,
-	resources, host_selector, env, run_as_root, enabled, created_at, updated_at`
+	resources, cache, host_selector, env, run_as_root, enabled, created_at, updated_at`
 
 func scanPool(sc interface{ Scan(...any) error }) (*Pool, error) {
 	var p Pool
 	var idle, created, updated int64
 	var ephemeral, runAsRoot, enabled int
-	var resources string
+	var resources, cache string
 	err := sc.Scan(&p.ID, &p.Name, &p.InstallationID, &p.Labels, &p.RunnerGroup, &p.Backend,
 		&p.Image, &p.RunnerVersion, &p.MinRunners, &p.MaxRunners, &idle, &ephemeral,
-		&p.DockerMode, &resources, &p.HostSelector, &p.Env, &runAsRoot, &enabled,
+		&p.DockerMode, &resources, &cache, &p.HostSelector, &p.Env, &runAsRoot, &enabled,
 		&created, &updated)
 	if err != nil {
 		return nil, err
@@ -181,6 +181,9 @@ func scanPool(sc interface{ Scan(...any) error }) (*Pool, error) {
 	p.CreatedAt, p.UpdatedAt = at(created), at(updated)
 	if err := unmarshalJSON(resources, &p.Resources); err != nil {
 		return nil, fmt.Errorf("pool %s: decoding resources: %w", p.ID, err)
+	}
+	if err := unmarshalJSON(cache, &p.Cache); err != nil {
+		return nil, fmt.Errorf("pool %s: decoding cache: %w", p.ID, err)
 	}
 	return &p, nil
 }
@@ -198,10 +201,14 @@ func (s *Store) CreatePool(ctx context.Context, p *Pool) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.exec(ctx, `INSERT INTO pools (`+poolCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	cache, err := marshalJSON(p.Cache)
+	if err != nil {
+		return err
+	}
+	_, err = s.exec(ctx, `INSERT INTO pools (`+poolCols+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		p.ID, p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend), p.Image,
 		p.RunnerVersion, p.MinRunners, p.MaxRunners, p.IdleTimeout.Duration().Milliseconds(),
-		boolInt(p.Ephemeral), string(p.DockerMode), res, p.HostSelector, p.Env,
+		boolInt(p.Ephemeral), string(p.DockerMode), res, cache, p.HostSelector, p.Env,
 		boolInt(p.RunAsRoot), boolInt(p.Enabled), ms(p.CreatedAt), ms(p.UpdatedAt))
 	return wrapWrite(err)
 }
@@ -252,13 +259,17 @@ func (s *Store) UpdatePool(ctx context.Context, p *Pool) error {
 	if err != nil {
 		return err
 	}
+	cache, err := marshalJSON(p.Cache)
+	if err != nil {
+		return err
+	}
 	r, err := s.exec(ctx, `UPDATE pools SET name=?, installation_id=?, labels=?, runner_group=?,
 		backend=?, image=?, runner_version=?, min_runners=?, max_runners=?, idle_timeout_ms=?,
-		ephemeral=?, docker_mode=?, resources=?, host_selector=?, env=?, run_as_root=?,
+		ephemeral=?, docker_mode=?, resources=?, cache=?, host_selector=?, env=?, run_as_root=?,
 		enabled=?, updated_at=? WHERE id=?`,
 		p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend), p.Image,
 		p.RunnerVersion, p.MinRunners, p.MaxRunners, p.IdleTimeout.Duration().Milliseconds(),
-		boolInt(p.Ephemeral), string(p.DockerMode), res, p.HostSelector, p.Env,
+		boolInt(p.Ephemeral), string(p.DockerMode), res, cache, p.HostSelector, p.Env,
 		boolInt(p.RunAsRoot), boolInt(p.Enabled), ms(p.UpdatedAt), p.ID)
 	if err != nil {
 		return wrapWrite(err)

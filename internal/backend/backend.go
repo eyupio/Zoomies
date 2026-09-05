@@ -117,6 +117,8 @@ type Spec struct {
 	Env         map[string]string `json:"env,omitempty"`
 	Ephemeral   bool              `json:"ephemeral"`
 	Resources   store.Resources   `json:"resources"`
+	Cache       store.CacheConfig `json:"cache"`
+	Repository  string            `json:"repository,omitempty"`
 	DockerMode  store.DockerMode  `json:"docker_mode"`
 	// RunAsRoot keeps the container's default user instead of dropping to the
 	// unprivileged "runner" account.
@@ -212,8 +214,11 @@ const (
 	LabelRunnerID = LabelPrefix + "runner-id"
 	LabelPoolID   = LabelPrefix + "pool-id"
 	LabelPoolName = LabelPrefix + "pool-name"
-	LabelName     = LabelPrefix + "name"
-	LabelCreated  = LabelPrefix + "created-at"
+	// Cache diagnostics identify the shared volume and configured approximate cap.
+	LabelCacheVolume    = LabelPrefix + "cache-volume"
+	LabelCacheSizeLimit = LabelPrefix + "cache-size-limit"
+	LabelName           = LabelPrefix + "name"
+	LabelCreated        = LabelPrefix + "created-at"
 )
 
 // Labels returns the label set to stamp on a workload built from spec.
