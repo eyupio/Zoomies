@@ -115,6 +115,16 @@
     WORDS[[!hasInstallation, !hasHost, !hasPool, true].filter(Boolean).length] ?? 'A few steps',
   );
 
+  /**
+   * The numbers on the markers.
+   *
+   * They are positions in this host's own list, not in a fixed spine: the host
+   * step only exists on a controller with no agent of its own, and an
+   * unnumbered row between numbered ones reads as though it were optional.
+   */
+  const steps = $derived(['admin', 'github', ...(hasHost ? [] : ['host']), 'pool', 'workflow']);
+  const number = (id: string): number => steps.indexOf(id) + 1;
+
   $effect(() => {
     onpending?.(show);
   });
@@ -157,7 +167,7 @@
 
       <li class:done={hasInstallation}>
         <span class="marker" aria-hidden="true">
-          {#if hasInstallation}<Check size={13} />{:else}2{/if}
+          {#if hasInstallation}<Check size={13} />{:else}{number('github')}{/if}
         </span>
         <div class="body">
           <p class="title">
@@ -185,7 +195,7 @@
 
       {#if !hasHost}
         <li>
-          <span class="marker" aria-hidden="true"><HardDrive size={13} /></span>
+          <span class="marker" aria-hidden="true">{number('host')}</span>
           <div class="body">
             <p class="title">
               <HardDrive size={14} aria-hidden="true" />
@@ -210,7 +220,7 @@
 
       <li class:done={hasPool} class:waiting={!hasInstallation}>
         <span class="marker" aria-hidden="true">
-          {#if hasPool}<Check size={13} />{:else}3{/if}
+          {#if hasPool}<Check size={13} />{:else}{number('pool')}{/if}
         </span>
         <div class="body">
           <p class="title">
@@ -241,7 +251,7 @@
       </li>
 
       <li class:waiting={!hasPool}>
-        <span class="marker" aria-hidden="true">4</span>
+        <span class="marker" aria-hidden="true">{number('workflow')}</span>
         <div class="body">
           <p class="title">
             <PlayCircle size={14} aria-hidden="true" />
