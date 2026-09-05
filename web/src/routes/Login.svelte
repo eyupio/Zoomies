@@ -21,7 +21,7 @@
   import { authFailureText, sentence } from '$lib/errors';
   import { router } from '$lib/router';
   import { session } from '$lib/state/session.svelte';
-  import { SITE_HOST, SITE_URL } from '$lib/links';
+  import { DEVELOPER_NAME, DEVELOPER_URL, SITE_HOST, SITE_URL } from '$lib/links';
   import Logo from '$lib/components/Logo.svelte';
   import Button from '$lib/components/Button.svelte';
   import Field from '$lib/components/Field.svelte';
@@ -260,6 +260,10 @@
 <p class="colophon">
   {#if meta?.version}<span class="version">Zoomies {meta.version}</span>{/if}
   <a href={SITE_URL} target="_blank" rel="noopener noreferrer">{SITE_HOST}</a>
+  <span class="credit">
+    Developed by
+    <a href={DEVELOPER_URL} target="_blank" rel="noopener noreferrer">{DEVELOPER_NAME}</a>
+  </span>
 </p>
 
 <style>
@@ -361,7 +365,8 @@
 
     The project link sits beside it because this page is where Zoomies is met
     by people who did not install it -- a developer sent a URL by the operator
-    who did. One quiet line is enough to tell them what they are looking at.
+    who did. One quiet line is enough to tell them what they are looking at,
+    and who makes it: the credit is the same one the site's footer carries.
   */
   .colophon {
     display: flex;
@@ -383,5 +388,8 @@
   .colophon a:focus-visible {
     color: var(--z-text-muted);
     text-decoration: underline;
+  }
+  .credit a {
+    font-weight: var(--z-weight-medium);
   }
 </style>
