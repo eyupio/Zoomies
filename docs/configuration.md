@@ -90,6 +90,13 @@ scheduler:
   provision_timeout: 5m         # ZOOMIES_PROVISION_TIMEOUT
   max_creates_per_tick: 10      # ZOOMIES_MAX_CREATES_PER_TICK
 
+capacity_demand:
+  destination_url: ""           # ZOOMIES_CAPACITY_DEMAND_URL (empty disables)
+  signing_secret: ""            # ZOOMIES_CAPACITY_DEMAND_SIGNING_SECRET
+  cooldown: 10m                  # ZOOMIES_CAPACITY_DEMAND_COOLDOWN
+  timeout: 10s                   # ZOOMIES_CAPACITY_DEMAND_TIMEOUT
+  pools: []                      # ZOOMIES_CAPACITY_DEMAND_POOLS (IDs or names)
+
 log:
   level: info                   # ZOOMIES_LOG_LEVEL   -- debug | info | warn | error
   format: json                  # ZOOMIES_LOG_FORMAT  -- json | text

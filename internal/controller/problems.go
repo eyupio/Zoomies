@@ -101,6 +101,9 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	if err := c.runnerProblems(ctx, &out); err != nil {
 		return nil, err
 	}
+	if err := c.capacityDeliveryProblems(ctx, &out); err != nil {
+		return nil, err
+	}
 
 	// Errors first, then warnings, then a stable order so the list does not
 	// reshuffle itself between refreshes.
@@ -114,6 +117,21 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 		return strings.Compare(a.Title, b.Title)
 	})
 	return out, nil
+}
+
+func (c *Controller) capacityDeliveryProblems(ctx context.Context, out *[]Problem) error {
+	rows, err := c.st.ListCapacityDemandDeliveries(ctx)
+	if err != nil {
+		return fmt.Errorf("listing capacity-demand deliveries: %w", err)
+	}
+	for _, d := range rows {
+		if d.DeliveredAt != nil || d.LastError == "" {
+			continue
+		}
+		since := d.AttemptedAt
+		*out = append(*out, Problem{Code: "capacity_demand.delivery_failed", Severity: config.SeverityWarning, Title: "external capacity provisioner did not accept the latest event", Detail: fmt.Sprintf("%s after %d attempts (HTTP %d): %s", d.EventType, d.Attempts, d.StatusCode, d.LastError), Fix: "check capacity_demand.destination_url, receiver availability, and the shared signing secret; Zoomies will retry on reconciliation.", TargetKind: "pool", TargetID: d.PoolID, Since: since})
+	}
+	return nil
 }
 
 func severityRank(s config.Severity) int {
