@@ -851,3 +851,26 @@ func TestProcessRunnerLeadsItsOwnProcessGroup(t *testing.T) {
 		t.Fatalf("the runner's process group is %d, want its own pid %d; it is sharing the agent's group", pgid, pid)
 	}
 }
+
+// The runner image verifies its download against digests written into the
+// Dockerfile, and the process backend against the generated table. They are
+// the same release, so they had better be the same numbers; the bump workflow
+// copies them from the table, and this is what catches a hand edit of one.
+func TestTheRunnerImagePinsTheSameDigestsAsTheProcessBackend(t *testing.T) {
+	dockerfile, err := os.ReadFile(filepath.Join("..", "..", "deploy", "Dockerfile.runner"))
+	if err != nil {
+		t.Fatalf("reading the runner Dockerfile: %v", err)
+	}
+	for arch, arg := range map[string]string{"x64": "RUNNER_SHA256_X64", "arm64": "RUNNER_SHA256_ARM64"} {
+		want := knownRunnerSHA256[DefaultRunnerVersion+"/actions-runner-linux-"+arch+"-"+DefaultRunnerVersion+".tar.gz"]
+		if want == "" {
+			t.Fatalf("the digest table has no linux-%s entry for %s", arch, DefaultRunnerVersion)
+		}
+		if !strings.Contains(string(dockerfile), "ARG "+arg+"="+want) {
+			t.Fatalf("deploy/Dockerfile.runner does not pin %s to the table's digest %s for %s", arg, want, DefaultRunnerVersion)
+		}
+	}
+	if !strings.Contains(string(dockerfile), "ARG RUNNER_VERSION="+DefaultRunnerVersion) {
+		t.Fatalf("deploy/Dockerfile.runner pins a different runner version from DefaultRunnerVersion %s", DefaultRunnerVersion)
+	}
+}
