@@ -16,6 +16,12 @@
     actions?: Snippet;
     /** Drop the body padding, for lists that draw their own full-width rows. */
     flush?: boolean;
+    /**
+     * Scroll the body inside whatever height the layout gives the panel,
+     * instead of growing the panel to fit. Only meaningful when something
+     * outside has bounded that height; in normal flow it changes nothing.
+     */
+    scroll?: boolean;
     class?: string;
     children: Snippet;
   }
@@ -25,6 +31,7 @@
     description,
     actions,
     flush = false,
+    scroll = false,
     class: className = '',
     children,
   }: Props = $props();
@@ -40,7 +47,7 @@
     </div>
     {#if actions}<div class="actions">{@render actions()}</div>{/if}
   </header>
-  <div class="body" class:flush>{@render children()}</div>
+  <div class="body" class:flush class:scroll>{@render children()}</div>
 </section>
 
 <style>
@@ -89,5 +96,13 @@
   }
   .body.flush {
     padding: 0;
+  }
+  .body.scroll {
+    /* A flex child will not shrink below its content unless told it may. */
+    min-height: 0;
+    overflow-y: auto;
+    /* Rows scrolled to the bottom edge stay inside the panel's corners. */
+    border-bottom-left-radius: var(--z-radius-md);
+    border-bottom-right-radius: var(--z-radius-md);
   }
 </style>

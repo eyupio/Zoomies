@@ -215,6 +215,53 @@ test('the scaling feed quotes the scheduler verbatim', async ({ page }) => {
   await expect(feed.getByRole('listitem').first()).toBeVisible();
 });
 
+test('the scaling feed sits beside the pools and the running jobs, never under them', async ({
+  page,
+}) => {
+  // A fleet with one pool and ten decisions used to show the pools, then a
+  // screen of blank space, then the running jobs: the feed set the height of
+  // the row it shared with the pools. Now the jobs share the pools' column
+  // and the feed is cut to that column's height, scrolling inside itself for
+  // the rest. A phone stacks the panels, so there is nothing to assert there.
+  const viewport = page.viewportSize();
+  test.skip((viewport?.width ?? 0) < 1180, 'the panels stack on a narrow screen');
+
+  const pools = page.getByRole('region', { name: 'Pools', exact: true });
+  const jobs = page.getByRole('region', { name: 'Active jobs', exact: true });
+  const feed = page.getByRole('region', { name: 'Recent scaling', exact: true });
+  // Both lists load after the page does; measure them full, not as skeletons.
+  await expect(jobs.getByRole('listitem').first()).toBeVisible();
+  await expect(feed.getByRole('listitem').first()).toBeVisible();
+
+  const poolsBox = await pools.boundingBox();
+  const jobsBox = await jobs.boundingBox();
+  const feedBox = await feed.boundingBox();
+  expect(poolsBox).not.toBeNull();
+  expect(jobsBox).not.toBeNull();
+  expect(feedBox).not.toBeNull();
+  if (!poolsBox || !jobsBox || !feedBox) return;
+
+  // The jobs are under the pools and beside the feed.
+  expect(jobsBox.y, 'the jobs come after the pools').toBeGreaterThan(poolsBox.y + poolsBox.height);
+  expect(jobsBox.x + jobsBox.width, "the jobs share the pools' column").toBeLessThanOrEqual(
+    feedBox.x,
+  );
+  // The feed ends where that column ends. A pixel of slack for rounding.
+  expect(feedBox.y + feedBox.height, 'the feed is no taller than its column').toBeLessThanOrEqual(
+    jobsBox.y + jobsBox.height + 1,
+  );
+  // And the fixture's ten decisions do not all fit in that height, so the
+  // ones off the end are reachable by scrolling the panel, not gone.
+  const list = feed.getByRole('list');
+  const hidden = await list.evaluate(
+    (el) => (el.parentElement?.scrollHeight ?? 0) - (el.parentElement?.clientHeight ?? 0),
+  );
+  expect(hidden, 'the decisions that do not fit are a scroll away').toBeGreaterThan(0);
+  await feed.getByRole('listitem').last().scrollIntoViewIfNeeded();
+  const scrolled = await list.evaluate((el) => el.parentElement?.scrollTop ?? 0);
+  expect(scrolled, 'the panel itself scrolls to reach the oldest').toBeGreaterThan(0);
+});
+
 test('there is no refresh button anywhere on the Overview', async ({ page }) => {
   // The page is fed by one SSE connection; nothing on it can be refreshed by
   // hand, and offering the gesture would suggest the numbers are stale.

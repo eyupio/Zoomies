@@ -302,6 +302,11 @@ The one page that has to earn the second monitor.
   so an operator can see a pool pinned at its ceiling.
 * **Recent scaling activity** — a reverse-chronological list of decisions in the
   scheduler's own words: *"scaled `linux-x64` 2 → 4: 3 jobs queued > 30s"*.
+  On a desktop the pools and the running jobs share the left-hand column and
+  this feed takes the right, cut to their height and scrolling inside itself.
+  It is the one panel whose length says nothing about the fleet, so it never
+  decides the height of the page: a fleet with one pool does not get a screen
+  of blank space under it because the scheduler has been busy.
 * **Problems summary** — one line saying how many things need a person, worst
   severity first, with a *Review* button that opens the problems drawer.
   **When everything is fine it is a single quiet line, not an empty box and not

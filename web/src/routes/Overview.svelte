@@ -13,6 +13,14 @@
   running jobs below the fold was answering "what is happening right now?" with
   a month-old decision.
 
+  On a desktop the pools and the running jobs share the left-hand column and
+  the scaling feed takes the right, cut to their height. The feed is the one
+  panel whose length says nothing about the fleet -- ten decisions is ten
+  decisions whether there is one pool or twenty -- so letting it set the height
+  of the row left a fleet with one pool looking at a screen of blank space
+  under it. The decisions that do not fit are a scroll away, inside the panel.
+  A phone stacks everything, in reading order.
+
   Nothing on this page polls, and nothing on it can be refreshed by hand. The
   fleet cache subscribes to `stats`, `scaling`, `problems.updated`, `runner.*`,
   `pool.*` and `host.*`; the panels below add `job.updated` for the running
@@ -63,9 +71,11 @@
     <ProblemsSummary {loading} {setupPending} />
     <div class="split">
       <PoolUtilisation {loading} />
-      <ScalingFeed {loading} />
+      <div class="feed">
+        <ScalingFeed {loading} />
+      </div>
+      <ActiveJobs />
     </div>
-    <ActiveJobs />
   </div>
 {/if}
 
@@ -75,16 +85,49 @@
     flex-direction: column;
     gap: var(--z-space-6);
   }
+  /*
+    Two rows on the left -- the pools, then the running jobs, placed in source
+    order -- and the feed spanning both on the right. The rows are sized by the
+    left-hand panels alone: the feed is taken out of flow inside its cell, so
+    however many decisions it holds, it never makes the row taller. What it
+    gets instead is the height the left column came to, and the panel scrolls
+    inside that.
+  */
   .split {
     display: grid;
     grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
     gap: var(--z-space-6);
     align-items: start;
   }
+  .feed {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    align-self: stretch;
+    position: relative;
+    /* Room for the heading and four decisions: a fleet with one pool and
+       nothing running still gets a feed rather than a slot. */
+    min-height: 24rem;
+  }
+  .feed > :global(.panel) {
+    position: absolute;
+    inset: 0 0 auto;
+    max-height: 100%;
+  }
   @media (max-width: 1180px) {
     .split {
       grid-template-columns: minmax(0, 1fr);
       gap: var(--z-space-4);
+    }
+    .feed {
+      grid-column: auto;
+      grid-row: auto;
+      align-self: auto;
+      position: static;
+      min-height: 0;
+    }
+    .feed > :global(.panel) {
+      position: static;
+      max-height: none;
     }
     .stack {
       gap: var(--z-space-4);
