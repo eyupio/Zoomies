@@ -3,6 +3,7 @@ package events
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -180,5 +181,74 @@ func TestPublishRacesClose(t *testing.T) {
 	}
 	if n := b.Subscribers(); n != 0 {
 		t.Errorf("%d subscriptions leaked", n)
+	}
+}
+
+// Replay used to be silent about what it could not do: a client whose last id
+// predated the ring, or whose id came from before a restart, was handed
+// nothing and told nothing. Subscribe now says whether the gap was covered.
+func TestReplayReportsWhetherItCoveredTheGap(t *testing.T) {
+	b := New()
+	b.ringCap = 3
+	for i := range 6 {
+		b.Publish(KindScaling, "", map[string]int{"n": i})
+	}
+	last := b.LastID()
+
+	cases := []struct {
+		name     string
+		replay   uint64
+		complete bool
+	}{
+		{"a fresh subscription asks for nothing and misses nothing", 0, true},
+		{"the id just before the ring's oldest is covered", last - 3, true},
+		{"an id the ring no longer reaches back to is not", 1, false},
+		{"the latest id, with nothing since, is covered", last, true},
+		{"an id from another run of the process is not", last + 40, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sub := b.Subscribe(context.Background(), SubscribeOptions{Replay: tc.replay})
+			defer sub.Close()
+			if sub.Complete != tc.complete {
+				t.Fatalf("Complete = %v, want %v", sub.Complete, tc.complete)
+			}
+		})
+	}
+
+	t.Run("a caller that knows better can mark it incomplete", func(t *testing.T) {
+		sub := b.Subscribe(context.Background(), SubscribeOptions{Replay: last, Incomplete: true})
+		defer sub.Close()
+		if sub.Complete {
+			t.Fatal("Incomplete was ignored")
+		}
+	})
+}
+
+// IDs restart at one with every process, so an id alone cannot say which
+// sequence it came from. On the wire it carries the run's epoch.
+func TestWireIDsCarryTheEpoch(t *testing.T) {
+	b := New()
+	wire := b.WireID(42)
+	if !strings.HasPrefix(wire, b.Epoch()+".") || !strings.HasSuffix(wire, ".42") {
+		t.Fatalf("WireID(42) = %q, want <epoch>.42", wire)
+	}
+	if id, same := b.ParseWireID(wire); id != 42 || !same {
+		t.Fatalf("ParseWireID(%q) = %d, %v; want 42 in this epoch", wire, id, same)
+	}
+	if id, same := b.ParseWireID("otherrun.42"); id != 42 || same {
+		t.Fatalf("an id from another epoch parsed as %d, %v; want 42 and not this epoch", id, same)
+	}
+	// A bare number is what a client that predates the epoch sends; it is
+	// taken as this epoch's so an upgrade does not resync every tab.
+	if id, same := b.ParseWireID("42"); id != 42 || !same {
+		t.Fatalf("a bare id parsed as %d, %v", id, same)
+	}
+	if id, same := b.ParseWireID("not-an-id"); id != 0 || same {
+		t.Fatalf("garbage parsed as %d, %v", id, same)
+	}
+	other := New()
+	if other.Epoch() == b.Epoch() {
+		t.Fatal("two buses share an epoch; a restart would look like the same run")
 	}
 }

@@ -244,8 +244,12 @@ export interface paths {
          * Live event stream (Server-Sent Events)
          * @description `text/event-stream`. Every state change the operator would want to see.
          *     Honours `Last-Event-ID` on reconnect and replays what the server still
-         *     holds. A `heartbeat` event every 20 seconds keeps proxies from closing
-         *     an idle connection.      x-zoomies-role: viewer
+         *     holds. Event ids are `<epoch>.<sequence>`, where the epoch names one
+         *     run of the controller; when the events since the client's last id
+         *     cannot all be replayed -- the buffer has moved on, or the controller
+         *     restarted -- the first frame is a `resync` event telling the client
+         *     to fetch the resources again. A `heartbeat` event every 20 seconds
+         *     keeps proxies from closing an idle connection.
          */
         get: operations["streamEvents"];
         put?: never;

@@ -305,3 +305,47 @@ func TestLogStreamForAnUnknownRunnerIs404(t *testing.T) {
 	resp := h.do(request{method: http.MethodGet, path: "/api/v1/runners/run_nope/logs", cookie: h.session(u)})
 	resp.mustStatus(t, http.StatusNotFound, "logs for an unknown runner")
 }
+
+// A reconnecting client whose gap the server cannot replay used to be handed
+// nothing and told nothing: after a controller restart its last id was a
+// number from another sequence, so nothing matched, and the tab quietly showed
+// a fleet that no longer existed. The first frame now says so.
+func TestEventStreamSaysWhenItCannotReplayTheGap(t *testing.T) {
+	h := newHarness(t)
+	u, _ := h.user("viewer", store.RoleViewer)
+	cookie := h.session(u)
+	bus := h.ctrl.Events()
+	bus.Publish(events.KindPoolCreated, "pool:a", map[string]any{"id": "a"})
+
+	t.Run("an id from another run of the controller", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		frames, _ := h.openStream(t, ctx, "/api/v1/events", cookie, map[string]string{
+			"Last-Event-ID": "previousrun.7",
+		})
+		got := await(t, frames, "the first event frame", func(f sseFrame) bool { return f.event != "" })
+		if got.event != string(events.KindResync) {
+			t.Fatalf("first frame after a restart = %q, want resync", got.event)
+		}
+		if got.id != "" {
+			t.Fatalf("the resync frame carried an id (%q); it must leave the client's last id alone", got.id)
+		}
+	})
+
+	t.Run("an id this run still holds is replayed without a resync", func(t *testing.T) {
+		first := bus.LastID()
+		bus.Publish(events.KindPoolUpdated, "pool:b", map[string]any{"id": "b"})
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		frames, _ := h.openStream(t, ctx, "/api/v1/events", cookie, map[string]string{
+			"Last-Event-ID": bus.WireID(first),
+		})
+		got := await(t, frames, "the replayed event", func(f sseFrame) bool { return f.event != "" })
+		if got.event != string(events.KindPoolUpdated) {
+			t.Fatalf("first frame on a covered reconnect = %q, want the replayed pool.updated", got.event)
+		}
+		if got.id != bus.WireID(bus.LastID()) {
+			t.Fatalf("event id = %q, want the epoch-qualified %q", got.id, bus.WireID(bus.LastID()))
+		}
+	})
+}

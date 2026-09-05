@@ -157,7 +157,14 @@ export interface EventPayloads {
   audit: AuditEvent;
   'webhook.delivery': WebhookDelivery;
   heartbeat: unknown;
+  /**
+   * The first frame on a reconnection whose gap the server could not replay:
+   * its buffer had moved on, or the controller restarted. The cache is stale
+   * and should be fetched again.
+   */
+  resync: { reason?: string };
 }
+
 export type EventKind = keyof EventPayloads;
 
 export const EVENT_KINDS: readonly EventKind[] = [
@@ -177,4 +184,5 @@ export const EVENT_KINDS: readonly EventKind[] = [
   'audit',
   'webhook.delivery',
   'heartbeat',
+  'resync',
 ];

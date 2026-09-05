@@ -62,7 +62,7 @@ Conventions:
 | GET | `/api/v1/samples` | viewer | Fleet samples for the sparklines. `?since=` or `?window=1h`. |
 | GET | `/api/v1/problems` | viewer | The problems drawer: unhealthy hosts, failed registrations, webhook delivery failures, unmatched queued jobs, jobs whose runner stopped under them in the last hour, and every configuration warning from `config.Validate`. Returns `{ "items": [...], "ok": true }` — `ok` is true and `items` empty when there is nothing wrong. |
 | GET | `/api/v1/scaling-events` | viewer | Recent scheduler decisions with their reason strings. `?pool_id=&limit=`. |
-| GET | `/api/v1/events` | viewer | **SSE.** All live updates. Honours `Last-Event-ID`. Query `kinds=` and `topic=` narrow it. Sends a `heartbeat` comment every 20s. |
+| GET | `/api/v1/events` | viewer | **SSE.** All live updates. Honours `Last-Event-ID`, and opens with a `resync` frame when it cannot replay the gap. Query `kinds=` and `topic=` narrow it. Sends a `heartbeat` comment every 20s. |
 
 ## Installations
 
@@ -251,7 +251,17 @@ flowchart LR
 `runner.created` · `runner.updated` · `runner.deleted` · `pool.created` ·
 `pool.updated` · `pool.deleted` · `job.updated` · `host.updated` ·
 `host.deleted` · `scaling` · `installation.updated` · `installation.deleted` ·
-`problems.updated` · `stats` · `audit` · `webhook.delivery` · `heartbeat`
+`problems.updated` · `stats` · `audit` · `webhook.delivery` · `heartbeat` ·
+`resync`
+
+Every frame but `heartbeat` and `resync` carries an `id` of the form
+`<epoch>.<sequence>`, where the epoch names one run of the controller. A client
+sends the last one it saw as `Last-Event-ID` (or `?last_event_id=`, when it has
+opened a fresh connection) and receives what it missed. When it cannot -- the
+server's buffer has moved on, or the controller restarted and the sequence began
+again -- the first frame on the new connection is `resync`, and the client
+should fetch the resources again rather than trust what it holds. The UI does
+exactly that.
 
 Three rules are what make the stream enough to keep a page current, so that no
 client ever has to poll or ask the operator to reload:

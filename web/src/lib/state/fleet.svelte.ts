@@ -239,6 +239,13 @@ class Fleet {
           this.#scaling = [event, ...this.#scaling].slice(0, SCALING_LIMIT);
         }),
       ),
+      // The server could not replay everything since the last id this tab
+      // saw -- its buffer moved on, or the controller restarted and the ids
+      // began again. Whatever is cached may describe a fleet that no longer
+      // exists, so it is fetched afresh. A reconnect already reconciles; this
+      // is the case where the connection never dropped from the browser's
+      // point of view, or where the reconcile has already run.
+      events.subscribe('resync', () => void this.reconcile()),
     );
 
     events.start();
