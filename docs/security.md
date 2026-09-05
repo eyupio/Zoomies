@@ -260,6 +260,21 @@ environment variables, credentials written to disk, background processes. This
 is the single largest isolation regression available in the product. It exists
 because some workloads genuinely need a warm cache.
 
+### `pool.cache.scope: repository` under an organisation installation
+
+The pool names the repository its cache is for, but its runners register to
+the organisation, and GitHub gives a runner any queued job whose `runs-on`
+matches its labels. A job from another repository that asks for this pool's
+labels lands on one of its runners and reads and writes the cache — the
+sharing the scope exists to prevent, held off only by a discipline kept in
+other people's workflow files.
+
+Give such a pool a branded label that only that repository's workflows use.
+Zoomies warns about the combination on the pool's page and in the problems
+panel, because the cache's privacy depends on something it cannot see. A
+repository-targeted installation registers runners that only that
+repository's jobs can reach, so there the cache is as private as it looks.
+
 ### `pool.run_as_root: true`
 
 The job runs as UID 0 inside the container. Combined with any Docker mode, or

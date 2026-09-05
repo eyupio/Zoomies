@@ -479,6 +479,15 @@ which is the usual deployment — does not, so name it there as `owner/name`
 under that organisation. Without this a shared fleet would need a separate
 installation per repository to give each one a cache.
 
+Naming the repository does not stop GitHub giving this pool's runners another
+repository's job. A runner registered to an organisation takes any queued job
+whose `runs-on` matches its labels, and that job reads and writes the cache.
+So a repository cache under an organisation installation is only as private as
+the pool's labels: give such a pool a branded label that only that repository's
+workflows use, and keep it that way. Zoomies warns about the combination on the
+pool's page and in the problems panel, because the cache's privacy rests on
+something it cannot see — see [security.md](security.md#6-the-dangerous-toggles).
+
 `source` is left empty for a daemon-managed volume, which is the easy answer. An
 absolute path puts the cache on a disk you chose; anything else is treated as a
 volume-name prefix. Zoomies appends the scope's own identity to whichever you

@@ -53,6 +53,19 @@ func TestProblemsReportsEachCategory(t *testing.T) {
 		}
 	})
 
+	t.Run("repository cache under an organisation installation", func(t *testing.T) {
+		h := newHarness(t)
+		inst := h.installation()
+		p := h.pool(inst, "widgets")
+		p.Cache = store.CacheConfig{Enabled: true, Scope: store.CacheScopeRepository, Repository: "acme/widgets"}
+		if err := h.st.UpdatePool(h.ctx, p); err != nil {
+			t.Fatalf("UpdatePool: %v", err)
+		}
+		if !contains(h.problemCodes(), "pool.cache_shared") {
+			t.Fatalf("problems = %v, want the shared-cache warning", h.problemCodes())
+		}
+	})
+
 	t.Run("unusable installation", func(t *testing.T) {
 		h := newHarness(t)
 		inst := h.installation()
