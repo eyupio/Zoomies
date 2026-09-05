@@ -8,9 +8,11 @@ package backend
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/store"
@@ -32,6 +34,7 @@ type Handle string
 // backend cannot observe an image pull (notably the process backend).
 type CreateResult struct {
 	Handle            Handle         `json:"handle"`
+	Digest            string         `json:"digest,omitempty"`
 	ImagePullDuration *time.Duration `json:"image_pull_duration,omitempty"`
 	CreateDuration    time.Duration  `json:"create_duration"`
 }
@@ -121,7 +124,11 @@ type Spec struct {
 	PoolID   string `json:"pool_id"`
 	PoolName string `json:"pool_name"`
 
-	Image       string            `json:"image"`
+	Image string `json:"image"`
+	// PullPolicy controls preparation of Image for this individual runner. An
+	// empty value is accepted for tasks produced by older controllers and lets
+	// the container backend use its configured compatibility default.
+	PullPolicy  store.PullPolicy  `json:"pull_policy,omitempty"`
 	Credentials Credentials       `json:"credentials"`
 	Env         map[string]string `json:"env,omitempty"`
 	Ephemeral   bool              `json:"ephemeral"`
@@ -155,7 +162,23 @@ func (s *Spec) Validate() error {
 	if !s.DockerMode.Valid() {
 		return fmt.Errorf("backend: %q is not a docker mode", s.DockerMode)
 	}
+	if s.PullPolicy != "" && !s.PullPolicy.Valid() {
+		return fmt.Errorf("backend: %q is not a pool pull policy", s.PullPolicy)
+	}
+	if s.PullPolicy == store.PullPinnedOnly && !isDigestImageReference(s.Image) {
+		return errors.New("backend: pinned-only requires an image digest")
+	}
 	return nil
+}
+
+func isDigestImageReference(ref string) bool {
+	const marker = "@sha256:"
+	i := strings.LastIndex(ref, marker)
+	if i <= 0 || len(ref[i+len(marker):]) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(ref[i+len(marker):])
+	return err == nil
 }
 
 // LogOptions controls a log stream.

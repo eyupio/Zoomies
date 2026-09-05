@@ -218,6 +218,49 @@ attribute, so `prefers-color-scheme` decides. An explicit choice writes
 The choice is applied by a tiny inline script before first paint so there is no
 flash.
 
+### 1.8 Scrollbars
+
+The scrollbar is the one control the browser draws for us, and the one that is
+easiest to leave too faint to find. It is styled so that it belongs to the theme
+and, more to the point, so that an operator can see it and take hold of it.
+
+| Token | Light | Dark | Use |
+| --- | --- | --- | --- |
+| `--z-scrollbar-size` | `14px` | `14px` | The column, which is the whole hit target |
+| `--z-scrollbar-inset` | `3px` | `3px` | Gap between thumb and column edge, each side |
+| `--z-scrollbar-thumb` | `--z-text-subtle` | `--z-text-subtle` | Resting |
+| `--z-scrollbar-thumb-hover` | `--z-text-muted` | `--z-text-muted` | Under the pointer |
+| `--z-scrollbar-thumb-active` | `--z-text` | `--z-text` | While it is held |
+| `--z-scrollbar-track` | `rgb(8 12 20 / .06)` | `rgb(255 255 255 / .07)` | Behind the thumb |
+
+The thumb borrows the weakest text colour, so its ratios are the ones already
+measured above: against every surface it can sit on it is never below 4.1:1 in
+light or 4.8:1 in dark, past the 3:1 a control needs. The track is a
+tint rather than a colour so that it reads on a white card and on a sunken well
+alike. The visible thumb is the column less the inset on each side -- 8px -- and
+the whole 14px column responds to the pointer.
+
+Two rules keep it working, and both are written into `app.css` beside the
+rules themselves:
+
+* **Pointer only.** The styling sits inside `@media (pointer: fine)`. On a
+  touchscreen a finger scrolls the content, never the bar, and the browser's
+  overlay scrollbar -- which takes no space and fades when idle -- is the right
+  control there. Styling it would pin a permanent column down the edge of a
+  phone.
+* **One mechanism per browser.** Chromium and WebKit draw from the
+  `::-webkit-scrollbar` pseudo-elements, which are the only way to get a thumb
+  that is inset and rounded. The standard `scrollbar-width` and
+  `scrollbar-color` properties are set only where those pseudo-elements are
+  unknown (`@supports not selector(::-webkit-scrollbar)`, which today means
+  Firefox), because a browser that knows both ignores the pseudo-elements the
+  moment the standard properties are set and draws its own thin bar instead.
+  Setting `scrollbar-width: thin` "as well" is exactly how the thumb became a
+  sliver nobody could find.
+
+The log viewer's terminal draws its own scrollbar rather than the browser's, so
+it is handed the same three thumb tokens through its theme.
+
 ---
 
 ## 2. Information architecture

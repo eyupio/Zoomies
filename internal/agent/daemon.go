@@ -871,11 +871,6 @@ func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 		a.reportFailure(ctx, task, fmt.Sprintf("the %s backend could not create runner %s: %v", kind, spec.Name, err))
 		return
 	}
-	digest := ""
-	if p, ok := b.(backend.ImagePrewarmer); ok && spec.Image != "" {
-		digest, _ = p.PrewarmImage(cctx, spec.Image, store.PullIfNotPresent)
-	}
-
 	now := a.now()
 	handle := created.Handle
 	a.mu.Lock()
@@ -904,7 +899,7 @@ func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 		ImagePullDuration:  created.ImagePullDuration,
 		CreateDuration:     created.CreateDuration,
 		ContainerStartedAt: &now,
-		Digest:             digest,
+		Digest:             created.Digest,
 		State:              store.RunnerRegistering,
 		CompletedAt:        now,
 	})
