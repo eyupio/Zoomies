@@ -264,3 +264,63 @@ func (h *harness) runnerRow(pool *store.Pool, host *store.Host, state store.Runn
 	}
 	return r
 }
+
+// A runner that died on creation used to be replaced in the same pass that
+// noticed: the agent's failure report nudged a pass, the pass removed the
+// failed runner and created another, the agent failed that one too, and a pool
+// with a bad image churned through a runner a second -- two GitHub API calls a
+// time -- with the reason gone from the page before anyone could read it.
+func TestARunnerThatDiesOnCreationIsNotReplacedUntilTheWaitIsOut(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	h.deliverJob(jobEvent{Action: "queued", JobID: 7001, Labels: []string{"self-hosted", "linux", "x64", "demo"}})
+
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	first := h.runners()
+	if len(first) != 1 || first[0].State != store.RunnerProvisioning {
+		t.Fatalf("after the first pass: %+v, want one provisioning runner", first)
+	}
+
+	batch, err := h.c.PollTasks(h.ctx, host.ID, time.Second)
+	if err != nil || len(batch.Tasks) != 1 {
+		t.Fatalf("PollTasks: %v, %d tasks", err, len(batch.Tasks))
+	}
+	if err := h.c.ReportResult(h.ctx, host.ID, agent.TaskResult{
+		TaskID: batch.Tasks[0].ID, RunnerID: first[0].ID, OK: false,
+		Error: "the docker backend could not create runner: No such image: sha256:9f2c",
+	}); err != nil {
+		t.Fatalf("ReportResult: %v", err)
+	}
+
+	// The pass the failure provokes.
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("second Reconcile: %v", err)
+	}
+	after := h.runners()
+	if len(after) != 1 {
+		t.Fatalf("the failed runner was replaced straight away: %+v", after)
+	}
+	if after[0].State != store.RunnerFailed {
+		t.Fatalf("the failed runner is %q; it should stay on the page as failed, with its reason", after[0].State)
+	}
+	if after[0].Message != "the docker backend could not create runner: No such image: sha256:9f2c" {
+		t.Fatalf("the failure's reason was lost: %q", after[0].Message)
+	}
+	plan, _ := h.c.getLastPlan()
+	if plan == nil || len(plan.Pools) != 1 || plan.Pools[0].Failing == "" {
+		t.Fatalf("the plan does not say the pool is waiting: %+v", plan)
+	}
+	if !strings.Contains(plan.Pools[0].Failing, "No such image") || !strings.Contains(plan.Pools[0].Failing, "trying again in") {
+		t.Fatalf("the wait is not explained in the plan: %q", plan.Pools[0].Failing)
+	}
+	codes := h.problemCodes()
+	if !contains(codes, "pool.runners_failing") || !contains(codes, "runners.failed") {
+		t.Fatalf("problems = %v, want the pool held back and the failed runner both reported", codes)
+	}
+	if n := len(h.gh.Runners()); n != 1 {
+		t.Fatalf("GitHub was asked for %d registrations, want the one the first runner used", n)
+	}
+	_ = pool
+}

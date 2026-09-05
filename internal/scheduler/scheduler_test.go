@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -544,8 +545,10 @@ func TestReap(t *testing.T) {
 			ActionFail, "stuck in registering for 10m, past the 5m provision timeout; check the host's agent log"},
 		{"provisioning inside the timeout is left alone",
 			testRunner("r1", p, store.RunnerProvisioning, 4*time.Minute), "", ""},
-		{"a failed runner is removed", testRunner("r1", p, store.RunnerFailed, time.Minute),
-			ActionRemove, "runner failed; removing it to free host capacity"},
+		{"a failed runner is removed once its failure has been readable for a while",
+			testRunner("r1", p, store.RunnerFailed, 11*time.Minute),
+			ActionRemove, "runner failed 11m ago; its failure has been on the Runners page long enough"},
+		{"a recently failed runner is left on the page", testRunner("r1", p, store.RunnerFailed, time.Minute), "", ""},
 		{"an old idle runner is retired", idleRunner("r1", p, 7*time.Hour),
 			ActionDrain, "runner reached the 6h maximum lifetime"},
 		{"an old busy runner keeps its job", testRunner("r1", p, store.RunnerBusy, 7*time.Hour), "", ""},
@@ -614,7 +617,7 @@ func TestRetiredRunnerIsReplaced(t *testing.T) {
 func TestFailedRunnerDoesNotHoldThePoolShort(t *testing.T) {
 	p := testPool("linux-x64", "linux")
 	p.MinRunners = 1
-	s := snap([]*store.Pool{p}, []*store.Runner{testRunner("dead", p, store.RunnerFailed, time.Minute)},
+	s := snap([]*store.Pool{p}, []*store.Runner{testRunner("dead", p, store.RunnerFailed, 11*time.Minute)},
 		nil, []*store.Host{testHost("host_a", 8, 1)})
 
 	pp := only(t, Decide(s))
@@ -624,6 +627,118 @@ func TestFailedRunnerDoesNotHoldThePoolShort(t *testing.T) {
 	if pp.Actions[0].Kind != ActionRemove {
 		t.Fatal("cleanup must come before the create that reuses the capacity")
 	}
+}
+
+// startFailed is a runner that died before it ever registered, failedFor ago:
+// the shape a bad image or an unreachable GitHub produces.
+func startFailed(id string, p *store.Pool, failedFor time.Duration, message string) *store.Runner {
+	r := testRunner(id, p, store.RunnerFailed, failedFor+2*time.Second)
+	at := ago(failedFor)
+	r.FinishedAt = &at
+	r.Message = message
+	return r
+}
+
+// A runner that died on creation used to be replaced in the same pass that
+// noticed, so a pool with a bad image created, failed and removed a runner
+// every second and spent two GitHub API calls each time. The pool now waits,
+// and the wait doubles with each failure still on the page.
+func TestAPoolWhoseRunnersDieOnStartBacksOff(t *testing.T) {
+	p := testPool("linux-x64", "linux")
+	p.MinRunners = 1
+	hosts := []*store.Host{testHost("host_a", 8, 0)}
+
+	t.Run("one fresh failure holds the pool for the base wait", func(t *testing.T) {
+		s := snap([]*store.Pool{p}, []*store.Runner{startFailed("r1", p, time.Second, "No such image: sha256:abc")}, nil, hosts)
+		pp := only(t, Decide(s))
+		if countOf(pp.Actions, ActionCreate) != 0 {
+			t.Fatalf("a create was planned a second after the last one failed: %+v", pp.Actions)
+		}
+		want := "the last runner failed to start, most recently 1s ago (No such image: sha256:abc); trying again in 9s"
+		if pp.Failing != want {
+			t.Fatalf("Failing = %q, want %q", pp.Failing, want)
+		}
+		if !strings.Contains(pp.Reason, want) || !strings.HasPrefix(pp.Reason, "cannot scale linux-x64 0 -> 1") {
+			t.Fatalf("the plan's reason does not say what went unserved and why: %q", pp.Reason)
+		}
+		if pp.Blocked != "" {
+			t.Fatalf("a held pool was reported as blocked: %q -- there is a host with room, the pool is merely waiting", pp.Blocked)
+		}
+	})
+
+	t.Run("the wait doubles with each failure", func(t *testing.T) {
+		runners := []*store.Runner{
+			startFailed("r1", p, 30*time.Second, "third"),
+			startFailed("r2", p, 50*time.Second, "second"),
+			startFailed("r3", p, 90*time.Second, "first"),
+		}
+		s := snap([]*store.Pool{p}, runners, nil, hosts)
+		pp := only(t, Decide(s))
+		// Three failures: 10s, 20s, 40s. The newest was 30s ago, so 10s to go.
+		want := "the last 3 runners failed to start, most recently 30s ago (third); trying again in 10s"
+		if pp.Failing != want {
+			t.Fatalf("Failing = %q, want %q", pp.Failing, want)
+		}
+		if countOf(pp.Actions, ActionCreate) != 0 {
+			t.Fatalf("created inside the wait: %+v", pp.Actions)
+		}
+	})
+
+	t.Run("once the wait is out the pool tries again", func(t *testing.T) {
+		runners := []*store.Runner{
+			startFailed("r1", p, 41*time.Second, "third"),
+			startFailed("r2", p, 60*time.Second, "second"),
+			startFailed("r3", p, 90*time.Second, "first"),
+		}
+		s := snap([]*store.Pool{p}, runners, nil, hosts)
+		pp := only(t, Decide(s))
+		if pp.Failing != "" {
+			t.Fatalf("still held after the 40s wait: %q", pp.Failing)
+		}
+		if countOf(pp.Actions, ActionCreate) != 1 {
+			t.Fatalf("want one create after the wait, got %+v", pp.Actions)
+		}
+	})
+
+	t.Run("the wait is capped", func(t *testing.T) {
+		var runners []*store.Runner
+		for i := range 12 {
+			runners = append(runners, startFailed(fmt.Sprintf("r%d", i), p, time.Duration(i+1)*20*time.Second, "boom"))
+		}
+		s := snap([]*store.Pool{p}, runners, nil, hosts)
+		pp := only(t, Decide(s))
+		if !strings.HasSuffix(pp.Failing, "trying again in 4m40s") {
+			t.Fatalf("twelve failures should wait the 5m cap, 20s in: %q", pp.Failing)
+		}
+	})
+
+	t.Run("a runner that ran and then failed is not a start failure", func(t *testing.T) {
+		r := startFailed("r1", p, time.Second, "exit 137 under a job")
+		registered := ago(time.Hour)
+		r.RegisteredAt = &registered
+		s := snap([]*store.Pool{p}, []*store.Runner{r}, nil, hosts)
+		pp := only(t, Decide(s))
+		if pp.Failing != "" || countOf(pp.Actions, ActionCreate) != 1 {
+			t.Fatalf("a runner lost under a job held the pool back: failing=%q actions=%+v", pp.Failing, pp.Actions)
+		}
+	})
+
+	t.Run("a failure that has left the page no longer counts", func(t *testing.T) {
+		s := snap([]*store.Pool{p}, []*store.Runner{startFailed("r1", p, 11*time.Minute, "old news")}, nil, hosts)
+		pp := only(t, Decide(s))
+		if pp.Failing != "" || countOf(pp.Actions, ActionCreate) != 1 || countOf(pp.Actions, ActionRemove) != 1 {
+			t.Fatalf("an old failure should be removed and ignored: failing=%q actions=%+v", pp.Failing, pp.Actions)
+		}
+	})
+
+	t.Run("a long message is cut to a hint", func(t *testing.T) {
+		long := strings.Repeat("the docker backend could not create the runner ", 8)
+		s := snap([]*store.Pool{p}, []*store.Runner{startFailed("r1", p, time.Second, long)}, nil, hosts)
+		pp := only(t, Decide(s))
+		if len(pp.Failing) > 260 || !strings.Contains(pp.Failing, "…") {
+			t.Fatalf("the hold sentence carries the whole message: %d chars", len(pp.Failing))
+		}
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -813,7 +928,7 @@ func TestDisabledPoolIsStillReaped(t *testing.T) {
 	p := testPool("linux-x64", "linux")
 	p.Enabled = false
 	runners := []*store.Runner{
-		testRunner("dead", p, store.RunnerFailed, time.Minute),
+		testRunner("dead", p, store.RunnerFailed, 11*time.Minute),
 		testRunner("stuck", p, store.RunnerProvisioning, 10*time.Minute),
 	}
 	pp := only(t, Decide(snap([]*store.Pool{p}, runners, nil, []*store.Host{testHost("host_a", 8, 2)})))
@@ -898,7 +1013,7 @@ func busyFleet() Snapshot {
 		idleRunner("r_idle_new", general, time.Minute),
 		testRunner("r_busy", general, store.RunnerBusy, time.Hour),
 		testRunner("r_stuck", gpu, store.RunnerProvisioning, 20*time.Minute),
-		testRunner("r_dead", gpu, store.RunnerFailed, time.Minute),
+		testRunner("r_dead", gpu, store.RunnerFailed, 11*time.Minute),
 		idleRunner("r_retired", disabled, time.Hour),
 	}
 	jobs := []*store.Job{

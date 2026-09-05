@@ -315,6 +315,26 @@ func (c *Controller) PoolCapacityProblems() []Problem {
 				TargetKind: "pool", TargetID: pp.PoolID,
 			})
 		}
+		if pp.Failing != "" {
+			// The scheduler is holding the pool back because its runners keep
+			// dying before they register. The failed runners themselves are
+			// listed under runners.failed with their messages; this entry is
+			// about the pool, and about the wait, which is otherwise invisible.
+			severity := config.SeverityWarning
+			if pp.QueuedMatched > 0 {
+				severity = config.SeverityError
+			}
+			out = append(out, Problem{
+				Code:     "pool.runners_failing",
+				Severity: severity,
+				Title:    fmt.Sprintf("pool %s's runners are failing to start", pp.PoolName),
+				Detail:   pp.Failing,
+				Fix: "the failed runners are on the Runners page with their reasons; the usual causes are an image " +
+					"that cannot be pulled, a host whose agent cannot reach GitHub, or a runner version that does " +
+					"not exist. The pool tries again on its own, less often with each failure.",
+				TargetKind: "pool", TargetID: pp.PoolID,
+			})
+		}
 		if pp.Blocked == "" {
 			continue
 		}
