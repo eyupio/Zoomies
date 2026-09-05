@@ -36,7 +36,12 @@
     label: string;
     icon?: LucideIcon;
     danger?: boolean;
-    run: (ids: string[]) => void | Promise<void>;
+    /**
+     * Act on the selected ids. Once it settles the selection is cleared, so
+     * the same rows cannot be acted on twice by accident; resolve `false` to
+     * keep it -- a confirmation the operator cancelled, say.
+     */
+    run: (ids: string[]) => void | boolean | Promise<void | boolean>;
   }
 </script>
 
@@ -158,11 +163,15 @@
 
   $effect(() => {
     const { query, filterKey } = request;
-    // A filter change means the operator is looking at a different set; page one.
-    if (lastFilterKey && lastFilterKey !== filterKey && query.offset !== 0) {
-      lastFilterKey = filterKey;
-      router.setQuery({ offset: null });
-      return;
+    // A filter change means the operator is looking at a different set: page
+    // one, and nothing selected from the old set still ticked out of sight.
+    if (lastFilterKey && lastFilterKey !== filterKey) {
+      selected = [];
+      if (query.offset !== 0) {
+        lastFilterKey = filterKey;
+        router.setQuery({ offset: null });
+        return;
+      }
     }
     lastFilterKey = filterKey;
 
@@ -293,6 +302,11 @@
       : [...new Set([...selected, ...pageIds])];
   }
 
+  async function runBulk(action: BulkAction): Promise<void> {
+    const ids = selected;
+    if ((await action.run(ids)) !== false) selected = [];
+  }
+
   function selectRange(from: number, to: number): void {
     const [lo, hi] = from < to ? [from, to] : [to, from];
     const ids = pageIds.slice(lo, hi + 1);
@@ -385,7 +399,7 @@
             size="sm"
             variant={action.danger ? 'danger' : 'secondary'}
             icon={action.icon}
-            onclick={() => void action.run(selected)}
+            onclick={() => void runBulk(action)}
           >
             {action.label}
           </Button>
