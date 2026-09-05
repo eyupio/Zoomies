@@ -58,6 +58,10 @@ type Server struct {
 	// AllowedOrigins restricts browser origins for state-changing requests.
 	// Empty means same-origin only, which is what the embedded UI needs.
 	AllowedOrigins []string `yaml:"allowed_origins"`
+	// AllowIndexing invites search engines into the UI. Off by default: a
+	// controller is somebody's infrastructure rather than somebody's website,
+	// so robots.txt declines crawling until an operator says otherwise.
+	AllowIndexing bool `yaml:"allow_indexing"`
 }
 
 // TLSMode selects how the listener terminates TLS.
@@ -540,6 +544,7 @@ func (c *Config) applyEnv() error {
 	strs("ZOOMIES_TLS_HOSTS", &c.Server.TLS.Hosts)
 	strs("ZOOMIES_TRUSTED_PROXIES", &c.Server.TrustedProxies)
 	strs("ZOOMIES_ALLOWED_ORIGINS", &c.Server.AllowedOrigins)
+	boolean("ZOOMIES_ALLOW_INDEXING", &c.Server.AllowIndexing)
 
 	str("ZOOMIES_DB_PATH", &c.Database.Path)
 

@@ -1,3 +1,10 @@
+---
+description: >-
+  Every zoomies.yaml key and its ZOOMIES_* environment override, with
+  defaults, plus the startup warnings that name any setting weakening your
+  posture.
+---
+
 # Configuring Zoomies
 
 One file, `zoomies.yaml`, and every key can be overridden with a `ZOOMIES_*`
@@ -40,6 +47,7 @@ server:
     hosts: []                   # ZOOMIES_TLS_HOSTS     -- names for a generated cert
   trusted_proxies: []           # ZOOMIES_TRUSTED_PROXIES -- CIDRs, or [cloudflare]
   allowed_origins: []           # ZOOMIES_ALLOWED_ORIGINS
+  allow_indexing: false         # ZOOMIES_ALLOW_INDEXING -- let search engines in
   read_timeout: 30s
   write_timeout: 0s             # 0: SSE and log tails must not be cut off
   idle_timeout: 120s
@@ -141,6 +149,24 @@ warning — which is correct behaviour if a reverse proxy terminates TLS, and a
 problem otherwise. When you do run behind a proxy, also set
 `server.trusted_proxies` so audit entries and login rate limiting see the real
 client address instead of your proxy's.
+
+### `server.allow_indexing`
+
+Off, and it should usually stay off. A controller serves `/robots.txt` and
+`/sitemap.xml` like any other web address, and by default the first of them
+declines crawling altogether: this is your infrastructure, and appearing in a
+search result is a way of being found that nobody asked for. The page itself
+carries `noindex, nofollow` to say the same thing to a crawler that arrived from
+a link without reading `robots.txt`.
+
+Turn it on and `robots.txt` invites crawlers to the UI's own pages — never
+`/api/`, `/metrics` or the webhook path — advertises the sitemap, and the page
+switches to `index, follow`. Zoomies warns at startup when it is on, because the
+sign-in page and this controller's address then become public knowledge.
+
+`/sitemap.xml` is served either way. It lists the interface's top-level pages
+and nothing about your fleet: no pool, runner or job has an entry, because those
+addresses are gone by tomorrow.
 
 ### `security.encryption_key`
 

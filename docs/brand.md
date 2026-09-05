@@ -1,3 +1,9 @@
+---
+description: >-
+  The Zoomies identity: the cocker spaniel mark, the wordmark, the colour
+  tokens, and the rules for placing them.
+---
+
 # Zoomies brand
 
 <img src="brand/logo-master-dark.png" alt="The Zoomies logo: a black-and-white cocker spaniel curling through a circular motion path, above the Zoomies wordmark and the line SELF-HOSTED GIT RUNNERS" width="360">

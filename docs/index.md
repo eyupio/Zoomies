@@ -1,4 +1,9 @@
 ---
+description: >-
+  Zoomies is a lightweight, self-hosted GitHub Actions runner fleet
+  controller:
+  ephemeral runners by default, webhook-driven autoscaling, one Go binary and
+  SQLite. No Kubernetes, no pasted tokens, MIT licensed.
 hide:
   - navigation
   - toc
@@ -151,3 +156,6 @@ blast radius of each execution as small as it reasonably can:
 
 Every setting that trades any of that away is named at startup, listed in the
 UI, and documented in [Security](security.md) with what it actually costs you.
+
+Still deciding? The [FAQ](faq.md) answers what people ask before they self-host
+runners -- what it costs, what it needs, and what it will not protect you from.

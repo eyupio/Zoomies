@@ -52,6 +52,14 @@ func (s *Server) routes() http.Handler {
 	// can always fetch the spec for the version it is actually talking to.
 	r.Get("/api/openapi.yaml", s.handleOpenAPI)
 
+	// What a crawler asks for before anything else. Both are rendered per
+	// request rather than embedded, because both have to name this
+	// controller's own address and only a request knows it. Mounted here so
+	// they win over the SPA's file lookup, which would 404 a path with an
+	// extension.
+	r.Get("/robots.txt", s.handleRobots)
+	r.Get("/sitemap.xml", s.handleSitemap)
+
 	// The webhook. Mounted for every method rather than POST alone so that
 	// GitHub's own "wrong method" case gets the controller's message, which
 	// says what the endpoint is for, instead of a bare 405.

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/xml"
 	"net/http"
 	"os"
 	"strings"
@@ -114,7 +115,7 @@ func TestSecurityHeaders(t *testing.T) {
 }
 
 func TestInlineScriptHashesMatchTheEmbeddedPage(t *testing.T) {
-	h, err := newSPAHandler("https://zoomies.test")
+	h, err := newSPAHandler("https://zoomies.test", false)
 	if err != nil {
 		t.Fatalf("newSPAHandler: %v", err)
 	}
@@ -135,7 +136,7 @@ func TestInlineScriptHashesMatchTheEmbeddedPage(t *testing.T) {
 // og:image that still said __ZOOMIES_ORIGIN__ -- or that said nothing absolute
 // at all -- would render a card with no picture on it.
 func TestSharingTagsCarryTheControllersOwnAddress(t *testing.T) {
-	h, err := newSPAHandler("https://zoomies.test/")
+	h, err := newSPAHandler("https://zoomies.test/", false)
 	if err != nil {
 		t.Fatalf("newSPAHandler: %v", err)
 	}
@@ -161,7 +162,7 @@ func TestSharingTagsCarryTheControllersOwnAddress(t *testing.T) {
 // controller that has not been told its own address must not guess at one, or
 // the preview points at somebody else's host.
 func TestSharingTagsStayRelativeWithoutAnExternalURL(t *testing.T) {
-	h, err := newSPAHandler("")
+	h, err := newSPAHandler("", false)
 	if err != nil {
 		t.Fatalf("newSPAHandler: %v", err)
 	}
@@ -420,5 +421,144 @@ func TestSecurityHeadersLetTheManifestFormReachEnterpriseServer(t *testing.T) {
 	}
 	if strings.Contains(csp, "https:;") || strings.Contains(csp, "form-action 'self' https: ") {
 		t.Errorf("form-action must name origins, not a scheme: %s", csp)
+	}
+}
+
+// TestRobotsDeclinesCrawlersByDefault covers the posture: a controller is
+// somebody's infrastructure, and turning up in a search result is a way of
+// being found that nobody asked for. The file exists rather than 404s, because
+// a missing robots.txt is an absence a crawler is free to read as permission.
+func TestRobotsDeclinesCrawlersByDefault(t *testing.T) {
+	h := newHarness(t)
+	resp := h.do(request{method: http.MethodGet, path: "/robots.txt"})
+	resp.mustStatus(t, http.StatusOK, "GET /robots.txt")
+
+	body := string(resp.body)
+	if !strings.Contains(body, "Disallow: /\n") {
+		t.Errorf("robots.txt does not decline crawling:\n%s", body)
+	}
+	if strings.Contains(body, "Sitemap:") {
+		t.Errorf("robots.txt advertises a sitemap it has asked nobody to read:\n%s", body)
+	}
+	if ct := resp.header.Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") {
+		t.Errorf("robots.txt was served as %q", ct)
+	}
+}
+
+// TestRobotsInvitesCrawlersWhenIndexingIsAllowed covers the other half, and
+// the line that keeps the API out of it: /api/v1 answers machines, and a
+// crawler following links into it learns nothing and spends someone's CPU.
+func TestRobotsInvitesCrawlersWhenIndexingIsAllowed(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) { c.Server.AllowIndexing = true })
+	resp := h.do(request{method: http.MethodGet, path: "/robots.txt"})
+	resp.mustStatus(t, http.StatusOK, "GET /robots.txt")
+
+	body := string(resp.body)
+	for _, want := range []string{"Allow: /", "Disallow: /api/", "Sitemap: http://zoomies.test/sitemap.xml"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("robots.txt is missing %q:\n%s", want, body)
+		}
+	}
+}
+
+// TestSitemapNamesPagesAbsolutely covers the rule a sitemap lives by: a
+// relative location is not a location, so every entry has to carry this
+// controller's own address.
+func TestSitemapNamesPagesAbsolutely(t *testing.T) {
+	h := newHarness(t)
+	resp := h.do(request{method: http.MethodGet, path: "/sitemap.xml"})
+	resp.mustStatus(t, http.StatusOK, "GET /sitemap.xml")
+
+	if ct := resp.header.Get("Content-Type"); !strings.HasPrefix(ct, "application/xml") {
+		t.Errorf("the sitemap was served as %q", ct)
+	}
+	var doc struct {
+		URLs []struct {
+			Loc string `xml:"loc"`
+		} `xml:"url"`
+	}
+	if err := xml.Unmarshal(resp.body, &doc); err != nil {
+		t.Fatalf("the sitemap is not well-formed XML: %v\n%s", err, truncate(resp.body))
+	}
+	if len(doc.URLs) != len(uiRoutes) {
+		t.Fatalf("the sitemap has %d entries, want %d", len(doc.URLs), len(uiRoutes))
+	}
+	for _, u := range doc.URLs {
+		if !strings.HasPrefix(u.Loc, "http://zoomies.test/") {
+			t.Errorf("%q does not carry the controller's address", u.Loc)
+		}
+	}
+}
+
+// TestSitemapFallsBackToTheRequestsOwnHost covers the controller that has not
+// been told its address. Unlike the sharing tags baked into index.html at
+// startup, these files are rendered per request, so there is a Host header to
+// read and no need to leave the answer relative.
+func TestSitemapFallsBackToTheRequestsOwnHost(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) { c.Server.ExternalURL = "" })
+	resp := h.do(request{method: http.MethodGet, path: "/sitemap.xml"})
+	resp.mustStatus(t, http.StatusOK, "GET /sitemap.xml")
+
+	// The harness's server listens on a loopback address of its own choosing.
+	host := strings.TrimPrefix(h.srv.URL, "http://")
+	if want := "<loc>http://" + host + "/</loc>"; !strings.Contains(string(resp.body), want) {
+		t.Errorf("the sitemap does not name the host it was asked on; want %s in\n%s", want, truncate(resp.body))
+	}
+}
+
+// TestSitemapListsPagesTheAppActuallyServes keeps uiRoutes honest: it mirrors
+// ROUTES in web/src/lib/router.ts by hand, and a sitemap naming a page that no
+// longer exists is worse than no sitemap at all.
+func TestSitemapListsPagesTheAppActuallyServes(t *testing.T) {
+	h := newHarness(t)
+	for _, route := range uiRoutes {
+		resp := h.do(request{method: http.MethodGet, path: route})
+		resp.mustStatus(t, http.StatusOK, "GET "+route)
+		if ct := resp.header.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+			t.Errorf("%s in the sitemap is served as %q, not a page", route, ct)
+		}
+	}
+}
+
+// TestTheRobotsDirectiveFollowsTheSetting covers the page's own directive,
+// which is what a crawler that arrived at a link without reading robots.txt
+// obeys.
+func TestTheRobotsDirectiveFollowsTheSetting(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		allowed bool
+		want    string
+	}{
+		{"the default keeps the controller out of search results", false, `content="noindex, nofollow"`},
+		{"an operator can invite indexing", true, `content="index, follow"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, err := newSPAHandler("https://zoomies.test", tc.allowed)
+			if err != nil {
+				t.Fatalf("newSPAHandler: %v", err)
+			}
+			page := string(h.index)
+			if strings.Contains(page, robotsToken) {
+				t.Errorf("the served page still carries %s", robotsToken)
+			}
+			if !h.built {
+				return
+			}
+			if !strings.Contains(page, tc.want) {
+				t.Errorf("the page does not carry %s", tc.want)
+			}
+		})
+	}
+}
+
+// TestStructuredDataIsNotAllowedToRun covers a policy that has to stay
+// truthful: JSON-LD is data the browser never executes, so hashing it into
+// script-src would widen the policy to cover something that is not a script.
+func TestStructuredDataIsNotAllowedToRun(t *testing.T) {
+	page := []byte(`<script type="application/ld+json">{"@type":"WebApplication"}</script>` +
+		`<script>console.log(1)</script>`)
+	got := inlineScriptHashes(page)
+	if len(got) != 1 {
+		t.Fatalf("%d hashes for one executable script: %v", len(got), got)
 	}
 }

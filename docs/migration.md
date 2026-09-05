@@ -1,3 +1,10 @@
+---
+description: >-
+  Move workflows off GitHub-hosted runners: the migration wizard rewrites
+  runs-on across repositories and opens one pull request each, showing the
+  diff first.
+---
+
 # Moving repositories onto your runners
 
 You have a fleet. Your workflows still say `runs-on: ubuntu-latest`, in every

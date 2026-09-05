@@ -207,7 +207,24 @@ async function apply(): Promise<void> {
 
   navigationCount += 1;
   document.title = currentTitle === 'Overview' ? 'Zoomies' : `${currentTitle} · Zoomies`;
+  setCanonical();
   changed();
+}
+
+/**
+ * Point the page's canonical address at the route being shown.
+ *
+ * Every route is served the same HTML by the Go binary, so without this the
+ * whole app claims to be the root. The query string is deliberately dropped:
+ * grids keep their filters and paging there, and `/runners?state=busy&page=3`
+ * is the runners page, not a page of its own.
+ */
+function setCanonical(): void {
+  const href = location.origin + location.pathname;
+  const link = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+  if (link) link.href = href;
+  const og = document.querySelector<HTMLMetaElement>('meta[property="og:url"]');
+  if (og) og.content = href;
 }
 
 /* -- link interception ------------------------------------------------------ */

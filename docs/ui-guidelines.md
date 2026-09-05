@@ -1,3 +1,9 @@
+---
+description: >-
+  The design contract for the Zoomies web UI: design tokens, the fixed status
+  colours, the app shell budget, and the accessibility rules every page keeps.
+---
+
 # Zoomies UI guidelines
 
 The Zoomies web UI is meant to be left open on a second monitor all day. That is

@@ -166,6 +166,15 @@ func (c *Config) Validate() Findings {
 			Fix:    "list your proxy's CIDR in server.trusted_proxies, or the word `cloudflare` when Cloudflare is in front.",
 		})
 	}
+	if c.Server.AllowIndexing {
+		add(Finding{
+			Code: "indexing.allowed", Severity: SeverityWarning, Setting: "server.allow_indexing",
+			Title: "search engines are invited to index this controller",
+			Detail: "robots.txt now allows crawling and advertises the sitemap, so the sign-in " +
+				"page and this controller's address can appear in public search results.",
+			Fix: "leave server.allow_indexing off unless this instance is deliberately public.",
+		})
+	}
 	for _, cidr := range c.Server.TrustedProxies {
 		if strings.TrimSpace(cidr) == TrustedProxyCloudflare {
 			continue
