@@ -48,6 +48,31 @@ test('every navigation entry routes to its page and is marked as current', async
   }
 });
 
+test('every page ends in a footer that says which product this is and who makes it', async ({
+  page,
+}) => {
+  // A signed-in screenshot is usually the first anyone outside the team sees
+  // of Zoomies, and the footer is the one line on it that says what it is,
+  // where the docs are and who builds it. docs/ui-guidelines.md promises all
+  // three, and promises that the credit is the one link in the shell that
+  // leaves the product -- so it opens a new tab and hands over no referrer.
+  await goto(page, '/runners', 'Runners');
+
+  const footer = page.getByRole('contentinfo');
+  await expect(footer.getByText('Zoomies', { exact: true })).toBeVisible();
+  await expect(footer.getByRole('link', { name: 'Docs' })).toHaveAttribute(
+    'href',
+    'https://zoomies.sh/quickstart/',
+  );
+
+  const credit = footer.getByRole('link', { name: 'EyUp.io' });
+  await expect(credit).toBeVisible();
+  await expect(footer.getByText(/Developed by/)).toBeVisible();
+  await expect(credit).toHaveAttribute('href', 'https://eyup.io');
+  await expect(credit).toHaveAttribute('target', '_blank');
+  await expect(credit).toHaveAttribute('rel', /noopener/);
+});
+
 test('the browser back button returns to the previous page', async ({ page }) => {
   await goto(page, '/', 'Overview');
   await navEntry(page, '/runners').click();

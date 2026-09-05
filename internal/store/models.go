@@ -48,6 +48,18 @@ func (b BackendKind) Valid() bool {
 	return false
 }
 
+type PullPolicy string
+
+const (
+	PullIfNotPresent PullPolicy = "if-not-present"
+	PullAlways       PullPolicy = "always"
+	PullPinnedOnly   PullPolicy = "pinned-only"
+)
+
+func (p PullPolicy) Valid() bool {
+	return p == PullIfNotPresent || p == PullAlways || p == PullPinnedOnly
+}
+
 // DockerMode controls whether jobs running on a pool's runners can themselves
 // talk to a Docker daemon. Both non-none values weaken isolation, so both are
 // surfaced as warnings by the config validator and in the UI problems drawer.
@@ -393,6 +405,7 @@ type Pool struct {
 	RunnerGroup    string      `json:"runner_group,omitempty"`
 	Backend        BackendKind `json:"backend"`
 	Image          string      `json:"image"`
+	PullPolicy     PullPolicy  `json:"pull_policy"`
 	RunnerVersion  string      `json:"runner_version,omitempty"`
 	MinRunners     int         `json:"min_runners"`
 	MaxRunners     int         `json:"max_runners"`
@@ -411,6 +424,17 @@ type Pool struct {
 	RunAsRoot bool      `json:"run_as_root"`
 	Enabled   bool      `json:"enabled"`
 	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type PoolPrewarm struct {
+	PoolID    string    `json:"pool_id"`
+	HostID    string    `json:"host_id"`
+	HostName  string    `json:"host_name,omitempty"`
+	Image     string    `json:"image"`
+	State     string    `json:"state"`
+	Digest    string    `json:"digest,omitempty"`
+	Error     string    `json:"error,omitempty"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
@@ -552,6 +576,7 @@ type Runner struct {
 	Ephemeral     bool        `json:"ephemeral"`
 	Labels        StringSlice `json:"labels"`
 	Image         string      `json:"image,omitempty"`
+	ImageDigest   string      `json:"image_digest,omitempty"`
 	RunnerVersion string      `json:"runner_version,omitempty"`
 	// CurrentJobID points at the jobs row this runner is executing, if any.
 	CurrentJobID string     `json:"current_job_id,omitempty"`

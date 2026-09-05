@@ -219,7 +219,10 @@ identity outwards, and both are part of the brand rather than an afterthought.
 **A controller's own page.** `web/index.html` carries Open Graph and Twitter
 card tags, `brand/social-card.png` as the card image, and one hairline link to
 [zoomies.sh](https://zoomies.sh) in the sign-in colophon and the footer of every
-signed-in page. `og:url` and `og:image` have to be absolute for a preview to
+signed-in page, beside the credit *Developed by [EyUp.io](https://eyup.io)*.
+Both addresses come from `web/src/lib/links.ts`, and the site's footer prints
+the same credit from `extra.developer` in `mkdocs.yml`, so the product and the
+site say the same thing about where they came from. `og:url` and `og:image` have to be absolute for a preview to
 render at all -- the service fetching the page is not a browser and has no base
 to resolve a relative path against -- so the controller substitutes
 `server.external_url` into them when it starts. An instance that has not been

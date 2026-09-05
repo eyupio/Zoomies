@@ -12,14 +12,15 @@
   It stays a hairline. This is an operations dashboard, and nothing down here
   may compete with the fleet above it.
 
-  Its one outbound link is also the only thing in the signed-in shell that says
-  where Zoomies came from. Somebody reading this page is usually looking at a
-  controller a colleague installed, so the link earns its place twice over --
-  see docs/brand.md.
+  Its two outbound links are also the only things in the signed-in shell that
+  say where Zoomies came from and who makes it. Somebody reading this page is
+  usually looking at a controller a colleague installed, so both earn their
+  place -- see docs/brand.md. The credit matches the one in the footer of every
+  page on zoomies.sh, so the product and its site read as one thing.
 -->
 <script lang="ts">
   import { session } from '../state/session.svelte';
-  import { QUICKSTART_URL } from '../links';
+  import { DEVELOPER_NAME, DEVELOPER_URL, QUICKSTART_URL } from '../links';
   import Logo from '../components/Logo.svelte';
 
   const version = $derived(session.meta?.version);
@@ -40,6 +41,12 @@
            host-socket option costs them, had to leave and guess a URL. It is a
            hyperlink, not a fetch, so an air-gapped install is unaffected. -->
       <a class="docs" href={QUICKSTART_URL} rel="noreferrer">Docs</a>
+      <!-- Opens in a new tab: it leaves the dashboard for another site, and an
+           operator watching a fleet should not lose the page they were on. -->
+      <span class="credit">
+        Developed by
+        <a href={DEVELOPER_URL} target="_blank" rel="noopener noreferrer">{DEVELOPER_NAME}</a>
+      </span>
       <span class="descriptor">Self-hosted Git runners</span>
     </span>
   </div>
@@ -100,10 +107,22 @@
     align-items: center;
     gap: var(--z-space-4);
   }
-  .docs {
+  .docs,
+  .credit a {
     color: var(--z-text-subtle);
   }
-  .docs:hover {
+  .docs:hover,
+  .credit a:hover,
+  .credit a:focus-visible {
     color: var(--z-text-muted);
+    text-decoration: underline;
+    text-underline-offset: 0.15em;
+  }
+  .credit {
+    flex: none;
+    white-space: nowrap;
+  }
+  .credit a {
+    font-weight: var(--z-weight-medium);
   }
 </style>

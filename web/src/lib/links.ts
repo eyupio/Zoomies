@@ -30,3 +30,12 @@ export const SECURITY_URL = `${SITE_URL}/security/`;
 
 /** The host name alone, for places that show a link without decoration. */
 export const SITE_HOST = SITE_URL.replace(/^https?:\/\//, '');
+
+/**
+ * Who makes Zoomies. The footer of every signed-in page and the sign-in
+ * colophon both say "Developed by", and the site's footer says the same from
+ * `extra.developer` in mkdocs.yml, so the credit reads identically wherever
+ * the product is met.
+ */
+export const DEVELOPER_NAME = 'EyUp.io';
+export const DEVELOPER_URL = 'https://eyup.io';

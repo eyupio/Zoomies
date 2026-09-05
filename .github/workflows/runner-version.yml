@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   check:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: zoomies-linux-x64
     steps:
       - uses: actions/checkout@v7
 

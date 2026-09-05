@@ -1,0 +1,29 @@
+{#-
+  The page for an address that has nothing behind it.
+
+  Material's default is a bare "404 - Not found". A reader who got here followed
+  a stale link or mistyped one, and the useful thing to give them is not the
+  status code but the two or three places the thing they wanted probably lives.
+  The links are absolute paths, because a 404 is served at whatever address was
+  asked for and a relative link from there would point nowhere too.
+-#}
+{% extends "main.html" %}
+
+{% block content %}
+  <div class="zoomies-404">
+    <img src="{{ 'brand/head-swish-white.png' | url }}" alt="" width="110" height="110" />
+    <p class="zoomies-404__code">404</p>
+    <h1>This page has run off.</h1>
+    <p class="lede">
+      There is nothing at this address. The page may have moved when the
+      documentation was reorganised, or the link may have been typed by hand.
+      Search from the bar above, or start from one of these.
+    </p>
+    <p class="actions">
+      <a class="md-button md-button--primary" href="{{ base_url if base_url.endswith('/') else base_url ~ '/' }}">Home</a>
+      <a class="md-button" href="{{ 'quickstart/' | url }}">Quick start</a>
+      <a class="md-button" href="{{ 'configuration/' | url }}">Configuration</a>
+      <a class="md-button" href="{{ 'faq/' | url }}">FAQ</a>
+    </p>
+  </div>
+{% endblock %}

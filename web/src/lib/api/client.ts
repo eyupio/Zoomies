@@ -284,6 +284,9 @@ export const enablePool = (id: string) =>
 export const disablePool = (id: string) =>
   api.post<Result<'disablePool'>>(`/pools/${enc(id)}/disable`, {});
 
+export const prewarmPool = (id: string) =>
+  api.post<Result<'prewarmPool'>>(`/pools/${enc(id)}/prewarm`, {});
+
 /* -- runners -------------------------------------------------------------- */
 
 export const listRunners = (query?: Query<'listRunners'>, signal?: AbortSignal) =>
@@ -344,6 +347,9 @@ export const listJoinTokens = (signal?: AbortSignal) =>
 
 export const createJoinToken = (body: Body<'createJoinToken'>) =>
   api.post<Result<'createJoinToken'>>('/join-tokens', { body });
+
+export const getJoinToken = (id: string, signal?: AbortSignal) =>
+  api.get<Result<'getJoinToken'>>(`/join-tokens/${enc(id)}`, { signal });
 
 export const deleteJoinToken = (id: string) =>
   api.del<Result<'deleteJoinToken'>>(`/join-tokens/${enc(id)}`);

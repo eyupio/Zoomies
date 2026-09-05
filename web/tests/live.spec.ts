@@ -12,7 +12,15 @@
  * reloading itself would pass a weaker test and still be the bug.
  */
 import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
-import { browserOverride, dataRows, FIXTURE, goto, grid } from './support/fixtures';
+import {
+  browserOverride,
+  dataRows,
+  expectNoReload,
+  FIXTURE,
+  goto,
+  grid,
+  plantMarker,
+} from './support/fixtures';
 
 test.use(browserOverride);
 
@@ -27,20 +35,6 @@ async function findByName(request: APIRequestContext, path: string, name: string
   const found = body.items.find((item) => item.name === name);
   expect(found, `${name} is listed by ${path}`).toBeTruthy();
   return found as Named;
-}
-
-/** Something a reload would lose. */
-async function plantMarker(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    (window as unknown as { __zoomiesStayedPut: boolean }).__zoomiesStayedPut = true;
-  });
-}
-
-async function expectNoReload(page: Page): Promise<void> {
-  const stayed = await page.evaluate(
-    () => (window as unknown as { __zoomiesStayedPut?: boolean }).__zoomiesStayedPut === true,
-  );
-  expect(stayed, 'the page updated in place rather than reloading').toBe(true);
 }
 
 /** The top bar's problems bell, whose label carries the count. */

@@ -176,12 +176,14 @@ func joinTokenCreate(ctx context.Context, e *env, args []string) error {
 		"Mint a single-use join token. The token is shown once; only its hash is stored.")
 	cf := registerClientFlags(fs, true)
 	ttl := fs.Duration("ttl", 15*time.Minute, "how long the token may be redeemed for")
-	capacity := fs.Int("capacity", 2, "the capacity the new host starts with")
+	capacity := fs.Int("capacity", 2, "the capacity the new host starts with; 0 lets the agent decide from its CPU count")
 	labels := kvValue{}
 	fs.Var(labels, "labels", "labels for the new host, e.g. arch=arm64")
+	controllerURL := fs.String("controller", "", "the address the new host should join on, when it is not server.external_url")
 	fs.example(
 		"zoomies hosts join-token create",
 		"zoomies hosts join-token create --ttl 1h --capacity 8 --labels arch=arm64",
+		"zoomies hosts join-token create --controller https://zoomies.internal:8443",
 	)
 	if err := fs.parse(args); err != nil {
 		return err
@@ -201,6 +203,9 @@ func joinTokenCreate(ctx context.Context, e *env, args []string) error {
 	body := map[string]any{"ttl": ttl.String(), "capacity": *capacity}
 	if len(labels) > 0 {
 		body["labels"] = map[string]string(labels)
+	}
+	if u := strings.TrimSpace(*controllerURL); u != "" {
+		body["controller_url"] = u
 	}
 	var token joinTokenItem
 	raw, err := client.post(ctx, "/join-tokens", nil, body, &token)

@@ -97,6 +97,11 @@
     </div>
   {/if}
 
+  <div class="pair">
+    <dt>Pull policy</dt>
+    <dd><code>{pool.pull_policy ?? 'if-not-present'}</code></dd>
+  </div>
+
   {#if pool.runner_version}
     <div class="pair">
       <dt>Runner version</dt>

@@ -1,0 +1,49 @@
+{#-
+  The foot of every page: who this is, where to go next, and who makes it.
+
+  It replaces Material's copyright partial, which prints one line. The brand
+  row is here because the header's mark is the only identity on a long
+  reference page and it has scrolled away by the time a reader reaches the
+  bottom; the links are the pages people actually come back to; and the credit
+  reads `extra.developer` from mkdocs.yml so a fork renames it once rather than
+  in a template. The product's own footer says the same thing from
+  web/src/lib/links.ts -- see docs/brand.md.
+
+  The developer link opens in a new tab: it leaves the documentation for another
+  site, and a reader mid-page should not lose their place.
+-#}
+<div class="md-copyright zoomies-footer">
+  <div class="zoomies-footer__brand">
+    <img src="{{ 'brand/paw-swish-white.png' | url }}" alt="" width="28" height="28" loading="lazy" />
+    <span class="zoomies-footer__name">{{ config.site_name }}</span>
+    <span class="zoomies-footer__descriptor">Self-hosted Git runners</span>
+  </div>
+  <nav aria-label="Footer links">
+    <ul class="zoomies-footer__links">
+      <li><a href="{{ 'quickstart/' | url }}">Quick start</a></li>
+      <li><a href="{{ 'architecture/' | url }}">Architecture</a></li>
+      <li><a href="{{ 'configuration/' | url }}">Configuration</a></li>
+      <li><a href="{{ 'security/' | url }}">Security</a></li>
+      <li><a href="{{ 'api-surface/' | url }}">API</a></li>
+      <li><a href="{{ 'faq/' | url }}">FAQ</a></li>
+      <li><a href="{{ config.repo_url }}" target="_blank" rel="noopener">Source</a></li>
+    </ul>
+  </nav>
+  <div class="zoomies-footer__legal">
+    {% if config.copyright %}
+      <span class="md-copyright__highlight">{{ config.copyright }}</span>
+    {% endif %}
+    {% if config.extra.developer %}
+      <span class="zoomies-footer__credit">
+        Developed by
+        <a href="{{ config.extra.developer.url }}" target="_blank" rel="noopener noreferrer">{{ config.extra.developer.name }}</a>
+      </span>
+    {% endif %}
+    {% if not config.extra.generator == false %}
+      <span>
+        Made with
+        <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">Material for MkDocs</a>
+      </span>
+    {% endif %}
+  </div>
+</div>

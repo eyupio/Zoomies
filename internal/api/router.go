@@ -137,6 +137,7 @@ func (s *Server) apiRoutes() chi.Router {
 			r.With(s.require(auth.ActionPoolsDelete)).Delete("/{id}", s.handleDeletePool)
 			r.With(s.require(auth.ActionPoolsWrite)).Post("/{id}/enable", s.handleEnablePool)
 			r.With(s.require(auth.ActionPoolsWrite)).Post("/{id}/disable", s.handleDisablePool)
+			r.With(s.require(auth.ActionPoolsWrite)).Post("/{id}/prewarm", s.handlePrewarmPool)
 		})
 
 		// Runners.
@@ -172,6 +173,7 @@ func (s *Server) apiRoutes() chi.Router {
 		})
 		r.Route("/join-tokens", func(r chi.Router) {
 			r.With(s.require(auth.ActionJoinsRead)).Get("/", s.handleListJoinTokens)
+			r.With(s.require(auth.ActionJoinsRead)).Get("/{id}", s.handleGetJoinToken)
 			r.With(s.require(auth.ActionJoinsWrite)).Post("/", s.handleCreateJoinToken)
 			r.With(s.require(auth.ActionJoinsWrite)).Delete("/{id}", s.handleDeleteJoinToken)
 		})

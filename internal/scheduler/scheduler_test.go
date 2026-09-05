@@ -234,7 +234,7 @@ func TestScaleUpRespectsMaxCreatesPerTick(t *testing.T) {
 	if pp.Desired != 5 {
 		t.Fatalf("desired = %d, want 5: the cap limits this tick, not the target", pp.Desired)
 	}
-	if want := "scaled linux-x64 0 -> 2: 5 jobs queued"; pp.Reason != want {
+	if want := "cannot scale linux-x64 2 -> 5: this tick's global limit of 2 new runners is exhausted; the next pass will continue"; pp.Reason != want {
 		t.Fatalf("reason = %q, want %q", pp.Reason, want)
 	}
 }
@@ -651,7 +651,7 @@ func TestCreatesSpreadOverHostsAndRespectCapacity(t *testing.T) {
 	if want := []string{"host_a", "host_a", "host_b"}; !slices.Equal(got, want) {
 		t.Fatalf("placed on %v, want %v", got, want)
 	}
-	if want := "scaled linux-x64 0 -> 3: 5 jobs queued"; pp.Reason != want {
+	if want := "cannot scale linux-x64 3 -> 5: no host can take a new docker runner (2 at capacity); wait for a job to finish, raise a host's capacity, or add a host"; pp.Reason != want {
 		t.Fatalf("reason = %q, want %q: the sentence reports what was actually started", pp.Reason, want)
 	}
 }

@@ -219,6 +219,7 @@ type RunnerView struct {
 	Ephemeral      bool              `json:"ephemeral"`
 	Labels         []string          `json:"labels"`
 	Image          string            `json:"image,omitempty"`
+	ImageDigest    string            `json:"image_digest,omitempty"`
 	RunnerVersion  string            `json:"runner_version,omitempty"`
 	CurrentJobID   string            `json:"current_job_id,omitempty"`
 	CurrentJob     *JobView          `json:"current_job,omitempty"`
@@ -289,6 +290,7 @@ func (v *RunnerRenderer) View(r *store.Runner) RunnerView {
 		Ephemeral:      r.Ephemeral,
 		Labels:         emptySlice(r.Labels),
 		Image:          r.Image,
+		ImageDigest:    r.ImageDigest,
 		RunnerVersion:  r.RunnerVersion,
 		CurrentJobID:   r.CurrentJobID,
 		Message:        r.Message,
@@ -354,6 +356,7 @@ type PoolView struct {
 	RunnerGroup        string            `json:"runner_group,omitempty"`
 	Backend            store.BackendKind `json:"backend"`
 	Image              string            `json:"image"`
+	PullPolicy         store.PullPolicy  `json:"pull_policy"`
 	RunnerVersion      string            `json:"runner_version,omitempty"`
 	MinRunners         int               `json:"min_runners"`
 	MaxRunners         int               `json:"max_runners"`
@@ -431,6 +434,7 @@ func (v *PoolRenderer) View(p *store.Pool) PoolView {
 		RunnerGroup:        p.RunnerGroup,
 		Backend:            p.Backend,
 		Image:              p.Image,
+		PullPolicy:         p.PullPolicy,
 		RunnerVersion:      p.RunnerVersion,
 		MinRunners:         p.MinRunners,
 		MaxRunners:         p.MaxRunners,

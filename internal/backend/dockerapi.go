@@ -529,6 +529,23 @@ func (c *APIClient) ImageInspect(ctx context.Context, ref string) (bool, error) 
 	}
 }
 
+// ImageDigest returns the daemon's immutable content digest for ref.
+func (c *APIClient) ImageDigest(ctx context.Context, ref string) (string, error) {
+	var out struct {
+		ID          string   `json:"Id"`
+		RepoDigests []string `json:"RepoDigests"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/images/"+ref+"/json", nil, nil, &out); err != nil {
+		return "", err
+	}
+	if len(out.RepoDigests) > 0 {
+		if i := strings.LastIndex(out.RepoDigests[0], "@"); i >= 0 {
+			return out.RepoDigests[0][i+1:], nil
+		}
+	}
+	return out.ID, nil
+}
+
 // ContainerCreate creates a container and returns its ID.
 func (c *APIClient) ContainerCreate(ctx context.Context, name string, cfg ContainerCreateRequest) (string, error) {
 	q := url.Values{}

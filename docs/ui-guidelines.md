@@ -236,9 +236,11 @@ fixed, because muscle memory is the point:
 9. **Settings** — users, tokens, appearance, danger zone
 
 The navigation is headed by the mark, the wordmark and the descriptor, and every
-page ends in a hairline footer carrying the mark, the name and the running
-version — so a signed-in screenshot says which product and which build it came
-from without anyone having to open Settings. On a phone the navigation moves to
+page ends in a hairline footer carrying the mark, the name, the running version,
+a link to the docs and the credit *Developed by EyUp.io* — so a signed-in
+screenshot says which product and which build it came from, and who makes it,
+without anyone having to open Settings. The credit opens in a new tab: it is the
+one link in the shell that leaves the product. On a phone the navigation moves to
 the bottom edge and loses its masthead, so the mark appears in the top bar
 instead.
 
@@ -356,6 +358,12 @@ reconnect the client sends `Last-Event-ID` and the server replays what it
 buffered, then the page does one reconciling fetch. The connection state is
 visible in the top bar: a quiet dot when live, an explicit "reconnecting…" when
 not — never a silent stall.
+
+The one page that asks rather than listens is *Add a host*: while it waits for
+the new machine it fetches its own join token every few seconds, because
+credentials are deliberately not on the stream. Even there the stream is the
+fast path — a host's first frame is the cue to ask at once — and the page says
+in words that it is waiting and how.
 
 ### Optimistic updates
 
