@@ -41,7 +41,10 @@ test('Ctrl+K opens it, Escape closes it and gives focus back', async ({ page }) 
 
   await page.keyboard.press('Escape');
   await expect(palette(page)).toBeHidden();
-  expect(await isFocused(opener), 'focus returns to whatever opened the palette').toBe(true);
+  // The trap hands focus back a frame after the palette has gone, so this waits
+  // for it rather than sampling once: a single look on a slow runner can land
+  // between the two.
+  await expect(opener, 'focus returns to whatever opened the palette').toBeFocused();
 });
 
 test('typing a page name and pressing Enter goes there', async ({ page }) => {

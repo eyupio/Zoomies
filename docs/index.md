@@ -42,6 +42,8 @@ curl -fsSL https://zoomies.sh/install.sh | sh
   <li>Self-hosted</li>
   <li>Single Go binary</li>
   <li>No Kubernetes</li>
+  <li>Docker</li>
+  <li>Docker Compose</li>
 </ul>
 
 </div>

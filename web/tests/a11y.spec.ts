@@ -199,5 +199,7 @@ test('a dialog keeps focus, closes on Escape and hands focus back', async ({ pag
 
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
-  expect(await isFocused(trigger), 'focus returns to what opened the dialog').toBe(true);
+  // Focus comes back a frame after the dialog has gone, so wait for it rather
+  // than sampling once.
+  await expect(trigger, 'focus returns to what opened the dialog').toBeFocused();
 });

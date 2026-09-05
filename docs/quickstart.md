@@ -210,6 +210,10 @@ with `zoomies hosts join-token create`.
 Join tokens are single-use and short-lived. The agent connects outbound only, so
 the new host needs no inbound firewall rule.
 
+[Hosts and pools](hosts-and-pools.md) takes it from here: what a host brings with
+it, cordoning one for maintenance, when a second pool is worth having, and the
+rules that decide which host a runner lands on.
+
 ## Unattended installs
 
 Every prompt has a flag, and there is an answer file for the rest:
@@ -338,6 +342,7 @@ page.
 
 ## Next
 
+- [Hosts and pools](hosts-and-pools.md) — a second machine, a second pool, and how placement is decided
 - [Configuration](configuration.md) — every setting, including running behind Cloudflare
 - [Security](security.md) — the threat model, and what each dangerous toggle costs
 - [Architecture](architecture.md) — how the pieces fit

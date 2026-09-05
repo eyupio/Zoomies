@@ -112,7 +112,10 @@ In detail:
    jobs, hosts, and the tunables -- and returns a `Plan`. It is a pure function:
    no clock reads, no database, no network. That is what makes the scaling
    behaviour testable, and it is where every scaling decision's *reason string*
-   comes from.
+   comes from. Which host each new runner is placed on is decided here too --
+   healthy, uncordoned, offering the pool's backend, matching its host selector,
+   with room left -- and [Hosts and pools](hosts-and-pools.md) is that rule in
+   operator terms.
 5. For each `create` action the controller picks the installation, asks GitHub
    for a JIT configuration, writes a `runners` row in `provisioning`, and queues
    a task for the chosen host's agent. A JIT configuration registers exactly one

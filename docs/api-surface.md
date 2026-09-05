@@ -91,6 +91,7 @@ Conventions:
 | GET | `/api/v1/pools/{id}` | viewer | |
 | PATCH | `/api/v1/pools/{id}` | operator | |
 | DELETE | `/api/v1/pools/{id}` | operator | `?drain=true` (default) drains runners first; `?force=true` removes them immediately. The response says how many runners were affected. |
+| POST | `/api/v1/pools/{id}/prewarm` | operator | Queues an image pull on every host the pool could be placed on, so the first job does not pay for it. `202` with the per-host state. |
 | POST | `/api/v1/pools/{id}/enable` | operator | |
 | POST | `/api/v1/pools/{id}/disable` | operator | Existing runners drain; no new ones are made. |
 
@@ -279,7 +280,7 @@ The CLI is a client of this API and nothing more. Every command below is one or
 two calls to a route above.
 
 ```
-zoomies pools list | get | create | edit | delete | enable | disable
+zoomies pools list | get | create | edit | delete | enable | disable | prewarm
 zoomies runners list | get | drain | delete | logs
 zoomies jobs list | get
 zoomies hosts list | cordon | uncordon | delete
