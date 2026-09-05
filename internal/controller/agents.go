@@ -771,7 +771,7 @@ func (c *Controller) markHostSeen(id string, force bool) bool {
 }
 
 func (c *Controller) heartbeatInterval() time.Duration {
-	if d := c.cfg.Agent.HeartbeatInterval; d > 0 {
+	if d := c.cfg().Agent.HeartbeatInterval; d > 0 {
 		return d
 	}
 	return 30 * time.Second
@@ -902,7 +902,7 @@ func (t *embeddedTransport) Describe() string { return "embedded controller" }
 // their own controller would be ceremony without a threat model behind it.
 func (c *Controller) StartEmbeddedAgent(ctx context.Context, cfg *config.Config) error {
 	if cfg == nil {
-		cfg = c.cfg
+		cfg = c.cfg()
 	}
 	if c.backends == nil || len(c.backends.Kinds()) == 0 {
 		return errors.New("controller: no runner backends are registered, so the embedded agent has no way to start runners; " +

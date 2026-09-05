@@ -193,7 +193,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 // loopback origin is left alone, because browsers treat localhost as a secure
 // context and do keep the cookie there.
 func (s *Server) cookieWouldBeDropped(r *http.Request) string {
-	if !s.cfg.CookieSecureValue() {
+	if !s.cfg().CookieSecureValue() {
 		return ""
 	}
 	from := strings.TrimSpace(r.Header.Get("Origin"))
@@ -211,7 +211,7 @@ func (s *Server) cookieWouldBeDropped(r *http.Request) string {
 	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
 		return ""
 	}
-	where := s.cfg.Server.ExternalURL
+	where := s.cfg().Server.ExternalURL
 	if where == "" {
 		where = "the https address"
 	}
@@ -321,7 +321,7 @@ func (s *Server) handleOIDCStart(w http.ResponseWriter, r *http.Request) {
 		Value:    state,
 		Path:     oidcCookiePath,
 		HttpOnly: true,
-		Secure:   s.cfg.CookieSecureValue(),
+		Secure:   s.cfg().CookieSecureValue(),
 		// Lax, because the provider brings the browser back with a top-level
 		// GET, which is exactly the navigation Lax still sends cookies on.
 		SameSite: http.SameSiteLaxMode,
@@ -337,7 +337,7 @@ func (s *Server) clearOIDCStateCookie(w http.ResponseWriter) {
 		Value:    "",
 		Path:     oidcCookiePath,
 		HttpOnly: true,
-		Secure:   s.cfg.CookieSecureValue(),
+		Secure:   s.cfg().CookieSecureValue(),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 		Expires:  time.Unix(0, 0),

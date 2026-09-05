@@ -58,7 +58,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	// whether or not anything has gone wrong yet. ForUI drops the handful that
 	// only the CLI says, because they are expected in a normal deployment and
 	// a list that is never clear stops being read.
-	for _, f := range c.cfg.Validate().ForUI() {
+	for _, f := range c.cfg().Validate().ForUI() {
 		if f.Severity != config.SeverityError && f.Severity != config.SeverityWarning {
 			continue
 		}
@@ -253,7 +253,7 @@ func (c *Controller) webhookProblems(ctx context.Context, out *[]Problem) error 
 				"instead of within a second of them being queued.", c.pollInterval()),
 			Fix: fmt.Sprintf("point the App's webhook at %s and check that GitHub can reach it.", c.webhookURLOrPath()),
 		}
-		if !c.cfg.GitHub.PollFallback {
+		if !c.cfg().GitHub.PollFallback {
 			// With no webhooks and no poller, nothing will ever start a runner.
 			p.Severity = config.SeverityError
 			p.Title = "no webhook has ever arrived and the fallback poller is off, so nothing is scaling"
@@ -268,7 +268,7 @@ func (c *Controller) webhookProblems(ctx context.Context, out *[]Problem) error 
 // controllerAddress is how an agent reaches this controller, phrased for a
 // message even when the external URL has not been set.
 func (c *Controller) controllerAddress() string {
-	if u := c.cfg.Server.ExternalURL; u != "" {
+	if u := c.cfg().Server.ExternalURL; u != "" {
 		return u
 	}
 	return "this controller (server.external_url is not set, so Zoomies cannot name the address)"
@@ -278,10 +278,10 @@ func (c *Controller) controllerAddress() string {
 // the external URL has not been configured -- which is itself one of the
 // findings above, so the fix stays actionable either way.
 func (c *Controller) webhookURLOrPath() string {
-	if u := c.cfg.WebhookURL(); u != "" {
+	if u := c.cfg().WebhookURL(); u != "" {
 		return u
 	}
-	return c.cfg.GitHub.WebhookPath + " (set server.external_url so Zoomies can tell you the full URL)"
+	return c.cfg().GitHub.WebhookPath + " (set server.external_url so Zoomies can tell you the full URL)"
 }
 
 // PoolCapacityProblems reports the pools the scheduler wanted to grow and could

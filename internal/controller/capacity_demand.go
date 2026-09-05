@@ -40,7 +40,7 @@ type CapacityDemandEvent struct {
 }
 
 func (c *Controller) publishCapacitySignals(ctx context.Context, snap scheduler.Snapshot, plan scheduler.Plan) {
-	if c.cfg.CapacityDemand.DestinationURL == "" {
+	if c.cfg().CapacityDemand.DestinationURL == "" {
 		return
 	}
 	pools := make(map[string]*store.Pool, len(snap.Pools))
@@ -74,7 +74,7 @@ func (c *Controller) publishCapacitySignals(ctx context.Context, snap scheduler.
 }
 
 func (c *Controller) capacityPoolAllowed(p *store.Pool) bool {
-	a := c.cfg.CapacityDemand.Pools
+	a := c.cfg().CapacityDemand.Pools
 	return len(a) == 0 || slices.Contains(a, p.ID) || slices.Contains(a, p.Name)
 }
 
@@ -117,10 +117,10 @@ func (c *Controller) deliverCapacityEvent(ctx context.Context, p *store.Pool, ca
 		// Attempt time, rather than only success time, is the durable circuit
 		// breaker which prevents an unavailable receiver (and controller
 		// restarts) from turning every reconciliation tick into a request storm.
-		if previous.AttemptedAt != nil && now.Sub(*previous.AttemptedAt) < c.cfg.CapacityDemand.Cooldown {
+		if previous.AttemptedAt != nil && now.Sub(*previous.AttemptedAt) < c.cfg().CapacityDemand.Cooldown {
 			return
 		}
-		if sustained && previous.AttemptedAt == nil && now.Sub(previous.ObservedSince) < c.cfg.CapacityDemand.Cooldown {
+		if sustained && previous.AttemptedAt == nil && now.Sub(previous.ObservedSince) < c.cfg().CapacityDemand.Cooldown {
 			return
 		}
 	} else if err == store.ErrNotFound {
@@ -156,14 +156,14 @@ func (c *Controller) deliverCapacityEvent(ctx context.Context, p *store.Pool, ca
 }
 
 func (c *Controller) postCapacityEvent(ctx context.Context, body []byte, e CapacityDemandEvent) (int, int, error) {
-	mac := hmac.New(sha256.New, []byte(c.cfg.CapacityDemand.SigningSecret))
+	mac := hmac.New(sha256.New, []byte(c.cfg().CapacityDemand.SigningSecret))
 	mac.Write(body)
 	signature := "sha256=" + hex.EncodeToString(mac.Sum(nil))
 	var last error
 	status := 0
 	for attempt := 1; attempt <= 3; attempt++ {
-		reqCtx, cancel := context.WithTimeout(ctx, c.cfg.CapacityDemand.Timeout)
-		req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, c.cfg.CapacityDemand.DestinationURL, bytes.NewReader(body))
+		reqCtx, cancel := context.WithTimeout(ctx, c.cfg().CapacityDemand.Timeout)
+		req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, c.cfg().CapacityDemand.DestinationURL, bytes.NewReader(body))
 		if err == nil {
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("X-Zoomies-Event-ID", e.EventID)

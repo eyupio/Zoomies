@@ -118,7 +118,7 @@ func (c *Controller) sample(ctx context.Context) error {
 // function.
 func (c *Controller) prune(ctx context.Context) {
 	now := c.Now()
-	r := c.cfg.Retention
+	r := c.cfg().Retention
 
 	type job struct {
 		what   string

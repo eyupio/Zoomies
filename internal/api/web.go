@@ -235,7 +235,7 @@ var uiRoutes = []string{
 // believed for the scheme only, which at worst produces an http:// URL for an
 // https:// site in a sitemap nobody is obliged to trust.
 func (s *Server) requestOrigin(r *http.Request) string {
-	if u := strings.TrimRight(strings.TrimSpace(s.cfg.Server.ExternalURL), "/"); u != "" {
+	if u := strings.TrimRight(strings.TrimSpace(s.cfg().Server.ExternalURL), "/"); u != "" {
 		return u
 	}
 	scheme := "http"
@@ -266,7 +266,7 @@ func (s *Server) requestOrigin(r *http.Request) string {
 func (s *Server) handleRobots(w http.ResponseWriter, r *http.Request) {
 	var b strings.Builder
 	b.WriteString("# This is a Zoomies controller: https://zoomies.sh\n")
-	if !s.cfg.Server.AllowIndexing {
+	if !s.cfg().Server.AllowIndexing {
 		b.WriteString("# It is an operator interface rather than public content, so crawling is\n")
 		b.WriteString("# declined. Set server.allow_indexing to invite it.\n")
 		b.WriteString("User-agent: *\nDisallow: /\n")
@@ -274,7 +274,7 @@ func (s *Server) handleRobots(w http.ResponseWriter, r *http.Request) {
 		b.WriteString("# server.allow_indexing is on, so the UI's own pages may be crawled. The\n")
 		b.WriteString("# API answers machines, not readers, and is left out.\n")
 		b.WriteString("User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /metrics\nDisallow: ")
-		b.WriteString(s.cfg.GitHub.WebhookPath)
+		b.WriteString(s.cfg().GitHub.WebhookPath)
 		b.WriteString("\n")
 		if origin := s.requestOrigin(r); origin != "" {
 			b.WriteString("\nSitemap: " + origin + "/sitemap.xml\n")

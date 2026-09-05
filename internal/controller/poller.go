@@ -23,7 +23,7 @@ const rateLimitBackoff = 15 * time.Minute
 // otherwise stop scaling silently, and a fleet that has quietly stopped
 // scaling looks exactly like a quiet fleet.
 func (c *Controller) pollLoop(ctx context.Context) {
-	if !c.cfg.GitHub.PollFallback {
+	if !c.cfg().GitHub.PollFallback {
 		c.log.Info("the fallback poller is off; scaling depends entirely on webhooks reaching this controller")
 		return
 	}
@@ -36,12 +36,21 @@ func (c *Controller) pollLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			c.pollOnce(ctx)
+			c.polls.Add(1)
+		case <-c.settingsChanged:
+			// github.poll_interval is a runtime setting. The timer was built
+			// from the old value, so it is rebuilt here rather than left to
+			// fire once more on the old interval.
+		}
+		if d := c.pollInterval(); d != interval {
+			interval = d
+			ticker.Reset(d)
 		}
 	}
 }
 
 func (c *Controller) pollInterval() time.Duration {
-	if d := c.cfg.GitHub.PollInterval; d > 0 {
+	if d := c.cfg().GitHub.PollInterval; d > 0 {
 		return d
 	}
 	return 30 * time.Second

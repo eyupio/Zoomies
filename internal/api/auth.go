@@ -249,7 +249,7 @@ func (s *Server) originAllowed(origin string) bool {
 	if origin == "" {
 		return false
 	}
-	for _, allowed := range s.cfg.Server.AllowedOrigins {
+	for _, allowed := range s.cfg().Server.AllowedOrigins {
 		if strings.EqualFold(strings.TrimRight(strings.TrimSpace(allowed), "/"), strings.TrimRight(origin, "/")) {
 			return true
 		}
@@ -257,7 +257,7 @@ func (s *Server) originAllowed(origin string) bool {
 			return true
 		}
 	}
-	if ext := s.cfg.Server.ExternalURL; ext != "" {
+	if ext := s.cfg().Server.ExternalURL; ext != "" {
 		if u, err := url.Parse(ext); err == nil && sameOrigin(u, origin) {
 			return true
 		}
@@ -315,7 +315,7 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, token string) {
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   s.cfg.CookieSecureValue(),
+		Secure:   s.cfg().CookieSecureValue(),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(s.auth.SessionTTL() / time.Second),
 	})
@@ -329,7 +329,7 @@ func (s *Server) clearSessionCookie(w http.ResponseWriter) {
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   s.cfg.CookieSecureValue(),
+		Secure:   s.cfg().CookieSecureValue(),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 		Expires:  time.Unix(0, 0),

@@ -46,14 +46,14 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 		Version:           version.Short(),
 		Commit:            version.Commit,
 		BootstrapRequired: needsBootstrap,
-		AuthDisabled:      s.cfg.Security.DisableAuth,
+		AuthDisabled:      s.cfg().Security.DisableAuth,
 		OIDCEnabled:       s.oidc.Enabled(),
-		ExternalURL:       s.cfg.Server.ExternalURL,
-		WebhookURL:        s.cfg.WebhookURL(),
+		ExternalURL:       s.cfg().Server.ExternalURL,
+		WebhookURL:        s.cfg().WebhookURL(),
 		PollingOnly:       s.ctrl.PollingOnly(),
 	}
 	if out.OIDCEnabled {
-		out.OIDCLabel = oidcLabel(s.cfg.OIDC.Issuer)
+		out.OIDCLabel = oidcLabel(s.cfg().OIDC.Issuer)
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -164,7 +164,7 @@ func (s *Server) metricsHandler() http.Handler {
 		ErrorHandling:     promhttp.ContinueOnError,
 		EnableOpenMetrics: true,
 	})
-	if s.cfg.Metrics.Public {
+	if s.cfg().Metrics.Public {
 		return h
 	}
 	return s.authenticate(s.require(auth.ActionMetricsRead)(h))

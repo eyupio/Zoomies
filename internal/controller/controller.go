@@ -69,12 +69,22 @@ type Options struct {
 	Clock func() time.Time
 	// HTTPClient delivers capacity-demand events. Tests may inject a transport.
 	HTTPClient *http.Client
+	// LogLevel is the gate the process logger is filtered at, when the caller
+	// built one that can move. UpdateConfig sets it from log.level, so that a
+	// level changed through PATCH /settings or SIGHUP is the level the process
+	// actually logs at, not merely the one the settings page shows.
+	LogLevel *slog.LevelVar
 }
 
 // Controller owns the control plane's moving parts and their lifecycles.
 type Controller struct {
-	st         *store.Store
-	cfg        *config.Config
+	st *store.Store
+	// live is the configuration as this process currently sees it. It is a
+	// snapshot behind an atomic pointer rather than a struct shared by
+	// reference, because PATCH /settings changes it while every loop in here
+	// is reading it; see config.Live. Read it through cfg().
+	live       *config.Live
+	logLevel   *slog.LevelVar
 	key        *cryptox.Key
 	authsvc    *auth.Service
 	bus        *events.Bus
@@ -98,6 +108,13 @@ type Controller struct {
 	reconcileMu sync.Mutex
 	// passes counts completed reconciles; tests assert on coalescing with it.
 	passes atomic.Uint64
+	// polls counts completed poller sweeps, for the same reason.
+	polls atomic.Uint64
+	// settingsChanged wakes the loops whose timers are built from the
+	// configuration, so that a new interval is in force from the moment it is
+	// accepted rather than from the next restart. Capacity 1, like nudges: it
+	// is a flag, and the loop re-reads every tunable when it wakes.
+	settingsChanged chan struct{}
 
 	// pollingOnly records that no webhook has ever arrived, which the Overview
 	// says out loud because a fleet scaling on the poller looks healthy until
@@ -178,19 +195,21 @@ func New(opts Options) (*Controller, error) {
 	}
 
 	c := &Controller{
-		st:          opts.Store,
-		cfg:         opts.Config,
-		key:         opts.Key,
-		authsvc:     authsvc,
-		bus:         bus,
-		factory:     factory,
-		backends:    opts.Backends,
-		log:         log,
-		clock:       clock,
-		httpClient:  opts.HTTPClient,
-		nudges:      make(chan struct{}, 1),
-		hostHealthy: map[string]bool{},
-		resynced:    map[string]bool{},
+		st:              opts.Store,
+		live:            config.NewLive(opts.Config),
+		logLevel:        opts.LogLevel,
+		key:             opts.Key,
+		authsvc:         authsvc,
+		bus:             bus,
+		factory:         factory,
+		backends:        opts.Backends,
+		log:             log,
+		clock:           clock,
+		httpClient:      opts.HTTPClient,
+		nudges:          make(chan struct{}, 1),
+		settingsChanged: make(chan struct{}, 1),
+		hostHealthy:     map[string]bool{},
+		resynced:        map[string]bool{},
 	}
 	if c.httpClient == nil {
 		c.httpClient = &http.Client{}
@@ -237,8 +256,8 @@ func (c *Controller) Start(ctx context.Context) error {
 
 	c.log.Info("controller started",
 		"interval", c.schedulerInterval(),
-		"webhook_path", c.cfg.GitHub.WebhookPath,
-		"poll_fallback", c.cfg.GitHub.PollFallback,
+		"webhook_path", c.cfg().GitHub.WebhookPath,
+		"poll_fallback", c.cfg().GitHub.PollFallback,
 		"version", version.Short())
 	return nil
 }
@@ -304,8 +323,38 @@ func (c *Controller) Stop(ctx context.Context) error {
 // Store returns the database handle the API reads through.
 func (c *Controller) Store() *store.Store { return c.st }
 
-// Config returns the configuration this controller was built with.
-func (c *Controller) Config() *config.Config { return c.cfg }
+// Config returns the configuration as it currently stands: what the controller
+// was built with, as changed since by UpdateConfig. It is a snapshot and must
+// not be written through; the next UpdateConfig would silently discard the
+// write, and until then every loop would be reading it unsynchronised.
+func (c *Controller) Config() *config.Config { return c.live.Load() }
+
+// cfg is Config for the controller's own code, kept short because it is read
+// on every pass.
+func (c *Controller) cfg() *config.Config { return c.live.Load() }
+
+// UpdateConfig changes the running configuration.
+//
+// fn is applied to a copy of the current snapshot, which then replaces it, so
+// a loop in the middle of a pass finishes on the values it started with and
+// the next pass sees the new ones. Anything built once from the configuration
+// -- the log level's gate, the scheduler's and poller's timers -- is retuned
+// here, which is what lets PATCH /settings promise that an accepted change is
+// in effect and not merely recorded.
+func (c *Controller) UpdateConfig(fn func(*config.Config)) *config.Config {
+	before, after := c.live.Update(fn)
+	if c.logLevel != nil && before.Log.Level != after.Log.Level {
+		c.logLevel.Set(config.ParseLogLevel(after.Log.Level))
+	}
+	select {
+	case c.settingsChanged <- struct{}{}:
+	default:
+	}
+	// The scheduler tunables change what the next pass decides, and a new
+	// interval takes effect once a pass has run and reset the timer.
+	c.Nudge()
+	return after
+}
 
 // Auth returns the authentication and audit service.
 func (c *Controller) Auth() *auth.Service { return c.authsvc }
@@ -338,7 +387,7 @@ func (c *Controller) PollingOnly() bool { return c.pollingOnly.Load() }
 // schedulerInterval is the reconcile period, with a floor so that a
 // misconfigured zero does not spin the loop.
 func (c *Controller) schedulerInterval() time.Duration {
-	if d := c.cfg.Scheduler.Interval; d > 0 {
+	if d := c.cfg().Scheduler.Interval; d > 0 {
 		return d
 	}
 	return 10 * time.Second
@@ -347,10 +396,10 @@ func (c *Controller) schedulerInterval() time.Duration {
 // policy converts the configured tunables into the scheduler's Policy.
 func (c *Controller) policy() scheduler.Policy {
 	return scheduler.Policy{
-		ScaleUpDelay:      c.cfg.Scheduler.ScaleUpDelay,
-		MaxRunnerLifetime: c.cfg.Scheduler.MaxRunnerLifetime,
-		ProvisionTimeout:  c.cfg.Scheduler.ProvisionTimeout,
-		MaxCreatesPerTick: c.cfg.Scheduler.MaxCreatesPerTick,
+		ScaleUpDelay:      c.cfg().Scheduler.ScaleUpDelay,
+		MaxRunnerLifetime: c.cfg().Scheduler.MaxRunnerLifetime,
+		ProvisionTimeout:  c.cfg().Scheduler.ProvisionTimeout,
+		MaxCreatesPerTick: c.cfg().Scheduler.MaxCreatesPerTick,
 	}
 }
 

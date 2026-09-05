@@ -107,7 +107,7 @@ func (s *Server) handleCreateInstallation(w http.ResponseWriter, r *http.Request
 		}
 	}
 	if apiBase == "" {
-		apiBase = s.cfg.GitHub.APIBaseURL
+		apiBase = s.cfg().GitHub.APIBaseURL
 	}
 
 	var fields []fieldError
@@ -636,7 +636,7 @@ func (s *Server) handleCreateManifest(w http.ResponseWriter, r *http.Request) {
 	if !targetType.Valid() {
 		fields = append(fields, fieldError{"target_type", fmt.Sprintf("%q is not a target type; use org or repo", targetType)})
 	}
-	if s.cfg.Server.ExternalURL == "" {
+	if s.cfg().Server.ExternalURL == "" {
 		fields = append(fields, fieldError{"target", "server.external_url is not set, so Zoomies cannot tell GitHub where to deliver webhooks; set it and restart before creating the App"})
 	}
 	if len(fields) > 0 {
@@ -646,7 +646,7 @@ func (s *Server) handleCreateManifest(w http.ResponseWriter, r *http.Request) {
 
 	apiBase := strings.TrimSpace(req.APIBaseURL)
 	if apiBase == "" {
-		apiBase = s.cfg.GitHub.APIBaseURL
+		apiBase = s.cfg().GitHub.APIBaseURL
 	}
 	normalised, err := github.NormalizeAPIBaseURL(apiBase)
 	if err != nil {
@@ -665,10 +665,10 @@ func (s *Server) handleCreateManifest(w http.ResponseWriter, r *http.Request) {
 
 	manifest, err := github.Manifest(github.ManifestOptions{
 		Name:         name,
-		URL:          s.cfg.Server.ExternalURL,
-		WebhookURL:   s.cfg.WebhookURL(),
+		URL:          s.cfg().Server.ExternalURL,
+		WebhookURL:   s.cfg().WebhookURL(),
 		Organization: org,
-		SetupURL:     s.cfg.Server.ExternalURL + "/settings/github/setup",
+		SetupURL:     s.cfg().Server.ExternalURL + "/settings/github/setup",
 	})
 	if err != nil {
 		unprocessable(w, err.Error(), []fieldError{{"name", err.Error()}})
@@ -757,7 +757,7 @@ func (s *Server) handleExchangeManifest(w http.ResponseWriter, r *http.Request) 
 		apiBase = pending.apiBaseURL
 	}
 	if apiBase == "" {
-		apiBase = s.cfg.GitHub.APIBaseURL
+		apiBase = s.cfg().GitHub.APIBaseURL
 	}
 
 	creds, err := github.ExchangeManifestCode(r.Context(), apiBase, req.Code)
@@ -873,8 +873,8 @@ const webhookProbeTimeout = 5 * time.Second
 // reach it -- and the message says so rather than overclaiming.
 func (s *Server) handleWebhookTest(w http.ResponseWriter, r *http.Request) {
 	out := webhookCheckResponse{
-		URL:              s.cfg.WebhookURL(),
-		PollingAvailable: s.cfg.GitHub.PollFallback,
+		URL:              s.cfg().WebhookURL(),
+		PollingAvailable: s.cfg().GitHub.PollFallback,
 	}
 	last, err := s.ctrl.Store().LastDeliveryAt(r.Context())
 	if err != nil {
@@ -884,7 +884,7 @@ func (s *Server) handleWebhookTest(w http.ResponseWriter, r *http.Request) {
 	out.LastDeliveryAt = timePtr(last)
 
 	switch {
-	case s.cfg.Server.ExternalURL == "":
+	case s.cfg().Server.ExternalURL == "":
 		out.Message = "server.external_url is not set, so Zoomies cannot tell GitHub where to deliver webhooks and cannot test the address."
 		out.Fix = "set server.external_url to the address GitHub should reach this controller on, then restart."
 	case !last.IsZero():

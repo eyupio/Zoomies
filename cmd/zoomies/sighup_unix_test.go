@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/eyupio/zoomies/internal/config"
 )
 
 func TestSIGHUPRereadsTheLogLevel(t *testing.T) {
@@ -18,7 +20,12 @@ func TestSIGHUPRereadsTheLogLevel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	stop := watchSIGHUP(ctx, path, level, slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})))
+	apply := func(l string) string {
+		previous := level.Level().String()
+		level.Set(config.ParseLogLevel(l))
+		return previous
+	}
+	stop := watchSIGHUP(ctx, path, apply, slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})))
 	defer stop()
 
 	if err := syscall.Kill(syscall.Getpid(), syscall.SIGHUP); err != nil {

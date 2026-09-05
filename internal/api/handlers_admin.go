@@ -454,7 +454,7 @@ var restartRequiredKeys = sync.OnceValue(func() []string {
 // blanked so much as absent, except where their presence is itself the useful
 // fact -- whether an encryption key is configured, for instance.
 func (s *Server) settingsConfig() map[string]any {
-	c := s.cfg
+	c := s.cfg()
 	return map[string]any{
 		"server": map[string]any{
 			"bind":            c.Server.Bind,
@@ -543,15 +543,15 @@ func (s *Server) oidcRedirectURL() string {
 	if s.oidc.Enabled() {
 		return s.oidc.RedirectURL()
 	}
-	return s.cfg.OIDC.RedirectURL
+	return s.cfg().OIDC.RedirectURL
 }
 
 // handleGetSettings answers GET /api/v1/settings.
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, settingsResponse{
 		Config:              s.settingsConfig(),
-		Findings:            s.cfg.Validate().ForUI(),
-		ConfigPath:          s.cfg.Path(),
+		Findings:            s.cfg().Validate().ForUI(),
+		ConfigPath:          s.cfg().Path(),
 		RestartRequiredKeys: restartRequiredKeys(),
 		Version:             version.Short(),
 		DatabasePath:        s.ctrl.Store().Path(),
@@ -566,13 +566,13 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 // value at the next restart. config_path in the response names the file to
 // edit, and the refusal for everything else says so in as many words.
 //
-// The writes go into the configuration the controller's loops are reading, so
-// they are serialised here against each other. Each one is a single machine
-// word -- a duration, an int, a short string header -- which a concurrent
-// reader observes either before or after, never half-written, on the 64-bit
-// platforms Zoomies is built for. The alternative would be a lock inside
-// config.Config that every reader in the program has to remember to take, for a
-// setting an operator changes once a month.
+// "Takes effect" is meant literally. The controller keeps its configuration as
+// a snapshot it replaces whole (config.Live), so the loops reading it see
+// either the old settings or the new and never a half-written mix, and when
+// the snapshot changes it retunes what was built from the old one: the
+// scheduler's and poller's timers and the log level's gate. A setting accepted
+// here is in force by the time the response is written, which is the promise
+// the settings page makes.
 func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	var raw map[string]any
 	if !decode(w, r, &raw) {
@@ -581,15 +581,12 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	flat := map[string]any{}
 	flatten("", raw, flat)
 
-	s.settingsMu.Lock()
-	defer s.settingsMu.Unlock()
-
 	// Every key is checked before any is written. A request is one change:
 	// applying the keys that parsed and then answering 422 for the one that
 	// did not would leave the controller running settings the operator was
 	// told were refused, with no audit row to say so.
 	var fields []fieldError
-	staged := map[string]func() any{}
+	staged := map[string]func(*config.Config) any{}
 	for key, value := range flat {
 		if _, ok := runtimeWritable[key]; !ok {
 			if slices.Contains(restartRequiredKeys(), key) {
@@ -618,36 +615,33 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 
 	applied := map[string]any{}
 	before := map[string]any{}
-	for key, apply := range staged {
-		before[key], applied[key] = apply(), flat[key]
-	}
-	if len(applied) > 0 {
+	if len(staged) > 0 {
+		// One update for the whole request, so two keys sent together land
+		// in the same snapshot and a reader never sees one without the other.
+		s.ctrl.UpdateConfig(func(c *config.Config) {
+			for key, apply := range staged {
+				before[key], applied[key] = apply(c), flat[key]
+			}
+		})
 		s.auth.Auditor().Updated(r.Context(), Identity(r.Context()), "settings", "settings", before, applied)
-		// The scheduler tunables change what the next pass decides.
-		s.ctrl.Nudge()
 	}
 	s.handleGetSettings(w, r)
 }
 
 func (s *Server) configFileName() string {
-	if p := s.cfg.Path(); p != "" {
+	if p := s.cfg().Path(); p != "" {
 		return p
 	}
 	return "zoomies.yaml"
 }
 
 // stageSetting checks one setting and returns the function that writes it into
-// the live configuration, which returns what the value was. Checking and
-// writing are separate so that a request can be refused as a whole before any
-// part of it has taken effect.
-//
-// The loops that read these values do so on every pass, so a change is in
-// effect immediately -- with two exceptions worth knowing about: the scheduler
-// and poller tickers were built with their interval at startup, so a new
-// interval takes effect at the next restart, and the log level applies to
-// loggers built after it changes. Both are still accepted here because the
-// stored value is what the settings page shows and what a restart will use.
-func (s *Server) stageSetting(key string, value any) (func() any, error) {
+// a configuration snapshot, returning what the value was. Checking and writing
+// are separate so that a request can be refused as a whole before any part of
+// it has taken effect, and the write takes the snapshot as an argument because
+// the controller hands out a fresh copy to write into (config.Live) rather
+// than letting anything write the one its loops are reading.
+func (s *Server) stageSetting(key string, value any) (func(*config.Config) any, error) {
 	switch key {
 	case "log.level":
 		v, err := stringValue(value)
@@ -658,22 +652,22 @@ func (s *Server) stageSetting(key string, value any) (func() any, error) {
 		if !slices.Contains([]string{"debug", "info", "warn", "error"}, v) {
 			return nil, fmt.Errorf("%q is not a log level; use debug, info, warn or error", v)
 		}
-		return func() any {
-			prev := s.cfg.Log.Level
-			s.cfg.Log.Level = v
+		return func(c *config.Config) any {
+			prev := c.Log.Level
+			c.Log.Level = v
 			return prev
 		}, nil
 
 	case "github.poll_interval":
-		return stageDuration(value, &s.cfg.GitHub.PollInterval, time.Second)
+		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.GitHub.PollInterval }, time.Second)
 	case "scheduler.interval":
-		return stageDuration(value, &s.cfg.Scheduler.Interval, time.Second)
+		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Scheduler.Interval }, time.Second)
 	case "scheduler.scale_up_delay":
-		return stageDuration(value, &s.cfg.Scheduler.ScaleUpDelay, 0)
+		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Scheduler.ScaleUpDelay }, 0)
 	case "scheduler.max_runner_lifetime":
-		return stageDuration(value, &s.cfg.Scheduler.MaxRunnerLifetime, 0)
+		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Scheduler.MaxRunnerLifetime }, 0)
 	case "scheduler.provision_timeout":
-		return stageDuration(value, &s.cfg.Scheduler.ProvisionTimeout, 0)
+		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Scheduler.ProvisionTimeout }, 0)
 	case "scheduler.max_creates_per_tick":
 		n, err := intValue(value)
 		if err != nil {
@@ -682,30 +676,31 @@ func (s *Server) stageSetting(key string, value any) (func() any, error) {
 		if n < 0 {
 			return nil, errors.New("this cannot be negative; use 0 for no cap")
 		}
-		return func() any {
-			prev := s.cfg.Scheduler.MaxCreatesPerTick
-			s.cfg.Scheduler.MaxCreatesPerTick = n
+		return func(c *config.Config) any {
+			prev := c.Scheduler.MaxCreatesPerTick
+			c.Scheduler.MaxCreatesPerTick = n
 			return prev
 		}, nil
 
 	case "retention.jobs":
-		return stageDuration(value, &s.cfg.Retention.Jobs, 0)
+		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Retention.Jobs }, 0)
 	case "retention.runners":
-		return stageDuration(value, &s.cfg.Retention.Runners, 0)
+		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Retention.Runners }, 0)
 	case "retention.audit":
-		return stageDuration(value, &s.cfg.Retention.Audit, 0)
+		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Retention.Audit }, 0)
 	case "retention.samples":
-		return stageDuration(value, &s.cfg.Retention.Samples, 0)
+		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Retention.Samples }, 0)
 	case "retention.webhooks":
-		return stageDuration(value, &s.cfg.Retention.Webhooks, 0)
+		return stageDuration(value, func(c *config.Config) *time.Duration { return &c.Retention.Webhooks }, 0)
 	}
 	return nil, fmt.Errorf("%q is not a setting this API knows about", key)
 }
 
 // stageDuration parses a Go duration, refusing anything below minimum -- a
 // poll interval of one millisecond is a denial of service against GitHub, not
-// a configuration choice -- and returns the write.
-func stageDuration(value any, into *time.Duration, minimum time.Duration) (func() any, error) {
+// a configuration choice -- and returns the write. field picks the duration
+// out of whichever snapshot the write is given.
+func stageDuration(value any, field func(*config.Config) *time.Duration, minimum time.Duration) (func(*config.Config) any, error) {
 	raw, err := stringValue(value)
 	if err != nil {
 		return nil, err
@@ -720,7 +715,8 @@ func stageDuration(value any, into *time.Duration, minimum time.Duration) (func(
 	if minimum > 0 && d > 0 && d < minimum {
 		return nil, fmt.Errorf("%s is too short; the smallest useful value is %s", d, minimum)
 	}
-	return func() any {
+	return func(c *config.Config) any {
+		into := field(c)
 		prev := into.String()
 		*into = d
 		return prev

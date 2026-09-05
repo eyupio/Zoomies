@@ -97,7 +97,7 @@ type poolInput struct {
 func (s *Server) defaultPool() *store.Pool {
 	return &store.Pool{
 		Backend:     store.BackendDocker,
-		Image:       s.cfg.GitHub.RunnerImage,
+		Image:       s.cfg().GitHub.RunnerImage,
 		PullPolicy:  store.PullIfNotPresent,
 		MinRunners:  0,
 		MaxRunners:  4,
