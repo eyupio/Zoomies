@@ -21,9 +21,10 @@ description: >-
 ## What is Zoomies?
 
 Zoomies is a self-hosted GitHub Actions runner fleet controller. You point it at
-a GitHub organisation; it watches for queued jobs, starts a fresh runner
-container for each one, and destroys the runner when the job finishes. It is a
-single Go binary with SQLite for state and a web UI built in.
+a GitHub organisation, or at a repository on a personal account; it watches for
+queued jobs, starts a fresh runner container for each one, and destroys the
+runner when the job finishes. It is a single Go binary with SQLite for state and
+a web UI built in.
 
 ## Do I need Kubernetes?
 
@@ -126,6 +127,16 @@ Windows runners are not supported.
 Yes. Point `github.api_base_url` at your Enterprise Server instance; the App
 authentication, the JIT configurations and the webhooks are the same.
 
+## Do I need a GitHub organisation?
+
+No. When you connect GitHub, the target is either an organisation or a single
+repository written as `owner/name`. A repository target is how a personal
+account is used: the App is created on your own account and installed there,
+scoped to that repository, and its runners register at the repository level --
+GitHub offers no account-wide runners for personal accounts. Each repository you
+want to run jobs for is one installation and one pool, and the installer and
+the Connect GitHub dialog both offer the choice.
+
 ## How do I move my existing workflows onto it?
 
 The migration wizard rewrites `runs-on` across your repositories and opens one
@@ -164,7 +175,7 @@ modified or not, asks nothing of you. The full text is in
       "name": "What is Zoomies?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Zoomies is a self-hosted GitHub Actions runner fleet controller. You point it at a GitHub organisation; it watches for queued jobs, starts a fresh runner container for each one, and destroys the runner when the job finishes. It is a single Go binary with SQLite for state and a web UI built in."
+        "text": "Zoomies is a self-hosted GitHub Actions runner fleet controller. You point it at a GitHub organisation, or at a repository on a personal account; it watches for queued jobs, starts a fresh runner container for each one, and destroys the runner when the job finishes. It is a single Go binary with SQLite for state and a web UI built in."
       }
     },
     {
@@ -237,6 +248,14 @@ modified or not, asks nothing of you. The full text is in
       "acceptedAnswer": {
         "@type": "Answer",
         "text": "Yes. Point github.api_base_url at your Enterprise Server instance; the App authentication, the JIT configurations and the webhooks are the same."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Does Zoomies need a GitHub organisation?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "No. The GitHub target is either an organisation or a single repository written as owner/name. A repository target is how a personal account is used: the App is created on your own account and installed there, scoped to that repository, and its runners register at the repository level, because GitHub offers no account-wide runners for personal accounts. Each repository is one installation and one pool."
       }
     },
     {
