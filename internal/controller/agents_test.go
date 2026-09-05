@@ -135,8 +135,8 @@ func TestUnansweredTasksAreRequeuedThenDropped(t *testing.T) {
 			t.Fatalf("attempt %d: took %d tasks, want 1", attempt, len(got))
 		}
 		requeued, dropped := q.sweep(now.Add(createLease + time.Minute))
-		if requeued != 1 || dropped != 0 {
-			t.Fatalf("attempt %d: requeued %d, dropped %d; want 1 and 0", attempt, requeued, dropped)
+		if requeued != 1 || len(dropped) != 0 {
+			t.Fatalf("attempt %d: requeued %d, dropped %d; want 1 and 0", attempt, requeued, len(dropped))
 		}
 	}
 
@@ -144,8 +144,8 @@ func TestUnansweredTasksAreRequeuedThenDropped(t *testing.T) {
 		t.Fatal("the final attempt was not offered")
 	}
 	requeued, dropped := q.sweep(now.Add(createLease + time.Minute))
-	if requeued != 0 || dropped != 1 {
-		t.Fatalf("requeued %d, dropped %d; want 0 and 1 after %d attempts", requeued, dropped, maxTaskAttempts)
+	if requeued != 0 || len(dropped) != 1 {
+		t.Fatalf("requeued %d, dropped %d; want 0 and 1 after %d attempts", requeued, len(dropped), maxTaskAttempts)
 	}
 }
 
@@ -159,8 +159,8 @@ func TestLogTasksAreNeverRequeued(t *testing.T) {
 	now := time.Now()
 	q.take(10, now)
 	requeued, dropped := q.sweep(now.Add(24 * time.Hour))
-	if requeued != 0 || dropped != 0 {
-		t.Fatalf("requeued %d, dropped %d; a log task should simply sit until its result arrives", requeued, dropped)
+	if requeued != 0 || len(dropped) != 0 {
+		t.Fatalf("requeued %d, dropped %d; a log task should simply sit until its result arrives", requeued, len(dropped))
 	}
 }
 
@@ -450,5 +450,110 @@ func TestAdoptingEmbeddedCredentialsRenamesTheHostToItsConfiguredName(t *testing
 	h.c.renameEmbeddedHost(h.ctx, other, "zoomies")
 	if got, _ := h.st.GetHost(h.ctx, other.ID); got.Name != "build-box" {
 		t.Fatalf("name = %q; a taken name must not be duplicated", got.Name)
+	}
+}
+
+// A host that has been silent past the grace is presumed gone, and the runners
+// recorded on it with it: until they are failed they count as capacity, so a
+// pool pinned at its maximum by a dead host would create nothing for ever
+// while looking healthy. The job a busy one was running is the fleet's
+// failure, and is marked as such.
+func TestRunnersOnAHostSilentPastTheGraceAreFailedAndTheirJobMarkedLost(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+	host := h.host("vm-1")
+	idle := h.runnerRow(pool, host, store.RunnerIdle)
+	busy := h.runnerRow(pool, host, store.RunnerRegistering)
+	mustReportRunning(t, h, host.ID, busy.ID)
+	h.deliverJob(jobEvent{Action: "in_progress", JobID: 7007, Labels: []string{"linux-x64"}, RunnerName: busy.Name})
+
+	host.LastHeartbeat = time.Now().Add(-hostLostAfter - time.Minute)
+	if err := h.st.UpdateHost(h.ctx, host); err != nil {
+		t.Fatalf("UpdateHost: %v", err)
+	}
+	h.c.checkHostHealth(h.ctx)
+
+	for _, id := range []string{idle.ID, busy.ID} {
+		after, err := h.st.GetRunner(h.ctx, id)
+		if err != nil {
+			t.Fatalf("GetRunner: %v", err)
+		}
+		if after.State != store.RunnerFailed {
+			t.Fatalf("runner %s is %q after its host went silent, want %q", id, after.State, store.RunnerFailed)
+		}
+		if !strings.Contains(after.Message, "vm-1") || !strings.Contains(after.Message, "heartbeat") {
+			t.Fatalf("message %q does not say which host went quiet", after.Message)
+		}
+	}
+	job, err := h.st.GetJobByGitHubID(h.ctx, 7007)
+	if err != nil {
+		t.Fatalf("GetJobByGitHubID: %v", err)
+	}
+	if job.RunnerFault == "" {
+		t.Fatal("the job the busy runner was running was not marked as lost by the fleet")
+	}
+}
+
+// Unhealthy is not gone. An agent restarting, a daemon being upgraded or a
+// network blip all outlast the health timeout, and a host in that state keeps
+// its runners until the longer grace has passed.
+func TestAHostThatIsMerelyLateKeepsItsRunners(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+	host := h.host("vm-1")
+	r := h.runnerRow(pool, host, store.RunnerIdle)
+
+	host.LastHeartbeat = time.Now().Add(-2 * store.HeartbeatTimeout)
+	if err := h.st.UpdateHost(h.ctx, host); err != nil {
+		t.Fatalf("UpdateHost: %v", err)
+	}
+	h.c.checkHostHealth(h.ctx)
+
+	after, err := h.st.GetRunner(h.ctx, r.ID)
+	if err != nil {
+		t.Fatalf("GetRunner: %v", err)
+	}
+	if after.State != store.RunnerIdle {
+		t.Fatalf("runner is %q on a host that is late but not lost, want %q", after.State, store.RunnerIdle)
+	}
+}
+
+// A stop the host never confirms would leave the runner draining for ever,
+// counted against its pool's maximum and holding a slot on its host. Once the
+// task has been given up on, the runner is too.
+func TestAStopTheHostNeverConfirmedFailsTheRunner(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+	host := h.host("vm-1")
+	r := h.runnerRow(pool, host, store.RunnerIdle)
+	if _, err := h.c.DrainRunner(h.ctx, r.ID, "operator asked"); err != nil {
+		t.Fatalf("DrainRunner: %v", err)
+	}
+	if !h.hasTaskOfKind(host.ID, agent.TaskStopRunner) {
+		t.Fatal("draining did not queue a stop task")
+	}
+
+	q := h.c.queues.get(host.ID)
+	now := time.Now()
+	for attempt := 1; attempt <= maxTaskAttempts; attempt++ {
+		if got := q.take(10, now); len(got) != 1 {
+			t.Fatalf("attempt %d: took %d tasks, want the stop", attempt, len(got))
+		}
+		now = now.Add(stopLease + time.Minute)
+		h.c.sweepTasks(h.ctx, now)
+	}
+
+	after, err := h.st.GetRunner(h.ctx, r.ID)
+	if err != nil {
+		t.Fatalf("GetRunner: %v", err)
+	}
+	if after.State != store.RunnerFailed {
+		t.Fatalf("runner is %q after its stop was given up on, want %q", after.State, store.RunnerFailed)
+	}
+	if !strings.Contains(after.Message, "never confirmed") {
+		t.Fatalf("message %q does not say the stop was never confirmed", after.Message)
 	}
 }
