@@ -468,6 +468,10 @@ Everything reachable, in a sensible order, with a visible focus ring
 (`2px` `--z-accent`, `2px` offset — never removed). `Cmd/Ctrl+K` palette,
 `g` then `o/p/r/j/u/h/i/m/a/s` to jump between sections, `/` focuses the current
 page's search, `?` opens the shortcut sheet, `Esc` closes the topmost layer.
+While a dialog, drawer, menu or the palette is open, `Esc` is the only one of
+these the shell answers; the rest belong to the overlay, so a `g r` typed into a
+confirmation cannot navigate away from the thing being confirmed. Tab stays
+inside the innermost open overlay, and everything outside it is `inert`.
 
 ### Responsive
 

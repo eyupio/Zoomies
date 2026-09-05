@@ -59,6 +59,9 @@ const FOCUSABLE = [
   'summary',
 ].join(',');
 
+/** The panels currently trapping focus, outermost first. */
+const traps: HTMLElement[] = [];
+
 /** Every focusable descendant, in document order, skipping hidden ones. */
 export function focusableWithin(root: HTMLElement): HTMLElement[] {
   return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
@@ -73,6 +76,7 @@ export function focusableWithin(root: HTMLElement): HTMLElement[] {
  */
 export function trapFocus(node: HTMLElement, initial?: HTMLElement | null) {
   const restoreTo = document.activeElement as HTMLElement | null;
+  traps.push(node);
 
   function focusFirst(): void {
     const target =
@@ -85,6 +89,11 @@ export function trapFocus(node: HTMLElement, initial?: HTMLElement | null) {
 
   function onKeydown(e: KeyboardEvent): void {
     if (e.key !== 'Tab') return;
+    // Only the innermost open overlay owns Tab. Two traps on separate
+    // subtrees -- a confirmation dialog raised from inside a drawer -- each
+    // pulled focus into their own panel, so every Tab in the dialog landed
+    // on its first control.
+    if (traps[traps.length - 1] !== node) return;
     const items = focusableWithin(node);
     if (items.length === 0) {
       e.preventDefault();
@@ -125,6 +134,8 @@ export function trapFocus(node: HTMLElement, initial?: HTMLElement | null) {
   return {
     destroy(): void {
       document.removeEventListener('keydown', onKeydown, true);
+      const i = traps.lastIndexOf(node);
+      if (i >= 0) traps.splice(i, 1);
       // A frame's delay, because the overlay's own teardown also clears the
       // `inert` it put on the rest of the page, and an inert element cannot
       // take focus -- restoring in the same turn silently did nothing.
@@ -239,6 +250,14 @@ export function installShortcuts(actions: ShortcutActions): () => void {
       disarm();
       return;
     }
+    // Under an open overlay the keyboard belongs to it. Escape is the one
+    // shortcut the shell still answers; `g r` typed into a confirmation
+    // dialog must not navigate away from the thing being confirmed, and the
+    // palette must not open over a dialog that is waiting for an answer.
+    if (layers.size > 0) {
+      disarm();
+      return;
+    }
 
     const mod = isMac ? e.metaKey : e.ctrlKey;
     if (mod && e.key.toLowerCase() === 'k') {
@@ -323,47 +342,42 @@ export function focusSearch(): boolean {
  * dialog, and can activate a control there. `inert` is the one attribute that
  * removes an element from both the accessibility tree and the tab order.
  *
- * Depth-counted like lockScroll, so a dialog opened from inside a drawer
- * unwinds in the right order.
+ * Every overlay marks what is outside it and unmarks exactly that on release,
+ * so a dialog opened from inside a drawer takes the drawer's controls out of
+ * the tree while it is up and gives them back when it closes, with the drawer
+ * itself still holding the rest of the page inert. An earlier version marked
+ * only at the first depth, which left the drawer's own controls live under
+ * the dialog.
  */
 export function pageInert(except: HTMLElement | null): () => void {
   if (typeof document === 'undefined' || !except) return () => {};
-  const root = document.documentElement;
-  const depth = Number(root.dataset.inertDepth ?? '0') + 1;
-  root.dataset.inertDepth = String(depth);
 
   // Walk from the overlay up to <body>, marking every sibling on the way.
   // Inerting only the top-level children would do nothing here: the app mounts
   // into #app and the dialog renders inside it, so #app is the one child that
   // contains the overlay and would be skipped, leaving the whole page live.
+  // A sibling that is already inert belongs to an outer overlay, which will
+  // release it; skipping it here is what keeps the two releases apart.
   const marked: HTMLElement[] = [];
-  if (depth === 1) {
-    for (let node: HTMLElement | null = except; node && node !== document.body;) {
-      const parent: HTMLElement | null = node.parentElement;
-      if (!parent) break;
-      for (const sibling of parent.children) {
-        if (sibling === node || !(sibling instanceof HTMLElement) || sibling.inert) continue;
-        // A live region has to stay announceable: a toast raised while a
-        // dialog is open is usually about the dialog.
-        if (sibling.hasAttribute('data-inert-exempt')) continue;
-        sibling.inert = true;
-        marked.push(sibling);
-      }
-      node = parent;
+  for (let node: HTMLElement | null = except; node && node !== document.body;) {
+    const parent: HTMLElement | null = node.parentElement;
+    if (!parent) break;
+    for (const sibling of parent.children) {
+      if (sibling === node || !(sibling instanceof HTMLElement) || sibling.inert) continue;
+      // A live region has to stay announceable: a toast raised while a
+      // dialog is open is usually about the dialog.
+      if (sibling.hasAttribute('data-inert-exempt')) continue;
+      sibling.inert = true;
+      marked.push(sibling);
     }
+    node = parent;
   }
 
   let released = false;
   return () => {
     if (released) return;
     released = true;
-    const next = Number(root.dataset.inertDepth ?? '1') - 1;
-    if (next <= 0) {
-      delete root.dataset.inertDepth;
-      for (const el of marked) el.inert = false;
-    } else {
-      root.dataset.inertDepth = String(next);
-    }
+    for (const el of marked) el.inert = false;
   };
 }
 
