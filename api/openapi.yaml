@@ -1990,6 +1990,7 @@ components:
         ephemeral: { type: boolean }
         docker_mode: { $ref: "#/components/schemas/DockerMode" }
         resources: { $ref: "#/components/schemas/Resources" }
+        cache: { $ref: "#/components/schemas/CacheConfig" }
         host_selector: { type: object, additionalProperties: { type: string } }
         env: { type: object, additionalProperties: { type: string } }
         run_as_root: { type: boolean }
@@ -2013,6 +2014,16 @@ components:
           items: { $ref: "#/components/schemas/Problem" }
           description: The dangerous settings this pool has in effect, if any.
 
+    CacheConfig:
+      type: object
+      description: Disposable performance cache mounted at /opt/zoomies-cache; it is not persistent workflow storage and may be evicted.
+      required: [enabled, scope]
+      properties:
+        enabled: { type: boolean, default: false }
+        scope: { type: string, enum: [pool, repository], default: pool, description: Repository scope requires a repository-targeted installation. }
+        size_limit: { type: integer, format: int64, minimum: 0, description: Approximate maximum bytes; zero is unlimited. }
+        source: { type: string, description: Optional absolute host directory or safe named-volume prefix. }
+
     PoolCreate:
       type: object
       required: [name, installation_id, labels, backend]
@@ -2030,6 +2041,7 @@ components:
         ephemeral: { type: boolean, default: true }
         docker_mode: { allOf: [{ $ref: "#/components/schemas/DockerMode" }], default: none }
         resources: { $ref: "#/components/schemas/Resources" }
+        cache: { $ref: "#/components/schemas/CacheConfig" }
         host_selector: { type: object, additionalProperties: { type: string } }
         env: { type: object, additionalProperties: { type: string } }
         run_as_root: { type: boolean, default: false }
@@ -2056,6 +2068,7 @@ components:
         ephemeral: { type: boolean }
         docker_mode: { $ref: "#/components/schemas/DockerMode" }
         resources: { $ref: "#/components/schemas/Resources" }
+        cache: { $ref: "#/components/schemas/CacheConfig" }
         host_selector: { type: object, additionalProperties: { type: string } }
         env: { type: object, additionalProperties: { type: string } }
         run_as_root: { type: boolean }

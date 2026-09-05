@@ -153,6 +153,10 @@ type poolSpec struct {
 	cpus         *float64
 	memoryMB     *int64
 	diskGB       *int64
+	cacheEnabled *bool
+	cacheScope   *string
+	cacheSize    *int64
+	cacheSource  *string
 }
 
 // registerPoolFlags declares them, with the API's own defaults so that a
@@ -182,6 +186,10 @@ func registerPoolFlags(fs *flagSet) *poolSpec {
 	spec.cpus = fs.Float64("cpus", 0, "CPU limit per runner")
 	spec.memoryMB = fs.Int64("memory-mb", 0, "memory limit per runner, in MiB")
 	spec.diskGB = fs.Int64("disk-gb", 0, "disk limit per runner, in GiB")
+	spec.cacheEnabled = fs.Bool("cache", false, "mount a disposable performance cache (not workflow storage)")
+	spec.cacheScope = fs.String("cache-scope", "pool", "cache isolation: pool or repository")
+	spec.cacheSize = fs.Int64("cache-size", 0, "approximate cache limit in bytes (0 is unlimited)")
+	spec.cacheSource = fs.String("cache-source", "", "absolute host path or named-volume prefix")
 	return spec
 }
 
@@ -206,6 +214,9 @@ func (spec *poolSpec) body(fs *flagSet, onlyChanged bool) map[string]any {
 	put("docker-mode", "docker_mode", *spec.dockerMode)
 	put("run-as-root", "run_as_root", *spec.runAsRoot)
 	put("enabled", "enabled", *spec.enabled)
+	if !onlyChanged || fs.changed("cache") || fs.changed("cache-scope") || fs.changed("cache-size") || fs.changed("cache-source") {
+		body["cache"] = map[string]any{"enabled": *spec.cacheEnabled, "scope": *spec.cacheScope, "size_limit": *spec.cacheSize, "source": *spec.cacheSource}
+	}
 	if fs.changed("image") {
 		body["image"] = *spec.image
 	}

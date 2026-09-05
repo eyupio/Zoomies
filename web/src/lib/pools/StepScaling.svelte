@@ -148,6 +148,25 @@
   </div>
 </fieldset>
 
+<fieldset class="resources">
+  <legend>Performance cache</legend>
+  <p class="hint">Mounted at <code>/opt/zoomies-cache</code>. This is disposable build acceleration, not persistent workflow storage.</p>
+  <Checkbox bind:checked={draft.cache_enabled} label="Enable cache" description="Reuse downloaded dependencies and build outputs within the selected isolation boundary." onchange={() => touch('cache.enabled')} />
+  {#if draft.cache_enabled}
+    <div class="triple">
+      <Field label="Isolation scope" error={errors['cache.scope']}>
+        {#snippet children({ id, describedBy })}<select bind:value={draft.cache_scope} {id} aria-describedby={describedBy}><option value="pool">Pool</option><option value="repository">Repository</option></select>{/snippet}
+      </Field>
+      <Field label="Approximate limit (bytes)" error={errors['cache.size_limit']}>
+        {#snippet children({ id, describedBy, invalid })}<Input bind:value={draft.cache_size_limit} {id} {describedBy} {invalid} type="number" min={0} placeholder="10737418240" />{/snippet}
+      </Field>
+      <Field label="Host path or volume prefix" error={errors['cache.source']}>
+        {#snippet children({ id, describedBy, invalid })}<Input bind:value={draft.cache_source} {id} {describedBy} {invalid} placeholder="zoomies-cache" />{/snippet}
+      </Field>
+    </div>
+  {/if}
+</fieldset>
+
 <style>
   .pair {
     display: grid;

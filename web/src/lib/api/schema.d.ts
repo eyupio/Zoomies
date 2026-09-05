@@ -1444,6 +1444,7 @@ export interface components {
             ephemeral?: boolean;
             docker_mode?: components["schemas"]["DockerMode"];
             resources?: components["schemas"]["Resources"];
+            cache?: components["schemas"]["CacheConfig"];
             host_selector?: {
                 [key: string]: string;
             };
@@ -1471,6 +1472,24 @@ export interface components {
             /** @description The dangerous settings this pool has in effect, if any. */
             warnings?: components["schemas"]["Problem"][];
         };
+        /** @description Disposable performance cache mounted at /opt/zoomies-cache; it is not persistent workflow storage and may be evicted. */
+        CacheConfig: {
+            /** @default false */
+            enabled: boolean;
+            /**
+             * @description Repository scope requires a repository-targeted installation.
+             * @default pool
+             * @enum {string}
+             */
+            scope: "pool" | "repository";
+            /**
+             * Format: int64
+             * @description Approximate maximum bytes; zero is unlimited.
+             */
+            size_limit?: number;
+            /** @description Optional absolute host directory or safe named-volume prefix. */
+            source?: string;
+        };
         PoolCreate: {
             /** @example linux-x64 */
             name: string;
@@ -1491,6 +1510,7 @@ export interface components {
             /** @default none */
             docker_mode: components["schemas"]["DockerMode"];
             resources?: components["schemas"]["Resources"];
+            cache?: components["schemas"]["CacheConfig"];
             host_selector?: {
                 [key: string]: string;
             };
@@ -1517,6 +1537,7 @@ export interface components {
             ephemeral?: boolean;
             docker_mode?: components["schemas"]["DockerMode"];
             resources?: components["schemas"]["Resources"];
+            cache?: components["schemas"]["CacheConfig"];
             host_selector?: {
                 [key: string]: string;
             };

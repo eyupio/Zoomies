@@ -82,6 +82,10 @@ const (
 // inside the container.
 const RunnerWorkMount = "/home/runner/_work"
 
+// RunnerCacheMount is disposable performance cache space, not persistent
+// workflow storage. Operators may evict its contents at any time.
+const RunnerCacheMount = "/opt/zoomies-cache"
+
 // DefaultDinDImage is the sidecar image used for docker-in-docker pools.
 const DefaultDinDImage = "docker:27-dind"
 
@@ -322,6 +326,10 @@ type containerOptions struct {
 func buildRunnerConfig(spec Spec, fl flavor, o containerOptions) ContainerCreateRequest {
 	labels := spec.Labels(o.Now)
 	labels[LabelRole] = roleRunner
+	if source, err := cacheSource(spec); err == nil && source != "" {
+		labels[LabelCacheVolume] = source
+		labels[LabelCacheSizeLimit] = fmt.Sprint(spec.Cache.SizeLimit)
+	}
 	if o.WorkDirOwned && o.WorkDirMount != "" {
 		labels[LabelWorkDir] = o.WorkDirMount
 	}
@@ -380,6 +388,9 @@ func buildRunnerConfig(spec Spec, fl flavor, o containerOptions) ContainerCreate
 	if o.WorkDirMount != "" {
 		hc.Binds = append(hc.Binds, o.WorkDirMount+":"+RunnerWorkMount+fl.mountSuffix)
 	}
+	if source, err := cacheSource(spec); err == nil && source != "" {
+		hc.Binds = append(hc.Binds, source+":"+RunnerCacheMount+fl.mountSuffix)
+	}
 	if o.Network != "" && o.NetworkMode == "" {
 		hc.NetworkMode = o.Network
 		cfg.NetworkingConfig = &NetworkingConfig{
@@ -389,6 +400,43 @@ func buildRunnerConfig(spec Spec, fl flavor, o containerOptions) ContainerCreate
 		}
 	}
 	return cfg
+}
+
+// cacheSource derives an isolated daemon volume or host directory without
+// placing unchecked pool/repository values into it.
+func cacheSource(spec Spec) (string, error) {
+	c := spec.Cache
+	if !c.Enabled {
+		return "", nil
+	}
+	if !c.Scope.Valid() {
+		return "", fmt.Errorf("backend: %q is not a cache scope", c.Scope)
+	}
+	key := spec.PoolID
+	if c.Scope == store.CacheScopeRepository {
+		if !strings.Contains(spec.Repository, "/") {
+			return "", fmt.Errorf("backend: repository cache scope requires a repository-targeted installation")
+		}
+		key += "-" + spec.Repository
+	}
+	safe := sanitizeHostname(key)
+	if safe == "" || safe == "." || safe == ".." {
+		return "", fmt.Errorf("backend: unsafe cache identity")
+	}
+	prefix := strings.TrimSpace(c.Source)
+	if strings.Contains(prefix, "..") {
+		return "", fmt.Errorf("backend: unsafe cache source %q: path traversal is not allowed", prefix)
+	}
+	if prefix == "" {
+		prefix = "zoomies-cache"
+	}
+	if filepath.IsAbs(prefix) {
+		return filepath.Join(prefix, safe), nil
+	}
+	if strings.ContainsAny(prefix, `/\\:`) {
+		return "", fmt.Errorf("backend: unsafe cache volume prefix %q", prefix)
+	}
+	return prefix + "-" + safe, nil
 }
 
 // runnerEnv builds the environment in a stable order, credentials first, so
@@ -470,6 +518,9 @@ func buildDinDConfig(spec Spec, fl flavor, o containerOptions) ContainerCreateRe
 // so that a redelivered task converges instead of failing.
 func (b *DockerBackend) Create(ctx context.Context, spec Spec) (Handle, error) {
 	if err := spec.Validate(); err != nil {
+		return "", err
+	}
+	if _, err := cacheSource(spec); err != nil {
 		return "", err
 	}
 	if strings.TrimSpace(spec.Image) == "" {
