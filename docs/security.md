@@ -230,6 +230,11 @@ other container on the host — including other runners and Zoomies itself.
 Use it only when every repository that can reach this pool is as trusted as the
 host. Prefer `dind`.
 
+The runner is not root in its container, so Zoomies also adds the group that
+owns the socket to it. That is what makes the mount usable, and it is worth
+knowing that it is the whole of the access control here: nothing else stands
+between a job and that daemon.
+
 ### `pool.docker_mode: dind`
 
 Runs a privileged `docker:dind` sidecar per runner, sharing a network namespace.
@@ -239,6 +244,10 @@ host's containers. But the sidecar itself is `--privileged`, so a container
 escape *from the sidecar* reaches the host. This is a real improvement on
 `host-socket` and still not a security boundary you should bet a production
 host on.
+
+Either mode gives the job a daemon and nothing else: the pool's image has to
+carry a Docker client too. See [Jobs that build container
+images](configuration.md#jobs-that-build-container-images).
 
 ### `pool.ephemeral: false`
 

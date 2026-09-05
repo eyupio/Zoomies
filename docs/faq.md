@@ -95,6 +95,18 @@ runner directly on the host without a container. Zoomies talks to the Engine API
 over a socket and Podman's socket speaks the same protocol, so both are the same
 code path.
 
+## Can jobs build container images?
+
+Yes, with two settings on the pool. `docker_mode: dind` gives its runners a
+private Docker daemon, and `image: ghcr.io/eyupio/zoomies-runner-docker:latest`
+gives them a client to drive it with. The default runner image has no Docker CLI
+on purpose — most pools never build an image, and the client is cold-start time
+they would pay for nothing.
+
+Set only the first and the daemon sits there unused: the job fails at its first
+Docker step with `Unable to locate executable file: docker`. See [Jobs that build
+container images](configuration.md#jobs-that-build-container-images).
+
 ## Which platforms does it run on?
 
 Linux on x86-64 and arm64 is what the controller, the agents and the runner

@@ -33,6 +33,20 @@ forward() {
 trap 'forward INT'  INT
 trap 'forward TERM' TERM
 
+# A pool whose docker_mode is dind or host-socket hands the runner a daemon and
+# nothing else. If the image has no client, every step that shells out to docker
+# dies with "Unable to locate executable file: docker" -- an error that names the
+# missing binary and not the reason, halfway through somebody's workflow. Say the
+# reason here instead, in the log the operator already downloads.
+if [ -n "${DOCKER_HOST:-}" ] || [ -S /var/run/docker.sock ]; then
+  if ! command -v docker >/dev/null 2>&1; then
+    log "this pool provides a docker daemon, but this image has no docker client."
+    log "jobs that run docker, buildx or compose will fail on it."
+    log "use ghcr.io/eyupio/zoomies-runner-docker as the pool image, or an image"
+    log "of your own with docker-ce-cli installed."
+  fi
+fi
+
 if [ -n "${ZOOMIES_JITCONFIG:-}" ]; then
   log "starting with a just-in-time configuration (ephemeral, single use)"
   ./run.sh --jitconfig "${ZOOMIES_JITCONFIG}" &

@@ -188,7 +188,7 @@ not try to set it in type.
 | CLI | `zoomies` |
 | Service | `zoomies` (controller), `zoomies-agent` (agent) |
 | Config directory | `/etc/zoomies`, or `.zoomies/` for a per-user install |
-| Container images | `ghcr.io/eyupio/zoomies`, `ghcr.io/eyupio/zoomies-runner` |
+| Container images | `ghcr.io/eyupio/zoomies`, `ghcr.io/eyupio/zoomies-runner`, `ghcr.io/eyupio/zoomies-runner-docker` |
 | Runner names | `zoomies-k3f9qz2m` — the brand and eight random characters |
 | Pool labels | `zoomies-linux-x64`, `zoomies-gpu`; every pool also answers to `zoomies` |
 | Migration branch | `zoomies/migrate-runners-<timestamp>` |
