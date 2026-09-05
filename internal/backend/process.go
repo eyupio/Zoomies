@@ -379,6 +379,7 @@ func (b *ProcessBackend) start(dir string, args, env []string, spec Spec, versio
 	cmd.Env = env
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
+	detachRunner(cmd)
 	if err := cmd.Start(); err != nil {
 		_ = logFile.Close()
 		return fmt.Errorf("backend: starting the runner in %s: %w", dir, err)
@@ -595,7 +596,9 @@ func (b *ProcessBackend) Stop(ctx context.Context, h Handle, timeout time.Durati
 		// Windows does not support sending os.Interrupt to arbitrary processes.
 		return b.kill(proc, dir)
 	}
-	if err := proc.Signal(os.Interrupt); err != nil && !errors.Is(err, os.ErrProcessDone) {
+	// The whole group, not the listener alone: the job runs in a worker the
+	// listener spawned, and it is the worker that has to be told to stop.
+	if err := signalRunner(proc, syscall.SIGINT); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		b.log.Warn("could not interrupt the runner; killing it", "dir", dir, "pid", pid, "error", err)
 		return b.kill(proc, dir)
 	}
@@ -608,8 +611,12 @@ func (b *ProcessBackend) Stop(ctx context.Context, h Handle, timeout time.Durati
 }
 
 func (b *ProcessBackend) kill(proc *os.Process, dir string) error {
-	if err := proc.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		return fmt.Errorf("backend: killing the runner process %d in %s: %w", proc.Pid, dir, err)
+	if err := signalRunner(proc, syscall.SIGKILL); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		// The group could not be signalled; the leader alone is better than
+		// nothing, and is all Windows can do anyway.
+		if err := proc.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+			return fmt.Errorf("backend: killing the runner process %d in %s: %w", proc.Pid, dir, err)
+		}
 	}
 	return nil
 }
