@@ -135,15 +135,41 @@ func (c *Controller) deliverCapacityEvent(ctx context.Context, p *store.Pool, ca
 
 	e := CapacityDemandEvent{EventID: store.NewSecret(12), Type: eventType, Timestamp: now, PoolID: p.ID, HostSelector: p.HostSelector, Backend: p.Backend, RequiredRunnerSlots: slots, CurrentCapacity: capacity, QueuedJobCount: queued, OldestQueueAgeSeconds: oldest}
 	body, _ := json.Marshal(e)
-	d := &store.CapacityDemandDelivery{PoolID: p.ID, EventType: eventType, EventID: e.EventID, Payload: string(body), ObservedSince: now}
+	d := &store.CapacityDemandDelivery{PoolID: p.ID, EventType: eventType, EventID: e.EventID, Payload: string(body), ObservedSince: now, AttemptedAt: &now}
+	// The attempt is recorded before the request is made, not after: it is
+	// the circuit breaker the cooldown check above reads, and the next pass
+	// may well arrive before the receiver has answered.
+	if err := c.st.PutCapacityDemandDelivery(ctx, d); err != nil {
+		c.log.Error("could not persist capacity-demand delivery", "error", err)
+		return
+	}
+
+	// The request itself leaves the reconcile pass. This function runs under
+	// the reconcile lock, and a receiver that accepts the connection and never
+	// answers held every pass for three attempts of the timeout, per pool, per
+	// event type -- tens of seconds in which nothing scaled. The delivery gets
+	// a context of its own, bounded by the attempts it may make, so a pass
+	// ending or the controller stopping does not cut a request off half-way.
+	timeout := c.cfg().CapacityDemand.Timeout
+	c.deliveries.Add(1)
+	go func() {
+		defer c.deliveries.Done()
+		dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*timeout+time.Second)
+		defer cancel()
+		c.finishCapacityDelivery(dctx, p, e, body, d)
+	}()
+}
+
+// finishCapacityDelivery makes the request and records how it went.
+func (c *Controller) finishCapacityDelivery(ctx context.Context, p *store.Pool, e CapacityDemandEvent, body []byte, d *store.CapacityDemandDelivery) {
 	status, attempts, sendErr := c.postCapacityEvent(ctx, body, e)
-	d.AttemptedAt = &now
 	d.StatusCode = status
 	d.Attempts = attempts
 	if sendErr != nil {
 		d.LastError = sendErr.Error()
 	} else {
-		d.DeliveredAt = &now
+		delivered := c.Now()
+		d.DeliveredAt = &delivered
 	}
 	if err := c.st.PutCapacityDemandDelivery(ctx, d); err != nil {
 		c.log.Error("could not persist capacity-demand delivery", "error", err)
@@ -152,7 +178,7 @@ func (c *Controller) deliverCapacityEvent(ctx context.Context, p *store.Pool, ca
 	if sendErr != nil {
 		action = "capacity_demand.failed"
 	}
-	c.authsvc.Auditor().Act(ctx, auth.SystemIdentity(), action, "pool", p.ID, map[string]any{"event_id": e.EventID, "type": eventType, "status_code": status, "attempts": attempts, "error": d.LastError})
+	c.authsvc.Auditor().Act(ctx, auth.SystemIdentity(), action, "pool", p.ID, map[string]any{"event_id": e.EventID, "type": d.EventType, "status_code": status, "attempts": attempts, "error": d.LastError})
 }
 
 func (c *Controller) postCapacityEvent(ctx context.Context, body []byte, e CapacityDemandEvent) (int, int, error) {

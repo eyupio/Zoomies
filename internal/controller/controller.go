@@ -155,6 +155,11 @@ type Controller struct {
 	started bool
 	cancel  context.CancelFunc
 	wg      sync.WaitGroup
+	// deliveries tracks capacity-demand requests in flight, which run apart
+	// from the reconcile pass that decided them; Stop waits for them, and so
+	// do the tests.
+	deliveries sync.WaitGroup
+
 	// loopRestartDelay is how long a loop that panicked waits before it is
 	// started again. It doubles on each further panic up to loopRestartMax,
 	// and a test sets it short.
@@ -375,6 +380,10 @@ func (c *Controller) Stop(ctx context.Context) error {
 	done := make(chan struct{})
 	go func() {
 		c.wg.Wait()
+		// A capacity-demand request decided in the last pass finishes on its
+		// own bounded context; letting the process exit under it would lose
+		// the record of how it went.
+		c.deliveries.Wait()
 		close(done)
 	}()
 	select {
