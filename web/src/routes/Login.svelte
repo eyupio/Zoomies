@@ -824,19 +824,24 @@
     fleet somebody already chose -- but the links, which are the page's only
     answer to "what is this", move below the form in the theme's colours.
 
-    The band, the sheet, the links and the build line read one 40px gutter,
-    so they share a left edge with clear room between the form and the glass,
-    and each side of it yields to a notch or a rounded corner rather than the
-    artwork or a field running under one. The fields lose that width, and a
-    320px phone still keeps 240px of them.
+    The sheet, the links and the build line are one card, inset from both
+    edges so the black ground shows either side of it and the card reads as
+    something placed on the page rather than the page itself. The card sits
+    16px in from the glass and its contents 24px in from the card, and each
+    side yields to a notch or a rounded corner rather than the artwork or a
+    field running under one.
   */
   @media (max-width: 768px) {
     .signin {
       --lockup: 13.75rem;
-      --gutter: var(--z-space-10);
+      --inset: var(--z-space-4);
+      --gutter: var(--z-space-6);
+      --edge-left: max(var(--inset), env(safe-area-inset-left));
+      --edge-right: max(var(--inset), env(safe-area-inset-right));
 
       display: flex;
       flex-direction: column;
+      background: var(--z-panel-bg);
     }
     .mark,
     .about {
@@ -847,9 +852,8 @@
     .mark {
       display: flex;
       justify-content: center;
-      padding: calc(var(--z-space-4) + var(--z-safe-top))
-        max(var(--gutter), env(safe-area-inset-right)) var(--z-space-8)
-        max(var(--gutter), env(safe-area-inset-left));
+      padding: calc(var(--z-space-4) + var(--z-safe-top)) var(--edge-right) var(--z-space-8)
+        var(--edge-left);
     }
     .lockup {
       margin: 0;
@@ -869,9 +873,8 @@
     .form-side {
       position: relative;
       z-index: 1;
-      margin-top: calc(var(--z-space-3) * -1);
-      padding: var(--z-space-6) max(var(--gutter), env(safe-area-inset-right)) var(--z-space-2)
-        max(var(--gutter), env(safe-area-inset-left));
+      margin: calc(var(--z-space-3) * -1) var(--edge-right) 0 var(--edge-left);
+      padding: var(--z-space-6) var(--gutter) var(--z-space-2);
       border-radius: var(--z-radius-lg) var(--z-radius-lg) 0 0;
       background: var(--z-surface);
     }
@@ -880,9 +883,9 @@
     }
     .about {
       overflow: visible;
-      padding: var(--z-space-6) max(var(--gutter), env(safe-area-inset-right)) 0
-        max(var(--gutter), env(safe-area-inset-left));
-      background: none;
+      margin: 0 var(--edge-right) 0 var(--edge-left);
+      padding: var(--z-space-6) var(--gutter) 0;
+      background: var(--z-surface);
       color: var(--z-text);
     }
     .links {
@@ -900,8 +903,10 @@
     .meta {
       flex-direction: column;
       justify-content: center;
-      padding: var(--z-space-3) max(var(--gutter), env(safe-area-inset-right))
-        calc(var(--z-space-4) + var(--z-safe-bottom)) max(var(--gutter), env(safe-area-inset-left));
+      margin: 0 var(--edge-right) calc(var(--z-space-4) + var(--z-safe-bottom)) var(--edge-left);
+      padding: var(--z-space-3) var(--gutter) var(--z-space-5);
+      border-radius: 0 0 var(--z-radius-lg) var(--z-radius-lg);
+      background: var(--z-surface);
       text-align: center;
     }
   }
