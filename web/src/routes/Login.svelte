@@ -824,15 +824,16 @@
     fleet somebody already chose -- but the links, which are the page's only
     answer to "what is this", move below the form in the theme's colours.
 
-    The band, the sheet, the links and the build line read one 24px gutter,
-    so they share a left edge with room between the form and the glass, and
-    each side of it yields to a notch or a rounded corner rather than the
-    artwork or a field running under one.
+    The band, the sheet, the links and the build line read one 40px gutter,
+    so they share a left edge with clear room between the form and the glass,
+    and each side of it yields to a notch or a rounded corner rather than the
+    artwork or a field running under one. The fields lose that width, and a
+    320px phone still keeps 240px of them.
   */
   @media (max-width: 768px) {
     .signin {
       --lockup: 13.75rem;
-      --gutter: var(--z-space-6);
+      --gutter: var(--z-space-10);
 
       display: flex;
       flex-direction: column;
