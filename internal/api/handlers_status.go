@@ -113,7 +113,15 @@ func (s *Server) handleStatusBadge(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/svg+xml")
 	// Short enough that a README shows a blocked fleet within a minute, long
 	// enough that an image proxy is not asking every time a page is viewed.
-	w.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d", int((30*time.Second).Seconds())))
+	// Only a public status may sit in a shared cache: one fetched by somebody
+	// signed in would otherwise be handed by a proxy or CDN to the next
+	// request for the same URL, signed in or not, without it ever reaching
+	// statusAllowed.
+	if s.cfg().Status.Mode == config.StatusPublic {
+		w.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d", int((30*time.Second).Seconds())))
+	} else {
+		w.Header().Set("Cache-Control", "private, no-store")
+	}
 	_, _ = w.Write([]byte(statusBadge(st.State)))
 }
 

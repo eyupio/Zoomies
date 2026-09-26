@@ -119,3 +119,31 @@ func TestTheBadgeIsTheStateAsAnImage(t *testing.T) {
 		t.Errorf("the badge uses none of the three state colours: %s", svg)
 	}
 }
+
+// A badge fetched by somebody signed in must never land in a shared cache: a
+// proxy or CDN would hand it to the next request for the same URL, signed in
+// or not, without that request ever reaching the mode check. Only a public
+// status may be cached publicly.
+func TestOnlyAPublicBadgeMayBeCachedByAProxy(t *testing.T) {
+	for _, tc := range []struct {
+		mode   config.StatusMode
+		public bool
+	}{
+		{config.StatusPublic, true},
+		{config.StatusAuthenticated, false},
+	} {
+		t.Run(string(tc.mode), func(t *testing.T) {
+			h := newHarness(t, withStatusMode(tc.mode))
+			viewer, _ := h.user("viewer", store.RoleViewer)
+			resp := h.do(request{method: http.MethodGet, path: "/status.svg", cookie: h.session(viewer)})
+			resp.mustStatus(t, http.StatusOK, "the badge")
+			cc := resp.header.Get("Cache-Control")
+			if got := strings.Contains(cc, "public"); got != tc.public {
+				t.Errorf("Cache-Control = %q in %s mode; public caching allowed = %v, want %v", cc, tc.mode, got, tc.public)
+			}
+			if !tc.public && !strings.Contains(cc, "no-store") {
+				t.Errorf("Cache-Control = %q; an authenticated badge must not be stored", cc)
+			}
+		})
+	}
+}
