@@ -158,17 +158,17 @@ carries no texture of its own. The text on the panel uses the fixed
 `--z-panel-*` tokens rather than the theme's, because the panel does not change
 with the theme and the light theme's greys fail on black.
 
-On a phone the panel comes apart: the lockup gives way to a band above the form
-carrying the paw/swish and the wordmark, and the links move below the form in
-the theme's own colours. The first-run screen stays a card. Only the person who has just
+On a phone the panel comes apart: the lockup becomes a band above the form at
+its 220px minimum, and the links move below the form in the theme's own
+colours. The first-run screen stays a card. Only the person who has just
 installed the controller ever sees it, and they already know what it is.
 
 The original circular dog carries Settings → About at 128px, its minimum size —
 the one identity slot in the signed-in product with room for the primary mark,
 and the page that is about the product rather than about the fleet. The
 paw/swish carries everything up to its 64px maximum: the navbar, where the
-detailed dog does not read clearly, the sign-in band on a phone, and genuinely
-tiny placements such as the mobile top bar, page footer and command palette.
+detailed dog does not read clearly, and genuinely tiny placements such as the
+mobile top bar, page footer and command palette.
 Both use the supplied white reverse artwork on a Zoomies Black
 chip, so the artwork is unchanged and remains legible in either theme.
 
