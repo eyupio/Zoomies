@@ -170,6 +170,7 @@ nav:
       - Deploying on a PaaS: paas.md
       - One-click deployment: marketplace.md
       - API: api-surface.md
+      - Automation contract: automation.md
       - Capacity-demand receiver: capacity-demand-receiver.md
   - Reference:
       - Configuration: configuration.md
