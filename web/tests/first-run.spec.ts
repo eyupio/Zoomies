@@ -328,35 +328,75 @@ test('the brand panel is Zoomies Black in both themes', async ({ page }) => {
   await expect(page.getByText(new URL(page.url()).host, { exact: true })).toBeVisible();
 });
 
-test('the sign-in page keeps mobile controls reachable without opening the keyboard', async ({
-  page,
-}) => {
-  for (const viewport of [
-    { width: 320, height: 568 },
-    { width: 390, height: 844 },
-    { width: 844, height: 390 },
-  ]) {
-    await page.setViewportSize(viewport);
-    await page.goto('/login');
-    await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
-    await expectPhoneSafe(page, `sign-in at ${viewport.width}px`);
+test('the sign-in page fits a phone too', async ({ page }) => {
+  // The controls are the touch size and the form can be worked through to the
+  // button without anything running off the edge, whichever way up the phone
+  // is held. Nothing is focused on arrival: a focused field opens the keyboard
+  // over half the page before the person has chosen where to type.
+  const workable = async (where: string) => {
+    await expectPhoneSafe(page, where);
     await expect(page.locator('input[name="username"]')).not.toBeFocused();
-    const logo = await page.getByRole('img', { name: 'Zoomies', exact: true }).boundingBox();
-    expect(logo?.height).toBeLessThanOrEqual(60);
-    const submit = page.getByRole('button', { name: 'Sign in', exact: true });
-    if (viewport.height >= 568) await expect(submit).toBeInViewport();
+    for (const name of ['username', 'password']) {
+      const box = await page.locator(`input[name="${name}"]`).boundingBox();
+      expect(
+        box?.height,
+        `${where}: the ${name} field is under the touch size`,
+      ).toBeGreaterThanOrEqual(44);
+    }
     await page.locator('input[name="username"]').fill('mobile-user');
     await page.locator('input[name="password"]').fill('test password');
     await page.getByRole('button', { name: 'Show password' }).click();
     await expect(page.locator('input[name="password"]')).toHaveAttribute('type', 'text');
+    const submit = page.getByRole('button', { name: 'Sign in', exact: true });
     await submit.scrollIntoViewIfNeeded();
     await expect(submit).toBeInViewport();
+  };
+
+  // Upright: the smallest phone still in service, and a current one.
+  for (const viewport of [
+    { width: 320, height: 568 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.goto('/login');
+    const where = `the sign-in page at ${viewport.width}x${viewport.height}`;
+    await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
+
+    // The panel comes apart: the lockup stays above the form, at the brand's
+    // minimum rather than shrunk to a chip, and the heading is still above the
+    // fold under it. On a current phone the button is on screen as well, so
+    // signing in never needs a scroll. The links move below the form rather
+    // than being dropped -- they are the page's only answer to "what is this"
+    // -- and the pitch goes.
+    const lockup = await page.getByRole('img', { name: 'Zoomies', exact: true }).boundingBox();
+    const heading = await page.getByRole('heading', { level: 1 }).boundingBox();
+    expect(lockup?.width, `${where}: the lockup is under the brand minimum`).toBeGreaterThanOrEqual(
+      220,
+    );
+    expect((lockup?.y ?? 0) < (heading?.y ?? 0), `${where}: the lockup is above the form`).toBe(
+      true,
+    );
+    expect(
+      heading && heading.y + heading.height,
+      `${where}: the heading is below the fold`,
+    ).toBeLessThan(viewport.height);
+    if (viewport.height >= 800) {
+      await expect(page.getByRole('button', { name: 'Sign in', exact: true })).toBeInViewport();
+    }
     const about = page.getByRole('navigation', { name: 'About Zoomies' });
     for (const name of [/^zoomies\.sh\b/, /^GitHub\b/, /^EyUp\.io\b/]) {
       await expect(about.getByRole('link', { name })).toBeVisible();
     }
     await expect(page.getByText('GitHub Actions runners on machines you own.')).toBeHidden();
+    await workable(where);
   }
+
+  // On its side, a phone is wider than the band layout and keeps the desktop
+  // split, panel beside form; it is still a phone, so the same controls apply.
+  await page.setViewportSize({ width: 844, height: 390 });
+  await page.goto('/login');
+  await expect(page.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
+  await workable('the sign-in page at 844x390');
 });
 
 /*

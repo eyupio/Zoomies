@@ -284,7 +284,6 @@
     <div class="mark">
       {@render rings('band', 200)}
       <span class="lockup"><Logo variant="lockup" size={84} label="Zoomies" /></span>
-      <span class="mobile-mark"><Logo variant="full" size={48} label="Zoomies" /></span>
     </div>
   {/if}
 
@@ -507,12 +506,6 @@
   .mark {
     grid-area: mark;
     padding: var(--z-space-12) var(--panel-pad-x) 0;
-  }
-  .mobile-mark {
-    display: none;
-  }
-  .mobile-mark :global(.logo) {
-    color: var(--z-panel-text);
   }
   .lockup {
     display: block;
@@ -818,7 +811,7 @@
     facts are the part of the panel that can go without the page losing its
     meaning, and they go before the page grows a scrollbar.
   */
-  @media (min-width: 961px) and (max-height: 720px) {
+  @media (min-width: 769px) and (max-height: 720px) {
     .facts {
       display: none;
     }
@@ -826,17 +819,19 @@
 
   /*
     The phone: the panel's two halves come apart. The lockup becomes a band at
-    the top with the paw/swish and wordmark, and the form rises over its lower
-    edge as a sheet. The full square lockup stays on desktop. The pitch is
-    dropped -- a phone is for signing in to a fleet somebody already chose --
-    but the links, which are the page's only answer to "what is this", move
-    below the form in the theme's colours. Every region keeps the same 32px
-    gutter, so the sheet, the links and the build line share one left edge
-    rather than each hugging the glass at its own inset.
+    the top, at the brand's 220px minimum, and the form rises over its lower
+    edge as a sheet. The pitch is dropped -- a phone is for signing in to a
+    fleet somebody already chose -- but the links, which are the page's only
+    answer to "what is this", move below the form in the theme's colours.
+
+    The band, the sheet, the links and the build line read one gutter, so they
+    share a left edge, and each side of it yields to a notch or a rounded
+    corner rather than the artwork or a field running under one.
   */
-  @media (max-width: 960px) {
+  @media (max-width: 768px) {
     .signin {
-      --gutter: var(--z-space-8);
+      --lockup: 13.75rem;
+      --gutter: var(--z-space-4);
 
       display: flex;
       flex-direction: column;
@@ -851,14 +846,14 @@
       display: flex;
       justify-content: center;
       padding: calc(var(--z-space-4) + var(--z-safe-top))
-        max(var(--gutter), env(safe-area-inset-right)) var(--z-space-6)
+        max(var(--gutter), env(safe-area-inset-right)) var(--z-space-8)
         max(var(--gutter), env(safe-area-inset-left));
     }
     .lockup {
-      display: none;
+      margin: 0;
     }
-    .mobile-mark {
-      display: block;
+    .lockup :global(.logo.lockup) {
+      justify-content: center;
     }
     .rings.band {
       display: block;
@@ -879,28 +874,11 @@
       background: var(--z-surface);
     }
     .form-column {
-      max-width: 28rem;
-    }
-    .form-side :global(input) {
-      min-height: var(--z-control-touch);
-      font-size: var(--z-control-font-touch);
-    }
-    .form-side :global(.icon-btn) {
-      width: var(--z-control-touch);
-      height: var(--z-control-touch);
-    }
-    .form-side :global(.has-trailing input) {
-      padding-right: calc(var(--z-control-touch) + var(--z-space-2));
-    }
-    .form-side :global(.btn) {
-      min-height: var(--z-control-touch);
-      white-space: normal;
-      overflow-wrap: anywhere;
+      max-width: none;
     }
     .about {
       overflow: visible;
-      margin-top: auto;
-      padding: var(--z-space-8) max(var(--gutter), env(safe-area-inset-right)) 0
+      padding: var(--z-space-6) max(var(--gutter), env(safe-area-inset-right)) 0
         max(var(--gutter), env(safe-area-inset-left));
       background: none;
       color: var(--z-text);
@@ -923,6 +901,35 @@
       padding: var(--z-space-3) max(var(--gutter), env(safe-area-inset-right))
         calc(var(--z-space-4) + var(--z-safe-bottom)) max(var(--gutter), env(safe-area-inset-left));
       text-align: center;
+    }
+  }
+
+  /*
+    A phone on its side is wider than the band layout's breakpoint and keeps
+    the desktop split, but it is still worked with a thumb, so the controls
+    grow to the touch size at any width a phone can reach. They grow here
+    rather than in their components because this is the one form that is the
+    whole page: a dense table's inputs cannot afford a 44px row, and the
+    sign-in fields have nowhere else to be. The button is allowed to wrap for
+    the same reason -- a long label on a narrow phone is better on two lines
+    than cut off.
+  */
+  @media (max-width: 960px) {
+    .form-side :global(input) {
+      min-height: var(--z-control-touch);
+      font-size: var(--z-control-font-touch);
+    }
+    .form-side :global(.icon-btn) {
+      width: var(--z-control-touch);
+      height: var(--z-control-touch);
+    }
+    .form-side :global(.has-trailing input) {
+      padding-right: calc(var(--z-control-touch) + var(--z-space-2));
+    }
+    .form-side :global(.btn) {
+      min-height: var(--z-control-touch);
+      white-space: normal;
+      overflow-wrap: anywhere;
     }
   }
 
