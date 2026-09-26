@@ -85,11 +85,25 @@ test('R refreshes the page, without taking the letter from anything else', async
   await goto(page, '/hosts', 'Hosts');
   const refresh = refreshButton(page);
 
-  await page.keyboard.press('r');
   // The button reports the work whichever way it was started, which is what
-  // makes the key and the button one gesture rather than two.
-  await expect(refresh).toHaveAttribute('aria-busy', 'true');
+  // makes the key and the button one gesture rather than two. The busy window
+  // is the 420ms minimum spin, which a loaded runner can let pass between two
+  // of Playwright's polls -- so the page records the attribute itself, from
+  // before the key goes down, and the test asks whether it was ever set.
+  await refresh.evaluate((el) => {
+    const seen = { busy: false };
+    (window as unknown as { __refreshSeen: typeof seen }).__refreshSeen = seen;
+    new MutationObserver(() => {
+      if (el.getAttribute('aria-busy') === 'true') seen.busy = true;
+    }).observe(el, { attributes: true, attributeFilter: ['aria-busy'] });
+  });
+  await page.keyboard.press('r');
+  await expect(refresh).toHaveAttribute('title', /^Refreshed /);
   await expect(refresh).not.toHaveAttribute('aria-busy', 'true');
+  const seen = await page.evaluate(
+    () => (window as unknown as { __refreshSeen: { busy: boolean } }).__refreshSeen.busy,
+  );
+  expect(seen, 'the button was busy while R refreshed').toBe(true);
 
   // `g r` is still Runners: the chord gets the key first, and a shortcut that
   // quietly ate half the navigation would be a bad trade for a refresh.
