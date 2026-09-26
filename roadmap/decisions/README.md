@@ -40,3 +40,4 @@ what was decided.
 | [0001](0001-planning-documents-live-beside-the-code.md) | Planning documents live in `ROADMAP.md` and `roadmap/`, outside the published site | proposed |
 | [0003](0003-windows-runners-are-processes-on-a-host.md) | Windows runners are actions/runner processes on a Windows host, not Windows containers | accepted, at the owner's instruction; shape not separately confirmed |
 | [0002](0002-choose-the-model-by-what-the-stage-risks.md) | Choose the Claude model and effort by what a stage risks, and record both per package | proposed |
+| [0005](0005-a-stable-automation-contract.md) | Name the routes unattended automation may rely on, and promise their stability | proposed |
