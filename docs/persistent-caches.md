@@ -13,7 +13,7 @@ Keep runners ephemeral. Retain selected cache data outside the runner's writable
 
 ## Local cache scopes
 
-Use the pool's existing cache scope and source settings, described in [Hosts and pools](hosts-and-pools.md). Persistent host caches help subsequent runners on the same host; they do not follow a runner to another pool host automatically. A repository-scoped cache name is not a security boundary on an organisation installation: GitHub may assign a different matching repository's job to that runner. Use repository-target installations or explicit trust-separated pools for strong isolation.
+Use the pool's existing cache scope and source settings, described in [Hosts and pools](hosts-and-pools.md). Recipes for pointing Go, npm, pip, Maven and a local BuildKit cache at the pool cache are in [the configuration reference](configuration.md#using-the-pool-cache-from-a-workflow). Persistent host caches help subsequent runners on the same host; they do not follow a runner to another pool host automatically. A repository-scoped cache name is not a security boundary on an organisation installation: GitHub may assign a different matching repository's job to that runner. Use repository-target installations or explicit trust-separated pools for strong isolation.
 
 Cache identities now hash the full scope, immutable pool ID and canonical repository tuple, with a readable prefix. Tool generations also hash the resolved image reference. Renaming a pool does not relocate its cache; changing image identity creates a new tool generation. Old cache namespaces remain untouched for active runners and must be retired after they drain.
 
