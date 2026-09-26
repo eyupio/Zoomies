@@ -1953,13 +1953,13 @@ Zoomies mounts the cache and nothing more: it does not know which package
 manager a job runs, so a workflow has to point its tools at
 `/opt/zoomies-cache`. The recipes below do that in one step, and each keeps the
 rule the cache is built on — a missing or broken cache makes a job slower and
-never makes it fail. Every one checks that the folder is there and writable
-before using it, so the same workflow still runs on GitHub's hosted runners,
-on a pool with the cache off, and on the morning an operator emptied it.
+never makes it fail. Every one creates its own folder under the cache and only
+uses it if that folder turned out writable, so the same workflow still runs on
+GitHub's hosted runners, on a pool with the cache off, on a cache folder whose
+permissions went wrong, and on the morning an operator emptied it.
 
-Give each tool a folder of its own under the cache, as below. The pool's
-`scope` decides who else sees those folders — every repository in the pool, or
-only this one — and nothing in a workflow can narrow that.
+The pool's `scope` decides who else sees those folders — every repository in
+the pool, or only this one — and nothing in a workflow can narrow that.
 
 **Go.** The module and build caches are both safe to share between concurrent
 jobs; the Go toolchain locks and verifies them itself.
@@ -1967,9 +1967,10 @@ jobs; the Go toolchain locks and verifies them itself.
 ```yaml
 - name: Use the pool cache for Go
   run: |
-    if [ -w /opt/zoomies-cache ]; then
-      echo "GOMODCACHE=/opt/zoomies-cache/go/mod" >> "$GITHUB_ENV"
-      echo "GOCACHE=/opt/zoomies-cache/go/build" >> "$GITHUB_ENV"
+    d=/opt/zoomies-cache/go
+    if mkdir -p "$d/mod" "$d/build" 2>/dev/null && [ -w "$d/mod" ] && [ -w "$d/build" ]; then
+      echo "GOMODCACHE=$d/mod" >> "$GITHUB_ENV"
+      echo "GOCACHE=$d/build" >> "$GITHUB_ENV"
     fi
 ```
 
@@ -1983,8 +1984,9 @@ the tarballs again.
 ```yaml
 - name: Use the pool cache for npm
   run: |
-    if [ -w /opt/zoomies-cache ]; then
-      echo "npm_config_cache=/opt/zoomies-cache/npm" >> "$GITHUB_ENV"
+    d=/opt/zoomies-cache/npm
+    if mkdir -p "$d" 2>/dev/null && [ -w "$d" ]; then
+      echo "npm_config_cache=$d" >> "$GITHUB_ENV"
     fi
 ```
 
@@ -1994,21 +1996,24 @@ once is not built again.
 ```yaml
 - name: Use the pool cache for pip
   run: |
-    if [ -w /opt/zoomies-cache ]; then
-      echo "PIP_CACHE_DIR=/opt/zoomies-cache/pip" >> "$GITHUB_ENV"
+    d=/opt/zoomies-cache/pip
+    if mkdir -p "$d" 2>/dev/null && [ -w "$d" ]; then
+      echo "PIP_CACHE_DIR=$d" >> "$GITHUB_ENV"
     fi
 ```
 
 **Maven.** The local repository is the one of the four that two jobs writing at
 once can corrupt, so the recipe turns on the file locking Maven 3.9 and later
 ship. On an older Maven, or a pool with `max_runners` above one and no locking,
-prefer `actions/cache` instead.
+prefer `actions/cache` instead. It adds to any `MAVEN_OPTS` an earlier step set
+rather than replacing it.
 
 ```yaml
 - name: Use the pool cache for Maven
   run: |
-    if [ -w /opt/zoomies-cache ]; then
-      echo "MAVEN_OPTS=-Dmaven.repo.local=/opt/zoomies-cache/maven -Daether.syncContext.named.factory=file-lock -Daether.syncContext.named.nameMapper=file-gav" >> "$GITHUB_ENV"
+    d=/opt/zoomies-cache/maven
+    if mkdir -p "$d" 2>/dev/null && [ -w "$d" ]; then
+      echo "MAVEN_OPTS=${MAVEN_OPTS:+$MAVEN_OPTS }-Dmaven.repo.local=$d -Daether.syncContext.named.factory=file-lock -Daether.syncContext.named.nameMapper=file-gav" >> "$GITHUB_ENV"
     fi
 ```
 
@@ -2016,28 +2021,44 @@ prefer `actions/cache` instead.
 dies with it, so its layer cache goes too. Buildx can export that cache to a
 folder and read it back on the next runner. The `local` exporter needs a
 `docker-container` builder, which is what `docker/setup-buildx-action` creates.
-It writes a whole cache at once, and two jobs exporting to the same folder can
-leave a half-written one, so the recipe exports to a folder of the job's own
-and swaps it into place when the build has finished. `ignore-error=true`
-keeps a failed export from failing a build that otherwise succeeded.
+
+The exporter writes a whole cache at once, and two jobs exporting to one folder
+— two runs, or two jobs of one matrix, which share a run ID — can leave a
+half-written one. So each job exports to a folder `mktemp` made for it alone,
+and when its build succeeds it publishes that folder by renaming a link over
+`current`, which is atomic: a reader sees the old cache or the new one, never
+half of either. When two jobs finish together the last one to rename wins, and
+the other's export is simply not used. `ignore-error=true` keeps a failed
+export from failing a build that otherwise succeeded, and a reader that finds
+its cache replaced mid-build gets a slower build, not a failed one.
+
+The build itself always runs. Only the cache flags depend on the cache being
+usable, and a pull request reads the cache without writing to it (see below).
 
 ```yaml
 - uses: docker/setup-buildx-action@<pinned commit>
-- name: Build with the pool cache
+- name: Build, with the pool cache when it is usable
   run: |
-    cache=/opt/zoomies-cache/buildkit/app
-    args=()
-    if [ -w /opt/zoomies-cache ]; then
-      mkdir -p "$(dirname "$cache")"
-      [ -f "$cache/index.json" ] && args+=(--cache-from "type=local,src=$cache")
-      args+=(--cache-to "type=local,dest=$cache.$GITHUB_RUN_ID,mode=max,ignore-error=true")
+    base=/opt/zoomies-cache/buildkit/app
+    args=() src="" out=""
+    if mkdir -p "$base" 2>/dev/null && [ -w "$base" ]; then
+      if [ -f "$base/current/index.json" ]; then
+        src=$(readlink -f "$base/current")
+        args+=(--cache-from "type=local,src=$src")
+      fi
+      if [ "$GITHUB_EVENT_NAME" != pull_request ] && out=$(mktemp -d "$base/export.XXXXXX"); then
+        args+=(--cache-to "type=local,dest=$out,mode=max,ignore-error=true")
+      fi
     fi
     docker buildx build "${args[@]}" --tag app:ci .
-    if [ -d "$cache.$GITHUB_RUN_ID" ]; then
-      rm -rf "$cache.old"
-      mv "$cache" "$cache.old" 2>/dev/null || true
-      mv "$cache.$GITHUB_RUN_ID" "$cache" || true
-      rm -rf "$cache.old"
+    if [ -n "$out" ] && [ -f "$out/index.json" ]; then
+      if ln -s "$out" "$out.link" && mv -T "$out.link" "$base/current"; then
+        if [ -n "$src" ]; then rm -rf "$src"; fi
+      else
+        rm -rf "$out" "$out.link"
+      fi
+    elif [ -n "$out" ]; then
+      rm -rf "$out"
     fi
 ```
 
@@ -2053,9 +2074,12 @@ after it, so a pull request that can change the build can put something in the
 cache a later build on the default branch will use. GitHub's own cache stops
 that by letting a pull request read its base branch's entries and write only
 its own; a folder cannot. Where the pool takes pull requests from people you
-would not give write access, keep the cache for trusted events only — add
-`if: github.event_name != 'pull_request'` to the step that turns it on — or
-run those pull requests on a pool of their own, with a cache of its own or none.
+would not give write access, keep them from writing: the BuildKit recipe above
+already reads but does not export on a pull request, and the package-manager
+steps take `if: github.event_name != 'pull_request'` — they only point a tool
+at the cache, so skipping one leaves the job running with its tool's own
+default folder. Or run those pull requests on a pool of their own, with a cache
+of its own or none.
 
 #### Keeping a tool cache
 
