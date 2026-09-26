@@ -60,6 +60,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The fleet's name-free status
+         * @description A projection rather than a view: the one response in this API that is
+         *     deliberately not a resource's `GET` shape. It carries no pool, host,
+         *     repository, runner or job name -- only a state (from the worst of the
+         *     fleet's own problems), banded counts, the queue wait rounded to the
+         *     minute, and each problem's code, severity and start. Platform problems
+         *     are never in it.
+         *
+         *     `status.mode` decides who may read it. `off`, the default, answers 404
+         *     to everyone; `authenticated` answers anyone signed in, whatever their
+         *     role, and 401 otherwise; `public` answers anyone. The page at `/status`
+         *     and the badge at `/status.svg` follow the same setting.
+         */
+        get: operations["getFleetStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/bootstrap": {
         parameters: {
             query?: never;
@@ -2782,6 +2812,44 @@ export interface components {
              *     ]
              */
             alternatives?: components["schemas"]["BackendKind"][];
+            /** Format: date-time */
+            since?: string;
+        };
+        /**
+         * @description A count said roughly: none, a few (up to five), many, or -- for the queue only -- backed up, meaning more jobs are waiting than the fleet has slots for.
+         * @enum {string}
+         */
+        CountBand: "none" | "few" | "many" | "backed_up";
+        FleetStatus: {
+            /**
+             * @description blocked when the worst of the fleet's problems is an error, degraded when it is a warning, healthy otherwise.
+             * @enum {string}
+             */
+            state: "healthy" | "degraded" | "blocked";
+            /**
+             * Format: date-time
+             * @description When this controller first saw the fleet in this state.
+             */
+            since: string;
+            version: string;
+            queued: components["schemas"]["CountBand"];
+            running: components["schemas"]["CountBand"];
+            /** @description The median queue wait over the last hour */
+            median_wait_minutes: number;
+            /** @description The 95th-percentile queue wait over the last hour */
+            p95_wait_minutes: number;
+            /** @description The fleet's current problems, one per code, worst first. */
+            reasons: components["schemas"]["FleetStatusReason"][];
+            /** @description The public sentence for each code in reasons, from docs/problem-codes.md. */
+            explanations: {
+                [key: string]: string;
+            };
+        };
+        FleetStatusReason: {
+            /** @example pool.no_capacity */
+            code: string;
+            /** @enum {string} */
+            severity: "error" | "warning";
             /** Format: date-time */
             since?: string;
         };
@@ -5896,6 +5964,28 @@ export interface operations {
                     "application/json": components["schemas"]["Meta"];
                 };
             };
+        };
+    };
+    getFleetStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FleetStatus"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
         };
     };
     bootstrap: {

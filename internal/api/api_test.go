@@ -669,6 +669,8 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "GET", path: "/readyz", public: true},
 		{method: "GET", path: "/api/openapi.yaml", public: true},
 		{method: "GET", path: "/api/v1/meta", public: true},
+		// Off by default, so this walk sees a 404; the modes are status_test.go's.
+		{method: "GET", path: "/api/v1/status", public: true},
 
 		{method: "POST", path: "/api/v1/auth/login", public: true, checksCredentials: true,
 			body: map[string]any{"username": "nobody", "password": "x"}},

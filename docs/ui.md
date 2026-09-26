@@ -513,6 +513,36 @@ the archive, and what a plain-HTTP endpoint gives away — is set out in
 [Security](security.md#a-backup-remote-with-no-passphrase), and the whole of it
 in [Backup and restore](backup-and-restore.md).
 
+## The status page
+
+`/status` is a page for the people whose jobs run on the fleet and who have no
+account on it. GitHub tells a developer whose job has queued for twenty
+minutes only "queued"; this page says whether the fleet is **healthy**,
+**degraded** or **blocked**, since when, roughly how many jobs are waiting and
+running, how long the typical and the longest waits have been, and one plain
+sentence for each problem the fleet has — no room on any machine, labels
+nothing here offers, a permission the fleet has lost on GitHub, notifications
+that stopped verifying. It names no pool, host, repository, runner or job, and
+it never shows a problem with the controller itself.
+
+It is off unless `status.mode` says otherwise: `authenticated` shows it to
+anyone signed in, whatever their role, and `public` to anyone who can reach the
+controller, which is warned about — see
+[Security](security.md#statusmode-public). While it is off, `/status`,
+`/status.svg` and `/api/v1/status` answer 404.
+
+The page asks for the status every thirty seconds and never opens the live
+event stream the rest of the interface runs on, because every frame on that
+stream is about a named thing. `/status.svg` is the state as a badge, to put in
+a team's wiki or a repository README:
+
+```markdown
+![Fleet status](https://zoomies.example.com/status.svg)
+```
+
+The sentence the page shows for each problem code is listed in
+[Problem codes](problem-codes.md#what-the-status-page-says).
+
 ## On a phone
 
 Read-only monitoring from a phone is a stated requirement, so it is tested. The

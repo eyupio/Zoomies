@@ -39,6 +39,7 @@ type Config struct {
 	Log            Log            `yaml:"log"`
 	OIDC           OIDC           `yaml:"oidc"`
 	Metrics        Metrics        `yaml:"metrics"`
+	Status         Status         `yaml:"status"`
 	Retention      Retention      `yaml:"retention"`
 	Limits         Limits         `yaml:"limits"`
 	Images         Images         `yaml:"images"`
@@ -702,6 +703,29 @@ type Metrics struct {
 	Public bool `yaml:"public"`
 }
 
+// StatusMode says who may read the fleet's status projection: the
+// name-free, banded summary at /api/v1/status, the page at /status and the
+// badge at /status.svg.
+type StatusMode string
+
+const (
+	// StatusOff serves none of the three. It is the default, because a new
+	// capability starts disabled and this one's cost is disclosure.
+	StatusOff StatusMode = "off"
+	// StatusAuthenticated serves them to anyone signed in, whatever their
+	// role.
+	StatusAuthenticated StatusMode = "authenticated"
+	// StatusPublic serves them to anyone who can reach the listener, which is
+	// the point for a developer with no account whose job has queued, and is
+	// warned about for the same reason.
+	StatusPublic StatusMode = "public"
+)
+
+// Status configures the fleet's status projection.
+type Status struct {
+	Mode StatusMode `yaml:"mode"`
+}
+
 // Runners is what every runner this fleet creates is started with, whichever
 // pool and host it lands on. A pool's own env is layered over it, so the fleet
 // says what is usual and a pool says what is different.
@@ -911,6 +935,7 @@ func Default() *Config {
 		},
 		Log:     Log{Level: "info", Format: "json"},
 		Metrics: Metrics{Enabled: true, Path: "/metrics"},
+		Status:  Status{Mode: StatusOff},
 		OIDC: OIDC{
 			Scopes:        []string{"openid", "profile", "email"},
 			UsernameClaim: "preferred_username",
@@ -1353,6 +1378,10 @@ func (c *Config) normalize() {
 	// The environment override was always lowercased; the file is now too, so
 	// "Self-Signed" in zoomies.yaml is the same mode as self-signed.
 	c.Server.TLS.Mode = TLSMode(strings.ToLower(strings.TrimSpace(string(c.Server.TLS.Mode))))
+	c.Status.Mode = StatusMode(strings.ToLower(strings.TrimSpace(string(c.Status.Mode))))
+	if c.Status.Mode == "" {
+		c.Status.Mode = StatusOff
+	}
 	if c.Server.TLS.Mode == "" {
 		c.Server.TLS.Mode = TLSOff
 	}

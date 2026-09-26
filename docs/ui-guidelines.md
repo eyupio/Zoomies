@@ -187,6 +187,13 @@ these colours for anything else, because operators learn them.
 | failed / error / destructive | `--z-danger` | `#BD2018` | `#FF8D84` |
 | removed / neutral | `--z-neutral` | `#686D76` | `#7F858E` |
 
+The fleet status page at `/status` has three states of its own, and they sit on
+this mapping rather than beside it: **blocked** is `--z-danger` with the
+triangle, **degraded** is `--z-pending` with the dashed ring, and **healthy**
+is `--z-idle` with the hollow dot. A reader with no account sees the same
+colour and shape for "something is stopping jobs" that an operator sees for a
+failed runner, and the state is always written out as a word beside them.
+
 Busy is the Fast Cyan family: the brand asks for the accent to be used
 sparingly, and *this runner is executing a job right now* is the single most
 valuable "look here" signal on the page.
@@ -974,6 +981,7 @@ any of them belongs to.
 | --- | --- |
 | App shell (JS + CSS, gzipped) | **< 200 KB** |
 | Route chunk | < 80 KB gzipped, with named exceptions |
+| Status page (`/status`, all of it, gzipped) | **< 30 KB** |
 | First contentful paint on a warm cache | < 400 ms |
 | Interaction to next paint | < 200 ms |
 
@@ -995,6 +1003,14 @@ any route is over its budget, so this stays true.
 The shell is the entry chunk, what it imports statically, and the CSS those
 bring with them — not every stylesheet in the build, which is what it used to
 count and why the printed number overstated the first paint.
+
+The status page is its own document, `web/status.html`, built by a second pass
+(`vite build --mode status`, which `npm run build` runs after the app) and held
+to its own budget. It is read by people with no account, often on a phone, and
+it is a heading, four numbers and a list, so it loads the tokens, one component
+and the Svelte runtime and nothing from the app. Building it as a second input
+to the app's own pass made the two share chunks and moved a kilobyte into the
+shell; built apart, the shell is unchanged by it.
 
 One route is over the 80 KB line and is named in `ROUTE_ALLOWANCES` in
 `web/vite.config.ts` with the size it is allowed: `xterm`, the terminal

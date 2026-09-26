@@ -1095,6 +1095,44 @@ func (c *Config) Validate() Findings {
 			Fix:    "leave metrics.public off and give Prometheus a viewer API token.",
 		})
 	}
+	// The status projection is name-free by construction, so what public
+	// discloses is not who the fleet is but how it is doing: that it exists,
+	// its release, whether it is blocked, and roughly how busy it is. That is
+	// the point for a developer with no account and a fact a stranger could
+	// use, so it is said out loud rather than left as a quiet toggle.
+	switch c.Status.Mode {
+	case StatusOff, StatusAuthenticated:
+	case StatusPublic:
+		if public && c.Server.TLS.Mode == TLSOff {
+			// The page is harmless over plain HTTP; the listener it opens on a
+			// public address is not, and "public" is the setting that asks
+			// strangers to come and find it.
+			add(Finding{
+				Code: "status.public_no_tls", Severity: SeverityError, Setting: "status.mode",
+				Title: fmt.Sprintf("the fleet status is public on %s without TLS", c.Server.Bind),
+				Detail: "status.mode public invites people with no account to a listener that is not on loopback and does not terminate TLS, " +
+					"so every sign-in on the same address would cross the network in the clear.",
+				Fix: "set server.tls.mode to self-signed or files, bind server.bind to 127.0.0.1 behind a reverse proxy that terminates TLS, " +
+					"or set status.mode to authenticated.",
+			})
+			break
+		}
+		add(Finding{
+			Code: "status.public", Severity: SeverityWarning, Setting: "status.mode",
+			Title: "the fleet status is readable without an account",
+			Detail: "anyone who can reach this controller can read /status, /status.svg and /api/v1/status: " +
+				"the fleet's state, the release it runs, banded counts of queued and running jobs, the rounded queue wait " +
+				"and the codes of the fleet's current problems. No pool, host, repository, runner or job name is in it.",
+			Fix: "set status.mode to authenticated if only people with an account should see it, or off to serve none of it.",
+		})
+	default:
+		add(Finding{
+			Code: "status.mode", Severity: SeverityError, Setting: "status.mode",
+			Title: fmt.Sprintf("%q is not a status mode", c.Status.Mode),
+			Fix:   "use off, authenticated or public.",
+		})
+	}
+
 	switch c.Log.Level {
 	case "debug", "info", "warn", "error":
 	default:

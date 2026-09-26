@@ -666,6 +666,15 @@ var registry = buildRegistry([]Setting{
 	},
 
 	// ---------------------------------------------------------------------
+	// status -- the name-free projection for people with no account.
+	// ---------------------------------------------------------------------
+	{
+		Key: "status.mode", Label: "Fleet status page", Env: "ZOOMIES_STATUS_MODE", Kind: KindEnum, Scope: ScopePlatform, Live: true,
+		Choices: []string{string(StatusOff), string(StatusAuthenticated), string(StatusPublic)},
+		Summary: "Who may read the fleet's status at /status, /status.svg and /api/v1/status: nobody (off), anyone signed in (authenticated), or anyone who can reach this controller (public). It carries no names: a state, banded counts, rounded waits and problem codes.",
+	},
+
+	// ---------------------------------------------------------------------
 	// retention -- audit rows are deliberately absent; they are never pruned.
 	// ---------------------------------------------------------------------
 	{
@@ -956,7 +965,7 @@ func StoredSettings() []Setting {
 // through the system, rather than alphabetical.
 var SectionOrder = []string{
 	"server", "database", "security", "github", "agent", "runners", "scheduler",
-	"log", "oidc", "metrics", "retention", "limits", "backup", "images", "updates", "capacity_demand",
+	"log", "oidc", "metrics", "status", "retention", "limits", "backup", "images", "updates", "capacity_demand",
 	"provider", "ui",
 }
 

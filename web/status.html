@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <!-- A fleet's status is for the people whose jobs run on it, not for a
+         search engine, whatever server.allow_indexing says about the app. -->
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Fleet status</title>
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+  </head>
+  <body>
+    <div id="status"></div>
+    <noscript>
+      <p>
+        This page needs JavaScript. The same status is at
+        <a href="/api/v1/status">/api/v1/status</a>.
+      </p>
+    </noscript>
+    <script type="module" src="/src/status/main.ts"></script>
+  </body>
+</html>

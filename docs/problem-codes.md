@@ -185,6 +185,9 @@ than about what any one setting says.
 | `capacity_demand.cooldown` | error | `capacity_demand.cooldown` | Must be positive. |
 | `capacity_demand.timeout` | error | `capacity_demand.timeout` | Must be positive. |
 | `metrics.public` | warning | `metrics.public` | The metrics endpoint answers without authentication, so anyone who can reach it learns the shape of the fleet. |
+| `status.public` | warning | `status.mode` | The fleet status at `/status`, `/status.svg` and `/api/v1/status` answers without an account. It names nothing, but anyone who can reach the controller learns that the fleet exists, which release it runs, whether it is blocked, roughly how busy it is and the codes of its current problems. Set `status.mode` to `authenticated` if only people with an account should see it. |
+| `status.public_no_tls` | error | `status.mode` | `status.mode` is `public` on a listener that is not on loopback and does not terminate TLS, so the address it invites people to would carry every sign-in in the clear. Set `server.tls.mode` to `self-signed` or `files`, bind `server.bind` to loopback behind a proxy that terminates TLS, or set `status.mode` to `authenticated`. |
+| `status.mode` | error | `status.mode` | Not a mode. They are `off`, `authenticated` and `public`. |
 | `log.level` | error | `log.level` | Not a level. They are `debug`, `info`, `warn` and `error`. |
 | `log.format` | error | `log.format` | Not a format. They are `text` and `json`. |
 | `log.debug` | info | `log.level` | Debug logging is on, which is loud and includes request detail. |
@@ -350,6 +353,93 @@ that is not a template are *answers*, not failures.
 | `scheduler.registration_concurrency` | error | Credential request concurrency is outside 1–16. | Use 1 by default; increase only with measured need. |
 | `agent.prewarm_timeout` | error | Background preparation budget is outside 1s–15m. | Use 5m by default and restart agents. |
 | `agent.prewarm_jitter` | error | Background preparation stagger is outside 0s–5m. | Use 30s by default, or 0s to disable, and restart agents. |
+
+## What the status page says
+
+When `status.mode` is `authenticated` or `public`, the fleet status at
+`/status` shows each of the fleet's current problems to people who may have
+no account and cannot act on the fleet. They are shown the code and the
+sentence below, never the operator's title, detail or fix, because those
+name the pool, host or repository a problem is about. Only the fleet's codes
+have a sentence: a platform code never reaches the status page at all.
+
+The sentences are held in `publicSentences` in
+`internal/controller/status.go`, and `internal/docs` checks this table
+against it in both directions, word for word.
+
+| Code | What the status page says |
+| --- | --- |
+| `controller.problems_partial` | The controller could not check everything, so this status may be incomplete. |
+| `host.cordoned_with_work` | A machine is being taken out of service once its current jobs finish. |
+| `host.duplicate_agent` | Two machines are claiming to be the same one, so jobs may not be placed on it. |
+| `host.image_pull_failed` | A machine cannot download the runner image, so jobs that need it may wait. |
+| `host.limits_unenforceable` | A machine cannot hold runners to their size, so jobs may run slower than usual. |
+| `host.limits_unverified` | A machine has not yet confirmed it can hold runners to their size. |
+| `host.overprovisioned` | A machine is promised to more runners than it can hold at once. |
+| `host.resources_unknown` | A machine has not reported how much room it has, so it is used cautiously. |
+| `host.runtime_recovering` | A machine's container runtime is recovering, so it is taking no new jobs for now. |
+| `host.shared_folder_unmounted` | A machine keeps no tool cache, so jobs there download their tools again and start slower. |
+| `host.throttled` | A machine is busy enough that it is taking new jobs more slowly. |
+| `host.unhealthy` | A machine has stopped checking in, so fewer jobs can run at once. |
+| `host.version_behind` | A machine is running an older agent than the controller. |
+| `installation.unhealthy` | The fleet has lost a permission it needs on GitHub, so jobs from some repositories cannot start. |
+| `jobs.runner_lost` | A runner stopped while running a job, so that job may fail or need a re-run. |
+| `jobs.unmatched` | Some jobs ask for runner labels this fleet does not offer, so they will wait until the workflow or the fleet changes. |
+| `poller.paused` | The controller has stopped asking GitHub for queued jobs, so a missed notification is not caught. |
+| `poller.stale` | The controller has not heard from GitHub recently, so new jobs may be noticed late. |
+| `pool.cache_above_disk` | A runner cache is set larger than the disk it lives on. |
+| `pool.cache_shared` | A runner cache is shared more widely than usual. |
+| `pool.dangerous` | Some runners are set up with more access to their machine than the safe default. |
+| `pool.docker_client_missing` | Jobs that use Docker may fail because their runner image lacks the Docker client. |
+| `pool.elastic_cpu_unsupported` | Runners cannot borrow spare CPU on some machines, so busy jobs run at their normal size. |
+| `pool.github_rate_limited` | GitHub is limiting how fast the fleet can register runners, so jobs may wait longer. |
+| `pool.host_overcommitted` | Runners are sized to more than their machines have, so jobs may run slower. |
+| `pool.max_above_room` | The fleet is allowed more runners than its machines have room for. |
+| `pool.no_capacity` | No machine has room for some jobs right now, so they wait until one frees up or a machine is added. |
+| `pool.provision_timeout_short` | Runners are given less time to start than they usually need, so some may be retried. |
+| `pool.repository_scale_up_deferred` | Starting runners for some repositories is held back until GitHub allows it. |
+| `pool.resources_unenforced` | Runner sizes are not enforced on some machines. |
+| `pool.runner_group_public_repositories_blocked` | Jobs from public repositories are not allowed on some runners, so they will wait. |
+| `pool.runner_group_unresolved` | Some runners cannot be registered in the group they belong to, so jobs for them wait. |
+| `pool.runners_failing` | Runners are failing to start, so jobs are waiting longer than usual. |
+| `pool.size_strands_hosts` | Runners are sized larger than some machines can hold, so those machines stay idle. |
+| `pool.size_unlimited` | Some runners have no size limit, so one job can slow the others on its machine. |
+| `provider.bootstrap_failed` | A newly rented machine failed to join the fleet. |
+| `provider.contract_unsupported` | The fleet cannot rent machines from one of its providers. |
+| `provider.credentials_refused` | A machine provider refused the fleet's credentials, so no new machines can be added from it. |
+| `provider.delete_pending` | A machine the fleet no longer needs is still being removed. |
+| `provider.machine_failed` | A machine the fleet asked for did not arrive, so jobs may wait for room. |
+| `provider.orphan_found` | A machine provider has a machine the fleet cannot account for. |
+| `provider.ownership_unverified` | The fleet cannot confirm it owns a machine, so it is leaving it alone. |
+| `provider.preflight_failed` | A machine provider failed its checks, so no new machines can be added from it. |
+| `provider.provisioning_paused` | Adding machines is paused, so jobs wait for the machines the fleet already has. |
+| `provider.quota_exhausted` | A machine provider has no more room for the fleet, so jobs wait for the machines it has. |
+| `provider.template_unverified` | A machine template has not been checked yet. |
+| `provider.unreachable` | A machine provider cannot be reached, so no new machines can be added from it. |
+| `provider.unservable` | Some jobs need machines no provider can supply. |
+| `provider.zone_missing` | A machine provider is missing a location the fleet is set to use. |
+| `proxmox.bridge_missing` | A machine provider is missing a network the fleet is set to use. |
+| `proxmox.credentials_refused` | A machine provider refused the fleet's credentials, so no new machines can be added from it. |
+| `proxmox.insecure_tls` | The fleet talks to a machine provider without checking its certificate. |
+| `proxmox.node_missing` | A machine provider is missing a server the fleet is set to use. |
+| `proxmox.node_offline` | A server at a machine provider is offline, so fewer machines can be added. |
+| `proxmox.privilege_missing` | The fleet lacks a permission at a machine provider, so some machines cannot be added. |
+| `proxmox.storage_inactive` | Storage at a machine provider is inactive, so no new machines can be added there. |
+| `proxmox.storage_missing` | A machine provider is missing storage the fleet is set to use. |
+| `proxmox.storage_no_images` | Storage at a machine provider cannot hold machine images. |
+| `proxmox.template_missing` | A machine provider is missing the template new machines are made from. |
+| `proxmox.template_no_agent` | The template new machines are made from cannot report their address. |
+| `proxmox.template_not_a_template` | The template new machines are made from is set up the wrong way. |
+| `proxmox.unreachable` | A machine provider cannot be reached, so no new machines can be added from it. |
+| `proxmox.version_unqualified` | A machine provider runs a version this fleet has not been tested with. |
+| `proxmox.vmid_range` | A machine provider's numbering range is too small for the machines the fleet may need. |
+| `proxmox.vmid_range_reserved` | A machine provider's numbering range overlaps machines the fleet does not own. |
+| `recovery.fenced` | The fleet is recovering from a restore and is not starting new runners yet. |
+| `runners.cleanup_failed` | Some finished runners could not be cleaned up, which uses room new jobs need. |
+| `runners.failed` | Some runners failed, so jobs may wait while they are replaced. |
+| `runners.not_progressing` | Some runners are taking far longer to start than they should, so jobs are waiting. |
+| `webhook.never_received` | The controller has never heard from GitHub directly, so new jobs are noticed late. |
+| `webhook.rejected` | GitHub's notifications are being refused because their signature does not verify, so new jobs are noticed late. |
 
 ## Keeping this list honest
 

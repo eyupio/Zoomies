@@ -629,6 +629,29 @@ runner and host states, the id of each GitHub App installation a call was made
 for, and the build's version and commit are, and together they tell a stranger
 what you run and how busy it is. Prefer giving Prometheus a viewer API token.
 
+### `status.mode: public`
+
+The fleet status at `/status`, the badge at `/status.svg` and the projection at
+`/api/v1/status` answer anyone who can reach the controller. It exists for the
+developer whose job has queued and who has no account: GitHub tells them only
+"queued", and the controller knows whether it is capacity, labels, a lost
+permission or a webhook secret that stopped verifying.
+
+What it discloses is how the fleet is doing, not who it is. It carries no pool,
+host, repository, runner or job name — a test searches its body for every name
+a fixture fleet has — only the fleet's state, the release the controller runs,
+banded counts of queued and running jobs, the queue wait rounded to the minute,
+and the codes of the fleet's current problems with a fixed sentence each.
+Problems about the controller itself — its backups, its lease, its own release
+— are never in it. Together that still tells a stranger that a Zoomies fleet is
+here, which version it runs and when it is struggling, so it is a warning for
+as long as it is on.
+
+On a listener that is not on loopback and does not terminate TLS it is refused
+at startup: `public` invites people to an address that would carry every
+sign-in in the clear. `authenticated` shows the same page to anyone signed in,
+whatever their role, and costs nothing that the rest of the interface does not.
+
 ### `server.allow_indexing: true`
 
 `robots.txt` invites search engines into the interface, advertises

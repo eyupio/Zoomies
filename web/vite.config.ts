@@ -14,6 +14,17 @@ const SHELL_BUDGET = 200 * 1024;
 const ROUTE_BUDGET = 80 * 1024;
 
 /**
+ * The status page's budget, for the whole of it: /status is its own document
+ * (status.html), read by people with no account and often on a phone, and it
+ * is a few words and a poll -- the tokens, one component and the Svelte
+ * runtime. It is built by a second pass (`vite build --mode status`) rather
+ * than as a second input to this one, because two inputs share chunks and a
+ * shared chunk moved bytes into the app shell; built apart, the shell is
+ * exactly what it was.
+ */
+const STATUS_BUDGET = 30 * 1024;
+
+/**
  * Route chunks allowed past the route budget, with the number each is allowed.
  *
  * Named here rather than waved through: xterm.js is a terminal emulator, it is
@@ -30,7 +41,7 @@ function chunkName(file: string): string {
   return file.replace(/^.*\//, '').replace(/\.[^.]+\.(js|css)$/, '');
 }
 
-function budgets(): Plugin {
+function budgets(label: string, limit: number): Plugin {
   return {
     name: 'zoomies-budgets',
     apply: 'build',
@@ -81,10 +92,10 @@ function budgets(): Plugin {
       this.info(
         `gzipped sizes:\n${rows.map(([n, s]) => `  ${kb(s).padStart(9)}  ${n}`).join('\n')}`,
       );
-      this.info(`app shell: ${kb(shell)} of ${kb(SHELL_BUDGET)} budget`);
-      if (shell > SHELL_BUDGET) {
+      this.info(`${label}: ${kb(shell)} of ${kb(limit)} budget`);
+      if (shell > limit) {
         this.error(
-          `app shell is ${kb(shell)} gzipped, over the ${kb(SHELL_BUDGET)} budget in ` +
+          `${label} is ${kb(shell)} gzipped, over the ${kb(limit)} budget in ` +
             `docs/ui-guidelines.md. Move something to a lazily loaded route, or raise the ` +
             `budget deliberately in both places.`,
         );
@@ -102,37 +113,46 @@ function budgets(): Plugin {
 
 const kb = (n: number): string => `${(n / 1024).toFixed(1)} KB`;
 
-export default defineConfig({
-  plugins: [tailwindcss(), svelte(), budgets()],
-  resolve: {
-    alias: { $lib: resolve(import.meta.dirname, 'src/lib') },
-  },
-  build: {
-    // Straight into the directory the Go binary embeds.
-    outDir: '../internal/api/webdist',
-    emptyOutDir: true,
-    target: 'es2022',
-    sourcemap: false,
-    chunkSizeWarningLimit: 300,
-    rollupOptions: {
-      output: {
-        // Content-hashed so the Go server can serve them immutable.
-        entryFileNames: 'assets/[name].[hash].js',
-        chunkFileNames: 'assets/[name].[hash].js',
-        assetFileNames: 'assets/[name].[hash][extname]',
+export default defineConfig(({ mode }) => {
+  const status = mode === 'status';
+  return {
+    plugins: [
+      tailwindcss(),
+      svelte(),
+      status ? budgets('status page', STATUS_BUDGET) : budgets('app shell', SHELL_BUDGET),
+    ],
+    resolve: {
+      alias: { $lib: resolve(import.meta.dirname, 'src/lib') },
+    },
+    build: {
+      // Straight into the directory the Go binary embeds.
+      outDir: '../internal/api/webdist',
+      // The status pass writes beside the app's output, never over it.
+      emptyOutDir: !status,
+      target: 'es2022',
+      sourcemap: false,
+      chunkSizeWarningLimit: 300,
+      rollupOptions: {
+        input: resolve(import.meta.dirname, status ? 'status.html' : 'index.html'),
+        output: {
+          // Content-hashed so the Go server can serve them immutable.
+          entryFileNames: 'assets/[name].[hash].js',
+          chunkFileNames: 'assets/[name].[hash].js',
+          assetFileNames: 'assets/[name].[hash][extname]',
+        },
       },
     },
-  },
-  server: {
-    port: 5173,
-    strictPort: true,
-    proxy: {
-      // `make dev` runs a controller on 8080; the Vite dev server proxies the
-      // API to it so the UI can be developed with hot reload.
-      '/api': { target: 'http://127.0.0.1:8080', changeOrigin: false, ws: false },
-      '/webhooks': { target: 'http://127.0.0.1:8080' },
-      '/metrics': { target: 'http://127.0.0.1:8080' },
-      '/healthz': { target: 'http://127.0.0.1:8080' },
+    server: {
+      port: 5173,
+      strictPort: true,
+      proxy: {
+        // `make dev` runs a controller on 8080; the Vite dev server proxies the
+        // API to it so the UI can be developed with hot reload.
+        '/api': { target: 'http://127.0.0.1:8080', changeOrigin: false, ws: false },
+        '/webhooks': { target: 'http://127.0.0.1:8080' },
+        '/metrics': { target: 'http://127.0.0.1:8080' },
+        '/healthz': { target: 'http://127.0.0.1:8080' },
+      },
     },
-  },
+  };
 });

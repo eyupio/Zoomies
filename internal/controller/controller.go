@@ -287,6 +287,14 @@ type Controller struct {
 	// with a context the controller does not otherwise control.
 	embeddedCancel context.CancelFunc
 
+	// statusMu guards the state the status projection last reported and when
+	// it moved there, which is what its `since` means. It lives in memory:
+	// a restart forgets it, and says so by reporting the restart's own time,
+	// which is an honest lower bound rather than an invented one.
+	statusMu    sync.Mutex
+	statusState FleetState
+	statusSince time.Time
+
 	// derivedMu guards the last published form of the stats and problems
 	// payloads, which the reconcile loop and the housekeeping loop both
 	// compare against, and of each host, which every publisher records so the

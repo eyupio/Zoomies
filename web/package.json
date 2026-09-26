@@ -10,7 +10,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && vite build --mode status",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json --threshold warning",
     "lint": "prettier --check . && eslint .",

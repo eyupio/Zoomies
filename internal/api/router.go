@@ -60,6 +60,18 @@ func (s *Server) routes() http.Handler {
 	r.Get("/robots.txt", s.handleRobots)
 	r.Get("/sitemap.xml", s.handleSitemap)
 
+	// The fleet status, for the reader with no account. Each route decides
+	// for itself, per request, whether status.mode lets this caller in, and
+	// answers 404 while it is off -- so they are mounted unconditionally, and
+	// ahead of the SPA, which would otherwise serve its shell for /status and
+	// the built page for /status.html whatever the setting said.
+	r.Group(func(r chi.Router) {
+		r.Use(s.optionalAuth)
+		r.Get("/status", s.handleStatusPage)
+		r.Get("/status.html", s.handleStatusPage)
+		r.Get("/status.svg", s.handleStatusBadge)
+	})
+
 	// The webhook. Mounted for every method rather than POST alone so that
 	// GitHub's own "wrong method" case gets the controller's message, which
 	// says what the endpoint is for, instead of a bare 405.
@@ -103,6 +115,8 @@ func (s *Server) apiRoutes() chi.Router {
 	r.Group(func(r chi.Router) {
 		r.Use(s.optionalAuth)
 		r.Get("/meta", s.handleMeta)
+		// The name-free status projection, which checks status.mode itself.
+		r.Get("/status", s.handleStatus)
 		r.Post("/auth/bootstrap", s.handleBootstrap)
 		r.Post("/auth/login", s.handleLogin)
 		r.Get("/auth/oidc/start", s.handleOIDCStart)

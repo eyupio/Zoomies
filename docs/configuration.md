@@ -281,6 +281,9 @@ metrics:
   path: /metrics                # ZOOMIES_METRICS_PATH
   public: false                 # ZOOMIES_METRICS_PUBLIC
 
+status:
+  mode: off                     # ZOOMIES_STATUS_MODE  off | authenticated | public; public is warned about
+
 retention:
   jobs: 720h                    # ZOOMIES_RETENTION_JOBS      (30 days)
   runners: 168h                 # ZOOMIES_RETENTION_RUNNERS   (7 days; the row, not the container -- see agent.finished_retention)
@@ -520,6 +523,12 @@ the validator says so with `limits.loopback`.
 | `metrics.enabled` | `ZOOMIES_METRICS_ENABLED` | next restart | Prometheus endpoint — Serve the Prometheus endpoint. |
 | `metrics.path` | `ZOOMIES_METRICS_PATH` | next restart | Metrics path — Where it is served. |
 | `metrics.public` | `ZOOMIES_METRICS_PUBLIC` | next restart | Serve metrics without authentication — Serve it without authentication. Off by default, because job and repository names are visible in the label set. |
+
+### `status`
+
+| Key | Environment | Takes effect | What it is |
+| --- | --- | --- | --- |
+| `status.mode` | `ZOOMIES_STATUS_MODE` | at once | Fleet status page — Who may read the fleet's status at `/status`, `/status.svg` and `/api/v1/status`: nobody (`off`, the default), anyone signed in (`authenticated`), or anyone who can reach this controller (`public`). It carries no names: a state, banded counts, rounded waits and problem codes. `public` raises the `status.public` warning, and is refused with `status.public_no_tls` on a public bind without TLS. |
 
 ### `oidc`
 

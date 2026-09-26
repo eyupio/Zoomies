@@ -172,6 +172,33 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Meta" }
 
+  /status:
+    get:
+      operationId: getFleetStatus
+      tags: [meta]
+      summary: The fleet's name-free status
+      description: |
+        A projection rather than a view: the one response in this API that is
+        deliberately not a resource's `GET` shape. It carries no pool, host,
+        repository, runner or job name -- only a state (from the worst of the
+        fleet's own problems), banded counts, the queue wait rounded to the
+        minute, and each problem's code, severity and start. Platform problems
+        are never in it.
+
+        `status.mode` decides who may read it. `off`, the default, answers 404
+        to everyone; `authenticated` answers anyone signed in, whatever their
+        role, and 401 otherwise; `public` answers anyone. The page at `/status`
+        and the badge at `/status.svg` follow the same setting.
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FleetStatus" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   # ==========================================================================
   # Authentication
   # ==========================================================================
@@ -4273,6 +4300,50 @@ components:
             can put the change one click away.
           items: { $ref: "#/components/schemas/BackendKind" }
           examples: [[podman]]
+        since: { type: string, format: date-time }
+
+    # --- status -----------------------------------------------------------
+    CountBand:
+      type: string
+      enum: [none, few, many, backed_up]
+      description: >-
+        A count said roughly: none, a few (up to five), many, or -- for the
+        queue only -- backed up, meaning more jobs are waiting than the fleet
+        has slots for.
+    FleetStatus:
+      type: object
+      required: [state, since, version, queued, running, median_wait_minutes, p95_wait_minutes, reasons, explanations]
+      properties:
+        state:
+          type: string
+          enum: [healthy, degraded, blocked]
+          description: >-
+            blocked when the worst of the fleet's problems is an error,
+            degraded when it is a warning, healthy otherwise.
+        since:
+          type: string
+          format: date-time
+          description: When this controller first saw the fleet in this state.
+        version: { type: string }
+        queued: { $ref: "#/components/schemas/CountBand" }
+        running: { $ref: "#/components/schemas/CountBand" }
+        median_wait_minutes: { type: integer, description: The median queue wait over the last hour, rounded to the minute. }
+        p95_wait_minutes: { type: integer, description: The 95th-percentile queue wait over the last hour, rounded to the minute. }
+        reasons:
+          type: array
+          description: The fleet's current problems, one per code, worst first.
+          items: { $ref: "#/components/schemas/FleetStatusReason" }
+        explanations:
+          type: object
+          description: The public sentence for each code in reasons, from docs/problem-codes.md.
+          additionalProperties: { type: string }
+    FleetStatusReason:
+      type: object
+      additionalProperties: false
+      required: [code, severity]
+      properties:
+        code: { type: string, examples: [pool.no_capacity] }
+        severity: { type: string, enum: [error, warning] }
         since: { type: string, format: date-time }
 
     # --- meta -------------------------------------------------------------

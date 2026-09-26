@@ -24,6 +24,8 @@ export const SECTION_BLURB: Record<string, string> = {
   log: 'How much the controller says, and in what format.',
   oidc: 'Single sign-on.',
   metrics: 'The Prometheus endpoint.',
+  status:
+    'The fleet status page for people with no account: a state, rough counts and problem codes, never a name.',
   retention: 'How long history is kept before it is pruned. Audit rows are never pruned.',
   limits:
     'The most hosts, pools, runners, join tokens and live-update streams this instance will hold. 0 is unlimited.',

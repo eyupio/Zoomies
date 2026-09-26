@@ -31,6 +31,13 @@ const STUCK_PORT = 8097;
  * reads.
  */
 const CONNECT_PORT = 8096;
+/**
+ * The status project gets its own controller: authentication on, the
+ * diagnostics fleet seeded, and status.mode public. The status page is for a
+ * reader with no account, and under the shared server -- authentication off --
+ * every request is an administrator, so "signed out" could not be tested.
+ */
+const STATUS_PORT = 8095;
 const FAKE_GITHUB_FILE = 'test-results/fakegithub.json';
 
 export default defineConfig({
@@ -51,13 +58,13 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: /(first-run|diagnostics|connect)\.spec\.ts/,
+      testIgnore: /(first-run|diagnostics|connect|status-page)\.spec\.ts/,
     },
     // Read-only monitoring on a phone is a stated requirement, so it is tested.
     {
       name: 'mobile',
       use: { ...devices['Pixel 7'] },
-      testIgnore: /(first-run|diagnostics|connect)\.spec\.ts/,
+      testIgnore: /(first-run|diagnostics|connect|status-page)\.spec\.ts/,
     },
     {
       name: 'first-run',
@@ -68,6 +75,11 @@ export default defineConfig({
       name: 'diagnostics',
       testMatch: /diagnostics\.spec\.ts/,
       use: { ...devices['Desktop Chrome'], baseURL: `http://127.0.0.1:${STUCK_PORT}` },
+    },
+    {
+      name: 'status',
+      testMatch: /status-page\.spec\.ts/,
+      use: { ...devices['Desktop Chrome'], baseURL: `http://127.0.0.1:${STATUS_PORT}` },
     },
     {
       name: 'connect',
@@ -100,6 +112,14 @@ export default defineConfig({
       // Never reused: the spec connects an installation, and a database that
       // already has one answers the question the spec is asking.
       reuseExistingServer: false,
+      timeout: 60_000,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
+    {
+      command: `node tests/support/serve-status.mjs ${STATUS_PORT}`,
+      url: `http://127.0.0.1:${STATUS_PORT}/healthz`,
+      reuseExistingServer: !process.env.CI,
       timeout: 60_000,
       stdout: 'pipe',
       stderr: 'pipe',

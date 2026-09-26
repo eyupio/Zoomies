@@ -13,7 +13,7 @@ import (
 // wrong one, and the first person to find out is an operator who cannot
 // change something they could change yesterday.
 func TestEverySettingBelongsToTheAudienceItsSectionSays(t *testing.T) {
-	platformSections := []string{"server", "security", "log", "backup", "retention", "limits", "updates", "capacity_demand"}
+	platformSections := []string{"server", "security", "log", "backup", "retention", "limits", "updates", "capacity_demand", "status"}
 	// The embedded agent is the controller's own half of agent.*: where this
 	// process puts its work and which daemon it dials. The rest of agent.*
 	// sizes and labels the fleet's runners.
