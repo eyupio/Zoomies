@@ -384,7 +384,7 @@ type ApiResponse = import('@playwright/test').APIResponse;
 const FLEET_ROLES = ['viewer', 'operator', 'admin'] as const;
 const PASSWORD = ADMIN.password;
 /** Set by the platform while each role watches, so the stream has a frame to carry. */
-const BACKUP_DIRECTORY = '/srv/zoomies-platform-backups';
+const BACKUP_DIRECTORY = '/srv/zoomies-admin-backups';
 
 /** What the platform is told and nobody else is. */
 interface PlatformFacts {
