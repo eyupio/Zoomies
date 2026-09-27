@@ -566,6 +566,16 @@ func (s *Service) AllowJoin(ip string) bool { return s.joins.Allow(ip) }
 // carry a Retry-After the agent's own backoff can use.
 func (s *Service) JoinRetryAfter(ip string) time.Duration { return s.joins.RetryAfter(ip) }
 
+// AllowSSOStart reports whether another single sign-on start from this address
+// is within the rate limit, and records it. The login limiter is shared:
+// /auth/oidc/start mints a fresh entry in the bounded state cache on every
+// call, so an unrated endpoint lets one address lock every real SSO sign-in
+// out with ErrTooManyPendingSignIns until states expire.
+func (s *Service) AllowSSOStart(ip string) bool { return s.logins.Allow(ip) }
+
+// SSOStartRetryAfter is the Retry-After the 429 promises.
+func (s *Service) SSOStartRetryAfter(ip string) time.Duration { return s.logins.RetryAfter(ip) }
+
 // Login verifies a password and returns the user together with the plaintext
 // session token the caller should set as a cookie. The token is not stored: the
 // database holds only its SHA-256, so a database leak does not hand over live

@@ -431,6 +431,15 @@ func (s *Server) handleOIDCStart(w http.ResponseWriter, r *http.Request) {
 		s.ssoUnavailable(w)
 		return
 	}
+	// Bound how often an address may open a fresh handshake, or an attacker
+	// fills the pending-state cache (bounded, in memory) in one burst and
+	// every real SSO sign-in comes back ErrTooManyPendingSignIns until states
+	// expire. The login limiter is shared: both endpoints begin a sign-in.
+	ip := ClientIP(r.Context())
+	if !s.auth.AllowSSOStart(ip) {
+		rateLimited(w, auth.ErrRateLimited.Error(), s.auth.SSOStartRetryAfter(ip))
+		return
+	}
 	authURL, state, err := s.oidc.Start()
 	if err != nil {
 		if errors.Is(err, auth.ErrTooManyPendingSignIns) {

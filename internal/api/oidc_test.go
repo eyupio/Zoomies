@@ -113,6 +113,36 @@ func TestOIDCCallbackIsBoundToTheBrowserThatStartedIt(t *testing.T) {
 	}
 }
 
+// The single sign-on start endpoint is unauthenticated and mints a fresh
+// entry in a bounded state cache on every call, so an attacker who can reach
+// it can fill that cache in one burst and lock every real sign-in out with
+// ErrTooManyPendingSignIns until the ten-minute TTL expires. The address is
+// rate-limited on the login limiter for that reason -- both endpoints begin a
+// sign-in -- and the refusal carries the Retry-After the browser can wait on.
+func TestOIDCStartIsRateLimited(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) {
+		issuer := fakeIssuer(t)
+		c.OIDC = config.OIDC{Enabled: true, Issuer: issuer.URL, ClientID: "zoomies", ClientSecret: "secret"}
+		c.Security.RateLimitLogins = 2
+	})
+	if h.api.oidcErr != nil {
+		t.Fatalf("single sign-on did not set up: %v", h.api.oidcErr)
+	}
+	for i := 0; i < 2; i++ {
+		res := h.do(request{method: http.MethodGet, path: "/api/v1/auth/oidc/start"})
+		if res.status != http.StatusFound {
+			t.Fatalf("attempt %d: status = %d, want 302 while inside the limit", i+1, res.status)
+		}
+	}
+	res := h.do(request{method: http.MethodGet, path: "/api/v1/auth/oidc/start"})
+	if res.status != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429 once the limit is spent; body %s", res.status, res.body)
+	}
+	if res.header.Get("Retry-After") == "" {
+		t.Errorf("no Retry-After on the refusal: %v", res.header)
+	}
+}
+
 // With single sign-on on, an administrator can make an account ahead of its
 // owner's first sign-in, which links it by username. The CLI and the Users
 // panel both offer this; the API has to actually allow it.
