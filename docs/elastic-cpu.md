@@ -91,10 +91,52 @@ flowchart TD
 A runner is **demanding** when its latest sample shows it using at least 80% of
 its guarantee, or when its throttling counters rose since the last sample —
 which is the cgroup saying, in its own terms, that the job wanted more than it
-was allowed. Once a runner has been lent CPU and is using it, it keeps the
-boost while it stays above 60% of its guarantee: separate thresholds for
-entering and leaving stop a job that hovers around the line from having its
-quota moved on every heartbeat.
+was allowed.
+
+### Keeping a loan, and giving it back
+
+Once a runner is lent CPU, whether it keeps the loan is judged against the
+loan, not the guarantee. A runner keeps it while it uses its guarantee plus at
+least a quarter of what it was lent. A runner lent two cores above a guarantee
+of two keeps them while it uses 2.5 or more; one that settles at 2.1 is using
+its guarantee and a sliver, and the loan is CPU a neighbour could have had.
+
+Three fresh samples in a row under that line — a minute and a half at the
+default sample interval — and the loan is taken back. One low sample is a link
+step or a test waiting on a socket; three is a job that has settled below what
+it was given. A heartbeat that carries the same sample again counts for
+nothing.
+
+A runner whose loan was taken back **backs off**: it is not lent again for five
+minutes, even though it is filling its guarantee and so looks demanding. That
+is the point — a build that sized itself to a little over its guarantee fills
+its guarantee without a loan and wastes one with it, and without a memory it
+was lent, reclaimed and lent again every few heartbeats. Each loan wasted again
+straight after a backoff doubles the next one, up to half an hour, and a loan
+the runner uses clears the count.
+
+A backoff ends early for one reason: the runner presses against its guarantee
+now, and it did not while it held the wasted loan. A job that used less than
+its guarantee under a loan and now fills it has started doing something else,
+and is lent again at once. A runner that finishes its job starts its next one
+with no memory of the last.
+
+| The runner | The decision |
+| --- | --- |
+| At 80% of its guarantee or more, or throttled at it | Lent CPU |
+| Lent, and using at least a quarter of the loan | Keeps it |
+| Lent, under a quarter of the loan for one or two samples | Keeps it, and is watched |
+| Lent, under a quarter of the loan for three samples | Loan taken back; backs off for five minutes |
+| Backing off, filling its guarantee as it did under the loan | Not lent until the backoff ends |
+| Backing off, filling a guarantee it did not fill under the loan | Lent again at once |
+
+Every decision carries a reason in plain words — *"loan taken back: used at
+most 2.20 CPUs of 4.00 for 3 samples in a row; not lent again for 5m0s unless
+its demand changes"* — and the controller logs it when a loan is taken back or
+a backoff ends early. The decisions metric counts them as the `reclaimed` and
+`backing_off` outcomes. The memory lives in the controller's process: a
+restarted controller forgets a backoff, which costs at most one wasted loan per
+runner.
 
 Only runners that will actually be boosted — an `automatic` pool on an agent
 that can move a quota — share the spare the agent is sent. An `observe` runner
@@ -178,7 +220,7 @@ metrics it publishes:
 
 | Metric | What to look for |
 | --- | --- |
-| `zoomies_elastic_cpu_decisions_total{pool, mode, outcome}` | How often the plan found room. Read `burst` against everything else: `base` is a calm host with nothing to spare, and `host_busy` is a host too busy to lend at all — held, throttled, or high on CPU, load or memory. Both are heartbeats a boost would not have helped, so leaving `host_busy` out would overstate how often one would. `unsupported_agent` says an agent needs upgrading before `automatic` will do anything on its host. |
+| `zoomies_elastic_cpu_decisions_total{pool, mode, outcome}` | How often the plan found room. Read `burst` against everything else: `base` is a calm host with nothing to spare, and `host_busy` is a host too busy to lend at all — held, throttled, or high on CPU, load or memory. Both are heartbeats a boost would not have helped, so leaving `host_busy` out would overstate how often one would. `unsupported_agent` says an agent needs upgrading before `automatic` will do anything on its host. Under `automatic`, `reclaimed` is a loan taken back unused and `backing_off` a runner waiting out its backoff: a pool where they are common has jobs that do not scale past their guarantee, and a lower ceiling suits it. |
 | `zoomies_elastic_cpu_target_factor{pool, mode}` | A histogram of the target divided by the guarantee. A p50 around 1.0 means the host is usually full; a p50 at 2.0 means half of it is routinely idle while a job waits on its quota. |
 
 A pool whose factor histogram never leaves 1.0 gains nothing from `automatic`
@@ -371,8 +413,51 @@ look again:
 
 A job whose workers were sized to its guarantee before the boost arrived keeps
 that many workers, so it saturates its guarantee — which is exactly what makes
-it look demanding — and cannot use the rest. It keeps the boost while it stays
-above 60% of its guarantee, as any demanding runner does.
+it look demanding — and cannot use the rest. Two things now answer that.
+
+**Builds are sized for the ceiling.** A runner of an `automatic` pool starts
+with its toolchains told to size for the pool's CPU ceiling, in whole cores,
+rather than for the guarantee they would read for themselves:
+
+| Variable | Set to | For |
+| --- | --- | --- |
+| `CARGO_BUILD_JOBS` | the ceiling | Cargo's parallel jobs |
+| `DOTNET_PROCESSOR_COUNT` | the ceiling | .NET's `Environment.ProcessorCount` |
+| `JAVA_TOOL_OPTIONS` | `-XX:ActiveProcessorCount=` the ceiling, appended | every JVM the job starts, Gradle and Maven included |
+
+A variable the pool's env or the fleet's `runners.env` already sets is left
+exactly as it is, since that is an operator's explicit answer. `JAVA_TOOL_OPTIONS`
+carries every other JVM flag too, so the processor count is added to the end
+of a value the pool sets, unless that value names a processor count of its own.
+The runner page's **Resource usage** panel says what a runner was sized for,
+as it was when the runner started.
+
+`GOMAXPROCS` is deliberately not set. Go 1.25 and later read the quota at start
+and again as it changes, so a loan reaches them without help, and setting the
+variable would switch that tracking off. Go before 1.25 ignores the quota and
+starts a thread per host core, which is already more than any ceiling.
+
+On a host with nothing to lend, the extra workers share the guarantee, which
+costs a little in context switches and memory — each JVM or Cargo job holds
+its own. A pool whose jobs are memory-tight at their guarantee can turn it
+off: **Size builds for the ceiling** under *Automatic boost* in the wizard,
+`--cpu-burst-size-builds=false` on the command line, or `"size_for_ceiling":
+false` in the pool's `cpu_burst` in the API. It is on by default, applies only
+to `automatic` pools — `observe` lends nothing, so there is nothing to size
+for — and takes effect from the next runner started, never a running one. A
+ceiling no higher than the guarantee sets nothing, because it would say only
+what the toolchain reads for itself.
+
+In a `dind` pool the variables reach the runner container, where a job's own
+steps run. They do not reach the daemon's sidecar, and a `docker build` runs
+its `RUN` steps in containers the daemon starts, with the Dockerfile's
+environment rather than the runner's: pass the count as a build argument
+(`--build-arg CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS`) to size a build inside an
+image.
+
+**An unused loan is taken back.** A job that cannot use its loan is no longer
+allowed to keep it merely by filling its guarantee — see [keeping a loan, and
+giving it back](#keeping-a-loan-and-giving-it-back).
 
 What to check on a host where this happens:
 
@@ -383,12 +468,11 @@ What to check on a host where this happens:
 * **What does the job size itself by?** A step that prints `nproc` and the
   toolchain's own figure — `cargo`'s job count, the JVM's
   `Runtime.availableProcessors()` — shows whether it read the guarantee.
-* **Pin the parallelism to what the host can lend.** Setting the job count
-  explicitly (`CARGO_BUILD_JOBS`, `-XX:ActiveProcessorCount`,
-  `DOTNET_PROCESSOR_COUNT`, `make -j`) to the pool's ceiling lets a build use a
-  boost that arrives after it started. On a host with nothing to lend, the
-  extra workers share the guarantee, which costs little more than context
-  switches.
+* **Is the pool sizing its builds?** The runner page's **Resource usage**
+  panel says so, and `printenv CARGO_BUILD_JOBS` in a step shows it. A pool's
+  own env value wins, so a `CARGO_BUILD_JOBS` set there to the guarantee keeps
+  the old behaviour. `make -j` takes no variable; pass it `$CARGO_BUILD_JOBS`
+  yourself.
 * **Or set a ceiling.** A pool whose jobs cannot use more than their guarantee
   gains nothing from a boost, and a `max_cpus` at the guarantee leaves the spare
   for a runner that can.

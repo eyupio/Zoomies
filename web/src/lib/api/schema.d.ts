@@ -3535,6 +3535,11 @@ export interface components {
              * @description Maximum CPU for one logical runner. Zero uses the host's allocatable CPU as the ceiling. For Docker-in-Docker this covers the runner and sidecar together.
              */
             max_cpus?: number;
+            /**
+             * @description With `automatic`, start each runner with `CARGO_BUILD_JOBS`, `DOTNET_PROCESSOR_COUNT` and `-XX:ActiveProcessorCount` in `JAVA_TOOL_OPTIONS` set to its CPU ceiling in whole cores, because those toolchains size their workers once, at start, and could not otherwise use CPU lent later. A variable the pool's or the fleet's env already sets is left alone. Absent is on; ignored unless the mode is `automatic`.
+             * @default true
+             */
+            size_for_ceiling: boolean;
         };
         /**
          * @description What one pool overrides of the fleet's own runner timings. Every field is optional and every one is nullable, and the three states are distinct: absent leaves whatever the pool already had, `null` clears the override and hands the setting back to the fleet, and a duration sets it. A pool that overrides nothing follows the fleet and keeps following it when the fleet's figure changes, which is why these are not copied onto the pool when it is created.
@@ -4183,6 +4188,8 @@ export interface components {
             ceiling_cpus?: number;
             /** Format: double */
             factor?: number;
+            /** @description The CPU count the runner's toolchains were told to size their workers for when it started (see `CPUBurstPolicy.size_for_ceiling`). Absent when they were told nothing. */
+            sized_for_cpus?: number;
         };
         Runner: {
             id?: string;

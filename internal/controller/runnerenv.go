@@ -1,7 +1,9 @@
 package controller
 
 import (
+	"math"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/config"
@@ -60,4 +62,74 @@ func dockerWait(r config.Runners, pool *store.Pool) time.Duration {
 		return d.Duration()
 	}
 	return r.DockerWait
+}
+
+// The variables that tell a toolchain how many CPUs to size its workers for.
+// Each of these reads the container's CPU quota once, at start, and never
+// again, so a job started at its guarantee has workers for its guarantee and
+// no worker to use a loan that arrives a minute later.
+const (
+	EnvCargoBuildJobs      = "CARGO_BUILD_JOBS"
+	EnvDotnetProcessors    = "DOTNET_PROCESSOR_COUNT"
+	EnvJavaToolOptions     = "JAVA_TOOL_OPTIONS"
+	javaActiveProcessorArg = "-XX:ActiveProcessorCount="
+)
+
+// GOMAXPROCS is deliberately not among them. Go 1.25 and later read the quota
+// at start and again as it changes, so a loan reaches them without help, and
+// pinning GOMAXPROCS would switch that off. Go before 1.25 ignored the quota
+// and started a thread per host core -- more than any ceiling -- so it needs
+// no help either.
+
+// buildSizedCPUs is the CPU count a runner of pool p started on h tells its
+// toolchains to size for: its ceiling, in whole cores, or zero when the pool
+// does not ask for it. It is never below the guarantee, which a ceiling
+// cannot take a runner under.
+func buildSizedCPUs(p *store.Pool, h *store.Host, guarantee float64) int {
+	if p == nil || h == nil || !p.Automatic() || !p.CPUBurst.SizesForCeiling() ||
+		(p.Backend != store.BackendDocker && p.Backend != store.BackendPodman) {
+		return 0
+	}
+	alloc := h.Allocatable()
+	if !alloc.CPUsKnown || alloc.CPUs <= 0 {
+		return 0
+	}
+	ceiling := max(elasticCeiling(p, h, alloc.CPUs), guarantee)
+	// Floored: a worker for a fraction of a core is a worker queued behind the
+	// others, and the guarantee's own rounding already gives the job one.
+	n := int(math.Floor(ceiling + 1e-9))
+	if n < 1 || float64(n) <= guarantee {
+		// A ceiling no higher than the guarantee is what the toolchain would
+		// read for itself; saying it again only hides where it came from.
+		return 0
+	}
+	return n
+}
+
+// withBuildSizing adds the toolchain sizing for n CPUs to env, which is the
+// runner's environment as runnerEnv built it. A variable the fleet or the pool
+// already sets is left as it is: that is an operator's explicit choice. The
+// one exception is JAVA_TOOL_OPTIONS, which carries every other JVM flag too,
+// so the processor count is appended to it unless it already names one.
+func withBuildSizing(env map[string]string, n int) map[string]string {
+	if n <= 0 {
+		return env
+	}
+	if env == nil {
+		env = make(map[string]string, 3)
+	}
+	count := strconv.Itoa(n)
+	for _, k := range []string{EnvCargoBuildJobs, EnvDotnetProcessors} {
+		if _, set := env[k]; !set {
+			env[k] = count
+		}
+	}
+	arg := javaActiveProcessorArg + count
+	switch opts, set := env[EnvJavaToolOptions]; {
+	case !set || strings.TrimSpace(opts) == "":
+		env[EnvJavaToolOptions] = arg
+	case !strings.Contains(opts, "ActiveProcessorCount"):
+		env[EnvJavaToolOptions] = strings.TrimSpace(opts) + " " + arg
+	}
+	return env
 }

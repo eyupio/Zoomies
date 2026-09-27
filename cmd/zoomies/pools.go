@@ -210,6 +210,9 @@ func poolCPUBurstLabel(pool poolItem) string {
 	if mode == "observe" {
 		label = "observe only"
 	}
+	if mode == "automatic" && pool.CPUBurst.SizeForCeiling != nil && !*pool.CPUBurst.SizeForCeiling {
+		label += ", builds sized for the guarantee"
+	}
 	if pool.CPUBurst.MaxCPUs > 0 {
 		return fmt.Sprintf("%s, up to %s CPUs per runner", label, strconv.FormatFloat(pool.CPUBurst.MaxCPUs, 'f', -1, 64))
 	}
@@ -282,6 +285,7 @@ type poolSpec struct {
 	dockerWait        *string
 	cpuBurst          *string
 	cpuBurstMax       *float64
+	sizeBuilds        *bool
 }
 
 // registerPoolFlags declares them, with the API's own defaults so that a
@@ -329,6 +333,7 @@ func registerPoolFlags(fs *flagSet) *poolSpec {
 	spec.scaleUpDelay = fs.String("scale-up-delay", "", "override scheduler.scale_up_delay for this pool (empty follows the fleet; 0 scales the moment a job is queued)")
 	spec.dockerWait = fs.String("docker-wait", "", "override runners.docker_wait for this pool's runners (empty follows the fleet)")
 	spec.cpuBurst = fs.String("cpu-burst", "", "elastic CPU: off, observe (measure without moving a quota) or automatic (lend spare host CPU to busy runners); needs automatic sizing on docker or podman")
+	spec.sizeBuilds = fs.Bool("cpu-burst-size-builds", true, "with --cpu-burst automatic, start runners with CARGO_BUILD_JOBS, DOTNET_PROCESSOR_COUNT and the JVM's processor count set to the ceiling, so a build has workers for CPU lent after it started")
 	spec.cpuBurstMax = fs.Float64("cpu-burst-max", 0, "the most CPU one runner may be lent up to, in cores; 0 is the host's allocatable CPU")
 	return spec
 }
@@ -439,7 +444,7 @@ func (spec *poolSpec) body(fs *flagSet, onlyChanged bool) map[string]any {
 	// The elastic CPU policy is one object for the same reason the size is,
 	// so an edit that types only the ceiling carries the mode forward from
 	// the pool as it stands rather than resetting it to off.
-	if fs.changed("cpu-burst") || fs.changed("cpu-burst-max") {
+	if fs.changed("cpu-burst") || fs.changed("cpu-burst-max") || fs.changed("cpu-burst-size-builds") {
 		mode, ceiling := spec.currentBurst.Mode, spec.currentBurst.MaxCPUs
 		if fs.changed("cpu-burst") {
 			mode = *spec.cpuBurst
@@ -447,7 +452,13 @@ func (spec *poolSpec) body(fs *flagSet, onlyChanged bool) map[string]any {
 		if fs.changed("cpu-burst-max") {
 			ceiling = *spec.cpuBurstMax
 		}
-		body["cpu_burst"] = map[string]any{"mode": mode, "max_cpus": ceiling}
+		burst := map[string]any{"mode": mode, "max_cpus": ceiling}
+		if fs.changed("cpu-burst-size-builds") {
+			burst["size_for_ceiling"] = *spec.sizeBuilds
+		} else if spec.currentBurst.SizeForCeiling != nil {
+			burst["size_for_ceiling"] = *spec.currentBurst.SizeForCeiling
+		}
+		body["cpu_burst"] = burst
 	}
 	return body
 }
@@ -643,7 +654,7 @@ func poolsEdit(ctx context.Context, e *env, args []string) error {
 	// leaves out -- so the pool as it stands is read first. It is read only
 	// when it is needed, so an edit that changes a label costs no extra call.
 	if fs.changed("cpus") || fs.changed("memory-mb") || fs.changed("disk-gb") || fs.changed("pids-limit") ||
-		fs.changed("cpu-burst") || fs.changed("cpu-burst-max") {
+		fs.changed("cpu-burst") || fs.changed("cpu-burst-max") || fs.changed("cpu-burst-size-builds") {
 		var existing poolItem
 		if _, err := client.get(ctx, "/pools/"+url.PathEscape(id), nil, &existing); err != nil {
 			return fmt.Errorf("reading the pool as it stands, which an edit to part of its size or elastic CPU policy has to keep: %w", err)

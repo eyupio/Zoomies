@@ -69,6 +69,7 @@
     sizing: 'automatic' | 'fixed';
     cpu_burst_mode: 'off' | 'observe' | 'automatic';
     cpu_burst_max: string;
+    cpu_burst_size_builds: boolean;
     cpus: string;
     memory_mb: string;
     /** The least a runner may be given where no host has room for the size above; empty is none. */
@@ -134,6 +135,7 @@
       sizing: 'automatic',
       cpu_burst_mode: 'observe',
       cpu_burst_max: '',
+      cpu_burst_size_builds: true,
       cpus: '',
       memory_mb: '',
       min_cpus: '',
@@ -191,6 +193,7 @@
       sizing: pool.sizing === 'fixed' ? 'fixed' : 'automatic',
       cpu_burst_mode: pool.cpu_burst?.mode ?? 'off',
       cpu_burst_max: fromNumber(pool.cpu_burst?.max_cpus),
+      cpu_burst_size_builds: pool.cpu_burst?.size_for_ceiling ?? true,
       cpus: fromNumber(resources.cpus),
       memory_mb: fromNumber(resources.memory_mb),
       min_cpus: fromNumber(resources.min_cpus),
@@ -320,6 +323,7 @@
       cpu_burst: {
         mode: fixed || !elasticBackend ? 'off' : draft.cpu_burst_mode,
         max_cpus: fixed || !elasticBackend ? 0 : (toNumber(draft.cpu_burst_max) ?? 0),
+        size_for_ceiling: draft.cpu_burst_size_builds,
       },
       run_as_root: draft.run_as_root,
       enabled: draft.enabled,

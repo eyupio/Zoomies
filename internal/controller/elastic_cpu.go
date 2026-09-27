@@ -13,10 +13,14 @@ import (
 	"github.com/eyupio/zoomies/internal/store"
 )
 
-const (
-	elasticDemandPercent = 80.0
-	elasticHoldPercent   = 60.0
-)
+// elasticDemandPercent is the share of its guarantee a runner must be using
+// to be lent CPU. Whether it keeps a loan once lent is scheduler.DecideLoan's
+// question, judged against the loan rather than the guarantee.
+const elasticDemandPercent = 80.0
+
+// elasticSaturatedPercent is how much of its own quota the busier half of a
+// docker-in-docker pair must be using to count as pressing against its limit.
+const elasticSaturatedPercent = scheduler.LoanSaturatedShare * 100
 
 // elasticCPUTargets makes one host-wide decision from one coherent heartbeat.
 // Every busy or starting runner is charged its guarantee before any spare CPU
@@ -85,7 +89,13 @@ func (c *Controller) elasticCPUTargets(ctx context.Context, h *store.Host, req a
 	poolByRunner := make(map[string]*store.Pool, len(runners))
 	starting := make(map[string]int)
 	lent := 0.0
+	loanCodes := make(map[string]scheduler.LoanCode)
 	for _, r := range runners {
+		if r != nil && r.State != store.RunnerBusy {
+			// A runner between jobs, or gone, starts its next loan from
+			// nothing: an idle runner's next job is a different job.
+			c.forgetLoan(r.ID)
+		}
 		if r == nil || !r.State.Live() {
 			continue
 		}
@@ -108,6 +118,13 @@ func (c *Controller) elasticCPUTargets(ctx context.Context, h *store.Host, req a
 			w.MaxCPUs = elasticCeiling(p, h, alloc.CPUs)
 			if rep, ok := reports[r.ID]; ok {
 				w.Demanding = elasticCPUDemanding(r, rep.Stats, base, now)
+				if p.CPUBurst.Enforces() && supported {
+					// Only a runner that can really be lent CPU has a loan to
+					// waste; an observing one keeps the plain demand test.
+					d := c.decideLoan(r, p, base, rep.Stats, w.Demanding, now)
+					w.Demanding = d.Lend
+					loanCodes[r.ID] = d.Code
+				}
 			}
 			if p.CPUBurst.Enforces() && supported {
 				a = w
@@ -170,6 +187,12 @@ func (c *Controller) elasticCPUTargets(ctx context.Context, h *store.Host, req a
 		outcome := "base"
 		if target > w.BaseCPUs+0.01 {
 			outcome = "burst"
+		}
+		switch loanCodes[w.ID] {
+		case scheduler.LoanReclaimed:
+			outcome = "reclaimed"
+		case scheduler.LoanBackingOff:
+			outcome = "backing_off"
 		}
 		if p.CPUBurst.Enforces() && !supported {
 			outcome = "unsupported_agent"
@@ -311,21 +334,61 @@ func elasticCPUDemanding(r *store.Runner, current backend.Stats, base float64, n
 	if current.BusiestHalfPercent >= elasticDemandPercent {
 		return true
 	}
+	return throttlingRose(r, current)
+}
+
+// throttlingRose reports whether the cgroup's throttling counters moved since
+// the runner's previous sample: the kernel saying, in its own terms, that the
+// runner wanted more CPU than its quota allowed.
+func throttlingRose(r *store.Runner, current backend.Stats) bool {
 	var previous backend.Stats
 	if len(r.ResourceSample) == 0 || json.Unmarshal(r.ResourceSample, &previous) != nil {
 		return false
-	}
-	// Once lent CPU is doing useful work, keep it until usage falls below a
-	// lower threshold. Separate enter/leave thresholds stop quota flapping on
-	// jobs that hover around the demand boundary.
-	if previous.CPUAllocationFactor > 1 && (current.CPUPercent >= base*elasticHoldPercent || current.BusiestHalfPercent >= elasticHoldPercent) {
-		return true
 	}
 	if previous.CPUThrottling == nil || current.CPUThrottling == nil {
 		return false
 	}
 	return current.CPUThrottling.ThrottledPeriods > previous.CPUThrottling.ThrottledPeriods ||
 		current.CPUThrottling.ThrottledNanoseconds > previous.CPUThrottling.ThrottledNanoseconds
+}
+
+// decideLoan asks the scheduler whether a busy runner of an automatic pool
+// keeps, loses or may be given a loan, and remembers the answer for the next
+// heartbeat. The memory lives in this process only: a restarted controller
+// forgets a backoff, which costs at most one wasted loan per runner, and
+// keeps the store free of a row written on every heartbeat.
+func (c *Controller) decideLoan(r *store.Runner, p *store.Pool, base float64, st backend.Stats, demanding bool, now time.Time) scheduler.LoanDecision {
+	if st.SampledAt == nil || st.SampledAt.After(now) || now.Sub(*st.SampledAt) > store.HostUsageMaxAge {
+		// Nothing current to judge by: no loan, and nothing learned.
+		return scheduler.LoanDecision{Code: scheduler.LoanNotDemanding, Reason: "not lent: no current sample"}
+	}
+	factor := st.CPUAllocationFactor
+	if factor <= 0 {
+		factor = 1
+	}
+	c.loansMu.Lock()
+	defer c.loansMu.Unlock()
+	if c.loans == nil {
+		c.loans = make(map[string]scheduler.LoanMemory)
+	}
+	d := scheduler.DecideLoan(scheduler.LoanInput{
+		Now: now, SampledAt: *st.SampledAt,
+		BaseCPUs: base, LimitCPUs: base * factor, UsedCPUs: st.CPUPercent / 100,
+		Saturated: throttlingRose(r, st) || st.BusiestHalfPercent >= elasticSaturatedPercent,
+		Demanding: demanding, Memory: c.loans[r.ID],
+	})
+	c.loans[r.ID] = d.Memory
+	if d.Code == scheduler.LoanReclaimed || d.Code == scheduler.LoanBackoffOverride {
+		c.log.Info("elastic CPU loan changed", "pool", p.Name, "runner", r.ID, "decision", string(d.Code), "reason", d.Reason)
+	}
+	return d
+}
+
+// forgetLoan drops what is remembered about a runner's loans.
+func (c *Controller) forgetLoan(id string) {
+	c.loansMu.Lock()
+	delete(c.loans, id)
+	c.loansMu.Unlock()
 }
 
 // elasticStartReserve is the one share held back for a compatible queued job.
