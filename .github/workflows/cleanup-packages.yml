@@ -12,11 +12,19 @@ name: Cleanup Old Container Images
 #
 # .github/scripts/ghcr-prune.sh deletes an untagged version only when no
 # tagged or recent version refers to it and it is not an attestation of one
-# being kept, and deletes nothing when it cannot
-# tell. The schedule stays off until a dry run has been read against the live
-# packages; a manual run is a dry run unless asked otherwise.
+# being kept, and deletes nothing when it cannot tell.
+#
+# The dry run was read against the live packages on 2026-09-27 (run
+# 36340551046): zoomies, zoomies-agent, zoomies-runner, zoomies-runner-docker
+# and zoomies-runner-full each had 0 versions it would delete, so none of them
+# was referenced by a current tag or an attestation of one. The daily run
+# therefore deletes for real, keeping anything younger than 14 days; a manual
+# run is still a dry run unless asked otherwise. Image health runs when this
+# finishes, so anything it breaks goes red the same night.
 
 on:
+  schedule:
+    - cron: "47 2 * * *" # daily at 02:47 UTC, a real run
   workflow_dispatch:
     inputs:
       dry_run:
@@ -59,9 +67,9 @@ jobs:
       - name: Delete unreferenced untagged versions
         env:
           GH_TOKEN: ${{ github.token }}
-          DRY_RUN: ${{ inputs.dry_run }}
-          KEEP_DAYS: ${{ inputs.keep_days }}
+          DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || inputs.dry_run }}
+          KEEP_DAYS: ${{ inputs.keep_days || '14' }}
         run: .github/scripts/ghcr-prune.sh "${{ matrix.package }}"
       - name: Check that every tag still pulls
-        if: ${{ !inputs.dry_run }}
+        if: ${{ github.event_name == 'schedule' || !inputs.dry_run }}
         run: .github/scripts/ghcr-check-tags.sh "${{ matrix.package }}" dev latest

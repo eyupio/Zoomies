@@ -12,6 +12,11 @@ on:
     - cron: "17 6 * * *" # daily at 06:17 UTC
   release:
     types: [published]
+  # Straight after the nightly package cleanup, so a deletion that breaks a
+  # tag is caught the same night rather than at 06:17.
+  workflow_run:
+    workflows: [Cleanup Old Container Images]
+    types: [completed]
   workflow_dispatch:
 
 permissions: {}
