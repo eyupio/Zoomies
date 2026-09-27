@@ -35,17 +35,25 @@ jobs:
           - zoomies-runner-full
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Check latest, dev and the newest release
+      - name: Check latest, dev and the release in question
         env:
           GH_TOKEN: ${{ github.token }}
           PACKAGE: ${{ matrix.package }}
+          # The release that triggered this run, prerelease or not. Looking up
+          # "the newest full release" instead would check an older tag and
+          # pass while the new one is broken.
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           set -eu
-          # A release event can run before the image jobs push; give them time.
-          if [ "$GITHUB_EVENT_NAME" = "release" ]; then sleep 1800; fi
-          newest=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases \
-            --limit 1 --json tagName --jq '.[0].tagName')
-          if ! .github/scripts/ghcr-check-tags.sh "$PACKAGE" latest dev "$newest"; then
+          if [ "$GITHUB_EVENT_NAME" = "release" ]; then
+            # The image jobs push after the release is published; give them time.
+            sleep 1800
+            tag=$RELEASE_TAG
+          else
+            tag=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases \
+              --limit 1 --json tagName --jq '.[0].tagName')
+          fi
+          if ! .github/scripts/ghcr-check-tags.sh "$PACKAGE" latest dev "$tag"; then
             echo "::error::ghcr.io/eyupio/$PACKAGE has a tag that no longer pulls. See docs/development/image-recovery.md."
             exit 1
           fi

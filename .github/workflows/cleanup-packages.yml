@@ -51,6 +51,10 @@ jobs:
           - zoomies-runner-full
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The rule it enforces, checked against a fake registry before it is
+      # trusted with the real one.
+      - name: Test the prune
+        run: .github/scripts/ghcr-prune-test.sh
       - name: Delete unreferenced untagged versions
         env:
           GH_TOKEN: ${{ github.token }}
