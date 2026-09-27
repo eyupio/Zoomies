@@ -185,8 +185,9 @@ func TestAQueuedJobOnAnAutomaticPoolIsCreatedReduced(t *testing.T) {
 // and a 4-core, 3 GB machine set to one slot. Its share is 2.8 GB, under the
 // 4 GB a pair nobody sized is held to and over twice the minimum the operator
 // typed, so it runs the pool -- at that share -- and saying so is information,
-// not a reason it cannot. Without a minimum it still cannot, and with one above
-// the share the refusal names the minimum as the operator's to lower.
+// not a reason it cannot. Without a minimum it still cannot, and with one the
+// whole machine cannot cover the refusal names the minimum as the operator's to
+// lower.
 func TestAnAutomaticDinDPoolRunsAtItsMinimumOnASmallHostAndSaysSoAsInformation(t *testing.T) {
 	h := sized("small", 1, 4, hostFor(2867), 100000)
 	withMin := automatic("auto", 0, 1024)
@@ -211,7 +212,7 @@ func TestAnAutomaticDinDPoolRunsAtItsMinimumOnASmallHostAndSaysSoAsInformation(t
 
 	high := automatic("high", 0, 2048)
 	high.DockerMode = store.DockerDinD
-	if got := HostShortfall(h, high); !strings.Contains(got, "less than this pool's minimum of 2 GB a container") {
+	if got := HostShortfall(h, high); !strings.Contains(got, "this pool's minimum of 2 GB a container") {
 		t.Errorf("shortfall = %q, want it to name the pool's own minimum", got)
 	}
 }

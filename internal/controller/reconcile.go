@@ -378,7 +378,11 @@ func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, host *s
 			c.releaseCredentialMint(inst.ID)
 		}
 	}()
-	resources, source := scheduler.Allocation(pool, host, c.cfg().Scheduler.DefaultRunnerLimits)
+	// Sized as the pass sized it, so a minimum the pool follows from the
+	// fleet raises a thin share exactly as one of its own would; the pool
+	// itself is not written.
+	cfg := c.cfg()
+	resources, source := scheduler.Allocation(sizingPool(pool, cfg.Runners), host, cfg.Scheduler.DefaultRunnerLimits)
 	if a.Size != nil {
 		// No host had room for the pool's standard size, and the pass placed
 		// this one smaller, at or above the pool's minimum. The row carries

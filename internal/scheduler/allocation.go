@@ -45,6 +45,10 @@ import (
 // The host's own probe says what its daemon can do, and a probe from an agent
 // too old to say is read as "nothing", which is what every host did before.
 //
+// An automatic pool with a minimum above the slot share is given the minimum
+// instead -- see MinimumSlot -- because a share smaller than the least the
+// operator said a runner may have is a runner set up to be killed.
+//
 // With defaults off the pool's limits are the whole answer, which is what
 // every fleet had before this existed.
 func Allocation(p *store.Pool, h *store.Host, defaults bool) (store.Resources, string) {
@@ -60,6 +64,11 @@ func Allocation(p *store.Pool, h *store.Host, defaults bool) (store.Resources, s
 	limits := hostLimits(h, p.Backend)
 	alloc := h.Allocatable()
 	def := HostShare(h)
+	// A share under the pool's minimum is raised to it, which is what Reserve
+	// charges: the minimum is the least a runner is given, never the most.
+	floor := MinimumSlot(p)
+	def.CPUs = max(def.CPUs, floor.CPUs)
+	def.MemoryMB = max(def.MemoryMB, floor.MemoryMB)
 	if res.CPUs <= 0 && alloc.CPUsKnown && limits.CPU && def.CPUs > 0 {
 		// The share is a request to the daemon, and a daemon refuses a quota
 		// above its own core count whatever the agent's machine has: a

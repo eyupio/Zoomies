@@ -1392,8 +1392,8 @@ func statusFromInspect(h Handle, insp *ContainerInspect) Status {
 // own.
 func oomMessage(insp *ContainerInspect) string {
 	if insp.Config != nil && insp.Config.Labels[LabelLimitsFrom] == store.AllocationFromHost {
-		return "container was killed for exceeding its memory limit, which was the host's default share of its memory; " +
-			"set memory_mb on the pool to give its runners a limit of their own, or lower the host's capacity so each runner's share is larger"
+		return "container was killed for exceeding its memory limit, which was the host's share of its memory, or the pool's minimum where that was more; " +
+			"raise the pool's minimum memory so no runner is given less, set memory_mb on the pool to give its runners a limit of their own, or lower the host's capacity so each runner's share is larger"
 	}
 	return "container was killed for exceeding its memory limit; raise the pool's memory_mb"
 }

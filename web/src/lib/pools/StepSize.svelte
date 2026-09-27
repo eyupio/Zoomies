@@ -211,7 +211,8 @@
 <!--
   The floor under the size. For a fixed size the standard is the figures above
   it, placed wherever a host has room; for an automatic size it is a slot's
-  share of whichever host a runner lands on. Either way the minimum is what a
+  share of whichever host a runner lands on, or the minimum where the share is
+  smaller -- a runner is never given less. Either way the minimum is what a
   host short of that may give instead, so the job runs rather than waiting --
   for a machine that is never coming, or for a whole slot on a host that has a
   free slot and most of one's worth left. Empty follows the fleet's
@@ -224,7 +225,7 @@
       label="Minimum CPU"
       error={errors['resources.min_cpus']}
       hint={automaticSize
-        ? 'Where no host with a free slot has a whole share left, a runner may start with less, down to this. Empty follows the fleet default, if one is set.'
+        ? 'The least a runner is given. A slot share smaller than this is raised to it, and a host with less than a whole share left may start a runner on what it has, down to this. Empty follows the fleet default, if one is set.'
         : 'Where no host has room for the CPU above, a runner may be given less, down to this. Empty follows the fleet default, if one is set.'}
     >
       {#snippet children({ id, describedBy, invalid })}
@@ -250,7 +251,7 @@
       label="Minimum memory"
       error={errors['resources.min_memory_mb']}
       hint={automaticSize
-        ? 'Where no host with a free slot has a whole share left, a runner may start with less, down to this. Empty follows the fleet default, if one is set.'
+        ? 'The least a runner is given. A slot share smaller than this is raised to it, and a host with less than a whole share left may start a runner on what it has, down to this. Empty follows the fleet default, if one is set.'
         : 'Where no host has room for the memory above, a runner may be given less, down to this. Empty follows the fleet default, if one is set.'}
     >
       {#snippet children({ id, describedBy, invalid })}
@@ -276,9 +277,10 @@
   {#if minCpus > 0 || minMemoryMb > 0}
     {#if automaticSize}
       <p class="echo">
-        A runner is given a whole slot's share of its host wherever one is left. Where none is, it
-        goes on the host with a free slot that can spare the most and is given as much as it can,
-        never less than
+        A runner is given a whole slot's share of its host wherever one is left, or the minimum
+        where that is more, and a host whose share is smaller holds fewer runners. Where no whole
+        share is left, it goes on the host with a free slot that can spare the most and is given as
+        much as it can, never less than
         {#if minCpus > 0}<strong>{cpuLabel(minCpus)}</strong
           >{/if}{#if minCpus > 0 && minMemoryMb > 0}
           and

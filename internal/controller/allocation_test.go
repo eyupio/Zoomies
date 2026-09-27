@@ -238,3 +238,44 @@ func TestAnAutomaticPoolWithAMinimumRunsOnWhatIsLeftOfAHost(t *testing.T) {
 		t.Fatalf("task = %+v; the agent would apply something other than what the row records", task)
 	}
 }
+
+// A fleet minimum above a host's slot share is what a runner of a pool that
+// follows it is given, row and task alike: the minimum is the least a runner
+// may have, and a thinner share is raised to it rather than handed out. The
+// fleet figure is not copied into the pool to get there -- the pool keeps
+// following the setting.
+func TestAFleetMinimumAboveTheShareIsWhatTheRunnerIsGiven(t *testing.T) {
+	h := newHarness(t)
+	h.c.UpdateConfig(func(cfg *config.Config) { cfg.Runners.MinimumMemoryMB = 6144 })
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+	pool.MinRunners = 1
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+	// The same machine as TestAPoolWithNoLimitsGetsOneSlotsShareOfItsHost: a
+	// share of 3891 MB, under the 6 GB the fleet says a runner may not go
+	// below.
+	host := h.measuredHost("measured", 8, 16384, 4, enforcesEverything)
+
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	h.c.lifecycleCalls.Wait()
+	r := h.onlyRunner()
+	if r.AllocatedMemoryMB != 6144 || r.AllocatedCPUs != 1.87 || r.AllocationSource != store.AllocationFromHost {
+		t.Fatalf("row allocation = %v CPUs, %d MB from %q; want the 1.87 CPU share and the 6144 MB minimum from %q",
+			r.AllocatedCPUs, r.AllocatedMemoryMB, r.AllocationSource, store.AllocationFromHost)
+	}
+	task := h.taskOfKind(host.ID, agent.TaskCreateRunner)
+	if task.Spec == nil || task.Spec.Resources.MemoryMB != 6144 {
+		t.Fatalf("task spec = %+v; the agent would apply something other than the row's 6144 MB", task.Spec)
+	}
+	stored, err := h.st.GetPool(h.ctx, pool.ID)
+	if err != nil {
+		t.Fatalf("GetPool: %v", err)
+	}
+	if stored.Resources.MinMemoryMB != 0 {
+		t.Errorf("the pool's own minimum is %d MB, want 0: it follows the fleet", stored.Resources.MinMemoryMB)
+	}
+}

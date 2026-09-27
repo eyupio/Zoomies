@@ -60,14 +60,16 @@ func TestAHostSaysItRunsAPoolSmallerOnlyWhenItDoes(t *testing.T) {
 	}
 }
 
-// A CPU minimum the operator typed is theirs to lower, so a host whose share
-// is under it names it -- and, for a pair, that it is needed twice over.
-func TestAShareUnderATypedCPUMinimumNamesIt(t *testing.T) {
+// A CPU minimum the operator typed is theirs to lower, so a machine too small
+// for it names it as what the runner is charged -- and, for a pair, that it is
+// needed twice over. A share under the minimum alone is not a shortfall: the
+// runner is given the minimum (TestAMinimumAboveTheShareIsGivenRatherThanRefused).
+func TestAMinimumTheWholeMachineCannotCoverNamesIt(t *testing.T) {
 	h := sized("thin-cpu", 2, 3, hostFor(32*1024), 100000)
 	p := automatic("auto", 2, 0)
 	p.DockerMode = store.DockerDinD
 	got := HostShortfall(h, p)
-	for _, w := range []string{"allocatable CPU", "less than this pool's minimum of 2 CPU a container", "twice that for a runner and its Docker daemon"} {
+	for _, w := range []string{"CPU to place on", "this pool's minimum of 2 CPU a container", "twice over for a runner and its Docker daemon"} {
 		if !strings.Contains(got, w) {
 			t.Errorf("shortfall = %q, want it to contain %q", got, w)
 		}
