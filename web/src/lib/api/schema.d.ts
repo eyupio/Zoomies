@@ -2215,6 +2215,7 @@ export interface paths {
          *     A token that still works is never touched, so this is safe to run
          *     without reading the list first. Each deletion is audited as
          *     `token.delete`, naming the token's prefix and never its value.
+         *     Giving both `user_id` and `all` is ambiguous and answered with a 422.
          */
         post: operations["purgeTokens"];
         delete?: never;

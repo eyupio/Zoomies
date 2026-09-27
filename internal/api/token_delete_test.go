@@ -198,3 +198,31 @@ func TestDeletingTokensNeedsAnAdministrator(t *testing.T) {
 		}
 	}
 }
+
+// Both at once used to read as "all", so a caller who meant one account's
+// tokens purged every account's. Ambiguity is refused rather than guessed.
+func TestPurgingTokensRefusesBothOneAccountAndAll(t *testing.T) {
+	h := newHarness(t)
+	me, cookie := h.user("root", store.RoleAdmin)
+	other, _ := h.user("colleague", store.RoleAdmin)
+	tok, _, err := h.ctrl.Auth().CreateAPIToken(h.ctx, auth.NewToken{Name: "spent", Role: store.RoleViewer, UserID: me.ID})
+	if err != nil {
+		t.Fatalf("CreateAPIToken: %v", err)
+	}
+	if err := h.ctrl.Auth().RevokeAPIToken(h.ctx, tok.ID); err != nil {
+		t.Fatalf("RevokeAPIToken: %v", err)
+	}
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/tokens/purge", cookie: cookie,
+		body: map[string]any{"user_id": other.ID, "all": true}})
+	resp.mustStatus(t, http.StatusUnprocessableEntity, "purge with both")
+	if !strings.Contains(resp.errorMessage(t), "user_id") {
+		t.Errorf("the refusal does not say what to change: %q", resp.errorMessage(t))
+	}
+	all, err := h.st.ListAPITokens(h.ctx)
+	if err != nil {
+		t.Fatalf("ListAPITokens: %v", err)
+	}
+	if len(all) != 1 {
+		t.Errorf("a refused purge deleted tokens: %d left, want 1", len(all))
+	}
+}

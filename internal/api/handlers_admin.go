@@ -529,6 +529,12 @@ func (s *Server) handlePurgeTokens(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	owner := strings.TrimSpace(req.UserID)
+	// Both at once is ambiguous, and reading it as "all" would purge every
+	// account's tokens for a caller who meant one.
+	if req.All && owner != "" {
+		unprocessable(w, "user_id and all ask different questions; give user_id to purge one account's spent tokens, or all to purge every one", []fieldError{{"all", "cannot be combined with user_id"}})
+		return
+	}
 	if !req.All && owner == "" {
 		id := Identity(r.Context())
 		if id == nil || id.UserID == "" {
