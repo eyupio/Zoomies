@@ -54,16 +54,23 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 			"Add it to server.allowed_origins if that is deliberate.")
 		return
 	}
-	id, err := s.auth.Authenticate(r.Context(), auth.AuthInput{
-		Authorization: r.Header.Get("Authorization"),
-		IP:            ClientIP(r.Context()),
-	})
+	id, err := s.authenticateMCP(r)
 	if err != nil {
 		// The challenge is what tells an MCP client to ask for credentials
-		// rather than give up.
-		w.Header().Set("WWW-Authenticate", `Bearer realm="zoomies"`)
-		unauthorized(w, err.Error()+"; send an API token as Authorization: Bearer zoo_... -- "+
-			"create one with `zoomies tokens create --role viewer` or on the API tokens settings page")
+		// rather than give up. With OAuth on it names the metadata that starts
+		// a browser sign-in; with it off, an API token is the only way in.
+		errCode := ""
+		if hasBearer(r) {
+			errCode = "invalid_token"
+		}
+		w.Header().Set("WWW-Authenticate", s.mcpChallenge(r, errCode))
+		msg := err.Error() + "; send an API token as Authorization: Bearer zoo_... -- " +
+			"create one with `zoomies tokens create --role viewer` or on the API tokens settings page"
+		if s.cfg().MCPOAuthEnabled() {
+			msg = err.Error() + "; sign in through the client's OAuth flow, whose metadata is at " + s.resourceMetadataURL(r) +
+				", or send an API token as Authorization: Bearer zoo_..."
+		}
+		unauthorized(w, msg)
 		return
 	}
 	if info := infoFrom(r.Context()); info != nil {
@@ -71,15 +78,35 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 		info.log = info.log.With("identity", id.String())
 	}
 
-	mcp.New(inProcessAPI{s: s, from: r}, mcp.Options{
+	mcp.New(inProcessAPI{s: s, from: r, as: id}, mcp.Options{
 		Offer: func(tool string) bool {
 			a, ok := mcpToolActions[tool]
 			return ok && auth.Allowed(id, a)
 		},
 		Refusal: func(tool string) string {
+			if id.Kind == auth.KindConnection {
+				return tool + " changes the fleet, and is not offered to this connection: " + auth.Explain(id, mcpToolActions[tool]) +
+					". Disconnect and connect again choosing the operator role to be offered it."
+			}
 			return tool + " changes the fleet, and is not offered to this token: " + auth.Explain(id, mcpToolActions[tool])
 		},
 	}).ServeHTTP(w, r)
+}
+
+// authenticateMCP resolves /mcp's caller: an MCP access token when OAuth is
+// on and the credential is one, and otherwise exactly as the API resolves a
+// bearer token.
+func (s *Server) authenticateMCP(r *http.Request) (*auth.Identity, error) {
+	header := r.Header.Get("Authorization")
+	if tok := auth.BearerToken(header); auth.IsMCPAccessToken(tok) && s.cfg().MCPOAuthEnabled() && !s.cfg().Security.DisableAuth {
+		return s.auth.AuthenticateMCP(r.Context(), s.oauthPolicy(r), tok, ClientIP(r.Context()))
+	}
+	return s.auth.Authenticate(r.Context(), auth.AuthInput{Authorization: header, IP: ClientIP(r.Context())})
+}
+
+func inProcessIdentity(r *http.Request) *auth.Identity {
+	id, _ := r.Context().Value(ctxInProcess).(*auth.Identity)
+	return id
 }
 
 // inProcessAPI is the REST API as the MCP tools see it from inside the
@@ -89,6 +116,10 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 type inProcessAPI struct {
 	s    *Server
 	from *http.Request
+	// as is the /mcp caller. An MCP connection's token is not forwarded: it
+	// is accepted on /mcp alone, and the specification forbids passing it on,
+	// so the route sees the connection's identity instead.
+	as *auth.Identity
 }
 
 func (a inProcessAPI) Call(ctx context.Context, method, path string, q url.Values) ([]byte, error) {
@@ -125,7 +156,12 @@ func (a inProcessAPI) do(ctx context.Context, method, path string, q url.Values,
 	req.RemoteAddr = a.from.RemoteAddr
 	req.Host = a.from.Host
 	req.TLS = a.from.TLS
-	for _, h := range []string{"Authorization", "Forwarded", "X-Forwarded-For", "X-Forwarded-Proto", "X-Forwarded-Host", "X-Real-IP"} {
+	forward := []string{"Authorization", "Forwarded", "X-Forwarded-For", "X-Forwarded-Proto", "X-Forwarded-Host", "X-Real-IP"}
+	if a.as != nil && a.as.Kind == auth.KindConnection {
+		forward = forward[1:]
+		req = req.WithContext(context.WithValue(req.Context(), ctxInProcess, a.as))
+	}
+	for _, h := range forward {
 		if v := a.from.Header.Values(h); len(v) > 0 {
 			req.Header[h] = v
 		}
@@ -135,6 +171,13 @@ func (a inProcessAPI) do(ctx context.Context, method, path string, q url.Values,
 
 	rec := &bufferedResponse{header: http.Header{}, limit: mcpResponseLimit}
 	a.s.handler.ServeHTTP(rec, req)
+	if a.as != nil && a.as.Kind == auth.KindConnection && method != http.MethodGet {
+		// The route audits what it did as the connection already; this row
+		// says it was an MCP tool that asked, and how the route answered,
+		// so a refused attempt is on the record too.
+		a.s.auth.Auditor().Act(ctx, a.as, "mcp_connection.call", "mcp_connection", a.as.ID,
+			map[string]any{"method": method, "path": target, "status": rec.status})
+	}
 	if rec.status >= 400 {
 		return nil, refusalFrom(rec.status, rec.body.Bytes())
 	}

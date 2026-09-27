@@ -493,6 +493,19 @@ type Security struct {
 	// through single sign-on are not asked -- their identity provider owns
 	// their second factor -- and API tokens are not affected.
 	RequireTwoStep bool `yaml:"require_two_step"`
+	// MCPOAuth lets an MCP client -- Claude, added as a connector by URL --
+	// sign a person in through the browser and receive a token for /mcp
+	// alone, with this controller as its own authorisation server. Unset
+	// follows the deployment: on when authentication is on and the controller
+	// is reached over https, which is the only way such a client can reach it
+	// safely. See MCPOAuthEnabled.
+	MCPOAuth *bool `yaml:"mcp_oauth"`
+	// MCPOpenRegistration lets an MCP client register itself -- through
+	// dynamic client registration or a client ID metadata document -- rather
+	// than only use a client an administrator created. A client that
+	// registers itself still cannot do anything until a person signs in and
+	// approves it, which is why it is on by default.
+	MCPOpenRegistration bool `yaml:"mcp_open_registration"`
 }
 
 // GitHub configures the GitHub integration.
@@ -890,6 +903,9 @@ func Default() *Config {
 			EncryptionKeyFile: defaultConfigPath("encryption.key"),
 			SessionTTL:        7 * 24 * time.Hour,
 			RateLimitLogins:   10,
+			// Registration only ever creates a client that has to be approved
+			// by somebody signing in, so being open costs a row, not access.
+			MCPOpenRegistration: true,
 		},
 		GitHub: GitHub{
 			APIBaseURL:                "https://api.github.com",
@@ -1497,6 +1513,35 @@ func (c *Config) WebhookURL() string {
 // CookieSecureValue resolves the tri-state cookie flag.
 func (c *Config) CookieSecureValue() bool {
 	return c.Security.CookieSecure != nil && *c.Security.CookieSecure
+}
+
+// MCPOAuthEnabled reports whether /mcp offers OAuth sign-in to MCP clients.
+//
+// An explicit setting wins, except that there is nothing to sign in to with
+// authentication off. Unset, it is on only when the controller says it is
+// reached over https -- an https external URL, or TLS on its own listener --
+// because the authorisation code and the tokens it is exchanged for would
+// otherwise cross the network readable, and because Claude will not use an
+// authorisation server that is not on https anyway.
+func (c *Config) MCPOAuthEnabled() bool {
+	if c.Security.DisableAuth {
+		return false
+	}
+	if c.Security.MCPOAuth != nil {
+		return *c.Security.MCPOAuth
+	}
+	return c.ReachedOverHTTPS()
+}
+
+// ReachedOverHTTPS reports whether the address this controller is reached at
+// is an https one: its external URL when that is set, otherwise its own
+// listener's TLS mode.
+func (c *Config) ReachedOverHTTPS() bool {
+	if ext := strings.TrimSpace(c.Server.ExternalURL); ext != "" {
+		u, err := url.Parse(ext)
+		return err == nil && strings.EqualFold(u.Scheme, "https") && u.Host != ""
+	}
+	return c.Server.TLS.Mode != "" && c.Server.TLS.Mode != TLSOff
 }
 
 // LikelyReachable reports whether anything other than this machine can reach

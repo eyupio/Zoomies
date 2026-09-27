@@ -152,10 +152,28 @@
   </main>
 {:else if session.phase === 'bootstrap'}
   <main id="main" class="centred"><Bootstrap /></main>
-{:else if !authenticated}
+{:else if !authenticated && !(router.route.bare && router.query.has('error'))}
   <!-- Full bleed, not centred: the sign-in page is a layout of its own, a
        brand panel beside the form, and it fills the window. -->
   <main id="main"><Login /></main>
+{:else if router.route.bare}
+  <!-- A page that stands alone: the MCP consent screen. A refusal it shows
+       needs nobody signed in, because the client's request was the problem,
+       not the person reading it. -->
+  <main id="main" class="centred" tabindex="-1">
+    {#if router.error}
+      <ErrorState
+        error={router.error}
+        title="That page could not be loaded"
+        description="The page's code did not download, and retrying did not help. Check your connection, then try again."
+        onretry={() => location.reload()}
+      />
+    {:else if router.loading || !Page}
+      <div class="bare-skeleton" aria-busy="true"><Skeleton height="320px" /></div>
+    {:else}
+      <Page />
+    {/if}
+  </main>
 {:else}
   <div class="app">
     <Nav menuOpen={navMenuOpen} onmore={() => (navMenuOpen = !navMenuOpen)} />
@@ -228,6 +246,10 @@
     to {
       opacity: 1;
     }
+  }
+  .bare-skeleton {
+    width: 100%;
+    max-width: var(--z-width-dialog-md);
   }
   .brand {
     margin-bottom: var(--z-space-2);

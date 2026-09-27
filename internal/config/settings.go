@@ -43,9 +43,9 @@ const (
 	KindBool Kind = "bool"
 	// KindOptionalBool is on, off, or unset -- and unset is a real answer
 	// rather than a missing one, because the value is derived from something
-	// else. security.cookie_secure is the only one: unset means "follow the
-	// external URL and the TLS mode", which is what an operator wants until
-	// the day they do not.
+	// else. security.cookie_secure is one: unset means "follow the external
+	// URL and the TLS mode", which is what an operator wants until the day
+	// they do not. security.mcp_oauth is the other, for the same reason.
 	KindOptionalBool Kind = "optional_bool"
 	// KindInt is a whole number.
 	KindInt Kind = "int"
@@ -302,6 +302,15 @@ var registry = buildRegistry([]Setting{
 		Key: "security.require_two_step", Label: "Require two-step verification", Env: "ZOOMIES_REQUIRE_TWO_STEP", Kind: KindBool, Scope: ScopePlatform,
 		Summary:       "Make every account that signs in with a password set up an authenticator app at its next sign-in. Accounts that use single sign-on are not asked -- their identity provider owns their second factor -- and API tokens are unaffected.",
 		RestartReason: "the authentication service takes its security settings when it is built",
+	},
+
+	{
+		Key: "security.mcp_oauth", Label: "Sign in to MCP with OAuth", Env: "ZOOMIES_MCP_OAUTH", Kind: KindOptionalBool, Scope: ScopePlatform, Live: true,
+		Summary: "Let an MCP client such as Claude be added by this controller's /mcp address alone and sign a person in through the browser, with this controller as its own OAuth authorisation server. The token it receives works on /mcp and nowhere else, at a role the person chooses and no higher than their own. Unset turns it on when authentication is on and the controller is reached over https.",
+	},
+	{
+		Key: "security.mcp_open_registration", Label: "Let MCP clients register themselves", Env: "ZOOMIES_MCP_OPEN_REGISTRATION", Kind: KindBool, Scope: ScopePlatform, Live: true,
+		Summary: "Let an MCP client register itself -- by dynamic client registration or a client ID metadata document -- rather than only use a client an administrator created under Settings, MCP clients. A client that registers itself can do nothing until a person signs in and approves it. Off, only the clients an administrator created can ask.",
 	},
 
 	// ---------------------------------------------------------------------

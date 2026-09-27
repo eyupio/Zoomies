@@ -68,6 +68,15 @@
   let ssoFailure = $state(
     untrack(() => new URLSearchParams(location.search).get('error')?.trim() ?? ''),
   );
+  /**
+   * The MCP consent screen shows this form in place when nobody is signed
+   * in, and single sign-on leaves the page, so it is told where to come back.
+   */
+  const returnTo = $derived(
+    router.pathname === '/oauth/consent'
+      ? `/oauth/consent?request=${encodeURIComponent(router.param('request'))}`
+      : undefined,
+  );
   let revealed = $state(false);
   let capsLock = $state(false);
   let usernameInput = $state<HTMLInputElement | null>(null);
@@ -566,7 +575,7 @@
 
         {#if meta?.oidc_enabled}
           <div class="divider"><span>or</span></div>
-          <Button href={oidcStartUrl()} size="lg" full
+          <Button href={oidcStartUrl(returnTo)} size="lg" full
             >{meta.oidc_label ?? 'Sign in with SSO'}</Button
           >
         {/if}
