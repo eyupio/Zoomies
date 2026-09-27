@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -154,7 +155,11 @@ func (s *Server) oauthFail(w http.ResponseWriter, r *http.Request, doing string,
 		oauthError(w, oe, basic)
 		return
 	}
-	s.logger(r).Error("an OAuth request failed", "doing", doing, "error", err)
+	// The error text is not logged: these requests carry a client secret and
+	// a code or refresh token, and an error that ever quoted one would put a
+	// live credential in the log. The request ID ties the 500 to the audit
+	// trail and the store's own logging instead.
+	s.logger(r).Error("an OAuth request failed", "doing", doing, "error_type", fmt.Sprintf("%T", err))
 	oauthError(w, &auth.OAuthError{Code: "server_error", Status: http.StatusInternalServerError,
 		Description: "something went wrong while " + doing + "; request " + RequestID(r.Context())}, basic)
 }
