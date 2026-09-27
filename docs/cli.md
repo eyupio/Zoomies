@@ -231,6 +231,22 @@ claude mcp add zoomies \
   -- zoomies mcp
 ```
 
+In PowerShell, run it as one line and quote the `--`: PowerShell does not take
+`\` as a line continuation, and it drops a bare `--` before a script such as
+`claude` sees it, which leaves `-e` to swallow `zoomies mcp` and fails with
+`missing required argument 'commandOrUrl'`. Use the full path to `zoomies.exe`
+if it is not on `PATH`.
+
+```powershell
+zoomies tokens create --name claude-code --role viewer --expires-in 720h
+claude mcp add zoomies -e ZOOMIES_URL=https://zoomies.example.com -e ZOOMIES_TOKEN=zoo_... '--' zoomies mcp
+```
+
+A token made on the **API tokens** settings page works the same way. `claude
+mcp get zoomies` should then show `Command: zoomies` and `Args: mcp`; if an
+earlier attempt stored something else, `claude mcp remove zoomies` and add it
+again.
+
 | Tool | What it answers |
 | --- | --- |
 | `fleet_status` | Queued and running jobs, outcomes, queue wait and pool utilisation over a window. `GET /stats`. |
