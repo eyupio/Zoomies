@@ -234,13 +234,30 @@ claude mcp add zoomies \
 In PowerShell, run it as one line and quote the `--`: PowerShell does not take
 `\` as a line continuation, and it drops a bare `--` before a script such as
 `claude` sees it, which leaves `-e` to swallow `zoomies mcp` and fails with
-`missing required argument 'commandOrUrl'`. Use the full path to `zoomies.exe`
-if it is not on `PATH`.
+`missing required argument 'commandOrUrl'`.
+
+`zoomies mcp` runs on the machine the agent runs on, not on the controller, so
+that machine needs the `zoomies` binary. The `dev` release carries `mcp` until a
+versioned release does. On Windows, fetch it with `curl.exe` — plain `curl` in
+Windows PowerShell is `Invoke-WebRequest` — and give its full path:
 
 ```powershell
-zoomies tokens create --name claude-code --role viewer --expires-in 720h
-claude mcp add zoomies -e ZOOMIES_URL=https://zoomies.example.com -e ZOOMIES_TOKEN=zoo_... '--' zoomies mcp
+New-Item -ItemType Directory -Force "$HOME\bin" | Out-Null
+curl.exe -fL -o "$HOME\bin\zoomies.exe" https://github.com/eyupio/zoomies/releases/download/dev/zoomies_windows_amd64.exe
+& "$HOME\bin\zoomies.exe" mcp --help
+claude mcp add zoomies -e ZOOMIES_URL=https://zoomies.example.com -e ZOOMIES_TOKEN=zoo_... '--' "$HOME\bin\zoomies.exe" mcp
 ```
+
+On macOS or Linux, the same file for the platform — `zoomies_darwin_arm64`,
+`zoomies_darwin_amd64`, `zoomies_linux_amd64` or `zoomies_linux_arm64`:
+
+```sh
+mkdir -p ~/.local/bin
+curl -fL -o ~/.local/bin/zoomies https://github.com/eyupio/zoomies/releases/download/dev/zoomies_darwin_arm64
+chmod +x ~/.local/bin/zoomies
+```
+
+`checksums.txt` on the same release lists each file's SHA-256.
 
 A token made on the **API tokens** settings page works the same way. `claude
 mcp get zoomies` should then show `Command: zoomies` and `Args: mcp`; if an
