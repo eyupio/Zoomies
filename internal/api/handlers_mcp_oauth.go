@@ -574,7 +574,14 @@ func (s *Server) handleRotateMCPClientSecret(w http.ResponseWriter, r *http.Requ
 		s.fail(w, r, "rotating an MCP client's secret", err)
 		return
 	}
-	out := newMCPClient(c, 0)
+	// The connections are the client's as they were: rotating a secret ends
+	// none of them, and a response that said 0 would tell the page otherwise.
+	counts, err := s.ctrl.Store().CountOAuthGrantsByClient(r.Context())
+	if err != nil {
+		s.internal(w, r, "counting MCP connections", err)
+		return
+	}
+	out := newMCPClient(c, counts[c.ID])
 	out.ClientSecret = secret
 	writeJSON(w, http.StatusOK, out)
 }
