@@ -221,8 +221,9 @@ Serves the fleet to a coding agent over the
 and output. The agent's MCP configuration starts it; it is not a command to
 run by hand. It is an API client like every other command here: it takes the
 same `--url`, `--token` and `ZOOMIES_*` credentials, calls the documented
-routes, and adds nothing to the controller — no route, no setting, no
-authority beyond the token's.
+routes, and has no authority beyond the token's. An agent that can reach the
+controller over HTTPS can skip the binary and
+[connect to the controller directly](#straight-to-the-controller) instead.
 
 ```sh
 zoomies tokens create --name claude-code --role viewer --expires-in 720h
@@ -275,6 +276,41 @@ again.
 | `rerun_job` | Only with `--allow-actions`. `POST /jobs/{id}/rerun`; needs `operator`. |
 | `drain_runner` | Only with `--allow-actions`. `POST /runners/{id}/drain`, never with `confirm`, so a busy runner is refused rather than having its job stopped; needs `operator`. |
 
+#### Straight to the controller
+
+The controller serves the same tools itself at `/mcp`, over MCP's Streamable
+HTTP transport, so an agent that can reach it — a cloud session, a hosted
+agent, a laptop that would rather not install the binary — needs only the URL
+and a token:
+
+```sh
+claude mcp add --transport http zoomies https://zoomies.example.com/mcp \
+  --header "Authorization: Bearer zoo_..."
+```
+
+Or in a project's `.mcp.json`, reading the token from the environment so that
+it is never committed:
+
+```json
+{
+  "mcpServers": {
+    "zoomies": {
+      "type": "http",
+      "url": "https://zoomies.example.com/mcp",
+      "headers": { "Authorization": "Bearer ${ZOOMIES_TOKEN}" }
+    }
+  }
+}
+```
+
+It takes a bearer token and nothing else — a browser session is refused — and
+every tool is the documented route called with that token, so the controller
+applies the token's role and scopes to each call exactly as it would to the
+CLI's. There is no `--allow-actions` here: `rerun_job` and `drain_runner` are
+offered when the token's role reaches them and not otherwise, so a `viewer`
+token is a read-only agent. A client that can only sign in with OAuth, such as
+the connectors page on claude.ai, cannot use it yet.
+
 Give it a `viewer` token, narrowed with `--scope` if the agent only needs some
 of the fleet. `--allow-actions` offers the two actions to the agent but grants
 nothing: a viewer token's re-run is still refused by the controller, and the
@@ -285,8 +321,9 @@ open a pull request can write — so they are prompt-injection material for the
 agent reading them. The server tells the agent so when it connects, and
 returns a log in a block of its own after a notice saying it is untrusted, so
 the log's own text cannot pass itself off as Zoomies speaking. That is why the
-actions are off by default: an agent that reads logs and can also act is an
-agent a pull request can try to steer.
+actions are off by default, and why the token for `/mcp` should be a `viewer`
+one unless the agent is meant to act: an agent that reads logs and can also
+act is an agent a pull request can try to steer.
 
 ## Setting up and looking around
 

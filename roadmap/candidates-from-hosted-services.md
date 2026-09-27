@@ -44,7 +44,16 @@ and the sections keep their original text so the reasoning stays readable:
 * **#8.** Built as sketched: `zoomies mcp`, a stdio MCP server that is a
   thin client of the REST API, read-only unless started with
   `--allow-actions`, with runner logs returned as a separate block marked
-  untrusted. See [cli.md](../docs/cli.md#zoomies-mcp).
+  untrusted. See [cli.md](../docs/cli.md#zoomies-mcp). The controller now
+  serves the same tools at `/mcp` over Streamable HTTP, for agents that reach
+  it directly: bearer tokens only, every tool a call back into the REST routes
+  with the caller's token, and the actions offered as far as that token's role
+  reaches. That reverses the sketch's "not inside the controller" on the
+  transport only — the authority rule holds, because nothing the endpoint does
+  bypasses a route. **Next:** OAuth 2.1 for `/mcp` (protected-resource
+  metadata, an authorisation server with dynamic client registration and
+  PKCE, consent through the existing sign-in), which is what a client that
+  cannot send a static header — the claude.ai connectors page — needs.
 
 #11, invite links, is still open exactly as written.
 
@@ -59,7 +68,7 @@ and the sections keep their original text so the reasoning stays readable:
 | 5 | CI analytics | Largely built (Usage page, ZF-209, ZF-223) | Modified | S–M |
 | 6 | Right-sizing suggestions | Data built; suggestion new | Yes | M |
 | 7 | Notifications | New | Modified | M |
-| 8 | MCP server | Built (`zoomies mcp`) | Modified | M |
+| 8 | MCP server | Built (`zoomies mcp`, and `/mcp` with bearer tokens); OAuth next | Modified | M |
 | 9 | `zoomies run` | New | Modified | M |
 | 10 | Image parity and software list | Partly built (inventory JSON, catalogue) | Yes | S–M |
 | 11 | Team roles and invite links | Roles built (four, ZF-207); invites new | Modified | S |
