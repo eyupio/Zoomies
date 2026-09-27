@@ -15,7 +15,9 @@ type beat struct {
 	saturated bool
 	demanding bool
 	stale     bool // the same sample as the previous heartbeat
-	want      LoanCode
+	// holderBase and holderUsed are a docker-in-docker pair's busier half.
+	holderBase, holderUsed float64
+	want                   LoanCode
 }
 
 // Each case is a runner followed across heartbeats, because what this rule
@@ -30,6 +32,20 @@ func TestDecideLoanFollowsARunnerAcrossHeartbeats(t *testing.T) {
 	}{
 		{"a runner using its guarantee is lent", []beat{
 			{after: 0, limit: 2, used: 1.9, demanding: true, want: LoanLend},
+		}},
+		// Codex review: the pair's sum counts the idle half's share as if it
+		// were the loan's, and read a daemon using two lent cores as a loan
+		// barely touched.
+		{"a docker-in-docker daemon using its loan keeps it though the pair's sum is low", []beat{
+			{after: 0, limit: 4, used: 2.4, holderBase: 1, holderUsed: 2.3, want: LoanInUse},
+			{after: s, limit: 4, used: 2.4, holderBase: 1, holderUsed: 2.3, want: LoanInUse},
+			{after: 2 * s, limit: 4, used: 2.4, holderBase: 1, holderUsed: 2.3, want: LoanInUse},
+			{after: 3 * s, limit: 4, used: 2.4, holderBase: 1, holderUsed: 2.3, want: LoanInUse},
+		}},
+		{"a docker-in-docker pair whose busier half ignores its loan loses it", []beat{
+			{after: 0, limit: 4, used: 2.6, holderBase: 1, holderUsed: 1.1, want: LoanWatching},
+			{after: s, limit: 4, used: 2.6, holderBase: 1, holderUsed: 1.1, want: LoanWatching},
+			{after: 2 * s, limit: 4, used: 2.6, holderBase: 1, holderUsed: 1.1, want: LoanReclaimed},
 		}},
 		{"a quiet runner is not lent", []beat{
 			{after: 0, limit: 2, used: 0.4, want: LoanNotDemanding},
@@ -104,6 +120,7 @@ func TestDecideLoanFollowsARunnerAcrossHeartbeats(t *testing.T) {
 				}
 				d := DecideLoan(LoanInput{
 					Now: now, SampledAt: sampled, BaseCPUs: base, LimitCPUs: b.limit, UsedCPUs: b.used,
+					HolderBaseCPUs: b.holderBase, HolderUsedCPUs: b.holderUsed,
 					Saturated: b.saturated, Demanding: b.demanding, Memory: m,
 				})
 				if d.Code != b.want {

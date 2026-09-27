@@ -261,7 +261,7 @@ type Controller struct {
 	// loans is what elastic CPU remembers about each busy runner's loan
 	// between heartbeats -- see decideLoan.
 	loansMu      sync.Mutex
-	loans        map[string]scheduler.LoanMemory
+	loans        map[string]loanEntry
 	leaseRenewed atomic.Pointer[time.Time]
 	// privateFault is the private-connection listener's state, set by the API
 	// server that owns it; see SetPrivateConnectionFault.

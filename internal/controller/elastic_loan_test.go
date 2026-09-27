@@ -177,3 +177,82 @@ func TestACreateTaskOfAnAutomaticPoolSizesBuildsForTheCeiling(t *testing.T) {
 		t.Fatalf("the runner row says it was sized for %d CPUs, want 6", r.SizedForCPUs)
 	}
 }
+
+// Codex review: an ephemeral runner goes from busy to removed without ever
+// being idle, and its loan memory was forgotten only for a runner seen idle.
+// A fleet of short jobs grew the map by one entry per job, for as long as the
+// controller ran.
+func TestLoanMemoryDoesNotOutliveEphemeralRunners(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	pool.CPUBurst = store.CPUBurstPolicy{Mode: store.CPUBurstAutomatic}
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	start := h.c.Now()
+	for i := range 50 {
+		runner := h.runnerRow(pool, host, store.RunnerBusy)
+		runner.AllocatedCPUs = 2
+		runner.AllocationSource = store.AllocationFromHost
+		if err := h.st.UpdateRunner(h.ctx, runner); err != nil {
+			t.Fatal(err)
+		}
+		now := start.Add(time.Duration(i) * 30 * time.Second)
+		cpu := 20.0
+		host.Usage = store.HostUsage{CPUPercent: &cpu, SampledAt: now}
+		sampled := now
+		h.c.elasticCPUTargets(h.ctx, host, agent.HeartbeatRequest{
+			Features: []string{agent.FeatureElasticCPU},
+			Runners: []agent.RunnerReport{{RunnerID: runner.ID, Stats: backend.Stats{
+				SampledAt: &sampled, CPUPercent: 195, CPUAllocationFactor: 1,
+			}}},
+		}, now)
+		// Straight from busy to removed, as an ephemeral runner goes.
+		runner.State = store.RunnerRemoved
+		if err := h.st.UpdateRunner(h.ctx, runner); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h.c.loansMu.Lock()
+	n := len(h.c.loans)
+	h.c.loansMu.Unlock()
+	if n > 1 {
+		t.Fatalf("loan memory holds %d entries after 50 ephemeral runners came and went, want at most the last", n)
+	}
+}
+
+// Codex review: a docker-in-docker pair's loan goes to its busier half, and
+// judged on the pair's sum a daemon using its lent cores was taken back.
+func TestADinDDaemonUsingItsLoanKeepsIt(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	pool.DockerMode = store.DockerDinD
+	pool.CPUBurst = store.CPUBurstPolicy{Mode: store.CPUBurstAutomatic}
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	runner := h.runnerRow(pool, host, store.RunnerBusy)
+	runner.AllocatedCPUs = 2
+	runner.AllocationSource = store.AllocationFromHost
+	if err := h.st.UpdateRunner(h.ctx, runner); err != nil {
+		t.Fatal(err)
+	}
+	start := h.c.Now()
+	for i := range 6 {
+		now := start.Add(time.Duration(i) * 30 * time.Second)
+		cpu := 20.0
+		host.Usage = store.HostUsage{CPUPercent: &cpu, SampledAt: now}
+		sampled := now
+		// Lent two cores above a pair guarantee of two: the daemon, on a
+		// one-core half, uses 2.3 of its 3; the runner half idles.
+		d := h.c.elasticCPUTargets(h.ctx, host, agent.HeartbeatRequest{
+			Features: []string{agent.FeatureElasticCPU},
+			Runners: []agent.RunnerReport{{RunnerID: runner.ID, Stats: backend.Stats{
+				SampledAt: &sampled, CPUPercent: 240, CPUAllocationFactor: 2, BusiestHalfPercent: 230,
+			}}},
+		}, now)
+		if len(d) != 1 {
+			t.Fatalf("heartbeat %d: a daemon using its loan lost it", i)
+		}
+	}
+}

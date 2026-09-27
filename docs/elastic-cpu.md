@@ -101,6 +101,12 @@ least a quarter of what it was lent. A runner lent two cores above a guarantee
 of two keeps them while it uses 2.5 or more; one that settles at 2.1 is using
 its guarantee and a sliver, and the loan is CPU a neighbour could have had.
 
+A `dind` pair's loan goes to its busier half alone, so that half is what is
+judged: its own use against its own half of the slot plus a quarter of the
+loan. A daemon building on two lent cores keeps them while the runner half
+beside it idles, where the pair's sum would have read the loan as barely
+touched.
+
 Three fresh samples in a row under that line — a minute and a half at the
 default sample interval — and the loan is taken back. One low sample is a link
 step or a test waiting on a socket; three is a job that has settled below what

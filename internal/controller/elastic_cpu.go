@@ -53,6 +53,15 @@ func (c *Controller) elasticCPUTargets(ctx context.Context, h *store.Host, req a
 		c.log.Warn("could not plan elastic CPU for a host", "host", h.ID, "error", err)
 		return nil
 	}
+	// A runner between jobs, or gone, starts its next loan from nothing: an
+	// idle runner's next job is a different job.
+	busy := make(map[string]bool, len(runners))
+	for _, r := range runners {
+		if r != nil && r.State == store.RunnerBusy {
+			busy[r.ID] = true
+		}
+	}
+	c.sweepLoans(h.ID, busy)
 	// This runs on every heartbeat of every host, so it stops as soon as there
 	// is nothing to decide: before the fleet-wide pool read when the host runs
 	// nothing, and before any plan or record when nothing here is elastic.
@@ -91,11 +100,6 @@ func (c *Controller) elasticCPUTargets(ctx context.Context, h *store.Host, req a
 	lent := 0.0
 	loanCodes := make(map[string]scheduler.LoanCode)
 	for _, r := range runners {
-		if r != nil && r.State != store.RunnerBusy {
-			// A runner between jobs, or gone, starts its next loan from
-			// nothing: an idle runner's next job is a different job.
-			c.forgetLoan(r.ID)
-		}
 		if r == nil || !r.State.Live() {
 			continue
 		}
@@ -366,29 +370,56 @@ func (c *Controller) decideLoan(r *store.Runner, p *store.Pool, base float64, st
 	if factor <= 0 {
 		factor = 1
 	}
-	c.loansMu.Lock()
-	defer c.loansMu.Unlock()
-	if c.loans == nil {
-		c.loans = make(map[string]scheduler.LoanMemory)
-	}
-	d := scheduler.DecideLoan(scheduler.LoanInput{
+	in := scheduler.LoanInput{
 		Now: now, SampledAt: *st.SampledAt,
 		BaseCPUs: base, LimitCPUs: base * factor, UsedCPUs: st.CPUPercent / 100,
 		Saturated: throttlingRose(r, st) || st.BusiestHalfPercent >= elasticSaturatedPercent,
-		Demanding: demanding, Memory: c.loans[r.ID],
-	})
-	c.loans[r.ID] = d.Memory
+		Demanding: demanding,
+	}
+	if p.DockerMode == store.DockerDinD && r.AllocationSource == store.AllocationFromHost && st.BusiestHalfPercent > 0 {
+		// The pair's loan is given to its busier half alone, so that half is
+		// what is judged. A host-sized pair splits its slot evenly (see
+		// store.Resources.SplitWithDaemon), and BusiestHalfPercent is that
+		// half's use of its own share. An agent too old to report it leaves
+		// the pair judged on its sum, as it always was.
+		half, _ := store.Resources{CPUs: base}.SplitWithDaemon()
+		in.HolderBaseCPUs = half.CPUs
+		in.HolderUsedCPUs = st.BusiestHalfPercent / 100 * half.CPUs
+	}
+	c.loansMu.Lock()
+	defer c.loansMu.Unlock()
+	if c.loans == nil {
+		c.loans = make(map[string]loanEntry)
+	}
+	in.Memory = c.loans[r.ID].memory
+	d := scheduler.DecideLoan(in)
+	c.loans[r.ID] = loanEntry{host: r.HostID, memory: d.Memory}
 	if d.Code == scheduler.LoanReclaimed || d.Code == scheduler.LoanBackoffOverride {
 		c.log.Info("elastic CPU loan changed", "pool", p.Name, "runner", r.ID, "decision", string(d.Code), "reason", d.Reason)
 	}
 	return d
 }
 
-// forgetLoan drops what is remembered about a runner's loans.
-func (c *Controller) forgetLoan(id string) {
+// loanEntry is one runner's loan memory and the host it runs on, which is
+// what lets a host's plan sweep entries for runners it no longer lists.
+type loanEntry struct {
+	host   string
+	memory scheduler.LoanMemory
+}
+
+// sweepLoans drops the loan memory of every runner of host that is not busy
+// in this plan. A runner that went straight from busy to gone -- every
+// ephemeral runner, once its job ends -- is never seen idle, and may no
+// longer be listed at all; keyed only by what the listing returned, its entry
+// would outlive it for as long as the controller ran.
+func (c *Controller) sweepLoans(host string, busy map[string]bool) {
 	c.loansMu.Lock()
-	delete(c.loans, id)
-	c.loansMu.Unlock()
+	defer c.loansMu.Unlock()
+	for id, e := range c.loans {
+		if e.host == host && !busy[id] {
+			delete(c.loans, id)
+		}
+	}
 }
 
 // elasticStartReserve is the one share held back for a compatible queued job.

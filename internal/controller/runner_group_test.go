@@ -114,6 +114,10 @@ func TestAPoolOnARepositoryTargetIsToldRunnerGroupsAreAnOrganisationThing(t *tes
 	if err := h.c.Reconcile(h.ctx); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
+	// The warning is noted while the runner's credential is minted, which
+	// runs detached from the pass; reading problems before it finishes read
+	// them before the warning existed, and failed whenever it lost the race.
+	h.c.lifecycleCalls.Wait()
 
 	w := runnerGroupWarning(h, pool.ID)
 	if w == nil {

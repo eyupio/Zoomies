@@ -75,6 +75,14 @@ type LoanInput struct {
 	BaseCPUs  float64
 	LimitCPUs float64
 	UsedCPUs  float64
+	// HolderBaseCPUs and HolderUsedCPUs are the guarantee and use of the
+	// container the loan is actually given to, where that is not the whole
+	// runner: a docker-in-docker pair's loan goes to its busier half alone,
+	// so the pair's sum -- the idle half's share included -- would read a
+	// daemon using two lent cores as a loan barely touched. Zero means the
+	// runner is one container, and BaseCPUs and UsedCPUs are the holder's.
+	HolderBaseCPUs float64
+	HolderUsedCPUs float64
 	// Saturated is a signal besides UsedCPUs that the runner is pressing
 	// against its limit: the cgroup's throttling counters rose, or the busier
 	// half of a docker-in-docker pair is at its own quota.
@@ -168,20 +176,24 @@ func DecideLoan(in LoanInput) LoanDecision {
 		if fresh {
 			m.PeakCPUs = max(m.PeakCPUs, in.UsedCPUs)
 		}
-		floor := in.BaseCPUs + LoanInUseShare*loan
-		if in.UsedCPUs >= floor {
+		holderBase, holderUsed := in.BaseCPUs, in.UsedCPUs
+		if in.HolderBaseCPUs > 0 {
+			holderBase, holderUsed = in.HolderBaseCPUs, in.HolderUsedCPUs
+		}
+		floor := holderBase + LoanInUseShare*loan
+		if holderUsed >= floor {
 			m.LowSamples, m.Strikes, m.WastedAt, m.WastedPeakCPUs = 0, 0, time.Time{}, 0
 			return LoanDecision{Lend: true, Code: LoanInUse, Memory: m, Reason: fmt.Sprintf(
-				"keeps its loan: using %.2f CPUs of %.2f, at least a quarter of the %.2f lent above its %.2f guarantee",
-				in.UsedCPUs, in.LimitCPUs, loan, in.BaseCPUs)}
+				"keeps its loan: using %.2f CPUs where the loan is, at least a quarter of the %.2f lent above a %.2f share",
+				holderUsed, loan, holderBase)}
 		}
 		if fresh {
 			m.LowSamples++
 		}
 		if m.LowSamples < LoanReclaimSamples {
 			return LoanDecision{Lend: true, Code: LoanWatching, Memory: m, Reason: fmt.Sprintf(
-				"keeps its loan for now: using %.2f CPUs, under %.2f, for %d of %d samples before it is taken back",
-				in.UsedCPUs, floor, m.LowSamples, LoanReclaimSamples)}
+				"keeps its loan for now: using %.2f CPUs where the loan is, under %.2f, for %d of %d samples before it is taken back",
+				holderUsed, floor, m.LowSamples, LoanReclaimSamples)}
 		}
 		m.Strikes++
 		m.WastedAt, m.WastedPeakCPUs = in.Now, m.PeakCPUs
