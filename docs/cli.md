@@ -214,6 +214,47 @@ It needs an admin token, because the document contains the settings section.
 | `tokens create` | `--name`, `--role`, repeatable `--scope`, `--expires-in`. Printed once; only its hash is kept. |
 | `tokens revoke <token-id>` | Immediate. |
 
+### `zoomies mcp`
+
+Serves the fleet to a coding agent over the
+[Model Context Protocol](https://modelcontextprotocol.io), on standard input
+and output. The agent's MCP configuration starts it; it is not a command to
+run by hand. It is an API client like every other command here: it takes the
+same `--url`, `--token` and `ZOOMIES_*` credentials, calls the documented
+routes, and adds nothing to the controller — no route, no setting, no
+authority beyond the token's.
+
+```sh
+zoomies tokens create --name claude-code --role viewer --expires-in 720h
+claude mcp add zoomies \
+  -e ZOOMIES_URL=https://zoomies.example.com -e ZOOMIES_TOKEN=zoo_... \
+  -- zoomies mcp
+```
+
+| Tool | What it answers |
+| --- | --- |
+| `fleet_status` | Queued and running jobs, outcomes, queue wait and pool utilisation over a window. `GET /stats`. |
+| `list_problems` | Everything the controller thinks is wrong, with what to do. `GET /problems`. |
+| `list_jobs` | Jobs, with the same filters as `zoomies jobs list`: `failed`, `ours`, `theirs`, `unmatched`, `repo`, `since`. |
+| `get_job` | One job, its timeline and the controller's explanation, as one document. |
+| `get_runner_log` | The last lines of a runner's output, while the runner still exists. |
+| `list_runners`, `list_pools`, `list_hosts` | The fleet's resources as their `GET` routes return them. |
+| `rerun_job` | Only with `--allow-actions`. `POST /jobs/{id}/rerun`; needs `operator`. |
+| `drain_runner` | Only with `--allow-actions`. `POST /runners/{id}/drain`, never with `confirm`, so a busy runner is refused rather than having its job stopped; needs `operator`. |
+
+Give it a `viewer` token, narrowed with `--scope` if the agent only needs some
+of the fleet. `--allow-actions` offers the two actions to the agent but grants
+nothing: a viewer token's re-run is still refused by the controller, and the
+agent is told which role was missing.
+
+A workflow's log, and its job, step and branch names, are text anyone who can
+open a pull request can write — so they are prompt-injection material for the
+agent reading them. The server tells the agent so when it connects, and
+returns a log in a block of its own after a notice saying it is untrusted, so
+the log's own text cannot pass itself off as Zoomies speaking. That is why the
+actions are off by default: an agent that reads logs and can also act is an
+agent a pull request can try to steer.
+
 ## Setting up and looking around
 
 | Command | What it does |

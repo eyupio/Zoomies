@@ -23,18 +23,43 @@ named at startup and in the problems drawer, a scheduler that explains its
 decisions, and a [support matrix](support-and-measurement.md) that keeps
 "tested" apart from "built".
 
+## Checked again, 27 September 2026
+
+Three of the entries below were out of date a day after they were written,
+and the sections keep their original text so the reasoning stays readable:
+
+* **#1, layer one.** ZF-212's recipes shipped on 26 September — Go, npm,
+  pip, Maven and BuildKit `type=local` under "Using the pool cache from a
+  workflow" in [configuration.md](../docs/configuration.md) — and the record
+  marks it `done`. Layers two and three are unchanged.
+* **#3.** "No age limit" was wrong. `scheduler.max_runner_lifetime`
+  (default 6h, overridable per pool through `runner_settings`) drains any
+  runner past that age that is not busy, warm minimums included, and the
+  minimum is then refilled; `staleImage` drains a runner whose pool
+  has moved to a different image. What the sketch has that this does not:
+  age counted from idle rather than from creation, a replacement started
+  *before* the drain so the pool never dips below `min_runners` for a tick,
+  and a re-pulled tag with a new digest counting as stale. Worth doing only
+  if one of those is asked for.
+* **#8.** Built as sketched: `zoomies mcp`, a stdio MCP server that is a
+  thin client of the REST API, read-only unless started with
+  `--allow-actions`, with runner logs returned as a separate block marked
+  untrusted. See [cli.md](../docs/cli.md#zoomies-mcp).
+
+#11, invite links, is still open exactly as written.
+
 ## Summary
 
 | # | Candidate | Status | Fit | Size |
 | --- | --- | --- | --- | --- |
-| 1 | Dependency and layer caching | Partly built; recipes planned (ZF-212) | Modified | M (service), S (recipes) |
+| 1 | Dependency and layer caching | Partly built; recipes shipped (ZF-212) | Modified | M (service) |
 | 2 | Transient-failure retry | Fleet-caused re-run built (ZF-224); pattern retry new | Modified | M |
-| 3 | Warm pools | Built (`min_runners`, `idle_timeout`, image prewarm) | Modified, small | S |
+| 3 | Warm pools | Built, recycle included (`scheduler.max_runner_lifetime`) | Mostly met | S, if at all |
 | 4 | VM-per-job isolation | Planned in outline (ZF-216 section 9, decision 28) | Yes, demand-gated | L |
 | 5 | CI analytics | Largely built (Usage page, ZF-209, ZF-223) | Modified | S–M |
 | 6 | Right-sizing suggestions | Data built; suggestion new | Yes | M |
 | 7 | Notifications | New | Modified | M |
-| 8 | MCP server | New | Modified | M |
+| 8 | MCP server | Built (`zoomies mcp`) | Modified | M |
 | 9 | `zoomies run` | New | Modified | M |
 | 10 | Image parity and software list | Partly built (inventory JSON, catalogue) | Yes | S–M |
 | 11 | Team roles and invite links | Roles built (four, ZF-207); invites new | Modified | S |

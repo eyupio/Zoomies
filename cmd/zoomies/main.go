@@ -107,6 +107,7 @@ func commands() []*command {
 		{"diagnostics", groupFleet, "Collect a support bundle for a bug report", runDiagnostics},
 		{"users", groupFleet, "User accounts", runUsers},
 		{"tokens", groupFleet, "API tokens", runTokens},
+		{"mcp", groupFleet, "Serve this fleet to a coding agent over the Model Context Protocol", runMCP},
 
 		{"init", groupSetup, "Set this host up: service, backend, GitHub App, first admin", runInit},
 		{"update", groupSetup, "Update an existing deployment (alias for upgrade)", runUpdate},
