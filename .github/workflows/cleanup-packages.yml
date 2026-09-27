@@ -11,7 +11,8 @@ name: Cleanup Old Container Images
 # gone, and every `docker pull` failed with "manifest unknown".
 #
 # .github/scripts/ghcr-prune.sh deletes an untagged version only when no
-# tagged or recent version refers to it, and deletes nothing when it cannot
+# tagged or recent version refers to it and it is not an attestation of one
+# being kept, and deletes nothing when it cannot
 # tell. The schedule stays off until a dry run has been read against the live
 # packages; a manual run is a dry run unless asked otherwise.
 
