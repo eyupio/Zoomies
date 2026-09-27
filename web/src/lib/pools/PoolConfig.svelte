@@ -72,7 +72,7 @@
       <dt>Elastic CPU</dt>
       <dd class="tabular">
         {pool.cpu_burst?.mode === 'automatic'
-          ? `Automatic${(pool.cpu_burst.max_cpus ?? 0) > 0 ? `, up to ${formatNumber(pool.cpu_burst.max_cpus)} CPU` : ', up to the host ceiling'}`
+          ? `Automatic${(pool.cpu_burst.max_cpus ?? 0) > 0 ? `, up to ${formatNumber(pool.cpu_burst.max_cpus)} CPU` : ', up to the host ceiling'}${pool.cpu_burst.size_for_ceiling === false ? '; builds sized for the guarantee' : '; builds sized for the ceiling'}`
           : pool.cpu_burst?.mode === 'observe'
             ? 'Observe only'
             : 'Off'}

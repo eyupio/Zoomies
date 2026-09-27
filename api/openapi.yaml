@@ -5091,6 +5091,17 @@ components:
             Maximum CPU for one logical runner. Zero uses the host's allocatable
             CPU as the ceiling. For Docker-in-Docker this covers the runner and
             sidecar together.
+        size_for_ceiling:
+          type: boolean
+          default: true
+          description: >-
+            With `automatic`, start each runner with `CARGO_BUILD_JOBS`,
+            `DOTNET_PROCESSOR_COUNT` and `-XX:ActiveProcessorCount` in
+            `JAVA_TOOL_OPTIONS` set to its CPU ceiling in whole cores, because
+            those toolchains size their workers once, at start, and could not
+            otherwise use CPU lent later. A variable the pool's or the fleet's
+            env already sets is left alone. Absent is on; ignored unless the
+            mode is `automatic`.
 
     RunnerSettings:
       type: object
@@ -5764,6 +5775,12 @@ components:
         current_cpus: { type: number, format: double }
         ceiling_cpus: { type: number, format: double }
         factor: { type: number, format: double }
+        sized_for_cpus:
+          type: integer
+          description: >-
+            The CPU count the runner's toolchains were told to size their workers for
+            when it started (see `CPUBurstPolicy.size_for_ceiling`). Absent when they were
+            told nothing.
 
     Runner:
       type: object

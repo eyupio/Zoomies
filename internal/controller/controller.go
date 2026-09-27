@@ -258,7 +258,11 @@ type Controller struct {
 	leaseLost        atomic.Pointer[store.ControllerLease]
 	placement        atomic.Pointer[placementIntent]
 	placementVersion atomic.Uint64
-	leaseRenewed     atomic.Pointer[time.Time]
+	// loans is what elastic CPU remembers about each busy runner's loan
+	// between heartbeats -- see decideLoan.
+	loansMu      sync.Mutex
+	loans        map[string]loanEntry
+	leaseRenewed atomic.Pointer[time.Time]
 	// privateFault is the private-connection listener's state, set by the API
 	// server that owns it; see SetPrivateConnectionFault.
 	privateFault atomic.Pointer[PrivateConnectionFault]

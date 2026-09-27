@@ -427,6 +427,12 @@
       {/if}
 
       {#if draft.cpu_burst_mode === 'automatic'}
+        <Checkbox
+          bind:checked={draft.cpu_burst_size_builds}
+          label="Size builds for the ceiling"
+          description="Starts each runner with CARGO_BUILD_JOBS, DOTNET_PROCESSOR_COUNT and the JVM's processor count set to the boost ceiling. Those toolchains count CPUs once, when they start, and would otherwise have no workers for CPU lent later. A value this pool's environment sets itself always wins."
+          onchange={() => touch('cpu_burst.size_for_ceiling')}
+        />
         <p class="shares-note">
           Busy runners can sprint; quiet runners keep their guarantee.
           {#if prefs.quirkyStatus}
