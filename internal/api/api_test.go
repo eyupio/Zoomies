@@ -858,6 +858,7 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "GET", path: "/api/v1/tokens", role: store.RoleAdmin, action: auth.ActionTokensRead},
 		{method: "POST", path: "/api/v1/tokens", role: store.RoleAdmin, body: map[string]any{"name": "", "role": "viewer"}, action: auth.ActionTokensWrite},
 		{method: "DELETE", path: "/api/v1/tokens/missing", role: store.RoleAdmin, action: auth.ActionTokensWrite},
+		{method: "POST", path: "/api/v1/tokens/purge", role: store.RoleAdmin, body: map[string]any{"all": true}, action: auth.ActionTokensWrite},
 
 		{method: "GET", path: "/api/v1/settings", role: store.RoleAdmin, action: auth.ActionSettingsRead},
 		{method: "PATCH", path: "/api/v1/settings", role: store.RoleAdmin, body: map[string]any{}, action: auth.ActionSettingsWrite},

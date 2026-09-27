@@ -331,6 +331,7 @@ func (s *Server) apiRoutes() chi.Router {
 		r.Route("/tokens", func(r chi.Router) {
 			r.With(s.require(auth.ActionTokensRead)).Get("/", s.handleListTokens)
 			r.With(s.require(auth.ActionTokensWrite)).Post("/", s.handleCreateToken)
+			r.With(s.require(auth.ActionTokensWrite)).Post("/purge", s.handlePurgeTokens)
 			r.With(s.require(auth.ActionTokensWrite)).Delete("/{id}", s.handleRevokeToken)
 		})
 		// Recovery: the fence a restore sets, and the one act that lifts it.

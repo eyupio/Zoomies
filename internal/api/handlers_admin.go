@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -441,8 +442,11 @@ func (s *Server) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleRevokeToken disables a token while keeping its row, so the audit trail
-// can still resolve the actions it took.
+// handleRevokeToken answers DELETE /api/v1/tokens/{id}. Without ?purge it
+// disables a token while keeping its row, so the list and the audit trail can
+// still resolve the actions it took. With ?purge=true it removes a token that
+// is already revoked or expired; a live one is a 409, because deleting is
+// tidying up after a revocation and never a quieter way to do one.
 func (s *Server) handleRevokeToken(w http.ResponseWriter, r *http.Request) {
 	id := chiURLParam(r, "id")
 	tokens, err := s.ctrl.Store().ListAPITokens(r.Context())
@@ -458,12 +462,102 @@ func (s *Server) handleRevokeToken(w http.ResponseWriter, r *http.Request) {
 		notFound(w, "there is no API token "+id)
 		return
 	}
+	token := tokens[idx]
+	if purge, _ := strconv.ParseBool(r.URL.Query().Get("purge")); purge {
+		live := fmt.Sprintf("%s (%s) still works, so it cannot be deleted; revoke it first", token.Name, token.Prefix)
+		if !tokenSpent(token, s.auth.Now()) {
+			conflict(w, live)
+			return
+		}
+		if err := s.deleteToken(r, token); err != nil {
+			if errors.Is(err, store.ErrConflict) {
+				conflict(w, live)
+				return
+			}
+			s.fail(w, r, "deleting the token", err)
+			return
+		}
+		noContent(w)
+		return
+	}
 	if err := s.auth.RevokeAPIToken(r.Context(), id); err != nil {
 		s.fail(w, r, "revoking the token", err)
 		return
 	}
-	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "token.revoke", "token", id, map[string]any{
-		"name": tokens[idx].Name, "prefix": tokens[idx].Prefix,
-	})
+	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "token.revoke", "token", id, tokenAuditDetail(token))
 	noContent(w)
+}
+
+// tokenSpent says whether a token can no longer authenticate, which is the
+// only kind that may be deleted.
+func tokenSpent(t *store.APIToken, now time.Time) bool {
+	return t.Revoked || (t.ExpiresAt != nil && t.ExpiresAt.Before(now))
+}
+
+// tokenAuditDetail is what an audit row says about a token: enough to match it
+// to a leaked string or a line in a log, and never the secret. It is written
+// before a deletion, so the row still names the token once the token is gone.
+func tokenAuditDetail(t *store.APIToken) map[string]any {
+	return map[string]any{"name": t.Name, "prefix": t.Prefix, "user_id": t.UserID, "revoked": t.Revoked}
+}
+
+// deleteToken removes one spent token and writes the audit row for it.
+func (s *Server) deleteToken(r *http.Request, t *store.APIToken) error {
+	if err := s.auth.DeleteAPIToken(r.Context(), t.ID); err != nil {
+		return err
+	}
+	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "token.delete", "token", t.ID, tokenAuditDetail(t))
+	return nil
+}
+
+type purgeTokensRequest struct {
+	UserID string `json:"user_id"`
+	All    bool   `json:"all"`
+}
+
+type purgeTokensResponse struct {
+	Deleted []tokenResponse `json:"deleted"`
+}
+
+// handlePurgeTokens answers POST /api/v1/tokens/purge: delete every revoked or
+// expired token the caller owns, one account's, or -- with all -- every one
+// the caller can see. Tokens that still work are never touched, so this is
+// safe to press without reading the list first.
+func (s *Server) handlePurgeTokens(w http.ResponseWriter, r *http.Request) {
+	var req purgeTokensRequest
+	if r.ContentLength != 0 && !decode(w, r, &req) {
+		return
+	}
+	owner := strings.TrimSpace(req.UserID)
+	if !req.All && owner == "" {
+		id := Identity(r.Context())
+		if id == nil || id.UserID == "" {
+			unprocessable(w, "this caller has no account, so it owns no tokens; name one with user_id, or pass all to purge every spent token", nil)
+			return
+		}
+		owner = id.UserID
+	}
+	tokens, err := s.ctrl.Store().ListAPITokens(r.Context())
+	if err != nil {
+		s.internal(w, r, "listing API tokens", err)
+		return
+	}
+	now, who := s.auth.Now(), callerRole(r)
+	out := purgeTokensResponse{Deleted: []tokenResponse{}}
+	for _, t := range tokens {
+		if !tokenVisibleTo(t, who) || !tokenSpent(t, now) || (!req.All && t.UserID != owner) {
+			continue
+		}
+		if err := s.deleteToken(r, t); err != nil {
+			// Gone already, or un-spent by a clock that moved: neither is a
+			// reason to stop tidying the rest.
+			if errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrConflict) {
+				continue
+			}
+			s.fail(w, r, "deleting the token", err)
+			return
+		}
+		out.Deleted = append(out.Deleted, newTokenResponse(t))
+	}
+	writeJSON(w, http.StatusOK, out)
 }

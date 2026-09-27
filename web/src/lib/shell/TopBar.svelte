@@ -22,6 +22,7 @@
     BookOpen,
     CircleUser,
     Keyboard,
+    KeyRound,
     LogOut,
     Monitor,
     Moon,
@@ -125,6 +126,18 @@
       separated: true,
       onSelect: () => router.navigate('/settings/account'),
     },
+    // Tokens are an administrator's to manage; the menu offers the page only
+    // to someone the page will not refuse.
+    ...(session.can('admin')
+      ? [
+          {
+            id: 'tokens',
+            label: 'API tokens',
+            icon: KeyRound,
+            onSelect: () => router.navigate('/settings/tokens'),
+          },
+        ]
+      : []),
     {
       id: 'appearance',
       label: 'Appearance',

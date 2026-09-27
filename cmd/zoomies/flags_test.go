@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -243,6 +244,7 @@ func TestDeleteUsesTheRightMethodAndQuery(t *testing.T) {
 		{"runner", []string{"runners", "delete", "run_1", "--force"}, "/api/v1/runners/run_1", http.MethodDelete, "force=true"},
 		{"host", []string{"hosts", "delete", "host_1"}, "/api/v1/hosts/host_1", http.MethodDelete, ""},
 		{"token", []string{"tokens", "revoke", "tok_1"}, "/api/v1/tokens/tok_1", http.MethodDelete, ""},
+		{"spent token", []string{"tokens", "delete", "tok_1"}, "/api/v1/tokens/tok_1", http.MethodDelete, "purge=true"},
 		{"user", []string{"users", "delete", "usr_1"}, "/api/v1/users/usr_1", http.MethodDelete, ""},
 	}
 	for _, c := range cases {
@@ -326,5 +328,45 @@ func TestInstallationVerifyFailsLoudlyAndNamesMissingPermissions(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "cannot be used") {
 		t.Errorf("the failure was not reported:\n%s", errOut)
+	}
+}
+
+// Purging asks the controller whose spent tokens to take; the flags must say
+// exactly that and nothing wider, because --all reaches every account's.
+func TestTokensPurgeSendsWhoseTokensToTake(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want map[string]any
+	}{
+		{"your own", nil, map[string]any{}},
+		{"one account", []string{"--user", "usr_1"}, map[string]any{"user_id": "usr_1"}},
+		{"everything", []string{"--all"}, map[string]any{"all": true}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var got map[string]any
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost || r.URL.Path != "/api/v1/tokens/purge" {
+					t.Errorf("%s %s, want POST /api/v1/tokens/purge", r.Method, r.URL.Path)
+				}
+				_ = json.NewDecoder(r.Body).Decode(&got)
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"deleted":[{"id":"tok_1","name":"old"}]}`))
+			}))
+			defer srv.Close()
+
+			e, out, errOut := newTestEnv(t)
+			args := append([]string{"tokens", "purge", "--url", srv.URL}, c.args...)
+			if code := dispatch(context.Background(), e, args); code != exitOK {
+				t.Fatalf("exit code = %d\n%s", code, errOut)
+			}
+			if fmt.Sprint(got) != fmt.Sprint(c.want) {
+				t.Errorf("body = %v, want %v", got, c.want)
+			}
+			if !strings.Contains(out.String(), "tok_1") {
+				t.Errorf("the deleted token was not named:\n%s", out)
+			}
+		})
 	}
 }

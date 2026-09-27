@@ -544,6 +544,19 @@ export const createToken = (body: Body<'createToken'>) =>
 
 export const revokeToken = (id: string) => api.del<Result<'revokeToken'>>(`/tokens/${enc(id)}`);
 
+/** Remove a token that is already revoked or expired. A live one is a 409. */
+export const deleteToken = (id: string) =>
+  api.del<Result<'revokeToken'>>(`/tokens/${enc(id)}`, { query: { purge: true } });
+
+/** Whose spent tokens to delete: the caller's own when both are left out. */
+export interface PurgeTokensBody {
+  user_id?: string;
+  all?: boolean;
+}
+
+export const purgeTokens = (body: PurgeTokensBody = {}) =>
+  api.post<Result<'purgeTokens'>>('/tokens/purge', { body });
+
 /* -- providers and machines ------------------------------------------------
  * "Provider" is the infrastructure a machine is rented from, and "machine" is
  * the thing rented. Neither is `listProvisioning` below, which is the queued

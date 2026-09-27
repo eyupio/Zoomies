@@ -2199,6 +2199,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tokens/purge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delete every revoked or expired API token
+         * @description Removes spent tokens for good: the caller's own by default, one
+         *     account's with `user_id`, or every one the caller can see with `all`.
+         *     A token that still works is never touched, so this is safe to run
+         *     without reading the list first. Each deletion is audited as
+         *     `token.delete`, naming the token's prefix and never its value.
+         */
+        post: operations["purgeTokens"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tokens/{id}": {
         parameters: {
             query?: never;
@@ -2212,7 +2236,14 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Revoke an API token */
+        /**
+         * Revoke an API token, or delete a spent one
+         * @description Without `purge`, revokes: the token stops working at once and its row
+         *     stays, marked `revoked`. With `purge=true`, removes a token that is
+         *     already revoked or expired; one that still works is a 409, because
+         *     deleting is tidying up after a revocation and never a quieter way to
+         *     do one. Both are audited (`token.revoke`, `token.delete`) by prefix.
+         */
         delete: operations["revokeToken"];
         options?: never;
         head?: never;
@@ -9655,9 +9686,44 @@ export interface operations {
             };
         };
     };
-    revokeToken: {
+    purgeTokens: {
         parameters: {
             query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /** @description Purge this account's spent tokens rather than the caller's. */
+                    user_id?: string;
+                    /** @description Purge every spent token the caller can see. */
+                    all?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description The tokens that were deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        deleted: components["schemas"]["APIToken"][];
+                    };
+                };
+            };
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    revokeToken: {
+        parameters: {
+            query?: {
+                /** @description Delete a revoked or expired token instead of revoking it. */
+                purge?: boolean;
+            };
             header?: never;
             path: {
                 /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
@@ -9675,6 +9741,7 @@ export interface operations {
                 content?: never;
             };
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     getRecovery: {

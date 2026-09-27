@@ -15,6 +15,8 @@ func runTokens(ctx context.Context, e *env, args []string) error {
 		{"list", "", "Every token's metadata; never its value", tokensList},
 		{"create", "--name <n> --role <r>", "Mint a token and print it once", tokensCreate},
 		{"revoke", "<token-id>", "Revoke a token immediately", tokensRevoke},
+		{"delete", "<token-id>", "Remove a revoked or expired token from the list", tokensDelete},
+		{"purge", "[--user <id> | --all]", "Remove every revoked or expired token", tokensPurge},
 	}, args)
 }
 
@@ -159,5 +161,78 @@ func tokensRevoke(ctx context.Context, e *env, args []string) error {
 		return err
 	}
 	fmt.Fprintf(e.out, "Revoked token %s.\n", id)
+	return nil
+}
+
+func tokensDelete(ctx context.Context, e *env, args []string) error {
+	fs := newFlagSet(e, "zoomies tokens delete <token-id>",
+		"Remove a revoked or expired token from the list for good. A token that still works is refused: revoke it first.")
+	cf := registerClientFlags(fs, false)
+	if err := fs.parse(args); err != nil {
+		return err
+	}
+	id, err := fs.oneArg("a token ID, as shown by `zoomies tokens list`")
+	if err != nil {
+		return err
+	}
+	client, err := cf.client()
+	if err != nil {
+		return err
+	}
+	if _, err := client.del(ctx, "/tokens/"+url.PathEscape(id), url.Values{"purge": {"true"}}, nil); err != nil {
+		return err
+	}
+	fmt.Fprintf(e.out, "Deleted token %s. The audit log still records it.\n", id)
+	return nil
+}
+
+func tokensPurge(ctx context.Context, e *env, args []string) error {
+	fs := newFlagSet(e, "zoomies tokens purge [--user <user-id> | --all]",
+		"Remove every revoked or expired token: your own, one account's, or all of them. Tokens that still work are left alone.")
+	cf := registerClientFlags(fs, true)
+	user := fs.String("user", "", "purge this account's spent tokens instead of your own")
+	all := fs.Bool("all", false, "purge every spent token you can see")
+	fs.example("zoomies tokens purge", "zoomies tokens purge --all")
+	if err := fs.parse(args); err != nil {
+		return err
+	}
+	if err := fs.noMoreArgs(); err != nil {
+		return err
+	}
+	if *all && *user != "" {
+		return usagef("tokens purge", "--user and --all ask different questions; give one")
+	}
+	client, err := cf.client()
+	if err != nil {
+		return err
+	}
+	p, err := cf.printer(e)
+	if err != nil {
+		return err
+	}
+	body := map[string]any{}
+	if *all {
+		body["all"] = true
+	}
+	if *user != "" {
+		body["user_id"] = *user
+	}
+	var out struct {
+		Deleted []tokenItem `json:"deleted"`
+	}
+	raw, err := client.post(ctx, "/tokens/purge", nil, body, &out)
+	if err != nil {
+		return err
+	}
+	if p.structured() {
+		return p.emit(raw)
+	}
+	if len(out.Deleted) == 0 {
+		p.note("Nothing to delete: no revoked or expired tokens.")
+		return nil
+	}
+	for _, t := range out.Deleted {
+		fmt.Fprintf(e.out, "Deleted %s (%s)\n", t.Name, t.ID)
+	}
 	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -790,5 +791,40 @@ func TestSetSettingUpsertsAndDeleteRemoves(t *testing.T) {
 	}
 	if v, err := s.GetSetting(ctx, "k"); err != nil || v != "" {
 		t.Fatalf("GetSetting after delete = %q, %v", v, err)
+	}
+}
+
+// Deleting is tidying up after a revocation: a token that still works must
+// never vanish from the list, so the store refuses it rather than trusting
+// every caller to have checked.
+func TestDeleteAPITokenRefusesATokenThatStillWorks(t *testing.T) {
+	ctx := context.Background()
+	now := time.Unix(1_700_000_000, 0)
+	s := newTestStoreAt(t, func() time.Time { return now })
+	past := now.Add(-time.Minute)
+	future := now.Add(time.Hour)
+
+	cases := []struct {
+		name    string
+		revoked bool
+		expires *time.Time
+		want    error
+	}{
+		{name: "active, never expires", want: ErrConflict},
+		{name: "active, expires later", expires: &future, want: ErrConflict},
+		{name: "revoked", revoked: true},
+		{name: "expired", expires: &past},
+	}
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tok := &APIToken{Name: tc.name, Role: RoleViewer, TokenHash: fmt.Sprintf("h-%d", i), Revoked: tc.revoked, ExpiresAt: tc.expires}
+			if err := s.CreateAPIToken(ctx, tok); err != nil {
+				t.Fatalf("CreateAPIToken: %v", err)
+			}
+			err := s.DeleteAPIToken(ctx, tok.ID)
+			if tc.want == nil && err != nil || tc.want != nil && !errors.Is(err, tc.want) {
+				t.Fatalf("DeleteAPIToken = %v, want %v", err, tc.want)
+			}
+		})
 	}
 }
