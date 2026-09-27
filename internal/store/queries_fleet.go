@@ -895,7 +895,8 @@ const runnerCols = `id, pool_id, host_id, name, state, github_runner_id, contain
 	image_pull_ms, container_started_at, registered_at, task_issued_at,
 	cleanup_error, cleanup_failed_at, cleanup_attempts, registration_deleted_at, cleaned_up_at,
 	draining_since, create_task_issued_at, host_removed_at, cleanup_estimated_at,
-	allocated_cpus, allocated_memory_mb, allocation_source, fault_kind, resource_sample`
+	allocated_cpus, allocated_memory_mb, allocation_source, fault_kind, resource_sample,
+	host_cleanup_error, registration_cleanup_error`
 
 func scanRunner(sc interface{ Scan(...any) error }) (*Runner, error) {
 	var r Runner
@@ -911,7 +912,8 @@ func scanRunner(sc interface{ Scan(...any) error }) (*Runner, error) {
 		&r.CPUPercent, &r.MemoryBytes, &pullMS, &containerStarted, &registered, &taskIssued,
 		&r.CleanupError, &cleanupFailed, &r.CleanupAttempts, &registrationDeleted, &cleanedUp,
 		&drainingSince, &createIssued, &hostRemoved, &cleanupEstimated,
-		&r.AllocatedCPUs, &r.AllocatedMemoryMB, &r.AllocationSource, &r.FaultKind, &resourceSample)
+		&r.AllocatedCPUs, &r.AllocatedMemoryMB, &r.AllocationSource, &r.FaultKind, &resourceSample,
+		&r.HostCleanupError, &r.RegistrationCleanupError)
 	if err != nil {
 		return nil, err
 	}
@@ -942,7 +944,7 @@ func (s *Store) CreateRunner(ctx context.Context, r *Runner) error {
 	}
 	r.CreatedAt = s.Now()
 	_, err := s.exec(ctx, `INSERT INTO runners (`+runnerCols+`)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		r.ID, r.PoolID, r.HostID, r.Name, string(r.State), r.GitHubRunnerID, r.ContainerID,
 		boolInt(r.Ephemeral), r.Labels, r.Image, r.ImageDigest, r.RunnerVersion, r.CurrentJobID,
 		ms(r.CreatedAt), msp(r.StartedAt), msp(r.LastIdleAt), msp(r.FinishedAt),
@@ -951,7 +953,8 @@ func (s *Store) CreateRunner(ctx context.Context, r *Runner) error {
 		r.CleanupError, msp(r.CleanupFailedAt), r.CleanupAttempts,
 		msp(r.RegistrationDeletedAt), msp(r.CleanedUpAt), msp(r.DrainingSince),
 		msp(r.CreateTaskIssuedAt), msp(r.HostRemovedAt), msp(r.CleanupEstimatedAt),
-		r.AllocatedCPUs, r.AllocatedMemoryMB, r.AllocationSource, r.FaultKind, runnerSampleJSON(r.ResourceSample))
+		r.AllocatedCPUs, r.AllocatedMemoryMB, r.AllocationSource, r.FaultKind, runnerSampleJSON(r.ResourceSample),
+		r.HostCleanupError, r.RegistrationCleanupError)
 	return wrapWrite(err)
 }
 
@@ -1305,16 +1308,34 @@ func (s *Store) SetRunnerResourceUsage(ctx context.Context, id string, cpu float
 // the scheduler has moved on -- and forcing it back through the state machine
 // would make capacity wrong to record a tidying problem. What is wrong is the
 // host, or GitHub, and that is what these columns say.
+//
+// A runner its host has already confirmed removed is refused with ErrConflict
+// and left as it is. The confirmation came from a fresh listing of the host,
+// so a failure arriving after it is about an attempt it overtook -- and a
+// report and a task result travel on separate requests, so the two can cross.
+// The check is the write's own condition rather than the caller's, because a
+// caller's copy of the row can be read before the confirmation it races.
 func (s *Store) RecordCleanupFailure(ctx context.Context, id, reason string) error {
 	if reason == "" {
 		reason = "cleanup failed without saying why"
 	}
-	_, err := s.exec(ctx, `UPDATE runners
+	res, err := s.exec(ctx, `UPDATE runners
 		SET host_cleanup_error=?,
 		    cleanup_error=? || CASE WHEN registration_cleanup_error='' THEN '' ELSE '; ' || registration_cleanup_error END,
-		    cleanup_failed_at=?, cleanup_attempts=cleanup_attempts+1, cleaned_up_at=NULL, host_removed_at=NULL
-		WHERE id=?`, reason, reason, s.Now().UnixMilli(), id)
-	return err
+		    cleanup_failed_at=?, cleanup_attempts=cleanup_attempts+1, cleaned_up_at=NULL
+		WHERE id=? AND host_removed_at IS NULL`, reason, reason, s.Now().UnixMilli(), id)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil || n > 0 {
+		return err
+	}
+	var confirmed bool
+	err = s.read.QueryRowContext(ctx, `SELECT host_removed_at IS NOT NULL FROM runners WHERE id=?`, id).Scan(&confirmed)
+	if err == nil && confirmed {
+		return fmt.Errorf("runner %s: its host has already confirmed it removed: %w", id, ErrConflict)
+	}
+	return nil
 }
 
 // RecordRegistrationCleanupFailure preserves the host's complaint while

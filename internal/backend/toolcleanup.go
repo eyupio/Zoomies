@@ -83,7 +83,7 @@ func (b *DockerBackend) cleanToolFarmInContainer(ctx context.Context, runner Con
 		if old.Config == nil || old.Config.Labels[LabelRole] != roleToolCleanup || old.Config.Labels[LabelToolFarm] != farm {
 			return errors.New("refusing to replace an unrelated tool cache cleanup container")
 		}
-		if err := b.api.ContainerRemove(ctx, old.ID, true); err != nil && !errors.Is(err, ErrNotFound) {
+		if err := b.removeContainer(ctx, old.ID); err != nil && !errors.Is(err, ErrNotFound) {
 			return fmt.Errorf("removing previous tool cache cleanup container: %w", err)
 		}
 	} else if !errors.Is(err, ErrNotFound) {
@@ -121,7 +121,19 @@ func (b *DockerBackend) cleanToolFarmInContainer(ctx context.Context, runner Con
 	defer func() {
 		cleanupCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer stop()
-		if err := b.api.ContainerRemove(cleanupCtx, id, true); err != nil && !errors.Is(err, ErrNotFound) {
+		// The helper is AutoRemove, so the daemon starts removing it the
+		// moment it exits; a DELETE that meets that removal waits it out
+		// rather than failing the runner's cleanup over a container that is
+		// already on its way. One still going when the wait ends is not a
+		// failure either -- the daemon finishes it -- and it must not ride
+		// along into the runner's error, where it would make a real cleanup
+		// failure read as a removal the agent should simply wait for.
+		err := b.removeContainer(cleanupCtx, id)
+		if errors.Is(err, ErrRemovalInProgress) {
+			b.log.Info("the daemon is still removing the tool cache cleanup container; it finishes on its own", "container", shortID(id), "error", err)
+			return
+		}
+		if err != nil && !errors.Is(err, ErrNotFound) {
 			resultErr = errors.Join(resultErr, fmt.Errorf("removing tool cache cleanup container: %w", err))
 		}
 	}()

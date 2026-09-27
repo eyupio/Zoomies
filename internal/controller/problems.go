@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/provider"
 	"github.com/eyupio/zoomies/internal/scheduler"
@@ -2050,16 +2051,46 @@ func (c *Controller) cleanupProblems(ctx context.Context, out *[]Problem) error 
 	// a registration GitHub still calls busy needs neither, at least at
 	// first: GitHub refuses to delete a runner it believes is running a job
 	// with no override, so there is nothing Zoomies can do but recheck.
+	//
+	// The halves are read apart rather than the joined sentence searched,
+	// because a row can have both, and the container is the one that needs
+	// somebody: a search that found "running a job" first used to tell the
+	// operator only that GitHub was catching up, while the thing left behind
+	// was a container on their host.
+	hostName := c.hostName(ctx, example.HostID)
+	onHost, onGitHub := example.HostCleanupError, example.RegistrationCleanupError
+	if onHost == "" && onGitHub == "" {
+		onGitHub = example.CleanupError
+	}
 	fix := fmt.Sprintf("look at %s on the Runners page. If the container is still on %s, remove it there; "+
 		"Zoomies retries, and the row clears itself when it succeeds.",
-		example.Name, c.hostName(ctx, example.HostID))
+		example.Name, hostName)
 	switch {
-	case strings.Contains(example.CleanupError, "running a job"):
+	case strings.Contains(onHost, agent.StuckRemoval):
+		// The agent's own verdict: it waited out the removal for as long as
+		// a working daemon takes, and this one has stopped. Waiting longer
+		// fixes nothing, so the action comes first.
+		fix = fmt.Sprintf("Docker on %s has been removing %s's container for more than ten minutes and has stopped making progress; restart the daemon there. "+
+			"Removing the container by hand gets the same refusal until then, and Zoomies confirms the removal on its next attempt afterwards.",
+			hostName, example.Name)
+	case strings.Contains(onHost, "already in progress"):
+		// Docker's own words for a removal it has under way, reported by an
+		// agent from before it waited these out: removing it by hand meets
+		// the same refusal, and the daemon usually needs time, not help.
+		fix = fmt.Sprintf("Docker on %s is still removing %s's container, and a removal by hand gets the same answer until it has finished. "+
+			"Zoomies retries and the row clears itself once it has gone; a removal still under way after ten minutes is one the daemon has stopped making progress on, which restarting the daemon clears.",
+			hostName, example.Name)
+	case onHost != "":
+		// The default fix, which names the container.
+	case strings.Contains(onGitHub, "running a job"):
 		fix = fmt.Sprintf("GitHub still reports %s busy. Zoomies rechecks every ten minutes and removes the registration once it is idle, or clears this warning if GitHub has already removed it. Allow a running workflow to finish; Zoomies will not cancel it to force cleanup. If this persists, verify the workflow's status on GitHub and investigate a stale busy registration; this is not evidence of a missing App permission.", example.Name)
-	case strings.Contains(example.CleanupError, "registration"):
+	case strings.Contains(onGitHub, "registration"):
 		fix = fmt.Sprintf("check the target's runner settings page for %s. Zoomies retries the deletion every "+
 			"ten minutes and the row clears itself when it succeeds; a registration that stays is usually a "+
 			"permission the App has lost.", example.Name)
+	}
+	if onHost != "" && onGitHub != "" {
+		fix += " GitHub's side is rechecked on its own, and within a minute once the container has gone."
 	}
 	progress := "while waiting for cleanup"
 	if example.CleanupAttempts > 0 {

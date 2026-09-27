@@ -122,7 +122,7 @@ func (b *DockerBackend) FillToolCache(ctx context.Context, spec Spec, tools []To
 	cleanup := func() {
 		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer cancel()
-		if err := b.api.ContainerRemove(rctx, name, true); err != nil && !errors.Is(err, ErrNotFound) {
+		if err := b.removeContainer(rctx, name); err != nil && !errors.Is(err, ErrNotFound) {
 			b.log.Warn("could not remove the tool cache fill container", "container", name, "error", err)
 		}
 	}

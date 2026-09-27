@@ -348,8 +348,17 @@ type TaskResult struct {
 	// it again rather than fail the runner. Without it a routine upgrade
 	// failed every create still waiting for a startup slot, with a message
 	// that said it was safe to redeliver while the runner was marked failed.
-	NotStarted  bool      `json:"not_started,omitempty"`
-	CompletedAt time.Time `json:"completed_at"`
+	NotStarted bool `json:"not_started,omitempty"`
+	// CleanupPending says a remove did not complete because the daemon is
+	// still carrying out a removal of the workload -- one it will finish
+	// without being asked again -- so the controller should record nothing
+	// against the runner. It is only ever set with OK false. Without it every
+	// attempt that found a slow removal still going was counted as a failed
+	// cleanup, and the runner was reported as something left behind while
+	// the daemon was deleting it. A controller from before the field reads
+	// the result as the failure it always did.
+	CleanupPending bool      `json:"cleanup_pending,omitempty"`
+	CompletedAt    time.Time `json:"completed_at"`
 }
 
 // TaskBatch is the response to a task poll.

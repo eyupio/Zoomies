@@ -925,6 +925,149 @@ func TestDockerRemovalDoesNotHideASidecarFailure(t *testing.T) {
 	}
 }
 
+// sidecarRemovalEngine is a daemon whose sidecar DELETE answers with each of
+// replies in turn, and with the last one for ever after. It counts the
+// sidecar's DELETEs and records whether the runner container was deleted.
+func sidecarRemovalEngine(t *testing.T, replies ...func(w http.ResponseWriter)) (*fakeEngine, func() int) {
+	t.Helper()
+	var mu sync.Mutex
+	calls := 0
+	f := newFakeEngine(t, map[string]http.HandlerFunc{
+		"GET " + v + "/containers/c1/json": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, 200, ContainerInspect{ID: "c1", Config: &ContainerConfig{
+				Labels: map[string]string{LabelName: "runner-1"},
+			}})
+		},
+		"DELETE " + v + "/containers/runner-1-dind": func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			i := min(calls, len(replies)-1)
+			calls++
+			mu.Unlock()
+			replies[i](w)
+		},
+		"DELETE " + v + "/containers/c1": func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		},
+	})
+	return f, func() int {
+		mu.Lock()
+		defer mu.Unlock()
+		return calls
+	}
+}
+
+func removalInProgress(w http.ResponseWriter) {
+	writeJSON(w, http.StatusConflict, map[string]string{"message": "removal of container runner-1-dind is already in progress"})
+}
+
+func TestARemoveWaitsOutASidecarRemovalTheDaemonAlreadyHasUnderWay(t *testing.T) {
+	// The shape behind "removal of container ...-dind is already in progress"
+	// on the Runners page: an earlier DELETE the daemon is still carrying
+	// out. It is not a failure -- the daemon finishes it whoever waits -- so
+	// the removal that meets it waits for the 404 and carries on.
+	gone := func(w http.ResponseWriter) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"message": "no such container"})
+	}
+	f, sidecarDeletes := sidecarRemovalEngine(t, removalInProgress, removalInProgress, gone)
+	b := dockerBackendFor(t, f, DockerOptions{})
+
+	if err := b.Remove(context.Background(), "c1"); err != nil {
+		t.Fatalf("a removal the daemon finished while we waited was reported as a failure: %v", err)
+	}
+	if n := sidecarDeletes(); n != 3 {
+		t.Fatalf("sidecar DELETEs = %d, want 3: two answered 'in progress', the third found it gone", n)
+	}
+	if f.request(http.MethodDelete, v+"/containers/c1") == nil {
+		t.Fatal("the runner container was left behind once its sidecar had gone")
+	}
+}
+
+func TestARemovalStillUnderWayKeepsTheRunnerAndSaysSo(t *testing.T) {
+	f, _ := sidecarRemovalEngine(t, removalInProgress)
+	b := dockerBackendFor(t, f, DockerOptions{})
+	b.removalWait = 300 * time.Millisecond
+
+	err := b.Remove(context.Background(), "c1")
+	if !errors.Is(err, ErrRemovalInProgress) {
+		t.Fatalf("a removal still under way must be told apart from a failed one, got %v", err)
+	}
+	// It is the busy fault, not a generic backend one: the daemon is doing
+	// the work, and the only thing wrong is how long it is taking.
+	if got := Fault(err); got != store.FaultBackendBusy {
+		t.Fatalf("fault = %q, want %q", got, store.FaultBackendBusy)
+	}
+	if !strings.Contains(err.Error(), "runner-1-dind") || !strings.Contains(err.Error(), "still removing") {
+		t.Fatalf("the error should name the container and say it is still being removed: %v", err)
+	}
+	// The runner's labels are how a retry finds its sidecar, so it stays until
+	// the sidecar has gone.
+	if f.request(http.MethodDelete, v+"/containers/c1") != nil {
+		t.Fatal("the runner container was deleted while its sidecar was still being removed")
+	}
+}
+
+func TestAnEarlierRemovalThatFailedIsReportedForItsOwnReason(t *testing.T) {
+	// A removal that fails part way leaves the container dead and the flag
+	// cleared, so the next DELETE is a fresh attempt -- and its refusal is
+	// the daemon's real reason, which must not be dressed up as a wait.
+	failed := func(w http.ResponseWriter) {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "unable to remove filesystem: device or resource busy"})
+	}
+	f, _ := sidecarRemovalEngine(t, removalInProgress, failed)
+	b := dockerBackendFor(t, f, DockerOptions{})
+
+	err := b.Remove(context.Background(), "c1")
+	if err == nil || errors.Is(err, ErrRemovalInProgress) {
+		t.Fatalf("a removal the daemon gave up on must fail as itself, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "unable to remove filesystem") {
+		t.Fatalf("the daemon's reason was lost: %v", err)
+	}
+	if f.request(http.MethodDelete, v+"/containers/c1") != nil {
+		t.Fatal("the runner container was deleted although its sidecar could not be")
+	}
+}
+
+func TestAWaitForARemovalUnderWayEndsWithItsCaller(t *testing.T) {
+	f, _ := sidecarRemovalEngine(t, removalInProgress)
+	b := dockerBackendFor(t, f, DockerOptions{})
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	err := b.Remove(ctx, "c1")
+	if !errors.Is(err, ErrRemovalInProgress) {
+		t.Fatalf("got %v, want a removal still in progress", err)
+	}
+	if waited := time.Since(start); waited > 5*time.Second {
+		t.Fatalf("the wait outlived its caller's deadline by %s", waited)
+	}
+}
+
+func TestARemovalCutOffByItsDeadlineSaysHowLongItWaited(t *testing.T) {
+	// The first DELETE is held until the daemon answers or the caller's
+	// deadline passes, so one cut off by the deadline has already waited all
+	// of it. Measured from after it, the error told an operator a removal held
+	// for two minutes had been going "after 0s".
+	release := make(chan struct{})
+	slow := func(w http.ResponseWriter) { <-release }
+	f, _ := sidecarRemovalEngine(t, slow)
+	// Registered after the engine, so it runs before the server's Close,
+	// which waits for this handler to return.
+	t.Cleanup(func() { close(release) })
+	b := dockerBackendFor(t, f, DockerOptions{})
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+
+	err := b.Remove(ctx, "c1")
+	if !errors.Is(err, ErrRemovalInProgress) {
+		t.Fatalf("a DELETE cut off by its deadline = %v, want a removal still in progress", err)
+	}
+	if strings.Contains(err.Error(), "after 0s") {
+		t.Fatalf("the wait left out the DELETE it was held on: %v", err)
+	}
+}
+
 func TestDockerRemovalDoesNotIgnoreAnInspectionFailure(t *testing.T) {
 	f := newFakeEngine(t, map[string]http.HandlerFunc{
 		"GET " + v + "/containers/c1/json": func(w http.ResponseWriter, r *http.Request) {
