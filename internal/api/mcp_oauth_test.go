@@ -460,6 +460,11 @@ func TestMCPOAuthAuthorizationRefusals(t *testing.T) {
 				if loc.Host != "" || loc.Path != consentPath || loc.Query().Get("error") != tc.want {
 					t.Fatalf("must be shown on the controller's own page, got %s", loc)
 				}
+				if loc.Query().Has("error_description") {
+					// Text in that address is rendered on this controller;
+					// the page writes its own sentence from the code.
+					t.Errorf("the consent page's address must carry the code alone, got %s", loc)
+				}
 				return
 			}
 			if !strings.HasPrefix(loc.String(), claudeReturn) {

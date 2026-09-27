@@ -54,7 +54,7 @@ func enrol(t *testing.T, s *Service, u *store.User, c *clock) (string, []string)
 	if err != nil {
 		t.Fatalf("BeginTwoStep: %v", err)
 	}
-	codes, err := s.ConfirmTwoStep(t.Context(), u.ID, currentCode(t, setup.Secret, c), "")
+	codes, err := s.ConfirmTwoStep(t.Context(), u.ID, currentCode(t, setup.Secret, c), "", "")
 	if err != nil {
 		t.Fatalf("ConfirmTwoStep: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestACodeIsRefusedTheSecondTime(t *testing.T) {
 	u2 := addUser(t, st2, "grace", store.RoleOperator, nil)
 	setup, _ := s2.BeginTwoStep(t.Context(), u2.ID, "grace")
 	first := currentCode(t, setup.Secret, c2)
-	if _, err := s2.ConfirmTwoStep(t.Context(), u2.ID, first, ""); err != nil {
+	if _, err := s2.ConfirmTwoStep(t.Context(), u2.ID, first, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s2.VerifySignIn(t.Context(), signInPassword(t, s2, "grace").Challenge, first, "", testUA); !errors.Is(err, ErrInvalidTwoStepCode) {
@@ -369,7 +369,7 @@ func TestTurningTwoStepOnEndsEveryOtherSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.ConfirmTwoStep(t.Context(), u.ID, currentCode(t, setup.Secret, c), here); err != nil {
+	if _, err := s.ConfirmTwoStep(t.Context(), u.ID, currentCode(t, setup.Secret, c), here, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Authenticate(t.Context(), AuthInput{SessionCookie: here}); err != nil {
@@ -433,5 +433,23 @@ func TestTheSecretIsStoredSealed(t *testing.T) {
 	}
 	if string(ts.SecretEnc) == setup.Secret || len(ts.SecretEnc) <= len(setup.Secret) {
 		t.Fatal("the authenticator secret is in the database in the clear")
+	}
+}
+
+// Confirming the setup from settings is a code attempt like any other: it is
+// charged to the same limiters, so no route guesses codes for free.
+func TestConfirmingSetupIsChargedToTheSignInLimit(t *testing.T) {
+	s, st, _ := newTwoStepService(t, func(cfg *config.Config) { cfg.Security.RateLimitLogins = 3 })
+	u := addUser(t, st, "ada", store.RoleOperator, nil)
+	if _, err := s.BeginTwoStep(t.Context(), u.ID, "ci.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		if _, err := s.ConfirmTwoStep(t.Context(), u.ID, "000000", "", "192.0.2.1"); !errors.Is(err, ErrInvalidTwoStepCode) {
+			t.Fatalf("wrong code %d = %v", i+1, err)
+		}
+	}
+	if _, err := s.ConfirmTwoStep(t.Context(), u.ID, "000000", "", "192.0.2.1"); !errors.Is(err, ErrRateLimited) {
+		t.Fatalf("a fourth attempt inside the minute = %v, want ErrRateLimited", err)
 	}
 }

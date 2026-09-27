@@ -398,7 +398,23 @@ func (s *Service) BeginTwoStep(ctx context.Context, userID, host string) (*TwoSt
 // two-step on, and returns the recovery codes -- the only time they exist in
 // plaintext. Every other session for the account is ended: whoever holds one
 // signed in with less than the account now asks for.
-func (s *Service) ConfirmTwoStep(ctx context.Context, userID, code string, keepSession string) ([]string, error) {
+func (s *Service) ConfirmTwoStep(ctx context.Context, userID, code, keepSession, ip string) ([]string, error) {
+	// Charged like every other code attempt. The secret being guessed is the
+	// caller's own, so this guards less than a sign-in does, but a code that
+	// is free to guess on one route is a limiter with a hole in it.
+	u, err := s.store.GetUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if !s.allowAttempt(ip, u.Username) {
+		return nil, ErrRateLimited
+	}
+	return s.confirmTwoStep(ctx, userID, code, keepSession)
+}
+
+// confirmTwoStep is ConfirmTwoStep for a caller that has already charged the
+// attempt.
+func (s *Service) confirmTwoStep(ctx context.Context, userID, code, keepSession string) ([]string, error) {
 	ts, err := s.store.GetTwoStep(ctx, userID)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil, ErrTwoStepNotStarted
@@ -449,7 +465,7 @@ func (s *Service) ConfirmDuringSignIn(ctx context.Context, challenge, code, ip, 
 	if !s.allowAttempt(ip, u.Username) {
 		return nil, ErrRateLimited
 	}
-	codes, err := s.ConfirmTwoStep(ctx, u.ID, code, "")
+	codes, err := s.confirmTwoStep(ctx, u.ID, code, "")
 	if errors.Is(err, ErrInvalidTwoStepCode) {
 		return nil, s.failChallenge(ctx, c, u, ip)
 	}

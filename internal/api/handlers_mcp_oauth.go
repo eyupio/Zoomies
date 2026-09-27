@@ -212,8 +212,12 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, auth.ErrorRedirect(p, refusal.RedirectURI, refusal.State, refusal.Code, refusal.Description), http.StatusFound)
 	case errors.As(err, &refusal):
 		// The client or its redirect could not be trusted, so the person is
-		// told here rather than sent anywhere.
-		http.Redirect(w, r, consentPath+"?"+url.Values{"error": {refusal.Code}, "error_description": {refusal.Description}}.Encode(), http.StatusFound)
+		// told here rather than sent anywhere. Only the code travels: the page
+		// renders its own sentence for it, because text read from the address
+		// is text anybody can write into a link that opens on this controller.
+		// The specific reason goes to the log, for whoever the person asks.
+		s.logger(r).Info("refused an MCP sign-in on the consent page", "error", refusal.Code, "reason", refusal.Description)
+		http.Redirect(w, r, consentPath+"?"+url.Values{"error": {refusal.Code}}.Encode(), http.StatusFound)
 	case err != nil:
 		s.internal(w, r, "starting an MCP sign-in", err)
 	default:

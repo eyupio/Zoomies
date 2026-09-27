@@ -212,6 +212,8 @@ func (s *Server) failSetup(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, auth.ErrSignInExpired), errors.Is(err, auth.ErrAccountDisabled):
 		s.failSecondStep(w, r, err)
+	case errors.Is(err, auth.ErrRateLimited):
+		rateLimited(w, err.Error(), s.auth.LoginRetryAfter(ClientIP(r.Context())))
 	case errors.Is(err, auth.ErrTwoStepAlreadyOn):
 		conflict(w, err.Error())
 	case errors.Is(err, auth.ErrInvalidTwoStepCode):
@@ -283,7 +285,7 @@ func (s *Server) handleTwoStepConfirm(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(SessionCookie); err == nil {
 		keep = c.Value
 	}
-	codes, err := s.auth.ConfirmTwoStep(r.Context(), id.ID, req.Code, keep)
+	codes, err := s.auth.ConfirmTwoStep(r.Context(), id.ID, req.Code, keep, ClientIP(r.Context()))
 	if err != nil {
 		s.failSetup(w, r, err)
 		return
