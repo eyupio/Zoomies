@@ -83,7 +83,7 @@ func (b *DockerBackend) cleanToolFarmInContainer(ctx context.Context, runner Con
 		if old.Config == nil || old.Config.Labels[LabelRole] != roleToolCleanup || old.Config.Labels[LabelToolFarm] != farm {
 			return errors.New("refusing to replace an unrelated tool cache cleanup container")
 		}
-		if err := b.api.ContainerRemove(ctx, old.ID, true); err != nil && !errors.Is(err, ErrNotFound) {
+		if err := b.removeContainer(ctx, old.ID); err != nil && !errors.Is(err, ErrNotFound) {
 			return fmt.Errorf("removing previous tool cache cleanup container: %w", err)
 		}
 	} else if !errors.Is(err, ErrNotFound) {
@@ -121,7 +121,11 @@ func (b *DockerBackend) cleanToolFarmInContainer(ctx context.Context, runner Con
 	defer func() {
 		cleanupCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 		defer stop()
-		if err := b.api.ContainerRemove(cleanupCtx, id, true); err != nil && !errors.Is(err, ErrNotFound) {
+		// The helper is AutoRemove, so the daemon starts removing it the
+		// moment it exits; a DELETE that meets that removal waits it out
+		// rather than failing the runner's cleanup over a container that is
+		// already on its way.
+		if err := b.removeContainer(cleanupCtx, id); err != nil && !errors.Is(err, ErrNotFound) {
 			resultErr = errors.Join(resultErr, fmt.Errorf("removing tool cache cleanup container: %w", err))
 		}
 	}()

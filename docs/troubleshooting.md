@@ -394,6 +394,16 @@ problems panel. Common causes:
 * **A container Zoomies could not remove.** It is still on its host, holding
   its writable layer. Zoomies keeps retrying; if it does not clear, remove it
   on the host with `docker rm -f`, and look at why the daemon refused.
+* **A container Docker is still removing.** A `409` that says *removal of
+  container … is already in progress* is Docker carrying out an earlier
+  removal it has not finished — a docker-in-docker sidecar can take minutes on
+  a busy host — and Docker finishes a removal it has started whether or not
+  anyone is waiting. It is not a failure, and Zoomies no longer reports it as
+  one: it waits for the removal for as long as the removal is allowed, asks
+  again on later passes, and confirms it once the container has gone. Only a
+  removal still under way after ten minutes is raised here, because by then
+  the daemon has stopped making progress on it. `docker rm -f` gets the same
+  `409` until then; restarting the daemon clears one that is stuck.
 * **A runner tool cache reports `unlinkat ... permission denied`.** Setup
   actions can create nested directories as the container's runner user or
   root, while the agent service runs as `zoomies`. Making the top-level folder
@@ -414,6 +424,9 @@ problems panel. Common causes:
   override, so if it stays this way well past a few rechecks, waiting will not
   fix it: cancel the workflow run on GitHub, or remove the runner on the
   target's runner settings page.
+  When the same runner also has a container left on its host, the problem's fix
+  is about the container: that is the part that needs you, and GitHub's side
+  is rechecked within a minute of the container going.
 * **A registration GitHub would not delete for another reason.** It is still on
   the organisation's runner list, offline and doing nothing, and this is
   usually a permission the App has lost. Check the App's installation, or
@@ -421,7 +434,10 @@ problems panel. Common causes:
 
 These clear themselves when a retry succeeds. The attempt count is kept
 afterwards, because how many tries it took is the difference between a blip and
-a host worth looking at.
+a host worth looking at. It counts attempts that failed: a removal Docker still
+has under way and a registration GitHub still calls busy are waits, not
+attempts, and a failure reported after the host has already confirmed the
+container gone is ignored rather than re-opening the cleanup.
 
 A runner's **Cleaned up** time is when nothing of it was left, on the host or
 on GitHub. A finished runner without one still has something outstanding.

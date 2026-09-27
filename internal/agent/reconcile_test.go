@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -527,8 +528,14 @@ func TestReconcileRetriesAFinishedWorkloadItCouldNotRemove(t *testing.T) {
 	be.mu.Lock()
 	be.removeErr = errors.New("daemon busy")
 	be.mu.Unlock()
-	if _, err := a.ReconcileOnce(ctx); err != nil {
+	reports, err := a.ReconcileOnce(ctx)
+	if err != nil {
 		t.Fatalf("ReconcileOnce: %v", err)
+	}
+	// A removal that failed -- as opposed to one still under way -- is said
+	// at once: the container is still on the host and nothing will take it.
+	if len(reports) != 1 || reports[0].CleanupError == "" {
+		t.Fatalf("a failed removal was not reported: %+v", reports)
 	}
 	if got := a.Runners(); len(got) != 1 {
 		t.Fatalf("forgot a runner whose workload is still on the host: %+v", got)
@@ -537,7 +544,7 @@ func TestReconcileRetriesAFinishedWorkloadItCouldNotRemove(t *testing.T) {
 	be.mu.Lock()
 	be.removeErr = nil
 	be.mu.Unlock()
-	reports, err := a.ReconcileOnce(ctx)
+	reports, err = a.ReconcileOnce(ctx)
 	if err != nil {
 		t.Fatalf("ReconcileOnce: %v", err)
 	}
@@ -550,6 +557,105 @@ func TestReconcileRetriesAFinishedWorkloadItCouldNotRemove(t *testing.T) {
 	}
 	if got := a.Runners(); len(got) != 0 {
 		t.Fatalf("still tracking a runner whose workload was removed: %+v", got)
+	}
+}
+
+// errStillRemoving is what the backend says when the daemon is carrying out a
+// removal of the workload that it has not finished.
+var errStillRemoving = fmt.Errorf("backend: removing docker-in-docker sidecar for runner-1: docker api: DELETE /containers/runner-1-dind: 409: removal of container runner-1-dind is already in progress: %w", backend.ErrRemovalInProgress)
+
+// A docker-in-docker sidecar can take minutes to remove, and the daemon
+// finishes a removal it has started whether or not anyone waits. Each pass
+// that found one still going used to be reported as a failed cleanup: the
+// Runners page said something was left behind, and the attempt count climbed,
+// while the daemon was deleting it.
+func TestAWorkloadTheDaemonIsStillRemovingIsNotAFailedCleanup(t *testing.T) {
+	a, _, be, clock := newAgent(t, 2)
+	a.retention = 0
+	reportedAndFinished(t, a, be, "runner-1", "wl-1")
+	ctx := context.Background()
+
+	be.mu.Lock()
+	be.removeErr = errStillRemoving
+	be.mu.Unlock()
+	for pass := range 5 {
+		reports, err := a.ReconcileOnce(ctx)
+		if err != nil {
+			t.Fatalf("ReconcileOnce: %v", err)
+		}
+		if len(reports) != 0 {
+			t.Fatalf("pass %d reported a removal the daemon is still carrying out: %+v", pass, reports)
+		}
+		if got := a.Runners(); len(got) != 1 {
+			t.Fatalf("forgot a runner whose workload is still being removed: %+v", got)
+		}
+		clock.advance(defaultReconcileInterval)
+	}
+
+	be.mu.Lock()
+	be.removeErr = nil
+	be.mu.Unlock()
+	reports, err := a.ReconcileOnce(ctx)
+	if err != nil {
+		t.Fatalf("ReconcileOnce: %v", err)
+	}
+	if len(reports) != 1 || !reports[0].HostRemoved || reports[0].CleanupError != "" {
+		t.Fatalf("the finished removal was not confirmed: %+v", reports)
+	}
+}
+
+// The window is a bound, not a way to hide a daemon that has stopped making
+// progress: past it the removal is reported, with what to do about it.
+func TestARemovalStillUnderWayPastItsBoundIsReported(t *testing.T) {
+	a, _, be, clock := newAgent(t, 2)
+	a.retention = 0
+	reportedAndFinished(t, a, be, "runner-1", "wl-1")
+	ctx := context.Background()
+
+	be.mu.Lock()
+	be.removeErr = errStillRemoving
+	be.mu.Unlock()
+	if reports, _ := a.ReconcileOnce(ctx); len(reports) != 0 {
+		t.Fatalf("the first sight of a removal under way was reported: %+v", reports)
+	}
+	clock.advance(removalSettle)
+	reports, err := a.ReconcileOnce(ctx)
+	if err != nil {
+		t.Fatalf("ReconcileOnce: %v", err)
+	}
+	if len(reports) != 1 || reports[0].CleanupError == "" {
+		t.Fatalf("a removal stuck past its bound was not reported: %+v", reports)
+	}
+	msg := reports[0].CleanupError
+	if !strings.Contains(msg, "10m0s") || !strings.Contains(msg, "restart") || !strings.Contains(msg, "already in progress") {
+		t.Fatalf("the report should say how long, what to do, and keep the daemon's words: %s", msg)
+	}
+}
+
+// A removal that fails for another reason in between starts the window
+// again: the earlier wait was for a removal that has since ended.
+func TestARemovalThatFailsDifferentlyStartsTheWindowAgain(t *testing.T) {
+	a, _, be, clock := newAgent(t, 2)
+	a.retention = 0
+	reportedAndFinished(t, a, be, "runner-1", "wl-1")
+	ctx := context.Background()
+	setRemoveErr := func(err error) {
+		be.mu.Lock()
+		be.removeErr = err
+		be.mu.Unlock()
+	}
+
+	setRemoveErr(errStillRemoving)
+	_, _ = a.ReconcileOnce(ctx)
+	clock.advance(removalSettle - time.Minute)
+	setRemoveErr(errors.New("unable to remove filesystem"))
+	if reports, _ := a.ReconcileOnce(ctx); len(reports) != 1 || reports[0].CleanupError == "" {
+		t.Fatalf("a removal that failed was not reported at once: %+v", reports)
+	}
+	clock.advance(2 * time.Minute)
+	setRemoveErr(errStillRemoving)
+	if reports, _ := a.ReconcileOnce(ctx); len(reports) != 0 {
+		t.Fatalf("a fresh removal under way inherited the old one's window: %+v", reports)
 	}
 }
 

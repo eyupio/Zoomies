@@ -31,7 +31,7 @@ func TestToolCleanupRecoversPermissionFailure(t *testing.T) {
 	// Recovery uses a POSIX bind mount and shell. A Windows drive-letter
 	// path contains the ':' separator that this mount's safety check rejects.
 	requirePOSIX(t)
-	for _, scenario := range []string{"success", "auto-removed", "exit failure", "wait failure", "start failure", "cancelled", "still denied", "stale helper", "foreign helper"} {
+	for _, scenario := range []string{"success", "auto-removed", "auto-removing", "exit failure", "wait failure", "start failure", "cancelled", "still denied", "stale helper", "foreign helper"} {
 		t.Run(scenario, func(t *testing.T) {
 			shared := t.TempDir()
 			runner := cleanupRunner(t, shared)
@@ -88,6 +88,17 @@ func TestToolCleanupRecoversPermissionFailure(t *testing.T) {
 				},
 				"DELETE " + v + "/containers/{id}": func(w http.ResponseWriter, r *http.Request) {
 					deleted = append(deleted, r.PathValue("id"))
+					// The helper is AutoRemove: once it exits the daemon is
+					// already removing it, and a DELETE that arrives first is
+					// told so rather than doing it.
+					if scenario == "auto-removing" && r.PathValue("id") == "helper" {
+						if len(deleted) == 1 {
+							writeJSON(w, http.StatusConflict, map[string]string{"message": "removal of container helper is already in progress"})
+							return
+						}
+						w.WriteHeader(404)
+						return
+					}
 					w.WriteHeader(204)
 				},
 			})
@@ -103,7 +114,7 @@ func TestToolCleanupRecoversPermissionFailure(t *testing.T) {
 				}
 				return os.RemoveAll(path)
 			})
-			wantSuccess := scenario == "success" || scenario == "auto-removed" || scenario == "stale helper"
+			wantSuccess := scenario == "success" || scenario == "auto-removed" || scenario == "auto-removing" || scenario == "stale helper"
 			if (err == nil) != wantSuccess {
 				t.Fatalf("cleanup = %v", err)
 			}

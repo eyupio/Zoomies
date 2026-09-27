@@ -1177,6 +1177,20 @@ func (c *Controller) ReportResult(ctx context.Context, hostID string, res agent.
 		c.noteImagePull(ctx, hostID, r.PoolID, image, "start", res.OK, res.Fault, res.Error)
 	}
 
+	if !res.OK && res.CleanupPending && kind == agent.TaskRemoveRunner {
+		// The daemon is still carrying out a removal of this runner's
+		// workload, and finishes it without being asked again. Nothing is
+		// recorded against the runner: the agent confirms the removal on
+		// the first attempt that finds the workload gone, and reports it as
+		// a failure itself once it has waited long enough to call it stuck.
+		// Recording each of these answers as a failed cleanup is what put a
+		// runner that was merely slow to delete on the Runners page as
+		// something left behind, one "attempt" per scheduling pass.
+		c.log.Info("a host is still removing a runner's workload; it will confirm the removal once the daemon has finished",
+			"runner", r.ID, "name", r.Name, "host", hostID, "detail", res.Error)
+		return nil
+	}
+
 	state := res.State
 	message := res.Error
 	if !res.OK {
@@ -1235,6 +1249,18 @@ func cleansUp(kind agent.TaskKind) bool {
 // capacity wrong in order to record a tidying problem. What is wrong is the
 // host, and the row is where that belongs.
 func (c *Controller) noteCleanupFailure(ctx context.Context, r *store.Runner, kind agent.TaskKind, reason string) error {
+	if r.HostRemovedAt != nil {
+		// The host has already confirmed this runner's workload gone -- its
+		// sidecar included, from a fresh listing -- so a failure arriving
+		// after that is about an attempt the confirmation overtook: a report
+		// assembled before it, a redelivered task, a lease that ran out on a
+		// task it made moot. Recording one re-opened a finished cleanup,
+		// counted another attempt and raised the warning again for a runner
+		// with nothing left behind.
+		c.log.Debug("ignored a cleanup failure for a runner its host has already confirmed removed",
+			"runner", r.ID, "kind", kind, "error", reason)
+		return nil
+	}
 	c.metrics.cleanups.WithLabelValues("failed").Inc()
 	detail := fmt.Sprintf("%s failed: %s", kind, reason)
 	if err := c.st.RecordCleanupFailure(ctx, r.ID, detail); err != nil {

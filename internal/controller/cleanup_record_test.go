@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -361,5 +362,128 @@ func TestReapRecordsARetryThatFailsAgain(t *testing.T) {
 	}
 	if len(h.gh.Runners()) != 1 {
 		t.Fatal("a genuinely refused delete must leave the registration in place")
+	}
+}
+
+// A host that finds the daemon still carrying out a removal says so, and that
+// is not a cleanup that failed: the daemon finishes it, and the agent confirms
+// the removal once it has. Counting each such answer as a failure -- and the
+// controller re-sends a remove on every pass while a host's cleanup is
+// outstanding -- put a runner that was merely slow to delete on the Runners
+// page as something left behind, with an attempt count that kept climbing.
+func TestARemovalTheDaemonIsStillCarryingOutIsNotAFailedCleanup(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	r := h.runnerRow(pool, host, store.RunnerRemoved)
+
+	for i := range 3 {
+		if err := h.c.ReportResult(h.ctx, host.ID, agent.TaskResult{
+			TaskID: fmt.Sprintf("task_%d", i), Kind: agent.TaskRemoveRunner, RunnerID: r.ID,
+			OK: false, CleanupPending: true,
+			Error: "the docker backend is still removing runner " + r.ID + ": 409: removal of container " + r.Name + "-dind is already in progress",
+		}); err != nil {
+			t.Fatalf("ReportResult: %v", err)
+		}
+	}
+	got := h.runnerByID(t, r.ID)
+	if got.CleanupError != "" || got.CleanupAttempts != 0 || got.CleanupFailedAt != nil {
+		t.Fatalf("a removal still under way was recorded as a failure: error %q, attempts %d", got.CleanupError, got.CleanupAttempts)
+	}
+	if contains(h.problemCodes(), "runners.cleanup_failed") {
+		t.Fatalf("problems = %v; a removal still under way is not something left behind", h.problemCodes())
+	}
+	if got.State != store.RunnerRemoved {
+		t.Fatalf("state = %q, want it left alone", got.State)
+	}
+
+	// And the removal is confirmed by the answer that finds it done.
+	if err := h.c.ReportResult(h.ctx, host.ID, agent.TaskResult{
+		TaskID: "task_done", Kind: agent.TaskRemoveRunner, RunnerID: r.ID,
+		OK: true, State: store.RunnerRemoved,
+	}); err != nil {
+		t.Fatalf("ReportResult: %v", err)
+	}
+	if h.runnerByID(t, r.ID).HostRemovedAt == nil {
+		t.Fatal("the finished removal was not confirmed")
+	}
+}
+
+// Once the host has confirmed a runner's workload gone, a failure that arrives
+// afterwards is about an attempt the confirmation overtook -- a report built
+// before it, a redelivered task -- and must not re-open the cleanup.
+func TestAFailureArrivingAfterTheHostConfirmedRemovalDoesNotReopenIt(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	r := h.runnerRow(pool, host, store.RunnerRemoved)
+	if err := h.c.ReportResult(h.ctx, host.ID, agent.TaskResult{
+		TaskID: "task_1", Kind: agent.TaskRemoveRunner, RunnerID: r.ID,
+		OK: true, State: store.RunnerRemoved,
+	}); err != nil {
+		t.Fatalf("ReportResult: %v", err)
+	}
+
+	late := "backend: removing docker-in-docker sidecar: docker api: DELETE /containers/x-dind: 409: removal of container x-dind is already in progress"
+	if err := h.c.ReportRunners(h.ctx, host.ID, []agent.RunnerReport{{RunnerID: r.ID, State: store.RunnerRemoved, CleanupError: late}}); err != nil {
+		t.Fatalf("ReportRunners: %v", err)
+	}
+	if err := h.c.ReportResult(h.ctx, host.ID, agent.TaskResult{
+		TaskID: "task_2", Kind: agent.TaskRemoveRunner, RunnerID: r.ID,
+		OK: false, Error: late,
+	}); err != nil {
+		t.Fatalf("ReportResult: %v", err)
+	}
+
+	got := h.runnerByID(t, r.ID)
+	if got.HostRemovedAt == nil || got.HostCleanupError != "" || got.CleanupAttempts != 0 {
+		t.Fatalf("a late failure re-opened a confirmed removal: host_removed_at %v, host error %q, attempts %d",
+			got.HostRemovedAt, got.HostCleanupError, got.CleanupAttempts)
+	}
+}
+
+// A row can carry both halves at once, and the container is the one that
+// needs somebody. The fix used to be chosen by searching the joined sentence
+// for "running a job", so a busy registration was all an operator was told
+// about while a container sat on their host.
+func TestAFixForBothHalvesNamesTheContainerFirst(t *testing.T) {
+	for _, tc := range []struct {
+		name, host string
+		want       []string
+	}{
+		{
+			name: "a removal Docker still has under way",
+			host: "remove_runner failed: docker api: DELETE /containers/x-dind: 409: removal of container x-dind is already in progress",
+			want: []string{"still removing", "restarting the daemon"},
+		},
+		{
+			name: "a container the daemon would not remove",
+			host: "remove_runner failed: the daemon refused: container is in use",
+			want: []string{"If the container is still on", "remove it there"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			_, pool, host := h.fleet()
+			r := h.runnerRow(pool, host, store.RunnerRemoved)
+			if err := h.st.RecordCleanupFailure(h.ctx, r.ID, tc.host); err != nil {
+				t.Fatal(err)
+			}
+			h.c.deferBusyRegistration(h.ctx, r)
+
+			prob := h.problem(t, "runners.cleanup_failed")
+			for _, w := range tc.want {
+				if !strings.Contains(prob.Fix, w) {
+					t.Errorf("fix = %q, want it to say %q", prob.Fix, w)
+				}
+			}
+			if !strings.Contains(prob.Fix, host.Name) {
+				t.Errorf("fix = %q, want it to name the host the container is on", prob.Fix)
+			}
+			if strings.HasPrefix(prob.Fix, "GitHub still reports") {
+				t.Errorf("fix = %q, leads with GitHub while a container is left on the host", prob.Fix)
+			}
+			if !strings.Contains(prob.Fix, "GitHub's side is rechecked") {
+				t.Errorf("fix = %q, want it to say the registration looks after itself", prob.Fix)
+			}
+		})
 	}
 }

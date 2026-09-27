@@ -71,6 +71,23 @@ const (
 	// orphanGrace is how long a workload nothing claims must stay unclaimed
 	// before the agent reaps it.
 	orphanGrace = 2 * time.Minute
+	// removalSettle is how long the daemon may go on removing a runner's
+	// workload before the agent calls the removal stuck.
+	//
+	// A removal the daemon has under way is not one that failed: Docker
+	// finishes a removal it has started whether or not anyone is waiting,
+	// and a docker-in-docker sidecar -- a whole nested image store to delete
+	// -- can take minutes on a busy host. Reporting each attempt that found it
+	// still going put a runner Zoomies "could not clean up" on the Runners
+	// page for every slow removal, and counted every pass as a failed
+	// attempt. Ten minutes is a daemon that has stopped making progress -- a
+	// kill that never saw its exit, a filesystem it cannot release -- and
+	// that is something an operator has to go and look at.
+	removalSettle = 10 * time.Minute
+	// removalMemory is how long the start of a removal is remembered once
+	// nothing has asked about it, so an agent that runs for months does not
+	// carry every runner whose removal was ever slow.
+	removalMemory = 24 * time.Hour
 	// missingGrace stops a runner created moments ago from being declared gone
 	// because the backend has not listed it yet.
 	missingGrace = time.Minute
@@ -215,6 +232,10 @@ type Agent struct {
 	// "the controller has not mentioned it in a while" is measured.
 	orphans          map[backend.Handle]time.Time
 	inventoryPending map[store.BackendKind]bool
+	// removing records, by runner ID, when the daemon was first found still
+	// removing that runner's workload. It is what bounds how long a slow
+	// removal is waited out before it is reported as stuck; see removalSettle.
+	removing map[string]time.Time
 	// backendInfo is the last probe, sent with heartbeats, and probedAt is
 	// when it was taken. It is refreshed as the agent runs: what a host can do
 	// is not a fact of its startup.
@@ -409,6 +430,7 @@ func New(opts Options) (*Agent, error) {
 		taskCtx:          context.Background(),
 		orphans:          make(map[backend.Handle]time.Time),
 		inventoryPending: make(map[store.BackendKind]bool),
+		removing:         make(map[string]time.Time),
 		cpuFactor:        1,
 	}
 	a.logs = newLogRelay(opts.Transport, log)
@@ -1568,6 +1590,14 @@ func (a *Agent) handleStop(ctx context.Context, task Task, release func()) {
 
 func (a *Agent) handleRemove(ctx context.Context, task Task, release func()) {
 	b, handle, ok, err := a.resolve(ctx, task.RunnerID)
+
+	// The same budget the reconciler gives a removal, whichever branch this
+	// takes: a sidecar's DELETE is held open until the daemon has finished
+	// it, and without a deadline of its own it would get only the client's
+	// one-minute default.
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), RemoveTimeout)
+	defer cancel()
+
 	if !ok {
 		if err != nil {
 			release()
@@ -1577,7 +1607,12 @@ func (a *Agent) handleRemove(ctx context.Context, task Task, release func()) {
 		for _, kind := range a.opts.Backends.Kinds() {
 			be, err := a.opts.Backends.Get(kind)
 			if err == nil {
-				err = removeRunnerWorkload(ctx, be, task.RunnerID, "")
+				err = removeRunnerWorkload(rctx, be, task.RunnerID, "")
+			}
+			if err != nil && errors.Is(err, backend.ErrRemovalInProgress) {
+				release()
+				a.reportRemoveFailure(ctx, task, kind, "", err)
+				return
 			}
 			if err != nil {
 				release()
@@ -1586,34 +1621,100 @@ func (a *Agent) handleRemove(ctx context.Context, task Task, release func()) {
 			}
 		}
 		// A workload that is already gone is exactly what this task asked for.
+		a.removalPending(task.RunnerID, nil, a.now())
 		a.untrack(task.RunnerID)
 		release()
 		a.report(ctx, TaskResult{TaskID: task.ID, Kind: task.Kind, RunnerID: task.RunnerID, OK: true, State: store.RunnerRemoved, CompletedAt: a.now()})
 		return
 	}
 
-	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), RemoveTimeout)
-	defer cancel()
-
 	if err := removeRunnerWorkload(rctx, b, task.RunnerID, handle); err != nil {
-		a.log.Error("removing runner failed", "runner", task.RunnerID, "handle", handle, "error", err)
 		release()
-		a.report(ctx, TaskResult{
-			TaskID:      task.ID,
-			Kind:        task.Kind,
-			RunnerID:    task.RunnerID,
-			OK:          false,
-			Handle:      handle,
-			Error:       fmt.Sprintf("the %s backend could not remove runner %s (%s): %v", b.Kind(), task.RunnerID, handle, err),
-			CompletedAt: a.now(),
-		})
+		a.reportRemoveFailure(ctx, task, b.Kind(), handle, err)
 		return
 	}
 
+	a.removalPending(task.RunnerID, nil, a.now())
 	a.untrack(task.RunnerID)
 	a.log.Info("runner removed", "runner", task.RunnerID, "handle", handle)
 	release()
 	a.report(ctx, TaskResult{TaskID: task.ID, Kind: task.Kind, RunnerID: task.RunnerID, OK: true, Handle: handle, State: store.RunnerRemoved, CompletedAt: a.now()})
+}
+
+// reportRemoveFailure answers a remove task whose removal did not complete.
+//
+// A removal the daemon still has under way is answered as pending rather than
+// failed, for as long as removalSettle allows: the controller records nothing
+// against the runner, and the removal is confirmed by whichever attempt next
+// finds the workload gone -- the reconciler's, or this task's redelivery.
+// Answered as a failure, every one of those attempts was counted against the
+// runner and the Runners page said something was left behind while the daemon
+// was finishing the job. A removal still under way past the bound is stuck,
+// and is reported as the failure it has become.
+func (a *Agent) reportRemoveFailure(ctx context.Context, task Task, kind store.BackendKind, handle backend.Handle, err error) {
+	now := a.now()
+	since, pending := a.removalPending(task.RunnerID, err, now)
+	if pending {
+		a.log.Info("the daemon is still removing this runner's workload; it will be confirmed once the daemon has finished",
+			"runner", task.RunnerID, "handle", handle, "backend", kind, "removing_for", now.Sub(since), "error", err)
+		a.report(ctx, TaskResult{
+			TaskID:         task.ID,
+			Kind:           task.Kind,
+			RunnerID:       task.RunnerID,
+			OK:             false,
+			CleanupPending: true,
+			Handle:         handle,
+			Error:          fmt.Sprintf("the %s backend is still removing runner %s: %v", kind, task.RunnerID, err),
+			CompletedAt:    now,
+		})
+		return
+	}
+	if !since.IsZero() {
+		err = stuckRemoval(now.Sub(since), err)
+	}
+	a.log.Error("removing runner failed", "runner", task.RunnerID, "handle", handle, "error", err)
+	a.report(ctx, TaskResult{
+		TaskID:      task.ID,
+		Kind:        task.Kind,
+		RunnerID:    task.RunnerID,
+		OK:          false,
+		Handle:      handle,
+		Error:       fmt.Sprintf("the %s backend could not remove runner %s (%s): %v", kind, task.RunnerID, handle, err),
+		CompletedAt: now,
+	})
+}
+
+// removalPending reports whether a removal that ended with err should be
+// waited for rather than reported, and since when the daemon has been found
+// still removing this runner's workload. Only a removal still under way
+// counts; any other outcome, success included, forgets it, so a removal that
+// fails for another reason is reported at once and a later slow one gets a
+// window of its own.
+func (a *Agent) removalPending(runnerID string, err error, now time.Time) (since time.Time, pending bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if !errors.Is(err, backend.ErrRemovalInProgress) {
+		delete(a.removing, runnerID)
+		return time.Time{}, false
+	}
+	since, ok := a.removing[runnerID]
+	if !ok {
+		for id, at := range a.removing {
+			if now.Sub(at) >= removalMemory {
+				delete(a.removing, id)
+			}
+		}
+		since = now
+		a.removing[runnerID] = now
+	}
+	return since, now.Sub(since) < removalSettle
+}
+
+// stuckRemoval says what a removal still under way past removalSettle has
+// become, and what to do about it: the daemon is not going to finish it.
+func stuckRemoval(waited time.Duration, err error) error {
+	return fmt.Errorf("the daemon on this host has been removing this runner's workload for %s and has not finished; a removal stuck this long usually needs the daemon restarted: %w",
+		waited.Round(time.Second), err)
 }
 
 func (a *Agent) runLogTask(ctx context.Context, task Task) {

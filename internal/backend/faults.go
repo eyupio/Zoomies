@@ -33,6 +33,15 @@ var (
 	// machine there are none. Told to check whether the daemon is running,
 	// an operator finds it running and concludes the fleet is lying to them.
 	ErrDaemonBusy = errors.New("backend: the container backend did not answer in time")
+	// ErrRemovalInProgress is a removal the daemon has under way and has not
+	// finished: a DELETE refused because another one is still being carried
+	// out, or one whose caller's deadline passed while the daemon was working
+	// on it. Neither is a removal that failed -- Docker finishes a removal it
+	// has started whether or not anyone is still waiting for it -- and the
+	// agent tells the two apart so that a slow removal is waited out rather
+	// than reported as something left behind. It always travels with
+	// ErrDaemonBusy, so its fault is the busy one.
+	ErrRemovalInProgress = errors.New("backend: the container backend is still removing this container")
 )
 
 // noSpace is the daemon's own words for a full disk, and the only evidence
@@ -51,6 +60,12 @@ const noSpace = "no space left on device"
 func imageErr(err error) error  { return tagged{err: err, kind: ErrImageUnavailable} }
 func daemonErr(err error) error { return tagged{err: err, kind: ErrDaemon} }
 func busyErr(err error) error   { return tagged{err: err, kind: ErrDaemonBusy} }
+
+// removingErr is busyErr with the one thing a caller can do about it attached:
+// wait, because the daemon is still doing the work.
+func removingErr(err error) error {
+	return tagged{err: busyErr(err), kind: ErrRemovalInProgress}
+}
 
 type tagged struct{ err, kind error }
 

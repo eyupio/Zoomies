@@ -779,6 +779,71 @@ func TestEveryPrewarmInABatchIsPulled(t *testing.T) {
 	}
 }
 
+// A remove task that finds the daemon still removing the workload answers
+// that it is pending rather than failed. The controller counted every such
+// answer as a failed cleanup, and it re-sends a remove on every scheduling
+// pass while a host's cleanup is outstanding, so one slow sidecar climbed
+// through "attempts" while the daemon was finishing the job.
+func TestARemoveTaskFindingTheDaemonStillRemovingAnswersPending(t *testing.T) {
+	a, tr, be, clock := newAgent(t, 2)
+	track(a, "runner-1", "wl-1", true)
+	be.setWorkloads(exited("wl-1", "runner-1", 0))
+	be.mu.Lock()
+	be.removeErr = errStillRemoving
+	be.mu.Unlock()
+	ctx := context.Background()
+	remove := func(id string) TaskResult {
+		t.Helper()
+		a.handleRemove(ctx, Task{ID: id, Kind: TaskRemoveRunner, RunnerID: "runner-1"}, func() {})
+		select {
+		case res := <-tr.results:
+			return res
+		default:
+			t.Fatalf("task %s was not answered", id)
+		}
+		return TaskResult{}
+	}
+
+	res := remove("task-1")
+	if res.OK || !res.CleanupPending || !strings.Contains(res.Error, "still removing") {
+		t.Fatalf("a removal under way was not answered as pending: %+v", res)
+	}
+	if got := a.Runners(); len(got) != 1 {
+		t.Fatalf("forgot a runner whose workload is still being removed: %+v", got)
+	}
+
+	// Past the bound it is stuck, and answered as the failure it has become.
+	clock.advance(removalSettle)
+	res = remove("task-2")
+	if res.OK || res.CleanupPending || !strings.Contains(res.Error, "restart") {
+		t.Fatalf("a removal stuck past its bound was still answered as pending: %+v", res)
+	}
+
+	be.mu.Lock()
+	be.removeErr = nil
+	be.mu.Unlock()
+	res = remove("task-3")
+	if !res.OK || res.CleanupPending || res.State != store.RunnerRemoved {
+		t.Fatalf("the finished removal was not confirmed: %+v", res)
+	}
+}
+
+// A plain refusal is still a failure the controller must hear about at once.
+func TestARemoveTaskThatFailsIsNotAnsweredAsPending(t *testing.T) {
+	a, tr, be, _ := newAgent(t, 2)
+	track(a, "runner-1", "wl-1", true)
+	be.setWorkloads(exited("wl-1", "runner-1", 0))
+	be.mu.Lock()
+	be.removeErr = errors.New("sidecar is in use")
+	be.mu.Unlock()
+
+	a.handleRemove(context.Background(), Task{ID: "task-1", Kind: TaskRemoveRunner, RunnerID: "runner-1"}, func() {})
+	res := <-tr.results
+	if res.OK || res.CleanupPending || !strings.Contains(res.Error, "sidecar is in use") {
+		t.Fatalf("a refused removal = %+v, want an ordinary failure", res)
+	}
+}
+
 // An operator removing a runner while its create is still running must still
 // get the runner removed.
 //

@@ -731,12 +731,48 @@ func (c *APIClient) ContainerWait(ctx context.Context, id string) (int, error) {
 }
 
 // ContainerRemove deletes a container and its anonymous volumes.
+//
+// Docker answers a DELETE only once the removal is over -- the container
+// killed, its writable layer released and its anonymous volumes deleted, which
+// for a docker-in-docker sidecar is the whole nested image store -- and it
+// never abandons a removal because the client stopped waiting for it. So the
+// transport's 90-second response-header timeout bounded nothing: it turned a
+// slow removal into an abandoned one, the next attempt found the daemon still
+// doing it and was refused with a 409, and the runner was reported as one
+// Zoomies could not clean up while the daemon was quietly finishing the job.
+// The caller's context is the bound instead, as it is for a stop.
+//
+// Both ways of finding the daemon still at it come back as
+// ErrRemovalInProgress: the refusal that says so, and a DELETE whose deadline
+// passed while the daemon was working on it.
 func (c *APIClient) ContainerRemove(ctx context.Context, id string, force bool) error {
 	q := url.Values{"v": {"1"}}
 	if force {
 		q.Set("force", "1")
 	}
-	return c.do(ctx, http.MethodDelete, "/containers/"+id, q, nil, nil)
+	err := c.do(withHeldResponse(ctx), http.MethodDelete, "/containers/"+id, q, nil, nil)
+	if err != nil && removalUnderWay(err) {
+		return removingErr(err)
+	}
+	return err
+}
+
+// removalUnderWay reports whether a failed DELETE means the daemon is still
+// removing the container.
+//
+// The refusal is recognised by the daemon's own words ("removal of container
+// <name> is already in progress") and not by its status alone, because a 409
+// is also how a daemon refuses a removal it will not do, and that one is a
+// finding. A deadline that passed with the request sent is the other half:
+// the daemon has it, and carries it out whether or not we are still there.
+func removalUnderWay(err error) bool {
+	var apiErr *APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.Status == http.StatusConflict &&
+			strings.Contains(apiErr.Message, "removal of container") &&
+			strings.Contains(apiErr.Message, "already in progress")
+	}
+	return errors.Is(err, context.DeadlineExceeded)
 }
 
 // UpdateConfig is the body of POST /containers/{id}/update. Only the fields

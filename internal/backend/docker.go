@@ -257,6 +257,9 @@ type DockerBackend struct {
 	// of the same name that this agent stopped waiting on, measured from the
 	// moment it stopped. A field for the same reason.
 	nameSettle time.Duration
+	// removalWait is how long a removal waits for one the daemon already has
+	// under way; see removalWaitBudget. A field for the same reason.
+	removalWait time.Duration
 	// abandoned is every container name whose create the daemon did not answer
 	// in time, and when this agent gave up on it. It is what tells a 409 for a
 	// container nobody can inspect apart from a leaked name: the first is a
@@ -321,6 +324,7 @@ func newContainerBackend(opts DockerOptions, fl flavor, detect func() []string, 
 
 		nameRelease: nameReleaseBudget,
 		nameSettle:  nameSettleBudget,
+		removalWait: removalWaitBudget,
 	}, nil
 }
 
@@ -1161,7 +1165,7 @@ func (b *DockerBackend) cleanupFailedCreate(ctx context.Context, spec Spec, caus
 	defer cancel()
 	var errs []error
 	if dindID != "" {
-		switch err := b.api.ContainerRemove(cleanupCtx, dindID, true); {
+		switch err := b.removeContainer(cleanupCtx, dindID); {
 		case err == nil:
 			b.forgetAbandonedCreate(dindName(containerName(spec.Name)))
 			b.log.Info("removed the docker-in-docker sidecar of a runner that failed to create", "runner", spec.Name, "container", shortID(dindID))
@@ -1326,10 +1330,64 @@ func (b *DockerBackend) lastToolCacheProblem() string {
 	return b.toolCacheProblem
 }
 
+// removalWaitBudget is how long a removal waits for one the daemon already has
+// under way before handing the question back to its caller.
+//
+// It is short on purpose. Everything that removes a container runs inside a
+// budget of its own -- the agent's two minutes for a whole runner, a pass of
+// the reconcile loop -- with other work to do after this, and a removal still
+// under way at the end of it is not lost: the daemon finishes it anyway, and
+// the next attempt meets the answer. What the wait buys is the common case, a
+// removal a few seconds from finishing, settling inside the attempt that
+// found it rather than costing a whole pass.
+const removalWaitBudget = 30 * time.Second
+
+// removeContainer deletes a container, waiting out a removal the daemon
+// already has under way rather than calling it a failure.
+//
+// The wait asks the daemon again rather than looking: a removal in progress is
+// not part of what a list or an inspect reports on current Docker, and an
+// inspect queues behind the lock the removal holds. A second DELETE is
+// answered at once, and says exactly where the daemon has got to -- a 409
+// while it is still removing, a 404 once the container has gone, and the
+// daemon's own reason if the earlier removal failed and left the container
+// dead, which is then a failure worth returning. The caller treats
+// ErrNotFound as it did before.
+func (b *DockerBackend) removeContainer(ctx context.Context, ref string) error {
+	err := b.api.ContainerRemove(ctx, ref, true)
+	if !errors.Is(err, ErrRemovalInProgress) {
+		return err
+	}
+	started := time.Now()
+	gap := nameReleaseFirstGap
+	for ctx.Err() == nil && time.Since(started) < b.removalWait {
+		timer := time.NewTimer(gap)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+		case <-timer.C:
+		}
+		if ctx.Err() != nil {
+			break
+		}
+		if err = b.api.ContainerRemove(ctx, ref, true); !errors.Is(err, ErrRemovalInProgress) {
+			if err == nil || errors.Is(err, ErrNotFound) {
+				b.log.Info("a removal the daemon already had under way has finished", "container", ref, "waited", time.Since(started).Round(100*time.Millisecond))
+			}
+			return err
+		}
+		if gap *= 2; gap > nameReleaseMaxGap {
+			gap = nameReleaseMaxGap
+		}
+	}
+	return fmt.Errorf("backend: the daemon was still removing container %s after %s; it finishes a removal it has started whether or not anyone waits for it: %w",
+		ref, time.Since(started).Round(100*time.Millisecond), err)
+}
+
 // removeByName deletes a container by name if it exists, which is how Create
 // stays idempotent.
 func (b *DockerBackend) removeByName(ctx context.Context, name string) error {
-	err := b.api.ContainerRemove(ctx, name, true)
+	err := b.removeContainer(ctx, name)
 	if err == nil {
 		b.log.Info("replaced an existing container of the same name", "container", name)
 		return nil
@@ -1547,7 +1605,7 @@ func (b *DockerBackend) Remove(ctx context.Context, h Handle) error {
 			return fmt.Errorf("backend: removing runner tool cache %s: %w", toolFarm, err)
 		}
 	}
-	if err := b.api.ContainerRemove(ctx, string(h), true); err != nil && !errors.Is(err, ErrNotFound) {
+	if err := b.removeContainer(ctx, string(h)); err != nil && !errors.Is(err, ErrNotFound) {
 		return fmt.Errorf("backend: removing container %s: %w", shortID(string(h)), err)
 	}
 	// Removed by us is seen through: a create of either name that the daemon

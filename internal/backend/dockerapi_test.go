@@ -705,6 +705,84 @@ func TestParseDockerTime(t *testing.T) {
 // cut it off at 90 seconds and report "the daemon may be busy or stalled",
 // which failed the runner as unexplained while the daemon carried on and
 // killed the container anyway. A stop is bounded by its own grace period.
+func TestARemoveOutlastsTheResponseHeaderTimeout(t *testing.T) {
+	// Docker answers a DELETE only when the removal is over, and a sidecar's
+	// nested image store can take longer than the header timeout to delete.
+	// Giving up then abandoned a removal the daemon went on to finish, and the
+	// next attempt was refused as "already in progress".
+	f := newFakeEngine(t, map[string]http.HandlerFunc{
+		"DELETE " + v + "/containers/slow": func(w http.ResponseWriter, r *http.Request) {
+			time.Sleep(300 * time.Millisecond)
+			w.WriteHeader(http.StatusNoContent)
+		},
+	})
+	c := f.client(t)
+	c.http.Transport.(*http.Transport).ResponseHeaderTimeout = 50 * time.Millisecond
+	if err := c.ContainerRemove(context.Background(), "slow", true); err != nil {
+		t.Fatalf("a removal that took longer than the header timeout was abandoned: %v", err)
+	}
+}
+
+func TestARemoveTellsARemovalUnderWayFromARefusal(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		status     int
+		message    string
+		inProgress bool
+	}{
+		{"docker's own words", http.StatusConflict, "removal of container runner-1-dind is already in progress", true},
+		{"a conflict of another kind", http.StatusConflict, "sidecar is in use", false},
+		{"a daemon error", http.StatusInternalServerError, "removal of container runner-1-dind is already in progress", false},
+		{"gone", http.StatusNotFound, "no such container", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFakeEngine(t, map[string]http.HandlerFunc{
+				"DELETE " + v + "/containers/runner-1-dind": func(w http.ResponseWriter, r *http.Request) {
+					writeJSON(w, tc.status, map[string]string{"message": tc.message})
+				},
+			})
+			err := f.client(t).ContainerRemove(context.Background(), "runner-1-dind", true)
+			if got := errors.Is(err, ErrRemovalInProgress); got != tc.inProgress {
+				t.Fatalf("removal in progress = %v, want %v (%v)", got, tc.inProgress, err)
+			}
+			if tc.inProgress && !errors.Is(err, ErrDaemonBusy) {
+				t.Fatalf("a removal in progress is a busy daemon, not a refusing one: %v", err)
+			}
+			// The operator still reads the daemon's own sentence.
+			if !strings.Contains(err.Error(), tc.message) {
+				t.Fatalf("the daemon's words were lost: %v", err)
+			}
+		})
+	}
+}
+
+func TestARemoveWhoseDeadlinePassesIsARemovalUnderWay(t *testing.T) {
+	// The daemon has the request, and does not stop because we did.
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	f := newFakeEngine(t, map[string]http.HandlerFunc{
+		"DELETE " + v + "/containers/slow": func(w http.ResponseWriter, r *http.Request) {
+			select {
+			case <-release:
+			case <-r.Context().Done():
+			}
+		},
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	err := f.client(t).ContainerRemove(ctx, "slow", true)
+	if !errors.Is(err, ErrRemovalInProgress) || !errors.Is(err, ErrDaemonBusy) {
+		t.Fatalf("a DELETE cut off by its deadline = %v, want a removal still in progress", err)
+	}
+
+	// A caller that gave up is not the daemon still working.
+	cctx, ccancel := context.WithCancel(context.Background())
+	go func() { time.Sleep(50 * time.Millisecond); ccancel() }()
+	if err := f.client(t).ContainerRemove(cctx, "slow", true); errors.Is(err, ErrRemovalInProgress) {
+		t.Fatalf("a cancelled DELETE was read as a removal under way: %v", err)
+	}
+}
+
 func TestAStopOutlastsTheResponseHeaderTimeout(t *testing.T) {
 	f := newFakeEngine(t, map[string]http.HandlerFunc{
 		"POST " + v + "/containers/slow/stop": func(w http.ResponseWriter, r *http.Request) {

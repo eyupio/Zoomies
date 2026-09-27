@@ -38,6 +38,12 @@ func TestCleanupRetriesOnlySettleTheirOwnFailure(t *testing.T) {
 			if !strings.Contains(got.CleanupError, "container") || !strings.Contains(got.CleanupError, "registration") || got.CleanedUpAt != nil {
 				t.Fatalf("both failures must remain visible: %+v", got)
 			}
+			// And each is readable on its own, so what is said about the row can
+			// name the half that needs doing rather than whichever keyword the
+			// joined sentence happens to contain.
+			if got.HostCleanupError != "container is in use" || got.RegistrationCleanupError != "registration deletion refused" {
+				t.Fatalf("halves = %q / %q", got.HostCleanupError, got.RegistrationCleanupError)
+			}
 			first, last := s.RecordRegistrationDeleted, s.ClearCleanupFailure
 			remaining := "container is in use"
 			if hostFirst {

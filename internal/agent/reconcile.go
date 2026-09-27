@@ -341,10 +341,22 @@ func (a *Agent) cleanUp(ctx context.Context, b backend.Backend, r tracked, w bac
 	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), RemoveTimeout)
 	defer cancel()
 	if err := removeRunnerWorkload(rctx, b, r.runnerID, w.Handle); err != nil {
+		// A removal the daemon is still carrying out is not reported until
+		// it has had removalSettle to finish; the next pass asks again.
+		since, pending := a.removalPending(r.runnerID, err, now)
+		if pending {
+			a.log.Info("the daemon is still removing a finished runner's workload; checking again on the next pass",
+				"runner", r.runnerID, "handle", w.Handle, "backend", r.kind, "removing_for", now.Sub(since), "error", err)
+			return RunnerReport{}, false
+		}
+		if !since.IsZero() {
+			err = stuckRemoval(now.Sub(since), err)
+		}
 		a.log.Warn("could not remove a finished runner's workload; it is still taking up disk on this host and will be retried",
 			"runner", r.runnerID, "handle", w.Handle, "backend", r.kind, "error", err)
 		return RunnerReport{RunnerID: r.runnerID, State: r.state, CleanupError: err.Error(), ObservedAt: now}, true
 	}
+	a.removalPending(r.runnerID, nil, now)
 	a.mu.Lock()
 	if tracked := a.runners[r.runnerID]; tracked != nil {
 		tracked.hostRemoved = true
@@ -442,11 +454,29 @@ func (a *Agent) reapOrphan(ctx context.Context, b backend.Backend, kind store.Ba
 		return RunnerReport{}, false
 	}
 
+	if ctx.Err() != nil {
+		// The agent is shutting down, and a removal started now would hold
+		// the shutdown for as long as the daemon takes. The orphan will still
+		// be there for the next agent to find.
+		return RunnerReport{}, false
+	}
+	// The budget cleanUp gives a removal, and for the same reasons: a
+	// sidecar's DELETE is held until the daemon has finished it, and a
+	// shutdown must not cut it in half.
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), RemoveTimeout)
+	defer cancel()
 	var err error
 	if w.Sidecar || w.RunnerID == "" {
-		err = b.Remove(ctx, w.Handle)
+		err = b.Remove(rctx, w.Handle)
 	} else {
-		err = removeRunnerWorkload(ctx, b, w.RunnerID, w.Handle)
+		err = removeRunnerWorkload(rctx, b, w.RunnerID, w.Handle)
+	}
+	if err != nil && errors.Is(err, backend.ErrRemovalInProgress) {
+		// Not a failure: the daemon is finishing a removal it has started.
+		// The orphan record stays, so the next pass asks again.
+		a.log.Info("the daemon is still removing an orphaned runner workload; checking again on the next pass",
+			"backend", kind, "handle", w.Handle, "name", w.Name, "error", err)
+		return RunnerReport{}, false
 	}
 	if err != nil && !errors.Is(err, backend.ErrNotFound) {
 		// Keep the orphan record so the next pass tries again rather than

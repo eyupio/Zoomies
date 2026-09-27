@@ -1149,6 +1149,15 @@ type Runner struct {
 	CleanupError    string     `json:"cleanup_error,omitempty"`
 	CleanupFailedAt *time.Time `json:"cleanup_failed_at,omitempty"`
 	CleanupAttempts int        `json:"cleanup_attempts,omitempty"`
+	// HostCleanupError and RegistrationCleanupError are the two halves
+	// CleanupError is joined from: what the host said about its container,
+	// and what GitHub said about the registration. They are kept apart
+	// because the two need different things done, and one sentence read
+	// back for a keyword could only say one of them -- a busy registration
+	// named alongside a container still on its host was all an operator was
+	// told about, and the container was the part that needed them.
+	HostCleanupError         string `json:"host_cleanup_error,omitempty"`
+	RegistrationCleanupError string `json:"registration_cleanup_error,omitempty"`
 	// RegistrationDeletedAt is when GitHub confirmed the registration was gone.
 	// Unset on a terminal runner is the ghost: a row this fleet has finished
 	// with, and a registration still on somebody's organisation.
