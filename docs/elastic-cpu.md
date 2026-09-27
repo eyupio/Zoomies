@@ -231,7 +231,10 @@ runner page shows the guarantee as the ceiling rather than the smaller figure.
     policy on every heartbeat, so switching to *Automatic boost* can lend CPU
     to a job that is already running, lowering the ceiling can take a boost
     back, and switching to *Off* restores every runner of the pool to its
-    guarantee at the next heartbeat. Nothing is ever taken below the
+    guarantee at the next heartbeat. "Live" means within a heartbeat or
+    two, not instantly: a runner is lent CPU only once a sample shows it
+    demanding, and samples and heartbeats each come every 30 seconds by
+    default, so allow up to a minute. Nothing is ever taken below the
     guarantee, and memory is never touched, so a running job is slowed at
     most back to the quota it started with.
 
@@ -330,9 +333,11 @@ it.
 
 A `dind` pool's runner and its sidecar are **one logical runner** throughout:
 the guarantee and the ceiling cover both, and the boost is the pair's. It is
-given to the sidecar, because the build's work happens in the daemon — the
-runner container stays at its own half, and the sidecar gets the rest of the
-pair's target. A throttle still reaches both.
+given to whichever half is using more of its own quota at the moment of the
+update — the daemon for a `docker build`, the runner container for a job whose
+steps run there, such as `go build` after `setup-go` — and the other half stays
+at its own share. With no sample to judge by, the sidecar has it. A throttle
+still reaches both.
 
 Demand is judged on the pair's sum and on its busier half. A daemon compiling
 flat out on its half of the slot while the runner beside it waits reads as a
@@ -343,6 +348,50 @@ agent too old to report it is judged on the sum, as before.
 The `process` backend stays static. It starts a runner as a plain process with
 no cgroup, which is why a pool on it cannot be elastic and why the wizard does
 not offer it there.
+
+## When a boosted runner's CPU does not rise
+
+A boost raises a runner's CPU quota — the most it *may* use. It does not make a
+job use more, and a runner can show **Squirrel spotted — maximum zoomies** while
+its CPU stays at about its guarantee. The quota is moved on the live container
+(the Docker Engine's container update, which Podman's compatible API also
+serves), so the limit really is higher; what is flat is the job.
+
+The usual reason is a build that sized its parallelism when it started.
+Several toolchains read the container's CPU quota once, at start-up, and never
+look again:
+
+| Toolchain | What it reads, and when |
+| --- | --- |
+| Rust (`cargo`, `std::thread::available_parallelism`) | The cgroup quota, when the build starts. |
+| The JVM (Gradle, Maven, `ActiveProcessorCount`) | The cgroup quota, when the JVM starts. |
+| .NET (`Environment.ProcessorCount`) | The cgroup quota, when the runtime starts. |
+| Go 1.25 and later (`GOMAXPROCS`) | The quota at start, and again periodically — a raise does reach it. |
+| `nproc`, `make -j$(nproc)`, Node's `os.availableParallelism()` | The CPUs the process may be scheduled on, not the quota: every core of the host, from the start. |
+
+A job whose workers were sized to its guarantee before the boost arrived keeps
+that many workers, so it saturates its guarantee — which is exactly what makes
+it look demanding — and cannot use the rest. It keeps the boost while it stays
+above 60% of its guarantee, as any demanding runner does.
+
+What to check on a host where this happens:
+
+* **Is the quota really raised?** `docker inspect -f '{{.HostConfig.NanoCpus}}'
+  <container>` shows the live quota in billionths of a core; divide by 10⁹ and
+  compare it with the runner page's current CPU. For a `dind` pool, look at
+  both the runner and its sidecar.
+* **What does the job size itself by?** A step that prints `nproc` and the
+  toolchain's own figure — `cargo`'s job count, the JVM's
+  `Runtime.availableProcessors()` — shows whether it read the guarantee.
+* **Pin the parallelism to what the host can lend.** Setting the job count
+  explicitly (`CARGO_BUILD_JOBS`, `-XX:ActiveProcessorCount`,
+  `DOTNET_PROCESSOR_COUNT`, `make -j`) to the pool's ceiling lets a build use a
+  boost that arrives after it started. On a host with nothing to lend, the
+  extra workers share the guarantee, which costs little more than context
+  switches.
+* **Or set a ceiling.** A pool whose jobs cannot use more than their guarantee
+  gains nothing from a boost, and a `max_cpus` at the guarantee leaves the spare
+  for a runner that can.
 
 ## Where it sits among the other sizing rules
 
