@@ -271,13 +271,31 @@ func (s *Store) DeleteUserSessions(ctx context.Context, userID string) error {
 	return err
 }
 
-// PruneSessions removes expired sessions.
+// DeleteUserSessionsExcept logs a user out everywhere but the session whose
+// cookie hashes to keep -- the browser that made the change which called for
+// it. An empty keep ends them all.
+func (s *Store) DeleteUserSessionsExcept(ctx context.Context, userID, keep string) error {
+	_, err := s.exec(ctx, `DELETE FROM sessions WHERE user_id = ? AND token_hash != ?`, userID, keep)
+	return err
+}
+
+// PruneSessions removes expired sessions, and the expired sign-ins that were
+// waiting for a second step and never became one.
 func (s *Store) PruneSessions(ctx context.Context, now time.Time) (int64, error) {
 	res, err := s.exec(ctx, `DELETE FROM sessions WHERE expires_at < ?`, ms(now))
 	if err != nil {
 		return 0, err
 	}
-	return res.RowsAffected()
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	res, err = s.exec(ctx, `DELETE FROM sign_in_challenges WHERE expires_at < ?`, ms(now))
+	if err != nil {
+		return n, err
+	}
+	m, err := res.RowsAffected()
+	return n + m, err
 }
 
 // ---------------------------------------------------------------------------

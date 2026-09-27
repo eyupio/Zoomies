@@ -270,7 +270,173 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Identity" }
+        "202":
+          description: >-
+            The password was right and the account has a second step to take: a code
+            (`verify`), or setting up an authenticator because `security.require_two_step`
+            is on (`enrol`). No session yet; the pending sign-in travels in a short-lived
+            HttpOnly cookie scoped to /api/v1/auth, and lasts five minutes.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SignInChallenge" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /auth/two-step/verify:
+    post:
+      operationId: verifyTwoStepSignIn
+      tags: [auth]
+      summary: Finish a sign-in with an authenticator code or a recovery code
+      description: >-
+        The second step after a 202 from /auth/login. Each attempt counts against the same
+        limits as a password; five wrong codes end the pending sign-in. A code is accepted once.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TwoStepCode" }
+      responses:
+        "200":
+          description: Signed in
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TwoStepSignIn" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /auth/two-step/enrol:
+    post:
+      operationId: startTwoStepEnrolment
+      tags: [auth]
+      summary: Set up an authenticator during a sign-in that requires one
+      description: For a pending sign-in whose step is `enrol`. Returns a new key, not yet in force.
+      security: []
+      responses:
+        "200":
+          description: A new key
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TwoStepSetup" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /auth/two-step/enrol/confirm:
+    post:
+      operationId: confirmTwoStepEnrolment
+      tags: [auth]
+      summary: Confirm the new authenticator and finish signing in
+      description: The answer carries the recovery codes, which are shown this once.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TwoStepCode" }
+      responses:
+        "200":
+          description: Signed in, with recovery codes
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TwoStepSignIn" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /auth/two-step:
+    get:
+      operationId: getTwoStep
+      tags: [auth]
+      summary: Your own two-step verification state
+      description: Refused for an API token, which is never asked for a code.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TwoStepStatus" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /auth/two-step/setup:
+    post:
+      operationId: setupTwoStep
+      tags: [auth]
+      summary: Start turning two-step verification on
+      description: >-
+        Returns a new key as text, as an otpauth:// address and as a QR code drawn on the
+        server. Nothing changes at sign-in until /auth/two-step/confirm accepts a code from it.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: A new key
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TwoStepSetup" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /auth/two-step/confirm:
+    post:
+      operationId: confirmTwoStep
+      tags: [auth]
+      summary: Turn two-step verification on with the first code
+      description: >-
+        Ends every other session of this account and returns ten single-use recovery codes,
+        shown this once.
+      x-zoomies-role: viewer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TwoStepCode" }
+      responses:
+        "200":
+          description: On
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RecoveryCodes" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /auth/two-step/disable:
+    post:
+      operationId: disableTwoStep
+      tags: [auth]
+      summary: Turn two-step verification off
+      description: Takes the current password and a current code or a recovery code.
+      x-zoomies-role: viewer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TwoStepReauth" }
+      responses:
+        "204": { description: Off }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /auth/two-step/recovery-codes:
+    post:
+      operationId: regenerateRecoveryCodes
+      tags: [auth]
+      summary: Replace your recovery codes
+      description: Takes the current password and a current code; every earlier recovery code stops working.
+      x-zoomies-role: viewer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TwoStepReauth" }
+      responses:
+        "200":
+          description: New codes
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RecoveryCodes" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
         "429": { $ref: "#/components/responses/RateLimited" }
 
   /auth/logout:
@@ -3155,6 +3321,20 @@ paths:
                 new_password: { type: string, minLength: 12, format: password }
       responses:
         "204": { description: Reset }
+
+  /users/{id}/two-step:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    delete:
+      operationId: resetUserTwoStep
+      tags: [admin]
+      summary: Reset a user's two-step verification
+      description: >-
+        For somebody who has lost their authenticator and their recovery codes. Removes the
+        key and the codes and ends the account's sessions; audited as `user.two_step_reset`.
+      x-zoomies-role: admin
+      responses:
+        "204": { description: Reset }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /tokens:
     get:
@@ -7004,6 +7184,66 @@ components:
         must_change_password: { type: boolean }
         created_at: { type: string, format: date-time }
         last_login_at: { type: [string, "null"], format: date-time }
+        two_step_enabled: { type: boolean, description: Whether the account signs in with a code after its password. }
+
+    SignInChallenge:
+      type: object
+      required: [two_step, username, expires_at]
+      properties:
+        two_step: { type: string, enum: [verify, enrol] }
+        username: { type: string }
+        expires_at: { type: string, format: date-time }
+
+    TwoStepCode:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+          description: Six digits from the authenticator app, or a recovery code. Spaces and hyphens are ignored.
+
+    TwoStepReauth:
+      type: object
+      required: [password, code]
+      properties:
+        password: { type: string, format: password }
+        code: { type: string }
+
+    TwoStepSignIn:
+      type: object
+      required: [identity, recovery_code_used]
+      properties:
+        identity: { $ref: "#/components/schemas/Identity" }
+        recovery_code_used: { type: boolean }
+        recovery_codes_left: { type: integer, description: Set when a recovery code was used. }
+        recovery_codes:
+          type: array
+          items: { type: string }
+          description: Set when the sign-in enrolled an authenticator. Shown this once.
+
+    TwoStepStatus:
+      type: object
+      required: [available, enabled, recovery_codes_left, required]
+      properties:
+        available: { type: boolean, description: False for an account that signs in through single sign-on. }
+        enabled: { type: boolean }
+        enabled_at: { type: string, format: date-time }
+        recovery_codes_left: { type: integer }
+        required: { type: boolean, description: "security.require_two_step." }
+
+    TwoStepSetup:
+      type: object
+      required: [secret, otpauth_uri, qr_svg]
+      properties:
+        secret: { type: string, description: The key in base32, for typing into an app by hand. }
+        otpauth_uri: { type: string }
+        qr_svg: { type: string, description: The otpauth address as a QR code, an SVG document drawn by the controller. }
+
+    RecoveryCodes:
+      type: object
+      required: [recovery_codes]
+      properties:
+        recovery_codes: { type: array, items: { type: string } }
 
     Identity:
       type: object

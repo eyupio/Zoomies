@@ -408,6 +408,29 @@ func TestUsersPasswdTakesTheSecretFromStandardInputNotAFlag(t *testing.T) {
 	}
 }
 
+// A lost phone is fixed from a terminal as well as from the users page,
+// because the administrator who needs to fix it may be the one who lost it
+// and still have an API token.
+func TestUsersResetTwoStepDeletesTheAccountsSecondFactor(t *testing.T) {
+	var method, path string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		method, path = r.Method, r.URL.Path
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	e, out, errOut := newTestEnv(t)
+	if code := dispatch(context.Background(), e, []string{"users", "reset-two-step", "usr_7f3a", "--url", srv.URL}); code != exitOK {
+		t.Fatalf("exit code = %d\n%s", code, errOut)
+	}
+	if method != http.MethodDelete || path != "/api/v1/users/usr_7f3a/two-step" {
+		t.Errorf("request = %s %s", method, path)
+	}
+	if !strings.Contains(out.String(), "usr_7f3a") {
+		t.Errorf("output = %q, want it to name the account", out)
+	}
+}
+
 // `zoomies jobs get` prints the controller's explanation rather than reasoning
 // its way to one.
 //

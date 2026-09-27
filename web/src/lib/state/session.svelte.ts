@@ -14,7 +14,7 @@ import {
   login as loginRequest,
   logout as logoutRequest,
 } from '../api/client';
-import type { Identity, Meta, Role } from '../api/types';
+import type { Identity, Meta, Role, SignInChallenge, TwoStepSignIn } from '../api/types';
 import { atLeast } from '../api/types';
 import { prefs } from './prefs.svelte';
 
@@ -146,11 +146,28 @@ class Session {
     }
   }
 
-  /** Sign in. Throws an ApiError the form renders inline -- 401 and 429 both matter. */
-  async login(username: string, password: string): Promise<void> {
-    this.#identity = await loginRequest({ username, password });
-    if (this.#identity.kind === 'user' && this.#identity.id) {
-      await prefs.syncAccount(this.#identity.id);
+  /**
+   * Sign in. Throws an ApiError the form renders inline -- 401 and 429 both
+   * matter. Resolves to the pending second step when the password was right
+   * and the account has a code to give, or an authenticator to set up; the
+   * sign-in page takes it from there and calls `completeTwoStep`.
+   */
+  async login(username: string, password: string): Promise<SignInChallenge | null> {
+    const answer = await loginRequest({ username, password });
+    if ('two_step' in answer) return answer;
+    await this.#signedIn(answer);
+    return null;
+  }
+
+  /** Finish a sign-in whose second step the server has just accepted. */
+  async completeTwoStep(result: TwoStepSignIn): Promise<void> {
+    await this.#signedIn(result.identity);
+  }
+
+  async #signedIn(identity: Identity): Promise<void> {
+    this.#identity = identity;
+    if (identity.kind === 'user' && identity.id) {
+      await prefs.syncAccount(identity.id);
     }
     this.#phase = 'ready';
   }

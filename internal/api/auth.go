@@ -228,7 +228,7 @@ func (s *Server) checkOrigin(r *http.Request) string {
 
 	origin := strings.TrimSpace(r.Header.Get("Origin"))
 	if origin == "" {
-		if r.Header.Get("Referer") == "" && !hasCookie(r, SessionCookie) {
+		if r.Header.Get("Referer") == "" && !hasCookie(r, SessionCookie) && !hasCookie(r, SignInCookie) {
 			// No cookie, no browser headers: a plain client that is about to be
 			// asked for credentials anyway.
 			return ""

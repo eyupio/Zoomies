@@ -298,6 +298,11 @@ var registry = buildRegistry([]Setting{
 		Summary:       "Password attempts allowed per source address per minute, and five times that per account.",
 		RestartReason: "the limiters are built with their limit when the authentication service is",
 	},
+	{
+		Key: "security.require_two_step", Label: "Require two-step verification", Env: "ZOOMIES_REQUIRE_TWO_STEP", Kind: KindBool, Scope: ScopePlatform,
+		Summary:       "Make every account that signs in with a password set up an authenticator app at its next sign-in. Accounts that use single sign-on are not asked -- their identity provider owns their second factor -- and API tokens are unaffected.",
+		RestartReason: "the authentication service takes its security settings when it is built",
+	},
 
 	// ---------------------------------------------------------------------
 	// github

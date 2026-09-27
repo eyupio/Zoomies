@@ -144,6 +144,166 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/two-step/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finish a sign-in with an authenticator code or a recovery code
+         * @description The second step after a 202 from /auth/login. Each attempt counts against the same limits as a password; five wrong codes end the pending sign-in. A code is accepted once.
+         */
+        post: operations["verifyTwoStepSignIn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/two-step/enrol": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set up an authenticator during a sign-in that requires one
+         * @description For a pending sign-in whose step is `enrol`. Returns a new key, not yet in force.
+         */
+        post: operations["startTwoStepEnrolment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/two-step/enrol/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm the new authenticator and finish signing in
+         * @description The answer carries the recovery codes, which are shown this once.
+         */
+        post: operations["confirmTwoStepEnrolment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/two-step": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Your own two-step verification state
+         * @description Refused for an API token, which is never asked for a code.
+         */
+        get: operations["getTwoStep"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/two-step/setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start turning two-step verification on
+         * @description Returns a new key as text, as an otpauth:// address and as a QR code drawn on the server. Nothing changes at sign-in until /auth/two-step/confirm accepts a code from it.
+         */
+        post: operations["setupTwoStep"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/two-step/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Turn two-step verification on with the first code
+         * @description Ends every other session of this account and returns ten single-use recovery codes, shown this once.
+         */
+        post: operations["confirmTwoStep"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/two-step/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Turn two-step verification off
+         * @description Takes the current password and a current code or a recovery code.
+         */
+        post: operations["disableTwoStep"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/two-step/recovery-codes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replace your recovery codes
+         * @description Takes the current password and a current code; every earlier recovery code stops working.
+         */
+        post: operations["regenerateRecoveryCodes"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/logout": {
         parameters: {
             query?: never;
@@ -1982,6 +2142,29 @@ export interface paths {
          */
         post: operations["resetUserPassword"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{id}/two-step": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Reset a user's two-step verification
+         * @description For somebody who has lost their authenticator and their recovery codes. Removes the key and the codes and ends the account's sessions; audited as `user.two_step_reset`.
+         */
+        delete: operations["resetUserTwoStep"];
         options?: never;
         head?: never;
         patch?: never;
@@ -5384,6 +5567,52 @@ export interface components {
             created_at?: string;
             /** Format: date-time */
             last_login_at?: string | null;
+            /** @description Whether the account signs in with a code after its password. */
+            two_step_enabled?: boolean;
+        };
+        SignInChallenge: {
+            /** @enum {string} */
+            two_step: "verify" | "enrol";
+            username: string;
+            /** Format: date-time */
+            expires_at: string;
+        };
+        TwoStepCode: {
+            /** @description Six digits from the authenticator app, or a recovery code. Spaces and hyphens are ignored. */
+            code: string;
+        };
+        TwoStepReauth: {
+            /** Format: password */
+            password: string;
+            code: string;
+        };
+        TwoStepSignIn: {
+            identity: components["schemas"]["Identity"];
+            recovery_code_used: boolean;
+            /** @description Set when a recovery code was used. */
+            recovery_codes_left?: number;
+            /** @description Set when the sign-in enrolled an authenticator. Shown this once. */
+            recovery_codes?: string[];
+        };
+        TwoStepStatus: {
+            /** @description False for an account that signs in through single sign-on. */
+            available: boolean;
+            enabled: boolean;
+            /** Format: date-time */
+            enabled_at?: string;
+            recovery_codes_left: number;
+            /** @description security.require_two_step. */
+            required: boolean;
+        };
+        TwoStepSetup: {
+            /** @description The key in base32 */
+            secret: string;
+            otpauth_uri: string;
+            /** @description The otpauth address as a QR code */
+            qr_svg: string;
+        };
+        RecoveryCodes: {
+            recovery_codes: string[];
         };
         Identity: {
             /** @enum {string} */
@@ -6049,7 +6278,212 @@ export interface operations {
                     "application/json": components["schemas"]["Identity"];
                 };
             };
+            /** @description The password was right and the account has a second step to take: a code (`verify`), or setting up an authenticator because `security.require_two_step` is on (`enrol`). No session yet; the pending sign-in travels in a short-lived HttpOnly cookie scoped to /api/v1/auth, and lasts five minutes. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignInChallenge"];
+                };
+            };
             401: components["responses"]["Unauthorized"];
+            429: components["responses"]["RateLimited"];
+        };
+    };
+    verifyTwoStepSignIn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TwoStepCode"];
+            };
+        };
+        responses: {
+            /** @description Signed in */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TwoStepSignIn"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["RateLimited"];
+        };
+    };
+    startTwoStepEnrolment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A new key */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TwoStepSetup"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    confirmTwoStepEnrolment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TwoStepCode"];
+            };
+        };
+        responses: {
+            /** @description Signed in, with recovery codes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TwoStepSignIn"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["RateLimited"];
+        };
+    };
+    getTwoStep: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TwoStepStatus"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    setupTwoStep: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A new key */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TwoStepSetup"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    confirmTwoStep: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TwoStepCode"];
+            };
+        };
+        responses: {
+            /** @description On */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecoveryCodes"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    disableTwoStep: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TwoStepReauth"];
+            };
+        };
+        responses: {
+            /** @description Off */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["Unprocessable"];
+            429: components["responses"]["RateLimited"];
+        };
+    };
+    regenerateRecoveryCodes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TwoStepReauth"];
+            };
+        };
+        responses: {
+            /** @description New codes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecoveryCodes"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["Unprocessable"];
             429: components["responses"]["RateLimited"];
         };
     };
@@ -9137,6 +9571,28 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    resetUserTwoStep: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Reset */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
         };
     };
     listTokens: {

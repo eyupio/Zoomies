@@ -57,12 +57,20 @@ Conventions:
 | Method | Path | Role | Notes |
 | --- | --- | --- | --- |
 | POST | `/api/v1/auth/bootstrap` | — | Create the first account, which holds the platform role: whoever can read the setup token out of the log already operates the process. **Refuses once any user exists** — that check is the whole security of this route. |
-| POST | `/api/v1/auth/login` | — | `{username, password}` → sets the session cookie, returns the identity. Rate limited per source address. |
+| POST | `/api/v1/auth/login` | — | `{username, password}` → sets the session cookie, returns the identity. Rate limited per source address. An account with two-step verification on — or without it where `security.require_two_step` is set — gets a **202** `{two_step: verify\|enrol, username, expires_at}` and a five-minute pending-sign-in cookie instead of a session. |
+| POST | `/api/v1/auth/two-step/verify` | — | `{code}`: six digits from the authenticator app, or a recovery code. Needs the pending-sign-in cookie; sets the session and returns `{identity, recovery_code_used, recovery_codes_left?}`. Charged to the sign-in limits; five wrong codes end the pending sign-in. |
+| POST | `/api/v1/auth/two-step/enrol` | — | For a pending sign-in whose step is `enrol`: a new key, as for `/auth/two-step/setup`. |
+| POST | `/api/v1/auth/two-step/enrol/confirm` | — | `{code}` from the new authenticator: turns two-step on, signs in, and returns the ten recovery codes, shown once. |
 | POST | `/api/v1/auth/logout` | viewer | Clears the session. |
 | GET | `/api/v1/auth/session` | viewer | The current identity: id, name, role, scopes, `must_change_password`. |
 | GET | `/api/v1/auth/preferences` | viewer | The current account's private table widths and column order. Non-account identities receive an empty document. |
 | PUT | `/api/v1/auth/preferences` | viewer | Replace the signed-in account's private table-layout document. API tokens cannot save one because they are not an account. |
 | POST | `/api/v1/auth/password` | viewer | `{old_password, new_password}` for the caller's own account. Invalidates the caller's other sessions. |
+| GET | `/api/v1/auth/two-step` | viewer | The caller's own two-step state: `available` (false for single sign-on), `enabled`, `enabled_at`, `recovery_codes_left`, `required`. Refused for an API token, which is never asked for a code. |
+| POST | `/api/v1/auth/two-step/setup` | viewer | A new key — `secret`, `otpauth_uri`, and `qr_svg`, the address drawn as a QR code by the controller — not in force until confirmed. 409 when two-step is already on. |
+| POST | `/api/v1/auth/two-step/confirm` | viewer | `{code}`: turns two-step on, ends the account's other sessions, and returns ten single-use `recovery_codes`, shown once. |
+| POST | `/api/v1/auth/two-step/disable` | viewer | `{password, code}`: turns it off. The code may be a recovery code. |
+| POST | `/api/v1/auth/two-step/recovery-codes` | viewer | `{password, code}`: replaces every recovery code and returns the new ones. |
 | GET | `/api/v1/auth/oidc/start` | — | 302 to the identity provider. |
 | GET | `/api/v1/auth/oidc/callback` | — | Completes the flow, sets the cookie, 302 to `/`. |
 
@@ -331,6 +339,7 @@ for: Contents (write), Pull requests (write) and Workflows (write).
 | PATCH | `/api/v1/users/{id}` | admin | Refuses to demote or disable the last enabled admin. |
 | DELETE | `/api/v1/users/{id}` | admin | Same refusal. |
 | POST | `/api/v1/users/{id}/password` | admin | Admin reset; sets `must_change_password`. |
+| DELETE | `/api/v1/users/{id}/two-step` | admin | Reset a lost authenticator: removes the account's key and recovery codes and ends its sessions. Audited as `user.two_step_reset`. |
 | GET | `/api/v1/tokens` | admin | Metadata only. |
 | POST | `/api/v1/tokens` | admin | `{name, role, scopes, expires_in}` → the plaintext **once**. |
 | DELETE | `/api/v1/tokens/{id}` | admin | Revokes. |

@@ -8,13 +8,14 @@
   the system doing its job.
 -->
 <script lang="ts">
-  import { KeyRound, Pencil, Plus, ShieldCheck, Trash2, UserX } from '@lucide/svelte';
+  import { KeyRound, Pencil, Plus, ShieldCheck, ShieldOff, Trash2, UserX } from '@lucide/svelte';
   import {
     ApiError,
     createUser,
     deleteUser,
     listUsers,
     resetUserPassword,
+    resetUserTwoStep,
     updateUser,
   } from '$lib/api/client';
   import type { Role, User } from '$lib/api/types';
@@ -252,6 +253,31 @@
     }
   }
 
+  /*
+    Resetting somebody's two-step verification is the answer to a lost phone,
+    and exactly what somebody holding only a stolen password would ask for --
+    so the confirmation says to check who is asking, and the reset is audited.
+  */
+  let twoStepOpen = $state(false);
+  let twoStepFor = $state<User | null>(null);
+
+  async function resetTwoStep(): Promise<boolean> {
+    const user = twoStepFor;
+    if (!user?.id) return false;
+    try {
+      await resetUserTwoStep(user.id);
+      toasts.success(
+        `Two-step verification reset for ${user.username ?? 'the account'}`,
+        'Their sessions have ended. Their password alone signs them in next time.',
+      );
+      reload += 1;
+      return true;
+    } catch (cause) {
+      handle(cause, 'Two-step verification was not reset');
+      return false;
+    }
+  }
+
   let deleteOpen = $state(false);
   let deleting = $state<User | null>(null);
 
@@ -278,6 +304,16 @@
         label: 'Reset password',
         icon: KeyRound,
         onSelect: () => openReset(user),
+      },
+      {
+        id: 'two-step',
+        label: 'Reset two-step verification',
+        icon: ShieldOff,
+        disabled: !user.two_step_enabled,
+        onSelect: () => {
+          twoStepFor = user;
+          twoStepOpen = true;
+        },
       },
       {
         id: 'disabled',
@@ -392,6 +428,9 @@
                 <Badge status={accountStatus(user.disabled)} size="sm" />
                 {#if user.must_change_password}
                   <span class="second">Must change password</span>
+                {/if}
+                {#if user.two_step_enabled}
+                  <span class="second">Two-step on</span>
                 {/if}
               </td>
               <td role="cell" data-label="Last signed in">
@@ -561,6 +600,22 @@
     </Button>
   {/snippet}
 </Dialog>
+
+<ConfirmDialog
+  bind:open={twoStepOpen}
+  title="Reset two-step verification"
+  name={twoStepFor?.username}
+  description="{twoStepFor?.username ??
+    'This account'} loses their authenticator and recovery codes, and every session they have ends."
+  consequences={[
+    'Their password alone signs them in next time, or they set two-step up again if this instance requires it.',
+    'Confirm the request some other way than the one it came by: a reset is what somebody with a stolen password would ask for.',
+    'The reset is recorded in the audit log under your name.',
+  ]}
+  confirmLabel="Reset two-step"
+  onconfirm={resetTwoStep}
+  oncancel={() => (twoStepFor = null)}
+/>
 
 <ConfirmDialog
   bind:open={deleteOpen}

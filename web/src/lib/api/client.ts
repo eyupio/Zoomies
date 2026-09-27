@@ -11,7 +11,15 @@
  *   422  `errors` names the offending fields so a form can attach them.
  */
 import { supportHint } from '$lib/errors';
-import type { Body, ErrorCode, FieldError, OptionalBody, Query, Result } from './types';
+import type {
+  Body,
+  ErrorCode,
+  FieldError,
+  OptionalBody,
+  Query,
+  Result,
+  SignInChallenge,
+} from './types';
 
 const BASE = '/api/v1';
 
@@ -238,8 +246,38 @@ export const getOwnPreferences = (signal?: AbortSignal) =>
 export const replaceOwnPreferences = (body: Body<'replaceOwnPreferences'>) =>
   api.put<Result<'replaceOwnPreferences'>>('/auth/preferences', { body });
 
+/**
+ * Sign in. A 200 is the identity; a 202 is a sign-in still waiting for its
+ * second step, whose state is in a cookie this page cannot read.
+ */
 export const login = (body: Body<'login'>) =>
-  api.post<Result<'login'>>('/auth/login', { body, allow401: true });
+  api.post<Result<'login'> | SignInChallenge>('/auth/login', { body, allow401: true });
+
+export const verifyTwoStepSignIn = (body: Body<'verifyTwoStepSignIn'>) =>
+  api.post<Result<'verifyTwoStepSignIn'>>('/auth/two-step/verify', { body, allow401: true });
+
+export const startTwoStepEnrolment = () =>
+  api.post<Result<'startTwoStepEnrolment'>>('/auth/two-step/enrol', { allow401: true });
+
+export const confirmTwoStepEnrolment = (body: Body<'confirmTwoStepEnrolment'>) =>
+  api.post<Result<'confirmTwoStepEnrolment'>>('/auth/two-step/enrol/confirm', {
+    body,
+    allow401: true,
+  });
+
+export const getTwoStep = (signal?: AbortSignal) =>
+  api.get<Result<'getTwoStep'>>('/auth/two-step', { signal });
+
+export const setupTwoStep = () => api.post<Result<'setupTwoStep'>>('/auth/two-step/setup', {});
+
+export const confirmTwoStep = (body: Body<'confirmTwoStep'>) =>
+  api.post<Result<'confirmTwoStep'>>('/auth/two-step/confirm', { body });
+
+export const disableTwoStep = (body: Body<'disableTwoStep'>) =>
+  api.post<Result<'disableTwoStep'>>('/auth/two-step/disable', { body });
+
+export const regenerateRecoveryCodes = (body: Body<'regenerateRecoveryCodes'>) =>
+  api.post<Result<'regenerateRecoveryCodes'>>('/auth/two-step/recovery-codes', { body });
 
 export const logout = () => api.post<Result<'logout'>>('/auth/logout', {});
 
@@ -494,6 +532,9 @@ export const deleteUser = (id: string) => api.del<Result<'deleteUser'>>(`/users/
 
 export const resetUserPassword = (id: string, body: Body<'resetUserPassword'>) =>
   api.post<Result<'resetUserPassword'>>(`/users/${enc(id)}/password`, { body });
+
+export const resetUserTwoStep = (id: string) =>
+  api.del<Result<'resetUserTwoStep'>>(`/users/${enc(id)}/two-step`);
 
 export const listTokens = (signal?: AbortSignal) =>
   api.get<Result<'listTokens'>>('/tokens', { signal });

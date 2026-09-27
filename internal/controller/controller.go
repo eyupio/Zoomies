@@ -370,7 +370,7 @@ func New(opts Options) (*Controller, error) {
 
 	authsvc := opts.Auth
 	if authsvc == nil {
-		authsvc = auth.New(opts.Store, opts.Config, bus, auth.WithLogger(log), auth.WithClock(clock))
+		authsvc = auth.New(opts.Store, opts.Config, bus, auth.WithLogger(log), auth.WithClock(clock), auth.WithKey(opts.Key))
 	}
 
 	factory := opts.GitHub

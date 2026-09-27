@@ -162,6 +162,7 @@ nav:
       - Proxmox VE: proxmox.md
       - Migrating repositories: migration.md
       - Backup and restore: backup-and-restore.md
+      - Two-step verification: two-step.md
       - Upgrading: upgrading.md
       - Troubleshooting: troubleshooting.md
   - Other ways in:

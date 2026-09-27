@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 3.2 · 27 September 2026 · derived from the owner's
+Version 3.3 · 27 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md),
 reconciled against `main` at `6d12a72` on 6 September and again at `9a80b31`
 on 19 September, when the owner set a new primary target, withdrew the
@@ -1307,6 +1307,41 @@ draws no new finding.
 
 Depends on nothing. Size S. Decisions: 0004.
 
+### ZF-225: two-step sign-in for local accounts
+
+**Classification: extension; M; proposed and delivered 27 September.**
+A local account signs in with a password and nothing else, so a password
+reused on a site that leaked is the whole of an account's defence. Single
+sign-on accounts already get a second factor from their identity provider;
+the accounts the installer and the users page make had no way to have one.
+
+**Done:** optional TOTP (RFC 6238: SHA-1, six digits, thirty seconds, one
+step either side) that each account turns on from its account page — a QR
+code drawn by the controller with an in-repository encoder, the key as text,
+a confirming code, and ten single-use recovery codes shown once. The key is
+sealed with the instance key; recovery codes are stored hashed; the last
+accepted time step is recorded so a code is accepted once. Sign-in answers a
+right password with a five-minute pending sign-in bound to the browser, whose
+code attempts are charged to the existing sign-in limits. Turning it off and
+issuing new recovery codes take the password and a code. An administrator
+resets it for a lost phone from the users page or `zoomies users
+reset-two-step`, audited as `user.two_step_reset`. `security.require_two_step`
+(off by default) makes every password account enrol at its next sign-in, with
+the `two_step.required` info finding. Single sign-on accounts and API tokens
+are not asked, and the documentation says why.
+
+**Accepted because:** RFC 6238's vectors, the QR encoder against the
+standard's worked Reed-Solomon example and format tables, and a round trip of
+every supported version; a replayed code, a spent recovery code, an expired or
+skipped code step, and code failures reaching the sign-in limit are each
+refused in a test; the administrator's reset writes its audit row; the
+requirement forces enrolment and leaves single sign-on sessions working; the
+migration applies to a database with accounts and sessions in it; and a
+Playwright spec turns it on, signs in with a code and a recovery code, and
+turns it off.
+
+Depends on nothing. Size M.
+
 ## 9. Kept for the day somebody asks
 
 Nothing here is authorised by planning alone. Each starts when a fleet
@@ -1378,6 +1413,7 @@ every package in section 8 was re-read on 19 September against the code.
 | 8 | ZF-213 pools as a file | Export, plan, dry-run and apply for pools, modelled on the settings pair |
 | 9 | ZF-210b export with re-seal, and purge | Two installations side by side; an export restores elsewhere under its passphrase |
 | 10 | ZF-223 a report per installation | Matches a hand computation; answers past retention from the roll-up |
+| 10b | ZF-225 two-step sign-in for local accounts — delivered, 27 September | A password alone no longer signs in an account that has turned it on; a lost phone has an audited way back |
 | — | ZF-215, ZF-212, ZF-403's rotation, and section 9 | When a fleet asks |
 
 **Keep one stream moving.** The primary target's packages are a chain —
@@ -1418,6 +1454,12 @@ remaining dependency. Do not invent live runs, elapsed observation, benchmark
 results or user feedback; do not wait for them either.
 
 ## 13. Change record
+
+* **27 September 2026 — Version 3.3:** ZF-225 proposed and delivered in
+  one pull request: optional two-step sign-in (TOTP) for local password
+  accounts, recovery codes, an audited administrator's reset, and
+  `security.require_two_step`, off by default. Added to section 8 and to
+  section 10 as row 10b.
 
 * **27 September 2026 — Version 3.2:** ZF-216's disposable-VM backend in
   section 9 staged: a sandboxed OCI runtime per pool (gVisor or Kata) first,
