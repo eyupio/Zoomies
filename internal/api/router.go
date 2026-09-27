@@ -72,6 +72,14 @@ func (s *Server) routes() http.Handler {
 		r.Get("/status.svg", s.handleStatusBadge)
 	})
 
+	// The fleet over the Model Context Protocol, for an agent that reaches the
+	// controller directly. It is a protocol endpoint rather than an API
+	// operation -- one path, one method, JSON-RPC inside -- so it sits beside
+	// the API rather than in it, and every tool it offers is a call back into
+	// the routes below with the caller's own token. Mounted for every method
+	// so that a GET is told there is no event stream, not handed the SPA.
+	r.With(noStore).Handle("/mcp", http.HandlerFunc(s.handleMCP))
+
 	// The webhook. Mounted for every method rather than POST alone so that
 	// GitHub's own "wrong method" case gets the controller's message, which
 	// says what the endpoint is for, instead of a bare 405.

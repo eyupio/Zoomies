@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/eyupio/zoomies/internal/mcp"
 )
 
 // mcpSession drives `zoomies mcp` the way an agent does: through its standard
@@ -66,7 +68,7 @@ func (s *mcpSession) request(method string, params any) json.RawMessage {
 type mcpReply struct {
 	ID     json.RawMessage `json:"id"`
 	Result json.RawMessage `json:"result"`
-	Error  *rpcError       `json:"error"`
+	Error  *mcp.RPCError   `json:"error"`
 }
 
 func (s *mcpSession) send(method string, params any) mcpReply {
@@ -99,9 +101,9 @@ func (s *mcpSession) read() mcpReply {
 	return r
 }
 
-func (s *mcpSession) callTool(name string, args any) mcpCallResult {
+func (s *mcpSession) callTool(name string, args any) mcp.CallResult {
 	s.t.Helper()
-	var r mcpCallResult
+	var r mcp.CallResult
 	if err := json.Unmarshal(s.request("tools/call", map[string]any{"name": name, "arguments": args}), &r); err != nil {
 		s.t.Fatal(err)
 	}
@@ -114,7 +116,6 @@ func (s *mcpSession) toolNames() []string {
 		Tools []struct {
 			Name        string         `json:"name"`
 			InputSchema map[string]any `json:"inputSchema"`
-			Annotations mcpAnnotations `json:"annotations"`
 		} `json:"tools"`
 	}
 	if err := json.Unmarshal(s.request("tools/list", nil), &list); err != nil {
@@ -130,7 +131,7 @@ func (s *mcpSession) toolNames() []string {
 	return names
 }
 
-func text(r mcpCallResult) string {
+func text(r mcp.CallResult) string {
 	var b strings.Builder
 	for _, c := range r.Content {
 		b.WriteString(c.Text)
@@ -231,7 +232,7 @@ func TestMCPNegotiatesAVersionAndSaysWhatIsUntrusted(t *testing.T) {
 		ProtocolVersion string `json:"protocolVersion"`
 	}
 	_ = json.Unmarshal(s.request("initialize", map[string]any{"protocolVersion": "1999-01-01"}), &again)
-	if again.ProtocolVersion != mcpProtocolVersions[0] {
+	if again.ProtocolVersion != mcp.ProtocolVersions[0] {
 		t.Errorf("an unknown version must be answered with the newest this speaks, got %q", again.ProtocolVersion)
 	}
 }
@@ -366,16 +367,16 @@ func TestMCPAnswersProtocolMistakesWithoutStopping(t *testing.T) {
 	srv, _ := fleetAPI(t)
 	s := startMCP(t, "--url", srv.URL, "--token", "zoo_viewer")
 
-	if r := s.send("resources/list", nil); r.Error == nil || r.Error.Code != rpcMethodNotFound {
+	if r := s.send("resources/list", nil); r.Error == nil || r.Error.Code != -32601 {
 		t.Errorf("an unknown method must be method-not-found, got %+v", r)
 	}
-	if r := s.send("tools/call", map[string]any{"name": "delete_everything"}); r.Error == nil || r.Error.Code != rpcInvalidParams {
+	if r := s.send("tools/call", map[string]any{"name": "delete_everything"}); r.Error == nil || r.Error.Code != -32602 {
 		t.Errorf("an unknown tool must be invalid-params, got %+v", r)
 	}
 	if _, err := s.in.Write([]byte("this is not json\n")); err != nil {
 		t.Fatal(err)
 	}
-	if r := s.read(); r.Error == nil || r.Error.Code != rpcParseError {
+	if r := s.read(); r.Error == nil || r.Error.Code != -32700 {
 		t.Errorf("garbage must be a parse error, got %+v", r)
 	}
 	if r := s.callTool("fleet_status", nil); r.IsError {

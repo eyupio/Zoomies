@@ -493,3 +493,7 @@ func readSSE(r io.Reader, fn func(sseFrame) error) error {
 		}
 	}
 }
+
+// HTTPStatus lets a shared client -- the MCP tools -- tell a 404 from any other
+// refusal without knowing this type.
+func (e *apiError) HTTPStatus() int { return e.status }

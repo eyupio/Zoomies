@@ -61,6 +61,7 @@ review.
 | `internal/github` | App auth, JIT configs, webhook validation, the fallback poller, and `fake.go`, a fake GitHub used by tests. |
 | `internal/backend` | Docker, Podman, bare process. The Docker API is hand-rolled `net/http` against the Engine API on purpose (see below). |
 | `internal/agent` | The runner-executing half and its outbound transport. |
+| `internal/mcp` | The MCP tools and both transports (stdio for `zoomies mcp`, Streamable HTTP for `/mcp`). A tool calls the REST API through the `mcp.API` interface and nothing else -- no store, no controller -- so it can never do what the caller's token could not. |
 
 Other invariants worth knowing before you edit:
 
@@ -285,6 +286,7 @@ internal/backup     one copy of the database: taking, listing, verifying, archiv
 internal/cryptox    AES-256-GCM at rest, argon2id, token hashing
 internal/events     in-process pub/sub that the SSE endpoint fans out
 internal/migrate    rewriting workflows' runs-on lines
+internal/mcp        the fleet over MCP: tools, stdio and Streamable HTTP
 web/                the Svelte 5 UI
 test/e2e            the Docker end-to-end test, behind the `e2e` build tag
 api/openapi.yaml    the API contract both clients are generated from

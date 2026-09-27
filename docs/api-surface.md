@@ -50,6 +50,7 @@ Conventions:
 | GET | `/api/openapi.yaml` | — | The spec this document describes. |
 | GET | `/robots.txt` | — | Declines crawling unless `server.allow_indexing` is on. Rendered per request, because it has to name this controller's own address. |
 | GET | `/sitemap.xml` | — | The interface's top-level pages, absolute. Nothing about the fleet: a pool or runner address is gone by tomorrow. |
+| POST | `/mcp` | viewer | The fleet over the [Model Context Protocol](https://modelcontextprotocol.io)'s Streamable HTTP transport, for an agent that reaches the controller directly; see [`zoomies mcp`](cli.md#zoomies-mcp). One JSON-RPC message per POST, answered with JSON; stateless, so no session ID and no event stream, and `GET` is 405. A **bearer token only**: a session cookie is refused, and so is an `Origin` that is not this controller's. Every tool is a call to a route on this page with the caller's token, so each one needs that route's role — `rerun_job` and `drain_runner` are offered only to a token whose role reaches them. |
 
 ## Authentication
 

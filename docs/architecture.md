@@ -318,6 +318,7 @@ by trying again.
 | `internal/gateway` | `zoomies gateway`: the provider-side end of a private connection. Runs beside a hypervisor the controller cannot reach and forwards the tunnel to that one API. |
 | `internal/installer` | `zoomies init`, `zoomies uninstall`, the GitHub App manifest flow, service installation. |
 | `internal/events` | In-process pub/sub that the SSE endpoint fans out. |
+| `internal/mcp` | The fleet over the Model Context Protocol: the tools, and both transports — stdio for `zoomies mcp`, Streamable HTTP for the controller's `/mcp`. Every tool is a documented REST route called with the caller's own token, so it adds no authority. |
 | `internal/migrate` | Rewriting a workflow's `runs-on` line, and nothing else in the file. |
 
 ## The runner state machine
