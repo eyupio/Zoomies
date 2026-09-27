@@ -323,6 +323,12 @@
             {runner.cpu_resource.guaranteed_cpus ?? 'Not reported'} guaranteed ·
             {runner.cpu_resource.ceiling_cpus ?? 'Not reported'} ceiling
           </p>
+          {#if runner.cpu_resource.sized_for_cpus}
+            <p class="text-sm text-muted-foreground">
+              Builds sized for {runner.cpu_resource.sized_for_cpus} CPUs: Cargo, .NET and the JVM were
+              started with workers for the ceiling, so a boost that arrives mid-job can be used.
+            </p>
+          {/if}
         {/if}
         {#if runner.resource_sample?.sampled_at}
           <p class="text-sm text-muted-foreground">

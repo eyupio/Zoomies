@@ -86,7 +86,9 @@ resource limits `--cpus`, `--memory-mb`, `--disk-gb`, and the [elastic
 CPU](elastic-cpu.md) policy, `--cpu-burst` (`off`, `observe` or `automatic`)
 with `--cpu-burst-max` as its ceiling in cores; on a create the ceiling needs
 the mode beside it. Both are read live, so an edit reaches runners already
-running.
+running. `--cpu-burst-size-builds` (`true`) starts an `automatic` pool's runners
+with Cargo, .NET and the JVM sized for that ceiling; it applies from the next
+runner started.
 
 On `edit`, only the flags you actually type are sent — the defaults above are
 not applied to a partial update, so editing a pool's image cannot silently reset

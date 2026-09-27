@@ -76,6 +76,8 @@ type poolItem struct {
 type poolCPUBurst struct {
 	Mode    string  `json:"mode"`
 	MaxCPUs float64 `json:"max_cpus"`
+	// SizeForCeiling is absent on a pool that has never said, which is on.
+	SizeForCeiling *bool `json:"size_for_ceiling,omitempty"`
 }
 
 // poolResources is the size a pool asks for per runner. Every field is zero on

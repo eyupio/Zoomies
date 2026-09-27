@@ -406,6 +406,7 @@ func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, host *s
 		AllocatedCPUs:     resources.CPUs,
 		AllocatedMemoryMB: resources.MemoryMB,
 		AllocationSource:  source,
+		SizedForCPUs:      buildSizedCPUs(pool, host, resources.CPUs),
 	}
 	if err := c.st.CreateRunner(ctx, r); err != nil {
 		return fmt.Errorf("creating the runner row for %s: %w", name, err)
@@ -472,7 +473,7 @@ func (c *Controller) finishCreateRunner(ctx context.Context, inst *store.Install
 		Image:       r.Image,
 		PullPolicy:  pool.PullPolicy,
 		Credentials: creds,
-		Env:         runnerEnv(c.cfg().Runners, pool),
+		Env:         withBuildSizing(runnerEnv(c.cfg().Runners, pool), r.SizedForCPUs),
 		Ephemeral:   pool.Ephemeral,
 		// What the row records, not the pool's field: a pool that sets no
 		// limit gets one slot's share of the host, and the agent applies

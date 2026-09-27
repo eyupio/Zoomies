@@ -608,6 +608,9 @@ type CPUResourceView struct {
 	CurrentCPUs    float64 `json:"current_cpus"`
 	CeilingCPUs    float64 `json:"ceiling_cpus"`
 	Factor         float64 `json:"factor"`
+	// SizedForCPUs is the CPU count the runner's toolchains were told to size
+	// their workers for when it started; zero when they were told nothing.
+	SizedForCPUs int `json:"sized_for_cpus,omitempty"`
 }
 
 // RunnerRenderer names pools and hosts without a query per runner.
@@ -772,7 +775,7 @@ func cpuResourceView(r *store.Runner, p *store.Pool, h *store.Host) *CPUResource
 	return &CPUResourceView{
 		State: state, Label: label, Reason: reason, GuaranteedCPUs: guaranteed,
 		CurrentCPUs: math.Round(guaranteed*factor*100) / 100,
-		CeilingCPUs: ceiling, Factor: factor,
+		CeilingCPUs: ceiling, Factor: factor, SizedForCPUs: r.SizedForCPUs,
 	}
 }
 

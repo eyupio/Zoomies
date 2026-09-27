@@ -560,6 +560,20 @@ type CPUBurstPolicy struct {
 	// host's allocatable CPU. For a DinD runner it covers the runner and its
 	// sidecar together, just like an automatic slot does.
 	MaxCPUs float64 `json:"max_cpus,omitempty"`
+	// SizeForCeiling says whether an automatic pool's runners start with the
+	// environment that tells Rust, the JVM and .NET how many CPUs to size
+	// their workers for: the ceiling rather than the guarantee. Those
+	// toolchains read the quota once, at start, and a loan that arrives later
+	// is CPU they have no worker to use. Nil is on, so every automatic pool
+	// gets it without an edit; false is an operator turning it off.
+	SizeForCeiling *bool `json:"size_for_ceiling,omitempty"`
+}
+
+// SizesForCeiling reports whether runners of this policy are started with
+// their toolchains sized for the ceiling. Only a pool that really lends CPU
+// does: sizing for a ceiling that is never lent only adds context switches.
+func (p CPUBurstPolicy) SizesForCeiling() bool {
+	return p.Enforces() && (p.SizeForCeiling == nil || *p.SizeForCeiling)
 }
 
 func (p CPUBurstPolicy) Observes() bool {
@@ -1194,6 +1208,12 @@ type Runner struct {
 	AllocatedCPUs     float64 `json:"allocated_cpus,omitempty"`
 	AllocatedMemoryMB int64   `json:"allocated_memory_mb,omitempty"`
 	AllocationSource  string  `json:"allocation_source,omitempty"`
+	// SizedForCPUs is the CPU count the runner's toolchains were told to size
+	// their workers for when it started (see CPUBurstPolicy.SizeForCeiling),
+	// or zero when they were told nothing. Recorded rather than recomputed,
+	// because a pool edited since would give a different answer than the one
+	// the running job was started with.
+	SizedForCPUs int `json:"sized_for_cpus,omitempty"`
 	// FaultKind categorises why a failed runner failed. Message says it in the
 	// backend's or GitHub's own words; this is what makes "every runner in this
 	// pool fails to start, and always for the same reason" visible from
