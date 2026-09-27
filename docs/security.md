@@ -40,7 +40,7 @@ Three places, and every credential that crosses between them:
 flowchart TB
     subgraph net["the network"]
         gh["GitHub"]
-        ops["operators, the CLI, Prometheus"]
+        ops["operators, the CLI, coding agents, Prometheus"]
     end
 
     subgraph ch["the controller host"]
@@ -82,6 +82,8 @@ on its own runners, and cannot read pools, jobs, users or the audit log.
 | A stolen API token | Tokens are stored as SHA-256 hashes, scoped by role, optionally expiring, individually revocable |
 | Someone reads the database file or a backup | GitHub App private keys, webhook secrets and OIDC client secrets are AES-256-GCM sealed with a key held outside the database |
 | An operator does something destructive | Every mutating action writes an audit row with actor, target, and a before/after diff with secrets redacted |
+| A coding agent connected over MCP is steered by text a workflow wrote — a log line, a step or branch name | The agent gets the token's authority and nothing more; its tools return a log in a separate block marked untrusted, and the server tells the model at connection that workflow-written text is data, not instructions. The fleet-changing tools are offered only to a token whose role reaches them, and `drain_runner` never confirms a busy runner's drain, so the worst an agent can be talked into is re-running a failed job or retiring an idle runner |
+| A page the operator visits drives the MCP endpoint with the operator's own session | `/mcp` takes a bearer token only and refuses the session cookie, and answers a foreign `Origin` with a 403 |
 | A compromised agent | Agents can only claim tasks and report on their own runners; they cannot read pools, jobs, users or the audit log |
 
 ### Out of scope
@@ -253,7 +255,8 @@ says so when it does, and a daemon that already applies limits is left alone.
   but never one wider than itself: the role is capped at the caller's, a
   scoped token can only mint within its scopes, and the result belongs to the
   same account, so a leaked token narrowed to one resource cannot be turned
-  into an unscoped one that outlives its revocation.
+  into an unscoped one that outlives its revocation. The same tokens open
+  `/mcp`, the endpoint a coding agent connects to; see below.
 * **Agents** — a separate credential class that can only reach `/api/v1/agent/*`,
   and only for their own host: an agent may report on its own runners and write
   into its own log relay, and gets the same "no such stream" answer for anybody
@@ -300,6 +303,16 @@ The action-to-role table is `internal/auth/rbac.go`. A mutating handler that
 succeeds writes an audit row naming the actor, the target and a redacted
 before/after; a refused login writes one too, because a burst of those is
 something you want to see.
+
+A coding agent's request to `/mcp` is authorised the same way, one tool call
+at a time. The endpoint resolves the bearer token as any route does — and
+only a bearer token: a session cookie is refused there — and then hands each
+tool call back to the router as the documented route it names, carrying that
+token. So the call meets the same role check, the same scopes, the same audit
+row and the same access-log line it would have met from the CLI, and a tool
+cannot do anything its route would refuse. Which tools are offered follows the
+same table: `rerun_job` and `drain_runner` are listed only for a token whose
+role reaches `POST /jobs/{id}/rerun` and `POST /runners/{id}/drain`.
 
 ### Sessions
 
@@ -848,7 +861,10 @@ score knows what it is measuring:
 4. Keep `ephemeral: true` and `docker_mode: none` on every pool you can.
 5. Set `max_runners` on every pool. It is your only backstop against a runaway
    workflow.
-6. Give automation scoped API tokens with expiry, not admin tokens.
+6. Give automation scoped API tokens with expiry, not admin tokens. A coding
+   agent on `/mcp` or `zoomies mcp` gets a `viewer` token unless it is meant to
+   act: it reads workflow logs, which anyone who can open a pull request can
+   write.
 7. Put the encryption key in `ZOOMIES_ENCRYPTION_KEY` or a `0600` file, and back
    it up somewhere that is not the same backup as the database.
 8. Watch the audit log. `zoomies audit tail` and the Audit page both work.

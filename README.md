@@ -411,6 +411,17 @@ export ZOOMIES_URL=https://zoomies.example.com
 export ZOOMIES_TOKEN=zoo_...
 ```
 
+A coding agent gets the same fleet over the Model Context Protocol, either
+straight from the controller at `/mcp` with a token or through `zoomies mcp`
+on its own machine. It reads failed jobs, their timelines and runner logs, and
+can act only as far as its token's role allows — see
+[the CLI reference](docs/cli.md#zoomies-mcp).
+
+```sh
+claude mcp add --transport http zoomies https://zoomies.example.com/mcp \
+  --header "Authorization: Bearer zoo_..."
+```
+
 ## Configuration
 
 One `zoomies.yaml`, every key overridable with a `ZOOMIES_*` environment
