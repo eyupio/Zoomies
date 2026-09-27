@@ -49,6 +49,13 @@ build: ui ## Build the binary with the UI embedded
 build-nogui: $(UI_OUT)/.placeholder ## Build without rebuilding the UI (fast inner loop)
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN) ./cmd/zoomies
 
+# The placeholder alone, with nothing compiled: what CI needs before go vet,
+# go test or a scanner can load internal/api. Building the binary to get it
+# cost a cold compile of every dependency on an ephemeral runner, minutes of
+# work in a step that only has to write one file.
+.PHONY: ui-stub
+ui-stub: $(UI_OUT)/.placeholder ## Write the placeholder UI that go:embed needs, and build nothing
+
 $(UI_OUT)/.placeholder:
 	@mkdir -p $(UI_OUT)
 	@# go:embed fails on an empty directory, so keep a placeholder for builds

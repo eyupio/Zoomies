@@ -51,7 +51,9 @@ jobs:
           cache: true
 
       # go:embed needs the directory to exist even when the UI is not built.
-      - run: make build-nogui
+      - name: Stub the embedded UI
+        timeout-minutes: 1
+        run: make ui-stub
 
       # The scanner is a dependency too, so it is pinned like the actions are.
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
