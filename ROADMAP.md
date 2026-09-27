@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 3.1 · 19 September 2026 · derived from the owner's
+Version 3.2 · 27 September 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md),
 reconciled against `main` at `6d12a72` on 6 September and again at `9a80b31`
 on 19 September, when the owner set a new primary target, withdrew the
@@ -1325,7 +1325,30 @@ acceptance from the version that wrote it.
   survives as product work, demand-gated: GPU admission that prevents
   oversubscription when a fleet's GPU host is shared by pools, and a
   disposable-VM backend as its own design with a clear isolation model.
-  Neither before a fleet with the hardware.
+  Neither before a fleet with the hardware. The isolation work is staged so
+  each step is taken only if the one before it falls short, and the design
+  sketch is candidate 4 in
+  [candidates-from-hosted-services.md](roadmap/candidates-from-hosted-services.md):
+  1. *A sandboxed OCI runtime per pool* (size S): a pool `runtime` field
+     (`runsc` for gVisor, `kata` for Kata Containers) passed through as the
+     Engine API's `HostConfig.Runtime`. Same runner images, same caches and
+     the same backend; a guest kernel per job without a new code path. The
+     validator refuses a runtime the host's daemon does not list.
+  2. *Decision 28's spike*, below.
+  3. *A native `microvm` backend on Firecracker* (size L), only if the two
+     above do not meet a fleet's need. It buys a guest kernel per job and
+     `dind` without a privileged sidecar, and costs `/dev/kvm` on the host
+     (rare on cloud VMs without nested virtualisation), a tap device per VM
+     that the rootless default cannot create (a warning finding and a
+     `security.md` row, never silent), a kernel and root filesystem built
+     per image variant and architecture, no GPU passthrough, and caches
+     that must move from bind mounts to virtio-fs or block devices. Its one
+     advantage over Kata is snapshot-and-restore for pre-warmed runners,
+     which matters only at scale.
+
+  Docker stays the default in every case: most fleets run their own code on
+  cloud VMs without KVM, and VM isolation is a pool's choice, not the
+  product's.
 * **ZF-217**, the scale-set assessment: a time-boxed decision record with a
   disposable prototype, never a second scheduler. Not before a measured
   reason.
@@ -1395,6 +1418,12 @@ remaining dependency. Do not invent live runs, elapsed observation, benchmark
 results or user feedback; do not wait for them either.
 
 ## 13. Change record
+
+* **27 September 2026 — Version 3.2:** ZF-216's disposable-VM backend in
+  section 9 staged: a sandboxed OCI runtime per pool (gVisor or Kata) first,
+  decision 28's spike second, and a native Firecracker `microvm` backend only
+  if both fall short, with what each costs named. Still demand-gated; nothing
+  in this entry implements runtime behaviour.
 
 * **19 September 2026 — Version 3.1:** ZF-005 delivered — the three pages
   corrected, the marketplace package repinned to `v1.2.0`, the release
