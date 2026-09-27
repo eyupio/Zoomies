@@ -828,6 +828,36 @@ func TestARemoveTaskFindingTheDaemonStillRemovingAnswersPending(t *testing.T) {
 	}
 }
 
+// A remove task for a runner the agent no longer tracks still finds its
+// sidecar, and a sidecar the daemon is still removing is pending there too --
+// not a backend that "would not answer".
+func TestARemoveTaskForAnUntrackedRunnerWaitsOutItsSidecar(t *testing.T) {
+	a, tr, be, clock := newAgent(t, 2)
+	be.setWorkloads(backend.Workload{Handle: "dind-1", RunnerID: "runner-1", Sidecar: true,
+		Status: backend.Status{Handle: "dind-1", Phase: backend.PhaseRunning}})
+	be.mu.Lock()
+	be.removeErr = errStillRemoving
+	be.mu.Unlock()
+	remove := func(id string) TaskResult {
+		t.Helper()
+		a.handleRemove(context.Background(), Task{ID: id, Kind: TaskRemoveRunner, RunnerID: "runner-1"}, func() {})
+		return <-tr.results
+	}
+
+	if res := remove("task-1"); !res.CleanupPending || strings.Contains(res.Error, "would not answer") {
+		t.Fatalf("a sidecar still being removed = %+v, want pending", res)
+	}
+	clock.advance(removalSettle)
+	res := remove("task-2")
+	if res.OK || res.CleanupPending || !strings.Contains(res.Error, StuckRemoval) {
+		t.Fatalf("a sidecar stuck past its bound = %+v, want the stuck failure", res)
+	}
+	// There is no workload handle to name, so none is printed.
+	if strings.Contains(res.Error, "()") {
+		t.Fatalf("the report names an empty handle: %s", res.Error)
+	}
+}
+
 // A plain refusal is still a failure the controller must hear about at once.
 func TestARemoveTaskThatFailsIsNotAnsweredAsPending(t *testing.T) {
 	a, tr, be, _ := newAgent(t, 2)

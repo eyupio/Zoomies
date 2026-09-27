@@ -434,10 +434,12 @@ problems panel. Common causes:
 
 These clear themselves when a retry succeeds. The attempt count is kept
 afterwards, because how many tries it took is the difference between a blip and
-a host worth looking at. It counts attempts that failed: a removal Docker still
-has under way and a registration GitHub still calls busy are waits, not
-attempts, and a failure reported after the host has already confirmed the
-container gone is ignored rather than re-opening the cleanup.
+a host worth looking at. It counts attempts that failed. A registration GitHub
+still calls busy is a wait, not an attempt, and so is a removal Docker still
+has under way for its first ten minutes; past that the removal is stuck, and
+every retry that finds it so is counted like any other failure. A failure
+reported after the host has already confirmed the container gone is ignored
+rather than re-opening the cleanup.
 
 A runner's **Cleaned up** time is when nothing of it was left, on the host or
 on GitHub. A finished runner without one still has something outstanding.

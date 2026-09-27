@@ -124,8 +124,16 @@ func (b *DockerBackend) cleanToolFarmInContainer(ctx context.Context, runner Con
 		// The helper is AutoRemove, so the daemon starts removing it the
 		// moment it exits; a DELETE that meets that removal waits it out
 		// rather than failing the runner's cleanup over a container that is
-		// already on its way.
-		if err := b.removeContainer(cleanupCtx, id); err != nil && !errors.Is(err, ErrNotFound) {
+		// already on its way. One still going when the wait ends is not a
+		// failure either -- the daemon finishes it -- and it must not ride
+		// along into the runner's error, where it would make a real cleanup
+		// failure read as a removal the agent should simply wait for.
+		err := b.removeContainer(cleanupCtx, id)
+		if errors.Is(err, ErrRemovalInProgress) {
+			b.log.Info("the daemon is still removing the tool cache cleanup container; it finishes on its own", "container", shortID(id), "error", err)
+			return
+		}
+		if err != nil && !errors.Is(err, ErrNotFound) {
 			resultErr = errors.Join(resultErr, fmt.Errorf("removing tool cache cleanup container: %w", err))
 		}
 	}()

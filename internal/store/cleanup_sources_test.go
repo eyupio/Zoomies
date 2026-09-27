@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -120,5 +121,39 @@ func TestCleanupMigrationPreservesExistingFailureSources(t *testing.T) {
 				t.Fatal("migration changed a row with no recorded failure")
 			}
 		}
+	}
+}
+
+// A host failure that arrives after the host confirmed the removal is about
+// an attempt the confirmation overtook, and the two travel on separate
+// requests, so the store refuses it as it writes rather than trusting a
+// caller's copy of the row that may predate the confirmation.
+func TestAHostFailureAfterTheHostConfirmedRemovalIsRefused(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	_, pool, host := seedPool(t, s)
+	r := &Runner{PoolID: pool.ID, HostID: host.ID, Name: "confirmed", State: RunnerRemoved}
+	if err := s.CreateRunner(ctx, r); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ConfirmRunnerCleanup(ctx, r.ID, true); err != nil {
+		t.Fatal(err)
+	}
+
+	err := s.RecordCleanupFailure(ctx, r.ID, "removal of container confirmed-dind is already in progress")
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("RecordCleanupFailure on a confirmed removal = %v, want ErrConflict", err)
+	}
+	got, err := s.GetRunner(ctx, r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.HostRemovedAt == nil || got.HostCleanupError != "" || got.CleanupError != "" || got.CleanupAttempts != 0 {
+		t.Fatalf("a late failure re-opened a confirmed removal: %+v", got)
+	}
+
+	// A runner with no row is still not an error: there is nothing to record.
+	if err := s.RecordCleanupFailure(ctx, "run_gone", "x"); err != nil {
+		t.Fatalf("RecordCleanupFailure on a missing runner = %v, want nil", err)
 	}
 }

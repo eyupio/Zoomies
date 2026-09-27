@@ -1308,16 +1308,34 @@ func (s *Store) SetRunnerResourceUsage(ctx context.Context, id string, cpu float
 // the scheduler has moved on -- and forcing it back through the state machine
 // would make capacity wrong to record a tidying problem. What is wrong is the
 // host, or GitHub, and that is what these columns say.
+//
+// A runner its host has already confirmed removed is refused with ErrConflict
+// and left as it is. The confirmation came from a fresh listing of the host,
+// so a failure arriving after it is about an attempt it overtook -- and a
+// report and a task result travel on separate requests, so the two can cross.
+// The check is the write's own condition rather than the caller's, because a
+// caller's copy of the row can be read before the confirmation it races.
 func (s *Store) RecordCleanupFailure(ctx context.Context, id, reason string) error {
 	if reason == "" {
 		reason = "cleanup failed without saying why"
 	}
-	_, err := s.exec(ctx, `UPDATE runners
+	res, err := s.exec(ctx, `UPDATE runners
 		SET host_cleanup_error=?,
 		    cleanup_error=? || CASE WHEN registration_cleanup_error='' THEN '' ELSE '; ' || registration_cleanup_error END,
-		    cleanup_failed_at=?, cleanup_attempts=cleanup_attempts+1, cleaned_up_at=NULL, host_removed_at=NULL
-		WHERE id=?`, reason, reason, s.Now().UnixMilli(), id)
-	return err
+		    cleanup_failed_at=?, cleanup_attempts=cleanup_attempts+1, cleaned_up_at=NULL
+		WHERE id=? AND host_removed_at IS NULL`, reason, reason, s.Now().UnixMilli(), id)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil || n > 0 {
+		return err
+	}
+	var confirmed bool
+	err = s.read.QueryRowContext(ctx, `SELECT host_removed_at IS NOT NULL FROM runners WHERE id=?`, id).Scan(&confirmed)
+	if err == nil && confirmed {
+		return fmt.Errorf("runner %s: its host has already confirmed it removed: %w", id, ErrConflict)
+	}
+	return nil
 }
 
 // RecordRegistrationCleanupFailure preserves the host's complaint while

@@ -1256,18 +1256,26 @@ func (c *Controller) noteCleanupFailure(ctx context.Context, r *store.Runner, ki
 		// assembled before it, a redelivered task, a lease that ran out on a
 		// task it made moot. Recording one re-opened a finished cleanup,
 		// counted another attempt and raised the warning again for a runner
-		// with nothing left behind.
+		// with nothing left behind. This copy of the row can be older than
+		// the confirmation, so the store checks again as it writes.
 		c.log.Debug("ignored a cleanup failure for a runner its host has already confirmed removed",
 			"runner", r.ID, "kind", kind, "error", reason)
 		return nil
 	}
-	c.metrics.cleanups.WithLabelValues("failed").Inc()
 	detail := fmt.Sprintf("%s failed: %s", kind, reason)
 	if err := c.st.RecordCleanupFailure(ctx, r.ID, detail); err != nil {
+		if errors.Is(err, store.ErrConflict) {
+			// The confirmation landed between this row being read and the
+			// write: the same late failure as above, caught by the store.
+			c.log.Debug("ignored a cleanup failure for a runner its host has already confirmed removed",
+				"runner", r.ID, "kind", kind, "error", reason)
+			return nil
+		}
 		c.log.Warn("could not record a failed cleanup on its runner",
 			"runner", r.ID, "kind", kind, "error", err)
 		return err
 	}
+	c.metrics.cleanups.WithLabelValues("failed").Inc()
 	c.log.Warn("could not clean a runner up; it is recorded on the row",
 		"runner", r.ID, "name", r.Name, "host", r.HostID, "kind", kind, "error", reason)
 	if updated, err := c.st.GetRunner(ctx, r.ID); err == nil {

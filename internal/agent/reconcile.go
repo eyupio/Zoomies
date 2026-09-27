@@ -471,12 +471,37 @@ func (a *Agent) reapOrphan(ctx context.Context, b backend.Backend, kind store.Ba
 	} else {
 		err = removeRunnerWorkload(rctx, b, w.RunnerID, w.Handle)
 	}
-	if err != nil && errors.Is(err, backend.ErrRemovalInProgress) {
+	// The window is kept per runner, so one a remove task opened carries on
+	// here once the heartbeat has released the runner; a workload with no
+	// runner ID is kept by its handle.
+	key := w.RunnerID
+	if key == "" {
+		key = "handle:" + string(w.Handle)
+	}
+	since, pending := a.removalPending(key, err, now)
+	if pending {
 		// Not a failure: the daemon is finishing a removal it has started.
 		// The orphan record stays, so the next pass asks again.
 		a.log.Info("the daemon is still removing an orphaned runner workload; checking again on the next pass",
-			"backend", kind, "handle", w.Handle, "name", w.Name, "error", err)
+			"backend", kind, "handle", w.Handle, "name", w.Name, "removing_for", now.Sub(since), "error", err)
 		return RunnerReport{}, false
+	}
+	if !since.IsZero() {
+		// Stuck, and this is the only place left that will say so. A runner
+		// the controller removed while it was still up is released here by
+		// the heartbeat, and the remove task that found its sidecar still
+		// going answered pending, which recorded nothing on its row -- so
+		// nothing on the controller will ever ask about it again.
+		err = stuckRemoval(now.Sub(since), err)
+		a.log.Warn("could not remove an orphaned runner workload; it is still consuming capacity on this host",
+			"backend", kind, "handle", w.Handle, "name", w.Name, "error", err)
+		if w.RunnerID == "" {
+			return RunnerReport{}, false
+		}
+		// No state: the row is already terminal, and a cleanup error on a
+		// terminal row is recorded without moving it -- which is also what
+		// makes the controller send the remove again.
+		return RunnerReport{RunnerID: w.RunnerID, CleanupError: err.Error(), ObservedAt: now}, true
 	}
 	if err != nil && !errors.Is(err, backend.ErrNotFound) {
 		// Keep the orphan record so the next pass tries again rather than

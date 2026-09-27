@@ -25,9 +25,11 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -750,8 +752,19 @@ func (c *APIClient) ContainerRemove(ctx context.Context, id string, force bool) 
 	if force {
 		q.Set("force", "1")
 	}
+	// Whether the daemon ever had the request is what separates a removal it
+	// is still carrying out from a daemon nobody reached, and the transport is
+	// the only thing that knows.
+	var sent atomic.Bool
+	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+		WroteRequest: func(info httptrace.WroteRequestInfo) {
+			if info.Err == nil {
+				sent.Store(true)
+			}
+		},
+	})
 	err := c.do(withHeldResponse(ctx), http.MethodDelete, "/containers/"+id, q, nil, nil)
-	if err != nil && removalUnderWay(err) {
+	if err != nil && removalUnderWay(err, sent.Load()) {
 		return removingErr(err)
 	}
 	return err
@@ -765,14 +778,18 @@ func (c *APIClient) ContainerRemove(ctx context.Context, id string, force bool) 
 // is also how a daemon refuses a removal it will not do, and that one is a
 // finding. A deadline that passed with the request sent is the other half:
 // the daemon has it, and carries it out whether or not we are still there.
-func removalUnderWay(err error) bool {
+// One that passed before the request was written -- a dial that timed out, a
+// daemon that never accepted the connection -- is a daemon that never heard
+// of the removal, and saying it was still at it would send an operator to
+// wait for work nobody is doing.
+func removalUnderWay(err error, sent bool) bool {
 	var apiErr *APIError
 	if errors.As(err, &apiErr) {
 		return apiErr.Status == http.StatusConflict &&
 			strings.Contains(apiErr.Message, "removal of container") &&
 			strings.Contains(apiErr.Message, "already in progress")
 	}
-	return errors.Is(err, context.DeadlineExceeded)
+	return sent && errors.Is(err, context.DeadlineExceeded)
 }
 
 // UpdateConfig is the body of POST /containers/{id}/update. Only the fields

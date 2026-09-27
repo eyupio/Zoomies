@@ -1044,6 +1044,30 @@ func TestAWaitForARemovalUnderWayEndsWithItsCaller(t *testing.T) {
 	}
 }
 
+func TestARemovalCutOffByItsDeadlineSaysHowLongItWaited(t *testing.T) {
+	// The first DELETE is held until the daemon answers or the caller's
+	// deadline passes, so one cut off by the deadline has already waited all
+	// of it. Measured from after it, the error told an operator a removal held
+	// for two minutes had been going "after 0s".
+	release := make(chan struct{})
+	slow := func(w http.ResponseWriter) { <-release }
+	f, _ := sidecarRemovalEngine(t, slow)
+	// Registered after the engine, so it runs before the server's Close,
+	// which waits for this handler to return.
+	t.Cleanup(func() { close(release) })
+	b := dockerBackendFor(t, f, DockerOptions{})
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+
+	err := b.Remove(ctx, "c1")
+	if !errors.Is(err, ErrRemovalInProgress) {
+		t.Fatalf("a DELETE cut off by its deadline = %v, want a removal still in progress", err)
+	}
+	if strings.Contains(err.Error(), "after 0s") {
+		t.Fatalf("the wait left out the DELETE it was held on: %v", err)
+	}
+}
+
 func TestDockerRemovalDoesNotIgnoreAnInspectionFailure(t *testing.T) {
 	f := newFakeEngine(t, map[string]http.HandlerFunc{
 		"GET " + v + "/containers/c1/json": func(w http.ResponseWriter, r *http.Request) {

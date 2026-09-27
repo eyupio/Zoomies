@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -705,6 +707,29 @@ func TestParseDockerTime(t *testing.T) {
 // cut it off at 90 seconds and report "the daemon may be busy or stalled",
 // which failed the runner as unexplained while the daemon carried on and
 // killed the container anyway. A stop is bounded by its own grace period.
+func TestAStopOutlastsTheResponseHeaderTimeout(t *testing.T) {
+	f := newFakeEngine(t, map[string]http.HandlerFunc{
+		"POST " + v + "/containers/slow/stop": func(w http.ResponseWriter, r *http.Request) {
+			time.Sleep(300 * time.Millisecond)
+			w.WriteHeader(http.StatusNoContent)
+		},
+		"GET " + v + "/containers/slow/json": func(w http.ResponseWriter, r *http.Request) {
+			time.Sleep(300 * time.Millisecond)
+			writeJSON(w, 200, &ContainerInspect{ID: "slow"})
+		},
+	})
+	c := f.client(t)
+	c.http.Transport.(*http.Transport).ResponseHeaderTimeout = 50 * time.Millisecond
+	if err := c.ContainerStop(context.Background(), "slow", 5*time.Second); err != nil {
+		t.Fatalf("a stop answered after its grace period's work failed: %v", err)
+	}
+	// Every other call keeps the timeout: a daemon that does not answer an
+	// inspect is one that is stalled.
+	if _, err := c.ContainerInspect(context.Background(), "slow"); err == nil {
+		t.Fatal("an ordinary call outlived the response-header timeout")
+	}
+}
+
 func TestARemoveOutlastsTheResponseHeaderTimeout(t *testing.T) {
 	// Docker answers a DELETE only when the removal is over, and a sidecar's
 	// nested image store can take longer than the header timeout to delete.
@@ -720,6 +745,19 @@ func TestARemoveOutlastsTheResponseHeaderTimeout(t *testing.T) {
 	c.http.Transport.(*http.Transport).ResponseHeaderTimeout = 50 * time.Millisecond
 	if err := c.ContainerRemove(context.Background(), "slow", true); err != nil {
 		t.Fatalf("a removal that took longer than the header timeout was abandoned: %v", err)
+	}
+}
+
+func TestADeadlineBeforeTheRequestWasSentIsNotARemovalUnderWay(t *testing.T) {
+	// A dial that timed out is a daemon that never heard of the removal, and
+	// telling an operator it was still at it would send them to wait for
+	// work nobody is doing. Only a request the daemon has is one it finishes.
+	unreached := &url.Error{Op: "Delete", URL: "http://docker/containers/x", Err: &net.OpError{Op: "dial", Err: context.DeadlineExceeded}}
+	if removalUnderWay(unreached, false) {
+		t.Fatal("a DELETE that never reached the daemon was read as a removal under way")
+	}
+	if !removalUnderWay(unreached, true) {
+		t.Fatal("a DELETE the daemon had when its deadline passed must read as a removal under way")
 	}
 }
 
@@ -780,28 +818,5 @@ func TestARemoveWhoseDeadlinePassesIsARemovalUnderWay(t *testing.T) {
 	go func() { time.Sleep(50 * time.Millisecond); ccancel() }()
 	if err := f.client(t).ContainerRemove(cctx, "slow", true); errors.Is(err, ErrRemovalInProgress) {
 		t.Fatalf("a cancelled DELETE was read as a removal under way: %v", err)
-	}
-}
-
-func TestAStopOutlastsTheResponseHeaderTimeout(t *testing.T) {
-	f := newFakeEngine(t, map[string]http.HandlerFunc{
-		"POST " + v + "/containers/slow/stop": func(w http.ResponseWriter, r *http.Request) {
-			time.Sleep(300 * time.Millisecond)
-			w.WriteHeader(http.StatusNoContent)
-		},
-		"GET " + v + "/containers/slow/json": func(w http.ResponseWriter, r *http.Request) {
-			time.Sleep(300 * time.Millisecond)
-			writeJSON(w, 200, &ContainerInspect{ID: "slow"})
-		},
-	})
-	c := f.client(t)
-	c.http.Transport.(*http.Transport).ResponseHeaderTimeout = 50 * time.Millisecond
-	if err := c.ContainerStop(context.Background(), "slow", 5*time.Second); err != nil {
-		t.Fatalf("a stop answered after its grace period's work failed: %v", err)
-	}
-	// Every other call keeps the timeout: a daemon that does not answer an
-	// inspect is one that is stalled.
-	if _, err := c.ContainerInspect(context.Background(), "slow"); err == nil {
-		t.Fatal("an ordinary call outlived the response-header timeout")
 	}
 }

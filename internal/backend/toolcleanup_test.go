@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func cleanupRunner(t *testing.T, shared string) ContainerInspect {
@@ -31,7 +32,7 @@ func TestToolCleanupRecoversPermissionFailure(t *testing.T) {
 	// Recovery uses a POSIX bind mount and shell. A Windows drive-letter
 	// path contains the ':' separator that this mount's safety check rejects.
 	requirePOSIX(t)
-	for _, scenario := range []string{"success", "auto-removed", "auto-removing", "exit failure", "wait failure", "start failure", "cancelled", "still denied", "stale helper", "foreign helper"} {
+	for _, scenario := range []string{"success", "auto-removed", "auto-removing", "still auto-removing", "exit failure", "wait failure", "start failure", "cancelled", "still denied", "stale helper", "foreign helper"} {
 		t.Run(scenario, func(t *testing.T) {
 			shared := t.TempDir()
 			runner := cleanupRunner(t, shared)
@@ -91,6 +92,10 @@ func TestToolCleanupRecoversPermissionFailure(t *testing.T) {
 					// The helper is AutoRemove: once it exits the daemon is
 					// already removing it, and a DELETE that arrives first is
 					// told so rather than doing it.
+					if scenario == "still auto-removing" && r.PathValue("id") == "helper" {
+						writeJSON(w, http.StatusConflict, map[string]string{"message": "removal of container helper is already in progress"})
+						return
+					}
 					if scenario == "auto-removing" && r.PathValue("id") == "helper" {
 						if len(deleted) == 1 {
 							writeJSON(w, http.StatusConflict, map[string]string{"message": "removal of container helper is already in progress"})
@@ -103,6 +108,7 @@ func TestToolCleanupRecoversPermissionFailure(t *testing.T) {
 				},
 			})
 			b := dockerBackendFor(t, f, DockerOptions{SharedDir: shared})
+			b.removalWait = 200 * time.Millisecond
 			calls := 0
 			err := b.removeRunnerToolFarm(ctx, runner, func(path string) error {
 				calls++
@@ -114,7 +120,7 @@ func TestToolCleanupRecoversPermissionFailure(t *testing.T) {
 				}
 				return os.RemoveAll(path)
 			})
-			wantSuccess := scenario == "success" || scenario == "auto-removed" || scenario == "auto-removing" || scenario == "stale helper"
+			wantSuccess := scenario == "success" || scenario == "auto-removed" || scenario == "auto-removing" || scenario == "still auto-removing" || scenario == "stale helper"
 			if (err == nil) != wantSuccess {
 				t.Fatalf("cleanup = %v", err)
 			}

@@ -455,6 +455,14 @@ func TestAFixForBothHalvesNamesTheContainerFirst(t *testing.T) {
 			want: []string{"still removing", "restarting the daemon"},
 		},
 		{
+			// The agent's own verdict, from a daemon whose every DELETE ran
+			// out of time: Docker's words are nowhere in it.
+			name: "a removal the agent reports stuck",
+			host: "remove_runner failed: " + agent.StuckRemoval + " 10m0s and has not finished; a removal stuck this long usually needs the daemon restarted: " +
+				"backend: removing docker-in-docker sidecar for x: docker api: Docker at unix:///var/run/docker.sock did not answer in time; the daemon may be busy or stalled: context deadline exceeded",
+			want: []string{"stopped making progress", "restart the daemon there"},
+		},
+		{
 			name: "a container the daemon would not remove",
 			host: "remove_runner failed: the daemon refused: container is in use",
 			want: []string{"If the container is still on", "remove it there"},
@@ -485,5 +493,30 @@ func TestAFixForBothHalvesNamesTheContainerFirst(t *testing.T) {
 				t.Errorf("fix = %q, want it to say the registration looks after itself", prob.Fix)
 			}
 		})
+	}
+}
+
+// The guard must hold even when the failure's copy of the row was read before
+// the confirmation landed -- a runner report and a task result travel on
+// separate requests and can cross.
+func TestAFailureRacingTheHostsConfirmationDoesNotReopenIt(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	r := h.runnerRow(pool, host, store.RunnerRemoved)
+	stale := h.runnerByID(t, r.ID)
+
+	if err := h.c.ReportResult(h.ctx, host.ID, agent.TaskResult{
+		TaskID: "task_1", Kind: agent.TaskRemoveRunner, RunnerID: r.ID,
+		OK: true, State: store.RunnerRemoved,
+	}); err != nil {
+		t.Fatalf("ReportResult: %v", err)
+	}
+	if err := h.c.noteCleanupFailure(h.ctx, stale, agent.TaskRemoveRunner, "a report built before the removal finished"); err != nil {
+		t.Fatalf("noteCleanupFailure: %v", err)
+	}
+	got := h.runnerByID(t, r.ID)
+	if got.HostRemovedAt == nil || got.HostCleanupError != "" || got.CleanupAttempts != 0 {
+		t.Fatalf("a failure read before the confirmation re-opened it: host_removed_at %v, host error %q, attempts %d",
+			got.HostRemovedAt, got.HostCleanupError, got.CleanupAttempts)
 	}
 }

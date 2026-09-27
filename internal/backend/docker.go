@@ -1354,11 +1354,15 @@ const removalWaitBudget = 30 * time.Second
 // dead, which is then a failure worth returning. The caller treats
 // ErrNotFound as it did before.
 func (b *DockerBackend) removeContainer(ctx context.Context, ref string) error {
+	// Timed from the first DELETE, not the first retry: that call is held
+	// until the daemon has finished or the caller's deadline passes, and a
+	// wait measured after it reported a removal cut off at two minutes as
+	// still going "after 0s".
+	started := time.Now()
 	err := b.api.ContainerRemove(ctx, ref, true)
 	if !errors.Is(err, ErrRemovalInProgress) {
 		return err
 	}
-	started := time.Now()
 	gap := nameReleaseFirstGap
 	for ctx.Err() == nil && time.Since(started) < b.removalWait {
 		timer := time.NewTimer(gap)

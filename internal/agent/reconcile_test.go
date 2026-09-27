@@ -803,3 +803,81 @@ func TestReconcileDoesNotReportASidecarAsItsRunnersRemoval(t *testing.T) {
 		t.Fatalf("a sidecar has no runner row to move, got %+v", reports)
 	}
 }
+
+// A runner the controller removes while it is still up is removed on its host
+// sidecar first, and a sidecar the daemon cannot finish removing answers the
+// remove task as pending -- which records nothing on the row, so nothing on
+// the controller will ask about it again. The heartbeat then releases the
+// runner to the orphan path, and that path is the only one left to say the
+// removal is stuck. It used to wait on it for ever, at Info.
+func TestAReleasedRunnerWhoseRemovalIsStuckIsReportedPastItsBound(t *testing.T) {
+	a, tr, be, clock := newAgent(t, 2)
+	a.polled.Store(true)
+	track(a, "runner-1", "wl-1", true)
+	be.setWorkloads(running("wl-1", "runner-1"))
+	be.mu.Lock()
+	be.removeErr = errStillRemoving
+	be.mu.Unlock()
+	ctx := context.Background()
+
+	a.handleRemove(ctx, Task{ID: "task-1", Kind: TaskRemoveRunner, RunnerID: "runner-1"}, func() {})
+	if res := <-tr.results; !res.CleanupPending {
+		t.Fatalf("the first sight of a removal under way was not answered as pending: %+v", res)
+	}
+	a.releaseUnknown([]string{"runner-1"})
+
+	// Now an orphan: grace first, then the rest of the window, quietly.
+	for range 2 {
+		if reports, _ := a.ReconcileOnce(ctx); len(reports) != 0 {
+			t.Fatalf("a removal still inside its window was reported: %+v", reports)
+		}
+		clock.advance(orphanGrace)
+	}
+	clock.advance(removalSettle)
+	reports, err := a.ReconcileOnce(ctx)
+	if err != nil {
+		t.Fatalf("ReconcileOnce: %v", err)
+	}
+	if len(reports) != 1 || reports[0].RunnerID != "runner-1" || !strings.Contains(reports[0].CleanupError, StuckRemoval) {
+		t.Fatalf("a released runner's stuck removal was not reported: %+v", reports)
+	}
+	// The report records a cleanup failure; it must not move the row.
+	if reports[0].State != "" || reports[0].HostRemoved {
+		t.Fatalf("a stuck removal claimed a state: %+v", reports[0])
+	}
+
+	be.mu.Lock()
+	be.removeErr = nil
+	be.mu.Unlock()
+	reports, err = a.ReconcileOnce(ctx)
+	if err != nil {
+		t.Fatalf("ReconcileOnce: %v", err)
+	}
+	if len(reports) != 1 || !reports[0].HostRemoved {
+		t.Fatalf("the removal that finished was not confirmed: %+v", reports)
+	}
+	a.mu.Lock()
+	left := len(a.removing)
+	a.mu.Unlock()
+	if left != 0 {
+		t.Fatalf("a finished removal is still remembered as under way: %d entries", left)
+	}
+}
+
+// A removal still being asked about is never forgotten, however long it has
+// been stuck: forgetting it would open a fresh window and go quiet again.
+func TestAStuckRemovalStillBeingAskedAboutIsNotForgotten(t *testing.T) {
+	a, _, _, clock := newAgent(t, 2)
+	start := clock.Now()
+	a.removalPending("runner-1", errStillRemoving, start)
+	for range 30 {
+		clock.advance(time.Hour)
+		a.removalPending("runner-1", errStillRemoving, clock.Now())
+	}
+	// A first sighting elsewhere is what prunes the memory.
+	a.removalPending("runner-2", errStillRemoving, clock.Now())
+	since, pending := a.removalPending("runner-1", errStillRemoving, clock.Now())
+	if pending || !since.Equal(start) {
+		t.Fatalf("a removal stuck for a day and still asked about was forgotten: since %v, pending %v", since, pending)
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/provider"
 	"github.com/eyupio/zoomies/internal/scheduler"
@@ -2065,11 +2066,19 @@ func (c *Controller) cleanupProblems(ctx context.Context, out *[]Problem) error 
 		"Zoomies retries, and the row clears itself when it succeeds.",
 		example.Name, hostName)
 	switch {
-	case onHost != "" && strings.Contains(onHost, "already in progress"):
-		// Docker's own words for a removal it has under way: removing it by
-		// hand meets the same refusal, and the daemon needs time, not help.
+	case strings.Contains(onHost, agent.StuckRemoval):
+		// The agent's own verdict: it waited out the removal for as long as
+		// a working daemon takes, and this one has stopped. Waiting longer
+		// fixes nothing, so the action comes first.
+		fix = fmt.Sprintf("Docker on %s has been removing %s's container for more than ten minutes and has stopped making progress; restart the daemon there. "+
+			"Removing the container by hand gets the same refusal until then, and Zoomies confirms the removal on its next attempt afterwards.",
+			hostName, example.Name)
+	case strings.Contains(onHost, "already in progress"):
+		// Docker's own words for a removal it has under way, reported by an
+		// agent from before it waited these out: removing it by hand meets
+		// the same refusal, and the daemon usually needs time, not help.
 		fix = fmt.Sprintf("Docker on %s is still removing %s's container, and a removal by hand gets the same answer until it has finished. "+
-			"Zoomies waits for it and the row clears itself once it has gone; a removal still under way after ten minutes is one the daemon has stopped making progress on, which restarting the daemon clears.",
+			"Zoomies retries and the row clears itself once it has gone; a removal still under way after ten minutes is one the daemon has stopped making progress on, which restarting the daemon clears.",
 			hostName, example.Name)
 	case onHost != "":
 		// The default fix, which names the container.
