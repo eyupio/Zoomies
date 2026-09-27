@@ -197,10 +197,22 @@ jobs:
 
       # go:embed needs the directory to exist even when the UI is not built.
       # The docs shard tests two packages that import nothing of ours, so it
-      # has no embedded UI to stub and no binary to build.
+      # has no embedded UI to stub. Writing the stub compiles nothing: this
+      # step used to build the whole binary, which on a cold fleet runner was
+      # minutes of compiling and, when the module proxy stalled, a step that
+      # never finished.
       - name: Stub the embedded UI
         if: matrix.shard != 'docs'
-        run: make build-nogui
+        timeout-minutes: 1
+        run: make ui-stub
+
+      # Fetching modules is the one step here that waits on the network, so it
+      # is on its own with a bound: a stalled proxy fails in minutes and says
+      # so, rather than eating the job's two hours inside go vet or go test.
+      - name: Download modules
+        if: matrix.shard != 'docs'
+        timeout-minutes: 10
+        run: go mod download
 
       # The checks that read the whole tree run once, in the shard that is
       # otherwise the lightest.
@@ -397,7 +409,10 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-      - name: Stub the embedded UI
+      # The drill needs the real binary, so this one builds; the bound turns
+      # a stalled module fetch into a failure that names this step.
+      - name: Build the binary
+        timeout-minutes: 15
         run: make build-nogui
       - name: Test
         run: make test
@@ -527,7 +542,9 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-      - run: make build-nogui
+      - name: Stub the embedded UI
+        timeout-minutes: 1
+        run: make ui-stub
       - uses: dominikh/staticcheck-action@9716614d4101e79b4340dd97b10e54d68234e431 # v1.4.1
         with:
           version: latest
