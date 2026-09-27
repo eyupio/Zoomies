@@ -51,18 +51,25 @@ server=$!
 while [ ! -s "$work/port" ]; do sleep 0.1; done
 
 mkdir -p "$work/bin"
+# The fake gh answers the package listing from versions, or from versions.next
+# once the first listing has been served (a publish landing mid-prune), and
+# reports busy image-publishing runs while the file busy exists.
 cat > "$work/bin/gh" <<SH
 #!/bin/sh
 case "\$*" in
   *DELETE*) echo "\$*" >> "$work/deleted" ;;
-  *) cat "$work/versions" ;;
+  */actions/workflows/*) if [ -e "$work/busy" ]; then echo 1; else echo 0; fi ;;
+  *)
+    if [ -e "$work/listed" ] && [ -e "$work/versions.next" ]; then cat "$work/versions.next"; else cat "$work/versions"; fi
+    touch "$work/listed" ;;
 esac
 SH
 chmod +x "$work/bin/gh"
 
 run() {
   : > "$work/deleted"
-  PATH="$work/bin:$PATH" GHCR_REGISTRY="http://127.0.0.1:$(cat "$work/port")" GHCR_PULL_TOKEN=x \
+  rm -f "$work/listed"
+  GITHUB_REPOSITORY=eyupio/zoomies PUBLISH_WAIT_TRIES=2 PUBLISH_WAIT_SECONDS=0 PATH="$work/bin:$PATH" GHCR_REGISTRY="http://127.0.0.1:$(cat "$work/port")" GHCR_PULL_TOKEN=x \
     DRY_RUN=false KEEP_DAYS=14 "$here/ghcr-prune.sh" zoomies > "$work/out" 2>&1
 }
 
@@ -73,6 +80,28 @@ if [ "$got" != "5 6 " ]; then
   echo "FAIL: deleted versions [$got], want [5 6 ] -- the platforms, their attestation and the young orphan must stay"
   exit 1
 fi
+
+# A publish between the snapshot and the delete: a new tagged index re-uses
+# the stale image as a child. Neither it nor its attestation may go.
+index2=$(d 8)
+printf '{"manifests":[{"digest":"%s"}]}' "$stale" > "$work/m/$index2"
+{ cat "$work/versions"; printf '8\t%s\t1\t%s\n' "$index2" "$new"; } > "$work/versions.next"
+run
+if [ -s "$work/deleted" ]; then
+  cat "$work/out"
+  echo "FAIL: deleted $(cat "$work/deleted") after a new tag started referring to it"
+  exit 1
+fi
+rm -f "$work/versions.next"
+
+# While an image-publishing workflow runs, a real prune deletes nothing.
+touch "$work/busy"
+run
+if [ -s "$work/deleted" ]; then
+  echo "FAIL: deleted $(cat "$work/deleted") while an image publish was in progress"
+  exit 1
+fi
+rm -f "$work/busy"
 
 # A registry that cannot answer must leave everything in place.
 touch "$work/fail"

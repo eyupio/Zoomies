@@ -45,6 +45,7 @@ concurrency:
 jobs:
   cleanup:
     permissions:
+      actions: read
       contents: read
       packages: write
     name: Cleanup ${{ matrix.package }}
