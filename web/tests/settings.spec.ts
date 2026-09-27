@@ -112,6 +112,53 @@ test('a token is shown once, in plain text, and says so', async ({ page }) => {
   await expect(row.getByRole('button', { name: 'Revoke' })).toHaveCount(0);
 });
 
+test('a revoked token is deleted from the list, and the bulk action takes only spent ones', async ({
+  page,
+}) => {
+  const gone = unique('spec-gone');
+  const kept = unique('spec-kept');
+  await goto(page, '/settings/tokens', 'API tokens');
+
+  for (const name of [gone, kept]) {
+    await create(page, 'Create a token').click();
+    const form = dialog(page, 'Create an API token');
+    await form.getByRole('textbox', { name: 'Name' }).fill(name);
+    await form.getByRole('button', { name: 'Create token' }).click();
+    await form.getByRole('button', { name: 'Done' }).click();
+  }
+
+  // A live token offers Revoke and never Delete: a credential that vanished
+  // from the list while it still worked would be one nobody knows to revoke.
+  const row = page.getByRole('row', { name: new RegExp(gone) });
+  await expect(row.getByRole('button', { name: `Delete ${gone}` })).toHaveCount(0);
+  await row.getByRole('button', { name: `Revoke ${gone}` }).click();
+  await dialog(page, 'Revoke token').getByRole('button', { name: 'Revoke' }).click();
+  await expect(dialog(page, 'Revoke token')).toBeHidden();
+
+  await row.getByRole('button', { name: `Delete ${gone}` }).click();
+  const confirm = dialog(page, 'Delete token');
+  await expect(confirm).toContainText(gone);
+  await confirm.getByRole('button', { name: 'Delete' }).click();
+  await expect(confirm).toBeHidden();
+  await expect(page.getByRole('row', { name: new RegExp(gone) })).toHaveCount(0);
+
+  // Revoke the other and purge: it goes, and nothing that still works does.
+  const other = page.getByRole('row', { name: new RegExp(kept) });
+  await other.getByRole('button', { name: `Revoke ${kept}` }).click();
+  await dialog(page, 'Revoke token').getByRole('button', { name: 'Revoke' }).click();
+  await expect(dialog(page, 'Revoke token')).toBeHidden();
+  const live = await page.getByRole('button', { name: /^Revoke / }).count();
+
+  await page.getByRole('button', { name: 'Delete revoked and expired' }).click();
+  const bulk = dialog(page, 'Delete revoked and expired tokens');
+  await expect(bulk).toContainText('Tokens that still work are left alone');
+  await bulk.getByRole('button', { name: 'Delete them' }).click();
+  await expect(bulk).toBeHidden();
+  await expect(page.getByRole('row', { name: new RegExp(kept) })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^Revoke / })).toHaveCount(live);
+  await expect(page.getByRole('button', { name: 'Delete revoked and expired' })).toHaveCount(0);
+});
+
 test('cancelling a destructive confirmation changes nothing', async ({ page }) => {
   const name = unique('spec-keep');
   await goto(page, '/settings/tokens', 'API tokens');

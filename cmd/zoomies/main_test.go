@@ -217,6 +217,7 @@ func TestMissingPositionalArgumentsAreUsageErrors(t *testing.T) {
 		{"hosts", "cordon"},
 		{"users", "delete"},
 		{"tokens", "revoke"},
+		{"tokens", "delete"},
 		{"installations", "verify"},
 	}
 	for _, args := range cases {

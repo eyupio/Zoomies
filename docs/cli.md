@@ -215,7 +215,9 @@ It needs an admin token, because the document contains the settings section.
 | `users delete <user-id>` | Refused if it would leave no enabled administrator. |
 | `tokens list` | Metadata only. The value is not stored. |
 | `tokens create` | `--name`, `--role`, repeatable `--scope`, `--expires-in`. Printed once; only its hash is kept. |
-| `tokens revoke <token-id>` | Immediate. |
+| `tokens revoke <token-id>` | Immediate. The row stays, marked revoked. |
+| `tokens delete <token-id>` | Removes a revoked or expired token from the list for good. A token that still works is refused — revoke it first. The audit log keeps the revocation and the deletion, by prefix. |
+| `tokens purge` | Deletes every revoked or expired token you own; `--user <id>` for one account's, `--all` for every one you can see. Tokens that still work are left alone. |
 
 ### `zoomies mcp-clients`
 

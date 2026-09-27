@@ -7,8 +7,15 @@
   it will not be shown again, and everything afterwards is metadata.
 -->
 <script lang="ts">
-  import { KeyRound, Plus } from '@lucide/svelte';
-  import { ApiError, createToken, listTokens, revokeToken } from '$lib/api/client';
+  import { KeyRound, Plus, Trash2 } from '@lucide/svelte';
+  import {
+    ApiError,
+    createToken,
+    deleteToken,
+    listTokens,
+    purgeTokens,
+    revokeToken,
+  } from '$lib/api/client';
   import type { APIToken, Role } from '$lib/api/types';
   import { toasts } from '$lib/state/toasts.svelte';
   import { ROLE_OPTIONS, roleLabel } from '$lib/roles';
@@ -126,6 +133,55 @@
       return false;
     }
   }
+
+  /* -- delete --------------------------------------------------------------------- */
+
+  /*
+    Only a token that can no longer authenticate may be deleted. A live one
+    that vanished from this list would still work, with nothing left on the
+    page to say so -- so a live row offers Revoke and a spent row offers Delete,
+    and never both.
+  */
+  function spent(token: APIToken): boolean {
+    return Boolean(token.revoked) || apiTokenStatus(token).key === 'expired';
+  }
+
+  const spentCount = $derived(tokens.filter(spent).length);
+
+  let deleteOpen = $state(false);
+  let deleting = $state<APIToken | null>(null);
+
+  async function remove(): Promise<boolean> {
+    const token = deleting;
+    if (!token?.id) return false;
+    try {
+      await deleteToken(token.id);
+      toasts.success(`${token.name ?? 'Token'} deleted`, 'The audit log still records it.');
+      reload += 1;
+      return true;
+    } catch (cause) {
+      toasts.fromError(cause, 'That token was not deleted');
+      return false;
+    }
+  }
+
+  let purgeOpen = $state(false);
+
+  async function purge(): Promise<boolean> {
+    try {
+      const result = await purgeTokens({ all: true });
+      const n = result.deleted?.length ?? 0;
+      toasts.success(
+        n === 1 ? '1 token deleted' : `${n} tokens deleted`,
+        'The audit log still records each one.',
+      );
+      reload += 1;
+      return true;
+    } catch (cause) {
+      toasts.fromError(cause, 'Those tokens were not deleted');
+      return false;
+    }
+  }
 </script>
 
 <PageHeader
@@ -135,6 +191,9 @@
     reload += 1;
   }}
 >
+  {#if spentCount > 0}
+    <Button icon={Trash2} onclick={() => (purgeOpen = true)}>Delete revoked and expired</Button>
+  {/if}
   <Button variant="primary" icon={Plus} onclick={open}>Create a token</Button>
 </PageHeader>
 
@@ -218,10 +277,23 @@
                 {/if}
               </td>
               <td role="cell" data-label="Actions" class="actions">
-                {#if !token.revoked}
+                {#if spent(token)}
                   <Button
                     size="sm"
                     variant="ghost"
+                    ariaLabel="Delete {token.name}"
+                    onclick={() => {
+                      deleting = token;
+                      deleteOpen = true;
+                    }}
+                  >
+                    Delete
+                  </Button>
+                {:else}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    ariaLabel="Revoke {token.name}"
                     onclick={() => {
                       revoking = token;
                       revokeOpen = true;
@@ -315,6 +387,34 @@
   confirmLabel="Revoke"
   onconfirm={revoke}
   oncancel={() => (revoking = null)}
+/>
+
+<ConfirmDialog
+  bind:open={deleteOpen}
+  title="Delete token"
+  name={deleting?.name}
+  description="{deleting?.name ?? 'This token'} is removed from this list for good."
+  consequences={[
+    'It already cannot be used, so nothing stops working.',
+    'The audit log keeps its revocation and this deletion, by prefix.',
+  ]}
+  confirmLabel="Delete"
+  onconfirm={remove}
+  oncancel={() => (deleting = null)}
+/>
+
+<ConfirmDialog
+  bind:open={purgeOpen}
+  title="Delete revoked and expired tokens"
+  description={spentCount === 1
+    ? '1 token that can no longer be used is removed from this list for good.'
+    : `${spentCount} tokens that can no longer be used are removed from this list for good.`}
+  consequences={[
+    'Tokens that still work are left alone.',
+    'The audit log keeps a row for each deletion, by prefix.',
+  ]}
+  confirmLabel="Delete them"
+  onconfirm={purge}
 />
 
 <style>

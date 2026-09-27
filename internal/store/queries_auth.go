@@ -376,6 +376,32 @@ func (s *Store) RevokeAPIToken(ctx context.Context, id string) error {
 	return affected(res, "api token", id)
 }
 
+// DeleteAPIToken removes a token's row for good. It refuses a token that could
+// still authenticate -- not revoked and not past its expiry -- with
+// ErrConflict. The condition is in the DELETE itself rather than checked first,
+// so a live credential can never vanish from the list while it still works:
+// deleting is tidying up after a revocation, never a quieter way to do one.
+func (s *Store) DeleteAPIToken(ctx context.Context, id string) error {
+	res, err := s.exec(ctx, `DELETE FROM api_tokens WHERE id = ?
+		AND (revoked = 1 OR (expires_at IS NOT NULL AND expires_at < ?))`, id, ms(s.Now()))
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n == 1 {
+		return nil
+	}
+	var exists int
+	if err := s.read.QueryRowContext(ctx, `SELECT COUNT(*) FROM api_tokens WHERE id = ?`, id).Scan(&exists); err != nil {
+		return err
+	}
+	if exists == 0 {
+		return fmt.Errorf("api token %s: %w", id, ErrNotFound)
+	}
+	return fmt.Errorf("api token %s is still active; revoke it before deleting it: %w", id, ErrConflict)
+}
+
 // RevokeAPITokensForUser revokes every token an account owns, and reports how
 // many it revoked.
 //
@@ -400,15 +426,6 @@ func (s *Store) RevokeAPITokensForUser(ctx context.Context, userID string) (int6
 		return 0, nil
 	}
 	return n, nil
-}
-
-// DeleteAPIToken removes a token row entirely.
-func (s *Store) DeleteAPIToken(ctx context.Context, id string) error {
-	res, err := s.exec(ctx, `DELETE FROM api_tokens WHERE id = ?`, id)
-	if err != nil {
-		return err
-	}
-	return affected(res, "api token", id)
 }
 
 // ---------------------------------------------------------------------------

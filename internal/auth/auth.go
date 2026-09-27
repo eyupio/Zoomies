@@ -1281,6 +1281,12 @@ func (s *Service) RevokeAPIToken(ctx context.Context, id string) error {
 	return s.store.RevokeAPIToken(ctx, id)
 }
 
+// DeleteAPIToken removes a revoked or expired token for good. A token that
+// still works is refused with store.ErrConflict: revoke it first.
+func (s *Service) DeleteAPIToken(ctx context.Context, id string) error {
+	return s.store.DeleteAPIToken(ctx, id)
+}
+
 // ---------------------------------------------------------------------------
 // Join tokens and agent credentials
 // ---------------------------------------------------------------------------

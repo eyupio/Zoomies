@@ -353,7 +353,8 @@ for: Contents (write), Pull requests (write) and Workflows (write).
 | DELETE | `/api/v1/users/{id}/two-step` | admin | Reset a lost authenticator: removes the account's key and recovery codes and ends its sessions. Audited as `user.two_step_reset`. |
 | GET | `/api/v1/tokens` | admin | Metadata only. |
 | POST | `/api/v1/tokens` | admin | `{name, role, scopes, expires_in}` → the plaintext **once**. |
-| DELETE | `/api/v1/tokens/{id}` | admin | Revokes. |
+| DELETE | `/api/v1/tokens/{id}` | admin | Revokes; the row stays, marked `revoked`. With `?purge=true`, deletes a token that is already revoked or expired, and answers `409` for one that still works. Both are audited by prefix (`token.revoke`, `token.delete`). |
+| POST | `/api/v1/tokens/purge` | admin | Deletes every revoked or expired token: the caller's own, one account's with `{user_id}`, or every visible one with `{all: true}`. Returns `{deleted}`. Tokens that still work are never touched. |
 | GET | `/api/v1/mcp-clients` | admin | Every OAuth client that may ask for an MCP connection — an administrator's, a self-registered one, or a client ID metadata document — with how many live connections each holds. Never a secret. |
 | POST | `/api/v1/mcp-clients` | admin | `{name, redirect_uris?, confidential?}`: a client ID to type into an MCP client's OAuth settings. `redirect_uris` defaults to Claude's, `https://claude.ai/api/mcp/auth_callback`. With `confidential` the response carries `client_secret` **once**; the client proves it with Basic or form authentication at the token endpoint, and still uses PKCE. Audited as `mcp_client.create`. |
 | POST | `/api/v1/mcp-clients/{id}/secret` | admin | Rotate a confidential client's secret: the old one stops working at once, and the new one is in this response only. Audited as `mcp_client.secret_rotate`. |

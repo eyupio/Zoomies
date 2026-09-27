@@ -3486,16 +3486,63 @@ paths:
                     properties:
                       token: { type: string, description: Shown once. }
 
+  /tokens/purge:
+    post:
+      operationId: purgeTokens
+      tags: [admin]
+      summary: Delete every revoked or expired API token
+      description: |
+        Removes spent tokens for good: the caller's own by default, one
+        account's with `user_id`, or every one the caller can see with `all`.
+        A token that still works is never touched, so this is safe to run
+        without reading the list first. Each deletion is audited as
+        `token.delete`, naming the token's prefix and never its value.
+        Giving both `user_id` and `all` is ambiguous and answered with a 422.
+      x-zoomies-role: admin
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_id: { type: string, description: Purge this account's spent tokens rather than the caller's. }
+                all: { type: boolean, description: Purge every spent token the caller can see. }
+      responses:
+        "200":
+          description: The tokens that were deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted]
+                properties:
+                  deleted: { type: array, items: { $ref: "#/components/schemas/APIToken" } }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
   /tokens/{id}:
     parameters: [{ $ref: "#/components/parameters/PathID" }]
     delete:
       operationId: revokeToken
       tags: [admin]
-      summary: Revoke an API token
+      summary: Revoke an API token, or delete a spent one
+      description: |
+        Without `purge`, revokes: the token stops working at once and its row
+        stays, marked `revoked`. With `purge=true`, removes a token that is
+        already revoked or expired; one that still works is a 409, because
+        deleting is tidying up after a revocation and never a quieter way to
+        do one. Both are audited (`token.revoke`, `token.delete`) by prefix.
       x-zoomies-role: admin
+      parameters:
+        - name: purge
+          in: query
+          required: false
+          schema: { type: boolean }
+          description: Delete a revoked or expired token instead of revoking it.
       responses:
-        "204": { description: Revoked }
+        "204": { description: Revoked, or deleted }
         "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
 
   /mcp-clients:
     get:
