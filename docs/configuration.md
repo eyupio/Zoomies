@@ -587,8 +587,8 @@ the validator says so with `limits.loopback`.
 | --- | --- | --- | --- |
 | `runners.default_cpus` | `ZOOMIES_RUNNER_DEFAULT_CPUS` | at once | Standard CPUs per runner — Where a pool's CPU slider opens when somebody chooses to set a fixed size, in cores; fractions are allowed. It is not what a pool with no size becomes: such a pool is given one slot's share of whichever host each runner lands on. 0 means nothing has been said and the built-in 2 cores answers. |
 | `runners.default_memory_mb` | `ZOOMIES_RUNNER_DEFAULT_MEMORY_MB` | at once | Standard memory per runner — How much memory one runner gets on a pool that has not said otherwise, in megabytes. It is the figure a new pool opens on, and the one a host's recommended capacity is worked out from. 0 means nothing has been said and the built-in 4096 answers. |
-| `runners.minimum_cpus` | `ZOOMIES_RUNNER_MINIMUM_CPUS` | at once | Minimum CPUs per runner — The fleet's minimum CPU per runner, in cores: the least a runner may be given when no host has room for its standard size — a fixed pool's figures, or an automatic pool's whole slot share — so a host a little short still runs the job. Every pool that sets no minimum of its own follows it, live; a pool's own minimum wins. 0 is none. |
-| `runners.minimum_memory_mb` | `ZOOMIES_RUNNER_MINIMUM_MEMORY_MB` | at once | Minimum memory per runner — The fleet's minimum memory per runner, in megabytes: the least a runner may be given when no host has room for its standard size, fixed or automatic. Every pool that sets no minimum of its own follows it, live; a pool's own minimum wins. 0 is none; anything set is held to 512. |
+| `runners.minimum_cpus` | `ZOOMIES_RUNNER_MINIMUM_CPUS` | at once | Minimum CPUs per runner — The fleet's minimum CPU per runner, in cores: the least a runner may be given when no host has room for its standard size — a fixed pool's figures, or an automatic pool's whole slot share — so a host a little short still runs the job. An automatic pool's runner is never given less: a slot share below it is raised to it, and the host holds fewer runners. Every pool that sets no minimum of its own follows it, live; a pool's own minimum wins. 0 is none. |
+| `runners.minimum_memory_mb` | `ZOOMIES_RUNNER_MINIMUM_MEMORY_MB` | at once | Minimum memory per runner — The fleet's minimum memory per runner, in megabytes: the least a runner may be given when no host has room for its standard size, fixed or automatic. An automatic pool's runner is never given less: a slot share below it is raised to it, and the host holds fewer runners. Every pool that sets no minimum of its own follows it, live; a pool's own minimum wins. 0 is none; anything set is held to 512. |
 | `runners.docker_wait` | `ZOOMIES_DOCKER_WAIT` | at once | Docker daemon wait — How long DinD provisioning waits for a healthy daemon, and a Docker runner waits before registering. Default 3m. Whole seconds, up to an hour; 0 leaves the runner image's own default. A pool's env can set ZOOMIES_DOCKER_WAIT to override it for that pool. |
 | `runners.env` | `ZOOMIES_RUNNER_ENV` | at once | Runner environment — Key=value variables every runner starts with, such as a proxy or a package mirror. A pool's own env wins where the two name the same variable. Every job can read these, so a credential does not belong here: give it to the pool, or to the workflow as a GitHub secret. |
 
@@ -1563,9 +1563,18 @@ because other pools' runners hold more than a slot's worth of it — used to lea
 an automatic pool's job queued however much of the machine was idle. With a
 minimum, the runner takes what that host can spare instead, never less than the
 minimum; without one, an automatic pool still waits for a whole share, and the
-pool's page says so and names the minimum as the fix. A minimum above a host's
-share does nothing on that host, and a docker-in-docker slot is never cut below
-what a runner and its daemon need between them.
+pool's page says so and names the minimum as the fix. A docker-in-docker slot is
+never cut below what a runner and its daemon need between them.
+
+The minimum is the least a runner is given, never the most. Where a host's slot
+share is larger, an automatic runner gets the whole share. Where the share is
+smaller — a 16 GB host cut into eight slots is 2 GB a runner — the runner is
+given the minimum instead, and charged it, so the host holds as many runners as
+its machine covers rather than as many as it has slots: four of a 4 GB minimum
+there, not eight thin ones and not none. A runner killed for want of memory on
+an automatic pool is fixed by raising the pool's minimum memory; the pool's page
+says which hosts hold fewer runners because of it. A docker-in-docker runner's
+minimum is per container, so its slot is raised to twice it and split.
 
 The standard still wins wherever it fits. A minimum never shrinks a runner the
 fleet could have given the full size to; it only turns "no host has room" into a
@@ -1593,8 +1602,9 @@ minimum and still take the fleet's CPU one.
 
 A fleet minimum at or above a fixed pool's own standard means nothing for that
 pool and is ignored there — a minimum is only a minimum below the size it is a
-floor under. On an automatic pool it applies as it stands, capped at the slot's
-share on each host like any minimum.
+floor under. On an automatic pool it applies as it stands: below a host's slot
+share it is the floor a runner there can be reduced to, and above it, it is what
+each runner there is given.
 
 A pool's `0` therefore means *the fleet's*, not *none*. There is no per-pool
 "no minimum" while the fleet sets one: a pool that must never run below some

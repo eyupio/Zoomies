@@ -86,11 +86,15 @@ func Reserve(p *store.Pool, h *store.Host) Reservation {
 		DiskMB:   p.Resources.DiskGB * 1024,
 	}
 	cpuFromHost, memoryFromHost := res.CPUs <= 0, res.MemoryMB <= 0
+	// A minimum above the slot share is a slot of the minimum's size: the
+	// runner is given it and charged it, and the host holds fewer runners
+	// than its slots rather than none -- see MinimumSlot.
+	floor := MinimumSlot(p)
 	if cpuFromHost {
-		res.CPUs = share(alloc.CPUs, h.Capacity)
+		res.CPUs = max(share(alloc.CPUs, h.Capacity), floor.CPUs)
 	}
 	if memoryFromHost {
-		res.MemoryMB = int64(share(float64(alloc.MemoryMB), h.Capacity))
+		res.MemoryMB = max(int64(share(float64(alloc.MemoryMB), h.Capacity)), floor.MemoryMB)
 	}
 	if p.DockerMode == store.DockerDinD {
 		// Only what the operator typed doubles. A share is one slot, and the
@@ -146,8 +150,9 @@ func fieldFactor(p *store.Pool, typed bool) float64 {
 // every other field. It is Reserve for a pool with no minimum.
 //
 // A field the pool leaves to the host has this host's slot share as its
-// standard, so a minimum above that share changes nothing: a minimum is only
-// ever a way down. And an automatic docker-in-docker slot is never cut below
+// standard, raised to the minimum where the share is smaller (MinimumSlot), so
+// the minimum is where a reduction stops and never a way up past the
+// standard. And an automatic docker-in-docker slot is never cut below
 // what it takes to split between a runner and its daemon (ShareFloor), which
 // is the same line ShareTooSmall holds a whole slot to.
 func MinimumReserve(p *store.Pool, h *store.Host) Reservation {
@@ -295,6 +300,12 @@ func HostFits(h *store.Host, p *store.Pool) bool {
 // it has runners' worth of room, and the fix is the capacity, which
 // HostShortfall says.
 //
+// A pool with a minimum on the field is the exception, and not a rounding:
+// its operator said the least a runner may have, so a thinner share is raised
+// to that and the runner is charged it (MinimumSlot). The charge is what keeps
+// that honest -- the host admits as many runners as its machine covers, not as
+// many as it has slots -- which is exactly what rounding without one did not.
+//
 // Only a pool that left the size to the host is asked, and only on a field the
 // agent has measured: a fixed size answers for itself at the API, and a host
 // that has measured nothing is placed by slots alone exactly as it was before
@@ -312,14 +323,50 @@ func ShareTooSmall(h *store.Host, p *store.Pool) string {
 	// saying so names the capacity to change -- where dividing it anyway would
 	// hand the daemon whatever was left, which on a small enough slot is
 	// nothing at all, and no limit is how a build takes the machine.
+	//
+	// A field with a minimum is never too small: its runners are given the
+	// minimum where the share is less (MinimumSlot), so the host holds fewer
+	// of them rather than none.
 	need := ShareFloor(p)
-	if alloc.CPUsKnown && share.CPUs < need.CPUs {
+	given := MinimumSlot(p)
+	if alloc.CPUsKnown && given.CPUs <= 0 && share.CPUs < need.CPUs {
 		return "cpu"
 	}
-	if alloc.MemoryKnown && share.MemoryMB < need.MemoryMB {
+	if alloc.MemoryKnown && given.MemoryMB <= 0 && share.MemoryMB < need.MemoryMB {
 		return "memory"
 	}
 	return ""
+}
+
+// MinimumSlot is, on each field an automatic pool has a minimum for, the least
+// one of its slots is given: the minimum per container, twice over for a
+// runner that shares its slot with a Docker daemon. It is zero on a field with
+// no minimum, and on a pool that typed its own size.
+//
+// A slot's share smaller than this is raised to it rather than refused. The
+// minimum is the operator saying the least a runner of the pool may have, and
+// a share under it used to leave the host out altogether -- so a runner killed
+// for want of memory could not be given more by raising the minimum, only by
+// lowering the host's capacity, which is a setting on another page for every
+// pool on the host. The runner is charged what it is given, so the host
+// admits as many of them as its machine covers and no more: slots and room
+// are both honoured, and whichever runs out first binds.
+//
+// A share above the minimum is still what the runner is given. The minimum is
+// the floor, never the size: a runner is given all of the slot it lands in.
+func MinimumSlot(p *store.Pool) Reservation {
+	if p == nil || !p.Automatic() {
+		return Reservation{}
+	}
+	floor := ShareFloor(p)
+	var out Reservation
+	if p.Resources.MinCPUs > 0 {
+		out.CPUs = floor.CPUs
+	}
+	if p.Resources.MinMemoryMB > 0 {
+		out.MemoryMB = floor.MemoryMB
+	}
+	return out
 }
 
 // ShareFloor is the least one slot may be worth on a host this pool can use:
@@ -395,23 +442,13 @@ func fits(left, want Reservation, known store.HostAllocation) bool {
 	return true
 }
 
-// typedMinimum is the pool's own minimum on field, formatted, when it is the
-// one setting the share floor.
-func typedMinimum(p *store.Pool, field string) string {
-	switch {
-	case field == "cpu" && p.Resources.MinCPUs > 0 && p.Resources.CPUs <= 0:
-		return formatCPUs(max(p.Resources.MinCPUs, store.MinRunnerCPUs))
-	case field == "memory" && p.Resources.MinMemoryMB > 0 && p.Resources.MemoryMB <= 0:
-		return formatMB(max(p.Resources.MinMemoryMB, store.MinRunnerMemoryMB))
-	}
-	return ""
-}
-
 // HostReduction says when a host can run p, but gives its runners less than
 // the pool would get on a larger machine: an automatic pool whose share there
 // is below the comfortable size and above the minimum its operator set, or a
-// fixed pool whose standard does not fit and whose minimum does. It is empty
-// otherwise.
+// fixed pool whose standard does not fit and whose minimum does. An automatic
+// pool whose minimum is above the share is said too: its runners there are
+// given the minimum, and the host holds fewer of them than it has slots. It is
+// empty otherwise.
 //
 // It is information, not a warning. The minimum is the operator saying what
 // they will accept, and a runner at it is the pool working as configured; the
@@ -428,7 +465,18 @@ func HostReduction(h *store.Host, p *store.Pool) string {
 		if p.DockerMode == store.DockerDinD {
 			per = ", split between the runner and its Docker daemon"
 		}
+		// A share under the minimum is raised to it, so the runners there are
+		// not smaller -- the host holds fewer of them. That is the sentence,
+		// because a host running three of an eight-slot pool is otherwise a
+		// puzzle.
+		given := MinimumSlot(p)
 		switch {
+		case alloc.MemoryKnown && given.MemoryMB > share.MemoryMB:
+			return fmt.Sprintf("its slot share is %s of memory, less than this pool's minimum, so its runners there are given %s%s and it holds fewer of them than its %s",
+				formatMB(share.MemoryMB), formatMB(given.MemoryMB), per, plural(h.Capacity, "slot"))
+		case alloc.CPUsKnown && given.CPUs > share.CPUs+cpuEpsilon:
+			return fmt.Sprintf("its slot share is %s CPU, less than this pool's minimum, so its runners there are given %s CPU%s and it holds fewer of them than its %s",
+				formatCPUs(share.CPUs), formatCPUs(given.CPUs), per, plural(h.Capacity, "slot"))
 		case alloc.MemoryKnown && share.MemoryMB < comfort.MemoryMB:
 			return fmt.Sprintf("its slot share is %s of memory%s, less than the %s this pool's runners get room to work in on a larger machine; they run there at that share, above this pool's minimum",
 				formatMB(share.MemoryMB), per, formatMB(comfort.MemoryMB))
@@ -470,19 +518,6 @@ func HostShortfall(h *store.Host, p *store.Pool) string {
 		if dind {
 			pair = ", because this pool's runners share their slot with a Docker daemon"
 		}
-		// A floor the operator set is theirs to lower; say it is theirs.
-		if m := typedMinimum(p, field); m != "" {
-			whole := ""
-			if dind {
-				whole = " -- twice that for a runner and its Docker daemon, which share one slot"
-			}
-			if field == "cpu" {
-				return fmt.Sprintf("it is set to %s, which divides its %s allocatable CPU into shares of %s each, less than this pool's minimum of %s CPU a container%s",
-					plural(h.Capacity, "slot"), formatCPUs(h.Allocatable().CPUs), formatCPUs(share.CPUs), m, whole)
-			}
-			return fmt.Sprintf("it is set to %s, which divides its %s of allocatable memory into shares of %s each, less than this pool's minimum of %s a container%s",
-				plural(h.Capacity, "slot"), formatMB(h.Allocatable().MemoryMB), formatMB(share.MemoryMB), m, whole)
-		}
 		switch field {
 		case "cpu":
 			return fmt.Sprintf("it is set to %s, which divides its %s allocatable CPU into shares of %s each, and a runner needs at least %s to keep up with its own job%s",
@@ -512,10 +547,10 @@ func HostShortfall(h *store.Host, p *store.Pool) string {
 			formatMB(left.DiskMB), formatMB(want.DiskMB), charged(p.Resources.DiskGB > 0, dind))
 	case alloc.CPUsKnown && left.CPUs+cpuEpsilon < want.CPUs:
 		return fmt.Sprintf("it has %s CPU to place on, and one runner of this pool is charged %s%s",
-			formatCPUs(left.CPUs), formatCPUs(want.CPUs), charged(p.Resources.CPUs > 0, dind))
+			formatCPUs(left.CPUs), formatCPUs(want.CPUs), charged(p.Resources.CPUs > 0, dind)+minimumCharged(p, "cpu"))
 	case alloc.MemoryKnown && left.MemoryMB < want.MemoryMB:
 		return fmt.Sprintf("it has %s of memory to place on, and one runner of this pool is charged %s%s",
-			formatMB(left.MemoryMB), formatMB(want.MemoryMB), charged(p.Resources.MemoryMB > 0, dind))
+			formatMB(left.MemoryMB), formatMB(want.MemoryMB), charged(p.Resources.MemoryMB > 0, dind)+minimumCharged(p, "memory"))
 	}
 	return "it is too small for this pool's limits"
 }
@@ -528,6 +563,24 @@ func HostShortfall(h *store.Host, p *store.Pool) string {
 func charged(set, dind bool) string {
 	if set && dind {
 		return ", twice what it asks for, because a docker-in-docker runner is charged for its sidecar too"
+	}
+	return ""
+}
+
+// minimumCharged names the pool's own minimum where it is what a runner of an
+// automatic pool is charged, because that is a figure the operator set and can
+// lower -- and nothing else in the sentence says where the charge came from.
+func minimumCharged(p *store.Pool, field string) string {
+	floor := MinimumSlot(p)
+	pair := ""
+	if p.DockerMode == store.DockerDinD {
+		pair = ", twice over for a runner and its Docker daemon, which share one slot"
+	}
+	switch {
+	case field == "cpu" && floor.CPUs > 0:
+		return fmt.Sprintf(", this pool's minimum of %s CPU a container%s", formatCPUs(max(p.Resources.MinCPUs, store.MinRunnerCPUs)), pair)
+	case field == "memory" && floor.MemoryMB > 0:
+		return fmt.Sprintf(", this pool's minimum of %s a container%s", formatMB(max(p.Resources.MinMemoryMB, store.MinRunnerMemoryMB)), pair)
 	}
 	return ""
 }

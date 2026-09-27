@@ -305,8 +305,8 @@ func TestUpdateResourcesAsksNothingForARunnerWithNoCPULimit(t *testing.T) {
 }
 
 // An operator told to raise a pool field nobody set is sent to the wrong
-// page. A limit that was the host's default share moves with the host's
-// capacity, or with a limit of the pool's own, and the message has to say so.
+// page. A limit that was the host's share moves with the pool's minimum, the
+// host's capacity, or a limit of the pool's own, and the message has to say so.
 func TestAnOOMKillSaysWhatToChangeForEachSourceOfTheLimit(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -317,7 +317,7 @@ func TestAnOOMKillSaysWhatToChangeForEachSourceOfTheLimit(t *testing.T) {
 		{"the pool's limit", map[string]string{LabelLimitsFrom: "pool"}, []string{"raise the pool's memory_mb"}, []string{"capacity"}},
 		{"no source recorded", nil, []string{"raise the pool's memory_mb"}, []string{"capacity"}},
 		{"the host's default share", map[string]string{LabelLimitsFrom: "host"},
-			[]string{"host's default share", "memory_mb on the pool", "lower the host's capacity"}, []string{"raise the pool's"}},
+			[]string{"host's share", "raise the pool's minimum memory", "memory_mb on the pool", "lower the host's capacity"}, []string{"raise the pool's memory_mb"}},
 	}
 	for _, c := range cases {
 		st := statusFromInspect("c", &ContainerInspect{

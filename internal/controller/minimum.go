@@ -14,8 +14,9 @@ import (
 // next pass -- and saving a pool never freezes today's value into it. A fleet
 // minimum at or above a pool's typed standard size means nothing for that pool
 // (the same rule the wizard's opening value follows), and is ignored there. On
-// an automatic field it applies as-is: the scheduler already caps a minimum at
-// the slot's share.
+// an automatic field it applies as-is: below a host's slot share it is how far
+// a runner may be reduced, and above it the scheduler gives each runner the
+// minimum (scheduler.MinimumSlot).
 func EffectiveMinimum(r store.Resources, fleet config.Runners) (cpus float64, memoryMB int64) {
 	cpus, memoryMB = r.MinCPUs, r.MinMemoryMB
 	if cpus <= 0 && fleet.MinimumCPUs > 0 && (r.CPUs <= 0 || fleet.MinimumCPUs < r.CPUs) {
