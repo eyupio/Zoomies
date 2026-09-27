@@ -189,6 +189,8 @@ security:
   docker_in_docker_expected: false          # ZOOMIES_DOCKER_IN_DOCKER_EXPECTED
   rate_limit_logins: 10                     # ZOOMIES_RATE_LIMIT_LOGINS (per address per minute, and 5x that per account
                                             #   over 15m); 0 disables it and is warned about
+  require_two_step: false                   # ZOOMIES_REQUIRE_TWO_STEP (password accounts set up an authenticator
+                                            #   at their next sign-in; single sign-on and API tokens are not asked)
 
 github:
   api_base_url: https://api.github.com   # ZOOMIES_GITHUB_API_BASE_URL
@@ -620,6 +622,7 @@ the validator says so with `limits.loopback`.
 | `security.encryption_key` | `ZOOMIES_ENCRYPTION_KEY` | file or environment only | Encryption key — The 32-byte key, base64 or hex, that seals GitHub App private keys, webhook secrets and the stored credentials below. Prefer the key file or the environment variable: a key written into zoomies.yaml is a key in your configuration management system. |
 | `security.encryption_key_file` | `ZOOMIES_ENCRYPTION_KEY_FILE` | file or environment only | Encryption key file — Where that key is read from, and written to on a first run. Back it up beside the database: without it the sealed rows cannot be read. |
 | `security.rate_limit_logins` | `ZOOMIES_RATE_LIMIT_LOGINS` | next restart | Login attempts per minute — Password attempts allowed per source address per minute, and five times that per account. |
+| `security.require_two_step` | `ZOOMIES_REQUIRE_TWO_STEP` | next restart | Require two-step verification — Make every account that signs in with a password set up an authenticator app at its next sign-in. Accounts that use single sign-on are not asked — their identity provider owns their second factor — and API tokens are unaffected. See [Two-step verification](two-step.md). |
 | `security.session_ttl` | `ZOOMIES_SESSION_TTL` | next restart | Session lifetime — How long a browser login lasts before it has to be made again. |
 
 ### `server`

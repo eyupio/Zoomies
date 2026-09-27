@@ -254,6 +254,10 @@ type Service struct {
 	// guessing attempt into a denial of service on the thing that fixes it.
 	joins *RateLimiter
 	audit *Auditor
+	// key seals authenticator secrets. Nil leaves two-step verification
+	// unable to start, which it says, rather than storing a secret in the
+	// clear.
+	key *cryptox.Key
 
 	// bootstrapMu serialises CreateFirstAdmin so two simultaneous requests
 	// cannot both pass the "no users exist" check.
@@ -640,6 +644,18 @@ func (s *Service) Login(ctx context.Context, username, password, ip, ua string) 
 	// why it still cannot sign in.
 	if u.Disabled {
 		return nil, "", ErrAccountDisabled
+	}
+
+	// A second step still to take is returned as an error, so a caller
+	// that does not know about it signs nobody in. The limiters are not reset
+	// yet either: the sign-in has not succeeded, and the code attempts that
+	// follow are charged to the same counters.
+	pending, err := s.secondStep(ctx, u, ip, ua)
+	if err != nil {
+		return nil, "", err
+	}
+	if pending != nil {
+		return nil, "", pending
 	}
 
 	token, err := s.NewSession(ctx, u, ip, ua)

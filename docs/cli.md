@@ -209,6 +209,7 @@ It needs an admin token, because the document contains the settings section.
 | `users list` | The accounts that can sign in. |
 | `users create` | `--username` and `--role`; omit `--password` for an account that signs in through single sign-on. |
 | `users passwd <user-id>` | Set a password. Read from the terminal without echo, or from stdin when piped — never a flag, because a password in a flag is a password in the shell history. |
+| `users reset-two-step <user-id>` | Turn off two-step verification for somebody who has lost their authenticator and their recovery codes. Their sessions end and the reset is audited; see [Two-step verification](two-step.md#lost-your-phone). |
 | `users delete <user-id>` | Refused if it would leave no enabled administrator. |
 | `tokens list` | Metadata only. The value is not stored. |
 | `tokens create` | `--name`, `--role`, repeatable `--scope`, `--expires-in`. Printed once; only its hash is kept. |

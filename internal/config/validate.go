@@ -351,6 +351,20 @@ func (c *Config) Validate() Findings {
 			Fix:    "list your proxy's CIDR in server.trusted_proxies, or the word `cloudflare` when Cloudflare is in front.",
 		})
 	}
+	if c.Security.RequireTwoStep && !c.Security.DisableAuth {
+		detail := "every account that signs in with a password is asked for an authenticator code, and one without an authenticator sets it up at its next sign-in. " +
+			"Sessions that already exist carry on until they expire, and API tokens are not asked for a code: they are for automation, which has nobody to type one."
+		if c.OIDC.Enabled {
+			detail += " Accounts that sign in through single sign-on are not asked either; " +
+				"their second factor is the identity provider's, so require it there."
+		}
+		add(Finding{
+			Code: "two_step.required", Severity: SeverityInfo, Setting: "security.require_two_step",
+			Title:  "two-step verification is required for password sign-ins",
+			Detail: detail,
+			Fix:    "nothing to change. If somebody loses their authenticator and their recovery codes, an administrator resets it from the Users page or with `zoomies users reset-two-step <user-id>`.",
+		})
+	}
 	if c.Security.DockerInDockerExpected {
 		add(Finding{
 			Code: "dind.expected", Severity: SeverityInfo, Setting: "security.docker_in_docker_expected",

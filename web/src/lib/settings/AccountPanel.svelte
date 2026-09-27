@@ -21,6 +21,7 @@
   import Field from '$lib/components/Field.svelte';
   import Input from '$lib/components/Input.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
+  import TwoStepPanel from '$lib/twostep/TwoStepPanel.svelte';
 
   let open = $state(false);
   let current = $state('');
@@ -70,7 +71,7 @@
 
 <PageHeader
   title="Account"
-  subtitle="Who you are signed in as, and your password."
+  subtitle="Who you are signed in as, your password, and two-step verification."
   onrefresh={() => session.refresh()}
 />
 
@@ -99,6 +100,10 @@
     </Button>
   {/if}
 </div>
+
+{#if !session.authDisabled && session.identity?.kind === 'user'}
+  <TwoStepPanel />
+{/if}
 
 <Dialog
   bind:open

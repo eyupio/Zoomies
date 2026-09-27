@@ -21,6 +21,7 @@ func runUsers(ctx context.Context, e *env, args []string) error {
 		{"list", "", "Every account and its role", usersList},
 		{"create", "--username <n> --role <r>", "Create an account", usersCreate},
 		{"passwd", "<user-id>", "Set an account's password", usersPasswd},
+		{"reset-two-step", "<user-id>", "Turn off an account's two-step verification", usersResetTwoStep},
 		{"delete", "<user-id>", "Delete an account", usersDelete},
 	}, args)
 }
@@ -198,6 +199,33 @@ func usersCreate(ctx context.Context, e *env, args []string) error {
 	if *password == "" {
 		fmt.Fprintln(e.out, "No password was set, so this account can only sign in through single sign-on.")
 	}
+	return nil
+}
+
+// usersResetTwoStep is the administrator's answer to a lost phone: the
+// account's authenticator secret and recovery codes are removed and its
+// sessions end, so its owner signs in with the password alone -- or, where the
+// instance requires two-step, sets it up again at that sign-in.
+func usersResetTwoStep(ctx context.Context, e *env, args []string) error {
+	fs := newFlagSet(e, "zoomies users reset-two-step <user-id>",
+		"Turn off two-step verification for an account whose owner has lost their authenticator and their recovery codes. Its sessions end, and the reset is audited.")
+	cf := registerClientFlags(fs, false)
+	fs.example("zoomies users reset-two-step usr_7f3a")
+	if err := fs.parse(args); err != nil {
+		return err
+	}
+	id, err := fs.oneArg("a user ID, as shown by `zoomies users list`")
+	if err != nil {
+		return err
+	}
+	client, err := cf.client()
+	if err != nil {
+		return err
+	}
+	if _, err := client.del(ctx, "/users/"+url.PathEscape(id)+"/two-step", nil, nil); err != nil {
+		return err
+	}
+	fmt.Fprintf(e.out, "Reset two-step verification for %s. Their sessions have ended; they sign in with their password next time.\n", id)
 	return nil
 }
 

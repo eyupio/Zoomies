@@ -325,6 +325,74 @@ Single sign-on binds its `state` to the browser that started the handshake with
 a short-lived cookie, so a callback obtained by an attacker signing in as
 themselves cannot be replayed into somebody else's browser.
 
+### Two-step verification
+
+A local account can add a second step to its sign-in: a six-digit code from an
+authenticator app (RFC 6238 — SHA-1, six digits, thirty seconds, the default
+every app implements). It is off until the account's owner turns it on from
+**Settings → Account**, and an administrator can require it of every password
+account with `security.require_two_step`. [Two-step verification](two-step.md)
+is the walkthrough; this is what it protects and what it costs.
+
+**What it protects.** A password that has leaked — reused elsewhere, phished,
+read over a shoulder — is no longer enough to sign in. The code is good for its
+thirty-second step and one either side, and only **once**: the step each
+accepted code belongs to is recorded, and a code for that step or an earlier
+one is refused, so a code relayed by a phishing page or seen on a screen is
+worth nothing the second time.
+
+**How it is stored.** The authenticator key is sealed with the instance
+encryption key, like a GitHub App private key; a copy of the database without
+the key file does not yield it. The QR code is drawn on the controller as SVG,
+so the key never passes through a third-party script or image service.
+
+**The sign-in.** After a right password the controller answers `202` and sets
+a pending-sign-in cookie — `HttpOnly`, `SameSite=Strict`, scoped to
+`/api/v1/auth` — instead of a session. It lasts five minutes, is bound to the
+browser that typed the password, is not a session anywhere else, and ends after
+five wrong codes, after which the password has to be typed again. Every code
+attempt is charged to the same per-address and per-account limits as a password
+attempt, so the code is no cheaper to guess than the password in front of it.
+
+**Recovery codes.** Turning it on shows ten single-use recovery codes, once.
+Only their SHA-256 hashes are stored. Any one of them stands in for the app at
+sign-in, or when turning two-step off, and is spent by it; the account page says
+how many are left, and issuing a new set — which takes the password and a current
+code — voids the old one.
+
+**Turning it off** takes the current password and a current code, so a stolen
+session cookie cannot remove the second factor from the account it stole.
+Turning it on ends every other session of the account: they were signed in with
+less than the account now asks for.
+
+**The reset procedure.** Somebody who has lost their phone and their recovery
+codes asks an administrator, who resets it from the account's row on
+**Settings → Users**, or with `zoomies users reset-two-step <user-id>` and an
+admin API token. The key and codes are removed, the account's sessions end, and
+the reset is recorded as `user.two_step_reset`, naming who did it. The owner
+then signs in with their password alone — or, where two-step is required, sets
+it up again at that sign-in. Check who is asking before you reset: a reset is
+exactly what somebody holding only a stolen password would ask for. If the only
+administrator has lost theirs and holds no API token, stop the controller and
+remove the row with `sqlite3 <database> "DELETE FROM user_two_step WHERE
+user_id = 'usr_…'"`, which is the same thing done by hand; whoever can do that
+already has the database.
+
+**What it does not cover.**
+
+* *Single sign-on accounts* are never asked. They sign in at the identity
+  provider, and that is where a second factor for them belongs — require it
+  there. A second prompt here would enforce nothing the provider does not.
+* *API tokens* are never asked. A token is already a long random secret the
+  caller holds — something you have — and the automation it is made for has
+  nobody to type a code. Keep tokens scoped and expiring, and revoke one the
+  moment it may have leaked.
+* *Sessions that already exist* when `security.require_two_step` is turned on
+  carry on until they expire or their owner signs out; the requirement applies
+  at the next sign-in.
+* *Authentication switched off* (`security.disable_auth`) asks for nothing at
+  all.
+
 ---
 
 ## 5. Webhooks

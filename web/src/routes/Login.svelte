@@ -32,7 +32,17 @@
     Server,
     TriangleAlert,
   } from '@lucide/svelte';
-  import { ApiError, oidcStartUrl } from '$lib/api/client';
+  import {
+    ApiError,
+    confirmTwoStepEnrolment,
+    oidcStartUrl,
+    startTwoStepEnrolment,
+    verifyTwoStepSignIn,
+  } from '$lib/api/client';
+  import type { SignInChallenge, TwoStepSignIn } from '$lib/api/types';
+  import { toasts } from '$lib/state/toasts.svelte';
+  import RecoveryCodes from '$lib/twostep/RecoveryCodes.svelte';
+  import TwoStepEnrol from '$lib/twostep/TwoStepEnrol.svelte';
   import { authFailureText, sentence } from '$lib/errors';
   import { router } from '$lib/router';
   import { session } from '$lib/state/session.svelte';
@@ -62,6 +72,93 @@
   let capsLock = $state(false);
   let usernameInput = $state<HTMLInputElement | null>(null);
   let passwordInput = $state<HTMLInputElement | null>(null);
+
+  /*
+    The second step. The password was right and the server answered 202: the
+    pending sign-in is in a cookie this page cannot read, and all it knows is
+    which step comes next -- a code, or setting up an authenticator because the
+    instance requires one -- and for whom.
+  */
+  let pending = $state<SignInChallenge | null>(null);
+  let code = $state('');
+  let codeError = $state('');
+  let codeInput = $state<HTMLInputElement | null>(null);
+  /** The finished enrolment, held back until its recovery codes have been seen. */
+  let enrolled = $state<TwoStepSignIn | null>(null);
+
+  $effect(() => {
+    if (pending?.two_step === 'verify' && codeInput) untrack(() => codeInput?.focus());
+  });
+
+  /** Back to the password, saying why. */
+  function startAgain(cause?: ApiError): void {
+    pending = null;
+    enrolled = null;
+    code = '';
+    codeError = '';
+    failure = cause ?? null;
+    password = '';
+    touched = { ...touched, password: false };
+    void tick().then(() => passwordInput?.focus());
+  }
+
+  async function finish(result: TwoStepSignIn): Promise<void> {
+    await session.completeTwoStep(result);
+    if (result.recovery_code_used) {
+      const left = result.recovery_codes_left ?? 0;
+      toasts.success(
+        'Signed in with a recovery code',
+        `That code is spent; ${left} ${left === 1 ? 'is' : 'are'} left. Issue new ones from Settings, Account.`,
+      );
+    }
+    router.navigate(destination);
+  }
+
+  async function submitCode(event: SubmitEvent): Promise<void> {
+    event.preventDefault();
+    if (code.trim() === '') {
+      codeError = 'Enter the code from your app, or a recovery code.';
+      codeInput?.focus();
+      return;
+    }
+    submitting = true;
+    codeError = '';
+    try {
+      await finish(await verifyTwoStepSignIn({ code }));
+    } catch (cause) {
+      const err =
+        cause instanceof ApiError
+          ? cause
+          : new ApiError({ status: 0, code: 'internal', message: 'Sign-in failed. Try again.' });
+      // A refusal pointed at the field is a wrong or spent code: try the next
+      // one. Anything else -- the five minutes are up, too many tries, the
+      // limiter -- means the password has to be typed again.
+      const wrongCode = err.fieldErrors().code;
+      if (wrongCode) {
+        codeError = sentence(wrongCode);
+        code = '';
+        void tick().then(() => codeInput?.focus());
+      } else if (err.status === 429 || err.status === 401) {
+        startAgain(err);
+      } else {
+        codeError = authFailureText(err);
+      }
+    } finally {
+      submitting = false;
+    }
+  }
+
+  async function confirmEnrolment(value: string): Promise<void> {
+    try {
+      enrolled = await confirmTwoStepEnrolment({ code: value });
+    } catch (cause) {
+      if (cause instanceof ApiError && !cause.fieldErrors().code && cause.status === 401) {
+        startAgain(cause);
+        return;
+      }
+      throw cause;
+    }
+  }
 
   /**
    * Where to go once signed in.
@@ -210,7 +307,13 @@
     failure = null;
     ssoFailure = '';
     try {
-      await session.login(username.trim(), password);
+      const next = await session.login(username.trim(), password);
+      if (next) {
+        pending = next;
+        password = '';
+        revealed = false;
+        return;
+      }
       router.navigate(destination);
     } catch (cause) {
       failure =
@@ -308,6 +411,72 @@
           Turn authentication back on in the configuration file before this instance is reachable by
           anyone you do not trust.
         </p>
+      {:else if pending?.two_step === 'verify'}
+        <h1>Enter your code</h1>
+        <p class="lede">
+          Open your authenticator app and type the code it shows for Zoomies. A recovery code works
+          too.
+        </p>
+        <form onsubmit={submitCode} novalidate>
+          <Field
+            label="Code"
+            hint="Signing in as {pending.username}. This step expires after five minutes."
+            error={codeError || undefined}
+          >
+            {#snippet children({ id, describedBy, invalid })}
+              <Input
+                bind:value={code}
+                bind:element={codeInput}
+                {id}
+                {describedBy}
+                {invalid}
+                size="lg"
+                name="code"
+                inputmode="text"
+                autocomplete="one-time-code"
+                autocapitalize="none"
+                spellcheck={false}
+                mono
+                disabled={submitting}
+              />
+            {/snippet}
+          </Field>
+          <Button type="submit" variant="primary" size="lg" full loading={submitting}>
+            Verify and sign in
+          </Button>
+        </form>
+        <p class="note">
+          Lost your phone and your recovery codes? An administrator can reset two-step verification
+          for you. <button type="button" class="linkish" onclick={() => startAgain()}
+            >Start again</button
+          >
+        </p>
+      {:else if pending?.two_step === 'enrol'}
+        {#if enrolled?.recovery_codes}
+          <h1>Save your recovery codes</h1>
+          <p class="lede">You are signed in. Keep these before you go any further.</p>
+          <div class="stack">
+            <RecoveryCodes codes={enrolled.recovery_codes} account={pending.username} />
+            <Button variant="primary" size="lg" full onclick={() => enrolled && finish(enrolled)}>
+              I have saved them, continue
+            </Button>
+          </div>
+        {:else}
+          <h1>Set up two-step verification</h1>
+          <p class="lede">
+            This instance asks for a code from an authenticator app after your password. Set one up
+            to finish signing in as {pending.username}.
+          </p>
+          <TwoStepEnrol
+            load={startTwoStepEnrolment}
+            confirm={confirmEnrolment}
+            confirmLabel="Turn on and sign in"
+            size="lg"
+          />
+          <p class="note">
+            <button type="button" class="linkish" onclick={() => startAgain()}>Start again</button>
+          </p>
+        {/if}
       {:else}
         <h1>Sign in</h1>
         <p class="lede">Manage the runner fleet on this instance.</p>
@@ -761,6 +930,31 @@
     font-size: var(--z-text-xs);
     line-height: var(--z-leading-xs);
     color: var(--z-text-muted);
+  }
+  .stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-5);
+  }
+  /* "Start again" reads as a link in a sentence, and is a button because it
+     changes this page rather than going anywhere. */
+  .linkish {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--z-accent);
+    font: inherit;
+    text-decoration: underline;
+    text-underline-offset: var(--z-underline-offset);
+    cursor: pointer;
+  }
+  .linkish:hover {
+    color: var(--z-accent-hover);
+  }
+  .linkish:focus-visible {
+    outline: var(--z-focus-width) solid var(--z-focus-colour);
+    outline-offset: var(--z-focus-offset);
+    border-radius: var(--z-radius-sm);
   }
 
   .meta {

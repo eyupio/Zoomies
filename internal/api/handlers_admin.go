@@ -30,6 +30,21 @@ type userResponse struct {
 	MustChangePassword bool       `json:"must_change_password"`
 	CreatedAt          time.Time  `json:"created_at"`
 	LastLoginAt        *time.Time `json:"last_login_at"`
+	// TwoStepEnabled is whether the account signs in with a code after its
+	// password. It is here so an administrator can see who a reset is for.
+	TwoStepEnabled bool `json:"two_step_enabled"`
+}
+
+// withTwoStep fills in two_step_enabled for one account. A failure to read
+// it is logged and shown as off: the users page is not worth refusing over
+// one column.
+func (s *Server) withTwoStep(r *http.Request, out userResponse) userResponse {
+	ts, err := s.ctrl.Store().GetTwoStep(r.Context(), out.ID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		s.logger(r).Warn("could not read an account's two-step state", "user_id", out.ID, "error", err)
+	}
+	out.TwoStepEnabled = err == nil && ts.Enabled()
+	return out
 }
 
 func newUserResponse(u *store.User) userResponse {
@@ -48,9 +63,16 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, "listing accounts", err)
 		return
 	}
+	enabled, err := s.ctrl.Store().TwoStepEnabledUsers(r.Context())
+	if err != nil {
+		s.internal(w, r, "listing accounts", err)
+		return
+	}
 	out := make([]userResponse, 0, len(users))
 	for _, u := range users {
-		out = append(out, newUserResponse(u))
+		row := newUserResponse(u)
+		row.TwoStepEnabled = enabled[u.ID]
+		out = append(out, row)
 	}
 	writeJSON(w, http.StatusOK, newList(out))
 }
@@ -62,7 +84,7 @@ func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, "reading the account", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, newUserResponse(u))
+	writeJSON(w, http.StatusOK, s.withTwoStep(r, newUserResponse(u)))
 }
 
 type createUserRequest struct {
@@ -208,7 +230,7 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.auth.Auditor().Updated(r.Context(), Identity(r.Context()), "user", id, newUserResponse(&before), newUserResponse(u))
-	writeJSON(w, http.StatusOK, newUserResponse(u))
+	writeJSON(w, http.StatusOK, s.withTwoStep(r, newUserResponse(u)))
 }
 
 // handleDeleteUser removes an account, refusing to remove the last admin.

@@ -170,6 +170,13 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	ip := ClientIP(r.Context())
 
 	u, token, err := s.auth.Login(r.Context(), req.Username, req.Password, ip, r.UserAgent())
+	var pending *auth.SecondStepRequired
+	if errors.As(err, &pending) {
+		// Not a failure and not yet a sign-in: the password was right and the
+		// account has a code to give, or an authenticator to set up.
+		s.startSecondStep(w, pending)
+		return
+	}
 	if err != nil {
 		// The auth service writes the audit row, because what may be recorded
 		// about a username nobody recognises is its decision, not this layer's.

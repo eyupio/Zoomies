@@ -488,6 +488,11 @@ type Security struct {
 	// own neighbourhood, and on a single-team instance whose identity
 	// provider or Enterprise Server is on the LAN it is the one key to set.
 	AllowPrivateEgress bool `yaml:"allow_private_egress"`
+	// RequireTwoStep makes every account that signs in with a password set
+	// up two-step verification at its next sign-in. Accounts that sign in
+	// through single sign-on are not asked -- their identity provider owns
+	// their second factor -- and API tokens are not affected.
+	RequireTwoStep bool `yaml:"require_two_step"`
 }
 
 // GitHub configures the GitHub integration.

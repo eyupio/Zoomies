@@ -883,3 +883,52 @@ func TestTheAutomaticRerunLimitIsRefusedOutsideItsRange(t *testing.T) {
 		}
 	}
 }
+
+// Requiring two-step is not a risk, so it is not a warning; it is info,
+// because the two things it does not cover -- single sign-on accounts and
+// API tokens -- are the ones an operator turning it on is most likely to
+// assume it does.
+func TestRequiringTwoStepIsInfoAndSaysWhatItDoesNotCover(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		require   bool
+		oidc      bool
+		want      bool
+		wantsOIDC bool
+	}{
+		{"off by default", false, false, false, false},
+		{"on", true, false, true, false},
+		{"on with single sign-on", true, true, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := Default()
+			c.Security.RequireTwoStep = tc.require
+			c.OIDC.Enabled = tc.oidc
+			var got *Finding
+			for _, f := range c.Validate() {
+				if f.Code == "two_step.required" {
+					f := f
+					got = &f
+				}
+			}
+			if (got != nil) != tc.want {
+				t.Fatalf("two_step.required present = %v, want %v", got != nil, tc.want)
+			}
+			if got == nil {
+				return
+			}
+			if got.Severity != SeverityInfo {
+				t.Errorf("severity = %v, want info", got.Severity)
+			}
+			if !strings.Contains(got.Detail, "API tokens") {
+				t.Errorf("the finding does not say API tokens are unaffected: %s", got.Detail)
+			}
+			if strings.Contains(got.Detail, "single sign-on") != tc.wantsOIDC {
+				t.Errorf("mentions single sign-on = %v, want %v: %s", !tc.wantsOIDC, tc.wantsOIDC, got.Detail)
+			}
+		})
+	}
+	if Default().Security.RequireTwoStep {
+		t.Fatal("two-step is required by default; it must be opt-in")
+	}
+}

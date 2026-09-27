@@ -119,6 +119,11 @@ func (s *Server) apiRoutes() chi.Router {
 		r.Get("/status", s.handleStatus)
 		r.Post("/auth/bootstrap", s.handleBootstrap)
 		r.Post("/auth/login", s.handleLogin)
+		// The second step of a sign-in, which has a pending-sign-in cookie
+		// and no session yet.
+		r.Post("/auth/two-step/verify", s.handleTwoStepVerify)
+		r.Post("/auth/two-step/enrol", s.handleTwoStepEnrolStart)
+		r.Post("/auth/two-step/enrol/confirm", s.handleTwoStepEnrolConfirm)
 		r.Get("/auth/oidc/start", s.handleOIDCStart)
 		r.Get("/auth/oidc/callback", s.handleOIDCCallback)
 	})
@@ -133,6 +138,11 @@ func (s *Server) apiRoutes() chi.Router {
 		r.Get("/auth/preferences", s.handleGetPreferences)
 		r.Put("/auth/preferences", s.handlePutPreferences)
 		r.Post("/auth/password", s.handleChangePassword)
+		r.Get("/auth/two-step", s.handleTwoStepStatus)
+		r.Post("/auth/two-step/setup", s.handleTwoStepSetup)
+		r.Post("/auth/two-step/confirm", s.handleTwoStepConfirm)
+		r.Post("/auth/two-step/disable", s.handleTwoStepDisable)
+		r.Post("/auth/two-step/recovery-codes", s.handleTwoStepRecoveryCodes)
 
 		// Overview.
 		r.With(s.require(auth.ActionStatsRead)).Get("/stats", s.handleStats)
@@ -308,6 +318,7 @@ func (s *Server) apiRoutes() chi.Router {
 			r.With(s.require(auth.ActionUsersWrite)).Patch("/{id}", s.handleUpdateUser)
 			r.With(s.require(auth.ActionUsersWrite)).Delete("/{id}", s.handleDeleteUser)
 			r.With(s.require(auth.ActionUsersWrite)).Post("/{id}/password", s.handleResetPassword)
+			r.With(s.require(auth.ActionUsersWrite)).Delete("/{id}/two-step", s.handleResetTwoStep)
 		})
 		r.Route("/tokens", func(r chi.Router) {
 			r.With(s.require(auth.ActionTokensRead)).Get("/", s.handleListTokens)
