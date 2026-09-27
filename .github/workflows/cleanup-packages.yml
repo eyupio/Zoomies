@@ -1,17 +1,32 @@
 name: Cleanup Old Container Images
 
-# CI and release workflows publish four GHCR package families. Moving tags such
-# as dev, main, and latest are updated in place, while multi-platform buildx
-# manifests and cache layers can leave untagged package versions behind.
+# CI and release workflows publish five GHCR package families. Moving tags such
+# as dev, main and latest are updated in place, and cache layers and replaced
+# indexes leave untagged package versions behind.
 #
-# Delete only untagged versions and retain a small rollback buffer. Tagged
-# versions, including release, SHA, runner-variant, dev, main, and latest tags,
-# are never selected for deletion.
+# "Untagged" is not "unused". The platform and attestation manifests under a
+# multi-platform tag are untagged package versions too, and the daily run of
+# actions/delete-package-versions (untagged only, newest ten kept) deleted
+# them: v1.3.2 and :latest went on resolving to an index whose children were
+# gone, and every `docker pull` failed with "manifest unknown".
+#
+# .github/scripts/ghcr-prune.sh deletes an untagged version only when no
+# tagged or recent version refers to it and it is not an attestation of one
+# being kept, and deletes nothing when it cannot
+# tell. The schedule stays off until a dry run has been read against the live
+# packages; a manual run is a dry run unless asked otherwise.
 
 on:
-  schedule:
-    - cron: "47 2 * * *" # daily at 02:47 UTC
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "List what would be deleted without deleting it."
+        type: boolean
+        default: true
+      keep_days:
+        description: "Never delete an untagged version younger than this many days."
+        type: string
+        default: "14"
 
 permissions: {}
 
@@ -22,9 +37,10 @@ concurrency:
 jobs:
   cleanup:
     permissions:
+      contents: read
       packages: write
     name: Cleanup ${{ matrix.package }}
-    runs-on: zoomies-linux-x64
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
@@ -35,11 +51,17 @@ jobs:
           - zoomies-runner-docker
           - zoomies-runner-full
     steps:
-      - name: Delete old untagged versions
-        uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55 # v5
-        with:
-          package-name: ${{ matrix.package }}
-          package-type: container
-          delete-only-untagged-versions: "true"
-          min-versions-to-keep: 10
-          token: ${{ github.token }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The rule it enforces, checked against a fake registry before it is
+      # trusted with the real one.
+      - name: Test the prune
+        run: .github/scripts/ghcr-prune-test.sh
+      - name: Delete unreferenced untagged versions
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          KEEP_DAYS: ${{ inputs.keep_days }}
+        run: .github/scripts/ghcr-prune.sh "${{ matrix.package }}"
+      - name: Check that every tag still pulls
+        if: ${{ !inputs.dry_run }}
+        run: .github/scripts/ghcr-check-tags.sh "${{ matrix.package }}" dev latest

@@ -1,0 +1,59 @@
+name: Image health
+
+# A tag that resolves is not a tag that pulls. A multi-platform tag is an
+# index, and if one of the manifests it lists is deleted the registry still
+# answers for the tag while `docker pull` fails with "manifest unknown" -- which
+# is how v1.3.2 and :latest broke without anything going red. This walks the
+# tags people actually pull, every day and after every release, and fails
+# loudly when a child manifest is missing.
+
+on:
+  schedule:
+    - cron: "17 6 * * *" # daily at 06:17 UTC
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  check:
+    permissions:
+      contents: read
+    name: Check ${{ matrix.package }}
+    # GitHub-hosted on purpose: whether the images pull must not depend on the
+    # fleet those images run.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - zoomies
+          - zoomies-agent
+          - zoomies-runner
+          - zoomies-runner-docker
+          - zoomies-runner-full
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check latest, dev and the release in question
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE: ${{ matrix.package }}
+          # The release that triggered this run, prerelease or not. Looking up
+          # "the newest full release" instead would check an older tag and
+          # pass while the new one is broken.
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -eu
+          if [ "$GITHUB_EVENT_NAME" = "release" ]; then
+            # The image jobs push after the release is published; give them time.
+            sleep 1800
+            tag=$RELEASE_TAG
+          else
+            tag=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases \
+              --limit 1 --json tagName --jq '.[0].tagName')
+          fi
+          if ! .github/scripts/ghcr-check-tags.sh "$PACKAGE" latest dev "$tag"; then
+            echo "::error::ghcr.io/eyupio/$PACKAGE has a tag that no longer pulls. See docs/development/image-recovery.md."
+            exit 1
+          fi
