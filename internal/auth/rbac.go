@@ -115,6 +115,11 @@ const (
 	ActionTokensWrite Action = "tokens.write"
 	ActionJoinsRead   Action = "joins.read"
 	ActionJoinsWrite  Action = "joins.write"
+	// The OAuth clients that may ask for an MCP connection, and every
+	// person's connections. Administrator, as API tokens are: a client an
+	// administrator creates is a way in that somebody else will use.
+	ActionMCPClientsRead  Action = "mcp_clients.read"
+	ActionMCPClientsWrite Action = "mcp_clients.write"
 )
 
 // Instance actions.
@@ -207,6 +212,9 @@ var actionRoles = map[Action]store.Role{
 	ActionTokensWrite: store.RoleAdmin,
 	ActionJoinsRead:   store.RoleAdmin,
 	ActionJoinsWrite:  store.RoleAdmin,
+
+	ActionMCPClientsRead:  store.RoleAdmin,
+	ActionMCPClientsWrite: store.RoleAdmin,
 
 	ActionSettingsRead:  store.RoleAdmin,
 	ActionSettingsWrite: store.RoleAdmin,

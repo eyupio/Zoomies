@@ -217,6 +217,19 @@ It needs an admin token, because the document contains the settings section.
 | `tokens create` | `--name`, `--role`, repeatable `--scope`, `--expires-in`. Printed once; only its hash is kept. |
 | `tokens revoke <token-id>` | Immediate. |
 
+### `zoomies mcp-clients`
+
+The OAuth clients that may ask somebody for an MCP connection. Claude registers
+itself when it connects, so most controllers never need one made by hand; see
+[Connect Claude to Zoomies](connect-claude.md).
+
+| Command | What it does |
+| --- | --- |
+| `mcp-clients list` | Every client — made here, self-registered, or a client ID metadata document — and how many connections each holds. |
+| `mcp-clients create` | `--name`, repeatable `--redirect-uri` (Claude's callback by default), and `--secret` for a confidential client. Prints the client ID, and the secret once. |
+| `mcp-clients rotate-secret <client-id>` | A new secret, printed once; the old one stops working. |
+| `mcp-clients revoke <client-id>` | The client can no longer ask, and every connection made with it ends. |
+
 ### `zoomies mcp`
 
 Serves the fleet to a coding agent over the
@@ -311,8 +324,9 @@ every tool is the documented route called with that token, so the controller
 applies the token's role and scopes to each call exactly as it would to the
 CLI's. There is no `--allow-actions` here: `rerun_job` and `drain_runner` are
 offered when the token's role reaches them and not otherwise, so a `viewer`
-token is a read-only agent. A client that can only sign in with OAuth, such as
-the connectors page on claude.ai, cannot use it yet.
+token is a read-only agent. A client that signs in with OAuth, such as a custom
+connector on claude.ai, needs no token at all: see
+[Connect Claude to Zoomies](connect-claude.md).
 
 Give it a `viewer` token, narrowed with `--scope` if the agent only needs some
 of the fleet. `--allow-actions` offers the two actions to the agent but grants

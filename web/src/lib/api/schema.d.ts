@@ -304,6 +304,118 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/mcp-requests/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * An MCP sign-in waiting for your decision
+         * @description What the consent screen shows: the client asking, where it will send you, and the roles you may give the connection -- no higher than your own, and never above operator, which is the most any MCP tool needs. Only a person signed in with a session can decide; an API token is refused. 404 when OAuth for MCP is off, or the request has expired or been answered. See [Connect Claude to Zoomies](https://zoomies.sh/connect-claude/).
+         */
+        get: operations["getMCPRequest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/mcp-requests/{id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve an MCP connection
+         * @description Creates the connection at the role chosen and returns the client's redirect carrying a single-use authorisation code, for the browser to follow. Audited as `mcp_connection.grant`.
+         */
+        post: operations["approveMCPRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/mcp-requests/{id}/deny": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decline an MCP connection
+         * @description Discards the request and returns the client's redirect carrying `access_denied`.
+         */
+        post: operations["denyMCPRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/mcp-connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Your MCP connections
+         * @description The MCP clients -- Claude among them -- you have signed in and approved, and what each may do.
+         */
+        get: operations["listOwnMCPConnections"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/mcp-connections/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Disconnect one of your MCP connections
+         * @description Its access and refresh tokens stop working at once. Audited as `mcp_connection.revoke`.
+         */
+        delete: operations["revokeOwnMCPConnection"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/logout": {
         parameters: {
             query?: never;
@@ -2214,6 +2326,113 @@ export interface paths {
         post?: never;
         /** Revoke an API token */
         delete: operations["revokeToken"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/mcp-clients": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List MCP clients
+         * @description Every OAuth client that may ask for an MCP connection: those an administrator created, those that registered themselves, and those named by a client ID metadata document. Secrets are never returned after creation.
+         */
+        get: operations["listMCPClients"];
+        put?: never;
+        /**
+         * Create an MCP client
+         * @description A client ID -- and, when `confidential`, a secret shown once -- to type into an MCP client's OAuth settings, such as Claude's custom connector form. Redirect URIs default to Claude's, `https://claude.ai/api/mcp/auth_callback`; each must be https or http to loopback. A confidential client proves its secret at the token endpoint and still uses PKCE.
+         */
+        post: operations["createMCPClient"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/mcp-clients/{id}/secret": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rotate a confidential MCP client's secret
+         * @description The old secret stops working at once; the new one is in this response and nowhere else.
+         */
+        post: operations["rotateMCPClientSecret"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/mcp-clients/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke an MCP client
+         * @description The client can no longer ask, and every connection it holds ends. Audited as `mcp_client.revoke`.
+         */
+        delete: operations["revokeMCPClient"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/mcp-connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Everybody's MCP connections */
+        get: operations["listMCPConnections"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/mcp-connections/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** End somebody's MCP connection */
+        delete: operations["revokeMCPConnection"];
         options?: never;
         head?: never;
         patch?: never;
@@ -5546,7 +5765,7 @@ export interface components {
             actor_id?: string;
             actor_name?: string;
             /** @enum {string} */
-            actor_kind?: "user" | "token" | "agent" | "system" | "webhook";
+            actor_kind?: "user" | "token" | "connection" | "client" | "agent" | "system" | "webhook";
             /**
              * @example pool.create
              * @example runner.drain
@@ -5655,6 +5874,79 @@ export interface components {
             expires_at?: string | null;
             /** Format: date-time */
             last_used_at?: string | null;
+        };
+        MCPClient: {
+            /** @example oac_abcdefghijklm */
+            id: string;
+            /** @description What the client sends. The row ID */
+            client_id: string;
+            /** @enum {string} */
+            kind: "dynamic" | "metadata" | "admin";
+            name: string;
+            client_uri?: string;
+            redirect_uris: string[];
+            confidential: boolean;
+            /** @description The first characters of the secret */
+            secret_prefix?: string;
+            /** Format: date-time */
+            secret_rotated_at?: string | null;
+            created_by?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            last_used_at?: string | null;
+            /** Format: date-time */
+            revoked_at?: string | null;
+            /** @description Live connections this client holds. */
+            connections: number;
+            /** @description Present once */
+            client_secret?: string;
+        };
+        MCPConnection: {
+            /** @example ocg_abcdefghijklm */
+            id: string;
+            client_id: string;
+            client_name: string;
+            /** @enum {string} */
+            client_kind: "dynamic" | "metadata" | "admin";
+            user_id: string;
+            username: string;
+            role: components["schemas"]["Role"];
+            /** @example mcp:read mcp:operate */
+            scope: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            last_used_at?: string | null;
+        };
+        MCPConsent: {
+            /** @example oar_abcdefghijklm */
+            id: string;
+            client: {
+                id: string;
+                client_id: string;
+                name: string;
+                /** @enum {string} */
+                kind: "dynamic" | "metadata" | "admin";
+                client_uri?: string;
+            };
+            redirect_uri: string;
+            /** @description Where approving sends you */
+            redirect_host: string;
+            /** @description Every redirect the client registered is on your own machine */
+            loopback_only: boolean;
+            /** @example https://zoomies.example.com/mcp */
+            resource: string;
+            requested_scope: string;
+            roles: components["schemas"]["Role"][];
+            suggested_role: components["schemas"]["Role"];
+            your_role: components["schemas"]["Role"];
+            /** Format: date-time */
+            expires_at: string;
+        };
+        MCPDecision: {
+            /** @description The client's redirect URI with the code or the error */
+            redirect_to: string;
         };
         /** @description One configuration key: what it is, what Zoomies is running, where that value came from, and whether an administrator may change it here. */
         Setting: {
@@ -6492,6 +6784,131 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             422: components["responses"]["Unprocessable"];
             429: components["responses"]["RateLimited"];
+        };
+    };
+    getMCPRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MCPConsent"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    approveMCPRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    role?: components["schemas"]["Role"];
+                };
+            };
+        };
+        responses: {
+            /** @description Approved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MCPDecision"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    denyMCPRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Declined */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MCPDecision"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listOwnMCPConnections: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items?: components["schemas"]["MCPConnection"][];
+                    };
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    revokeOwnMCPConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
         };
     };
     logout: {
@@ -9682,6 +10099,152 @@ export interface operations {
                 content?: never;
             };
             404: components["responses"]["NotFound"];
+        };
+    };
+    listMCPClients: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items?: components["schemas"]["MCPClient"][];
+                    };
+                };
+            };
+        };
+    };
+    createMCPClient: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @example Claude */
+                    name: string;
+                    redirect_uris?: string[];
+                    /** @default false */
+                    confidential?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MCPClient"];
+                };
+            };
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    rotateMCPClientSecret: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rotated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MCPClient"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    revokeMCPClient: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    listMCPConnections: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items?: components["schemas"]["MCPConnection"][];
+                    };
+                };
+            };
+        };
+    };
+    revokeMCPConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     getRecovery: {

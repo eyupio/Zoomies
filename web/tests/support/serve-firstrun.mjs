@@ -15,7 +15,10 @@ serveController({
   port: process.argv[2] ?? '8098',
   prefix: 'zoomies-firstrun-',
   // Authentication stays ON: it is the whole point of this fixture.
-  env: {},
+  // MCP sign-in is on, although this is plain HTTP on loopback, because
+  // mcp-oauth.spec.ts drives the consent screen here: it is the one fixture
+  // with authentication on and a person to sign in.
+  env: { ZOOMIES_MCP_OAUTH: 'true' },
   // Where to leave the setup token for the spec. playwright.config.ts passes
   // it, from the one definition in tests/support/fixtures.ts.
   tokenFile: process.argv[3],

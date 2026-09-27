@@ -288,7 +288,15 @@ export const changeOwnPassword = (body: Body<'changeOwnPassword'>) =>
   api.post<Result<'changeOwnPassword'>>('/auth/password', { body });
 
 /** Where the browser goes to start the OIDC flow. A full navigation, not fetch. */
-export const oidcStartUrl = () => `${BASE}/auth/oidc/start`;
+/**
+ * Where the single sign-on button goes. A sign-in that began on the MCP
+ * consent screen carries that address along, so the person lands back on the
+ * decision they came to make rather than on the Overview.
+ */
+export const oidcStartUrl = (returnTo?: string) =>
+  returnTo
+    ? `${BASE}/auth/oidc/start?return_to=${encodeURIComponent(returnTo)}`
+    : `${BASE}/auth/oidc/start`;
 
 /* -- overview ------------------------------------------------------------- */
 
@@ -543,6 +551,41 @@ export const createToken = (body: Body<'createToken'>) =>
   api.post<Result<'createToken'>>('/tokens', { body });
 
 export const revokeToken = (id: string) => api.del<Result<'revokeToken'>>(`/tokens/${enc(id)}`);
+
+/* -- MCP connections and the clients that make them ---------------------------- */
+
+export const getMCPRequest = (id: string, signal?: AbortSignal) =>
+  api.get<Result<'getMCPRequest'>>(`/auth/mcp-requests/${enc(id)}`, { signal });
+
+export const approveMCPRequest = (id: string, body: Body<'approveMCPRequest'>) =>
+  api.post<Result<'approveMCPRequest'>>(`/auth/mcp-requests/${enc(id)}/approve`, { body });
+
+export const denyMCPRequest = (id: string) =>
+  api.post<Result<'denyMCPRequest'>>(`/auth/mcp-requests/${enc(id)}/deny`, {});
+
+export const listOwnMCPConnections = (signal?: AbortSignal) =>
+  api.get<Result<'listOwnMCPConnections'>>('/auth/mcp-connections', { signal });
+
+export const revokeOwnMCPConnection = (id: string) =>
+  api.del<Result<'revokeOwnMCPConnection'>>(`/auth/mcp-connections/${enc(id)}`);
+
+export const listMCPConnections = (signal?: AbortSignal) =>
+  api.get<Result<'listMCPConnections'>>('/mcp-connections', { signal });
+
+export const revokeMCPConnection = (id: string) =>
+  api.del<Result<'revokeMCPConnection'>>(`/mcp-connections/${enc(id)}`);
+
+export const listMCPClients = (signal?: AbortSignal) =>
+  api.get<Result<'listMCPClients'>>('/mcp-clients', { signal });
+
+export const createMCPClient = (body: Body<'createMCPClient'>) =>
+  api.post<Result<'createMCPClient'>>('/mcp-clients', { body });
+
+export const rotateMCPClientSecret = (id: string) =>
+  api.post<Result<'rotateMCPClientSecret'>>(`/mcp-clients/${enc(id)}/secret`, {});
+
+export const revokeMCPClient = (id: string) =>
+  api.del<Result<'revokeMCPClient'>>(`/mcp-clients/${enc(id)}`);
 
 /* -- providers and machines ------------------------------------------------
  * "Provider" is the infrastructure a machine is rented from, and "machine" is

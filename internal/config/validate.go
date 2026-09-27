@@ -365,6 +365,9 @@ func (c *Config) Validate() Findings {
 			Fix:    "nothing to change. If somebody loses their authenticator and their recovery codes, an administrator resets it from the Users page or with `zoomies users reset-two-step <user-id>`.",
 		})
 	}
+	if c.MCPOAuthEnabled() {
+		c.mcpOAuthFindings(add)
+	}
 	if c.Security.DockerInDockerExpected {
 		add(Finding{
 			Code: "dind.expected", Severity: SeverityInfo, Setting: "security.docker_in_docker_expected",
@@ -1534,4 +1537,43 @@ func checkExtraCA(p string) (Finding, bool) {
 			"the file needs at least one -----BEGIN CERTIFICATE----- block; a DER file converts with `openssl x509 -inform der -in ca.der -out ca.pem`.")
 	}
 	return Finding{}, true
+}
+
+// mcpOAuthFindings says what OAuth for /mcp means on this deployment: how to
+// connect Claude to it, and -- when it has been turned on where the codes and
+// tokens would cross the network readable -- what that costs.
+func (c *Config) mcpOAuthFindings(add func(Finding)) {
+	where := "https://<this controller>/mcp"
+	if ext := strings.TrimRight(strings.TrimSpace(c.Server.ExternalURL), "/"); ext != "" {
+		where = ext + "/mcp"
+	}
+	if !c.ReachedOverHTTPS() && !c.ExternalURLIsLocal() && (c.LikelyReachable() || c.Server.ExternalURL != "") {
+		add(Finding{
+			Code: "mcp_oauth.plain_http", Severity: SeverityWarning, Setting: "security.mcp_oauth",
+			Title: "MCP sign-in is on, but this controller is reached over plain HTTP",
+			Detail: "the authorisation code, the access token and the refresh token an MCP client is given would cross the network " +
+				"readable, and anybody who reads one can use the fleet as the person who signed in until it expires or is revoked. " +
+				"Claude will not connect to an authorisation server that is not on https in any case.",
+			Fix: "serve the controller over https -- a TLS-terminating proxy and an https server.external_url, or server.tls.mode -- " +
+				"or set security.mcp_oauth to false and give MCP clients an API token instead.",
+		})
+		return
+	}
+	detail := "an MCP client can be added by the address " + where + " alone: it registers itself, sends the person to this controller " +
+		"to sign in and approve it, and is given a token that works on /mcp and nowhere else, at a role no higher than theirs."
+	if !c.Security.MCPOpenRegistration {
+		detail = "an MCP client can connect to " + where + " with a client an administrator created under Settings, MCP clients: " +
+			"security.mcp_open_registration is off, so a client cannot register itself."
+	}
+	if strings.TrimSpace(c.Server.ExternalURL) == "" {
+		detail += " server.external_url is not set, so the addresses this controller advertises are taken from each request's Host header; " +
+			"set it, so that the address a client is told to use is the one you chose."
+	}
+	add(Finding{
+		Code: "mcp_oauth.enabled", Severity: SeverityInfo, Setting: "security.mcp_oauth",
+		Title:  "Claude and other MCP clients can sign in to /mcp",
+		Detail: detail,
+		Fix: "nothing to change. In Claude, add a custom connector with the URL " + where + "; in Claude Code, run " +
+			"`claude mcp add --transport http zoomies " + where + "`. People see and revoke their connections under Settings, MCP connections.",
+	})
 }

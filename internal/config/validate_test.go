@@ -932,3 +932,54 @@ func TestRequiringTwoStepIsInfoAndSaysWhatItDoesNotCover(t *testing.T) {
 		t.Fatal("two-step is required by default; it must be opt-in")
 	}
 }
+
+// OAuth for /mcp follows the deployment: on where the controller is reached
+// over https with authentication on, off otherwise, and an operator who turns
+// it on over plain HTTP is told what that costs.
+func TestMCPOAuthFollowsTheDeployment(t *testing.T) {
+	on, off := true, false
+	for _, tc := range []struct {
+		name     string
+		mutate   func(*Config)
+		enabled  bool
+		wantCode string
+		severity Severity
+	}{
+		{"default, loopback and http", func(*Config) {}, false, "", ""},
+		{"an https external URL", func(c *Config) { c.Server.ExternalURL = "https://zoomies.example" }, true, "mcp_oauth.enabled", SeverityInfo},
+		{"TLS on the listener", func(c *Config) { c.Server.TLS.Mode = TLSSelfSigned }, true, "mcp_oauth.enabled", SeverityInfo},
+		{"turned off over https", func(c *Config) { c.Server.ExternalURL = "https://zoomies.example"; c.Security.MCPOAuth = &off }, false, "", ""},
+		{"authentication off", func(c *Config) { c.Security.DisableAuth = true; c.Security.MCPOAuth = &on }, false, "", ""},
+		{"forced on over plain http", func(c *Config) { c.Server.ExternalURL = "http://zoomies.example"; c.Security.MCPOAuth = &on }, true, "mcp_oauth.plain_http", SeverityWarning},
+		{"forced on on loopback", func(c *Config) { c.Security.MCPOAuth = &on }, true, "mcp_oauth.enabled", SeverityInfo},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := Default()
+			tc.mutate(c)
+			if got := c.MCPOAuthEnabled(); got != tc.enabled {
+				t.Fatalf("MCPOAuthEnabled = %v, want %v", got, tc.enabled)
+			}
+			var got []Finding
+			for _, f := range c.Validate() {
+				if strings.HasPrefix(f.Code, "mcp_oauth.") {
+					got = append(got, f)
+				}
+			}
+			if tc.wantCode == "" {
+				if len(got) != 0 {
+					t.Errorf("want no mcp_oauth finding, got %+v", got)
+				}
+				return
+			}
+			if len(got) != 1 || got[0].Code != tc.wantCode || got[0].Severity != tc.severity {
+				t.Fatalf("want one %s at %s, got %+v", tc.wantCode, tc.severity, got)
+			}
+			if tc.wantCode == "mcp_oauth.enabled" && !strings.Contains(got[0].Fix, "claude mcp add --transport http") {
+				t.Errorf("the finding must say how to connect Claude: %s", got[0].Fix)
+			}
+		})
+	}
+	if !Default().Security.MCPOpenRegistration {
+		t.Fatal("open registration must be on by default: a client that registers itself can still do nothing without a person's approval")
+	}
+}

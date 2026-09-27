@@ -204,6 +204,8 @@
   const ACTOR_TONE: Record<string, 'accent' | 'neutral' | 'busy'> = {
     user: 'accent',
     token: 'busy',
+    connection: 'busy',
+    client: 'neutral',
     agent: 'neutral',
     system: 'neutral',
     webhook: 'neutral',

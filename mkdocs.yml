@@ -171,6 +171,7 @@ nav:
       - Deploying on a PaaS: paas.md
       - One-click deployment: marketplace.md
       - API: api-surface.md
+      - Connect Claude: connect-claude.md
       - Automation contract: automation.md
       - Capacity-demand receiver: capacity-demand-receiver.md
   - Reference:

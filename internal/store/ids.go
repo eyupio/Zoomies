@@ -33,6 +33,12 @@ const (
 	// sharing one would make a log line ambiguous about which of them it came
 	// from.
 	PrefixMachineOp = "mop"
+	// The OAuth rows behind /mcp: a client that may ask for a grant, a
+	// request waiting at the consent screen, and a grant -- one person's MCP
+	// connection -- that every code and token descends from.
+	PrefixOAuthClient  = "oac"
+	PrefixOAuthRequest = "oar"
+	PrefixOAuthGrant   = "ocg"
 )
 
 var idEncoding = base32.NewEncoding("abcdefghijklmnopqrstuvwxyz234567").WithPadding(base32.NoPadding)

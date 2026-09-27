@@ -80,6 +80,19 @@ func (s *Server) routes() http.Handler {
 	// so that a GET is told there is no event stream, not handed the SPA.
 	r.With(noStore).Handle("/mcp", http.HandlerFunc(s.handleMCP))
 
+	// OAuth for /mcp. The discovery documents and the four endpoints are at
+	// the addresses RFC 8414, RFC 9728 and the MCP specification name, not
+	// under /api/v1, because a client finds them by those names; each answers
+	// 404 while security.mcp_oauth is off. /oauth/consent is not among them:
+	// it is the UI's page, served by the fallback below like any other.
+	r.Get("/.well-known/oauth-protected-resource", s.mcpOAuth(s.handleProtectedResource))
+	r.Get("/.well-known/oauth-protected-resource/mcp", s.mcpOAuth(s.handleProtectedResource))
+	r.Get("/.well-known/oauth-authorization-server", s.mcpOAuth(s.handleAuthorizationServer))
+	r.With(noStore).Get("/oauth/authorize", s.mcpOAuth(s.handleAuthorize))
+	r.With(noStore).Post("/oauth/token", s.mcpOAuth(s.handleToken))
+	r.With(noStore).Post("/oauth/register", s.mcpOAuth(s.handleRegister))
+	r.With(noStore).Post("/oauth/revoke", s.mcpOAuth(s.handleRevoke))
+
 	// The webhook. Mounted for every method rather than POST alone so that
 	// GitHub's own "wrong method" case gets the controller's message, which
 	// says what the endpoint is for, instead of a bare 405.
@@ -151,6 +164,14 @@ func (s *Server) apiRoutes() chi.Router {
 		r.Post("/auth/two-step/confirm", s.handleTwoStepConfirm)
 		r.Post("/auth/two-step/disable", s.handleTwoStepDisable)
 		r.Post("/auth/two-step/recovery-codes", s.handleTwoStepRecoveryCodes)
+
+		// The consent screen, and a person's own MCP connections. Like the
+		// rest of /auth these are the caller's own and need no role.
+		r.Get("/auth/mcp-requests/{id}", s.mcpOAuth(s.handleGetMCPRequest))
+		r.Post("/auth/mcp-requests/{id}/approve", s.mcpOAuth(s.handleApproveMCPRequest))
+		r.Post("/auth/mcp-requests/{id}/deny", s.mcpOAuth(s.handleDenyMCPRequest))
+		r.Get("/auth/mcp-connections", s.handleListOwnMCPConnections)
+		r.Delete("/auth/mcp-connections/{id}", s.handleRevokeOwnMCPConnection)
 
 		// Overview.
 		r.With(s.require(auth.ActionStatsRead)).Get("/stats", s.handleStats)
@@ -327,6 +348,16 @@ func (s *Server) apiRoutes() chi.Router {
 			r.With(s.require(auth.ActionUsersWrite)).Delete("/{id}", s.handleDeleteUser)
 			r.With(s.require(auth.ActionUsersWrite)).Post("/{id}/password", s.handleResetPassword)
 			r.With(s.require(auth.ActionUsersWrite)).Delete("/{id}/two-step", s.handleResetTwoStep)
+		})
+		r.Route("/mcp-clients", func(r chi.Router) {
+			r.With(s.require(auth.ActionMCPClientsRead)).Get("/", s.handleListMCPClients)
+			r.With(s.require(auth.ActionMCPClientsWrite)).Post("/", s.handleCreateMCPClient)
+			r.With(s.require(auth.ActionMCPClientsWrite)).Post("/{id}/secret", s.handleRotateMCPClientSecret)
+			r.With(s.require(auth.ActionMCPClientsWrite)).Delete("/{id}", s.handleRevokeMCPClient)
+		})
+		r.Route("/mcp-connections", func(r chi.Router) {
+			r.With(s.require(auth.ActionMCPClientsRead)).Get("/", s.handleListMCPConnections)
+			r.With(s.require(auth.ActionMCPClientsWrite)).Delete("/{id}", s.handleRevokeMCPConnection)
 		})
 		r.Route("/tokens", func(r chi.Router) {
 			r.With(s.require(auth.ActionTokensRead)).Get("/", s.handleListTokens)

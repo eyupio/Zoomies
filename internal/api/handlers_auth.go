@@ -458,6 +458,18 @@ func (s *Server) handleOIDCStart(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, "starting the single sign-on handshake", err)
 		return
 	}
+	// Where to land afterwards, when the sign-in began somewhere other than
+	// the front page -- an MCP client's consent screen, which is the one
+	// place a person arrives already mid-task. Only this controller's own
+	// consent page is accepted, so the parameter cannot be used to send a
+	// freshly signed-in browser anywhere else.
+	if back := r.URL.Query().Get("return_to"); consentReturn(back) {
+		http.SetCookie(w, &http.Cookie{
+			Name: oidcReturnCookie, Value: back, Path: oidcCookiePath, HttpOnly: true,
+			Secure: s.cfg().CookieSecureValue(), SameSite: http.SameSiteLaxMode,
+			MaxAge: int(auth.OIDCStateTTL / time.Second),
+		})
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     oidcStateCookie,
 		Value:    state,
@@ -553,7 +565,28 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 		&auth.Identity{Kind: auth.KindUser, ID: u.ID, Name: u.Username, Role: u.Role, IP: ip},
 		"auth.login", map[string]any{"method": "oidc", "role": u.Role})
 
-	http.Redirect(w, r, "/", http.StatusFound)
+	landing := "/"
+	if c, err := r.Cookie(oidcReturnCookie); err == nil && consentReturn(c.Value) {
+		landing = c.Value
+	}
+	http.SetCookie(w, &http.Cookie{Name: oidcReturnCookie, Value: "", Path: oidcCookiePath, HttpOnly: true,
+		Secure: s.cfg().CookieSecureValue(), SameSite: http.SameSiteLaxMode, MaxAge: -1, Expires: time.Unix(0, 0)})
+	http.Redirect(w, r, landing, http.StatusFound)
+}
+
+// oidcReturnCookie remembers where a single sign-on that began on the MCP
+// consent screen goes back to.
+const oidcReturnCookie = "zoomies_oidc_return"
+
+// consentReturn reports whether a return address is this controller's own
+// consent page for one waiting request, and nothing else.
+func consentReturn(v string) bool {
+	u, err := url.Parse(v)
+	if err != nil || u.Scheme != "" || u.Host != "" || u.Path != consentPath || u.Fragment != "" {
+		return false
+	}
+	q := u.Query()
+	return len(q) == 1 && store.LooksGenerated(q.Get("request")) && store.HasPrefix(q.Get("request"), store.PrefixOAuthRequest)
 }
 
 func (s *Server) ssoUnavailable(w http.ResponseWriter) {

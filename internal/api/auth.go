@@ -29,6 +29,11 @@ const (
 	ctxRequestInfo ctxKey = iota
 	// ctxAgentHost carries the host an agent request authenticated as.
 	ctxAgentHost
+	// ctxInProcess carries the identity an in-process MCP tool call acts as.
+	// It is set only by inProcessAPI, on a request that never touched the
+	// network, and the key is private to this package, so nothing a client
+	// sends can produce it.
+	ctxInProcess
 )
 
 // requestInfo is what the middleware chain learns about a request, in one
@@ -130,6 +135,9 @@ func (s *Server) optionalAuth(next http.Handler) http.Handler {
 
 // resolveIdentity turns the request's credentials into an identity.
 func (s *Server) resolveIdentity(r *http.Request) (*auth.Identity, error) {
+	if id := inProcessIdentity(r); id != nil {
+		return id, nil
+	}
 	in := auth.AuthInput{
 		Authorization: r.Header.Get("Authorization"),
 		IP:            ClientIP(r.Context()),
