@@ -31,6 +31,8 @@
   import BackupsPanel from '$lib/settings/BackupsPanel.svelte';
   import ConfigurationPanel from '$lib/settings/ConfigurationPanel.svelte';
   import EventsPanel from '$lib/settings/EventsPanel.svelte';
+  import McpClientsPanel from '$lib/settings/McpClientsPanel.svelte';
+  import McpConnectionsPanel from '$lib/settings/McpConnectionsPanel.svelte';
   import SettingsIndex from '$lib/settings/SettingsIndex.svelte';
   import SettingsRail from '$lib/settings/SettingsRail.svelte';
   import TokensPanel from '$lib/settings/TokensPanel.svelte';
@@ -91,7 +93,7 @@
         <PageHeader title="Settings" />
         <EmptyState
           title="There is no settings page called “{wanted}”"
-          description="The pages are your account, appearance, events, users, API tokens, configuration, backups and about."
+          description="The pages are your account, MCP connections, appearance, events, users, API tokens, MCP clients, configuration, backups and about."
         >
           <Button href={settingsPath(DEFAULT_SETTINGS_PAGE)}>Go to your account</Button>
         </EmptyState>
@@ -108,6 +110,8 @@
         />
       {:else if page.id === 'account'}
         <AccountPanel />
+      {:else if page.id === 'connections'}
+        <McpConnectionsPanel />
       {:else if page.id === 'appearance'}
         <AppearancePanel />
       {:else if page.id === 'events'}
@@ -116,6 +120,8 @@
         <UsersPanel />
       {:else if page.id === 'tokens'}
         <TokensPanel />
+      {:else if page.id === 'mcp-clients'}
+        <McpClientsPanel />
       {:else if page.id === 'configuration'}
         <ConfigurationPanel />
       {:else if page.id === 'backups'}

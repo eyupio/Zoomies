@@ -58,19 +58,20 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: /(first-run|two-step|diagnostics|connect|status-page)\.spec\.ts/,
+      testIgnore: /(first-run|two-step|mcp-oauth|diagnostics|connect|status-page)\.spec\.ts/,
     },
     // Read-only monitoring on a phone is a stated requirement, so it is tested.
     {
       name: 'mobile',
       use: { ...devices['Pixel 7'] },
-      testIgnore: /(first-run|two-step|diagnostics|connect|status-page)\.spec\.ts/,
+      testIgnore: /(first-run|two-step|mcp-oauth|diagnostics|connect|status-page)\.spec\.ts/,
     },
     {
       name: 'first-run',
-      // Two-step verification needs authentication on and a real account, so
-      // it rides on this controller, after the spec that creates the account.
-      testMatch: /(first-run|two-step)\.spec\.ts/,
+      // Two-step verification and the MCP consent screen need authentication
+      // on and a real account, so they ride on this controller, after the
+      // spec that creates the account.
+      testMatch: /(first-run|two-step|mcp-oauth)\.spec\.ts/,
       use: { ...devices['Desktop Chrome'], baseURL: `http://127.0.0.1:${FIRST_RUN_PORT}` },
     },
     {

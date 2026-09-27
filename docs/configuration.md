@@ -191,6 +191,10 @@ security:
                                             #   over 15m); 0 disables it and is warned about
   require_two_step: false                   # ZOOMIES_REQUIRE_TWO_STEP (password accounts set up an authenticator
                                             #   at their next sign-in; single sign-on and API tokens are not asked)
+  mcp_oauth: null                           # ZOOMIES_MCP_OAUTH (let Claude sign in to /mcp through the browser;
+                                            #   unset turns it on when auth is on and the controller is on https)
+  mcp_open_registration: true               # ZOOMIES_MCP_OPEN_REGISTRATION (let MCP clients register themselves,
+                                            #   rather than only use a client an administrator created)
 
 github:
   api_base_url: https://api.github.com   # ZOOMIES_GITHUB_API_BASE_URL
@@ -621,6 +625,8 @@ the validator says so with `limits.loopback`.
 | `security.docker_in_docker_expected` | `ZOOMIES_DOCKER_IN_DOCKER_EXPECTED` | live | Docker-in-Docker is expected here — Stop a pool that gives its jobs their own Docker daemon being listed as a dangerous setting. The daemon still runs in a privileged container; this is a fleet saying it knows, so that the settings still worth a second look are not buried under one it has already decided. The host socket and persistent runners keep warning. |
 | `security.encryption_key` | `ZOOMIES_ENCRYPTION_KEY` | file or environment only | Encryption key — The 32-byte key, base64 or hex, that seals GitHub App private keys, webhook secrets and the stored credentials below. Prefer the key file or the environment variable: a key written into zoomies.yaml is a key in your configuration management system. |
 | `security.encryption_key_file` | `ZOOMIES_ENCRYPTION_KEY_FILE` | file or environment only | Encryption key file — Where that key is read from, and written to on a first run. Back it up beside the database: without it the sealed rows cannot be read. |
+| `security.mcp_oauth` | `ZOOMIES_MCP_OAUTH` | live | Sign in to MCP with OAuth — Let an MCP client such as Claude be added by this controller's `/mcp` address alone and sign a person in through the browser, with this controller as its own OAuth authorisation server. The token it receives works on `/mcp` and nowhere else, at a role the person chooses and no higher than their own. Unset turns it on when authentication is on and the controller is reached over https. See [Connect Claude to Zoomies](connect-claude.md). |
+| `security.mcp_open_registration` | `ZOOMIES_MCP_OPEN_REGISTRATION` | live | Let MCP clients register themselves — Let an MCP client register itself — by dynamic client registration or a client ID metadata document — rather than only use a client an administrator created under Settings, MCP clients. A client that registers itself can do nothing until a person signs in and approves it. Off, only the clients an administrator created can ask. |
 | `security.rate_limit_logins` | `ZOOMIES_RATE_LIMIT_LOGINS` | next restart | Login attempts per minute — Password attempts allowed per source address per minute, and five times that per account. |
 | `security.require_two_step` | `ZOOMIES_REQUIRE_TWO_STEP` | next restart | Require two-step verification — Make every account that signs in with a password set up an authenticator app at its next sign-in. Accounts that use single sign-on are not asked — their identity provider owns their second factor — and API tokens are unaffected. See [Two-step verification](two-step.md). |
 | `security.session_ttl` | `ZOOMIES_SESSION_TTL` | next restart | Session lifetime — How long a browser login lasts before it has to be made again. |

@@ -16,11 +16,13 @@
  */
 import {
   Activity,
+  Cable,
   CircleUser,
   DatabaseBackup,
   Info,
   KeyRound,
   Palette,
+  Plug,
   SlidersHorizontal,
   Users,
 } from '@lucide/svelte';
@@ -62,6 +64,13 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
         needs: 'viewer',
       },
       {
+        id: 'connections',
+        label: 'MCP connections',
+        description: 'Claude and other MCP clients you have connected, and what each may do.',
+        icon: Cable,
+        needs: 'viewer',
+      },
+      {
         id: 'appearance',
         label: 'Appearance',
         description: 'Theme, navigation and how tables read on a phone. Kept in this browser.',
@@ -92,6 +101,13 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
         label: 'API tokens',
         description: 'Bearer credentials for the CLI and for automation.',
         icon: KeyRound,
+        needs: 'admin',
+      },
+      {
+        id: 'mcp-clients',
+        label: 'MCP clients',
+        description: 'The OAuth clients that may connect to /mcp, and everybody’s connections.',
+        icon: Plug,
         needs: 'admin',
       },
     ],

@@ -84,6 +84,7 @@ on its own runners, and cannot read pools, jobs, users or the audit log.
 | An operator does something destructive | Every mutating action writes an audit row with actor, target, and a before/after diff with secrets redacted |
 | A coding agent connected over MCP is steered by text a workflow wrote — a log line, a step or branch name | The agent gets the token's authority and nothing more; its tools return a log in a separate block marked untrusted, and the server tells the model at connection that workflow-written text is data, not instructions. The fleet-changing tools are offered only to a token whose role reaches them, and `drain_runner` never confirms a busy runner's drain, so the worst an agent can be talked into is re-running a failed job or retiring an idle runner |
 | A page the operator visits drives the MCP endpoint with the operator's own session | `/mcp` takes a bearer token only and refuses the session cookie, and answers a foreign `Origin` with a 403 |
+| An OAuth code or token for `/mcp` is intercepted, replayed or sent to the wrong place | Codes go only to a redirect the client registered, work once, for five minutes, and need the PKCE verifier; a replayed code or refresh token revokes the connection; access tokens last an hour, are bound to `/mcp`'s address and are refused everywhere else — see [OAuth for MCP](#oauth-for-mcp) |
 | A compromised agent | Agents can only claim tasks and report on their own runners; they cannot read pools, jobs, users or the audit log |
 
 ### Out of scope
@@ -257,6 +258,10 @@ says so when it does, and a daemon that already applies limits is left alone.
   same account, so a leaked token narrowed to one resource cannot be turned
   into an unscoped one that outlives its revocation. The same tokens open
   `/mcp`, the endpoint a coding agent connects to; see below.
+* **MCP connections** — `zoomcp_` access tokens from the OAuth flow a client
+  such as Claude runs against `/mcp`, when `security.mcp_oauth` is on. They
+  are accepted on `/mcp` and nowhere else; see
+  [OAuth for MCP](#oauth-for-mcp) below.
 * **Agents** — a separate credential class that can only reach `/api/v1/agent/*`,
   and only for their own host: an agent may report on its own runners and write
   into its own log relay, and gets the same "no such stream" answer for anybody
@@ -313,6 +318,61 @@ row and the same access-log line it would have met from the CLI, and a tool
 cannot do anything its route would refuse. Which tools are offered follows the
 same table: `rerun_job` and `drain_runner` are listed only for a token whose
 role reaches `POST /jobs/{id}/rerun` and `POST /runners/{id}/drain`.
+
+### OAuth for MCP
+
+With `security.mcp_oauth` on — the default where authentication is on and the
+controller is reached over https — the controller is its own OAuth 2.1
+authorisation server for `/mcp`, following the
+[MCP authorization specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization),
+so Claude can be added by URL and sign somebody in through the browser. What
+that adds, and what it is built not to add:
+
+* **A connection is a person's consent, at a role they choose.** The consent
+  screen names the client, shows the host the code will be sent to, and warns
+  when every redirect the client registered is on the person's own machine,
+  where any program can listen. The role is viewer or operator and never above
+  the person's own; a connection whose person is later demoted is demoted with
+  them, and one whose person is disabled or deleted stops.
+* **The token works on `/mcp` alone.** An MCP access token presented to the
+  REST API is refused with a sentence saying so. The person approved an agent's
+  tools, not a general credential; `/mcp` reaches the routes it needs in
+  process, as the connection, and never passes the token on — which the
+  specification forbids a resource server to do. The token is bound to its
+  audience, `<external URL>/mcp`: one issued for another address is refused.
+* **Nothing is stored in the clear.** Codes, access tokens, refresh tokens and
+  client secrets are SHA-256 hashes in the database, as API tokens are.
+* **Short and single-use.** A code lasts five minutes and works once, with S256
+  PKCE and the exact redirect it was issued for. An access token lasts an
+  hour. A refresh token rotates on every use; presenting a spent code or refresh
+  token again revokes the whole connection, since only a copy explains it, and
+  is audited as `mcp_connection.replay`.
+* **Redirects are exact.** A code is only ever sent to a redirect URI the client
+  registered — https, or http to loopback, where the port is allowed to differ
+  as RFC 8252 asks. A client or redirect that cannot be trusted is refused on
+  the controller's own page and never followed.
+* **Registration is open, access is not.** A client may register itself or name
+  itself by a client ID metadata document, and gets nothing until a person signs
+  in and approves it. Registration is limited to twenty an hour per address, and
+  a self-registered client that never completes a sign-in is removed after a
+  day. The document fetch is fenced — https, no redirects, public addresses only
+  unless `security.allow_private_egress` is on, five seconds, five kilobytes —
+  because it is a request this process makes on an unauthenticated caller's
+  say-so. `security.mcp_open_registration: false` closes both, leaving only the
+  clients an administrator creates, which may be confidential and carry a secret.
+* **Audited.** `mcp_client.register`, `mcp_client.create`,
+  `mcp_client.secret_rotate`, `mcp_client.revoke`, `mcp_connection.grant`,
+  `mcp_connection.deny`, `mcp_connection.revoke`, `mcp_connection.replay`, and
+  `mcp_connection.call` for every tool call that changed or tried to change the
+  fleet. The route the call reached writes its own row as well, with the
+  connection as the actor.
+* **Over https only.** Turning it on where the controller is reached over plain
+  HTTP raises `mcp_oauth.plain_http`, because the codes and tokens would cross
+  the network readable. Set `server.external_url`: without it the addresses the
+  metadata advertises come from each request's Host header.
+
+People see and disconnect their own connections under **Settings → MCP
+connections**; an administrator sees everybody's there, and the clients.
 
 ### Sessions
 
@@ -556,6 +616,15 @@ Believes `X-Forwarded-For` from every address. It is what makes a header-based
 setup "just work", and what it costs is that any client can choose the address
 the audit log records for it and defeat login rate limiting by rotating the one
 it claims. List your proxy's own range, or the word `cloudflare`.
+
+### `security.mcp_oauth: true` over plain HTTP
+
+Raises `mcp_oauth.plain_http`. The authorisation code in the browser's
+address bar, and the access and refresh tokens the token endpoint answers,
+cross the network readable, and whoever reads one uses the fleet as the person
+who connected until it expires or is revoked. Serve the controller over https;
+where that cannot be done, leave OAuth for MCP off and give an agent an API
+token over a network you trust.
 
 ### `security.rate_limit_logins: 0`
 

@@ -368,6 +368,11 @@ func (c *Controller) prune(ctx context.Context) {
 	} else if n > 0 {
 		c.log.Debug("pruned expired sessions", "rows", n)
 	}
+	if n, err := c.st.PruneOAuth(ctx, now); err != nil {
+		c.log.Warn("could not prune expired MCP sign-ins", "error", err)
+	} else if n > 0 {
+		c.log.Debug("pruned expired MCP sign-ins", "rows", n)
+	}
 	if n, err := c.st.PruneJoinTokens(ctx, now); err != nil {
 		c.log.Warn("could not prune expired join tokens", "error", err)
 	} else if n > 0 {

@@ -698,6 +698,13 @@ func routeTable(ids fixtureIDs) []route {
 			body: map[string]any{"password": "x", "code": "000000"}},
 		{method: "POST", path: "/api/v1/auth/two-step/recovery-codes", role: store.RoleViewer,
 			body: map[string]any{"password": "x", "code": "000000"}},
+		// OAuth for MCP is off in this harness, so the consent routes answer
+		// 404 behind the role check; mcp_oauth_test.go walks them turned on.
+		{method: "GET", path: "/api/v1/auth/mcp-requests/missing", role: store.RoleViewer},
+		{method: "POST", path: "/api/v1/auth/mcp-requests/missing/approve", role: store.RoleViewer},
+		{method: "POST", path: "/api/v1/auth/mcp-requests/missing/deny", role: store.RoleViewer},
+		{method: "GET", path: "/api/v1/auth/mcp-connections", role: store.RoleViewer},
+		{method: "DELETE", path: "/api/v1/auth/mcp-connections/missing", role: store.RoleViewer},
 
 		{method: "GET", path: "/api/v1/stats", role: store.RoleViewer, action: auth.ActionStatsRead},
 		{method: "GET", path: "/api/v1/samples", role: store.RoleViewer, action: auth.ActionStatsRead},
@@ -837,6 +844,12 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "GET", path: "/api/v1/join-tokens/missing", role: store.RoleAdmin, action: auth.ActionJoinsRead},
 		{method: "POST", path: "/api/v1/join-tokens", role: store.RoleAdmin, body: map[string]any{"ttl": "15m"}, action: auth.ActionJoinsWrite},
 		{method: "DELETE", path: "/api/v1/join-tokens/missing", role: store.RoleAdmin, action: auth.ActionJoinsWrite},
+		{method: "GET", path: "/api/v1/mcp-clients", role: store.RoleAdmin, action: auth.ActionMCPClientsRead},
+		{method: "POST", path: "/api/v1/mcp-clients", role: store.RoleAdmin, body: map[string]any{"name": "Claude"}, action: auth.ActionMCPClientsWrite},
+		{method: "POST", path: "/api/v1/mcp-clients/missing/secret", role: store.RoleAdmin, action: auth.ActionMCPClientsWrite},
+		{method: "DELETE", path: "/api/v1/mcp-clients/missing", role: store.RoleAdmin, action: auth.ActionMCPClientsWrite},
+		{method: "GET", path: "/api/v1/mcp-connections", role: store.RoleAdmin, action: auth.ActionMCPClientsRead},
+		{method: "DELETE", path: "/api/v1/mcp-connections/missing", role: store.RoleAdmin, action: auth.ActionMCPClientsWrite},
 
 		{method: "POST", path: "/api/v1/migrations/plan", role: store.RoleOperator, action: auth.ActionMigrationsRead,
 			body: map[string]any{"installation_id": ids.installation}},

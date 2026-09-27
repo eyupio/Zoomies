@@ -138,7 +138,8 @@ var (
 // Identity is the authenticated caller: a person with a session, a token used
 // by automation, an agent reporting on its runners, or the controller itself.
 type Identity struct {
-	// Kind is one of KindUser, KindToken, KindAgent or KindSystem.
+	// Kind is one of KindUser, KindToken, KindConnection, KindAgent or
+	// KindSystem.
 	Kind string
 	// ID is the user, token, or host ID this identity resolves to.
 	ID string
@@ -187,6 +188,8 @@ func (i *Identity) subject() string {
 	switch i.Kind {
 	case KindToken:
 		return "token"
+	case KindConnection:
+		return "MCP connection"
 	case KindAgent:
 		return "agent"
 	case KindSystem:
@@ -253,7 +256,13 @@ type Service struct {
 	// in from would otherwise lock them out of the UI, which turns a bounded
 	// guessing attempt into a denial of service on the thing that fixes it.
 	joins *RateLimiter
-	audit *Auditor
+	// registrations bounds MCP client registration, the one route that
+	// writes a row for anybody who asks; tokens bounds the token endpoint.
+	registrations *RateLimiter
+	tokens        *RateLimiter
+	// metadata fetches client ID metadata documents.
+	metadata *metadataFetcher
+	audit    *Auditor
 	// key seals authenticator secrets. Nil leaves two-step verification
 	// unable to start, which it says, rather than storing a secret in the
 	// clear.
@@ -304,6 +313,7 @@ func New(st *store.Store, cfg *config.Config, bus *events.Bus, opts ...Option) *
 		logger: slog.Default(),
 		clock:  time.Now,
 	}
+	s.metadata = newMetadataFetcher()
 	for _, o := range opts {
 		o(s)
 	}
@@ -311,6 +321,11 @@ func New(st *store.Store, cfg *config.Config, bus *events.Bus, opts ...Option) *
 	s.logins = NewRateLimiter(s.cfg.RateLimitLogins, time.Minute, s.clock)
 	s.accountLogins = NewRateLimiter(s.cfg.RateLimitLogins*accountLimitFactor, accountLimitWindow, s.clock)
 	s.joins = NewRateLimiter(s.cfg.RateLimitLogins, time.Minute, s.clock)
+	// Claude registers afresh on every new connection, so a person connecting
+	// a few surfaces in an afternoon is well inside this; a script filling the
+	// clients table is not.
+	s.registrations = NewRateLimiter(mcpRegistrationsPerHour, time.Hour, s.clock)
+	s.tokens = NewRateLimiter(mcpTokenRequestsPerMinute, time.Minute, s.clock)
 	s.audit = NewAuditor(st, bus, s.logger)
 	return s
 }
@@ -813,6 +828,9 @@ func (s *Service) authenticateToken(ctx context.Context, token, ip string) (*Ide
 	switch {
 	case strings.HasPrefix(token, AgentTokenPrefix):
 		return nil, errors.New("that is an agent token; it is only accepted on /api/v1/agent/*, not on the user API")
+	case strings.HasPrefix(token, MCPAccessTokenPrefix), strings.HasPrefix(token, MCPRefreshTokenPrefix):
+		return nil, errors.New("that is an MCP access token; it is accepted on /mcp only, for the connection it was approved for. " +
+			"For the REST API, create an API token")
 	case strings.HasPrefix(token, JoinTokenPrefix):
 		return nil, errors.New("that is a join token; it enrols an agent with `zoomies agent join` and cannot be used to call the API")
 	}

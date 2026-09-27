@@ -245,6 +245,7 @@ func TestDeleteUsesTheRightMethodAndQuery(t *testing.T) {
 		{"host", []string{"hosts", "delete", "host_1"}, "/api/v1/hosts/host_1", http.MethodDelete, ""},
 		{"token", []string{"tokens", "revoke", "tok_1"}, "/api/v1/tokens/tok_1", http.MethodDelete, ""},
 		{"spent token", []string{"tokens", "delete", "tok_1"}, "/api/v1/tokens/tok_1", http.MethodDelete, "purge=true"},
+		{"mcp client", []string{"mcp-clients", "revoke", "oac_1"}, "/api/v1/mcp-clients/oac_1", http.MethodDelete, ""},
 		{"user", []string{"users", "delete", "usr_1"}, "/api/v1/users/usr_1", http.MethodDelete, ""},
 	}
 	for _, c := range cases {

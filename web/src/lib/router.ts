@@ -30,6 +30,12 @@ export interface RouteDef {
   title: string;
   /** Eagerly bundled pages (the unauthenticated ones) pass `component` instead. */
   component?: Component<Record<string, never>>;
+  /**
+   * Render the page on its own, without the navigation and the top bar. The
+   * MCP consent screen is one: a person arrives there from another app,
+   * mid-task, and the one decision in front of them is the whole page.
+   */
+  bare?: boolean;
   load?: () => Promise<{ default: Component<Record<string, never>> }>;
 }
 
@@ -145,6 +151,16 @@ export const ROUTES: readonly RouteDef[] = [
     path: '/settings/:page?',
     title: 'Settings',
     load: () => import('../routes/Settings.svelte'),
+  },
+  {
+    // Where an MCP client such as Claude sends somebody to approve a
+    // connection. The controller's /oauth/authorize checks the request and
+    // redirects here; nothing in the app links to it.
+    name: 'mcp-consent',
+    path: '/oauth/consent',
+    title: 'Connect an MCP client',
+    bare: true,
+    load: () => import('../routes/McpConsent.svelte'),
   },
   {
     name: 'login',

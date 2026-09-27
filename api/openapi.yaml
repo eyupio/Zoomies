@@ -439,6 +439,101 @@ paths:
         "422": { $ref: "#/components/responses/Unprocessable" }
         "429": { $ref: "#/components/responses/RateLimited" }
 
+  /auth/mcp-requests/{id}:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    get:
+      operationId: getMCPRequest
+      tags: [auth]
+      summary: An MCP sign-in waiting for your decision
+      description: >-
+        What the consent screen shows: the client asking, where it will send you, and the roles
+        you may give the connection -- no higher than your own, and never above operator, which
+        is the most any MCP tool needs. Only a person signed in with a session can decide; an API
+        token is refused. 404 when OAuth for MCP is off, or the request has expired or been
+        answered. See [Connect Claude to Zoomies](https://zoomies.sh/connect-claude/).
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MCPConsent" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /auth/mcp-requests/{id}/approve:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    post:
+      operationId: approveMCPRequest
+      tags: [auth]
+      summary: Approve an MCP connection
+      description: >-
+        Creates the connection at the role chosen and returns the client's redirect carrying a
+        single-use authorisation code, for the browser to follow. Audited as `mcp_connection.grant`.
+      x-zoomies-role: viewer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role: { $ref: "#/components/schemas/Role" }
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MCPDecision" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /auth/mcp-requests/{id}/deny:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    post:
+      operationId: denyMCPRequest
+      tags: [auth]
+      summary: Decline an MCP connection
+      description: Discards the request and returns the client's redirect carrying `access_denied`.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: Declined
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MCPDecision" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /auth/mcp-connections:
+    get:
+      operationId: listOwnMCPConnections
+      tags: [auth]
+      summary: Your MCP connections
+      description: The MCP clients -- Claude among them -- you have signed in and approved, and what each may do.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/MCPConnection" } }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /auth/mcp-connections/{id}:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    delete:
+      operationId: revokeOwnMCPConnection
+      tags: [auth]
+      summary: Disconnect one of your MCP connections
+      description: Its access and refresh tokens stop working at once. Audited as `mcp_connection.revoke`.
+      x-zoomies-role: viewer
+      responses:
+        "204": { description: Revoked }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /auth/logout:
     post:
       operationId: logout
@@ -3446,6 +3541,114 @@ paths:
           description: Delete a revoked or expired token instead of revoking it.
       responses:
         "204": { description: Revoked, or deleted }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /mcp-clients:
+    get:
+      operationId: listMCPClients
+      tags: [admin]
+      summary: List MCP clients
+      description: >-
+        Every OAuth client that may ask for an MCP connection: those an administrator created, those
+        that registered themselves, and those named by a client ID metadata document. Secrets are
+        never returned after creation.
+      x-zoomies-role: admin
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/MCPClient" } }
+    post:
+      operationId: createMCPClient
+      tags: [admin]
+      summary: Create an MCP client
+      description: >-
+        A client ID -- and, when `confidential`, a secret shown once -- to type into an MCP client's
+        OAuth settings, such as Claude's custom connector form. Redirect URIs default to Claude's,
+        `https://claude.ai/api/mcp/auth_callback`; each must be https or http to loopback. A
+        confidential client proves its secret at the token endpoint and still uses PKCE.
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, examples: ["Claude"] }
+                redirect_uris:
+                  type: array
+                  items: { type: string, examples: ["https://claude.ai/api/mcp/auth_callback"] }
+                confidential: { type: boolean, default: false }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MCPClient" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /mcp-clients/{id}/secret:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    post:
+      operationId: rotateMCPClientSecret
+      tags: [admin]
+      summary: Rotate a confidential MCP client's secret
+      description: The old secret stops working at once; the new one is in this response and nowhere else.
+      x-zoomies-role: admin
+      responses:
+        "200":
+          description: Rotated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MCPClient" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /mcp-clients/{id}:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    delete:
+      operationId: revokeMCPClient
+      tags: [admin]
+      summary: Revoke an MCP client
+      description: The client can no longer ask, and every connection it holds ends. Audited as `mcp_client.revoke`.
+      x-zoomies-role: admin
+      responses:
+        "204": { description: Revoked }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /mcp-connections:
+    get:
+      operationId: listMCPConnections
+      tags: [admin]
+      summary: Everybody's MCP connections
+      x-zoomies-role: admin
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/MCPConnection" } }
+
+  /mcp-connections/{id}:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    delete:
+      operationId: revokeMCPConnection
+      tags: [admin]
+      summary: End somebody's MCP connection
+      x-zoomies-role: admin
+      responses:
+        "204": { description: Revoked }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
 
@@ -7226,7 +7429,7 @@ components:
         id: { type: string }
         actor_id: { type: string }
         actor_name: { type: string }
-        actor_kind: { type: string, enum: [user, token, agent, system, webhook] }
+        actor_kind: { type: string, enum: [user, token, connection, client, agent, system, webhook] }
         action: { type: string, examples: ["pool.create", "runner.drain"] }
         target_kind: { type: string }
         target_id: { type: string }
@@ -7351,6 +7554,71 @@ components:
         created_at: { type: string, format: date-time }
         expires_at: { type: [string, "null"], format: date-time }
         last_used_at: { type: [string, "null"], format: date-time }
+
+    MCPClient:
+      type: object
+      required: [id, client_id, kind, name, redirect_uris, confidential, created_at, connections]
+      properties:
+        id: { type: string, examples: ["oac_abcdefghijklm"] }
+        client_id: { type: string, description: What the client sends. The row ID, or the document URL for a metadata client. }
+        kind: { type: string, enum: [dynamic, metadata, admin] }
+        name: { type: string }
+        client_uri: { type: string }
+        redirect_uris: { type: array, items: { type: string } }
+        confidential: { type: boolean }
+        secret_prefix: { type: string, description: The first characters of the secret, to recognise it by. }
+        secret_rotated_at: { type: [string, "null"], format: date-time }
+        created_by: { type: string }
+        created_at: { type: string, format: date-time }
+        last_used_at: { type: [string, "null"], format: date-time }
+        revoked_at: { type: [string, "null"], format: date-time }
+        connections: { type: integer, description: Live connections this client holds. }
+        client_secret: { type: string, description: Present once, in the response that creates or rotates it. }
+
+    MCPConnection:
+      type: object
+      required: [id, client_id, client_name, client_kind, user_id, username, role, scope, created_at]
+      properties:
+        id: { type: string, examples: ["ocg_abcdefghijklm"] }
+        client_id: { type: string }
+        client_name: { type: string }
+        client_kind: { type: string, enum: [dynamic, metadata, admin] }
+        user_id: { type: string }
+        username: { type: string }
+        role: { $ref: "#/components/schemas/Role" }
+        scope: { type: string, examples: ["mcp:read mcp:operate"] }
+        created_at: { type: string, format: date-time }
+        last_used_at: { type: [string, "null"], format: date-time }
+
+    MCPConsent:
+      type: object
+      required: [id, client, redirect_uri, redirect_host, loopback_only, resource, requested_scope, roles, suggested_role, your_role, expires_at]
+      properties:
+        id: { type: string, examples: ["oar_abcdefghijklm"] }
+        client:
+          type: object
+          required: [id, client_id, name, kind]
+          properties:
+            id: { type: string }
+            client_id: { type: string }
+            name: { type: string }
+            kind: { type: string, enum: [dynamic, metadata, admin] }
+            client_uri: { type: string }
+        redirect_uri: { type: string }
+        redirect_host: { type: string, description: Where approving sends you, which the consent screen shows plainly. }
+        loopback_only: { type: boolean, description: Every redirect the client registered is on your own machine, where any program could listen. }
+        resource: { type: string, examples: ["https://zoomies.example.com/mcp"] }
+        requested_scope: { type: string }
+        roles: { type: array, items: { $ref: "#/components/schemas/Role" } }
+        suggested_role: { $ref: "#/components/schemas/Role" }
+        your_role: { $ref: "#/components/schemas/Role" }
+        expires_at: { type: string, format: date-time }
+
+    MCPDecision:
+      type: object
+      required: [redirect_to]
+      properties:
+        redirect_to: { type: string, description: The client's redirect URI with the code or the error, for the browser to follow. }
 
     Setting:
       type: object
