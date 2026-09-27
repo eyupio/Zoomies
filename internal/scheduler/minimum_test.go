@@ -127,6 +127,47 @@ func TestAReducedDockerInDockerPairSplitsWhatIsLeft(t *testing.T) {
 	}
 }
 
+// A reduced docker-in-docker runner's row holds the per-container limit --
+// what ReducedSize hands to the backend, and what the previous test reads off
+// placed[0].size -- not the host-side charge that placement actually
+// subtracted. RunnerCharge has to double a typed field back to recover that
+// charge, the same doubling Reserve applies to a full-size pair. Get the
+// factor backwards and a host already holding one of these runners is read as
+// half as loaded as it is: exactly the mismatch Reserve's own comment warns
+// about ("a host read as half committed while its containers' quotas added up
+// to every core it had").
+func TestAReducedDockerInDockerRunnerIsChargedTwiceItsRow(t *testing.T) {
+	h := sized("short", 1, 16, hostFor(12*1024), 100000)
+	p := withMinimum("builds", 4, 8*1024, 2, 4*1024)
+	p.DockerMode = store.DockerDinD
+
+	hs := newHostSet([]*store.Host{h}, []*store.Pool{p}, nil, now)
+	placed := hs.placeAvoiding(p, 1, nil)
+	if len(placed) != 1 || placed[0].size == nil {
+		t.Fatalf("placed %+v, want one reduced pair", placed)
+	}
+	grant := *placed[0].size
+
+	r := &store.Runner{ID: "r1", PoolID: p.ID, HostID: h.ID, State: store.RunnerBusy,
+		AllocatedCPUs: grant.CPUs, AllocatedMemoryMB: grant.MemoryMB, AllocationSource: store.AllocationReduced}
+
+	got := RunnerCharge(p, h, r)
+	if got.CPUs != grant.CPUs*2 {
+		t.Errorf("CPU charge = %g, want double the row's per-container %g: a docker-in-docker pair is charged for both containers", got.CPUs, grant.CPUs)
+	}
+	if got.MemoryMB != grant.MemoryMB*2 {
+		t.Errorf("memory charge = %d MB, want double the row's per-container %d MB", got.MemoryMB, grant.MemoryMB)
+	}
+
+	// Reserved sums RunnerCharge across a host's live runners -- the figure
+	// the next reconcile pass trusts to know what room is left. It must agree
+	// with what the placement pass just subtracted for this exact runner.
+	runners := map[string][]*store.Runner{p.ID: {r}}
+	if reserved := Reserved(h, []*store.Pool{p}, runners); reserved != got {
+		t.Errorf("Reserved = %+v, want it to match RunnerCharge's %+v for the host's one live runner", reserved, got)
+	}
+}
+
 // The create's reason says the runner is smaller than its pool asks for, and
 // the action carries the size, so the Runners page and the scaling history
 // both explain a slow job on a reduced runner.
