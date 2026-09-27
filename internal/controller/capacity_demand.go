@@ -57,13 +57,19 @@ func (c *Controller) publishCapacitySignals(ctx context.Context, snap scheduler.
 	for _, p := range snap.Pools {
 		pools[p.ID] = p
 	}
+	// Computed once for every pool in this pass rather than once per pool in
+	// the loop below: oldestPoolQueue used to re-walk every job against every
+	// pool for each pool it was asked about, which made this whole function
+	// quadratic in the pool count on top of its jobs. oldestQueueAges walks
+	// the jobs once, calling scheduler.BestPool exactly once per job.
+	oldestQueue := oldestQueueAges(snap.Pools, snap.Jobs, snap.Now)
 	for _, pp := range plan.Pools {
 		p := pools[pp.PoolID]
 		if p == nil || !c.capacityPoolAllowed(p) {
 			continue
 		}
 		capacity := eligibleCapacity(p, snap.Hosts, snap.Now)
-		oldest := oldestPoolQueue(p, snap.Pools, snap.Jobs, snap.Now)
+		oldest := queueAgeSeconds(oldestQueue[p.ID])
 		// Both blockages are demand, and the second one is the one a receiver
 		// exists for: a pool whose jobs have nowhere to go at all is asking to
 		// be scaled from zero, and until this said so the only shortfall
@@ -109,19 +115,33 @@ func eligibleCapacity(p *store.Pool, hosts []*store.Host, now time.Time) int {
 	}
 	return n
 }
-func oldestPoolQueue(p *store.Pool, pools []*store.Pool, jobs []*store.Job, now time.Time) int64 {
-	var oldest time.Duration
+
+// oldestQueueAges maps every pool to the age of its oldest queued job, by
+// asking scheduler.BestPool which pool claims each job exactly once. A pool
+// with no queued job of its own is simply absent, which queueAgeSeconds reads
+// the same way oldestPoolQueue's zero-valued accumulator used to.
+func oldestQueueAges(pools []*store.Pool, jobs []*store.Job, now time.Time) map[string]time.Duration {
+	oldest := make(map[string]time.Duration, len(pools))
 	for _, j := range jobs {
-		if scheduler.BestPool(pools, j) == p {
-			if a := now.Sub(j.QueuedAt); a > oldest {
-				oldest = a
-			}
+		p := scheduler.BestPool(pools, j)
+		if p == nil {
+			continue
+		}
+		if a := now.Sub(j.QueuedAt); a > oldest[p.ID] {
+			oldest[p.ID] = a
 		}
 	}
-	if oldest < 0 {
+	return oldest
+}
+
+// queueAgeSeconds turns a queue age into the whole seconds the wire event
+// carries, treating a negative reading (a job queued in the future, as a
+// clock skew or a test fixture might produce) the same as no wait at all.
+func queueAgeSeconds(d time.Duration) int64 {
+	if d < 0 {
 		return 0
 	}
-	return int64(oldest / time.Second)
+	return int64(d / time.Second)
 }
 
 func (c *Controller) deliverCapacityEvent(ctx context.Context, p *store.Pool, capacity, queued int, oldest int64, slots int, eventType string, sustained bool) {
