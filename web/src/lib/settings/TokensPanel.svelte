@@ -25,7 +25,6 @@
   import { session } from '$lib/state/session.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
   import { ROLE_OPTIONS, roleLabel } from '$lib/roles';
-  import { atLeast } from '$lib/api/types';
   import { apiTokenStatus } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
@@ -55,9 +54,7 @@
   /** Administrators see everybody's tokens; everyone else sees their own. */
   const everybodys = $derived(session.can('admin'));
   /** A token carries no more than the person who mints it. */
-  const roleOptions = $derived(
-    ROLE_OPTIONS.filter((option) => atLeast(session.role, option.value)),
-  );
+  const roleOptions = $derived(ROLE_OPTIONS.filter((option) => session.can(option.value)));
 
   let tokens = $state<APIToken[]>([]);
   let loading = $state(true);
