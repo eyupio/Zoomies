@@ -642,6 +642,10 @@ func TestMCPOAuthConfidentialClient(t *testing.T) {
 	if after.ClientSecret == "" || after.ClientSecret == c.ClientSecret {
 		t.Fatal("rotation must hand out a new secret")
 	}
+	if after.Connections == 0 {
+		// Two connections were made above, and rotating ends neither.
+		t.Error("the rotated client's response must count the connections it still has, got 0")
+	}
 	if r := h.exchange("", code(), nil, basic(c.ClientID, c.ClientSecret)); r.status != http.StatusUnauthorized {
 		t.Errorf("the old secret must stop working, got %d", r.status)
 	}
