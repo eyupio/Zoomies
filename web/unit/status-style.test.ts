@@ -61,3 +61,51 @@ test('waiting and lifecycle states cannot accidentally run or spin', () => {
   assert.equal(standardMotion('future-state', 'runner').state, 'unknown');
   assert.equal(standardMotion('future-state', 'runner').still, true);
 });
+
+test('working, about-to-work, waiting and winding-down states keep separate silhouettes', () => {
+  // At 32px in a workflow pack the pose is most of what survives, so a state
+  // must never borrow another group's silhouette. Throttled stands rather than
+  // lies: it is paused and will carry on, not being retired.
+  const groups = {
+    run: ['busy', 'zoomies', 'maximum_zoomies'],
+    stand: ['provisioning', 'throttled'],
+    sit: ['idle', 'registering', 'failed', 'unknown', 'future-state'],
+    lie: ['draining', 'removed'],
+  };
+  for (const [pose, states] of Object.entries(groups))
+    for (const state of states) assert.equal(standardMotion(state, 'runner').pose, pose, state);
+});
+
+test('idle gestures and blinks spread across their whole period, not with the gait', () => {
+  // The gait's phase is under a second; if the gestures shared it, every idle
+  // dog on a page would glance up and blink within the same moment. Phases are
+  // spread at random per seed, not placed, so what holds is that across many
+  // runners they cover the whole cycle and do not follow the gait's phase --
+  // not that any two dogs in a pack are a set distance apart.
+  const dogs = Array.from({ length: 400 }, (_, i) => standardMotion('idle', `run_${i}`));
+  const start = (phase: number, period: number) => -phase / period;
+  for (const [phase, period] of [
+    ['gesturePhase', 'gesture'],
+    ['blinkPhase', 'blink'],
+  ] as const) {
+    const starts = dogs.map((dog) => start(dog[phase], dog[period]));
+    for (const s of starts) assert.ok(s >= 0 && s < 1, `${phase} ${s}`);
+    assert.ok(Math.min(...starts) < 0.1, `${phase} never starts early in its cycle`);
+    assert.ok(Math.max(...starts) > 0.9, `${phase} never starts late in its cycle`);
+    // Measured round the cycle: 0.95 and 0.05 are a tenth apart, not nine.
+    const gaits = dogs.map((dog) => start(dog.phase, dog.stride));
+    let near = 0;
+    let pairs = 0;
+    for (let i = 0; i < dogs.length; i++)
+      for (let j = i + 1; j < dogs.length; j++) {
+        const gait = Math.abs(gaits[i] - gaits[j]);
+        if (Math.min(gait, 1 - gait) > 0.02) continue;
+        pairs++;
+        const d = Math.abs(starts[i] - starts[j]);
+        if (Math.min(d, 1 - d) < 0.12) near++;
+      }
+    // Dogs whose gaits start together should mostly not gesture together;
+    // were the two phases one, every such pair would.
+    assert.ok(pairs > 50 && near / pairs < 0.4, `${phase}: ${near} of ${pairs} in step`);
+  }
+});
