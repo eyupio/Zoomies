@@ -121,9 +121,12 @@ var problemAudience = map[string]Audience{
 	"capacity_demand.delivery_failed":         AudiencePlatform,
 	"controller.development_update_available": AudiencePlatform,
 	"controller.lease_lost":                   AudiencePlatform,
-	"controller.loop_panicked":                AudiencePlatform,
-	"controller.update_available":             AudiencePlatform,
-	"crypto.key_mismatch":                     AudiencePlatform,
+	// Single sign-on is the process reaching somebody else's service, as
+	// the oidc.* findings from the validator are the platform's.
+	"oidc.unavailable":            AudiencePlatform,
+	"controller.loop_panicked":    AudiencePlatform,
+	"controller.update_available": AudiencePlatform,
+	"crypto.key_mismatch":         AudiencePlatform,
 	// The private-connection listener is the process's: it is one per
 	// instance, it dials out from the controller's network, and the fix is that
 	// network's egress, which a fleet cannot change.
@@ -358,6 +361,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	gather("host resources", c.hostResourceProblems)
 	gather("host incidents", c.hostIncidentProblems)
 	out = append(out, c.fenceProblems()...)
+	out = append(out, c.ssoProblems()...)
 	out = append(out, c.bootstrapProblems()...)
 	gather("webhook deliveries", c.webhookProblems)
 	gather("jobs", c.jobProblems)

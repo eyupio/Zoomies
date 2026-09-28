@@ -281,6 +281,9 @@ export const regenerateRecoveryCodes = (body: Body<'regenerateRecoveryCodes'>) =
 
 export const logout = () => api.post<Result<'logout'>>('/auth/logout', {});
 
+/** Ends every other session of this account, and every MCP connection it holds. */
+export const logoutOthers = () => api.post<Result<'logoutOthers'>>('/auth/logout-others', {});
+
 export const bootstrap = (body: Body<'bootstrap'>) =>
   api.post<Result<'bootstrap'>>('/auth/bootstrap', { body, allow401: true });
 

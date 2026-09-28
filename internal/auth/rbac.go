@@ -113,8 +113,14 @@ const (
 	ActionUsersWrite  Action = "users.write"
 	ActionTokensRead  Action = "tokens.read"
 	ActionTokensWrite Action = "tokens.write"
-	ActionJoinsRead   Action = "joins.read"
-	ActionJoinsWrite  Action = "joins.write"
+	// ActionTokensOwn is creating, listing and revoking your own API tokens,
+	// never at a role above your own. Everybody signed in has it: the CLI and
+	// a script of one's own are ordinary work, and asking an administrator to
+	// mint a credential for somebody else to hold was the worse habit.
+	// tokens.read and tokens.write remain everybody's tokens.
+	ActionTokensOwn  Action = "tokens.own"
+	ActionJoinsRead  Action = "joins.read"
+	ActionJoinsWrite Action = "joins.write"
 	// The OAuth clients that may ask for an MCP connection, and every
 	// person's connections. Administrator, as API tokens are: a client an
 	// administrator creates is a way in that somebody else will use.
@@ -210,6 +216,7 @@ var actionRoles = map[Action]store.Role{
 	ActionUsersWrite:  store.RoleAdmin,
 	ActionTokensRead:  store.RoleAdmin,
 	ActionTokensWrite: store.RoleAdmin,
+	ActionTokensOwn:   store.RoleViewer,
 	ActionJoinsRead:   store.RoleAdmin,
 	ActionJoinsWrite:  store.RoleAdmin,
 
@@ -296,7 +303,22 @@ func Allowed(id *Identity, a Action) bool {
 	if len(id.Scopes) == 0 {
 		return true
 	}
-	return scopesAllow(id.Scopes, a)
+	if scopesAllow(id.Scopes, a) {
+		return true
+	}
+	for _, wider := range impliedBy[a] {
+		if scopesAllow(id.Scopes, wider) {
+			return true
+		}
+	}
+	return false
+}
+
+// impliedBy lists, for an action, the wider actions whose scope also grants
+// it. A token scoped to everybody's tokens was minted to manage tokens, and
+// refusing it its own would break every such token the day tokens.own arrived.
+var impliedBy = map[Action][]Action{
+	ActionTokensOwn: {ActionTokensRead, ActionTokensWrite},
 }
 
 // scopesAllow reports whether any scope in the list covers a.

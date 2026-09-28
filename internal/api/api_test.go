@@ -688,6 +688,7 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "PUT", path: "/api/v1/auth/preferences", role: store.RoleViewer,
 			body: map[string]any{"table_layouts": map[string]any{}}},
 		{method: "POST", path: "/api/v1/auth/logout", role: store.RoleViewer},
+		{method: "POST", path: "/api/v1/auth/logout-others", role: store.RoleViewer},
 		{method: "POST", path: "/api/v1/auth/password", role: store.RoleViewer,
 			body: map[string]any{"old_password": "x", "new_password": testPassword}},
 		{method: "GET", path: "/api/v1/auth/two-step", role: store.RoleViewer},
@@ -868,10 +869,13 @@ func routeTable(ids fixtureIDs) []route {
 			body: map[string]any{"new_password": testPassword}},
 		{method: "DELETE", path: "/api/v1/users/missing/two-step", role: store.RoleAdmin, action: auth.ActionUsersWrite},
 
-		{method: "GET", path: "/api/v1/tokens", role: store.RoleAdmin, action: auth.ActionTokensRead},
-		{method: "POST", path: "/api/v1/tokens", role: store.RoleAdmin, body: map[string]any{"name": "", "role": "viewer"}, action: auth.ActionTokensWrite},
-		{method: "DELETE", path: "/api/v1/tokens/missing", role: store.RoleAdmin, action: auth.ActionTokensWrite},
-		{method: "POST", path: "/api/v1/tokens/purge", role: store.RoleAdmin, body: map[string]any{"all": true}, action: auth.ActionTokensWrite},
+		// Anybody signed in manages their own tokens; tokens.read and
+		// tokens.write, which reach everybody's, are checked in the handler
+		// and walked by TestAnyoneSignedInManagesTheirOwnTokensAndOnlyThose.
+		{method: "GET", path: "/api/v1/tokens", role: store.RoleViewer, action: auth.ActionTokensOwn},
+		{method: "POST", path: "/api/v1/tokens", role: store.RoleViewer, body: map[string]any{"name": "", "role": "viewer"}, action: auth.ActionTokensOwn},
+		{method: "DELETE", path: "/api/v1/tokens/missing", role: store.RoleViewer, action: auth.ActionTokensOwn},
+		{method: "POST", path: "/api/v1/tokens/purge", role: store.RoleViewer, body: map[string]any{}, action: auth.ActionTokensOwn},
 
 		{method: "GET", path: "/api/v1/settings", role: store.RoleAdmin, action: auth.ActionSettingsRead},
 		{method: "PATCH", path: "/api/v1/settings", role: store.RoleAdmin, body: map[string]any{}, action: auth.ActionSettingsWrite},
@@ -1064,6 +1068,11 @@ func TestEveryActionIsReachableThroughARoute(t *testing.T) {
 			claimed[rt.action] = true
 		}
 	}
+	// Checked inside a handler rather than on a route, because the route is
+	// everybody's and these widen it: tokens.read and tokens.write reach
+	// every account's tokens where tokens.own reaches the caller's.
+	claimed[auth.ActionTokensRead] = true
+	claimed[auth.ActionTokensWrite] = true
 	for _, a := range auth.AllActions() {
 		if !claimed[a] {
 			t.Errorf("%s is a permission no route in the table checks", a)

@@ -659,6 +659,14 @@ var registry = buildRegistry([]Setting{
 		Summary:       "Let a first single sign-on take over an existing local account with the same username. Turn it on for the one migration where that is the intention, then turn it off again.",
 		RestartReason: "the provider is configured at startup",
 	},
+	{
+		Key: "oidc.label", Label: "Sign-in button text", Env: "ZOOMIES_OIDC_LABEL", Kind: KindString, Scope: ScopeInstance, Live: true,
+		Summary: "The words on the single sign-on button. Empty says \"Sign in with\" and the issuer's host.",
+	},
+	{
+		Key: "oidc.hide_password_login", Label: "Hide the password form", Env: "ZOOMIES_OIDC_HIDE_PASSWORD_LOGIN", Kind: KindBool, Scope: ScopeInstance, Live: true,
+		Summary: "Show only the single sign-on button while single sign-on is working, and refuse password sign-in below administrator. An administrator can still sign in with a password from /login?password.",
+	},
 
 	// ---------------------------------------------------------------------
 	// metrics

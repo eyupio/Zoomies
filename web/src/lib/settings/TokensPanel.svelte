@@ -5,6 +5,11 @@
   deploy job. The plaintext exists once, in the response that creates it, and
   the panel is built around that fact -- the value is shown in a block that says
   it will not be shown again, and everything afterwards is metadata.
+
+  Anybody signed in manages their own tokens here, never at a role above their
+  own; an administrator sees and manages everybody's. The server decides both
+  -- the list it answers is already the caller's -- so this only words the page
+  and offers the roles the caller may actually give.
 -->
 <script lang="ts">
   import { KeyRound, Plus, Trash2 } from '@lucide/svelte';
@@ -17,6 +22,7 @@
     revokeToken,
   } from '$lib/api/client';
   import type { APIToken, Role } from '$lib/api/types';
+  import { session } from '$lib/state/session.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
   import { ROLE_OPTIONS, roleLabel } from '$lib/roles';
   import { apiTokenStatus } from '$lib/status';
@@ -44,6 +50,11 @@
     { value: '8760h', label: 'A year' },
     { value: '', label: 'Never (not recommended)' },
   ];
+
+  /** Administrators see everybody's tokens; everyone else sees their own. */
+  const everybodys = $derived(session.can('admin'));
+  /** A token carries no more than the person who mints it. */
+  const roleOptions = $derived(ROLE_OPTIONS.filter((option) => session.can(option.value)));
 
   let tokens = $state<APIToken[]>([]);
   let loading = $state(true);
@@ -169,7 +180,7 @@
 
   async function purge(): Promise<boolean> {
     try {
-      const result = await purgeTokens({ all: true });
+      const result = await purgeTokens(everybodys ? { all: true } : {});
       const n = result.deleted?.length ?? 0;
       toasts.success(
         n === 1 ? '1 token deleted' : `${n} tokens deleted`,
@@ -185,8 +196,10 @@
 </script>
 
 <PageHeader
-  title="API tokens"
-  subtitle="Bearer credentials for the CLI and for automation. Zoomies keeps only the hash, so a token that is lost has to be revoked and replaced."
+  title={everybodys ? 'API tokens' : 'Your API tokens'}
+  subtitle={everybodys
+    ? 'Everybody’s bearer credentials for the CLI and for automation. Zoomies keeps only the hash, so a token that is lost has to be revoked and replaced.'
+    : 'Yours, for the CLI and your own scripts, at a role no higher than yours. Zoomies keeps only the hash, so a token that is lost has to be revoked and replaced.'}
   onrefresh={() => {
     reload += 1;
   }}
@@ -211,7 +224,7 @@
     {#snippet emptyState()}
       <EmptyState
         icon={KeyRound}
-        title="No API tokens"
+        title={everybodys ? 'No API tokens' : 'You have no API tokens'}
         description="A token lets the zoomies CLI or a script talk to Zoomies without a browser session."
       >
         <Button variant="primary" icon={Plus} onclick={open}>Create a token</Button>
@@ -342,7 +355,7 @@
         {/snippet}
       </Field>
 
-      <RadioGroup bind:value={role} name="token-role" legend="Role" options={ROLE_OPTIONS} />
+      <RadioGroup bind:value={role} name="token-role" legend="Role" options={roleOptions} />
 
       <Field
         label="Expires"

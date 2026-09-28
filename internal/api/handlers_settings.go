@@ -218,8 +218,8 @@ func deleteNested(from map[string]any, key string) {
 }
 
 func (s *Server) oidcRedirectURL() string {
-	if s.oidc.Enabled() {
-		return s.oidc.RedirectURL()
+	if s.oidcProvider().Enabled() {
+		return s.oidcProvider().RedirectURL()
 	}
 	return s.cfg().OIDC.RedirectURL
 }

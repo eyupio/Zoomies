@@ -282,6 +282,8 @@ oidc:
   operator_groups: []           # ZOOMIES_OIDC_OPERATOR_GROUPS
   allow_signup: false           # ZOOMIES_OIDC_ALLOW_SIGNUP
   link_by_username: false       # ZOOMIES_OIDC_LINK_BY_USERNAME -- let SSO take over a password account of the same name; warned about
+  label: ""                     # ZOOMIES_OIDC_LABEL -- the sign-in button's words; empty names the issuer's host
+  hide_password_login: false    # ZOOMIES_OIDC_HIDE_PASSWORD_LOGIN -- SSO only on the sign-in page; admins keep /login?password
 
 metrics:
   enabled: true                 # ZOOMIES_METRICS_ENABLED
@@ -546,8 +548,10 @@ the validator says so with `limits.loopback`.
 | `oidc.client_id` | `ZOOMIES_OIDC_CLIENT_ID` | next restart | Client ID — The client this controller identifies itself as. |
 | `oidc.client_secret` | `ZOOMIES_OIDC_CLIENT_SECRET` | next restart | Client secret — The client secret that goes with it. |
 | `oidc.enabled` | `ZOOMIES_OIDC_ENABLED` | next restart | Single sign-on — Offer single sign-on as well as local accounts. |
+| `oidc.hide_password_login` | `ZOOMIES_OIDC_HIDE_PASSWORD_LOGIN` | at once | Hide the password form — Show only the single sign-on button while single sign-on is working, and refuse password sign-in below administrator. An administrator can still sign in with a password from /login?password. |
 | `oidc.groups_claim` | `ZOOMIES_OIDC_GROUPS_CLAIM` | next restart | Groups claim — The token claim listing the groups a user is in. |
 | `oidc.issuer` | `ZOOMIES_OIDC_ISSUER` | next restart | Issuer URL — The identity provider's issuer URL, from which its endpoints are discovered. |
+| `oidc.label` | `ZOOMIES_OIDC_LABEL` | at once | Sign-in button text — The words on the single sign-on button. Empty says "Sign in with" and the issuer's host. |
 | `oidc.link_by_username` | `ZOOMIES_OIDC_LINK_BY_USERNAME` | next restart | Link sign-on to local accounts — Let a first single sign-on take over an existing local account with the same username. Turn it on for the one migration where that is the intention, then turn it off again. |
 | `oidc.platform_groups` | `ZOOMIES_OIDC_PLATFORM_GROUPS` | next restart | Platform groups — Provider groups whose members get the platform role, above administrator. |
 | `oidc.operator_groups` | `ZOOMIES_OIDC_OPERATOR_GROUPS` | next restart | Operator groups — Provider groups whose members get the operator role. A user in no mapped group is a viewer. |

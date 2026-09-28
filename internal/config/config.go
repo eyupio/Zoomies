@@ -710,6 +710,15 @@ type OIDC struct {
 	// the local admin's role. Turn it on for the one migration where that is
 	// the intention, then turn it off again.
 	LinkByUsername bool `yaml:"link_by_username"`
+	// Label is the words on the sign-in button. Empty derives them from the
+	// issuer's host, which is what an operator recognises without being told.
+	Label string `yaml:"label"`
+	// HidePasswordLogin takes the password form off the sign-in page while
+	// single sign-on is working, so people are not invited to keep a second
+	// credential alive. It is never a lock: an administrator can still sign in
+	// with a password from /login?password, the break-glass door for the day
+	// the identity provider is the thing that is broken.
+	HidePasswordLogin bool `yaml:"hide_password_login"`
 }
 
 // Metrics configures the Prometheus endpoint.
@@ -1528,7 +1537,16 @@ func (c *Config) MCPOAuthEnabled() bool {
 		return false
 	}
 	if c.Security.MCPOAuth != nil {
-		return *c.Security.MCPOAuth
+		// Switched on where it cannot be served safely, it is refused at
+		// startup (mcp_oauth.no_external_url) and off until then.
+		return *c.Security.MCPOAuth && !c.mcpOAuthWithoutAddress()
+	}
+	// Unset, it turns itself on only where it would be allowed to be turned
+	// on: an instance that listens publicly with its own certificate and no
+	// external URL kept working through the upgrade that made the explicit
+	// setting an error there, rather than refusing to start over a default.
+	if c.BindsPublicly() && strings.TrimSpace(c.Server.ExternalURL) == "" {
+		return false
 	}
 	return c.ReachedOverHTTPS()
 }

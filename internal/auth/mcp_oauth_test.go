@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/url"
 	"strings"
 	"testing"
@@ -261,7 +262,7 @@ func TestMCPCredentialsExpire(t *testing.T) {
 
 	// The retention pass clears what has expired and the self-registered
 	// clients that never finished signing in.
-	orphan, _ := s.RegisterClient(ctx, testPolicy, ClientRegistration{RedirectURIs: []string{ClaudeCallback}}, "203.0.113.2")
+	orphan, _ := s.RegisterClient(ctx, testPolicy, ClientRegistration{ClientName: "an orphan", RedirectURIs: []string{ClaudeCallback}}, "203.0.113.2")
 	c.Advance(mcpRefreshTTL + 48*time.Hour)
 	if _, err := st.PruneOAuth(ctx, c.Now()); err != nil {
 		t.Fatal(err)
@@ -408,5 +409,139 @@ func TestEndingAConnectionForgetsItsLastUse(t *testing.T) {
 	}
 	if _, ok := s.touched.Load(g); ok {
 		t.Error("a client revoking its refresh token must forget the connection's last use")
+	}
+}
+
+// A client that registers on every start is the same client each time, and is
+// handed the registration it already has rather than a new row per start. One
+// that says anything different -- another name, another redirect -- is new.
+func TestAClientThatRegistersAgainGetsItsExistingRegistration(t *testing.T) {
+	s, st, _ := newService(t)
+	ctx := t.Context()
+	claude := ClientRegistration{ClientName: "Claude", RedirectURIs: []string{ClaudeCallback, "http://localhost/callback"}}
+	first, err := s.RegisterClient(ctx, testPolicy, claude, "203.0.113.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		in   ClientRegistration
+		same bool
+	}{
+		{"the same metadata", claude, true},
+		{"the same redirects in another order", ClientRegistration{ClientName: "Claude", RedirectURIs: []string{"http://localhost/callback", ClaudeCallback}}, true},
+		{"another name", ClientRegistration{ClientName: "Claude Code", RedirectURIs: claude.RedirectURIs}, false},
+		{"another redirect", ClientRegistration{ClientName: "Claude", RedirectURIs: []string{ClaudeCallback}}, false},
+		{"a client URI", ClientRegistration{ClientName: "Claude", ClientURI: "https://claude.ai", RedirectURIs: claude.RedirectURIs}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := s.RegisterClient(ctx, testPolicy, tc.in, "198.51.100.7")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (got.ClientID == first.ClientID) != tc.same {
+				t.Errorf("client ID %s against the first %s; want same=%v", got.ClientID, first.ClientID, tc.same)
+			}
+		})
+	}
+
+	// A revoked registration is not handed back: an administrator turned it
+	// away, and the client registering again is a new decision to make.
+	if err := s.RevokeMCPClient(ctx, &Identity{Kind: KindUser, ID: "usr_admin", Name: "admin", Role: store.RoleAdmin}, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	again, err := s.RegisterClient(ctx, testPolicy, claude, "203.0.113.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.ClientID == first.ClientID {
+		t.Error("a revoked registration must not be handed back")
+	}
+	if _, err := st.GetOAuthClient(ctx, again.ID); err != nil {
+		t.Errorf("the fresh registration must be stored: %v", err)
+	}
+}
+
+// A hundred new clients an hour from one address are allowed, and the one
+// after is not; a client re-registering is not counted at all.
+func TestRegistrationIsLimitedToAHundredNewClientsAnHourPerAddress(t *testing.T) {
+	s, _, _ := newService(t)
+	ctx := t.Context()
+	ip := "203.0.113.50"
+	for i := range mcpRegistrationsPerHour {
+		if _, err := s.RegisterClient(ctx, testPolicy, ClientRegistration{
+			ClientName: fmt.Sprintf("client %d", i), RedirectURIs: []string{ClaudeCallback}}, ip); err != nil {
+			t.Fatalf("registration %d: %v", i+1, err)
+		}
+	}
+	if mcpRegistrationsPerHour != 100 {
+		t.Fatalf("the limit is %d; the owner set it at 100 an hour", mcpRegistrationsPerHour)
+	}
+	var oe *OAuthError
+	if _, err := s.RegisterClient(ctx, testPolicy, ClientRegistration{ClientName: "one too many", RedirectURIs: []string{ClaudeCallback}}, ip); !errors.As(err, &oe) || oe.Status != 429 {
+		t.Fatalf("the 101st new client must be a 429, got %v", err)
+	}
+	if _, err := s.RegisterClient(ctx, testPolicy, ClientRegistration{ClientName: "client 7", RedirectURIs: []string{ClaudeCallback}}, ip); err != nil {
+		t.Errorf("a client re-registering must not be refused by the limit: %v", err)
+	}
+}
+
+// A new password, and signing out everywhere else, end the account's MCP
+// connections along with its sessions: a connection is a credential that
+// outlives any session, and the person doing either suspects one is loose.
+func TestChangingThePasswordOrSigningOutElsewhereEndsMCPConnections(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		reason string
+		act    func(t *testing.T, s *Service, u *store.User)
+	}{
+		{"a password change", "password changed", func(t *testing.T, s *Service, u *store.User) {
+			if err := s.ChangePassword(t.Context(), u.ID, testPassword, "a different password entirely"); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"an administrator's reset", "password reset by an administrator", func(t *testing.T, s *Service, u *store.User) {
+			if err := s.ResetPassword(t.Context(), u.ID, "a different password entirely"); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"signing out other sessions", "signed out of other sessions", func(t *testing.T, s *Service, u *store.User) {
+			id := &Identity{Kind: KindUser, ID: u.ID, UserID: u.ID, Name: u.Username, Role: u.Role}
+			n, err := s.LogoutOthers(t.Context(), id, "")
+			if err != nil || n != 2 {
+				t.Fatalf("LogoutOthers = %d, %v; want both connections ended", n, err)
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, st, _ := newService(t)
+			ctx := t.Context()
+			u := addUser(t, st, "olive", store.RoleOperator, nil)
+			other := addUser(t, st, "pat", store.RoleOperator, nil)
+			cl, mine := connectForTest(t, s, u)
+			_, alsoMine := connectForTest(t, s, u)
+			_, theirs := connectForTest(t, s, other)
+
+			tc.act(t, s, u)
+
+			for _, pair := range []*TokenResponse{mine, alsoMine} {
+				if _, err := s.AuthenticateMCP(ctx, testPolicy, pair.AccessToken, ""); err == nil {
+					t.Error("the account's MCP access token must stop working")
+				}
+				if _, err := s.Token(ctx, testPolicy, ClientCredentials{ClientID: cl.ClientID}, TokenRequest{GrantType: "refresh_token", RefreshToken: pair.RefreshToken}, ""); err == nil {
+					t.Error("the account's MCP refresh token must stop working")
+				}
+			}
+			if _, err := s.AuthenticateMCP(ctx, testPolicy, theirs.AccessToken, ""); err != nil {
+				t.Errorf("somebody else's connection must be left alone: %v", err)
+			}
+			rows, _, err := st.ListAudit(ctx, store.AuditFilter{Actions: []string{"mcp_connection.revoke_all"}}, store.Page{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(rows) != 1 || rows[0].TargetID != u.ID || !strings.Contains(rows[0].After, tc.reason) {
+				t.Errorf("want one mcp_connection.revoke_all row for %s saying %q, got %+v", u.ID, tc.reason, rows)
+			}
+		})
 	}
 }

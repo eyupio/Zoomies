@@ -1092,3 +1092,43 @@ func TestPasswordVerificationHasAGlobalAdmissionBound(t *testing.T) {
 		t.Fatalf("saturated password verifier: %v", err)
 	}
 }
+
+// With password sign-in held to administrators, a correct password below that
+// is refused -- and only once it has been proved correct, so the refusal says
+// nothing about an account to somebody who does not hold its password. An
+// administrator is let through: that is the break-glass door for the day the
+// identity provider is what is broken.
+func TestARestrictedPasswordSignInLetsOnlyAdministratorsThrough(t *testing.T) {
+	restricted := true
+	for _, tc := range []struct {
+		name     string
+		role     store.Role
+		password string
+		want     error
+	}{
+		{"a viewer", store.RoleViewer, testPassword, ErrPasswordSignInOff},
+		{"an operator", store.RoleOperator, testPassword, ErrPasswordSignInOff},
+		{"an administrator", store.RoleAdmin, testPassword, nil},
+		{"a platform account", store.RolePlatform, testPassword, nil},
+		{"a viewer with the wrong password", store.RoleViewer, "not the password at all", ErrInvalidCredentials},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, st, _ := newService(t)
+			s.RestrictPasswordSignIn(func() bool { return restricted })
+			addUser(t, st, "someone", tc.role, nil)
+			_, _, err := s.Login(t.Context(), "someone", tc.password, "203.0.113.1", "test")
+			if !errors.Is(err, tc.want) && (err != nil || tc.want != nil) {
+				t.Fatalf("Login = %v, want %v", err, tc.want)
+			}
+		})
+	}
+
+	// The question is asked on every sign-in, so lifting it needs no restart.
+	s, st, _ := newService(t)
+	s.RestrictPasswordSignIn(func() bool { return restricted })
+	addUser(t, st, "viewer", store.RoleViewer, nil)
+	restricted = false
+	if _, _, err := s.Login(t.Context(), "viewer", testPassword, "203.0.113.1", "test"); err != nil {
+		t.Fatalf("with the restriction lifted a viewer signs in, got %v", err)
+	}
+}

@@ -952,6 +952,24 @@ func TestMCPOAuthFollowsTheDeployment(t *testing.T) {
 		{"authentication off", func(c *Config) { c.Security.DisableAuth = true; c.Security.MCPOAuth = &on }, false, "", ""},
 		{"forced on over plain http", func(c *Config) { c.Server.ExternalURL = "http://zoomies.example"; c.Security.MCPOAuth = &on }, true, "mcp_oauth.plain_http", SeverityWarning},
 		{"forced on on loopback", func(c *Config) { c.Security.MCPOAuth = &on }, true, "mcp_oauth.enabled", SeverityInfo},
+		// Off loopback with no external URL, every address the server
+		// advertises would come from a Host header the caller writes.
+		{"forced on on a public bind with no external URL", func(c *Config) {
+			c.Server.Bind = "0.0.0.0:8080"
+			c.Server.TLS.Mode = TLSSelfSigned
+			c.Security.MCPOAuth = &on
+		}, false, "mcp_oauth.no_external_url", SeverityError},
+		{"forced on on a public bind with an external URL", func(c *Config) {
+			c.Server.Bind = "0.0.0.0:8080"
+			c.Server.ExternalURL = "https://zoomies.example"
+			c.Security.MCPOAuth = &on
+		}, true, "mcp_oauth.enabled", SeverityInfo},
+		// Unset, the default never turns itself on into that error: an
+		// instance that started before must go on starting.
+		{"unset on a public bind with TLS and no external URL", func(c *Config) {
+			c.Server.Bind = "0.0.0.0:8080"
+			c.Server.TLS.Mode = TLSSelfSigned
+		}, false, "", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c := Default()
@@ -974,6 +992,9 @@ func TestMCPOAuthFollowsTheDeployment(t *testing.T) {
 			if len(got) != 1 || got[0].Code != tc.wantCode || got[0].Severity != tc.severity {
 				t.Fatalf("want one %s at %s, got %+v", tc.wantCode, tc.severity, got)
 			}
+			if tc.wantCode == "mcp_oauth.no_external_url" && !strings.Contains(got[0].Fix, "server.external_url") {
+				t.Errorf("the refusal must say what to set: %s", got[0].Fix)
+			}
 			if tc.wantCode == "mcp_oauth.enabled" && !strings.Contains(got[0].Fix, "claude mcp add --transport http") {
 				t.Errorf("the finding must say how to connect Claude: %s", got[0].Fix)
 			}
@@ -981,5 +1002,43 @@ func TestMCPOAuthFollowsTheDeployment(t *testing.T) {
 	}
 	if !Default().Security.MCPOpenRegistration {
 		t.Fatal("open registration must be on by default: a client that registers itself can still do nothing without a person's approval")
+	}
+}
+
+// Hiding the password form is a decision about single sign-on, so taking it
+// with single sign-on off is warned about: it does nothing today and locks
+// most people out of passwords the day somebody turns the provider on.
+func TestHidingThePasswordFormWithoutSingleSignOnIsWarnedAbout(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(*Config)
+		want   bool
+	}{
+		{"off", func(*Config) {}, false},
+		{"on without single sign-on", func(c *Config) { c.OIDC.HidePasswordLogin = true }, true},
+		{"on with single sign-on", func(c *Config) {
+			c.OIDC.HidePasswordLogin = true
+			c.OIDC.Enabled = true
+			c.OIDC.Issuer = "https://login.example"
+			c.OIDC.ClientID = "zoomies"
+			c.Server.ExternalURL = "https://zoomies.example"
+		}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := Default()
+			tc.mutate(c)
+			got := false
+			for _, f := range c.Validate() {
+				if f.Code == "oidc.password_login_hidden_without_sso" {
+					got = true
+					if f.Severity != SeverityWarning {
+						t.Errorf("severity = %s, want a warning", f.Severity)
+					}
+				}
+			}
+			if got != tc.want {
+				t.Fatalf("finding raised = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

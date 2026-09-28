@@ -433,6 +433,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/logout-others": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign out other sessions
+         * @description Ends every other session this account has, and every MCP connection it
+         *     holds, while this browser stays signed in. Audited as
+         *     `auth.logout_others`, and the connections as `mcp_connection.revoke_all`.
+         *     A session only; an API token has no sessions of its own and is a 403.
+         */
+        post: operations["logoutOthers"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/session": {
         parameters: {
             query?: never;
@@ -482,7 +505,7 @@ export interface paths {
         put?: never;
         /**
          * Change your own password
-         * @description Invalidates every other session belonging to this account.
+         * @description Invalidates every other session belonging to this account, and ends every MCP connection it holds (audited as `mcp_connection.revoke_all`).
          */
         post: operations["changeOwnPassword"];
         delete?: never;
@@ -2291,7 +2314,7 @@ export interface paths {
         };
         /**
          * List API tokens
-         * @description Metadata only. The token value exists in plaintext exactly once, at creation.
+         * @description Metadata only. The token value exists in plaintext exactly once, at creation. Your own tokens; everybody's with `tokens:read`, which is the administrator role.
          */
         get: operations["listTokens"];
         put?: never;
@@ -2303,6 +2326,8 @@ export interface paths {
          *     behind the caller -- the signed-in user, or the owner of the token in
          *     use -- so disabling or deleting that account ends it too. A token with
          *     no owner cannot mint tokens; anything wider than the caller is a 422.
+         *     Anybody signed in may mint their own, never above their own role.
+         *     Audited as `token.create`.
          */
         post: operations["createToken"];
         delete?: never;
@@ -2328,6 +2353,8 @@ export interface paths {
          *     without reading the list first. Each deletion is audited as
          *     `token.delete`, naming the token's prefix and never its value.
          *     Giving both `user_id` and `all` is ambiguous and answered with a 422.
+         *     Below administrator only your own may be purged; `user_id` naming
+         *     somebody else, or `all`, is a 403.
          */
         post: operations["purgeTokens"];
         delete?: never;
@@ -2356,6 +2383,8 @@ export interface paths {
          *     already revoked or expired; one that still works is a 409, because
          *     deleting is tidying up after a revocation and never a quieter way to
          *     do one. Both are audited (`token.revoke`, `token.delete`) by prefix.
+         *     Below administrator only your own; anybody else's is a 404, as if it
+         *     were not there.
          */
         delete: operations["revokeToken"];
         options?: never;
@@ -3304,8 +3333,13 @@ export interface components {
             /** @description True when authentication has been switched off in the configuration. */
             auth_disabled?: boolean;
             oidc_enabled?: boolean;
-            /** @example Sign in with Okta */
+            /**
+             * @description `oidc.label`, or "Sign in with" and the issuer's host.
+             * @example Sign in with Okta
+             */
             oidc_label?: string;
+            /** @description The sign-in page offers single sign-on alone: `oidc.hide_password_login` is on and single sign-on is working. An administrator can still ask for the form with /login?password. */
+            password_login_hidden?: boolean;
             external_url?: string;
             webhook_url?: string;
             /** @description True when no webhook has ever been received and the poller is doing the work. */
@@ -5906,6 +5940,8 @@ export interface components {
             expires_at?: string | null;
             /** Format: date-time */
             last_used_at?: string | null;
+            /** @description The account that minted the token. */
+            user_id?: string;
         };
         MCPClient: {
             /** @example oac_abcdefghijklm */
@@ -6619,6 +6655,15 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            /** @description The password was right, but `oidc.hide_password_login` is on, single sign-on is working, and the account is below administrator: sign in with single sign-on. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
             429: components["responses"]["RateLimited"];
         };
     };
@@ -6959,6 +7004,31 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    logoutOthers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Signed out elsewhere */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description How many MCP connections were ended with the sessions. */
+                        mcp_connections_ended: number;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     getSession: {

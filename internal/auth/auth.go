@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/config"
@@ -97,6 +98,9 @@ var (
 	// ErrSSOOnly means the account has no password because it comes from the
 	// identity provider.
 	ErrSSOOnly = errors.New("this account signs in with single sign-on; use the SSO button on the login page instead of a password")
+	// ErrPasswordSignInOff means oidc.hide_password_login is on, single
+	// sign-on is working, and the account is below administrator.
+	ErrPasswordSignInOff = errors.New("password sign-in is turned off here for everyone below administrator; use the single sign-on button on the sign-in page")
 	// ErrRateLimited means too many login attempts came from one address.
 	ErrRateLimited = errors.New("too many login attempts from this address; wait a minute and try again")
 	// ErrBadSetupToken means the bootstrap request carried no setup token, or
@@ -276,6 +280,22 @@ type Service struct {
 	adminMu sync.Mutex
 	// touched remembers when each token's last_used_at was last written.
 	touched sync.Map // token ID -> time.Time
+
+	// passwordRestricted, when set and answering true, refuses a correct
+	// password below administrator. The API sets it, because only the API
+	// knows whether single sign-on is working at this moment.
+	passwordRestricted atomic.Pointer[func() bool]
+}
+
+// RestrictPasswordSignIn hands the service the question "is password sign-in
+// held to administrators right now?", asked on every password sign-in. It is a
+// question rather than a flag because the answer moves without a restart: the
+// setting is live, and single sign-on can come up minutes after the process.
+func (s *Service) RestrictPasswordSignIn(fn func() bool) { s.passwordRestricted.Store(&fn) }
+
+func (s *Service) passwordSignInRestricted() bool {
+	fn := s.passwordRestricted.Load()
+	return fn != nil && (*fn)()
 }
 
 // Option customises a Service at construction.
@@ -660,6 +680,12 @@ func (s *Service) Login(ctx context.Context, username, password, ip, ua string) 
 	if u.Disabled {
 		return nil, "", ErrAccountDisabled
 	}
+	// Refused only after the password was proved, for the reason the two
+	// refusals above are: before that, "this account may not use a password"
+	// would say which accounts are administrators.
+	if !u.Role.AtLeast(store.RoleAdmin) && s.passwordSignInRestricted() {
+		return nil, "", ErrPasswordSignInOff
+	}
 
 	// A second step still to take is returned as an error, so a caller
 	// that does not know about it signs nobody in. The limiters are not reset
@@ -965,7 +991,33 @@ func (s *Service) ChangePassword(ctx context.Context, userID, oldPassword, newPa
 		s.logger.Warn("could not end existing sessions after password change",
 			"user", u.Username, "error", err)
 	}
+	s.revokeMCPConnectionsOf(ctx, userIdentity(u), u.ID, "password changed")
 	return nil
+}
+
+// LogoutOthers ends every session of an account but the one making the
+// request, identified by its plaintext cookie, and every MCP connection the
+// account holds: "sign me out everywhere else" is said by somebody who thinks
+// a credential of theirs is somewhere it should not be, and a connected client
+// is one. It returns how many connections it ended.
+func (s *Service) LogoutOthers(ctx context.Context, actor *Identity, keep string) (int, error) {
+	if actor == nil || actor.ID == "" || actor.Kind != KindUser {
+		return 0, Invalid("only a signed-in person has other sessions to end")
+	}
+	keepHash := ""
+	if keep != "" {
+		keepHash = cryptox.HashToken(keep)
+	}
+	if err := s.store.DeleteUserSessionsExcept(ctx, actor.ID, keepHash); err != nil {
+		return 0, fmt.Errorf("ending other sessions: %w", err)
+	}
+	return s.revokeMCPConnectionsOf(ctx, actor, actor.ID, "signed out of other sessions"), nil
+}
+
+// userIdentity is an account acting on itself, for the audit rows written by
+// a change it made to its own credentials.
+func userIdentity(u *store.User) *Identity {
+	return &Identity{Kind: KindUser, ID: u.ID, UserID: u.ID, Name: u.Username, Role: u.Role}
 }
 
 // CheckPassword enforces the one password rule the product has.
@@ -1158,6 +1210,9 @@ func (s *Service) ResetPassword(ctx context.Context, userID, newPassword string)
 		s.logger.Warn("could not end existing sessions after password reset",
 			"user", u.Username, "error", err)
 	}
+	// Attributed to the account, because this layer is not told who reset
+	// it; the handler's own user.password_reset row names the administrator.
+	s.revokeMCPConnectionsOf(ctx, userIdentity(u), u.ID, "password reset by an administrator")
 	return nil
 }
 

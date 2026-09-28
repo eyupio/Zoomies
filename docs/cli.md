@@ -214,8 +214,8 @@ It needs an admin token, because the document contains the settings section.
 | `users passwd <user-id>` | Set a password. Read from the terminal without echo, or from stdin when piped — never a flag, because a password in a flag is a password in the shell history. |
 | `users reset-two-step <user-id>` | Turn off two-step verification for somebody who has lost their authenticator and their recovery codes. Their sessions end and the reset is audited; see [Two-step verification](two-step.md#lost-your-phone). |
 | `users delete <user-id>` | Refused if it would leave no enabled administrator. |
-| `tokens list` | Metadata only. The value is not stored. |
-| `tokens create` | `--name`, `--role`, repeatable `--scope`, `--expires-in`. Printed once; only its hash is kept. |
+| `tokens list` | Metadata only. The value is not stored. Your own tokens; everybody's for an administrator. |
+| `tokens create` | `--name`, `--role`, repeatable `--scope`, `--expires-in`. Printed once; only its hash is kept. Anybody signed in may mint their own, never above their own role. |
 | `tokens revoke <token-id>` | Immediate. The row stays, marked revoked. |
 | `tokens delete <token-id>` | Removes a revoked or expired token from the list for good. A token that still works is refused — revoke it first. The audit log keeps the revocation and the deletion, by prefix. |
 | `tokens purge` | Deletes every revoked or expired token you own; `--user <id>` for one account's, `--all` for every one you can see. Tokens that still work are left alone. |

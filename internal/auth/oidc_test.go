@@ -410,3 +410,28 @@ func TestEnsureUser(t *testing.T) {
 		}
 	})
 }
+
+// A provider that cannot be reached is worth trying again; a configuration
+// that is missing a setting is not, because nothing will change until
+// somebody changes it. The API's retry loop tells the two apart by this.
+func TestAnUnreachableProviderIsADiscoveryFailureAndAMissingSettingIsNot(t *testing.T) {
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "down for maintenance", http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(down.Close)
+	cfg := config.Default().OIDC
+	cfg.Enabled, cfg.Issuer, cfg.ClientID, cfg.ClientSecret = true, down.URL, "zoomies", "shh"
+
+	_, err := NewOIDC(t.Context(), cfg, "https://zoomies.example.com")
+	if !errors.Is(err, ErrOIDCDiscovery) {
+		t.Fatalf("an unreachable provider = %v; want ErrOIDCDiscovery", err)
+	}
+	if !strings.Contains(err.Error(), "oidc.issuer") {
+		t.Errorf("the message must still say what to check: %v", err)
+	}
+
+	cfg.ClientSecret = ""
+	if _, err := NewOIDC(t.Context(), cfg, "https://zoomies.example.com"); err == nil || errors.Is(err, ErrOIDCDiscovery) {
+		t.Errorf("a missing client secret = %v; want a configuration error, not a discovery failure", err)
+	}
+}

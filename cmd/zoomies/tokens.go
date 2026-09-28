@@ -12,7 +12,7 @@ import (
 // anything else, talk to the API.
 func runTokens(ctx context.Context, e *env, args []string) error {
 	return runGroup(ctx, e, "tokens", "API tokens. The value exists in plaintext exactly once, at creation.", []*subcommand{
-		{"list", "", "Every token's metadata; never its value", tokensList},
+		{"list", "", "Your tokens' metadata, or everybody's for an administrator; never the value", tokensList},
 		{"create", "--name <n> --role <r>", "Mint a token and print it once", tokensCreate},
 		{"revoke", "<token-id>", "Revoke a token immediately", tokensRevoke},
 		{"delete", "<token-id>", "Remove a revoked or expired token from the list", tokensDelete},
@@ -21,7 +21,7 @@ func runTokens(ctx context.Context, e *env, args []string) error {
 }
 
 func tokensList(ctx context.Context, e *env, args []string) error {
-	fs := newFlagSet(e, "zoomies tokens list", "List API tokens. Metadata only -- the value is not stored.")
+	fs := newFlagSet(e, "zoomies tokens list", "List API tokens: your own, or everybody's for an administrator. Metadata only -- the value is not stored.")
 	cf := registerClientFlags(fs, true)
 	if err := fs.parse(args); err != nil {
 		return err
@@ -81,7 +81,7 @@ func tokensList(ctx context.Context, e *env, args []string) error {
 
 func tokensCreate(ctx context.Context, e *env, args []string) error {
 	fs := newFlagSet(e, "zoomies tokens create --name <name> --role <viewer|operator|admin|platform>",
-		"Mint an API token. It is printed once and only its hash is kept.")
+		"Mint an API token of your own, at a role no higher than yours. It is printed once and only its hash is kept.")
 	cf := registerClientFlags(fs, true)
 	name := fs.String("name", "", "what this token is for, e.g. my-laptop or prometheus (required)")
 	role := fs.String("role", "viewer", "viewer, operator, admin or platform")

@@ -280,6 +280,13 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/SignInChallenge" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403":
+          description: >-
+            The password was right, but `oidc.hide_password_login` is on, single sign-on is
+            working, and the account is below administrator: sign in with single sign-on.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
         "429": { $ref: "#/components/responses/RateLimited" }
 
   /auth/two-step/verify:
@@ -543,6 +550,30 @@ paths:
       responses:
         "204": { description: Signed out }
 
+  /auth/logout-others:
+    post:
+      operationId: logoutOthers
+      tags: [auth]
+      summary: Sign out other sessions
+      description: |
+        Ends every other session this account has, and every MCP connection it
+        holds, while this browser stays signed in. Audited as
+        `auth.logout_others`, and the connections as `mcp_connection.revoke_all`.
+        A session only; an API token has no sessions of its own and is a 403.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: Signed out elsewhere
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [mcp_connections_ended]
+                properties:
+                  mcp_connections_ended: { type: integer, description: How many MCP connections were ended with the sessions. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
   /auth/session:
     get:
       operationId: getSession
@@ -596,7 +627,9 @@ paths:
       operationId: changeOwnPassword
       tags: [auth]
       summary: Change your own password
-      description: Invalidates every other session belonging to this account.
+      description: >-
+        Invalidates every other session belonging to this account, and ends every MCP
+        connection it holds (audited as `mcp_connection.revoke_all`).
       x-zoomies-role: viewer
       requestBody:
         required: true
@@ -3436,8 +3469,10 @@ paths:
       operationId: listTokens
       tags: [admin]
       summary: List API tokens
-      description: Metadata only. The token value exists in plaintext exactly once, at creation.
-      x-zoomies-role: admin
+      description: >-
+        Metadata only. The token value exists in plaintext exactly once, at creation.
+        Your own tokens; everybody's with `tokens:read`, which is the administrator role.
+      x-zoomies-role: viewer
       responses:
         "200":
           description: OK
@@ -3458,7 +3493,9 @@ paths:
         behind the caller -- the signed-in user, or the owner of the token in
         use -- so disabling or deleting that account ends it too. A token with
         no owner cannot mint tokens; anything wider than the caller is a 422.
-      x-zoomies-role: admin
+        Anybody signed in may mint their own, never above their own role.
+        Audited as `token.create`.
+      x-zoomies-role: viewer
       requestBody:
         required: true
         content:
@@ -3498,7 +3535,9 @@ paths:
         without reading the list first. Each deletion is audited as
         `token.delete`, naming the token's prefix and never its value.
         Giving both `user_id` and `all` is ambiguous and answered with a 422.
-      x-zoomies-role: admin
+        Below administrator only your own may be purged; `user_id` naming
+        somebody else, or `all`, is a 403.
+      x-zoomies-role: viewer
       requestBody:
         required: false
         content:
@@ -3532,7 +3571,9 @@ paths:
         already revoked or expired; one that still works is a 409, because
         deleting is tidying up after a revocation and never a quieter way to
         do one. Both are audited (`token.revoke`, `token.delete`) by prefix.
-      x-zoomies-role: admin
+        Below administrator only your own; anybody else's is a 404, as if it
+        were not there.
+      x-zoomies-role: viewer
       parameters:
         - name: purge
           in: query
@@ -4788,7 +4829,12 @@ components:
         tailcat_available: { type: boolean, description: Whether private enrolment is enabled and the controller has its encryption key. Relay connectivity is checked at enrolment. }
         auth_disabled: { type: boolean, description: True when authentication has been switched off in the configuration. }
         oidc_enabled: { type: boolean }
-        oidc_label: { type: string, examples: ["Sign in with Okta"] }
+        oidc_label: { type: string, examples: ["Sign in with Okta"], description: "`oidc.label`, or \"Sign in with\" and the issuer's host." }
+        password_login_hidden:
+          type: boolean
+          description: >-
+            The sign-in page offers single sign-on alone: `oidc.hide_password_login` is on and
+            single sign-on is working. An administrator can still ask for the form with /login?password.
         external_url: { type: string }
         webhook_url: { type: string }
         polling_only: { type: boolean, description: True when no webhook has ever been received and the poller is doing the work. }
@@ -7554,6 +7600,7 @@ components:
         created_at: { type: string, format: date-time }
         expires_at: { type: [string, "null"], format: date-time }
         last_used_at: { type: [string, "null"], format: date-time }
+        user_id: { type: string, description: The account that minted the token. }
 
     MCPClient:
       type: object
