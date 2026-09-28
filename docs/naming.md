@@ -199,8 +199,8 @@ fail at the first job.
 ### Baking in a toolchain
 
 The image already carries what a build usually reaches for — a compiler, the
-headers native extensions link against, `python3`, `node`, `git-lfs` and the
-GitHub CLI — because a runner missing `cc` is a workflow that fails in the
+headers native extensions link against, `python3`, `node`, `git-lfs`, `shellcheck` and
+the GitHub CLI — because a runner missing `cc` is a workflow that fails in the
 middle of somebody's afternoon with an error about a missing compiler rather
 than about this image.
 

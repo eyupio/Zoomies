@@ -975,6 +975,7 @@ and the toolchain a build typically reaches for without saying so:
 | Source and transfer | `git`, `git-lfs`, `curl`, `wget`, `rsync`, `openssh-client`, `gnupg` |
 | Archives | `tar`, `gzip`, `xz-utils`, `bzip2`, `zstd`, `zip`, `unzip` |
 | GitHub | the `gh` CLI |
+| Linting | `shellcheck` |
 | Diagnostics | `jq`, `file`, `netcat-openbsd`, `dnsutils`, `iputils-ping`, `net-tools`, `lsb-release` |
 
 `python3` and `nodejs` are a floor, not a choice about versions: `setup-python`
