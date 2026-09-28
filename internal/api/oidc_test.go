@@ -61,8 +61,8 @@ func loginError(t *testing.T, res *response) string {
 // victim in as the attacker.
 func TestOIDCCallbackIsBoundToTheBrowserThatStartedIt(t *testing.T) {
 	h := oidcHarness(t)
-	if h.api.oidcErr != nil {
-		t.Fatalf("single sign-on did not set up: %v", h.api.oidcErr)
+	if h.api.oidcFailure() != nil {
+		t.Fatalf("single sign-on did not set up: %v", h.api.oidcFailure())
 	}
 
 	start := h.do(request{method: http.MethodGet, path: "/api/v1/auth/oidc/start"})
@@ -125,8 +125,8 @@ func TestOIDCStartIsRateLimited(t *testing.T) {
 		c.OIDC = config.OIDC{Enabled: true, Issuer: issuer.URL, ClientID: "zoomies", ClientSecret: "secret"}
 		c.Security.RateLimitLogins = 2
 	})
-	if h.api.oidcErr != nil {
-		t.Fatalf("single sign-on did not set up: %v", h.api.oidcErr)
+	if h.api.oidcFailure() != nil {
+		t.Fatalf("single sign-on did not set up: %v", h.api.oidcFailure())
 	}
 	for i := 0; i < 2; i++ {
 		res := h.do(request{method: http.MethodGet, path: "/api/v1/auth/oidc/start"})

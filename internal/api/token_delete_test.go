@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -183,18 +184,17 @@ func TestPurgingTokensTakesOnlySpentOnesFromTheOwnersAskedFor(t *testing.T) {
 	}
 }
 
-// Managing tokens is an administrator's job, and a refusal says so.
-func TestDeletingTokensNeedsAnAdministrator(t *testing.T) {
+// Anybody may purge their own spent tokens; anybody else's is an
+// administrator's to purge, and the refusal says so.
+func TestPurgingEverybodysTokensNeedsAnAdministrator(t *testing.T) {
 	h := newHarness(t)
 	_, cookie := h.user("watcher", store.RoleOperator)
-	for _, req := range []request{
-		{method: http.MethodDelete, path: "/api/v1/tokens/tok_x?purge=true", cookie: cookie},
-		{method: http.MethodPost, path: "/api/v1/tokens/purge", cookie: cookie},
-	} {
-		resp := h.do(req)
-		resp.mustStatus(t, http.StatusForbidden, req.path)
+	other, _ := h.user("colleague", store.RoleOperator)
+	for _, body := range []map[string]any{{"all": true}, {"user_id": other.ID}} {
+		resp := h.do(request{method: http.MethodPost, path: "/api/v1/tokens/purge", cookie: cookie, body: body})
+		resp.mustStatus(t, http.StatusForbidden, fmt.Sprint(body))
 		if !strings.Contains(strings.ToLower(resp.errorMessage(t)), "admin") {
-			t.Errorf("%s: the refusal does not name the role: %q", req.path, resp.errorMessage(t))
+			t.Errorf("%v: the refusal does not name the role: %q", body, resp.errorMessage(t))
 		}
 	}
 }

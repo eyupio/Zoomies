@@ -84,7 +84,11 @@ const (
 	// A connection's last_used_at is written at most this often.
 	mcpTouchInterval = time.Minute
 
-	mcpRegistrationsPerHour   = 20
+	// A client that registers afresh on every start is handed the
+	// registration it already has and costs nothing here, so the limit is
+	// only ever met by genuinely new clients -- a hundred an hour from one
+	// address is an office behind one NAT, not an attack.
+	mcpRegistrationsPerHour   = 100
 	mcpTokenRequestsPerMinute = 60
 )
 
@@ -146,9 +150,6 @@ func (s *Service) RegisterClient(ctx context.Context, p OAuthPolicy, in ClientRe
 			"this controller does not let clients register themselves (security.mcp_open_registration is off); "+
 				"ask an administrator for a client ID from Settings, MCP clients")
 	}
-	if !s.registrations.Allow(ip) {
-		return nil, oauthErr(429, "too_many_requests", "too many client registrations from this address; wait and try again")
-	}
 	switch in.TokenEndpointAuthMethod {
 	case "", "none":
 	default:
@@ -171,6 +172,19 @@ func (s *Service) RegisterClient(ctx context.Context, p OAuthPolicy, in ClientRe
 		return nil, err
 	}
 	name := clientName(in.ClientName, in.ClientURI, redirects)
+	// The same client describing itself the same way is the same client: an
+	// MCP client that registers on every start would otherwise leave a row
+	// per start, each one a line on the clients page that nobody can tell
+	// apart from the last. A self-registered client is public and its ID is
+	// no secret, so handing it back proves nothing it did not already say.
+	if existing, err := s.store.FindOAuthRegistration(ctx, name, safeHTTPS(in.ClientURI), redirects); err == nil {
+		return existing, nil
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return nil, fmt.Errorf("looking for an earlier registration: %w", err)
+	}
+	if !s.registrations.Allow(ip) {
+		return nil, oauthErr(429, "too_many_requests", "too many client registrations from this address; wait and try again")
+	}
 	c := &store.OAuthClient{
 		Kind:         store.OAuthClientDynamic,
 		Name:         name,
@@ -1159,6 +1173,32 @@ func (s *Service) RevokeMCPConnection(ctx context.Context, actor *Identity, id, 
 		"client": g.ClientName, "user": g.Username, "role": string(g.Role),
 	})
 	return nil
+}
+
+// revokeMCPConnectionsOf ends every MCP connection an account holds, because
+// something happened to the account that should end its other credentials
+// too: a new password, or its owner signing out everywhere else. A connection
+// is a credential that outlives any session, so leaving it would leave the
+// one thing a person changing a stolen password most needs to end.
+//
+// It is best effort, like ending the sessions it accompanies: the password has
+// already changed by the time it runs, and failing the whole request over the
+// second half would tell the person it had not.
+func (s *Service) revokeMCPConnectionsOf(ctx context.Context, actor *Identity, userID, why string) int {
+	ids, err := s.store.RevokeUserOAuthGrants(ctx, userID, why)
+	if err != nil {
+		s.logger.Warn("could not end an account's MCP connections", "user_id", userID, "reason", why, "error", err)
+		return 0
+	}
+	for _, id := range ids {
+		s.touched.Delete(id)
+	}
+	if len(ids) > 0 {
+		s.audit.Act(ctx, actor, "mcp_connection.revoke_all", "user", userID, map[string]any{
+			"reason": why, "connections": len(ids),
+		})
+	}
+	return len(ids)
 }
 
 // ---------------------------------------------------------------------------

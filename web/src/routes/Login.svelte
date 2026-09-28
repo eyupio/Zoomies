@@ -69,6 +69,15 @@
     untrack(() => new URLSearchParams(location.search).get('error')?.trim() ?? ''),
   );
   /**
+   * The break-glass door. With oidc.hide_password_login on, the page offers
+   * single sign-on alone -- but the day the identity provider is what is
+   * broken, an administrator still needs a way in, and /login?password is it.
+   * The server refuses a password below administrator either way; this only
+   * decides whether the form is drawn.
+   */
+  const passwordAsked = untrack(() => new URLSearchParams(location.search).has('password'));
+  const passwordForm = $derived(!session.meta?.password_login_hidden || passwordAsked);
+  /**
    * The MCP consent screen shows this form in place when nobody is signed
    * in, and single sign-on leaves the page, so it is told where to come back.
    */
@@ -497,28 +506,29 @@
           </p>
         {/if}
 
-        <form onsubmit={submit} novalidate>
-          <Field label="Username" error={usernameError}>
-            {#snippet children({ id, describedBy, invalid })}
-              <Input
-                bind:value={username}
-                bind:element={usernameInput}
-                {id}
-                {describedBy}
-                {invalid}
-                size="lg"
-                name="username"
-                autocomplete="username"
-                autocapitalize="none"
-                spellcheck={false}
-                disabled={submitting}
-                onkeydown={readCapsLock}
-                onblur={() => (touched = { ...touched, username: true })}
-              />
-            {/snippet}
-          </Field>
+        {#if passwordForm}
+          <form onsubmit={submit} novalidate>
+            <Field label="Username" error={usernameError}>
+              {#snippet children({ id, describedBy, invalid })}
+                <Input
+                  bind:value={username}
+                  bind:element={usernameInput}
+                  {id}
+                  {describedBy}
+                  {invalid}
+                  size="lg"
+                  name="username"
+                  autocomplete="username"
+                  autocapitalize="none"
+                  spellcheck={false}
+                  disabled={submitting}
+                  onkeydown={readCapsLock}
+                  onblur={() => (touched = { ...touched, username: true })}
+                />
+              {/snippet}
+            </Field>
 
-          <!-- The caps-lock warning goes in `notice`, not `hint`: hint is the
+            <!-- The caps-lock warning goes in `notice`, not `hint`: hint is the
                branch Field drops the moment there is an error, which is exactly
                when caps lock is most likely to be the reason for one.
 
@@ -528,56 +538,68 @@
                instance was set up", which is true of the first administrator
                and of nobody else: every other password was set by an
                administrator, and an administrator is also who can reset it. -->
-          <Field
-            label="Password"
-            hint="Forgotten it? An administrator can reset it."
-            error={passwordError}
-            notice={capsLock ? 'Caps lock is on.' : undefined}
-          >
-            {#snippet children({ id, describedBy, invalid })}
-              <Input
-                bind:value={password}
-                bind:element={passwordInput}
-                {id}
-                {describedBy}
-                {invalid}
-                size="lg"
-                type={revealed ? 'text' : 'password'}
-                name="password"
-                autocomplete="current-password"
-                disabled={submitting}
-                onkeydown={readCapsLock}
-                onblur={() => {
-                  touched = { ...touched, password: true };
-                  capsLock = false;
-                }}
-              >
-                {#snippet trailing()}
-                  <IconButton
-                    icon={revealed ? EyeOff : Eye}
-                    label={revealed ? 'Hide password' : 'Show password'}
-                    pressed={revealed}
-                    disabled={submitting}
-                    onclick={() => {
-                      revealed = !revealed;
-                      passwordInput?.focus();
-                    }}
-                  />
-                {/snippet}
-              </Input>
-            {/snippet}
-          </Field>
+            <Field
+              label="Password"
+              hint="Forgotten it? An administrator can reset it."
+              error={passwordError}
+              notice={capsLock ? 'Caps lock is on.' : undefined}
+            >
+              {#snippet children({ id, describedBy, invalid })}
+                <Input
+                  bind:value={password}
+                  bind:element={passwordInput}
+                  {id}
+                  {describedBy}
+                  {invalid}
+                  size="lg"
+                  type={revealed ? 'text' : 'password'}
+                  name="password"
+                  autocomplete="current-password"
+                  disabled={submitting}
+                  onkeydown={readCapsLock}
+                  onblur={() => {
+                    touched = { ...touched, password: true };
+                    capsLock = false;
+                  }}
+                >
+                  {#snippet trailing()}
+                    <IconButton
+                      icon={revealed ? EyeOff : Eye}
+                      label={revealed ? 'Hide password' : 'Show password'}
+                      pressed={revealed}
+                      disabled={submitting}
+                      onclick={() => {
+                        revealed = !revealed;
+                        passwordInput?.focus();
+                      }}
+                    />
+                  {/snippet}
+                </Input>
+              {/snippet}
+            </Field>
 
-          <Button type="submit" variant="primary" size="lg" full loading={submitting}>
-            Sign in
-          </Button>
-        </form>
+            <Button type="submit" variant="primary" size="lg" full loading={submitting}>
+              Sign in
+            </Button>
+          </form>
+        {/if}
 
         {#if meta?.oidc_enabled}
-          <div class="divider"><span>or</span></div>
-          <Button href={oidcStartUrl(returnTo)} size="lg" full
-            >{meta.oidc_label ?? 'Sign in with SSO'}</Button
+          {#if passwordForm}
+            <div class="divider"><span>or</span></div>
+          {/if}
+          <Button
+            href={oidcStartUrl(returnTo)}
+            variant={passwordForm ? 'secondary' : 'primary'}
+            size="lg"
+            full>{meta.oidc_label ?? 'Sign in with SSO'}</Button
           >
+          {#if !passwordForm}
+            <p class="note">
+              An administrator who cannot use single sign-on can
+              <a href="/login?password">sign in with a password</a>.
+            </p>
+          {/if}
         {/if}
       {/if}
     </div>

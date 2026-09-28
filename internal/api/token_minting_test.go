@@ -70,8 +70,8 @@ func TestATokenCannotMintPastItself(t *testing.T) {
 func TestAnOperatorCannotMintAnAdminToken(t *testing.T) {
 	h := newHarness(t)
 	_, cookie := h.user("ops", store.RoleOperator)
-	// Operators cannot reach the minting route at all, which is the first
-	// gate; the cap is the second, for the roles that can.
+	// Anybody signed in may mint their own tokens, so the cap on the role is
+	// the gate that matters here.
 	resp := h.do(request{method: http.MethodPost, path: "/api/v1/tokens", cookie: cookie,
 		body: map[string]any{"name": "escaped", "role": "admin"}})
 	if resp.status == http.StatusCreated {

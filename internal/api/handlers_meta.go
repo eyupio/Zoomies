@@ -32,9 +32,14 @@ type metaResponse struct {
 	AuthDisabled      bool   `json:"auth_disabled"`
 	OIDCEnabled       bool   `json:"oidc_enabled"`
 	OIDCLabel         string `json:"oidc_label,omitempty"`
-	ExternalURL       string `json:"external_url,omitempty"`
-	WebhookURL        string `json:"webhook_url,omitempty"`
-	PollingOnly       bool   `json:"polling_only"`
+	// PasswordLoginHidden says the sign-in page should offer single sign-on
+	// alone. It is true only while single sign-on is working, so a provider
+	// that is down never leaves the page with no way in; an administrator
+	// can still ask for the form with /login?password.
+	PasswordLoginHidden bool   `json:"password_login_hidden,omitempty"`
+	ExternalURL         string `json:"external_url,omitempty"`
+	WebhookURL          string `json:"webhook_url,omitempty"`
+	PollingOnly         bool   `json:"polling_only"`
 	// PollerEnabled and PollerLastPollAt say whether the safety net is there
 	// and when it last ran. They sit beside polling_only because they are the
 	// same class of fact about this deployment, and none of the three tells an
@@ -81,7 +86,7 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 		Commit:                      version.Commit,
 		BootstrapRequired:           needsBootstrap,
 		AuthDisabled:                s.cfg().Security.DisableAuth,
-		OIDCEnabled:                 s.oidc.Enabled(),
+		OIDCEnabled:                 s.oidcProvider().Enabled(),
 		ExternalURL:                 s.cfg().Server.ExternalURL,
 		WebhookURL:                  s.cfg().WebhookURL(),
 		PollingOnly:                 s.ctrl.PollingOnly(),
@@ -98,16 +103,19 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 		out.PollerLastPollAt = &last
 	}
 	if out.OIDCEnabled {
-		out.OIDCLabel = oidcLabel(s.cfg().OIDC.Issuer)
+		out.OIDCLabel = oidcLabel(s.cfg().OIDC.Label, s.cfg().OIDC.Issuer)
+		out.PasswordLoginHidden = s.passwordLoginHidden()
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
-// oidcLabel turns an issuer URL into the words on the sign-in button. There is
-// no setting for it: the issuer's host is what an operator recognises, and one
-// more string to keep in step with the identity provider is one more thing to
-// get wrong.
-func oidcLabel(issuer string) string {
+// oidcLabel is the words on the sign-in button: oidc.label when an operator
+// has chosen some, and otherwise the issuer's host, which is what an operator
+// recognises without being told.
+func oidcLabel(label, issuer string) string {
+	if label = strings.TrimSpace(label); label != "" {
+		return label
+	}
 	host := issuer
 	if u, err := url.Parse(issuer); err == nil && u.Host != "" {
 		host = u.Host

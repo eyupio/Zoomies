@@ -61,11 +61,11 @@ type Server struct {
 	// streamHeartbeat is Options.StreamHeartbeat, defaulted.
 	streamHeartbeat time.Duration
 
-	// oidc is nil when single sign-on is off or its discovery failed at
-	// startup; oidcErr then carries the reason, which the SSO routes report
-	// rather than pretending the button was never there.
-	oidc    *auth.OIDCProvider
-	oidcErr error
+	// sso is single sign-on: the provider once discovery has worked, or why
+	// it has not. See sso.go.
+	sso ssoState
+	// oidcRetry is the first wait before discovery is tried again.
+	oidcRetry time.Duration
 
 	spa *spaHandler
 	csp string
@@ -114,6 +114,7 @@ func New(opts Options) (*Server, error) {
 		log:             log,
 		manifests:       newManifestStates(opts.Controller.Now),
 		streamHeartbeat: beat,
+		oidcRetry:       oidcRetryMin,
 	}
 
 	spa, err := newSPAHandler(cfg.Server.ExternalURL, cfg.Server.AllowIndexing)
@@ -156,6 +157,7 @@ func New(opts Options) (*Server, error) {
 	}
 
 	s.initOIDC()
+	s.auth.RestrictPasswordSignIn(s.passwordLoginHidden)
 	s.handler = s.routes()
 	return s, nil
 }
@@ -164,27 +166,6 @@ func New(opts Options) (*Server, error) {
 // to serve from a listener of the caller's own, which is what the tests and the
 // installer's health check do.
 func (s *Server) Handler() http.Handler { return s.handler }
-
-// initOIDC discovers the identity provider, if there is one.
-//
-// A provider that is down when the controller boots must not stop the
-// controller booting: password login still works, and the login page needs to
-// come up to say so. The error is kept and returned by the SSO routes.
-func (s *Server) initOIDC() {
-	if !s.cfg().OIDC.Enabled {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	p, err := auth.NewOIDC(ctx, s.cfg().OIDC, s.cfg().Server.ExternalURL)
-	if err != nil {
-		s.oidcErr = err
-		s.log.Error("single sign-on is configured but could not be set up; password login still works",
-			"issuer", s.cfg().OIDC.Issuer, "error", err)
-		return
-	}
-	s.oidc = p
-}
 
 // loadKey resolves the instance encryption key from the same configuration the
 // controller was built with.
@@ -277,6 +258,7 @@ const shutdownGrace = 15 * time.Second
 // bind.
 func (s *Server) ListenAndServe(ctx context.Context) error {
 	defer s.closeTailcat()
+	go s.retryOIDC(ctx)
 	if err := s.resumeTailcat(ctx, tailcatCheckInterval, tailcatHealthyInterval); err != nil {
 		return err
 	}

@@ -155,6 +155,7 @@ func (s *Server) apiRoutes() chi.Router {
 		// Every authenticated identity may end its own session, see itself and
 		// change its own password; there is no separate role for that.
 		r.Post("/auth/logout", s.handleLogout)
+		r.Post("/auth/logout-others", s.handleLogoutOthers)
 		r.Get("/auth/session", s.handleSession)
 		r.Get("/auth/preferences", s.handleGetPreferences)
 		r.Put("/auth/preferences", s.handlePutPreferences)
@@ -360,10 +361,12 @@ func (s *Server) apiRoutes() chi.Router {
 			r.With(s.require(auth.ActionMCPClientsWrite)).Delete("/{id}", s.handleRevokeMCPConnection)
 		})
 		r.Route("/tokens", func(r chi.Router) {
-			r.With(s.require(auth.ActionTokensRead)).Get("/", s.handleListTokens)
-			r.With(s.require(auth.ActionTokensWrite)).Post("/", s.handleCreateToken)
-			r.With(s.require(auth.ActionTokensWrite)).Post("/purge", s.handlePurgeTokens)
-			r.With(s.require(auth.ActionTokensWrite)).Delete("/{id}", s.handleRevokeToken)
+			// Anybody signed in manages their own; tokens.read and
+			// tokens.write, checked inside, reach everybody's.
+			r.With(s.require(auth.ActionTokensOwn)).Get("/", s.handleListTokens)
+			r.With(s.require(auth.ActionTokensOwn)).Post("/", s.handleCreateToken)
+			r.With(s.require(auth.ActionTokensOwn)).Post("/purge", s.handlePurgeTokens)
+			r.With(s.require(auth.ActionTokensOwn)).Delete("/{id}", s.handleRevokeToken)
 		})
 		// Recovery: the fence a restore sets, and the one act that lifts it.
 		r.With(s.require(auth.ActionStatsRead)).Get("/recovery", s.handleGetRecovery)

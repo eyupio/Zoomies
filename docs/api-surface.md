@@ -69,10 +69,11 @@ Conventions:
 | POST | `/api/v1/auth/two-step/enrol` | — | For a pending sign-in whose step is `enrol`: a new key, as for `/auth/two-step/setup`. |
 | POST | `/api/v1/auth/two-step/enrol/confirm` | — | `{code}` from the new authenticator: turns two-step on, signs in, and returns the ten recovery codes, shown once. |
 | POST | `/api/v1/auth/logout` | viewer | Clears the session. |
+| POST | `/api/v1/auth/logout-others` | viewer | Ends every other session of the caller's account and every MCP connection it holds; this browser stays signed in. Returns `{mcp_connections_ended}`. A session only. Audited as `auth.logout_others` and `mcp_connection.revoke_all`. |
 | GET | `/api/v1/auth/session` | viewer | The current identity: id, name, role, scopes, `must_change_password`. |
 | GET | `/api/v1/auth/preferences` | viewer | The current account's private table widths and column order. Non-account identities receive an empty document. |
 | PUT | `/api/v1/auth/preferences` | viewer | Replace the signed-in account's private table-layout document. API tokens cannot save one because they are not an account. |
-| POST | `/api/v1/auth/password` | viewer | `{old_password, new_password}` for the caller's own account. Invalidates the caller's other sessions. |
+| POST | `/api/v1/auth/password` | viewer | `{old_password, new_password}` for the caller's own account. Invalidates the caller's other sessions and ends every MCP connection the account holds (audited as `mcp_connection.revoke_all`). |
 | GET | `/api/v1/auth/two-step` | viewer | The caller's own two-step state: `available` (false for single sign-on), `enabled`, `enabled_at`, `recovery_codes_left`, `required`. Refused for an API token, which is never asked for a code. |
 | POST | `/api/v1/auth/two-step/setup` | viewer | A new key — `secret`, `otpauth_uri`, and `qr_svg`, the address drawn as a QR code by the controller — not in force until confirmed. 409 when two-step is already on. |
 | POST | `/api/v1/auth/two-step/confirm` | viewer | `{code}`: turns two-step on, ends the account's other sessions, and returns ten single-use `recovery_codes`, shown once. |
@@ -352,10 +353,10 @@ for: Contents (write), Pull requests (write) and Workflows (write).
 | DELETE | `/api/v1/users/{id}` | admin | Same refusal. |
 | POST | `/api/v1/users/{id}/password` | admin | Admin reset; sets `must_change_password`. |
 | DELETE | `/api/v1/users/{id}/two-step` | admin | Reset a lost authenticator: removes the account's key and recovery codes and ends its sessions. Audited as `user.two_step_reset`. |
-| GET | `/api/v1/tokens` | admin | Metadata only. |
-| POST | `/api/v1/tokens` | admin | `{name, role, scopes, expires_in}` → the plaintext **once**. |
-| DELETE | `/api/v1/tokens/{id}` | admin | Revokes; the row stays, marked `revoked`. With `?purge=true`, deletes a token that is already revoked or expired, and answers `409` for one that still works. Both are audited by prefix (`token.revoke`, `token.delete`). |
-| POST | `/api/v1/tokens/purge` | admin | Deletes every revoked or expired token: the caller's own, one account's with `{user_id}`, or every visible one with `{all: true}`. Returns `{deleted}`. Tokens that still work are never touched. |
+| GET | `/api/v1/tokens` | viewer | Metadata only, with the `user_id` that minted each. Your own; everybody's for an administrator (`tokens:read`). |
+| POST | `/api/v1/tokens` | viewer | `{name, role, scopes, expires_in}` → the plaintext **once**. Anybody signed in mints their own, never above their own role. Audited as `token.create`. |
+| DELETE | `/api/v1/tokens/{id}` | viewer | Your own; anybody's for an administrator (`tokens:write`), and somebody else's is a 404 below that. Revokes; the row stays, marked `revoked`. With `?purge=true`, deletes a token that is already revoked or expired, and answers `409` for one that still works. Both are audited by prefix (`token.revoke`, `token.delete`). |
+| POST | `/api/v1/tokens/purge` | viewer | Below administrator only your own, and `user_id` naming anybody else or `all` is a 403. Deletes every revoked or expired token: the caller's own, one account's with `{user_id}`, or every visible one with `{all: true}`. Returns `{deleted}`. Tokens that still work are never touched. |
 | GET | `/api/v1/mcp-clients` | admin | Every OAuth client that may ask for an MCP connection — an administrator's, a self-registered one, or a client ID metadata document — with how many live connections each holds. Never a secret. |
 | POST | `/api/v1/mcp-clients` | admin | `{name, redirect_uris?, confidential?}`: a client ID to type into an MCP client's OAuth settings. `redirect_uris` defaults to Claude's, `https://claude.ai/api/mcp/auth_callback`. With `confidential` the response carries `client_secret` **once**; the client proves it with Basic or form authentication at the token endpoint, and still uses PKCE. Audited as `mcp_client.create`. |
 | POST | `/api/v1/mcp-clients/{id}/secret` | admin | Rotate a confidential client's secret: the old one stops working at once, and the new one is in this response only. Audited as `mcp_client.secret_rotate`. |

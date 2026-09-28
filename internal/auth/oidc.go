@@ -38,6 +38,22 @@ const maxPendingStates = 1024
 // from the cache itself so callers can shape the refusal.
 var ErrTooManyPendingSignIns = errors.New("too many single sign-ins in flight; wait a moment and try again")
 
+// ErrOIDCDiscovery marks a NewOIDC failure that is the identity provider's
+// rather than the configuration's: it could not be reached, or did not answer
+// with an OpenID configuration. It is the one kind worth trying again without
+// anybody changing anything, and errors.Is tells the two apart.
+var ErrOIDCDiscovery = errors.New("the identity provider's OpenID configuration could not be read")
+
+// discoveryError keeps the sentence written for the operator as the message
+// while answering errors.Is for both the cause and ErrOIDCDiscovery.
+type discoveryError struct {
+	msg   string
+	cause error
+}
+
+func (e *discoveryError) Error() string   { return e.msg }
+func (e *discoveryError) Unwrap() []error { return []error{e.cause, ErrOIDCDiscovery} }
+
 // Claims is what a completed OIDC login tells us about the person, already
 // mapped onto Zoomies' own vocabulary.
 type Claims struct {
@@ -93,7 +109,10 @@ func NewOIDC(ctx context.Context, cfg config.OIDC, externalURL string) (*OIDCPro
 
 	provider, err := oidc.NewProvider(ctx, strings.TrimRight(cfg.Issuer, "/"))
 	if err != nil {
-		return nil, fmt.Errorf("could not read the OpenID configuration from %s: %w; check oidc.issuer and that this host can reach it", cfg.Issuer, err)
+		return nil, &discoveryError{
+			msg:   fmt.Sprintf("could not read the OpenID configuration from %s: %v; check oidc.issuer and that this host can reach it", cfg.Issuer, err),
+			cause: err,
+		}
 	}
 
 	scopes := cfg.Scopes

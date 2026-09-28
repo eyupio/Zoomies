@@ -99,9 +99,10 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
       {
         id: 'tokens',
         label: 'API tokens',
-        description: 'Bearer credentials for the CLI and for automation.',
+        description:
+          'Bearer credentials for the CLI and for automation: yours, or everybody’s for an administrator.',
         icon: KeyRound,
-        needs: 'admin',
+        needs: 'viewer',
       },
       {
         id: 'mcp-clients',
