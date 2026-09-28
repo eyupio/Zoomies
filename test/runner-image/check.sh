@@ -174,8 +174,8 @@ esac
 # The baseline from deploy/runner-packages.sh, plus what the entrypoint itself
 # calls (bash, timeout, date, uname, hostname).
 for t in bash git curl jq tar unzip zip gzip xz sudo ssh rsync timeout date uname hostname; do has "$t"; done
-# The toolchain from deploy/runner-toolchain.sh and deploy/runner-gh.sh.
-for t in cc make cmake python3 node npm git-lfs gh; do has "$t"; done
+# The toolchain from deploy/runner-toolchain.sh, deploy/runner-gh.sh and deploy/runner-shellcheck.sh.
+for t in cc make cmake python3 node npm git-lfs gh shellcheck; do has "$t"; done
 # libxml2's headers and runtime must be a compatible pair. Package metadata
 # skew once broke Rocky release builds; prove recovery leaves a usable library.
 runs "libxml2 development package" pkg-config --exists libxml-2.0

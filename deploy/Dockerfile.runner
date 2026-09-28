@@ -227,6 +227,11 @@ COPY --chmod=0755 deploy/runner-dnf.sh /tmp/
 COPY --chmod=0755 deploy/runner-apt.sh deploy/runner-gh.sh /tmp/
 RUN /tmp/runner-gh.sh "${OS_FAMILY}" && rm /tmp/runner-gh.sh /tmp/runner-apt.sh /tmp/runner-dnf.sh
 
+# ShellCheck, which GitHub's hosted runners carry and shell-linting workflows
+# assume; deploy/runner-shellcheck.sh says why it is a pinned download.
+COPY --chmod=0755 deploy/runner-shellcheck.sh /tmp/
+RUN /tmp/runner-shellcheck.sh "${TARGETARCH}" && rm /tmp/runner-shellcheck.sh
+
 # Prove the toolchain is actually reachable, for the same reason the Docker
 # variant checks its client: a package that installed but left nothing on PATH
 # is the failure this exists to prevent, and it is far cheaper to catch in the
@@ -241,7 +246,8 @@ RUN set -eux; \
     node --version; \
     npm --version; \
     git lfs version; \
-    gh --version
+    gh --version; \
+    shellcheck --version
 
 # The fleet's own packages, last, so that editing the list costs one package
 # install rather than the whole toolchain above -- and so that a build with
