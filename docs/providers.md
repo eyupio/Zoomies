@@ -1,4 +1,5 @@
 ---
+icon: material/cloud-sync-outline
 title: The infrastructure provider contract
 description: >-
   What Zoomies asks an infrastructure provider to do, what it promises in

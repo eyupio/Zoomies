@@ -1,4 +1,5 @@
 ---
+icon: material/view-dashboard-outline
 title: "Architecture: a runner controller without Kubernetes"
 description: >-
   How Zoomies is put together: one Go binary, SQLite, a pure scheduler and

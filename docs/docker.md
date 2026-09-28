@@ -1,4 +1,5 @@
 ---
+icon: material/docker
 title: Self-hosted GitHub Actions runners in Docker
 description: >-
   Running GitHub Actions runners in Docker: what a single runner container

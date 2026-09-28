@@ -1,4 +1,5 @@
 ---
+icon: material/source-repository-multiple
 title: One self-hosted runner fleet for many repositories
 description: >-
   Sharing self-hosted GitHub Actions runners across repositories: where GitHub

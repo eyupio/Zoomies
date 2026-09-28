@@ -1,4 +1,5 @@
 ---
+icon: material/help-circle-outline
 title: Frequently asked questions
 description: >-
   What Zoomies costs, what it needs, which platforms it runs on, and what

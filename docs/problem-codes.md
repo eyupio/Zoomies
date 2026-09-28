@@ -1,4 +1,5 @@
 ---
+icon: material/alert-outline
 description: >-
   Every problem code Zoomies can raise, with its severity and what to do about
   it: the startup validator's findings and the running controller's, in one

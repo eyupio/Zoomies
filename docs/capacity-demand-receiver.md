@@ -1,4 +1,5 @@
 ---
+icon: material/gauge
 description: >-
   The advisory contract that tells another system a Zoomies pool is short of
   capacity, and what a receiver must do to be safe.

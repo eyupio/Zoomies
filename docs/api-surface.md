@@ -1,4 +1,5 @@
 ---
+icon: material/api
 title: The Zoomies API surface
 description: >-
   Every REST, SSE and metrics endpoint the Zoomies controller serves, and the

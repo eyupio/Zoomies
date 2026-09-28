@@ -1,0 +1,11 @@
+{#-
+  The mark in the header and at the top of the phone drawer. Material renders
+  the one image `theme.logo` names, which was fine while the header was Zoomies
+  Black in both themes. The header now sits on the page's own ground, so the
+  mark has to change with it: white line art on the dark scheme, black on the
+  light one. Both are the paw/swish, which the brand reserves for exactly this
+  favicon scale, and the stylesheet shows whichever matches the active scheme
+  rather than inverting one of them -- inverted line art comes out washed out.
+-#}
+<img src="{{ 'brand/paw-swish-white.png' | url }}" alt="logo" class="zoomies-logo zoomies-logo--dark">
+<img src="{{ 'brand/paw-swish-black.png' | url }}" alt="logo" class="zoomies-logo zoomies-logo--light">

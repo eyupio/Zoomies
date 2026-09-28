@@ -1,3 +1,7 @@
+---
+icon: material/file-document-outline
+---
+
 # Automation contract
 
 Zoomies can be installed, claimed, watched, backed up and retired with no

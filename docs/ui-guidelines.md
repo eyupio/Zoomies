@@ -1,4 +1,5 @@
 ---
+icon: material/palette-outline
 description: >-
   The design contract for the Zoomies web UI: design tokens, the fixed status
   colours, the app shell budget, and the accessibility rules every page keeps.

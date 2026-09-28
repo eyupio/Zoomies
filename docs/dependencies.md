@@ -1,4 +1,5 @@
 ---
+icon: material/package-variant
 description: >-
   Every dependency Zoomies carries, the one-line reason it earns its place,
   and the two that were deliberately left out.

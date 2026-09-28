@@ -1,4 +1,5 @@
 ---
+icon: material/monitor-dashboard
 description: >-
   A tour of the Zoomies web UI page by page: the Overview, pools, runners,
   jobs, hosts, providers and the machines they rent, the migration wizard and

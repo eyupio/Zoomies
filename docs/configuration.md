@@ -1,4 +1,5 @@
 ---
+icon: material/cog-outline
 title: "Configuration reference: every setting and default"
 description: >-
   Where Zoomies keeps its settings — the fleet's database, a small file, and the

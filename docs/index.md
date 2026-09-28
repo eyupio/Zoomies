@@ -1,4 +1,5 @@
 ---
+icon: material/home
 title: Give your GitHub Actions runners the Zoomies.
 social_title: Zoomies — free, open-source self-hosted GitHub Actions runners
 description: >-
@@ -12,13 +13,20 @@ hide:
 
 <div class="zoomies-hero" markdown>
 
+<div class="zoomies-stage" markdown>
+
 --8<-- "docs/brand/animated-logo.html"
 
-# Give your GitHub Actions runners the Zoomies.
+</div>
+
+<p class="eyebrow" markdown="span">**New** [Elastic CPU zoomies: a busy runner is lent the cores nobody else is using](elastic-cpu.md)</p>
+
+# Give your GitHub Actions runners the *Zoomies*.
 
 <p class="lede">
-<strong>Free and open source.</strong> Install in minutes, manage every runner
-from a live web UI, and move off static runners without rebuilding your CI.
+<strong>Free and open source.</strong> A fresh ephemeral runner for every job,
+autoscaling across your own hosts, run from a live web UI. No Kubernetes, no
+database server.
 </p>
 
 <div class="zoomies-install" markdown>
@@ -29,21 +37,7 @@ curl -fsSL https://zoomies.sh/install.sh | sh
 
 </div>
 
-<div class="actions" markdown>
-
-[Install Zoomies :material-arrow-right:](quickstart.md){ .md-button .md-button--primary }
-[See the web UI](ui.md){ .md-button }
-[Migrate existing runners](migration.md){ .md-button }
-
-</div>
-
-<ul class="pills">
-  <li>Free · AGPL-3.0</li>
-  <li>Self-hosted</li>
-  <li>Single Go binary</li>
-  <li>No Kubernetes</li>
-  <li>No database server</li>
-</ul>
+<p class="popular" markdown="span">Popular: [Quick start](quickstart.md) [The web UI](ui.md) [Private hosts with Tailcat](private-hosts.md) [Migrate existing runners](migration.md) [Compared with ARC](actions-runner-controller.md)</p>
 
 </div>
 

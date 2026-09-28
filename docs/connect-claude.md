@@ -1,4 +1,5 @@
 ---
+icon: material/robot-outline
 description: Add your Zoomies controller to Claude as a custom connector by its /mcp address, and sign in through the browser — no pasted tokens.
 ---
 

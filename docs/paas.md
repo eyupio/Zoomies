@@ -1,4 +1,5 @@
 ---
+icon: material/cloud-outline
 description: >-
   Deploying the Zoomies controller from source on Coolify, Dokploy, Railway or
   anything else that builds with Nixpacks, and joining the hosts that actually
