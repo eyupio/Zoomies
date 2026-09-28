@@ -357,6 +357,8 @@ that adds, and what it is built not to add:
   a self-registered client that never completes a sign-in is removed after a
   day. The document fetch is fenced — https, no redirects, public addresses only
   unless `security.allow_private_egress` is on, five seconds, five kilobytes —
+  and the addresses it refuses are judged after resolution by the same ranges as
+  every other outbound URL, NAT64 and 6to4 spellings of a private address included —
   because it is a request this process makes on an unauthenticated caller's
   say-so. `security.mcp_open_registration: false` closes both, leaving only the
   clients an administrator creates, which may be confidential and carry a secret.

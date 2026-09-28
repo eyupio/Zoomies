@@ -142,6 +142,15 @@ func privateTarget(host string) string {
 	return addressTarget(addr.WithZone(""))
 }
 
+// PrivateAddress says what an address is when it is somewhere an outbound
+// request must not go, and "" when it is public. It is the same judgement
+// CheckOutboundURL makes of a literal, offered for the dialler's side: code
+// that resolves a name and checks the address it is about to connect to
+// must not keep a second, shorter list of ranges that drifts from this one.
+func PrivateAddress(addr netip.Addr) string {
+	return addressTarget(addr.WithZone(""))
+}
+
 // addressTarget classifies one IP address.
 func addressTarget(addr netip.Addr) string {
 	// ::ffff:10.0.0.1 is 10.0.0.1 on the wire; judge the address it carries.

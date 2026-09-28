@@ -8,11 +8,14 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/eyupio/zoomies/internal/config"
 )
 
 // Client ID Metadata Documents.
@@ -130,10 +133,7 @@ func fetchPublic(ctx context.Context, raw string, allowPrivate bool) ([]byte, er
 			if err != nil {
 				return err
 			}
-			if ip := net.ParseIP(host); ip == nil || !publicIP(ip) {
-				return fmt.Errorf("%s is not a public address", host)
-			}
-			return nil
+			return dialTarget(host)
 		},
 	}
 	client := &http.Client{
@@ -172,11 +172,20 @@ func fetchPublic(ctx context.Context, raw string, allowPrivate bool) ([]byte, er
 	return body, nil
 }
 
-func publicIP(ip net.IP) bool {
-	return !(ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
-		ip.IsUnspecified() || ip.IsMulticast() || ip.IsInterfaceLocalMulticast() ||
-		// 100.64.0.0/10, carrier-grade NAT, is private in all but name.
-		(ip.To4() != nil && ip.To4()[0] == 100 && ip.To4()[1]&0xc0 == 64))
+// dialTarget refuses an address a metadata fetch is about to connect to when
+// it is not public. The ranges are config's, the ones every other outbound
+// URL is judged by: a list kept here drifted short of them once, missing the
+// rest of 0.0.0.0/8, the reserved and benchmarking ranges, and NAT64 and 6to4
+// addresses that carry a private IPv4 destination inside them.
+func dialTarget(host string) error {
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return fmt.Errorf("%s is not a public address", host)
+	}
+	if what := config.PrivateAddress(addr); what != "" {
+		return fmt.Errorf("%s is not a public address: it is %s", host, what)
+	}
+	return nil
 }
 
 // WithClientMetadataFetcher replaces how metadata documents are fetched.
