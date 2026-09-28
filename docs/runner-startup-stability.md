@@ -1,4 +1,5 @@
 ---
+icon: material/timer-outline
 title: Runner startup under host load
 description: >-
   How Zoomies keeps runner startup reliable on a busy host: a health probe

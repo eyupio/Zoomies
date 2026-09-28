@@ -1,4 +1,5 @@
 ---
+icon: material/shield-key-outline
 description: >-
   Add a code from an authenticator app to your Zoomies sign-in, keep the
   recovery codes somewhere safe, and what an administrator does when

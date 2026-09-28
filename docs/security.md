@@ -1,4 +1,5 @@
 ---
+icon: material/shield-check-outline
 title: Security of self-hosted GitHub Actions runners
 description: >-
   The Zoomies threat model, what a self-hosted runner exposes, and what each

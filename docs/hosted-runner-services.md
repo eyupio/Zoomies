@@ -1,4 +1,5 @@
 ---
+icon: material/cloud-check-outline
 title: "Zoomies vs Blacksmith, WarpBuild and RunsOn"
 description: >-
   How running your own runners with Zoomies compares with the services that

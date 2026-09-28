@@ -39,13 +39,16 @@
 
 /* Light ------------------------------------------------------------------ */
 [data-md-color-scheme='default'] {
-  /* The header is Zoomies Black in both themes. The identity is a monochrome
-     mark with blue as an accent, not a blue-chrome product, and a black bar
-     also lets the mark sit on the header without its own chip. */
-  --md-primary-fg-color: var(--z-brand-black);
-  --md-primary-fg-color--light: #1c1d20;
-  --md-primary-fg-color--dark: #000000;
-  --md-primary-bg-color: #f4f5f7;
+  /* The header and footer sit on the page's own ground rather than on a black
+     bar, so a reader sees one surface top to bottom and the sidebar and the
+     article read as one page. The identity is still a monochrome mark with
+     blue as an accent: the black lives in the stage the logo stands on, and
+     the mark itself is swapped per scheme (overrides/partials/logo.html). */
+  --md-primary-fg-color: #ffffff;
+  --md-primary-fg-color--light: #f6f7f9;
+  --md-primary-fg-color--dark: #eef0f3;
+  --md-primary-bg-color: #0b0c0e;
+  --md-primary-bg-color--light: #5b6069;
   --md-accent-fg-color: #154fb0;
   --md-accent-fg-color--transparent: rgba(26, 99, 216, 0.08);
 
@@ -57,8 +60,11 @@
   --md-typeset-a-color: #1a63d8;
   --md-code-bg-color: #eef0f3;
   --md-code-fg-color: #1c1f26;
-  --md-footer-bg-color: var(--z-brand-black);
-  --md-footer-bg-color--dark: #000000;
+  --md-footer-bg-color: #f6f7f9;
+  --md-footer-bg-color--dark: #ffffff;
+  --md-footer-fg-color: #0b0c0e;
+  --md-footer-fg-color--light: #5b6069;
+  --md-footer-fg-color--lighter: #6e737c;
 
   --z-surface: #ffffff;
   --z-surface-raised: #ffffff;
@@ -78,7 +84,10 @@
 [data-md-color-scheme='slate'] {
   --md-hue: 220;
   --md-primary-fg-color: #0a0b0d;
+  --md-primary-fg-color--light: #131519;
+  --md-primary-fg-color--dark: #050607;
   --md-primary-bg-color: #f4f5f7;
+  --md-primary-bg-color--light: #b9bcc2;
   --md-accent-fg-color: #78b4ff;
   --md-accent-fg-color--transparent: rgba(120, 180, 255, 0.1);
 
@@ -90,8 +99,11 @@
   --md-typeset-a-color: #78b4ff;
   --md-code-bg-color: #131519;
   --md-code-fg-color: #f4f5f7;
-  --md-footer-bg-color: #050607;
-  --md-footer-bg-color--dark: #000000;
+  --md-footer-bg-color: #0a0b0d;
+  --md-footer-bg-color--dark: #0a0b0d;
+  --md-footer-fg-color: #f4f5f7;
+  --md-footer-fg-color--light: #b9bcc2;
+  --md-footer-fg-color--lighter: #868b94;
 
   --z-surface: #131519;
   --z-surface-raised: #1b1e23;
@@ -411,37 +423,54 @@ input,
 /* Chrome: header, navigation, table of contents, footer.                    */
 /* ------------------------------------------------------------------------ */
 
-/* The header is a black bar with a hairline, not a floating slab. */
+/* The page is a little wider than Material's default: the article column is
+   the one that grows, and a reference table or a diagram gets the room. */
+.md-grid {
+  max-width: 66rem;
+}
+
+/* The header is the page's ground with a hairline under it, frosted so the
+   article shows through as it scrolls under. */
 .md-header {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: color-mix(in srgb, var(--md-default-bg-color) 86%, transparent);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--z-line);
 }
 .md-header--shadow {
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04), 0 8px 24px -12px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--z-shadow-sm);
 }
 .md-header__title {
   font-weight: 640;
   letter-spacing: -0.01em;
 }
-/* The mark is white line art drawn for a dark ground -- inverting it washes it
-   out -- and the header is Zoomies Black in both themes, so it needs no chip
-   of its own. See brand.md. */
-.md-header__button.md-logo img {
+/* One mark per scheme, drawn by overrides/partials/logo.html and the footer:
+   white line art for the dark ground, black for the light one. */
+.md-header__button.md-logo img,
+.md-nav__button.md-logo img {
   height: 1.5rem;
   width: 1.5rem;
+}
+/* Two classes, because Material's own `.md-logo img` rule outranks a scheme
+   attribute and one class, and both marks would show at once. */
+[data-md-color-scheme='default'] .zoomies-logo.zoomies-logo--dark,
+[data-md-color-scheme='slate'] .zoomies-logo.zoomies-logo--light {
+  display: none;
 }
 .md-header__button.md-logo:is(:hover, :focus-visible) {
   opacity: 1;
 }
 .md-search__form {
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--z-line);
   border-radius: var(--z-radius-md);
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--md-code-bg-color);
   transition:
     background-color var(--z-motion-fast) var(--z-ease),
     border-color var(--z-motion-fast) var(--z-ease);
 }
 .md-search__form:hover {
-  background: rgba(255, 255, 255, 0.11);
+  background: var(--z-surface-raised);
+  border-color: var(--z-line-strong);
 }
 [data-md-toggle='search']:checked ~ .md-header .md-search__form {
   border-color: transparent;
@@ -458,39 +487,83 @@ input,
   transition: background-color var(--z-motion-fast) var(--z-ease);
 }
 .md-source:hover {
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--md-code-bg-color);
   opacity: 1;
 }
 
-/* Section labels in the sidebar are set as small caps, so the page names
-   under them are the only thing at reading size. */
-.md-nav--primary .md-nav__item--section > .md-nav__link,
+/* The sidebar is a list of pills. A section's name is set bold at reading
+   size, the pages under it carry their icon, and the current page is the one
+   filled with the accent's tint -- the same signal the product's navigation
+   uses for the current section. */
+.md-nav--primary .md-nav__item--section > .md-nav__link {
+  margin-top: 1.1em;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  color: var(--md-default-fg-color);
+}
 .md-nav--secondary .md-nav__title {
-  font-size: 0.6rem;
+  font-size: 0.58rem;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--md-default-fg-color--lighter);
 }
 .md-nav__link {
-  border-radius: var(--z-radius-sm);
-  transition: color var(--z-motion-fast) var(--z-ease);
+  border-radius: var(--z-radius-md);
+  transition:
+    color var(--z-motion-fast) var(--z-ease),
+    background-color var(--z-motion-fast) var(--z-ease);
 }
-/* The current page carries a short accent bar in the gutter, which is the
-   same signal the product's navigation uses for the current section. */
+.md-sidebar--primary .md-nav__link {
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.1em;
+  padding: 0.32em 0.55em;
+}
+.md-sidebar--primary .md-nav__link svg {
+  width: 0.8rem;
+  height: 0.8rem;
+  margin: 0;
+  color: var(--md-default-fg-color--lighter);
+}
+.md-sidebar--primary .md-nav__link:not(.md-nav__container):is(:hover, :focus-visible) {
+  background: var(--md-code-bg-color);
+  color: var(--md-default-fg-color);
+}
+.md-sidebar--primary .md-nav__item--section > .md-nav__link:is(:hover, :focus-visible) {
+  background: none;
+}
 .md-sidebar--primary .md-nav__item .md-nav__link--active {
-  position: relative;
+  background: var(--z-accent-subtle);
+  color: var(--z-accent);
   font-weight: 550;
 }
-.md-sidebar--primary .md-nav__item .md-nav__link--active::before {
-  content: '';
-  position: absolute;
-  inset: 0.15em auto 0.15em -0.6rem;
-  width: 2px;
-  border-radius: 2px;
-  background: var(--md-typeset-a-color);
+.md-sidebar--primary .md-nav__item .md-nav__link--active:is(:hover, :focus-visible) {
+  background: var(--z-accent-subtle);
+  color: var(--z-accent);
+}
+.md-sidebar--primary .md-nav__link--active svg {
+  color: var(--z-accent);
+}
+
+/* The table of contents is a rail: a hairline down its left, and the heading
+   in view lifts its stretch of the rail to the accent. */
+.md-nav--secondary .md-nav__link {
+  margin-top: 0;
+  padding: 0.22em 0 0.22em 0.65em;
+  border-left: 2px solid var(--z-line);
+  border-radius: 0;
+  transition:
+    color var(--z-motion-fast) var(--z-ease),
+    border-color var(--z-motion-fast) var(--z-ease);
+}
+.md-nav--secondary .md-nav__item .md-nav__item .md-nav__link {
+  padding-left: 1.4em;
 }
 .md-nav--secondary .md-nav__link--active {
+  border-left-color: var(--z-accent);
+  color: var(--z-accent);
   font-weight: 550;
 }
 
@@ -502,6 +575,12 @@ input,
     text-transform: uppercase;
     color: var(--md-default-fg-color--lighter);
   }
+  /* The rail's title is sticky and paints over what scrolls under it; the
+     first entry needs this much room not to start underneath it. */
+  .md-nav--secondary > .md-nav__list {
+    padding-top: 0.35rem;
+    padding-bottom: 0;
+  }
 }
 
 /* The back-to-top pill. */
@@ -512,23 +591,35 @@ input,
   font-weight: 550;
 }
 
-/* The footer is the same black as the header, in both themes, so a page is
-   bracketed by the identity top and bottom. */
+/* The footer is the page's ground too, so a page is one surface from the
+   header down. Previous and next are a pair of cards. */
 .md-footer {
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid var(--z-line);
 }
-.md-footer__inner {
-  padding: 0.6rem 0.2rem;
+.md-footer__inner.md-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+  padding: 1.2rem 0.6rem 0.4rem;
 }
 .md-footer__link {
-  padding: 1.2rem 0.6rem;
-  border-radius: var(--z-radius-md);
+  width: 100%;
+  margin: 0;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--z-line);
+  border-radius: var(--z-radius-lg);
+  background: var(--z-surface);
+  opacity: 1;
   transition:
-    background-color var(--z-motion-fast) var(--z-ease),
-    opacity var(--z-motion-fast) var(--z-ease);
+    border-color var(--z-motion-fast) var(--z-ease),
+    box-shadow var(--z-motion-fast) var(--z-ease);
+}
+.md-footer__link--next {
+  grid-column: 2;
 }
 .md-footer__link:is(:hover, :focus-visible) {
-  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--z-accent-border);
+  box-shadow: var(--z-shadow-sm);
   opacity: 1;
 }
 .md-footer__direction {
@@ -539,10 +630,10 @@ input,
   opacity: 0.7;
 }
 .md-footer__title {
-  font-size: 0.8rem;
+  font-size: 0.76rem;
 }
 .md-footer-meta {
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid var(--z-line);
 }
 .md-footer-meta__inner {
   display: grid;
@@ -565,7 +656,7 @@ input,
   transition: background-color var(--z-motion-fast) var(--z-ease);
 }
 .md-social__link:is(:hover, :focus-visible) {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--md-code-bg-color);
 }
 
 /* What overrides/partials/copyright.html renders. */
@@ -596,8 +687,7 @@ input,
   font-weight: 550;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--z-brand-cool-grey);
-  opacity: 0.8;
+  color: var(--md-default-fg-color--lighter);
 }
 /* The footer sits inside .md-typeset, whose list rules would otherwise turn
    this row of links into a bulleted list -- and its `ul:not([hidden])` rule
@@ -657,88 +747,130 @@ input,
   display: none;
 }
 
-/* The hero is Zoomies Black in both themes: it is the identity's own ground,
-   and the one place on the site the pure brand blue is allowed to glow. */
+/* The hero sits on the page like everything under it: an eyebrow, the
+   headline, the install command and the pages people come for. The mark is in
+   the headline itself, as a small tile on Zoomies Black between the words --
+   brand.md says that black is the ground it sits on in both themes, and the
+   paw/swish is the artwork the brand reserves for this size. The identity's
+   full lockup, animated, closes the page instead (.zoomies-cta). */
 .zoomies-hero {
   position: relative;
   isolation: isolate;
-  overflow: hidden;
   display: grid;
   /* One column that may shrink below its content: the install command is a
      single unbreakable line, and on a phone it must scroll inside its own box
-     rather than widen the column and push the buttons off the edge. */
+     rather than widen the column and push everything else off the edge. */
   grid-template-columns: minmax(0, 1fr);
   place-items: center;
   gap: 1.1rem;
   text-align: center;
-  padding: 3.25rem 1.5rem 2.75rem;
+  padding: 2.5rem 0 1rem;
   margin: 0 0 2.5rem;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: var(--z-radius-xl);
-  background:
-    radial-gradient(60% 55% at 50% 0%, rgba(47, 128, 237, 0.32) 0%, transparent 70%),
-    radial-gradient(45% 40% at 85% 100%, rgba(34, 211, 238, 0.09) 0%, transparent 70%),
-    var(--z-brand-black);
-  color: #f4f5f7;
-  box-shadow: 0 30px 80px -40px rgba(47, 128, 237, 0.35);
-}
-/* A dot grid that fades towards the edges, so the panel has texture where the
-   logo sits and reads as a plain surface where the text does. */
-.zoomies-hero::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  background-image: radial-gradient(rgba(255, 255, 255, 0.11) 1px, transparent 1.3px);
-  background-size: 22px 22px;
-  -webkit-mask-image: radial-gradient(70% 75% at 50% 25%, #000 20%, transparent 100%);
-  mask-image: radial-gradient(70% 75% at 50% 25%, #000 20%, transparent 100%);
-}
-/* The mark's circular motion path, echoed once, faintly, around the lockup. */
-.zoomies-hero::after {
-  content: '';
-  position: absolute;
-  z-index: -1;
-  top: 9.5rem;
-  left: 50%;
-  width: 30rem;
-  height: 30rem;
-  transform: translate(-50%, -50%);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 50%;
-  box-shadow:
-    0 0 0 5rem rgba(255, 255, 255, 0.015),
-    inset 0 0 6rem rgba(47, 128, 237, 0.08);
-  pointer-events: none;
 }
 .zoomies-hero > * {
   min-width: 0;
   max-width: 100%;
 }
-.zoomies-hero img {
-  width: min(250px, 58vw);
-  height: auto;
-  filter: drop-shadow(0 16px 40px rgba(47, 128, 237, 0.28));
+/* A glow behind the headline, and a dot grid that fades out before it reaches
+   the words, so the top of the page has texture and the text sits on a plain
+   surface. Both are the accent at low alpha, so they read in either theme. */
+.zoomies-hero::before {
+  content: '';
+  position: absolute;
+  inset: -3rem -2rem 30%;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(rgba(47, 128, 237, 0.16) 1px, transparent 1.3px) 0 0 / 22px 22px,
+    radial-gradient(55% 60% at 50% 0%, rgba(47, 128, 237, 0.16) 0%, transparent 70%);
+  -webkit-mask-image: radial-gradient(60% 70% at 50% 15%, #000 0%, transparent 100%);
+  mask-image: radial-gradient(60% 70% at 50% 15%, #000 0%, transparent 100%);
+}
+/* The eyebrow: what is new, one line, above the headline. */
+.md-typeset .zoomies-hero .eyebrow {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5em;
+  margin: 0;
+  padding: 0.3em 0.85em 0.3em 0.35em;
+  border: 1px solid var(--z-line);
+  border-radius: 999px;
+  background: var(--z-surface);
+  font-size: 0.66rem;
+  font-weight: 500;
+  color: var(--md-default-fg-color--light);
+}
+.md-typeset .zoomies-hero .eyebrow strong {
+  padding: 0.1em 0.6em;
+  border-radius: 999px;
+  background: var(--z-accent);
+  color: var(--z-accent-contrast);
+  font-size: 0.56rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.md-typeset .zoomies-hero .eyebrow a {
+  color: inherit;
+}
+.md-typeset .zoomies-hero .eyebrow a:is(:hover, :focus-visible) {
+  color: var(--md-default-fg-color);
 }
 /* The hero's headline. It is an h1 rather than a paragraph because it is the
    page's real title, and Material's own h1 rules have to be overridden for it
-   to sit on the black panel. */
-.zoomies-hero .tagline,
+   to be set this large. The second line is quieter than the first, and the
+   paw/swish sits in it at the height of the type -- white on the dark scheme
+   and black on the light one, like the header's, with no box of its own. */
 .md-typeset .zoomies-hero h1 {
   margin: 0;
-  font-size: clamp(1.7rem, 3.4vw, 2.3rem);
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  line-height: 1.08;
-  color: #ffffff;
+  font-size: clamp(2rem, 5.6vw, 3.6rem);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 1.06;
+  color: var(--md-default-fg-color);
   text-wrap: balance;
+}
+.md-typeset .zoomies-hero h1 .quiet {
+  color: var(--md-default-fg-color--lighter);
+}
+/* The hide-per-scheme rule above is outranked by this one, so it is repeated
+   here at this rule's own specificity. */
+[data-md-color-scheme='default'] .md-typeset .zoomies-hero h1 .mark.zoomies-logo--dark,
+[data-md-color-scheme='slate'] .md-typeset .zoomies-hero h1 .mark.zoomies-logo--light {
+  display: none;
+}
+.md-typeset .zoomies-hero h1 .mark {
+  display: inline-block;
+  width: 0.95em;
+  height: 0.95em;
+  margin: 0 0.04em;
+  vertical-align: -0.12em;
+  animation: zoomies-hop 2s ease-in-out infinite;
+}
+/* The paw hops the way the theme's icon does: a slow, small bounce. Anyone who
+   has asked for less motion gets a still one. */
+@keyframes zoomies-hop {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-0.18em);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .md-typeset .zoomies-hero h1 .mark {
+    animation: none;
+  }
 }
 
 /* The proof line under the hero: one sentence saying what the product does,
    for the reader who has taken in the panel and wants the substance. */
 .md-typeset .zoomies-proof {
   max-width: 46rem;
-  margin: -1.25rem auto 2.5rem;
+  margin: 0 auto 2.5rem;
   font-size: 0.9rem;
   line-height: 1.65;
   text-align: center;
@@ -746,75 +878,18 @@ input,
   color: var(--md-default-fg-color--light);
 }
 .zoomies-hero .lede {
-  max-width: 44rem;
+  max-width: 40rem;
   margin: 0;
-  font-size: 0.86rem;
-  line-height: 1.6;
-  color: var(--z-brand-cool-grey);
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: var(--md-default-fg-color--light);
   text-wrap: pretty;
 }
-.md-typeset .zoomies-hero .actions {
-  margin: 0;
-}
-.md-typeset .zoomies-hero .actions p {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.6rem;
-  margin: 0;
-}
-/* On the black ground the primary button is white, not blue: the brand is a
-   monochrome mark with blue as an accent, and the accent is already spent on
-   the glow behind the logo. */
-.md-typeset .zoomies-hero .md-button {
-  border-color: rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.06);
-  color: #ffffff;
-  box-shadow: none;
-}
-.md-typeset .zoomies-hero .md-button:is(:hover, :focus-visible) {
-  background: rgba(255, 255, 255, 0.11);
-  border-color: rgba(255, 255, 255, 0.3);
-  color: #ffffff;
-}
-.md-typeset .zoomies-hero .md-button--primary {
-  background: #ffffff;
-  border-color: #ffffff;
-  color: var(--z-brand-black);
-}
-.md-typeset .zoomies-hero .md-button--primary:is(:hover, :focus-visible) {
-  background: #e9ecf1;
-  border-color: #e9ecf1;
-  color: var(--z-brand-black);
-}
-.md-typeset .zoomies-hero .pills,
-.zoomies-hero .pills {
-  display: flex;
-  flex-flow: row wrap;
-  gap: 0.5rem;
-  justify-content: center;
-  margin: 0.25rem 0 0;
-  padding: 0;
-  list-style: none;
-}
-.md-typeset .zoomies-hero .pills li,
-.zoomies-hero .pills li {
-  display: block;
-  margin: 0;
-  font-size: 0.6rem;
-  font-weight: 550;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  padding: 0.28rem 0.7rem;
-  border: 1px solid rgba(185, 188, 194, 0.22);
-  border-radius: 999px;
-  color: var(--z-brand-cool-grey);
-  white-space: nowrap;
-}
 
-/* The install command, which is the one thing most visitors came for. */
+/* The install command, which is the one thing most visitors came for: a
+   single line in a raised box, with the copy button as a filled chip. */
 .zoomies-install {
-  width: min(40rem, 100%);
+  width: min(30rem, 100%);
   text-align: left;
 }
 .zoomies-install .md-typeset,
@@ -822,43 +897,61 @@ input,
 .md-typeset .zoomies-install .highlight {
   margin: 0;
 }
-.zoomies-install code {
-  font-size: 0.8rem;
-}
-/* The hero is dark in both themes, so its code block is too -- a light block
-   inside it reads as a hole punched in the artwork. */
-.md-typeset .zoomies-hero pre > code {
-  background: rgba(255, 255, 255, 0.06) !important;
-  border-color: rgba(120, 180, 255, 0.28);
-  color: #f4f5f7 !important;
-  box-shadow:
-    0 0 0 4px rgba(47, 128, 237, 0.08),
-    0 12px 40px -16px rgba(47, 128, 237, 0.5);
+.md-typeset .zoomies-install pre > code {
+  /* Room on the right for the chip, so on a phone the command's tail scrolls
+     clear of it instead of disappearing under it. */
+  padding: 0.95em 4.4em 0.95em 1.1em;
+  border: 1px solid var(--z-line-strong);
+  border-radius: var(--z-radius-lg);
+  background: var(--z-surface);
+  color: var(--md-default-fg-color);
+  font-size: 0.78rem;
+  box-shadow: var(--z-shadow-md);
 }
 /* The command is a single line, so its copy button is centred on it the way an
    input's button would be, not pinned to the top corner as on a block that may
-   run to many lines. On a phone the command is wider than the box and scrolls;
-   the extra right padding lets its tail scroll clear of the button instead of
-   disappearing under it. */
-.md-typeset .zoomies-install pre > code {
-  padding-right: 3.25em;
-}
+   run to many lines. */
 .md-typeset .zoomies-install .md-code__nav {
   top: 50%;
-  right: 0.75em;
+  right: 0.45em;
   transform: translateY(-50%);
-  /* The chip takes its colour from the active scheme's code palette, which on
-     this always-dark box would be a pale square in the light theme. */
-  background: rgba(255, 255, 255, 0.06);
+  border-radius: var(--z-radius-md);
+  background: var(--z-accent);
 }
 .md-typeset .zoomies-install pre:hover > .md-code__nav {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--z-accent-hover);
 }
-.zoomies-install .md-code__button {
-  color: rgba(244, 245, 247, 0.55);
+.zoomies-install .md-code__button,
+.zoomies-install pre:hover .md-code__button {
+  color: var(--z-accent-contrast);
 }
-.zoomies-install .md-code__button:is(:hover, :focus-visible) {
-  color: #f4f5f7;
+
+/* The pages people come for, as a row of chips under the command. */
+.md-typeset .zoomies-hero .popular {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.15rem 0 0;
+  font-size: 0.66rem;
+  color: var(--md-default-fg-color--lighter);
+}
+.md-typeset .zoomies-hero .popular a {
+  padding: 0.3em 0.7em;
+  border: 1px solid var(--z-line);
+  border-radius: var(--z-radius-md);
+  background: var(--md-code-bg-color);
+  color: var(--md-default-fg-color--light);
+  font-weight: 500;
+  transition:
+    color var(--z-motion-fast) var(--z-ease),
+    border-color var(--z-motion-fast) var(--z-ease);
+}
+.md-typeset .zoomies-hero .popular a:is(:hover, :focus-visible) {
+  color: var(--md-default-fg-color);
+  border-color: var(--z-line-strong);
+  text-decoration: none;
 }
 
 /* Feature cards: a three-across grid, each with an icon on the accent chip. */
@@ -871,7 +964,7 @@ input,
 .zoomies-grid > div {
   padding: 1.15rem 1.2rem 1.25rem;
   border: 1px solid var(--z-line);
-  border-radius: var(--z-radius-lg);
+  border-radius: var(--z-radius-xl);
   background: var(--z-surface);
   box-shadow: var(--z-shadow-sm);
   transition:
@@ -880,7 +973,7 @@ input,
     transform var(--z-motion-base) var(--z-ease);
 }
 .zoomies-grid > div:hover {
-  border-color: var(--z-line-strong);
+  border-color: var(--z-accent-border);
   box-shadow: var(--z-shadow-md);
   transform: translateY(-2px);
 }
@@ -959,39 +1052,96 @@ input,
   color: var(--md-default-fg-color--lighter);
 }
 
-/* The closing call to action. */
+/* The closing call to action is the identity's own ground: Zoomies Black in
+   both themes, the animated lockup on the left, and the one place on the page
+   the pure brand blue is allowed to glow. The primary button is white here
+   rather than blue -- the brand is a monochrome mark with blue as an accent,
+   and the accent is already spent on the glow behind the logo. */
 .zoomies-cta {
   position: relative;
+  isolation: isolate;
   overflow: hidden;
+  display: grid;
+  /* A fixed first column: the lockup's fallback image is 1254px wide, and an
+     auto track would size itself to that and starve the copy beside it. */
+  grid-template-columns: 12rem minmax(0, 1fr);
+  align-items: center;
+  gap: 1.5rem 2.5rem;
   margin: 3rem 0 1rem;
-  padding: 2.2rem 1.5rem;
-  border: 1px solid var(--z-line);
+  padding: 2rem 2.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--z-radius-xl);
   background:
-    radial-gradient(70% 90% at 50% 120%, var(--z-accent-subtle) 0%, transparent 70%),
-    var(--z-surface);
-  text-align: center;
+    radial-gradient(60% 80% at 15% 50%, rgba(47, 128, 237, 0.3) 0%, transparent 70%),
+    radial-gradient(45% 40% at 90% 100%, rgba(34, 211, 238, 0.09) 0%, transparent 70%),
+    var(--z-brand-black);
+  color: #f4f5f7;
+  box-shadow: 0 30px 80px -40px rgba(47, 128, 237, 0.35);
+  text-align: left;
+}
+/* A dot grid that fades towards the edges, so the panel has texture where the
+   logo sits and reads as a plain surface where the text does. */
+.zoomies-cta::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.11) 1px, transparent 1.3px);
+  background-size: 22px 22px;
+  -webkit-mask-image: radial-gradient(50% 90% at 15% 50%, #000 20%, transparent 100%);
+  mask-image: radial-gradient(50% 90% at 15% 50%, #000 20%, transparent 100%);
+}
+.zoomies-cta .zoomies-brand {
+  width: 12rem;
+  max-width: 100%;
+}
+.zoomies-cta .zoomies-brand__art {
+  filter: drop-shadow(0 16px 40px rgba(47, 128, 237, 0.28));
+}
+.zoomies-cta__copy {
+  min-width: 0;
 }
 .md-typeset .zoomies-cta .title {
   margin: 0 0 0.5rem;
-  font-size: 1.35rem;
-  font-weight: 640;
-  letter-spacing: -0.02em;
-  line-height: 1.2;
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  color: #ffffff;
   text-wrap: balance;
 }
 .md-typeset .zoomies-cta .lede {
   max-width: 38rem;
-  margin: 0 auto 1.25rem;
-  color: var(--md-default-fg-color--light);
+  margin: 0 0 1.25rem;
+  color: var(--z-brand-cool-grey);
   text-wrap: pretty;
 }
 .md-typeset .zoomies-cta .actions {
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
   gap: 0.6rem;
   margin: 0;
+}
+.md-typeset .zoomies-cta .md-button {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
+  box-shadow: none;
+}
+.md-typeset .zoomies-cta .md-button:is(:hover, :focus-visible) {
+  background: rgba(255, 255, 255, 0.11);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #ffffff;
+}
+.md-typeset .zoomies-cta .md-button--primary {
+  background: #ffffff;
+  border-color: #ffffff;
+  color: var(--z-brand-black);
+}
+.md-typeset .zoomies-cta .md-button--primary:is(:hover, :focus-visible) {
+  background: #e9ecf1;
+  border-color: #e9ecf1;
+  color: var(--z-brand-black);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -1044,16 +1194,13 @@ input,
 
 @media screen and (max-width: 44.9375em) {
   .zoomies-hero {
-    padding: 2.25rem 1rem 1.75rem;
-    border-radius: var(--z-radius-lg);
-  }
-  .zoomies-hero::after {
-    top: 7.5rem;
-    width: 22rem;
-    height: 22rem;
+    padding: 1.25rem 0 0.5rem;
   }
   .zoomies-hero .lede {
     font-size: 0.8rem;
+  }
+  .md-typeset .zoomies-hero .eyebrow {
+    font-size: 0.6rem;
   }
   .zoomies-grid .wide {
     display: block;
@@ -1066,7 +1213,21 @@ input,
     gap: 0.9rem;
   }
   .zoomies-cta {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
     padding: 1.75rem 1rem;
+    text-align: center;
+  }
+  .md-typeset .zoomies-cta .actions {
+    justify-content: center;
+  }
+}
+
+/* The paw in the headline goes with the large setting; at a phone's size the
+   headline is three lines already and the theme hides its icon there too. */
+@media screen and (max-width: 59.9375em) {
+  .md-typeset .zoomies-hero h1 .mark {
+    display: none;
   }
 }
 

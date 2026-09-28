@@ -1,4 +1,5 @@
 ---
+icon: material/currency-usd
 title: What self-hosted GitHub Actions runners cost
 description: >-
   GitHub-hosted runner prices, the free minutes each plan includes, the

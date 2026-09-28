@@ -1,4 +1,5 @@
 ---
+icon: material/lock-outline
 title: Private hosts with Tailcat
 description: >-
   Turn your home lab into GitHub Actions runner capacity. Connect private hosts

@@ -1,4 +1,5 @@
 ---
+icon: material/arrow-up-bold-circle-outline
 title: Upgrading a Zoomies fleet
 description: >-
   What an upgrade actually does, what happens to running jobs, how far a

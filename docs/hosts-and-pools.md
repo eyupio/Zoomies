@@ -1,4 +1,5 @@
 ---
+icon: material/server-network-outline
 title: "Hosts and pools: where runners run"
 description: >-
   How a pool decides what runners to make and a host decides whether it can

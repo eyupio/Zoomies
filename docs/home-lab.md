@@ -1,4 +1,5 @@
 ---
+icon: material/home-outline
 title: GitHub Actions runners in your home lab
 description: >-
   Planning GitHub Actions runners on machines you own: which home-lab hardware

@@ -1,4 +1,5 @@
 ---
+icon: material/alert-circle-outline
 title: Troubleshooting a Zoomies runner fleet
 description: >-
   The commands to run first when a Zoomies fleet misbehaves, the five things

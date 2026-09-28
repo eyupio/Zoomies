@@ -1,4 +1,5 @@
 ---
+icon: material/server-outline
 title: Renting runner hosts from Proxmox VE
 description: >-
   Let Zoomies clone a prepared VM template on your own Proxmox VE cluster when a

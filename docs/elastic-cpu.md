@@ -1,4 +1,5 @@
 ---
+icon: material/rabbit
 description: >-
   Elastic CPU zoomies: a busy runner is lent the CPU its host is not using,
   every runner keeps its guarantee, and the next queued job keeps its room.

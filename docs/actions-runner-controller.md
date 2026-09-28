@@ -1,4 +1,5 @@
 ---
+icon: material/kubernetes
 title: "Zoomies vs actions-runner-controller (ARC)"
 description: >-
   How Zoomies compares with actions-runner-controller: what each needs, how
