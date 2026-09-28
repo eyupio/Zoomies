@@ -36,7 +36,7 @@
     nose: 'M27 0C31-1.3 34.8 1 34.2 5C33.8 8 30.5 8.7 28.4 7.1C26.6 5.7 26 1.5 27 0Z',
     // Hung at eye level from a narrow root, with black skull above and
     // behind it, and widening below the jaw into lobed locks down its whole
-    // back edge: a cocker's feathered ear. A smooth paddle reads as a
+    // back edge: a cocker's feathered ear. A smooth oval reads as a
     // flipper at 44px.
     ear: 'M-7-3C-5.5-5.5-1.5-6 0-3.5C1.5 1 1 6 1.5 11C2 16 4 20 3.5 25C3.5 28 1.5 30.5-1 30C-2.5 33-6.5 33-7.5 30C-10.5 31-13 28.5-12 25.5C-14.5 23.5-14 19.5-11.5 18C-13.5 15-12.5 11-10 9.5C-10.5 5-9.5 0-7-3Z',
     // The ear's front edge only, where it lies against the cheek: the one
