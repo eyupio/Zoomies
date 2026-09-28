@@ -573,7 +573,17 @@ func (s *Server) handleCreateMCPClient(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRotateMCPClientSecret(w http.ResponseWriter, r *http.Request) {
-	c, secret, err := s.auth.RotateMCPClientSecret(r.Context(), Identity(r.Context()), chiURLParam(r, "id"))
+	id := chiURLParam(r, "id")
+	// Counted before the rotation, because once the old secret is gone the new
+	// one must reach the caller: a failed count after it would answer 500 and
+	// strand a secret nobody can read. Rotating removes no connection, so the
+	// number is the same either side of it; a count that fails reads as none
+	// rather than costing the operator the secret.
+	counts, cerr := s.ctrl.Store().CountOAuthGrantsByClient(r.Context())
+	if cerr != nil {
+		s.logger(r).Warn("could not count an MCP client's connections before rotating its secret", "client", id, "error", cerr)
+	}
+	c, secret, err := s.auth.RotateMCPClientSecret(r.Context(), Identity(r.Context()), id)
 	if errors.Is(err, auth.ErrInvalidInput) {
 		unprocessable(w, err.Error(), nil)
 		return
@@ -582,7 +592,7 @@ func (s *Server) handleRotateMCPClientSecret(w http.ResponseWriter, r *http.Requ
 		s.fail(w, r, "rotating an MCP client's secret", err)
 		return
 	}
-	out := newMCPClient(c, 0)
+	out := newMCPClient(c, counts[c.ID])
 	out.ClientSecret = secret
 	writeJSON(w, http.StatusOK, out)
 }

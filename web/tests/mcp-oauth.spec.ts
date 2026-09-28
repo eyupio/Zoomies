@@ -147,3 +147,41 @@ test('the refusal page writes its own text, never what the address says', async 
   await expect(page.getByRole('alert')).toContainText('never registered');
   await expect(page.getByText('555-0100')).toHaveCount(0);
 });
+
+// Rotating a secret breaks whatever still holds the old one at its next
+// refresh, so a stray click on the row must not be enough to do it.
+test('rotating a client secret asks first, then shows the new secret once', async ({ page }) => {
+  await signIn(page);
+  await page.goto('/settings/mcp-clients');
+  await page.getByRole('button', { name: 'Create a client' }).click();
+  const form = page.getByRole('dialog', { name: 'Create an MCP client' });
+  await form.getByLabel('Name').fill('Rotation test');
+  await form.getByRole('button', { name: 'Create client' }).click();
+  const made = page.getByRole('dialog', { name: 'Rotation test' });
+  const first =
+    (
+      await made
+        .getByText(/^zoocs_/)
+        .first()
+        .textContent()
+    )?.trim() ?? '';
+  expect(first, 'the new client shows its secret once').toMatch(/^zoocs_/);
+  await made.getByRole('button', { name: 'Done' }).click();
+
+  const row = page.getByRole('row', { name: /Rotation test/ });
+  await row.getByRole('button', { name: 'Rotate secret' }).click();
+  const confirm = page.getByRole('dialog', { name: 'Rotate secret' });
+  await expect(confirm).toContainText('The old one stops working now');
+  await confirm.getByRole('button', { name: 'Cancel' }).click();
+  await expect(confirm).toBeHidden();
+
+  await row.getByRole('button', { name: 'Rotate secret' }).click();
+  await page
+    .getByRole('dialog', { name: 'Rotate secret' })
+    .getByRole('button', { name: 'Rotate' })
+    .click();
+  const shown = page.getByRole('dialog', { name: 'Rotation test' });
+  await expect(shown).toBeVisible();
+  await expect(shown).toContainText('zoocs_');
+  await expect(shown).not.toContainText(first);
+});

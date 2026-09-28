@@ -3,7 +3,6 @@ package auth
 import (
 	"context"
 	"errors"
-	"net"
 	"net/url"
 	"strings"
 	"testing"
@@ -182,10 +181,17 @@ func TestMetadataFetchRefusesPrivateAddresses(t *testing.T) {
 	for addr, public := range map[string]bool{
 		"127.0.0.1": false, "10.1.2.3": false, "192.168.1.1": false, "169.254.169.254": false,
 		"100.64.0.1": false, "::1": false, "fd00::1": false, "0.0.0.0": false,
-		"1.1.1.1": true, "160.79.104.1": true, "2606:4700::1111": true,
+		// The ranges a shorter list once let through: the rest of "this
+		// network", benchmarking, reserved, and IPv6 addresses that carry a
+		// private IPv4 destination -- the metadata service behind NAT64 is
+		// the metadata service.
+		"0.1.2.3": false, "198.18.0.1": false, "240.0.0.1": false, "255.255.255.255": false,
+		"64:ff9b::a9fe:a9fe": false, "2002:7f00:1::": false, "::ffff:10.0.0.1": false, "fec0::1": false,
+		"1.1.1.1": true, "160.79.104.1": true, "2606:4700::1111": true, "64:ff9b::101:101": true,
 	} {
-		if got := publicIP(net.ParseIP(addr)); got != public {
-			t.Errorf("publicIP(%s) = %v, want %v", addr, got, public)
+		err := dialTarget(addr)
+		if (err == nil) != public {
+			t.Errorf("dialTarget(%s) = %v, want public=%v", addr, err, public)
 		}
 	}
 	if _, err := fetchPublic(t.Context(), "https://127.0.0.1/doc", false); err == nil || !strings.Contains(err.Error(), "not a public address") {

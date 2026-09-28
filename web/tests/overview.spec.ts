@@ -724,7 +724,17 @@ test('selecting a day opens its hours and leads to its jobs', async ({ page }) =
 
 test('the matrix can be coloured by a different figure', async ({ page }) => {
   const matrix = page.getByRole('region', { name: 'Activity matrix', exact: true });
-  await expect(matrix.getByRole('grid')).toBeVisible();
+  // The demo fleet's jobs are written once, when the controller starts, over
+  // the six hours before it. A suite that starts before midnight and gets here
+  // after it finds today's squares empty of anything queued, so this asks for
+  // a window that holds those hours whatever the clock says. The test is about
+  // colouring, not about today.
+  const week = matrix
+    .getByRole('group', { name: 'Range' })
+    .getByRole('button', { name: 'The last 7 days, by the hour' });
+  await week.click();
+  await expect(week).toHaveAttribute('aria-pressed', 'true');
+  await expect(matrix.getByRole('grid').getByRole('gridcell')).toHaveCount(7 * 24);
   await expect(matrix).toContainText('Failures, few');
 
   const colour = matrix.getByLabel('Colour the matrix by');

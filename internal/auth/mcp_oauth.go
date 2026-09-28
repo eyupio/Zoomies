@@ -240,8 +240,9 @@ func (s *Service) CreateMCPClient(ctx context.Context, actor *Identity, in NewMC
 }
 
 // RotateMCPClientSecret replaces a confidential client's secret. The old one
-// stops working at once; connections already made keep working, because a
-// refresh presents the new secret from then on.
+// stops working at once. Connections already made are not ended, but each one
+// fails its next refresh until the client is given the new secret, which is
+// why the settings page asks before it rotates.
 func (s *Service) RotateMCPClientSecret(ctx context.Context, actor *Identity, id string) (*store.OAuthClient, string, error) {
 	c, err := s.store.GetOAuthClient(ctx, id)
 	if err != nil {

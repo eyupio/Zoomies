@@ -111,13 +111,24 @@
     }
   }
 
-  async function rotate(client: MCPClient): Promise<void> {
+  /* Rotating is not undone by closing the dialog: the old secret stops
+     working the moment the new one exists, so every client configured with
+     it fails its next refresh until somebody pastes the new one in. That is
+     worth one confirmation, the same as revoking. */
+  let rotateOpen = $state(false);
+  let rotating = $state<MCPClient | null>(null);
+
+  async function rotate(): Promise<boolean> {
+    const client = rotating;
+    if (!client) return false;
     try {
       shown = await rotateMCPClientSecret(client.id);
       createOpen = true;
       reload += 1;
+      return true;
     } catch (cause) {
       toasts.fromError(cause, 'The secret was not rotated');
+      return false;
     }
   }
 
@@ -227,7 +238,14 @@
                 <td role="cell" data-label="Actions" class="actions">
                   {#if !client.revoked_at}
                     {#if client.kind === 'admin' && client.confidential}
-                      <Button size="sm" variant="ghost" onclick={() => void rotate(client)}>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onclick={() => {
+                          rotating = client;
+                          rotateOpen = true;
+                        }}
+                      >
                         Rotate secret
                       </Button>
                     {/if}
@@ -349,6 +367,20 @@
     {/if}
   {/snippet}
 </Dialog>
+
+<ConfirmDialog
+  bind:open={rotateOpen}
+  title="Rotate secret"
+  name={rotating?.name}
+  description="{rotating?.name ??
+    'This client'} gets a new secret, shown once. The old one stops working now."
+  consequences={[
+    `Anything still holding the old secret cannot sign anybody in or refresh a connection until it is given the new one${rotating?.connections ? ` — ${rotating.connections} connection${rotating.connections === 1 ? '' : 's'} will stop at their next refresh` : ''}.`,
+  ]}
+  confirmLabel="Rotate"
+  onconfirm={rotate}
+  oncancel={() => (rotating = null)}
+/>
 
 <ConfirmDialog
   bind:open={revokeOpen}
