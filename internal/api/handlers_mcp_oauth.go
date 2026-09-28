@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/eyupio/zoomies/internal/auth"
 	"github.com/eyupio/zoomies/internal/store"
@@ -212,8 +213,15 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, auth.ErrorRedirect(p, refusal.RedirectURI, refusal.State, refusal.Code, refusal.Description), http.StatusFound)
 	case errors.As(err, &refusal):
 		// The client or its redirect could not be trusted, so the person is
-		// told here rather than sent anywhere.
-		http.Redirect(w, r, consentPath+"?"+url.Values{"error": {refusal.Code}, "error_description": {refusal.Description}}.Encode(), http.StatusFound)
+		// told here rather than sent anywhere. Only the code travels: the page
+		// renders its own sentence for it, because text read from the address
+		// is text anybody can write into a link that opens on this controller.
+		// The specific reason goes to the log, for whoever the person asks --
+		// at debug, like every other request line, and cut short, because it
+		// quotes a client_id and redirect_uri anybody can make as long as a
+		// URL, on an endpoint nobody has to sign in to reach.
+		s.logger(r).Debug("refused an MCP sign-in on the consent page", "error", refusal.Code, "reason", truncateForLog(refusal.Description, 200))
+		http.Redirect(w, r, consentPath+"?"+url.Values{"error": {refusal.Code}}.Encode(), http.StatusFound)
 	case err != nil:
 		s.internal(w, r, "starting an MCP sign-in", err)
 	default:
@@ -595,4 +603,17 @@ func (s *Server) handleRevokeMCPClient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	noContent(w)
+}
+
+// truncateForLog cuts s to at most n bytes on a rune boundary, marking the
+// cut, so a value a caller chose cannot make one log line as long as it likes.
+func truncateForLog(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	cut := n
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "..."
 }

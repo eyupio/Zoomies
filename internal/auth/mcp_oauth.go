@@ -270,9 +270,18 @@ func (s *Service) RevokeMCPClient(ctx context.Context, actor *Identity, id strin
 	if err != nil {
 		return err
 	}
+	grants, err := s.store.ListOAuthGrants(ctx, "")
+	if err != nil {
+		return err
+	}
 	n, err := s.store.RevokeOAuthClient(ctx, id)
 	if err != nil {
 		return err
+	}
+	for _, g := range grants {
+		if g.ClientID == id {
+			s.touched.Delete(g.ID)
+		}
 	}
 	s.audit.Act(ctx, actor, "mcp_client.revoke", "mcp_client", id, map[string]any{"name": c.Name, "connections_ended": n})
 	return nil
@@ -697,6 +706,18 @@ func (s *Service) ApproveAuthorization(ctx context.Context, p OAuthPolicy, id *I
 	if err != nil {
 		return nil, err
 	}
+	// The request was checked when it began, up to fifteen minutes ago. An
+	// administrator who has since closed open registration meant it for the
+	// requests already waiting too, and approving one would hand the person a
+	// code the token endpoint then refuses, with nothing on this page to say why.
+	if c.Revoked() {
+		return nil, Invalid("%s was revoked on this controller after it asked to connect; nothing was shared", c.Name)
+	}
+	if c.Kind != store.OAuthClientAdmin && !p.OpenRegistration {
+		return nil, Invalid("this controller stopped accepting self-registered clients (security.mcp_open_registration is off) "+
+			"after %s asked to connect, so nothing was shared; ask an administrator for a client ID from Settings, MCP clients, "+
+			"and connect again with it", c.Name)
+	}
 	code := MCPCodePrefix + store.NewSecret(secretBytes)
 	g := &store.OAuthGrant{
 		ClientID:  c.ID,
@@ -996,9 +1017,17 @@ func (s *Service) issue(ctx context.Context, c *store.OAuthClient, g *store.OAut
 }
 
 func (s *Service) revokeReplayed(ctx context.Context, g *store.OAuthGrant, why, ip string) {
-	if err := s.store.RevokeOAuthGrant(ctx, g.ID, why); err != nil && !errors.Is(err, store.ErrConflict) {
+	err := s.store.RevokeOAuthGrant(ctx, g.ID, why)
+	if errors.Is(err, store.ErrConflict) {
+		// Already ended, by this replay's twin or by the person. The first
+		// revocation is on the record; a row for every later presentation
+		// would let whoever holds the credential fill the audit log with it.
+		return
+	}
+	if err != nil {
 		s.logger.Error("could not revoke a connection after a replayed credential", "connection", g.ID, "error", err)
 	}
+	s.touched.Delete(g.ID)
 	s.audit.Act(ctx, &Identity{Kind: KindSystem, ID: "system", Name: "zoomies", IP: ip}, "mcp_connection.replay", "mcp_connection", g.ID,
 		map[string]any{"reason": why, "client": g.ClientName, "user": g.Username})
 }
@@ -1024,6 +1053,7 @@ func (s *Service) RevokeToken(ctx context.Context, p OAuthPolicy, cc ClientCrede
 		// The refresh token is the connection; revoking it ends what it
 		// would have renewed, access tokens included.
 		if err := s.store.RevokeOAuthGrant(ctx, g.ID, "revoked by the client"); err == nil {
+			s.touched.Delete(g.ID)
 			s.audit.Act(ctx, &Identity{Kind: KindClient, ID: c.ID, Name: c.Name, IP: ip}, "mcp_connection.revoke", "mcp_connection", g.ID,
 				map[string]any{"by": "client", "client": c.Name, "user": g.Username})
 		}
@@ -1122,6 +1152,9 @@ func (s *Service) RevokeMCPConnection(ctx context.Context, actor *Identity, id, 
 	if err := s.store.RevokeOAuthGrant(ctx, id, reason); err != nil {
 		return err
 	}
+	// The last-used throttle keeps an entry per live connection; an ended
+	// one would otherwise stay in it for the life of the process.
+	s.touched.Delete(id)
 	s.audit.Act(ctx, actor, "mcp_connection.revoke", "mcp_connection", id, map[string]any{
 		"client": g.ClientName, "user": g.Username, "role": string(g.Role),
 	})

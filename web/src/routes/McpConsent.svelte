@@ -33,11 +33,25 @@
 
   /* A refusal the controller made before there was anything to decide --
      an unknown client, a redirect it never registered -- arrives in the
-     address, and is read once. */
-  const refusal = untrack(() => ({
-    code: router.param('error'),
-    description: router.param('error_description'),
-  }));
+     address as a code, and is read once. Only the code is read: the sentence
+     shown for it is this page's own, because anything rendered from the
+     address is something anybody can write into a link that opens on this
+     controller's domain. The specific reason is in the controller's log. */
+  const REFUSAL_TEXT: Record<string, string> = {
+    invalid_client:
+      'This controller does not know the app that sent you here, or no longer accepts it. If it should, an administrator can check Settings, MCP clients.',
+    invalid_request:
+      'The app asked to send you back to an address it never registered, or left out part of the request, so this controller will not send you anywhere.',
+  };
+  const refusal = untrack(() => {
+    const code = router.param('error');
+    return {
+      code,
+      description:
+        REFUSAL_TEXT[code] ??
+        'The app that sent you here asked for something this controller will not do.',
+    };
+  });
   const requestId = untrack(() => router.param('request'));
 
   let consent = $state<MCPConsent | null>(null);
@@ -116,15 +130,13 @@
       <h1 id="page-heading" tabindex="-1">This connection cannot go ahead</h1>
       <p class="failure" role="alert">
         <TriangleAlert size={16} aria-hidden="true" />
-        <span
-          >{refusal.description ||
-            'The app that sent you here asked for something this controller will not do.'}</span
-        >
+        <span>{refusal.description}</span>
       </p>
       <p class="muted">
         Nothing was shared and you have not been sent anywhere else. Go back to the app you came
         from and try connecting again; if it keeps happening, the app's connector settings need
-        changing. The code was <span class="mono">{refusal.code}</span>.
+        changing. The code was <span class="mono">{refusal.code}</span>; an administrator can find
+        the reason in the controller's log.
       </p>
       <div class="actions"><Button href="/">Go to Zoomies</Button></div>
     </section>

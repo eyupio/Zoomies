@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -280,5 +281,132 @@ func TestConsentNeedsAPerson(t *testing.T) {
 		if _, err := s.ApproveAuthorization(t.Context(), testPolicy, id, "oar_x", store.RoleViewer); !errors.Is(err, ErrInvalidInput) {
 			t.Errorf("%v must be refused as not a person, got %v", id, err)
 		}
+	}
+}
+
+// connectForTest registers a client, approves it for u and exchanges the code.
+func connectForTest(t *testing.T, s *Service, u *store.User) (*store.OAuthClient, *TokenResponse) {
+	t.Helper()
+	ctx := t.Context()
+	cl, err := s.RegisterClient(ctx, testPolicy, ClientRegistration{RedirectURIs: []string{ClaudeCallback}}, "203.0.113.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := s.BeginAuthorization(ctx, testPolicy, AuthorizeParams{ClientID: cl.ClientID, RedirectURI: ClaudeCallback,
+		ResponseType: "code", CodeChallenge: PKCEChallenge(verifier), CodeChallengeMethod: "S256"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := &Identity{Kind: KindUser, ID: u.ID, Name: u.Username, Role: u.Role}
+	d, err := s.ApproveAuthorization(ctx, testPolicy, id, r.ID, store.RoleViewer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, _ := url.Parse(d.RedirectTo)
+	pair, err := s.Token(ctx, testPolicy, ClientCredentials{ClientID: cl.ClientID}, TokenRequest{
+		GrantType: "authorization_code", Code: back.Query().Get("code"), CodeVerifier: verifier, RedirectURI: ClaudeCallback}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cl, pair
+}
+
+// Closing open registration is meant for the requests already waiting too.
+// Approving one anyway would hand the person a code the token endpoint then
+// refuses, so the consent screen is where they are told.
+func TestApprovalRechecksOpenRegistration(t *testing.T) {
+	s, st, _ := newService(t)
+	ctx := t.Context()
+	u := addUser(t, st, "olive", store.RoleOperator, nil)
+	cl, err := s.RegisterClient(ctx, testPolicy, ClientRegistration{RedirectURIs: []string{ClaudeCallback}}, "203.0.113.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := s.BeginAuthorization(ctx, testPolicy, AuthorizeParams{ClientID: cl.ClientID, RedirectURI: ClaudeCallback,
+		ResponseType: "code", CodeChallenge: PKCEChallenge(verifier), CodeChallengeMethod: "S256"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed := testPolicy
+	closed.OpenRegistration = false
+	id := &Identity{Kind: KindUser, ID: u.ID, Name: u.Username, Role: u.Role}
+	_, err = s.ApproveAuthorization(ctx, closed, id, r.ID, store.RoleViewer)
+	if !errors.Is(err, ErrInvalidInput) || !strings.Contains(err.Error(), "security.mcp_open_registration") {
+		t.Fatalf("an approval after registration closed must be refused with the setting named, got %v", err)
+	}
+	if gs, _ := st.ListOAuthGrants(ctx, ""); len(gs) != 0 {
+		t.Errorf("a refused approval must grant nothing, got %d connections", len(gs))
+	}
+}
+
+// A replay revokes the connection once. A later presentation of the same
+// credential finds it already ended and adds nothing to the audit log, which
+// whoever holds the credential could otherwise fill.
+func TestAReplayIsAuditedOnce(t *testing.T) {
+	s, st, _ := newService(t)
+	ctx := t.Context()
+	u := addUser(t, st, "olive", store.RoleOperator, nil)
+	_, pair := connectForTest(t, s, u)
+	a, err := st.ResolveOAuthAccess(ctx, cryptox.HashToken(pair.AccessToken))
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := &a.Grant
+	for range 3 {
+		s.revokeReplayed(ctx, g, "refresh token used twice", "203.0.113.5")
+	}
+	_, total, err := st.ListAudit(ctx, store.AuditFilter{Actions: []string{"mcp_connection.replay"}}, store.Page{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 1 {
+		t.Errorf("three replays of an ended connection must leave one audit row, got %d", total)
+	}
+}
+
+// The last-used throttle holds an entry per connection that has been used;
+// ending a connection, by any of the three routes, must take its entry with it.
+func TestEndingAConnectionForgetsItsLastUse(t *testing.T) {
+	s, st, _ := newService(t)
+	ctx := t.Context()
+	u := addUser(t, st, "olive", store.RoleOperator, nil)
+	admin := &Identity{Kind: KindUser, ID: u.ID, Name: u.Username, Role: store.RoleAdmin}
+	used := func(pair *TokenResponse) string {
+		t.Helper()
+		got, err := s.AuthenticateMCP(ctx, testPolicy, pair.AccessToken, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := s.touched.Load(got.ID); !ok {
+			t.Fatal("a used connection must be in the throttle")
+		}
+		return got.ID
+	}
+
+	_, pair := connectForTest(t, s, u)
+	g := used(pair)
+	if err := s.RevokeMCPConnection(ctx, admin, g, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s.touched.Load(g); ok {
+		t.Error("revoking a connection must forget its last use")
+	}
+
+	cl, pair := connectForTest(t, s, u)
+	g = used(pair)
+	if err := s.RevokeMCPClient(ctx, admin, cl.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s.touched.Load(g); ok {
+		t.Error("revoking a client must forget its connections' last use")
+	}
+
+	cl, pair = connectForTest(t, s, u)
+	g = used(pair)
+	if err := s.RevokeToken(ctx, testPolicy, ClientCredentials{ClientID: cl.ClientID}, pair.RefreshToken, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s.touched.Load(g); ok {
+		t.Error("a client revoking its refresh token must forget the connection's last use")
 	}
 }

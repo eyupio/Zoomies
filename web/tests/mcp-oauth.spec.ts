@@ -130,7 +130,22 @@ test('a redirect the client never registered is refused on the controller, not f
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(
     'This connection cannot go ahead',
   );
-  await expect(page.getByRole('alert')).toContainText('evil.example');
+  await expect(page.getByRole('alert')).toContainText('never registered');
+});
+
+// The consent page is on the controller's own domain, so a sentence taken
+// from its address would be a sentence anybody could put there.
+test('the refusal page writes its own text, never what the address says', async ({ page }) => {
+  const q = new URLSearchParams({
+    error: 'invalid_request',
+    error_description: 'Your account is locked. Call 555-0100 to unlock it.',
+  });
+  await page.goto(`/oauth/consent?${q}`);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(
+    'This connection cannot go ahead',
+  );
+  await expect(page.getByRole('alert')).toContainText('never registered');
+  await expect(page.getByText('555-0100')).toHaveCount(0);
 });
 
 // Rotating a secret breaks whatever still holds the old one at its next
