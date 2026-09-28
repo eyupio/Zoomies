@@ -747,13 +747,15 @@ input,
   display: none;
 }
 
-/* The hero sits on the page like everything under it: a stage for the mark,
-   an eyebrow, the headline, the install command and the pages people come
-   for. The one dark thing in it is the stage. The mark is white line art whose
-   limbs are filled Zoomies Black, and brand.md says that black is the ground
-   it sits on in both themes, so the tile keeps the black and the glow while
-   the words around it take the page's own colours. */
+/* The hero sits on the page like everything under it: an eyebrow, the
+   headline, the install command and the pages people come for. The mark is in
+   the headline itself, as a small tile on Zoomies Black between the words --
+   brand.md says that black is the ground it sits on in both themes, and the
+   paw/swish is the artwork the brand reserves for this size. The identity's
+   full lockup, animated, closes the page instead (.zoomies-cta). */
 .zoomies-hero {
+  position: relative;
+  isolation: isolate;
   display: grid;
   /* One column that may shrink below its content: the install command is a
      single unbreakable line, and on a phone it must scroll inside its own box
@@ -762,48 +764,27 @@ input,
   place-items: center;
   gap: 1.1rem;
   text-align: center;
-  padding: 1.5rem 0 1rem;
+  padding: 2.5rem 0 1rem;
   margin: 0 0 2.5rem;
 }
 .zoomies-hero > * {
   min-width: 0;
   max-width: 100%;
 }
-.zoomies-stage {
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
-  display: grid;
-  place-items: center;
-  width: min(18rem, 100%);
-  margin: 0 0 0.25rem;
-  padding: 1.25rem 1.25rem 0.5rem;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: var(--z-radius-xl);
-  background:
-    radial-gradient(70% 60% at 50% 0%, rgba(47, 128, 237, 0.34) 0%, transparent 70%),
-    var(--z-brand-black);
-  box-shadow:
-    0 30px 80px -40px rgba(47, 128, 237, 0.45),
-    var(--z-shadow-lg);
-}
-/* A dot grid that fades towards the edges, so the stage has texture where the
-   logo sits and reads as a plain surface at its rim. */
-.zoomies-stage::before {
+/* A glow behind the headline, and a dot grid that fades out before it reaches
+   the words, so the top of the page has texture and the text sits on a plain
+   surface. Both are the accent at low alpha, so they read in either theme. */
+.zoomies-hero::before {
   content: '';
   position: absolute;
-  inset: 0;
+  inset: -3rem -2rem 30%;
   z-index: -1;
-  background-image: radial-gradient(rgba(255, 255, 255, 0.11) 1px, transparent 1.3px);
-  background-size: 22px 22px;
-  -webkit-mask-image: radial-gradient(70% 75% at 50% 35%, #000 20%, transparent 100%);
-  mask-image: radial-gradient(70% 75% at 50% 35%, #000 20%, transparent 100%);
-}
-.zoomies-stage .zoomies-brand {
-  width: min(230px, 100%);
-}
-.zoomies-stage .zoomies-brand__art {
-  filter: drop-shadow(0 16px 40px rgba(47, 128, 237, 0.28));
+  pointer-events: none;
+  background:
+    radial-gradient(rgba(47, 128, 237, 0.16) 1px, transparent 1.3px) 0 0 / 22px 22px,
+    radial-gradient(55% 60% at 50% 0%, rgba(47, 128, 237, 0.16) 0%, transparent 70%);
+  -webkit-mask-image: radial-gradient(60% 70% at 50% 15%, #000 0%, transparent 100%);
+  mask-image: radial-gradient(60% 70% at 50% 15%, #000 0%, transparent 100%);
 }
 /* The eyebrow: what is new, one line, above the headline. */
 .md-typeset .zoomies-hero .eyebrow {
@@ -839,20 +820,50 @@ input,
 }
 /* The hero's headline. It is an h1 rather than a paragraph because it is the
    page's real title, and Material's own h1 rules have to be overridden for it
-   to be set this large. The one emphasised word takes the accent. */
+   to be set this large. The second line is quieter than the first, and the
+   mark sits in it as a tile the height of the type. */
 .md-typeset .zoomies-hero h1 {
-  max-width: 16ch;
   margin: 0;
   font-size: clamp(2rem, 5.6vw, 3.6rem);
   font-weight: 800;
   letter-spacing: -0.04em;
-  line-height: 1.02;
+  line-height: 1.06;
   color: var(--md-default-fg-color);
   text-wrap: balance;
 }
-.md-typeset .zoomies-hero h1 em {
-  font-style: normal;
-  color: var(--z-accent);
+.md-typeset .zoomies-hero h1 .quiet {
+  color: var(--md-default-fg-color--lighter);
+}
+.md-typeset .zoomies-hero h1 .mark {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  margin: 0 0.02em;
+  padding: 0.14em;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 0.24em;
+  background: var(--z-brand-black);
+  vertical-align: -0.14em;
+  box-shadow:
+    0 0 0 0.12em rgba(47, 128, 237, 0.14),
+    0 0.3em 1em -0.3em rgba(47, 128, 237, 0.6);
+  animation: zoomies-hop 2s ease-in-out infinite;
+}
+/* The tile hops the way the theme's does: a slow, small bounce. Anyone who has
+   asked for less motion gets a still tile. */
+@keyframes zoomies-hop {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-0.18em);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .md-typeset .zoomies-hero h1 .mark {
+    animation: none;
+  }
 }
 
 /* The proof line under the hero: one sentence saying what the product does,
@@ -1041,39 +1052,96 @@ input,
   color: var(--md-default-fg-color--lighter);
 }
 
-/* The closing call to action. */
+/* The closing call to action is the identity's own ground: Zoomies Black in
+   both themes, the animated lockup on the left, and the one place on the page
+   the pure brand blue is allowed to glow. The primary button is white here
+   rather than blue -- the brand is a monochrome mark with blue as an accent,
+   and the accent is already spent on the glow behind the logo. */
 .zoomies-cta {
   position: relative;
+  isolation: isolate;
   overflow: hidden;
+  display: grid;
+  /* A fixed first column: the lockup's fallback image is 1254px wide, and an
+     auto track would size itself to that and starve the copy beside it. */
+  grid-template-columns: 12rem minmax(0, 1fr);
+  align-items: center;
+  gap: 1.5rem 2.5rem;
   margin: 3rem 0 1rem;
-  padding: 2.2rem 1.5rem;
-  border: 1px solid var(--z-line);
+  padding: 2rem 2.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--z-radius-xl);
   background:
-    radial-gradient(70% 90% at 50% 120%, var(--z-accent-subtle) 0%, transparent 70%),
-    var(--z-surface);
-  text-align: center;
+    radial-gradient(60% 80% at 15% 50%, rgba(47, 128, 237, 0.3) 0%, transparent 70%),
+    radial-gradient(45% 40% at 90% 100%, rgba(34, 211, 238, 0.09) 0%, transparent 70%),
+    var(--z-brand-black);
+  color: #f4f5f7;
+  box-shadow: 0 30px 80px -40px rgba(47, 128, 237, 0.35);
+  text-align: left;
+}
+/* A dot grid that fades towards the edges, so the panel has texture where the
+   logo sits and reads as a plain surface where the text does. */
+.zoomies-cta::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.11) 1px, transparent 1.3px);
+  background-size: 22px 22px;
+  -webkit-mask-image: radial-gradient(50% 90% at 15% 50%, #000 20%, transparent 100%);
+  mask-image: radial-gradient(50% 90% at 15% 50%, #000 20%, transparent 100%);
+}
+.zoomies-cta .zoomies-brand {
+  width: 12rem;
+  max-width: 100%;
+}
+.zoomies-cta .zoomies-brand__art {
+  filter: drop-shadow(0 16px 40px rgba(47, 128, 237, 0.28));
+}
+.zoomies-cta__copy {
+  min-width: 0;
 }
 .md-typeset .zoomies-cta .title {
   margin: 0 0 0.5rem;
-  font-size: 1.35rem;
-  font-weight: 640;
-  letter-spacing: -0.02em;
-  line-height: 1.2;
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  color: #ffffff;
   text-wrap: balance;
 }
 .md-typeset .zoomies-cta .lede {
   max-width: 38rem;
-  margin: 0 auto 1.25rem;
-  color: var(--md-default-fg-color--light);
+  margin: 0 0 1.25rem;
+  color: var(--z-brand-cool-grey);
   text-wrap: pretty;
 }
 .md-typeset .zoomies-cta .actions {
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
   gap: 0.6rem;
   margin: 0;
+}
+.md-typeset .zoomies-cta .md-button {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
+  box-shadow: none;
+}
+.md-typeset .zoomies-cta .md-button:is(:hover, :focus-visible) {
+  background: rgba(255, 255, 255, 0.11);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #ffffff;
+}
+.md-typeset .zoomies-cta .md-button--primary {
+  background: #ffffff;
+  border-color: #ffffff;
+  color: var(--z-brand-black);
+}
+.md-typeset .zoomies-cta .md-button--primary:is(:hover, :focus-visible) {
+  background: #e9ecf1;
+  border-color: #e9ecf1;
+  color: var(--z-brand-black);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -1126,11 +1194,7 @@ input,
 
 @media screen and (max-width: 44.9375em) {
   .zoomies-hero {
-    padding: 0.75rem 0 0.5rem;
-  }
-  .zoomies-stage {
-    width: min(14rem, 100%);
-    padding: 1rem 1rem 0.4rem;
+    padding: 1.25rem 0 0.5rem;
   }
   .zoomies-hero .lede {
     font-size: 0.8rem;
@@ -1149,7 +1213,21 @@ input,
     gap: 0.9rem;
   }
   .zoomies-cta {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
     padding: 1.75rem 1rem;
+    text-align: center;
+  }
+  .md-typeset .zoomies-cta .actions {
+    justify-content: center;
+  }
+}
+
+/* The tile in the headline goes with the large setting; at a phone's size the
+   headline is three lines already and the theme hides its icon there too. */
+@media screen and (max-width: 59.9375em) {
+  .md-typeset .zoomies-hero h1 .mark {
+    display: none;
   }
 }
 

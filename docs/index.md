@@ -13,15 +13,9 @@ hide:
 
 <div class="zoomies-hero" markdown>
 
-<div class="zoomies-stage" markdown>
-
---8<-- "docs/brand/animated-logo.html"
-
-</div>
-
 <p class="eyebrow" markdown="span">**New** [Elastic CPU zoomies: a busy runner is lent the cores nobody else is using](elastic-cpu.md)</p>
 
-# Give your GitHub Actions runners the *Zoomies*.
+# Give your GitHub Actions runners<br><span class="quiet">the <img class="mark" src="brand/paw-swish-white.png" alt="" width="64" height="64"> Zoomies.</span>
 
 <p class="lede">
 <strong>Free and open source.</strong> A fresh ephemeral runner for every job,
@@ -331,6 +325,10 @@ been run and which have only been built.
 
 <div class="zoomies-cta" markdown>
 
+--8<-- "docs/brand/animated-logo.html"
+
+<div class="zoomies-cta__copy" markdown>
+
 <p class="title">Give your CI the Zoomies.</p>
 
 <p class="lede">
@@ -346,5 +344,7 @@ you from.
 [See the web UI](ui.md){ .md-button }
 [Browse the FAQ](faq.md){ .md-button }
 </p>
+
+</div>
 
 </div>

@@ -10,7 +10,7 @@
   aspect-ratio: 1;
   position: relative;
 }
-.zoomies-hero .zoomies-brand__fallback,
+.zoomies-brand__fallback,
 .zoomies-brand__svg {
   display: block;
   width: 100%;
