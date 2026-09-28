@@ -43,13 +43,31 @@
   --z-avatar-tag-ink: #6b5524;
   --z-avatar-accent: #5eb89c;
   --z-avatar-size: 2.75rem;
-  /* The Standard spaniel uses the approved neutral illustration palette in
-     both themes. Solid fills keep overlapping animated limbs opaque. */
-  --z-standard-ink: #111111;
-  --z-standard-white: var(--z-brand-white);
-  --z-standard-grey: #888888;
-  --z-standard-shade: #777777;
-  --z-standard-highlight: #aaaaaa;
+  /* The Standard spaniel is a black cocker with a white muzzle and toes,
+     named by role rather than value so a theme can move a colour without
+     redrawing the dog. Line is the outline, which traces the silhouette
+     only: on a light row it is the coat's own black, which gives the white
+     muzzle and toes an edge and leaves the black parts as they are. Of the
+     dog's near side, the ear is the one part a shade off the coat, so the
+     ear stays an ear at 32px instead of merging into the body. Far is the
+     far-side legs. No line runs between a near leg and a far one, so they
+     recede by value alone: a clear step off the coat, or a galloping dog's
+     folded legs merge into one black lump under the belly. Rim is the ear's
+     front edge, an offered forearm and the haunch's crease -- like the rim
+     light in the mark; apart from the face's own lid and brow, they are the
+     only light lines inside the dog. Ink is the features on the white
+     blaze and stays dark in both themes. Every fill is solid so overlapping
+     animated limbs stay opaque. */
+  --z-standard-coat: var(--z-brand-black);
+  --z-standard-line: var(--z-brand-black);
+  --z-standard-ear: #2b2f36;
+  --z-standard-rim: var(--z-brand-mid-grey);
+  --z-standard-blaze: var(--z-brand-white);
+  --z-standard-far: #34383f;
+  --z-standard-ink: var(--z-brand-black);
+  /* Speed lines, the spin's swish and the scent trail: marks beside the dog
+     rather than part of it, so a grey that reads on a light row. */
+  --z-standard-cue: #4d525b;
 
   /* Two of these are the record rather than a value anything reads. Mid Grey
      is the brand's light-theme secondary text, but --z-text-muted darkens it
@@ -425,6 +443,22 @@
     --z-shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.6);
     --z-shadow-lg: 0 16px 40px -8px rgb(0 0 0 / 0.7);
 
+    /* Zoomies Black would all but vanish into a dark row, so the coat
+       lifts just far enough to read as a filled shape and still as a black
+       dog -- any further and it is a grey one -- and the outline is only a
+       step lighter, an edge rather than a sticker's keyline. The ear lifts
+       a step above the coat so it still stands off the head. The far legs
+       sit between the row and the coat, so they read as shadowed limbs; the
+       blaze is a shade under white so it is not the brightest thing on the
+       page; the cue moves to mid grey to stay visible on a dark row. */
+    --z-standard-coat: #25282e;
+    --z-standard-line: #3a3e46;
+    --z-standard-ear: #3b4049;
+    --z-standard-rim: #7a7f88;
+    --z-standard-blaze: #eceef1;
+    --z-standard-far: #1f2227;
+    --z-standard-cue: var(--z-brand-mid-grey);
+
     --z-scrollbar-track: rgb(255 255 255 / 0.07);
 
     color-scheme: dark;
@@ -487,6 +521,15 @@
   --z-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.5);
   --z-shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.6);
   --z-shadow-lg: 0 16px 40px -8px rgb(0 0 0 / 0.7);
+
+  /* The Standard spaniel's dark theme; the block above says why. */
+  --z-standard-coat: #25282e;
+  --z-standard-line: #3a3e46;
+  --z-standard-ear: #3b4049;
+  --z-standard-rim: #7a7f88;
+  --z-standard-blaze: #eceef1;
+  --z-standard-far: #1f2227;
+  --z-standard-cue: var(--z-brand-mid-grey);
 
   --z-scrollbar-track: rgb(255 255 255 / 0.07);
 
