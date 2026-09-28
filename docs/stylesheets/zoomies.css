@@ -445,14 +445,20 @@ input,
   letter-spacing: -0.01em;
 }
 /* One mark per scheme, drawn by overrides/partials/logo.html and the footer:
-   white line art for the dark ground, black for the light one. */
+   white line art for the dark ground, black for the light one. The drawer's
+   selector matches Material's own for the phone drawer's title, which would
+   otherwise outrank this one and draw the mark at 2.4rem. */
 .md-header__button.md-logo img,
-.md-nav__button.md-logo img {
+.md-nav__title .md-nav__button.md-logo img {
   height: 1.5rem;
   width: 1.5rem;
 }
-/* Two classes, because Material's own `.md-logo img` rule outranks a scheme
-   attribute and one class, and both marks would show at once. */
+/* Material's `.md-nav__title .md-nav__button.md-logo img` sets `display` too,
+   and outranks a scheme attribute and two classes: in the phone drawer both
+   marks showed, one stacked under the other, and the visible one landed on
+   the site name. Naming `.md-logo` as well puts this rule above it. */
+[data-md-color-scheme='default'] .md-logo .zoomies-logo.zoomies-logo--dark,
+[data-md-color-scheme='slate'] .md-logo .zoomies-logo.zoomies-logo--light,
 [data-md-color-scheme='default'] .zoomies-logo.zoomies-logo--dark,
 [data-md-color-scheme='slate'] .zoomies-logo.zoomies-logo--light {
   display: none;
