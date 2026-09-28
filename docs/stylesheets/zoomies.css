@@ -821,7 +821,8 @@ input,
 /* The hero's headline. It is an h1 rather than a paragraph because it is the
    page's real title, and Material's own h1 rules have to be overridden for it
    to be set this large. The second line is quieter than the first, and the
-   mark sits in it as a tile the height of the type. */
+   paw/swish sits in it at the height of the type -- white on the dark scheme
+   and black on the light one, like the header's, with no box of its own. */
 .md-typeset .zoomies-hero h1 {
   margin: 0;
   font-size: clamp(2rem, 5.6vw, 3.6rem);
@@ -834,23 +835,22 @@ input,
 .md-typeset .zoomies-hero h1 .quiet {
   color: var(--md-default-fg-color--lighter);
 }
+/* The hide-per-scheme rule above is outranked by this one, so it is repeated
+   here at this rule's own specificity. */
+[data-md-color-scheme='default'] .md-typeset .zoomies-hero h1 .mark.zoomies-logo--dark,
+[data-md-color-scheme='slate'] .md-typeset .zoomies-hero h1 .mark.zoomies-logo--light {
+  display: none;
+}
 .md-typeset .zoomies-hero h1 .mark {
   display: inline-block;
-  width: 1em;
-  height: 1em;
-  margin: 0 0.02em;
-  padding: 0.14em;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 0.24em;
-  background: var(--z-brand-black);
-  vertical-align: -0.14em;
-  box-shadow:
-    0 0 0 0.12em rgba(47, 128, 237, 0.14),
-    0 0.3em 1em -0.3em rgba(47, 128, 237, 0.6);
+  width: 0.95em;
+  height: 0.95em;
+  margin: 0 0.04em;
+  vertical-align: -0.12em;
   animation: zoomies-hop 2s ease-in-out infinite;
 }
-/* The tile hops the way the theme's does: a slow, small bounce. Anyone who has
-   asked for less motion gets a still tile. */
+/* The paw hops the way the theme's icon does: a slow, small bounce. Anyone who
+   has asked for less motion gets a still one. */
 @keyframes zoomies-hop {
   0%,
   100% {
@@ -1223,7 +1223,7 @@ input,
   }
 }
 
-/* The tile in the headline goes with the large setting; at a phone's size the
+/* The paw in the headline goes with the large setting; at a phone's size the
    headline is three lines already and the theme hides its icon there too. */
 @media screen and (max-width: 59.9375em) {
   .md-typeset .zoomies-hero h1 .mark {

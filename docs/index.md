@@ -15,7 +15,7 @@ hide:
 
 <p class="eyebrow" markdown="span">**New** [Elastic CPU zoomies: a busy runner is lent the cores nobody else is using](elastic-cpu.md)</p>
 
-# Give your GitHub Actions runners<br><span class="quiet">the <img class="mark" src="brand/paw-swish-white.png" alt="" width="64" height="64"> Zoomies.</span>
+# Give your GitHub Actions runners<br><span class="quiet">the <img class="mark zoomies-logo zoomies-logo--dark" src="brand/paw-swish-white.png" alt="" width="64" height="64"><img class="mark zoomies-logo zoomies-logo--light" src="brand/paw-swish-black.png" alt="" width="64" height="64"> Zoomies.</span>
 
 <p class="lede">
 <strong>Free and open source.</strong> A fresh ephemeral runner for every job,
