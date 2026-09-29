@@ -12,6 +12,7 @@ import (
 	neturl "net/url"
 	"os"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -142,6 +143,20 @@ func blankSecrets(cfg *config.Config) *config.Config {
 	// next one named that way fails on the day it is added rather than after a
 	// release.
 	c.Agent.RegistryAuth = blank(c.Agent.RegistryAuth)
+	// The backup remotes are the one list of structs in the configuration, and
+	// so the one place the shallow copy above shares memory with the live
+	// config: they hold the bucket's secret key and the passphrase that seals
+	// every offsite archive, which together open the whole fleet's database.
+	// The slice is cloned before it is blanked, or the running configuration
+	// would lose them too. The access key ID is an identifier, but it is
+	// blanked with them so the guard test has one rule and not an exception.
+	c.Backup.Remotes = slices.Clone(cfg.Backup.Remotes)
+	for i := range c.Backup.Remotes {
+		r := &c.Backup.Remotes[i]
+		r.AccessKeyID = blank(r.AccessKeyID)
+		r.SecretAccessKey = blank(r.SecretAccessKey)
+		r.Passphrase = blank(r.Passphrase)
+	}
 	return &c
 }
 
