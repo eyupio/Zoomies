@@ -92,6 +92,14 @@ var (
 	// exists. It is a separate sentence from the one above because it is a
 	// different thing to have to fix.
 	ErrTokenOrphaned = errors.New("the account this API token belonged to has been deleted; the token cannot be used")
+	// ErrAuthBackend means a credential could not be checked because the
+	// controller failed to read what it is checked against -- the database not
+	// answering, most likely. It is not a verdict on the credential: a client
+	// told "unauthorised" signs out a session that is still good, so the API
+	// answers it with a 500 and a request ID, and a live stream rides it out
+	// instead of ending. The wrapped cause is for the log and never for the
+	// caller.
+	ErrAuthBackend = errors.New("the controller could not check this credential")
 	// ErrAccountDisabled means the account exists but has been switched off.
 	ErrAccountDisabled = errors.New("this account is disabled; ask an administrator to re-enable it")
 	// ErrSSOOnly means the account has no password because it comes from the
@@ -844,6 +852,12 @@ func (s *Service) AuthenticateAgent(ctx context.Context, authorization string) (
 	return h, nil
 }
 
+// backendFailure marks a storage error met while checking a credential as
+// ErrAuthBackend, keeping the cause reachable for the log.
+func backendFailure(doing string, cause error) error {
+	return fmt.Errorf("%w: %s: %w", ErrAuthBackend, doing, cause)
+}
+
 func (s *Service) authenticateToken(ctx context.Context, token, ip string) (*Identity, error) {
 	// Credentials are prefixed for exactly this: an operator who pastes the
 	// wrong one gets told which one they pasted instead of "unauthorized".
@@ -861,7 +875,7 @@ func (s *Service) authenticateToken(ctx context.Context, token, ip string) (*Ide
 		return nil, ErrInvalidCredentials
 	}
 	if err != nil {
-		return nil, fmt.Errorf("looking up API token: %w", err)
+		return nil, backendFailure("looking up API token", err)
 	}
 	if t.Revoked {
 		return nil, ErrTokenRevoked
@@ -894,7 +908,7 @@ func (s *Service) authenticateToken(ctx context.Context, token, ip string) (*Ide
 		case errors.Is(err, store.ErrNotFound):
 			return nil, ErrTokenOrphaned
 		case err != nil:
-			return nil, fmt.Errorf("looking up the owner of an API token: %w", err)
+			return nil, backendFailure("looking up the owner of an API token", err)
 		case u.Disabled:
 			return nil, ErrTokenOwnerDisabled
 		}
@@ -921,7 +935,7 @@ func (s *Service) authenticateSession(ctx context.Context, cookie, ip string) (*
 		return nil, ErrSessionExpired
 	}
 	if err != nil {
-		return nil, fmt.Errorf("looking up session: %w", err)
+		return nil, backendFailure("looking up session", err)
 	}
 	if !s.Now().Before(sess.ExpiresAt) {
 		// Clean up on the way past; the retention job would get there

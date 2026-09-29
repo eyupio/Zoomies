@@ -138,6 +138,16 @@ func (s *Server) endIfRevoked(stream *sseWriter, r *http.Request, action auth.Ac
 	if err == nil && auth.Allowed(id, action) {
 		return false
 	}
+	// A failed read is not a revoked credential. Ending here would tell every
+	// open tab to sign in again because the database blinked once; the stream
+	// stays up and the next heartbeat asks again. A revocation is noticed a
+	// beat late rather than missed, and the frames that carry anything
+	// sensitive are still filtered per subscriber, failing closed, as they go
+	// out.
+	if errors.Is(err, auth.ErrAuthBackend) {
+		s.logger(r).Warn("could not re-check a live stream's credential; keeping the stream open", "error", err)
+		return false
+	}
 	_ = stream.event("end", "", []byte(`{"reason":"this stream's credential is no longer valid; sign in again"}`))
 	return true
 }

@@ -1090,7 +1090,7 @@ func (s *Service) AuthenticateMCP(ctx context.Context, p OAuthPolicy, token, ip 
 		return nil, ErrMCPTokenInvalid
 	}
 	if err != nil {
-		return nil, fmt.Errorf("looking up an MCP access token: %w", err)
+		return nil, backendFailure("looking up an MCP access token", err)
 	}
 	now := s.Now()
 	switch {

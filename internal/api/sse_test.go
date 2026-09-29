@@ -383,6 +383,45 @@ func TestRunnerLogStream(t *testing.T) {
 	}
 }
 
+// The heartbeat re-checks the credential a stream was opened with, and a
+// failed read is not a revoked credential. Ending every operator's stream with
+// "sign in again" because the database blinked once sends them to a login page
+// for a session that is still good; the stream stays up and the next beat
+// tries again.
+func TestEventStreamSurvivesTheDatabaseFailingAtAHeartbeat(t *testing.T) {
+	h := newHarness(t)
+	u, _ := h.user("viewer", store.RoleViewer)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	frames, _ := h.openStream(t, ctx, "/api/v1/events", h.session(u), nil)
+	await(t, frames, "the opening comment", func(f sseFrame) bool { return f.comment != "" })
+	if err := h.st.Close(); err != nil {
+		t.Fatalf("closing the store: %v", err)
+	}
+
+	// Several beats at the harness's 50ms: the first re-check has failed by
+	// the time the later heartbeats arrive.
+	beats := 0
+	deadline := time.After(5 * time.Second)
+	for beats < 4 {
+		select {
+		case f, ok := <-frames:
+			if !ok {
+				t.Fatal("the stream closed when the database failed; it should ride it out")
+			}
+			if f.event == "end" {
+				t.Fatalf("the stream was ended with %q for a failed read, not a revoked credential", f.data)
+			}
+			if f.comment == "heartbeat" {
+				beats++
+			}
+		case <-deadline:
+			t.Fatalf("only %d heartbeats arrived", beats)
+		}
+	}
+}
+
 // TestLogStreamForAnUnknownRunnerIs404 keeps the log pane's error honest.
 func TestLogStreamForAnUnknownRunnerIs404(t *testing.T) {
 	h := newHarness(t)
