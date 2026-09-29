@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/auth"
 	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/version"
@@ -70,11 +71,10 @@ func TestUserLifecycle(t *testing.T) {
 }
 
 // TestDisablingAUserEndsItsSessionsAtTheAPI proves the teardown that actually
-// runs in production. The auth service has SetUserDisabled, which deletes the
-// sessions and is what the service-level test covers, but nothing calls it: the
-// only way an account is disabled is this PATCH, which saves the row and then
-// ends the sessions itself. Deleting that second step would break the property
-// and break no test.
+// runs in production. The auth service has SetUserDisabled, which is what the
+// service-level test covers, but nothing calls it: the only way an account is
+// disabled is this PATCH, which reaches the same teardown through UpdateUser.
+// Losing that step would break the property and break no service-level test.
 //
 // A 401 on its own would not prove it, either. Authentication refuses a
 // disabled account whatever its sessions look like, so the cookie stops
@@ -131,6 +131,48 @@ func TestDisablingAUserEndsItsSessionsAtTheAPI(t *testing.T) {
 	// Nobody else was signed out: the teardown is scoped to the one account.
 	stillIn := h.do(request{method: http.MethodGet, path: "/api/v1/auth/session", cookie: adminCookie})
 	stillIn.mustStatus(t, http.StatusOK, "the admin who did the disabling")
+}
+
+// TestDisablingAUserRevokesItsTokensAtTheAPI is the same teardown for the
+// other credential an account holds.
+//
+// Authentication refuses a token while its owner is disabled, so a 401 straight
+// after the PATCH proves nothing. What matters is the day the account comes
+// back: a token that was merely suspended answers again with its original role,
+// which is a leaked, never-expiring credential surviving the ordinary incident
+// response of disable, reset the password, re-enable. docs/security.md promises
+// that disabling revokes them.
+func TestDisablingAUserRevokesItsTokensAtTheAPI(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("root", store.RoleAdmin)
+	adminCookie := h.session(admin)
+	bob, _ := h.user("bob", store.RoleOperator)
+	_, plaintext, err := h.ctrl.Auth().CreateAPIToken(h.ctx, auth.NewToken{Name: "ci", Role: store.RoleOperator, UserID: bob.ID})
+	if err != nil {
+		t.Fatalf("CreateAPIToken: %v", err)
+	}
+	// Somebody else's token, to show the teardown is scoped to the account.
+	other := h.token("nobody's", store.RoleOperator)
+
+	probe := func(token string) *response {
+		return h.do(request{method: http.MethodGet, path: "/api/v1/hosts", token: token})
+	}
+	probe(plaintext).mustStatus(t, http.StatusOK, "bob's token before being disabled")
+
+	h.do(request{method: http.MethodPatch, path: "/api/v1/users/" + bob.ID,
+		cookie: adminCookie, body: map[string]any{"disabled": true}}).mustStatus(t, http.StatusOK, "disable bob")
+	h.do(request{method: http.MethodPatch, path: "/api/v1/users/" + bob.ID,
+		cookie: adminCookie, body: map[string]any{"disabled": false}}).mustStatus(t, http.StatusOK, "re-enable bob")
+
+	row, err := h.st.GetAPITokenByHash(h.ctx, cryptox.HashToken(plaintext))
+	if err != nil {
+		t.Fatalf("GetAPITokenByHash: %v", err)
+	}
+	if !row.Revoked {
+		t.Error("bob's token is not revoked after he was disabled, so re-enabling him revives it")
+	}
+	probe(plaintext).mustStatus(t, http.StatusUnauthorized, "bob's token after he was re-enabled")
+	probe(other).mustStatus(t, http.StatusOK, "a token that belongs to nobody")
 }
 
 // TestSettings covers what may be changed at runtime and what may not.

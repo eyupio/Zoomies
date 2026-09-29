@@ -855,7 +855,7 @@ func (s *Service) authenticateToken(ctx context.Context, token, ip string) (*Ide
 	// left its tokens answering with full authority, and deleting one left
 	// them answering on behalf of a row that no longer exists -- api_tokens
 	// has no foreign key to users, so the delete cascades nowhere.
-	// SetUserDisabled and DeleteUser now revoke them, and this is the check
+	// Disabling (endAccess) and DeleteUser now revoke them, and this is the check
 	// that does not depend on having remembered to.
 	//
 	// The same goes for the role. Demoting an account changed the row and
@@ -1079,7 +1079,35 @@ func (s *Service) UpdateUser(ctx context.Context, u *store.User) error {
 		}
 		return err
 	}
+	if !existing.Disabled && u.Disabled {
+		s.endAccess(ctx, u)
+	}
 	return nil
+}
+
+// endAccess ends everything a newly disabled account was holding: its sessions
+// and its API tokens.
+//
+// It runs from both UpdateUser and SetUserDisabled because production disables
+// an account through the PATCH and only tests called SetUserDisabled, so the
+// teardown docs/security.md promises had drifted onto the path nothing used. A
+// token that was merely refused while its owner was disabled answered again,
+// with its old role, the day the account was re-enabled. Failures are logged
+// rather than returned: the row is already saved, and authenticateToken
+// refuses a disabled owner's token whatever this managed to do.
+func (s *Service) endAccess(ctx context.Context, u *store.User) {
+	// A disabled account must not keep a live cookie.
+	if err := s.store.DeleteUserSessions(ctx, u.ID); err != nil {
+		s.logger.Warn("could not end sessions for disabled account", "user", u.Username, "error", err)
+	}
+	// Nor a live token. A token carries its own role and is not looked up
+	// through the account, so this is the difference between disabling an
+	// account and disabling the access it was given.
+	if n, err := s.store.RevokeAPITokensForUser(ctx, u.ID); err != nil {
+		s.logger.Warn("could not revoke API tokens for disabled account", "user", u.Username, "error", err)
+	} else if n > 0 {
+		s.logger.Info("revoked API tokens for disabled account", "user", u.Username, "tokens", n)
+	}
 }
 
 // SetUserDisabled enables or disables an account.
@@ -1101,18 +1129,7 @@ func (s *Service) SetUserDisabled(ctx context.Context, id string, disabled bool)
 		return err
 	}
 	if disabled {
-		// A disabled account must not keep a live cookie.
-		if err := s.store.DeleteUserSessions(ctx, id); err != nil {
-			s.logger.Warn("could not end sessions for disabled account", "user", u.Username, "error", err)
-		}
-		// Nor a live token. A token carries its own role and is not looked up
-		// through the account, so this is the difference between disabling an
-		// account and disabling the access it was given.
-		if n, err := s.store.RevokeAPITokensForUser(ctx, id); err != nil {
-			s.logger.Warn("could not revoke API tokens for disabled account", "user", u.Username, "error", err)
-		} else if n > 0 {
-			s.logger.Info("revoked API tokens for disabled account", "user", u.Username, "tokens", n)
-		}
+		s.endAccess(ctx, u)
 	}
 	return nil
 }

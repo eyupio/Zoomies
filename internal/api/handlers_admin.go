@@ -223,13 +223,6 @@ func (s *Server) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, "saving the account", err)
 		return
 	}
-	if req.Disabled != nil && *req.Disabled && !before.Disabled {
-		// A disabled account must not keep a live cookie.
-		if err := s.auth.LogoutAll(r.Context(), u.ID); err != nil {
-			s.logger(r).Warn("could not end sessions for a disabled account", "user", u.Username, "error", err)
-		}
-	}
-
 	s.auth.Auditor().Updated(r.Context(), Identity(r.Context()), "user", id, newUserResponse(&before), newUserResponse(u))
 	writeJSON(w, http.StatusOK, s.withTwoStep(r, newUserResponse(u)))
 }
