@@ -964,6 +964,25 @@ test('a refused pool deletion keeps the typed confirmation available for retry',
 });
 
 /*
+ * Ten identical "Open this run on GitHub" links tell somebody tabbing through
+ * the list nothing about which job each one opens, or that it leaves the page.
+ */
+test("a pool page's recent jobs each link to GitHub under their own name", async ({ page }) => {
+  const pools = (await page.request.get('/api/v1/pools').then((r) => r.json())) as {
+    items: { id: string; name: string }[];
+  };
+  const pool = pools.items.find((p) => p.name === FIXTURE.linuxPool)!;
+  await goto(page, `/pools/${pool.id}`, FIXTURE.linuxPool);
+
+  const links = page.getByRole('link', { name: /^Open .+ on GitHub, in a new tab/ });
+  await expect(links.first()).toBeVisible();
+  const names = await links.evaluateAll((els) => els.map((el) => el.getAttribute('aria-label')));
+  expect(names.length).toBeGreaterThan(1);
+  expect(new Set(names).size, 'each link names its own job').toBeGreaterThan(1);
+  await expect(page.getByRole('link', { name: 'Open this run on GitHub' })).toHaveCount(0);
+});
+
+/*
  * "Destroy its runners immediately" interrupts work in progress, so the dialog
  * opens on the drain every time. It used to keep whatever the last open had
  * left, which put the destructive option one careless confirmation away.

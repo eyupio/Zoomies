@@ -3,7 +3,7 @@
   work, and is that work passing" without leaving the page.
 -->
 <script lang="ts">
-  import { ExternalLink, ListChecks } from '@lucide/svelte';
+  import { ListChecks } from '@lucide/svelte';
   import type { Job } from '$lib/api/types';
   import { jobStatus, queueStatus } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
@@ -12,6 +12,7 @@
   import ErrorState from '$lib/components/ErrorState.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
+  import GitHubLink from '$lib/jobs/GitHubLink.svelte';
 
   interface Props {
     jobs: readonly Job[];
@@ -63,14 +64,11 @@
             {/if}
           </span>
           <span class="when"><RelativeTime value={job.queued_at} plain /></span>
-          {#if job.html_url}
-            <a class="out" href={job.html_url} target="_blank" rel="noreferrer external">
-              <ExternalLink size={12} aria-hidden="true" />
-              <span class="sr-only">Open this run on GitHub</span>
-            </a>
-          {:else}
-            <span></span>
-          {/if}
+          <GitHubLink
+            href={job.html_url}
+            runNumber={job.run_number}
+            label="Open {job.job_name || 'this job'} on GitHub, in a new tab"
+          />
         </li>
       {/each}
     </ul>
@@ -121,13 +119,6 @@
     color: var(--z-text-subtle);
     white-space: nowrap;
     font-variant-numeric: tabular-nums;
-  }
-  .out {
-    display: inline-flex;
-    color: var(--z-text-subtle);
-  }
-  .out:hover {
-    color: var(--z-accent);
   }
   @media (max-width: 768px) {
     .row {
