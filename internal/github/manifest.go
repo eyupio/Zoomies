@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -224,9 +225,11 @@ func ExchangeManifestCode(ctx context.Context, apiBaseURL, code string) (*Manife
 	if err != nil {
 		return nil, fmt.Errorf("github: exchange manifest code: unusable api base url %q: %w", apiBaseURL, err)
 	}
-	url := base + "app-manifests/" + code + "/conversions"
+	// The code is escaped so a crafted one cannot rewrite the path or add a query
+	// on the host it is sent to.
+	endpoint := base + "app-manifests/" + url.PathEscape(code) + "/conversions"
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("github: exchange manifest code: %w", err)
 	}
@@ -262,7 +265,7 @@ func ExchangeManifestCode(ctx context.Context, apiBaseURL, code string) (*Manife
 	}
 	if decodeErr != nil {
 		return nil, fmt.Errorf("github: exchange manifest code: %s did not return JSON, which "+
-			"usually means a proxy answered instead of GitHub: %w", url, decodeErr)
+			"usually means a proxy answered instead of GitHub: %w", endpoint, decodeErr)
 	}
 	if out.ID == 0 || out.PEM == "" {
 		return nil, fmt.Errorf("github: exchange manifest code: GitHub returned no app id or " +
