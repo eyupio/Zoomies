@@ -34,7 +34,10 @@ test('maximum zoomies always runs faster than extra zoomies and normal work', ()
     const extra = standardMotion('zoomies', seed);
     const busy = standardMotion('busy', seed);
     assert.ok(maximum.stride < extra.stride && extra.stride < busy.stride);
-    assert.ok(maximum.stride >= 0.32 && maximum.stride < 0.34);
+    assert.ok(maximum.stride >= 0.56 && maximum.stride < 0.58);
+    assert.ok(extra.stride >= 0.8 && extra.stride < 0.82);
+    assert.ok(busy.stride >= 1.6 && busy.stride < 1.72);
+    assert.ok(busy.walking && !extra.walking && !maximum.walking);
     assert.ok(maximum.spin >= 10);
     assert.ok(maximum.spinning && extra.spinning && !busy.spinning);
     assert.deepEqual(standardMotion('maximum_zoomies', seed), maximum);
@@ -55,6 +58,7 @@ test('waiting and lifecycle states cannot accidentally run or spin', () => {
   ]) {
     const motion = standardMotion(state, 'runner');
     assert.equal(motion.running, false, state);
+    assert.equal(motion.walking, false, state);
     assert.equal(motion.spinning, false, state);
     assert.equal(motion.still, ['failed', 'removed', 'unknown'].includes(state), state);
   }
