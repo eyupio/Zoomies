@@ -187,7 +187,11 @@ func (s *Store) SetInstallationAppSlug(ctx context.Context, id, slug string) err
 func (s *Store) DeleteInstallation(ctx context.Context, id string) ([]string, error) {
 	var runners []string
 	err := s.tx(ctx, func(tx *sql.Tx) error {
-		var err error
+		err := recordSessionsWhere(ctx, tx, s.Now().UnixMilli(),
+			`r.pool_id IN (SELECT id FROM pools WHERE installation_id = ?2)`, id)
+		if err != nil {
+			return err
+		}
 		runners, err = deletedIDs(ctx, tx,
 			`DELETE FROM runners WHERE pool_id IN (SELECT id FROM pools WHERE installation_id = ?) RETURNING id`, id)
 		if err != nil {
@@ -472,7 +476,10 @@ func (s *Store) ApplyPools(ctx context.Context, create, update []*Pool) error {
 // be announced.
 func (s *Store) DeletePool(ctx context.Context, id string) (runners, jobs []string, err error) {
 	err = s.tx(ctx, func(tx *sql.Tx) error {
-		var terr error
+		terr := recordSessionsWhere(ctx, tx, s.Now().UnixMilli(), `r.pool_id = ?2`, id)
+		if terr != nil {
+			return terr
+		}
 		runners, terr = deletedIDs(ctx, tx, `DELETE FROM runners WHERE pool_id = ? RETURNING id`, id)
 		if terr != nil {
 			return terr
@@ -871,7 +878,10 @@ func (s *Store) SetHostCordoned(ctx context.Context, id string, cordoned bool) e
 func (s *Store) DeleteHost(ctx context.Context, id string) ([]string, error) {
 	var runners []string
 	err := s.tx(ctx, func(tx *sql.Tx) error {
-		var err error
+		err := recordSessionsWhere(ctx, tx, s.Now().UnixMilli(), `r.host_id = ?2`, id)
+		if err != nil {
+			return err
+		}
 		runners, err = deletedIDs(ctx, tx, `DELETE FROM runners WHERE host_id = ? RETURNING id`, id)
 		if err != nil {
 			return err
