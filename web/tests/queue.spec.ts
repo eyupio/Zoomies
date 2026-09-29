@@ -131,3 +131,36 @@ test("a row's actions are one stop on the keyboard, and the arrows move along th
     page.getByRole('button', { name: `Delete from queue: ${subject}`, exact: true }).first(),
   ).toBeFocused();
 });
+
+/*
+ * The top bar is sticky too, so a bar pinned at the top of the page slid up
+ * behind it: the bulk actions were there, and could be neither seen nor pressed
+ * until the operator scrolled back to the top of a long queue.
+ */
+test('the bulk-action bar stays below the top bar while a long queue scrolls', async ({ page }) => {
+  // A short window, so the page overflows however few items the fleet holds.
+  await page.setViewportSize({ width: 1280, height: 420 });
+  await goto(page, '/queue', 'Queue');
+  const select = page.getByRole('button', { name: 'Select all matching', exact: true });
+  await expect(select).toBeEnabled();
+
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await expect
+    .poll(() => page.evaluate(() => window.scrollY), { message: 'the page did not scroll' })
+    .toBeGreaterThan(0);
+
+  // The bar has no role or name of its own, so it is found by its class.
+  const topBar = await page.getByRole('banner').boundingBox();
+  const bar = await page.locator('.selection-bar').boundingBox();
+  expect(topBar, 'the top bar has a box').not.toBeNull();
+  expect(bar, 'the selection bar has a box').not.toBeNull();
+  expect(bar!.y).toBeGreaterThanOrEqual(topBar!.y + topBar!.height);
+
+  // Where it is drawn is not enough: the press has to reach the button.
+  const button = await select.boundingBox();
+  const reached = await page.evaluate(
+    ({ x, y }) => document.elementFromPoint(x, y)?.closest('button')?.textContent?.trim(),
+    { x: button!.x + button!.width / 2, y: button!.y + button!.height / 2 },
+  );
+  expect(reached).toBe('Select all matching');
+});

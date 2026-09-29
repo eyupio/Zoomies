@@ -727,10 +727,15 @@
     border-radius: var(--z-radius-md);
     font-size: var(--z-text-sm);
   }
+  /*
+    Under the top bar, which is sticky too: pinned at the top of the page the
+    bar slid up behind it, and its actions could be neither seen nor pressed
+    until the operator scrolled back up a long queue.
+  */
   .selection-bar {
     position: sticky;
-    top: var(--z-space-2);
-    z-index: 5;
+    top: calc(var(--z-topbar-height) + var(--z-space-2));
+    z-index: var(--z-layer-sticky);
   }
   .selection-actions {
     display: flex;
