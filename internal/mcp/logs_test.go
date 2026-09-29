@@ -12,7 +12,6 @@ import (
 
 // logAPI serves one log body for any download and remembers what was asked for.
 type logAPI struct {
-	fakeAPI
 	body io.Reader
 	got  string
 }

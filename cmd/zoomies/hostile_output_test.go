@@ -13,7 +13,7 @@ import (
 // newline forges a whole extra row -- for instance a "success" line for a job
 // that failed. The MCP layer and the UI already treat these as hostile.
 // hostileJSON is hostileName escaped the way the API would carry it.
-const hostileJSON = `build\u001b]0;pwned\u0007\u001b[2K\u001b[1A\u009b31m\nacme/widgets  ci  deploy  success‮evil`
+const hostileJSON = `build\u001b]0;pwned\u0007\u001b[2K\u001b[1A\u009b31m\nacme/widgets  ci  deploy  success\u202eevil`
 
 // shortHostileJSON is early enough to survive a listing's column truncation,
 // which would otherwise cut the name before the hostile part.
@@ -25,7 +25,7 @@ func assertNoTerminalControl(t *testing.T, what, out string, wantLines int) {
 		if r == '\n' {
 			continue
 		}
-		if unicode.IsControl(r) || r == '‮' {
+		if unicode.IsControl(r) || r == '\u202e' {
 			t.Errorf("%s printed the control character %U to the terminal:\n%q", what, r, out)
 			break
 		}
@@ -106,7 +106,7 @@ func TestPlainKeepsOrdinaryNamesAndReplacesWhatCouldMoveTheCursor(t *testing.T) 
 		{"a\tb\rc", "a b c"},
 		{"a\x1b[2Kb", "a�[2Kb"},
 		{"a\u009bb", "a�b"},
-		{"a‮b", "a�b"},
+		{"a\u202eb", "a�b"},
 		{"a b", "a b"},
 	}
 	for _, tc := range cases {
