@@ -2,7 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"reflect"
 	"strings"
@@ -186,6 +188,48 @@ func TestDeletingAnInstallationWithoutPurgeKeepsItsHistory(t *testing.T) {
 	res.mustStatus(t, http.StatusOK, "delete")
 	if _, err := h.st.GetJob(h.ctx, job.ID); err != nil {
 		t.Errorf("a plain delete took the job with it: %v", err)
+	}
+}
+
+// An archive can be hundreds of megabytes, and the server's ReadTimeout covers
+// the request body. Without the handler clearing its own read deadline an
+// upload that takes longer than that fails midway, and json.Decoder's timeout
+// is reported as a 400 that blames the archive for being invalid JSON.
+func TestImportOutlivesTheServersReadTimeoutOnASlowUpload(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("root", store.RoleAdmin)
+
+	// A real server, because the deadline is the net/http server's own; the
+	// harness's default one has none.
+	srv := httptest.NewUnstartedServer(h.api.Handler())
+	srv.Config.ReadTimeout = 250 * time.Millisecond
+	srv.Start()
+	t.Cleanup(srv.Close)
+
+	pr, pw := io.Pipe()
+	go func() {
+		_, _ = pw.Write([]byte(`{"archive":`))
+		time.Sleep(600 * time.Millisecond)
+		_, _ = pw.Write([]byte(`null}`))
+		_ = pw.Close()
+	}()
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/v1/installations/import", pr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", srv.URL)
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	req.AddCookie(&http.Cookie{Name: SessionCookie, Value: h.session(admin)})
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		t.Fatalf("the slow upload was cut off: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	// The body was read whole; an empty archive is then refused on its merits.
+	if resp.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(string(body), "archive") {
+		t.Fatalf("status = %d, want the 422 for a missing archive: %s", resp.StatusCode, body)
 	}
 }
 

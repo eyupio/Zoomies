@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/eyupio/zoomies/internal/controller"
 	"github.com/eyupio/zoomies/internal/github"
@@ -87,6 +88,10 @@ type importInstallationResponse struct {
 // handleImportInstallation answers POST /api/v1/installations/import.
 func (s *Server) handleImportInstallation(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxInstallationArchiveBytes)
+	// The server's ReadTimeout covers the body, so a big archive on a slow link
+	// would be cut off midway and reported as invalid JSON. The size cap above
+	// is the bound, as it is for a backup upload.
+	_ = http.NewResponseController(w).SetReadDeadline(time.Time{})
 	var req importInstallationRequest
 	if !decode(w, r, &req) {
 		return

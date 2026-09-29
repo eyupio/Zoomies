@@ -180,7 +180,8 @@ default `zoomies-installation-<id>.json`, mode 0600). With
 `--passphrase-file` the App's private key and webhook secret are sealed under
 that passphrase, so the archive can be imported on another instance without
 this one's key. `import <archive> --passphrase-file FILE` writes it onto this
-instance, all of it or none. See
+instance, all of it or none. An archive can be large, so `import` waits up to
+thirty minutes for its one request unless you set `--timeout`. See
 [moving one installation](backup-and-restore.md#moving-one-installation-or-removing-its-history).
 
 ### `zoomies audit`

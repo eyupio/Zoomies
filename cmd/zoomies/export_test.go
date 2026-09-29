@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The passphrase travels in the request body, read from a file, and the
@@ -103,5 +104,34 @@ func TestImportSendsTheArchiveAndItsPassphrase(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("the output does not say %q:\n%s", want, out)
 		}
+	}
+}
+
+// An archive is a year of history and can be hundreds of megabytes, so the
+// thirty seconds that suit a list call would cut a large import off on a slow
+// link. The operator's own --timeout still wins, because it is the only way to
+// ask for less.
+func TestImportWaitsLongerThanAnOrdinaryCallUnlessToldOtherwise(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		want time.Duration
+	}{
+		{"nothing given", nil, importRequestTimeout},
+		{"an explicit shorter timeout", []string{"--timeout", "5s"}, 5 * time.Second},
+		{"an explicit timeout equal to the default", []string{"--timeout", "30s"}, defaultRequestTimeout},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e, _, _ := newTestEnv(t)
+			fs := newFlagSet(e, "zoomies import", "test")
+			cf := registerClientFlags(fs, true)
+			if err := fs.parse(tc.args); err != nil {
+				t.Fatal(err)
+			}
+			cf.defaultTimeoutTo(fs, importRequestTimeout)
+			if *cf.timeout != tc.want {
+				t.Fatalf("timeout = %s, want %s", *cf.timeout, tc.want)
+			}
+		})
 	}
 }
