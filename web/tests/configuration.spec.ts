@@ -237,3 +237,42 @@ test('the capacity map opens in the layout the fleet chose for each page, until 
     await expect(row(page, label).getByText('Saved here')).toBeHidden();
   }
 });
+
+/*
+ * Saving with the keyboard must not throw the keyboard out of the row. A button
+ * that is natively disabled while its request runs is blurred by the browser, so
+ * focus falls to the document and, when the save is refused and the editor stays
+ * open, the next Tab starts from the top of the page. Busy is announced with
+ * aria-busy and refused in the click handler instead, as Button does.
+ */
+test('the save button keeps focus while a change is being saved', async ({ page }) => {
+  await openConfiguration(page);
+
+  let release: () => void = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route('**/api/v1/settings', async (route) => {
+    if (route.request().method() !== 'PATCH') return route.fallback();
+    await held;
+    return route.fulfill({
+      status: 422,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: { code: 'invalid_input', message: 'That value is refused.' } }),
+    });
+  });
+
+  const target = row(page, 'Keep webhook deliveries for');
+  await target.getByRole('button', { name: 'Change' }).click();
+  await target.getByRole('textbox').fill('97h');
+
+  const save = target.getByRole('button', { name: /^Save / });
+  await save.focus();
+  await page.keyboard.press('Enter');
+
+  await expect(save).toHaveAttribute('aria-busy', 'true');
+  await expect(save, 'focus stays on the button that was pressed').toBeFocused();
+
+  release();
+  await expect(target.getByText('That value is refused.')).toBeVisible();
+  await expect(save, 'and is still there when the save is refused').toBeFocused();
+  await expect(save).not.toHaveAttribute('aria-busy', 'true');
+});
