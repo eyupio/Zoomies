@@ -46,6 +46,44 @@ func TestPoolCreationStopsAtLimitsPools(t *testing.T) {
 	}
 }
 
+// Import creates the same rows a POST does, so it must meet the same ceiling:
+// otherwise an operator, who cannot change a platform-scoped limit, walks past
+// it with one document naming many new pools. Edits to pools that exist are not
+// new pools and must still go through at the ceiling.
+func TestPoolImportStopsAtLimitsPools(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) { c.Limits.Pools = 2 })
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+	inst := h.installation()
+	h.host("vm-1")
+	h.pool(inst, "zoomies-existing")
+
+	entry := func(name string) string {
+		return "  - name: " + name + "\n    installation: " + inst.Target + "\n    labels: [" + name + "]\n"
+	}
+	over := "pools:\n" + entry("one") + entry("two")
+	for _, dry := range []bool{true, false} {
+		refused := h.do(request{method: http.MethodPost, path: "/api/v1/pools/import", cookie: cookie,
+			body: map[string]any{"document": over, "dry_run": dry}})
+		mustBeLimit(t, refused, "limits.pools", "an import of two new pools with room for one")
+		if n, _ := h.st.CountPools(h.ctx); n != 1 {
+			t.Fatalf("dry_run=%v: a refused import wrote pools: %d pools, want 1", dry, n)
+		}
+	}
+
+	// The ceiling is on the total, so one new pool still fits...
+	importPools(t, h, cookie, map[string]any{"document": "pools:\n" + entry("one")}, http.StatusOK)
+	// ...and at the ceiling an edit is admitted where a new pool is not.
+	edit := "pools:\n  - name: zoomies-existing\n    installation: " + inst.Target + "\n    max_runners: 3\n"
+	out := importPools(t, h, cookie, map[string]any{"document": edit}, http.StatusOK)
+	if !out.Applied || out.Summary.Change != 1 {
+		t.Fatalf("an edit at the ceiling = %+v, want it applied", out)
+	}
+	refused := h.do(request{method: http.MethodPost, path: "/api/v1/pools/import", cookie: cookie,
+		body: map[string]any{"document": "pools:\n" + entry("two")}})
+	mustBeLimit(t, refused, "limits.pools", "a new pool at the ceiling")
+}
+
 func TestJoinTokenMintingStopsAtLimitsJoinTokens(t *testing.T) {
 	h := newHarness(t, func(c *config.Config) { c.Limits.JoinTokens = 2 })
 	admin, _ := h.user("root", store.RoleAdmin)

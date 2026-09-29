@@ -1030,7 +1030,7 @@ export interface paths {
         put?: never;
         /**
          * Read a pools export back, previewing first
-         * @description Every pool in the document is matched by name and planned through the checks a create or an edit makes, and reported as `create`, `change`, `unchanged` or `refused`, with the current and incoming value of every setting that would move and the reason for a refusal. An edit that would leave a pool with no host that could run it is refused, as a PATCH is; a new pool no host could run yet is created with a warning, as the wizard allows. A dry run reports and writes nothing. A real run refuses the whole document with 422 while any pool is refused, so an import is one change or none; `skip` names the pools to leave out. A pool the document does not name is left alone, and a setting a pool entry leaves out keeps its current value.
+         * @description Every pool in the document is matched by name and planned through the checks a create or an edit makes, and reported as `create`, `change`, `unchanged` or `refused`, with the current and incoming value of every setting that would move and the reason for a refusal. An edit that would leave a pool with no host that could run it is refused, as a PATCH is; a new pool no host could run yet is created with a warning, as the wizard allows. A dry run reports and writes nothing. A real run refuses the whole document with 422 while any pool is refused, so an import is one change or none; `skip` names the pools to leave out. A pool the document does not name is left alone, and a setting a pool entry leaves out keeps its current value. New pools count against `limits.pools` together: a document that would leave the instance over it is refused with 409, dry run or not, and nothing is written.
          */
         post: operations["importPools"];
         delete?: never;
@@ -7892,6 +7892,7 @@ export interface operations {
                     "application/json": components["schemas"]["PoolsImport"];
                 };
             };
+            409: components["responses"]["LimitReached"];
             422: components["responses"]["Unprocessable"];
         };
     };

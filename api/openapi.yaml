@@ -1366,7 +1366,9 @@ paths:
         refuses the whole document with 422 while any pool is refused, so an
         import is one change or none; `skip` names the pools to leave out. A
         pool the document does not name is left alone, and a setting a pool
-        entry leaves out keeps its current value.
+        entry leaves out keeps its current value. New pools count against
+        `limits.pools` together: a document that would leave the instance over
+        it is refused with 409, dry run or not, and nothing is written.
       x-zoomies-role: operator
       requestBody:
         required: true
@@ -1379,6 +1381,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/PoolsImport" }
+        "409": { $ref: "#/components/responses/LimitReached" }
         "422": { $ref: "#/components/responses/Unprocessable" }
 
   /pools/validate:

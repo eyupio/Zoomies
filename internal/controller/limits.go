@@ -36,24 +36,36 @@ func (e *LimitError) Error() string {
 
 func (e *LimitError) Unwrap() error { return ErrLimitReached }
 
-// admit refuses when a ceiling is set and count has already reached it.
-func admit(setting, what string, limit int, count func() (int, error)) error {
-	if limit <= 0 {
+// admit refuses when a ceiling is set and adding n more would cross it. n is
+// one for everything created a request at a time; the pools import is the
+// caller that creates several at once, and checking them one at a time would
+// let the whole batch through against a count that has not moved yet.
+func admit(setting, what string, limit, n int, count func() (int, error)) error {
+	if limit <= 0 || n <= 0 {
 		return nil
 	}
-	n, err := count()
+	held, err := count()
 	if err != nil {
 		return fmt.Errorf("counting %s for %s: %w", what, setting, err)
 	}
-	if n >= limit {
-		return &LimitError{Setting: setting, Limit: limit, What: what}
+	if held+n > limit {
+		le := &LimitError{Setting: setting, Limit: limit, What: what}
+		if n > 1 {
+			// "Already holds" is only true of the ceiling, not of this
+			// instance, when the batch is what crosses it.
+			le.Free = fmt.Sprintf("this request adds %d more, so leave some out or remove one first", n)
+		}
+		return le
 	}
 	return nil
 }
 
 // AdmitPool says whether one more pool fits under limits.pools.
-func (c *Controller) AdmitPool(ctx context.Context) error {
-	return admit("limits.pools", "pools", c.cfg().Limits.Pools, func() (int, error) {
+func (c *Controller) AdmitPool(ctx context.Context) error { return c.AdmitPools(ctx, 1) }
+
+// AdmitPools says whether n more pools fit under limits.pools together.
+func (c *Controller) AdmitPools(ctx context.Context, n int) error {
+	return admit("limits.pools", "pools", c.cfg().Limits.Pools, n, func() (int, error) {
 		return c.st.CountPools(ctx)
 	})
 }
@@ -61,14 +73,14 @@ func (c *Controller) AdmitPool(ctx context.Context) error {
 // AdmitJoinToken says whether one more outstanding join token fits under
 // limits.join_tokens.
 func (c *Controller) AdmitJoinToken(ctx context.Context) error {
-	return admit("limits.join_tokens", "outstanding join tokens", c.cfg().Limits.JoinTokens, func() (int, error) {
+	return admit("limits.join_tokens", "outstanding join tokens", c.cfg().Limits.JoinTokens, 1, func() (int, error) {
 		return c.st.CountOutstandingJoinTokens(ctx)
 	})
 }
 
 // admitHost says whether one more host fits under limits.hosts.
 func (c *Controller) admitHost(ctx context.Context) error {
-	return admit("limits.hosts", "hosts", c.cfg().Limits.Hosts, func() (int, error) {
+	return admit("limits.hosts", "hosts", c.cfg().Limits.Hosts, 1, func() (int, error) {
 		return c.st.CountHosts(ctx)
 	})
 }
