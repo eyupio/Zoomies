@@ -427,7 +427,10 @@ fleet. [Backup and restore](backup-and-restore.md) is the operator's page.
 The bundle is assembled from the same renderings the routes above serve, so a
 section that is secret-free on its own route is secret-free here; the
 configuration in particular is the key-by-key rendering `/settings` uses, which
-a secret added to `config.Config` tomorrow cannot appear in by default.
+a secret added to `config.Config` tomorrow cannot appear in by default. The one
+exception to "what the route serves" is a pool's environment: the bundle keeps
+the variable names and blanks every value, for every role, because the file is
+made to be handed on.
 
 It never carries workflow log bodies. There is no redaction pass for them and
 there cannot be a reliable one — a log holds whatever a workflow printed — so

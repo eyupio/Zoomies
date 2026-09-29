@@ -334,7 +334,10 @@ Two things about it are worth knowing before you attach one.
 
 It carries no secret. Every section is a rendering the API already serves, and
 the configuration in it is the same key-by-key rendering the settings page
-uses, where a secret is absent rather than blanked.
+uses, where a secret is absent rather than blanked. A pool's environment is
+the one thing you can read that it does not carry in full: the bundle lists
+the variable names and leaves every value empty, because a pool's environment
+is where a registry password ends up.
 
 It carries no workflow log. There is no redaction pass for log bodies and there
 cannot be a reliable one, because a log holds whatever a workflow printed — so
