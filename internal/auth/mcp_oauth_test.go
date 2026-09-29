@@ -274,6 +274,64 @@ func TestMCPCredentialsExpire(t *testing.T) {
 	}
 }
 
+// TestPruningDropsAbandonedMetadataClientsButNeverARevokedOne is about the
+// clients an anonymous caller can make.
+//
+// An unauthenticated GET /oauth/authorize with any https client_id whose
+// document echoes itself back inserts a metadata client, and the retention pass
+// only ever removed self-registered ones, so those rows and the administrator's
+// client list grew without bound. A pruned metadata client costs nothing -- it
+// is fetched and created again on its next sign-in -- with one exception: a
+// revoked one is remembered only by its row, so pruning it would let the next
+// authorise fetch the URL and create a fresh, unrevoked client, quietly undoing
+// an administrator's decision.
+func TestPruningDropsAbandonedMetadataClientsButNeverARevokedOne(t *testing.T) {
+	s, st, c := newService(t)
+	ctx := t.Context()
+
+	add := func(clientID string) *store.OAuthClient {
+		t.Helper()
+		cl := &store.OAuthClient{ClientID: clientID, Kind: store.OAuthClientMetadata, Name: "app",
+			RedirectURIs: []string{"https://app.example/callback"}}
+		if err := st.CreateOAuthClient(ctx, cl); err != nil {
+			t.Fatalf("CreateOAuthClient(%s): %v", clientID, err)
+		}
+		return cl
+	}
+	abandoned := add("https://abandoned.example/client")
+	revoked := add("https://revoked.example/client")
+	used := add("https://used.example/client")
+	if _, err := st.RevokeOAuthClient(ctx, revoked.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.TouchOAuthClient(ctx, used.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	c.Advance(25 * time.Hour)
+	young := add("https://young.example/client")
+	if _, err := st.PruneOAuth(ctx, c.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := st.GetOAuthClient(ctx, abandoned.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("a metadata client that never signed in and is over a day old must be pruned, got %v", err)
+	}
+	for name, cl := range map[string]*store.OAuthClient{"used": used, "young": young, "revoked": revoked} {
+		if _, err := st.GetOAuthClient(ctx, cl.ID); err != nil {
+			t.Errorf("the %s metadata client must be kept: %v", name, err)
+		}
+	}
+
+	// And it is still refused as revoked, rather than fetched afresh.
+	_, err := s.BeginAuthorization(ctx, testPolicy, AuthorizeParams{ClientID: revoked.ClientID,
+		RedirectURI: "https://app.example/callback", ResponseType: "code",
+		CodeChallenge: PKCEChallenge(verifier), CodeChallengeMethod: "S256"})
+	if err == nil || !strings.Contains(err.Error(), "revoked") {
+		t.Errorf("a revoked metadata client after the retention pass = %v, want it refused as revoked", err)
+	}
+}
+
 // A consent is a person's, in a browser: a token cannot approve one.
 func TestConsentNeedsAPerson(t *testing.T) {
 	s, _, _ := newService(t)

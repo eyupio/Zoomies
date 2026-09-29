@@ -359,9 +359,11 @@ that adds, and what it is built not to add:
   the controller's own page and never followed.
 * **Registration is open, access is not.** A client may register itself or name
   itself by a client ID metadata document, and gets nothing until a person signs
-  in and approves it. Registration is limited to twenty an hour per address, and
-  a self-registered client that never completes a sign-in is removed after a
-  day. The document fetch is fenced — https, no redirects, public addresses only
+  in and approves it. Registration is limited to twenty an hour per address —
+  a client named by a metadata document is not counted against that — and a
+  client that never completes a sign-in, self-registered or named by a document,
+  is removed after a day. A revoked one is kept, so the revocation holds. The
+  document fetch is fenced — https, no redirects, public addresses only
   unless `security.allow_private_egress` is on, five seconds, five kilobytes —
   and the addresses it refuses are judged after resolution by the same ranges as
   every other outbound URL, NAT64 and 6to4 spellings of a private address included —
