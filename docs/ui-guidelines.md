@@ -744,7 +744,7 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 | `StatusDot` | the shape half of the state encoding, reusable inline |
 | `Tooltip` | on hover *and* focus; never the only place information lives. `text` is the whole tooltip as one sentence and what assistive technology gets; an optional `content` snippet draws a richer card for sighted readers |
 | `Segmented` | one choice among a few as one control, `aria-pressed` on the one in force: the activity matrix's ranges, the fleet trend's windows, the usage chart's two measures |
-| `Dialog` | focus trap, restores focus on close, `Esc` closes, backdrop click closes only non-destructive dialogs |
+| `Dialog` | focus trap, restores focus on close, `Esc` closes, backdrop click closes only non-destructive dialogs, and never one that is showing a secret exactly once. A dialog with text fields is a `<form>` whose footer button is `type="submit" form="…"`, so `Enter` submits it |
 | `Drawer` | right-hand detail panel; same focus rules |
 | `NavMenu` | the phone's menu: a sheet that rises from the bottom edge, where the thumb that pressed More is, carrying every section named and in order, plus the account, the theme and sign out; same focus rules, closes when a section is chosen |
 | `DropdownMenu` | roving tabindex, type-ahead; the list opens in the browser's top layer, placed against its trigger and flipped above where there is no room below, so a menu on a grid's last row is not cut off by the frame that scrolls. It closes when its trigger scrolls out of that frame. A `header` snippet names who the menu is about, and items sharing a `choice` are one segmented row of radio items with the one in force checked |
@@ -759,7 +759,7 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 | `Slider` | the browser's own range control between notches, with the recommended notch ringed and words at the ones worth naming; a second row when two would collide. `aria-valuetext` says the value in the same words the readout shows |
 | `QuantityField` | **every size and CPU figure** — a runner's limits, a host's reserve, a machine's shape, and every numeric or duration setting on the Configuration page. A `Slider` for choosing beside a field that reads what people write — `4gb`, `4096mb`, `4g`, `4 GiB`, `1.5`, `1500m` — and, on Enter or blur, writes it back in the largest unit that says it exactly: `4096mb` becomes “4 GB”, `1536` becomes “1.5 GB”, and `3000 MB` stays as it is rather than turning into a rounded, different limit. A gigabyte is 1024 MB, as it is everywhere else on the page. A length of time reads Go's spelling and the one people say — `168h`, `7d`, `2 weeks`, `1h30m`, `90 seconds` — is shown as “7d” or “1h 30m”, and is sent to the controller in Go's spelling, which has no day. What cannot be read is said beside the field and changes nothing. Never a bare `type="number"` box with the unit in its label |
 | `UtilisationBar` | busy/live with min and max ticks |
-| `ConfirmDialog` | destructive confirmation that **names the thing** ("Delete pool `linux-x64`? 3 runners will be drained.") and requires typing the name for anything irreversible |
+| `ConfirmDialog` | destructive confirmation that **names the thing** ("Delete pool `linux-x64`? 3 runners will be drained.") and requires typing the name for anything irreversible; `Enter` in that field confirms only once the name matches |
 
 ### Composites
 

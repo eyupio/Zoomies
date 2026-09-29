@@ -340,7 +340,15 @@
       </p>
     </div>
   {:else}
-    <div class="form">
+    <form
+      id="mint-token-form"
+      class="form"
+      novalidate
+      onsubmit={(event) => {
+        event.preventDefault();
+        void mint();
+      }}
+    >
       <Field label="Name" hint="What is using it: prometheus, ci-deploy." error={errors.name}>
         {#snippet children({ id, describedBy, invalid })}
           <Input bind:value={name} {id} {describedBy} {invalid} autocomplete="off" />
@@ -368,7 +376,7 @@
           <Input bind:value={scopeText} {id} {describedBy} {invalid} mono autocomplete="off" />
         {/snippet}
       </Field>
-    </div>
+    </form>
   {/if}
 
   {#snippet footer()}
@@ -376,7 +384,13 @@
       <Button variant="primary" onclick={() => (createOpen = false)}>Done</Button>
     {:else}
       <Button variant="ghost" onclick={() => (createOpen = false)}>Cancel</Button>
-      <Button variant="primary" loading={creating} disabled={!name.trim()} onclick={mint}>
+      <Button
+        variant="primary"
+        type="submit"
+        form="mint-token-form"
+        loading={creating}
+        disabled={!name.trim()}
+      >
         Create token
       </Button>
     {/if}

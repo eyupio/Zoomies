@@ -514,7 +514,15 @@
   title="Add an account"
   description="They will be asked to choose their own password the first time they sign in."
 >
-  <div class="form">
+  <form
+    id="add-account-form"
+    class="form"
+    novalidate
+    onsubmit={(event) => {
+      event.preventDefault();
+      void create();
+    }}
+  >
     <Field label="Username" error={createErrors.username} required>
       {#snippet children({ id, describedBy, invalid })}
         <Input bind:value={newUsername} {id} {describedBy} {invalid} autocomplete="off" />
@@ -549,15 +557,16 @@
         />
       {/snippet}
     </Field>
-  </div>
+  </form>
 
   {#snippet footer()}
     <Button variant="ghost" onclick={() => (createOpen = false)}>Cancel</Button>
     <Button
       variant="primary"
       loading={creating}
+      type="submit"
+      form="add-account-form"
       disabled={!newUsername.trim() || Boolean(passwordError)}
-      onclick={create}
     >
       Add account
     </Button>
@@ -566,7 +575,15 @@
 
 <!-- Edit -->
 <Dialog bind:open={editOpen} title="Edit {editing?.username ?? 'account'}">
-  <div class="form">
+  <form
+    id="edit-account-form"
+    class="form"
+    novalidate
+    onsubmit={(event) => {
+      event.preventDefault();
+      void save();
+    }}
+  >
     <Field label="Display name" error={editErrors.display_name}>
       {#snippet children({ id, describedBy, invalid })}
         <Input bind:value={editDisplayName} {id} {describedBy} {invalid} />
@@ -587,11 +604,13 @@
         able to put it back.
       </p>
     {/if}
-  </div>
+  </form>
 
   {#snippet footer()}
     <Button variant="ghost" onclick={() => (editOpen = false)}>Cancel</Button>
-    <Button variant="primary" loading={saving} onclick={save}>Save changes</Button>
+    <Button variant="primary" type="submit" form="edit-account-form" loading={saving}>
+      Save changes
+    </Button>
   {/snippet}
 </Dialog>
 
@@ -602,7 +621,15 @@
   description="They will have to choose their own the next time they sign in."
   size="sm"
 >
-  <div class="form">
+  <form
+    id="reset-password-form"
+    class="form"
+    novalidate
+    onsubmit={(event) => {
+      event.preventDefault();
+      void doReset();
+    }}
+  >
     <Field
       label="New password"
       hint="At least {MIN_PASSWORD_LENGTH} characters. Send it to them over something private; it is not emailed."
@@ -619,15 +646,16 @@
         />
       {/snippet}
     </Field>
-  </div>
+  </form>
 
   {#snippet footer()}
     <Button variant="ghost" onclick={() => (resetOpen = false)}>Cancel</Button>
     <Button
       variant="primary"
       loading={resetBusy}
+      type="submit"
+      form="reset-password-form"
       disabled={resetPassword.length < MIN_PASSWORD_LENGTH}
-      onclick={doReset}
     >
       Reset password
     </Button>

@@ -159,6 +159,66 @@ test('a refused account edit says why inside the open dialog and keeps what was 
   await expect(row).toHaveCount(0);
 });
 
+test('Enter submits a dialog with text fields, and a typed-name confirmation only once the name matches', async ({
+  page,
+}) => {
+  // Every one of these was a bare <div> with a click handler on its footer
+  // button, so Enter in a field did nothing and a password manager saw no form.
+  const username = unique('spec-enter');
+  await goto(page, '/settings/users', 'Users');
+
+  await create(page, 'Add an account').click();
+  const add = dialog(page, 'Add an account');
+  await add.getByRole('textbox', { name: 'Username' }).fill(username);
+  await add.getByRole('textbox', { name: 'Password' }).fill('a-long-enough-password');
+  await add.getByRole('textbox', { name: 'Password' }).press('Enter');
+  await expect(add).toBeHidden();
+
+  const row = page.getByRole('row', { name: new RegExp(username) });
+  await expect(row).toBeVisible();
+  const menu = () =>
+    row.getByRole('button', { name: new RegExp(`Actions for ${username}`) }).click();
+
+  await menu();
+  await page.getByRole('menuitem', { name: 'Edit role and details' }).click();
+  const edit = dialog(page, new RegExp(`Edit ${username}`));
+  await edit.getByRole('textbox', { name: 'Display name' }).fill('Saved with Enter');
+  await edit.getByRole('textbox', { name: 'Display name' }).press('Enter');
+  await expect(edit).toBeHidden();
+  await expect(row).toContainText('Saved with Enter');
+
+  await menu();
+  await page.getByRole('menuitem', { name: 'Reset password' }).click();
+  const reset = dialog(page, new RegExp(`Reset password for ${username}`));
+  await reset.getByLabel('New password').fill('another-long-enough-password');
+  await reset.getByLabel('New password').press('Enter');
+  await expect(reset).toBeHidden();
+
+  // The irreversible one. Enter with the wrong name is nothing at all; with
+  // the right one it is the same as pressing the button that is now enabled.
+  await menu();
+  await page.getByRole('menuitem', { name: 'Delete this account' }).click();
+  const confirm = dialog(page, 'Delete account');
+  const typed = confirm.getByRole('textbox', { name: `Type ${username} to confirm` });
+  await typed.fill('not-the-name');
+  await typed.press('Enter');
+  await expect(confirm).toBeVisible();
+  await expect(row).toBeVisible();
+  await typed.fill(username);
+  await typed.press('Enter');
+  await expect(confirm).toBeHidden();
+  await expect(row).toHaveCount(0);
+
+  const name = unique('spec-enter-token');
+  await goto(page, '/settings/tokens', 'API tokens');
+  await create(page, 'Create a token').click();
+  const mint = dialog(page, 'Create an API token');
+  await mint.getByRole('textbox', { name: 'Name' }).fill(name);
+  await mint.getByRole('textbox', { name: 'Name' }).press('Enter');
+  await expect(mint).toContainText('This is the only time it exists in plain text');
+  await mint.getByRole('button', { name: 'Done' }).click();
+});
+
 test('a token is shown once, in plain text, and says so', async ({ page }) => {
   const name = unique('spec-token');
   await goto(page, '/settings/tokens', 'API tokens');
