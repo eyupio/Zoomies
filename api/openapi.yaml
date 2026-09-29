@@ -6799,8 +6799,10 @@ components:
         kind: { $ref: "#/components/schemas/JobEventKind" }
         source:
           type: string
-          description: Who observed it. A timeline that is all `poller` is a controller no webhook reaches.
-          enum: [webhook, poller, agent, controller]
+          description: >-
+            Who observed it. A timeline that is all `poller` is a controller no webhook reaches.
+            `recovery` marks a re-run the fleet decided on rather than a person.
+          enum: [webhook, poller, agent, controller, recovery]
         message: { type: string, description: One sentence, written for an operator. }
         runner_id: { type: string }
         runner_name: { type: string }

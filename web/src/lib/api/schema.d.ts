@@ -5143,10 +5143,10 @@ export interface components {
             job_id?: string;
             kind?: components["schemas"]["JobEventKind"];
             /**
-             * @description Who observed it. A timeline that is all `poller` is a controller no webhook reaches.
+             * @description Who observed it. A timeline that is all `poller` is a controller no webhook reaches. `recovery` marks a re-run the fleet decided on rather than a person.
              * @enum {string}
              */
-            source?: "webhook" | "poller" | "agent" | "controller";
+            source?: "webhook" | "poller" | "agent" | "controller" | "recovery";
             /** @description One sentence */
             message?: string;
             runner_id?: string;
