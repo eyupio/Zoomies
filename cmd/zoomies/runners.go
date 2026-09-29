@@ -80,6 +80,7 @@ func runnersList(ctx context.Context, e *env, args []string) error {
 
 	rows := make([][]string, 0, len(out.Items))
 	for _, r := range out.Items {
+		r.sanitise()
 		job := "-"
 		if r.CurrentJob != nil {
 			job = truncate(r.CurrentJob.Repo+" "+r.CurrentJob.JobName, 36)
@@ -126,6 +127,7 @@ func runnersGet(ctx context.Context, e *env, args []string) error {
 	if p.structured() {
 		return p.emit(raw)
 	}
+	r.sanitise()
 
 	rows := [][2]string{
 		{"name", r.Name},
@@ -155,7 +157,7 @@ func runnersGet(ctx context.Context, e *env, args []string) error {
 		fmt.Fprintln(p.out, "\nTimeline")
 		tl := make([][]string, 0, len(r.Timeline))
 		for _, entry := range r.Timeline {
-			tl = append(tl, []string{p.state(entry.State), p.relTime(entry.At), millis(entry.DurationMS), truncate(entry.Message, 48)})
+			tl = append(tl, []string{p.state(entry.State), p.relTime(entry.At), millis(entry.DurationMS), truncate(plain(entry.Message), 48)})
 		}
 		p.table([]string{"state", "when", "for", "message"}, tl)
 	}

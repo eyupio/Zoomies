@@ -111,6 +111,7 @@ func jobsList(ctx context.Context, e *env, args []string) error {
 
 	rows := make([][]string, 0, len(out.Items))
 	for _, j := range out.Items {
+		j.sanitise()
 		outcome := j.Conclusion
 		if outcome == "" {
 			outcome = j.State
@@ -215,6 +216,7 @@ func jobsGet(ctx context.Context, e *env, args []string) error {
 	if p.structured() {
 		return p.emit(raw)
 	}
+	j.sanitise()
 
 	rows := [][2]string{
 		{"id", j.ID},
@@ -267,12 +269,12 @@ func jobsGet(ctx context.Context, e *env, args []string) error {
 	var why explanationItem
 	if _, eerr := client.get(ctx, "/jobs/"+url.PathEscape(id)+"/explanation", nil, &why); eerr == nil && why.Summary != "" {
 		fmt.Fprintln(p.out)
-		fmt.Fprintln(p.out, why.Summary)
+		fmt.Fprintln(p.out, plain(why.Summary))
 		if why.Detail != "" {
-			fmt.Fprintln(p.out, why.Detail)
+			fmt.Fprintln(p.out, plain(why.Detail))
 		}
 		if why.Fix != "" {
-			fmt.Fprintln(p.out, p.paint(colourYellow, "Fix: ")+why.Fix)
+			fmt.Fprintln(p.out, p.paint(colourYellow, "Fix: ")+plain(why.Fix))
 		}
 	}
 
@@ -297,7 +299,7 @@ func jobsGet(ctx context.Context, e *env, args []string) error {
 		fmt.Fprintln(p.out, "\nTimeline")
 		eventRows := make([][]string, 0, len(timeline.Items))
 		for _, e := range timeline.Items {
-			eventRows = append(eventRows, []string{p.relTime(e.At), e.Source, e.Message})
+			eventRows = append(eventRows, []string{p.relTime(e.At), e.Source, plain(e.Message)})
 		}
 		p.table([]string{"when", "source", "what happened"}, eventRows)
 	}
