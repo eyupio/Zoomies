@@ -319,10 +319,12 @@ the restore rather than performing it:
    applied whoever starts it.
 
 What became of it is recorded either way. A restore that did not happen is
-`backup.restore_failed` in the drawer with the reason, and the controller
-starts on the database it already had; a restore that did is a banner on the
-tab saying what was moved aside and what was invalidated, until you dismiss
-it.
+`backup.restore_failed` in the drawer with the reason. A restore that was
+refused before anything moved leaves the controller on the database it already
+had; one that failed after the copy has replaced it, so the reason says which
+database is in place and whether it is fenced, and where the old one was kept.
+A restore that did happen is a banner on the tab saying what was moved aside
+and what was invalidated, until you dismiss it.
 
 The two options the dialog offers — revoking every API token, and making every
 agent join again — are the command's two flags, and the same cost applies.

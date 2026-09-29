@@ -3,6 +3,7 @@ package backup
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"io"
 	"os"
@@ -410,6 +411,66 @@ func TestAStagedRestoreIsCheckedNowAndAppliedAtTheNextStart(t *testing.T) {
 	}
 	if nothing, err := ApplyStaged(ctx, cfg, nil); nothing != nil || err != nil {
 		t.Errorf("a second start applied something: %+v, %v", nothing, err)
+	}
+}
+
+// A restore that fails after the copy has already replaced the database. The
+// error used to say only what went wrong, and the staged path's log line then
+// claimed the controller was starting on the database it had -- when it was
+// starting on the restored one, half-invalidated and, if the failure came
+// before the fence was written, not fenced either. The fence is the write that
+// stops a restored copy deleting machines that were rented after the backup,
+// so it goes first, and the error says which database is in place.
+func TestARestoreThatFailsAfterTheCopySaysSoAndKeepsTheFenceUp(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name string
+		// break is SQL run against the backup's own copy, standing in for the
+		// disk filling or the file being busy at one particular write.
+		break_    string
+		wantFence bool
+	}{
+		{"before anything was invalidated", `DROP TABLE sessions`, true},
+		{"at the last write", `CREATE TRIGGER no_audit BEFORE INSERT ON audit_events
+			BEGIN SELECT RAISE(ABORT, 'disk full'); END`, true},
+		{"at the fence itself", `CREATE TRIGGER no_fence BEFORE INSERT ON settings
+			BEGIN SELECT RAISE(ABORT, 'disk full'); END`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, st, _ := host(t)
+			e := take(t, cfg, st, TakeOptions{})
+			db, err := sql.Open("sqlite", "file:"+filepath.Join(e.Dir, DBName))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(tc.break_); err != nil {
+				t.Fatalf("breaking the backup: %v", err)
+			}
+			db.Close()
+
+			_, err = Restore(ctx, cfg, e.Dir, RestoreOptions{Replace: true})
+			if err == nil {
+				t.Fatal("the restore reported success although a step after the copy failed")
+			}
+			for _, want := range []string{"is now in place", ".before-restore-"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("the error does not say %q, so an operator cannot tell which database is live:\n%v", want, err)
+				}
+			}
+			fenced := strings.Contains(err.Error(), "fence is up")
+			if fenced != tc.wantFence {
+				t.Errorf("the error says fenced=%v, want %v:\n%v", fenced, tc.wantFence, err)
+			}
+
+			restored, err := store.Open(ctx, store.Options{Path: cfg.Database.Path, ReadOnly: true})
+			if err != nil {
+				t.Fatalf("opening what is in place: %v", err)
+			}
+			defer restored.Close()
+			if f, _ := restored.RecoveryFenced(ctx); f.Fenced != tc.wantFence {
+				t.Errorf("the restored database is fenced=%v, want %v", f.Fenced, tc.wantFence)
+			}
+		})
 	}
 }
 

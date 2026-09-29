@@ -540,7 +540,7 @@
             <h3 id="last-restore">
               {lastRestore.ok
                 ? `${lastRestore.backup_id} was restored`
-                : `The restore of ${lastRestore.backup_id} did not happen`}
+                : `The restore of ${lastRestore.backup_id} did not finish`}
             </h3>
             {#if lastRestore.ok}
               <p>
@@ -561,8 +561,8 @@
               {/if}
             {:else}
               <p>
-                Attempted <RelativeTime value={lastRestore.attempted_at} plain />. The controller
-                started on the database it already had.
+                Attempted <RelativeTime value={lastRestore.attempted_at} plain />. The reason below
+                says which database the controller started on.
               </p>
               <p class="why">{lastRestore.error}</p>
             {/if}

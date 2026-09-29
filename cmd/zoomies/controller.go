@@ -271,7 +271,7 @@ func applyStagedRestore(ctx context.Context, cfg *config.Config, log *slog.Logge
 		return nil
 	}
 	if !outcome.OK {
-		log.Error("the staged restore was not applied; starting on the database that was already here",
+		log.Error("the staged restore did not finish; the error says which database this controller is starting on",
 			"backup", outcome.BackupID, "error", outcome.Error,
 			"fix", "put right what the error names and stage the restore again from the Backups tab")
 		return nil

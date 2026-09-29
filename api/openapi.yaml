@@ -6413,7 +6413,7 @@ components:
         backup_id: { type: string }
         attempted_at: { type: string, format: date-time }
         ok: { type: boolean }
-        error: { type: string, description: Why the restore did not happen. The controller started on the database it had. }
+        error: { type: string, description: "Why the restore did not finish. When it failed after the copy, the message says which database is in place and whether it is fenced." }
         report: { $ref: "#/components/schemas/RestoreReport" }
 
     RestoreReport:

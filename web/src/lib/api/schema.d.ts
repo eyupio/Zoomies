@@ -4825,7 +4825,7 @@ export interface components {
             /** Format: date-time */
             attempted_at: string;
             ok: boolean;
-            /** @description Why the restore did not happen. The controller started on the database it had. */
+            /** @description Why the restore did not finish. When it failed after the copy, the message says which database is in place and whether it is fenced. */
             error?: string;
             report?: components["schemas"]["RestoreReport"];
         };
