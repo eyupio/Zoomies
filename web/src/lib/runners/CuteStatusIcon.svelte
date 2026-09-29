@@ -1,6 +1,9 @@
 <!-- Original Zoomies cocker spaniel avatar, based on the approved status previews. -->
 <script lang="ts">
+  import { standardMotion } from './standard-motion';
   let { state, seed = 'zoomies' }: { state: string; seed?: string } = $props();
+  // Both styles use the same approved cadence and stable per-runner phase.
+  const gait = $derived(standardMotion(state, seed));
   const energetic = $derived(['busy', 'zoomies', 'maximum_zoomies'].includes(state));
   // Stable per-runner variation avoids fleet-wide synchronisation and never
   // restarts on CPU sample updates. Motion stays entirely in CSS: no timers.
@@ -22,6 +25,8 @@
   data-style="cute"
   data-motion={state}
   class:energetic
+  class:walking={gait.walking}
+  class:boosted={gait.spinning}
   viewBox="0 0 240 220"
   fill="none"
   aria-hidden="true"
@@ -29,10 +34,12 @@
   style:--lap={timing.duration}
   style:--phase={timing.delay}
   style:--blink={timing.blink}
+  style:--stride={`${gait.stride}s`}
+  style:--gait-phase={`${gait.phase}s`}
 >
   <circle cx="120" cy="114" r="86" fill="var(--z-surface-sunken)" />
-  <ellipse cx="120" cy="192" rx="55" ry="7" fill="var(--z-border)" />
-  {#if energetic}
+  <ellipse class="shadow" cx="120" cy="192" rx="55" ry="7" fill="var(--z-border)" />
+  {#if gait.spinning}
     <g
       class="speed"
       fill="none"
@@ -42,19 +49,34 @@
     >
   {/if}
   <g class="dog">
+    {#if energetic}
+      <!-- Rear feet sit behind the torso; their roots stay covered as they
+           step. Four beats read as a walk even in this front-facing pose. -->
+      <g class="hind-l">
+        <path class="fur" d="M92 153Q78 153 77 169L73 181Q74 187 86 185L99 162Z" />
+      </g>
+      <g class="hind-r">
+        <path class="fur" d="M145 153Q159 153 162 169L167 181Q166 188 154 185L137 162Z" />
+      </g>
+    {/if}
     <path class="tail fur" d="M149 161Q188 133 193 151Q194 168 163 177Z" />
     <path class="fur" d="M83 155Q82 134 110 132L133 133Q158 140 157 173L145 183H92Z" />
     <path class="white" d="M104 138Q119 146 139 139L137 169Q118 180 102 166Z" />
     <g class="face">
-      <path
-        class="ear-l fur"
-        d="M84 66Q61 59 51 81Q45 96 45 119Q38 128 49 132Q45 143 56 143Q61 155 71 145Q84 149 88 135L93 83Z"
-      />
-      <path
-        class="ear-r fur"
-        d="M153 66Q176 61 185 82Q189 97 190 120Q198 132 186 135Q189 146 177 146Q170 156 161 144Q150 148 147 131L145 81Z"
-      />
-      <path class="shine" d="M65 88Q55 109 59 125M174 88Q182 106 177 127" />
+      <g class="ear-l">
+        <path
+          class="fur"
+          d="M84 66Q61 59 51 81Q45 96 45 119Q38 128 49 132Q45 143 56 143Q61 155 71 145Q84 149 88 135L93 83Z"
+        />
+        <path class="shine" d="M65 88Q55 109 59 125" />
+      </g>
+      <g class="ear-r">
+        <path
+          class="fur"
+          d="M153 66Q176 61 185 82Q189 97 190 120Q198 132 186 135Q189 146 177 146Q170 156 161 144Q150 148 147 131L145 81Z"
+        />
+        <path class="shine" d="M174 88Q182 106 177 127" />
+      </g>
       <path
         class="fur"
         d="M76 89Q76 59 100 53L98 45L114 50L124 42L128 51Q161 51 165 84L163 117Q158 140 121 146Q87 144 77 120Z"
@@ -93,11 +115,12 @@
           d="M101 127Q122 117 143 125Q141 148 123 150Q105 146 101 127Z"
           fill="var(--z-avatar-ink)"
         />
-        <path
-          class="tongue"
-          d="M116 135Q124 132 131 136L130 145Q124 154 117 146Z"
-          fill="var(--z-avatar-tongue)"
-        /><path d="M124 138v7" stroke="var(--z-avatar-tongue-line)" stroke-width="1.4" />
+        <g class="tongue">
+          <path
+            d="M116 135Q124 132 131 136L130 145Q124 154 117 146Z"
+            fill="var(--z-avatar-tongue)"
+          /><path d="M124 138v7" stroke="var(--z-avatar-tongue-line)" stroke-width="1.4" />
+        </g>
       {:else}
         <path class="line" d={state === 'failed' ? 'M109 139q13-10 26 0' : 'M107 131q16 12 31-1'} />
       {/if}
@@ -193,6 +216,9 @@
   .ear-r,
   .paw-l,
   .paw-r,
+  .hind-l,
+  .hind-r,
+  .shadow,
   .tail,
   .eyes,
   .speed,
@@ -235,32 +261,102 @@
     transform-origin: 124px 133px;
     animation-name: pant;
   }
-  .energetic .dog {
-    animation-name: bound;
+  /* One stride clock for weight transfer, feet and follow-through. The
+     slow lifecycle gestures retain their own lap and do not inherit it. */
+  .energetic .dog,
+  .energetic .face,
+  .energetic .ear-l,
+  .energetic .ear-r,
+  .energetic .paw-l,
+  .energetic .paw-r,
+  .energetic .hind-l,
+  .energetic .hind-r,
+  .energetic .tail,
+  .energetic .tongue,
+  .energetic .shadow,
+  .speed {
+    animation-duration: var(--stride);
+    animation-delay: var(--gait-phase);
   }
-  .energetic .ear-l {
-    animation-name: flap-left;
+  .hind-l {
+    transform-origin: 92px 157px;
   }
-  .energetic .ear-r {
-    animation-name: flap-right;
+  .hind-r {
+    transform-origin: 145px 157px;
   }
-  .energetic .paw-l {
-    animation-name: step-left;
+  .shadow {
+    transform-origin: 120px 192px;
   }
-  .energetic .paw-r {
-    animation-name: step-right;
+  .walking .dog {
+    animation-name: walk-body;
+  }
+  .walking .face {
+    animation-name: walk-face;
+  }
+  .walking .paw-l,
+  .walking .paw-r,
+  .walking .hind-l,
+  .walking .hind-r {
+    animation-name: walk-step;
+  }
+  .walking .paw-r {
+    animation-delay: calc(var(--gait-phase) - var(--stride) * 0.5);
+  }
+  .walking .hind-l {
+    animation-delay: calc(var(--gait-phase) - var(--stride) * 0.25);
+  }
+  .walking .hind-r {
+    animation-delay: calc(var(--gait-phase) - var(--stride) * 0.75);
+  }
+  .walking .ear-l {
+    animation-name: walk-ear-left;
+  }
+  .walking .ear-r {
+    animation-name: walk-ear-right;
+  }
+  .energetic .tail {
+    animation-name: gait-tail;
+  }
+  .energetic .tongue {
+    animation-name: gait-pant;
+  }
+  .boosted .dog {
+    animation-name: run-body;
+  }
+  .boosted .face {
+    animation-name: run-face;
+  }
+  .boosted .ear-l {
+    animation-name: run-ear-left;
+  }
+  .boosted .ear-r {
+    animation-name: run-ear-right;
+  }
+  .boosted .paw-l,
+  .boosted .paw-r {
+    animation-name: run-forepaw;
+  }
+  .boosted .paw-r {
+    animation-delay: calc(var(--gait-phase) - var(--stride) * 0.1);
+  }
+  .boosted .hind-l,
+  .boosted .hind-r {
+    animation-name: run-hindpaw;
+  }
+  .boosted .hind-r {
+    animation-delay: calc(var(--gait-phase) - var(--stride) * 0.1);
+  }
+  .boosted .shadow {
+    animation-name: run-shadow;
   }
   .speed {
     animation-name: breeze;
   }
-  [data-motion='maximum_zoomies'] {
-    --hop: -10px;
-  }
   [data-motion='zoomies'] {
-    --hop: -7px;
+    --hop: -5px;
   }
-  [data-motion='busy'] {
-    --hop: -4px;
+  [data-motion='maximum_zoomies'] {
+    --hop: -7px;
   }
   [data-motion='throttled'] .face,
   [data-motion='idle'] .face {
@@ -298,71 +394,185 @@
   [data-motion='removed'] .face {
     transform: translateY(4px) rotate(5deg);
   }
-  /* Two clear bounds or gestures, followed by a rest. SVG transforms stay
-     inside the reserved avatar box and cannot nudge the label or table. */
-  @keyframes bound {
+  /* Small alternating weight shifts, with a long ground contact and a
+     short paw recovery. The head counters the roll; ears lag the head. */
+  @keyframes walk-body {
     0%,
-    4%,
-    12%,
-    20%,
     100% {
-      transform: translateY(0);
+      transform: translate(-1.5px, 0) rotate(-1.2deg);
     }
-    8%,
-    16% {
-      transform: translateY(var(--hop)) scale(0.98, 1.02);
+    25% {
+      transform: translate(0, -1px) rotate(0deg);
+    }
+    50% {
+      transform: translate(1.5px, 0) rotate(1.2deg);
+    }
+    75% {
+      transform: translate(0, -1px) rotate(0deg);
     }
   }
-  @keyframes flap-left {
+  @keyframes walk-face {
     0%,
-    4%,
-    12%,
-    20%,
     100% {
-      transform: rotate(0);
+      transform: rotate(1deg);
     }
-    8%,
-    16% {
-      transform: rotate(-17deg);
+    50% {
+      transform: rotate(-1deg);
     }
   }
-  @keyframes flap-right {
+  @keyframes walk-step {
     0%,
-    4%,
-    12%,
-    20%,
     100% {
-      transform: rotate(0);
+      transform: translateY(0) rotate(0deg);
     }
-    8%,
-    16% {
-      transform: rotate(17deg);
+    60% {
+      transform: translateY(1px) rotate(2deg);
+    }
+    80% {
+      transform: translateY(-5px) rotate(-3deg);
     }
   }
-  @keyframes step-left {
+  @keyframes walk-ear-left {
     0%,
-    4%,
-    12%,
-    20%,
     100% {
-      transform: translateY(0);
+      transform: rotate(1deg);
     }
-    8%,
-    16% {
-      transform: translateY(-13px) rotate(-8deg);
+    30% {
+      transform: rotate(-3deg);
+    }
+    80% {
+      transform: rotate(3deg);
     }
   }
-  @keyframes step-right {
+  @keyframes walk-ear-right {
     0%,
-    8%,
-    16%,
-    24%,
     100% {
-      transform: translateY(0);
+      transform: rotate(-1deg);
     }
-    12%,
-    20% {
-      transform: translateY(-13px) rotate(8deg);
+    30% {
+      transform: rotate(-3deg);
+    }
+    80% {
+      transform: rotate(3deg);
+    }
+  }
+  /* Hind push-off, a low airborne arc, forepaw landing and gathering.
+     The paws lead the landing and the ears settle just after the torso. */
+  @keyframes run-body {
+    0%,
+    100% {
+      transform: translateY(1px) rotate(-0.8deg);
+    }
+    24% {
+      transform: translateY(-2px) rotate(0deg);
+    }
+    44% {
+      transform: translateY(var(--hop)) rotate(0.8deg);
+    }
+    68% {
+      transform: translateY(1px) rotate(0deg);
+    }
+    82% {
+      transform: translateY(2px) rotate(-0.5deg);
+    }
+  }
+  @keyframes run-face {
+    0%,
+    100% {
+      transform: translateY(0) rotate(0.8deg);
+    }
+    44% {
+      transform: translateY(1px) rotate(-0.8deg);
+    }
+    72% {
+      transform: translateY(2px) rotate(0deg);
+    }
+  }
+  @keyframes run-forepaw {
+    0%,
+    100% {
+      transform: translateY(-2px) rotate(-2deg);
+    }
+    32% {
+      transform: translateY(-7px) rotate(-5deg);
+    }
+    60% {
+      transform: translateY(2px) rotate(2deg);
+    }
+    78% {
+      transform: translateY(0) rotate(0deg);
+    }
+  }
+  @keyframes run-hindpaw {
+    0%,
+    100% {
+      transform: translateY(1px) rotate(0deg);
+    }
+    26% {
+      transform: translateY(-3px) rotate(3deg);
+    }
+    52% {
+      transform: translateY(-6px) rotate(-4deg);
+    }
+    82% {
+      transform: translateY(0) rotate(0deg);
+    }
+  }
+  @keyframes run-ear-left {
+    0%,
+    100% {
+      transform: rotate(-2deg);
+    }
+    48% {
+      transform: rotate(-10deg);
+    }
+    76% {
+      transform: rotate(3deg);
+    }
+  }
+  @keyframes run-ear-right {
+    0%,
+    100% {
+      transform: rotate(2deg);
+    }
+    48% {
+      transform: rotate(10deg);
+    }
+    76% {
+      transform: rotate(-3deg);
+    }
+  }
+  @keyframes gait-tail {
+    0%,
+    100% {
+      transform: rotate(-5deg);
+    }
+    50% {
+      transform: rotate(8deg);
+    }
+  }
+  @keyframes gait-pant {
+    0%,
+    100% {
+      transform: scaleY(0.98);
+    }
+    55% {
+      transform: scaleY(1.04);
+    }
+  }
+  @keyframes run-shadow {
+    0%,
+    100% {
+      transform: scaleX(1);
+      opacity: 1;
+    }
+    44% {
+      transform: scaleX(0.9);
+      opacity: 0.8;
+    }
+    75% {
+      transform: scaleX(1.02);
+      opacity: 1;
     }
   }
   @keyframes tail-wag {
@@ -408,16 +618,13 @@
   }
   @keyframes breeze {
     0%,
-    4%,
-    24%,
     100% {
-      opacity: 0.15;
+      opacity: 0.3;
       transform: translateX(0);
     }
-    8%,
-    16% {
-      opacity: 0.8;
-      transform: translateX(-6px);
+    44% {
+      opacity: 0.65;
+      transform: translateX(-3px);
     }
   }
   @keyframes breathe {
@@ -499,6 +706,9 @@
     }
   }
   @media (prefers-reduced-motion: reduce) {
+    .hind-l,
+    .hind-r,
+    .shadow,
     .dog,
     .face,
     .ear-l,
