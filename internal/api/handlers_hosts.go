@@ -357,7 +357,7 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 				rentedFrom = row.Name
 			}
 			conflict(w, fmt.Sprintf("host %s is a machine Zoomies created on %s. Delete the machine instead "+
-				"(that removes the VM too), or repeat this with ?force=true to forget the host and leave the VM running.",
+				"(that removes the VM too), or repeat this with ?force=true to forget the host and the machine record and leave the VM running, untracked.",
 				h.Name, rentedFrom))
 			return
 		case merr != nil && !errors.Is(merr, store.ErrNotFound):
@@ -381,6 +381,10 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if force && !s.forgetMachineOfHost(w, r, id) {
+		return
+	}
+
 	if err := s.ctrl.DeleteHost(r.Context(), id); err != nil {
 		s.fail(w, r, "deleting the host", err)
 		return
@@ -388,6 +392,42 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 	s.auth.Auditor().Deleted(r.Context(), Identity(r.Context()), "host", id, h)
 	s.ctrl.Nudge()
 	noContent(w)
+}
+
+// forgetMachineOfHost keeps a forced host delete to what the 409 promises --
+// the VM is left running -- and reports whether the delete may go on.
+//
+// machines.host_id is ON DELETE SET NULL, and the machine loop treats a ready
+// machine with no host as one to release: drain, then destroy the VM, without
+// waiting for the jobs the cascade just erased. So forgetting only the host
+// would end in the destructive act the operator was told would not happen. The
+// machine row goes with it, audited the way a release is, because from here the
+// audit row is the only record of the resource. A machine that is already
+// deleting is left alone: the delete is under way, and dropping the row would
+// abandon it half done with the VM still billed.
+func (s *Server) forgetMachineOfHost(w http.ResponseWriter, r *http.Request, hostID string) bool {
+	m, err := s.ctrl.Store().GetMachineByHost(r.Context(), hostID)
+	if errors.Is(err, store.ErrNotFound) {
+		return true
+	}
+	if err != nil {
+		s.internal(w, r, "checking whether the host is a machine Zoomies created", err)
+		return false
+	}
+	if m == nil || m.State == store.MachineDeleting {
+		return true
+	}
+	if err := s.ctrl.Store().ForgetMachine(r.Context(), m.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
+		s.fail(w, r, "forgetting the machine behind the host", err)
+		return false
+	}
+	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "machine.release", "machine", m.ID, map[string]any{
+		"name": m.Name, "state": m.State, "provider_id": m.ProviderID,
+		"resource_zone": m.ResourceZone, "resource_id": m.ResourceID,
+		"address": m.Address, "host_id": m.HostID, "reason": "its host was force-deleted",
+	})
+	s.ctrl.PublishMachineDeleted(m.ID)
+	return true
 }
 
 // ---------------------------------------------------------------------------

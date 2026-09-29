@@ -315,7 +315,11 @@ machines raises the provider's ceiling.
 `DELETE /api/v1/hosts/{id}` refuses a host that is a machine Zoomies created,
 and says to delete the machine instead — that removes the VM too. `?force=true`
 still works and forgets the host while leaving the VM running, which is a thing
-somebody may genuinely want and never a thing to do by accident.
+somebody may genuinely want and never a thing to do by accident. It forgets the
+machine's row too, and audits that as a `machine.release` carrying the provider's
+identifiers for the VM, because a row left behind would have the machine loop
+drain and delete the VM it was promised would be left alone. A machine that is
+already being deleted is the exception: its delete carries on.
 
 `GET /api/v1/meta` includes the non-secret `providers_available` flag: this
 build ships at least one driver and `provider.enabled` is on.
