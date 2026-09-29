@@ -3,6 +3,7 @@ package controller
 import (
 	"github.com/eyupio/zoomies/internal/config"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -94,6 +95,75 @@ func TestAnUnresolvedAmbiguityIsQuarantinedRatherThanRetried(t *testing.T) {
 	}
 	if !slices.Contains(h.problemCodes(), "provider.ownership_unverified") {
 		t.Fatalf("a quarantined machine raised %v, want provider.ownership_unverified", h.problemCodes())
+	}
+}
+
+// provider.create_timeout is documented as bounding the whole asynchronous
+// creation of a machine, and the ambiguity timeout only covers a resource the
+// provider cannot find. A create whose task never finishes -- a PVE task lost
+// with its node, a stale clone lock -- was therefore waited on for ever, and
+// because a machine that is still creating counts against the in-flight create
+// limit, one such machine stopped the provider buying anything.
+func TestAMachineStuckCreatingIsFailedAtTheCreateTimeoutAndFreesItsSlot(t *testing.T) {
+	h := newHarness(t)
+	h.machineFleet(t)
+	h.fake.SetAsync("create", 1<<30)
+
+	h.machinePass(t)
+	m := h.onlyMachine(t)
+	if m.State != store.MachineCreating {
+		t.Fatalf("machine is %s after the first pass, want creating", m.State)
+	}
+
+	// Inside the timeout it is simply a slow create, and is left alone.
+	h.advance(h.cfg.Provider.CreateTimeout / 2)
+	h.machinePass(t)
+	if got := h.machineByID(t, m.ID); got.State != store.MachineCreating {
+		t.Fatalf("a create inside its timeout was %s, want it left creating", got.State)
+	}
+
+	h.advance(h.cfg.Provider.CreateTimeout)
+	h.machinePass(t)
+	got := h.machineByID(t, m.ID)
+	if got.State != store.MachineFailed {
+		t.Fatalf("a create that ran past provider.create_timeout is %s, want failed", got.State)
+	}
+	if got.State.Pending() {
+		t.Fatal("a failed machine still counts against the in-flight create limit")
+	}
+	if !strings.Contains(got.Message, "still being paid for") {
+		t.Fatalf("the failure does not say the resource may still be billed: %q", got.Message)
+	}
+	if h.callsTo("delete") != 0 {
+		t.Fatal("giving up on a create deleted a resource that may be somebody's work")
+	}
+	if !slices.Contains(h.problemCodes(), "provider.machine_failed") {
+		t.Fatalf("a failed machine raised %v, want provider.machine_failed", h.problemCodes())
+	}
+}
+
+// The starting phase is bounded by the same setting, counted from when the
+// resource was created, for a provider that cannot be powered on by us.
+func TestAMachineStuckStartingIsFailedAtTheCreateTimeout(t *testing.T) {
+	h := newHarness(t)
+	_, row := h.machineFleet(t)
+	m := &store.Machine{ProviderID: row.ID, State: store.MachinePlanned}
+	if err := h.st.CreateMachine(h.ctx, m); err != nil {
+		t.Fatalf("CreateMachine: %v", err)
+	}
+	if err := h.st.SetMachineResource(h.ctx, m.ID, "zone-a", "9001", "ours", h.c.controllerID()); err != nil {
+		t.Fatalf("SetMachineResource: %v", err)
+	}
+	for _, to := range []store.MachineState{store.MachineCreating, store.MachineStarting} {
+		if _, err := h.st.TransitionMachine(h.ctx, m.ID, to, ""); err != nil {
+			t.Fatalf("TransitionMachine to %s: %v", to, err)
+		}
+	}
+
+	h.advance(h.cfg.Provider.CreateTimeout + time.Minute)
+	h.machinePass(t)
+	if got := h.machineByID(t, m.ID); got.State != store.MachineFailed {
+		t.Fatalf("a machine starting for longer than provider.create_timeout is %s, want failed", got.State)
 	}
 }
 
