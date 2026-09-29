@@ -166,6 +166,10 @@ test('rotating a client secret asks first, then shows the new secret once', asyn
         .textContent()
     )?.trim() ?? '';
   expect(first, 'the new client shows its secret once').toMatch(/^zoocs_/);
+  // A stray click on the scrim would lose the only copy of it.
+  await expect(made.getByRole('button', { name: 'Close' })).toHaveCount(0);
+  await page.mouse.click(5, 5);
+  await expect(made).toBeVisible();
   await made.getByRole('button', { name: 'Done' }).click();
 
   const row = page.getByRole('row', { name: /Rotation test/ });

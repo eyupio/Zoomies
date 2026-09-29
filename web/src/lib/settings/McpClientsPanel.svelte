@@ -291,6 +291,11 @@
   </section>
 </LoadingBoundary>
 
+<!--
+  A secret is shown exactly once, so a stray click on the scrim must not lose it.
+  A public client has only its ID, which can be looked up again, and stays
+  dismissible.
+-->
 <Dialog
   bind:open={createOpen}
   title={shown ? `${shown.name}` : 'Create an MCP client'}
@@ -298,6 +303,7 @@
     ? 'Put these in Claude’s Add custom connector dialog, under Advanced settings.'
     : 'A client ID to type into an MCP client’s OAuth settings, such as Claude’s custom connector form.'}
   size="md"
+  dismissible={!shown?.client_secret}
 >
   {#if shown}
     <div class="form">

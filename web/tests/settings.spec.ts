@@ -173,6 +173,13 @@ test('a token is shown once, in plain text, and says so', async ({ page }) => {
   // this is the only one.
   await expect(form).toContainText('This is the only time it exists in plain text');
   await expect(form.getByRole('button', { name: 'Copy the token' })).toBeVisible();
+
+  // ...and a stray click must not be what ends it: the scrim and the corner
+  // icon are gone, so only Done (or Escape, which is deliberate) closes it.
+  await expect(form.getByRole('button', { name: 'Close' })).toHaveCount(0);
+  await page.mouse.click(5, 5);
+  await expect(form).toBeVisible();
+  await expect(form.getByRole('button', { name: 'Copy the token' })).toBeVisible();
   await form.getByRole('button', { name: 'Done' }).click();
   await expect(form).toBeHidden();
 

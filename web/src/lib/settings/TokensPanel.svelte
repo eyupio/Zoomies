@@ -311,6 +311,10 @@
   </LoadingBoundary>
 </div>
 
+<!--
+  Not dismissible while the token is on screen: it is shown exactly once, and a
+  stray click on the scrim would lose the only copy. Done and Escape still close.
+-->
 <Dialog
   bind:open={createOpen}
   title="Create an API token"
@@ -318,6 +322,7 @@
     ? 'Copy it now. This is the only time it exists in plain text.'
     : 'It carries a role, and optionally narrower scopes within that role.'}
   size="md"
+  dismissible={!minted}
 >
   {#if minted}
     <div class="form">
