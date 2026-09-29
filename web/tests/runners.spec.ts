@@ -355,3 +355,26 @@ test('clipboard refusal is visible and does not blame HTTPS on a secure page', a
     ),
   ).toBeVisible();
 });
+
+/*
+ * The heading is read first and believed. "Runner not found" over a panel that
+ * says the controller failed sent an operator looking for a runner that was
+ * never gone, so only a 404 gets to say it.
+ */
+test('a runner that could not be loaded is only called not found when the controller says so', async ({
+  page,
+}) => {
+  await page.route(`**/api/v1/runners/${FIXTURE.busyRunnerId}`, (route) =>
+    route.fulfill({
+      status: 500,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: { code: 'internal', message: 'The controller broke.' } }),
+    }),
+  );
+  await page.goto(`/runners/${FIXTURE.busyRunnerId}`, { waitUntil: 'domcontentloaded' });
+  await expect(page.getByText('That runner could not be loaded')).toBeVisible();
+  await expect(pageHeading(page, 'Runner')).toBeVisible();
+
+  await page.goto('/runners/run_never_existed', { waitUntil: 'domcontentloaded' });
+  await expect(pageHeading(page, 'Runner not found')).toBeVisible();
+});
