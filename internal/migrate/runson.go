@@ -245,6 +245,63 @@ var jobKey = regexp.MustCompile(`^(\s*)([A-Za-z0-9_][A-Za-z0-9_.-]*)\s*:\s*(#.*)
 // file, or in a reusable workflow, or by a repository variable.
 var expression = regexp.MustCompile(`\$\{\{`)
 
+// blockScalarHeader matches what follows a key (or a `- ` item marker) when the
+// value is a literal or folded block scalar: `|`, `>-`, `|2+`, with an optional
+// trailing comment. Anchoring on the colon or the item marker keeps
+// `run: echo "a |"` and `run: a >` -- values that merely end in the character --
+// from opening one.
+var blockScalarHeader = regexp.MustCompile(`(?:^|:[ \t]+)[|>][-+0-9]*[ \t]*(?:#.*)?$`)
+
+// blockScalars tells the three readers of a workflow (File, eachRunsOnLabel
+// and, through File, jobTracker) which lines are the text of a script or a
+// multi-line string rather than YAML structure. A `runs-on:` inside a
+// `run: |` heredoc is not a key, and a `jobs:` or job name in one must not
+// move the job attribution either.
+//
+// It is approximate in the same direction as the rest of the package: it only
+// ever hides lines, and only ones indented deeper than the key that opened the
+// scalar, so what it gets wrong is a rewrite not made, never a wrong one.
+type blockScalars struct {
+	open   bool
+	parent int
+}
+
+// inBody is fed every line in order and reports whether the line is the body
+// of a block scalar opened earlier. The header line itself is not body -- a
+// `runs-on: |` still has to be seen as a runs-on -- but it arms the tracker.
+func (b *blockScalars) inBody(text string) bool {
+	if b.open {
+		if strings.TrimSpace(text) == "" || indentOf(text) > b.parent {
+			return true
+		}
+		b.open = false
+	}
+	if strings.HasPrefix(strings.TrimSpace(text), "#") {
+		return false
+	}
+	// Strip the item markers to find the column the key sits at: a body has to
+	// be indented deeper than that, not deeper than the dash.
+	indent := indentOf(text)
+	rest := text[indent:]
+	dash := -1
+	for strings.HasPrefix(rest, "-") && (len(rest) == 1 || rest[1] == ' ' || rest[1] == '\t') {
+		dash = indent
+		trimmed := strings.TrimLeft(rest[1:], " \t")
+		indent += len(rest) - len(trimmed)
+		rest = trimmed
+	}
+	if blockScalarHeader.MatchString(rest) {
+		b.open = true
+		b.parent = indent
+		if dash >= 0 && (strings.HasPrefix(rest, "|") || strings.HasPrefix(rest, ">")) {
+			// `- |`: the scalar is the item itself, so its parent is the
+			// sequence, at the dash.
+			b.parent = dash
+		}
+	}
+	return false
+}
+
 // File rewrites every `runs-on` in one workflow file.
 //
 // The file is returned unchanged when nothing matched, so a caller can commit
@@ -253,8 +310,12 @@ func File(content string, m Mapping) Result {
 	lines := splitLines(content)
 	res := Result{}
 	tracker := newJobTracker()
+	var scalars blockScalars
 
 	for i := 0; i < len(lines); i++ {
+		if scalars.inBody(lines[i].text) {
+			continue
+		}
 		tracker.observe(lines[i].text)
 
 		match := runsOnKey.FindStringSubmatch(lines[i].text)
@@ -569,7 +630,11 @@ func eachRunsOnLabel(content string, fn func(label string)) {
 	}
 
 	lines := splitLines(content)
+	var scalars blockScalars
 	for i := 0; i < len(lines); i++ {
+		if scalars.inBody(lines[i].text) {
+			continue
+		}
 		match := runsOnKey.FindStringSubmatch(lines[i].text)
 		if match == nil {
 			continue
