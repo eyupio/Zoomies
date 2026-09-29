@@ -885,6 +885,39 @@ func percentile(sorted []time.Duration, p float64) time.Duration {
 	return sorted[i]
 }
 
+// The history prunes delete in bounded batches, each in its own transaction,
+// because a batch holds the single writer for as long as it runs. A pass used to
+// run one batch an hour, which stopped retention bounding a table once its inflow
+// beat the batch, and drained a backlog at the same crawl. pruneInBatches repeats
+// the batch until one comes back short, and the writer is released between
+// batches so a webhook or a heartbeat waits for one batch, never for the backlog.
+const (
+	pruneJobBatch = 500
+	pruneRowBatch = 1000
+	// pruneMaxBatches bounds what one pass may do. A backlog deeper than this
+	// -- 50k jobs, 100k rows -- is finished by the next hourly pass rather than
+	// by monopolising the writer for the whole of this one.
+	pruneMaxBatches = 100
+)
+
+// pruneInBatches calls batch until it deletes fewer than size rows, the bound is
+// reached or ctx is done, and returns the total. What it deleted before an
+// error is still counted, since it is already gone.
+func pruneInBatches(ctx context.Context, size int64, maxBatches int, batch func(context.Context) (int64, error)) (int64, error) {
+	var total int64
+	for i := 0; i < maxBatches && ctx.Err() == nil; i++ {
+		n, err := batch(ctx)
+		total += n
+		if err != nil {
+			return total, err
+		}
+		if n < size {
+			break
+		}
+	}
+	return total, nil
+}
+
 // PruneJobs deletes jobs older than the cutoff, and their timelines with them:
 // an event whose job is gone answers nothing.
 //
@@ -895,20 +928,22 @@ func percentile(sorted []time.Duration, p float64) time.Duration {
 // a job stale long before this, and this is the backstop.
 func (s *Store) PruneJobs(ctx context.Context, before time.Time) (int64, error) {
 	const old = `(state = 'completed' AND completed_at < ?) OR (state != 'completed' AND queued_at < ?)`
-	var pruned int64
-	err := s.tx(ctx, func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM job_events WHERE job_id IN
-			(SELECT id FROM jobs WHERE `+old+` ORDER BY id LIMIT 500)`, ms(before), ms(before)); err != nil {
+	return pruneInBatches(ctx, pruneJobBatch, pruneMaxBatches, func(ctx context.Context) (int64, error) {
+		var pruned int64
+		err := s.tx(ctx, func(tx *sql.Tx) error {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM job_events WHERE job_id IN
+				(SELECT id FROM jobs WHERE `+old+` ORDER BY id LIMIT 500)`, ms(before), ms(before)); err != nil {
+				return err
+			}
+			res, err := tx.ExecContext(ctx, `DELETE FROM jobs WHERE id IN (SELECT id FROM jobs WHERE `+old+` ORDER BY id LIMIT 500)`, ms(before), ms(before))
+			if err != nil {
+				return err
+			}
+			pruned, err = res.RowsAffected()
 			return err
-		}
-		res, err := tx.ExecContext(ctx, `DELETE FROM jobs WHERE id IN (SELECT id FROM jobs WHERE `+old+` ORDER BY id LIMIT 500)`, ms(before), ms(before))
-		if err != nil {
-			return err
-		}
-		pruned, err = res.RowsAffected()
-		return err
+		})
+		return pruned, err
 	})
-	return pruned, err
 }
 
 // ---------------------------------------------------------------------------
@@ -1086,11 +1121,13 @@ func (s *Store) ListScalingEvents(ctx context.Context, poolID string, limit int)
 
 // PruneScalingEvents deletes scaling history older than the cutoff.
 func (s *Store) PruneScalingEvents(ctx context.Context, before time.Time) (int64, error) {
-	res, err := s.exec(ctx, `DELETE FROM scaling_events WHERE rowid IN (SELECT rowid FROM scaling_events WHERE created_at < ? LIMIT 1000)`, ms(before))
-	if err != nil {
-		return 0, err
-	}
-	return res.RowsAffected()
+	return pruneInBatches(ctx, pruneRowBatch, pruneMaxBatches, func(ctx context.Context) (int64, error) {
+		res, err := s.exec(ctx, `DELETE FROM scaling_events WHERE rowid IN (SELECT rowid FROM scaling_events WHERE created_at < ? LIMIT 1000)`, ms(before))
+		if err != nil {
+			return 0, err
+		}
+		return res.RowsAffected()
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -1246,11 +1283,13 @@ func (s *Store) lastDeliveryAt(ctx context.Context, status string) (time.Time, e
 
 // PruneDeliveries deletes webhook history older than the cutoff.
 func (s *Store) PruneDeliveries(ctx context.Context, before time.Time) (int64, error) {
-	res, err := s.exec(ctx, `DELETE FROM webhook_deliveries WHERE rowid IN (SELECT rowid FROM webhook_deliveries WHERE received_at < ? LIMIT 1000)`, ms(before))
-	if err != nil {
-		return 0, err
-	}
-	return res.RowsAffected()
+	return pruneInBatches(ctx, pruneRowBatch, pruneMaxBatches, func(ctx context.Context) (int64, error) {
+		res, err := s.exec(ctx, `DELETE FROM webhook_deliveries WHERE rowid IN (SELECT rowid FROM webhook_deliveries WHERE received_at < ? LIMIT 1000)`, ms(before))
+		if err != nil {
+			return 0, err
+		}
+		return res.RowsAffected()
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -1319,9 +1358,11 @@ func (s *Store) ListSamples(ctx context.Context, since time.Time) ([]FleetSample
 
 // PruneSamples deletes fleet samples older than the cutoff.
 func (s *Store) PruneSamples(ctx context.Context, before time.Time) (int64, error) {
-	res, err := s.exec(ctx, `DELETE FROM fleet_samples WHERE rowid IN (SELECT rowid FROM fleet_samples WHERE at < ? LIMIT 1000)`, ms(before))
-	if err != nil {
-		return 0, err
-	}
-	return res.RowsAffected()
+	return pruneInBatches(ctx, pruneRowBatch, pruneMaxBatches, func(ctx context.Context) (int64, error) {
+		res, err := s.exec(ctx, `DELETE FROM fleet_samples WHERE rowid IN (SELECT rowid FROM fleet_samples WHERE at < ? LIMIT 1000)`, ms(before))
+		if err != nil {
+			return 0, err
+		}
+		return res.RowsAffected()
+	})
 }
