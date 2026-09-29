@@ -304,7 +304,7 @@ running beside it, and the gateway's Tailcat address is handled the same way:
 | GET | `/api/v1/machines` | viewer | Paged, filtered by `?provider=`, `?pool=`, `?host=`, `?state=`, `?q=` and `?include_deleted=`. |
 | GET | `/api/v1/machines/{id}` | viewer | Includes the phase timeline the detail page reads as a life rather than a row of timestamps. |
 | POST | `/api/v1/machines/{id}/drain` | operator | Cordons its host and lets its runners finish. Reversible until the delete starts: demand coming back takes a draining machine back to ready rather than paying for a new one. |
-| DELETE | `/api/v1/machines/{id}` | admin | Answers 200 with the machine in `deleting`, because a delete is finished when the resource can no longer be found, not when the provider returns. 409 while runners are still going unless `?force=true`. A quarantined machine is **never** deletable, forced or not. |
+| DELETE | `/api/v1/machines/{id}` | admin | Answers 200 with the machine in `deleting`, because a delete is finished when the resource can no longer be found, not when the provider returns. Cordons its host, so nothing is placed on a VM that is about to go. 409 while runners are still going unless `?force=true`. A quarantined machine is **never** deletable, forced or not. |
 | POST | `/api/v1/machines/{id}/release` | admin | Forgets a row and touches nothing, for the machine nobody can safely delete. The machine's name must be in the body. Audited with the provider's identifiers for the resource, because after this the audit row is the only record of them. |
 
 **There is no `POST /machines`.** A machine exists because demand asked for one:

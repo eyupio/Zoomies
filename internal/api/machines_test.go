@@ -189,6 +189,78 @@ func TestDrainingAMachineCordonsItsHost(t *testing.T) {
 	}
 }
 
+// Every other road into a machine's deletion cordons its host first, because
+// the scheduler's snapshot carries hosts and never machines: an idle machine
+// with a queued job matching its pools stays placeable for the whole minutes-long
+// delete, and a runner placed in that window dies with the VM.
+func TestDeletingAMachineCordonsItsHost(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("admin", store.RoleAdmin)
+	cookie := h.session(admin)
+	host := h.host("zoomies-mach-host")
+	prov := h.provider("proxmox-lab")
+	m := h.machineOn(prov, "zoomies-mach-idle", store.MachineReady, host)
+
+	resp := h.do(request{method: http.MethodDelete, path: "/api/v1/machines/" + m.ID, cookie: cookie})
+	resp.mustStatus(t, http.StatusOK, "delete an idle machine")
+
+	got, err := h.st.GetHost(h.ctx, host.ID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if !got.Cordoned {
+		t.Error("the host of a machine being deleted was not cordoned, so the scheduler could place a runner on a VM that is about to be destroyed")
+	}
+}
+
+// A refused delete must have no side effect: cordoning before the refusal would
+// take a busy machine out of service by way of a request that said no.
+func TestARefusedMachineDeleteLeavesItsHostUncordoned(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("admin", store.RoleAdmin)
+	cookie := h.session(admin)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+	host := h.host("zoomies-mach-host")
+	prov := h.provider("proxmox-lab")
+	m := h.machineOn(prov, "zoomies-mach-busy", store.MachineReady, host)
+	h.runner(pool, host, store.RunnerBusy)
+
+	resp := h.do(request{method: http.MethodDelete, path: "/api/v1/machines/" + m.ID, cookie: cookie})
+	resp.mustStatus(t, http.StatusConflict, "delete a machine with a busy runner")
+
+	got, err := h.st.GetHost(h.ctx, host.ID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if got.Cordoned {
+		t.Error("a refused delete cordoned the host")
+	}
+}
+
+// A drain the state machine refuses -- only a ready machine can drain -- used to
+// cordon the host first and then answer 409, so a request that reported an error
+// still took a failed machine's enrolled host out of service, with no audit row.
+func TestARefusedMachineDrainLeavesItsHostUncordoned(t *testing.T) {
+	h := newHarness(t)
+	operator, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(operator)
+	host := h.host("zoomies-mach-host")
+	prov := h.provider("proxmox-lab")
+	m := h.machineOn(prov, "zoomies-mach-broken", store.MachineFailed, host)
+
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/machines/" + m.ID + "/drain", cookie: cookie})
+	resp.mustStatus(t, http.StatusConflict, "drain a failed machine")
+
+	got, err := h.st.GetHost(h.ctx, host.ID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if got.Cordoned {
+		t.Error("a refused drain cordoned the host")
+	}
+}
+
 // A machine's host is not an ordinary host: the VM outlives the row, and an
 // operator who deleted it here would go on paying for a machine nothing is
 // tracking. The refusal says which act removes the VM as well.
