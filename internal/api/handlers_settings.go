@@ -653,14 +653,12 @@ func (s *Server) applyPlan(ctx context.Context, id *auth.Identity, staged []chan
 	applied, before := map[string]any{}, map[string]any{}
 	var live []change
 	for _, ch := range staged {
-		before[ch.setting.Key] = ch.before
-		if ch.unset {
-			applied[ch.setting.Key] = nil
-		} else {
-			applied[ch.setting.Key] = ch.value
-		}
 		if ch.setting.Live {
 			live = append(live, ch)
+		}
+		b, a, recorded := auditedValues(ch)
+		if recorded {
+			before[ch.setting.Key], applied[ch.setting.Key] = b, a
 		}
 	}
 	if len(live) > 0 {
@@ -683,6 +681,48 @@ func (s *Server) applyPlan(ctx context.Context, id *auth.Identity, staged []chan
 
 	s.auth.Auditor().Updated(ctx, id, "settings", "settings", before, applied)
 	return nil
+}
+
+// The two markers a secret setting's audit row carries. redactedMarker is the
+// word the audit trail already uses for a value it withheld; replacedMarker
+// differs from it so that a change is still a change to the diff, which drops
+// any key whose two sides are equal.
+const (
+	redactedMarker = "[redacted]"
+	replacedMarker = "[replaced]"
+)
+
+// auditedValues is what the audit row records for one staged change, and
+// whether it records anything.
+//
+// An audit row is kept for the life of the database and cannot be retracted,
+// and its redaction goes by key name: "agent.registry_auth" matches none of
+// its words, so the credential was written into the row whole, and the one it
+// replaced with it. A secret setting records the direction of the change
+// instead. It is keyed on the registry's Secret flag rather than a name, so a
+// secret added later is covered without anyone remembering to.
+func auditedValues(ch change) (before, after any, recorded bool) {
+	if !ch.setting.Secret {
+		if ch.unset {
+			return ch.before, nil, true
+		}
+		return ch.before, ch.value, true
+	}
+	was := config.Text(ch.setting, ch.before)
+	if !ch.unset && was == config.Text(ch.setting, ch.value) {
+		// Saving what the controller already runs with. The markers differ, so
+		// without this a re-save would be logged as a rotation.
+		return nil, nil, false
+	}
+	// A clear removes a stored row that the running value may not show yet, so
+	// it is always something that was there.
+	if was != "" || ch.unset {
+		before = redactedMarker
+	}
+	if !ch.unset {
+		after = replacedMarker
+	}
+	return before, after, true
 }
 
 // writeSettings puts the whole batch in the database in one transaction, so a
