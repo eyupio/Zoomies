@@ -1260,6 +1260,16 @@ func TestDeletingAPoolWaitsForItsRunnersToFinish(t *testing.T) {
 	if after.State != store.RunnerDraining {
 		t.Errorf("runner state = %q, want draining: the refusal should still have asked it to stop", after.State)
 	}
+	// A drain is a change to the fleet, so the refusal that started one leaves
+	// a row naming who did it: no pool.delete row exists yet, and the runners'
+	// own timeline entries do not carry the actor.
+	rows, _, err := h.st.ListAudit(h.ctx, store.AuditFilter{Actions: []string{"pool.drain"}}, store.Page{Limit: 10})
+	if err != nil {
+		t.Fatalf("ListAudit: %v", err)
+	}
+	if len(rows) != 1 || rows[0].TargetID != pool.ID || rows[0].ActorName != "operator" {
+		t.Errorf("audit rows for the drain = %+v, want one naming the pool and the operator", rows)
+	}
 
 	// Once the runner has finished, the same call goes through.
 	if _, err := h.st.TransitionRunner(h.ctx, runner.ID, store.RunnerRemoved, "job finished"); err != nil {

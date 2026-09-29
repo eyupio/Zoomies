@@ -1293,6 +1293,14 @@ func (s *Server) handleDeletePool(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if live > 0 {
+		// The refusal has already removed or drained runners, and the pool.delete
+		// row only comes with a later call that may be someone else's, so this
+		// is the one place the actor who emptied the pool is recorded.
+		if affected > 0 {
+			s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "pool.drain", "pool", id, map[string]any{
+				"name": p.Name, "runners": affected, "force": force, "drain": drain,
+			})
+		}
 		conflict(w, fmt.Sprintf("%s still has %s finishing, so it was not deleted: deleting the pool now would "+
 			"take their records with it and the jobs they are running would be killed a couple of minutes later. "+
 			"They have been told to stop and will go as their jobs finish; delete the pool again once they have. "+
