@@ -193,6 +193,34 @@ func (lr *logRelay) unsubscribe(s *logStream, subID int) {
 	lr.c.log.Debug("closed a log relay; the last viewer went away", "runner", s.runnerID, "stream", s.id)
 }
 
+// fail ends a stream whose relay the agent could not open, after handing every
+// viewer the agent's explanation as output.
+//
+// Without it the viewer waits on a stream no POST will ever feed, and a second
+// Follow viewer attaches to the same dead stream rather than queuing a task of
+// its own. No cancel task is queued: the agent never opened anything to close.
+// The explanation travels as a log chunk because that is the one channel the
+// API layer already renders, so the api/controller boundary stays as it is.
+func (lr *logRelay) fail(streamID, reason string) {
+	lr.mu.Lock()
+	s := lr.streams[streamID]
+	if s != nil {
+		delete(lr.streams, streamID)
+		if lr.byRunner[s.runnerID] == streamID {
+			delete(lr.byRunner, s.runnerID)
+		}
+	}
+	lr.mu.Unlock()
+	if s == nil {
+		return
+	}
+	if reason != "" {
+		s.send([]byte("zoomies: could not open this runner's log stream: " + reason + "\n"))
+	}
+	s.close()
+	lr.c.log.Debug("closed a log relay the agent could not open", "runner", s.runnerID, "stream", streamID, "reason", reason)
+}
+
 // AcceptLogStream consumes the agent's outbound chunked POST and fans it out.
 // It returns when the agent closes the body or the stream is torn down.
 //
