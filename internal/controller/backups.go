@@ -329,7 +329,7 @@ func (c *Controller) backupPass(ctx context.Context, nudged bool) {
 	// And then the copies that leave the machine. A nudge means a backup has
 	// just been taken and there is something to send; a tick means checking
 	// whether a remote that was unreachable has come back.
-	if nudged || c.remotesDue(c.Now()) {
+	if nudged || c.remotesDue(ctx, c.Now()) {
 		c.shipScheduled(ctx)
 	}
 }
