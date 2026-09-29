@@ -377,3 +377,41 @@ func TestDrainingAnIdleRunnerOverTheAPINeedsNothing(t *testing.T) {
 	resp := h.do(request{method: http.MethodPost, path: "/api/v1/runners/" + idle.ID + "/drain", cookie: cookie})
 	resp.mustStatus(t, http.StatusAccepted, "draining an idle runner")
 }
+
+// TestARunnersPoolEnvIsOperatorOnly covers the second route that renders a pool.
+//
+// The runner page embeds the pool the runner belongs to, and a pool's env is
+// where a registry password or proxy credential ends up. Reading a runner is a
+// viewer action, so rendering the pool there without the role check handed a
+// read-only token the values that GET /pools already withholds from it. The
+// keys stay for both roles, because the pool page lists names and never values.
+func TestARunnersPoolEnvIsOperatorOnly(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+	pool.Env = store.StringMap{"REGISTRY_PASSWORD": "hunter2", "HTTP_PROXY": "http://proxy:3128"}
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+	run := h.runner(pool, h.host("vm-1"), store.RunnerIdle)
+
+	_, viewer := h.user("looker", store.RoleViewer)
+	_, operator := h.user("doer", store.RoleOperator)
+	path := "/api/v1/runners/" + run.ID
+
+	resp := h.do(request{method: http.MethodGet, path: path, cookie: viewer})
+	resp.mustStatus(t, http.StatusOK, "runner detail as a viewer")
+	body := string(resp.body)
+	if strings.Contains(body, "hunter2") || strings.Contains(body, "proxy:3128") {
+		t.Errorf("GET %s as a viewer leaked a pool env value:\n%s", path, body)
+	}
+	if !strings.Contains(body, "REGISTRY_PASSWORD") {
+		t.Errorf("GET %s as a viewer dropped the env keys as well as the values:\n%s", path, body)
+	}
+
+	resp = h.do(request{method: http.MethodGet, path: path, cookie: operator})
+	resp.mustStatus(t, http.StatusOK, "runner detail as an operator")
+	if !strings.Contains(string(resp.body), "hunter2") {
+		t.Errorf("an operator no longer sees the env they set on the runner's pool:\n%s", resp.body)
+	}
+}
