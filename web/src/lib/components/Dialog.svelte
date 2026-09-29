@@ -114,10 +114,8 @@
     inset: 0;
     border: 0;
     padding: 0;
-    /* A veil made from the page's own ground, so it dims in light and in dark
-       without a hard-coded black that only works in one of them. */
-    background: color-mix(in srgb, var(--z-bg) 72%, transparent);
-    backdrop-filter: blur(3px);
+    background: var(--z-scrim);
+    backdrop-filter: blur(var(--z-scrim-blur));
     cursor: default;
     animation: fade var(--z-motion-base) var(--z-ease);
   }

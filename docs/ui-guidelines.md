@@ -453,6 +453,12 @@ dark mode elevation is carried mostly by surface colour, not shadow.
 | `--z-shadow-md` | `0 4px 12px -2px rgb(8 12 20 / .10)` | `0 4px 12px -2px rgb(0 0 0 / .6)` |
 | `--z-shadow-lg` | `0 16px 40px -8px rgb(8 12 20 / .16)` | `0 16px 40px -8px rgb(0 0 0 / .7)` |
 
+Every modal sits on the same veil, `--z-scrim` with `--z-scrim-blur` — the page's
+own ground at 72% and a 3px blur, so it dims in both themes without a hard-coded
+black. Dialog, Drawer, the command palette and the phone's navigation sheet all
+take it from the token, so a dialog opened over a drawer dims the page by one
+amount.
+
 ### 1.6 Focus
 
 One look, two mechanisms. `app.css` draws the global ring with `outline`, from
