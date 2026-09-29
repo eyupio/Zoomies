@@ -986,12 +986,21 @@ func (c *Controller) DeletePool(ctx context.Context, id string) error {
 
 // DeleteHost removes a host and announces its runner rows and then the host.
 func (c *Controller) DeleteHost(ctx context.Context, id string) error {
-	runners, err := c.st.DeleteHost(ctx, id)
+	return c.DeleteHostForgettingMachine(ctx, id, "")
+}
+
+// DeleteHostForgettingMachine deletes a host and, in the same transaction, the
+// machine row behind it, announcing the machine only once both are gone.
+func (c *Controller) DeleteHostForgettingMachine(ctx context.Context, id, machineID string) error {
+	runners, err := c.st.DeleteHostForgettingMachine(ctx, id, machineID)
 	if err != nil {
 		return err
 	}
 	c.queues.forget(id)
 	c.publishRunnersDeleted(runners)
+	if machineID != "" {
+		c.PublishMachineDeleted(machineID)
+	}
 	c.PublishHostDeleted(id)
 	return nil
 }

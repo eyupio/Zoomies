@@ -872,12 +872,30 @@ func (s *Store) SetHostCordoned(ctx context.Context, id string, cordoned bool) e
 	return affected(res, "host", id)
 }
 
-// DeleteHost removes a host and cascades to its runner rows.
 // DeleteHost removes a host and its runner rows, and returns the IDs of those
 // rows so each can be announced as deleted.
 func (s *Store) DeleteHost(ctx context.Context, id string) ([]string, error) {
+	return s.DeleteHostForgettingMachine(ctx, id, "")
+}
+
+// DeleteHostForgettingMachine is DeleteHost that also drops the machine row
+// behind the host, in the same transaction. A forced delete of a rented
+// machine's host has to forget the machine too, or the machine loop reads a
+// Ready machine with no host as one to release and destroys the VM. As two
+// writes, a failure or a cancelled request between them would leave the row
+// gone and the host standing -- a billed VM that nothing records -- so they
+// commit together or not at all.
+//
+// A machine that has since started deleting is left alone: dropping its row
+// would abandon a half-finished delete with the VM still billed.
+func (s *Store) DeleteHostForgettingMachine(ctx context.Context, id, machineID string) ([]string, error) {
 	var runners []string
 	err := s.tx(ctx, func(tx *sql.Tx) error {
+		if machineID != "" {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM machines WHERE id = ? AND state <> ?`, machineID, MachineDeleting); err != nil {
+				return err
+			}
+		}
 		err := recordSessionsWhere(ctx, tx, s.Now().UnixMilli(), `r.host_id = ?2`, id)
 		if err != nil {
 			return err
