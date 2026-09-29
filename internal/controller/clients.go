@@ -251,6 +251,14 @@ func (c *Controller) probeInstallations(ctx context.Context) {
 		if IsDemoID(inst.ID) {
 			continue
 		}
+		// Every other background path stands down from an installation GitHub
+		// has rate-limited; the probe spends the same quota (runners, groups,
+		// repositories), so it waits too.
+		if c.githubHeld(inst.ID, c.Now()) {
+			c.log.Debug("not checking installation credentials while it is rate limited",
+				"installation", inst.ID, "target", inst.Target)
+			continue
+		}
 		if _, err := c.ProbeInstallation(ctx, inst.ID); err != nil {
 			c.log.Warn("installation credentials are not usable",
 				"installation", inst.ID, "target", inst.Target, "error", err)
@@ -392,6 +400,16 @@ func (c *Controller) ProbeInstallation(ctx context.Context, installationID strin
 		}
 	}
 	c.observeGitHub(inst.ID, err)
+
+	if errors.Is(err, github.ErrRateLimited) {
+		// A quota refusal says nothing about the credentials and refills on
+		// its own, so it is neither recorded as the installation's health --
+		// that raised "not usable, check your private key" -- nor published:
+		// the row and the event stream must keep agreeing. The caller still
+		// gets the reason, so a manual Verify can say why it has no answer.
+		c.holdRateLimited(inst.ID, err, c.Now(), "checking credentials")
+		return nil, err
+	}
 
 	msg := ""
 	if err != nil {
