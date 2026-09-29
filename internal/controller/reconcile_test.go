@@ -11,6 +11,7 @@ import (
 
 	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -867,5 +868,91 @@ func TestAHeldInstallationMintsNothingAndSaysWhy(t *testing.T) {
 	}
 	if codes := h.problemCodes(); slices.Contains(codes, "pool.github_rate_limited") {
 		t.Fatalf("pool.github_rate_limited is still raised after the hold lifted: %v", codes)
+	}
+}
+
+// The scheduler only proposes a drain for a runner that was not busy in its
+// snapshot, but apply() runs the plan against live rows, and GitHub's
+// in_progress webhook is handled without the reconcile lock. A runner that
+// takes a job in between used to be drained anyway -- busy to draining is a
+// legal move -- which queued a five-minute stop and killed the job that had
+// just started. The plan is decided first and the job started after it, as
+// the webhook would, and the drain must then be skipped rather than applied.
+func TestAPlannedDrainIsSkippedWhenTheRunnerHasSinceTakenAJob(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	idle := h.runnerRow(pool, host, store.RunnerIdle)
+	pool.Enabled = false
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+
+	snap, err := h.c.snapshot(h.ctx)
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	plan := scheduler.Decide(snap)
+	if !slices.ContainsFunc(plan.Actions, func(a scheduler.Action) bool {
+		return a.Kind == scheduler.ActionDrain && a.RunnerID == idle.ID
+	}) {
+		t.Fatalf("the plan %+v does not drain the idle runner of a disabled pool, so this test proves nothing", plan.Actions)
+	}
+
+	job := h.queuedJob(t, nil, []string{"self-hosted", "linux", "x64", "demo"})
+	if _, _, err := h.st.StartRunnerJob(h.ctx, idle.ID, job.ID, ""); err != nil {
+		t.Fatalf("StartRunnerJob: %v", err)
+	}
+	h.c.apply(h.ctx, snap, plan)
+
+	after, err := h.st.GetRunner(h.ctx, idle.ID)
+	if err != nil {
+		t.Fatalf("GetRunner: %v", err)
+	}
+	if after.State != store.RunnerBusy || after.CurrentJobID != job.ID {
+		t.Fatalf("runner = %s with job %q, want it left busy with %s: the drain would have killed a job that had just started",
+			after.State, after.CurrentJobID, job.ID)
+	}
+	if h.hasTaskOfKind(host.ID, agent.TaskStopRunner) {
+		t.Error("a stop task was queued for a runner that had taken a job")
+	}
+	evs, err := h.st.ListScalingEvents(h.ctx, pool.ID, 10)
+	if err != nil {
+		t.Fatalf("ListScalingEvents: %v", err)
+	}
+	if len(evs) != 0 {
+		t.Errorf("scaling events = %+v, want none: nothing was drained", evs)
+	}
+}
+
+// The same window for a runner the scheduler meant to fail as stuck: one that
+// took a job while the plan was being applied is working, and failing it would
+// end the job under it.
+func TestAPlannedFailureIsSkippedWhenTheRunnerHasSinceTakenAJob(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	starting := h.runnerRow(pool, host, store.RunnerRegistering)
+
+	snap, err := h.c.snapshot(h.ctx)
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	plan := scheduler.Plan{
+		Pools: []scheduler.PoolPlan{{PoolID: pool.ID}},
+		Actions: []scheduler.Action{{Kind: scheduler.ActionFail, PoolID: pool.ID, PoolName: pool.Name,
+			RunnerID: starting.ID, Reason: "did not register within the provisioning timeout"}},
+	}
+
+	job := h.queuedJob(t, nil, []string{"self-hosted", "linux", "x64", "demo"})
+	if _, _, err := h.st.StartRunnerJob(h.ctx, starting.ID, job.ID, ""); err != nil {
+		t.Fatalf("StartRunnerJob: %v", err)
+	}
+	h.c.apply(h.ctx, snap, plan)
+
+	after, err := h.st.GetRunner(h.ctx, starting.ID)
+	if err != nil {
+		t.Fatalf("GetRunner: %v", err)
+	}
+	if after.State != store.RunnerBusy {
+		t.Fatalf("runner state = %s, want busy: failing it would end the job it just took", after.State)
 	}
 }

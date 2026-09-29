@@ -939,3 +939,62 @@ func TestPageLimitClampsToTheMaximum(t *testing.T) {
 		t.Fatalf("limit = %d, want the cap 500", got)
 	}
 }
+
+// The scheduler plans against a snapshot and applies against live rows, so the
+// check that a runner is still not working has to be part of the write itself:
+// a caller's earlier read can be stale by the time it writes. The conditional
+// transitions allow nothing the state machine does not, and refuse, as an
+// invalid transition, a runner that has taken a job in the meantime.
+func TestConditionalRunnerTransitionsRefuseARunnerThatIsNowWorking(t *testing.T) {
+	ctx := context.Background()
+
+	transitions := map[string]func(*Store, string) (*Runner, error){
+		"drain": func(s *Store, id string) (*Runner, error) {
+			return s.TransitionRunnerUnlessBusy(ctx, id, RunnerDraining, "planned")
+		},
+		"fail": func(s *Store, id string) (*Runner, error) {
+			return s.FailRunnerUnlessBusy(ctx, id, "planned", FaultRunnerExited)
+		},
+	}
+	want := map[string]RunnerState{"drain": RunnerDraining, "fail": RunnerFailed}
+
+	for name, transition := range transitions {
+		t.Run(name+" goes through for a runner with no job", func(t *testing.T) {
+			s := newTestStore(t)
+			_, pool, host := seedPool(t, s)
+			r := &Runner{PoolID: pool.ID, HostID: host.ID, Name: "r-idle", State: RunnerIdle}
+			if err := s.CreateRunner(ctx, r); err != nil {
+				t.Fatalf("CreateRunner: %v", err)
+			}
+			got, err := transition(s, r.ID)
+			if err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			if got.State != want[name] {
+				t.Errorf("state = %s, want %s", got.State, want[name])
+			}
+		})
+
+		t.Run(name+" is refused for a runner that has taken a job", func(t *testing.T) {
+			s := newTestStore(t)
+			_, pool, host := seedPool(t, s)
+			r := &Runner{PoolID: pool.ID, HostID: host.ID, Name: "r-busy", State: RunnerRegistering}
+			if err := s.CreateRunner(ctx, r); err != nil {
+				t.Fatalf("CreateRunner: %v", err)
+			}
+			if _, _, err := s.StartRunnerJob(ctx, r.ID, "job_1", ""); err != nil {
+				t.Fatalf("StartRunnerJob: %v", err)
+			}
+			if _, err := transition(s, r.ID); !errors.Is(err, ErrInvalidTransition) {
+				t.Fatalf("%s on a busy runner = %v, want ErrInvalidTransition", name, err)
+			}
+			after, err := s.GetRunner(ctx, r.ID)
+			if err != nil {
+				t.Fatalf("GetRunner: %v", err)
+			}
+			if after.State != RunnerBusy || after.CurrentJobID != "job_1" {
+				t.Errorf("runner = %s with job %q, want it left busy on job_1", after.State, after.CurrentJobID)
+			}
+		})
+	}
+}

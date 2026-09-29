@@ -280,7 +280,7 @@ func (c *Controller) apply(ctx context.Context, snap scheduler.Snapshot, plan sc
 				c.logRunnerAction("remove", a, err)
 			}
 		case scheduler.ActionFail:
-			if err := c.failRunnerID(ctx, a.RunnerID, a.Reason, store.FaultRunnerExited); err != nil {
+			if err := c.failRunner(ctx, a.RunnerID, a.Reason, store.FaultRunnerExited, true); err != nil {
 				c.logRunnerAction("fail", a, err)
 			}
 		}
@@ -674,7 +674,7 @@ func (c *Controller) DrainRunner(ctx context.Context, runnerID, reason string, c
 	if reason == "" {
 		reason = "drained by an operator"
 	}
-	return c.drainRunner(ctx, r, reason, nil)
+	return c.drainRunner(ctx, r, reason, nil, false)
 }
 
 // RemoveRunner tears a runner down now and deletes its GitHub registration.
@@ -693,7 +693,7 @@ func (c *Controller) RemoveRunner(ctx context.Context, runnerID, reason string, 
 		if !confirmed {
 			return nil, fmt.Errorf("%w: runner %s has five minutes to finish and is then stopped", ErrConfirmationRequired, r.Name)
 		}
-		return c.drainRunner(ctx, r, reason+" (draining first so the running job finishes)", nil)
+		return c.drainRunner(ctx, r, reason+" (draining first so the running job finishes)", nil, false)
 	}
 	if r.State == store.RunnerRemoved {
 		return r, nil
@@ -706,16 +706,27 @@ func (c *Controller) drainRunnerID(ctx context.Context, id, reason string, pool 
 	if err != nil {
 		return err
 	}
-	_, err = c.drainRunner(ctx, r, reason, pool)
+	_, err = c.drainRunner(ctx, r, reason, pool, true)
 	return err
 }
 
 // drainRunner moves a runner to draining and asks its host to stop it.
-func (c *Controller) drainRunner(ctx context.Context, r *store.Runner, reason string, pool *store.Pool) (*store.Runner, error) {
+//
+// unlessBusy is for the scheduler's own drains, which were decided for a runner
+// that was not running a job. The row is checked in the same write as the
+// transition, so one that has taken a job since is refused with
+// store.ErrInvalidTransition instead of having its job stopped. An operator's
+// drain passes false: draining a busy runner is what they asked for, behind
+// the confirmation DrainRunner has already taken.
+func (c *Controller) drainRunner(ctx context.Context, r *store.Runner, reason string, pool *store.Pool, unlessBusy bool) (*store.Runner, error) {
 	if !c.mayAct() {
 		return nil, errors.New("controller authority is paused; retry after recovery or lease renewal")
 	}
-	updated, err := c.st.TransitionRunner(ctx, r.ID, store.RunnerDraining, reason)
+	transition := c.st.TransitionRunner
+	if unlessBusy {
+		transition = c.st.TransitionRunnerUnlessBusy
+	}
+	updated, err := transition(ctx, r.ID, store.RunnerDraining, reason)
 	if err != nil {
 		return nil, err
 	}
@@ -834,11 +845,23 @@ func (c *Controller) finishRemoveRunner(ctx context.Context, r *store.Runner, re
 // store.FaultRunnerExited, which reads as "go and look" rather than as a
 // diagnosis nobody made.
 func (c *Controller) failRunnerID(ctx context.Context, id, reason string, fault store.FaultKind) error {
+	return c.failRunner(ctx, id, reason, fault, false)
+}
+
+// failRunner is failRunnerID with the scheduler's condition available: a
+// failure planned against a snapshot is refused, with store.ErrInvalidTransition,
+// for a runner that has since taken a job, since failing it would end that job.
+// The host-lost and agent-exit paths fail busy runners on purpose and pass false.
+func (c *Controller) failRunner(ctx context.Context, id, reason string, fault store.FaultKind, unlessBusy bool) error {
 	before, err := c.st.GetRunner(ctx, id)
 	if err != nil {
 		return err
 	}
-	updated, err := c.st.FailRunner(ctx, id, reason, fault)
+	fail := c.st.FailRunner
+	if unlessBusy {
+		fail = c.st.FailRunnerUnlessBusy
+	}
+	updated, err := fail(ctx, id, reason, fault)
 	if err != nil {
 		return err
 	}

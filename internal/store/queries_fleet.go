@@ -1187,7 +1187,22 @@ func (s *Store) UpdateRunner(ctx context.Context, r *Runner) error {
 // the unclassified one. Callers that know why the runner failed -- which is
 // most of them -- go through FailRunner instead.
 func (s *Store) TransitionRunner(ctx context.Context, id string, to RunnerState, message string) (*Runner, error) {
-	return s.transitionRunner(ctx, id, to, message, "")
+	return s.transitionRunner(ctx, id, to, message, "", false)
+}
+
+// TransitionRunnerUnlessBusy is TransitionRunner with one more condition, checked
+// in the same transaction as the write: the runner must not be running a job.
+// It allows nothing the state machine does not; it only refuses, with
+// ErrInvalidTransition, a move that has stopped being what the caller meant.
+//
+// The scheduler decides against a snapshot and applies against live rows, and
+// the webhook that starts a job is handled without the reconcile lock. A drain
+// planned for an idle runner that took a job in between would otherwise go
+// through -- busy to draining is legal, because an operator may ask for it --
+// and stop the job that had just started. A caller's own read of the row cannot
+// close that window, since the row can change between the read and the write.
+func (s *Store) TransitionRunnerUnlessBusy(ctx context.Context, id string, to RunnerState, message string) (*Runner, error) {
+	return s.transitionRunner(ctx, id, to, message, "", true)
 }
 
 // FailRunner moves a runner to failed and records why in one write, so a row
@@ -1198,10 +1213,20 @@ func (s *Store) FailRunner(ctx context.Context, id, message string, kind FaultKi
 	if kind = kind.Normalise(); kind == "" {
 		kind = FaultRunnerExited
 	}
-	return s.transitionRunner(ctx, id, RunnerFailed, message, kind)
+	return s.transitionRunner(ctx, id, RunnerFailed, message, kind, false)
 }
 
-func (s *Store) transitionRunner(ctx context.Context, id string, to RunnerState, message string, kind FaultKind) (*Runner, error) {
+// FailRunnerUnlessBusy is FailRunner with TransitionRunnerUnlessBusy's condition,
+// for a failure decided against a snapshot that the runner may have outgrown by
+// taking a job.
+func (s *Store) FailRunnerUnlessBusy(ctx context.Context, id, message string, kind FaultKind) (*Runner, error) {
+	if kind = kind.Normalise(); kind == "" {
+		kind = FaultRunnerExited
+	}
+	return s.transitionRunner(ctx, id, RunnerFailed, message, kind, true)
+}
+
+func (s *Store) transitionRunner(ctx context.Context, id string, to RunnerState, message string, kind FaultKind, unlessBusy bool) (*Runner, error) {
 	if !to.Valid() {
 		return nil, fmt.Errorf("%w: %q is not a runner state", ErrInvalidTransition, to)
 	}
@@ -1217,6 +1242,9 @@ func (s *Store) transitionRunner(ctx context.Context, id string, to RunnerState,
 		}
 		if !CanTransition(r.State, to) {
 			return fmt.Errorf("%w: runner %s cannot go %s -> %s", ErrInvalidTransition, id, r.State, to)
+		}
+		if unlessBusy && (r.State == RunnerBusy || r.CurrentJobID != "") {
+			return fmt.Errorf("%w: runner %s is running a job, so it cannot go %s -> %s now", ErrInvalidTransition, id, r.State, to)
 		}
 		now := s.Now()
 		prev := r.State
