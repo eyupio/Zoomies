@@ -187,6 +187,38 @@ test('runner limits are adjustable from a pool row without opening the wizard', 
   await expect(pageHeading(page, 'Pools')).toBeVisible();
 });
 
+test('a refused runner limit is withdrawn as soon as the figure is changed', async ({ page }) => {
+  // The refusal was folded into the same value that disables Save, and only
+  // cleared by the next save -- which the disabled button then prevented.
+  await goto(page, '/pools', 'Pools');
+  const row = dataRows(grid(page, 'Pools')).filter({ hasText: FIXTURE.linuxPool });
+  await page.route('**/api/v1/pools/*', async (route) => {
+    if (route.request().method() !== 'PATCH') return route.fallback();
+    await route.fulfill({
+      status: 422,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: { code: 'validation_failed', message: 'that maximum is refused' },
+        errors: [{ field: 'max_runners', message: 'This fleet has no room for that many.' }],
+      }),
+    });
+  });
+
+  await row.getByRole('button', { name: `Actions for ${FIXTURE.linuxPool}` }).click();
+  await page.getByRole('menuitem', { name: 'Adjust runner limits' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Runner limits' });
+  const save = dialog.getByRole('button', { name: 'Save limits' });
+  await dialog.getByRole('spinbutton', { name: 'Minimum runners' }).fill('1');
+  await dialog.getByRole('spinbutton', { name: 'Maximum runners' }).fill('9');
+  await save.click();
+  await expect(dialog).toContainText('This fleet has no room for that many.');
+  await expect(save).toBeDisabled();
+
+  await dialog.getByRole('spinbutton', { name: 'Maximum runners' }).fill('8');
+  await expect(dialog).not.toContainText('This fleet has no room for that many.');
+  await expect(save).toBeEnabled();
+});
+
 test('the wizard forks into an automatic path and an advanced one', async ({ page }) => {
   await goto(page, '/pools/new', 'Create a pool');
 

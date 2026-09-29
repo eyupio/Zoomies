@@ -1,5 +1,6 @@
 <!-- Fast path for scaling a pool without walking through its configuration wizard. -->
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { ApiError, updatePool } from '$lib/api/client';
   import type { Body, Pool } from '$lib/api/types';
   import { fleet } from '$lib/state/fleet.svelte';
@@ -32,6 +33,24 @@
     minimum = String(pool.min_runners ?? 0);
     maximum = String(pool.max_runners ?? 1);
     errors = {};
+  });
+
+  // A refusal is about the figure that was sent, and it also disables Save, so
+  // it has to go when that figure is edited or the form cannot be resubmitted.
+  // Each figure withdraws only its own, and errors is read untracked so a
+  // refusal that has just arrived is not cleared by the effect it did not come
+  // from.
+  $effect(() => {
+    void minimum;
+    untrack(() => {
+      if (errors.min_runners) delete errors.min_runners;
+    });
+  });
+  $effect(() => {
+    void maximum;
+    untrack(() => {
+      if (errors.max_runners) delete errors.max_runners;
+    });
   });
 
   const min = $derived(Number(minimum));

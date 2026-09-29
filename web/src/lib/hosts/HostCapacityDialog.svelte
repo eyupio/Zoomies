@@ -21,6 +21,7 @@
   pool is on its way out, so the button is offered rather than the door shut.
 -->
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { ApiError, updateHost } from '$lib/api/client';
   import type { Host } from '$lib/api/types';
   import { pluralise } from '$lib/format';
@@ -87,6 +88,17 @@
   $effect(() => {
     void [capacity, reserveCores, reserveMb, reserveDiskMb];
     stranding = '';
+  });
+
+  // The capacity refusal also blocks Save, so it goes when the capacity is
+  // edited, and only then: moving a reserve must not withdraw an answer about
+  // something else. errors is read untracked so a refusal that has just
+  // arrived is not cleared by the effect it did not come from.
+  $effect(() => {
+    void capacity;
+    untrack(() => {
+      if (errors.capacity) delete errors.capacity;
+    });
   });
 
   /* -- the machine, and what a runner asks of it ----------------------------- */
