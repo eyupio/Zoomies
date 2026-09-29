@@ -32,6 +32,9 @@ type page[T any] struct {
 	Total  int `json:"total"`
 	Limit  int `json:"limit"`
 	Offset int `json:"offset"`
+	// Next is a cursor for the page after this one, on the listings that have
+	// one and while there is another page. Omitted otherwise.
+	Next string `json:"next,omitempty"`
 }
 
 // newPage builds the envelope, normalising nil to an empty array: a UI that

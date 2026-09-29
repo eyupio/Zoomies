@@ -276,3 +276,65 @@ func TestJobsGetNamesTheQueueStatus(t *testing.T) {
 // squash collapses runs of spaces so a table's column padding does not decide
 // whether an assertion about its text passes.
 func squash(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+// `jobs stats` is the release comparison at the terminal: one call, one row per
+// group, and "-" where nothing could be measured rather than a 0ms that reads
+// as an answer.
+func TestJobsStatsShowsAGroupPerReleaseAndSendsItsFilters(t *testing.T) {
+	var got map[string][]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.URL.Query()
+		_, _ = w.Write([]byte(`{"since":"2026-08-30T00:00:00Z","until":"2026-09-29T00:00:00Z","group_by":["controller_version"],
+			"notes":["Duration percentiles leave out cancelled and skipped jobs."],"truncated":false,"groups":[
+			{"keys":{"controller_version":"v1.2.0"},"count":40,"succeeded":36,"failed":4,"cancelled":0,"fleet_failed":3,"fleet_failure_rate":0.075,
+			 "duration":{"samples":40,"p50_ms":61000,"p95_ms":190000},"queue_wait":{"samples":40,"p50_ms":4000,"p95_ms":22000},"startup":{"samples":0,"p50_ms":null,"p95_ms":null}},
+			{"keys":{"controller_version":"unknown"},"count":2,"succeeded":2,"failed":0,"cancelled":0,"fleet_failed":0,"fleet_failure_rate":0,
+			 "duration":{"samples":2,"p50_ms":1000,"p95_ms":1000},"queue_wait":{"samples":2,"p50_ms":1000,"p95_ms":1000},"startup":{"samples":0,"p50_ms":null,"p95_ms":null}}]}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	out, _ := runCLI(t, "jobs", "stats", "--group-by", "controller_version", "--since", "30d", "--hosted=false",
+		"--job-name", "test (ubuntu, 3.12)", "--url", srv.URL)
+
+	if g := got["group_by"]; len(g) != 1 || g[0] != "controller_version" {
+		t.Errorf("group_by = %v", g)
+	}
+	if got["hosted"][0] != "false" || got["job_name"][0] != "test (ubuntu, 3.12)" || got["since"][0] == "" {
+		t.Errorf("filters not sent as given: %v", got)
+	}
+	for _, want := range []string{"v1.2.0", "unknown", "7.5", "1m1s", "3m10s", "cancelled and skipped"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("jobs stats must show %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestJobsListSendsTheNewFiltersAndPrintsTheCursor(t *testing.T) {
+	var got map[string][]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.URL.Query()
+		_, _ = w.Write([]byte(`{"items":[{"id":"job_1","repo":"acme/widgets","workflow":"CI","job_name":"build","state":"completed",
+			"conclusion":"success","matched":true,"queued_at":"2026-09-01T00:00:00Z"}],"total":9,"limit":1,"offset":0,"next":"CURSOR123"}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	out, _ := runCLI(t, "jobs", "list", "--controller-version", "v1.3.3", "--host-id", "host_1", "--hosted", "true",
+		"--until", "7d", "--before", "PREV", "--url", srv.URL)
+	if got["controller_version"][0] != "v1.3.3" || got["host_id"][0] != "host_1" || got["hosted"][0] != "true" ||
+		got["before"][0] != "PREV" || got["until"][0] == "" {
+		t.Errorf("filters not sent: %v", got)
+	}
+	if !strings.Contains(out, "--before CURSOR123") {
+		t.Errorf("the next cursor must be printed:\n%s", out)
+	}
+
+	raw, _ := runCLI(t, "jobs", "list", "--output", "json", "--include-steps=false", "--url", srv.URL)
+	if got["include_steps"][0] != "false" || !strings.Contains(raw, "CURSOR123") {
+		t.Errorf("--output json must carry include_steps=false (%v) and the cursor:\n%s", got["include_steps"], raw)
+	}
+	e, _, errOut := newTestEnv(t)
+	if code := dispatch(context.Background(), e, []string{"jobs", "list", "--hosted", "maybe", "--url", srv.URL}); code != exitUsage ||
+		!strings.Contains(errOut.String(), "true or false") {
+		t.Errorf("a bad --hosted must be refused as a usage error, got %d: %s", code, errOut.String())
+	}
+}

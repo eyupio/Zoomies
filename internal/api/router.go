@@ -265,6 +265,8 @@ func (s *Server) apiRoutes() chi.Router {
 		r.Route("/jobs", func(r chi.Router) {
 			r.With(s.require(auth.ActionJobsRead)).Get("/", s.handleListJobs)
 			r.With(s.require(auth.ActionJobsRead)).Get("/facets", s.handleJobFacets)
+			// Before /{id}, or chi would look for a job whose id is "stats".
+			r.With(s.require(auth.ActionJobsRead)).Get("/stats", s.handleJobStats)
 			r.With(s.require(auth.ActionJobsRead)).Get("/{id}", s.handleGetJob)
 			r.With(s.require(auth.ActionJobsRead)).Get("/{id}/events", s.handleJobEvents)
 			r.With(s.require(auth.ActionJobsRead)).Get("/{id}/explanation", s.handleJobExplanation)

@@ -72,6 +72,12 @@ export function remember(key: string, value: unknown): void {
 export interface GridPrefs {
   /** Column ids the operator has hidden. Stored as the exception, so new columns appear. */
   hidden?: string[];
+  /**
+   * Columns that start hidden which the operator has switched on. The mirror of
+   * `hidden`, and kept apart from it so that a column added later as hidden by
+   * default stays hidden for an operator who had already saved a `hidden` list.
+   */
+  shown?: string[];
   pageSize?: number;
   /** Column widths in CSS pixels, keyed by the stable column id. */
   widths?: Record<string, number>;
@@ -382,11 +388,30 @@ class Prefs {
     return this.#grids[gridId]?.hidden ?? [];
   }
 
-  isColumnVisible(gridId: string, columnId: string): boolean {
+  /**
+   * A column with `hiddenByDefault` is visible only once the operator has
+   * switched it on; every other column is visible unless they hid it.
+   */
+  isColumnVisible(gridId: string, columnId: string, hiddenByDefault = false): boolean {
+    if (hiddenByDefault) return (this.#grids[gridId]?.shown ?? []).includes(columnId);
     return !this.hiddenColumns(gridId).includes(columnId);
   }
 
-  setColumnVisible(gridId: string, columnId: string, visible: boolean): void {
+  setColumnVisible(
+    gridId: string,
+    columnId: string,
+    visible: boolean,
+    hiddenByDefault = false,
+  ): void {
+    if (hiddenByDefault) {
+      const shown = (this.#grids[gridId]?.shown ?? []).filter((id) => id !== columnId);
+      this.#grids = {
+        ...this.#grids,
+        [gridId]: { ...this.#grids[gridId], shown: visible ? [...shown, columnId] : shown },
+      };
+      this.#persist();
+      return;
+    }
     const hidden = this.hiddenColumns(gridId).filter((id) => id !== columnId);
     this.setHiddenColumns(gridId, visible ? hidden : [...hidden, columnId]);
   }

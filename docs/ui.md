@@ -294,6 +294,12 @@ long it ran, with a link to that step's log on GitHub — or, when the runner
 died under it, that the failure is the fleet's and the workflow did nothing
 wrong.
 
+The drawer also shows the controller version that claimed the job, and the agent
+version of the host that ran it, so a slow or failed job can be placed on a
+release. A job recorded before versions were stamped, or one no pool here
+claimed, says "Not recorded" rather than being guessed at. The same figure is a
+**Controller version** column, hidden until you choose it from **Columns**.
+
 ![A failed job's drawer: the failing step named at the top, then the job's details, its steps with timings and a link to the run](screenshots/job-dark.webp#only-dark){ .zoomies-shot }
 ![A failed job's drawer: the failing step named at the top, then the job's details, its steps with timings and a link to the run](screenshots/job-light.webp#only-light){ .zoomies-shot }
 
@@ -320,6 +326,16 @@ card that a finger's lift takes away. Where a pool had work and nowhere to put
 a runner, the intervals are shaded behind the lines. An interval that has not
 happened yet is a gap rather than a zero: a report to the end of today is a
 window with hours still in it.
+
+Below the detailed table, **By release** groups the completed jobs of the range
+by the controller version that claimed them: how many there were, how many
+failed and how many were lost to the fleet rather than the workflow, and p50 and
+p95 of duration, queue wait and runner startup. It is the answer to whether
+builds got faster and more stable after an upgrade. Jobs recorded before
+versions were stamped are their own row, marked "not recorded", and duration
+leaves out cancelled and skipped jobs. Jobs only go back as far as
+`retention.jobs`, and the range may not exceed `limits.job_stats_window` (90
+days unless set).
 
 The same activity matrix as the Overview's draws the
 chosen range in the squares the Overview uses for a window that long — a

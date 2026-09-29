@@ -753,6 +753,11 @@ var registry = buildRegistry([]Setting{
 		Key: "limits.event_subscribers", Label: "Most live-update streams", Env: "ZOOMIES_LIMITS_EVENT_SUBSCRIBERS", Kind: KindInt, Scope: ScopePlatform, Live: true,
 		Summary: "The most live-update streams open at once. Every open tab of the UI holds one, so leave room for every operator's browser. 0 is unlimited.",
 	},
+	{
+		Key: "limits.job_stats_window", Label: "Longest job statistics window", Env: "ZOOMIES_LIMITS_JOB_STATS_WINDOW", Kind: KindDuration, Scope: ScopePlatform, Live: true,
+		Floor:   24 * time.Hour,
+		Summary: "The longest span of jobs one job statistics request may cover, from the API, the CLI or the MCP job_stats tool. A longer request is refused with this number in the message. 0 is the default of 90 days, not unlimited: the statistics are computed from the job rows on each request. Jobs older than retention.jobs no longer exist to be counted.",
+	},
 
 	// ---------------------------------------------------------------------
 	// images and updates

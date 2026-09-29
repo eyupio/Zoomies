@@ -19,6 +19,8 @@ type listResponse[T any] struct {
 	Total  int `json:"total"`
 	Limit  int `json:"limit"`
 	Offset int `json:"offset"`
+	// Next is the cursor for the following page, where the listing has one.
+	Next string `json:"next"`
 }
 
 type poolCounts struct {
@@ -203,6 +205,11 @@ type jobItem struct {
 	CompletedAt    *time.Time `json:"completed_at"`
 	QueueWaitMS    int64      `json:"queue_wait_ms"`
 	DurationMS     int64      `json:"duration_ms"`
+
+	ControllerVersion string `json:"controller_version"`
+	ControllerChannel string `json:"controller_channel"`
+	AgentVersion      string `json:"agent_version"`
+	HostID            string `json:"host_id"`
 }
 
 type jobStep struct {
