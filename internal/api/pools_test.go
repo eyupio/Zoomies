@@ -1450,3 +1450,60 @@ func TestTheWizardCountsAHostThatRunsAPoolAtItsMinimumAndSaysSo(t *testing.T) {
 		t.Errorf("without a minimum: matching = %d, excluded = %+v, reduced = %+v", verdict.MatchingHosts, verdict.ExcludedHosts, verdict.ReducedHosts)
 	}
 }
+
+// A pool's env is applied last and wins, so a pool that names a variable the
+// controller writes for each runner replaces that runner's identity,
+// credentials or ephemerality -- every runner registering as the same name,
+// or a pool that says ephemeral running persistent runners. runners.env is
+// refused for the same names; the pool route must not be the way round it.
+func TestAPoolCannotSetTheVariablesEachRunnerIsGivenItsOwn(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	h.host("vm-1")
+	_, cookie := h.user("operator", store.RoleOperator)
+
+	for _, key := range []string{"ZOOMIES_RUNNER_NAME", "ZOOMIES_EPHEMERAL", " zoomies_jitconfig "} {
+		body := poolBody(inst.ID)
+		body["env"] = map[string]string{key: "x"}
+		resp := h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: cookie, body: body})
+		resp.mustStatus(t, http.StatusUnprocessableEntity, "creating a pool that sets "+key)
+		if msg := string(resp.body); !strings.Contains(msg, strings.ToUpper(strings.TrimSpace(key))) {
+			t.Errorf("the refusal does not name the variable %s: %s", key, msg)
+		}
+	}
+
+	pool := h.pool(inst, "zoomies-plain")
+	resp := h.do(request{method: http.MethodPatch, path: "/api/v1/pools/" + pool.ID, cookie: cookie,
+		body: map[string]any{"env": map[string]string{"ZOOMIES_EPHEMERAL": "false"}}})
+	resp.mustStatus(t, http.StatusUnprocessableEntity, "editing a pool to set ZOOMIES_EPHEMERAL")
+
+	// ZOOMIES_DOCKER_WAIT is the documented escape hatch, not a per-runner value.
+	h.do(request{method: http.MethodPatch, path: "/api/v1/pools/" + pool.ID, cookie: cookie,
+		body: map[string]any{"env": map[string]string{"ZOOMIES_DOCKER_WAIT": "30"}}}).
+		mustStatus(t, http.StatusOK, "editing a pool to set ZOOMIES_DOCKER_WAIT")
+}
+
+// A pool saved before the rule may already store a reserved name. Refusing the
+// whole pool on an unrelated edit would strand it, so only a reserved key that
+// is being set or changed is refused; the way out is removing it.
+func TestAPoolThatAlreadyStoresAReservedVariableCanStillBeEdited(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "zoomies-old")
+	pool.Env = store.StringMap{"ZOOMIES_RUNNER_NAME": "legacy", "HTTP_PROXY": "http://proxy:3128"}
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+	_, cookie := h.user("operator", store.RoleOperator)
+	patch := func(body map[string]any) *response {
+		return h.do(request{method: http.MethodPatch, path: "/api/v1/pools/" + pool.ID, cookie: cookie, body: body})
+	}
+
+	patch(map[string]any{"max_runners": 3}).mustStatus(t, http.StatusOK, "an edit that leaves env alone")
+	patch(map[string]any{"env": map[string]string{"ZOOMIES_RUNNER_NAME": "legacy", "HTTP_PROXY": "http://other:3128"}}).
+		mustStatus(t, http.StatusOK, "an env edit that leaves the reserved key as it was")
+	patch(map[string]any{"env": map[string]string{"ZOOMIES_RUNNER_NAME": "changed"}}).
+		mustStatus(t, http.StatusUnprocessableEntity, "changing the reserved key's value")
+	patch(map[string]any{"env": map[string]string{"HTTP_PROXY": "http://proxy:3128"}}).
+		mustStatus(t, http.StatusOK, "removing the reserved key")
+}

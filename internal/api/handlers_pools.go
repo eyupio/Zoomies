@@ -775,11 +775,30 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 			}
 		}
 	}
-	for k := range p.Env {
+	// A pool's env is applied last and wins, so a reserved name here replaces
+	// what the controller gives each runner individually. Only a key being set
+	// or changed is refused: a pool saved before this rule may already store
+	// one, and refusing the whole pool on an unrelated edit would strand it.
+	var stored map[string]string
+	if existingID != "" {
+		if old, err := s.ctrl.Store().GetPool(ctx, existingID); err == nil {
+			stored = old.Env
+		}
+	}
+	for _, k := range slices.Sorted(maps.Keys(p.Env)) {
 		if strings.TrimSpace(k) == "" {
 			add("env", "an environment variable needs a name")
 			break
 		}
+		name := strings.ToUpper(strings.TrimSpace(k))
+		if !slices.Contains(config.ReservedRunnerEnv, name) {
+			continue
+		}
+		if was, ok := stored[k]; ok && was == p.Env[k] {
+			continue
+		}
+		add("env", name+" is set for each runner individually, so a pool cannot set it: a runner's name, labels, group, ephemerality and credentials come from the pool's own settings; remove it from the environment")
+		break
 	}
 	for k := range p.HostSelector {
 		if strings.TrimSpace(k) == "" {

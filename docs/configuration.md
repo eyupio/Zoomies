@@ -1714,7 +1714,10 @@ belong there: a pool's `env` narrows the audience to that pool's jobs, and a
 GitHub secret narrows it to the workflow. The variables the controller writes
 for each runner individually — its name, labels, group and credentials — are
 refused (`runners.env_reserved`), because one value for the whole fleet is
-wrong for every runner in it.
+wrong for every runner in it. A pool's `env` is held to the same rule, and
+the pools API answers a `422` on `env` when one of those names is set or
+changed; a pool that already stores one is not refused for an unrelated edit, but
+its value cannot be changed.
 
 #### How a runner picks up a proxy
 
