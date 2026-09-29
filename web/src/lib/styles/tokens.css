@@ -88,7 +88,7 @@
   --z-border-strong: #c7cbd3;
   --z-text: #0b0c0e;
   --z-text-muted: #5b6069;
-  --z-text-subtle: #6e737c;
+  --z-text-subtle: #666b74;
   --z-text-inverse: #f6f7f9;
 
   /* Brand accent -------------------------------------------------------
@@ -321,7 +321,7 @@
   /* Scrollbars ----------------------------------------------------------
    * The one control the browser draws for us, and so the one that is easiest
    * to leave too faint to find. The thumb borrows the weakest text colour,
-   * which is never below 4.1:1 light or 4.8:1 dark on any surface it can sit
+   * which is never below 4.7:1 light or 4.8:1 dark on any surface it can sit
    * on -- past the 3:1 bar for a control -- and the column is wide enough to
    * aim at. The track is a tint rather than a colour so it reads on a white
    * card and a sunken well alike.

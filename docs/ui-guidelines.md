@@ -210,11 +210,15 @@ is the favicon artwork, which is a PNG rather than a colour any rule sets.
 | `--z-border-strong` | `#C7CBD3` | `#363B44` | Inputs, focused containers |
 | `--z-text` | `#0B0C0E` | `#F4F5F7` | Primary text |
 | `--z-text-muted` | `#5B6069` | `#B9BCC2` | Secondary text, labels |
-| `--z-text-subtle` | `#6E737C` | `#868B94` | Timestamps, placeholders |
+| `--z-text-subtle` | `#666B74` | `#868B94` | Timestamps, placeholders |
 
-Primary text is 18:1 in both themes. Muted is 5.9:1 light and 10.3:1 dark.
-Subtle -- the weakest text in the product -- is 4.45:1 light and 5.75:1 dark, so
-even the timestamps clear AA.
+Primary text is 18:1 in both themes. Muted is 5.9:1 light and 10.3:1 dark, on the
+page ground. Subtle -- the weakest text in the product -- is 5.0:1 light and
+5.75:1 dark on the page ground, and clears AA on every surface it sits on: the
+lowest is a sunken well at 4.7:1 in the light theme and a raised surface at
+4.9:1 in the dark. It is measured on all of them, not only on white, because a
+breadcrumb sits straight on the page ground; `web/unit/text-contrast.test.ts`
+holds it there.
 
 #### Brand accent
 
