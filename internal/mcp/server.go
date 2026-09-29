@@ -46,6 +46,11 @@ const MaxMessage = 4 << 20
 // logReadLimit bounds how much of a runner's log is read to find its tail.
 const logReadLimit = 32 << 20
 
+// maxLogBlock bounds the text get_runner_log hands the model. The lines limit
+// says how many lines, not how long, and a workflow can write lines as long as
+// it likes into a context window the operator is paying for.
+const maxLogBlock = 256 << 10
+
 // Instructions is sent at initialisation, for the agent's model to read. The
 // untrusted-data paragraph is the one that matters: a workflow's log, and its
 // job and step names, are text anyone who can open a pull request can write.

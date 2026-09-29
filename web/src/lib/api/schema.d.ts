@@ -1328,7 +1328,12 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Download a runner's logs */
+        /**
+         * Download a runner's logs
+         * @description A snapshot of the runner's output, read until the relay goes quiet. With `tail` it
+         *     is only the last lines, which is what a caller after the end of a long build wants
+         *     rather than reading the whole log and keeping what fits.
+         */
         get: operations["downloadRunnerLogs"];
         put?: never;
         post?: never;
@@ -8381,7 +8386,10 @@ export interface operations {
     };
     downloadRunnerLogs: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Lines from the end of the log to return. Absent or 0 means everything. */
+                tail?: number;
+            };
             header?: never;
             path: {
                 /** @description The resource ID, e.g. `pool_k3f9qz2m`. */

@@ -291,7 +291,7 @@ again.
 | `list_problems` | Everything the controller thinks is wrong, with what to do. `GET /problems`. |
 | `list_jobs` | Jobs, with the same filters as `zoomies jobs list`: `failed`, `ours`, `theirs`, `unmatched`, `repo`, `since`. |
 | `get_job` | One job, its timeline and the controller's explanation, as one document. |
-| `get_runner_log` | The last lines of a runner's output, while the runner still exists. |
+| `get_runner_log` | The last lines of a runner's output, while the runner still exists. It asks the controller for just the end, holds what it returns to 256 KiB, and says so when it had to shorten it or could only read the start of a very long log. |
 | `list_runners`, `list_pools`, `list_hosts` | The fleet's resources as their `GET` routes return them. |
 | `rerun_job` | Only with `--allow-actions`. `POST /jobs/{id}/rerun`; needs `operator`. |
 | `drain_runner` | Only with `--allow-actions`. `POST /runners/{id}/drain`, never with `confirm`, so a busy runner is refused rather than having its job stopped; needs `operator`. |

@@ -429,7 +429,12 @@ func (s *Server) handleDownloadRunnerLogs(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	ch, cancel, err := s.ctrl.OpenLogStream(r.Context(), id, backend.LogOptions{Follow: false, Tail: 0})
+	// tail is what lets a caller who wants the end of a long build ask for
+	// just that: without it the only way to the last lines was to read the
+	// whole log and keep whatever fitted. Absent, or not a positive number, it
+	// is the whole log, as a download always was.
+	tail := max(queryInt(r, "tail", 0), 0)
+	ch, cancel, err := s.ctrl.OpenLogStream(r.Context(), id, backend.LogOptions{Follow: false, Tail: tail})
 	if err != nil {
 		s.logStreamFailed(w, r, err)
 		return
