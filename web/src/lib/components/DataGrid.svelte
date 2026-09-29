@@ -335,6 +335,21 @@
     };
   });
 
+  // A page the list has shrunk out from under -- the last page emptied by a live
+  // refresh, or a pasted `?offset=` from before the fleet shrank -- answers no
+  // rows beside a total that says there are some. Step back to the last page that
+  // has rows rather than say "none" next to "51-50 of 50". `loading` keeps this
+  // from acting on the answer to a query the operator has already left, and the
+  // step replaces the history entry so Back does not return to the dead page.
+  // Several grids on one page (the orphan review) share one offset parameter, so
+  // a shorter list pulls the longer ones back with it.
+  $effect(() => {
+    if (!settled || loading || error || rows.length > 0) return;
+    if (total <= 0 || offset <= 0 || limit <= 0) return;
+    const lastOffset = Math.max(0, (Math.ceil(total / limit) - 1) * limit);
+    router.setQuery({ offset: lastOffset || null });
+  });
+
   // The first value of liveKey is the one the initial fetch already answers;
   // every later change is a live event worth a refresh.
   let liveSeen = false;
@@ -876,7 +891,9 @@
   });
 
   const hideable = $derived(orderedColumns.filter((c) => c.hideable !== false));
-  const isEmpty = $derived(settled && !error && modelRows.length === 0);
+  // `total === 0` as well: an empty page beside a positive total is a page past
+  // the end, which the effect above steps back from, not a list with nothing in it.
+  const isEmpty = $derived(settled && !error && modelRows.length === 0 && total === 0);
 </script>
 
 <div class="grid {className}" class:rows={phoneRows} class:custom={hasCustomWidths}>

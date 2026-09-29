@@ -878,6 +878,12 @@ page without it; with other runners included it is "no jobs recorded yet", which
 points at webhook delivery; and without them it is "no jobs have run on this
 fleet", which offers to widen the view.
 
+**A page past the end is not an empty grid.** When the page an operator is on
+answers no rows beside a total that says there are some — the last page emptied
+by a live refresh, or a pasted `?offset=` from before the fleet shrank — the grid
+steps back to the last page that has rows. The empty state is for a list whose
+total is zero.
+
 ### Keyboard
 
 Everything reachable, in a sensible order, with a visible focus ring
