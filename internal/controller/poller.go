@@ -378,6 +378,16 @@ func (c *Controller) reconcileKnownJobs(ctx context.Context, now time.Time) {
 	}
 }
 
+// jobRecoveryLoop is the single owner of checking known unfinished jobs against
+// GitHub, and it runs whether or not the fallback poller is on.
+//
+// That check is not about discovering queued work; it is the only thing that
+// notices a completion whose webhook never arrived, and an in-progress job
+// nothing ever completes counts against its repository's scale-up limit for
+// ever and keeps its runner's host from being cleaned up. Nothing else may
+// call it on a timer: a second caller doubles every GitHub call and races on
+// the rotation offset. A fleet that has lost its lease is left alone for the
+// same reason the poller leaves it, since it cannot act on what it would learn.
 func (c *Controller) jobRecoveryLoop(ctx context.Context) {
 	interval := c.pollInterval()
 	ticker := time.NewTicker(interval)

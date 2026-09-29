@@ -52,7 +52,6 @@ func (c *Controller) housekeep(ctx context.Context, last *housekeeping) {
 	c.checkHostHealth(ctx)
 	c.settleThrottles(ctx, now)
 	c.expireStaleQueuedJobs(ctx, now)
-	c.reconcileJobsWithoutThePoller(ctx, now)
 	// A host going quiet is a problem and a capacity change, and neither
 	// waits for the next reconcile pass to be told about.
 	c.publishDerived(ctx)
@@ -378,21 +377,4 @@ func (c *Controller) prune(ctx context.Context) {
 	} else if n > 0 {
 		c.log.Debug("pruned expired join tokens", "rows", n)
 	}
-}
-
-// reconcileJobsWithoutThePoller keeps checking known unfinished jobs against
-// GitHub when the fallback poller is switched off.
-//
-// The poller's tick is where that check normally lives, and turning the
-// poller off used to turn it off too. But the check is not about discovering
-// queued work; it is the only thing that notices a completion whose webhook
-// never arrived, and an in-progress job nothing ever completes counts against
-// its repository's scale-up limit for ever and keeps its runner's host from
-// being cleaned up. A fenced fleet is left alone for the same reason the
-// poller leaves it: it cannot act on what it would learn.
-func (c *Controller) reconcileJobsWithoutThePoller(ctx context.Context, now time.Time) {
-	if c.cfg().GitHub.PollFallback || c.Fenced().Fenced {
-		return
-	}
-	c.reconcileKnownJobs(ctx, now)
 }
