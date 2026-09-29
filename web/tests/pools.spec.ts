@@ -963,6 +963,32 @@ test('a refused pool deletion keeps the typed confirmation available for retry',
   await expect(dialog).toBeHidden();
 });
 
+/*
+ * "Destroy its runners immediately" interrupts work in progress, so the dialog
+ * opens on the drain every time. It used to keep whatever the last open had
+ * left, which put the destructive option one careless confirmation away.
+ */
+test("a pool page's delete dialog opens unticked after being cancelled ticked", async ({
+  page,
+}) => {
+  const pools = (await page.request.get('/api/v1/pools').then((r) => r.json())) as {
+    items: { id: string; name: string }[];
+  };
+  const pool = pools.items.find((p) => p.name === FIXTURE.linuxPool)!;
+  await goto(page, `/pools/${pool.id}`, FIXTURE.linuxPool);
+
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Delete pool', exact: true });
+  const force = dialog.getByRole('checkbox', { name: /Destroy its runners immediately/ });
+  await expect(force).not.toBeChecked();
+  await force.check();
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(dialog).toBeHidden();
+
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(force).not.toBeChecked();
+});
+
 test('a runner size can be typed the way people write it, and is written back in the largest unit', async ({
   page,
 }) => {
