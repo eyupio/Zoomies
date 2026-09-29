@@ -879,7 +879,14 @@
 
   $effect(() => {
     if (!chooserOpen) return;
-    const layer = layers.push('dropdown', () => (chooserOpen = false));
+    const layer = layers.push('dropdown', () => {
+      // Focus inside the panel goes when the panel does, and a keyboard user
+      // would land on the document with the next Tab starting from its top.
+      // Only then: Escape pressed with focus elsewhere must not pull it back.
+      const inside = chooser?.contains(document.activeElement);
+      chooserOpen = false;
+      if (inside) chooser?.querySelector('button')?.focus();
+    });
     const onDocument = (event: MouseEvent) => {
       if (!chooser?.contains(event.target as Node)) chooserOpen = false;
     };
@@ -940,7 +947,7 @@
         variant="ghost"
         icon={Columns3}
         ariaExpanded={chooserOpen}
-        ariaHaspopup="menu"
+        ariaHaspopup="dialog"
         ariaControls="{gridId}-columns"
         onclick={() => (chooserOpen = !chooserOpen)}
       >
