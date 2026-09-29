@@ -289,7 +289,10 @@ eight repositories done.
   to close, not an organisation-wide one.
 * **It never merges anything.** The pull request is somebody's to review.
 * **A failure is contained.** Each repository is its own branch and its own pull
-  request, so one failing leaves it exactly as it was and the others alone.
+  request, so one failing leaves the others alone, and the branch it created is
+  removed again. The one exception is a pull request that may have been opened
+  even though the answer never arrived: deleting its branch would close it, so
+  that branch is kept and the result names it.
 
 ## Doing it from the API
 

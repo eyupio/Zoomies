@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -157,8 +158,100 @@ func TestOpenPullRequestRefusesAStaleFile(t *testing.T) {
 	}
 }
 
+// A failed attempt used to leave a zoomies/migrate-runners-<timestamp> branch on
+// the customer's repository with no pull request to close, and the next attempt
+// a second one, because the name is never reused. A repository that failed is
+// meant to be left as it was.
+func TestAFailedMigrationLeavesNoBranchBehind(t *testing.T) {
+	stale := PullRequestRequest{
+		Repo:  "acme/widgets",
+		Head:  "zoomies/migrate-runners-failing",
+		Title: "Move CI onto Zoomies runners",
+		Files: []FileChange{{Path: ".github/workflows/ci.yml", Content: "jobs: {}\n", SHA: blobSHA("something else entirely")}},
+	}
+	for _, tc := range []struct {
+		name    string
+		arrange func(f *FakeGitHub)
+		req     PullRequestRequest
+	}{
+		{"a commit that is refused", func(*FakeGitHub) {}, stale},
+		{"a later file that is refused after an earlier one committed", func(*FakeGitHub) {}, PullRequestRequest{
+			Repo:  "acme/widgets",
+			Head:  "zoomies/migrate-runners-second-file",
+			Title: "Move CI onto Zoomies runners",
+			Files: []FileChange{
+				{Path: ".github/workflows/new.yml", Content: "jobs: {}\n"},
+				{Path: ".github/workflows/ci.yml", Content: "jobs: {}\n", SHA: blobSHA("something else entirely")},
+			},
+		}},
+		{"a pull request GitHub refuses to open", func(f *FakeGitHub) {
+			f.SetMethodError(http.MethodPost, "/pulls", http.StatusUnprocessableEntity, "Validation Failed")
+		}, PullRequestRequest{
+			Repo:  "acme/widgets",
+			Head:  "zoomies/migrate-runners-refused",
+			Title: "Move CI onto Zoomies runners",
+			Files: []FileChange{{Path: ".github/workflows/new.yml", Content: "jobs: {}\n"}},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, c := migrationFake(t)
+			tc.arrange(f)
+			if _, err := c.OpenPullRequest(context.Background(), tc.req); err == nil {
+				t.Fatal("the migration succeeded, so there is nothing to clean up")
+			}
+			if branches := f.Branches("acme/widgets"); len(branches) != 1 || branches[0] != "main" {
+				t.Fatalf("branches = %v, want only main: the failed attempt left its branch behind", branches)
+			}
+		})
+	}
+}
+
+// If the request to open the pull request is cut off, or GitHub answers with a
+// server error, the pull request may exist anyway. Deleting its head branch
+// would close it, so an ambiguous failure keeps the branch and says so.
+func TestAnAmbiguousPullRequestFailureKeepsTheBranchAndSaysSo(t *testing.T) {
+	f, c := migrationFake(t)
+	f.SetMethodError(http.MethodPost, "/pulls", http.StatusBadGateway, "Bad Gateway")
+
+	_, err := c.OpenPullRequest(context.Background(), PullRequestRequest{
+		Repo:  "acme/widgets",
+		Head:  "zoomies/migrate-runners-ambiguous",
+		Title: "Move CI onto Zoomies runners",
+		Files: []FileChange{{Path: ".github/workflows/new.yml", Content: "jobs: {}\n"}},
+	})
+	if err == nil {
+		t.Fatal("the migration succeeded")
+	}
+	if !slices.Contains(f.Branches("acme/widgets"), "zoomies/migrate-runners-ambiguous") {
+		t.Fatal("the branch was deleted although the pull request may have been opened from it")
+	}
+	if !strings.Contains(err.Error(), "migrate-runners-ambiguous was kept") {
+		t.Fatalf("err = %v, want it to name the branch that was kept", err)
+	}
+}
+
+// Cleanup is best effort, and an operator who is not told the branch is still
+// there has no way to know to remove it.
+func TestAMigrationThatCannotRemoveItsBranchSaysWhereItIs(t *testing.T) {
+	f, c := migrationFake(t)
+	f.SetMethodError(http.MethodDelete, "/git/refs/", http.StatusInternalServerError, "boom")
+
+	_, err := c.OpenPullRequest(context.Background(), PullRequestRequest{
+		Repo:  "acme/widgets",
+		Head:  "zoomies/migrate-runners-stuck",
+		Title: "Move CI onto Zoomies runners",
+		Files: []FileChange{{Path: ".github/workflows/ci.yml", Content: "jobs: {}\n", SHA: blobSHA("something else entirely")}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "has changed since it was read") {
+		t.Fatalf("err = %v, want the original failure to come first", err)
+	}
+	if !strings.Contains(err.Error(), "migrate-runners-stuck could not be removed") {
+		t.Fatalf("err = %v, want it to name the branch left behind", err)
+	}
+}
+
 func TestOpenPullRequestRefusesAnExistingBranch(t *testing.T) {
-	_, c := migrationFake(t)
+	f, c := migrationFake(t)
 	req := PullRequestRequest{
 		Repo:  "acme/widgets",
 		Head:  "zoomies/migrate-runners-once",
@@ -172,6 +265,11 @@ func TestOpenPullRequestRefusesAnExistingBranch(t *testing.T) {
 	// reviewing, so it has to fail rather than force.
 	if _, err := c.OpenPullRequest(context.Background(), req); err == nil {
 		t.Fatal("the same branch was created twice")
+	}
+	// The refusal came before this call created anything, so its cleanup must
+	// not reach the first attempt's branch, which has a pull request.
+	if !slices.Contains(f.Branches("acme/widgets"), req.Head) {
+		t.Fatal("a refused second attempt deleted the branch the first one opened its pull request from")
 	}
 }
 
