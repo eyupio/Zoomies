@@ -3,6 +3,7 @@ package auth
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"testing"
@@ -1165,8 +1166,9 @@ func TestPasswordVerificationHasAGlobalAdmissionBound(t *testing.T) {
 			<-passwordChecks
 		}
 	}()
-	// Admission happens before database or expensive hashing work.
-	_, _, err := new(Service).Login(t.Context(), "someone", "guess", "203.0.113.1", "test")
+	// Admission happens before database or expensive hashing work, so this
+	// Service has a logger for the refusal and nothing else.
+	_, _, err := (&Service{logger: slog.New(slog.DiscardHandler)}).Login(t.Context(), "someone", "guess", "203.0.113.1", "test")
 	if !errors.Is(err, ErrRateLimited) {
 		t.Fatalf("saturated password verifier: %v", err)
 	}

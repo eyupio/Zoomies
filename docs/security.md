@@ -310,7 +310,10 @@ flowchart LR
 The action-to-role table is `internal/auth/rbac.go`. A mutating handler that
 succeeds writes an audit row naming the actor, the target and a redacted
 before/after; a refused login writes one too, because a burst of those is
-something you want to see.
+something you want to see. A login refused for rate limiting writes one row
+per address per minute rather than one per request, so an anonymous loop
+cannot fill an audit log that is never pruned; the rest are counted in the
+controller's debug log.
 
 A coding agent's request to `/mcp` is authorised the same way, one tool call
 at a time. The endpoint resolves the bearer token as any route does — and

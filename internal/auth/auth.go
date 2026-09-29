@@ -247,6 +247,11 @@ type Service struct {
 	// accountLogins is the same counter keyed on the username instead of the
 	// address, so a distributed attempt against one account is still bounded.
 	accountLogins *RateLimiter
+	// refusalAudits lets one rate-limited refusal per address per window into
+	// the audit log; see AuditLoginFailure. Always on, whatever
+	// security.rate_limit_logins says: the semaphore can refuse with the login
+	// limiters disabled.
+	refusalAudits *RateLimiter
 	// joins bounds agent enrolment, which is the other unauthenticated route
 	// that takes a credential and says whether it was right. Without it a join
 	// token is guarded only by its own entropy.
@@ -320,6 +325,7 @@ func New(st *store.Store, cfg *config.Config, bus *events.Bus, opts ...Option) *
 	s.setupToken = store.NewSecret(secretBytes)
 	s.logins = NewRateLimiter(s.cfg.RateLimitLogins, time.Minute, s.clock)
 	s.accountLogins = NewRateLimiter(s.cfg.RateLimitLogins*accountLimitFactor, accountLimitWindow, s.clock)
+	s.refusalAudits = NewRateLimiter(1, time.Minute, s.clock)
 	s.joins = NewRateLimiter(s.cfg.RateLimitLogins, time.Minute, s.clock)
 	// Claude registers afresh on every new connection, so a person connecting
 	// a few surfaces in an afternoon is well inside this; a script filling the
@@ -618,6 +624,9 @@ func (s *Service) Login(ctx context.Context, username, password, ip, ua string) 
 	case <-ctx.Done():
 		return nil, "", ctx.Err()
 	default:
+		// The other refusals below log; this one did not, and the audit row
+		// for a rate-limited attempt is now written once per window.
+		s.logger.Warn("login refused because password checks are saturated", "ip", ip)
 		return nil, "", ErrRateLimited
 	}
 
@@ -700,7 +709,20 @@ func (s *Service) Login(ctx context.Context, username, password, ip, ua string) 
 // audit log is readable by every viewer on the instance. What is left in its
 // place is a short fingerprint, so a run of attempts against one bad value can
 // still be correlated without storing the value.
+//
+// A refusal for rate limiting is written once per address per window, not once
+// per request. The limiter does not record what it refuses, so an anonymous
+// loop past the limit is refused indefinitely at no cost to the caller -- and
+// an INSERT per request into a table that is never pruned, on the single
+// writer, would let that loop fill the database and push real events off the
+// audit page. The first refusal still says a burst happened and from where; the
+// rest are counted in the log at debug level.
 func (s *Service) AuditLoginFailure(ctx context.Context, username, ip string, cause error) {
+	if errors.Is(cause, ErrRateLimited) && !s.refusalAudits.Allow(ip) {
+		s.logger.Debug("a rate-limited sign-in was not audited again in this window",
+			"ip", ip, "username", "[unrecognised:"+fingerprint(username)+"]")
+		return
+	}
 	shown := "[unrecognised:" + fingerprint(username) + "]"
 	if u, err := s.store.GetUserByUsername(ctx, username); err == nil {
 		shown = u.Username
