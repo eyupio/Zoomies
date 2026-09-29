@@ -10,6 +10,7 @@
  * run at all on an instance that already has an account -- so each test makes
  * what it needs and takes it away again.
  */
+import { randomBytes } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
 import { browserOverride, goto, openAccountMenu, pageHeading } from './support/fixtures';
 
@@ -17,9 +18,13 @@ test.use(browserOverride);
 
 const dialog = (page: Page, name: string | RegExp) => page.getByRole('dialog', { name });
 
-/** A name nothing else in the suite will collide with. */
+/**
+ * A name nothing else in the suite will collide with. Random bytes rather than
+ * Math.random(): these names become account usernames, and a scanner cannot
+ * tell a test fixture from a credential.
+ */
 function unique(prefix: string): string {
-  return `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
+  return `${prefix}-${randomBytes(4).toString('hex')}`;
 }
 
 /**
