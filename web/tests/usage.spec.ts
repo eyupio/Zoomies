@@ -16,7 +16,9 @@ import { browserOverride, FIXTURE, goto } from './support/fixtures';
 
 test.use(browserOverride);
 
-const table = (page: Page) => page.getByRole('table');
+// The report itself, named by its caption. The page has a second table, "By
+// release", and a bare role would match both.
+const table = (page: Page) => page.getByRole('table', { name: /^Usage by / });
 // Located by element rather than by role: on a phone the heading row is hidden
 // and each figure carries its own heading instead, so a columnheader role does
 // not resolve there. Whether the column exists at all is the question, and that
@@ -303,4 +305,52 @@ test('one installation opens its report, with every figure defined in the docs',
   await report.getByLabel('Report window').selectOption('168h');
   await asked;
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+/**
+ * The "By release" table answers what the report above it cannot: did builds
+ * get faster, and did fewer break, after an upgrade. The demo fleet's jobs
+ * were run by two releases and its oldest by none that was recorded, so the
+ * table has both releases and the row that says "not recorded" -- which must be
+ * there rather than dropped, or the newest releases look like the whole history.
+ */
+test('the usage page compares releases, and keeps the jobs nobody stamped', async ({ page }) => {
+  await goto(page, '/usage?range=90d', 'Usage');
+
+  const releases = page.getByRole('region', { name: 'By release' });
+  await expect(releases).toBeVisible();
+  const byRelease = releases.getByRole('table');
+  await expect(byRelease).toBeVisible();
+
+  const newest = byRelease.locator('tr[data-release="v1.3.3"]');
+  await expect(newest).toBeVisible();
+  await expect(byRelease.locator('tr[data-release="v1.3.2"]')).toBeVisible();
+
+  // The jobs from before the stamp are their own row, said in words.
+  const unknown = byRelease.locator('tr[data-release="unknown"]');
+  await expect(unknown).toBeVisible();
+  await expect(unknown).toContainText('not recorded');
+
+  // Figures, not blanks: a release that ran jobs has a duration and a wait.
+  for (const label of ['Jobs', 'Duration p50', 'Duration p95', 'Queue wait p50']) {
+    await expect(newest.getByRole('cell').filter({ hasText: /\d/ }).first()).toBeVisible();
+    await expect(byRelease.locator('thead th').filter({ hasText: label })).toHaveCount(1);
+  }
+  await expect(releases).toContainText('cancelled and skipped');
+});
+
+test('a range with no jobs says so in the release table rather than showing an empty one', async ({
+  page,
+}) => {
+  await goto(page, '/usage?since=2019-01-01&until=2019-01-02', 'Usage');
+  const releases = page.getByRole('region', { name: 'By release' });
+  await expect(releases.getByTestId('usage-by-release-empty')).toBeVisible();
+  await expect(releases.getByRole('table')).toHaveCount(0);
+});
+
+test('a range longer than the server allows names the setting that limits it', async ({ page }) => {
+  await goto(page, '/usage?since=2020-01-01&until=2020-12-31', 'Usage');
+  await expect(page.getByRole('region', { name: 'By release' }).getByRole('alert')).toContainText(
+    'limits.job_stats_window',
+  );
 });

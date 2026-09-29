@@ -218,6 +218,26 @@
           {/if}
         </dd>
 
+        <!--
+          Which build claimed the job, so a slow or failed one can be placed on a
+          release. Absent, not blank, on a job from before it was recorded or one
+          no pool here claimed: nothing is guessed, and saying so is the point.
+        -->
+        <dt>Controller version</dt>
+        <dd data-testid="job-controller-version">
+          {#if job.controller_version}
+            <span class="mono">{job.controller_version}</span>
+            {#if job.controller_channel}<span class="muted"> · {job.controller_channel}</span>{/if}
+          {:else}
+            <span class="muted">Not recorded</span>
+          {/if}
+        </dd>
+
+        {#if job.agent_version}
+          <dt>Agent version</dt>
+          <dd><span class="mono">{job.agent_version}</span></dd>
+        {/if}
+
         <dt>Queued</dt>
         <dd><RelativeTime value={job.queued_at} /></dd>
 

@@ -299,14 +299,14 @@ test('a detail page stays inside the screen, actions and all', async ({ page }) 
 test('the usage report reads as cards on a phone, with nothing cut off', async ({ page }) => {
   for (const grouping of ['pool', 'repository', 'workflow', 'installation'] as const) {
     await goto(page, `/usage?group_by=${grouping}`, 'Usage');
-    await expect(page.getByRole('table')).toBeVisible();
+    await expect(page.getByRole('table', { name: /^Usage by / })).toBeVisible();
     await expectNoSidewaysScroll(page, `the usage report grouped by ${grouping}`);
   }
 
   await goto(page, '/usage', 'Usage');
   // The table's rows and headers, not the activity matrix's: that is a grid
   // of its own above the report, with rows of squares rather than of figures.
-  const report = page.getByRole('table');
+  const report = page.getByRole('table', { name: /^Usage by / });
   const names = report.getByRole('rowheader');
   await expect(names.first()).toBeVisible();
 

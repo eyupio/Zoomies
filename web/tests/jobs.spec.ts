@@ -534,3 +534,51 @@ test('removing a job from the queue takes it out of Queued and badges it under A
     });
   }
 });
+
+/*
+ * A job says which release claimed it, so a slow or failed one can be placed on
+ * a build. The demo fleet's most recent job was run by v1.3.3; the column that
+ * shows the same thing on every row is off until an operator asks for it,
+ * because most of the time it is one value repeated down the page.
+ */
+test('the drawer shows the controller version, and the column waits to be switched on', async ({
+  page,
+}) => {
+  await goto(page, '/jobs?failed=true', 'Jobs');
+  const lost = dataRows(jobs(page)).filter({ hasText: 'Runner lost' }).first();
+  await expect(lost).toBeVisible();
+
+  // Off by default: no column of that name until it is chosen.
+  await expect(jobs(page).getByRole('columnheader', { name: 'Controller version' })).toHaveCount(0);
+
+  await lost.click();
+  const drawer = page.getByRole('dialog');
+  await expect(drawer).toBeVisible();
+  await expect(drawer.getByTestId('job-controller-version')).toContainText('v1.3.3');
+  await expect(drawer.getByTestId('job-controller-version')).toContainText('stable');
+  await page.keyboard.press('Escape');
+  await expect(drawer).toBeHidden();
+
+  await page.getByRole('button', { name: /Columns/ }).click();
+  await page.getByRole('checkbox', { name: 'Controller version' }).check();
+  await page.keyboard.press('Escape');
+  await expect(jobs(page).getByRole('columnheader', { name: 'Controller version' })).toBeVisible();
+  await expect(await columnTexts(jobs(page), 'Controller version')).toContain('v1.3.3');
+
+  // The choice is remembered, like any other column's.
+  await page.reload();
+  await expect(jobs(page).getByRole('columnheader', { name: 'Controller version' })).toBeVisible();
+});
+
+test('a job recorded before releases were stamped says so instead of showing a blank', async ({
+  page,
+}) => {
+  // The oldest of the demo jobs predate the stamp.
+  await goto(page, '/jobs?state=completed&sort=queued_at&order=asc', 'Jobs');
+  const first = dataRows(jobs(page)).first();
+  await expect(first).toBeVisible();
+  await first.click();
+  await expect(page.getByRole('dialog').getByTestId('job-controller-version')).toContainText(
+    'Not recorded',
+  );
+});

@@ -1059,6 +1059,28 @@ func (c *Controller) seedJobs(ctx context.Context, now time.Time, rng *rand.Rand
 			j.RunnerID, j.RunnerName = "", "blacksmith-4vcpu-ubuntu-2404-9f2c"
 		}
 
+		// Claimed jobs carry the release that ran them, as a fleet upgraded
+		// twice does: the oldest predate the stamp and carry none, the next
+		// were run by v1.3.2 and the rest by v1.3.3. The Usage page's
+		// release table and the job drawer both need something to show, and
+		// a fleet with one release would never show the table comparing two.
+		if j.Matched {
+			switch {
+			case i < 15:
+			case i < 30:
+				j.ControllerVersion, j.ControllerChannel, j.AgentVersion = "v1.3.2", "stable", "v1.3.2"
+			default:
+				j.ControllerVersion, j.ControllerChannel, j.AgentVersion = "v1.3.3", "stable", "v1.3.3"
+			}
+			if j.ControllerVersion != "" {
+				for _, r := range runners {
+					if r.ID == j.RunnerID {
+						j.HostID = r.HostID
+					}
+				}
+			}
+		}
+
 		saved, change, err := c.st.ApplyJob(ctx, j)
 		if err != nil {
 			return fmt.Errorf("seeding job %d: %w", i, err)

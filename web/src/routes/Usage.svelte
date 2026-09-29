@@ -14,6 +14,7 @@
 -->
 <script lang="ts">
   import InstallationReport from '$lib/usage/InstallationReport.svelte';
+  import ReleaseTable from '$lib/usage/ReleaseTable.svelte';
   import UsageInsights from '$lib/usage/UsageInsights.svelte';
   import { Download, Receipt } from '@lucide/svelte';
   import { getUsage, usageCsvUrl } from '$lib/api/client';
@@ -484,6 +485,11 @@
     </table>
   </div>
 </LoadingBoundary>
+
+<!-- Outside the boundary: an empty report has no groups to show, but a range
+     with no job still has a plain answer to give here, and the release table's
+     own request may fail on its own, for a window over the server's limit. -->
+<ReleaseTable from={query.from} to={query.to} />
 
 <style>
   .installation-report {

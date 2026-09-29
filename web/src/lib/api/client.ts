@@ -15,6 +15,7 @@ import type {
   Body,
   ErrorCode,
   FieldError,
+  Job,
   OptionalBody,
   Query,
   Result,
@@ -406,8 +407,16 @@ export const runnerLogsDownloadUrl = (id: string) => `${BASE}/runners/${enc(id)}
 
 /* -- jobs ----------------------------------------------------------------- */
 
+/**
+ * The UI never asks for summaries, so its pages are full jobs: the spec's
+ * `oneOf` of Job and JobSummary is for the callers that do (the MCP tool, the
+ * CLI), and is narrowed here rather than at every use.
+ */
 export const listJobs = (query?: Query<'listJobs'>, signal?: AbortSignal) =>
-  api.get<Result<'listJobs'>>('/jobs', { query, signal });
+  api.get<Omit<Result<'listJobs'>, 'items'> & { items?: Job[] }>('/jobs', { query, signal });
+
+export const getJobStats = (query?: Query<'getJobStats'>, signal?: AbortSignal) =>
+  api.get<Result<'getJobStats'>>('/jobs/stats', { query, signal });
 
 export const getJob = (id: string, signal?: AbortSignal) =>
   api.get<Result<'getJob'>>(`/jobs/${enc(id)}`, { signal });

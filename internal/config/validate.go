@@ -1116,6 +1116,14 @@ func (c *Config) Validate() Findings {
 		}
 	}
 
+	if c.Limits.JobStatsWindow < 0 {
+		add(Finding{
+			Code: "limits.negative", Severity: SeverityError, Setting: "limits.job_stats_window",
+			Title: fmt.Sprintf("limits.job_stats_window is %s, and a window cannot be negative", c.Limits.JobStatsWindow),
+			Fix:   "set limits.job_stats_window to 0 for the 90-day default, or to the longest span one job statistics request may cover.",
+		})
+	}
+
 	if c.Metrics.Enabled && c.Metrics.Public {
 		add(Finding{
 			Code: "metrics.public", Severity: SeverityWarning, Setting: "metrics.public",

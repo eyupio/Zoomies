@@ -302,12 +302,13 @@ retention:
   webhooks: 168h                # ZOOMIES_RETENTION_WEBHOOKS
   machines: 168h                # ZOOMIES_RETENTION_MACHINES  (7 days of deleted-machine rows -- what was rented, when, and what it cost)
 
-limits:                         # fleet-wide ceilings; 0 is unlimited, and every one is 0 by default
+limits:                         # fleet-wide ceilings; 0 is unlimited, and every one is 0 by default except job_stats_window
   hosts: 0                      # ZOOMIES_LIMITS_HOSTS             -- enrolled hosts
   pools: 0                      # ZOOMIES_LIMITS_POOLS             -- pools
   runners: 0                    # ZOOMIES_LIMITS_RUNNERS           -- live runners across every pool
   join_tokens: 0                # ZOOMIES_LIMITS_JOIN_TOKENS       -- join tokens neither used nor expired
   event_subscribers: 0          # ZOOMIES_LIMITS_EVENT_SUBSCRIBERS -- open live-update streams (one per UI tab)
+  job_stats_window: 2160h       # ZOOMIES_LIMITS_JOB_STATS_WINDOW  -- longest span one job statistics request may cover (90 days; 0 is this default, not unlimited)
 
 backup:
   directory: ""                 # ZOOMIES_BACKUP_DIRECTORY  -- empty: a `backups` directory beside the database
@@ -503,6 +504,7 @@ if you set `keep: 0` and never expect the page to say what is there.
 | --- | --- | --- | --- |
 | `limits.event_subscribers` | `ZOOMIES_LIMITS_EVENT_SUBSCRIBERS` | at once | Most live-update streams — The most live-update streams open at once. Every open tab of the UI holds one, so leave room for every operator's browser. 0 is unlimited. |
 | `limits.hosts` | `ZOOMIES_LIMITS_HOSTS` | at once | Most hosts — The most hosts that may be enrolled at once; a join beyond it is refused. 0 is unlimited. A host joining again under its own name is not counted twice. |
+| `limits.job_stats_window` | `ZOOMIES_LIMITS_JOB_STATS_WINDOW` | at once | Longest job statistics window — The longest span of jobs one job statistics request may cover, from the API, the CLI or the MCP job_stats tool. A longer request is refused with this number in the message. 0 is the default of 90 days, not unlimited: the statistics are computed from the job rows on each request. Jobs older than retention.jobs no longer exist to be counted. |
 | `limits.join_tokens` | `ZOOMIES_LIMITS_JOIN_TOKENS` | at once | Most outstanding join tokens — The most join tokens that may be outstanding at once, counting those neither used nor expired; minting one beyond it is refused. 0 is unlimited. |
 | `limits.pools` | `ZOOMIES_LIMITS_POOLS` | at once | Most pools — The most pools this instance holds; creating one beyond it is refused. 0 is unlimited. |
 | `limits.runners` | `ZOOMIES_LIMITS_RUNNERS` | at once | Most runners — The most live runners across every pool. At the ceiling the scheduler creates no more, and each pool it held back says so in its scaling reason. 0 is unlimited. |

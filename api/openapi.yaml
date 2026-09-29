@@ -2057,8 +2057,64 @@ paths:
         - { name: conclusion, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
         - { name: label, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
         - { name: q, in: query, schema: { type: string } }
-        - { name: since, in: query, schema: { type: string, format: date-time } }
-        - { name: until, in: query, schema: { type: string, format: date-time } }
+        - name: since
+          in: query
+          description: Only jobs queued at or after this instant. The start is included.
+          schema: { type: string, format: date-time }
+        - name: until
+          in: query
+          description: >-
+            Only jobs queued before this instant. The end is not included, so a window cut
+            at one instant -- the last 30 days and the 30 before them -- counts every job
+            once.
+          schema: { type: string, format: date-time }
+        - name: controller_version
+          in: query
+          description: >-
+            Only jobs stamped with one of these controller versions, as `controller_version`
+            shows it. `unknown` matches the jobs that were never stamped: recorded before
+            the field existed, or never claimed by a pool here.
+          schema: { type: array, items: { type: string } }
+          style: form
+          explode: true
+        - name: host_id
+          in: query
+          description: Only jobs that ran on one of these hosts, as stamped when a runner took the job.
+          schema: { type: array, items: { type: string } }
+          style: form
+          explode: true
+        - name: job_name
+          in: query
+          description: >-
+            Only jobs with exactly this name, unlike `q`, which matches a substring. Repeat
+            the parameter for several; commas are not separators, because a matrix job's
+            name contains them.
+          schema: { type: array, items: { type: string } }
+          style: form
+          explode: false
+        - name: hosted
+          in: query
+          description: >-
+            `true` keeps only jobs whose labels all name somebody else's runners -- GitHub's
+            own or a hosted-runner vendor's -- and `false` keeps the rest. Anything else is
+            a 400.
+          schema: { type: boolean }
+        - name: before
+          in: query
+          description: >-
+            A cursor: the `next` of the previous page, passed back unchanged. The page starts
+            after the last job that one returned, in the default order (newest queued first,
+            then by id), so a job queued while a client is paging cannot move a row from one
+            page to the next, as it can with `offset`. Cannot be combined with `offset`,
+            `sort` or `order`. An unrecognised value is a 400.
+          schema: { type: string }
+        - name: include_steps
+          in: query
+          description: >-
+            `true` (the default) returns every job as a full `Job`, steps included.
+            `false` returns `JobSummary` items instead: the columns a comparison reads,
+            without the step list that is most of a job's size.
+          schema: { type: boolean, default: true }
         - name: unmatched
           in: query
           description: >-
@@ -2131,7 +2187,71 @@ paths:
                     properties:
                       items:
                         type: array
-                        items: { $ref: "#/components/schemas/Job" }
+                        items:
+                          oneOf:
+                            - { $ref: "#/components/schemas/Job" }
+                            - { $ref: "#/components/schemas/JobSummary" }
+                      next:
+                        type: string
+                        description: >-
+                          Pass as `before` to read the page after this one. Absent when this
+                          is the last page, and when the listing was sorted other than newest
+                          queued first, which a cursor cannot continue.
+
+  /jobs/stats:
+    get:
+      operationId: getJobStats
+      tags: [jobs]
+      summary: Job statistics
+      x-zoomies-role: viewer
+      description: >-
+        Completed jobs counted and timed, grouped by up to two keys, computed from the job
+        rows on each request. Selected by when a job was queued, over `[since, until)`;
+        `until` defaults to now and `since` to a week before it. A window longer than
+        `limits.job_stats_window` (90 days unless set) is a 400 naming the setting.
+
+        Duration percentiles leave out cancelled and skipped jobs, and the response says
+        so in `duration_excludes`. Queue wait keeps them. Startup is the runner's container
+        start less its creation, so it exists only while the runner's own record is kept.
+        Jobs with no stamped release fall into the group `unknown`.
+
+        Jobs live for `retention.jobs` (30 days unless set), so a window reaching further
+        back than that describes only what is left.
+      parameters:
+        - { name: since, in: query, description: Start of the window, included. Defaults to a week before `until`., schema: { type: string, format: date-time } }
+        - { name: until, in: query, description: End of the window, not included. Defaults to now., schema: { type: string, format: date-time } }
+        - name: group_by
+          in: query
+          description: >-
+            What to group by, at most two, each named once. `controller_version` groups
+            releases in the order they were first seen, `day` is the UTC day the job was
+            queued, `host` and `pool` are IDs, and the values are what the listing's
+            `controller_version`, `host_id`, `pool_id` and `job_name` filters take back.
+            Leave out for one group covering the window.
+          schema:
+            type: array
+            maxItems: 2
+            items: { type: string, enum: [controller_version, day, host, pool, job_name] }
+          style: form
+          explode: true
+        - { name: repo, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: workflow, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: pool_id, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: host_id, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: controller_version, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - name: job_name
+          in: query
+          description: Only jobs with exactly this name. Commas are not separators.
+          schema: { type: array, items: { type: string } }
+          style: form
+          explode: false
+        - { name: hosted, in: query, description: "`true` keeps only jobs on somebody else's hosted runners, `false` only the rest.", schema: { type: boolean } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobStats" }
 
   /jobs/{id}:
     parameters: [{ $ref: "#/components/parameters/PathID" }]
@@ -6683,6 +6803,16 @@ components:
             shows next to the workflow name, for cross-referencing the two. Zero until a
             workflow_run lookup backfills it, since the webhook that recorded the job never
             carries it.
+        controller_version:
+          type: string
+          description: >-
+            The controller version that claimed the job, stamped once and never rewritten,
+            so jobs can be grouped by release. Absent on a job recorded before this field
+            existed and on one no pool here claimed; neither is guessed at. Filter with
+            `controller_version=unknown` to find them.
+        controller_channel: { type: string, description: The install channel of that controller build. }
+        agent_version: { type: string, description: The agent version the host reported when a runner on it took the job. }
+        host_id: { type: string, description: The host the job's runner was on, as stamped when the runner took it. }
         steps:
           type: array
           description: >-
@@ -6787,6 +6917,78 @@ components:
         expedited: { type: integer, description: Queued jobs an operator has asked to run now. Part of `queued`, not beside it. }
         paused: { type: integer, description: Queued jobs whose provisioning demand an operator has paused. Part of `queued`. }
         removed: { type: integer, description: Queued jobs an operator removed from the queue, which a run-level action leaves alone. Part of `queued`. }
+
+    JobSummary:
+      type: object
+      description: >-
+        A job without its steps, which is what `GET /jobs?include_steps=false` returns.
+        `pool` is the pool's name, `host` the ID of the host that ran it and `runner` the
+        runner's name.
+      required: [id, repo, workflow, job_name, state, queued_at, queue_wait_ms, duration_ms]
+      properties:
+        id: { type: string }
+        repo: { type: string }
+        workflow: { type: string }
+        job_name: { type: string }
+        state: { $ref: "#/components/schemas/JobState" }
+        conclusion: { type: string }
+        fault_domain: { type: string, enum: [fleet, workflow], description: Whose the failure is; absent on a job that did not fail. }
+        queued_at: { type: string, format: date-time }
+        started_at: { type: [string, "null"], format: date-time }
+        completed_at: { type: [string, "null"], format: date-time }
+        queue_wait_ms: { type: integer, format: int64 }
+        duration_ms: { type: integer, format: int64 }
+        pool: { type: string }
+        host: { type: string }
+        runner: { type: string }
+        controller_version: { type: string, description: The controller build that claimed the job. Absent when it was never stamped. }
+        controller_channel: { type: string }
+        agent_version: { type: string, description: The agent version the host reported when the job was assigned to it. }
+
+    JobPercentiles:
+      type: object
+      required: [samples, p50_ms, p95_ms]
+      properties:
+        samples: { type: integer, description: The jobs the figures were computed from. }
+        p50_ms: { type: [integer, "null"], format: int64, description: Null when no job could be measured; zero would read as an answer. }
+        p95_ms: { type: [integer, "null"], format: int64 }
+
+    JobStatsGroup:
+      type: object
+      required: [keys, count, succeeded, failed, cancelled, fleet_failed, fleet_failed_by_kind, fleet_failure_rate, duration, queue_wait, startup]
+      properties:
+        keys:
+          type: object
+          additionalProperties: { type: string }
+          description: Each `group_by` key and this group's value. Empty when nothing was grouped by.
+        count: { type: integer, description: Completed jobs in the group. }
+        succeeded: { type: integer }
+        failed: { type: integer, description: Failures on either side, so `fleet_failed` is part of it. }
+        cancelled: { type: integer, description: Cancelled and skipped jobs. }
+        fleet_failed: { type: integer, description: Jobs lost to this fleet rather than to the workflow. }
+        fleet_failed_by_kind:
+          type: object
+          additionalProperties: { type: integer }
+          description: "`fleet_failed` split by fault category. `unclassified` is a failure recorded before categories existed."
+        fleet_failure_rate: { type: number, description: "`fleet_failed` over `count`, from 0 to 1." }
+        duration: { $ref: "#/components/schemas/JobPercentiles" }
+        queue_wait: { $ref: "#/components/schemas/JobPercentiles" }
+        startup: { $ref: "#/components/schemas/JobPercentiles" }
+
+    JobStats:
+      type: object
+      required: [since, until, group_by, duration_excludes, notes, truncated, groups]
+      properties:
+        since: { type: string, format: date-time, description: Start of the window, included. }
+        until: { type: string, format: date-time, description: End of the window, not included. }
+        group_by: { type: array, items: { type: string } }
+        duration_excludes:
+          type: array
+          items: { type: string }
+          description: The conclusions left out of every duration percentile.
+        notes: { type: array, items: { type: string }, description: How to read the figures, in words. }
+        truncated: { type: boolean, description: True when more than 500 groups matched and the rest were left out. }
+        groups: { type: array, items: { $ref: "#/components/schemas/JobStatsGroup" } }
 
     JobStep:
       type: object

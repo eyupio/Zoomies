@@ -861,6 +861,23 @@ type Limits struct {
 	JoinTokens int `yaml:"join_tokens"`
 	// EventSubscribers caps open live-update streams.
 	EventSubscribers int `yaml:"event_subscribers"`
+	// JobStatsWindow is the longest span GET /api/v1/jobs/stats will
+	// aggregate in one request. The statistics are computed from the job
+	// rows on demand, so the bound is what keeps a single request from
+	// scanning a database that has kept a year of history. Unlike the
+	// ceilings above, zero is not unlimited: it reads as the 90-day default.
+	JobStatsWindow time.Duration `yaml:"job_stats_window"`
+}
+
+// DefaultJobStatsWindow is the job statistics' window when none is set.
+const DefaultJobStatsWindow = 90 * 24 * time.Hour
+
+// JobStatsSpan is JobStatsWindow with the default applied.
+func (l Limits) JobStatsSpan() time.Duration {
+	if l.JobStatsWindow <= 0 {
+		return DefaultJobStatsWindow
+	}
+	return l.JobStatsWindow
 }
 
 // Retention bounds how much history the database keeps.
@@ -971,6 +988,7 @@ func Default() *Config {
 			UsernameClaim: "preferred_username",
 			GroupsClaim:   "groups",
 		},
+		Limits: Limits{JobStatsWindow: DefaultJobStatsWindow},
 		Retention: Retention{
 			Jobs:           30 * 24 * time.Hour,
 			Runners:        7 * 24 * time.Hour,

@@ -377,6 +377,60 @@ type JobView struct {
 	CompletedAt *time.Time `json:"completed_at"`
 	QueueWaitMS int64      `json:"queue_wait_ms"`
 	DurationMS  int64      `json:"duration_ms"`
+	// ControllerVersion and ControllerChannel are the controller build that
+	// claimed the job, AgentVersion the agent of the host that ran it, and
+	// HostID that host. Each is stamped once and never rewritten, and absent
+	// on a job nothing here claimed or one recorded before they existed --
+	// those are not guessed at.
+	ControllerVersion string `json:"controller_version,omitempty"`
+	ControllerChannel string `json:"controller_channel,omitempty"`
+	AgentVersion      string `json:"agent_version,omitempty"`
+	HostID            string `json:"host_id,omitempty"`
+}
+
+// JobSummaryView is a job without its steps: what GET /jobs returns under
+// include_steps=false. A job's step list is most of its weight -- a dozen
+// entries, each with two timestamps -- and a caller comparing a hundred jobs
+// for their durations has no use for any of it. This is the shape that fits a
+// hundred of them in a model's context; get_job or GET /jobs/{id} has the rest.
+//
+// It names the pool, host and runner rather than carrying their IDs and the
+// job's labels, and it is not a subset of JobView by field name for that
+// reason: it is the columns somebody comparing jobs reads, in the words they
+// would use.
+type JobSummaryView struct {
+	ID          string         `json:"id"`
+	Repo        string         `json:"repo"`
+	Workflow    string         `json:"workflow"`
+	JobName     string         `json:"job_name"`
+	State       store.JobState `json:"state"`
+	Conclusion  string         `json:"conclusion,omitempty"`
+	FaultDomain string         `json:"fault_domain,omitempty"`
+	QueuedAt    time.Time      `json:"queued_at"`
+	StartedAt   *time.Time     `json:"started_at"`
+	CompletedAt *time.Time     `json:"completed_at"`
+	QueueWaitMS int64          `json:"queue_wait_ms"`
+	DurationMS  int64          `json:"duration_ms"`
+	// Pool is the pool's name, Host the host's ID as stamped when the job was
+	// assigned, and Runner the runner's name.
+	Pool              string `json:"pool,omitempty"`
+	Host              string `json:"host,omitempty"`
+	Runner            string `json:"runner,omitempty"`
+	ControllerVersion string `json:"controller_version,omitempty"`
+	ControllerChannel string `json:"controller_channel,omitempty"`
+	AgentVersion      string `json:"agent_version,omitempty"`
+}
+
+// NewJobSummaryView renders a job as its summary, given its pool's name.
+func NewJobSummaryView(j *store.Job, poolName string) JobSummaryView {
+	return JobSummaryView{
+		ID: j.ID, Repo: j.Repo, Workflow: j.Workflow, JobName: j.JobName,
+		State: j.State, Conclusion: j.Conclusion, FaultDomain: j.FaultDomain(),
+		QueuedAt: j.QueuedAt, StartedAt: j.StartedAt, CompletedAt: j.CompletedAt,
+		QueueWaitMS: millis(j.QueueWait()), DurationMS: millis(j.Duration()),
+		Pool: poolName, Host: j.HostID, Runner: j.RunnerName,
+		ControllerVersion: j.ControllerVersion, ControllerChannel: j.ControllerChannel, AgentVersion: j.AgentVersion,
+	}
 }
 
 // hostedJob reports whether a job's labels all name runners somebody else
@@ -427,6 +481,11 @@ func NewJobView(j *store.Job, poolName string) JobView {
 		CompletedAt:    j.CompletedAt,
 		QueueWaitMS:    millis(j.QueueWait()),
 		DurationMS:     millis(j.Duration()),
+
+		ControllerVersion: j.ControllerVersion,
+		ControllerChannel: j.ControllerChannel,
+		AgentVersion:      j.AgentVersion,
+		HostID:            j.HostID,
 	}
 }
 

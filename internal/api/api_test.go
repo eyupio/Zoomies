@@ -770,6 +770,7 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "POST", path: "/api/v1/workflow-runs/provisioning", role: store.RoleOperator, action: auth.ActionProvisioningWrite,
 			body: map[string]any{"repo": "acme/widgets", "run_id": 1, "action": "pause"}},
 		{method: "GET", path: "/api/v1/jobs/facets", role: store.RoleViewer, action: auth.ActionJobsRead},
+		{method: "GET", path: "/api/v1/jobs/stats", role: store.RoleViewer, action: auth.ActionJobsRead},
 		{method: "GET", path: "/api/v1/jobs/" + ids.job, role: store.RoleViewer, action: auth.ActionJobsRead},
 		{method: "GET", path: "/api/v1/jobs/" + ids.job + "/events", role: store.RoleViewer, action: auth.ActionJobsRead},
 		{method: "GET", path: "/api/v1/jobs/" + ids.job + "/explanation", role: store.RoleViewer, action: auth.ActionJobsRead},

@@ -1435,6 +1435,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/jobs/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Job statistics
+         * @description Completed jobs counted and timed, grouped by up to two keys, computed from the job rows on each request. Selected by when a job was queued, over `[since, until)`; `until` defaults to now and `since` to a week before it. A window longer than `limits.job_stats_window` (90 days unless set) is a 400 naming the setting.
+         *     Duration percentiles leave out cancelled and skipped jobs, and the response says so in `duration_excludes`. Queue wait keeps them. Startup is the runner's container start less its creation, so it exists only while the runner's own record is kept. Jobs with no stamped release fall into the group `unknown`.
+         *     Jobs live for `retention.jobs` (30 days unless set), so a window reaching further back than that describes only what is left.
+         */
+        get: operations["getJobStats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/jobs/{id}": {
         parameters: {
             query?: never;
@@ -5041,6 +5063,14 @@ export interface components {
              * @description GitHub's own sequential number for this workflow run - the "#1009" its Actions UI shows next to the workflow name, for cross-referencing the two. Zero until a workflow_run lookup backfills it, since the webhook that recorded the job never carries it.
              */
             run_number?: number;
+            /** @description The controller version that claimed the job, stamped once and never rewritten, so jobs can be grouped by release. Absent on a job recorded before this field existed and on one no pool here claimed; neither is guessed at. Filter with `controller_version=unknown` to find them. */
+            controller_version?: string;
+            /** @description The install channel of that controller build. */
+            controller_channel?: string;
+            /** @description The agent version the host reported when a runner on it took the job. */
+            agent_version?: string;
+            /** @description The host the job's runner was on */
+            host_id?: string;
             /** @description The job's steps as GitHub last reported them. A completed job carries every step with its conclusion; a running one carries them mid-flight. */
             steps?: components["schemas"]["JobStep"][];
             /** @description The step a completed job stopped at: the first that did not succeed, whether the job failed there or was cancelled there. Null when every step succeeded or while the job is still running. Worked out by the server so every client names the same step. */
@@ -5138,6 +5168,93 @@ export interface components {
             paused?: number;
             /** @description Queued jobs an operator removed from the queue */
             removed?: number;
+        };
+        /** @description A job without its steps, which is what `GET /jobs?include_steps=false` returns. `pool` is the pool's name, `host` the ID of the host that ran it and `runner` the runner's name. */
+        JobSummary: {
+            id: string;
+            repo: string;
+            workflow: string;
+            job_name: string;
+            state: components["schemas"]["JobState"];
+            conclusion?: string;
+            /**
+             * @description Whose the failure is; absent on a job that did not fail.
+             * @enum {string}
+             */
+            fault_domain?: "fleet" | "workflow";
+            /** Format: date-time */
+            queued_at: string;
+            /** Format: date-time */
+            started_at?: string | null;
+            /** Format: date-time */
+            completed_at?: string | null;
+            /** Format: int64 */
+            queue_wait_ms: number;
+            /** Format: int64 */
+            duration_ms: number;
+            pool?: string;
+            host?: string;
+            runner?: string;
+            /** @description The controller build that claimed the job. Absent when it was never stamped. */
+            controller_version?: string;
+            controller_channel?: string;
+            /** @description The agent version the host reported when the job was assigned to it. */
+            agent_version?: string;
+        };
+        JobPercentiles: {
+            /** @description The jobs the figures were computed from. */
+            samples: number;
+            /**
+             * Format: int64
+             * @description Null when no job could be measured; zero would read as an answer.
+             */
+            p50_ms: number | null;
+            /** Format: int64 */
+            p95_ms: number | null;
+        };
+        JobStatsGroup: {
+            /** @description Each `group_by` key and this group's value. Empty when nothing was grouped by. */
+            keys: {
+                [key: string]: string;
+            };
+            /** @description Completed jobs in the group. */
+            count: number;
+            succeeded: number;
+            /** @description Failures on either side */
+            failed: number;
+            /** @description Cancelled and skipped jobs. */
+            cancelled: number;
+            /** @description Jobs lost to this fleet rather than to the workflow. */
+            fleet_failed: number;
+            /** @description `fleet_failed` split by fault category. `unclassified` is a failure recorded before categories existed. */
+            fleet_failed_by_kind: {
+                [key: string]: number;
+            };
+            /** @description `fleet_failed` over `count`, from 0 to 1. */
+            fleet_failure_rate: number;
+            duration: components["schemas"]["JobPercentiles"];
+            queue_wait: components["schemas"]["JobPercentiles"];
+            startup: components["schemas"]["JobPercentiles"];
+        };
+        JobStats: {
+            /**
+             * Format: date-time
+             * @description Start of the window
+             */
+            since: string;
+            /**
+             * Format: date-time
+             * @description End of the window
+             */
+            until: string;
+            group_by: string[];
+            /** @description The conclusions left out of every duration percentile. */
+            duration_excludes: string[];
+            /** @description How to read the figures */
+            notes: string[];
+            /** @description True when more than 500 groups matched and the rest were left out. */
+            truncated: boolean;
+            groups: components["schemas"]["JobStatsGroup"][];
         };
         JobStep: {
             number?: number;
@@ -8615,8 +8732,22 @@ export interface operations {
                 conclusion?: string[];
                 label?: string[];
                 q?: string;
+                /** @description Only jobs queued at or after this instant. The start is included. */
                 since?: string;
+                /** @description Only jobs queued before this instant. The end is not included, so a window cut at one instant -- the last 30 days and the 30 before them -- counts every job once. */
                 until?: string;
+                /** @description Only jobs stamped with one of these controller versions, as `controller_version` shows it. `unknown` matches the jobs that were never stamped: recorded before the field existed, or never claimed by a pool here. */
+                controller_version?: string[];
+                /** @description Only jobs that ran on one of these hosts, as stamped when a runner took the job. */
+                host_id?: string[];
+                /** @description Only jobs with exactly this name, unlike `q`, which matches a substring. Repeat the parameter for several; commas are not separators, because a matrix job's name contains them. */
+                job_name?: string[];
+                /** @description `true` keeps only jobs whose labels all name somebody else's runners -- GitHub's own or a hosted-runner vendor's -- and `false` keeps the rest. Anything else is a 400. */
+                hosted?: boolean;
+                /** @description A cursor: the `next` of the previous page, passed back unchanged. The page starts after the last job that one returned, in the default order (newest queued first, then by id), so a job queued while a client is paging cannot move a row from one page to the next, as it can with `offset`. Cannot be combined with `offset`, `sort` or `order`. An unrecognised value is a 400. */
+                before?: string;
+                /** @description `true` (the default) returns every job as a full `Job`, steps included. `false` returns `JobSummary` items instead: the columns a comparison reads, without the step list that is most of a job's size. */
+                include_steps?: boolean;
                 /** @description Only jobs that are still queued and that no enabled pool claims. A job that already started or finished was run by something else, so it is not included however its labels read, and neither is one whose labels all name GitHub's own runners or a hosted-runner vendor's: those run where their labels say. */
                 unmatched?: boolean;
                 /** @description Only jobs Zoomies has a hand in: one an enabled pool claims, one that ran on a runner this fleet started, and queued jobs no pool claims -- which nothing ran, so they belong here too, unless their labels all name somebody else's runners. Leave it off to see every job GitHub has reported, including those run on hosted runners this fleet does not own. */
@@ -8650,8 +8781,46 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page"] & {
-                        items?: components["schemas"]["Job"][];
+                        items?: (components["schemas"]["Job"] | components["schemas"]["JobSummary"])[];
+                        /** @description Pass as `before` to read the page after this one. Absent when this is the last page, and when the listing was sorted other than newest queued first, which a cursor cannot continue. */
+                        next?: string;
                     };
+                };
+            };
+        };
+    };
+    getJobStats: {
+        parameters: {
+            query?: {
+                /** @description Start of the window */
+                since?: string;
+                /** @description End of the window */
+                until?: string;
+                /** @description What to group by, at most two, each named once. `controller_version` groups releases in the order they were first seen, `day` is the UTC day the job was queued, `host` and `pool` are IDs, and the values are what the listing's `controller_version`, `host_id`, `pool_id` and `job_name` filters take back. Leave out for one group covering the window. */
+                group_by?: ("controller_version" | "day" | "host" | "pool" | "job_name")[];
+                repo?: string[];
+                workflow?: string[];
+                pool_id?: string[];
+                host_id?: string[];
+                controller_version?: string[];
+                /** @description Only jobs with exactly this name. Commas are not separators. */
+                job_name?: string[];
+                /** @description `true` keeps only jobs on somebody else's hosted runners, `false` only the rest. */
+                hosted?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobStats"];
                 };
             };
         };
