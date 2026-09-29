@@ -81,6 +81,84 @@ test('an account can be created, given a different role, and deleted by name', a
   await expect(row).toHaveCount(0);
 });
 
+test('a duplicate username is refused inside the dialog, not as an administrator warning', async ({
+  page,
+}) => {
+  // The refusal used to surface on the page behind the modal, in words about
+  // administrators, after the operator had closed the dialog that raised it.
+  const username = unique('spec-dupe');
+  await goto(page, '/settings/users', 'Users');
+
+  const add = async () => {
+    await create(page, 'Add an account').click();
+    const form = dialog(page, 'Add an account');
+    await form.getByRole('textbox', { name: 'Username' }).fill(username);
+    await form.getByRole('textbox', { name: 'Password' }).fill('a-long-enough-password');
+    await form.getByRole('button', { name: 'Add account' }).click();
+    return form;
+  };
+
+  const first = await add();
+  await expect(first).toBeHidden();
+
+  const second = await add();
+  await expect(second).toBeVisible();
+  await expect(second.getByRole('alert')).toContainText(/already exists/);
+  await expect(page.getByText('Zoomies keeps at least one enabled administrator')).toHaveCount(0);
+
+  await second.getByRole('button', { name: 'Cancel' }).click();
+  const row = page.getByRole('row', { name: new RegExp(username) });
+  await row.getByRole('button', { name: new RegExp(`Actions for ${username}`) }).click();
+  await page.getByRole('menuitem', { name: 'Delete this account' }).click();
+  const confirm = dialog(page, 'Delete account');
+  await confirm.getByRole('textbox', { name: `Type ${username} to confirm` }).fill(username);
+  await confirm.getByRole('button', { name: 'Delete account' }).click();
+  await expect(row).toHaveCount(0);
+});
+
+test('a refused account edit says why inside the open dialog and keeps what was typed', async ({
+  page,
+}) => {
+  const username = unique('spec-edit');
+  await goto(page, '/settings/users', 'Users');
+  await create(page, 'Add an account').click();
+  const form = dialog(page, 'Add an account');
+  await form.getByRole('textbox', { name: 'Username' }).fill(username);
+  await form.getByRole('textbox', { name: 'Password' }).fill('a-long-enough-password');
+  await form.getByRole('button', { name: 'Add account' }).click();
+  await expect(form).toBeHidden();
+
+  const refusal =
+    'this is the last enabled administrator; give another account the admin role before changing this one';
+  await page.route('**/api/v1/users/*', async (route) => {
+    if (route.request().method() !== 'PATCH') return route.fallback();
+    await route.fulfill({
+      status: 409,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: { code: 'conflict', message: refusal } }),
+    });
+  });
+
+  const row = page.getByRole('row', { name: new RegExp(username) });
+  await row.getByRole('button', { name: new RegExp(`Actions for ${username}`) }).click();
+  await page.getByRole('menuitem', { name: 'Edit role and details' }).click();
+  const edit = dialog(page, new RegExp(`Edit ${username}`));
+  await edit.getByRole('textbox', { name: 'Display name' }).fill('Typed and kept');
+  await edit.getByRole('button', { name: 'Save changes' }).click();
+
+  await expect(edit.getByRole('alert')).toContainText('last enabled administrator');
+  await expect(edit.getByRole('textbox', { name: 'Display name' })).toHaveValue('Typed and kept');
+
+  await page.unroute('**/api/v1/users/*');
+  await edit.getByRole('button', { name: 'Cancel' }).click();
+  await row.getByRole('button', { name: new RegExp(`Actions for ${username}`) }).click();
+  await page.getByRole('menuitem', { name: 'Delete this account' }).click();
+  const confirm = dialog(page, 'Delete account');
+  await confirm.getByRole('textbox', { name: `Type ${username} to confirm` }).fill(username);
+  await confirm.getByRole('button', { name: 'Delete account' }).click();
+  await expect(row).toHaveCount(0);
+});
+
 test('a token is shown once, in plain text, and says so', async ({ page }) => {
   const name = unique('spec-token');
   await goto(page, '/settings/tokens', 'API tokens');
