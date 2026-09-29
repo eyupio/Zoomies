@@ -202,6 +202,81 @@ func TestHasSealedSecretsSeesTheOneThingAKeyOpens(t *testing.T) {
 	}
 }
 
+// Every column the instance key seals has to count, or a database whose only
+// sealed values are one of these gets a silently generated replacement key:
+// every authenticator secret then stops opening, and an offsite passphrase is
+// lost along with the archives that were uploaded under it.
+func TestHasSealedSecretsSeesTwoStepBackupRemoteAndTailcatSecrets(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name string
+		seed func(t *testing.T, s *Store)
+		want bool
+	}{
+		{"a confirmed authenticator secret", func(t *testing.T, s *Store) {
+			u := seedTwoStepUser(t, s, "ada")
+			if err := s.BeginTwoStep(ctx, u.ID, []byte("sealed")); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.ConfirmTwoStep(ctx, u.ID, 1, []string{"h"}); err != nil {
+				t.Fatal(err)
+			}
+		}, true},
+		// Nothing is signed in with it yet, and starting again replaces it, so it
+		// is not worth refusing a first run for.
+		{"an enrolment nobody confirmed", func(t *testing.T, s *Store) {
+			u := seedTwoStepUser(t, s, "ada")
+			if err := s.BeginTwoStep(ctx, u.ID, []byte("sealed")); err != nil {
+				t.Fatal(err)
+			}
+		}, false},
+		{"a backup remote's secret key", func(t *testing.T, s *Store) {
+			r := seedBackupRemote(t, s)
+			if err := s.SetBackupRemoteSecrets(ctx, r.ID, []byte("sealed"), nil); err != nil {
+				t.Fatal(err)
+			}
+		}, true},
+		{"a backup remote's passphrase", func(t *testing.T, s *Store) {
+			r := seedBackupRemote(t, s)
+			if err := s.SetBackupRemoteSecrets(ctx, r.ID, nil, []byte("sealed")); err != nil {
+				t.Fatal(err)
+			}
+		}, true},
+		{"a backup remote with no secrets", func(t *testing.T, s *Store) {
+			seedBackupRemote(t, s)
+		}, false},
+		{"a provider's private connection address", func(t *testing.T, s *Store) {
+			p := seedProvider(t, s)
+			if err := s.SetProviderTailcatAddress(ctx, p.ID, []byte("sealed")); err != nil {
+				t.Fatal(err)
+			}
+		}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestStore(t)
+			tc.seed(t, s)
+			has, err := s.HasSealedSecrets(ctx)
+			if err != nil {
+				t.Fatalf("HasSealedSecrets: %v", err)
+			}
+			if has != tc.want {
+				t.Errorf("HasSealedSecrets = %v with %s, want %v", has, tc.name, tc.want)
+			}
+		})
+	}
+}
+
+func seedBackupRemote(t *testing.T, s *Store) *BackupRemote {
+	t.Helper()
+	r := &BackupRemote{
+		Name: "offsite", Endpoint: "https://s3.example", Bucket: "backups", Enabled: true,
+	}
+	if err := s.CreateBackupRemote(context.Background(), r); err != nil {
+		t.Fatalf("CreateBackupRemote: %v", err)
+	}
+	return r
+}
+
 func TestAPrivateConnectionIdentityPreventsGeneratingAReplacementKey(t *testing.T) {
 	s := newTestStore(t)
 	if err := s.SetSetting(context.Background(), "tailcat.identity.v1", "sealed-identity", true); err != nil {

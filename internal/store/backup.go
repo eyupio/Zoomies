@@ -132,6 +132,12 @@ func (s *Store) IntegrityCheck(ctx context.Context) error {
 // A provider's credential is the same trap one layer out: a controller that
 // generated a fresh key would start, show its hypervisor as configured, and
 // fail inside the first call that tried to rent a machine.
+//
+// So are an account's authenticator secret and an offsite backup remote's
+// credentials: an instance with no installation yet can still have both, and a
+// fresh key would fail every enrolled sign-in and orphan every archive already
+// uploaded under a passphrase. A two-step enrolment nobody confirmed is not
+// counted; nothing depends on it and starting again replaces it.
 func (s *Store) HasSealedSecrets(ctx context.Context) (bool, error) {
 	var n int
 	err := s.read.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM installations
@@ -139,7 +145,13 @@ func (s *Store) HasSealedSecrets(ctx context.Context) (bool, error) {
 		   OR (webhook_secret_enc IS NOT NULL AND LENGTH(webhook_secret_enc) > 0)
 		) + (SELECT COUNT(*) FROM settings WHERE key='tailcat.identity.v1' AND value<>'')
 		  + (SELECT COUNT(*) FROM providers
-		WHERE credentials_enc IS NOT NULL AND LENGTH(credentials_enc) > 0)
+		WHERE (credentials_enc IS NOT NULL AND LENGTH(credentials_enc) > 0)
+		   OR (tailcat_address_enc IS NOT NULL AND LENGTH(tailcat_address_enc) > 0))
+		  + (SELECT COUNT(*) FROM user_two_step
+		WHERE enabled_at IS NOT NULL AND LENGTH(secret_enc) > 0)
+		  + (SELECT COUNT(*) FROM backup_remotes
+		WHERE (secret_key_enc IS NOT NULL AND LENGTH(secret_key_enc) > 0)
+		   OR (passphrase_enc IS NOT NULL AND LENGTH(passphrase_enc) > 0))
 		  + (SELECT COUNT(*) FROM instance_settings WHERE secret=1 AND value<>'')`).Scan(&n)
 	if err != nil {
 		return false, fmt.Errorf("store: counting sealed secrets: %w", err)
