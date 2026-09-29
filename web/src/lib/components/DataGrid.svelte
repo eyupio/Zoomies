@@ -231,6 +231,13 @@
    */
   let settled = $state(false);
   let error = $state<unknown>(null);
+  /**
+   * The fetch in flight is a live refresh, which keeps the rows on screen and so
+   * must not be announced as a page that is loading: a busy fleet would have a
+   * screen reader say "Loading" and then the count once a second. A change the
+   * operator made -- a filter, a page, a sort -- still does.
+   */
+  let quiet = $state(false);
   let lastFilterKey = '';
 
   /** A short debounce so a burst of changes costs one request, not forty. */
@@ -300,6 +307,7 @@
         return;
       }
       lastLiveAt = Date.now();
+      quiet = true;
       fetchNow(current);
     }, wait);
   }
@@ -326,6 +334,7 @@
       liveTimer = null;
     }
     loading = true;
+    quiet = false;
     const timer = setTimeout(() => fetchNow(query), DEBOUNCE_MS);
     return () => {
       clearTimeout(timer);
@@ -1243,7 +1252,7 @@
 
   <Pagination {total} {limit} {offset} {noun} onpage={goTo} onlimit={setLimit} />
   <p class="sr-only" aria-live="polite">
-    {loading ? 'Loading' : `${total} ${noun}`}
+    {loading && !quiet ? 'Loading' : `${total} ${noun}`}
   </p>
 </div>
 
