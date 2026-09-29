@@ -156,7 +156,7 @@ func (c *Controller) machineLoop(ctx context.Context) {
 				default:
 				}
 			}
-		case <-c.settingsChanged:
+		case <-c.machineSettingsChanged:
 			if !timer.Stop() {
 				select {
 				case <-timer.C:
