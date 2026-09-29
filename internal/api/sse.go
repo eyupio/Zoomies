@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/eyupio/zoomies/internal/auth"
 	"github.com/eyupio/zoomies/internal/backend"
@@ -369,6 +370,11 @@ func (s *Server) handleRunnerLogs(w http.ResponseWriter, r *http.Request) {
 	ticker := time.NewTicker(s.streamHeartbeat)
 	defer ticker.Stop()
 
+	// carry is the incomplete tail of the last chunk: the first bytes of a
+	// character whose rest is in the next one. The relay forwards whatever a
+	// read returned, so a boundary can fall inside a character, and rendering
+	// each half as its own JSON string would turn it into two U+FFFD.
+	var carry []byte
 	for {
 		select {
 		case <-ctx.Done():
@@ -379,10 +385,24 @@ func (s *Server) handleRunnerLogs(w http.ResponseWriter, r *http.Request) {
 				// means the job is over. Say so and end the response, rather
 				// than leaving the browser holding a connection that will never
 				// carry another byte.
+				if len(carry) > 0 {
+					// Nothing more is coming to complete it, so it is what it
+					// is: a truncated character, shown as one replacement.
+					_ = stream.event(logChunkKind, "", jsonString(string(carry)))
+				}
 				_ = stream.event("end", "", []byte(`{"reason":"the runner's output ended"}`))
 				return
 			}
-			if err := stream.event(logChunkKind, "", jsonString(string(chunk))); err != nil {
+			data := chunk
+			if len(carry) > 0 {
+				data = append(append(make([]byte, 0, len(carry)+len(chunk)), carry...), chunk...)
+			}
+			whole, rest := splitIncompleteRune(data)
+			carry = append(carry[:0], rest...)
+			if len(whole) == 0 {
+				continue
+			}
+			if err := stream.event(logChunkKind, "", jsonString(string(whole))); err != nil {
 				return
 			}
 		case <-ticker.C:
@@ -483,6 +503,24 @@ func logFilename(runnerName string) string {
 		safe = "runner"
 	}
 	return safe + ".log"
+}
+
+// splitIncompleteRune cuts off a trailing sequence that is the start of a
+// multi-byte character and cannot be finished yet, so a caller can hold it
+// until the next read. At most three bytes are ever held back, and bytes that
+// are simply invalid are not: they pass through, so a stream of garbage is
+// never delayed waiting for a character that will not come.
+func splitIncompleteRune(b []byte) (whole, rest []byte) {
+	for i := len(b) - 1; i >= 0 && i >= len(b)-(utf8.UTFMax-1); i-- {
+		if !utf8.RuneStart(b[i]) {
+			continue
+		}
+		if !utf8.FullRune(b[i:]) {
+			return b[:i], b[i:]
+		}
+		break
+	}
+	return b, nil
 }
 
 // jsonString renders a log chunk as a JSON string, which is what keeps a line

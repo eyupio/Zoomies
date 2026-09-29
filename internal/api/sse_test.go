@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -419,6 +420,122 @@ func TestEventStreamSurvivesTheDatabaseFailingAtAHeartbeat(t *testing.T) {
 		case <-deadline:
 			t.Fatalf("only %d heartbeats arrived", beats)
 		}
+	}
+}
+
+// The relay forwards whatever each read returns, so a chunk boundary can fall
+// inside a multi-byte character. Rendering each half as its own JSON string
+// turned one check mark into two replacement glyphs in the live view while the
+// downloaded log, which is raw bytes, stayed right. The live tail holds the
+// incomplete tail of a chunk back until the rest of the character arrives.
+func TestLogStreamKeepsACharacterSplitAcrossTwoReadsWhole(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+	hostID, agentToken := h.agentToken("vm-1")
+	host, err := h.st.GetHost(h.ctx, hostID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	run := h.runner(pool, host, store.RunnerBusy)
+
+	u, _ := h.user("viewer", store.RoleViewer)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	frames, _ := h.openStream(t, ctx, "/api/v1/runners/"+run.ID+"/logs", h.session(u), nil)
+	await(t, frames, "the attach comment", func(f sseFrame) bool { return f.comment != "" })
+
+	tasks := h.do(request{method: http.MethodGet, path: "/api/v1/agent/tasks?wait=2", token: agentToken})
+	tasks.mustStatus(t, http.StatusOK, "agent task poll")
+	var batch struct {
+		Tasks []struct {
+			Kind     string `json:"kind"`
+			StreamID string `json:"stream_id"`
+		} `json:"tasks"`
+	}
+	tasks.into(t, &batch)
+	streamID := ""
+	for _, task := range batch.Tasks {
+		if task.Kind == "stream_logs" {
+			streamID = task.StreamID
+		}
+	}
+	if streamID == "" {
+		t.Fatalf("no stream_logs task was queued: %+v", batch.Tasks)
+	}
+
+	// The agent's body is a pipe so the two halves of U+2713 (E2 9C 93) are
+	// separate writes, and so separate chunks on the wire.
+	pr, pw := io.Pipe()
+	req, err := http.NewRequest(http.MethodPost, h.srv.URL+"/api/v1/agent/logs/"+streamID, pr)
+	if err != nil {
+		t.Fatalf("building the relay request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+agentToken)
+	req.Header.Set("Content-Type", "application/octet-stream")
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		resp, err := http.DefaultClient.Do(req)
+		if err == nil {
+			resp.Body.Close()
+		}
+	}()
+
+	var got strings.Builder
+	next := func(what string) {
+		t.Helper()
+		f := await(t, frames, what, func(f sseFrame) bool { return f.event == logChunkKind })
+		var s string
+		if err := json.Unmarshal([]byte(f.data), &s); err != nil {
+			t.Fatalf("a log frame is not a JSON string: %v (%q)", err, f.data)
+		}
+		got.WriteString(s)
+	}
+
+	if _, err := pw.Write([]byte("ok \xe2\x9c")); err != nil {
+		t.Fatalf("writing the first half: %v", err)
+	}
+	next("the first log frame")
+	if _, err := pw.Write([]byte("\x93 done\n")); err != nil {
+		t.Fatalf("writing the second half: %v", err)
+	}
+	next("the second log frame")
+	pw.Close()
+	<-done
+
+	if want := "ok ✓ done\n"; got.String() != want {
+		t.Errorf("the live tail showed %q, want %q", got.String(), want)
+	}
+}
+
+// Only the start of a character that cannot be finished yet is held back.
+// Anything else -- whole characters, bytes that are invalid outright -- goes
+// out at once, so the tail never waits on a character that will not arrive.
+func TestSplitIncompleteRuneHoldsBackOnlyAnUnfinishedCharacter(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		in          string
+		whole, rest string
+	}{
+		{"plain text", "hello\n", "hello\n", ""},
+		{"nothing", "", "", ""},
+		{"a whole three-byte character", "a✓", "a✓", ""},
+		{"a check mark cut after its first byte", "a\xe2", "a", "\xe2"},
+		{"a check mark cut after its second byte", "a\xe2\x9c", "a", "\xe2\x9c"},
+		{"an emoji cut after three bytes", "a\xf0\x9f\x9a", "a", "\xf0\x9f\x9a"},
+		{"a two-byte character cut after its first byte", "a\xc3", "a", "\xc3"},
+		{"a lone continuation byte", "a\x9c", "a\x9c", ""},
+		{"a start byte followed by a byte that cannot continue it", "a\xe2A", "a\xe2A", ""},
+		{"a byte that is never valid", "a\xff", "a\xff", ""},
+		{"a whole character before an unfinished one", "✓\xe2\x9c", "✓", "\xe2\x9c"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			whole, rest := splitIncompleteRune([]byte(tc.in))
+			if string(whole) != tc.whole || string(rest) != tc.rest {
+				t.Errorf("splitIncompleteRune(%q) = %q, %q; want %q, %q", tc.in, whole, rest, tc.whole, tc.rest)
+			}
+		})
 	}
 }
 
