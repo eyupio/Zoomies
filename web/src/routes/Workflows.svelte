@@ -69,6 +69,7 @@
   const filters = $derived(filterState.filters);
   const view = $derived(filterState.view);
   const inHand = $derived(filterState.inHand);
+  const narrowed = $derived(filterState.narrowed);
   const { patch, clearFilters, setView } = filterState;
 
   /* -- facets and live rows -------------------------------------------------- */
@@ -116,39 +117,43 @@
   /* -- the empty state ------------------------------------------------------ */
 
   const emptyTitle = $derived(
-    filters.unmatched
-      ? 'No run is stuck'
-      : filters.faulted
-        ? 'This fleet has broken nothing'
-        : filters.failed
-          ? 'No failed runs'
-          : view === 'running'
-            ? 'Nothing is running right now'
-            : view === 'queued'
-              ? 'Nothing is queued'
-              : view === 'finished'
-                ? 'Nothing has finished yet'
-                : filters.all
-                  ? 'No workflow runs recorded yet'
-                  : 'No runs have touched this fleet',
+    narrowed
+      ? 'No runs match these filters'
+      : filters.unmatched
+        ? 'No run is stuck'
+        : filters.faulted
+          ? 'This fleet has broken nothing'
+          : filters.failed
+            ? 'No failed runs'
+            : view === 'running'
+              ? 'Nothing is running right now'
+              : view === 'queued'
+                ? 'Nothing is queued'
+                : view === 'finished'
+                  ? 'Nothing has finished yet'
+                  : filters.all
+                    ? 'No workflow runs recorded yet'
+                    : 'No runs have touched this fleet',
   );
 
   const emptyDescription = $derived(
-    filters.unmatched
-      ? 'No run has a job queued with labels no pool claims, which is how it should be.'
-      : filters.faulted
-        ? "No runner here stopped under a job or failed to start one within these filters. Any failures in this period are the workflows' own. Widen the dates to look further back."
-        : filters.failed
-          ? 'No run has a job GitHub reported as failed or timed out, and no runner here has stopped under one. Widen the dates to look further back.'
-          : view === 'running'
-            ? 'No run has a job on a runner here at this moment, which on a quiet fleet is the ordinary state. Queued shows what is waiting for one, and All shows every run this fleet has been asked for.'
-            : view === 'queued'
-              ? 'No run is waiting for a runner, so the fleet is keeping up with what GitHub is asking of it. Running shows what is being worked on now.'
-              : view === 'finished'
-                ? 'No run has ended within these filters. Running and Queued show the work still in hand, and All shows every status at once.'
-                : filters.all
-                  ? 'Zoomies records a run the first time GitHub tells it about one of its jobs, over a webhook delivery. If workflows are running and nothing appears here, the delivery is not arriving.'
-                  : 'This view shows runs with a job a pool claims or a runner here ran. Include other runners to see everything GitHub has reported, hosted runners included.',
+    narrowed
+      ? 'Nothing fits the search and filters above. Clear filters returns to what is running now, and All shows every status.'
+      : filters.unmatched
+        ? 'No run has a job queued with labels no pool claims, which is how it should be.'
+        : filters.faulted
+          ? "No runner here stopped under a job or failed to start one within these filters. Any failures in this period are the workflows' own. Widen the dates to look further back."
+          : filters.failed
+            ? 'No run has a job GitHub reported as failed or timed out, and no runner here has stopped under one. Widen the dates to look further back.'
+            : view === 'running'
+              ? 'No run has a job on a runner here at this moment, which on a quiet fleet is the ordinary state. Queued shows what is waiting for one, and All shows every run this fleet has been asked for.'
+              : view === 'queued'
+                ? 'No run is waiting for a runner, so the fleet is keeping up with what GitHub is asking of it. Running shows what is being worked on now.'
+                : view === 'finished'
+                  ? 'No run has ended within these filters. Running and Queued show the work still in hand, and All shows every status at once.'
+                  : filters.all
+                    ? 'Zoomies records a run the first time GitHub tells it about one of its jobs, over a webhook delivery. If workflows are running and nothing appears here, the delivery is not arriving.'
+                    : 'This view shows runs with a job a pool claims or a runner here ran. Include other runners to see everything GitHub has reported, hosted runners included.',
   );
 
   /* -- the grid ---------------------------------------------------------------- */
@@ -604,7 +609,9 @@
     {emptyDescription}
   >
     {#snippet emptyAction()}
-      {#if view !== '' && view !== 'all'}
+      {#if narrowed}
+        <Button variant="secondary" onclick={clearFilters}>Clear filters</Button>
+      {:else if view !== '' && view !== 'all'}
         <Button variant="secondary" onclick={() => setView('all')}>Show every status</Button>
       {:else if !filters.unmatched}
         {#if filters.all}

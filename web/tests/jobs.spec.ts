@@ -238,6 +238,26 @@ test('an empty running view says the fleet is idle and offers the way out', asyn
   ).toHaveAttribute('aria-pressed', 'true');
 });
 
+/*
+ * A search that matches nothing is not an idle fleet. The page used to answer
+ * it with "Nothing is running right now" -- false while other jobs run -- or
+ * with "No jobs have run on this fleet", and offered a switch that cannot fix a
+ * search.
+ */
+test('a search that matches nothing says so and clears back to the default view', async ({
+  page,
+}) => {
+  await goto(page, '/jobs?q=nothing-is-called-this', 'Jobs');
+
+  await expect(page.getByText('No jobs match these filters')).toBeVisible();
+  await expect(page.getByText('Nothing is running right now')).toHaveCount(0);
+  await expect(page.getByText('No jobs have run on this fleet')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Clear filters', exact: true }).last().click();
+  await expect(page).not.toHaveURL(/[?&]q=/);
+  await expect(dataRows(jobs(page)).first()).toBeVisible();
+});
+
 test('a job that already ran is never called unmatched, whatever its labels say', async ({
   page,
 }) => {

@@ -879,7 +879,12 @@ filter rather than the noun: "No pools match those filters", "No runners match
 these filters". The two are different facts and an operator acts on them
 differently — one is a fleet with nothing in it, the other is a search with
 nothing in it. The Jobs page carries this furthest, because an empty grid there
-means six different things, and the page says which: under the unmatched filter
+means seven different things, and the page says which: with a search or a
+facet in force it is "no jobs match these filters" — the Workflows page says
+"no runs" — offering **Clear filters**, and that outranks every status
+sentence below, because none of them is true of a search that matched nothing
+(the dates are not a facet here; an empty window keeps its own advice to widen
+it); under the unmatched filter
 it is "no unmatched jobs", which is good news and says so; under the failed one
 it is "no failed jobs"; in the status views the page opens on it is "nothing is
 running right now" or "nothing is queued", each offering **Show every status**
