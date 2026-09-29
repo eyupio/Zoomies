@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/eyupio/zoomies/internal/controller"
+	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -94,6 +95,10 @@ func (s *Server) handleImportInstallation(w http.ResponseWriter, r *http.Request
 		unprocessable(w, "send the archive zoomies export wrote as `archive`", []fieldError{{"archive", "required"}})
 		return
 	}
+	if msg := s.archiveEgressRefusal(req.Archive); msg != "" {
+		unprocessable(w, "this archive cannot be imported", []fieldError{{"api_base_url", msg}})
+		return
+	}
 	inst, done, err := s.ctrl.ImportInstallation(r.Context(), req.Archive, req.Passphrase)
 	switch {
 	case errors.Is(err, controller.ErrArchive), errors.Is(err, store.ErrArchiveShape):
@@ -118,4 +123,46 @@ func (s *Server) handleImportInstallation(w http.ResponseWriter, r *http.Request
 		Rows:         done.Rows,
 		Skipped:      done.Skipped,
 	})
+}
+
+// archiveEgressRefusal says why an archive's installations row may not be
+// imported, or "" when it may. The row's api_base_url is inserted as written
+// and wins over github.api_base_url for everything the installation does, so
+// an archive -- a file anyone can edit -- must meet the same outbound address
+// guard as create and update, or the import is the way round it.
+func (s *Server) archiveEgressRefusal(archive *controller.InstallationArchive) string {
+	for _, t := range archive.Tables {
+		if t.Table != "installations" {
+			continue
+		}
+		col := -1
+		for i, c := range t.Columns {
+			if c == "api_base_url" {
+				col = i
+			}
+		}
+		if col < 0 {
+			continue
+		}
+		for _, row := range t.Rows {
+			if col >= len(row) || row[col].V == nil {
+				continue
+			}
+			raw, ok := row[col].V.(string)
+			if !ok {
+				return "the archive's api_base_url must be a URL as text, such as https://ghes.example.com/api/v3; correct it in the file, or export the installation again"
+			}
+			if strings.TrimSpace(raw) == "" {
+				continue
+			}
+			normalised, err := github.NormalizeAPIBaseURL(raw)
+			if err != nil {
+				return err.Error()
+			}
+			if msg := s.egressRefusal(normalised); msg != "" {
+				return msg
+			}
+		}
+	}
+	return ""
 }
