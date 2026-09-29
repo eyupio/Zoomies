@@ -28,6 +28,7 @@
   import type { RowAction } from '$lib/components/RowActions.svelte';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import Dialog from '$lib/components/Dialog.svelte';
+  import Field from '$lib/components/Field.svelte';
   import Input from '$lib/components/Input.svelte';
   import Select from '$lib/components/Select.svelte';
   import Duration from '$lib/components/Duration.svelte';
@@ -593,21 +594,34 @@
 <JobDrawer bind:open={drawerOpen} job={selectedJob} onclose={() => (selectedJob = null)} />
 <Dialog bind:open={saveOpen} title="Save queue view" size="sm">
   <form
+    id="queue-view-form"
     onsubmit={(e) => {
       e.preventDefault();
       saveView();
     }}
   >
-    <label for="queue-view-name">View name</label><Input
-      id="queue-view-name"
-      bind:value={viewName}
-      placeholder="Release builds on Linux"
-    />
-    <p class="footnote">
-      Saves these filters in this browser. The address bar also provides a shareable link.
-    </p>
-    <Button type="submit" disabled={!viewName.trim()}>Save view</Button>
+    <Field
+      label="View name"
+      hint="Saves these filters in this browser. The address bar also provides a shareable link."
+    >
+      {#snippet children({ id, describedBy, invalid })}
+        <Input
+          bind:value={viewName}
+          {id}
+          {describedBy}
+          {invalid}
+          placeholder="Release builds on Linux"
+        />
+      {/snippet}
+    </Field>
   </form>
+
+  {#snippet footer()}
+    <Button variant="ghost" onclick={() => (saveOpen = false)}>Cancel</Button>
+    <Button type="submit" form="queue-view-form" variant="primary" disabled={!viewName.trim()}>
+      Save view
+    </Button>
+  {/snippet}
 </Dialog>
 
 <style>

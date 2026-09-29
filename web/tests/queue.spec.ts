@@ -77,6 +77,31 @@ test('queue views preserve combined filters and cancel leaves demand unchanged',
 });
 
 /*
+ * Every other form dialog is a labelled field with Cancel and the primary
+ * action in its footer, so an operator who has used one knows how to leave and
+ * how to submit this one. Enter still saves, because the field is a form's.
+ */
+test('the save-view dialog has a Cancel and still saves on Enter', async ({ page }) => {
+  await goto(page, '/queue?repo=acme%2Fapi', 'Queue');
+  await page.getByRole('button', { name: 'Save view', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Save queue view' });
+  await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Save view', exact: true })).toBeDisabled();
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(dialog).toBeHidden();
+
+  await page.getByRole('button', { name: 'Save view', exact: true }).click();
+  await page.getByRole('textbox', { name: 'View name' }).fill('Enter saves');
+  await page.getByRole('textbox', { name: 'View name' }).press('Enter');
+  await expect(dialog).toBeHidden();
+  await expect(
+    page.getByRole('combobox', { name: 'Saved queue views' }).locator('option', {
+      hasText: 'Enter saves',
+    }),
+  ).toHaveCount(1);
+});
+
+/*
  * The actions are on the row rather than behind a menu, which is four buttons
  * per row instead of one trigger. That is a hundred tab stops on a full page if
  * each is a stop of its own, so the four are one toolbar: Tab reaches it once
