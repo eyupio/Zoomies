@@ -857,6 +857,15 @@ func (s *Service) authenticateToken(ctx context.Context, token, ip string) (*Ide
 	// has no foreign key to users, so the delete cascades nowhere.
 	// SetUserDisabled and DeleteUser now revoke them, and this is the check
 	// that does not depend on having remembered to.
+	//
+	// The same goes for the role. Demoting an account changed the row and
+	// nothing it had already issued, so a demoted administrator's non-expiring
+	// admin token kept managing users and minting successors. A token never
+	// acts above its owner's current role, as an MCP connection does not. Not
+	// roleCeiling: that caps at operator, and a still-admin owner must keep an
+	// admin token. An owner whose role is unknown ranks nothing, so it fails
+	// closed.
+	role := t.Role
 	if t.UserID != "" {
 		u, err := s.store.GetUser(ctx, t.UserID)
 		switch {
@@ -867,13 +876,16 @@ func (s *Service) authenticateToken(ctx context.Context, token, ip string) (*Ide
 		case u.Disabled:
 			return nil, ErrTokenOwnerDisabled
 		}
+		if !u.Role.AtLeast(t.Role) {
+			role = u.Role
+		}
 	}
 	s.touch(ctx, t.ID, now)
 	return &Identity{
 		Kind:    KindToken,
 		ID:      t.ID,
 		Name:    t.Name,
-		Role:    t.Role,
+		Role:    role,
 		Scopes:  t.Scopes,
 		TokenID: t.ID,
 		UserID:  t.UserID,

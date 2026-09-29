@@ -121,7 +121,7 @@ on its own runners, and cannot read pools, jobs, users or the audit log.
 | Capacity-demand signing secret | `instance_settings` | Same |
 | User passwords | `users.password_hash` | argon2id, 64 MiB × 2 passes × 4 lanes, 16-byte salt |
 | Session cookies | `sessions.token_hash` | SHA-256 of a 32-byte random token |
-| API tokens | `api_tokens.token_hash` | SHA-256; the plaintext is shown exactly once. Revoked with the account they belong to: disabling or deleting a user revokes their tokens, and one whose owner is disabled or gone is refused even if it was not |
+| API tokens | `api_tokens.token_hash` | SHA-256; the plaintext is shown exactly once. Revoked with the account they belong to: disabling or deleting a user revokes their tokens, and one whose owner is disabled or gone is refused even if it was not. A token never carries more than its owner's current role, so demoting an account demotes its tokens |
 | Agent tokens | `hosts.token_hash` | SHA-256; issued once at join |
 | Join tokens | `join_tokens.token_hash` | SHA-256, single-use, short TTL. One minted for a rented machine is scoped to that machine's name as well, so a token read out of a guest cannot enrol anything else |
 | Provider credentials | `providers.credentials_enc` | AES-256-GCM, key from env or key file. Unsealed only for the life of one API client, and never sent to a guest, an API response, an audit row or a log line |
@@ -257,7 +257,9 @@ says so when it does, and a daemon that already applies limits is left alone.
   but never one wider than itself: the role is capped at the caller's, a
   scoped token can only mint within its scopes, and the result belongs to the
   same account, so a leaked token narrowed to one resource cannot be turned
-  into an unscoped one that outlives its revocation. The same tokens open
+  into an unscoped one that outlives its revocation. A token also never
+  carries more than its owner's current role: demoting an account demotes the
+  tokens it holds, as it does its MCP connections. The same tokens open
   `/mcp`, the endpoint a coding agent connects to; see below.
 * **MCP connections** — `zoomcp_` access tokens from the OAuth flow a client
   such as Claude runs against `/mcp`, when `security.mcp_oauth` is on. They
