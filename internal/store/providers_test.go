@@ -7,6 +7,37 @@ import (
 	"time"
 )
 
+// updated_at says when the provider's configuration last changed, and the
+// problems list compares it with the last connection check. Pausing and
+// resuming change no setting a check would verify, so they leave it alone;
+// moving it would raise "not checked since its settings changed" on the page
+// of an operator who has just pressed the kill switch, and would make the
+// controller rebuild a provider client that had not changed.
+func TestPausingAndResumingAProviderLeaveItsUpdatedAtAlone(t *testing.T) {
+	now := time.Date(2026, 5, 9, 8, 0, 0, 0, time.UTC)
+	s := newTestStoreAt(t, func() time.Time { return now })
+	ctx := context.Background()
+	p := seedProvider(t, s)
+	created := p.UpdatedAt
+
+	for _, paused := range []bool{true, false} {
+		now = now.Add(time.Hour)
+		if err := s.SetProviderPaused(ctx, p.ID, paused, "the hypervisor is being upgraded"); err != nil {
+			t.Fatal(err)
+		}
+		got, err := s.GetProvider(ctx, p.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Paused != paused {
+			t.Fatalf("paused = %v, want %v", got.Paused, paused)
+		}
+		if !got.UpdatedAt.Equal(created) {
+			t.Fatalf("pausing=%v moved updated_at from %v to %v", paused, created, got.UpdatedAt)
+		}
+	}
+}
+
 // Everything about a provider has to survive a round trip, because a controller
 // reads these rows on the pass after the one that wrote them and acts on what
 // comes back. A field that silently did not persist would be a ceiling that

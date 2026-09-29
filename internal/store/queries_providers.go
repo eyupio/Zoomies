@@ -192,12 +192,17 @@ func (s *Store) SetProviderChecked(ctx context.Context, id string, at time.Time,
 //
 // The reason is stored with it because "paused" on its own is the thing an
 // operator finds months later with no idea whether it is safe to undo.
+//
+// It leaves updated_at alone: pausing changes nothing a connection check would
+// verify, and the problems list reads a later updated_at as "settings changed
+// since the last check". Moving it would also rebuild a provider client whose
+// credentials and address had not changed.
 func (s *Store) SetProviderPaused(ctx context.Context, id string, paused bool, reason string) error {
 	if !paused {
 		reason = ""
 	}
-	res, err := s.exec(ctx, `UPDATE providers SET paused=?, paused_reason=?, updated_at=? WHERE id=?`,
-		boolInt(paused), reason, ms(s.Now()), id)
+	res, err := s.exec(ctx, `UPDATE providers SET paused=?, paused_reason=? WHERE id=?`,
+		boolInt(paused), reason, id)
 	if err != nil {
 		return err
 	}

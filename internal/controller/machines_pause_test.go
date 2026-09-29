@@ -3,6 +3,7 @@ package controller
 import (
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/store"
@@ -56,6 +57,37 @@ func TestThePauseSurvivesARestart(t *testing.T) {
 	}
 	if !slices.Contains(h.problemCodes(), "provider.provisioning_paused") {
 		t.Fatalf("a paused provider raised %v, want provider.provisioning_paused", h.problemCodes())
+	}
+}
+
+// Pressing the kill switch changes no setting a connection check would verify,
+// so it must not tell the operator the provider "has not been checked since its
+// settings changed". That warning turns the public status page degraded, and it
+// would clear only after a check they had no reason to run.
+func TestPausingACheckedProviderDoesNotClaimItsSettingsChanged(t *testing.T) {
+	h := newHarness(t)
+	_, row := h.machineFleet(t)
+	if err := h.st.SetProviderChecked(h.ctx, row.ID, time.Now(), ""); err != nil {
+		t.Fatalf("SetProviderChecked: %v", err)
+	}
+	if slices.Contains(h.problemCodes(), "provider.template_unverified") {
+		t.Fatalf("a freshly checked provider raised template_unverified: %v", h.problemCodes())
+	}
+
+	// updated_at has millisecond resolution; without the gap a pause in the
+	// same millisecond as the check would pass for the wrong reason.
+	time.Sleep(5 * time.Millisecond)
+	h.pauseProvider(t, row, "the hypervisor is being patched")
+	if slices.Contains(h.problemCodes(), "provider.template_unverified") {
+		t.Fatalf("pausing raised template_unverified: %v", h.problemCodes())
+	}
+
+	time.Sleep(5 * time.Millisecond)
+	if err := h.st.SetProviderPaused(h.ctx, row.ID, false, ""); err != nil {
+		t.Fatalf("SetProviderPaused: %v", err)
+	}
+	if slices.Contains(h.problemCodes(), "provider.template_unverified") {
+		t.Fatalf("resuming raised template_unverified: %v", h.problemCodes())
 	}
 }
 
