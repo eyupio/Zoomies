@@ -27,6 +27,32 @@ test('runner queue context uses fleet totals and links to provisioning controls'
 });
 
 /*
+ * A card's title is one size wherever the card is drawn. The Overview's Activity
+ * matrix is a Panel and the Usage page's is a chart panel; they used to give
+ * the same words two sizes, and the Usage page put a 16px card above two 13px
+ * ones. docs/ui-guidelines.md gives card titles one size, and chart panels are
+ * cards.
+ */
+test('a chart panel titles itself at the size every other card does', async ({ page }) => {
+  const title = (name: string) => page.getByRole('heading', { level: 2, name, exact: true });
+  const measure = (name: string) =>
+    title(name)
+      .first()
+      .evaluate((h) => {
+        const style = getComputedStyle(h);
+        return { size: style.fontSize, line: style.lineHeight, colour: style.color };
+      });
+
+  await goto(page, '/', 'Overview');
+  await expect(title('Activity matrix').first()).toBeVisible();
+  const panel = await measure('Activity matrix');
+
+  await goto(page, '/usage', 'Usage');
+  await expect(title('Activity matrix').first()).toBeVisible();
+  expect(await measure('Activity matrix')).toEqual(panel);
+});
+
+/*
  * Fleet activity draws every figure at once. It used to draw one of them,
  * chosen from a dropdown, which made the question the panel exists to answer
  * -- was anything waiting, and was there anything free to take it -- two

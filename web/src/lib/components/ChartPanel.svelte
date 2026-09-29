@@ -38,13 +38,18 @@
   }
   h2 {
     margin: 0;
-    font-size: var(--z-text-sm);
+    /* A card title is --z-text-lg wherever the card is drawn: this frame is
+       Panel's, and a smaller title made the same words two sizes by route. */
+    font-size: var(--z-text-lg);
+    line-height: var(--z-leading-lg);
     font-weight: var(--z-weight-semibold);
+    color: var(--z-text);
   }
   p {
     margin: var(--z-space-1) 0 0;
     color: var(--z-text-muted);
     font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
     max-width: 75ch;
   }
   .body {
