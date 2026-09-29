@@ -710,6 +710,15 @@ type OIDC struct {
 	// the local admin's role. Turn it on for the one migration where that is
 	// the intention, then turn it off again.
 	LinkByUsername bool `yaml:"link_by_username"`
+	// Label is the words on the sign-in button. Empty derives them from the
+	// issuer's host, which is what an operator recognises without being told.
+	Label string `yaml:"label"`
+	// HidePasswordLogin takes the password form off the sign-in page while
+	// single sign-on is working, so people are not invited to keep a second
+	// credential alive. It is never a lock: an administrator can still sign in
+	// with a password from /login?password, the break-glass door for the day
+	// the identity provider is the thing that is broken.
+	HidePasswordLogin bool `yaml:"hide_password_login"`
 }
 
 // Metrics configures the Prometheus endpoint.
@@ -852,6 +861,23 @@ type Limits struct {
 	JoinTokens int `yaml:"join_tokens"`
 	// EventSubscribers caps open live-update streams.
 	EventSubscribers int `yaml:"event_subscribers"`
+	// JobStatsWindow is the longest span GET /api/v1/jobs/stats will
+	// aggregate in one request. The statistics are computed from the job
+	// rows on demand, so the bound is what keeps a single request from
+	// scanning a database that has kept a year of history. Unlike the
+	// ceilings above, zero is not unlimited: it reads as the 90-day default.
+	JobStatsWindow time.Duration `yaml:"job_stats_window"`
+}
+
+// DefaultJobStatsWindow is the job statistics' window when none is set.
+const DefaultJobStatsWindow = 90 * 24 * time.Hour
+
+// JobStatsSpan is JobStatsWindow with the default applied.
+func (l Limits) JobStatsSpan() time.Duration {
+	if l.JobStatsWindow <= 0 {
+		return DefaultJobStatsWindow
+	}
+	return l.JobStatsWindow
 }
 
 // Retention bounds how much history the database keeps.
@@ -962,6 +988,7 @@ func Default() *Config {
 			UsernameClaim: "preferred_username",
 			GroupsClaim:   "groups",
 		},
+		Limits: Limits{JobStatsWindow: DefaultJobStatsWindow},
 		Retention: Retention{
 			Jobs:           30 * 24 * time.Hour,
 			Runners:        7 * 24 * time.Hour,
@@ -1528,7 +1555,16 @@ func (c *Config) MCPOAuthEnabled() bool {
 		return false
 	}
 	if c.Security.MCPOAuth != nil {
-		return *c.Security.MCPOAuth
+		// Switched on where it cannot be served safely, it is refused at
+		// startup (mcp_oauth.no_external_url) and off until then.
+		return *c.Security.MCPOAuth && !c.mcpOAuthWithoutAddress()
+	}
+	// Unset, it turns itself on only where it would be allowed to be turned
+	// on: an instance that listens publicly with its own certificate and no
+	// external URL kept working through the upgrade that made the explicit
+	// setting an error there, rather than refusing to start over a default.
+	if c.BindsPublicly() && strings.TrimSpace(c.Server.ExternalURL) == "" {
+		return false
 	}
 	return c.ReachedOverHTTPS()
 }

@@ -36,7 +36,7 @@
     nose: 'M27 0C31-1.3 34.8 1 34.2 5C33.8 8 30.5 8.7 28.4 7.1C26.6 5.7 26 1.5 27 0Z',
     // Hung at eye level from a narrow root, with black skull above and
     // behind it, and widening below the jaw into lobed locks down its whole
-    // back edge: a cocker's feathered ear. A smooth paddle reads as a
+    // back edge: a cocker's feathered ear. A smooth oval reads as a
     // flipper at 44px.
     ear: 'M-7-3C-5.5-5.5-1.5-6 0-3.5C1.5 1 1 6 1.5 11C2 16 4 20 3.5 25C3.5 28 1.5 30.5-1 30C-2.5 33-6.5 33-7.5 30C-10.5 31-13 28.5-12 25.5C-14.5 23.5-14 19.5-11.5 18C-13.5 15-12.5 11-10 9.5C-10.5 5-9.5 0-7-3Z',
     // The ear's front edge only, where it lies against the cheek: the one
@@ -180,6 +180,15 @@
     ['hind', 46, 60, 0.08, false, 36, -12],
     ['front', 78, 63, 0.52, false, -38, 0],
   ];
+  // Four evenly separated footfalls, with each side's hind foot followed
+  // by its forefoot. Opposite legs are half a cycle apart, not the paired
+  // hind/fore beats of a gallop. Smaller joint angles keep the paws low.
+  const WALK: Leg[] = [
+    ['hind', 52, 57, 0.5, true, 22, -36],
+    ['front', 72, 61, 0.25, true, 12, 0],
+    ['hind', 46, 59, 0, false, 34, -42],
+    ['front', 78, 63, 0.75, false, -16, 6],
+  ];
   const STAND: Leg[] = [
     ['hind', 52, 57, 0, true, 26, -40],
     ['front', 72, 61, 0, true, -3, 4],
@@ -189,11 +198,13 @@
   // Throttled stops mid-step with a forepaw lifted -- paused, not finished.
   const POINT: Leg = ['front', 78, 63, 0, false, -56, 72];
   const legs = $derived(
-    motion.pose === 'run'
-      ? RUN
-      : motion.state === 'throttled'
-        ? [...STAND.slice(0, 3), POINT]
-        : STAND,
+    motion.walking
+      ? WALK
+      : motion.pose === 'run'
+        ? RUN
+        : motion.state === 'throttled'
+          ? [...STAND.slice(0, 3), POINT]
+          : STAND,
   );
   // Centres each silhouette in the box; the spin turns round the box centre.
   const shift = $derived(
@@ -261,7 +272,8 @@
 
 <svg
   class="standard-mark"
-  class:running={motion.running}
+  class:running={motion.running && !motion.walking}
+  class:walking={motion.walking}
   class:spinning={motion.spinning}
   class:still={motion.still}
   data-style="standard"
@@ -455,6 +467,9 @@
     transform-origin: 60px 64px;
     animation: gallop var(--stride) var(--phase) ease-in-out infinite;
   }
+  .running .head {
+    animation: gallop-head var(--stride) var(--phase) ease-in-out infinite;
+  }
   .running .tail {
     animation: tail-stream var(--stride) var(--phase) ease-in-out infinite;
   }
@@ -472,6 +487,135 @@
   }
   .running .front .shin {
     animation: front-shin var(--stride) var(--delay) linear infinite;
+  }
+  /* An unhurried walk: a long planted sweep, then a short, low paw
+     recovery. Everything shares the stride clock so weight, head and ears
+     stay coordinated even when each runner starts at a different phase. */
+  .walking .dog {
+    transform-origin: 60px 64px;
+    animation: walk-body var(--stride) var(--phase) ease-in-out infinite;
+  }
+  .walking .head {
+    animation: walk-head var(--stride) var(--phase) ease-in-out infinite;
+  }
+  .walking .ear {
+    animation: walk-ear var(--stride) var(--phase) ease-in-out infinite;
+  }
+  .walking .tail {
+    animation: walk-tail var(--stride) var(--phase) ease-in-out infinite;
+  }
+  .walking .hind {
+    animation: walk-hind var(--stride) var(--delay) linear infinite;
+  }
+  .walking .front {
+    animation: walk-front var(--stride) var(--delay) linear infinite;
+  }
+  .walking .hind .shin {
+    animation: walk-hock var(--stride) var(--delay) linear infinite;
+  }
+  .walking .front .shin {
+    animation: walk-elbow var(--stride) var(--delay) linear infinite;
+  }
+  @keyframes walk-body {
+    0%,
+    100% {
+      transform: translateY(0.5px) rotate(-1.2deg);
+    }
+    25% {
+      transform: translateY(-0.6px) rotate(0deg);
+    }
+    50% {
+      transform: translateY(0.5px) rotate(1.2deg);
+    }
+    75% {
+      transform: translateY(-0.6px) rotate(0deg);
+    }
+  }
+  @keyframes walk-head {
+    0%,
+    100% {
+      transform: rotate(1.8deg);
+    }
+    25%,
+    75% {
+      transform: rotate(0deg);
+    }
+    50% {
+      transform: rotate(-1.8deg);
+    }
+  }
+  @keyframes walk-ear {
+    0%,
+    100% {
+      transform: rotate(1deg);
+    }
+    30% {
+      transform: rotate(6deg);
+    }
+    55% {
+      transform: rotate(1deg);
+    }
+    80% {
+      transform: rotate(5deg);
+    }
+  }
+  @keyframes walk-tail {
+    0%,
+    100% {
+      transform: rotate(-3deg);
+    }
+    50% {
+      transform: rotate(5deg);
+    }
+  }
+  @keyframes walk-front {
+    0%,
+    100% {
+      transform: rotate(-20deg);
+    }
+    65% {
+      transform: rotate(18deg);
+    }
+    80% {
+      transform: rotate(4deg);
+    }
+  }
+  @keyframes walk-elbow {
+    0%,
+    65%,
+    100% {
+      transform: rotate(0deg);
+    }
+    80% {
+      transform: rotate(30deg);
+    }
+    92% {
+      transform: rotate(12deg);
+    }
+  }
+  @keyframes walk-hind {
+    0%,
+    100% {
+      transform: rotate(8deg);
+    }
+    65% {
+      transform: rotate(42deg);
+    }
+    82% {
+      transform: rotate(26deg);
+    }
+  }
+  @keyframes walk-hock {
+    0%,
+    100% {
+      transform: rotate(-24deg);
+    }
+    65% {
+      transform: rotate(-36deg);
+    }
+    82% {
+      transform: rotate(-60deg);
+    }
   }
   /* The swish is shown and hidden in a single step rather than faded, so a
      moving part is never half transparent. Hidden is also its resting
@@ -562,15 +706,43 @@
     animation: none !important;
   }
 
-  /* Kept small: at maximum zoomies this repeats three times a second, and a
-     page of thirty runners must read as running, not as jitter. */
+  /* Hind push-off, suspension, forepaw landing and gathering. Head pitch
+     counters the shoulder rotation, while ears settle just after landing.
+     The feet, torso and face share one clock instead of bouncing separately. */
   @keyframes gallop {
     0%,
     100% {
-      transform: translateY(0.5px) rotate(-1.5deg);
+      transform: translateY(1px) rotate(-2deg);
     }
-    50% {
-      transform: translateY(-2.5px) rotate(1.5deg);
+    22% {
+      transform: translateY(-1px) rotate(-3deg);
+    }
+    44% {
+      transform: translateY(-3px) rotate(0deg);
+    }
+    66% {
+      transform: translateY(0.5px) rotate(3deg);
+    }
+    82% {
+      transform: translateY(1.5px) rotate(1deg);
+    }
+  }
+  @keyframes gallop-head {
+    0%,
+    100% {
+      transform: rotate(1deg);
+    }
+    22% {
+      transform: rotate(2.5deg);
+    }
+    44% {
+      transform: rotate(0deg);
+    }
+    66% {
+      transform: rotate(-3deg);
+    }
+    82% {
+      transform: rotate(-1deg);
     }
   }
   /* Each foot reaches, lands, sweeps back under the body and folds on the
@@ -578,13 +750,13 @@
   @keyframes front-thigh {
     0%,
     100% {
-      transform: rotate(-52deg);
+      transform: rotate(-42deg);
     }
     40% {
       transform: rotate(30deg);
     }
     58% {
-      transform: rotate(38deg);
+      transform: rotate(32deg);
     }
     82% {
       transform: rotate(-28deg);
@@ -597,7 +769,7 @@
       transform: rotate(-6deg);
     }
     62% {
-      transform: rotate(72deg);
+      transform: rotate(60deg);
     }
     84% {
       transform: rotate(40deg);
@@ -606,13 +778,13 @@
   @keyframes hind-thigh {
     0%,
     100% {
-      transform: rotate(50deg);
+      transform: rotate(44deg);
     }
     18% {
-      transform: rotate(54deg);
+      transform: rotate(46deg);
     }
     62% {
-      transform: rotate(-40deg);
+      transform: rotate(-32deg);
     }
   }
   @keyframes hind-shin {
@@ -628,17 +800,30 @@
     }
   }
   @keyframes tail-stream {
-    50% {
+    0%,
+    100% {
+      transform: rotate(-4deg);
+    }
+    28% {
       transform: rotate(-10deg);
+    }
+    70% {
+      transform: rotate(2deg);
     }
   }
   @keyframes ear-stream {
     0%,
     100% {
-      transform: rotate(24deg);
+      transform: rotate(12deg);
     }
-    50% {
-      transform: rotate(40deg);
+    36% {
+      transform: rotate(26deg);
+    }
+    72% {
+      transform: rotate(8deg);
+    }
+    88% {
+      transform: rotate(14deg);
     }
   }
   @keyframes blink {

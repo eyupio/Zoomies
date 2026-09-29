@@ -127,6 +127,47 @@ zoomies jobs list --ours --since 24h       # what this deployment broke today
 zoomies jobs list --fault out_of_memory    # and how much of it was memory
 ```
 
+`--until` is not included in the window and `--since` is, so two windows cut at
+one instant share no job. `--job-name` matches a job's name exactly, where `-q`
+matches a substring, and keeps a comma in a matrix job's name such as
+`test (ubuntu-latest, 3.12)`. `--controller-version` and `--host-id` narrow to
+the jobs stamped with them, `--controller-version unknown` finds the ones that
+were never stamped, and `--hosted=true` or `--hosted=false` keeps only jobs on
+somebody else's runners, or only the rest.
+
+To read further back than one page, pass the cursor a full page prints — or the
+`next` field of `--output json` — back as `--before`. A cursor continues after
+the last job of the page before it, so a job queued while you are reading
+cannot repeat or hide a row, which `--offset` cannot promise. `--output json`
+returns every job with its steps; `--include-steps=false` returns one short
+summary per job, small enough to read a hundred of.
+
+### Comparing releases
+
+Every job a pool claims is stamped once with the controller version that
+claimed it, and once more with the host and agent version that ran it. Jobs
+recorded before that, and jobs no pool here claimed, have no stamp and are
+reported as `unknown`.
+
+`jobs stats` answers "did builds get faster and more stable" in one call:
+
+```sh
+zoomies jobs stats --group-by controller_version --since 30d
+zoomies jobs stats --group-by day --job-name build --since 14d
+zoomies jobs stats --group-by controller_version --group-by pool --hosted=false
+```
+
+`--group-by` takes `controller_version`, `day`, `host`, `pool` or `job_name`,
+at most two. Each group shows how many completed jobs there were and how they
+ended, how many were lost to the fleet rather than the workflow and the rate,
+and p50 and p95 of duration, queue wait and runner startup. Duration leaves out
+cancelled and skipped jobs, and a `-` means no job in the group could be
+measured. It takes the `jobs list` filters `--repo`, `--workflow`, `--job-name`
+and `--hosted`, and a window of at most `limits.job_stats_window` (90 days
+unless set) that reaches back no further than `retention.jobs` has kept jobs.
+Runner startup needs the runner's own record, which is kept for
+`retention.runners`, so it is empty for older jobs.
+
 `jobs rerun <job-id>` asks GitHub to run that run's failed jobs again, which is
 the remedy for a job the fleet broke: nothing about the workflow has changed.
 GitHub has no job-level re-run, so it re-runs **every** failed job in the run.
@@ -215,8 +256,8 @@ It needs an admin token, because the document contains the settings section.
 | `users passwd <user-id>` | Set a password. Read from the terminal without echo, or from stdin when piped — never a flag, because a password in a flag is a password in the shell history. |
 | `users reset-two-step <user-id>` | Turn off two-step verification for somebody who has lost their authenticator and their recovery codes. Their sessions end and the reset is audited; see [Two-step verification](two-step.md#lost-your-phone). |
 | `users delete <user-id>` | Refused if it would leave no enabled administrator. |
-| `tokens list` | Metadata only. The value is not stored. |
-| `tokens create` | `--name`, `--role`, repeatable `--scope`, `--expires-in`. Printed once; only its hash is kept. |
+| `tokens list` | Metadata only. The value is not stored. Your own tokens; everybody's for an administrator. |
+| `tokens create` | `--name`, `--role`, repeatable `--scope`, `--expires-in`. Printed once; only its hash is kept. Anybody signed in may mint their own, never above their own role. |
 | `tokens revoke <token-id>` | Immediate. The row stays, marked revoked. |
 | `tokens delete <token-id>` | Removes a revoked or expired token from the list for good. A token that still works is refused — revoke it first. The audit log keeps the revocation and the deletion, by prefix. |
 | `tokens purge` | Deletes every revoked or expired token you own; `--user <id>` for one account's, `--all` for every one you can see. Tokens that still work are left alone. |
@@ -289,7 +330,8 @@ again.
 | --- | --- |
 | `fleet_status` | Queued and running jobs, outcomes, queue wait and pool utilisation over a window. `GET /stats`. |
 | `list_problems` | Everything the controller thinks is wrong, with what to do. `GET /problems`. |
-| `list_jobs` | Jobs, with the same filters as `zoomies jobs list`: `failed`, `ours`, `theirs`, `unmatched`, `repo`, `since`. |
+| `list_jobs` | Jobs, with the same filters as `zoomies jobs list`: `failed`, `ours`, `theirs`, `unmatched`, `repo`, `since`, `until`, `job_name`, `hosted`, `controller_version` and `host_id`. Each job is a summary without its steps unless `include_steps` is set, and a full page carries `next` to pass back as `before`. |
+| `job_stats` | Completed jobs counted and timed over a window, grouped by up to two of `controller_version`, `day`, `host`, `pool` and `job_name`. `GET /jobs/stats`. |
 | `get_job` | One job, its timeline and the controller's explanation, as one document. |
 | `get_runner_log` | The last lines of a runner's output, while the runner still exists. It asks the controller for just the end, holds what it returns to 256 KiB, and says so when it had to shorten it or could only read the start of a very long log. |
 | `list_runners`, `list_pools`, `list_hosts` | The fleet's resources as their `GET` routes return them. |

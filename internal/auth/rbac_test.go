@@ -64,6 +64,11 @@ func TestEveryActionHasARole(t *testing.T) {
 	}
 }
 
+// ownCredentials are the write actions a viewer holds because they act on
+// the viewer's own credentials and nothing of the fleet's: a token minted this
+// way carries no more than the viewer does.
+var ownCredentials = map[Action]bool{ActionTokensOwn: true}
+
 // TestRoleAuthority walks the full action list for every role. A viewer must
 // not be able to perform any write action -- that single assertion is what
 // stops a new mutating endpoint from being given away for free.
@@ -77,7 +82,7 @@ func TestRoleAuthority(t *testing.T) {
 			if got != want {
 				t.Errorf("%s may do %s = %v; want %v (minimum role %s)", role, a, got, want, a.MinRole())
 			}
-			if role == store.RoleViewer && got && !readVerbs[a.Verb()] {
+			if role == store.RoleViewer && got && !readVerbs[a.Verb()] && !ownCredentials[a] {
 				t.Errorf("a viewer may perform the write action %s; every mutating action needs operator or admin", a)
 			}
 			if !got && Explain(id, a) == "" {

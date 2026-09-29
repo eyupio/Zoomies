@@ -123,7 +123,7 @@ func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		if err := auth.CheckPassword(req.Password); err != nil {
 			fields = append(fields, fieldError{"password", err.Error()})
 		}
-	} else if !s.oidc.Enabled() {
+	} else if !s.oidcProvider().Enabled() {
 		fields = append(fields, fieldError{"password", "this instance has no single sign-on configured, so an account needs a password"})
 	}
 	if len(fields) > 0 {
@@ -301,6 +301,9 @@ type tokenResponse struct {
 	CreatedAt  time.Time  `json:"created_at"`
 	ExpiresAt  *time.Time `json:"expires_at"`
 	LastUsedAt *time.Time `json:"last_used_at"`
+	// UserID is the account the token was minted by, so an administrator
+	// looking at everybody's can tell whose each one is.
+	UserID string `json:"user_id,omitempty"`
 }
 
 type createdTokenResponse struct {
@@ -312,7 +315,7 @@ func newTokenResponse(t *store.APIToken) tokenResponse {
 	return tokenResponse{
 		ID: t.ID, Name: t.Name, Role: t.Role, Scopes: emptySlice(t.Scopes),
 		Prefix: t.Prefix, Revoked: t.Revoked, CreatedAt: t.CreatedAt,
-		ExpiresAt: t.ExpiresAt, LastUsedAt: t.LastUsedAt,
+		ExpiresAt: t.ExpiresAt, LastUsedAt: t.LastUsedAt, UserID: t.UserID,
 	}
 }
 
@@ -336,17 +339,31 @@ func tokenVisibleTo(t *store.APIToken, who store.Role) bool {
 	return true
 }
 
-// handleListTokens answers GET /api/v1/tokens.
+// tokenReachable says whether this caller may see and revoke a token: any it
+// can see when it holds tokens.read (or tokens.write, to act), and otherwise
+// only its own. A token nobody owns is nobody's but an administrator's.
+func tokenReachable(r *http.Request, t *store.APIToken, everyone auth.Action) bool {
+	if !tokenVisibleTo(t, callerRole(r)) {
+		return false
+	}
+	id := Identity(r.Context())
+	if id.Can(everyone) {
+		return true
+	}
+	return id != nil && id.UserID != "" && t.UserID == id.UserID
+}
+
+// handleListTokens answers GET /api/v1/tokens: everybody's for an
+// administrator, and the caller's own for anybody else.
 func (s *Server) handleListTokens(w http.ResponseWriter, r *http.Request) {
 	tokens, err := s.ctrl.Store().ListAPITokens(r.Context())
 	if err != nil {
 		s.internal(w, r, "listing API tokens", err)
 		return
 	}
-	who := callerRole(r)
 	out := make([]tokenResponse, 0, len(tokens))
 	for _, t := range tokens {
-		if !tokenVisibleTo(t, who) {
+		if !tokenReachable(r, t, auth.ActionTokensRead) {
 			continue
 		}
 		out = append(out, newTokenResponse(t))
@@ -451,7 +468,9 @@ func (s *Server) handleRevokeToken(w http.ResponseWriter, r *http.Request) {
 	// A token this caller cannot see answers exactly as one that is not there.
 	// Refusing with a 403 would confirm the platform holds a credential by
 	// this ID, which is the fact being withheld.
-	if idx < 0 || !tokenVisibleTo(tokens[idx], callerRole(r)) {
+	// Somebody else's token, to a caller who may only manage their own, is
+	// not there either, for the same reason.
+	if idx < 0 || !tokenReachable(r, tokens[idx], auth.ActionTokensWrite) {
 		notFound(w, "there is no API token "+id)
 		return
 	}
@@ -528,6 +547,13 @@ func (s *Server) handlePurgeTokens(w http.ResponseWriter, r *http.Request) {
 		unprocessable(w, "user_id and all ask different questions; give user_id to purge one account's spent tokens, or all to purge every one", []fieldError{{"all", "cannot be combined with user_id"}})
 		return
 	}
+	// Somebody who may manage only their own tokens may purge only those.
+	if caller := Identity(r.Context()); !caller.Can(auth.ActionTokensWrite) &&
+		(req.All || (owner != "" && (caller == nil || owner != caller.UserID))) {
+		forbidden(w, fmt.Sprintf("purging anybody's spent tokens but your own needs the %s role; you are signed in as %s, so purge your own by leaving out user_id and all",
+			auth.ActionTokensWrite.MinRole(), callerRole(r)))
+		return
+	}
 	if !req.All && owner == "" {
 		id := Identity(r.Context())
 		if id == nil || id.UserID == "" {
@@ -541,10 +567,10 @@ func (s *Server) handlePurgeTokens(w http.ResponseWriter, r *http.Request) {
 		s.internal(w, r, "listing API tokens", err)
 		return
 	}
-	now, who := s.auth.Now(), callerRole(r)
+	now := s.auth.Now()
 	out := purgeTokensResponse{Deleted: []tokenResponse{}}
 	for _, t := range tokens {
-		if !tokenVisibleTo(t, who) || !tokenSpent(t, now) || (!req.All && t.UserID != owner) {
+		if !tokenReachable(r, t, auth.ActionTokensWrite) || !tokenSpent(t, now) || (!req.All && t.UserID != owner) {
 			continue
 		}
 		if err := s.deleteToken(r, t); err != nil {

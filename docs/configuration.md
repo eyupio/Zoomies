@@ -282,6 +282,8 @@ oidc:
   operator_groups: []           # ZOOMIES_OIDC_OPERATOR_GROUPS
   allow_signup: false           # ZOOMIES_OIDC_ALLOW_SIGNUP
   link_by_username: false       # ZOOMIES_OIDC_LINK_BY_USERNAME -- let SSO take over a password account of the same name; warned about
+  label: ""                     # ZOOMIES_OIDC_LABEL -- the sign-in button's words; empty names the issuer's host
+  hide_password_login: false    # ZOOMIES_OIDC_HIDE_PASSWORD_LOGIN -- SSO only on the sign-in page; admins keep /login?password
 
 metrics:
   enabled: true                 # ZOOMIES_METRICS_ENABLED
@@ -300,12 +302,13 @@ retention:
   webhooks: 168h                # ZOOMIES_RETENTION_WEBHOOKS
   machines: 168h                # ZOOMIES_RETENTION_MACHINES  (7 days of deleted-machine rows -- what was rented, when, and what it cost)
 
-limits:                         # fleet-wide ceilings; 0 is unlimited, and every one is 0 by default
+limits:                         # fleet-wide ceilings; 0 is unlimited, and every one is 0 by default except job_stats_window
   hosts: 0                      # ZOOMIES_LIMITS_HOSTS             -- enrolled hosts
   pools: 0                      # ZOOMIES_LIMITS_POOLS             -- pools
   runners: 0                    # ZOOMIES_LIMITS_RUNNERS           -- live runners across every pool
   join_tokens: 0                # ZOOMIES_LIMITS_JOIN_TOKENS       -- join tokens neither used nor expired
   event_subscribers: 0          # ZOOMIES_LIMITS_EVENT_SUBSCRIBERS -- open live-update streams (one per UI tab)
+  job_stats_window: 2160h       # ZOOMIES_LIMITS_JOB_STATS_WINDOW  -- longest span one job statistics request may cover (90 days; 0 is this default, not unlimited)
 
 backup:
   directory: ""                 # ZOOMIES_BACKUP_DIRECTORY  -- empty: a `backups` directory beside the database
@@ -501,6 +504,7 @@ if you set `keep: 0` and never expect the page to say what is there.
 | --- | --- | --- | --- |
 | `limits.event_subscribers` | `ZOOMIES_LIMITS_EVENT_SUBSCRIBERS` | at once | Most live-update streams — The most live-update streams open at once. Every open tab of the UI holds one, so leave room for every operator's browser. 0 is unlimited. |
 | `limits.hosts` | `ZOOMIES_LIMITS_HOSTS` | at once | Most hosts — The most hosts that may be enrolled at once; a join beyond it is refused. 0 is unlimited. A host joining again under its own name is not counted twice. |
+| `limits.job_stats_window` | `ZOOMIES_LIMITS_JOB_STATS_WINDOW` | at once | Longest job statistics window — The longest span of jobs one job statistics request may cover, from the API, the CLI or the MCP job_stats tool. A longer request is refused with this number in the message. 0 is the default of 90 days, not unlimited: the statistics are computed from the job rows on each request. Jobs older than retention.jobs no longer exist to be counted. |
 | `limits.join_tokens` | `ZOOMIES_LIMITS_JOIN_TOKENS` | at once | Most outstanding join tokens — The most join tokens that may be outstanding at once, counting those neither used nor expired; minting one beyond it is refused. 0 is unlimited. |
 | `limits.pools` | `ZOOMIES_LIMITS_POOLS` | at once | Most pools — The most pools this instance holds; creating one beyond it is refused. 0 is unlimited. |
 | `limits.runners` | `ZOOMIES_LIMITS_RUNNERS` | at once | Most runners — The most live runners across every pool. At the ceiling the scheduler creates no more, and each pool it held back says so in its scaling reason. 0 is unlimited. |
@@ -546,8 +550,10 @@ the validator says so with `limits.loopback`.
 | `oidc.client_id` | `ZOOMIES_OIDC_CLIENT_ID` | next restart | Client ID — The client this controller identifies itself as. |
 | `oidc.client_secret` | `ZOOMIES_OIDC_CLIENT_SECRET` | next restart | Client secret — The client secret that goes with it. |
 | `oidc.enabled` | `ZOOMIES_OIDC_ENABLED` | next restart | Single sign-on — Offer single sign-on as well as local accounts. |
+| `oidc.hide_password_login` | `ZOOMIES_OIDC_HIDE_PASSWORD_LOGIN` | at once | Hide the password form — Show only the single sign-on button while single sign-on is working, and refuse password sign-in below administrator. An administrator can still sign in with a password from /login?password. |
 | `oidc.groups_claim` | `ZOOMIES_OIDC_GROUPS_CLAIM` | next restart | Groups claim — The token claim listing the groups a user is in. |
 | `oidc.issuer` | `ZOOMIES_OIDC_ISSUER` | next restart | Issuer URL — The identity provider's issuer URL, from which its endpoints are discovered. |
+| `oidc.label` | `ZOOMIES_OIDC_LABEL` | at once | Sign-in button text — The words on the single sign-on button. Empty says "Sign in with" and the issuer's host. |
 | `oidc.link_by_username` | `ZOOMIES_OIDC_LINK_BY_USERNAME` | next restart | Link sign-on to local accounts — Let a first single sign-on take over an existing local account with the same username. Turn it on for the one migration where that is the intention, then turn it off again. |
 | `oidc.platform_groups` | `ZOOMIES_OIDC_PLATFORM_GROUPS` | next restart | Platform groups — Provider groups whose members get the platform role, above administrator. |
 | `oidc.operator_groups` | `ZOOMIES_OIDC_OPERATOR_GROUPS` | next restart | Operator groups — Provider groups whose members get the operator role. A user in no mapped group is a viewer. |

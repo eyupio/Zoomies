@@ -143,6 +143,25 @@ jobs, runners, pools, hosts and logs, and â€” for an operator connection only â€
 your connection, so it meets the same role check and writes the same audit row
 as the CLI would.
 
+### Comparing releases and periods
+
+For a question about a period rather than one job, ask for `job_stats`. One call
+with `group_by: ["controller_version"]` and `since: "30d"` returns, for each
+release, how many jobs finished and how, how many were lost to the fleet rather
+than the workflow, and p50 and p95 of duration, queue wait and runner startup.
+Groups can also be days, hosts, pools or job names, two at a time. Cancelled and
+skipped jobs are left out of duration, and the answer says so. Jobs recorded
+before their release was stamped, and jobs no pool here claimed, are the group
+`unknown`. Any viewer may call it.
+
+`list_jobs` returns a short summary of each job by default, without its steps,
+so a hundred fit in one answer; set `include_steps` when the steps matter. When
+a page comes back full it carries `next`, and passing that as `before` reads the
+page after it, back through every job the controller has kept
+(`retention.jobs`, 30 days unless set). `until`, `job_name` (exact),
+`controller_version`, `host_id` and `hosted` narrow it, and `since` and `until`
+take a duration such as `30d` or a timestamp.
+
 The token Claude holds is refused by the REST API, the event stream and
 everything else that is not `/mcp`. For automation that needs the API, create
 an [API token](security.md#identities) instead.

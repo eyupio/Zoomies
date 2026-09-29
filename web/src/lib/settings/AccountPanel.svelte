@@ -10,13 +10,14 @@
   starts to apply without signing out and in.
 -->
 <script lang="ts">
-  import { KeyRound } from '@lucide/svelte';
-  import { ApiError } from '$lib/api/client';
+  import { KeyRound, LogOut } from '@lucide/svelte';
+  import { ApiError, logoutOthers } from '$lib/api/client';
   import { MIN_PASSWORD_LENGTH } from '$lib/passwords';
   import { roleLabel } from '$lib/roles';
   import { session } from '$lib/state/session.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
   import Button from '$lib/components/Button.svelte';
+  import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import Dialog from '$lib/components/Dialog.svelte';
   import Field from '$lib/components/Field.svelte';
   import Input from '$lib/components/Input.svelte';
@@ -49,6 +50,25 @@
     open = true;
   }
 
+  let othersOpen = $state(false);
+
+  async function signOutOthers(): Promise<boolean> {
+    try {
+      const result = await logoutOthers();
+      const n = result.mcp_connections_ended ?? 0;
+      toasts.success(
+        'Signed out everywhere else',
+        n === 0
+          ? 'Every other session signed in as you has ended.'
+          : `Every other session has ended, and ${n === 1 ? '1 MCP connection' : `${n} MCP connections`} with them.`,
+      );
+      return true;
+    } catch (cause) {
+      toasts.fromError(cause, 'Your other sessions were not signed out');
+      return false;
+    }
+  }
+
   async function change(): Promise<void> {
     if (!ready) return;
     saving = true;
@@ -57,7 +77,7 @@
       await session.changePassword(current || undefined, next);
       toasts.success(
         'Password changed',
-        'Every other session signed in as you has been signed out.',
+        'Every other session signed in as you has been signed out, and your MCP connections ended.',
       );
       open = false;
     } catch (cause) {
@@ -86,7 +106,8 @@
       {:else if session.mustChangePassword}
         Your password was set by somebody else. Choose your own now.
       {:else}
-        {roleLabel(session.role)}. Changing your password ends every other session signed in as you.
+        {roleLabel(session.role)}. Changing your password ends every other session signed in as you,
+        and every MCP connection.
       {/if}
     </p>
   </div>
@@ -98,8 +119,22 @@
     >
       Change password
     </Button>
+    {#if session.identity?.kind === 'user'}
+      <Button icon={LogOut} onclick={() => (othersOpen = true)}>Sign out other sessions</Button>
+    {/if}
   {/if}
 </div>
+
+<ConfirmDialog
+  bind:open={othersOpen}
+  title="Sign out other sessions"
+  description="Every other browser signed in as you is signed out. This one stays signed in."
+  consequences={[
+    'Every MCP connection you have made — Claude, or any other client — ends too, and has to be approved again.',
+  ]}
+  confirmLabel="Sign out the others"
+  onconfirm={signOutOthers}
+/>
 
 {#if !session.authDisabled && session.identity?.kind === 'user'}
   <TwoStepPanel />
@@ -108,7 +143,7 @@
 <Dialog
   bind:open
   title="Change your password"
-  description="Every other session signed in as you is ended."
+  description="Every other session signed in as you is ended, and every MCP connection."
   size="sm"
 >
   <form

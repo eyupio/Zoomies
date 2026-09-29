@@ -102,6 +102,10 @@ type Options struct {
 
 // Controller owns the control plane's moving parts and their lifecycles.
 type Controller struct {
+	// sso is what the API last said about single sign-on, for the problems
+	// list; see sso.go.
+	sso ssoBox
+
 	// cleanupCursor is owned by the serial reconcile loop.
 	cleanupCursor string
 	st            *store.Store

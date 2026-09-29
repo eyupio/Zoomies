@@ -367,6 +367,8 @@ func (c *Config) Validate() Findings {
 	}
 	if c.MCPOAuthEnabled() {
 		c.mcpOAuthFindings(add)
+	} else if c.mcpOAuthWithoutAddress() {
+		c.mcpOAuthNoExternalURL(add)
 	}
 	if c.Security.DockerInDockerExpected {
 		add(Finding{
@@ -696,6 +698,16 @@ func (c *Config) Validate() Findings {
 				Fix:    "restrict the application in your IdP, or turn oidc.allow_signup off and create accounts explicitly.",
 			})
 		}
+	}
+
+	if c.OIDC.HidePasswordLogin && !c.OIDC.Enabled {
+		add(Finding{
+			Code: "oidc.password_login_hidden_without_sso", Severity: SeverityWarning, Setting: "oidc.hide_password_login",
+			Title: "the password form is set to be hidden, but single sign-on is off",
+			Detail: "the setting does nothing while single sign-on is off -- the sign-in page keeps its password form, because it would otherwise offer no way in at all. " +
+				"The moment single sign-on is turned on and works, everybody below administrator loses password sign-in, which is easy to forget was decided long before.",
+			Fix: "turn oidc.hide_password_login off, or configure oidc and check that its button signs people in before relying on it.",
+		})
 	}
 
 	// --- Agent and backends ----------------------------------------------
@@ -1102,6 +1114,14 @@ func (c *Config) Validate() Findings {
 				Fix:    fmt.Sprintf("set %s back to 0, or leave it if this controller will be reachable once it is behind a proxy or given an external URL.", l.key),
 			})
 		}
+	}
+
+	if c.Limits.JobStatsWindow < 0 {
+		add(Finding{
+			Code: "limits.negative", Severity: SeverityError, Setting: "limits.job_stats_window",
+			Title: fmt.Sprintf("limits.job_stats_window is %s, and a window cannot be negative", c.Limits.JobStatsWindow),
+			Fix:   "set limits.job_stats_window to 0 for the 90-day default, or to the longest span one job statistics request may cover.",
+		})
 	}
 
 	if c.Metrics.Enabled && c.Metrics.Public {
@@ -1537,6 +1557,33 @@ func checkExtraCA(p string) (Finding, bool) {
 			"the file needs at least one -----BEGIN CERTIFICATE----- block; a DER file converts with `openssl x509 -inform der -in ca.der -out ca.pem`.")
 	}
 	return Finding{}, true
+}
+
+// mcpOAuthWithoutAddress reports whether security.mcp_oauth has been turned
+// on where the controller answers off this machine and has not been told the
+// address it is reached at.
+//
+// Every address an authorisation server advertises -- its issuer, its
+// endpoints, the resource a token is bound to -- would then be taken from each
+// request's Host header, which anybody who can reach the listener writes. A
+// client that is sent to a Host of an attacker's choosing hands its
+// authorisation code there. On loopback the only writer is this machine, so it
+// is left alone.
+func (c *Config) mcpOAuthWithoutAddress() bool {
+	return !c.Security.DisableAuth && c.Security.MCPOAuth != nil && *c.Security.MCPOAuth &&
+		c.BindsPublicly() && strings.TrimSpace(c.Server.ExternalURL) == ""
+}
+
+// mcpOAuthNoExternalURL is the refusal for mcpOAuthWithoutAddress.
+func (c *Config) mcpOAuthNoExternalURL(add func(Finding)) {
+	add(Finding{
+		Code: "mcp_oauth.no_external_url", Severity: SeverityError, Setting: "security.mcp_oauth",
+		Title: "MCP sign-in is on, this controller listens off this machine, and server.external_url is not set",
+		Detail: "without it the issuer, the endpoints and the resource an MCP token is bound to would all be read from each request's Host header, " +
+			"which whoever sends the request chooses; a client sent to a forged address would hand its authorisation code to it.",
+		Fix: "set server.external_url to the https address people reach this controller at, e.g. https://zoomies.example.com, " +
+			"or set security.mcp_oauth to false, or bind server.bind to 127.0.0.1 behind a proxy that sets it.",
+	})
 }
 
 // mcpOAuthFindings says what OAuth for /mcp means on this deployment: how to

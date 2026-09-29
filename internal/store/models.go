@@ -1319,6 +1319,17 @@ type Job struct {
 	// counted rather than only read one at a time. It is set with RunnerFault
 	// and never without it; empty means the fleet has nothing to confess.
 	FaultKind FaultKind `json:"fault_kind,omitempty"`
+	// ControllerVersion, ControllerChannel, AgentVersion and HostID say which
+	// build ran the job and where, so that jobs can be compared across
+	// releases. They are stamped once by StampJobVersions -- the controller's
+	// pair when a pool claims the job, the host's pair when a runner takes it --
+	// and never rewritten by a later delivery. Empty on a job recorded before
+	// migration 0060, and on one nothing here ever claimed; neither is
+	// backfilled, because no timestamp says which release was running.
+	ControllerVersion string `json:"controller_version,omitempty"`
+	ControllerChannel string `json:"controller_channel,omitempty"`
+	AgentVersion      string `json:"agent_version,omitempty"`
+	HostID            string `json:"host_id,omitempty"`
 }
 
 // JobStep is one step of a workflow job as GitHub reported it.

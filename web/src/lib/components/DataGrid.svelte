@@ -66,6 +66,12 @@
      * whole line for each of them.
      */
     priority?: 'wide';
+    /**
+     * Start hidden. The column chooser still lists it, and the operator's choice
+     * to show it is remembered like any other; a column added this way stays
+     * out of the way of everyone who had already arranged the grid.
+     */
+    hiddenByDefault?: boolean;
   }
 
   export interface BulkAction {
@@ -386,7 +392,9 @@
   // it is theirs to change from there.
   let visibility = $state<Record<string, boolean>>(
     untrack(() =>
-      Object.fromEntries(columns.map((c) => [c.id, prefs.isColumnVisible(gridId, c.id)])),
+      Object.fromEntries(
+        columns.map((c) => [c.id, prefs.isColumnVisible(gridId, c.id, c.hiddenByDefault)]),
+      ),
     ),
   );
 
@@ -752,7 +760,7 @@
 
   function toggleColumn(id: string, visible: boolean): void {
     visibility = { ...visibility, [id]: visible };
-    prefs.setColumnVisible(gridId, id, visible);
+    prefs.setColumnVisible(gridId, id, visible, columns.find((c) => c.id === id)?.hiddenByDefault);
   }
 
   /* -- sorting and paging --------------------------------------------------- */

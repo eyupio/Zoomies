@@ -294,6 +294,13 @@
       cell: runnerCell,
     },
     {
+      id: 'controller_version',
+      header: 'Controller version',
+      priority: 'wide',
+      hiddenByDefault: true,
+      value: (job) => job.controller_version ?? '--',
+    },
+    {
       id: 'queue_wait',
       header: 'Queue wait',
       sortable: true,

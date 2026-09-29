@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
@@ -45,8 +46,15 @@ func (h *harness) form(path string, v url.Values, headers map[string]string) *re
 
 func (h *harness) registerClient(redirects ...string) string {
 	h.t.Helper()
+	return h.registerNamedClient("Claude", redirects...)
+}
+
+// registerNamedClient registers a client under a name of its own: the same
+// name and redirects are the same client, and are handed the same ID.
+func (h *harness) registerNamedClient(name string, redirects ...string) string {
+	h.t.Helper()
 	resp := h.do(request{method: http.MethodPost, path: "/oauth/register", noOrigin: true,
-		body: map[string]any{"client_name": "Claude", "redirect_uris": redirects, "token_endpoint_auth_method": "none"}})
+		body: map[string]any{"client_name": name, "redirect_uris": redirects, "token_endpoint_auth_method": "none"}})
 	resp.mustStatus(h.t, http.StatusCreated, "registering a client")
 	var out struct {
 		ClientID string `json:"client_id"`
@@ -286,10 +294,12 @@ func TestMCPOAuthDynamicRegistration(t *testing.T) {
 		t.Errorf("a registration must be audited, got %v", h.auditActions())
 	}
 
+	// Each one new, because a client registering again as itself is handed
+	// its registration back and never counted.
 	limited := false
-	for range 30 {
+	for i := range 150 {
 		r := h.do(request{method: http.MethodPost, path: "/oauth/register", noOrigin: true,
-			body: map[string]any{"redirect_uris": []string{claudeReturn}}})
+			body: map[string]any{"client_name": fmt.Sprintf("client %d", i), "redirect_uris": []string{claudeReturn}}})
 		if r.status == http.StatusTooManyRequests {
 			limited = true
 			break
@@ -379,7 +389,7 @@ func TestMCPOAuthRefusesAWrongExchange(t *testing.T) {
 	h := oauthHarness(t)
 	_, cookie := h.user("olive", store.RoleOperator)
 	client := h.registerClient(claudeReturn)
-	other := h.registerClient(claudeReturn)
+	other := h.registerNamedClient("Another client", claudeReturn)
 	fresh := func() string {
 		return h.approve(cookie, requestFrom(t, h.authorize(client, claudeReturn, nil)), store.RoleViewer)
 	}

@@ -21,6 +21,12 @@ type RunnerSession struct {
 	CleanedUpAt       *time.Time `json:"cleaned_up_at,omitempty"`
 	CostPerRunnerHour *float64   `json:"cost_per_runner_hour,omitempty"`
 	RecordedAt        time.Time  `json:"recorded_at"`
+	// The release that ran the session's job, copied from the job when the
+	// session is written so it outlives the job row. Empty when the job was
+	// recorded before versions were stamped.
+	ControllerVersion string `json:"controller_version,omitempty"`
+	ControllerChannel string `json:"controller_channel,omitempty"`
+	AgentVersion      string `json:"agent_version,omitempty"`
 }
 
 // insertRunnerSessionSQL copies what the ledger needs from a runner row. The
@@ -41,11 +47,14 @@ type RunnerSession struct {
 // are gone (migration 0051).
 const insertRunnerSessionSQL = `INSERT INTO runner_sessions (runner_id, pool_id, host_id, installation_id, job_id,
 	started_at, registered_at, finished_at, cleaned_up_at, cost_per_runner_hour, recorded_at,
-	create_task_issued_at, job_eligible_at)
+	create_task_issued_at, job_eligible_at, controller_version, controller_channel, agent_version)
 SELECT r.id, r.pool_id, COALESCE(r.host_id, ''), COALESCE(p.installation_id, ''), x.job_id,
 	r.created_at, r.registered_at, COALESCE(r.finished_at, r.host_removed_at, r.cleaned_up_at, ?1), r.cleaned_up_at,
 	p.cost_per_runner_hour, ?1,
-	r.create_task_issued_at, (SELECT j.eligible_at FROM jobs j WHERE j.id = x.job_id)
+	r.create_task_issued_at, (SELECT j.eligible_at FROM jobs j WHERE j.id = x.job_id),
+	(SELECT j.controller_version FROM jobs j WHERE j.id = x.job_id),
+	(SELECT j.controller_channel FROM jobs j WHERE j.id = x.job_id),
+	(SELECT j.agent_version FROM jobs j WHERE j.id = x.job_id)
 FROM runners r LEFT JOIN pools p ON p.id = r.pool_id
 JOIN (SELECT r2.id AS runner_id, COALESCE(NULLIF(r2.current_job_id, ''),
 		(SELECT j.id FROM jobs j WHERE j.runner_id = r2.id ORDER BY j.queued_at DESC LIMIT 1), '') AS job_id
@@ -85,7 +94,8 @@ func querySessions(ctx context.Context, q interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 }, from, to int64) ([]*RunnerSession, error) {
 	rows, err := q.QueryContext(ctx, `SELECT runner_id, pool_id, host_id, installation_id, job_id,
-		started_at, registered_at, finished_at, cleaned_up_at, cost_per_runner_hour, recorded_at
+		started_at, registered_at, finished_at, cleaned_up_at, cost_per_runner_hour, recorded_at,
+		COALESCE(controller_version, ''), COALESCE(controller_channel, ''), COALESCE(agent_version, '')
 		FROM runner_sessions WHERE started_at < ? AND finished_at > ? ORDER BY started_at, runner_id`, to, from)
 	if err != nil {
 		return nil, err
@@ -98,7 +108,8 @@ func querySessions(ctx context.Context, q interface {
 		var registered, cleaned sql.NullInt64
 		var cost sql.NullFloat64
 		if err := rows.Scan(&x.RunnerID, &x.PoolID, &x.HostID, &x.InstallationID, &x.JobID,
-			&started, &registered, &finished, &cleaned, &cost, &recorded); err != nil {
+			&started, &registered, &finished, &cleaned, &cost, &recorded,
+			&x.ControllerVersion, &x.ControllerChannel, &x.AgentVersion); err != nil {
 			return nil, err
 		}
 		x.StartedAt, x.FinishedAt, x.RecordedAt = time.UnixMilli(started), time.UnixMilli(finished), time.UnixMilli(recorded)

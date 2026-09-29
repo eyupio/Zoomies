@@ -685,7 +685,9 @@ test.describe('what each role is shown', () => {
           expect(await tokens.text()).not.toContain(platformToken);
         } else {
           expect(bundle.status()).toBe(403);
-          expect(tokens.status()).toBe(403);
+          // Anybody signed in lists their own tokens, and only those.
+          expect(tokens.status()).toBe(200);
+          expect(await tokens.text()).not.toContain(platformToken);
         }
       } finally {
         await api.dispose();

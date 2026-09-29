@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -171,6 +172,41 @@ func (s *Store) oauthClientWhere(ctx context.Context, where, arg string) (*OAuth
 		return nil, fmt.Errorf("oauth client %s: %w", arg, ErrNotFound)
 	}
 	return c, err
+}
+
+// FindOAuthRegistration returns the live self-registered client that
+// described itself exactly as this one does -- the same name, client URI and
+// set of redirect URIs -- or ErrNotFound. It is what lets a client that
+// registers afresh on every start be handed the registration it already has,
+// rather than leaving a new row behind each time.
+func (s *Store) FindOAuthRegistration(ctx context.Context, name, clientURI string, redirects []string) (*OAuthClient, error) {
+	rows, err := s.read.QueryContext(ctx, `SELECT `+oauthClientCols+` FROM oauth_clients
+		WHERE kind=? AND revoked_at IS NULL AND name=? AND client_uri=? ORDER BY created_at DESC, id`,
+		OAuthClientDynamic, name, clientURI)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	want := sortedCopy(redirects)
+	for rows.Next() {
+		c, err := scanOAuthClient(rows)
+		if err != nil {
+			return nil, err
+		}
+		if slices.Equal(sortedCopy(c.RedirectURIs), want) {
+			return c, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return nil, fmt.Errorf("oauth registration %q: %w", name, ErrNotFound)
+}
+
+func sortedCopy(in []string) []string {
+	out := slices.Clone(in)
+	slices.Sort(out)
+	return out
 }
 
 // ListOAuthClients returns every client, newest first.
@@ -425,6 +461,43 @@ func (s *Store) RevokeOAuthGrant(ctx context.Context, id, reason string) error {
 		_, err = tx.ExecContext(ctx, `DELETE FROM oauth_tokens WHERE grant_id=?`, id)
 		return err
 	})
+}
+
+// RevokeUserOAuthGrants ends every connection one account holds, and every code
+// and token under them, in one transaction. It returns the IDs it ended, so
+// the caller can forget them elsewhere and say how many there were.
+func (s *Store) RevokeUserOAuthGrants(ctx context.Context, userID, reason string) ([]string, error) {
+	now := ms(s.Now())
+	var ids []string
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		ids = nil
+		rows, err := tx.QueryContext(ctx, `SELECT id FROM oauth_grants WHERE user_id=? AND revoked_at IS NULL ORDER BY id`, userID)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			ids = append(ids, id)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		for _, id := range ids {
+			if _, err := tx.ExecContext(ctx, `UPDATE oauth_grants SET revoked_at=?, revoked_reason=? WHERE id=?`, now, reason, id); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `DELETE FROM oauth_tokens WHERE grant_id=?`, id); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return ids, err
 }
 
 const oauthGrantCols = `g.id, g.client_id, g.user_id, g.role, g.scope, g.resource, g.created_ip, g.created_at,

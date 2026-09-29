@@ -231,6 +231,25 @@ func (l *listValue) Set(v string) error {
 	return nil
 }
 
+// exactList is a repeatable flag whose values are kept whole. listValue splits
+// on commas, which is right for a repository or a state and wrong for a matrix
+// job's name, "test (ubuntu-latest, 3.12)", which has one in it.
+type exactList []string
+
+func (l *exactList) String() string {
+	if l == nil {
+		return ""
+	}
+	return strings.Join(*l, "; ")
+}
+
+func (l *exactList) Set(v string) error {
+	if v = strings.TrimSpace(v); v != "" {
+		*l = append(*l, v)
+	}
+	return nil
+}
+
 // kvValue collects repeatable key=value pairs: --label arch=arm64 --label
 // tier=fast, or one flag with both separated by a comma.
 type kvValue map[string]string

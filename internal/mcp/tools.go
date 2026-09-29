@@ -58,6 +58,11 @@ func integer(description string, min, max int) map[string]any {
 	return map[string]any{"type": "integer", "description": description, "minimum": min, "maximum": max}
 }
 
+func stringList(description string, maxItems int, values ...string) map[string]any {
+	items := map[string]any{"type": "string", "enum": values}
+	return map[string]any{"type": "array", "description": description, "items": items, "maxItems": maxItems, "uniqueItems": true}
+}
+
 func enum(description string, values ...string) map[string]any {
 	return map[string]any{"type": "string", "description": description, "enum": values}
 }
@@ -109,22 +114,51 @@ func tools() []*tool {
 			Name:  "list_jobs",
 			Title: "List jobs",
 			Description: "Workflow jobs this fleet has seen, newest first, with their pool, runner, queue wait, duration and outcome. " +
-				"Use failed to find what went wrong, and ours or theirs to split failures the fleet caused from the workflows' own.",
+				"Use failed to find what went wrong, and ours or theirs to split failures the fleet caused from the workflows' own. " +
+				"Each job is a one-line summary without its steps unless include_steps is true; get_job has the steps. " +
+				"A full page carries a next value: pass it back as before to read the next page, until next is absent. " +
+				"For counts and percentiles over a period, use job_stats rather than paging through jobs.",
 			InputSchema: object(nil, map[string]any{
-				"repo":       str("only this repository, as owner/name"),
-				"workflow":   str("only this workflow"),
-				"state":      enum("only jobs in this state", "waiting", "queued", "in_progress", "completed"),
-				"conclusion": enum("only jobs that finished this way", "success", "failure", "cancelled", "skipped"),
-				"failed":     boolean("only jobs that went wrong: a failing conclusion, or a runner that stopped under the job"),
-				"ours":       boolean("only failures this fleet caused"),
-				"theirs":     boolean("only failures the workflow caused, with nothing wrong on the fleet's side"),
-				"unmatched":  boolean("only queued jobs no enabled pool claims; these will never run"),
-				"since":      str("only jobs queued since then: a duration such as 24h, or an RFC 3339 timestamp"),
-				"query":      str("substring match on repository, workflow or job name"),
-				"limit":      integer("how many to return (default 20)", 1, 100),
+				"repo":               str("only this repository, as owner/name"),
+				"workflow":           str("only this workflow"),
+				"job_name":           str("only jobs with exactly this name; query, by contrast, matches a substring"),
+				"state":              enum("only jobs in this state", "waiting", "queued", "in_progress", "completed"),
+				"conclusion":         enum("only jobs that finished this way", "success", "failure", "cancelled", "skipped"),
+				"failed":             boolean("only jobs that went wrong: a failing conclusion, or a runner that stopped under the job"),
+				"ours":               boolean("only failures this fleet caused"),
+				"theirs":             boolean("only failures the workflow caused, with nothing wrong on the fleet's side"),
+				"unmatched":          boolean("only queued jobs no enabled pool claims; these will never run"),
+				"hosted":             boolean("true: only jobs on somebody else's hosted runners; false: only jobs that are not. Leave out for both"),
+				"controller_version": str("only jobs claimed by this controller version, as job records show it; \"unknown\" is the jobs that were never stamped"),
+				"host_id":            str("only jobs that ran on this host, by ID"),
+				"since":              str("only jobs queued at or after then: a duration such as 24h or 30d, or an RFC 3339 timestamp"),
+				"until":              str("only jobs queued before then, in the same forms as since. The end is exclusive, so a window cut at one instant loses and repeats nothing"),
+				"before":             str("continue after the previous page: the next value it returned, unchanged"),
+				"include_steps":      boolean("include each job's steps; a page of jobs with steps is many times larger (default false)"),
+				"query":              str("substring match on repository, workflow or job name"),
+				"limit":              integer("how many to return (default 20)", 1, 100),
 			}),
 			Annotations: readOnly,
 			call:        listJobs,
+		},
+		{
+			Name:  "job_stats",
+			Title: "Job statistics",
+			Description: "Completed jobs counted and timed, grouped by up to two of controller_version, day, host, pool and job_name: " +
+				"count, succeeded, failed, cancelled, fleet failures by kind and their rate, and p50 and p95 of duration, queue wait and startup, in milliseconds. " +
+				"group_by controller_version compares releases in one call. Cancelled and skipped jobs are left out of duration. " +
+				"Jobs without a stamped release are the group \"unknown\". Prefer this to paging through list_jobs for any question about a period.",
+			InputSchema: object(nil, map[string]any{
+				"since":    str("start of the window, included: a duration such as 30d or 24h ago, or an RFC 3339 timestamp (default 7d)"),
+				"until":    str("end of the window, not included, in the same forms (default now)"),
+				"group_by": stringList("what to group by, at most two", 2, "controller_version", "day", "host", "pool", "job_name"),
+				"repo":     str("only this repository, as owner/name"),
+				"workflow": str("only this workflow"),
+				"job_name": str("only jobs with exactly this name"),
+				"hosted":   boolean("true: only jobs on somebody else's hosted runners; false: only jobs that are not. Leave out for both"),
+			}),
+			Annotations: readOnly,
+			call:        jobStats,
 		},
 		{
 			Name:  "get_job",
@@ -254,17 +288,24 @@ func tools() []*tool {
 
 func listJobs(ctx context.Context, c API, raw json.RawMessage) ([]Content, error) {
 	var a struct {
-		Repo       string `json:"repo"`
-		Workflow   string `json:"workflow"`
-		State      string `json:"state"`
-		Conclusion string `json:"conclusion"`
-		Failed     bool   `json:"failed"`
-		Ours       bool   `json:"ours"`
-		Theirs     bool   `json:"theirs"`
-		Unmatched  bool   `json:"unmatched"`
-		Since      string `json:"since"`
-		Query      string `json:"query"`
-		Limit      int    `json:"limit"`
+		Repo              string `json:"repo"`
+		Workflow          string `json:"workflow"`
+		JobName           string `json:"job_name"`
+		State             string `json:"state"`
+		Conclusion        string `json:"conclusion"`
+		Failed            bool   `json:"failed"`
+		Ours              bool   `json:"ours"`
+		Theirs            bool   `json:"theirs"`
+		Unmatched         bool   `json:"unmatched"`
+		Hosted            *bool  `json:"hosted"`
+		ControllerVersion string `json:"controller_version"`
+		HostID            string `json:"host_id"`
+		Since             string `json:"since"`
+		Until             string `json:"until"`
+		Before            string `json:"before"`
+		IncludeSteps      bool   `json:"include_steps"`
+		Query             string `json:"query"`
+		Limit             int    `json:"limit"`
 	}
 	if err := decodeArgs(raw, &a); err != nil {
 		return nil, err
@@ -273,7 +314,10 @@ func listJobs(ctx context.Context, c API, raw json.RawMessage) ([]Content, error
 		return nil, errors.New("ours and theirs ask for opposite halves of the same list; pass one")
 	}
 	q := url.Values{}
-	for key, v := range map[string]string{"repo": a.Repo, "workflow": a.Workflow, "state": a.State, "conclusion": a.Conclusion, "q": a.Query} {
+	for key, v := range map[string]string{
+		"repo": a.Repo, "workflow": a.Workflow, "job_name": a.JobName, "state": a.State, "conclusion": a.Conclusion,
+		"q": a.Query, "controller_version": a.ControllerVersion, "host_id": a.HostID, "before": a.Before,
+	} {
 		if v != "" {
 			q.Set(key, v)
 		}
@@ -283,15 +327,65 @@ func listJobs(ctx context.Context, c API, raw json.RawMessage) ([]Content, error
 			q.Set(key, "true")
 		}
 	}
-	if a.Since != "" {
-		when, err := parseWhen(a.Since)
-		if err != nil {
-			return nil, fmt.Errorf("since %q: %w", a.Since, err)
-		}
-		q.Set("since", when.UTC().Format(time.RFC3339))
+	if a.Hosted != nil {
+		q.Set("hosted", strconv.FormatBool(*a.Hosted))
 	}
+	if err := setWindow(q, a.Since, a.Until); err != nil {
+		return nil, err
+	}
+	// Summaries unless asked otherwise, the reverse of the REST default: a
+	// model's context is the budget here, and a hundred jobs with their steps
+	// overflow a client's output limit at about ten.
+	q.Set("include_steps", strconv.FormatBool(a.IncludeSteps))
 	q.Set("limit", strconv.Itoa(clamp(a.Limit, 20, 100)))
 	return getJSON(ctx, c, "/jobs", q)
+}
+
+func jobStats(ctx context.Context, c API, raw json.RawMessage) ([]Content, error) {
+	var a struct {
+		Since    string   `json:"since"`
+		Until    string   `json:"until"`
+		GroupBy  []string `json:"group_by"`
+		Repo     string   `json:"repo"`
+		Workflow string   `json:"workflow"`
+		JobName  string   `json:"job_name"`
+		Hosted   *bool    `json:"hosted"`
+	}
+	if err := decodeArgs(raw, &a); err != nil {
+		return nil, err
+	}
+	q := url.Values{}
+	for key, v := range map[string]string{"repo": a.Repo, "workflow": a.Workflow, "job_name": a.JobName} {
+		if v != "" {
+			q.Set(key, v)
+		}
+	}
+	if len(a.GroupBy) > 0 {
+		q.Set("group_by", strings.Join(a.GroupBy, ","))
+	}
+	if a.Hosted != nil {
+		q.Set("hosted", strconv.FormatBool(*a.Hosted))
+	}
+	if err := setWindow(q, a.Since, a.Until); err != nil {
+		return nil, err
+	}
+	return getJSON(ctx, c, "/jobs/stats", q)
+}
+
+// setWindow turns the since and until arguments, each a duration ago or a
+// timestamp, into the RFC 3339 parameters the API takes.
+func setWindow(q url.Values, since, until string) error {
+	for key, raw := range map[string]string{"since": since, "until": until} {
+		if raw == "" {
+			continue
+		}
+		when, err := parseWhen(raw)
+		if err != nil {
+			return fmt.Errorf("%s %q: %w", key, raw, err)
+		}
+		q.Set(key, when.UTC().Format(time.RFC3339))
+	}
+	return nil
 }
 
 func getJob(ctx context.Context, c API, raw json.RawMessage) ([]Content, error) {
@@ -494,10 +588,7 @@ func notFound(err error) bool {
 // thing by the same words.
 func parseWhen(raw string) (time.Time, error) {
 	raw = strings.TrimSpace(raw)
-	if d, err := time.ParseDuration(raw); err == nil {
-		if d < 0 {
-			d = -d
-		}
+	if d, ok := parseAgo(raw); ok {
 		return time.Now().Add(-d), nil
 	}
 	for _, layout := range []string{time.RFC3339, "2006-01-02T15:04:05", "2006-01-02"} {
@@ -505,7 +596,34 @@ func parseWhen(raw string) (time.Time, error) {
 			return t, nil
 		}
 	}
-	return time.Time{}, fmt.Errorf("not a duration like 24h nor a timestamp like 2026-01-30 or 2026-01-30T12:00:00Z")
+	return time.Time{}, fmt.Errorf("not a duration like 24h or 30d nor a timestamp like 2026-01-30 or 2026-01-30T12:00:00Z")
+}
+
+// parseAgo reads how long ago: a Go duration such as 90m or 24h, or whole days
+// or weeks as 30d and 2w, because release comparisons are made in those and
+// Go's own parser stops at hours.
+func parseAgo(raw string) (time.Duration, bool) {
+	if n, unit := len(raw)-1, time.Duration(0); n > 0 {
+		switch raw[n] {
+		case 'd':
+			unit = 24 * time.Hour
+		case 'w':
+			unit = 7 * 24 * time.Hour
+		}
+		if unit != 0 {
+			if days, err := strconv.Atoi(raw[:n]); err == nil {
+				return time.Duration(max(days, -days)) * unit, true
+			}
+		}
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, false
+	}
+	if d < 0 {
+		d = -d
+	}
+	return d, true
 }
 
 // lastLines returns the last n lines of s and how many lines s held.

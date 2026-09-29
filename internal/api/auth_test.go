@@ -459,7 +459,7 @@ func TestChangeOwnPasswordIsRateLimited(t *testing.T) {
 // and the state check happens before anything touches it, which is the point.
 func TestOIDCCallbackRefusesAStateThisBrowserDidNotStart(t *testing.T) {
 	h := newHarness(t)
-	h.api.oidc = &auth.OIDCProvider{}
+	h.api.useOIDC(&auth.OIDCProvider{})
 
 	cases := []struct {
 		name   string
@@ -493,7 +493,7 @@ func TestOIDCCallbackRefusesAStateThisBrowserDidNotStart(t *testing.T) {
 // let the same callback be replayed against this browser.
 func TestOIDCCallbackClearsTheStateCookie(t *testing.T) {
 	h := newHarness(t)
-	h.api.oidc = &auth.OIDCProvider{}
+	h.api.useOIDC(&auth.OIDCProvider{})
 
 	resp := h.do(request{
 		method:  http.MethodGet,

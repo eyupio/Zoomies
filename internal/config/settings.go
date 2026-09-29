@@ -663,6 +663,14 @@ var registry = buildRegistry([]Setting{
 		Summary:       "Let a first single sign-on take over an existing local account with the same username. Turn it on for the one migration where that is the intention, then turn it off again.",
 		RestartReason: "the provider is configured at startup",
 	},
+	{
+		Key: "oidc.label", Label: "Sign-in button text", Env: "ZOOMIES_OIDC_LABEL", Kind: KindString, Scope: ScopeInstance, Live: true,
+		Summary: "The words on the single sign-on button. Empty says \"Sign in with\" and the issuer's host.",
+	},
+	{
+		Key: "oidc.hide_password_login", Label: "Hide the password form", Env: "ZOOMIES_OIDC_HIDE_PASSWORD_LOGIN", Kind: KindBool, Scope: ScopeInstance, Live: true,
+		Summary: "Show only the single sign-on button while single sign-on is working, and refuse password sign-in below administrator. An administrator can still sign in with a password from /login?password.",
+	},
 
 	// ---------------------------------------------------------------------
 	// metrics
@@ -748,6 +756,11 @@ var registry = buildRegistry([]Setting{
 	{
 		Key: "limits.event_subscribers", Label: "Most live-update streams", Env: "ZOOMIES_LIMITS_EVENT_SUBSCRIBERS", Kind: KindInt, Scope: ScopePlatform, Live: true,
 		Summary: "The most live-update streams open at once. Every open tab of the UI holds one, so leave room for every operator's browser. 0 is unlimited.",
+	},
+	{
+		Key: "limits.job_stats_window", Label: "Longest job statistics window", Env: "ZOOMIES_LIMITS_JOB_STATS_WINDOW", Kind: KindDuration, Scope: ScopePlatform, Live: true,
+		Floor:   24 * time.Hour,
+		Summary: "The longest span of jobs one job statistics request may cover, from the API, the CLI or the MCP job_stats tool. A longer request is refused with this number in the message. 0 is the default of 90 days, not unlimited: the statistics are computed from the job rows on each request. Jobs older than retention.jobs no longer exist to be counted.",
 	},
 
 	// ---------------------------------------------------------------------

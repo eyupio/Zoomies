@@ -275,7 +275,7 @@ test('the tables that are not grids fit the window too', async ({ page, request 
       await page.setViewportSize({ width, height: 900 });
 
       await goto(page, '/usage', 'Usage');
-      await expect(page.getByRole('table')).toBeVisible();
+      await expect(page.getByRole('table', { name: /^Usage by / })).toBeVisible();
       await expectTablesFit(page, `the usage report at ${width}px`);
 
       await goto(page, '/settings/users', 'Users');

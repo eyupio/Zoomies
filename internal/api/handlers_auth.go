@@ -184,6 +184,8 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, auth.ErrRateLimited):
 			rateLimited(w, err.Error(), s.auth.LoginRetryAfter(ip))
+		case errors.Is(err, auth.ErrPasswordSignInOff):
+			forbidden(w, err.Error())
 		case errors.Is(err, auth.ErrInvalidCredentials),
 			errors.Is(err, auth.ErrAccountDisabled),
 			errors.Is(err, auth.ErrSSOOnly):
@@ -257,6 +259,34 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	s.clearSessionCookie(w)
 	s.auth.Auditor().Auth(r.Context(), Identity(r.Context()), "auth.logout", nil)
 	noContent(w)
+}
+
+// logoutOthersResponse says what "sign out other sessions" ended beyond the
+// sessions, so the page can say it.
+type logoutOthersResponse struct {
+	MCPConnectionsEnded int `json:"mcp_connections_ended"`
+}
+
+// handleLogoutOthers answers POST /api/v1/auth/logout-others: every other
+// session this account has is ended, and so is every MCP connection, while
+// this browser stays signed in.
+func (s *Server) handleLogoutOthers(w http.ResponseWriter, r *http.Request) {
+	id := Identity(r.Context())
+	if id.Kind != auth.KindUser || id.ID == "" {
+		forbidden(w, "only a signed-in account has other sessions to end; an API token has none")
+		return
+	}
+	keep := ""
+	if c, err := r.Cookie(SessionCookie); err == nil {
+		keep = c.Value
+	}
+	n, err := s.auth.LogoutOthers(r.Context(), id, keep)
+	if err != nil {
+		s.fail(w, r, "ending other sessions", err)
+		return
+	}
+	s.auth.Auditor().Auth(r.Context(), id, "auth.logout_others", map[string]any{"mcp_connections_ended": n})
+	writeJSON(w, http.StatusOK, logoutOthersResponse{MCPConnectionsEnded: n})
 }
 
 // handleSession returns who the caller is. The UI calls it on boot to decide
@@ -437,7 +467,8 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 // anybody's browser, which is a login CSRF: the victim ends up signed in as the
 // attacker, and everything they then do happens in the attacker's account.
 func (s *Server) handleOIDCStart(w http.ResponseWriter, r *http.Request) {
-	if !s.oidc.Enabled() {
+	sso := s.oidcProvider()
+	if !sso.Enabled() {
 		s.ssoUnavailable(w)
 		return
 	}
@@ -450,7 +481,7 @@ func (s *Server) handleOIDCStart(w http.ResponseWriter, r *http.Request) {
 		rateLimited(w, auth.ErrRateLimited.Error(), s.auth.SSOStartRetryAfter(ip))
 		return
 	}
-	authURL, state, err := s.oidc.Start()
+	authURL, state, err := sso.Start()
 	if err != nil {
 		if errors.Is(err, auth.ErrTooManyPendingSignIns) {
 			// A finished flow will free a slot inside the state TTL, so a
@@ -508,7 +539,8 @@ func (s *Server) clearOIDCStateCookie(w http.ResponseWriter) {
 // error document: whoever is looking at this is a person in a browser who was
 // trying to sign in, and the login page is where they can try again.
 func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
-	if !s.oidc.Enabled() {
+	sso := s.oidcProvider()
+	if !sso.Enabled() {
 		s.ssoUnavailable(w)
 		return
 	}
@@ -536,14 +568,14 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	s.clearOIDCStateCookie(w)
 
-	claims, err := s.oidc.Complete(r.Context(), q.Get("state"), q.Get("code"))
+	claims, err := sso.Complete(r.Context(), q.Get("state"), q.Get("code"))
 	if err != nil {
 		s.logger(r).Warn("a single sign-on callback could not be completed", "error", err)
 		s.redirectToLogin(w, r, err.Error())
 		return
 	}
 
-	u, err := s.oidc.EnsureUser(r.Context(), s.ctrl.Store(), claims, s.oidc.AllowSignup())
+	u, err := sso.EnsureUser(r.Context(), s.ctrl.Store(), claims, sso.AllowSignup())
 	if err != nil {
 		s.logger(r).Warn("a single sign-on login matched no account", "subject", claims.Subject, "error", err)
 		s.redirectToLogin(w, r, err.Error())
@@ -594,8 +626,8 @@ func consentReturn(v string) bool {
 
 func (s *Server) ssoUnavailable(w http.ResponseWriter) {
 	msg := "single sign-on is not configured on this controller; sign in with a username and password"
-	if s.oidcErr != nil {
-		msg = "single sign-on is configured but could not be set up: " + s.oidcErr.Error()
+	if s.oidcFailure() != nil {
+		msg = "single sign-on is configured but could not be set up: " + s.oidcFailure().Error()
 	}
 	writeError(w, http.StatusServiceUnavailable, errorEnvelope{Error: errorBody{
 		Code: codeInternal, Message: msg,

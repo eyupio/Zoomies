@@ -3,8 +3,10 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -15,21 +17,25 @@ import (
 
 const jobCols = `id, github_job_id, github_run_id, repo, workflow, job_name, labels, state,
 	conclusion, installation_id, pool_id, runner_id, runner_name, html_url, queued_at,
-	started_at, completed_at, matched, eligible_at, head_branch, head_sha, run_attempt, run_number, steps, runner_fault, fault_kind, provisioning, provision_now, cancel_requested_at`
+	started_at, completed_at, matched, eligible_at, head_branch, head_sha, run_attempt, run_number, steps, runner_fault, fault_kind, provisioning, provision_now, cancel_requested_at,
+	controller_version, controller_channel, agent_version, host_id`
 
 func scanJob(sc interface{ Scan(...any) error }) (*Job, error) {
 	var j Job
 	var queued int64
 	var started, completed, eligible, cancelRequested sql.NullInt64
 	var matched int
+	var controllerVersion, controllerChannel, agentVersion, hostID sql.NullString
 	err := sc.Scan(&j.ID, &j.GitHubJobID, &j.GitHubRunID, &j.Repo, &j.Workflow, &j.JobName,
 		&j.Labels, &j.State, &j.Conclusion, &j.InstallationID, &j.PoolID, &j.RunnerID,
 		&j.RunnerName, &j.HTMLURL, &queued, &started, &completed, &matched, &eligible,
 		&j.HeadBranch, &j.HeadSHA, &j.RunAttempt, &j.RunNumber, &j.Steps, &j.RunnerFault, &j.FaultKind, &j.Provisioning, &j.ProvisionNow,
-		&cancelRequested)
+		&cancelRequested, &controllerVersion, &controllerChannel, &agentVersion, &hostID)
 	if err != nil {
 		return nil, err
 	}
+	j.ControllerVersion, j.ControllerChannel = controllerVersion.String, controllerChannel.String
+	j.AgentVersion, j.HostID = agentVersion.String, hostID.String
 	j.QueuedAt = at(queued)
 	j.StartedAt, j.CompletedAt, j.EligibleAt = atp(started), atp(completed), atp(eligible)
 	j.CancelRequestedAt = atp(cancelRequested)
@@ -75,13 +81,14 @@ func (s *Store) ApplyJob(ctx context.Context, j *Job) (*Job, JobChange, error) {
 				j.EligibleAt = &now
 			}
 			_, err := tx.ExecContext(ctx, `INSERT INTO jobs (`+jobCols+`)
-				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 				j.ID, j.GitHubJobID, j.GitHubRunID, j.Repo, j.Workflow, j.JobName, j.Labels,
 				string(j.State), j.Conclusion, j.InstallationID, j.PoolID, j.RunnerID,
 				j.RunnerName, j.HTMLURL, ms(j.QueuedAt), msp(j.StartedAt), msp(j.CompletedAt),
 				boolInt(j.Matched), msp(j.EligibleAt), j.HeadBranch, j.HeadSHA, j.RunAttempt, j.RunNumber,
 				j.Steps, j.RunnerFault, j.FaultKind, j.Provisioning, j.ProvisionNow,
-				msp(j.CancelRequestedAt))
+				msp(j.CancelRequestedAt), nullText(j.ControllerVersion), nullText(j.ControllerChannel),
+				nullText(j.AgentVersion), nullText(j.HostID))
 			if err != nil {
 				return err
 			}
@@ -193,6 +200,46 @@ func (s *Store) ApplyJob(ctx context.Context, j *Job) (*Job, JobChange, error) {
 		return nil
 	})
 	return out, change, err
+}
+
+// JobVersions is what StampJobVersions records: the build that claimed a job
+// and the host and agent that ran it. An empty field is "not known yet", not
+// a value to store.
+type JobVersions struct {
+	ControllerVersion string
+	ControllerChannel string
+	AgentVersion      string
+	HostID            string
+}
+
+// StampJobVersions records which release handled a job, and returns the job
+// as it now is.
+//
+// Every column is set once and never again: each is written only where it is
+// still NULL, inside the statement rather than after a read, so two stamps
+// racing -- a webhook and the poller, both seeing the same claim -- leave the
+// first one's values. That is also why the controller's pair and the host's
+// pair can arrive separately: a job is claimed before it has a host, and the
+// second stamp fills in what the first could not without touching it.
+func (s *Store) StampJobVersions(ctx context.Context, jobID string, v JobVersions) (*Job, error) {
+	var out *Job
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `UPDATE jobs SET
+			controller_version = COALESCE(controller_version, NULLIF(?1, '')),
+			controller_channel = COALESCE(controller_channel, NULLIF(?2, '')),
+			agent_version      = COALESCE(agent_version,      NULLIF(?3, '')),
+			host_id            = COALESCE(host_id,            NULLIF(?4, ''))
+			WHERE id = ?5`, v.ControllerVersion, v.ControllerChannel, v.AgentVersion, v.HostID, jobID); err != nil {
+			return err
+		}
+		j, err := scanJob(tx.QueryRowContext(ctx, `SELECT `+jobCols+` FROM jobs WHERE id = ?`, jobID))
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("job %s: %w", jobID, ErrNotFound)
+		}
+		out = j
+		return err
+	})
+	return out, err
 }
 
 // SetJobRunnerFault records what the runner executing a job said when it
@@ -383,8 +430,24 @@ type JobFilter struct {
 	Conclusions []string
 	Labels      []string
 	Search      string
-	Since       *time.Time
-	Until       *time.Time
+	// Since is inclusive and Until exclusive: a job queued exactly at Since is
+	// in, one queued exactly at Until is out. Half-open so that two windows
+	// cut at the same instant -- the last 30 days and the 30 before -- share
+	// no job and leave none out.
+	Since *time.Time
+	Until *time.Time
+	// ControllerVersions keeps the jobs stamped with one of these controller
+	// versions. UnknownVersion matches the jobs that were never stamped.
+	ControllerVersions []string
+	// HostIDs keeps the jobs that ran on one of these hosts, as stamped.
+	HostIDs []string
+	// JobNames is an exact match on the job's name, unlike Search, which
+	// finds a substring of it, the repository, the workflow or the runner.
+	JobNames []string
+	// Hosted narrows by whether every label names somebody else's runners:
+	// true keeps only those, false keeps only jobs with a label that does not.
+	// Nil is both.
+	Hosted *bool
 	// UnmatchedOnly surfaces queued jobs that no pool claims. It is deliberately
 	// narrower than "matched = 0" in two ways, and both are the same mistake:
 	// reporting a fleet-wide fault every time somebody keeps one repository on
@@ -464,6 +527,92 @@ func (s *Store) ListJobs(ctx context.Context, f JobFilter, p Page) ([]*Job, int,
 	return out, total, rows.Err()
 }
 
+// UnknownVersion is what a job that was never stamped with a release is
+// called wherever a release is named: as a filter value, and as the group the
+// job statistics put those jobs in.
+const UnknownVersion = "unknown"
+
+// JobCursor is a place in the job listing: the last job a page returned. The
+// next page starts after it, so a job queued while somebody is paging cannot
+// push a row from one page onto the next, which an offset would.
+type JobCursor struct {
+	QueuedAt time.Time
+	ID       string
+}
+
+// ErrInvalidCursor is a cursor this build did not issue.
+var ErrInvalidCursor = errors.New("store: not a job cursor")
+
+// Encode renders the cursor as an opaque token. It is opaque so that callers
+// hand it back rather than build one, which leaves room to change what is in it.
+func (c JobCursor) Encode() string {
+	return base64.RawURLEncoding.EncodeToString([]byte(strconv.FormatInt(ms(c.QueuedAt), 10) + "." + c.ID))
+}
+
+// ParseJobCursor reads a token Encode wrote.
+func ParseJobCursor(token string) (JobCursor, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return JobCursor{}, ErrInvalidCursor
+	}
+	at, id, ok := strings.Cut(string(raw), ".")
+	n, perr := strconv.ParseInt(at, 10, 64)
+	if !ok || perr != nil || id == "" {
+		return JobCursor{}, ErrInvalidCursor
+	}
+	return JobCursor{QueuedAt: time.UnixMilli(n), ID: id}, nil
+}
+
+// ListJobsAfter reads the listing's default order -- newest queued first, ties
+// by ID -- a page at a time by keyset rather than by offset. after is the last
+// job of the previous page, or nil for the first. It returns the matching
+// total, which ignores the cursor, and the cursor for the next page, nil once
+// the listing has run out.
+//
+// The page is read one row long. A next cursor that promised a page it could
+// not fill would send a caller round once more for nothing.
+func (s *Store) ListJobsAfter(ctx context.Context, f JobFilter, after *JobCursor, limit int) ([]*Job, int, *JobCursor, error) {
+	where, args := jobWhere(f)
+	var total int
+	if err := s.read.QueryRowContext(ctx, `SELECT COUNT(*) FROM jobs `+where, args...).Scan(&total); err != nil {
+		return nil, 0, nil, err
+	}
+	if after != nil {
+		keyset := `(queued_at < ? OR (queued_at = ? AND id > ?))`
+		if where == "" {
+			where = "WHERE " + keyset
+		} else {
+			where += " AND " + keyset
+		}
+		args = append(args, ms(after.QueuedAt), ms(after.QueuedAt), after.ID)
+	}
+	limit = min(max(limit, 1), 500)
+	rows, err := s.read.QueryContext(ctx, `SELECT `+jobCols+` FROM jobs `+where+
+		` ORDER BY queued_at DESC, id ASC LIMIT ?`, append(args, limit+1)...)
+	if err != nil {
+		return nil, 0, nil, err
+	}
+	defer rows.Close()
+	var out []*Job
+	for rows.Next() {
+		j, err := scanJob(rows)
+		if err != nil {
+			return nil, 0, nil, err
+		}
+		out = append(out, j)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, nil, err
+	}
+	var next *JobCursor
+	if len(out) > limit {
+		out = out[:limit]
+		last := out[len(out)-1]
+		next = &JobCursor{QueuedAt: last.QueuedAt, ID: last.ID}
+	}
+	return out, total, next, nil
+}
+
 func jobWhere(f JobFilter) (string, []any) {
 	var cond []string
 	var args []any
@@ -509,6 +658,39 @@ func jobWhere(f JobFilter) (string, []any) {
 	inClause("pool_id", f.PoolIDs)
 	inClause("runner_id", f.RunnerIDs)
 	inClause("conclusion", f.Conclusions)
+	inClause("job_name", f.JobNames)
+	inClause("host_id", f.HostIDs)
+	if len(f.ControllerVersions) > 0 {
+		var known []string
+		unknown := false
+		for _, v := range f.ControllerVersions {
+			if v == UnknownVersion {
+				unknown = true
+			} else {
+				known = append(known, v)
+			}
+		}
+		var alt []string
+		if unknown {
+			alt = append(alt, "controller_version IS NULL")
+		}
+		if len(known) > 0 {
+			ph := make([]string, len(known))
+			for i, v := range known {
+				ph[i] = "?"
+				args = append(args, v)
+			}
+			alt = append(alt, "controller_version IN ("+strings.Join(ph, ",")+")")
+		}
+		cond = append(cond, "("+strings.Join(alt, " OR ")+")")
+	}
+	if f.Hosted != nil {
+		if *f.Hosted {
+			cond = append(cond, hostedJobSQL("jobs"))
+		} else {
+			cond = append(cond, "NOT "+hostedJobSQL("jobs"))
+		}
+	}
 	if len(f.States) > 0 {
 		ph := make([]string, len(f.States))
 		for i, st := range f.States {
@@ -529,7 +711,7 @@ func jobWhere(f JobFilter) (string, []any) {
 		args = append(args, ms(*f.Since))
 	}
 	if f.Until != nil {
-		cond = append(cond, `queued_at <= ?`)
+		cond = append(cond, `queued_at < ?`)
 		args = append(args, ms(*f.Until))
 	}
 	if f.UnmatchedOnly {

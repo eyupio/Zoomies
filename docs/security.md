@@ -257,10 +257,13 @@ says so when it does, and a daemon that already applies limits is left alone.
   but never one wider than itself: the role is capped at the caller's, a
   scoped token can only mint within its scopes, and the result belongs to the
   same account, so a leaked token narrowed to one resource cannot be turned
-  into an unscoped one that outlives its revocation. A token also never
-  carries more than its owner's current role: demoting an account demotes the
-  tokens it holds, as it does its MCP connections. The same tokens open
-  `/mcp`, the endpoint a coding agent connects to; see below.
+  into an unscoped one that outlives its revocation. Anybody signed in may
+  create, list and revoke their own tokens, never at a role above their own;
+  an administrator sees and revokes everybody's, and every one of those acts
+  is audited (`token.create`, `token.revoke`, `token.delete`). A token also
+  never carries more than its owner's current role: demoting an account
+  demotes the tokens it holds, as it does its MCP connections. The same tokens
+  open `/mcp`, the endpoint a coding agent connects to; see below.
 * **MCP connections** — `zoomcp_` access tokens from the OAuth flow a client
   such as Claude runs against `/mcp`, when `security.mcp_oauth` is on. They
   are accepted on `/mcp` and nowhere else; see
@@ -359,11 +362,14 @@ that adds, and what it is built not to add:
   the controller's own page and never followed.
 * **Registration is open, access is not.** A client may register itself or name
   itself by a client ID metadata document, and gets nothing until a person signs
-  in and approves it. Registration is limited to twenty an hour per address —
-  a client named by a metadata document is not counted against that — and a
-  client that never completes a sign-in, self-registered or named by a document,
-  is removed after a day. A revoked one is kept, so the revocation holds. The
-  document fetch is fenced — https, no redirects, public addresses only
+  in and approves it. A client that registers again describing itself exactly as
+  before — the same name, client URI and redirects — is handed the registration
+  it already has rather than a new one. New registrations are limited to a
+  hundred an hour per address — a client named by a metadata document is not
+  counted against that — and a client that never completes a sign-in,
+  self-registered or named by a document, is removed after a day. A revoked one
+  is kept, so the revocation holds. The document fetch is fenced — https, no
+  redirects, public addresses only
   unless `security.allow_private_egress` is on, five seconds, five kilobytes —
   and the addresses it refuses are judged after resolution by the same ranges as
   every other outbound URL, NAT64 and 6to4 spellings of a private address included —
@@ -372,14 +378,21 @@ that adds, and what it is built not to add:
   clients an administrator creates, which may be confidential and carry a secret.
 * **Audited.** `mcp_client.register`, `mcp_client.create`,
   `mcp_client.secret_rotate`, `mcp_client.revoke`, `mcp_connection.grant`,
-  `mcp_connection.deny`, `mcp_connection.revoke`, `mcp_connection.replay`, and
+  `mcp_connection.deny`, `mcp_connection.revoke`, `mcp_connection.replay`,
+  `mcp_connection.revoke_all` when a password change, an administrator's
+  password reset or **Sign out other sessions** ends every connection an
+  account holds — a connection outlives any session, and whoever does either
+  suspects a credential of theirs is loose — and
   `mcp_connection.call` for every tool call that changed or tried to change the
   fleet. The route the call reached writes its own row as well, with the
   connection as the actor.
 * **Over https only.** Turning it on where the controller is reached over plain
   HTTP raises `mcp_oauth.plain_http`, because the codes and tokens would cross
   the network readable. Set `server.external_url`: without it the addresses the
-  metadata advertises come from each request's Host header.
+  metadata advertises come from each request's Host header. On a controller
+  that listens off this machine that is an error, `mcp_oauth.no_external_url`,
+  and the controller will not start with `security.mcp_oauth` on until it is
+  set; left unset, the setting does not turn itself on there.
 
 People see and disconnect their own connections under **Settings → MCP
 connections**; an administrator sees everybody's there, and the clients.
@@ -652,6 +665,20 @@ the local `admin` account. Turn it on for the migration from local passwords to
 SSO, when every account is known and the provider is trusted to spell names
 correctly, and turn it off again afterwards; or link the accounts by hand and
 leave it off.
+
+### `oidc.hide_password_login: true`
+
+Takes the password form off the sign-in page while single sign-on is working,
+and refuses a correct password from anybody below administrator, so the only
+way in for most people is the identity provider — where their second factor,
+their leaving date and their password policy already live. It never hides the
+form while single sign-on is down: the page would then offer nobody a way in.
+
+The break-glass door is **`/login?password`**: an administrator opens it, gets
+the password form, and signs in as usual — two-step verification included — on
+the day the identity provider is the thing that is broken. Keep at least one
+administrator with a password and an authenticator for that day. With single
+sign-on off, the setting raises `oidc.password_login_hidden_without_sso`.
 
 ### `oidc.issuer: http://…`
 

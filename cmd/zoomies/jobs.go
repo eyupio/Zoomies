@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -12,6 +13,7 @@ import (
 func runJobs(ctx context.Context, e *env, args []string) error {
 	return runGroup(ctx, e, "jobs", "Job history, queue waits and outcomes.", []*subcommand{
 		{"list", "", "Recent jobs, with filters", jobsList},
+		{"stats", "", "Counts and percentiles over a period, grouped by release, day, host, pool or job", jobsStats},
 		{"get", "<job-id>", "One job in full", jobsGet},
 		{"rerun", "<job-id>", "Ask GitHub to run this run's failed jobs again", jobsRerun},
 	}, args)
@@ -34,6 +36,13 @@ func jobsList(ctx context.Context, e *env, args []string) error {
 	failed := fs.Bool("failed", false, "only jobs that went wrong: a failing conclusion, or a runner that stopped under the job")
 	faulted := fs.Bool("ours", false, "only the failures this fleet caused, not the workflows' own")
 	theirs := fs.Bool("theirs", false, "only the failures the workflows caused, with nothing wrong on this side")
+	jobNames, versions, hostIDs := &exactList{}, &listValue{}, &listValue{}
+	fs.Var(jobNames, "job-name", "only jobs with exactly this name; -q matches a substring instead (repeatable)")
+	fs.Var(versions, "controller-version", "only jobs claimed by this controller version; \"unknown\" is the jobs never stamped (repeatable)")
+	fs.Var(hostIDs, "host-id", "only jobs that ran on this host, by ID (repeatable)")
+	hosted := fs.String("hosted", "", "true: only jobs on somebody else's hosted runners; false: only jobs that are not")
+	before := fs.String("before", "", "continue after the previous page: the cursor it printed, or the next field of --output json")
+	steps := fs.Bool("include-steps", true, "with --output json, include each job's steps; --include-steps=false returns short summaries")
 	faults := &listValue{}
 	fs.Var(faults, "fault", "only this fault category: out_of_memory, host_lost, image, registration, backend, config, out_of_disk, removed, runner_exited (repeatable)")
 	fs.example(
@@ -42,6 +51,8 @@ func jobsList(ctx context.Context, e *env, args []string) error {
 		"zoomies jobs list --failed --since 1h",
 		"zoomies jobs list --ours --since 24h",
 		"zoomies jobs list --fault out_of_memory",
+		"zoomies jobs list --controller-version v1.3.3 --since 30d --output json --include-steps=false",
+		"zoomies jobs list --since 30d --until 7d --limit 100 --before <cursor>",
 	)
 	if err := fs.parse(args); err != nil {
 		return err
@@ -75,6 +86,15 @@ func jobsList(ctx context.Context, e *env, args []string) error {
 		q.Set("workflow_failed", "true")
 	}
 	addList(q, "fault", *faults)
+	addList(q, "job_name", *jobNames)
+	addList(q, "controller_version", *versions)
+	addList(q, "host_id", *hostIDs)
+	if err := setHostedFlag(q, "jobs list", *hosted); err != nil {
+		return err
+	}
+	if *before != "" {
+		q.Set("before", *before)
+	}
 	for flagName, raw := range map[string]string{"since": *since, "until": *until} {
 		if raw == "" {
 			continue
@@ -94,6 +114,12 @@ func jobsList(ctx context.Context, e *env, args []string) error {
 	p, err := cf.printer(e)
 	if err != nil {
 		return err
+	}
+	// The table reads fields a summary leaves out -- whether a pool claimed the
+	// job, what was done to its demand -- so the choice is only offered where
+	// somebody else's program is the reader.
+	if p.structured() && !*steps {
+		q.Set("include_steps", "false")
 	}
 
 	var out listResponse[jobItem]
@@ -137,6 +163,24 @@ func jobsList(ctx context.Context, e *env, args []string) error {
 	}
 	p.table([]string{"repo", "workflow", "job", "result", "why", "pool", "waited", "ran for", "queued"}, rows)
 	p.footer(len(out.Items), out.Total, out.Offset)
+	if out.Next != "" && *before != "" {
+		fmt.Fprintf(p.out, "More: repeat the command with --before %s\n", out.Next)
+	} else if out.Next != "" {
+		fmt.Fprintf(p.out, "To page by cursor instead of offset: --before %s\n", out.Next)
+	}
+	return nil
+}
+
+// setHostedFlag validates --hosted before it is sent: a typo the server
+// silently read as absent would list every job and look like an answer.
+func setHostedFlag(q url.Values, command, raw string) error {
+	switch raw {
+	case "":
+	case "true", "false":
+		q.Set("hosted", raw)
+	default:
+		return usagef(command, "--hosted %q: use true or false", raw)
+	}
 	return nil
 }
 
@@ -338,10 +382,7 @@ func attempt(n int) string {
 // timestamp, because both are what people reach for and neither is surprising.
 func parseWhen(raw string) (time.Time, error) {
 	raw = strings.TrimSpace(raw)
-	if d, err := time.ParseDuration(raw); err == nil {
-		if d < 0 {
-			d = -d
-		}
+	if d, ok := parseAgo(raw); ok {
 		return time.Now().Add(-d), nil
 	}
 	for _, layout := range []string{time.RFC3339, "2006-01-02T15:04:05", "2006-01-02"} {
@@ -349,7 +390,35 @@ func parseWhen(raw string) (time.Time, error) {
 			return t, nil
 		}
 	}
-	return time.Time{}, fmt.Errorf("not a duration like 24h nor a timestamp like 2026-01-30 or 2026-01-30T12:00:00Z")
+	return time.Time{}, fmt.Errorf("not a duration like 24h or 30d nor a timestamp like 2026-01-30 or 2026-01-30T12:00:00Z")
+}
+
+// parseAgo reads how long ago: a Go duration such as 90m or 24h, or whole days
+// or weeks as 30d and 2w, because release comparisons are made in those and
+// Go's own parser stops at hours.
+func parseAgo(raw string) (time.Duration, bool) {
+	if n := len(raw) - 1; n > 0 {
+		var unit time.Duration
+		switch raw[n] {
+		case 'd':
+			unit = 24 * time.Hour
+		case 'w':
+			unit = 7 * 24 * time.Hour
+		}
+		if unit != 0 {
+			if count, err := strconv.Atoi(raw[:n]); err == nil {
+				return time.Duration(max(count, -count)) * unit, true
+			}
+		}
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, false
+	}
+	if d < 0 {
+		d = -d
+	}
+	return d, true
 }
 
 // jobsRerun is the remedy for a job the fleet broke, at the terminal.
@@ -387,6 +456,153 @@ func jobsRerun(ctx context.Context, e *env, args []string) error {
 	p.note(fmt.Sprintf("GitHub accepted the request; run %d will re-run its failed jobs.", out.RunID))
 	if out.FaultDomain == "fleet" {
 		p.note("This job's failure was the fleet's rather than the workflow's.")
+	}
+	return nil
+}
+
+// jobStatsResponse is GET /jobs/stats, as far as the table needs it.
+type jobStatsResponse struct {
+	Since     time.Time `json:"since"`
+	Until     time.Time `json:"until"`
+	GroupBy   []string  `json:"group_by"`
+	Notes     []string  `json:"notes"`
+	Truncated bool      `json:"truncated"`
+	Groups    []struct {
+		Keys             map[string]string `json:"keys"`
+		Count            int               `json:"count"`
+		Succeeded        int               `json:"succeeded"`
+		Failed           int               `json:"failed"`
+		Cancelled        int               `json:"cancelled"`
+		FleetFailed      int               `json:"fleet_failed"`
+		FleetFailureRate float64           `json:"fleet_failure_rate"`
+		Duration         percentileItem    `json:"duration"`
+		QueueWait        percentileItem    `json:"queue_wait"`
+		Startup          percentileItem    `json:"startup"`
+	} `json:"groups"`
+}
+
+type percentileItem struct {
+	Samples int    `json:"samples"`
+	P50MS   *int64 `json:"p50_ms"`
+	P95MS   *int64 `json:"p95_ms"`
+}
+
+// ms renders a figure that may be absent: "-" is "nothing to measure", which
+// is not the same statement as 0ms.
+func (p percentileItem) p50() string { return optionalMillis(p.P50MS) }
+func (p percentileItem) p95() string { return optionalMillis(p.P95MS) }
+
+// optionalMillis keeps the seconds of a duration that is minutes long, which
+// millis does not: two releases a few seconds apart are the whole point of this
+// table, and "1m" for both would hide it.
+func optionalMillis(v *int64) string {
+	if v == nil {
+		return "-"
+	}
+	if *v <= 0 {
+		return "0ms"
+	}
+	d := time.Duration(*v) * time.Millisecond
+	if d < time.Minute {
+		return millis(*v)
+	}
+	return d.Round(time.Second).String()
+}
+
+func jobsStats(ctx context.Context, e *env, args []string) error {
+	fs := newFlagSet(e, "zoomies jobs stats [filters]",
+		"Count and time completed jobs over a period, grouped by up to two keys.\n\n"+
+			"Each group shows how many jobs finished and how, how many were lost to the\n"+
+			"fleet rather than the workflow, and p50 and p95 of duration, queue wait and\n"+
+			"runner startup. Duration leaves out cancelled and skipped jobs. Jobs that\n"+
+			"were never stamped with a release are the group \"unknown\".")
+	cf := registerClientFlags(fs, true)
+	groupBy, repos, workflows, jobNames := &listValue{}, &listValue{}, &listValue{}, &exactList{}
+	fs.Var(groupBy, "group-by", "controller_version, day, host, pool or job_name; at most two (repeatable)")
+	fs.Var(repos, "repo", "only this repository, e.g. acme/widgets (repeatable)")
+	fs.Var(workflows, "workflow", "only this workflow (repeatable)")
+	fs.Var(jobNames, "job-name", "only jobs with exactly this name (repeatable)")
+	hosted := fs.String("hosted", "", "true: only jobs on somebody else's hosted runners; false: only jobs that are not")
+	since := fs.String("since", "", "start of the window, included: a duration like 30d, or an RFC 3339 timestamp (default 7d)")
+	until := fs.String("until", "", "end of the window, not included (default now)")
+	fs.example(
+		"zoomies jobs stats --group-by controller_version --since 30d",
+		"zoomies jobs stats --group-by day --job-name build --since 14d",
+		"zoomies jobs stats --group-by controller_version --group-by pool --hosted=false --output json",
+	)
+	if err := fs.parse(args); err != nil {
+		return err
+	}
+	if err := fs.noMoreArgs(); err != nil {
+		return err
+	}
+
+	q := url.Values{}
+	addList(q, "group_by", *groupBy)
+	addList(q, "repo", *repos)
+	addList(q, "workflow", *workflows)
+	addList(q, "job_name", *jobNames)
+	if err := setHostedFlag(q, "jobs stats", *hosted); err != nil {
+		return err
+	}
+	for flagName, raw := range map[string]string{"since": *since, "until": *until} {
+		if raw == "" {
+			continue
+		}
+		when, err := parseWhen(raw)
+		if err != nil {
+			return usagef("jobs stats", "--%s %q: %v", flagName, raw, err)
+		}
+		q.Set(flagName, when.UTC().Format(time.RFC3339))
+	}
+
+	client, err := cf.client()
+	if err != nil {
+		return err
+	}
+	p, err := cf.printer(e)
+	if err != nil {
+		return err
+	}
+	var out jobStatsResponse
+	raw, err := client.get(ctx, "/jobs/stats", q, &out)
+	if err != nil {
+		return err
+	}
+	if p.structured() {
+		return p.emit(raw)
+	}
+	if len(out.Groups) == 0 {
+		p.note("No completed jobs in that window.")
+		return nil
+	}
+
+	header := append([]string{}, out.GroupBy...)
+	if len(header) == 0 {
+		header = []string{"window"}
+	}
+	header = append(header, "jobs", "ok", "failed", "cancelled", "fleet", "fleet %",
+		"run p50", "run p95", "wait p50", "wait p95", "start p50", "start p95")
+	rows := make([][]string, 0, len(out.Groups))
+	for _, g := range out.Groups {
+		var row []string
+		for _, k := range out.GroupBy {
+			row = append(row, g.Keys[k])
+		}
+		if len(out.GroupBy) == 0 {
+			row = append(row, out.Since.Format("2006-01-02")+" to "+out.Until.Format("2006-01-02"))
+		}
+		row = append(row, strconv.Itoa(g.Count), strconv.Itoa(g.Succeeded), strconv.Itoa(g.Failed),
+			strconv.Itoa(g.Cancelled), strconv.Itoa(g.FleetFailed), fmt.Sprintf("%.1f", g.FleetFailureRate*100),
+			g.Duration.p50(), g.Duration.p95(), g.QueueWait.p50(), g.QueueWait.p95(), g.Startup.p50(), g.Startup.p95())
+		rows = append(rows, row)
+	}
+	p.table(header, rows)
+	if out.Truncated {
+		p.note("More groups matched than are shown; narrow the window or the filters.")
+	}
+	for _, n := range out.Notes {
+		fmt.Fprintln(p.out, n)
 	}
 	return nil
 }

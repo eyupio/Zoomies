@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/eyupio/zoomies/internal/mcp"
 	"github.com/eyupio/zoomies/internal/store"
@@ -231,5 +232,71 @@ func TestMCPOverHTTPAnswersTheTransportsOwnCases(t *testing.T) {
 	}
 	if cache := h.mcpCall(viewer, "ping", nil).header.Get("Cache-Control"); cache != "no-store" {
 		t.Errorf("an MCP answer carries fleet data and must not be cached, got %q", cache)
+	}
+}
+
+// A hundred jobs with their steps overflowed a client's output limit at about
+// ten. Without them a full page of a hundred has to fit well inside 25k tokens;
+// JSON runs at three bytes a token or worse, so 75 KB is the ceiling.
+func TestMCPListJobsWithoutStepsFitsAHundredJobsInAModelsContext(t *testing.T) {
+	h := newHarness(t)
+	pool := h.pool(h.installation(), "linux")
+	h.releaseJobs(pool, "v1.3.3", 100, 10_000, time.Now().Add(-2*time.Hour))
+	viewer := h.token("reader", store.RoleViewer)
+
+	const budget = 25_000 * 3
+	summary := h.mcpTool(viewer, "list_jobs", map[string]any{"limit": 100})
+	if summary.IsError {
+		t.Fatalf("list_jobs failed: %s", resultText(summary))
+	}
+	text := resultText(summary)
+	var page struct {
+		Items []map[string]any `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(text), &page); err != nil || len(page.Items) != 100 {
+		t.Fatalf("want 100 jobs, got %d (%v)", len(page.Items), err)
+	}
+	if _, has := page.Items[0]["steps"]; has {
+		t.Errorf("steps must be off by default for MCP: %v", page.Items[0])
+	}
+	if len(text) > budget {
+		t.Errorf("100 summaries are %d bytes, over the %d-byte proxy for 25k tokens", len(text), budget)
+	}
+	t.Logf("100 job summaries: %d bytes", len(text))
+
+	full := resultText(h.mcpTool(viewer, "list_jobs", map[string]any{"limit": 10, "include_steps": true}))
+	if !strings.Contains(full, `"steps":[{`) {
+		t.Errorf("include_steps=true must bring the steps back")
+	}
+}
+
+func TestMCPJobStatsIsOneCallPerReleaseAndTakesDays(t *testing.T) {
+	h := newHarness(t)
+	pool := h.pool(h.installation(), "linux")
+	now := time.Now()
+	h.releaseJobs(pool, "v1.2.0", 3, 20_000, now.Add(-10*24*time.Hour))
+	h.releaseJobs(pool, "v1.3.0", 3, 30_000, now.Add(-2*24*time.Hour))
+	viewer := h.token("reader", store.RoleViewer)
+
+	res := h.mcpTool(viewer, "job_stats", map[string]any{"group_by": []string{"controller_version"}, "since": "30d"})
+	if res.IsError {
+		t.Fatalf("job_stats failed: %s", resultText(res))
+	}
+	var doc struct {
+		Groups []struct {
+			Keys map[string]string `json:"keys"`
+		} `json:"groups"`
+	}
+	if err := json.Unmarshal([]byte(resultText(res)), &doc); err != nil || len(doc.Groups) != 2 {
+		t.Fatalf("want a group per release, got %s (%v)", resultText(res), err)
+	}
+	for _, args := range []map[string]any{
+		{"group_by": []string{"repo"}},
+		{"since": "last tuesday"},
+		{"unknown": true},
+	} {
+		if r := h.mcpTool(viewer, "job_stats", args); !r.IsError {
+			t.Errorf("job_stats accepted %v", args)
+		}
 	}
 }

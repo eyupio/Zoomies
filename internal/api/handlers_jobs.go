@@ -4,8 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/eyupio/zoomies/internal/controller"
 	"github.com/eyupio/zoomies/internal/github"
@@ -148,6 +150,15 @@ func (s *Server) handleRerunJobWorkflow(w http.ResponseWriter, r *http.Request) 
 type jobResponse = controller.JobView
 
 // handleListJobs answers GET /api/v1/jobs.
+//
+// Two ways to page, for two kinds of caller. limit and offset are what the UI's
+// grid uses, and they still are. `before` is a cursor for anything that walks
+// the whole history: it continues after the last job of the previous page, so a
+// job queued in between cannot shift a row from one page to the next. Both
+// answers carry `next` where a cursor would continue from.
+//
+// include_steps=false returns each job as a summary, without the step list
+// that is most of its weight.
 func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 	filter, ok := parseJobFilter(w, r)
 	if !ok {
@@ -155,7 +166,42 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	p := parsePage(r)
-	jobs, total, err := s.ctrl.Store().ListJobs(r.Context(), filter, p)
+	provisioning := strings.HasPrefix(r.URL.Path, "/api/v1/provisioning")
+	includeSteps := true
+	if !provisioning {
+		var ok bool
+		if includeSteps, ok = queryStrictBool(w, r, "include_steps", true); !ok {
+			return
+		}
+	}
+
+	var jobs []*store.Job
+	var total int
+	var next *store.JobCursor
+	var err error
+	q := r.URL.Query()
+	switch {
+	case !provisioning && q.Get("before") != "":
+		if q.Get("offset") != "" || q.Get("sort") != "" || q.Get("order") != "" {
+			badRequestField(w, "before", "before continues the default order, newest queued first; it cannot be combined with offset, sort or order")
+			return
+		}
+		cursor, cerr := store.ParseJobCursor(q.Get("before"))
+		if cerr != nil {
+			badRequestField(w, "before", "before is not a cursor; pass the next value of the previous page unchanged")
+			return
+		}
+		jobs, total, next, err = s.ctrl.Store().ListJobsAfter(r.Context(), filter, &cursor, p.Limit)
+		p.Offset = 0
+	default:
+		jobs, total, err = s.ctrl.Store().ListJobs(r.Context(), filter, p)
+		// A cursor is only meaningful in the default order, and only while
+		// there is more to read.
+		if err == nil && !provisioning && p.Sort == "" && p.Desc && len(jobs) > 0 && p.Offset+len(jobs) < total {
+			last := jobs[len(jobs)-1]
+			next = &store.JobCursor{QueuedAt: last.QueuedAt, ID: last.ID}
+		}
+	}
 	if err != nil {
 		s.internal(w, r, "listing jobs", err)
 		return
@@ -167,11 +213,11 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 	}
 	names := poolNames(pools)
 
-	out := make([]jobResponse, 0, len(jobs))
-	for _, j := range jobs {
-		out = append(out, controller.NewJobView(j, names[j.PoolID]))
-	}
-	if strings.HasPrefix(r.URL.Path, "/api/v1/provisioning") {
+	if provisioning {
+		out := make([]jobResponse, 0, len(jobs))
+		for _, j := range jobs {
+			out = append(out, controller.NewJobView(j, names[j.PoolID]))
+		}
 		counts, err := s.ctrl.Store().ProvisioningCounts(r.Context(), filter)
 		if err != nil {
 			s.internal(w, r, "counting provisioning demand", err)
@@ -180,7 +226,127 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"items": out, "total": total, "counts": counts})
 		return
 	}
-	writeJSON(w, http.StatusOK, newPage(out, total, p))
+
+	nextToken := ""
+	if next != nil {
+		nextToken = next.Encode()
+	}
+	if !includeSteps {
+		out := make([]controller.JobSummaryView, 0, len(jobs))
+		for _, j := range jobs {
+			out = append(out, controller.NewJobSummaryView(j, names[j.PoolID]))
+		}
+		pg := newPage(out, total, p)
+		pg.Next = nextToken
+		writeJSON(w, http.StatusOK, pg)
+		return
+	}
+	out := make([]jobResponse, 0, len(jobs))
+	for _, j := range jobs {
+		out = append(out, controller.NewJobView(j, names[j.PoolID]))
+	}
+	pg := newPage(out, total, p)
+	pg.Next = nextToken
+	writeJSON(w, http.StatusOK, pg)
+}
+
+// jobStatsResponse is GET /api/v1/jobs/stats.
+type jobStatsResponse struct {
+	Since   time.Time `json:"since"`
+	Until   time.Time `json:"until"`
+	GroupBy []string  `json:"group_by"`
+	// DurationExcludes names the conclusions left out of every duration
+	// percentile, and Notes says the rest of what a reader needs to know to
+	// read the figures -- in the response, because the numbers get quoted
+	// without the documentation.
+	DurationExcludes []string              `json:"duration_excludes"`
+	Notes            []string              `json:"notes"`
+	Truncated        bool                  `json:"truncated"`
+	Groups           []store.JobStatsGroup `json:"groups"`
+}
+
+// defaultStatsSpan is how far back statistics reach when the caller names no
+// start: a week, which is long enough to show a release and short enough to
+// answer at once.
+const defaultStatsSpan = 7 * 24 * time.Hour
+
+// handleJobStats answers GET /api/v1/jobs/stats: completed jobs counted and
+// timed, grouped by up to two of controller_version, day, host, pool and
+// job_name. It takes the job listing's filters, and the window is
+// [since, until) with until defaulting to now and since to a week before it.
+//
+// The window is bounded by limits.job_stats_window because the figures are
+// computed from the job rows on each request; a refusal names the setting, so
+// the person who needs a longer look knows where the limit is kept.
+func (s *Server) handleJobStats(w http.ResponseWriter, r *http.Request) {
+	filter, ok := parseJobFilter(w, r)
+	if !ok {
+		return
+	}
+	now := s.ctrl.Now()
+	if filter.Until == nil {
+		filter.Until = &now
+	}
+	limit := s.cfg().Limits.JobStatsSpan()
+	if filter.Since == nil {
+		// Never longer than the limit: an operator who set it to two days has
+		// not asked for a week, and a default that refused itself would be a
+		// 400 for a request that named nothing wrong.
+		since := filter.Until.Add(-min(defaultStatsSpan, limit))
+		filter.Since = &since
+	}
+	if !filter.Since.Before(*filter.Until) {
+		badRequestField(w, "since", "since must be before until")
+		return
+	}
+	if filter.Until.Sub(*filter.Since) > limit {
+		badRequestField(w, "since", fmt.Sprintf(
+			"the window from since to until is %s, and job statistics cover at most %s; narrow it, or raise limits.job_stats_window",
+			filter.Until.Sub(*filter.Since).Round(time.Hour), limit))
+		return
+	}
+	// Statistics are of finished work, and the listing's own state filter
+	// would only make an answer that disagrees with its own counts.
+	filter.States = nil
+
+	groupBy := queryList(r, "group_by")
+	if len(groupBy) > 2 {
+		badRequestField(w, "group_by", "group_by takes at most two keys")
+		return
+	}
+	for i, g := range groupBy {
+		if !slices.Contains(store.JobStatsGroupKeys, g) {
+			badRequestField(w, "group_by", fmt.Sprintf("%q is not something jobs can be grouped by; use %s", g, strings.Join(store.JobStatsGroupKeys, ", ")))
+			return
+		}
+		if slices.Contains(groupBy[:i], g) {
+			badRequestField(w, "group_by", fmt.Sprintf("%q is named twice", g))
+			return
+		}
+	}
+
+	res, err := s.ctrl.Store().JobStats(r.Context(), filter, groupBy)
+	if err != nil {
+		s.internal(w, r, "computing job statistics", err)
+		return
+	}
+	groups := res.Groups
+	if groups == nil {
+		groups = []store.JobStatsGroup{}
+	}
+	writeJSON(w, http.StatusOK, jobStatsResponse{
+		Since: *filter.Since, Until: *filter.Until, GroupBy: emptySlice(groupBy),
+		DurationExcludes: []string{"cancelled", "skipped"},
+		Notes: []string{
+			"Only completed jobs are counted, selected by when they were queued: since is included and until is not.",
+			"Duration percentiles leave out cancelled and skipped jobs; queue wait percentiles keep them.",
+			"Startup is the runner's container start less its creation, and exists only while the runner's own record is kept (retention.runners).",
+			"Jobs recorded before their controller version was stamped, and jobs no pool here claimed, are grouped as \"unknown\".",
+			"A percentile is null when no job in the group could be measured.",
+		},
+		Truncated: res.Truncated,
+		Groups:    groups,
+	})
 }
 
 // handleListWorkflowRuns answers GET /api/v1/workflow-runs: the jobs summed
@@ -304,6 +470,17 @@ func parseJobFilter(w http.ResponseWriter, r *http.Request) (store.JobFilter, bo
 		Conclusions:  queryList(r, "conclusion"),
 		Labels:       queryList(r, "label"),
 		Search:       r.URL.Query().Get("q"),
+
+		ControllerVersions: queryList(r, "controller_version"),
+		HostIDs:            queryList(r, "host_id"),
+		// Not split on commas, unlike the lists around it: a matrix job's
+		// name is "build (ubuntu-latest, 3.12)", and a filter that cut it in
+		// two would match nothing while looking like it was working.
+		JobNames: nonEmpty(r.URL.Query()["job_name"]),
+	}
+	var hostedOK bool
+	if filter.Hosted, hostedOK = queryStrictBoolPtr(w, r, "hosted"); !hostedOK {
+		return filter, false
 	}
 	for _, raw := range queryList(r, "run_id") {
 		id, err := strconv.ParseInt(raw, 10, 64)
@@ -394,4 +571,42 @@ func faultKindList() string {
 		names[i] = string(k)
 	}
 	return strings.Join(names, ", ")
+}
+
+// nonEmpty drops the blank values of a repeated parameter.
+func nonEmpty(values []string) []string {
+	var out []string
+	for _, v := range values {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// queryStrictBoolPtr is queryBoolPtr for a parameter where a typo should be
+// refused rather than read as absent: `hosted=flase` quietly returning every
+// job would be taken for an answer about hosted jobs.
+func queryStrictBoolPtr(w http.ResponseWriter, r *http.Request, name string) (*bool, bool) {
+	raw := strings.TrimSpace(r.URL.Query().Get(name))
+	if raw == "" {
+		return nil, true
+	}
+	b, err := strconv.ParseBool(raw)
+	if err != nil {
+		badRequestField(w, name, fmt.Sprintf("%s must be true or false, not %q", name, raw))
+		return nil, false
+	}
+	return &b, true
+}
+
+func queryStrictBool(w http.ResponseWriter, r *http.Request, name string, fallback bool) (bool, bool) {
+	v, ok := queryStrictBoolPtr(w, r, name)
+	if !ok {
+		return false, false
+	}
+	if v == nil {
+		return fallback, true
+	}
+	return *v, true
 }

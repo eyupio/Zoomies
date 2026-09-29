@@ -251,6 +251,13 @@ func TestTheSessionsMigrationRecordsRunnersAlreadyCleanedUp(t *testing.T) {
 	if err := s.migrate(ctx); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
+	// 0047 recreates the table as it was; the columns 0060 added to it are not
+	// re-run, because that migration's own ledger row was never removed.
+	for _, col := range []string{"controller_version", "controller_channel", "agent_version"} {
+		if _, err := s.write.Exec(`ALTER TABLE runner_sessions ADD COLUMN ` + col + ` TEXT`); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if n := len(sessionsFor(t, s, done.ID)); n != 1 {
 		t.Fatalf("an already cleaned-up runner has %d sessions after the migration, want 1", n)
 	}
