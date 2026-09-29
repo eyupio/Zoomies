@@ -41,14 +41,16 @@ export function standardMotion(state: string, seed: string) {
   for (const char of seed) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0;
   const fraction = (hash % 1000) / 1000;
   // A second and third slice of the same hash for the slow gestures and the
-  // blink. The gait's phase is under a second, so reusing it would start every
+  // blink. Reusing the gait's shorter phase would start every
   // idle dog on a page -- and all three in a pack -- glancing up and blinking
   // within the same moment; these spread across the whole period instead.
   const gestureFraction = ((hash >>> 10) % 1000) / 1000;
   const blinkFraction = ((hash >>> 20) % 1000) / 1000;
   const running = ['busy', 'zoomies', 'maximum_zoomies'].includes(motion);
+  const walking = motion === 'busy';
   const stride =
-    (motion === 'maximum_zoomies' ? 0.32 : motion === 'zoomies' ? 0.48 : 0.64) + fraction * 0.02;
+    (motion === 'maximum_zoomies' ? 0.56 : motion === 'zoomies' ? 0.8 : walking ? 1.6 : 0.64) +
+    fraction * (walking ? 0.12 : 0.02);
   const spin = (motion === 'maximum_zoomies' ? 10 : 16) + fraction * 3;
   const gesture = 6 + fraction * 3;
   const blink = 5.9 + fraction * 2;
@@ -56,6 +58,7 @@ export function standardMotion(state: string, seed: string) {
     state: motion,
     pose: POSES[motion],
     running,
+    walking,
     spinning: motion === 'maximum_zoomies' || motion === 'zoomies',
     still: ['failed', 'removed', 'unknown'].includes(motion),
     stride,
