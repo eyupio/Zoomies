@@ -387,6 +387,9 @@ test('forgetting a machine needs its name typed, and nothing is forgotten withou
   // One button on the page, and it belongs to the list where forgetting a row
   // is guaranteed to destroy nothing.
   await expect(page.getByRole('button', { name: 'Forget' })).toHaveCount(1);
+  // Forgetting is permanent, so the button says which machine it is about
+  // before the dialog does: a list of them is otherwise a row of "Forget".
+  await expect(page.getByRole('button', { name: `Forget ${ghost}`, exact: true })).toHaveCount(1);
   await grid(page, 'Machines with no resource').getByRole('button', { name: 'Forget' }).click();
 
   const dialog = page.getByRole('dialog', { name: 'Forget this machine' });
