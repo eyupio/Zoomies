@@ -612,6 +612,7 @@ paths:
         "204": { description: Changed }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "422": { $ref: "#/components/responses/Unprocessable" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /auth/oidc/start:
     get:

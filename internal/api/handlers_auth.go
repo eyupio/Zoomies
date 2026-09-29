@@ -384,8 +384,11 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.auth.ChangePassword(r.Context(), id.ID, req.OldPassword, req.NewPassword); err != nil {
+	ip := ClientIP(r.Context())
+	if err := s.auth.ChangePassword(r.Context(), id.ID, req.OldPassword, req.NewPassword, ip); err != nil {
 		switch {
+		case errors.Is(err, auth.ErrRateLimited):
+			rateLimited(w, err.Error(), s.auth.LoginRetryAfter(ip))
 		case errors.Is(err, store.ErrNotFound):
 			notFound(w, "this account no longer exists")
 		case errors.Is(err, auth.ErrSSOOnly):

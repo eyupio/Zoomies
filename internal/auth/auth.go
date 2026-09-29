@@ -972,7 +972,12 @@ func bearerToken(header string) string {
 // the password it was handed on the command line. Every session for the account
 // is ended, so a stolen cookie does not survive the change; the caller should
 // issue a fresh session with NewSession for the browser that made the request.
-func (s *Service) ChangePassword(ctx context.Context, userID, oldPassword, newPassword string) error {
+//
+// Checking the old password is a guess at the account password like any other,
+// so it is charged to the same per-address and per-account limits as Login and
+// the second step, and refused with ErrRateLimited once they are spent. A
+// forced change has no old password to guess and is not charged.
+func (s *Service) ChangePassword(ctx context.Context, userID, oldPassword, newPassword, ip string) error {
 	u, err := s.store.GetUser(ctx, userID)
 	if err != nil {
 		return err
@@ -981,6 +986,9 @@ func (s *Service) ChangePassword(ctx context.Context, userID, oldPassword, newPa
 		return ErrSSOOnly
 	}
 	if !u.MustChangePassword {
+		if !s.allowAttempt(ip, u.Username) {
+			return ErrRateLimited
+		}
 		if !cryptox.VerifyPassword(oldPassword, u.PasswordHash) {
 			return ErrWrongPassword
 		}

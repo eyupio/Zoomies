@@ -615,13 +615,13 @@ func TestChangePassword(t *testing.T) {
 		t.Fatalf("login: %v", err)
 	}
 
-	if err := s.ChangePassword(ctx, u.ID, "wrong", "a much longer password"); !errors.Is(err, ErrWrongPassword) {
+	if err := s.ChangePassword(ctx, u.ID, "wrong", "a much longer password", "10.0.0.1"); !errors.Is(err, ErrWrongPassword) {
 		t.Errorf("wrong current password = %v; want ErrWrongPassword", err)
 	}
-	if err := s.ChangePassword(ctx, u.ID, testPassword, "short"); !errors.Is(err, ErrPasswordTooShort) {
+	if err := s.ChangePassword(ctx, u.ID, testPassword, "short", "10.0.0.1"); !errors.Is(err, ErrPasswordTooShort) {
 		t.Errorf("short new password = %v; want ErrPasswordTooShort", err)
 	}
-	if err := s.ChangePassword(ctx, u.ID, testPassword, "a much longer password"); err != nil {
+	if err := s.ChangePassword(ctx, u.ID, testPassword, "a much longer password", "10.0.0.1"); err != nil {
 		t.Fatalf("ChangePassword: %v", err)
 	}
 
@@ -634,12 +634,42 @@ func TestChangePassword(t *testing.T) {
 	}
 }
 
+// TestChangePasswordChargesItsGuessesToTheLoginLimits is about the one route
+// that checks the account password from behind a session cookie.
+//
+// Login, the second step and reauthentication all charge the same counters, on
+// the rule that a secret which is free to guess on one route is a limiter with
+// a hole in it. Changing a password checked the old one with no counter at all,
+// so somebody holding only a stolen cookie could guess the password at whatever
+// rate the server would answer, and a correct guess lets them change it with no
+// second factor and lock the owner out.
+func TestChangePasswordChargesItsGuessesToTheLoginLimits(t *testing.T) {
+	s, st, _ := newServiceWith(t, func() *config.Config {
+		cfg := config.Default()
+		cfg.Security.RateLimitLogins = 3
+		return cfg
+	}())
+	ctx := t.Context()
+	u := addUser(t, st, "alice", store.RoleViewer, nil)
+
+	for i := range 3 {
+		if err := s.ChangePassword(ctx, u.ID, "wrong", "a much longer password", "10.0.0.1"); !errors.Is(err, ErrWrongPassword) {
+			t.Fatalf("guess %d = %v; want ErrWrongPassword", i+1, err)
+		}
+	}
+	// The right password is refused too: the point is that guessing stops, not
+	// that a wrong guess is punished.
+	if err := s.ChangePassword(ctx, u.ID, testPassword, "a much longer password", "10.0.0.1"); !errors.Is(err, ErrRateLimited) {
+		t.Errorf("a fourth attempt inside the minute = %v; want ErrRateLimited", err)
+	}
+}
+
 func TestChangePasswordSkipsTheOldOneWhenAChangeIsForced(t *testing.T) {
 	s, st, _ := newService(t)
 	ctx := t.Context()
 	u := addUser(t, st, "installer", store.RoleAdmin, func(u *store.User) { u.MustChangePassword = true })
 
-	if err := s.ChangePassword(ctx, u.ID, "", "a much longer password"); err != nil {
+	if err := s.ChangePassword(ctx, u.ID, "", "a much longer password", "10.0.0.1"); err != nil {
 		t.Fatalf("ChangePassword on a must-change account: %v", err)
 	}
 	after, err := st.GetUser(ctx, u.ID)

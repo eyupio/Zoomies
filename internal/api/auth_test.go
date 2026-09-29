@@ -423,6 +423,29 @@ func TestChangeOwnPassword(t *testing.T) {
 	fresh.mustStatus(t, http.StatusOK, "the new session after a password change")
 }
 
+// TestChangeOwnPasswordIsRateLimited is the 429 the OpenAPI spec promises for
+// the route: a stolen session cookie must not be a free oracle for the account
+// password, so wrong "current password" guesses are charged to the login limits
+// and told when to come back.
+func TestChangeOwnPasswordIsRateLimited(t *testing.T) {
+	h := newHarness(t)
+	u, _ := h.user("alice", store.RoleViewer)
+	cookie := h.session(u)
+
+	var last *response
+	for range h.cfg.Security.RateLimitLogins + 2 {
+		last = h.do(request{method: http.MethodPost, path: "/api/v1/auth/password", cookie: cookie,
+			body: map[string]any{"old_password": "nope", "new_password": "another-good-password"}})
+	}
+	last.mustStatus(t, http.StatusTooManyRequests, "change password after too many guesses")
+	if code := last.errorCode(t); code != codeRateLimited {
+		t.Errorf("error code = %q, want %q", code, codeRateLimited)
+	}
+	if secs, err := strconv.Atoi(last.header.Get("Retry-After")); err != nil || secs <= 0 {
+		t.Errorf("Retry-After = %q, want the seconds left of the window", last.header.Get("Retry-After"))
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Single sign-on
 // ---------------------------------------------------------------------------
