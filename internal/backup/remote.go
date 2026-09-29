@@ -116,17 +116,32 @@ func (r *Remote) Check(ctx context.Context) error {
 
 // List is every backup this remote holds, newest first.
 //
-// Anything under the prefix that is not named like an archive this package
-// writes is ignored rather than reported: an operator's bucket is allowed to
-// hold other things, and a listing that complained about them would be a
-// listing nobody reads.
+// It holds an object only if it sits directly in this remote's own directory,
+// which is exactly where Key writes it. A bucket's prefix match is a string
+// match, so "prod" also finds "prod-eu/..." and "zoomies" finds
+// "zoomies/prod/..."; an empty prefix finds the whole bucket. Retention runs on
+// this list, so accepting those would have one fleet delete another's offsite
+// backups.
+//
+// Anything else in the directory that is not named like an archive this
+// package writes is ignored rather than reported: an operator's bucket is
+// allowed to hold other things, and a listing that complained about them would
+// be a listing nobody reads.
 func (r *Remote) List(ctx context.Context) ([]Copy, error) {
-	objects, err := r.s3.list(ctx, r.cfg.Prefix, 0)
+	dir := r.dir()
+	listPrefix := r.cfg.Prefix
+	if dir != "." {
+		listPrefix = dir + "/"
+	}
+	objects, err := r.s3.list(ctx, listPrefix, 0)
 	if err != nil {
 		return nil, err
 	}
 	out := []Copy{}
 	for _, o := range objects {
+		if path.Dir(o.Key) != dir {
+			continue
+		}
 		id, encrypted, ok := idFromKey(o.Key)
 		if !ok {
 			continue
@@ -140,9 +155,18 @@ func (r *Remote) List(ctx context.Context) ([]Copy, error) {
 	return out, nil
 }
 
+// dir is the directory Key puts this remote's archives in, in the form
+// path.Dir reports for an object key: "." for the bucket's root.
+func (r *Remote) dir() string {
+	if dir := strings.Trim(r.cfg.Prefix, "/"); dir != "" {
+		return dir
+	}
+	return "."
+}
+
 // idFromKey reads a backup's id back out of an object key, and says whether
-// the archive is encrypted. The key's directory is ignored: what identifies a
-// backup is its name, and the prefix is the operator's filing.
+// the archive is encrypted. It looks at the name alone; List is what checks
+// that the key's directory is this remote's own.
 func idFromKey(key string) (id string, encrypted bool, ok bool) {
 	name := path.Base(key)
 	if strings.HasSuffix(name, EncryptedExt) {
