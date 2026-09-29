@@ -1689,6 +1689,16 @@ Settings page is in the next runner without anything restarting. A pool's own
 `env` is layered over them, so the fleet says what is usual and a pool says
 what is different.
 
+A value can contain a comma, as `NO_PROXY` does. In YAML or JSON nothing needs
+escaping. Where the setting is written as one line of text — `ZOOMIES_RUNNER_ENV`,
+`zoomies config set`, and the row the database keeps — items are separated by
+commas, so write a comma inside a value as `\,` and a literal backslash as `\\`:
+`ZOOMIES_RUNNER_ENV="HTTPS_PROXY=http://proxy:3128,NO_PROXY=localhost\,.internal"`.
+The same rule applies to every other list or key=value setting, such as
+`oidc.admin_groups` and `agent.labels`. A backslash before any other character is
+left as it is, so text written before this rule existed reads the same. A row the
+database already holds in the broken form has to be set again.
+
 `runners.docker_wait` is how long a runner on a pool with a `docker_mode`
 waits for that daemon before it refuses to take a job. It reaches the runner
 image as `ZOOMIES_DOCKER_WAIT`, in whole seconds. The fleet default is three minutes; the image and backend fallback for an
