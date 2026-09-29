@@ -108,6 +108,14 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 		info := infoFrom(r.Context())
 		id, err := s.resolveIdentity(r)
 		if err != nil {
+			// A credential the controller could not check is not one it
+			// refused: a 401 makes the UI drop a session that is still good,
+			// and quoting the driver's error hands a caller the database's
+			// wording.
+			if errors.Is(err, auth.ErrAuthBackend) {
+				s.internal(w, r, "checking your credentials", err)
+				return
+			}
 			unauthorized(w, err.Error())
 			return
 		}

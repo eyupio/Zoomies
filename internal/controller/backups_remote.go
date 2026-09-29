@@ -58,24 +58,64 @@ const (
 // stored ones, merged by internal/backup so the CLI and the controller agree
 // about which wins.
 func (c *Controller) backupRemotes(ctx context.Context) []backup.ResolvedRemote {
+	resolved, _ := c.resolveBackupRemotes(ctx)
+	return resolved
+}
+
+// resolveBackupRemotes is backupRemotes that also says whether it saw the whole
+// configuration. It is false when the database would not answer, in which case
+// only the file's destinations came back -- and a caller deciding what has
+// left the configuration must not read that as every stored one having left.
+func (c *Controller) resolveBackupRemotes(ctx context.Context) ([]backup.ResolvedRemote, bool) {
 	resolved, err := backup.ResolveRemotes(ctx, c.cfg(), c.st, c.key)
 	if err != nil {
 		// The file's destinations are still returned, which is the half that
 		// works when the database will not answer.
 		c.log.Warn("could not read the stored backup remotes", "error", err)
 	}
-	return resolved
+	return resolved, err == nil
 }
 
-// usableBackupRemotes is the destinations a pass actually sends to.
-func (c *Controller) usableBackupRemotes(ctx context.Context) []backup.ResolvedRemote {
+// usableRemotes is the destinations a pass actually sends to.
+func usableRemotes(resolved []backup.ResolvedRemote) []backup.ResolvedRemote {
 	var out []backup.ResolvedRemote
-	for _, r := range c.backupRemotes(ctx) {
+	for _, r := range resolved {
 		if r.Usable() {
 			out = append(out, r)
 		}
 	}
 	return out
+}
+
+// usableBackupRemotes is the destinations a pass actually sends to.
+func (c *Controller) usableBackupRemotes(ctx context.Context) []backup.ResolvedRemote {
+	return usableRemotes(c.backupRemotes(ctx))
+}
+
+// forgetGoneRemotes drops the state of a destination that is no longer in the
+// configuration at all. Nothing ships to it, so its last attempt is never
+// refreshed, and left in place it ages past the sweep and keeps the loop
+// reconciling -- and listing every bucket that remains -- on every tick.
+//
+// Only a name that is gone goes. A switched-off, shadowed or unreadable
+// destination is still on the page, and the page shows what its last listing
+// found. And it does nothing unless the whole configuration was read: a
+// database that briefly would not answer must not blank every stored remote.
+func (c *Controller) forgetGoneRemotes(resolved []backup.ResolvedRemote, complete bool) {
+	if !complete {
+		return
+	}
+	named := make(map[string]bool, len(resolved))
+	for _, r := range resolved {
+		named[r.Remote.Name] = true
+	}
+	c.backups.mu.Lock()
+	defer c.backups.mu.Unlock()
+	for name, st := range c.backups.remotes {
+		if !named[name] && !st.uploading {
+			delete(c.backups.remotes, name)
+		}
+	}
 }
 
 // remoteState is what the controller knows about one destination. The bucket
@@ -261,7 +301,11 @@ func (c *Controller) NudgeBackupRemotes() { c.nudgeRemotes() }
 // now" cannot upload the same archive twice.
 func (c *Controller) ShipBackups(ctx context.Context) ([]backup.Copy, error) {
 	cfg := c.cfg()
-	configured := c.usableBackupRemotes(ctx)
+	resolved, complete := c.resolveBackupRemotes(ctx)
+	// Before the early return, so that deleting the last destination clears
+	// its state too.
+	c.forgetGoneRemotes(resolved, complete)
+	configured := usableRemotes(resolved)
 	if len(configured) == 0 {
 		return nil, nil
 	}
@@ -404,14 +448,24 @@ func (c *Controller) endShipping() {
 // remotesDue says whether the loop should reconcile the remotes on this tick:
 // when something asked it to, when a remote is behind after a failure and the
 // retry is up, and once a sweep however quiet things have been.
-func (c *Controller) remotesDue(now time.Time) bool {
+//
+// Only a destination a pass would send to can be due. The others are never
+// attempted, so their attempt time cannot advance, and counting them would
+// keep the loop listing every bucket that does work on every tick.
+func (c *Controller) remotesDue(ctx context.Context, now time.Time) bool {
+	resolved, complete := c.resolveBackupRemotes(ctx)
+	c.forgetGoneRemotes(resolved, complete)
+	usable := map[string]bool{}
+	for _, r := range usableRemotes(resolved) {
+		usable[r.Remote.Name] = true
+	}
 	c.backups.mu.Lock()
 	defer c.backups.mu.Unlock()
 	if len(c.backups.remotes) == 0 {
 		return true
 	}
-	for _, st := range c.backups.remotes {
-		if st.uploading {
+	for name, st := range c.backups.remotes {
+		if st.uploading || !usable[name] {
 			continue
 		}
 		wait := remoteSweep

@@ -423,6 +423,29 @@ func TestChangeOwnPassword(t *testing.T) {
 	fresh.mustStatus(t, http.StatusOK, "the new session after a password change")
 }
 
+// TestChangeOwnPasswordIsRateLimited is the 429 the OpenAPI spec promises for
+// the route: a stolen session cookie must not be a free oracle for the account
+// password, so wrong "current password" guesses are charged to the login limits
+// and told when to come back.
+func TestChangeOwnPasswordIsRateLimited(t *testing.T) {
+	h := newHarness(t)
+	u, _ := h.user("alice", store.RoleViewer)
+	cookie := h.session(u)
+
+	var last *response
+	for range h.cfg.Security.RateLimitLogins + 2 {
+		last = h.do(request{method: http.MethodPost, path: "/api/v1/auth/password", cookie: cookie,
+			body: map[string]any{"old_password": "nope", "new_password": "another-good-password"}})
+	}
+	last.mustStatus(t, http.StatusTooManyRequests, "change password after too many guesses")
+	if code := last.errorCode(t); code != codeRateLimited {
+		t.Errorf("error code = %q, want %q", code, codeRateLimited)
+	}
+	if secs, err := strconv.Atoi(last.header.Get("Retry-After")); err != nil || secs <= 0 {
+		t.Errorf("Retry-After = %q, want the seconds left of the window", last.header.Get("Retry-After"))
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Single sign-on
 // ---------------------------------------------------------------------------
@@ -613,6 +636,72 @@ func TestDatabaseFailuresAreInternalErrorsNotValidationMessages(t *testing.T) {
 	body := ready.json(t)
 	if msg, _ := body["message"].(string); strings.Contains(strings.ToLower(msg), "sql") || strings.Contains(msg, "closed") {
 		t.Fatalf("the readiness probe quoted the database error: %q", msg)
+	}
+}
+
+// A 401 tells every client to sign in again, and the web client acts on it by
+// dropping a perfectly good session. A database that stops answering while a
+// credential is being looked up used to come back as exactly that, with the
+// driver's own error in the body. It is the controller that is broken, not the
+// credential, so it is a 500 with a request ID and the cause in the log only.
+func TestDatabaseFailuresWhileCheckingACredentialAreInternalErrorsNotSignOuts(t *testing.T) {
+	h := newHarness(t)
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+	token := h.token("ci", store.RoleViewer)
+	if err := h.st.Close(); err != nil {
+		t.Fatalf("closing the store: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		req  request
+	}{
+		{"a session cookie", request{method: http.MethodGet, path: "/api/v1/pools", cookie: cookie}},
+		{"an API token", request{method: http.MethodGet, path: "/api/v1/pools", token: token}},
+		{"an API token on the MCP endpoint", request{
+			method: http.MethodPost, path: "/mcp", token: token, noOrigin: true,
+			body: map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := h.do(tc.req)
+			resp.mustStatus(t, http.StatusInternalServerError, "a credential check against a closed database")
+			if code := resp.errorCode(t); code != codeInternal {
+				t.Errorf("error code = %q, want %q", code, codeInternal)
+			}
+			msg := strings.ToLower(resp.errorMessage(t))
+			for _, leak := range []string{"looking up", "sql", "closed"} {
+				if strings.Contains(msg, leak) {
+					t.Errorf("the database error reached the caller: %q", msg)
+				}
+			}
+			if detail, _ := resp.json(t)["error"].(map[string]any)["detail"].(string); !strings.HasPrefix(detail, "request ") {
+				t.Errorf("detail = %q, want a request ID the operator can quote", detail)
+			}
+			// A challenge on a 500 would send an MCP client off to start a
+			// sign-in that cannot help.
+			if got := resp.header.Get("WWW-Authenticate"); got != "" {
+				t.Errorf("WWW-Authenticate = %q on a server error, want none", got)
+			}
+		})
+	}
+}
+
+// The other half of the rule above: a credential the database answered about
+// and refused stays a 401, so the UI still signs out an expired session.
+func TestARefusedCredentialIsStillA401(t *testing.T) {
+	h := newHarness(t)
+	for _, tc := range []struct {
+		name string
+		req  request
+	}{
+		{"an unknown session cookie", request{method: http.MethodGet, path: "/api/v1/pools", cookie: "not-a-session"}},
+		{"an unknown API token", request{method: http.MethodGet, path: "/api/v1/pools", token: "zoo_not-a-token"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h.do(tc.req).mustStatus(t, http.StatusUnauthorized, tc.name)
+		})
 	}
 }
 

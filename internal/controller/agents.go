@@ -1116,6 +1116,11 @@ func (c *Controller) ReportResult(ctx context.Context, hostID string, res agent.
 		c.noteImagePull(ctx, hostID, task.PoolID, task.Image, "prewarm", res.OK, res.Fault, res.Error)
 		return c.st.SetPoolPrewarm(ctx, task.PoolID, hostID, task.Image, state, res.Digest, res.Error)
 	}
+	if known && task.Kind == agent.TaskStreamLogs && !res.OK {
+		// Before the runner lookup, so a runner pruned in the meantime does not
+		// leave its viewer waiting either.
+		c.relay.fail(task.StreamID, res.Error)
+	}
 	kind := res.Kind
 	if kind == "" && known {
 		kind = task.Kind
@@ -1195,7 +1200,8 @@ func (c *Controller) ReportResult(ctx context.Context, hostID string, res agent.
 	message := res.Error
 	if !res.OK {
 		if !lifecycleTask(kind) {
-			// The relay could not be opened, which the viewer has been told;
+			// The relay could not be opened, which the viewer has been told
+			// (logRelay.fail, above);
 			// the runner itself is untouched, and failing it here would have
 			// the next reconcile tear down a container that may be mid-job.
 			c.log.Info("a log task failed; the runner is left as it is",

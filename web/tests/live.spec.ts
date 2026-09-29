@@ -73,6 +73,55 @@ test('a host cordoned from elsewhere says so on the Hosts page', async ({ page }
   await expect(card).not.toContainText('Cordoned.');
 });
 
+/*
+ * A live refresh keeps what is on screen, so it must not be announced as a page
+ * that is loading. A screen reader user on a busy fleet would otherwise hear
+ * "Loading", then the count, again and again, over whatever they were reading:
+ * live regions announce an outcome once, not every heartbeat.
+ */
+test('a live refresh of a grid does not announce that it is loading', async ({ page }) => {
+  const host = await findByName(page.request, '/api/v1/hosts', 'demo-builder-2');
+  await goto(page, '/runners', 'Runners');
+  await expect(dataRows(grid(page, 'Runners')).first()).toBeVisible();
+
+  // The grid's own polite region, the one that carries its count.
+  const region = page.locator('p.sr-only[aria-live="polite"]', { hasText: /runners$/ });
+  await expect(region).toHaveText(/^\d+ runners$/);
+
+  await region.evaluate((node) => {
+    const seen: string[] = [];
+    (window as unknown as { __announced: string[] }).__announced = seen;
+    new MutationObserver(() => seen.push(node.textContent ?? '')).observe(node, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+  });
+
+  // A change from elsewhere the grid answers with a refetch of its own query.
+  const refetched = page.waitForResponse(
+    (response) => response.url().includes('/api/v1/runners?') && response.ok(),
+  );
+  try {
+    const response = await page.request.post(`/api/v1/hosts/${host.id}/cordon`, {
+      data: { cordoned: true },
+    });
+    expect(response.ok()).toBeTruthy();
+    await refetched;
+    // Let the answer land and the region settle before reading what it said.
+    await expect(region).toHaveText(/^\d+ runners$/);
+  } finally {
+    await page.request.post(`/api/v1/hosts/${host.id}/cordon`, { data: { cordoned: false } });
+  }
+
+  const announced = await page.evaluate(
+    () => (window as unknown as { __announced: string[] }).__announced,
+  );
+  expect(announced, 'nothing said "Loading" for a refresh that kept the rows').not.toContain(
+    'Loading',
+  );
+});
+
 test('a pool edited from elsewhere changes in the Pools grid', async ({ page }) => {
   const pool = await findByName(page.request, '/api/v1/pools', FIXTURE.linuxPool);
   await goto(page, '/pools', 'Pools');

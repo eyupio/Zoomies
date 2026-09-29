@@ -274,3 +274,63 @@ func TestALogStreamCutMidJobEndsQuietly(t *testing.T) {
 		t.Fatal("the output before the cut was not delivered")
 	}
 }
+
+// A viewer that opens a runner whose container is not there is told why,
+// straight away. Before this the failed task was only logged, so the browser
+// waited on a relay no agent would ever feed, and a second tab attached to the
+// same dead stream instead of asking for a fresh one.
+func TestAFailedLogTaskEndsTheRelayWithTheAgentsReason(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		kind agent.TaskKind // what the agent puts in its result; "" is an older agent
+	}{
+		{"agent names the kind", agent.TaskStreamLogs},
+		{"older agent, controller's record decides", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			_, pool, host := h.fleet()
+			r := h.runnerRow(pool, host, store.RunnerFailed)
+
+			ch, cancel, err := h.c.OpenLogStream(h.ctx, r.ID, backend.LogOptions{Follow: true})
+			if err != nil {
+				t.Fatalf("OpenLogStream: %v", err)
+			}
+			defer cancel()
+
+			batch, err := h.c.PollTasks(h.ctx, host.ID, time.Second)
+			if err != nil {
+				t.Fatalf("PollTasks: %v", err)
+			}
+			const reason = "no workload for runner on this host, so its logs are gone"
+			if err := h.c.ReportResult(h.ctx, host.ID, agent.TaskResult{
+				TaskID:   batch.Tasks[0].ID,
+				Kind:     tc.kind,
+				RunnerID: r.ID,
+				OK:       false,
+				Error:    reason,
+			}); err != nil {
+				t.Fatalf("ReportResult: %v", err)
+			}
+
+			got := drain(t, ch, 2*time.Second)
+			if !bytes.Contains(got, []byte(reason)) {
+				t.Fatalf("viewer received %q, want the agent's reason %q", got, reason)
+			}
+			if id := h.c.relay.streamIDFor(r.ID); id != "" {
+				t.Fatalf("the dead stream %s is still registered for the runner", id)
+			}
+
+			// A second tab must get a relay of its own, and the agent a task
+			// to open it.
+			_, cancel2, err := h.c.OpenLogStream(h.ctx, r.ID, backend.LogOptions{Follow: true})
+			if err != nil {
+				t.Fatalf("second OpenLogStream: %v", err)
+			}
+			defer cancel2()
+			if task := h.taskOfKind(host.ID, agent.TaskStreamLogs); task.StreamID == "" {
+				t.Fatal("no fresh stream_logs task was queued for the second viewer")
+			}
+		})
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"path"
 	"strings"
 	"time"
@@ -248,6 +249,11 @@ func (c *appClient) OpenPullRequest(ctx context.Context, req PullRequestRequest)
 	if err != nil {
 		return nil, c.migrationError(fmt.Sprintf("create branch %s on %s", head, req.Repo), classify(resp, err))
 	}
+	// The branch is ours from here, created a moment ago under a name nothing
+	// else uses (a refused CreateRef above never reaches this point, so an
+	// existing branch is never touched). A failure must not leave it behind: a
+	// PR-less branch with half a migration on it is debris in somebody else's
+	// repository, and every retry would add another.
 
 	message := strings.TrimSpace(req.CommitMessage)
 	if message == "" {
@@ -264,7 +270,10 @@ func (c *appClient) OpenPullRequest(ctx context.Context, req PullRequestRequest)
 		}
 		_, resp, err := c.asInstallation.Repositories.UpdateFile(ctx, owner, name, f.Path, opts)
 		if err != nil {
-			return nil, c.migrationError(fmt.Sprintf("commit %s to %s on %s", f.Path, head, req.Repo), classify(resp, err))
+			// No pull request exists yet, so the branch can go whatever the
+			// failure was, a cut-off request included.
+			cause := c.migrationError(fmt.Sprintf("commit %s to %s on %s", f.Path, head, req.Repo), classify(resp, err))
+			return nil, c.discardBranch(ctx, owner, name, head, cause)
 		}
 	}
 
@@ -275,9 +284,32 @@ func (c *appClient) OpenPullRequest(ctx context.Context, req PullRequestRequest)
 		Base:  gh.Ptr(base),
 	})
 	if err != nil {
-		return nil, c.migrationError("open a pull request on "+req.Repo, classify(resp, err))
+		cause := c.migrationError("open a pull request on "+req.Repo, classify(resp, err))
+		// Only a refusal proves there is no pull request. A cut-off request or
+		// a 5xx may have been processed, and deleting the head branch of a real
+		// pull request closes it.
+		if resp == nil || resp.StatusCode < 400 || resp.StatusCode >= 500 || resp.StatusCode == http.StatusRequestTimeout {
+			return nil, fmt.Errorf("%w; the branch %s was kept because the pull request may have been opened from it -- "+
+				"check the repository's pull requests before deleting it", cause, head)
+		}
+		return nil, c.discardBranch(ctx, owner, name, head, cause)
 	}
 	return &PullRequest{Number: pr.GetNumber(), HTMLURL: pr.GetHTMLURL(), Branch: head}, nil
+}
+
+// discardBranch deletes a branch OpenPullRequest created and returns cause. It
+// is best effort: if the delete fails the original failure still comes first,
+// with where the branch is, because an operator who is not told cannot know to
+// remove it. It runs detached from ctx, since the failure being cleaned up may
+// be that very context ending.
+func (c *appClient) discardBranch(ctx context.Context, owner, name, head string, cause error) error {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	if _, err := c.asInstallation.Git.DeleteRef(ctx, owner, name, "refs/heads/"+head); err != nil {
+		return fmt.Errorf("%w; the branch %s could not be removed (%v) and is still on the repository: delete it there by hand",
+			cause, head, err)
+	}
+	return cause
 }
 
 // migrationError turns a 403 on one of the migration calls into the sentence

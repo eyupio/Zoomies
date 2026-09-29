@@ -98,6 +98,20 @@ test('a run opens in place to the jobs inside it, and closes again from the keyb
   await expect(row).toHaveAttribute('aria-expanded', 'true');
 });
 
+// A search that matches nothing is not an idle fleet, whatever the status view says.
+test('a search that matches nothing says so and clears back to the default view', async ({
+  page,
+}) => {
+  await goto(page, '/workflows?q=nothing-is-called-this', 'Workflows');
+
+  await expect(page.getByText('No runs match these filters')).toBeVisible();
+  await expect(page.getByText('Nothing is running right now')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Clear filters', exact: true }).last().click();
+  await expect(page).not.toHaveURL(/[?&]q=/);
+  await expect(dataRows(runs(page)).first()).toBeVisible();
+});
+
 test('a re-run counts its latest attempt and still lists the earlier one', async ({ page }) => {
   await goto(page, '/workflows?state=completed&repo=acme%2Fwidgets', 'Workflows');
   const row = dataRows(runs(page))

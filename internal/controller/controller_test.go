@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"sync/atomic"
@@ -12,6 +13,7 @@ import (
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/events"
+	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -161,6 +163,64 @@ func TestProbeReportsMissingPermissions(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "Self-hosted runners") {
 		t.Fatalf("error = %q, want it to name the missing permission", err)
+	}
+}
+
+// A quota refusal says nothing about the credentials, and it refills on its
+// own. Recording it as the installation's health raised an error-severity
+// "installation is not usable, check your private key" at the moment an
+// operator was already looking at a rate-limited fleet, and the probe went on
+// spending quota every other background path had stood down from.
+func TestARateLimitedProbeLeavesTheInstallationsHealthAloneAndStandsDown(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		lastError string
+	}{
+		{"a healthy installation stays healthy", ""},
+		{"a broken installation keeps its own reason", "the App is installed but is missing a permission"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			inst := h.installation()
+			if err := h.st.SetInstallationHealth(h.ctx, inst.ID, tc.lastError); err != nil {
+				t.Fatal(err)
+			}
+			h.gh.SetRateLimit(5000, 0, time.Now().Add(time.Hour))
+			h.gh.SetError("/actions/runners", 403, "API rate limit exceeded")
+
+			_, err := h.c.ProbeInstallation(h.ctx, inst.ID)
+			if !errors.Is(err, github.ErrRateLimited) {
+				t.Fatalf("ProbeInstallation error = %v, want it to say the installation is rate limited, so Verify can tell the operator why", err)
+			}
+			after, gerr := h.st.GetInstallation(h.ctx, inst.ID)
+			if gerr != nil {
+				t.Fatal(gerr)
+			}
+			if after.LastError != tc.lastError {
+				t.Errorf("last_error = %q, want the previous verdict %q left alone", after.LastError, tc.lastError)
+			}
+			if tc.lastError == "" && contains(h.problemCodes(), "installation.unhealthy") {
+				t.Errorf("problems = %v, a rate limit is not an unusable installation", h.problemCodes())
+			}
+			if !h.c.githubHeld(inst.ID, time.Now()) {
+				t.Error("the probe did not stand the installation down after GitHub rate-limited it")
+			}
+		})
+	}
+}
+
+// The probe loop runs every few minutes for every installation; one inside a
+// rate-limit hold is not asked anything, as the poller and reaper do not.
+func TestTheProbeLoopSkipsAnInstallationInsideARateLimitHold(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	h.c.holdGitHub(inst.ID, h.c.Now().Add(time.Hour))
+	before := len(h.gh.Requests())
+
+	h.c.probeInstallations(h.ctx)
+
+	if after := len(h.gh.Requests()); after != before {
+		t.Fatalf("the probe loop made %d calls for an installation that is standing down", after-before)
 	}
 }
 

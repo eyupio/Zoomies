@@ -645,6 +645,7 @@ paths:
         "204": { description: Changed }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "422": { $ref: "#/components/responses/Unprocessable" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /auth/oidc/start:
     get:
@@ -1398,7 +1399,9 @@ paths:
         refuses the whole document with 422 while any pool is refused, so an
         import is one change or none; `skip` names the pools to leave out. A
         pool the document does not name is left alone, and a setting a pool
-        entry leaves out keeps its current value.
+        entry leaves out keeps its current value. New pools count against
+        `limits.pools` together: a document that would leave the instance over
+        it is refused with 409, dry run or not, and nothing is written.
       x-zoomies-role: operator
       requestBody:
         required: true
@@ -1411,6 +1414,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/PoolsImport" }
+        "409": { $ref: "#/components/responses/LimitReached" }
         "422": { $ref: "#/components/responses/Unprocessable" }
 
   /pools/validate:
@@ -1855,7 +1859,13 @@ paths:
       operationId: downloadRunnerLogs
       tags: [runners]
       summary: Download a runner's logs
+      description: |
+        A snapshot of the runner's output, read until the relay goes quiet. With `tail` it
+        is only the last lines, which is what a caller after the end of a long build wants
+        rather than reading the whole log and keeping what fits.
       x-zoomies-role: viewer
+      parameters:
+        - { name: tail, in: query, description: Lines from the end of the log to return. Absent or 0 means everything., schema: { type: integer, minimum: 0, default: 0 } }
       responses:
         "200":
           description: A snapshot
@@ -6578,7 +6588,7 @@ components:
         backup_id: { type: string }
         attempted_at: { type: string, format: date-time }
         ok: { type: boolean }
-        error: { type: string, description: Why the restore did not happen. The controller started on the database it had. }
+        error: { type: string, description: "Why the restore did not finish. When it failed after the copy, the message says which database is in place and whether it is fenced." }
         report: { $ref: "#/components/schemas/RestoreReport" }
 
     RestoreReport:
@@ -7046,8 +7056,10 @@ components:
         kind: { $ref: "#/components/schemas/JobEventKind" }
         source:
           type: string
-          description: Who observed it. A timeline that is all `poller` is a controller no webhook reaches.
-          enum: [webhook, poller, agent, controller]
+          description: >-
+            Who observed it. A timeline that is all `poller` is a controller no webhook reaches.
+            `recovery` marks a re-run the fleet decided on rather than a person.
+          enum: [webhook, poller, agent, controller, recovery]
         message: { type: string, description: One sentence, written for an operator. }
         runner_id: { type: string }
         runner_name: { type: string }

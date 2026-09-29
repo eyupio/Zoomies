@@ -237,6 +237,13 @@
    */
   let settled = $state(false);
   let error = $state<unknown>(null);
+  /**
+   * The fetch in flight is a live refresh, which keeps the rows on screen and so
+   * must not be announced as a page that is loading: a busy fleet would have a
+   * screen reader say "Loading" and then the count once a second. A change the
+   * operator made -- a filter, a page, a sort -- still does.
+   */
+  let quiet = $state(false);
   let lastFilterKey = '';
 
   /** A short debounce so a burst of changes costs one request, not forty. */
@@ -306,6 +313,7 @@
         return;
       }
       lastLiveAt = Date.now();
+      quiet = true;
       fetchNow(current);
     }, wait);
   }
@@ -332,6 +340,7 @@
       liveTimer = null;
     }
     loading = true;
+    quiet = false;
     const timer = setTimeout(() => fetchNow(query), DEBOUNCE_MS);
     return () => {
       clearTimeout(timer);
@@ -339,6 +348,21 @@
       inflight?.abort();
       inflight = null;
     };
+  });
+
+  // A page the list has shrunk out from under -- the last page emptied by a live
+  // refresh, or a pasted `?offset=` from before the fleet shrank -- answers no
+  // rows beside a total that says there are some. Step back to the last page that
+  // has rows rather than say "none" next to "51-50 of 50". `loading` keeps this
+  // from acting on the answer to a query the operator has already left, and the
+  // step replaces the history entry so Back does not return to the dead page.
+  // Several grids on one page (the orphan review) share one offset parameter, so
+  // a shorter list pulls the longer ones back with it.
+  $effect(() => {
+    if (!settled || loading || error || rows.length > 0) return;
+    if (total <= 0 || offset <= 0 || limit <= 0) return;
+    const lastOffset = Math.max(0, (Math.ceil(total / limit) - 1) * limit);
+    router.setQuery({ offset: lastOffset || null });
   });
 
   // The first value of liveKey is the one the initial fetch already answers;
@@ -872,7 +896,14 @@
 
   $effect(() => {
     if (!chooserOpen) return;
-    const layer = layers.push('dropdown', () => (chooserOpen = false));
+    const layer = layers.push('dropdown', () => {
+      // Focus inside the panel goes when the panel does, and a keyboard user
+      // would land on the document with the next Tab starting from its top.
+      // Only then: Escape pressed with focus elsewhere must not pull it back.
+      const inside = chooser?.contains(document.activeElement);
+      chooserOpen = false;
+      if (inside) chooser?.querySelector('button')?.focus();
+    });
     const onDocument = (event: MouseEvent) => {
       if (!chooser?.contains(event.target as Node)) chooserOpen = false;
     };
@@ -884,7 +915,9 @@
   });
 
   const hideable = $derived(orderedColumns.filter((c) => c.hideable !== false));
-  const isEmpty = $derived(settled && !error && modelRows.length === 0);
+  // `total === 0` as well: an empty page beside a positive total is a page past
+  // the end, which the effect above steps back from, not a list with nothing in it.
+  const isEmpty = $derived(settled && !error && modelRows.length === 0 && total === 0);
 </script>
 
 <div class="grid {className}" class:rows={phoneRows} class:custom={hasCustomWidths}>
@@ -931,7 +964,7 @@
         variant="ghost"
         icon={Columns3}
         ariaExpanded={chooserOpen}
-        ariaHaspopup="menu"
+        ariaHaspopup="dialog"
         ariaControls="{gridId}-columns"
         onclick={() => (chooserOpen = !chooserOpen)}
       >
@@ -1227,7 +1260,7 @@
 
   <Pagination {total} {limit} {offset} {noun} onpage={goTo} onlimit={setLimit} />
   <p class="sr-only" aria-live="polite">
-    {loading ? 'Loading' : `${total} ${noun}`}
+    {loading && !quiet ? 'Loading' : `${total} ${noun}`}
   </p>
 </div>
 

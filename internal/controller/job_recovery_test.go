@@ -124,8 +124,11 @@ func TestJobRecoveryRotatesThroughBoundedPages(t *testing.T) {
 // Turning the fallback poller off used to turn off the only check that notices
 // a completion whose webhook never arrived, leaving the job in progress for
 // ever: counted against its repository's scale-up limit, and holding its
-// runner's host back from cleanup. The check now runs from the housekeeping
-// loop when the poller is off, and stays the poller's when it is on.
+// runner's host back from cleanup. The job-recovery loop owns that check
+// whatever github.poll_fallback says, so it must still find the completion
+// with the poller off -- and the housekeeping pass must not run it a second
+// time, because two callers double every GitHub call and race on the shared
+// rotation offset.
 func TestAMissedCompletionIsStillRecoveredWithThePollerOff(t *testing.T) {
 	h := newHarness(t)
 	h.fleet()
@@ -134,29 +137,27 @@ func TestAMissedCompletionIsStillRecoveredWithThePollerOff(t *testing.T) {
 	h.gh.CompleteJob(q.ID, "success")
 	h.advance(3 * time.Minute)
 
-	// With the poller on, the housekeeping loop leaves the check to it.
-	h.cfg.GitHub.PollFallback = true
-	h.c.reconcileJobsWithoutThePoller(h.ctx, h.c.Now())
+	// The pass is run whole, as the loop runs it, with the two jobs that would
+	// leave the fake switched off: the image refresh and the release check
+	// both have nowhere to go here.
+	h.cfg.GitHub.PollFallback = false
+	h.cfg.Images.RefreshInterval = 0
+	h.cfg.Updates.CheckInterval = 0
+	h.c.housekeep(h.ctx, &housekeeping{})
 	job, err := h.st.GetJobByGitHubID(h.ctx, q.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if job.State == store.JobCompleted {
-		t.Fatal("the housekeeping loop checked jobs while the poller was on, which would double every GitHub call")
+		t.Fatal("the housekeeping loop checked known jobs, which the job-recovery loop already does and would double every GitHub call")
 	}
 
-	// Off, a housekeeping pass does the check. The pass is run whole, as the
-	// loop runs it, with the two jobs that would leave the fake switched off:
-	// the image refresh and the release check both have nowhere to go here.
-	h.cfg.GitHub.PollFallback = false
-	h.cfg.Images.RefreshInterval = 0
-	h.cfg.Updates.CheckInterval = 0
-	h.c.housekeep(h.ctx, &housekeeping{})
+	h.c.reconcileKnownJobs(h.ctx, h.c.Now())
 	job, err = h.st.GetJobByGitHubID(h.ctx, q.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if job.State != store.JobCompleted || job.Conclusion != "success" {
-		t.Fatalf("job = %+v, want it completed by the housekeeping loop", job)
+		t.Fatalf("job = %+v, want it completed by the job-recovery sweep", job)
 	}
 }

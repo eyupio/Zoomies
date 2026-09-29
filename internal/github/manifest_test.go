@@ -298,6 +298,22 @@ func TestExchangeManifestCodeErrors(t *testing.T) {
 		}
 	})
 
+	// The code arrives from a request body, so it must stay one path segment:
+	// otherwise "x/../../admin?" steers the POST to another endpoint on the
+	// host it was aimed at.
+	t.Run("a crafted code stays one path segment", func(t *testing.T) {
+		var gotURI string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			gotURI = r.RequestURI
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer srv.Close()
+		_, _ = ExchangeManifestCode(context.Background(), srv.URL, "x/../../admin?y=1")
+		if want := "/api/v3/app-manifests/x%2F..%2F..%2Fadmin%3Fy=1/conversions"; gotURI != want {
+			t.Fatalf("request URI = %q, want %q", gotURI, want)
+		}
+	})
+
 	t.Run("proxy answered", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			_, _ = w.Write([]byte("<html>login page</html>"))

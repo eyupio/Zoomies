@@ -97,7 +97,7 @@ func (s *Server) handleGetRunner(w http.ResponseWriter, r *http.Request) {
 	}
 	if pool, perr := s.ctrl.Store().GetPool(r.Context(), run.PoolID); perr == nil {
 		if pv, verr := s.ctrl.PoolRenderer(r.Context()); verr == nil {
-			p := pv.View(pool)
+			p := poolFor(r, pv.View(pool))
 			detail.Pool = &p
 		}
 	}

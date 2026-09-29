@@ -1053,7 +1053,7 @@ export interface paths {
         put?: never;
         /**
          * Read a pools export back, previewing first
-         * @description Every pool in the document is matched by name and planned through the checks a create or an edit makes, and reported as `create`, `change`, `unchanged` or `refused`, with the current and incoming value of every setting that would move and the reason for a refusal. An edit that would leave a pool with no host that could run it is refused, as a PATCH is; a new pool no host could run yet is created with a warning, as the wizard allows. A dry run reports and writes nothing. A real run refuses the whole document with 422 while any pool is refused, so an import is one change or none; `skip` names the pools to leave out. A pool the document does not name is left alone, and a setting a pool entry leaves out keeps its current value.
+         * @description Every pool in the document is matched by name and planned through the checks a create or an edit makes, and reported as `create`, `change`, `unchanged` or `refused`, with the current and incoming value of every setting that would move and the reason for a refusal. An edit that would leave a pool with no host that could run it is refused, as a PATCH is; a new pool no host could run yet is created with a warning, as the wizard allows. A dry run reports and writes nothing. A real run refuses the whole document with 422 while any pool is refused, so an import is one change or none; `skip` names the pools to leave out. A pool the document does not name is left alone, and a setting a pool entry leaves out keeps its current value. New pools count against `limits.pools` together: a document that would leave the instance over it is refused with 409, dry run or not, and nothing is written.
          */
         post: operations["importPools"];
         delete?: never;
@@ -1351,7 +1351,12 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Download a runner's logs */
+        /**
+         * Download a runner's logs
+         * @description A snapshot of the runner's output, read until the relay goes quiet. With `tail` it
+         *     is only the last lines, which is what a caller after the end of a long build wants
+         *     rather than reading the whole log and keeping what fits.
+         */
         get: operations["downloadRunnerLogs"];
         put?: never;
         post?: never;
@@ -4881,7 +4886,7 @@ export interface components {
             /** Format: date-time */
             attempted_at: string;
             ok: boolean;
-            /** @description Why the restore did not happen. The controller started on the database it had. */
+            /** @description Why the restore did not finish. When it failed after the copy, the message says which database is in place and whether it is fenced. */
             error?: string;
             report?: components["schemas"]["RestoreReport"];
         };
@@ -5294,10 +5299,10 @@ export interface components {
             job_id?: string;
             kind?: components["schemas"]["JobEventKind"];
             /**
-             * @description Who observed it. A timeline that is all `poller` is a controller no webhook reaches.
+             * @description Who observed it. A timeline that is all `poller` is a controller no webhook reaches. `recovery` marks a re-run the fleet decided on rather than a person.
              * @enum {string}
              */
-            source?: "webhook" | "poller" | "agent" | "controller";
+            source?: "webhook" | "poller" | "agent" | "controller" | "recovery";
             /** @description One sentence */
             message?: string;
             runner_id?: string;
@@ -7244,6 +7249,7 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             422: components["responses"]["Unprocessable"];
+            429: components["responses"]["RateLimited"];
         };
     };
     oidcStart: {
@@ -8078,6 +8084,7 @@ export interface operations {
                     "application/json": components["schemas"]["PoolsImport"];
                 };
             };
+            409: components["responses"]["LimitReached"];
             422: components["responses"]["Unprocessable"];
         };
     };
@@ -8566,7 +8573,10 @@ export interface operations {
     };
     downloadRunnerLogs: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Lines from the end of the log to return. Absent or 0 means everything. */
+                tail?: number;
+            };
             header?: never;
             path: {
                 /** @description The resource ID, e.g. `pool_k3f9qz2m`. */

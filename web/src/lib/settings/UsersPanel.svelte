@@ -80,18 +80,38 @@
   const admins = $derived(users.filter((u) => u.role === 'admin' && !u.disabled).length);
 
   /**
-   * Handle a failure from any account change.
+   * The server's sentence for the last-administrator rule.
    *
-   * A 409 here is only ever the last-administrator rule, so it is explained
-   * instead of being shouted about: nothing was changed, and the way forward is
-   * to promote somebody else first.
+   * It has no code of its own -- it and a duplicate username are both a plain
+   * 409 -- so the two are told apart by what the message says.
+   */
+  const LAST_ADMIN = /last enabled administrator/i;
+
+  /**
+   * Handle a failure from an account change that has no dialog to show it in.
+   *
+   * The last-administrator refusal is explained instead of being shouted about:
+   * nothing was changed, and the way forward is to promote somebody else first.
+   * Any other 409 is an ordinary failure and is toasted like one.
    */
   function handle(cause: unknown, what: string): void {
-    if (cause instanceof ApiError && cause.isConflict) {
+    if (cause instanceof ApiError && cause.isConflict && LAST_ADMIN.test(cause.message)) {
       guard = cause.message;
       return;
     }
     toasts.fromError(cause, what);
+  }
+
+  /**
+   * A 409 that names no field, to be shown where the operator is looking.
+   *
+   * The page-level banner sits behind the modal, which is inert while it is
+   * open, so a refusal shown there cannot be seen until the operator has closed
+   * the form that raised it.
+   */
+  function inDialog(cause: unknown): string | null {
+    if (!(cause instanceof ApiError) || !cause.isConflict) return null;
+    return Object.keys(cause.fieldErrors()).length === 0 ? cause.message : null;
   }
 
   /* -- create ------------------------------------------------------------------ */
@@ -146,7 +166,11 @@
       reload += 1;
     } catch (cause) {
       if (cause instanceof ApiError) createErrors = cause.fieldErrors();
-      handle(cause, 'That account was not created');
+      // Adding is the one change that can meet a duplicate username, and the
+      // username is what has to change.
+      const refusal = inDialog(cause);
+      if (refusal) createErrors = { username: refusal };
+      else handle(cause, 'That account was not created');
     } finally {
       creating = false;
     }
@@ -161,6 +185,8 @@
   let editEmail = $state('');
   let saving = $state(false);
   let editErrors = $state<Record<string, string>>({});
+  /** A refusal that names no field, kept in the dialog so what was typed survives it. */
+  let editRefusal = $state('');
 
   function openEdit(user: User): void {
     editing = user;
@@ -168,6 +194,7 @@
     editDisplayName = user.display_name ?? '';
     editEmail = user.email ?? '';
     editErrors = {};
+    editRefusal = '';
     editOpen = true;
   }
 
@@ -176,6 +203,7 @@
     if (!user?.id) return;
     saving = true;
     editErrors = {};
+    editRefusal = '';
     try {
       await updateUser(user.id, {
         role: editRole as Role,
@@ -188,7 +216,9 @@
       if (user.id === session.identity?.id) await session.refresh();
     } catch (cause) {
       if (cause instanceof ApiError) editErrors = cause.fieldErrors();
-      handle(cause, 'That account was not updated');
+      const refusal = inDialog(cause);
+      if (refusal) editRefusal = refusal;
+      else handle(cause, 'That account was not updated');
     } finally {
       saving = false;
     }
@@ -484,7 +514,15 @@
   title="Add an account"
   description="They will be asked to choose their own password the first time they sign in."
 >
-  <div class="form">
+  <form
+    id="add-account-form"
+    class="form"
+    novalidate
+    onsubmit={(event) => {
+      event.preventDefault();
+      void create();
+    }}
+  >
     <Field label="Username" error={createErrors.username} required>
       {#snippet children({ id, describedBy, invalid })}
         <Input bind:value={newUsername} {id} {describedBy} {invalid} autocomplete="off" />
@@ -519,15 +557,16 @@
         />
       {/snippet}
     </Field>
-  </div>
+  </form>
 
   {#snippet footer()}
     <Button variant="ghost" onclick={() => (createOpen = false)}>Cancel</Button>
     <Button
       variant="primary"
       loading={creating}
+      type="submit"
+      form="add-account-form"
       disabled={!newUsername.trim() || Boolean(passwordError)}
-      onclick={create}
     >
       Add account
     </Button>
@@ -536,7 +575,15 @@
 
 <!-- Edit -->
 <Dialog bind:open={editOpen} title="Edit {editing?.username ?? 'account'}">
-  <div class="form">
+  <form
+    id="edit-account-form"
+    class="form"
+    novalidate
+    onsubmit={(event) => {
+      event.preventDefault();
+      void save();
+    }}
+  >
     <Field label="Display name" error={editErrors.display_name}>
       {#snippet children({ id, describedBy, invalid })}
         <Input bind:value={editDisplayName} {id} {describedBy} {invalid} />
@@ -548,17 +595,22 @@
       {/snippet}
     </Field>
     <RadioGroup bind:value={editRole} name="edit-role" legend="Role" options={ROLE_OPTIONS} />
+    {#if editRefusal}
+      <p class="warn" role="alert">{editRefusal}</p>
+    {/if}
     {#if editing?.id === session.identity?.id && editRole !== 'admin'}
       <p class="warn">
         This is your own account. Taking the administrator role away from it means you will not be
         able to put it back.
       </p>
     {/if}
-  </div>
+  </form>
 
   {#snippet footer()}
     <Button variant="ghost" onclick={() => (editOpen = false)}>Cancel</Button>
-    <Button variant="primary" loading={saving} onclick={save}>Save changes</Button>
+    <Button variant="primary" type="submit" form="edit-account-form" loading={saving}>
+      Save changes
+    </Button>
   {/snippet}
 </Dialog>
 
@@ -569,7 +621,15 @@
   description="They will have to choose their own the next time they sign in."
   size="sm"
 >
-  <div class="form">
+  <form
+    id="reset-password-form"
+    class="form"
+    novalidate
+    onsubmit={(event) => {
+      event.preventDefault();
+      void doReset();
+    }}
+  >
     <Field
       label="New password"
       hint="At least {MIN_PASSWORD_LENGTH} characters. Send it to them over something private; it is not emailed."
@@ -586,15 +646,16 @@
         />
       {/snippet}
     </Field>
-  </div>
+  </form>
 
   {#snippet footer()}
     <Button variant="ghost" onclick={() => (resetOpen = false)}>Cancel</Button>
     <Button
       variant="primary"
       loading={resetBusy}
+      type="submit"
+      form="reset-password-form"
       disabled={resetPassword.length < MIN_PASSWORD_LENGTH}
-      onclick={doReset}
     >
       Reset password
     </Button>

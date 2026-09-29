@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -184,5 +185,62 @@ func TestASettingsChangeThatWouldStopTheControllerStartingIsRefused(t *testing.T
 	// And nothing was stored, so the next start is unaffected.
 	if _, err := h.ctrl.Store().GetInstanceSetting(t.Context(), "scheduler.max_creates_per_tick"); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("a refused change was written anyway: %v", err)
+	}
+}
+
+// TestASecretSettingIsNeverWrittenToTheAuditTrail covers the one place a
+// setting's value outlives the request that set it.
+//
+// An audit row is kept for the life of the database and is never pruned, so a
+// credential written into one cannot be retracted. The redaction there goes by
+// key name, and "agent.registry_auth" carries none of the words it looks for,
+// so the registry login went into the row in the clear -- both the new value
+// and the one it replaced. What is recorded instead is that the setting
+// changed and in which direction, which is what the row is read for.
+func TestASecretSettingIsNeverWrittenToTheAuditTrail(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("admin", store.RoleAdmin)
+	cookie := h.session(admin)
+
+	const first, second = "Zmlyc3Q6bmV4dXMtaHVudGVyMg==", "c2Vjb25kOm5leHVzLWh1bnRlcjM="
+	patch := func(name string, value any) {
+		t.Helper()
+		h.do(request{method: http.MethodPatch, path: "/api/v1/settings", cookie: cookie,
+			body: map[string]any{"agent.registry_auth": value}}).mustStatus(t, http.StatusOK, name)
+	}
+	patch("setting it", first)
+	patch("rotating it", second)
+
+	// Saving the value the controller is already running with is not a
+	// change, so it is not a row. The markers below differ between "set" and
+	// "unchanged", which is why this has to be decided before they are chosen.
+	h.ctrl.UpdateConfig(func(c *config.Config) { c.Agent.RegistryAuth = second })
+	patch("saving it again unchanged", second)
+	patch("clearing it", nil)
+
+	resp := h.do(request{method: http.MethodGet, path: "/api/v1/audit?action=settings.update&limit=100", cookie: cookie})
+	resp.mustStatus(t, http.StatusOK, "audit")
+	for _, secret := range []string{first, second} {
+		if strings.Contains(string(resp.body), secret) {
+			t.Fatalf("the audit trail carries the registry credential %q:\n%s", secret, resp.body)
+		}
+	}
+	var rows list[store.AuditEvent]
+	resp.into(t, &rows)
+
+	// Each row still says which key moved and which way, because that is what
+	// an operator opens the trail to find out.
+	want := []string{
+		`{"agent.registry_auth":null} -> {"agent.registry_auth":"[replaced]"}`,
+		`{"agent.registry_auth":null} -> {"agent.registry_auth":"[replaced]"}`,
+		`{"agent.registry_auth":"[redacted]"} -> {"agent.registry_auth":null}`,
+	}
+	var got []string
+	// Newest first on the wire, so read it back oldest first.
+	for i := len(rows.Items) - 1; i >= 0; i-- {
+		got = append(got, rows.Items[i].Before+" -> "+rows.Items[i].After)
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("settings.update rows =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }

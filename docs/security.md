@@ -121,7 +121,7 @@ on its own runners, and cannot read pools, jobs, users or the audit log.
 | Capacity-demand signing secret | `instance_settings` | Same |
 | User passwords | `users.password_hash` | argon2id, 64 MiB × 2 passes × 4 lanes, 16-byte salt |
 | Session cookies | `sessions.token_hash` | SHA-256 of a 32-byte random token |
-| API tokens | `api_tokens.token_hash` | SHA-256; the plaintext is shown exactly once. Revoked with the account they belong to: disabling or deleting a user revokes their tokens, and one whose owner is disabled or gone is refused even if it was not |
+| API tokens | `api_tokens.token_hash` | SHA-256; the plaintext is shown exactly once. Revoked with the account they belong to: disabling or deleting a user revokes their tokens, and one whose owner is disabled or gone is refused even if it was not. A token never carries more than its owner's current role, so demoting an account demotes its tokens |
 | Agent tokens | `hosts.token_hash` | SHA-256; issued once at join |
 | Join tokens | `join_tokens.token_hash` | SHA-256, single-use, short TTL. One minted for a rented machine is scoped to that machine's name as well, so a token read out of a guest cannot enrol anything else |
 | Provider credentials | `providers.credentials_enc` | AES-256-GCM, key from env or key file. Unsealed only for the life of one API client, and never sent to a guest, an API response, an audit row or a log line |
@@ -260,7 +260,9 @@ says so when it does, and a daemon that already applies limits is left alone.
   into an unscoped one that outlives its revocation. Anybody signed in may
   create, list and revoke their own tokens, never at a role above their own;
   an administrator sees and revokes everybody's, and every one of those acts
-  is audited (`token.create`, `token.revoke`, `token.delete`). The same tokens
+  is audited (`token.create`, `token.revoke`, `token.delete`). A token also
+  never carries more than its owner's current role: demoting an account
+  demotes the tokens it holds, as it does its MCP connections. The same tokens
   open `/mcp`, the endpoint a coding agent connects to; see below.
 * **MCP connections** — `zoomcp_` access tokens from the OAuth flow a client
   such as Claude runs against `/mcp`, when `security.mcp_oauth` is on. They
@@ -311,7 +313,10 @@ flowchart LR
 The action-to-role table is `internal/auth/rbac.go`. A mutating handler that
 succeeds writes an audit row naming the actor, the target and a redacted
 before/after; a refused login writes one too, because a burst of those is
-something you want to see.
+something you want to see. A login refused for rate limiting writes one row
+per address per minute rather than one per request, so an anonymous loop
+cannot fill an audit log that is never pruned; the rest are counted in the
+controller's debug log.
 
 A coding agent's request to `/mcp` is authorised the same way, one tool call
 at a time. The endpoint resolves the bearer token as any route does — and
@@ -360,9 +365,11 @@ that adds, and what it is built not to add:
   in and approves it. A client that registers again describing itself exactly as
   before — the same name, client URI and redirects — is handed the registration
   it already has rather than a new one. New registrations are limited to a
-  hundred an hour per address, and
-  a self-registered client that never completes a sign-in is removed after a
-  day. The document fetch is fenced — https, no redirects, public addresses only
+  hundred an hour per address — a client named by a metadata document is not
+  counted against that — and a client that never completes a sign-in,
+  self-registered or named by a document, is removed after a day. A revoked one
+  is kept, so the revocation holds. The document fetch is fenced — https, no
+  redirects, public addresses only
   unless `security.allow_private_egress` is on, five seconds, five kilobytes —
   and the addresses it refuses are judged after resolution by the same ranges as
   every other outbound URL, NAT64 and 6to4 spellings of a private address included —

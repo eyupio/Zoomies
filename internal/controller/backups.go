@@ -329,7 +329,7 @@ func (c *Controller) backupPass(ctx context.Context, nudged bool) {
 	// And then the copies that leave the machine. A nudge means a backup has
 	// just been taken and there is something to send; a tick means checking
 	// whether a remote that was unreachable has come back.
-	if nudged || c.remotesDue(c.Now()) {
+	if nudged || c.remotesDue(ctx, c.Now()) {
 		c.shipScheduled(ctx)
 	}
 }
@@ -454,8 +454,8 @@ func (c *Controller) backupProblems(ctx context.Context) []Problem {
 		out = append(out, Problem{
 			Code:     "backup.restore_failed",
 			Severity: config.SeverityError,
-			Title:    "the last restore did not happen",
-			Detail:   fmt.Sprintf("restoring %s at %s failed: %s. The controller started on the database it already had.", outcome.BackupID, at.Format(time.RFC3339), outcome.Error),
+			Title:    "the last restore did not finish",
+			Detail:   fmt.Sprintf("restoring %s at %s failed: %s", outcome.BackupID, at.Format(time.RFC3339), outcome.Error),
 			Fix:      "read the reason, put right what it names, and stage the restore again from the Backups tab. Dismiss this from the same tab once it is understood.",
 			Since:    &at,
 		})

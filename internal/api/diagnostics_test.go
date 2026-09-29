@@ -201,3 +201,37 @@ func TestAnOversizeBundleShedsSectionsAndSaysWhichOnes(t *testing.T) {
 		t.Error("the hosts section was shed; only the recomputable sections may be")
 	}
 }
+
+// TestTheBundleKeepsAPoolsEnvKeysAndNotItsValues covers the one section of the
+// bundle that was not "secret-free on its own route".
+//
+// A pool's env is where a registry password or a deploy key ends up. An
+// administrator may read those values on the pool's own route, but the bundle
+// is a file made to be attached to an issue or sent to whoever runs the
+// platform, so a routine "send me a bundle" handed the values to a third
+// party. The keys stay, because which variables a pool sets is what a reader
+// diagnosing it needs, and the pool export carries the same.
+func TestTheBundleKeepsAPoolsEnvKeysAndNotItsValues(t *testing.T) {
+	h := newHarness(t)
+	pool := h.pool(h.installation(), "linux-x64")
+	pool.Env = store.StringMap{"NEXUS_PW": "hunter2", "DEPLOY_KEY": "deploy-key-value-9f3"}
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+	// Both roles that may take a bundle: an administrator holds pools.write,
+	// so a role-based blanking would have let their bundle keep the values.
+	for _, role := range []store.Role{store.RoleAdmin, store.RolePlatform} {
+		u, _ := h.user("bundler-"+string(role), role)
+		resp := h.do(request{method: http.MethodGet, path: "/api/v1/diagnostics/bundle", cookie: h.session(u)})
+		resp.mustStatus(t, http.StatusOK, "support bundle as "+string(role))
+		body := string(resp.body)
+		if strings.Contains(body, "hunter2") || strings.Contains(body, "deploy-key-value-9f3") {
+			t.Errorf("the bundle taken by a %s carries a pool env value:\n%s", role, body)
+		}
+		for _, key := range []string{"NEXUS_PW", "DEPLOY_KEY"} {
+			if !strings.Contains(body, key) {
+				t.Errorf("the bundle taken by a %s dropped the env key %s as well as its value", role, key)
+			}
+		}
+	}
+}

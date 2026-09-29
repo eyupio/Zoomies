@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -30,6 +31,11 @@ import (
 // the event stream -- set no deadline of their own and are bounded by the
 // operator's patience and ctrl-C instead.
 const defaultRequestTimeout = 30 * time.Second
+
+// importRequestTimeout is what an installation import waits for. The archive
+// is the installation's whole history and can run to hundreds of megabytes, so
+// the upload alone can outlast an ordinary call's thirty seconds.
+const importRequestTimeout = 30 * time.Minute
 
 // ---------------------------------------------------------------------------
 // Credentials
@@ -113,6 +119,22 @@ func registerClientFlags(fs *flagSet, withOutput bool) *clientFlags {
 		cf.output = fs.String("output", outputTable, "table, json or yaml")
 	}
 	return cf
+}
+
+// defaultTimeoutTo raises --timeout for a command whose one request is
+// legitimately long, unless the operator set it: an explicit value is the only
+// way to ask for less, so it is never overridden. Call it after parsing and
+// before client().
+func (cf *clientFlags) defaultTimeoutTo(fs *flagSet, d time.Duration) {
+	set := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "timeout" {
+			set = true
+		}
+	})
+	if !set {
+		*cf.timeout = d
+	}
 }
 
 // printer builds the renderer for this command's --output.

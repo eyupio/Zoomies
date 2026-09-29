@@ -696,3 +696,30 @@ func TestTokenIsShownExactlyOnce(t *testing.T) {
 	after := h.do(request{method: http.MethodGet, path: "/api/v1/pools", token: token.Token})
 	after.mustStatus(t, http.StatusUnauthorized, "use a revoked token")
 }
+
+// A job's timeline is served straight from what the controller wrote, and with
+// scheduler.auto_rerun on it writes a re-run the fleet decided on with the
+// source "recovery". The published enum listed only the four an observer can
+// be, so a strict client generated from the document would reject or mistype
+// the timeline of exactly the jobs the fleet broke.
+func TestTheJobTimelineSourceEnumNamesEverySourceTheControllerWrites(t *testing.T) {
+	doc := loadSpec(t)
+	components, _ := doc["components"].(map[string]any)
+	schemas, _ := components["schemas"].(map[string]any)
+	event, _ := schemas["JobEvent"].(map[string]any)
+	props, _ := event["properties"].(map[string]any)
+	source, _ := props["source"].(map[string]any)
+	enum, _ := source["enum"].([]any)
+
+	got := map[string]bool{}
+	for _, v := range enum {
+		if s, ok := v.(string); ok {
+			got[s] = true
+		}
+	}
+	for _, want := range []string{"webhook", "poller", "agent", "controller", "recovery"} {
+		if !got[want] {
+			t.Errorf("JobEvent.source does not list %q, which the controller writes to a job's timeline", want)
+		}
+	}
+}

@@ -391,7 +391,11 @@ func Text(s Setting, value any) string {
 		if err != nil {
 			return ""
 		}
-		return strings.Join(list, ",")
+		escaped := make([]string, len(list))
+		for i, item := range list {
+			escaped[i] = escapeList(item)
+		}
+		return strings.Join(escaped, ",")
 	case KindLabels:
 		pairs, err := asLabels(value)
 		if err != nil {
@@ -406,7 +410,7 @@ func Text(s Setting, value any) string {
 		sort.Strings(keys)
 		parts := make([]string, 0, len(keys))
 		for _, k := range keys {
-			parts = append(parts, k+"="+pairs[k])
+			parts = append(parts, escapeList(k)+"="+escapeList(pairs[k]))
 		}
 		return strings.Join(parts, ",")
 	case KindDuration:

@@ -402,6 +402,43 @@ test('runner capacity is adjustable from the host card without opening the full 
   ]);
 });
 
+test('a refused capacity is withdrawn when the figure is changed, and only that figure', async ({
+  page,
+}) => {
+  await goto(page, '/hosts', 'Hosts');
+  const card = page.getByRole('article', { name: 'demo-builder-1', exact: true });
+  await page.route('**/api/v1/hosts/*', async (route) => {
+    if (route.request().method() !== 'PATCH') return route.fallback();
+    await route.fulfill({
+      status: 422,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: { code: 'validation_failed', message: 'that capacity is refused' },
+        errors: [
+          { field: 'capacity', message: 'This host cannot hold that many.' },
+          { field: 'reserve_cpus', message: 'That reserve leaves nothing for runners.' },
+        ],
+      }),
+    });
+  });
+
+  await card.getByRole('button', { name: 'Adjust', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Adjust demo-builder-1' });
+  const capacity = dialog.getByRole('spinbutton', { name: 'Maximum runners on this host' });
+  const save = dialog.getByRole('button', { name: 'Save changes' });
+  await capacity.fill('6');
+  await save.click();
+  await expect(dialog).toContainText('This host cannot hold that many.');
+  await expect(save).toBeDisabled();
+
+  await capacity.fill('5');
+  await expect(dialog).not.toContainText('This host cannot hold that many.');
+  // Only the answer about the capacity is withdrawn; the one about the reserve
+  // is about something the operator has not touched.
+  await expect(dialog).toContainText('That reserve leaves nothing for runners.');
+  await expect(save).toBeEnabled();
+});
+
 /*
  * The adjust dialog says what fits and marks it on each slider. Past that
  * mark it warns rather than refuses -- the operator who knows the jobs are

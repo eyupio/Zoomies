@@ -9,6 +9,7 @@
   fleet should not have to be.
 -->
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { ApiError, updateInstallation } from '$lib/api/client';
   import type { Installation } from '$lib/api/types';
   import { toasts } from '$lib/state/toasts.svelte';
@@ -43,6 +44,18 @@
     loadedFor = installation.id ?? null;
     key = '';
     errors = {};
+  });
+
+  // A refusal is about the text that was sent. Left in place it also disables
+  // Replace, and the next save -- the only thing that cleared it -- would be
+  // the one it prevents, so pasting the right file could never be submitted.
+  // Only this key is dropped, and errors is read untracked, so a refusal that
+  // has just arrived is not cleared by the effect it did not come from.
+  $effect(() => {
+    void key;
+    untrack(() => {
+      if (errors.private_key) delete errors.private_key;
+    });
   });
 
   const looksLikePEM = $derived(key.trim() === '' || key.includes('BEGIN') || key.includes('KEY'));

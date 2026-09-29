@@ -230,40 +230,6 @@
     onretry={() => (reload += 1)}
   >
     {#snippet skeleton()}
-      <MetricGrid
-        items={[
-          {
-            label: 'GitHub connections',
-            value: String(installations.length),
-            detail: 'Installed GitHub Apps',
-          },
-          {
-            label: 'Healthy connections',
-            value: String(installations.filter((i) => i.healthy === true).length),
-            detail: `${installations.filter((i) => i.healthy === false).length} failing · ${installations.filter((i) => i.healthy === undefined).length} not checked`,
-          },
-          {
-            label: 'Connected pools',
-            value: String(installations.reduce((n, i) => n + (i.pool_count ?? 0), 0)),
-            detail: 'Pools depending on these connections',
-            href: '/pools',
-          },
-          {
-            label: 'Low API quota',
-            value: String(
-              Object.values(rates).filter(
-                (r) => r.limit && r.remaining !== undefined && r.remaining / r.limit < 0.1,
-              ).length,
-            ),
-            detail: `Below 10% remaining · ${Object.keys(rates).length} quota readings`,
-            tone: Object.values(rates).some(
-              (r) => r.limit && r.remaining !== undefined && r.remaining / r.limit < 0.1,
-            )
-              ? 'warning'
-              : 'neutral',
-          },
-        ]}
-      />
       <div class="list">
         {#each [0, 1] as card (card)}
           <div class="card-skeleton">
@@ -289,6 +255,45 @@
         {/if}
       </EmptyState>
     {/snippet}
+
+    <!--
+      Here rather than in the skeleton: tiles computed from a list that has not
+      arrived read zero, and the quota tile is fed by readings taken after it.
+    -->
+    <MetricGrid
+      items={[
+        {
+          label: 'GitHub connections',
+          value: String(installations.length),
+          detail: 'Installed GitHub Apps',
+        },
+        {
+          label: 'Healthy connections',
+          value: String(installations.filter((i) => i.healthy === true).length),
+          detail: `${installations.filter((i) => i.healthy === false).length} failing · ${installations.filter((i) => i.healthy === undefined).length} not checked`,
+        },
+        {
+          label: 'Connected pools',
+          value: String(installations.reduce((n, i) => n + (i.pool_count ?? 0), 0)),
+          detail: 'Pools depending on these connections',
+          href: '/pools',
+        },
+        {
+          label: 'Low API quota',
+          value: String(
+            Object.values(rates).filter(
+              (r) => r.limit && r.remaining !== undefined && r.remaining / r.limit < 0.1,
+            ).length,
+          ),
+          detail: `Below 10% remaining · ${Object.keys(rates).length} quota readings`,
+          tone: Object.values(rates).some(
+            (r) => r.limit && r.remaining !== undefined && r.remaining / r.limit < 0.1,
+          )
+            ? 'warning'
+            : 'neutral',
+        },
+      ]}
+    />
 
     <div class="list">
       {#each installations as installation (installation.id)}

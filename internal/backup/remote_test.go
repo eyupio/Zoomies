@@ -290,6 +290,62 @@ func TestAListingIsScopedToTheRemotesOwnPrefix(t *testing.T) {
 	}
 }
 
+// A raw string prefix is not a directory: "prod" also matches "prod-eu/...",
+// "zoomies" matches "zoomies/prod/...", and an empty prefix matches the whole
+// bucket. Retention that listed by string prefix would delete another fleet's
+// offsite backups without a word, which is the one failure it must not have.
+func TestAListingNeverReachesIntoASiblingOrNestedPrefix(t *testing.T) {
+	for _, tc := range []struct{ ours, theirs string }{
+		{"prod", "prod-eu"},
+		{"zoomies", "zoomies/prod"},
+		{"", "staging"},
+	} {
+		t.Run(tc.ours+" against "+tc.theirs, func(t *testing.T) {
+			f := fakeStore(t)
+			ours := remoteFor(t, f, func(r *config.BackupRemote) { r.Prefix = tc.ours })
+			theirs := remoteFor(t, f, func(r *config.BackupRemote) { r.Name = "other"; r.Prefix = tc.theirs })
+			ctx := context.Background()
+
+			base := time.Date(2026, 1, 1, 2, 0, 0, 0, time.UTC)
+			// Theirs are older than ours, so a listing that merged the two would
+			// hand them to retention first.
+			for i := 0; i < 2; i++ {
+				_, entry := takeOne(t, base.Add(time.Duration(i)*time.Hour))
+				if _, err := theirs.Upload(ctx, entry); err != nil {
+					t.Fatalf("Upload: %v", err)
+				}
+			}
+			_, entry := takeOne(t, base.Add(48*time.Hour))
+			if _, err := ours.Upload(ctx, entry); err != nil {
+				t.Fatalf("Upload: %v", err)
+			}
+
+			held, err := ours.List(ctx)
+			if err != nil {
+				t.Fatalf("List: %v", err)
+			}
+			if len(held) != 1 || held[0].ID != entry.ID {
+				t.Fatalf("the %q remote lists %+v, which is not just its own copy", tc.ours, held)
+			}
+
+			removed, err := ours.Prune(ctx, 1)
+			if err != nil {
+				t.Fatalf("Prune: %v", err)
+			}
+			if len(removed) != 0 {
+				t.Errorf("pruning the %q remote removed %v, which are %q's", tc.ours, removed, tc.theirs)
+			}
+			kept, err := theirs.List(ctx)
+			if err != nil {
+				t.Fatalf("List: %v", err)
+			}
+			if len(kept) != 2 {
+				t.Errorf("the %q remote holds %d copies after the other's retention pass, wanted 2", tc.theirs, len(kept))
+			}
+		})
+	}
+}
+
 // The endpoint decides the request style, because the alternative is a setting
 // that silently disagrees with the endpoint: a bucket in the hostname needs
 // DNS nobody arranges for a MinIO on a private network.

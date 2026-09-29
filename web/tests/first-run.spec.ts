@@ -248,6 +248,26 @@ test('the connect dialog refuses before the form when GitHub cannot reach here',
   await expect(dialog.getByRole('button', { name: 'Continue to GitHub' })).toBeDisabled();
 });
 
+test('Enter in the change-password dialog submits it', async ({ page }) => {
+  // Signed in with authentication on is the only place this dialog exists.
+  // The password is changed and put straight back, so what follows still
+  // signs in with the account the suite made.
+  await signIn(page);
+  await page.goto('/settings/account');
+  const change = async (from: string, to: string) => {
+    await page.getByRole('button', { name: 'Change password' }).first().click();
+    const dialog = page.getByRole('dialog', { name: 'Change your password' });
+    await dialog.getByLabel('Current password').fill(from);
+    await dialog.getByLabel('New password', { exact: true }).fill(to);
+    await dialog.getByLabel('New password again').fill(to);
+    await dialog.getByLabel('New password again').press('Enter');
+    await expect(dialog).toBeHidden();
+  };
+  const other = 'a different long passphrase';
+  await change(ADMIN.password, other);
+  await change(other, ADMIN.password);
+});
+
 test('the page behind the connect dialog is inert while it is open', async ({ page }) => {
   await signIn(page);
   await page.goto('/installations');

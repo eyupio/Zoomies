@@ -187,7 +187,11 @@ func (s *Store) SetInstallationAppSlug(ctx context.Context, id, slug string) err
 func (s *Store) DeleteInstallation(ctx context.Context, id string) ([]string, error) {
 	var runners []string
 	err := s.tx(ctx, func(tx *sql.Tx) error {
-		var err error
+		err := recordSessionsWhere(ctx, tx, s.Now().UnixMilli(),
+			`r.pool_id IN (SELECT id FROM pools WHERE installation_id = ?2)`, id)
+		if err != nil {
+			return err
+		}
 		runners, err = deletedIDs(ctx, tx,
 			`DELETE FROM runners WHERE pool_id IN (SELECT id FROM pools WHERE installation_id = ?) RETURNING id`, id)
 		if err != nil {
@@ -472,7 +476,10 @@ func (s *Store) ApplyPools(ctx context.Context, create, update []*Pool) error {
 // be announced.
 func (s *Store) DeletePool(ctx context.Context, id string) (runners, jobs []string, err error) {
 	err = s.tx(ctx, func(tx *sql.Tx) error {
-		var terr error
+		terr := recordSessionsWhere(ctx, tx, s.Now().UnixMilli(), `r.pool_id = ?2`, id)
+		if terr != nil {
+			return terr
+		}
 		runners, terr = deletedIDs(ctx, tx, `DELETE FROM runners WHERE pool_id = ? RETURNING id`, id)
 		if terr != nil {
 			return terr
@@ -865,13 +872,34 @@ func (s *Store) SetHostCordoned(ctx context.Context, id string, cordoned bool) e
 	return affected(res, "host", id)
 }
 
-// DeleteHost removes a host and cascades to its runner rows.
 // DeleteHost removes a host and its runner rows, and returns the IDs of those
 // rows so each can be announced as deleted.
 func (s *Store) DeleteHost(ctx context.Context, id string) ([]string, error) {
+	return s.DeleteHostForgettingMachine(ctx, id, "")
+}
+
+// DeleteHostForgettingMachine is DeleteHost that also drops the machine row
+// behind the host, in the same transaction. A forced delete of a rented
+// machine's host has to forget the machine too, or the machine loop reads a
+// Ready machine with no host as one to release and destroys the VM. As two
+// writes, a failure or a cancelled request between them would leave the row
+// gone and the host standing -- a billed VM that nothing records -- so they
+// commit together or not at all.
+//
+// A machine that has since started deleting is left alone: dropping its row
+// would abandon a half-finished delete with the VM still billed.
+func (s *Store) DeleteHostForgettingMachine(ctx context.Context, id, machineID string) ([]string, error) {
 	var runners []string
 	err := s.tx(ctx, func(tx *sql.Tx) error {
-		var err error
+		if machineID != "" {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM machines WHERE id = ? AND state <> ?`, machineID, MachineDeleting); err != nil {
+				return err
+			}
+		}
+		err := recordSessionsWhere(ctx, tx, s.Now().UnixMilli(), `r.host_id = ?2`, id)
+		if err != nil {
+			return err
+		}
 		runners, err = deletedIDs(ctx, tx, `DELETE FROM runners WHERE host_id = ? RETURNING id`, id)
 		if err != nil {
 			return err
@@ -1177,7 +1205,22 @@ func (s *Store) UpdateRunner(ctx context.Context, r *Runner) error {
 // the unclassified one. Callers that know why the runner failed -- which is
 // most of them -- go through FailRunner instead.
 func (s *Store) TransitionRunner(ctx context.Context, id string, to RunnerState, message string) (*Runner, error) {
-	return s.transitionRunner(ctx, id, to, message, "")
+	return s.transitionRunner(ctx, id, to, message, "", false)
+}
+
+// TransitionRunnerUnlessBusy is TransitionRunner with one more condition, checked
+// in the same transaction as the write: the runner must not be running a job.
+// It allows nothing the state machine does not; it only refuses, with
+// ErrInvalidTransition, a move that has stopped being what the caller meant.
+//
+// The scheduler decides against a snapshot and applies against live rows, and
+// the webhook that starts a job is handled without the reconcile lock. A drain
+// planned for an idle runner that took a job in between would otherwise go
+// through -- busy to draining is legal, because an operator may ask for it --
+// and stop the job that had just started. A caller's own read of the row cannot
+// close that window, since the row can change between the read and the write.
+func (s *Store) TransitionRunnerUnlessBusy(ctx context.Context, id string, to RunnerState, message string) (*Runner, error) {
+	return s.transitionRunner(ctx, id, to, message, "", true)
 }
 
 // FailRunner moves a runner to failed and records why in one write, so a row
@@ -1188,10 +1231,20 @@ func (s *Store) FailRunner(ctx context.Context, id, message string, kind FaultKi
 	if kind = kind.Normalise(); kind == "" {
 		kind = FaultRunnerExited
 	}
-	return s.transitionRunner(ctx, id, RunnerFailed, message, kind)
+	return s.transitionRunner(ctx, id, RunnerFailed, message, kind, false)
 }
 
-func (s *Store) transitionRunner(ctx context.Context, id string, to RunnerState, message string, kind FaultKind) (*Runner, error) {
+// FailRunnerUnlessBusy is FailRunner with TransitionRunnerUnlessBusy's condition,
+// for a failure decided against a snapshot that the runner may have outgrown by
+// taking a job.
+func (s *Store) FailRunnerUnlessBusy(ctx context.Context, id, message string, kind FaultKind) (*Runner, error) {
+	if kind = kind.Normalise(); kind == "" {
+		kind = FaultRunnerExited
+	}
+	return s.transitionRunner(ctx, id, RunnerFailed, message, kind, true)
+}
+
+func (s *Store) transitionRunner(ctx context.Context, id string, to RunnerState, message string, kind FaultKind, unlessBusy bool) (*Runner, error) {
 	if !to.Valid() {
 		return nil, fmt.Errorf("%w: %q is not a runner state", ErrInvalidTransition, to)
 	}
@@ -1207,6 +1260,9 @@ func (s *Store) transitionRunner(ctx context.Context, id string, to RunnerState,
 		}
 		if !CanTransition(r.State, to) {
 			return fmt.Errorf("%w: runner %s cannot go %s -> %s", ErrInvalidTransition, id, r.State, to)
+		}
+		if unlessBusy && (r.State == RunnerBusy || r.CurrentJobID != "") {
+			return fmt.Errorf("%w: runner %s is running a job, so it cannot go %s -> %s now", ErrInvalidTransition, id, r.State, to)
 		}
 		now := s.Now()
 		prev := r.State

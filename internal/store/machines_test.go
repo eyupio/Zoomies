@@ -802,3 +802,37 @@ func TestAJoinTokenRemembersTheMachineItWasMintedFor(t *testing.T) {
 		t.Fatalf("an unscoped join token came back scoped to %q: %v", got.MachineID, err)
 	}
 }
+
+// A forced host delete that forgets the machine behind it has to be one
+// transaction. Done as two writes, a failure or a cancelled request between them
+// leaves the machine row gone and the host standing: the VM is still billed and
+// nothing records that it exists.
+func TestDeletingAHostForgetsItsMachineOnlyWhenTheHostGoesToo(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	_, _, host := seedPool(t, s)
+	prov := seedProvider(t, s)
+	m := &Machine{ProviderID: prov.ID, State: MachineReady, HostID: host.ID}
+	if err := s.CreateMachine(ctx, m); err != nil {
+		t.Fatalf("CreateMachine: %v", err)
+	}
+
+	// The host is not there to delete, so the machine must not be forgotten
+	// either.
+	if _, err := s.DeleteHostForgettingMachine(ctx, "host_missing", m.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("deleting a missing host = %v, want ErrNotFound", err)
+	}
+	if _, err := s.GetMachine(ctx, m.ID); err != nil {
+		t.Fatalf("the machine was forgotten although the host delete failed: %v", err)
+	}
+
+	if _, err := s.DeleteHostForgettingMachine(ctx, host.ID, m.ID); err != nil {
+		t.Fatalf("DeleteHostForgettingMachine: %v", err)
+	}
+	if _, err := s.GetHost(ctx, host.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("the host survived: %v", err)
+	}
+	if _, err := s.GetMachine(ctx, m.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("the machine survived its host: %v", err)
+	}
+}

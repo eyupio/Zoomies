@@ -56,6 +56,12 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := s.authenticateMCP(r)
 	if err != nil {
+		// Before the challenge: on a 500 it would send the client off to start
+		// a sign-in that cannot help.
+		if errors.Is(err, auth.ErrAuthBackend) {
+			s.internal(w, r, "checking your credentials", err)
+			return
+		}
 		// The challenge is what tells an MCP client to ask for credentials
 		// rather than give up. With OAuth on it names the metadata that starts
 		// a browser sign-in; with it off, an API token is the only way in.

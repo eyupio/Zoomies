@@ -899,6 +899,16 @@ func (s *Server) handleExchangeManifest(w http.ResponseWriter, r *http.Request) 
 	if apiBase == "" {
 		apiBase = s.cfg().GitHub.APIBaseURL
 	}
+	// The address is checked after the fallbacks, so a handshake's stale value
+	// meets the guard too. Without it this route would dial whatever the
+	// caller names and hand back the reply in the error.
+	if normalised, err := github.NormalizeAPIBaseURL(apiBase); err == nil {
+		if msg := s.egressRefusal(normalised); msg != "" {
+			// The handshake is kept: nothing was spent.
+			unprocessable(w, "the App could not be created from that code", []fieldError{{"api_base_url", msg}})
+			return
+		}
+	}
 
 	creds, err := github.ExchangeManifestCode(r.Context(), apiBase, req.Code)
 	if err != nil {

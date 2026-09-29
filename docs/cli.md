@@ -103,8 +103,8 @@ The runners that exist right now.
 | --- | --- |
 | `runners list` | Terminal runners are hidden unless you ask with `--include-removed`. Filter with `--pool`, `--host`, `--state` (repeatable) and `--q`. |
 | `runners get <runner-id>` | One runner, its current job and how it got here. |
-| `runners drain <runner-id>...` | Stop taking new work and exit. A job still running is given five minutes to finish; if it takes longer the runner is stopped and GitHub marks that job failed, so draining a busy runner asks first. |
-| `runners delete <runner-id>...` | Remove and deregister from GitHub. Drains first unless `--force`. |
+| `runners drain <runner-id>...` | Stop taking new work and exit. A job still running is given five minutes to finish; if it takes longer the runner is stopped and GitHub marks that job failed, so draining a busy runner needs `--yes`. |
+| `runners delete <runner-id>...` | Remove and deregister from GitHub. Drains first unless `--force`, so removing a busy runner needs `--yes`. |
 | `runners logs <runner-id>` | Print the output. `--follow` keeps printing it, `--tail` (`1000`) sets how much history. |
 
 ### `zoomies jobs`
@@ -182,7 +182,7 @@ run it again, that is your call to make.
 | `hosts list` | The hosts that have joined. |
 | `hosts cordon <host-id>` | Stop scheduling new runners onto it. What it already has keeps running. |
 | `hosts uncordon <host-id>` | Let it accept runners again. |
-| `hosts drain <host-id>` | Cordon it, then drain every runner on it, so it empties as its jobs finish. The order matters: draining an uncordoned host means the scheduler puts fresh runners on it while the old ones are still going. Each runner gets five minutes to finish what it is on; a longer job is stopped, which is what makes the host actually empty. |
+| `hosts drain <host-id> [--yes]` | Cordon it, then drain every runner on it, so it empties as its jobs finish. The order matters: draining an uncordoned host means the scheduler puts fresh runners on it while the old ones are still going. Each runner gets five minutes to finish what it is on; a longer job is stopped, which is what makes the host actually empty. A runner that is busy is only drained with `--yes`; without it that runner is refused and the host stays cordoned. |
 | `hosts delete <host-id>` | Forget it. Refused while it has live runners, unless `--force`. |
 | `hosts join-token create` | Mint a single-use join token: `--ttl` (`15m`), `--capacity` (`2`), `--labels`, `--controller`. Shown once; only its hash is stored. |
 
@@ -221,7 +221,8 @@ default `zoomies-installation-<id>.json`, mode 0600). With
 `--passphrase-file` the App's private key and webhook secret are sealed under
 that passphrase, so the archive can be imported on another instance without
 this one's key. `import <archive> --passphrase-file FILE` writes it onto this
-instance, all of it or none. See
+instance, all of it or none. An archive can be large, so `import` waits up to
+thirty minutes for its one request unless you set `--timeout`. See
 [moving one installation](backup-and-restore.md#moving-one-installation-or-removing-its-history).
 
 ### `zoomies audit`
@@ -332,7 +333,7 @@ again.
 | `list_jobs` | Jobs, with the same filters as `zoomies jobs list`: `failed`, `ours`, `theirs`, `unmatched`, `repo`, `since`, `until`, `job_name`, `hosted`, `controller_version` and `host_id`. Each job is a summary without its steps unless `include_steps` is set, and a full page carries `next` to pass back as `before`. |
 | `job_stats` | Completed jobs counted and timed over a window, grouped by up to two of `controller_version`, `day`, `host`, `pool` and `job_name`. `GET /jobs/stats`. |
 | `get_job` | One job, its timeline and the controller's explanation, as one document. |
-| `get_runner_log` | The last lines of a runner's output, while the runner still exists. |
+| `get_runner_log` | The last lines of a runner's output, while the runner still exists. It asks the controller for just the end, holds what it returns to 256 KiB, and says so when it had to shorten it or could only read the start of a very long log. |
 | `list_runners`, `list_pools`, `list_hosts` | The fleet's resources as their `GET` routes return them. |
 | `rerun_job` | Only with `--allow-actions`. `POST /jobs/{id}/rerun`; needs `operator`. |
 | `drain_runner` | Only with `--allow-actions`. `POST /runners/{id}/drain`, never with `confirm`, so a busy runner is refused rather than having its job stopped; needs `operator`. |
@@ -399,7 +400,7 @@ act is an agent a pull request can try to steer.
 | `zoomies uninstall` | Remove the service or container, the database, the encryption key and the configuration. |
 | `zoomies backup [--dir path] [--keep N] [--include-key] [--no-offsite]` | Take a consistent copy of this host's database into a timestamped directory, with a manifest recording the build, the migration ledger, the encryption key's fingerprint, what that key is needed for, and the blanked configuration. Reads the database file directly, so it works when the controller will not start. The copy is then sent to every destination this fleet has — those `backup.remotes` describes and those stored from the Backups page, which this command reads out of the database it has just copied — with `--remote <name>` for one and `--no-offsite` for none. A destination that refuses is reported without failing the backup, which is on the disk either way. See [Backup and restore](backup-and-restore.md). |
 | `zoomies restore <backup-directory> [--replace]` | Put a backup's database back at `database.path`, after checking that the copy is sound, that this build can read its schema, and that this host's encryption key is the one that sealed it. Ends every session, removes unredeemed join tokens, and fences the fleet; `--revoke-api-tokens` and `--reset-agent-tokens` go further. `--replace` is required to overwrite an existing database, and moves it aside rather than deleting it. See [Backup and restore](backup-and-restore.md). |
-| `zoomies restore --from-remote <name> [<id>\|latest]` | The same restore, on a host that has the configuration file and the encryption key and nothing else — a destination stored in the database is found too when there is a database to read: the copy is fetched from that remote into the backup directory, decrypted with the destination's passphrase — or `--passphrase` for one sealed with a passphrase the configuration no longer carries — verified, and then restored. Naming no backup lists what the remote holds, because an operator in front of an empty machine has no way to know the ids. |
+| `zoomies restore --from-remote <name> [<id>\|latest]` | The same restore, on a host that has the configuration file and the encryption key and nothing else — a destination stored in the database is found too when there is a database to read: the copy is fetched from that remote into the backup directory, decrypted with the destination's passphrase — or `--passphrase-file FILE` for one sealed with a passphrase the configuration no longer carries (`--passphrase` still works but is deprecated, because a flag's value stays in the shell history and the process list) — verified, and then restored. Naming no backup lists what the remote holds, because an operator in front of an empty machine has no way to know the ids. |
 | `zoomies config check [--config path]` | Validate a file without starting anything. Warnings print and exit 0; errors exit 1. |
 | `zoomies config print [--config path]` | The effective configuration — file, environment and defaults combined — with secrets blanked. `--output` is `yaml` or `json` here, and defaults to `yaml`. |
 | `zoomies config list [--all]` | What this fleet has stored, and which layer each value came from. `--all` lists every setting, including the ones nobody has changed. |

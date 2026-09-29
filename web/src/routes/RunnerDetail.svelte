@@ -14,7 +14,7 @@
 <script lang="ts">
   import RunnerInsights from '$lib/insights/RunnerInsights.svelte';
   import { CircleSlash, TriangleAlert, Trash2, Unplug } from '@lucide/svelte';
-  import { getRunner, getRunnerTimeline } from '$lib/api/client';
+  import { ApiError, getRunner, getRunnerTimeline } from '$lib/api/client';
   import { events } from '$lib/api/sse';
   import type { RunnerDetail, TimelineEntry } from '$lib/api/types';
   import { faultLabel } from '$lib/faults';
@@ -185,7 +185,8 @@
 </script>
 
 <PageHeader
-  title={runner?.name ?? (loading ? 'Runner' : 'Runner not found')}
+  title={runner?.name ??
+    (error instanceof ApiError && error.isNotFound ? 'Runner not found' : 'Runner')}
   breadcrumb={[{ label: 'Runners', href: '/runners' }, { label: runner?.name ?? 'Runner' }]}
   onrefresh={refreshPage}
 >

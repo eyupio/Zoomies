@@ -157,7 +157,18 @@ func openSecret(key *cryptox.Key, value string) (string, error) {
 //
 // normalize runs last, as it does after Load, so derived values are derived
 // from the values that actually won.
+//
+// One derived value has to be forgotten first. Load derived the secure-cookie
+// flag before the database was open, from the file and the environment alone,
+// and normalize only derives a flag that is unset -- so a stored https external
+// URL never reached it, and a controller served over https issued cookies
+// without Secure. A flag no layer chose is noted at no source, so it is safe to
+// clear; one the file, the environment or a row chose keeps its source and its
+// value.
 func (c *Config) Rebuild(rows []store.InstanceSetting, key *cryptox.Key) (Findings, error) {
+	if c.Source("security.cookie_secure") == SourceDefault {
+		c.Security.CookieSecure = nil
+	}
 	findings := ApplyStored(c, rows, key)
 	if err := c.applyEnv(); err != nil {
 		return findings, err

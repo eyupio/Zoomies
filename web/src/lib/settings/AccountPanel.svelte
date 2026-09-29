@@ -146,7 +146,15 @@
   description="Every other session signed in as you is ended, and every MCP connection."
   size="sm"
 >
-  <div class="form">
+  <form
+    id="change-password-form"
+    class="form"
+    novalidate
+    onsubmit={(event) => {
+      event.preventDefault();
+      void change();
+    }}
+  >
     <Field
       label="Current password"
       hint="Leave empty if an administrator just reset it for you."
@@ -193,11 +201,17 @@
         />
       {/snippet}
     </Field>
-  </div>
+  </form>
 
   {#snippet footer()}
     <Button variant="ghost" onclick={() => (open = false)}>Cancel</Button>
-    <Button variant="primary" loading={saving} disabled={!ready} onclick={change}>
+    <Button
+      variant="primary"
+      type="submit"
+      form="change-password-form"
+      loading={saving}
+      disabled={!ready}
+    >
       Change password
     </Button>
   {/snippet}

@@ -68,6 +68,21 @@ func recordRunnerSession(ctx context.Context, tx *sql.Tx, id string, now int64) 
 	return err
 }
 
+// recordSessionsWhere writes the sessions of every runner the predicate
+// selects, for a delete that is about to take those rows with it. The
+// predicate takes the scope's ID as ?2. It must run before the delete, and
+// before the pool or installation row goes, because the session copies the
+// installation and the rate from the pool.
+//
+// A runner that is still live, or removed but not yet confirmed clean, has no
+// session and never will once its row is gone; without this the usage ledger
+// would be short by exactly the runners a release, a re-join or a forced delete
+// caught mid-life. Those already recorded are left alone by the conflict clause.
+func recordSessionsWhere(ctx context.Context, tx *sql.Tx, now int64, where string, id string) error {
+	_, err := tx.ExecContext(ctx, insertRunnerSessionSQL+where+` ON CONFLICT(runner_id) DO NOTHING`, now, id)
+	return err
+}
+
 // RunnerSessions returns the sessions that overlap [from, to), oldest first.
 func (s *Store) RunnerSessions(ctx context.Context, from, to time.Time) ([]*RunnerSession, error) {
 	return querySessions(ctx, s.read, ms(from), ms(to))

@@ -261,8 +261,11 @@ func (e *WorkflowJobEvent) ToJob() *store.Job {
 		j.QueuedAt = time.Now().UTC()
 	}
 	// GitHub stamps started_at on a queued job too (equal to created_at), so
-	// trusting it while queued would report a zero queue wait for every job.
-	if state != store.JobQueued && !e.StartedAt.IsZero() {
+	// trusting it while queued would report a zero queue wait for every job. A
+	// job held for a deployment review is the same: StartedAt is write-once in
+	// the store, so a stamp taken while waiting would count the whole review as
+	// run time and outlive the real one.
+	if state != store.JobQueued && state != store.JobWaiting && !e.StartedAt.IsZero() {
 		t := e.StartedAt
 		j.StartedAt = &t
 	}

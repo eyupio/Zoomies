@@ -209,10 +209,11 @@ func hostsSetCordon(ctx context.Context, e *env, args []string, cordoned bool) e
 // `runners delete --force`, and having to type that separately is still the
 // point -- the difference is now five minutes rather than for ever.
 func hostsDrain(ctx context.Context, e *env, args []string) error {
-	fs := newFlagSet(e, "zoomies hosts drain <host-id>",
-		"Cordon a host and drain every runner on it, so it empties as its jobs finish.")
+	fs := newFlagSet(e, "zoomies hosts drain <host-id> [--yes]",
+		"Cordon a host and drain every runner on it, so it empties as its jobs finish. A busy runner is only drained with --yes.")
 	cf := registerClientFlags(fs, false)
-	fs.example("zoomies hosts drain hst_k3f9qz2m")
+	yes := fs.Bool("yes", false, confirmBusyHelp)
+	fs.example("zoomies hosts drain hst_k3f9qz2m", "zoomies hosts drain hst_k3f9qz2m --yes")
 	if err := fs.parse(args); err != nil {
 		return err
 	}
@@ -258,7 +259,7 @@ func hostsDrain(ctx context.Context, e *env, args []string) error {
 			runners.Total, len(ids))
 	}
 	fmt.Fprintf(e.out, "Draining %s:\n", countOf(len(ids), "runner"))
-	return bulkRunners(ctx, e, client, "drain", ids, false)
+	return bulkRunners(ctx, e, client, "drain", ids, false, *yes)
 }
 
 func hostsDelete(ctx context.Context, e *env, args []string) error {

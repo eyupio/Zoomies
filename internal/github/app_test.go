@@ -9,10 +9,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -753,6 +755,90 @@ func TestPollStaysWithinItsRequestBudgetAndLooksAtBusyRepositoriesFirst(t *testi
 	}
 	if len(order) < 2 || !strings.Contains(order[0], "acme/busy-") || !strings.Contains(order[1], "acme/busy-") {
 		t.Fatalf("run listings did not start with the busy repositories: %v", order[:min(4, len(order))])
+	}
+}
+
+// pagedRunServer serves one queued run of acme/widgets whose jobs come in pages
+// of pollPerPage, the way GitHub serves a large matrix. The fake does not page,
+// so this drives appClient against its own handler. jobPages bounds the listing;
+// a negative value never ends it. It returns the client and a counter of every
+// request made.
+func pagedRunServer(t *testing.T, jobPages int) (*appClient, *atomic.Int32) {
+	t.Helper()
+	var requests atomic.Int32
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/repos/acme/widgets/actions/runs":
+			if r.URL.Query().Get("status") != "queued" {
+				_, _ = w.Write([]byte(`{"total_count":0,"workflow_runs":[]}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"total_count":1,"workflow_runs":[{"id":1,"run_number":7,"name":"CI","created_at":"2024-05-01T10:00:00Z"}]}`))
+		case r.URL.Path == "/repos/acme/widgets/actions/runs/1/jobs":
+			page := 1
+			if p := r.URL.Query().Get("page"); p != "" {
+				page, _ = strconv.Atoi(p)
+			}
+			if jobPages < 0 || page < jobPages {
+				w.Header().Set("Link", fmt.Sprintf(`<%s%s?page=%d&per_page=%d>; rel="next"`, srv.URL, r.URL.Path, page+1, pollPerPage))
+			}
+			var jobs []string
+			for i := range pollPerPage {
+				id := (page-1)*pollPerPage + i + 1
+				jobs = append(jobs, fmt.Sprintf(`{"id":%d,"status":"queued","name":"build-%d","labels":["self-hosted"],"created_at":"2024-05-01T10:00:00Z"}`, id, id))
+			}
+			_, _ = fmt.Fprintf(w, `{"total_count":0,"jobs":[%s]}`, strings.Join(jobs, ","))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	c, err := newGitHubClient(srv.Client(), srv.URL+"/", srv.URL+"/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return newAppClient(c, c, "acme/widgets", store.TargetRepo, 1, "https://github.com"), &requests
+}
+
+// GitHub allows a matrix of 256 jobs in one run, and completed jobs stay in the
+// listing, so the tail beyond the first page is never seen by a poller that
+// reads only that page -- not even once the head has finished. The poller is
+// the safety net for a missed delivery, and a missed delivery is exactly when
+// the tail of a large matrix would otherwise never get a runner.
+func TestThePollerReadsEveryPageOfALargeRunsJobs(t *testing.T) {
+	c, requests := pagedRunServer(t, 3)
+
+	jobs, err := c.ListQueuedJobs(context.Background())
+	if err != nil {
+		t.Fatalf("ListQueuedJobs: %v", err)
+	}
+	if want := 3 * pollPerPage; len(jobs) != want {
+		t.Fatalf("found %d jobs, want all %d across three pages", len(jobs), want)
+	}
+	// Two run listings (queued, in progress) and one request per job page.
+	if n := requests.Load(); n != 5 {
+		t.Fatalf("the sweep made %d requests, want 5", n)
+	}
+}
+
+// Paging must not undo the request budget that keeps one sweep from spending
+// the installation's hourly quota: a run that never stops paging is cut off
+// and the jobs already found are still returned.
+func TestPagingThroughARunsJobsStaysWithinTheSweepsRequestBudget(t *testing.T) {
+	c, requests := pagedRunServer(t, -1)
+
+	jobs, err := c.ListQueuedJobs(context.Background())
+	if err != nil {
+		t.Fatalf("ListQueuedJobs: %v", err)
+	}
+	if len(jobs) < 2*pollPerPage {
+		t.Fatalf("found %d jobs; the pages read before the budget ran out should still count", len(jobs))
+	}
+	if n := int(requests.Load()); n > maxPollRequests {
+		t.Fatalf("the sweep made %d requests, over its budget of %d", n, maxPollRequests)
 	}
 }
 

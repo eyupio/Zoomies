@@ -88,6 +88,23 @@ func (s *Server) machineFor(w http.ResponseWriter, r *http.Request) (*store.Mach
 	return m, view, true
 }
 
+// cordonMachineHost stops the scheduler placing onto a machine that is on its
+// way out, and reports whether the request may go on. A machine with no host
+// has nothing to cordon.
+func (s *Server) cordonMachineHost(w http.ResponseWriter, r *http.Request, m *store.Machine) bool {
+	if m.HostID == "" {
+		return true
+	}
+	if err := s.ctrl.Store().SetHostCordoned(r.Context(), m.HostID, true); err != nil {
+		s.fail(w, r, "cordoning the machine's host", err)
+		return false
+	}
+	if h, err := s.ctrl.Store().GetHost(r.Context(), m.HostID); err == nil {
+		s.ctrl.PublishHost(h)
+	}
+	return true
+}
+
 // handleDrainMachine answers POST /api/v1/machines/{id}/drain.
 //
 // Draining is reversible right up until the delete starts: demand coming back
@@ -99,14 +116,16 @@ func (s *Server) handleDrainMachine(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if m.HostID != "" {
-		if err := s.ctrl.Store().SetHostCordoned(r.Context(), m.HostID, true); err != nil {
-			s.fail(w, r, "cordoning the machine's host", err)
-			return
-		}
-		if h, err := s.ctrl.Store().GetHost(r.Context(), m.HostID); err == nil {
-			s.ctrl.PublishHost(h)
-		}
+	// The transition is checked before the cordon: a refused drain (only a ready
+	// machine can drain) must not leave the host of a failed or deleting machine
+	// cordoned by a request that answered 409 and wrote no audit row.
+	if !store.CanTransitionMachine(m.State, store.MachineDraining) {
+		s.fail(w, r, "draining the machine", fmt.Errorf("%w: machine %s cannot go %s -> %s",
+			store.ErrInvalidTransition, m.ID, m.State, store.MachineDraining))
+		return
+	}
+	if !s.cordonMachineHost(w, r, m) {
+		return
 	}
 	out, err := s.ctrl.Store().TransitionMachine(r.Context(), m.ID, store.MachineDraining,
 		"an operator asked for this machine to be drained")
@@ -165,6 +184,15 @@ func (s *Server) handleDeleteMachine(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Cordoned on the way to deleting, as every other road there does
+	// (beginDrain, quarantine, a vanished VM): the scheduler's snapshot carries
+	// hosts and never machines, so without it the host stays placeable for the
+	// whole delete and a runner placed in that window dies with the VM. The
+	// forced path cordons too -- the host is going either way. It comes after
+	// the refusals above so that a delete that says no changes nothing.
+	if store.CanTransitionMachine(m.State, store.MachineDeleting) && !s.cordonMachineHost(w, r, m) {
+		return
+	}
 	out, err := s.ctrl.Store().TransitionMachine(r.Context(), m.ID, store.MachineDeleting,
 		"an operator asked for this machine to be deleted")
 	if err != nil {

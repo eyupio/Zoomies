@@ -52,6 +52,9 @@
     children,
   }: Props = $props();
 
+  const uid = $props.id();
+  const formId = `${uid}-confirm`;
+
   let typed = $state('');
   let running = $state(false);
 
@@ -95,7 +98,21 @@
     <div class="extra">{@render children()}</div>
   {/if}
   {#if needsTyping}
-    <div class="confirm-field">
+    <!--
+      A form only around the typed name, so Enter in it confirms. Not around the
+      whole body: Enter in a checkbox a caller puts in `children` must not be
+      able to fire the action. The submit button is disabled until the name
+      matches, which is what stops Enter on a wrong name doing anything.
+    -->
+    <form
+      id={formId}
+      class="confirm-field"
+      novalidate
+      onsubmit={(event) => {
+        event.preventDefault();
+        void confirm();
+      }}
+    >
       <!--
         No ariaLabel here. One would win over the label Field wires up, so the
         only control guarding an irreversible change would be announced as
@@ -109,14 +126,16 @@
           <Input bind:value={typed} {id} {describedBy} {invalid} mono autocomplete="off" />
         {/snippet}
       </Field>
-    </div>
+    </form>
   {/if}
 
   {#snippet footer()}
     <Button variant="ghost" onclick={cancel} disabled={running || busy}>{cancelLabel}</Button>
     <Button
       variant={tone === 'danger' ? 'danger' : 'primary'}
-      onclick={confirm}
+      type={needsTyping ? 'submit' : 'button'}
+      form={needsTyping ? formId : undefined}
+      onclick={needsTyping ? undefined : confirm}
       disabled={!confirmed}
       loading={running || busy}
     >

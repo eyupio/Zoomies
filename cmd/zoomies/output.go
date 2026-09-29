@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"golang.org/x/term"
@@ -374,6 +375,58 @@ func millis(ms int64) string {
 		return strconv.FormatFloat(d.Seconds(), 'f', 1, 64) + "s"
 	default:
 		return compactDuration(d)
+	}
+}
+
+// plain makes a name that somebody else wrote safe to print in a terminal.
+//
+// Job, workflow, step and label names are set by whoever can open a pull
+// request against a repository this fleet serves, and the CLI is run on exactly
+// those jobs during an incident. A raw escape sequence can retitle the window,
+// hide text or overwrite earlier lines, and a newline forges a whole extra row
+// -- a "success" line for a job that failed. So line breaks and tabs become a
+// space, and every other control character (the 8-bit CSI included) and the
+// bidirectional overrides that reorder what is shown become U+FFFD. It is
+// applied to the field before the CLI adds its own colour or truncates, so
+// table and keyValues stay free to pass the CLI's own escapes through.
+// `runners logs` stays raw on purpose: it is cat-like and expected to be.
+func plain(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == '\n' || r == '\r' || r == '\t' || r == ' ' || r == ' ':
+			return ' '
+		case unicode.IsControl(r), r >= '‪' && r <= '‮', r >= '⁦' && r <= '⁩':
+			return '�'
+		}
+		return r
+	}, s)
+}
+
+// sanitise makes every field of a job that a workflow author controls safe to
+// print. It is done per field, where the response is decoded, because the
+// views mix these strings with the CLI's own colour and cut them with
+// truncate, which would otherwise leave a sequence half-removed.
+func (j *jobItem) sanitise() {
+	j.Workflow = plain(j.Workflow)
+	j.JobName = plain(j.JobName)
+	j.HeadBranch = plain(j.HeadBranch)
+	for i, l := range j.Labels {
+		j.Labels[i] = plain(l)
+	}
+	for i := range j.Steps {
+		j.Steps[i].Name = plain(j.Steps[i].Name)
+	}
+	if j.FailedStep != nil {
+		j.FailedStep.Name = plain(j.FailedStep.Name)
+	}
+}
+
+// sanitise covers what a runner reports about the job it is on, and the
+// timeline messages the controller composes from job names.
+func (r *runnerItem) sanitise() {
+	r.Message = plain(r.Message)
+	if r.CurrentJob != nil {
+		r.CurrentJob.sanitise()
 	}
 }
 

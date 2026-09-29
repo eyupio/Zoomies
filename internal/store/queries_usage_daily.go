@@ -146,8 +146,21 @@ func (s *Store) RollUpUsage(ctx context.Context, until time.Time) (int, error) {
 			if d.CostMinor != nil {
 				cost = *d.CostMinor
 			}
+			// An imported archive carries days the source had already rolled up
+			// but not the watermark, so this pass meets them again. Both figures
+			// come from the same sessions, so they agree unless the source had
+			// pruned some, and then the imported figure is the fuller one: keep
+			// the larger rather than abort every roll-up on the primary key. A
+			// NULL cost means "not priced", which is not the same as free, so it
+			// only yields to a real figure.
 			if _, err := tx.ExecContext(ctx, `INSERT INTO usage_daily (day, pool_id, host_id, installation_id, allocated_seconds, cost_minor)
-				VALUES (?,?,?,?,?,?)`, d.Day.UnixMilli(), d.PoolID, d.HostID, d.InstallationID, d.AllocatedSeconds, cost); err != nil {
+				VALUES (?,?,?,?,?,?)
+				ON CONFLICT(day, pool_id, host_id, installation_id) DO UPDATE SET
+					allocated_seconds = MAX(usage_daily.allocated_seconds, excluded.allocated_seconds),
+					cost_minor = CASE WHEN usage_daily.cost_minor IS NULL THEN excluded.cost_minor
+						WHEN excluded.cost_minor IS NULL THEN usage_daily.cost_minor
+						ELSE MAX(usage_daily.cost_minor, excluded.cost_minor) END`,
+				d.Day.UnixMilli(), d.PoolID, d.HostID, d.InstallationID, d.AllocatedSeconds, cost); err != nil {
 				return err
 			}
 		}

@@ -210,6 +210,14 @@
   let limitsOpen = $state(false);
   let forceDelete = $state(false);
 
+  // Every open starts on the drain: "Destroy its runners immediately"
+  // interrupts work in progress, and a tick left by an earlier cancel must not
+  // make it the default.
+  function askDelete(): void {
+    forceDelete = false;
+    deleteOpen = true;
+  }
+
   const consequences = $derived(
     deletionConsequences({ ...counts, queued: pool?.queued_jobs }, forceDelete),
   );
@@ -273,7 +281,7 @@
       <Button icon={PowerOff} onclick={() => setEnabled(false)}>Disable</Button>
     {/if}
     <Button variant="primary" icon={Pencil} onclick={startEditing}>Edit</Button>
-    <Button variant="danger" icon={Trash2} onclick={() => (deleteOpen = true)}>Delete</Button>
+    <Button variant="danger" icon={Trash2} onclick={askDelete}>Delete</Button>
   {/if}
 </PageHeader>
 
@@ -398,6 +406,7 @@
   confirmLabel="Delete pool"
   requireName
   onconfirm={confirmDelete}
+  oncancel={() => (forceDelete = false)}
 >
   <Checkbox
     bind:checked={forceDelete}

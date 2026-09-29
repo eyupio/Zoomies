@@ -68,6 +68,26 @@ func (c *Controller) recoverMachine(ctx context.Context, env *machineEnv, m *sto
 			c.transitionMachine(ctx, env, m, store.MachineFailed,
 				"the create for this machine was never issued, so the reservation was released")
 		}
+	case store.MachineCreating:
+		// provider.create_timeout bounds the whole creation, but only a
+		// resource the provider cannot find was ever timed (the ambiguity
+		// timeout). A create whose task is lost or whose resource stays locked
+		// waited for ever, holding a create slot and a ceiling slot while the
+		// VM was billed. An unheard outcome stays the ambiguity path's: that
+		// one quarantines rather than fails, and asks a person to look.
+		if !m.OpOutcomeUnknown && overdue(m.CreateStartedAt, nil, now, cfg.CreateTimeout) {
+			c.failMachine(ctx, env, m, store.MachineErrorProvider, fmt.Sprintf(
+				"the provider has not finished creating this machine inside %s. The resource may exist and is "+
+					"still being paid for: check the provider's console",
+				roundDuration(cfg.CreateTimeout)))
+		}
+	case store.MachineStarting:
+		if !m.OpOutcomeUnknown && overdue(m.CreatedOKAt, nil, now, cfg.CreateTimeout) {
+			c.failMachine(ctx, env, m, store.MachineErrorProvider, fmt.Sprintf(
+				"the machine was created but did not start inside %s. The resource exists and is still being "+
+					"paid for: check the provider's console",
+				roundDuration(cfg.CreateTimeout)))
+		}
 	case store.MachineBootstrapping:
 		if overdue(m.StartedAt, m.CreatedOKAt, now, cfg.BootstrapTimeout) {
 			c.failMachine(ctx, env, m, store.MachineErrorBootstrap, fmt.Sprintf(

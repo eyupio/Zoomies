@@ -101,6 +101,26 @@ func fetchFromRemote(ctx context.Context, e *env, cfg *config.Config, name, id, 
 	return entry, nil
 }
 
+// restorePassphrase resolves the passphrase a fetched copy was sealed with.
+//
+// The file is the way to give it: a flag's value is in the shell history and
+// readable from /proc/<pid>/cmdline for as long as the download runs, and this
+// is the passphrase that opens the whole fleet's database copy. --passphrase
+// keeps working, because a disaster-recovery script is the last thing to
+// break on an upgrade, but it says so on stderr and is refused beside the file
+// rather than one silently winning.
+func restorePassphrase(e *env, flagValue, file string) (string, error) {
+	if flagValue != "" && file != "" {
+		return "", errors.New("give the backup passphrase with --passphrase-file, not both it and --passphrase")
+	}
+	if flagValue != "" {
+		fmt.Fprintln(e.err, "zoomies: --passphrase is deprecated, because its value stays in the shell history and the "+
+			"process list. Put the passphrase in a file and use --passphrase-file instead.")
+		return flagValue, nil
+	}
+	return readPassphraseFile(file)
+}
+
 // runRestore is `zoomies restore <backup-directory>`.
 //
 // Every check and every refusal lives in internal/backup, shared with the
@@ -117,13 +137,19 @@ func runRestore(ctx context.Context, e *env, args []string) error {
 	revokeTokens := fs.Bool("revoke-api-tokens", false, "revoke every API token as well; they are valid credentials the backup froze")
 	resetAgents := fs.Bool("reset-agent-tokens", false, "forget every host's agent credential, so each agent joins again")
 	from := fs.String("from-remote", "", "bring the copy back from this backup remote first; the argument is then a backup id, or `latest`, and naming no backup lists what the remote holds")
-	passphrase := fs.String("passphrase", "", "the passphrase that copy was sealed with, when it is not the one in backup.remotes")
+	passphrase := fs.String("passphrase", "", "deprecated: use --passphrase-file; a flag's value is in the shell history and the process list")
+	passFile := fs.String("passphrase-file", "", "a file holding the passphrase that copy was sealed with, when it is not the one in backup.remotes")
 	fs.example("zoomies restore /var/backups/zoomies/zoomies-20260908-181718",
 		"zoomies restore /var/backups/zoomies/zoomies-20260908-181718 --replace",
 		"zoomies restore --from-remote offsite",
 		"zoomies restore --from-remote offsite latest --replace",
+		"zoomies restore --from-remote offsite latest --passphrase-file ./backup.pass --replace",
 		"zoomies restore ... --revoke-api-tokens --reset-agent-tokens")
 	if err := fs.parse(args); err != nil {
+		return err
+	}
+	sealedWith, err := restorePassphrase(e, *passphrase, *passFile)
+	if err != nil {
 		return err
 	}
 
@@ -145,7 +171,7 @@ func runRestore(ctx context.Context, e *env, args []string) error {
 		if err != nil {
 			return err
 		}
-		entry, err := fetchFromRemote(ctx, e, cfg, *from, id, *passphrase)
+		entry, err := fetchFromRemote(ctx, e, cfg, *from, id, sealedWith)
 		if err != nil {
 			return err
 		}

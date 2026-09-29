@@ -10,6 +10,7 @@
  * run at all on an instance that already has an account -- so each test makes
  * what it needs and takes it away again.
  */
+import { randomBytes } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
 import { browserOverride, goto, openAccountMenu, pageHeading } from './support/fixtures';
 
@@ -17,9 +18,13 @@ test.use(browserOverride);
 
 const dialog = (page: Page, name: string | RegExp) => page.getByRole('dialog', { name });
 
-/** A name nothing else in the suite will collide with. */
+/**
+ * A name nothing else in the suite will collide with. Random bytes rather than
+ * Math.random(): these names become account usernames, and a scanner cannot
+ * tell a test fixture from a credential.
+ */
 function unique(prefix: string): string {
-  return `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
+  return `${prefix}-${randomBytes(4).toString('hex')}`;
 }
 
 /**
@@ -81,6 +86,144 @@ test('an account can be created, given a different role, and deleted by name', a
   await expect(row).toHaveCount(0);
 });
 
+test('a duplicate username is refused inside the dialog, not as an administrator warning', async ({
+  page,
+}) => {
+  // The refusal used to surface on the page behind the modal, in words about
+  // administrators, after the operator had closed the dialog that raised it.
+  const username = unique('spec-dupe');
+  await goto(page, '/settings/users', 'Users');
+
+  const add = async () => {
+    await create(page, 'Add an account').click();
+    const form = dialog(page, 'Add an account');
+    await form.getByRole('textbox', { name: 'Username' }).fill(username);
+    await form.getByRole('textbox', { name: 'Password' }).fill('a-long-enough-password');
+    await form.getByRole('button', { name: 'Add account' }).click();
+    return form;
+  };
+
+  const first = await add();
+  await expect(first).toBeHidden();
+
+  const second = await add();
+  await expect(second).toBeVisible();
+  await expect(second.getByRole('alert')).toContainText(/already exists/);
+  await expect(page.getByText('Zoomies keeps at least one enabled administrator')).toHaveCount(0);
+
+  await second.getByRole('button', { name: 'Cancel' }).click();
+  const row = page.getByRole('row', { name: new RegExp(username) });
+  await row.getByRole('button', { name: new RegExp(`Actions for ${username}`) }).click();
+  await page.getByRole('menuitem', { name: 'Delete this account' }).click();
+  const confirm = dialog(page, 'Delete account');
+  await confirm.getByRole('textbox', { name: `Type ${username} to confirm` }).fill(username);
+  await confirm.getByRole('button', { name: 'Delete account' }).click();
+  await expect(row).toHaveCount(0);
+});
+
+test('a refused account edit says why inside the open dialog and keeps what was typed', async ({
+  page,
+}) => {
+  const username = unique('spec-edit');
+  await goto(page, '/settings/users', 'Users');
+  await create(page, 'Add an account').click();
+  const form = dialog(page, 'Add an account');
+  await form.getByRole('textbox', { name: 'Username' }).fill(username);
+  await form.getByRole('textbox', { name: 'Password' }).fill('a-long-enough-password');
+  await form.getByRole('button', { name: 'Add account' }).click();
+  await expect(form).toBeHidden();
+
+  const refusal =
+    'this is the last enabled administrator; give another account the admin role before changing this one';
+  await page.route('**/api/v1/users/*', async (route) => {
+    if (route.request().method() !== 'PATCH') return route.fallback();
+    await route.fulfill({
+      status: 409,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: { code: 'conflict', message: refusal } }),
+    });
+  });
+
+  const row = page.getByRole('row', { name: new RegExp(username) });
+  await row.getByRole('button', { name: new RegExp(`Actions for ${username}`) }).click();
+  await page.getByRole('menuitem', { name: 'Edit role and details' }).click();
+  const edit = dialog(page, new RegExp(`Edit ${username}`));
+  await edit.getByRole('textbox', { name: 'Display name' }).fill('Typed and kept');
+  await edit.getByRole('button', { name: 'Save changes' }).click();
+
+  await expect(edit.getByRole('alert')).toContainText('last enabled administrator');
+  await expect(edit.getByRole('textbox', { name: 'Display name' })).toHaveValue('Typed and kept');
+
+  await page.unroute('**/api/v1/users/*');
+  await edit.getByRole('button', { name: 'Cancel' }).click();
+  await row.getByRole('button', { name: new RegExp(`Actions for ${username}`) }).click();
+  await page.getByRole('menuitem', { name: 'Delete this account' }).click();
+  const confirm = dialog(page, 'Delete account');
+  await confirm.getByRole('textbox', { name: `Type ${username} to confirm` }).fill(username);
+  await confirm.getByRole('button', { name: 'Delete account' }).click();
+  await expect(row).toHaveCount(0);
+});
+
+test('Enter submits a dialog with text fields, and a typed-name confirmation only once the name matches', async ({
+  page,
+}) => {
+  // Every one of these was a bare <div> with a click handler on its footer
+  // button, so Enter in a field did nothing and a password manager saw no form.
+  const username = unique('spec-enter');
+  await goto(page, '/settings/users', 'Users');
+
+  await create(page, 'Add an account').click();
+  const add = dialog(page, 'Add an account');
+  await add.getByRole('textbox', { name: 'Username' }).fill(username);
+  await add.getByRole('textbox', { name: 'Password' }).fill('a-long-enough-password');
+  await add.getByRole('textbox', { name: 'Password' }).press('Enter');
+  await expect(add).toBeHidden();
+
+  const row = page.getByRole('row', { name: new RegExp(username) });
+  await expect(row).toBeVisible();
+  const menu = () =>
+    row.getByRole('button', { name: new RegExp(`Actions for ${username}`) }).click();
+
+  await menu();
+  await page.getByRole('menuitem', { name: 'Edit role and details' }).click();
+  const edit = dialog(page, new RegExp(`Edit ${username}`));
+  await edit.getByRole('textbox', { name: 'Display name' }).fill('Saved with Enter');
+  await edit.getByRole('textbox', { name: 'Display name' }).press('Enter');
+  await expect(edit).toBeHidden();
+  await expect(row).toContainText('Saved with Enter');
+
+  await menu();
+  await page.getByRole('menuitem', { name: 'Reset password' }).click();
+  const reset = dialog(page, new RegExp(`Reset password for ${username}`));
+  await reset.getByLabel('New password').fill('another-long-enough-password');
+  await reset.getByLabel('New password').press('Enter');
+  await expect(reset).toBeHidden();
+
+  // The irreversible one. Enter with the wrong name is nothing at all; with
+  // the right one it is the same as pressing the button that is now enabled.
+  await menu();
+  await page.getByRole('menuitem', { name: 'Delete this account' }).click();
+  const confirm = dialog(page, 'Delete account');
+  const typed = confirm.getByRole('textbox', { name: `Type ${username} to confirm` });
+  await typed.fill('not-the-name');
+  await typed.press('Enter');
+  await expect(confirm).toBeVisible();
+  await expect(row).toBeVisible();
+  await typed.fill(username);
+  await typed.press('Enter');
+  await expect(confirm).toBeHidden();
+  await expect(row).toHaveCount(0);
+
+  const name = unique('spec-enter-token');
+  await goto(page, '/settings/tokens', 'API tokens');
+  await create(page, 'Create a token').click();
+  const mint = dialog(page, 'Create an API token');
+  await mint.getByRole('textbox', { name: 'Name' }).fill(name);
+  await mint.getByRole('textbox', { name: 'Name' }).press('Enter');
+  await expect(mint).toContainText('This is the only time it exists in plain text');
+  await mint.getByRole('button', { name: 'Done' }).click();
+});
+
 test('a token is shown once, in plain text, and says so', async ({ page }) => {
   const name = unique('spec-token');
   await goto(page, '/settings/tokens', 'API tokens');
@@ -94,6 +237,13 @@ test('a token is shown once, in plain text, and says so', async ({ page }) => {
   // The one moment it exists in plain text, and the dialog is explicit that
   // this is the only one.
   await expect(form).toContainText('This is the only time it exists in plain text');
+  await expect(form.getByRole('button', { name: 'Copy the token' })).toBeVisible();
+
+  // ...and a stray click must not be what ends it: the scrim and the corner
+  // icon are gone, so only Done (or Escape, which is deliberate) closes it.
+  await expect(form.getByRole('button', { name: 'Close' })).toHaveCount(0);
+  await page.mouse.click(5, 5);
+  await expect(form).toBeVisible();
   await expect(form.getByRole('button', { name: 'Copy the token' })).toBeVisible();
   await form.getByRole('button', { name: 'Done' }).click();
   await expect(form).toBeHidden();

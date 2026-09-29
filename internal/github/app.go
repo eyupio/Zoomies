@@ -30,11 +30,13 @@ const defaultHTTPTimeout = 30 * time.Second
 // work that a missed delivery left behind.
 const (
 	// maxPollRuns caps how many workflow runs one poll inspects across all
-	// repositories, since each run costs a second call to list its jobs.
+	// repositories, since each run costs at least a second call to list its
+	// jobs, and a large matrix costs one more for every hundred of them.
 	maxPollRuns = 50
 	// maxPollRequests caps the API calls one sweep may make in total: the
 	// repository listing, the two run listings per repository and the job
-	// listing per run. maxPollRuns bounds only the last of those, and a
+	// listing per run (a page each, for a run with more than a hundred jobs).
+	// maxPollRuns bounds only the last of those, and a
 	// hundred-repository organisation costs two hundred run listings before
 	// a single job is looked at -- every thirty seconds, in exactly the
 	// failure the poller exists for, which spent the installation's hourly
@@ -594,7 +596,7 @@ func (c *appClient) ListQueuedJobs(ctx context.Context) ([]QueuedJob, error) {
 				}
 				budget--
 				requests--
-				jobs, err := c.queuedJobsForRun(ctx, owner, name, run)
+				jobs, err := c.queuedJobsForRun(ctx, owner, name, run, &requests)
 				if err != nil {
 					return nil, err
 				}
@@ -656,22 +658,42 @@ func (c *appClient) pollRepos(ctx context.Context, requests *int) ([]string, err
 	return out, nil
 }
 
-func (c *appClient) queuedJobsForRun(ctx context.Context, owner, repo string, run *gh.WorkflowRun) ([]QueuedJob, error) {
-	jobs, resp, err := c.asInstallation.Actions.ListWorkflowJobs(ctx, owner, repo, run.GetID(),
-		&gh.ListWorkflowJobsOptions{
-			Filter:      "latest",
-			ListOptions: gh.ListOptions{PerPage: pollPerPage},
-		})
-	if err != nil {
-		e := classify(resp, err)
-		if errors.Is(e, ErrNotFound) {
-			return nil, nil
-		}
-		return nil, c.decorate(fmt.Sprintf("list jobs for run %d in %s/%s", run.GetID(), owner, repo), e)
+// queuedJobsForRun lists a run's queued jobs, following the listing's pages: a
+// matrix can hold 256 jobs, and completed jobs stay in the listing, so the tail
+// past the first page is otherwise never seen. The caller has already paid for
+// the first page; each further one comes off requests, and a run that outlasts
+// the sweep's budget is cut short with what it has rather than failed.
+func (c *appClient) queuedJobsForRun(ctx context.Context, owner, repo string, run *gh.WorkflowRun, requests *int) ([]QueuedJob, error) {
+	opts := &gh.ListWorkflowJobsOptions{
+		Filter:      "latest",
+		ListOptions: gh.ListOptions{PerPage: pollPerPage},
 	}
 	full := owner + "/" + repo
 	var out []QueuedJob
-	for _, j := range jobs.Jobs {
+	for {
+		jobs, resp, err := c.asInstallation.Actions.ListWorkflowJobs(ctx, owner, repo, run.GetID(), opts)
+		if err != nil {
+			e := classify(resp, err)
+			if errors.Is(e, ErrNotFound) {
+				return out, nil
+			}
+			return nil, c.decorate(fmt.Sprintf("list jobs for run %d in %s/%s", run.GetID(), owner, repo), e)
+		}
+		out = append(out, queuedJobsOnPage(full, run, jobs.Jobs)...)
+		if resp == nil || resp.NextPage == 0 || *requests <= 0 {
+			return out, nil
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		*requests--
+		opts.Page = resp.NextPage
+	}
+}
+
+func queuedJobsOnPage(full string, run *gh.WorkflowRun, jobs []*gh.WorkflowJob) []QueuedJob {
+	var out []QueuedJob
+	for _, j := range jobs {
 		if j.GetStatus() != string(store.JobQueued) {
 			continue
 		}
@@ -697,7 +719,7 @@ func (c *appClient) queuedJobsForRun(ctx context.Context, owner, repo string, ru
 		}
 		out = append(out, q)
 	}
-	return out, nil
+	return out
 }
 
 // RateLimit reports the installation's remaining quota.

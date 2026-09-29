@@ -123,6 +123,33 @@ test('a hidden column stays hidden after a reload', async ({ page }) => {
   await expect(runners(page).getByRole('columnheader', { name: 'Name' })).toBeVisible();
 });
 
+/*
+ * The column chooser is a panel of checkboxes, not a menu, and closing it with
+ * Escape from inside it must not strand the keyboard: the checkbox focus was on
+ * is unmounted with the panel, and focus that falls to the document sends the
+ * next Tab back to the top of the page. It returns to the button that opened it.
+ */
+test('escape closes the column chooser and returns focus to its button', async ({ page }) => {
+  await goto(page, '/runners', 'Runners');
+  await runnerRows(page);
+
+  const columns = page.getByRole('button', { name: 'Columns' });
+  // A panel of checkboxes, so it is announced as a dialog rather than as a
+  // menu whose arrow keys do nothing.
+  await expect(columns).toHaveAttribute('aria-haspopup', 'dialog');
+
+  await columns.click();
+  const checkbox = page
+    .getByRole('group', { name: 'Column layout' })
+    .getByRole('checkbox', { name: 'Host' });
+  await checkbox.focus();
+  await expect(checkbox).toBeFocused();
+
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('group', { name: 'Column layout' })).toHaveCount(0);
+  await expect(columns).toBeFocused();
+});
+
 test('selecting rows reveals the bulk bar with the number selected', async ({ page }) => {
   await goto(page, '/runners', 'Runners');
   const rows = await runnerRows(page);
@@ -327,4 +354,27 @@ test('clipboard refusal is visible and does not blame HTTPS on a secure page', a
       { exact: true },
     ),
   ).toBeVisible();
+});
+
+/*
+ * The heading is read first and believed. "Runner not found" over a panel that
+ * says the controller failed sent an operator looking for a runner that was
+ * never gone, so only a 404 gets to say it.
+ */
+test('a runner that could not be loaded is only called not found when the controller says so', async ({
+  page,
+}) => {
+  await page.route(`**/api/v1/runners/${FIXTURE.busyRunnerId}`, (route) =>
+    route.fulfill({
+      status: 500,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: { code: 'internal', message: 'The controller broke.' } }),
+    }),
+  );
+  await page.goto(`/runners/${FIXTURE.busyRunnerId}`, { waitUntil: 'domcontentloaded' });
+  await expect(page.getByText('That runner could not be loaded')).toBeVisible();
+  await expect(pageHeading(page, 'Runner')).toBeVisible();
+
+  await page.goto('/runners/run_never_existed', { waitUntil: 'domcontentloaded' });
+  await expect(pageHeading(page, 'Runner not found')).toBeVisible();
 });

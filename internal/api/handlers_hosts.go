@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -357,7 +358,7 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 				rentedFrom = row.Name
 			}
 			conflict(w, fmt.Sprintf("host %s is a machine Zoomies created on %s. Delete the machine instead "+
-				"(that removes the VM too), or repeat this with ?force=true to forget the host and leave the VM running.",
+				"(that removes the VM too), or repeat this with ?force=true to forget the host and the machine record and leave the VM running, untracked.",
 				h.Name, rentedFrom))
 			return
 		case merr != nil && !errors.Is(merr, store.ErrNotFound):
@@ -381,13 +382,61 @@ func (s *Server) handleDeleteHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.ctrl.DeleteHost(r.Context(), id); err != nil {
+	var forgotten *store.Machine
+	if force {
+		var ok bool
+		if forgotten, ok = s.machineToForget(w, r, id); !ok {
+			return
+		}
+	}
+
+	machineID := ""
+	if forgotten != nil {
+		machineID = forgotten.ID
+	}
+	if err := s.ctrl.DeleteHostForgettingMachine(r.Context(), id, machineID); err != nil {
 		s.fail(w, r, "deleting the host", err)
 		return
+	}
+	if forgotten != nil {
+		// After the commit, and on a context the client hanging up cannot
+		// cancel: from here the audit row is the only record of the VM, so a
+		// request that dies now must not take the resource identifier with it.
+		s.auth.Auditor().Act(context.WithoutCancel(r.Context()), Identity(r.Context()), "machine.release", "machine", forgotten.ID, map[string]any{
+			"name": forgotten.Name, "state": forgotten.State, "provider_id": forgotten.ProviderID,
+			"resource_zone": forgotten.ResourceZone, "resource_id": forgotten.ResourceID,
+			"address": forgotten.Address, "host_id": forgotten.HostID, "reason": "its host was force-deleted",
+		})
 	}
 	s.auth.Auditor().Deleted(r.Context(), Identity(r.Context()), "host", id, h)
 	s.ctrl.Nudge()
 	noContent(w)
+}
+
+// machineToForget finds the machine a forced host delete has to forget so it
+// stays to what the 409 promises -- the VM is left running -- and reports
+// whether the delete may go on. It writes nothing: the row goes in the same
+// transaction as the host, and the caller audits it once that has committed.
+//
+// machines.host_id is ON DELETE SET NULL, and the machine loop treats a ready
+// machine with no host as one to release: drain, then destroy the VM, without
+// waiting for the jobs the cascade just erased. So forgetting only the host
+// would end in the destructive act the operator was told would not happen. A
+// machine that is already deleting is left alone: the delete is under way, and
+// dropping the row would abandon it half done with the VM still billed.
+func (s *Server) machineToForget(w http.ResponseWriter, r *http.Request, hostID string) (*store.Machine, bool) {
+	m, err := s.ctrl.Store().GetMachineByHost(r.Context(), hostID)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, true
+	}
+	if err != nil {
+		s.internal(w, r, "checking whether the host is a machine Zoomies created", err)
+		return nil, false
+	}
+	if m == nil || m.State == store.MachineDeleting {
+		return nil, true
+	}
+	return m, true
 }
 
 // ---------------------------------------------------------------------------

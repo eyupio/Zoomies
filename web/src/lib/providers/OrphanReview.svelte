@@ -124,7 +124,16 @@
 {/snippet}
 
 {#snippet releaseCell(row: Machine)}
-  <Button size="sm" variant="secondary" disabled={!canAdmin} onclick={() => release(row)}>
+  <!-- Permanent, so the button names its machine: a list of them is otherwise a
+       column of identical "Forget" buttons. The visible word stays the start of
+       the accessible name. -->
+  <Button
+    size="sm"
+    variant="secondary"
+    ariaLabel="Forget {row.name ?? 'this machine'}"
+    disabled={!canAdmin}
+    onclick={() => release(row)}
+  >
     Forget
   </Button>
 {/snippet}

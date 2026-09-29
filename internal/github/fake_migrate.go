@@ -154,6 +154,7 @@ func (f *FakeGitHub) registerMigrationRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /repos/{owner}/{repo}/readme", f.getReadme)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/git/ref/{ref...}", f.getRef)
 	mux.HandleFunc("POST /repos/{owner}/{repo}/git/refs", f.createRef)
+	mux.HandleFunc("DELETE /repos/{owner}/{repo}/git/refs/{ref...}", f.deleteRef)
 	mux.HandleFunc("POST /repos/{owner}/{repo}/pulls", f.createPull)
 }
 
@@ -399,6 +400,37 @@ func (f *FakeGitHub) createRef(w http.ResponseWriter, r *http.Request) {
 		"ref":    "refs/heads/" + branch,
 		"object": map[string]any{"sha": body.SHA, "type": "commit"},
 	})
+}
+
+// deleteRef removes a branch. Like GitHub it refuses the default branch, and it
+// does not close or forget pull requests: the real API closes a pull request
+// whose head branch is deleted, which is why the migration only cleans up a
+// branch it knows has none.
+func (f *FakeGitHub) deleteRef(w http.ResponseWriter, r *http.Request) {
+	full := fullName(r)
+	branch := strings.TrimPrefix(strings.Trim(r.PathValue("ref"), "/"), "heads/")
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !slices.Contains(f.repos, full) {
+		writeError(w, http.StatusNotFound, "Not Found")
+		return
+	}
+	repo := f.repoLocked(full)
+	if repo.archived {
+		writeError(w, http.StatusForbidden, "Repository was archived so is read-only.")
+		return
+	}
+	if _, ok := repo.branches[branch]; !ok {
+		writeError(w, http.StatusUnprocessableEntity, "Reference does not exist")
+		return
+	}
+	if branch == repo.defaultBranch {
+		writeError(w, http.StatusUnprocessableEntity, "Cannot delete the default branch")
+		return
+	}
+	delete(repo.branches, branch)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (f *FakeGitHub) createPull(w http.ResponseWriter, r *http.Request) {

@@ -363,7 +363,7 @@ func TestABackupTakenByThePassIsShippedByTheSamePass(t *testing.T) {
 	if _, err := h.c.ShipBackups(h.ctx); err != nil {
 		t.Fatalf("the first pass: %v", err)
 	}
-	if h.c.remotesDue(h.c.Now()) {
+	if h.c.remotesDue(h.ctx, h.c.Now()) {
 		t.Fatal("setting up: the remote is still due, so this proves nothing")
 	}
 
@@ -376,6 +376,113 @@ func TestABackupTakenByThePassIsShippedByTheSamePass(t *testing.T) {
 	keys := fake.Keys()
 	if len(keys) != 1 || keys[0] != "fleet/"+entries[0].ID+".tar.gz" {
 		t.Fatalf("the bucket holds %v after the pass that took %s", keys, entries[0].ID)
+	}
+}
+
+// twoOffsite is two destinations on one fake bucket, the shape whose second
+// half an operator later deletes or switches off.
+func twoOffsite(h *harness, adjustSpare func(*config.BackupRemote)) {
+	h.t.Helper()
+	fake := offsite(h, nil)
+	spare := config.BackupRemote{
+		Name: "spare", Endpoint: fake.Endpoint(), Bucket: fake.Bucket(), Prefix: "spare",
+		AccessKeyID: "AKIAEXAMPLE", SecretAccessKey: "secret",
+	}
+	if adjustSpare != nil {
+		adjustSpare(&spare)
+	}
+	h.c.UpdateConfig(func(c *config.Config) { c.Backup.Remotes = append(c.Backup.Remotes, spare) })
+}
+
+// remoteStateNames is the destinations the controller is holding state for.
+func remoteStateNames(h *harness) []string {
+	h.c.backups.mu.Lock()
+	defer h.c.backups.mu.Unlock()
+	var names []string
+	for name := range h.c.backups.remotes {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names
+}
+
+// A remote that has left the configuration must take its state with it. Its
+// last attempt is never refreshed again -- nothing ships to it -- so once it is
+// an hour old the loop reconciles on every tick, and each of those passes
+// lists every bucket that is left, which is a request that costs money in
+// some of them and is what the hourly sweep exists to avoid.
+func TestARemovedRemoteDoesNotKeepTheLoopListingEveryBucket(t *testing.T) {
+	h := newHarness(t)
+	twoOffsite(h, nil)
+	if _, err := h.c.ShipBackups(h.ctx); err != nil {
+		t.Fatalf("the first pass: %v", err)
+	}
+	if names := remoteStateNames(h); !slices.Equal(names, []string{"offsite", "spare"}) {
+		t.Fatalf("setting up: state is held for %v", names)
+	}
+
+	h.c.UpdateConfig(func(c *config.Config) { c.Backup.Remotes = c.Backup.Remotes[:1] })
+	h.advance(50 * time.Minute)
+	if _, err := h.c.ShipBackups(h.ctx); err != nil {
+		t.Fatalf("the pass after the removal: %v", err)
+	}
+	if names := remoteStateNames(h); !slices.Equal(names, []string{"offsite"}) {
+		t.Errorf("state is still held for %v after spare left the configuration", names)
+	}
+
+	// The survivor was reconciled twenty minutes ago; only what was left of
+	// the removed one is more than an hour old.
+	h.advance(20 * time.Minute)
+	if h.c.remotesDue(h.ctx, h.c.Now()) {
+		t.Error("the loop is due on every tick because of a remote that no longer exists")
+	}
+}
+
+// A switched-off remote is still on the page, and the page shows what a
+// listing last found there, so its state stays -- but a listing has no
+// attempt time, and that must not be read as a remote nobody has tried.
+func TestAListedDisabledRemoteKeepsItsCountsWithoutMakingTheLoopDue(t *testing.T) {
+	h := newHarness(t)
+	twoOffsite(h, func(r *config.BackupRemote) { r.Disabled = true })
+	if _, err := h.c.ShipBackups(h.ctx); err != nil {
+		t.Fatalf("the first pass: %v", err)
+	}
+
+	h.c.NoteRemoteListing("spare", 3, 4096)
+	if h.c.remotesDue(h.ctx, h.c.Now()) {
+		t.Error("listing a switched-off remote made the loop reconcile on every tick")
+	}
+
+	if _, err := h.c.ShipBackups(h.ctx); err != nil {
+		t.Fatalf("the second pass: %v", err)
+	}
+	for _, status := range h.c.BackupRemotes(h.ctx) {
+		if status.Name == "spare" && status.Copies != 3 {
+			t.Errorf("the page shows %d copies for the switched-off remote, wanted the 3 its listing found", status.Copies)
+		}
+	}
+}
+
+// The stored half of the configuration comes from the database. A read that
+// fails leaves only the file's remotes to compare against, and every stored
+// remote's state would look abandoned; wiping it would blank the page and the
+// problems drawer for an outage that has nothing to do with them.
+func TestAFailedStoreReadDoesNotWipeTheStateOfStoredRemotes(t *testing.T) {
+	h := newHarness(t)
+	offsite(h, nil)
+	if _, err := h.c.ShipBackups(h.ctx); err != nil {
+		t.Fatalf("the first pass: %v", err)
+	}
+	h.c.NoteRemoteListing("stored", 2, 1024)
+
+	if err := h.st.Close(); err != nil {
+		t.Fatalf("closing the store: %v", err)
+	}
+	if _, err := h.c.ShipBackups(h.ctx); err != nil {
+		t.Fatalf("the pass with the store down: %v", err)
+	}
+	if names := remoteStateNames(h); !slices.Equal(names, []string{"offsite", "stored"}) {
+		t.Errorf("state is held for %v after a pass that could not read the stored remotes", names)
 	}
 }
 

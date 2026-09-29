@@ -395,6 +395,19 @@ func (s *Server) handleImportPools(w http.ResponseWriter, r *http.Request) {
 		out.Changes = append(out.Changes, ch)
 	}
 
+	// Before the dry-run return, so a preview says what the real run will:
+	// otherwise an operator is shown "create" for pools the ceiling then
+	// refuses. It waits for a document with nothing refused in it, so the
+	// fixable problems are reported first, as a create reports validation
+	// before room.
+	if out.Summary.Refused == 0 {
+		if err := s.ctrl.AdmitPools(r.Context(), out.Summary.Create); err != nil {
+			if !asLimit(w, err) {
+				s.internal(w, r, "checking limits.pools", err)
+			}
+			return
+		}
+	}
 	if req.DryRun {
 		writeJSON(w, http.StatusOK, out)
 		return

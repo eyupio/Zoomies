@@ -189,6 +189,78 @@ func TestDrainingAMachineCordonsItsHost(t *testing.T) {
 	}
 }
 
+// Every other road into a machine's deletion cordons its host first, because
+// the scheduler's snapshot carries hosts and never machines: an idle machine
+// with a queued job matching its pools stays placeable for the whole minutes-long
+// delete, and a runner placed in that window dies with the VM.
+func TestDeletingAMachineCordonsItsHost(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("admin", store.RoleAdmin)
+	cookie := h.session(admin)
+	host := h.host("zoomies-mach-host")
+	prov := h.provider("proxmox-lab")
+	m := h.machineOn(prov, "zoomies-mach-idle", store.MachineReady, host)
+
+	resp := h.do(request{method: http.MethodDelete, path: "/api/v1/machines/" + m.ID, cookie: cookie})
+	resp.mustStatus(t, http.StatusOK, "delete an idle machine")
+
+	got, err := h.st.GetHost(h.ctx, host.ID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if !got.Cordoned {
+		t.Error("the host of a machine being deleted was not cordoned, so the scheduler could place a runner on a VM that is about to be destroyed")
+	}
+}
+
+// A refused delete must have no side effect: cordoning before the refusal would
+// take a busy machine out of service by way of a request that said no.
+func TestARefusedMachineDeleteLeavesItsHostUncordoned(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("admin", store.RoleAdmin)
+	cookie := h.session(admin)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+	host := h.host("zoomies-mach-host")
+	prov := h.provider("proxmox-lab")
+	m := h.machineOn(prov, "zoomies-mach-busy", store.MachineReady, host)
+	h.runner(pool, host, store.RunnerBusy)
+
+	resp := h.do(request{method: http.MethodDelete, path: "/api/v1/machines/" + m.ID, cookie: cookie})
+	resp.mustStatus(t, http.StatusConflict, "delete a machine with a busy runner")
+
+	got, err := h.st.GetHost(h.ctx, host.ID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if got.Cordoned {
+		t.Error("a refused delete cordoned the host")
+	}
+}
+
+// A drain the state machine refuses -- only a ready machine can drain -- used to
+// cordon the host first and then answer 409, so a request that reported an error
+// still took a failed machine's enrolled host out of service, with no audit row.
+func TestARefusedMachineDrainLeavesItsHostUncordoned(t *testing.T) {
+	h := newHarness(t)
+	operator, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(operator)
+	host := h.host("zoomies-mach-host")
+	prov := h.provider("proxmox-lab")
+	m := h.machineOn(prov, "zoomies-mach-broken", store.MachineFailed, host)
+
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/machines/" + m.ID + "/drain", cookie: cookie})
+	resp.mustStatus(t, http.StatusConflict, "drain a failed machine")
+
+	got, err := h.st.GetHost(h.ctx, host.ID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if got.Cordoned {
+		t.Error("a refused drain cordoned the host")
+	}
+}
+
 // A machine's host is not an ordinary host: the VM outlives the row, and an
 // operator who deleted it here would go on paying for a machine nothing is
 // tracking. The refusal says which act removes the VM as well.
@@ -209,9 +281,64 @@ func TestDeletingAHostThatIsAMachineSaysToDeleteTheMachineInstead(t *testing.T) 
 		}
 	}
 
-	// Forcing still works, and leaves the machine to the reconciler.
+	// Forcing still works; what it does to the VM is the next test's business.
 	forced := h.do(request{method: http.MethodDelete, path: "/api/v1/hosts/" + host.ID + "?force=true", cookie: cookie})
 	forced.mustStatus(t, http.StatusNoContent, "force-delete a host that is a machine")
+}
+
+// The refusal above promises that ?force=true forgets the host and leaves the VM
+// running. The machine row's host_id is ON DELETE SET NULL, and the machine loop
+// reads a Ready machine with no host as one to release, so a bare host delete
+// drained and destroyed the VM -- and any job still on it -- within two passes.
+// Forcing has to forget the machine row as well, and audit it, because after
+// that the audit row is the only record of the resource.
+func TestForceDeletingAMachinesHostLeavesTheVMRunningAndForgetsTheRow(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("admin", store.RoleAdmin)
+	cookie := h.session(admin)
+	host := h.host("zoomies-mach-host")
+	prov := h.provider("proxmox-lab")
+	m := h.machineOn(prov, "zoomies-mach-serving", store.MachineReady, host)
+
+	forced := h.do(request{method: http.MethodDelete, path: "/api/v1/hosts/" + host.ID + "?force=true", cookie: cookie})
+	forced.mustStatus(t, http.StatusNoContent, "force-delete a host that is a machine")
+
+	if row, err := h.st.GetMachine(h.ctx, m.ID); err == nil {
+		t.Fatalf("the machine is still recorded as %s, so the machine loop would release the VM the operator was promised would be left running", row.State)
+	}
+
+	audit := h.do(request{method: http.MethodGet, path: "/api/v1/audit?limit=50", cookie: cookie})
+	audit.mustStatus(t, http.StatusOK, "audit")
+	body := string(audit.body)
+	if !strings.Contains(body, "machine.release") {
+		t.Error("forgetting the machine was not audited")
+	}
+	if !strings.Contains(body, machineResourceID(m.Name)) {
+		t.Error("the audit row does not keep the resource identifier, which is now the only record of it")
+	}
+}
+
+// A machine already being deleted is the one case where forgetting the row would
+// be the destructive act: the delete is under way and the VM is going anyway, so
+// dropping the row would abandon a half-finished delete and leak the resource.
+func TestForceDeletingTheHostOfAMachineThatIsAlreadyDeletingLeavesTheDeleteRunning(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("admin", store.RoleAdmin)
+	cookie := h.session(admin)
+	host := h.host("zoomies-mach-host")
+	prov := h.provider("proxmox-lab")
+	m := h.machineOn(prov, "zoomies-mach-leaving", store.MachineDeleting, host)
+
+	forced := h.do(request{method: http.MethodDelete, path: "/api/v1/hosts/" + host.ID + "?force=true", cookie: cookie})
+	forced.mustStatus(t, http.StatusNoContent, "force-delete the host of a deleting machine")
+
+	row, err := h.st.GetMachine(h.ctx, m.ID)
+	if err != nil {
+		t.Fatalf("the deleting machine was forgotten, abandoning its delete: %v", err)
+	}
+	if row.State != store.MachineDeleting {
+		t.Errorf("the machine is %s, want it left deleting", row.State)
+	}
 }
 
 // An ordinary host is not a machine, and the check for one must not turn every

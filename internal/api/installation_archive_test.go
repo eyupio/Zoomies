@@ -2,7 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"reflect"
 	"strings"
@@ -118,7 +120,8 @@ func TestAnExportedInstallationPurgesCleanlyAndVerifiesOnAFreshInstance(t *testi
 		t.Errorf("after the purge the audit rows naming it are %v, want only the purge itself", actions)
 	}
 
-	fresh := newHarness(t, func(c *config.Config) { c.Security.EncryptionKey = otherKey })
+	// The exporting installation points at the fake GitHub on loopback.
+	fresh := newHarness(t, allowPrivateEgress, func(c *config.Config) { c.Security.EncryptionKey = otherKey })
 	root, _ := fresh.user("root", store.RoleAdmin)
 	res = fresh.do(request{method: http.MethodPost, path: "/api/v1/installations/import", cookie: fresh.session(root),
 		body: map[string]any{"archive": json.RawMessage(archive), "passphrase": "the wrong one"}})
@@ -185,5 +188,123 @@ func TestDeletingAnInstallationWithoutPurgeKeepsItsHistory(t *testing.T) {
 	res.mustStatus(t, http.StatusOK, "delete")
 	if _, err := h.st.GetJob(h.ctx, job.ID); err != nil {
 		t.Errorf("a plain delete took the job with it: %v", err)
+	}
+}
+
+// An archive can be hundreds of megabytes, and the server's ReadTimeout covers
+// the request body. Without the handler clearing its own read deadline an
+// upload that takes longer than that fails midway, and json.Decoder's timeout
+// is reported as a 400 that blames the archive for being invalid JSON.
+func TestImportOutlivesTheServersReadTimeoutOnASlowUpload(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("root", store.RoleAdmin)
+
+	// A real server, because the deadline is the net/http server's own; the
+	// harness's default one has none.
+	srv := httptest.NewUnstartedServer(h.api.Handler())
+	srv.Config.ReadTimeout = 250 * time.Millisecond
+	srv.Start()
+	t.Cleanup(srv.Close)
+
+	pr, pw := io.Pipe()
+	go func() {
+		_, _ = pw.Write([]byte(`{"archive":`))
+		time.Sleep(600 * time.Millisecond)
+		_, _ = pw.Write([]byte(`null}`))
+		_ = pw.Close()
+	}()
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/v1/installations/import", pr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", srv.URL)
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	req.AddCookie(&http.Cookie{Name: SessionCookie, Value: h.session(admin)})
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		t.Fatalf("the slow upload was cut off: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	// The body was read whole; an empty archive is then refused on its merits.
+	if resp.StatusCode != http.StatusUnprocessableEntity || !strings.Contains(string(body), "archive") {
+		t.Fatalf("status = %d, want the 422 for a missing archive: %s", resp.StatusCode, body)
+	}
+}
+
+// An archive is a hand-editable file and the import treats it as untrusted, but
+// its installations row carries api_base_url, which wins over
+// github.api_base_url for everything that installation does. Left unchecked, an
+// import is the one way to set that field past the outbound address guard that
+// create and update apply, and every GitHub call the installation makes then
+// goes to the address the archive names.
+func TestImportRefusesAnArchiveWhoseAPIBaseURLBreaksTheEgressGuard(t *testing.T) {
+	source := newHarness(t)
+	sourceAdmin, _ := source.user("root", store.RoleAdmin)
+	a := source.installation()
+	res := source.do(request{method: http.MethodPost, path: "/api/v1/installations/" + a.ID + "/export", cookie: source.session(sourceAdmin)})
+	res.mustStatus(t, http.StatusOK, "export")
+	exported := res.body
+
+	// withBaseURL rewrites the api_base_url cell of the archive's installations
+	// row, as an operator editing the file by hand would.
+	withBaseURL := func(t *testing.T, value any) json.RawMessage {
+		t.Helper()
+		var doc map[string]any
+		if err := json.Unmarshal(exported, &doc); err != nil {
+			t.Fatal(err)
+		}
+		for _, tbl := range doc["tables"].([]any) {
+			tbl := tbl.(map[string]any)
+			if tbl["table"] != "installations" {
+				continue
+			}
+			for i, c := range tbl["columns"].([]any) {
+				if c == "api_base_url" {
+					tbl["rows"].([]any)[0].([]any)[i] = value
+					raw, _ := json.Marshal(doc)
+					return raw
+				}
+			}
+		}
+		t.Fatal("the archive has no installations.api_base_url column to edit")
+		return nil
+	}
+
+	for _, tc := range []struct {
+		name    string
+		value   any
+		allowed bool
+		status  int
+	}{
+		{"the metadata address", "http://169.254.169.254/api/v3/", false, http.StatusUnprocessableEntity},
+		{"loopback", "http://127.0.0.1:9/api/v3/", false, http.StatusUnprocessableEntity},
+		{"a value that is not text", 42, false, http.StatusUnprocessableEntity},
+		{"loopback with private egress allowed", "http://127.0.0.1:9/api/v3/", true, http.StatusCreated},
+		{"a public Enterprise host", "https://ghes.example.com/api/v3/", false, http.StatusCreated},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := []func(*config.Config){func(c *config.Config) { c.Security.EncryptionKey = otherKey }}
+			if tc.allowed {
+				opts = append(opts, allowPrivateEgress)
+			}
+			fresh := newHarness(t, opts...)
+			root, _ := fresh.user("root", store.RoleAdmin)
+			res := fresh.do(request{method: http.MethodPost, path: "/api/v1/installations/import", cookie: fresh.session(root),
+				body: map[string]any{"archive": withBaseURL(t, tc.value)}})
+			if res.status != tc.status {
+				t.Fatalf("status = %d, want %d: %s", res.status, tc.status, res.body)
+			}
+			list, _ := fresh.st.ListInstallations(fresh.ctx)
+			if tc.status != http.StatusCreated {
+				if !strings.Contains(string(res.body), "api_base_url") {
+					t.Errorf("the refusal must name the field:\n%s", res.body)
+				}
+				if len(list) != 0 {
+					t.Error("a refused import left an installation behind")
+				}
+			}
+		})
 	}
 }

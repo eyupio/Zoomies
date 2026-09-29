@@ -87,8 +87,33 @@ test('an App connected with an unusable key says so, and works once it is fixed'
   await card.getByRole('button', { name: 'Replace key' }).click();
   const replace = page.getByRole('dialog');
   await expect(replace).toBeVisible();
+
+  // A refusal must not lock the form: it is about the text that was sent, so
+  // pasting something else withdraws it and the button comes back. The server
+  // is answered for here because a public key passes the browser's own
+  // check, and the real one would accept the fixture's key on the next line.
+  await page.route('**/api/v1/installations/*', async (route) => {
+    if (route.request().method() !== 'PATCH') return route.fallback();
+    await route.fulfill({
+      status: 422,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: { code: 'validation_failed', message: 'the private key was refused' },
+        errors: [{ field: 'private_key', message: 'That is a public key, not a private one.' }],
+      }),
+    });
+  });
+  const replaceButton = replace.getByRole('button', { name: 'Replace the key' });
+  await replace.getByLabel('Private key').fill('-----BEGIN PUBLIC KEY-----\nabc\n');
+  await replaceButton.click();
+  await expect(replace).toContainText('That is a public key, not a private one.');
+  await expect(replaceButton).toBeDisabled();
   await replace.getByLabel('Private key').fill(fake().privateKey);
-  await replace.getByRole('button', { name: 'Replace the key' }).click();
+  await expect(replace).not.toContainText('That is a public key, not a private one.');
+  await expect(replaceButton).toBeEnabled();
+  await page.unroute('**/api/v1/installations/*');
+
+  await replaceButton.click();
 
   // Replacing it verifies straight away: "it is stored" is not the answer
   // somebody replacing a broken credential came for.

@@ -330,6 +330,60 @@ func TestAuditLoginFailureDoesNotStoreUnknownUsernames(t *testing.T) {
 	}
 }
 
+// TestAuditLoginFailureWritesOneRowPerWindowForARateLimitedAddress is about
+// the write a refusal costs.
+//
+// The login route is anonymous and the limiter refuses for free -- a refused
+// attempt is not recorded, so a loop past the limit stays refused forever --
+// which made every one of those requests an INSERT into a table that is never
+// pruned, on the single writer, scrolling real security events off the audit
+// page. A burst still has to be visible, so the first refusal per address per
+// window is written and the rest are only counted in the log.
+func TestAuditLoginFailureWritesOneRowPerWindowForARateLimitedAddress(t *testing.T) {
+	s, _, clk := newService(t)
+	st := s.store
+	ctx := t.Context()
+
+	count := func(action string) int {
+		t.Helper()
+		_, total, err := st.ListAudit(ctx, store.AuditFilter{Actions: []string{action}}, store.Page{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return total
+	}
+
+	for range 50 {
+		s.AuditLoginFailure(ctx, "alice", "10.0.0.1", ErrRateLimited)
+	}
+	if got := count("auth.login_failed"); got != 1 {
+		t.Fatalf("50 rate-limited attempts from one address wrote %d audit rows, want 1", got)
+	}
+
+	// Another address is a different burst and is still recorded.
+	s.AuditLoginFailure(ctx, "alice", "10.0.0.2", ErrRateLimited)
+	if got := count("auth.login_failed"); got != 2 {
+		t.Errorf("a second address wrote %d rows in total, want 2", got)
+	}
+
+	// Ordinary failures are the signal the log exists for and are never
+	// thinned: they are already bounded by the limiter itself.
+	for range 5 {
+		s.AuditLoginFailure(ctx, "alice", "10.0.0.1", ErrInvalidCredentials)
+	}
+	if got := count("auth.login_failed"); got != 7 {
+		t.Errorf("5 wrong passwords brought the total to %d rows, want 7", got)
+	}
+
+	// A burst that outlasts the window is recorded again, so a long attack
+	// leaves one row per minute rather than one row ever.
+	clk.Advance(2 * time.Minute)
+	s.AuditLoginFailure(ctx, "alice", "10.0.0.1", ErrRateLimited)
+	if got := count("auth.login_failed"); got != 8 {
+		t.Errorf("a new window brought the total to %d rows, want 8", got)
+	}
+}
+
 // The fingerprint has to be stable, or repeated attempts against one bad value
 // look like many different ones and the correlation it exists for is lost.
 func TestLoginFingerprintIsStableAndShort(t *testing.T) {

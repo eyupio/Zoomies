@@ -402,6 +402,10 @@ var registry = buildRegistry([]Setting{
 	},
 	{
 		Key: "agent.heartbeat_interval", Label: "Heartbeat interval", Env: "ZOOMIES_HEARTBEAT_INTERVAL", Kind: KindDuration, Scope: ScopeInstance,
+		// Kept in step with the agent's own minimum (minHeartbeatInterval in
+		// internal/agent), which config cannot import: agent.New refuses
+		// anything shorter and the controller then fails to start.
+		Floor:         time.Second,
 		Summary:       "How often an agent reports in. A host that goes quiet for 90 seconds is counted lost, so this has to be comfortably under that.",
 		RestartReason: "the agent's heartbeat timer is set when it starts",
 	},

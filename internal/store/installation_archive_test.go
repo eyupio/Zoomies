@@ -328,3 +328,39 @@ func TestAnImportRefusesATableOrColumnTheSchemaDoesNotHave(t *testing.T) {
 		})
 	}
 }
+
+// The archive carries the usage_daily rows the source had already rolled up
+// and the sessions they came from, but not the watermark. On the new machine
+// the roll-up therefore starts from the oldest imported session and computes
+// days the archive already holds; a plain INSERT aborted on the primary key,
+// every hour, for the whole instance -- and with the watermark never written
+// the sessions could never be pruned either.
+func TestTheUsageRollUpSucceedsAfterAnImportAndCountsNothingTwice(t *testing.T) {
+	s, a, _ := twoInstallations(t)
+	ctx := context.Background()
+	tables, err := s.ExportInstallation(ctx, a.inst.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh := newTestStore(t)
+	if _, err := fresh.ImportInstallation(ctx, tables); err != nil {
+		t.Fatalf("ImportInstallation: %v", err)
+	}
+	imported := usageDays(t, fresh)
+	if len(imported) == 0 {
+		t.Fatal("the archive carried no usage days, so this test proves nothing")
+	}
+
+	until := time.Date(2026, 5, 12, 0, 0, 0, 0, time.UTC)
+	for pass := 1; pass <= 2; pass++ {
+		if _, err := fresh.RollUpUsage(ctx, until); err != nil {
+			t.Fatalf("roll-up pass %d after the import: %v", pass, err)
+		}
+	}
+	if _, _, ok, err := fresh.UsageRollupRange(ctx); err != nil || !ok {
+		t.Fatalf("the roll-up wrote no watermark: ok=%v, %v", ok, err)
+	}
+	if got := usageDays(t, fresh); !reflect.DeepEqual(got, imported) {
+		t.Fatalf("the roll-up changed the imported days:\nwant %+v\ngot  %+v", imported, got)
+	}
+}

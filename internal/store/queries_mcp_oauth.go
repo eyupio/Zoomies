@@ -598,11 +598,17 @@ func (s *Store) TouchOAuthGrant(ctx context.Context, id string, now time.Time) e
 
 // PruneOAuth removes what has expired: waiting requests, spent and unspent
 // codes and tokens past their lifetime, consents whose code was never
-// exchanged, and self-registered clients that never completed a sign-in.
+// exchanged, and clients that never completed a sign-in.
 //
 // The last is the one that matters for size. A client that registers
 // dynamically does so on every fresh connection, and one abandoned at the
-// consent screen would otherwise stay in the clients list for good.
+// consent screen would otherwise stay in the clients list for good. A metadata
+// client is made by anybody who can reach /oauth/authorize, so it is pruned the
+// same way -- it is fetched and created again on its next sign-in. Never a
+// revoked one: its row is all that remembers the revocation, and without it the
+// next authorise would create a fresh client and undo it. A dynamic client's
+// client_id is its random row ID, so it cannot be recreated and needs no such
+// care.
 func (s *Store) PruneOAuth(ctx context.Context, now time.Time) (int64, error) {
 	var total int64
 	for _, q := range []struct {
@@ -612,7 +618,8 @@ func (s *Store) PruneOAuth(ctx context.Context, now time.Time) (int64, error) {
 		{`DELETE FROM oauth_requests WHERE expires_at < ?`, []any{ms(now)}},
 		{`DELETE FROM oauth_tokens WHERE expires_at < ?`, []any{ms(now)}},
 		{`DELETE FROM oauth_grants WHERE last_used_at IS NULL AND created_at < ?`, []any{ms(now.Add(-time.Hour))}},
-		{`DELETE FROM oauth_clients WHERE kind = 'dynamic' AND last_used_at IS NULL AND created_at < ?
+		{`DELETE FROM oauth_clients WHERE (kind = 'dynamic' OR (kind = 'metadata' AND revoked_at IS NULL))
+			AND last_used_at IS NULL AND created_at < ?
 			AND NOT EXISTS (SELECT 1 FROM oauth_grants g WHERE g.client_id = oauth_clients.id)`, []any{ms(now.Add(-24 * time.Hour))}},
 	} {
 		res, err := s.exec(ctx, q.sql, q.args...)

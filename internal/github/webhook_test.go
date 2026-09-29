@@ -297,6 +297,24 @@ func TestParseWorkflowJobWaitingIsItsOwnState(t *testing.T) {
 	}
 }
 
+// GitHub stamps started_at on any job that has not started, and the store keeps
+// StartedAt write-once. Trusting it on a held job would pin the start to the
+// moment the job was created: the hours of review would then count as run time,
+// the queue wait after approval would come out negative and be dropped, and the
+// real started_at on the in_progress delivery could never replace it.
+func TestAWaitingJobKeepsNoStartedAtFromItsDelivery(t *testing.T) {
+	e, err := ParseWorkflowJob(jobPayload("waiting", "waiting", "", true, false))
+	if err != nil {
+		t.Fatalf("ParseWorkflowJob: %v", err)
+	}
+	if e.StartedAt.IsZero() {
+		t.Fatal("the payload carries no started_at, so this test proves nothing")
+	}
+	if j := e.ToJob(); j.StartedAt != nil {
+		t.Fatalf("a waiting job has StartedAt = %v", *j.StartedAt)
+	}
+}
+
 func TestParseWorkflowJobCompletedWithoutTimestamp(t *testing.T) {
 	before := time.Now().UTC()
 	e, err := ParseWorkflowJob(jobPayload("completed", "completed", "cancelled", false, false))

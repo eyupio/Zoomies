@@ -60,6 +60,12 @@
     <Icon size={iconSize} aria-hidden="true" />
   </a>
 {:else}
+  <!--
+    Loading is `aria-disabled`, not `disabled`, for the reason Button gives:
+    disabling the element the operator has just activated blurs it, so focus
+    falls to <body> -- and when the request is refused and the editor stays
+    open, the next Tab starts from the top of the page.
+  -->
   <button
     type="button"
     class="icon-btn {variant} {size} {className}"
@@ -70,8 +76,15 @@
     aria-controls={controls}
     aria-haspopup={haspopup}
     aria-busy={loading ? 'true' : undefined}
-    disabled={disabled || loading}
-    {onclick}
+    aria-disabled={loading ? 'true' : undefined}
+    {disabled}
+    onclick={(event) => {
+      if (loading) {
+        event.preventDefault();
+        return;
+      }
+      onclick?.(event);
+    }}
   >
     <Icon size={iconSize} aria-hidden="true" />
   </button>
@@ -99,7 +112,7 @@
     width: var(--z-space-6);
     height: var(--z-space-6);
   }
-  .ghost:hover:not(:disabled) {
+  .ghost:hover:not(:disabled):not([aria-disabled='true']) {
     background: var(--z-surface-hover);
     color: var(--z-text);
   }
@@ -108,16 +121,22 @@
     border-color: var(--z-border-strong);
     color: var(--z-text);
   }
-  .secondary:hover:not(:disabled) {
+  .secondary:hover:not(:disabled):not([aria-disabled='true']) {
     background: var(--z-surface-hover);
   }
   .danger {
     color: var(--z-danger);
   }
-  .danger:hover:not(:disabled) {
+  .danger:hover:not(:disabled):not([aria-disabled='true']) {
     background: var(--z-danger-subtle);
   }
-  .icon-btn:disabled {
+  /* A button that is busy still holds focus, so it must not also be clickable
+     -- otherwise a second press fires the same request again. */
+  .icon-btn[aria-disabled='true'] {
+    pointer-events: none;
+  }
+  .icon-btn:disabled,
+  .icon-btn[aria-disabled='true'] {
     opacity: 0.5;
     cursor: not-allowed;
   }

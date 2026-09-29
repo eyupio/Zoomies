@@ -51,6 +51,11 @@ const (
 // comes from settingsConfig, which is built key by key -- a secret added to
 // config.Config tomorrow cannot appear in a bundle by default.
 //
+// The one exception to "what the operator could have fetched" is a pool's
+// environment: its values are the operator's to read on the pool's own route,
+// but the bundle is a document made to be handed on, so it keeps the keys and
+// drops the values.
+//
 // What it never carries is workflow log bodies. There is no redaction pass for
 // them and there cannot be a reliable one -- a log holds whatever a workflow
 // printed -- so the bundle carries runner ids and the download route instead,
@@ -255,7 +260,10 @@ func (s *Server) supportBundle(ctx context.Context) supportBundle {
 			return err
 		}
 		for _, p := range pools {
-			b.Pools = append(b.Pools, view.View(p))
+			// Not poolFor: that is role-based, and an administrator who may read
+			// the values on the pool's own route is not the reader of this file,
+			// which is attached to an issue or sent to whoever runs the platform.
+			b.Pools = append(b.Pools, view.View(p).WithoutEnvValues())
 		}
 		return nil
 	})

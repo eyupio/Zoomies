@@ -1878,11 +1878,18 @@ func (c *Config) normalizeBackupRemotes() {
 	}
 }
 
+// splitList and parseKV read the comma-separated text a list or label setting
+// is stored as, from the database, from ZOOMIES_* and from `config set`.
+//
+// A backslash escapes the next character only when that is a comma or another
+// backslash, so a value with a comma in it (NO_PROXY, an LDAP group name)
+// survives the round trip through Text, while text written before escaping
+// existed -- which held neither pair -- reads exactly as it always did.
 func splitList(v string) []string {
 	var out []string
-	for _, p := range strings.Split(v, ",") {
+	for _, p := range splitUnescaped(v) {
 		if p = strings.TrimSpace(p); p != "" {
-			out = append(out, p)
+			out = append(out, unescapeList(p))
 		}
 	}
 	return out
@@ -1890,18 +1897,56 @@ func splitList(v string) []string {
 
 func parseKV(v string) (map[string]string, error) {
 	out := map[string]string{}
-	for _, p := range strings.Split(v, ",") {
+	for _, p := range splitUnescaped(v) {
 		p = strings.TrimSpace(p)
 		if p == "" {
 			continue
 		}
 		k, val, ok := strings.Cut(p, "=")
 		if !ok {
-			return nil, fmt.Errorf("%q is not key=value", p)
+			return nil, fmt.Errorf("%q is not key=value", unescapeList(p))
 		}
-		out[strings.TrimSpace(k)] = strings.TrimSpace(val)
+		out[unescapeList(strings.TrimSpace(k))] = unescapeList(strings.TrimSpace(val))
 	}
 	return out, nil
+}
+
+// splitUnescaped cuts on commas that are not escaped and leaves the escapes in
+// place, because a label still has to be cut at its first `=` before they go.
+func splitUnescaped(v string) []string {
+	var out []string
+	start := 0
+	for i := 0; i < len(v); i++ {
+		switch v[i] {
+		case '\\':
+			if i+1 < len(v) && (v[i+1] == ',' || v[i+1] == '\\') {
+				i++
+			}
+		case ',':
+			out = append(out, v[start:i])
+			start = i + 1
+		}
+	}
+	return append(out, v[start:])
+}
+
+func unescapeList(v string) string {
+	if !strings.Contains(v, `\`) {
+		return v
+	}
+	var b strings.Builder
+	for i := 0; i < len(v); i++ {
+		if v[i] == '\\' && i+1 < len(v) && (v[i+1] == ',' || v[i+1] == '\\') {
+			i++
+		}
+		b.WriteByte(v[i])
+	}
+	return b.String()
+}
+
+// escapeList is unescapeList's inverse, for Text.
+func escapeList(v string) string {
+	return strings.NewReplacer(`\`, `\\`, ",", `\,`).Replace(v)
 }
 
 // Normalize fills in the values that are derived from other values. It is

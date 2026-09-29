@@ -1,9 +1,12 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/eyupio/zoomies/internal/config"
@@ -171,7 +174,9 @@ func TestManifestForTheConfiguredEnterpriseServerIsBuilt(t *testing.T) {
 // firewall that is not open yet -- answered the retry with "start the App
 // creation again", against an App that already existed.
 func TestExchangeKeepsTheHandshakeWhenGitHubCannotBeReached(t *testing.T) {
-	h := newHarness(t)
+	// The address is on loopback, so the exchange only gets as far as the dial
+	// when private egress is allowed.
+	h := newHarness(t, allowPrivateEgress)
 	admin, _ := h.user("admin", store.RoleAdmin)
 
 	h.api.manifests.put(&pendingApp{
@@ -189,6 +194,61 @@ func TestExchangeKeepsTheHandshakeWhenGitHubCannotBeReached(t *testing.T) {
 
 	if h.api.manifests.peek("state-1") == nil {
 		t.Fatal("the handshake was thrown away by a failure that spent nothing")
+	}
+}
+
+// The exchange dials an address the caller chose and returns what came back in
+// its error, so without the outbound address guard it is a way to reach
+// loopback, metadata and LAN services from the controller's network position.
+// The guard has to hold wherever the address came from -- the request body or
+// the handshake -- and the handshake must survive the refusal, because nothing
+// was spent.
+func TestExchangeRefusesAPrivateAPIBaseURLWithoutDialingIt(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		body    string // api_base_url in the request; "" leaves it to the handshake
+		pending string
+	}{
+		{"one in the request body", "http://%s/api/v3/", ""},
+		{"one carried by the handshake", "", "http://%s/api/v3/"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var dialed atomic.Int32
+			target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				dialed.Add(1)
+				http.Error(w, "internal admin console", http.StatusBadRequest)
+			}))
+			t.Cleanup(target.Close)
+			host := strings.TrimPrefix(target.URL, "http://")
+
+			h := newHarness(t)
+			admin, _ := h.user("admin", store.RoleAdmin)
+			pending := &pendingApp{state: "state-1", target: "acme", targetType: store.TargetOrg, createdAt: h.ctrl.Now()}
+			if tc.pending != "" {
+				pending.apiBaseURL = fmt.Sprintf(tc.pending, host)
+			}
+			h.api.manifests.put(pending)
+			body := map[string]any{"code": "abc123", "state": "state-1"}
+			if tc.body != "" {
+				body["api_base_url"] = fmt.Sprintf(tc.body, host)
+			}
+
+			resp := h.do(request{method: http.MethodPost, path: "/api/v1/installations/manifest/exchange",
+				cookie: h.session(admin), body: body})
+			resp.mustStatus(t, http.StatusUnprocessableEntity, "an exchange aimed at a private address")
+			if !strings.Contains(string(resp.body), "api_base_url") || !strings.Contains(string(resp.body), "security.allow_private_egress") {
+				t.Errorf("the refusal must name the field and the setting that would allow it:\n%s", resp.body)
+			}
+			if strings.Contains(string(resp.body), "internal admin console") {
+				t.Errorf("the response read back from the internal service:\n%s", resp.body)
+			}
+			if n := dialed.Load(); n != 0 {
+				t.Errorf("the controller sent %d request(s) to a private address it should have refused", n)
+			}
+			if h.api.manifests.peek("state-1") == nil {
+				t.Error("the handshake was thrown away by a refusal that spent nothing")
+			}
+		})
 	}
 }
 

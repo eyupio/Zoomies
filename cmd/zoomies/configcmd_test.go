@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -337,7 +338,7 @@ func secretShaped(name string) bool {
 	if strings.HasSuffix(name, "_file") {
 		return false
 	}
-	for _, word := range []string{"secret", "token", "key", "password", "auth", "credential"} {
+	for _, word := range []string{"secret", "token", "key", "password", "passphrase", "auth", "credential"} {
 		if strings.Contains(name, word) {
 			return true
 		}
@@ -404,6 +405,15 @@ func plant(t *testing.T, v reflect.Value, prefix string, into map[string]string)
 		switch field.Kind() {
 		case reflect.Struct:
 			plant(t, field, path, into)
+		case reflect.Slice:
+			// A list of structs is a place secrets hide from a walk that only
+			// follows fields: backup.remotes carries an S3 secret and the
+			// archive passphrase and was never entered. One element is enough
+			// to stand for the list.
+			if field.Type().Elem().Kind() == reflect.Struct {
+				field.Set(reflect.MakeSlice(field.Type(), 1, 1))
+				plant(t, field.Index(0), path+"[0]", into)
+			}
 		case reflect.String:
 			if secretShaped(name) {
 				value := "planted-secret-" + strings.ReplaceAll(path, ".", "-")
@@ -464,5 +474,50 @@ func TestOnlyALoopbackHealthCheckIsMovedToHTTPS(t *testing.T) {
 		if ok != (want != "") || got != want {
 			t.Errorf("loopbackHTTPS(%q) = %q, %v; want %q", in, got, ok, want)
 		}
+	}
+}
+
+// TestConfigPrintBlanksBackupRemoteSecretsWithoutMutatingTheConfig covers the
+// one list of structs in the configuration.
+//
+// A backup remote carries the bucket's secret key and the passphrase that seals
+// every offsite copy, so together they open the whole fleet's database, and
+// `config print` is the command whose output gets pasted into an issue. The
+// copy blankSecrets returns shares its slice with the configuration it was
+// given, so blanking in place would also have blanked the live one.
+func TestConfigPrintBlanksBackupRemoteSecretsWithoutMutatingTheConfig(t *testing.T) {
+	cfg := config.Default()
+	cfg.Backup.Remotes = []config.BackupRemote{{
+		Name: "offsite", Endpoint: "https://s3.example.com", Bucket: "zoomies-backups",
+		AccessKeyID: "AKIAEXAMPLE", SecretAccessKey: "bucket-secret-value", Passphrase: "archive-passphrase-value",
+	}}
+
+	for _, format := range []string{"yaml", "json"} {
+		var printed []byte
+		var err error
+		if format == "yaml" {
+			printed, err = yaml.Marshal(blankSecrets(cfg))
+		} else {
+			printed, err = json.Marshal(blankSecrets(cfg))
+		}
+		if err != nil {
+			t.Fatalf("marshalling as %s: %v", format, err)
+		}
+		for _, leaked := range []string{"bucket-secret-value", "archive-passphrase-value", "AKIAEXAMPLE"} {
+			if strings.Contains(string(printed), leaked) {
+				t.Errorf("%s output printed %q:\n%s", format, leaked, printed)
+			}
+		}
+		// What an operator debugging a destination needs is still there.
+		for _, kept := range []string{"offsite", "https://s3.example.com", "zoomies-backups", secretPlaceholder} {
+			if !strings.Contains(string(printed), kept) {
+				t.Errorf("%s output lost %q:\n%s", format, kept, printed)
+			}
+		}
+	}
+
+	got := cfg.Backup.Remotes[0]
+	if got.SecretAccessKey != "bucket-secret-value" || got.Passphrase != "archive-passphrase-value" || got.AccessKeyID != "AKIAEXAMPLE" {
+		t.Errorf("blankSecrets blanked the caller's configuration as well: %+v", got)
 	}
 }

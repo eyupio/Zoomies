@@ -187,6 +187,38 @@ test('runner limits are adjustable from a pool row without opening the wizard', 
   await expect(pageHeading(page, 'Pools')).toBeVisible();
 });
 
+test('a refused runner limit is withdrawn as soon as the figure is changed', async ({ page }) => {
+  // The refusal was folded into the same value that disables Save, and only
+  // cleared by the next save -- which the disabled button then prevented.
+  await goto(page, '/pools', 'Pools');
+  const row = dataRows(grid(page, 'Pools')).filter({ hasText: FIXTURE.linuxPool });
+  await page.route('**/api/v1/pools/*', async (route) => {
+    if (route.request().method() !== 'PATCH') return route.fallback();
+    await route.fulfill({
+      status: 422,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: { code: 'validation_failed', message: 'that maximum is refused' },
+        errors: [{ field: 'max_runners', message: 'This fleet has no room for that many.' }],
+      }),
+    });
+  });
+
+  await row.getByRole('button', { name: `Actions for ${FIXTURE.linuxPool}` }).click();
+  await page.getByRole('menuitem', { name: 'Adjust runner limits' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Runner limits' });
+  const save = dialog.getByRole('button', { name: 'Save limits' });
+  await dialog.getByRole('spinbutton', { name: 'Minimum runners' }).fill('1');
+  await dialog.getByRole('spinbutton', { name: 'Maximum runners' }).fill('9');
+  await save.click();
+  await expect(dialog).toContainText('This fleet has no room for that many.');
+  await expect(save).toBeDisabled();
+
+  await dialog.getByRole('spinbutton', { name: 'Maximum runners' }).fill('8');
+  await expect(dialog).not.toContainText('This fleet has no room for that many.');
+  await expect(save).toBeEnabled();
+});
+
 test('the wizard forks into an automatic path and an advanced one', async ({ page }) => {
   await goto(page, '/pools/new', 'Create a pool');
 
@@ -961,6 +993,51 @@ test('a refused pool deletion keeps the typed confirmation available for retry',
   await expect.poll(() => attempts).toBe(2);
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(dialog).toBeHidden();
+});
+
+/*
+ * Ten identical "Open this run on GitHub" links tell somebody tabbing through
+ * the list nothing about which job each one opens, or that it leaves the page.
+ */
+test("a pool page's recent jobs each link to GitHub under their own name", async ({ page }) => {
+  const pools = (await page.request.get('/api/v1/pools').then((r) => r.json())) as {
+    items: { id: string; name: string }[];
+  };
+  const pool = pools.items.find((p) => p.name === FIXTURE.linuxPool)!;
+  await goto(page, `/pools/${pool.id}`, FIXTURE.linuxPool);
+
+  const links = page.getByRole('link', { name: /^Open .+ on GitHub, in a new tab/ });
+  await expect(links.first()).toBeVisible();
+  const names = await links.evaluateAll((els) => els.map((el) => el.getAttribute('aria-label')));
+  expect(names.length).toBeGreaterThan(1);
+  expect(new Set(names).size, 'each link names its own job').toBeGreaterThan(1);
+  await expect(page.getByRole('link', { name: 'Open this run on GitHub' })).toHaveCount(0);
+});
+
+/*
+ * "Destroy its runners immediately" interrupts work in progress, so the dialog
+ * opens on the drain every time. It used to keep whatever the last open had
+ * left, which put the destructive option one careless confirmation away.
+ */
+test("a pool page's delete dialog opens unticked after being cancelled ticked", async ({
+  page,
+}) => {
+  const pools = (await page.request.get('/api/v1/pools').then((r) => r.json())) as {
+    items: { id: string; name: string }[];
+  };
+  const pool = pools.items.find((p) => p.name === FIXTURE.linuxPool)!;
+  await goto(page, `/pools/${pool.id}`, FIXTURE.linuxPool);
+
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Delete pool', exact: true });
+  const force = dialog.getByRole('checkbox', { name: /Destroy its runners immediately/ });
+  await expect(force).not.toBeChecked();
+  await force.check();
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(dialog).toBeHidden();
+
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
+  await expect(force).not.toBeChecked();
 });
 
 test('a runner size can be typed the way people write it, and is written back in the largest unit', async ({

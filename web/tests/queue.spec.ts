@@ -77,6 +77,31 @@ test('queue views preserve combined filters and cancel leaves demand unchanged',
 });
 
 /*
+ * Every other form dialog is a labelled field with Cancel and the primary
+ * action in its footer, so an operator who has used one knows how to leave and
+ * how to submit this one. Enter still saves, because the field is a form's.
+ */
+test('the save-view dialog has a Cancel and still saves on Enter', async ({ page }) => {
+  await goto(page, '/queue?repo=acme%2Fapi', 'Queue');
+  await page.getByRole('button', { name: 'Save view', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Save queue view' });
+  await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Save view', exact: true })).toBeDisabled();
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(dialog).toBeHidden();
+
+  await page.getByRole('button', { name: 'Save view', exact: true }).click();
+  await page.getByRole('textbox', { name: 'View name' }).fill('Enter saves');
+  await page.getByRole('textbox', { name: 'View name' }).press('Enter');
+  await expect(dialog).toBeHidden();
+  await expect(
+    page.getByRole('combobox', { name: 'Saved queue views' }).locator('option', {
+      hasText: 'Enter saves',
+    }),
+  ).toHaveCount(1);
+});
+
+/*
  * The actions are on the row rather than behind a menu, which is four buttons
  * per row instead of one trigger. That is a hundred tab stops on a full page if
  * each is a stop of its own, so the four are one toolbar: Tab reaches it once
@@ -130,4 +155,37 @@ test("a row's actions are one stop on the keyboard, and the arrows move along th
   await expect(
     page.getByRole('button', { name: `Delete from queue: ${subject}`, exact: true }).first(),
   ).toBeFocused();
+});
+
+/*
+ * The top bar is sticky too, so a bar pinned at the top of the page slid up
+ * behind it: the bulk actions were there, and could be neither seen nor pressed
+ * until the operator scrolled back to the top of a long queue.
+ */
+test('the bulk-action bar stays below the top bar while a long queue scrolls', async ({ page }) => {
+  // A short window, so the page overflows however few items the fleet holds.
+  await page.setViewportSize({ width: 1280, height: 420 });
+  await goto(page, '/queue', 'Queue');
+  const select = page.getByRole('button', { name: 'Select all matching', exact: true });
+  await expect(select).toBeEnabled();
+
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await expect
+    .poll(() => page.evaluate(() => window.scrollY), { message: 'the page did not scroll' })
+    .toBeGreaterThan(0);
+
+  // The bar has no role or name of its own, so it is found by its class.
+  const topBar = await page.getByRole('banner').boundingBox();
+  const bar = await page.locator('.selection-bar').boundingBox();
+  expect(topBar, 'the top bar has a box').not.toBeNull();
+  expect(bar, 'the selection bar has a box').not.toBeNull();
+  expect(bar!.y).toBeGreaterThanOrEqual(topBar!.y + topBar!.height);
+
+  // Where it is drawn is not enough: the press has to reach the button.
+  const button = await select.boundingBox();
+  const reached = await page.evaluate(
+    ({ x, y }) => document.elementFromPoint(x, y)?.closest('button')?.textContent?.trim(),
+    { x: button!.x + button!.width / 2, y: button!.y + button!.height / 2 },
+  );
+  expect(reached).toBe('Select all matching');
 });

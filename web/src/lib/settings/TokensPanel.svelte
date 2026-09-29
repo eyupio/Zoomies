@@ -324,6 +324,10 @@
   </LoadingBoundary>
 </div>
 
+<!--
+  Not dismissible while the token is on screen: it is shown exactly once, and a
+  stray click on the scrim would lose the only copy. Done and Escape still close.
+-->
 <Dialog
   bind:open={createOpen}
   title="Create an API token"
@@ -331,6 +335,7 @@
     ? 'Copy it now. This is the only time it exists in plain text.'
     : 'It carries a role, and optionally narrower scopes within that role.'}
   size="md"
+  dismissible={!minted}
 >
   {#if minted}
     <div class="form">
@@ -348,7 +353,15 @@
       </p>
     </div>
   {:else}
-    <div class="form">
+    <form
+      id="mint-token-form"
+      class="form"
+      novalidate
+      onsubmit={(event) => {
+        event.preventDefault();
+        void mint();
+      }}
+    >
       <Field label="Name" hint="What is using it: prometheus, ci-deploy." error={errors.name}>
         {#snippet children({ id, describedBy, invalid })}
           <Input bind:value={name} {id} {describedBy} {invalid} autocomplete="off" />
@@ -376,7 +389,7 @@
           <Input bind:value={scopeText} {id} {describedBy} {invalid} mono autocomplete="off" />
         {/snippet}
       </Field>
-    </div>
+    </form>
   {/if}
 
   {#snippet footer()}
@@ -384,7 +397,13 @@
       <Button variant="primary" onclick={() => (createOpen = false)}>Done</Button>
     {:else}
       <Button variant="ghost" onclick={() => (createOpen = false)}>Cancel</Button>
-      <Button variant="primary" loading={creating} disabled={!name.trim()} onclick={mint}>
+      <Button
+        variant="primary"
+        type="submit"
+        form="mint-token-form"
+        loading={creating}
+        disabled={!name.trim()}
+      >
         Create token
       </Button>
     {/if}

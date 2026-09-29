@@ -176,11 +176,19 @@ type Controller struct {
 	passes atomic.Uint64
 	// polls counts completed poller sweeps, for the same reason.
 	polls atomic.Uint64
-	// settingsChanged wakes the loops whose timers are built from the
-	// configuration, so that a new interval is in force from the moment it is
-	// accepted rather than from the next restart. Capacity 1, like nudges: it
-	// is a flag, and the loop re-reads every tunable when it wakes.
-	settingsChanged chan struct{}
+	// recoveries counts completed known-job sweeps, for the same reason.
+	recoveries atomic.Uint64
+	// pollSettingsChanged, recoverySettingsChanged and machineSettingsChanged
+	// wake the loops whose timers are built from the configuration, so that a
+	// new interval is in force from the moment it is accepted rather than from
+	// the next restart. One channel per loop, because a send wakes exactly one
+	// receiver: a shared token let the machine loop swallow the poller's wake,
+	// and left the loop that lost on its old interval. Each has capacity 1,
+	// like nudges: it is a flag, and the loop re-reads every tunable when it
+	// wakes.
+	pollSettingsChanged     chan struct{}
+	recoverySettingsChanged chan struct{}
+	machineSettingsChanged  chan struct{}
 
 	// pollingOnly records that no webhook has ever arrived, which the Overview
 	// says out loud because a fleet scaling on the poller looks healthy until
@@ -387,26 +395,28 @@ func New(opts Options) (*Controller, error) {
 	}
 
 	c := &Controller{
-		st:              opts.Store,
-		lease:           opts.Lease,
-		live:            config.NewLive(opts.Config),
-		logLevel:        opts.LogLevel,
-		key:             opts.Key,
-		authsvc:         authsvc,
-		bus:             bus,
-		factory:         factory,
-		backends:        opts.Backends,
-		log:             log,
-		clock:           clock,
-		httpClient:      opts.HTTPClient,
-		providerHTTP:    opts.ProviderHTTPClient,
-		backupHTTP:      opts.BackupRemoteHTTPClient,
-		nudges:          make(chan struct{}, 1),
-		settingsChanged: make(chan struct{}, 1),
-		restart:         make(chan struct{}),
-		backups:         backupState{ship: make(chan struct{}, 1)},
-		hostHealthy:     map[string]bool{},
-		removing:        map[string]struct{}{},
+		st:                      opts.Store,
+		lease:                   opts.Lease,
+		live:                    config.NewLive(opts.Config),
+		logLevel:                opts.LogLevel,
+		key:                     opts.Key,
+		authsvc:                 authsvc,
+		bus:                     bus,
+		factory:                 factory,
+		backends:                opts.Backends,
+		log:                     log,
+		clock:                   clock,
+		httpClient:              opts.HTTPClient,
+		providerHTTP:            opts.ProviderHTTPClient,
+		backupHTTP:              opts.BackupRemoteHTTPClient,
+		nudges:                  make(chan struct{}, 1),
+		pollSettingsChanged:     make(chan struct{}, 1),
+		recoverySettingsChanged: make(chan struct{}, 1),
+		machineSettingsChanged:  make(chan struct{}, 1),
+		restart:                 make(chan struct{}),
+		backups:                 backupState{ship: make(chan struct{}, 1)},
+		hostHealthy:             map[string]bool{},
+		removing:                map[string]struct{}{},
 		// Generous next to what GitHub sends and mean next to what a probe
 		// wants: a real delivery never reaches this limiter, and a prober gets
 		// sixty rows a minute rather than as many as it can open connections.
@@ -727,9 +737,11 @@ func (c *Controller) UpdateConfig(fn func(*config.Config)) *config.Config {
 	if c.logLevel != nil && before.Log.Level != after.Log.Level {
 		c.logLevel.Set(config.ParseLogLevel(after.Log.Level))
 	}
-	select {
-	case c.settingsChanged <- struct{}{}:
-	default:
+	for _, wake := range []chan struct{}{c.pollSettingsChanged, c.recoverySettingsChanged, c.machineSettingsChanged} {
+		select {
+		case wake <- struct{}{}:
+		default:
+		}
 	}
 	// The scheduler tunables change what the next pass decides, and a new
 	// interval takes effect once a pass has run and reset the timer.
@@ -974,12 +986,21 @@ func (c *Controller) DeletePool(ctx context.Context, id string) error {
 
 // DeleteHost removes a host and announces its runner rows and then the host.
 func (c *Controller) DeleteHost(ctx context.Context, id string) error {
-	runners, err := c.st.DeleteHost(ctx, id)
+	return c.DeleteHostForgettingMachine(ctx, id, "")
+}
+
+// DeleteHostForgettingMachine deletes a host and, in the same transaction, the
+// machine row behind it, announcing the machine only once both are gone.
+func (c *Controller) DeleteHostForgettingMachine(ctx context.Context, id, machineID string) error {
+	runners, err := c.st.DeleteHostForgettingMachine(ctx, id, machineID)
 	if err != nil {
 		return err
 	}
 	c.queues.forget(id)
 	c.publishRunnersDeleted(runners)
+	if machineID != "" {
+		c.PublishMachineDeleted(machineID)
+	}
 	c.PublishHostDeleted(id)
 	return nil
 }

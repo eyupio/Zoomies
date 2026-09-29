@@ -26,6 +26,7 @@ import {
   dataRows,
   goto,
   grid,
+  rowCount,
   SECTIONS,
   sectionHeading,
   waitForRows,
@@ -344,4 +345,39 @@ test('a row menu opens over the table rather than inside it', async ({ page, isM
     .first()
     .evaluate((el) => el.scrollTo({ top: 0 }));
   await expect(menu).toBeHidden();
+});
+
+/*
+ * A page that no longer exists must not be reported as an empty list.
+ *
+ * Runners and jobs come and go, and the grid refreshes as they do, so the last
+ * page emptying under an operator -- or a pasted `?offset=` from before the
+ * fleet shrank -- is the ordinary case. The answer is then no rows beside a
+ * total that says there are some: "No runners right now" and "51-50 of 50" on
+ * one screen, and the only way out a button the operator has to think to press.
+ * The grid steps back to the last page that has rows instead.
+ */
+test('a grid asked for a page past the end steps back to the last page with rows', async ({
+  page,
+}) => {
+  await goto(page, '/runners?offset=1000&limit=5', 'Runners');
+
+  const runners = grid(page, 'Runners');
+  await waitForRows(runners);
+  await expect(page.getByText('No runners right now')).toHaveCount(0);
+
+  // The pager tells the truth about where the operator now is: a real range
+  // that ends at the total, not a range that starts after it.
+  const summary = await rowCount(page).innerText();
+  const [, first, last, total] = /(\d+)\D+(\d+) of (\d+)/.exec(summary) ?? [];
+  expect(Number(first), summary).toBeLessThanOrEqual(Number(last));
+  expect(Number(last), summary).toBe(Number(total));
+
+  const offset = new URL(page.url()).searchParams.get('offset');
+  expect(Number(offset), 'the URL no longer points past the end').toBeLessThan(Number(total));
+});
+
+test('a grid with nothing to show still says so on its first page', async ({ page }) => {
+  await goto(page, '/jobs?state=in_progress&since=2020-01-01&until=2020-01-02', 'Jobs');
+  await expect(page.getByText('Nothing is running right now')).toBeVisible();
 });

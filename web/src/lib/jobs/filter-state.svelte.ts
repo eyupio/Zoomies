@@ -55,6 +55,11 @@ export interface JobFilterHandle {
   readonly view: JobView | '';
   /** Whether the view is one of the two that describe work still in hand. */
   readonly inHand: boolean;
+  /**
+   * A search or facet is doing some of the narrowing. The dates are left out on
+   * purpose: an empty window has its own advice, to widen it.
+   */
+  readonly narrowed: boolean;
   patch(next: Partial<JobFilterState>): void;
   clearFilters(): void;
   setView(next: JobView): void;
@@ -145,6 +150,22 @@ export function jobFilterState(): JobFilterHandle {
   const inHand = $derived(view === 'queued' || view === 'running');
 
   /**
+   * Whether an empty grid is the search's doing. The empty states speak for
+   * the status view and the switches, and a search that matched nothing under
+   * "running" used to be told "nothing is running right now" -- false while
+   * other jobs ran -- or "no jobs have run on this fleet", with a switch that
+   * cannot fix a search.
+   */
+  const narrowed = $derived(
+    Boolean(filters.q) ||
+      filters.repo.length > 0 ||
+      filters.workflow.length > 0 ||
+      filters.pool_id.length > 0 ||
+      filters.label.length > 0 ||
+      filters.conclusion.length > 0,
+  );
+
+  /**
    * Merge a filter change into the URL.
    *
    * Only the keys the caller actually passed are written: `setQuery` removes a
@@ -229,6 +250,9 @@ export function jobFilterState(): JobFilterHandle {
     },
     get inHand() {
       return inHand;
+    },
+    get narrowed() {
+      return narrowed;
     },
     patch,
     clearFilters,

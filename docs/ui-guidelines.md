@@ -210,11 +210,15 @@ is the favicon artwork, which is a PNG rather than a colour any rule sets.
 | `--z-border-strong` | `#C7CBD3` | `#363B44` | Inputs, focused containers |
 | `--z-text` | `#0B0C0E` | `#F4F5F7` | Primary text |
 | `--z-text-muted` | `#5B6069` | `#B9BCC2` | Secondary text, labels |
-| `--z-text-subtle` | `#6E737C` | `#868B94` | Timestamps, placeholders |
+| `--z-text-subtle` | `#666B74` | `#868B94` | Timestamps, placeholders |
 
-Primary text is 18:1 in both themes. Muted is 5.9:1 light and 10.3:1 dark.
-Subtle -- the weakest text in the product -- is 4.45:1 light and 5.75:1 dark, so
-even the timestamps clear AA.
+Primary text is 18:1 in both themes. Muted is 5.9:1 light and 10.3:1 dark, on the
+page ground. Subtle -- the weakest text in the product -- is 5.0:1 light and
+5.75:1 dark on the page ground, and clears AA on every surface it sits on: the
+lowest is a sunken well at 4.7:1 in the light theme and a raised surface at
+4.9:1 in the dark. It is measured on all of them, not only on white, because a
+breadcrumb sits straight on the page ground; `web/unit/text-contrast.test.ts`
+holds it there.
 
 #### Brand accent
 
@@ -452,6 +456,12 @@ dark mode elevation is carried mostly by surface colour, not shadow.
 | `--z-shadow-sm` | `0 1px 2px rgb(8 12 20 / .06)` | `0 1px 2px rgb(0 0 0 / .5)` |
 | `--z-shadow-md` | `0 4px 12px -2px rgb(8 12 20 / .10)` | `0 4px 12px -2px rgb(0 0 0 / .6)` |
 | `--z-shadow-lg` | `0 16px 40px -8px rgb(8 12 20 / .16)` | `0 16px 40px -8px rgb(0 0 0 / .7)` |
+
+Every modal sits on the same veil, `--z-scrim` with `--z-scrim-blur` — the page's
+own ground at 72% and a 3px blur, so it dims in both themes without a hard-coded
+black. Dialog, Drawer, the command palette and the phone's navigation sheet all
+take it from the token, so a dialog opened over a drawer dims the page by one
+amount.
 
 ### 1.6 Focus
 
@@ -734,7 +744,7 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 | `StatusDot` | the shape half of the state encoding, reusable inline |
 | `Tooltip` | on hover *and* focus; never the only place information lives. `text` is the whole tooltip as one sentence and what assistive technology gets; an optional `content` snippet draws a richer card for sighted readers |
 | `Segmented` | one choice among a few as one control, `aria-pressed` on the one in force: the activity matrix's ranges, the fleet trend's windows, the usage chart's two measures |
-| `Dialog` | focus trap, restores focus on close, `Esc` closes, backdrop click closes only non-destructive dialogs |
+| `Dialog` | focus trap, restores focus on close, `Esc` closes, backdrop click closes only non-destructive dialogs, and never one that is showing a secret exactly once. A dialog with text fields is a `<form>` whose footer button is `type="submit" form="…"`, so `Enter` submits it |
 | `Drawer` | right-hand detail panel; same focus rules |
 | `NavMenu` | the phone's menu: a sheet that rises from the bottom edge, where the thumb that pressed More is, carrying every section named and in order, plus the account, the theme and sign out; same focus rules, closes when a section is chosen |
 | `DropdownMenu` | roving tabindex, type-ahead; the list opens in the browser's top layer, placed against its trigger and flipped above where there is no room below, so a menu on a grid's last row is not cut off by the frame that scrolls. It closes when its trigger scrolls out of that frame. A `header` snippet names who the menu is about, and items sharing a `choice` are one segmented row of radio items with the one in force checked |
@@ -749,7 +759,7 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 | `Slider` | the browser's own range control between notches, with the recommended notch ringed and words at the ones worth naming; a second row when two would collide. `aria-valuetext` says the value in the same words the readout shows |
 | `QuantityField` | **every size and CPU figure** — a runner's limits, a host's reserve, a machine's shape, and every numeric or duration setting on the Configuration page. A `Slider` for choosing beside a field that reads what people write — `4gb`, `4096mb`, `4g`, `4 GiB`, `1.5`, `1500m` — and, on Enter or blur, writes it back in the largest unit that says it exactly: `4096mb` becomes “4 GB”, `1536` becomes “1.5 GB”, and `3000 MB` stays as it is rather than turning into a rounded, different limit. A gigabyte is 1024 MB, as it is everywhere else on the page. A length of time reads Go's spelling and the one people say — `168h`, `7d`, `2 weeks`, `1h30m`, `90 seconds` — is shown as “7d” or “1h 30m”, and is sent to the controller in Go's spelling, which has no day. What cannot be read is said beside the field and changes nothing. Never a bare `type="number"` box with the unit in its label |
 | `UtilisationBar` | busy/live with min and max ticks |
-| `ConfirmDialog` | destructive confirmation that **names the thing** ("Delete pool `linux-x64`? 3 runners will be drained.") and requires typing the name for anything irreversible |
+| `ConfirmDialog` | destructive confirmation that **names the thing** ("Delete pool `linux-x64`? 3 runners will be drained.") and requires typing the name for anything irreversible; `Enter` in that field confirms only once the name matches |
 
 ### Composites
 
@@ -869,7 +879,12 @@ filter rather than the noun: "No pools match those filters", "No runners match
 these filters". The two are different facts and an operator acts on them
 differently — one is a fleet with nothing in it, the other is a search with
 nothing in it. The Jobs page carries this furthest, because an empty grid there
-means six different things, and the page says which: under the unmatched filter
+means seven different things, and the page says which: with a search or a
+facet in force it is "no jobs match these filters" — the Workflows page says
+"no runs" — offering **Clear filters**, and that outranks every status
+sentence below, because none of them is true of a search that matched nothing
+(the dates are not a facet here; an empty window keeps its own advice to widen
+it); under the unmatched filter
 it is "no unmatched jobs", which is good news and says so; under the failed one
 it is "no failed jobs"; in the status views the page opens on it is "nothing is
 running right now" or "nothing is queued", each offering **Show every status**
@@ -877,6 +892,12 @@ rather than a narrower filter, because the way out of a status view is the same
 page without it; with other runners included it is "no jobs recorded yet", which
 points at webhook delivery; and without them it is "no jobs have run on this
 fleet", which offers to widen the view.
+
+**A page past the end is not an empty grid.** When the page an operator is on
+answers no rows beside a total that says there are some — the last page emptied
+by a live refresh, or a pasted `?offset=` from before the fleet shrank — the grid
+steps back to the last page that has rows. The empty state is for a list whose
+total is zero.
 
 ### Keyboard
 

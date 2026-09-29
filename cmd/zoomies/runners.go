@@ -80,6 +80,7 @@ func runnersList(ctx context.Context, e *env, args []string) error {
 
 	rows := make([][]string, 0, len(out.Items))
 	for _, r := range out.Items {
+		r.sanitise()
 		job := "-"
 		if r.CurrentJob != nil {
 			job = truncate(r.CurrentJob.Repo+" "+r.CurrentJob.JobName, 36)
@@ -126,6 +127,7 @@ func runnersGet(ctx context.Context, e *env, args []string) error {
 	if p.structured() {
 		return p.emit(raw)
 	}
+	r.sanitise()
 
 	rows := [][2]string{
 		{"name", r.Name},
@@ -155,7 +157,7 @@ func runnersGet(ctx context.Context, e *env, args []string) error {
 		fmt.Fprintln(p.out, "\nTimeline")
 		tl := make([][]string, 0, len(r.Timeline))
 		for _, entry := range r.Timeline {
-			tl = append(tl, []string{p.state(entry.State), p.relTime(entry.At), millis(entry.DurationMS), truncate(entry.Message, 48)})
+			tl = append(tl, []string{p.state(entry.State), p.relTime(entry.At), millis(entry.DurationMS), truncate(plain(entry.Message), 48)})
 		}
 		p.table([]string{"state", "when", "for", "message"}, tl)
 	}
@@ -166,7 +168,8 @@ func runnersDrain(ctx context.Context, e *env, args []string) error {
 	fs := newFlagSet(e, "zoomies runners drain <runner-id>...",
 		"Ask runners to stop taking work and exit. A job still running is given five minutes to finish and the runner is then stopped, so draining a busy runner needs --yes.")
 	cf := registerClientFlags(fs, false)
-	fs.example("zoomies runners drain run_k3f9qz2m", "zoomies runners drain run_a run_b run_c")
+	yes := fs.Bool("yes", false, confirmBusyHelp)
+	fs.example("zoomies runners drain run_k3f9qz2m", "zoomies runners drain run_a run_b run_c", "zoomies runners drain run_k3f9qz2m --yes")
 	if err := fs.parse(args); err != nil {
 		return err
 	}
@@ -181,21 +184,26 @@ func runnersDrain(ctx context.Context, e *env, args []string) error {
 
 	if len(ids) == 1 {
 		var r runnerItem
-		if _, err := client.post(ctx, "/runners/"+url.PathEscape(ids[0])+"/drain", nil, nil, &r); err != nil {
-			return err
+		q := url.Values{}
+		if *yes {
+			q.Set("confirm", "true")
+		}
+		if _, err := client.post(ctx, "/runners/"+url.PathEscape(ids[0])+"/drain", q, nil, &r); err != nil {
+			return withYesHint(err, *yes)
 		}
 		fmt.Fprintf(e.out, "Draining %s; it will exit once its current job finishes.\n", dash(r.Name))
 		return nil
 	}
-	return bulkRunners(ctx, e, client, "drain", ids, false)
+	return bulkRunners(ctx, e, client, "drain", ids, false, *yes)
 }
 
 func runnersDelete(ctx context.Context, e *env, args []string) error {
-	fs := newFlagSet(e, "zoomies runners delete <runner-id>... [--force]",
-		"Remove runners and deregister them from GitHub. Without --force this drains first.")
+	fs := newFlagSet(e, "zoomies runners delete <runner-id>... [--force|--yes]",
+		"Remove runners and deregister them from GitHub. Without --force this drains first, so removing a busy runner needs --yes.")
 	cf := registerClientFlags(fs, false)
 	force := fs.Bool("force", false, "destroy the runner now, interrupting any job it is running")
-	fs.example("zoomies runners delete run_k3f9qz2m", "zoomies runners delete run_k3f9qz2m --force")
+	yes := fs.Bool("yes", false, confirmBusyHelp)
+	fs.example("zoomies runners delete run_k3f9qz2m", "zoomies runners delete run_k3f9qz2m --yes", "zoomies runners delete run_k3f9qz2m --force")
 	if err := fs.parse(args); err != nil {
 		return err
 	}
@@ -213,19 +221,44 @@ func runnersDelete(ctx context.Context, e *env, args []string) error {
 		if *force {
 			q.Set("force", "true")
 		}
+		if *yes {
+			q.Set("confirm", "true")
+		}
 		if _, err := client.del(ctx, "/runners/"+url.PathEscape(ids[0]), q, nil); err != nil {
-			return err
+			return withYesHint(err, *yes)
 		}
 		fmt.Fprintf(e.out, "Removing %s.\n", ids[0])
 		return nil
 	}
-	return bulkRunners(ctx, e, client, "delete", ids, *force)
+	return bulkRunners(ctx, e, client, "delete", ids, *force, *yes)
+}
+
+// confirmBusyHelp is shared by every command that can end a busy runner's job.
+const confirmBusyHelp = "accept that a busy runner's job is stopped if it is still running after five minutes"
+
+// asksForConfirmation reports whether a controller refusal is the busy-runner
+// one, which tells the caller to send confirm=true. The CLI has no option by
+// that name, so the message alone would leave an operator stuck.
+func asksForConfirmation(msg string) bool {
+	return strings.Contains(msg, "confirm=true")
+}
+
+// withYesHint turns the controller's "send confirm=true" refusal into the flag
+// that does it, unless --yes was already given.
+func withYesHint(err error, yes bool) error {
+	if !yes && err != nil && asksForConfirmation(err.Error()) {
+		return fmt.Errorf("%w (rerun with --yes to accept that)", err)
+	}
+	return err
 }
 
 // bulkRunners uses the bulk route, which answers per ID. Reporting each one is
 // the point: a partial failure across twenty runners must not look like either
 // a complete success or a complete failure.
-func bulkRunners(ctx context.Context, e *env, client *apiClient, action string, ids []string, force bool) error {
+//
+// confirm is the operator's --yes. It is sent only when set, so the default
+// stays refuse-if-busy.
+func bulkRunners(ctx context.Context, e *env, client *apiClient, action string, ids []string, force, confirm bool) error {
 	var out struct {
 		Results []struct {
 			ID    string `json:"id"`
@@ -234,18 +267,26 @@ func bulkRunners(ctx context.Context, e *env, client *apiClient, action string, 
 		} `json:"results"`
 	}
 	body := map[string]any{"action": action, "ids": ids, "force": force}
+	if confirm {
+		body["confirm"] = true
+	}
 	if _, err := client.post(ctx, "/runners/bulk", nil, body, &out); err != nil {
 		return err
 	}
 
-	failed := 0
+	failed, needConfirm := 0, false
 	for _, r := range out.Results {
 		if r.OK {
 			fmt.Fprintf(e.out, "  %-24s ok\n", r.ID)
 			continue
 		}
 		failed++
+		needConfirm = needConfirm || (!confirm && asksForConfirmation(r.Error))
 		fmt.Fprintf(e.out, "  %-24s %s\n", r.ID, r.Error)
+	}
+	if needConfirm {
+		fmt.Fprintf(e.out, "A busy runner is only %sed with --yes, which accepts that its job is stopped after five minutes.\n",
+			strings.TrimSuffix(action, "e"))
 	}
 	fmt.Fprintf(e.out, "%s: %d of %d succeeded.\n", action, len(out.Results)-failed, len(out.Results))
 	if failed > 0 {

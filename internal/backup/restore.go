@@ -239,19 +239,61 @@ func Restore(ctx context.Context, cfg *config.Config, dir string, opts RestoreOp
 		return nil, err
 	}
 	if err := invalidate(ctx, live, dir, m, opts, report); err != nil {
-		return nil, err
+		return nil, restoreUnfinished(err, live, report)
 	}
 	return report, nil
 }
 
-// invalidate does the part that is not copying a file: it takes away the
-// credentials the backup froze, and fences the fleet.
+// restoreUnfinished says what state a restore that failed after the copy left
+// behind. The copy has replaced the database by then, so "the restore failed"
+// on its own reads as "nothing changed" -- and the controller would then start
+// on the restored database believing it was the old one. Nothing is rolled
+// back: the fence is what makes the restored copy safe to leave in place, and
+// undoing a file swap on the strength of a failing disk is a second way to
+// lose the database.
+func restoreUnfinished(err error, live string, report *RestoreReport) error {
+	var before string
+	switch {
+	case report.MovedAside != "":
+		before = "The database that was there before is kept at " + report.MovedAside + "."
+	case len(report.MovedLogs) > 0:
+		before = "The write-ahead log that was left behind is kept at " + strings.Join(report.MovedLogs, ", ") + "."
+	default:
+		before = "There was no database there before."
+	}
+	if report.Fenced != "" {
+		return fmt.Errorf("the backup was copied into place but the restore did not finish: %w. "+
+			"The restored database is now in place at %s and its recovery fence is up, so this fleet will not act on "+
+			"rented machines until an administrator lifts it, but some of the credentials a restore ends may still be live. %s "+
+			"Put right what the error names and run the restore again", err, live, before)
+	}
+	return fmt.Errorf("the backup was copied into place but the restore did not finish: %w. "+
+		"The restored database is now in place at %s and its recovery fence could not be set, so do not start a controller on it. %s "+
+		"Put right what the error names and run the restore again, or move the kept database back", err, live, before)
+}
+
+// invalidate does the part that is not copying a file: it fences the fleet, and
+// takes away the credentials the backup froze.
+//
+// The fence is written first. It is the one step whose absence is dangerous --
+// a restored copy that has not been fenced may delete rented machines created
+// after the backup -- so a failure part-way through leaves the fleet fenced
+// rather than half-invalidated and free to act.
 func invalidate(ctx context.Context, live, src string, m *Manifest, opts RestoreOptions, report *RestoreReport) error {
 	st, err := store.Open(ctx, store.Options{Path: live})
 	if err != nil {
 		return fmt.Errorf("opening the restored database: %w", err)
 	}
 	defer func() { _ = st.Close() }()
+
+	reason := "restored from " + src
+	if m != nil && !m.TakenAt.IsZero() {
+		reason = fmt.Sprintf("restored from %s, a backup taken %s", src, m.TakenAt.Format(time.RFC3339))
+	}
+	if err := st.SetRecoveryFence(ctx, true, reason); err != nil {
+		return err
+	}
+	report.Fenced = reason
 
 	sessions, err := st.DeleteAllSessions(ctx)
 	if err != nil {
@@ -288,14 +330,6 @@ func invalidate(ctx context.Context, live, src string, m *Manifest, opts Restore
 		report.Invalidated = append(report.Invalidated, fmt.Sprintf("Forgot the agent credential on %s; each will exit with the command to join again.", countOf(int(n), "host")))
 	}
 
-	reason := "restored from " + src
-	if m != nil && !m.TakenAt.IsZero() {
-		reason = fmt.Sprintf("restored from %s, a backup taken %s", src, m.TakenAt.Format(time.RFC3339))
-	}
-	if err := st.SetRecoveryFence(ctx, true, reason); err != nil {
-		return err
-	}
-	report.Fenced = reason
 	// The audit row is written to the restored database, which is where
 	// anyone asking "why is this fleet fenced?" will look.
 	return st.AppendAudit(ctx, &store.AuditEvent{
@@ -456,8 +490,9 @@ type Outcome struct {
 	BackupID    string    `json:"backup_id"`
 	AttemptedAt time.Time `json:"attempted_at"`
 	OK          bool      `json:"ok"`
-	// Error is why it did not happen. The controller starts on the database
-	// it had, and this is the sentence the page shows.
+	// Error is why it did not happen, and the sentence the page shows. When
+	// the failure came after the copy, it says which database is in place and
+	// whether it is fenced.
 	Error  string         `json:"error,omitempty"`
 	Report *RestoreReport `json:"report,omitempty"`
 }
@@ -558,9 +593,11 @@ func ClearOutcome(dbPath string) error {
 // in the gap between one controller stopping and the next opening the file.
 //
 // The staged file is removed whatever happens. A restore that failed is not
-// retried at every start -- the failure is recorded for the page to show, and
-// the controller starts on the database it had, which is the database the
-// operator can still reach the page through.
+// retried at every start -- the failure is recorded for the page to show. A
+// restore that was refused before anything moved leaves the controller on the
+// database it had; one that failed after the copy has already replaced it, and
+// the recorded error says so and whether the fence is up. Either way the
+// operator can still reach the page through what starts.
 func ApplyStaged(ctx context.Context, cfg *config.Config, now func() time.Time) (*Outcome, error) {
 	if now == nil {
 		now = time.Now

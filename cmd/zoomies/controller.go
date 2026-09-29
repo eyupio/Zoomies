@@ -271,7 +271,7 @@ func applyStagedRestore(ctx context.Context, cfg *config.Config, log *slog.Logge
 		return nil
 	}
 	if !outcome.OK {
-		log.Error("the staged restore was not applied; starting on the database that was already here",
+		log.Error("the staged restore did not finish; the error says which database this controller is starting on",
 			"backup", outcome.BackupID, "error", outcome.Error,
 			"fix", "put right what the error names and stage the restore again from the Backups tab")
 		return nil
@@ -457,9 +457,11 @@ func loadOrCreateKey(ctx context.Context, st *store.Store, cfg *config.Config, l
 		return nil, serr
 	}
 	if sealed {
-		return nil, fmt.Errorf("this database holds credentials sealed with an encryption key, and %s does not exist: "+
+		return nil, fmt.Errorf("this database holds secrets sealed with an encryption key, and %s does not exist: "+
 			"generating a new key here would leave them unreadable. Restore the key file from your backup, "+
-			"or pass the key in ZOOMIES_ENCRYPTION_KEY; if the key is genuinely lost, delete and re-add the installations", path)
+			"or pass the key in ZOOMIES_ENCRYPTION_KEY; if the key is genuinely lost, delete and re-add the GitHub installations, "+
+			"provider credentials and offsite backup remotes, and have an administrator reset two-step for "+
+			"the accounts that have it", path)
 	}
 
 	key, err = cryptox.GenerateKey()
@@ -471,7 +473,7 @@ func loadOrCreateKey(ctx context.Context, st *store.Store, cfg *config.Config, l
 	}
 	log.Warn("generated a new encryption key",
 		"path", path,
-		"detail", "it is the only copy, and without it the stored GitHub App private keys and webhook secrets cannot be decrypted",
+		"detail", "it is the only copy, and without it the stored GitHub App private keys, webhook secrets, two-step secrets and backup remote credentials cannot be decrypted",
 		"fix", "back up "+path+" now, alongside your database")
 	return key, nil
 }

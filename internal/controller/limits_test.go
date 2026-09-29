@@ -61,3 +61,23 @@ func TestTheStoredLimitsRefuseAtTheirCeiling(t *testing.T) {
 		t.Fatalf("a ceiling of 0 refused a pool: %v", err)
 	}
 }
+
+// The pools import creates several pools in one request, so the ceiling is on
+// the total it would leave, not on whether there is room for one more.
+func TestAdmitPoolsRefusesABatchThatWouldCrossTheCeiling(t *testing.T) {
+	h := newHarness(t)
+	h.cfg.Limits.Pools = 3
+	inst := h.installation()
+	h.pool(inst, "first")
+
+	if err := h.c.AdmitPools(h.ctx, 2); err != nil {
+		t.Fatalf("two more pools with room for two: %v", err)
+	}
+	var le *LimitError
+	if err := h.c.AdmitPools(h.ctx, 3); !errors.As(err, &le) || le.Setting != "limits.pools" {
+		t.Fatalf("three more pools with room for two = %v, want a limits.pools LimitError", err)
+	}
+	if err := h.c.AdmitPools(h.ctx, 0); err != nil {
+		t.Fatalf("no new pools was refused: %v", err)
+	}
+}

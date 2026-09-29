@@ -75,7 +75,7 @@ func (c *Controller) pollLoop(ctx context.Context) {
 				c.discoverJobs(ctx)
 				c.polls.Add(1)
 			}
-		case <-c.settingsChanged:
+		case <-c.pollSettingsChanged:
 			// github.poll_interval is a runtime setting. The timer was built
 			// from the old value, so it is rebuilt here rather than left to
 			// fire once more on the old interval.
@@ -378,17 +378,51 @@ func (c *Controller) reconcileKnownJobs(ctx context.Context, now time.Time) {
 	}
 }
 
+// jobRecoveryLoop is the single owner of checking known unfinished jobs against
+// GitHub, and it runs whether or not the fallback poller is on.
+//
+// That check is not about discovering queued work; it is the only thing that
+// notices a completion whose webhook never arrived, and an in-progress job
+// nothing ever completes counts against its repository's scale-up limit for
+// ever and keeps its runner's host from being cleaned up. Nothing else may
+// call it on a timer: a second caller doubles every GitHub call and races on
+// the rotation offset. A fleet that has lost its lease is left alone for the
+// same reason the poller leaves it, since it cannot act on what it would learn.
 func (c *Controller) jobRecoveryLoop(ctx context.Context) {
-	ticker := time.NewTicker(c.pollInterval())
+	interval := c.pollInterval()
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		if c.mayAct() {
 			c.reconcileKnownJobs(ctx, c.Now())
+			c.recoveries.Add(1)
 		}
+		if !c.awaitRecoveryTick(ctx, ticker, &interval) {
+			return
+		}
+	}
+}
+
+// awaitRecoveryTick blocks until the next sweep is due and reports false when
+// the context ended first.
+//
+// A settings change wakes it too, since this loop spends the most installation
+// quota of any and an operator who raises github.poll_interval to relieve a
+// rate limit needs it retuned now, not at the next restart. Any setting wakes
+// it, so it retunes and keeps waiting rather than sweeping: a change to
+// something unrelated must not cost ten GitHub calls.
+func (c *Controller) awaitRecoveryTick(ctx context.Context, ticker *time.Ticker, interval *time.Duration) bool {
+	for {
 		select {
 		case <-ctx.Done():
-			return
+			return false
 		case <-ticker.C:
+			return true
+		case <-c.recoverySettingsChanged:
+			if d := c.pollInterval(); d != *interval {
+				*interval = d
+				ticker.Reset(d)
+			}
 		}
 	}
 }

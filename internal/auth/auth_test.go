@@ -3,6 +3,7 @@ package auth
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"testing"
@@ -614,13 +615,13 @@ func TestChangePassword(t *testing.T) {
 		t.Fatalf("login: %v", err)
 	}
 
-	if err := s.ChangePassword(ctx, u.ID, "wrong", "a much longer password"); !errors.Is(err, ErrWrongPassword) {
+	if err := s.ChangePassword(ctx, u.ID, "wrong", "a much longer password", "10.0.0.1"); !errors.Is(err, ErrWrongPassword) {
 		t.Errorf("wrong current password = %v; want ErrWrongPassword", err)
 	}
-	if err := s.ChangePassword(ctx, u.ID, testPassword, "short"); !errors.Is(err, ErrPasswordTooShort) {
+	if err := s.ChangePassword(ctx, u.ID, testPassword, "short", "10.0.0.1"); !errors.Is(err, ErrPasswordTooShort) {
 		t.Errorf("short new password = %v; want ErrPasswordTooShort", err)
 	}
-	if err := s.ChangePassword(ctx, u.ID, testPassword, "a much longer password"); err != nil {
+	if err := s.ChangePassword(ctx, u.ID, testPassword, "a much longer password", "10.0.0.1"); err != nil {
 		t.Fatalf("ChangePassword: %v", err)
 	}
 
@@ -633,12 +634,42 @@ func TestChangePassword(t *testing.T) {
 	}
 }
 
+// TestChangePasswordChargesItsGuessesToTheLoginLimits is about the one route
+// that checks the account password from behind a session cookie.
+//
+// Login, the second step and reauthentication all charge the same counters, on
+// the rule that a secret which is free to guess on one route is a limiter with
+// a hole in it. Changing a password checked the old one with no counter at all,
+// so somebody holding only a stolen cookie could guess the password at whatever
+// rate the server would answer, and a correct guess lets them change it with no
+// second factor and lock the owner out.
+func TestChangePasswordChargesItsGuessesToTheLoginLimits(t *testing.T) {
+	s, st, _ := newServiceWith(t, func() *config.Config {
+		cfg := config.Default()
+		cfg.Security.RateLimitLogins = 3
+		return cfg
+	}())
+	ctx := t.Context()
+	u := addUser(t, st, "alice", store.RoleViewer, nil)
+
+	for i := range 3 {
+		if err := s.ChangePassword(ctx, u.ID, "wrong", "a much longer password", "10.0.0.1"); !errors.Is(err, ErrWrongPassword) {
+			t.Fatalf("guess %d = %v; want ErrWrongPassword", i+1, err)
+		}
+	}
+	// The right password is refused too: the point is that guessing stops, not
+	// that a wrong guess is punished.
+	if err := s.ChangePassword(ctx, u.ID, testPassword, "a much longer password", "10.0.0.1"); !errors.Is(err, ErrRateLimited) {
+		t.Errorf("a fourth attempt inside the minute = %v; want ErrRateLimited", err)
+	}
+}
+
 func TestChangePasswordSkipsTheOldOneWhenAChangeIsForced(t *testing.T) {
 	s, st, _ := newService(t)
 	ctx := t.Context()
 	u := addUser(t, st, "installer", store.RoleAdmin, func(u *store.User) { u.MustChangePassword = true })
 
-	if err := s.ChangePassword(ctx, u.ID, "", "a much longer password"); err != nil {
+	if err := s.ChangePassword(ctx, u.ID, "", "a much longer password", "10.0.0.1"); err != nil {
 		t.Fatalf("ChangePassword on a must-change account: %v", err)
 	}
 	after, err := st.GetUser(ctx, u.ID)
@@ -895,6 +926,85 @@ func TestDisablingAnAccountStopsItsAPITokens(t *testing.T) {
 	}
 }
 
+// TestDemotingAnAccountDemotesItsAPITokens covers the third way an account's
+// authority changes.
+//
+// A token carries the role it was minted with, so demoting an administrator to
+// a viewer took nothing away from the credential they already held: it kept
+// answering as an admin, could mint further admin tokens, and (with no expiry)
+// outlived the demotion indefinitely. An MCP connection is clamped to its
+// person's current role; a token has to follow the same rule.
+func TestDemotingAnAccountDemotesItsAPITokens(t *testing.T) {
+	s, st, _ := newService(t)
+	ctx := t.Context()
+
+	// Another administrator has to remain, or the demotion is refused for its
+	// own good reason and this proves nothing.
+	addUser(t, st, "keeper", store.RoleAdmin, nil)
+	owner := addUser(t, st, "demoted", store.RoleAdmin, nil)
+
+	mint := func(role store.Role) string {
+		t.Helper()
+		_, plaintext, err := s.CreateAPIToken(ctx, NewToken{Name: string(role), Role: role, UserID: owner.ID})
+		if err != nil {
+			t.Fatalf("CreateAPIToken: %v", err)
+		}
+		return plaintext
+	}
+	adminTok, operatorTok := mint(store.RoleAdmin), mint(store.RoleOperator)
+
+	setRole := func(role store.Role) {
+		t.Helper()
+		u, err := st.GetUser(ctx, owner.ID)
+		if err != nil {
+			t.Fatalf("GetUser: %v", err)
+		}
+		u.Role = role
+		if err := s.UpdateUser(ctx, u); err != nil {
+			t.Fatalf("UpdateUser(%s): %v", role, err)
+		}
+	}
+	roleOf := func(tok string) store.Role {
+		t.Helper()
+		id, err := s.Authenticate(ctx, AuthInput{Authorization: "Bearer " + tok})
+		if err != nil {
+			t.Fatalf("Authenticate: %v", err)
+		}
+		return id.Role
+	}
+
+	cases := []struct {
+		name      string
+		ownerRole store.Role
+		token     *string
+		want      store.Role
+	}{
+		{"an unchanged owner leaves the admin token alone", store.RoleAdmin, &adminTok, store.RoleAdmin},
+		{"a demoted owner drags an admin token down to viewer", store.RoleViewer, &adminTok, store.RoleViewer},
+		{"a token already below its owner keeps its own role", store.RoleAdmin, &operatorTok, store.RoleOperator},
+		{"a demoted owner drags an operator token down to viewer", store.RoleViewer, &operatorTok, store.RoleViewer},
+		{"a re-promoted owner gets the token's own role back, no more", store.RoleOperator, &adminTok, store.RoleOperator},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setRole(tc.ownerRole)
+			if got := roleOf(*tc.token); got != tc.want {
+				t.Errorf("token authenticates as %q, want %q", got, tc.want)
+			}
+		})
+	}
+
+	// The point of the exercise: the demoted person can no longer manage users.
+	setRole(store.RoleViewer)
+	id, err := s.Authenticate(ctx, AuthInput{Authorization: "Bearer " + adminTok})
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+	if id.Can(ActionUsersWrite) {
+		t.Error("a demoted owner's admin token can still manage users")
+	}
+}
+
 // TestDeletingAnAccountStopsItsAPITokens is the same rule for the harder case:
 // api_tokens has no foreign key to users, so deleting the account cascades to
 // its sessions and to nothing else, and a token left behind is a working
@@ -1086,8 +1196,9 @@ func TestPasswordVerificationHasAGlobalAdmissionBound(t *testing.T) {
 			<-passwordChecks
 		}
 	}()
-	// Admission happens before database or expensive hashing work.
-	_, _, err := new(Service).Login(t.Context(), "someone", "guess", "203.0.113.1", "test")
+	// Admission happens before database or expensive hashing work, so this
+	// Service has a logger for the refusal and nothing else.
+	_, _, err := (&Service{logger: slog.New(slog.DiscardHandler)}).Login(t.Context(), "someone", "guess", "203.0.113.1", "test")
 	if !errors.Is(err, ErrRateLimited) {
 		t.Fatalf("saturated password verifier: %v", err)
 	}

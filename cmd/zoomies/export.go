@@ -112,6 +112,7 @@ func runImport(ctx context.Context, e *env, args []string) error {
 	if !json.Valid(archive) {
 		return fmt.Errorf("%s is not an installation archive: it is not JSON", path)
 	}
+	cf.defaultTimeoutTo(fs, importRequestTimeout)
 	client, err := cf.client()
 	if err != nil {
 		return err
