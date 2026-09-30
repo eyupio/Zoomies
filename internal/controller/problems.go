@@ -630,9 +630,12 @@ func (c *Controller) machineStateProblems(out *[]Problem, p *store.Provider, mac
 			*out = append(*out, Problem{
 				Code:     "provider.delete_pending",
 				Severity: config.SeverityWarning,
-				Title:    fmt.Sprintf("machine %s has been deleting for %s", m.Name, roundDuration(now.Sub(since))),
-				Detail: fmt.Sprintf("%s has not yet confirmed that %s is gone, and a resource nobody has confirmed "+
-					"gone is a resource somebody may still be paying for.", p.Name, m.ResourceID),
+				// The threshold and the start time, not the running total: a
+				// title that counted seconds was a different problem on every
+				// pass, and the list is only sent when it changes.
+				Title: fmt.Sprintf("machine %s has been deleting for over %s", m.Name, roundDuration(deleteTimeout)),
+				Detail: fmt.Sprintf("%s has not yet confirmed that %s is gone, though the delete began at %s, and a resource nobody has confirmed "+
+					"gone is a resource somebody may still be paying for.", p.Name, m.ResourceID, since.UTC().Format(time.RFC3339)),
 				Fix:        "Zoomies keeps asking. If the provider's console shows it gone, the next sweep records it.",
 				TargetKind: "machine", TargetID: m.ID, Since: &since,
 			})
@@ -710,14 +713,17 @@ func (c *Controller) hostProblems(ctx context.Context, out *[]Problem) error {
 		if !h.Healthy(now) {
 			since := h.LastHeartbeat
 			severity := config.SeverityWarning
-			detail := fmt.Sprintf("no heartbeat for %s; the agent process may be stopped, or it cannot reach this controller.",
-				now.Sub(h.LastHeartbeat).Round(time.Second))
+			// The time of the last heartbeat rather than how long ago it was:
+			// the list is sent only when it changes, and "for 41s" is a new
+			// problem every second the host stays silent.
+			last := h.LastHeartbeat.UTC().Format(time.RFC3339)
+			detail := fmt.Sprintf("no heartbeat since %s; the agent process may be stopped, or it cannot reach this controller.", last)
 			if h.ActiveRunners > 0 {
 				// Runners on a silent host are unaccounted for, which is worse
 				// than a spare host being down.
 				severity = config.SeverityError
-				detail = fmt.Sprintf("no heartbeat for %s, with %s recorded on it, so their state is unknown.",
-					now.Sub(h.LastHeartbeat).Round(time.Second), plural(h.ActiveRunners, "runner"))
+				detail = fmt.Sprintf("no heartbeat since %s, with %s recorded on it, so their state is unknown.",
+					last, plural(h.ActiveRunners, "runner"))
 			}
 			*out = append(*out, Problem{
 				Code:       "host.unhealthy",
@@ -1110,12 +1116,15 @@ func (c *Controller) keyProblems(ctx context.Context, out *[]Problem) error {
 }
 
 func (c *Controller) webhookProblems(ctx context.Context, out *[]Problem) error {
-	since := c.Now().Add(-problemWindow)
-	rejected, err := c.st.CountFailedDeliveries(ctx, since)
+	rejected, err := c.st.CountFailedDeliveries(ctx, c.Now().Add(-problemWindow))
 	if err != nil {
 		return fmt.Errorf("counting failed webhook deliveries: %w", err)
 	}
 	if rejected > 0 {
+		// No Since: the only time to hand over is the edge of the window, which
+		// is an hour before whenever this is asked. It moved on every pass, so
+		// the list was re-sent each time, and it told the status page the
+		// fault began an hour ago for as long as it stood.
 		*out = append(*out, Problem{
 			Code:     "webhook.rejected",
 			Severity: config.SeverityWarning,
@@ -1123,7 +1132,6 @@ func (c *Controller) webhookProblems(ctx context.Context, out *[]Problem) error 
 			Title:    fmt.Sprintf("%s rejected in the last hour", pluralDeliveries(rejected)),
 			Detail:   "a rejected delivery is one whose signature did not verify. Either the App's webhook secret no longer matches the one Zoomies holds, or something other than GitHub is posting to this endpoint.",
 			Fix:      "compare the webhook secret on the GitHub App with the one on the Installations page, then use GitHub's Redeliver button.",
-			Since:    &since,
 		})
 	}
 
@@ -1736,8 +1744,8 @@ func (c *Controller) jobProblems(ctx context.Context, out *[]Problem) error {
 		Code:     "jobs.unmatched",
 		Severity: config.SeverityWarning,
 		Title:    fmt.Sprintf("no enabled pool here claims %s", plural(len(unmatched), "queued job")),
-		Detail: fmt.Sprintf("if they are meant for this fleet, nothing will run them. The oldest is %s in %s, asking for [%s], queued for %s.%s",
-			example.JobName, example.Repo, labels, roundDuration(now.Sub(example.QueuedAt)), tail),
+		Detail: fmt.Sprintf("if they are meant for this fleet, nothing will run them. The oldest is %s in %s, asking for [%s], queued since %s.%s",
+			example.JobName, example.Repo, labels, example.QueuedAt.UTC().Format(time.RFC3339), tail),
 		Fix:        fix,
 		TargetKind: "job", TargetID: example.ID, Since: &example.QueuedAt,
 	})
@@ -1957,8 +1965,8 @@ func (c *Controller) pollerProblems(ctx context.Context, out *[]Problem) error {
 			Severity: config.SeverityWarning,
 			Setting:  "github.poll_interval",
 			Title:    "the fallback poller has stopped sweeping",
-			Detail: fmt.Sprintf("the last sweep finished %s ago, and the interval is %s. Until it resumes, a job is only noticed if its webhook arrives.",
-				formatAge(now.Sub(last)), c.pollInterval()),
+			Detail: fmt.Sprintf("the last sweep finished at %s, and the interval is %s. Until it resumes, a job is only noticed if its webhook arrives.",
+				last.UTC().Format(time.RFC3339), c.pollInterval()),
 			Fix:   "check the controller's log for the error that ended the sweep; a controller that cannot reach GitHub or its own database logs it there.",
 			Since: &since,
 		})
@@ -2218,8 +2226,8 @@ func (c *Controller) notProgressingProblems(ctx context.Context, out *[]Problem)
 	if stuck == notProgressingSample {
 		count = "at least " + count
 	}
-	detail := fmt.Sprintf("the oldest is %s, %s in %s.", oldest.Name,
-		now.Sub(since).Round(time.Second), oldest.State)
+	detail := fmt.Sprintf("the oldest is %s, in %s since %s.", oldest.Name,
+		oldest.State, since.UTC().Format(time.RFC3339))
 	// The fix follows the runner the detail names, not whichever bucket is
 	// larger. A detail that names a runner still waiting for its container and
 	// a fix that says to read that container's logs sends an operator looking
