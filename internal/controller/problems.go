@@ -267,9 +267,11 @@ func sharedFolderProblem(h *store.Host, info store.HostBackend, pools []*store.P
 		return Problem{}, false
 	}
 	return Problem{
-		Code:       "host.shared_folder_unmounted",
-		Severity:   config.SeverityWarning,
-		Title:      h.Name + " keeps no tool cache for its runners",
+		Code:     "host.shared_folder_unmounted",
+		Severity: config.SeverityWarning,
+		// The backend is in the title because a host can have one of these
+		// per backend, and the UI keys a row by code, target and title.
+		Title:      h.Name + " keeps no tool cache for its " + string(info.Kind) + " runners",
 		Detail:     fmt.Sprintf("%s. %s start their runners there without the kept tool cache, so every job downloads its toolchains again.", info.SharedFolder, strings.Join(affected, ", ")),
 		Fix:        "mount the folder as the detail says and restart the container; the next heartbeat clears this.",
 		TargetKind: "host",
@@ -962,7 +964,8 @@ func (c *Controller) hostResourceProblems(ctx context.Context, out *[]Problem) e
 		*out = append(*out, p)
 	}
 
-	var unenforced, unsized []string
+	var unenforced []*store.Pool
+	var unsized []string
 	for _, p := range pools {
 		if p == nil || !p.Enabled {
 			continue
@@ -980,7 +983,7 @@ func (c *Controller) hostResourceProblems(ctx context.Context, out *[]Problem) e
 			continue
 		}
 		if p.Resources.CPUs > 0 || p.Resources.MemoryMB > 0 || p.Resources.DiskGB > 0 {
-			unenforced = append(unenforced, p.Name)
+			unenforced = append(unenforced, p)
 		}
 	}
 	if len(unsized) > 0 {
@@ -994,15 +997,21 @@ func (c *Controller) hostResourceProblems(ctx context.Context, out *[]Problem) e
 			TargetKind: "pool",
 		})
 	}
-	for _, name := range unenforced {
+	// One problem per pool, each with its own target: the UI dismisses and
+	// snoozes by code and target, so a warning that named no pool let muting
+	// one pool's mute every other's, and gave none of them an "Open the pool"
+	// link. The name is in the title for the drawer's row key, as it is for
+	// pool.dangerous.
+	for _, p := range unenforced {
 		*out = append(*out, Problem{
 			Code:     "pool.resources_unenforced",
 			Severity: config.SeverityWarning,
-			Title:    "a pool sets resource limits its backend does not apply",
+			Title:    "pool " + p.Name + " sets resource limits its backend does not apply",
 			Detail: fmt.Sprintf("%s runs on the process backend, which starts a runner as a plain process with no cgroup, so its CPU, memory and disk limits bind nothing. The scheduler still holds that much room on the host, so the fleet does not oversubscribe -- but a job that runs away can take the machine with it.",
-				name),
+				p.Name),
 			Fix:        "move the pool to the docker or podman backend, where the same limits become cgroup limits, or clear them and rely on the host's capacity.",
 			TargetKind: "pool",
+			TargetID:   p.ID,
 		})
 	}
 	return nil
@@ -1674,7 +1683,10 @@ func unenforceableProblem(h *store.Host, info store.HostBackend) (Problem, bool)
 	return Problem{
 		Code:     "host.limits_unenforceable",
 		Severity: config.SeverityWarning,
-		Title:    "a host's daemon cannot apply the limits its runners are given",
+		// The kind is in the title for the same reason as in
+		// host.shared_folder_unmounted: docker and podman on one host are two
+		// problems with one target.
+		Title: "a host's " + string(info.Kind) + " daemon cannot apply the limits its runners are given",
 		Detail: fmt.Sprintf("the %s on %s reports that it cannot apply %s. Its runners are given no default on that field, and a pool that sets one explicitly is the pool that fails or runs unlimited there.",
 			daemon, h.Name, strings.Join(cannot, " or ")),
 		Fix:        fix,

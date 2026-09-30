@@ -131,3 +131,92 @@ func TestAProcessPoolWithLimitsIsWarnedAbout(t *testing.T) {
 		t.Errorf("problems = %v; a docker pool enforces its limits and needs no warning", h.problemCodes())
 	}
 }
+
+// The UI tells two problems apart by code, target and setting, and dismisses
+// or snoozes by that identity. Two process pools with limits used to raise two
+// problems that shared all three (with no target at all), so muting one pool's
+// warning muted the other's and neither got an "Open the pool" link.
+func TestTwoProcessPoolsWithLimitsAreTwoProblemsWithTheirOwnTargets(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	want := map[string]string{}
+	for _, name := range []string{"on-metal", "on-metal-too"} {
+		pool := h.pool(inst, name)
+		pool.Backend = store.BackendProcess
+		pool.Resources = store.Resources{MemoryMB: 4096}
+		if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+			t.Fatalf("UpdatePool: %v", err)
+		}
+		want[pool.ID] = name
+	}
+
+	ps, err := h.c.Problems(h.ctx)
+	if err != nil {
+		t.Fatalf("Problems: %v", err)
+	}
+	seen := map[string]bool{}
+	for _, p := range ps {
+		if p.Code != "pool.resources_unenforced" {
+			continue
+		}
+		name, ok := want[p.TargetID]
+		if !ok || p.TargetKind != "pool" {
+			t.Errorf("problem targets %s %q, want one of the pools %v", p.TargetKind, p.TargetID, want)
+			continue
+		}
+		if seen[p.TargetID] {
+			t.Errorf("two problems target pool %s", p.TargetID)
+		}
+		seen[p.TargetID] = true
+		if !strings.Contains(p.Title, name) {
+			t.Errorf("title %q does not name pool %s, so the drawer cannot tell its rows apart", p.Title, name)
+		}
+	}
+	if len(seen) != len(want) {
+		t.Errorf("problems cover pools %v, want %v", seen, want)
+	}
+}
+
+// A host whose docker and podman daemons both have something wrong raises one
+// problem per backend for the same host. The UI keys a drawer row by code,
+// target and title, so the titles have to differ or the two rows collide.
+func TestAHostWithTwoAffectedBackendsRaisesProblemsWithDistinctTitles(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	for _, kind := range []store.BackendKind{store.BackendDocker, store.BackendPodman} {
+		p := h.pool(inst, "cached-"+string(kind))
+		p.Backend = kind
+		p.Cache = store.CacheConfig{Enabled: true, Tools: true, Scope: store.CacheScopePool}
+		if err := h.st.UpdatePool(h.ctx, p); err != nil {
+			t.Fatalf("UpdatePool: %v", err)
+		}
+	}
+	limits := store.LimitSupport{Known: true, CPU: false, Memory: true, Pids: true}
+	host := h.measuredHost("both", 16, 65536, 4, limits)
+	host.Backends = store.StringSlice{"docker", "podman"}
+	host.BackendInfo = store.HostBackends{
+		{Kind: store.BackendDocker, Available: true, SharedFolder: "the shared folder is not mounted", Limits: limits},
+		{Kind: store.BackendPodman, Available: true, SharedFolder: "the shared folder is not mounted", Limits: limits},
+	}
+	if err := h.st.SetHostReported(h.ctx, host); err != nil {
+		t.Fatal(err)
+	}
+
+	ps, err := h.c.Problems(h.ctx)
+	if err != nil {
+		t.Fatalf("Problems: %v", err)
+	}
+	for _, code := range []string{"host.limits_unenforceable", "host.shared_folder_unmounted"} {
+		titles := map[string]bool{}
+		n := 0
+		for _, p := range ps {
+			if p.Code == code {
+				n++
+				titles[p.Title] = true
+			}
+		}
+		if n != 2 || len(titles) != 2 {
+			t.Errorf("%s: %d problems with %d distinct titles, want two of each", code, n, len(titles))
+		}
+	}
+}
