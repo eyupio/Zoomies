@@ -468,6 +468,27 @@ func TestACordonedHostIsOnlyBlamedForWorkItCouldRun(t *testing.T) {
 	}
 }
 
+// Platform is a promise about the machine, separate from a host selector: an
+// arm64 pool with no selector is not excluded by the label match, but the
+// scheduler will never place it on an amd64 host. Blaming the cordon for that
+// queue sends an operator to uncordon a machine that would change nothing.
+func TestACordonedHostIsNotBlamedForWorkOfAnotherPlatform(t *testing.T) {
+	h := newHarness(t)
+	inst, _, host := h.fleet()
+	if err := h.st.SetHostCordoned(h.ctx, host.ID, true); err != nil {
+		t.Fatalf("SetHostCordoned: %v", err)
+	}
+	arm := h.pool(inst, "arm", "self-hosted", "arm64")
+	arm.Platform = store.Platform{Arch: "arm64"}
+	if err := h.st.UpdatePool(h.ctx, arm); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+	h.deliverJob(jobEvent{Action: "queued", JobID: 5, Labels: []string{"self-hosted", "arm64"}})
+	if contains(h.problemCodes(), "host.cordoned_with_work") {
+		t.Fatalf("problems = %v; the queued job is for an architecture this host is not", h.problemCodes())
+	}
+}
+
 // The failed-runner count came from a page of at most a hundred rows, so a
 // fleet having a bad day was told it had a hundred failures however many it had.
 func TestTheFailedRunnerCountIsNotAPage(t *testing.T) {

@@ -735,10 +735,12 @@ func (c *Controller) hostProblems(ctx context.Context, out *[]Problem) error {
 		// Only the queued work this host could take counts against it: a
 		// cordoned arm64 host has nothing to do with a queue of jobs for a
 		// pool it never offered, and blaming it sends an operator to uncordon
-		// a machine that would change nothing.
+		// a machine that would change nothing. Fit is left out on purpose: a
+		// cordoned host with queued work it has no room for is still worth
+		// saying.
 		couldRun := 0
 		for _, j := range queued {
-			if p := poolByID[j.PoolID]; p != nil && scheduler.HostOffers(h, p) && scheduler.HostSelects(h, p) {
+			if p := poolByID[j.PoolID]; p != nil && scheduler.HostOffers(h, p) && scheduler.HostIsPlatform(h, p) && scheduler.HostSelects(h, p) {
 				couldRun++
 			}
 		}
