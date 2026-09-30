@@ -1516,7 +1516,7 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 		}
 	}
 	var unhealthy, cordoned, incompatible, backend, platform, selector, tooSmall, full int
-	var shortCPU, shortMemory, lowDisk, held, warming, throttled int
+	var shortCPU, shortMemory, lowDisk, held, warming, throttled, committed int
 	var detail string
 	for _, h := range hs.hosts {
 		switch {
@@ -1587,8 +1587,14 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 				lowDisk++
 			case alloc.MemoryKnown && left.MemoryMB < want.MemoryMB:
 				shortMemory++
+				if hs.ours[h.ID] {
+					committed++
+				}
 			case alloc.CPUsKnown && left.CPUs+cpuEpsilon < want.CPUs:
 				shortCPU++
+				if hs.ours[h.ID] {
+					committed++
+				}
 			default:
 				full++
 			}
@@ -1614,6 +1620,11 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 	add(warming, "starting one runner at a time while CPU is busy")
 	add(throttled, "throttled after sustained pressure")
 	add(full, "at capacity")
+	// onlyFull is the fleet whose every host is out of slots, as opposed to one
+	// that is also short of memory or CPU. Both are "at capacity" to a caller,
+	// but the fix text below tells them apart, so it asks this rather than
+	// atCapacity.
+	onlyFull := full+throttled == len(hs.hosts)
 	b := blockage{
 		what: fmt.Sprintf("no host can take a new %s runner (%s)",
 			p.Backend, strings.Join(parts, ", ")),
@@ -1621,22 +1632,32 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 		// provisioner that is the same fact as full: more hosts is the one
 		// answer that helps either way, so a fleet blocked only by throttles
 		// asks for capacity exactly as a full one does.
-		atCapacity: full+throttled == len(hs.hosts),
-		// Not one host was merely full, throttled, held or warming, so nothing
-		// finishing -- and no pressure easing -- frees a slot this pool could
-		// use. The counts above already say which way each host failed; this
-		// says only that none of them can be waited out.
 		//
-		// All four lift on their own, and each is a reason to wait rather than
-		// to buy: a machine takes minutes to clone, and a hold raised by a
-		// thirty-second CPU spike is gone before the clone finishes. They
-		// count in NEITHER flag on purpose. In this one a held host would say
-		// no host could ever run the pool, which is how a spike buys virtual
-		// machines and tells an external provisioner to scale from zero; in
-		// atCapacity it would ask for the same machines from the other
-		// direction. Counted in neither, the pool is simply skipped and the
-		// next pass decides again, a minute older and usually clear.
-		noEligibleHost: full+throttled+held+warming == 0,
+		// A host whose memory or CPU is promised to runners of ours is full in
+		// the same sense: a free slot it cannot use until a job finishes and
+		// returns what it holds. It counts only where a runner of ours is
+		// there to return it -- a shortfall with none is pressure from outside
+		// the fleet, which no job of ours finishing will ease, and it stays in
+		// neither flag as it always has. Disk is never counted, because a
+		// finishing runner leaves its caches behind on purpose.
+		atCapacity: full+throttled+committed == len(hs.hosts),
+		// Not one host was merely full, committed, throttled, held or warming,
+		// so nothing finishing -- and no pressure easing -- frees a slot this
+		// pool could use. The counts above already say which way each host
+		// failed; this says only that none of them can be waited out.
+		//
+		// Full, committed and throttled hosts are waited out until a job ends
+		// or the pressure eases, and a held or warming host lifts on its own;
+		// each is a reason to wait rather than to buy. A machine takes minutes
+		// to clone, and a hold raised by a thirty-second CPU spike is gone
+		// before the clone finishes. Held and warming count in NEITHER flag on
+		// purpose. In this one a held host would say no host could ever run
+		// the pool, which is how a spike buys virtual machines and tells an
+		// external provisioner to scale from zero; in atCapacity it would ask
+		// for the same machines from the other direction. Counted in neither,
+		// the pool is simply skipped and the next pass decides again, a minute
+		// older and usually clear.
+		noEligibleHost: full+throttled+committed+held+warming == 0,
 	}
 	if detail != "" {
 		// The agent's own words about the backend it could not use. They name
@@ -1652,7 +1673,7 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 		b.fix = "wait for the throttle to lift, lower those hosts' capacity or the pools' limits so their runners fit the machine, or add a host; running jobs continue"
 	case held+warming > 0:
 		b.fix = "wait for host pressure to clear, reduce other work on those hosts, or add a compatible host; running jobs continue"
-	case b.atCapacity:
+	case onlyFull:
 		b.fix = "wait for a job to finish, raise a host's capacity, or add a host"
 	case lowDisk > 0 && lowDisk+unhealthy+cordoned == len(hs.hosts):
 		// Disk is the one of the three that no job finishing will return: a
