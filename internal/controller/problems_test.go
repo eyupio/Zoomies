@@ -239,6 +239,53 @@ func TestStatsSummarisesTheFleet(t *testing.T) {
 	}
 }
 
+// "Used of capacity" is a utilisation ratio, so both halves have to cover the
+// same hosts. Capacity leaves out a cordoned or silent host, and its runners
+// used to be counted in "used" all the same: a fleet with a host draining for
+// maintenance read as full (or over full) while the healthy host beside it
+// sat free, in exactly the moment an operator was asking why a queue was not
+// draining.
+func TestSlotsUsedAreCountedOnTheHostsCapacityCounts(t *testing.T) {
+	h := newHarness(t)
+	_, pool, healthy := h.fleet()
+	h.runnerRow(pool, healthy, store.RunnerBusy)
+
+	cordoned := h.host("vm-cordoned")
+	for i := 0; i < 3; i++ {
+		h.runnerRow(pool, cordoned, store.RunnerBusy)
+	}
+	if err := h.st.SetHostCordoned(h.ctx, cordoned.ID, true); err != nil {
+		t.Fatalf("SetHostCordoned: %v", err)
+	}
+
+	silent := h.host("vm-silent")
+	h.runnerRow(pool, silent, store.RunnerIdle)
+	silent.LastHeartbeat = time.Now().Add(-2 * store.HeartbeatTimeout)
+	if err := h.st.UpdateHost(h.ctx, silent); err != nil {
+		t.Fatalf("UpdateHost: %v", err)
+	}
+
+	s, err := h.c.Stats(h.ctx, time.Hour)
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+	if s.Hosts.Capacity != 4 || s.Hosts.Used != 1 {
+		t.Errorf("stats say %d of %d slots used, want 1 of 4: only the healthy, uncordoned host counts", s.Hosts.Used, s.Hosts.Capacity)
+	}
+	// The runners themselves are all still there to be counted elsewhere.
+	if s.Runners.Total != 5 {
+		t.Errorf("runners total = %d, want all 5 live runners", s.Runners.Total)
+	}
+	for name, want := range map[string]float64{
+		"zoomies_host_effective_capacity": 4,
+		"zoomies_host_capacity_used":      1,
+	} {
+		if got, ok := gatherValue(t, h.c, name, nil); !ok || got != want {
+			t.Errorf("%s = %v (%v), want %v", name, got, ok, want)
+		}
+	}
+}
+
 // A pool nothing can run is the failure that looks like health: the pool is
 // enabled, the job matched it, every host is connected, and no runner is ever
 // created. Nothing else in the product reports it -- a scaling event is written

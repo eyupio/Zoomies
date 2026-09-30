@@ -254,10 +254,15 @@ func (c *Controller) Stats(ctx context.Context, window time.Duration) (*Stats, e
 		// is left out rather than flattering the total. A throttled host's
 		// slots are counted as the throttle leaves them, for the same reason:
 		// the Overview's "capacity" is what the fleet will take right now.
+		// Used is counted over the same hosts: a runner still finishing on a
+		// cordoned host occupies a slot capacity does not offer, and
+		// counting it made "used of capacity" read as full, or over full,
+		// while the healthy hosts beside it sat free. Runners.Total still
+		// counts every live runner.
 		if h.Healthy(now) && !h.Cordoned {
 			out.Hosts.Capacity += h.EffectiveCapacity()
+			out.Hosts.Used += h.ActiveRunners
 		}
-		out.Hosts.Used += h.ActiveRunners
 	}
 	return out, nil
 }

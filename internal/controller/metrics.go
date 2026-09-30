@@ -319,7 +319,7 @@ var (
 	descHostEffectiveCapacity = prometheus.NewDesc("zoomies_host_effective_capacity",
 		"Runner slots across healthy, uncordoned hosts as their throttles leave them; equals zoomies_host_capacity while no host is throttled.", nil, nil)
 	descHostCapacityUsed = prometheus.NewDesc("zoomies_host_capacity_used",
-		"Runner slots currently occupied.", nil, nil)
+		"Runner slots currently occupied on healthy, uncordoned hosts: the same hosts zoomies_host_capacity counts, so the ratio of the two is utilisation.", nil, nil)
 	// Slots say how many runners a fleet will take; these say whether the
 	// machines can carry them. A fleet with slots free and no memory left is
 	// the case the slot gauges cannot describe, and it is the one an operator
@@ -525,8 +525,9 @@ func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
 		if h.Healthy(now) && !h.Cordoned {
 			capacity += h.Capacity
 			effective += h.EffectiveCapacity()
+			// The same hosts as the capacity it is divided by; see Stats.
+			used += h.ActiveRunners
 		}
-		used += h.ActiveRunners
 	}
 	// Only the hosts that can actually take work, which is the same set
 	// descHostCapacity counts: a cordoned host's memory is not the fleet's to
