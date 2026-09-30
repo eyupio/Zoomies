@@ -204,6 +204,8 @@ type Installer struct {
 	// is what an abort prints instead of claiming nothing happened, and what a
 	// failure prints so the operator knows what to clean up.
 	written []string
+	// newManager is the test seam: the real one drives systemctl.
+	newManager func(kind ServiceKind, unit string) (ServiceManager, error)
 }
 
 // wrote records a change to the host and reports it in one move, so a step
@@ -1579,6 +1581,72 @@ func (i *Installer) askExisting(ctx context.Context, p Plan) (Plan, error) {
 	}
 }
 
+// manager is how the installer reaches the service manager; a test swaps it
+// for one that records what it was asked instead of driving systemctl.
+func (i *Installer) manager(kind ServiceKind, unit string) (ServiceManager, error) {
+	if i.newManager != nil {
+		return i.newManager(kind, unit)
+	}
+	return NewServiceManager(kind, unit)
+}
+
+// stopRunningController stops the controller a previous run installed, and
+// does nothing when there is none. `systemctl start` on a unit that is already
+// active is a no-op and neither rewriting the unit nor daemon-reload restarts
+// it, so a reconfigure that only started the service left the old process
+// serving the old bind, TLS and key while the summary said it was running.
+// Stopping first makes the start that follows a fresh one.
+func (i *Installer) stopRunningController(ctx context.Context, p Plan) error {
+	kind := p.Service
+	if i.det.Existing.Unit != "" {
+		// Detection only ever finds a systemd unit, whatever this run will
+		// install next.
+		kind = ServiceSystemd
+	}
+	switch kind {
+	case ServiceSystemd, ServiceLaunchd, ServiceWindows:
+	default:
+		return nil
+	}
+	if !i.det.Existing.Present() {
+		return nil
+	}
+	mgr, err := i.manager(kind, UnitController)
+	if err != nil {
+		return err
+	}
+	if err := mgr.Stop(ctx); err != nil {
+		by := "stop the " + UnitController + " service yourself"
+		if kind == ServiceSystemd {
+			by = "stop it yourself with `systemctl stop " + UnitController + "`"
+		}
+		return fmt.Errorf("installer: stopping the running controller: %w (%s, then run this again)", err, by)
+	}
+	return nil
+}
+
+// replaceRunningController makes the start that follows a fresh one: a
+// reconfigure would otherwise find the old process still running. A stop that
+// fails is a warning rather than an error, because the start may still work
+// and the operator is told what the old process may still be serving.
+func (i *Installer) replaceRunningController(ctx context.Context, p Plan) {
+	if !p.StartService {
+		return
+	}
+	if err := i.stopRunningController(ctx, p); err != nil {
+		i.ui.warn(err.Error())
+		i.ui.note("the service is started below, but if it was already running the old process keeps serving the old settings until it is restarted.")
+	}
+}
+
+// restartService is the tail of a native install, kept as one call so that the
+// order -- stop the old process, then install and start the unit -- is
+// something a test can watch, not two calls a later edit could separate.
+func (i *Installer) restartService(ctx context.Context, p Plan) (ServiceManager, error) {
+	i.replaceRunningController(ctx, p)
+	return i.stepService(ctx, p)
+}
+
 // archiveExisting renames the key and database out of the way. Renaming rather
 // than deleting is deliberate: the operator who typed ERASE at 2am can still
 // get their fleet back.
@@ -2049,7 +2117,7 @@ func (i *Installer) runInstall(ctx context.Context, p Plan) error {
 		return fmt.Errorf("installer: closing the database: %w", err)
 	}
 
-	mgr, err := i.stepService(ctx, p)
+	mgr, err := i.restartService(ctx, p)
 	if err != nil {
 		return err
 	}
@@ -2548,7 +2616,7 @@ func (i *Installer) stepService(ctx context.Context, p Plan) (ServiceManager, er
 		return nil, nil
 	}
 
-	mgr, err := NewServiceManager(p.Service, UnitController)
+	mgr, err := i.manager(p.Service, UnitController)
 	if err != nil {
 		return nil, err
 	}
