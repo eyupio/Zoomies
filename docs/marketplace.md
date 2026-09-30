@@ -294,7 +294,8 @@ zoomies uninstall --yes --volumes      # and the database with it
 ```
 
 The second is irreversible and is asked about separately for that reason: the
-volume *is* the database. The ACME proxy and the tunnel daemon are their own
+volume *is* the database. The first keeps the `.env` as well, because it holds
+the encryption key that seals the kept volume; the second removes it. The ACME proxy and the tunnel daemon are their own
 compose projects, so whichever the deployment runs goes separately:
 
 ```sh
