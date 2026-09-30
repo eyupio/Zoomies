@@ -140,6 +140,20 @@ test('a backwards range switches the CSV link off for the keyboard too', async (
   await expect(page.getByRole('link', { name: 'Export CSV' })).toHaveCount(1);
 });
 
+test('a backwards range says so as an alert, not only through the inputs it describes', async ({
+  page,
+}) => {
+  // A describedby link is read only when a field is revisited, so somebody who
+  // has just typed an end before the start would otherwise be told nothing.
+  await goto(page, '/usage?since=2026-08-01T00:00&until=2026-08-31T00:00', 'Usage');
+  const warning = page.getByRole('alert').filter({ hasText: 'The end is before the start' });
+  await expect(warning).toHaveCount(0);
+
+  await page.getByLabel('From', { exact: true }).fill('2026-09-15T00:00');
+  await page.getByLabel('From', { exact: true }).blur();
+  await expect(warning).toBeVisible();
+});
+
 test('changing grouping cancels a pending manual refresh', async ({ page }) => {
   await goto(page, '/usage', 'Usage');
   await expect(header(page, 'Runner-hours')).toHaveCount(1);
