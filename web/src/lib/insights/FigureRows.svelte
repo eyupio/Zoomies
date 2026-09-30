@@ -119,14 +119,14 @@
     flex: 1;
     min-width: var(--z-space-8);
     height: var(--z-space-2);
-    border-radius: var(--z-radius-pill);
+    border-radius: var(--z-radius-full);
     background: var(--z-surface-sunken);
     overflow: hidden;
   }
   .fill {
     display: block;
     height: 100%;
-    border-radius: var(--z-radius-pill);
+    border-radius: var(--z-radius-full);
   }
   .value {
     flex: none;

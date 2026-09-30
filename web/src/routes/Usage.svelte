@@ -622,7 +622,7 @@
   }
   .name.muted {
     color: var(--z-text-muted);
-    font-weight: var(--z-weight-regular);
+    font-weight: var(--z-weight-normal);
   }
   .tag {
     margin-left: var(--z-space-2);
