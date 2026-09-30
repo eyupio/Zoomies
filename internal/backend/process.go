@@ -31,6 +31,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -320,7 +321,6 @@ func (b *ProcessBackend) configure(ctx context.Context, dir string, spec Spec, e
 	args := []string{
 		"--unattended", "--replace", "--disableupdate",
 		"--url", spec.Credentials.URL,
-		"--token", spec.Credentials.RegistrationToken,
 		"--name", spec.Name,
 		"--work", runnerWorkDir,
 	}
@@ -342,7 +342,12 @@ func (b *ProcessBackend) configure(ctx context.Context, dir string, spec Spec, e
 
 	cmd := exec.CommandContext(ctx, script, args...)
 	cmd.Dir = dir
-	cmd.Env = env
+	// Only config.sh gets the token, on a copy of env: the listener started
+	// afterwards runs for hours and has no use for a credential that can
+	// register more runners. It is in the environment rather than the command
+	// line for the reason the JIT config is -- argv is readable by every local
+	// account, environ only by this one and root.
+	cmd.Env = append(slices.Clone(env), EnvUpstreamRegistrationToken+"="+spec.Credentials.RegistrationToken)
 	out, err := cmd.CombinedOutput()
 	// The output is appended to the runner's own log so that a failed
 	// registration is visible in the same place as everything else.

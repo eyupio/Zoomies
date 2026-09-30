@@ -69,6 +69,11 @@ const (
 	// set alongside EnvJITConfig so that an operator can point a pool at a
 	// third-party runner image and still have it come up.
 	EnvUpstreamJITConfig = "ACTIONS_RUNNER_INPUT_JITCONFIG"
+	// EnvUpstreamRegistrationToken is how the process backend hands config.sh
+	// its registration token: the runner reads ACTIONS_RUNNER_INPUT_<ARG> for
+	// every argument, and an environment is not visible to other local users
+	// the way a command line is.
+	EnvUpstreamRegistrationToken = "ACTIONS_RUNNER_INPUT_TOKEN"
 )
 
 // Labels beyond the well-known set in backend.go, used to find the pieces of a

@@ -90,6 +90,7 @@ const MaxDockerWait = time.Hour
 // import; a test in internal/backend keeps the two lists the same.
 var ReservedRunnerEnv = []string{
 	"ZOOMIES_JITCONFIG", "ACTIONS_RUNNER_INPUT_JITCONFIG",
+	"ACTIONS_RUNNER_INPUT_TOKEN",
 	"ZOOMIES_RUNNER_URL", "ZOOMIES_RUNNER_TOKEN", "ZOOMIES_RUNNER_NAME",
 	"ZOOMIES_RUNNER_LABELS", "ZOOMIES_RUNNER_GROUP", "ZOOMIES_EPHEMERAL",
 	"ZOOMIES_RUNNER_NO_DEFAULT_LABELS",
