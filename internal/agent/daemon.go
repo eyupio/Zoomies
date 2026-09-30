@@ -1230,7 +1230,10 @@ func (a *Agent) start(ctx context.Context, task Task) {
 			}
 			if !a.waitForRuntime(ctx) {
 				release()
-				a.reportFailure(ctx, task, "agent shut down while waiting for the container runtime to recover", store.FaultBackend)
+				// Nothing has been attempted on the runtime, so this is a task
+				// handed back like any other shutdown before it started, not a
+				// backend failure to be counted against the pool.
+				a.reportNotStarted(ctx, task)
 				return
 			}
 		}
