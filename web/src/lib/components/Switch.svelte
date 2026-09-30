@@ -12,6 +12,11 @@
     describedBy?: string;
     /** Hide the visible label; the accessible name still comes from `label`. */
     hideLabel?: boolean;
+    /**
+     * By default the label presses the switch. Off, only the pill does, and
+     * the label still names it for a screen reader.
+     */
+    labelToggles?: boolean;
     onchange?: (checked: boolean) => void;
     class?: string;
   }
@@ -24,12 +29,14 @@
     disabled = false,
     describedBy,
     hideLabel = false,
+    labelToggles = true,
     onchange,
     class: className = '',
   }: Props = $props();
 
   const uid = $props.id();
   const id = $derived(providedId ?? `switch-${uid}`);
+  const labelId = $derived(`${id}-label`);
   const descriptionId = $derived(description ? `${id}-description` : undefined);
 
   function toggle(): void {
@@ -46,6 +53,7 @@
     role="switch"
     aria-checked={checked}
     aria-label={hideLabel ? label : undefined}
+    aria-labelledby={!hideLabel && !labelToggles ? labelId : undefined}
     aria-describedby={[describedBy, descriptionId].filter(Boolean).join(' ') || undefined}
     {disabled}
     class="track"
@@ -55,7 +63,11 @@
   </button>
   {#if !hideLabel}
     <div class="text">
-      <label for={id}>{label}</label>
+      {#if labelToggles}
+        <label for={id}>{label}</label>
+      {:else}
+        <span id={labelId} class="name">{label}</span>
+      {/if}
       {#if description}<p id={descriptionId}>{description}</p>{/if}
     </div>
   {/if}
@@ -124,9 +136,12 @@
     flex-direction: column;
     gap: var(--z-nudge-2);
   }
-  label {
+  label,
+  .name {
     font-size: var(--z-text-base);
     color: var(--z-text);
+  }
+  label {
     cursor: pointer;
   }
   p {
