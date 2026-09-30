@@ -382,6 +382,13 @@ useful number of runners on screen. Prose in docs and empty states steps up to
 Numerals in tables use `font-variant-numeric: tabular-nums` so columns align.
 IDs use `--z-font-mono` at `--z-text-xs`.
 
+**A value that is not there is written `--`, everywhere.** Every formatter in
+`lib/format.ts` answers with it for a null, and a page with no formatter to call
+(a tile whose figure is not yet known, a cell with nothing behind it) writes the
+`NO_VALUE` constant from the same file rather than its own dash. An em dash or an
+en dash in that place is how a table cell and the tile above it came to disagree
+about what empty looks like. Ranges (`1–10 of 24`) and sentences keep their dashes.
+
 **Form controls are the one exception, and only on a phone.** Below 768px,
 `Input`, `Textarea` and `Select` step up to `--z-text-lg` (16px). Mobile Safari
 zooms the whole viewport whenever a focused control is under 16px, and the

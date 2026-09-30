@@ -59,6 +59,7 @@
   import Segmented from '$lib/components/Segmented.svelte';
   import StatusDot from '$lib/components/StatusDot.svelte';
   import Switch from '$lib/components/Switch.svelte';
+  import { NO_VALUE } from '$lib/format';
   import { fleet } from '$lib/state/fleet.svelte';
   import { remember, remembered } from '$lib/state/prefs.svelte';
   import { session } from '$lib/state/session.svelte';
@@ -495,7 +496,8 @@
               ></span>
             {/if}
           </span>
-          {#if v === null}<span class="gap">–</span>{:else}<strong>{v.toFixed(0)}%</strong>{/if}
+          {#if v === null}<span class="gap">{NO_VALUE}</span>{:else}<strong>{v.toFixed(0)}%</strong
+            >{/if}
         </span>
       {/each}
     </span>
@@ -535,9 +537,8 @@
             </th>
             {#each r.figures as f (f.metric.key)}
               <td class:pressed={f.percent !== null && f.percent >= PRESSURE}>
-                {#if f.percent === null}<span class="gap">–</span>{:else}{f.percent.toFixed(
-                    0,
-                  )}%{/if}
+                {#if f.percent === null}<span class="gap">{NO_VALUE}</span
+                  >{:else}{f.percent.toFixed(0)}%{/if}
               </td>
             {/each}
           </tr>

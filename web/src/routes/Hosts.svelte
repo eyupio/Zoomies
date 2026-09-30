@@ -30,7 +30,7 @@
   import { SvelteMap } from 'svelte/reactivity';
   import { events } from '$lib/api/sse';
   import type { Host, JoinToken, Machine, Provider } from '$lib/api/types';
-  import { pluralise } from '$lib/format';
+  import { NO_VALUE, pluralise } from '$lib/format';
   import { fleet } from '$lib/state/fleet.svelte';
   import { session } from '$lib/state/session.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
@@ -317,7 +317,7 @@
                   .filter((h) => hostSignals(h).eligible)
                   .reduce((n, h) => n + (hostSignals(h).free ?? 0), 0),
               )
-            : '—',
+            : NO_VALUE,
           detail: 'Healthy, uncordoned, compatible hosts; runner fit still applies',
         },
         {

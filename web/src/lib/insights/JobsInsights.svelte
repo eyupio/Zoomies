@@ -5,12 +5,12 @@
   import ChartPanel from '$lib/components/ChartPanel.svelte';
   import StateBreakdown from './StateBreakdown.svelte';
   import { queueTone } from './signals';
-  import { formatNumber, formatDuration, describeWindow } from '$lib/format';
+  import { formatNumber, formatDuration, describeWindow, NO_VALUE } from '$lib/format';
   let { others = false }: { others?: boolean } = $props();
   const stats = $derived(others ? fleet.stats : fleet.stats?.fleet);
   const suffix = $derived(others ? '&all=true' : '');
   const window = $derived(describeWindow(fleet.stats?.window) ?? 'reported window');
-  const num = (n: number | undefined) => (n === undefined ? '—' : formatNumber(n));
+  const num = (n: number | undefined) => (n === undefined ? NO_VALUE : formatNumber(n));
   const segments = $derived([
     {
       label: 'Succeeded',
@@ -68,7 +68,7 @@
           label: 'Success rate',
           value: stats.completed
             ? `${((100 * (stats.succeeded ?? 0)) / stats.completed).toFixed(1)}%`
-            : '—',
+            : NO_VALUE,
           detail: 'Successes / all completions',
           tone: 'success',
         },
@@ -81,7 +81,7 @@
         },
         {
           label: 'P95 queue wait',
-          value: stats.p95_wait_ms === undefined ? '—' : formatDuration(stats.p95_wait_ms),
+          value: stats.p95_wait_ms === undefined ? NO_VALUE : formatDuration(stats.p95_wait_ms),
           detail: `Last ${window}; observed starts`,
         },
       ]}

@@ -397,3 +397,30 @@ test('the average queue wait is written the same way in the tile and in the tabl
     table(page).getByRole('row').nth(1).getByRole('cell').filter({ hasText: '2m 05s' }),
   ).toHaveCount(1);
 });
+
+/**
+ * "Nothing to show" has one spelling. The tiles above the table used an em dash
+ * where the table's own cells (and every formatter) write two hyphens, so a
+ * range with no completed jobs disagreed with itself about what empty looks like.
+ */
+test('a page with no completed jobs marks its missing figures the way the rest of the app does', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/usage?**', async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    body.items = (body.items ?? []).map((row: object) => ({
+      ...row,
+      jobs_completed: 0,
+      jobs_started: 0,
+      average_queue_wait_seconds: null,
+    }));
+    await route.fulfill({ json: body });
+  });
+  await goto(page, '/usage', 'Usage');
+  const tile = page.locator('.metric').filter({ hasText: 'Success rate' });
+  await expect(tile.locator('dd')).toHaveText('--');
+  await expect(page.locator('.metric').filter({ hasText: 'Average queue wait' })).toContainText(
+    '--',
+  );
+});

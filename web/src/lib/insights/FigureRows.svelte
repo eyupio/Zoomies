@@ -11,7 +11,7 @@
   looking away from the figures.
 -->
 <script lang="ts" generics="S extends Series">
-  import { formatNumber } from '$lib/format';
+  import { formatNumber, NO_VALUE } from '$lib/format';
   import Stroke from './Stroke.svelte';
   import type { Series } from './plot';
 
@@ -75,7 +75,8 @@
         {/if}
       </span>
       <span class="value" title={`${r.series.label} ${moment}: ${r.series.hint}`}>
-        {#if r.value === null}<span class="gap">–</span>{:else}<strong>{format(r.value)}</strong
+        {#if r.value === null}<span class="gap">{NO_VALUE}</span>{:else}<strong
+            >{format(r.value)}</strong
           >{/if}
       </span>
     </div>

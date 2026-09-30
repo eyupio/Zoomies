@@ -5,7 +5,7 @@
   import ChartPanel from '$lib/components/ChartPanel.svelte';
   import MetricGrid from '$lib/components/MetricGrid.svelte';
   import { poolSignals, queueTone } from './signals';
-  import { formatNumber } from '$lib/format';
+  import { formatNumber, NO_VALUE } from '$lib/format';
   let { pools, summary = true }: { pools: Pool[]; summary?: boolean } = $props();
   const signals = $derived(poolSignals(pools, fleet.stats));
   const ranked = $derived(
@@ -32,13 +32,13 @@
         },
         {
           label: 'Matched job queue',
-          value: known ? formatNumber(queue) : '—',
+          value: known ? formatNumber(queue) : NO_VALUE,
           detail: 'Waiting jobs claimed by these pools',
           tone: queueTone(queue, session.meta?.queue_warning_threshold),
         },
         {
           label: 'Pools with waiting work',
-          value: known ? String(signals.filter((s) => (s.queued ?? 0) > 0).length) : '—',
+          value: known ? String(signals.filter((s) => (s.queued ?? 0) > 0).length) : NO_VALUE,
           detail: 'Queue depth greater than zero',
         },
         {
@@ -62,7 +62,7 @@
                 ? 'Disabled'
                 : s.atCeiling
                   ? 'At ceiling with queued jobs'
-                  : `${s.headroom ?? '—'} pool slots below maximum`}</span
+                  : `${s.headroom ?? NO_VALUE} pool slots below maximum`}</span
             >
           </div>
           <a
@@ -71,10 +71,10 @@
             aria-label={`${s.pool.name}: ${s.queued ?? 'unknown'} queued jobs`}
             ><span class="track"
               ><span style:width={`${(100 * (s.queued ?? 0)) / peak}%`}></span></span
-            ><strong>{s.queued ?? '—'}</strong><span>queued</span></a
+            ><strong>{s.queued ?? NO_VALUE}</strong><span>queued</span></a
           >
           <div class="capacity">
-            <strong>{s.live ?? '—'} / {s.max ?? '—'}</strong><span>live / max</span>
+            <strong>{s.live ?? NO_VALUE} / {s.max ?? NO_VALUE}</strong><span>live / max</span>
           </div>
         </div>
       {:else}<p>No pools in this view.</p>{/each}

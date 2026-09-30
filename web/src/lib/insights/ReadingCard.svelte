@@ -5,7 +5,7 @@
   to work out which point they were hovering.
 -->
 <script lang="ts" generics="S extends Series">
-  import { formatNumber } from '$lib/format';
+  import { formatNumber, NO_VALUE } from '$lib/format';
   import Stroke from './Stroke.svelte';
   import type { Series } from './plot';
 
@@ -35,7 +35,7 @@
     {#each readings as r (r.series.key)}
       <div class:lit={emphasis === r.series.key}>
         <dt><Stroke series={r.series} />{r.series.label}</dt>
-        <dd>{r.value === null ? '–' : format(r.value)}</dd>
+        <dd>{r.value === null ? NO_VALUE : format(r.value)}</dd>
       </div>
     {/each}
   </dl>

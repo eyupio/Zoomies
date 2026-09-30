@@ -3,6 +3,14 @@
  * so "4m ago" means the same thing on every page.
  */
 
+/**
+ * What a value that is not there reads as, on every page. The formatters below
+ * answer with it for a null, and a page that has no formatter to call (a tile
+ * whose figure is simply not known yet) writes the same thing, so a table cell
+ * and the tile above it cannot disagree about what "nothing to show" looks like.
+ */
+export const NO_VALUE = '--';
+
 /* -- the shared clock ----------------------------------------------------
  * A thousand runner rows must not mean a thousand timers. One interval ticks,
  * and every RelativeTime on screen recomputes from it.
@@ -71,7 +79,7 @@ const ABSOLUTE = new Intl.DateTimeFormat(undefined, {
 /** The local wall-clock rendering, for detail panels and tooltips. */
 export function formatAbsolute(value: TimeInput): string {
   const ms = toMillis(value);
-  return ms === null ? '--' : ABSOLUTE.format(ms);
+  return ms === null ? NO_VALUE : ABSOLUTE.format(ms);
 }
 
 /** Both forms, for a `title` attribute: local time first, then the exact ISO value. */
@@ -91,7 +99,7 @@ const DAY = 24 * HOUR;
  */
 export function relativeTime(value: TimeInput, now: number = Date.now()): string {
   const ms = toMillis(value);
-  if (ms === null) return '--';
+  if (ms === null) return NO_VALUE;
   const delta = now - ms;
   const abs = Math.abs(delta);
   const past = delta >= 0;
@@ -122,7 +130,7 @@ function pad(n: number): string {
  * Two units at most -- more than that is noise in a table cell.
  */
 export function formatDuration(ms: number | null | undefined): string {
-  if (ms === null || ms === undefined || Number.isNaN(ms)) return '--';
+  if (ms === null || ms === undefined || Number.isNaN(ms)) return NO_VALUE;
   const value = Math.max(0, Math.round(ms));
   if (value < 1000) return `${value}ms`;
   const seconds = value / 1000;
@@ -139,7 +147,7 @@ export function formatDuration(ms: number | null | undefined): string {
 /** How long ago something started, as a duration rather than a relative time. */
 export function elapsedSince(value: TimeInput, now: number = Date.now()): string {
   const ms = toMillis(value);
-  return ms === null ? '--' : formatDuration(now - ms);
+  return ms === null ? NO_VALUE : formatDuration(now - ms);
 }
 
 const GO_UNITS: Record<string, number> = {
@@ -195,7 +203,7 @@ export function toGoDuration(ms: number): string {
 /** A Go duration string, spelled out for a person: "5m" becomes "5m". */
 export function formatGoDuration(input: string | null | undefined): string {
   const ms = parseGoDuration(input);
-  return ms === null ? (input ?? '--') : formatDuration(ms);
+  return ms === null ? (input ?? NO_VALUE) : formatDuration(ms);
 }
 
 /**
@@ -236,13 +244,13 @@ const NUMBER = new Intl.NumberFormat();
 
 /** Grouped digits. Pair with the `.tabular` class so columns line up. */
 export function formatNumber(value: number | null | undefined): string {
-  if (value === null || value === undefined || Number.isNaN(value)) return '--';
+  if (value === null || value === undefined || Number.isNaN(value)) return NO_VALUE;
   return NUMBER.format(value);
 }
 
 /** Compact digits for tiles: 12.4k, 3.1M. */
 export function formatCompact(value: number | null | undefined): string {
-  if (value === null || value === undefined || Number.isNaN(value)) return '--';
+  if (value === null || value === undefined || Number.isNaN(value)) return NO_VALUE;
   if (Math.abs(value) < 10_000) return NUMBER.format(value);
   if (Math.abs(value) < 1_000_000) return `${(value / 1000).toFixed(1)}k`;
   return `${(value / 1_000_000).toFixed(1)}M`;
@@ -252,7 +260,7 @@ const BYTE_UNITS = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'] as const;
 
 /** Binary-scaled bytes: 1536 becomes "1.5 KB". */
 export function formatBytes(value: number | null | undefined): string {
-  if (value === null || value === undefined || Number.isNaN(value)) return '--';
+  if (value === null || value === undefined || Number.isNaN(value)) return NO_VALUE;
   let n = value;
   let unit = 0;
   while (Math.abs(n) >= 1024 && unit < BYTE_UNITS.length - 1) {
@@ -265,7 +273,7 @@ export function formatBytes(value: number | null | undefined): string {
 
 /** Megabytes as the API reports them (`memory_mb`). */
 export function formatMegabytes(value: number | null | undefined): string {
-  if (value === null || value === undefined) return '--';
+  if (value === null || value === undefined) return NO_VALUE;
   return formatBytes(value * 1024 * 1024);
 }
 
@@ -274,7 +282,7 @@ export function formatMegabytes(value: number | null | undefined): string {
  * so this is what every bar and tile uses.
  */
 export function formatPercent(value: number | null | undefined, digits = 0): string {
-  if (value === null || value === undefined || Number.isNaN(value)) return '--';
+  if (value === null || value === undefined || Number.isNaN(value)) return NO_VALUE;
   return `${(value * 100).toFixed(digits)}%`;
 }
 
@@ -300,7 +308,7 @@ export function joinWords(items: readonly string[]): string {
 
 /** Shorten an identifier for a dense cell, keeping the prefix that means something. */
 export function shortId(id: string | null | undefined, keep = 8): string {
-  if (!id) return '--';
+  if (!id) return NO_VALUE;
   const underscore = id.indexOf('_');
   if (underscore > 0 && id.length > underscore + keep + 1) {
     return `${id.slice(0, underscore + 1)}${id.slice(underscore + 1, underscore + 1 + keep)}…`;
