@@ -853,6 +853,15 @@ what failed and why. Draining a runner flips its badge immediately; if the API
 returns 409 the badge flips back and the toast explains. Background outcomes
 (the runner actually reaching `removed`) arrive over SSE and need no toast.
 
+The controller's own words are what a failure says — a 403 names the role
+required, and paraphrasing it would lose that. They are shown as they are, but
+run through `sentence()` in `lib/errors.ts` first, in the failure toast and the
+error panel: the server writes for a log line (lowercase, no full stop), and
+under a sentence-case title that reads as raw output. That changes only the
+first letter and the last mark, and leaves alone a message that opens with an
+identifier such as a setting key. An error a form or dialog shows inline is not
+yet passed through it.
+
 ### Forms
 
 Validation rules come from the same source as the API's, generated into
