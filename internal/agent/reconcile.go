@@ -149,7 +149,7 @@ func (a *Agent) ReconcileOnce(ctx context.Context) ([]RunnerReport, error) {
 			continue
 		}
 		msg := fmt.Sprintf("workload %s is no longer on host %s", r.handle, a.opts.Name)
-		a.markTerminal(r.runnerID, store.RunnerRemoved, backend.PhaseGone, 0, msg, now)
+		a.markTerminal(r.runnerID, store.RunnerRemoved, backend.PhaseGone, 0, msg, "", now)
 		a.log.Info("runner workload disappeared", "runner", r.runnerID, "handle", r.handle, "backend", r.kind)
 		reports = append(reports, RunnerReport{
 			RunnerID:   r.runnerID,
@@ -178,7 +178,7 @@ func (a *Agent) observe(ctx context.Context, b backend.Backend, r tracked, w bac
 			return a.cleanUp(ctx, b, r, w, now)
 		}
 		state, msg, fault := terminalOutcome(r, w.Status)
-		a.markTerminal(r.runnerID, state, w.Status.Phase, w.Status.ExitCode, msg, now)
+		a.markTerminal(r.runnerID, state, w.Status.Phase, w.Status.ExitCode, msg, fault, now)
 		a.log.Info("runner reached the end of its life",
 			"runner", r.runnerID, "handle", w.Handle, "state", state, "exit_code", w.Status.ExitCode, "detail", msg)
 		return RunnerReport{
@@ -583,7 +583,7 @@ func (a *Agent) markRunning(runnerID string, w backend.Workload, stats backend.S
 	}
 }
 
-func (a *Agent) markTerminal(runnerID string, state store.RunnerState, phase backend.Phase, exitCode int, msg string, now time.Time) {
+func (a *Agent) markTerminal(runnerID string, state store.RunnerState, phase backend.Phase, exitCode int, msg string, fault store.FaultKind, now time.Time) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	r, ok := a.runners[runnerID]
@@ -594,6 +594,7 @@ func (a *Agent) markTerminal(runnerID string, state store.RunnerState, phase bac
 	r.phase = phase
 	r.exitCode = exitCode
 	r.message = msg
+	r.fault = fault
 	r.observedAt = now
 	if !r.terminal {
 		r.terminalAt = now
