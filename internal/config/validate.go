@@ -459,6 +459,7 @@ func (c *Config) Validate() Findings {
 						Code: "tls.file_unreadable", Severity: SeverityError, Setting: "server.tls." + name,
 						Title:  fmt.Sprintf("cannot read %s", p),
 						Detail: err.Error(),
+						Fix:    "make the file readable by the user the controller runs as, or point server.tls.cert_file and server.tls.key_file at files it can read.",
 					})
 				}
 			}
@@ -532,6 +533,7 @@ func (c *Config) Validate() Findings {
 		add(Finding{
 			Code: "github.api_base_malformed", Severity: SeverityError, Setting: "github.api_base_url",
 			Title: fmt.Sprintf("%q is not an absolute URL", c.GitHub.APIBaseURL),
+			Fix:   "use https://api.github.com, or https://your-ghes-host/api/v3 for Enterprise Server.",
 		})
 	}
 
@@ -547,6 +549,7 @@ func (c *Config) Validate() Findings {
 			add(Finding{
 				Code: "db.parent_not_dir", Severity: SeverityError, Setting: "database.path",
 				Title: fmt.Sprintf("%s exists and is not a directory", dir),
+				Fix:   "set database.path to a file inside a directory, e.g. /var/lib/zoomies/zoomies.db.",
 			})
 		}
 	}
@@ -658,6 +661,7 @@ func (c *Config) Validate() Findings {
 			Code: "auth.session_ttl_long", Severity: SeverityWarning, Setting: "security.session_ttl",
 			Title:  fmt.Sprintf("browser sessions last %s", c.Security.SessionTTL),
 			Detail: "a stolen session cookie stays valid for that long.",
+			Fix:    `use a duration of 90 days (2160h) or less, such as "168h", unless people really stay signed in that long.`,
 		})
 	}
 	if c.OIDC.Enabled {
@@ -904,6 +908,7 @@ func (c *Config) Validate() Findings {
 		add(Finding{
 			Code: "scheduler.burst", Severity: SeverityError, Setting: "scheduler.max_creates_per_tick",
 			Title: "max_creates_per_tick must be at least 1",
+			Fix:   "set scheduler.max_creates_per_tick to 1 or more; the default is 10.",
 		})
 	}
 	if !c.Scheduler.DefaultRunnerLimits {
@@ -1054,16 +1059,16 @@ func (c *Config) Validate() Findings {
 	if c.CapacityDemand.DestinationURL != "" {
 		u, err := url.Parse(c.CapacityDemand.DestinationURL)
 		if err != nil || u.Scheme == "" || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
-			add(Finding{Code: "capacity_demand.url", Severity: SeverityError, Setting: "capacity_demand.destination_url", Title: "capacity-demand destination is not an absolute HTTP URL"})
+			add(Finding{Code: "capacity_demand.url", Severity: SeverityError, Setting: "capacity_demand.destination_url", Title: "capacity-demand destination is not an absolute HTTP URL", Fix: "use an address like https://provisioner.example.com/events."})
 		}
 		if c.CapacityDemand.SigningSecret == "" {
 			add(Finding{Code: "capacity_demand.secret", Severity: SeverityError, Setting: "capacity_demand.signing_secret", Title: "capacity-demand signing secret is empty", Fix: "set a high-entropy shared secret."})
 		}
 		if c.CapacityDemand.Cooldown <= 0 {
-			add(Finding{Code: "capacity_demand.cooldown", Severity: SeverityError, Setting: "capacity_demand.cooldown", Title: "capacity-demand cooldown must be positive"})
+			add(Finding{Code: "capacity_demand.cooldown", Severity: SeverityError, Setting: "capacity_demand.cooldown", Title: "capacity-demand cooldown must be positive", Fix: `use a duration like "10m", which is the default.`})
 		}
 		if c.CapacityDemand.Timeout <= 0 {
-			add(Finding{Code: "capacity_demand.timeout", Severity: SeverityError, Setting: "capacity_demand.timeout", Title: "capacity-demand timeout must be positive"})
+			add(Finding{Code: "capacity_demand.timeout", Severity: SeverityError, Setting: "capacity_demand.timeout", Title: "capacity-demand timeout must be positive", Fix: `use a duration like "10s", which is the default.`})
 		}
 	}
 
