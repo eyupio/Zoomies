@@ -164,10 +164,12 @@
   <div class="body">
     {#if !preview}
       <div class="pick">
+        <!-- The button beside it is the control. A tab stop here would be clipped away with the input and draw no focus ring. -->
         <input
           bind:this={fileInput}
           type="file"
           accept=".json,.yaml,.yml,application/json,application/yaml"
+          tabindex="-1"
           class="sr-only"
           aria-label="Choose an export file"
           onchange={pickFile}

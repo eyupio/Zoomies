@@ -306,6 +306,50 @@ test('a dialog keeps focus, closes on Escape and hands focus back', async ({ pag
   await expect(trigger, 'focus returns to what opened the dialog').toBeFocused();
 });
 
+// A file input is visually hidden behind a button that opens its picker, so if
+// it takes focus itself nothing is drawn: the ring is clipped away with the
+// input, and a keyboard user loses the focus for a Tab. The button is the
+// control; the input must not be a stop of its own.
+const FILE_PICKERS = [
+  { path: '/pools', heading: 'Pools', open: 'Import', dialog: 'Import pools' },
+  {
+    path: '/settings/configuration',
+    heading: 'Configuration',
+    open: 'Import',
+    dialog: 'Import settings',
+  },
+  {
+    path: '/settings/backups',
+    heading: 'Backups',
+    open: 'Upload a backup',
+    dialog: 'Upload a backup',
+  },
+];
+
+for (const { path, heading, open, dialog } of FILE_PICKERS) {
+  test(`the ${dialog} dialog's file picker is reached through its button, not a hidden input`, async ({
+    page,
+  }) => {
+    await goto(page, path, heading);
+    await page.getByRole('button', { name: open, exact: true }).click();
+    await expect(page.getByRole('dialog', { name: dialog })).toBeVisible();
+
+    const chooser = page.getByRole('dialog', { name: dialog }).getByRole('button', {
+      name: 'Choose a file',
+    });
+    let reached = false;
+    for (let press = 0; press < 10; press++) {
+      await page.keyboard.press('Tab');
+      expect(
+        await page.evaluate(() => (document.activeElement as HTMLInputElement | null)?.type),
+        'focus never rests on an input nobody can see',
+      ).not.toBe('file');
+      reached ||= await chooser.evaluate((el) => el === document.activeElement);
+    }
+    expect(reached, 'the visible button is a tab stop').toBe(true);
+  });
+}
+
 test('a drawer keeps focus the way a dialog does, and gives it back', async ({ page }) => {
   // A drawer is a modal too. It was untested, and it is the one an operator
   // opens most: every row of the Jobs grid opens one.

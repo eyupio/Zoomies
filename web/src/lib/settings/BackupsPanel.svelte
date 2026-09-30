@@ -959,12 +959,14 @@
     >
       {#snippet children({ id, describedBy })}
         <div class="filepick">
+          <!-- The button beside it is the control. A tab stop here would be clipped away with the input and draw no focus ring. -->
           <input
             bind:this={fileInput}
             {id}
             type="file"
             accept=".gz,.enc,application/gzip,application/octet-stream"
             aria-describedby={describedBy}
+            tabindex="-1"
             class="sr-only"
             onchange={pickFile}
             disabled={uploadBusy}
