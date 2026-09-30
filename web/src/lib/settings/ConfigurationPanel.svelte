@@ -358,11 +358,11 @@
       <section class="notice waiting" aria-labelledby="pending-restart">
         <Badge tone="draining" label="Saved" size="sm" dot={false} />
         <div>
-          <h3 id="pending-restart">
+          <h2 id="pending-restart">
             {pending.length === 1
               ? 'One setting is waiting for a restart'
               : `${pending.length} settings are waiting for a restart`}
-          </h3>
+          </h2>
           <p>
             Stored, and in force the next time Zoomies starts. It cannot apply them to itself —
             rebinding a listener or rebuilding the container backends under running jobs is how a
@@ -379,10 +379,10 @@
 
     {#if generalFindings.length > 0}
       <section class="general" aria-labelledby="general-findings">
-        <h3 id="general-findings">
+        <h2 id="general-findings">
           <TriangleAlert size={14} aria-hidden="true" />
           What the validator says
-        </h3>
+        </h2>
         <ul>
           {#each generalFindings as finding (finding.code)}
             {@const meta = severityStatus(finding.severity)}
@@ -461,7 +461,7 @@
           {#each elsewhere as [name, where] (name)}
             <section class="elsewhere" aria-labelledby="section-{name}">
               <div class="section-head" data-section={name}>
-                <h3 id="section-{name}" class="mono">{name}</h3>
+                <h2 id="section-{name}" class="mono">{name}</h2>
                 {#if SECTION_BLURB[name]}<p>{SECTION_BLURB[name]}</p>{/if}
               </div>
               <p class="pointer">
@@ -472,7 +472,7 @@
           {#each sections as section (section.name)}
             <section aria-labelledby="section-{section.name}">
               <div class="section-head" data-section={section.name}>
-                <h3 id="section-{section.name}" class="mono">{section.name}</h3>
+                <h2 id="section-{section.name}" class="mono">{section.name}</h2>
                 {#if SECTION_BLURB[section.name]}<p>{SECTION_BLURB[section.name]}</p>{/if}
               </div>
               {#each section.rows as setting (setting.key)}
@@ -609,7 +609,7 @@
     border-color: var(--z-draining-border);
     background: var(--z-draining-subtle);
   }
-  .notice h3 {
+  .notice h2 {
     margin: 0;
     font-size: var(--z-text-sm);
     font-weight: var(--z-weight-semibold);
@@ -642,7 +642,7 @@
     border-radius: var(--z-radius-md);
     background: var(--z-surface-sunken);
   }
-  .general h3 {
+  .general h2 {
     display: flex;
     align-items: center;
     gap: var(--z-space-2);
@@ -724,7 +724,7 @@
     border-bottom: var(--z-border-width) solid var(--z-border);
     background: var(--z-surface-sunken);
   }
-  h3 {
+  h2 {
     margin: 0;
     font-size: var(--z-text-sm);
     font-weight: var(--z-weight-semibold);

@@ -226,7 +226,7 @@
 <section class="remotes" aria-labelledby="backup-remotes">
   <header>
     <div>
-      <h3 id="backup-remotes">Copies off this machine</h3>
+      <h2 id="backup-remotes">Copies off this machine</h2>
       <p>
         {#if remotes.length === 0}
           Nothing leaves this host. A backup beside the database survives a mistake, not the disk —
@@ -480,7 +480,7 @@
     gap: var(--z-space-4);
     flex-wrap: wrap;
   }
-  h3 {
+  h2 {
     margin: 0;
     font-size: var(--z-text-sm);
     font-weight: var(--z-weight-semibold);

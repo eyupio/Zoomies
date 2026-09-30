@@ -306,6 +306,34 @@ test('a dialog keeps focus, closes on Escape and hands focus back', async ({ pag
   await expect(trigger, 'focus returns to what opened the dialog').toBeFocused();
 });
 
+// A heading that skips a level tells a screen-reader user who navigates by
+// heading that a section is missing. Checked on the settings pages, which
+// share a layout and so should share an outline: Backups, Configuration and
+// About once went from the page's h1 straight to h3. Each names a heading that
+// only exists once the page's data has loaded, so an outline read too early
+// cannot pass for want of anything to skip.
+const SETTINGS_OUTLINES = [
+  { path: '/settings/backups', heading: 'Backups', loaded: '#backup-schedule' },
+  { path: '/settings/configuration', heading: 'Configuration', loaded: '[id^="section-"]' },
+  { path: '/settings/about', heading: 'About', loaded: '#docs-heading' },
+  { path: '/settings/events', heading: 'Events', loaded: '[id^="feed-group-"]' },
+];
+
+for (const { path, heading, loaded } of SETTINGS_OUTLINES) {
+  test(`${heading} settings never skip a heading level`, async ({ page }) => {
+    await goto(page, path, heading);
+    await expect(page.locator(loaded).first()).toBeVisible();
+
+    const levels = await page
+      .getByRole('main')
+      .getByRole('heading')
+      .evaluateAll((els) => els.map((el) => Number(el.tagName.slice(1))));
+    expect(levels[0], 'the outline starts at the page heading').toBe(1);
+    const skips = levels.filter((level, i) => i > 0 && level > (levels[i - 1] ?? 0) + 1);
+    expect(skips, `heading levels in order: ${levels.join(', ')}`).toEqual([]);
+  });
+}
+
 // A file input is visually hidden behind a button that opens its picker, so if
 // it takes focus itself nothing is drawn: the ring is clipped away with the
 // input, and a keyboard user loses the focus for a Tab. The button is the

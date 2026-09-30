@@ -80,7 +80,7 @@
 
 <section class="schedule" aria-labelledby="backup-schedule">
   <header>
-    <h3 id="backup-schedule">Schedule and retention</h3>
+    <h2 id="backup-schedule">Schedule and retention</h2>
     <p>
       What the controller takes of its own accord, where it puts it, and how many it keeps. The same
       settings appear in the configuration export; a value the environment is holding is pinned here
@@ -108,7 +108,7 @@
   header {
     padding: var(--z-space-4) var(--z-space-5) 0;
   }
-  h3 {
+  h2 {
     margin: 0;
     font-size: var(--z-text-sm);
     font-weight: var(--z-weight-semibold);
