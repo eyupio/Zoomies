@@ -126,7 +126,7 @@
 
   <p class="figures tabular">
     <strong>{formatNumber(owned)}</strong>
-    of {formatNumber(ceiling)} machines
+    of {pluralise(ceiling, 'machine')}
     {#if ceiling === 0}
       <span class="muted">· a ceiling of zero rents nothing</span>
     {/if}

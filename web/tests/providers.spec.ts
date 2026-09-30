@@ -582,3 +582,49 @@ test('a private connection is offered only where the controller can make one, an
   await page.getByRole('radio', { name: 'Direct' }).check();
   await expect(page.getByLabel('Private connection address')).toHaveCount(0);
 });
+
+/**
+ * A ceiling of one is the cautious first value for anything that costs money,
+ * so "1 machines" is on the first-run path of every paid provider. The count
+ * is the operator's own number: only the noun follows it.
+ */
+test('a ceiling of one machine is written in the singular on the card and the provider page', async ({
+  page,
+}) => {
+  const one = { max_machines: 1 };
+  await page.route(/\/api\/v1\/providers(?:\?.*)?$/, async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    body.items = body.items.map((provider: object) => ({ ...provider, ...one }));
+    await route.fulfill({ json: body });
+  });
+  await page.route(/\/api\/v1\/providers\/[^/?]+$/, async (route) => {
+    const response = await route.fetch();
+    await route.fulfill({ json: { ...(await response.json()), ...one } });
+  });
+
+  await goto(page, '/providers', 'Providers');
+  await expect(providerCard(page)).toContainText('of 1 machine');
+  await expect(providerCard(page)).not.toContainText('1 machines');
+
+  await goto(page, `/providers/${FIXTURE.providerId}?tab=settings`, FIXTURE.provider);
+  await expect(page.getByText(/built at once/)).toContainText('1 machine,');
+  await expect(page.getByText(/built at once/)).not.toContainText('1 machines');
+});
+
+test('the review step writes a ceiling of one machine in the singular', async ({ page }) => {
+  await goto(page, '/providers/new', 'Add a provider');
+  await connectStep(page, 'e2e-one-machine');
+  await page.getByLabel('Nodes').fill('pve-1');
+  await page.getByLabel('Template VMID').fill('8000');
+  await page.getByLabel('Storage').fill('local-zfs');
+  await next(page).click();
+  await next(page).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Limits' })).toBeVisible();
+  await page.getByLabel('Maximum machines').fill('1');
+  await next(page).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Review' })).toBeVisible();
+  const ceiling = page.locator('div', { has: page.locator('dt', { hasText: 'Ceiling' }) }).last();
+  await expect(ceiling).toContainText('1 machine');
+  await expect(ceiling).not.toContainText('1 machines');
+});

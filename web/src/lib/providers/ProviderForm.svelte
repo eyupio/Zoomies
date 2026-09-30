@@ -1034,7 +1034,7 @@
           </div>
           <div>
             <dt>Ceiling</dt>
-            <dd>{draft.max_machines} machines</dd>
+            <dd>{pluralise(Number(draft.max_machines) || 0, 'machine')}</dd>
           </div>
         </dl>
 
