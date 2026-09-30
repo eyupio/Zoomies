@@ -315,17 +315,33 @@ func (i *Installer) Run(ctx context.Context) error {
 	}
 	// The last moment at which nothing has been written. Everything past here
 	// creates accounts, directories and files.
-	proceed, err := i.stepReview(ctx, plan)
+	install := i.runInstall
+	if plan.Deployment.Containerised() {
+		install = i.runContainer
+	}
+	return i.reviewAndCarryOut(ctx, plan, i.stepReview, install)
+}
+
+// reviewAndCarryOut is the part of Run in which order is the whole point:
+// nothing is moved, stopped or written until the review has been confirmed, and
+// a start-again's archive happens after that and before the install. It takes
+// the review and the install as arguments so a test can watch that sequence
+// instead of trusting three calls in a row.
+func (i *Installer) reviewAndCarryOut(ctx context.Context, plan Plan,
+	review func(context.Context, Plan) (bool, error), install func(context.Context, Plan) error) error {
+	proceed, err := review(ctx, plan)
 	if err != nil {
 		return err
 	}
 	if !proceed {
 		return nil
 	}
-	if plan.Deployment.Containerised() {
-		return i.runContainer(ctx, plan)
+	if plan.StartOver {
+		if err := i.startOver(ctx, plan); err != nil {
+			return err
+		}
 	}
-	return i.runInstall(ctx, plan)
+	return install(ctx, plan)
 }
 
 // stepReview shows the whole plan and asks. It returns false when the operator
@@ -484,6 +500,9 @@ type Plan struct {
 	// Upgrade means a previous installation was found and its configuration,
 	// key and database are to be kept.
 	Upgrade bool
+	// StartOver means the operator chose to start again: the existing key,
+	// database and configuration are moved aside once the plan is confirmed.
+	StartOver bool
 
 	ServiceUser  string
 	ServiceGroup string
@@ -1106,6 +1125,9 @@ func (p Plan) Review() []ReviewLine {
 // exactly which four files are involved can decide in a second.
 func (p Plan) Writes() []string {
 	var out []string
+	if p.StartOver {
+		out = append(out, "the running controller is stopped, and the existing key, database and configuration are renamed to *.bak")
+	}
 	if p.Deployment.Containerised() {
 		return append(out,
 			filepath.Join(p.DeployDir, "docker-compose.yml"),
@@ -1523,7 +1545,8 @@ func deploymentConsequence(d Detection, want Deployment) string {
 }
 
 // askExisting decides what to do about a previous installation. Nothing here
-// removes anything: the destructive path moves the old key and database aside
+// touches the host: the destructive path is recorded on the plan and carried
+// out after the review, when startOver moves the old key and database aside
 // and says where they went, because an encryption key that is gone is a
 // GitHub App that has to be recreated.
 func (i *Installer) askExisting(ctx context.Context, p Plan) (Plan, error) {
@@ -1574,9 +1597,9 @@ func (i *Installer) askExisting(ctx context.Context, p Plan) (Plan, error) {
 		if err != nil {
 			return p, err
 		}
-		if err := i.archiveExisting(p); err != nil {
-			return p, err
-		}
+		// Recorded, not done: the review that follows is the last place the
+		// operator can stop, and stopping there must leave the host as it was.
+		p.StartOver = true
 		return p, nil
 	}
 }
@@ -1629,8 +1652,11 @@ func (i *Installer) stopRunningController(ctx context.Context, p Plan) error {
 // reconfigure would otherwise find the old process still running. A stop that
 // fails is a warning rather than an error, because the start may still work
 // and the operator is told what the old process may still be serving.
+//
+// A start-again has already stopped the controller, before its files were
+// moved, so stopping it a second time would only add a failure mode.
 func (i *Installer) replaceRunningController(ctx context.Context, p Plan) {
-	if !p.StartService {
+	if p.StartOver || !p.StartService {
 		return
 	}
 	if err := i.stopRunningController(ctx, p); err != nil {
@@ -1647,16 +1673,42 @@ func (i *Installer) restartService(ctx context.Context, p Plan) (ServiceManager,
 	return i.stepService(ctx, p)
 }
 
+// startOver moves the existing key, database and configuration aside. It runs
+// after the review, so a stop or a ctrl-c there leaves the host as it was, and
+// only once the controller has stopped: renaming a database a live process
+// holds open leaves that process writing into the archive while the installer
+// builds a new one nothing serves, and a clean stop is what checkpoints the
+// write-ahead log into the file being archived.
+func (i *Installer) startOver(ctx context.Context, p Plan) error {
+	if err := i.stopRunningController(ctx, p); err != nil {
+		return err
+	}
+	return i.archiveExisting(p)
+}
+
 // archiveExisting renames the key and database out of the way. Renaming rather
 // than deleting is deliberate: the operator who typed ERASE at 2am can still
 // get their fleet back.
+//
+// The database's -wal and -shm files go with it. A controller that crashed
+// leaves them behind, and a new database created at the same path would
+// otherwise find a log that belongs to the old one.
 func (i *Installer) archiveExisting(p Plan) error {
 	stamp := time.Now().UTC().Format("20060102-150405")
-	for _, path := range []string{p.KeyFile, p.DBPath, p.ConfigFile} {
+	paths := []string{p.KeyFile, p.DBPath, p.ConfigFile}
+	if p.DBPath != "" {
+		paths = append(paths, p.DBPath+"-wal", p.DBPath+"-shm")
+	}
+	for _, path := range paths {
 		if path == "" || !exists(path) {
 			continue
 		}
 		moved := path + "." + stamp + ".bak"
+		if strings.HasSuffix(path, "-wal") || strings.HasSuffix(path, "-shm") {
+			// Named after the archived database, so opening it directly finds
+			// its own log.
+			moved = p.DBPath + "." + stamp + ".bak" + path[len(p.DBPath):]
+		}
 		if err := os.Rename(path, moved); err != nil {
 			return fmt.Errorf("installer: moving %s aside: %w", path, err)
 		}
