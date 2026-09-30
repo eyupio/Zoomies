@@ -1074,6 +1074,24 @@ func (c *Config) Validate() Findings {
 	// install that has been talking to a LAN Enterprise Server for a year.
 	// The threat is somebody with settings rights writing one of these
 	// through the API, and the API refuses that at the write.
+	//
+	// With the switch on those checks pass everything, so the switch itself is
+	// the only place left to say so. It is a warning, not info: it removes the
+	// one guard between a settings-writer and this machine's neighbourhood, and
+	// a LAN install that needs it is choosing to accept that, which is what a
+	// warning that names the setting is for.
+	if c.Security.AllowPrivateEgress {
+		add(Finding{
+			Code: "egress.private_allowed", Severity: SeverityWarning, Setting: AllowPrivateEgressSetting,
+			Title: "this controller may be pointed at private addresses",
+			Detail: "the outbound URL settings -- the OIDC issuer, the GitHub API, the capacity-demand destination, the runner download mirror, " +
+				"a backup remote and a provider -- may name this machine, a link-local address such as the cloud metadata service at 169.254.169.254, " +
+				"or a private network, and nothing is refused or warned about on the way. Anyone who can write those settings can aim this process " +
+				"at its own neighbourhood and read the answer back out of an error message.",
+			Fix: "turn " + AllowPrivateEgressSetting + " off unless the OIDC issuer, Enterprise Server, provider or backup remote really lives on a network you own; " +
+				"if it does, this warning is the acknowledgement and the setting can stay on.",
+		})
+	}
 	for _, o := range c.OutboundURLs() {
 		if f := CheckOutboundURL(o.Setting, o.Value, c.Security.AllowPrivateEgress); f != nil {
 			f.Severity = SeverityWarning

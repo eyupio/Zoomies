@@ -113,6 +113,34 @@ func TestAPrivateRangeIssuerInTheFileWarnsAndNeverStopsStartup(t *testing.T) {
 	}
 }
 
+// The switch removes the only guard between an administrator's typed URL and
+// this machine's neighbourhood, so a controller running with it on must say
+// so where an operator looks -- and stay quiet with it off, or the warning
+// means nothing. It never stops startup: a LAN install that needs it is the
+// expected case, and the finding is there to make the choice visible.
+func TestAllowingPrivateEgressIsNamedByAWarningAndNeverStopsStartup(t *testing.T) {
+	c := Default()
+	if f := findingFor(c.Validate(), "egress.private_allowed"); f != nil {
+		t.Fatalf("the default configuration raised %s", f.Code)
+	}
+
+	c.Security.AllowPrivateEgress = true
+	fs := c.Validate()
+	if errs := fs.Errors(); len(errs) != 0 {
+		t.Fatalf("the switch stopped startup: %v", errs)
+	}
+	f := findingFor(fs, "egress.private_allowed")
+	if f == nil {
+		t.Fatal("turning the switch on raised no finding")
+	}
+	if f.Severity != SeverityWarning || f.Setting != AllowPrivateEgressSetting {
+		t.Errorf("the finding is not a warning on %s: %+v", AllowPrivateEgressSetting, *f)
+	}
+	if !strings.Contains(f.Detail, "169.254.169.254") || f.Fix == "" {
+		t.Errorf("the finding does not say what is accepted or what to do: %+v", *f)
+	}
+}
+
 // Each of the settings the controller dials is checked, as a warning, and an
 // issuer that is switched off is not: nothing dials it.
 func TestEveryOutboundSettingIsCheckedByTheValidator(t *testing.T) {

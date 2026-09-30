@@ -759,7 +759,10 @@ broadcast and multicast addresses, an IPv4 address carried inside IPv6
 (`2130706433`, `0x7f000001`, `127.1`).
 
 The same value in `zoomies.yaml` or a `ZOOMIES_*` variable is only a warning
-(`egress.private_target`), and never stops the controller starting. The file
+(`egress.private_target`), and never stops the controller starting. With the
+switch on that check has nothing left to refuse, so the switch itself is named
+instead (`egress.private_allowed`, also a warning) at startup and in the
+problems drawer. The file
 and the environment belong to whoever runs the process, who is already trusted
 with everything this guard protects; the person the guard is for is somebody
 with settings rights typing a URL into a form. And an upgrade must not stop an
