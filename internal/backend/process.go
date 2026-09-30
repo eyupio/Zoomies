@@ -509,13 +509,26 @@ func (b *ProcessBackend) Status(ctx context.Context, h Handle) (Status, error) {
 	}
 
 	pid := readPID(dir)
+	reused := false
+	if pid > 0 && processAlive(pid) {
+		switch err := verifyProcessIdentity(meta, pid); {
+		case errors.Is(err, errProcessReused):
+			reused = true
+		case err != nil:
+			return Status{}, err
+		}
+	}
 	switch {
 	case pid <= 0:
 		st.Phase = PhaseStarting
+	case reused:
+		// The PID now belongs to something else, so the runner it was recorded
+		// for is gone. Reporting that as an error instead froze List, and with
+		// it every process runner on the host, behind one stale directory.
+		st.Phase = PhaseExitUnknown
+		st.ExitCode = -1
+		st.Message = fmt.Sprintf("runner process %d is gone (its PID now belongs to another process) and recorded no exit code; see %s", pid, filepath.Join(dir, runnerLogFile))
 	case processAlive(pid):
-		if err := verifyProcessIdentity(meta, pid); err != nil {
-			return Status{}, err
-		}
 		st.Phase = PhaseRunning
 	default:
 		b.mu.Lock()
@@ -617,7 +630,9 @@ func (b *ProcessBackend) Stop(ctx context.Context, h Handle, timeout time.Durati
 	if err != nil {
 		return err
 	}
-	if err := verifyProcessIdentity(meta, pid); err != nil {
+	if err := verifyProcessIdentity(meta, pid); errors.Is(err, errProcessReused) {
+		return nil
+	} else if err != nil {
 		return err
 	}
 	if timeout <= 0 {
@@ -664,7 +679,9 @@ func (b *ProcessBackend) kill(ctx context.Context, proc *os.Process, dir string)
 		if err != nil {
 			return err
 		}
-		if err := verifyProcessIdentity(meta, proc.Pid); err != nil {
+		if err := verifyProcessIdentity(meta, proc.Pid); errors.Is(err, errProcessReused) {
+			return nil
+		} else if err != nil {
 			return err
 		}
 	}
@@ -1480,6 +1497,13 @@ func seekToLastLines(f *os.File, n int) error {
 	return err
 }
 
+// errProcessReused marks the one identity failure that is proof rather than
+// doubt: the PID is alive and its birth identity differs from the recorded one,
+// so the runner we recorded is gone. Callers treat it as "nothing of ours to
+// signal"; every other verification failure stays an unverified identity and
+// fails closed.
+var errProcessReused = errors.New("PID was reused")
+
 // An existing PID alone is never authority to signal a process after restart.
 // Legacy metadata remains visible for operator recovery, but cannot kill a PID
 // whose birth identity was never recorded.
@@ -1492,7 +1516,7 @@ func verifyProcessIdentity(meta processMeta, pid int) error {
 		return fmt.Errorf("%w: reading native process identity: %v", ErrUnavailable, err)
 	}
 	if identity != meta.ProcessIdentity {
-		return fmt.Errorf("%w: native runner PID was reused; refusing to signal or adopt it", ErrUnavailable)
+		return fmt.Errorf("%w: native runner %w; refusing to signal or adopt it", ErrUnavailable, errProcessReused)
 	}
 	return nil
 }
