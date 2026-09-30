@@ -4,6 +4,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1038,6 +1039,53 @@ func TestHidingThePasswordFormWithoutSingleSignOnIsWarnedAbout(t *testing.T) {
 			}
 			if got != tc.want {
 				t.Fatalf("finding raised = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// A finding that stops startup, or warns about a setting, is read by somebody
+// who has to change something; these said what was wrong and stopped there.
+// Each Fix names the value to use, and the defaults it quotes are compared with
+// the real ones so the text cannot drift from the code.
+func TestFindingsThatStopStartupSayWhatToChange(t *testing.T) {
+	dir := t.TempDir()
+	notADir := filepath.Join(dir, "file")
+	if err := os.WriteFile(notADir, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d := Default()
+
+	for _, tc := range []struct {
+		code string
+		set  func(c *Config)
+		want string
+	}{
+		{"tls.file_unreadable", func(c *Config) {
+			c.Server.TLS.Mode = TLSFiles
+			c.Server.TLS.CertFile = filepath.Join(dir, "missing-cert.pem")
+			c.Server.TLS.KeyFile = filepath.Join(dir, "missing-key.pem")
+		}, "server.tls.cert_file"},
+		{"github.api_base_malformed", func(c *Config) { c.GitHub.APIBaseURL = "api.github.com" }, "https://api.github.com"},
+		{"db.parent_not_dir", func(c *Config) { c.Database.Path = filepath.Join(notADir, "zoomies.db") }, "database.path"},
+		{"auth.session_ttl_long", func(c *Config) { c.Security.SessionTTL = 100 * 24 * time.Hour }, "2160h"},
+		{"scheduler.burst", func(c *Config) { c.Scheduler.MaxCreatesPerTick = 0 },
+			"the default is " + strconv.Itoa(d.Scheduler.MaxCreatesPerTick)},
+		{"capacity_demand.url", func(c *Config) { c.CapacityDemand.DestinationURL = "provisioner" }, "https://"},
+		{"capacity_demand.cooldown", func(c *Config) { c.CapacityDemand.Cooldown = 0 }, `"` + strings.TrimSuffix(d.CapacityDemand.Cooldown.String(), "0s") + `"`},
+		{"capacity_demand.timeout", func(c *Config) { c.CapacityDemand.Timeout = 0 }, `"` + d.CapacityDemand.Timeout.String() + `"`},
+	} {
+		t.Run(tc.code, func(t *testing.T) {
+			c := Default()
+			c.CapacityDemand.SigningSecret = "s"
+			c.CapacityDemand.DestinationURL = "https://provisioner.example.com/events"
+			tc.set(c)
+			f := findingFor(c.Validate(), tc.code)
+			if f == nil {
+				t.Fatalf("the configuration did not raise %s", tc.code)
+			}
+			if f.Fix == "" || !strings.Contains(f.Fix, tc.want) {
+				t.Errorf("Fix = %q, want it to say %q", f.Fix, tc.want)
 			}
 		})
 	}

@@ -9,7 +9,7 @@
   import ProvisioningPulse from './ProvisioningPulse.svelte';
   import StateBreakdown from './StateBreakdown.svelte';
   import { poolSignals, finite, queueTone } from './signals';
-  import { formatNumber } from '$lib/format';
+  import { formatNumber, NO_VALUE } from '$lib/format';
   import { runnerStatus } from '$lib/status';
   let { poolId = '', compact = false }: { poolId?: string; compact?: boolean } = $props();
   const signal = $derived(poolSignals(fleet.pools, fleet.stats).find((p) => p.pool.id === poolId));
@@ -19,7 +19,8 @@
   const idle = $derived(poolId ? signal?.idle : finite(r?.idle));
   const scope = $derived(poolId ? (signal?.pool.name ?? 'Selected pool') : 'Fleet');
   const suffix = $derived(poolId ? `&pool_id=${encodeURIComponent(poolId)}` : '');
-  const num = (value: number | null | undefined) => (value == null ? '—' : formatNumber(value));
+  const num = (value: number | null | undefined) =>
+    value == null ? NO_VALUE : formatNumber(value);
   const metrics = $derived<Metric[]>([
     {
       label: 'Job queue depth',
@@ -58,7 +59,7 @@
           },
           {
             label: 'Busy share',
-            value: signal?.live ? `${Math.round((100 * (busy ?? 0)) / signal.live)}%` : '—',
+            value: signal?.live ? `${Math.round((100 * (busy ?? 0)) / signal.live)}%` : NO_VALUE,
             detail: 'Busy / live runners right now',
             progress: signal?.live ? (100 * (busy ?? 0)) / signal.live : null,
           },
@@ -66,7 +67,7 @@
       : [
           {
             label: 'Starting runners',
-            value: r ? num((r.provisioning ?? 0) + (r.registering ?? 0)) : '—',
+            value: r ? num((r.provisioning ?? 0) + (r.registering ?? 0)) : NO_VALUE,
             detail: 'Provisioning + registering',
             tone: 'accent' as const,
             href: '/runners?state=provisioning&state=registering',

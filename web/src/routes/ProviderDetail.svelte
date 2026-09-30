@@ -397,7 +397,7 @@
                 <div>
                   <dt>Ceiling</dt>
                   <dd>
-                    {p.max_machines} machines, {p.max_creates_in_flight} built at once
+                    {pluralise(p.max_machines ?? 0, 'machine')}, {p.max_creates_in_flight} built at once
                   </dd>
                 </div>
               </dl>

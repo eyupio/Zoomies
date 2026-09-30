@@ -656,6 +656,14 @@ func HostRoomFor(h *store.Host, p *store.Pool) HostRoom {
 		return out
 	}
 	alloc := h.Allocatable()
+	// The same gate fits() applies: a host at or below its disk reserve takes
+	// no runner of any pool, so a pool that asks for no disk still has no room
+	// here. Skipping it left the pool page and pool.max_above_room counting
+	// runners the pass will never place.
+	if alloc.DiskKnown && alloc.DiskMB <= 0 {
+		out.Fits, out.Room, out.LimitedBy = 0, 0, "disk"
+		return out
+	}
 	want := Reserve(p, h)
 
 	fits := -1

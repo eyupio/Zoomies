@@ -69,6 +69,11 @@ const (
 	// set alongside EnvJITConfig so that an operator can point a pool at a
 	// third-party runner image and still have it come up.
 	EnvUpstreamJITConfig = "ACTIONS_RUNNER_INPUT_JITCONFIG"
+	// EnvUpstreamRegistrationToken is how the process backend hands config.sh
+	// its registration token: the runner reads ACTIONS_RUNNER_INPUT_<ARG> for
+	// every argument, and an environment is not visible to other local users
+	// the way a command line is.
+	EnvUpstreamRegistrationToken = "ACTIONS_RUNNER_INPUT_TOKEN"
 )
 
 // Labels beyond the well-known set in backend.go, used to find the pieces of a
@@ -958,7 +963,6 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (result
 	createStarted := time.Now()
 
 	opts := containerOptions{Now: time.Now(), DinDImage: b.dind, ProxyEnv: inheritedProxyEnv(os.LookupEnv, spec.Env), ExtraCAFile: b.extraCA}
-	b.prepareCacheDirs(spec, &opts)
 	network := firstNonEmpty(strings.TrimSpace(spec.Network), b.network)
 	if network != "" {
 		if err := b.ensureNetwork(ctx, network); err != nil {
@@ -991,6 +995,10 @@ func (b *DockerBackend) CreateWithResult(ctx context.Context, spec Spec) (result
 		}
 	}()
 
+	// After the defer, not before: the farm has no container carrying its
+	// label until the create succeeds, so this cleanup is the only thing that
+	// can reap it when the network or work directory setup fails first.
+	b.prepareCacheDirs(spec, &opts)
 	b.pruneCacheFor(ctx, spec)
 
 	var dindReadyDuration *time.Duration

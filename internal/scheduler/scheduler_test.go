@@ -2087,8 +2087,12 @@ func TestAPoolWithNoHostsAtAllStillSaysItsJobsHaveNowhereToGo(t *testing.T) {
 // operator told to wait for the second one waits for ever.
 func TestAFullFleetIsStillDistinguishedFromAFleetThatCanNeverRunThePool(t *testing.T) {
 	for _, tc := range []struct {
-		name           string
-		hosts          []*store.Host
+		name  string
+		hosts []*store.Host
+		// pool and runners are optional: the rows about memory and CPU need a
+		// pool that states a size and a runner already holding part of a host.
+		pool           *store.Pool
+		runners        []*store.Runner
 		atCapacity     bool
 		noEligibleHost bool
 	}{
@@ -2172,9 +2176,52 @@ func TestAFullFleetIsStillDistinguishedFromAFleetThatCanNeverRunThePool(t *testi
 			}(),
 			// Neither: the throttled host clears itself.
 		},
+		{
+			// A host with a free slot whose memory is promised to a runner
+			// that is still working is the ordinary busy state: the job
+			// finishing returns it. Reading it as "no host could ever run
+			// this pool" raises an error, and tells an external provisioner
+			// to scale from zero, for a fleet that needed a minute.
+			name: "every host's memory promised to a runner that will finish",
+			hosts: func() []*store.Host {
+				h := sized("host_a", 8, 16, 8*1024+store.MinHostReserveMemoryMB, 200*1024)
+				h.ActiveRunners = 1
+				return []*store.Host{h}
+			}(),
+			pool:       limited("linux", 0, 6*1024),
+			runners:    []*store.Runner{onHost(testRunner("r1", limited("linux", 0, 6*1024), store.RunnerBusy, 0), "host_a")},
+			atCapacity: true,
+		},
+		{
+			// CPU is returned by a finishing job exactly as memory is.
+			name: "every host's CPU promised to a runner that will finish",
+			hosts: func() []*store.Host {
+				h := sized("host_a", 8, 8, 64*1024, 200*1024)
+				h.ActiveRunners = 1
+				return []*store.Host{h}
+			}(),
+			pool:       limited("linux", 6, 1024),
+			runners:    []*store.Runner{onHost(testRunner("r1", limited("linux", 6, 1024), store.RunnerBusy, 0), "host_a")},
+			atCapacity: true,
+		},
+		{
+			// Memory the host has lost to something that is not ours is not
+			// returned by any job of ours finishing, so it stays what it was:
+			// neither flag, and the pool is simply skipped until it eases.
+			name: "memory lost to work outside the fleet",
+			hosts: []*store.Host{
+				withUsage(sized("host_a", 8, 16, 16*1024, 200*1024), 10, 1024),
+			},
+			pool:           limited("linux", 0, 6*1024),
+			noEligibleHost: true,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			pp := only(t, Decide(snap([]*store.Pool{testPool("linux-x64", "linux")}, nil,
+			pool := tc.pool
+			if pool == nil {
+				pool = testPool("linux-x64", "linux")
+			}
+			pp := only(t, Decide(snap([]*store.Pool{pool}, tc.runners,
 				[]*store.Job{queued("j1", time.Minute, "linux")}, tc.hosts)))
 
 			if pp.BlockedAtCapacity != tc.atCapacity {
@@ -2184,5 +2231,21 @@ func TestAFullFleetIsStillDistinguishedFromAFleetThatCanNeverRunThePool(t *testi
 				t.Errorf("BlockedNoEligibleHost = %v, want %v (%s)", pp.BlockedNoEligibleHost, tc.noEligibleHost, pp.Blocked)
 			}
 		})
+	}
+}
+
+// A fleet blocked only by memory that live runners hold is at capacity to the
+// callers that count it, but the operator is still told the more specific
+// thing: the limits are what to change, not only the number of hosts. Folding
+// it into the plain "at capacity" advice would have hidden that.
+func TestAMemoryCommittedFleetKeepsTheAdviceAboutMemory(t *testing.T) {
+	p := limited("linux", 0, 6*1024)
+	h := sized("host_a", 8, 16, 8*1024+store.MinHostReserveMemoryMB, 200*1024)
+	h.ActiveRunners = 1
+	runners := []*store.Runner{onHost(testRunner("r1", p, store.RunnerBusy, 0), "host_a")}
+
+	pp := only(t, Decide(snap([]*store.Pool{p}, runners, []*store.Job{queued("j1", time.Minute, "linux")}, []*store.Host{h})))
+	if !strings.Contains(pp.BlockedFix, "lower this pool's limits") {
+		t.Errorf("BlockedFix = %q, want the advice about the pool's limits", pp.BlockedFix)
 	}
 }

@@ -41,7 +41,11 @@ idle upgrade. Remote agents keep sending heartbeats during this wait.
 
 The upgrade command supplies this timeout even for older Compose files;
 newly generated Compose files also set `stop_grace_period: 20m` for manual
-restarts. Existing native systemd units are preserved during upgrades. If
+restarts, and a single-container (`docker`) deployment is created with
+`--stop-timeout 1200` so a plain `docker stop` or `docker restart` waits as
+long. A single-container deployment created by an older binary keeps Docker's
+ten-second default until it is recreated with `zoomies init`; until then, stop it
+with `docker stop --time 1200 zoomies`. Existing native systemd units are preserved during upgrades. If
 yours has a shorter `TimeoutStopSec`, use `systemctl edit zoomies` (or
 `zoomies-agent` on an agent host) and set `[Service]` / `TimeoutStopSec=1200s`
 before upgrading. New systemd installations use that budget by default.

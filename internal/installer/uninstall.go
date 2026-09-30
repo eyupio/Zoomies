@@ -155,8 +155,13 @@ func deploymentItems(rec DeploymentRecord, opts UninstallOptions) []RemovalItem 
 			Note: "removed after the container"})
 	}
 	if rec.EnvFile != "" {
-		items = append(items, RemovalItem{What: "environment file", Path: rec.EnvFile, Present: exists(rec.EnvFile),
-			Note: "it holds the encryption key"})
+		// The volume question is asked after this list is printed, so the note
+		// has to be true whichever way it is answered.
+		envNote := "it holds the encryption key, so it is kept unless the data volume is deleted too"
+		if opts.RemoveVolume != nil && *opts.RemoveVolume {
+			envNote = "it holds the encryption key; removed with the data volume it seals"
+		}
+		items = append(items, RemovalItem{What: "environment file", Path: rec.EnvFile, Present: exists(rec.EnvFile), Note: envNote})
 	}
 	volumeNote := "the database; kept unless you say otherwise"
 	if opts.RemoveVolume != nil && *opts.RemoveVolume {
@@ -271,11 +276,13 @@ func Uninstall(ctx context.Context, opts UninstallOptions) error {
 	// --- Bring a containerised deployment down, for the same reason: a
 	// running container would carry on creating runners while we deregister
 	// the ones it has already made. -----------------------------------------
+	volumeKept := false
 	if rec, ok := ReadDeploymentRecord(opts.configDir()); ok {
 		removeVolume, err := wantsVolumeRemoved(opts, u, rec)
 		if err != nil {
 			return err
 		}
+		volumeKept = !removeVolume
 		tearDownDeployment(ctx, rec, removeVolume, u, record)
 	}
 
@@ -370,13 +377,32 @@ func Uninstall(ctx context.Context, opts UninstallOptions) error {
 		}
 	}
 	if rec, ok := ReadDeploymentRecord(cfgDir); ok {
-		paths := []string{rec.EnvFile, rec.ComposeFile(), DeploymentRecordPath(cfgDir)}
-		// The backups this installer made hold the encryption key too, so they
-		// go with the file they are copies of. Leaving one behind would undo
-		// the care taken to remove the key at all.
+		paths := []string{rec.ComposeFile(), DeploymentRecordPath(cfgDir)}
+		// The environment file is the only copy of the encryption key that
+		// seals the data volume. A volume that is kept is unreadable without
+		// it -- a later install would mint a new key, and every stored GitHub
+		// App private key and webhook secret would fail to decrypt -- so the
+		// key stays exactly as long as the volume does, and is named so the
+		// operator knows a secret is still on this host.
+		//
+		// The backups this installer made hold the key too, so they follow the
+		// file they are copies of, in either direction: leaving one behind
+		// when the volume goes would undo the care taken to remove the key at
+		// all.
+		var keyFiles []string
 		if rec.EnvFile != "" {
 			backups, _ := filepath.Glob(rec.EnvFile + ".bak.*")
-			paths = append(paths, backups...)
+			keyFiles = append([]string{rec.EnvFile}, backups...)
+		}
+		if volumeKept {
+			for _, path := range keyFiles {
+				if exists(path) {
+					keep("%s, which holds the encryption key for the %s volume that was kept; "+
+						"a later install reuses it, so keep it safe, and delete it once the volume is gone", path, volumeOr(rec))
+				}
+			}
+		} else {
+			paths = append(paths, keyFiles...)
 		}
 		for _, path := range paths {
 			if path == "" || !exists(path) {
@@ -467,7 +493,8 @@ func wantsVolumeRemoved(opts UninstallOptions, u *ui, rec DeploymentRecord) (boo
 	u.blank()
 	u.step("Delete the " + volumeOr(rec) + " volume as well?")
 	u.note("that volume is the database: pools, runners, job history and the audit log. Deleting it")
-	u.note("cannot be undone, and keeping it lets a later install pick up exactly where this left off.")
+	u.note("cannot be undone, and keeping it lets a later install pick up exactly where this left off:")
+	u.note("the environment file that holds its encryption key is kept with it, and goes only if the volume does.")
 	return askYesNo(opts.In, opts.Out, "Delete the volume? [y/N]: ")
 }
 

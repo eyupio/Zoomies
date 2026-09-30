@@ -1131,7 +1131,11 @@ stored secret undecryptable. A deployment an older release wrote them into
 
 `zoomies uninstall` reads back which deployment was used and tears down the
 right thing: `<compose> down` for a compose install (offering `-v`, and saying
-plainly that this destroys the database), `stop` and `rm` for a container.
+plainly that this destroys the database), `stop` and `rm` for a container. The
+data volume is kept unless you say otherwise, and so is the `.env`, the only
+copy of the encryption key that seals it: a reinstall over a kept volume reuses
+that key and picks up where it left off. Removing the volume removes the `.env`
+and its backups with it.
 
 ### Behind Cloudflare (or any reverse proxy)
 

@@ -76,14 +76,20 @@ func (b *PodmanBackend) Probe(ctx context.Context) Info {
 	return info
 }
 
-// Create refuses docker-in-docker and otherwise defers to the Docker path.
+// Create goes through CreateWithResult, so both entry points give the same
+// answer.
 func (b *PodmanBackend) Create(ctx context.Context, spec Spec) (Handle, error) {
-	if spec.DockerMode == store.DockerDinD {
-		return "", fmt.Errorf("backend: pool %q asks for docker-in-docker, which the podman backend does not support; either move the pool to the docker backend, or drop docker_mode to none and let jobs use podman's own nested container support inside the runner image", spec.PoolName)
-	}
-	return b.DockerBackend.Create(ctx, spec)
+	r, err := b.CreateWithResult(ctx, spec)
+	return r.Handle, err
 }
 
+// CreateWithResult refuses docker-in-docker and otherwise defers to the Docker
+// path. The refusal lives here, not only in Create, because the agent calls this
+// one for any backend that reports timings: the terse check further down would
+// otherwise be the only text an operator ever saw, with no remedy in it.
 func (b *PodmanBackend) CreateWithResult(ctx context.Context, spec Spec) (CreateResult, error) {
+	if spec.DockerMode == store.DockerDinD {
+		return CreateResult{}, fmt.Errorf("backend: pool %q asks for docker-in-docker, which the podman backend does not support; either move the pool to the docker backend, or drop docker_mode to none and let jobs use podman's own nested container support inside the runner image", spec.PoolName)
+	}
 	return b.DockerBackend.CreateWithResult(ctx, spec)
 }

@@ -15,12 +15,21 @@ import { ApiError } from './api/client';
  * The server's sentences are terse and lowercase, because they are also read
  * in a terminal and in a log line. On a card they are prose, so they start
  * with a capital and end with a full stop.
+ *
+ * Only ever the first letter and the last mark: not a word is changed, because
+ * a 403 names the role required. Two things are left as written. A message that
+ * opens with an identifier (`limits.job_stats_window ...`, `pool_ab12 ...`)
+ * keeps its case, since a capital would name a setting that does not exist; and
+ * one that ends in a path, an address or a colon takes no full stop, which
+ * would be copied along with the address.
  */
 export function sentence(text: string): string {
   const trimmed = text.trim();
   if (trimmed === '') return '';
-  const capitalised = trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
-  return /[.!?]$/.test(capitalised) ? capitalised : `${capitalised}.`;
+  const identifier = /^\S*[._]\S*(\s|$)/.test(trimmed);
+  const capitalised = identifier ? trimmed : trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+  const open = /[.!?:]$/.test(capitalised) || /\S*\/\S*$/.test(capitalised);
+  return open ? capitalised : `${capitalised}.`;
 }
 
 /**

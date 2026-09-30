@@ -304,6 +304,12 @@ type tracked struct {
 	message    string
 	observedAt time.Time
 
+	// fault is the classification of a failed end of life. It is kept beside
+	// the message because the heartbeat's copy of this runner is the retry when
+	// the one-shot report is lost, and the controller cannot recover the
+	// meaning of an exit code from the sentence alone.
+	fault store.FaultKind
+
 	// resources is the allocation the workload was created with: the base a
 	// throttle scales from. It comes from the spec at create and from the
 	// workload's own labels at adopt, because a restarted agent remembers
@@ -349,6 +355,7 @@ func (t *tracked) report() RunnerReport {
 		Handle:      t.handle,
 		Phase:       t.phase,
 		ExitCode:    t.exitCode,
+		Fault:       t.fault,
 		Message:     t.message,
 		Stats:       stats,
 		ObservedAt:  t.observedAt,
@@ -1223,7 +1230,10 @@ func (a *Agent) start(ctx context.Context, task Task) {
 			}
 			if !a.waitForRuntime(ctx) {
 				release()
-				a.reportFailure(ctx, task, "agent shut down while waiting for the container runtime to recover", store.FaultBackend)
+				// Nothing has been attempted on the runtime, so this is a task
+				// handed back like any other shutdown before it started, not a
+				// backend failure to be counted against the pool.
+				a.reportNotStarted(ctx, task)
 				return
 			}
 		}

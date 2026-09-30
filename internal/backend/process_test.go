@@ -41,6 +41,7 @@ const stubListener = `#!/bin/sh
 trap 'echo "interrupted"; exit 0' INT
 echo "$@" > listener-args.txt
 printf '%s' "${ACTIONS_RUNNER_INPUT_JITCONFIG:-}" > listener-jitconfig.txt
+printf '%s' "${ACTIONS_RUNNER_INPUT_TOKEN:-}" > listener-token.txt
 echo "listener started with $1"
 i=0
 while [ $i -lt 60 ]; do
@@ -53,6 +54,7 @@ exit 9
 
 const stubConfigOK = `#!/bin/sh
 echo "$@" > config-args.txt
+printf '%s' "${ACTIONS_RUNNER_INPUT_TOKEN:-}" > config-token.txt
 echo "runner registered"
 exit 0
 `
@@ -348,6 +350,51 @@ func TestProcessRegistrationTokenPath(t *testing.T) {
 		t.Error("a pool that keeps the default labels must not drop them")
 	}
 	waitForPhase(t, b, h, PhaseRunning, 5*time.Second)
+}
+
+// The registration token registers a runner into the organisation, and argv is
+// readable by every local account through ps and /proc/<pid>/cmdline for as
+// long as config.sh runs. The environment is readable by this account and root
+// only, which is how the JIT config already travels.
+func TestProcessKeepsTheRegistrationTokenOffTheCommandLine(t *testing.T) {
+	requireUnix(t)
+	b, _ := newStubProcessBackend(t)
+
+	spec := processSpec()
+	spec.Ephemeral = false
+	spec.Credentials = Credentials{RegistrationToken: "AABBCC", URL: "https://github.com/acme"}
+	h, err := b.Create(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	t.Cleanup(func() { _ = b.Remove(context.Background(), h) })
+	dir := string(h)
+
+	args, err := os.ReadFile(filepath.Join(dir, "config-args.txt"))
+	if err != nil {
+		t.Fatalf("config.sh did not run: %v", err)
+	}
+	if strings.Contains(string(args), "AABBCC") || strings.Contains(string(args), "--token") {
+		t.Fatalf("the registration token is on config.sh's command line, where ps can read it: %q", args)
+	}
+	token, err := os.ReadFile(filepath.Join(dir, "config-token.txt"))
+	if err != nil {
+		t.Fatalf("reading config.sh's environment: %v", err)
+	}
+	if string(token) != "AABBCC" {
+		t.Fatalf("%s = %q, want the registration token", EnvUpstreamRegistrationToken, token)
+	}
+
+	// The token has done its work once config.sh exits; the listener lives for
+	// hours and must not carry it in its environment.
+	waitForLog(t, dir, "listener started", 5*time.Second)
+	got, err := os.ReadFile(filepath.Join(dir, "listener-token.txt"))
+	if err != nil {
+		t.Fatalf("reading the listener's environment: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("the long-lived listener inherited the registration token: %q", got)
+	}
 }
 
 func TestProcessRegistrationCanLeaveOutTheDefaultLabels(t *testing.T) {

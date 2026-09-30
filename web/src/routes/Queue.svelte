@@ -12,6 +12,7 @@
   } from '$lib/api/client';
   import type { Job, ProvisioningStatus, Query } from '$lib/api/types';
   import { events } from '$lib/api/sse';
+  import { NO_VALUE } from '$lib/format';
   import { router } from '$lib/router';
   import { fleet } from '$lib/state/fleet.svelte';
   import { QUEUE_STATUS_LABELS } from '$lib/status';
@@ -345,7 +346,7 @@
     <strong>{job.job_name || 'Unnamed job'}</strong><span>{job.workflow || 'Workflow'}</span>
   </div>{/snippet}
 {#snippet repoCell(job: Job)}<div class="cell">
-    <span class="repo">{job.repo}</span><span>{job.head_branch || '—'}</span>
+    <span class="repo">{job.repo}</span><span>{job.head_branch || NO_VALUE}</span>
   </div>{/snippet}
 {#snippet runCell(job: Job)}
   <GitHubLink
@@ -391,7 +392,7 @@
         aria-pressed={provisioning.length === 1 && provisioning[0] === item.value}
       >
         <span class="card-title">{item.label}</span><strong
-          >{counts[item.value]?.toLocaleString() ?? '—'}</strong
+          >{counts[item.value]?.toLocaleString() ?? NO_VALUE}</strong
         ><span class="card-hint">{item.hint}</span>
       </button>
     {/each}

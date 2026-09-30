@@ -299,7 +299,7 @@ func TestFinishedAndGoneRunnersAreNotThrottled(t *testing.T) {
 	var logs lockedBuffer
 	a.log = slog.New(slog.NewTextHandler(&logs, nil))
 	createdRunner(a, "run_done", "wl-done", store.Resources{CPUs: 2})
-	a.markTerminal("run_done", store.RunnerRemoved, backend.PhaseExited, 0, "done", a.now())
+	a.markTerminal("run_done", store.RunnerRemoved, backend.PhaseExited, 0, "done", "", a.now())
 	createdRunner(a, "run_gone", "wl-gone", store.Resources{CPUs: 2})
 	be.mu.Lock()
 	be.updateErr = backend.ErrNotFound

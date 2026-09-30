@@ -12,13 +12,18 @@ import type { Problem } from '../api/types';
 /**
  * A pool.dangerous problem is raised once per weakened setting on the same
  * pool -- persistent runners, the host docker socket, docker-in-docker, root
- * -- so it is the one code that shares a code and a target across genuinely
- * different problems, with the title the only thing that separates them. No
- * other code does this, and every one of those titles is a fixed sentence
- * from store.Pool.Dangerous, never one built from a count that changes
- * between reconciliation passes.
+ * -- so it shares a code and a target across genuinely different problems,
+ * with the title the only thing that separates them. The two host codes below
+ * are raised once per container backend on the same host (docker and podman)
+ * and name the backend in the title for the same reason. No other code does
+ * this, and every one of those titles is a fixed sentence, never one built
+ * from a count that changes between reconciliation passes.
  */
-const CODES_DISTINGUISHED_BY_TITLE: ReadonlySet<string> = new Set(['pool.dangerous']);
+const CODES_DISTINGUISHED_BY_TITLE: ReadonlySet<string> = new Set([
+  'pool.dangerous',
+  'host.limits_unenforceable',
+  'host.shared_folder_unmounted',
+]);
 
 /**
  * The identity of a problem across refreshes.

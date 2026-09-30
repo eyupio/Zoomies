@@ -481,3 +481,53 @@ func TestAToolCacheTheRunnerCannotWriteIsLeftOut(t *testing.T) {
 		t.Errorf("dir = %q, problem = %q; want the folder bound and no problem", opts.ToolCacheDir, b.lastToolCacheProblem())
 	}
 }
+
+// A create that dies before the container exists has nothing carrying the farm's
+// label, so Remove and the cleanup helper never find it, and a replacement runner
+// has a new name and never rebuilds over it. The failure-cleanup defer is the
+// only thing that can reap it, so the farm must not be built until that defer is
+// in place -- an exhausted address pool or a stalled daemon on the network call
+// would otherwise leave a tree of directories and links per attempt, for ever.
+func TestAFailedNetworkSetupLeavesNoToolFarmBehind(t *testing.T) {
+	requirePOSIX(t)
+	shared := t.TempDir()
+	spec := jitSpec()
+	spec.Network = "zoomies-net"
+	spec.Cache = store.CacheConfig{Enabled: true, Tools: true, Scope: store.CacheScopePool}
+	dir, err := toolCacheDir(spec, shared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "go", "1.27.1", "x64"), 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "go", "1.27.1", "x64.complete"), nil, 0o666); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o777); err != nil {
+		t.Fatal(err)
+	}
+
+	f := newFakeEngine(t, map[string]http.HandlerFunc{
+		"DELETE " + v + "/containers/{id}": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"message": "no such container"})
+		},
+		"GET " + v + "/images/{ref...}": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusOK, map[string]string{"Id": "sha256:cached"})
+		},
+		"GET " + v + "/networks/{name}": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"message": "no such network"})
+		},
+		"POST " + v + "/networks/create": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "could not find an available, non-overlapping IPv4 address pool"})
+		},
+	})
+	b := dockerBackendFor(t, f, DockerOptions{SharedDir: shared})
+
+	if _, err := b.CreateWithResult(context.Background(), spec); err == nil || !strings.Contains(err.Error(), "preparing network") {
+		t.Fatalf("create err = %v, want the network failure", err)
+	}
+	if _, err := os.Stat(toolFarmDir(shared, spec.Name)); !os.IsNotExist(err) {
+		t.Fatalf("the failed create left its tool farm behind: %v", err)
+	}
+}

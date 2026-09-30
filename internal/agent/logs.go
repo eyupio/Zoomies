@@ -152,6 +152,13 @@ func (r *logRelay) pump(ctx context.Context, streamID string, s *logStream, src 
 			if _, err := dst.Write(chunk); err != nil {
 				failed = true
 				r.log.Debug("controller closed a log stream", "stream", streamID, "error", err)
+				// A write that failed once never recovers, and a cancel_logs
+				// can have arrived before the stream existed, so nothing else
+				// would end this one: it would follow the job's output for
+				// hours, discarding every byte. Cancelling closes the source
+				// through the AfterFunc above; the drain loop keeps the reader
+				// from blocking while it winds down.
+				s.cancel()
 			}
 		}
 	}()

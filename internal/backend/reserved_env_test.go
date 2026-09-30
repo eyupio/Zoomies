@@ -16,7 +16,7 @@ func TestTheValidatorReservesEveryVariableTheBackendWritesForARunner(t *testing.
 	written := []string{
 		EnvJITConfig, EnvUpstreamJITConfig, EnvRunnerURL, EnvRunnerToken,
 		EnvRunnerName, EnvRunnerLabels, EnvRunnerGroup, EnvEphemeral,
-		EnvNoDefaultLabels,
+		EnvNoDefaultLabels, EnvUpstreamRegistrationToken,
 	}
 	for _, name := range written {
 		if !slices.Contains(config.ReservedRunnerEnv, name) {

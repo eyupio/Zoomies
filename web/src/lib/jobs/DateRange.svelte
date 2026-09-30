@@ -98,7 +98,11 @@
     onchange={(event) => onchange({ since, until: event.currentTarget.value })}
   />
   {#if backwards}
-    <p class="error" id={errorId}>The end is before the start, so nothing can match.</p>
+    <!-- An alert so the failure is spoken when it appears; the describedby link
+         alone is only read if a field is revisited. -->
+    <p class="error" id={errorId} role="alert">
+      The end is before the start, so nothing can match.
+    </p>
   {/if}
 </div>
 

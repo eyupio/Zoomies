@@ -164,6 +164,27 @@ test('a link to one setting lands on it, whatever the page was filtered to', asy
   await expect(sought).toHaveClass(/sought/);
 });
 
+test('saving a setting after arriving from a link leaves the search and the scroll alone', async ({
+  page,
+}) => {
+  // The link's effect used to read the settings it had just been handed, so
+  // every save, refresh or import re-armed it: the search box emptied and the
+  // page jumped back to the linked row, away from the one being edited.
+  await goto(page, '/settings/configuration?setting=scheduler.provision_timeout', 'Configuration');
+  await expect(row(page, 'Provision timeout')).toHaveClass(/sought/);
+
+  const search = page.getByRole('textbox', { name: 'Search settings' });
+  await search.fill('retention.webhooks');
+  await change(page, 'Keep webhook deliveries for', '96h');
+  await expect(search).toHaveValue('retention.webhooks');
+  await expect(row(page, 'Provision timeout')).toHaveCount(0);
+
+  // Put it back, so the next spec sees the fixture it expects.
+  await row(page, 'Keep webhook deliveries for').getByRole('button', { name: 'Reset' }).click();
+  await expect(row(page, 'Keep webhook deliveries for').getByText('Saved here')).toBeHidden();
+  await expect(search).toHaveValue('retention.webhooks');
+});
+
 test('the search box takes the slash key, the way a list an operator reads does', async ({
   page,
 }) => {

@@ -76,7 +76,7 @@
     type Interval,
   } from '$lib/insights/activity';
   import { remember, remembered } from '$lib/state/prefs.svelte';
-  import { formatNumber, toMillis } from '$lib/format';
+  import { formatDuration, formatNumber, NO_VALUE, toMillis } from '$lib/format';
   let {
     rows,
     grouping,
@@ -259,7 +259,9 @@
     },
     {
       label: 'Success rate',
-      value: total.completed ? `${((100 * total.succeeded) / total.completed).toFixed(1)}%` : '—',
+      value: total.completed
+        ? `${((100 * total.succeeded) / total.completed).toFixed(1)}%`
+        : NO_VALUE,
       detail: `${formatNumber(total.succeeded)} of ${formatNumber(total.completed)} completed`,
       tone: 'success' as const,
     },
@@ -276,7 +278,7 @@
     },
     {
       label: 'Average queue wait',
-      value: total.starts ? `${(total.wait / total.starts).toFixed(1)}s` : '—',
+      value: total.starts ? formatDuration((1000 * total.wait) / total.starts) : NO_VALUE,
       detail: 'Weighted across jobs that started',
     },
     {
@@ -288,7 +290,7 @@
       value:
         total.allocated && total.allocated >= total.seconds
           ? `${((100 * total.seconds) / total.allocated).toFixed(1)}%`
-          : '—',
+          : NO_VALUE,
       detail:
         grouping === 'repository' || grouping === 'workflow'
           ? 'Allocation not attributable'

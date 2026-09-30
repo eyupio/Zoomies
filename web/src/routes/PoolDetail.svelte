@@ -200,7 +200,7 @@
     if (!pool?.id) return;
     try {
       const result = await prewarmPool(pool.id);
-      toasts.success('Image prewarm queued', `${result.queued ?? 0} matching host(s).`);
+      toasts.success('Image prewarm queued', `${pluralise(result.queued ?? 0, 'matching host')}.`);
     } catch (cause) {
       toasts.fromError(cause, 'The image was not prewarmed');
     }

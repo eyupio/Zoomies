@@ -7,7 +7,7 @@
  *
  * Error handling follows the contract in docs/api-surface.md:
  *   401  the session is gone. Clear it and go to the login page.
- *   403  the message names the role required. Show it verbatim.
+ *   403  the message names the role required. Show it in the server's words.
  *   422  `errors` names the offending fields so a form can attach them.
  */
 import { supportHint } from '$lib/errors';

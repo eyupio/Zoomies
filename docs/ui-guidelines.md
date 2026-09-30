@@ -382,6 +382,13 @@ useful number of runners on screen. Prose in docs and empty states steps up to
 Numerals in tables use `font-variant-numeric: tabular-nums` so columns align.
 IDs use `--z-font-mono` at `--z-text-xs`.
 
+**A value that is not there is written `--`, everywhere.** Every formatter in
+`lib/format.ts` answers with it for a null, and a page with no formatter to call
+(a tile whose figure is not yet known, a cell with nothing behind it) writes the
+`NO_VALUE` constant from the same file rather than its own dash. An em dash or an
+en dash in that place is how a table cell and the tile above it came to disagree
+about what empty looks like. Ranges (`1–10 of 24`) and sentences keep their dashes.
+
 **Form controls are the one exception, and only on a phone.** Below 768px,
 `Input`, `Textarea` and `Select` step up to `--z-text-lg` (16px). Mobile Safari
 zooms the whole viewport whenever a focused control is under 16px, and the
@@ -845,6 +852,15 @@ User actions apply locally first and roll back on failure with a toast that says
 what failed and why. Draining a runner flips its badge immediately; if the API
 returns 409 the badge flips back and the toast explains. Background outcomes
 (the runner actually reaching `removed`) arrive over SSE and need no toast.
+
+The controller's own words are what a failure says — a 403 names the role
+required, and paraphrasing it would lose that. They are shown as they are, but
+run through `sentence()` in `lib/errors.ts` first, in the failure toast and the
+error panel: the server writes for a log line (lowercase, no full stop), and
+under a sentence-case title that reads as raw output. That changes only the
+first letter and the last mark, and leaves alone a message that opens with an
+identifier such as a setting key. An error a form or dialog shows inline is not
+yet passed through it.
 
 ### Forms
 

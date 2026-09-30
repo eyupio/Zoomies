@@ -500,7 +500,7 @@
         <section class="banner staged" aria-labelledby="staged-restore">
           <ArchiveRestore size={18} aria-hidden="true" />
           <div class="banner-body">
-            <h3 id="staged-restore">A restore is staged and waiting for a restart</h3>
+            <h2 id="staged-restore">A restore is staged and waiting for a restart</h2>
             <p>
               <span class="mono">{staged.backup_id}</span>
               {#if staged.taken_at}, taken {formatAbsolute(staged.taken_at)},{/if}
@@ -537,11 +537,11 @@
             <TriangleAlert size={18} aria-hidden="true" />
           {/if}
           <div class="banner-body">
-            <h3 id="last-restore">
+            <h2 id="last-restore">
               {lastRestore.ok
                 ? `${lastRestore.backup_id} was restored`
                 : `The restore of ${lastRestore.backup_id} did not finish`}
-            </h3>
+            </h2>
             {#if lastRestore.ok}
               <p>
                 Applied <RelativeTime value={lastRestore.attempted_at} plain />.
@@ -577,7 +577,7 @@
         <section class="banner failed" aria-labelledby="schedule-failed">
           <TriangleAlert size={18} aria-hidden="true" />
           <div class="banner-body">
-            <h3 id="schedule-failed">The scheduled backup is failing</h3>
+            <h2 id="schedule-failed">The scheduled backup is failing</h2>
             <p class="why">{schedule.last_error}</p>
             <p>
               The controller tries again every fifteen minutes. Taking one now shows the same error,
@@ -959,12 +959,14 @@
     >
       {#snippet children({ id, describedBy })}
         <div class="filepick">
+          <!-- The button beside it is the control. A tab stop here would be clipped away with the input and draw no focus ring. -->
           <input
             bind:this={fileInput}
             {id}
             type="file"
             accept=".gz,.enc,application/gzip,application/octet-stream"
             aria-describedby={describedBy}
+            tabindex="-1"
             class="sr-only"
             onchange={pickFile}
             disabled={uploadBusy}
@@ -1133,7 +1135,7 @@
     min-width: 0;
     flex: 1;
   }
-  .banner h3 {
+  .banner h2 {
     margin: 0;
     font-size: var(--z-text-sm);
     font-weight: var(--z-weight-semibold);

@@ -407,10 +407,16 @@ func DockerRunArgs(s DockerRunSpec) []string {
 	// the string form, and docker wraps that in /bin/sh -- which a distroless
 	// image does not have, so the check would fail on every probe.
 	//
+	// --stop-timeout is the same budget Compose and the systemd units carry. A
+	// bare `docker stop` or `docker restart` honours the container's own value
+	// and Docker's default is ten seconds, which SIGKILLs an embedded agent in
+	// the middle of an admitted runner creation.
+	//
 	// The hostname is the name the embedded agent registers the host under;
 	// without one it is the container's random ID, which then follows the host
 	// into every scheduler reason and problem message.
-	args := []string{"run", "--detach", "--name", s.Container, "--hostname", s.Container, "--restart", "unless-stopped"}
+	args := []string{"run", "--detach", "--name", s.Container, "--hostname", s.Container, "--restart", "unless-stopped",
+		"--stop-timeout", strconv.Itoa(int(serviceStopTimeout.Seconds()))}
 	if s.EnvFile != "" {
 		args = append(args, "--env-file", s.EnvFile)
 	}
@@ -772,7 +778,9 @@ func (i *Installer) upDocker(ctx context.Context, p Plan, envPath string, rerun 
 	// upgrade rather than a reinstall.
 	if containerExists(ctx, ContainerName) {
 		i.ui.note("replacing the existing " + ContainerName + " container; its volume, and so the database, is kept.")
-		_, _ = runCommand(ctx, "docker", "stop", ContainerName)
+		// Named outright because a container made by an older binary carries no
+		// stop timeout of its own, and this is the stop that replaces it.
+		_, _ = runCommand(ctx, "docker", "stop", "--time", strconv.Itoa(int(serviceStopTimeout.Seconds())), ContainerName)
 		if _, err := runCommand(ctx, "docker", "rm", ContainerName); err != nil {
 			return fmt.Errorf("installer: removing the previous container: %w", err)
 		}

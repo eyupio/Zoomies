@@ -174,7 +174,7 @@
     </LoadingBoundary>
 
     <section aria-labelledby="docs-heading">
-      <h3 id="docs-heading">Documentation</h3>
+      <h2 id="docs-heading">Documentation</h2>
       <ul class="docs">
         {#each DOCS as doc (doc.href)}
           <li>
@@ -266,7 +266,7 @@
     color: var(--z-text-subtle);
     font-size: var(--z-text-xs);
   }
-  h3 {
+  h2 {
     margin: 0 0 var(--z-space-3);
     font-size: var(--z-text-2xs);
     text-transform: uppercase;

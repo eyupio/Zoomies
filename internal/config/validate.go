@@ -90,6 +90,7 @@ const MaxDockerWait = time.Hour
 // import; a test in internal/backend keeps the two lists the same.
 var ReservedRunnerEnv = []string{
 	"ZOOMIES_JITCONFIG", "ACTIONS_RUNNER_INPUT_JITCONFIG",
+	"ACTIONS_RUNNER_INPUT_TOKEN",
 	"ZOOMIES_RUNNER_URL", "ZOOMIES_RUNNER_TOKEN", "ZOOMIES_RUNNER_NAME",
 	"ZOOMIES_RUNNER_LABELS", "ZOOMIES_RUNNER_GROUP", "ZOOMIES_EPHEMERAL",
 	"ZOOMIES_RUNNER_NO_DEFAULT_LABELS",
@@ -458,6 +459,7 @@ func (c *Config) Validate() Findings {
 						Code: "tls.file_unreadable", Severity: SeverityError, Setting: "server.tls." + name,
 						Title:  fmt.Sprintf("cannot read %s", p),
 						Detail: err.Error(),
+						Fix:    "make the file readable by the user the controller runs as, or point server.tls.cert_file and server.tls.key_file at files it can read.",
 					})
 				}
 			}
@@ -531,6 +533,7 @@ func (c *Config) Validate() Findings {
 		add(Finding{
 			Code: "github.api_base_malformed", Severity: SeverityError, Setting: "github.api_base_url",
 			Title: fmt.Sprintf("%q is not an absolute URL", c.GitHub.APIBaseURL),
+			Fix:   "use https://api.github.com, or https://your-ghes-host/api/v3 for Enterprise Server.",
 		})
 	}
 
@@ -546,6 +549,7 @@ func (c *Config) Validate() Findings {
 			add(Finding{
 				Code: "db.parent_not_dir", Severity: SeverityError, Setting: "database.path",
 				Title: fmt.Sprintf("%s exists and is not a directory", dir),
+				Fix:   "set database.path to a file inside a directory, e.g. /var/lib/zoomies/zoomies.db.",
 			})
 		}
 	}
@@ -657,6 +661,7 @@ func (c *Config) Validate() Findings {
 			Code: "auth.session_ttl_long", Severity: SeverityWarning, Setting: "security.session_ttl",
 			Title:  fmt.Sprintf("browser sessions last %s", c.Security.SessionTTL),
 			Detail: "a stolen session cookie stays valid for that long.",
+			Fix:    `use a duration of 90 days (2160h) or less, such as "168h", unless people really stay signed in that long.`,
 		})
 	}
 	if c.OIDC.Enabled {
@@ -903,6 +908,7 @@ func (c *Config) Validate() Findings {
 		add(Finding{
 			Code: "scheduler.burst", Severity: SeverityError, Setting: "scheduler.max_creates_per_tick",
 			Title: "max_creates_per_tick must be at least 1",
+			Fix:   "set scheduler.max_creates_per_tick to 1 or more; the default is 10.",
 		})
 	}
 	if !c.Scheduler.DefaultRunnerLimits {
@@ -1053,16 +1059,16 @@ func (c *Config) Validate() Findings {
 	if c.CapacityDemand.DestinationURL != "" {
 		u, err := url.Parse(c.CapacityDemand.DestinationURL)
 		if err != nil || u.Scheme == "" || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
-			add(Finding{Code: "capacity_demand.url", Severity: SeverityError, Setting: "capacity_demand.destination_url", Title: "capacity-demand destination is not an absolute HTTP URL"})
+			add(Finding{Code: "capacity_demand.url", Severity: SeverityError, Setting: "capacity_demand.destination_url", Title: "capacity-demand destination is not an absolute HTTP URL", Fix: "use an address like https://provisioner.example.com/events."})
 		}
 		if c.CapacityDemand.SigningSecret == "" {
 			add(Finding{Code: "capacity_demand.secret", Severity: SeverityError, Setting: "capacity_demand.signing_secret", Title: "capacity-demand signing secret is empty", Fix: "set a high-entropy shared secret."})
 		}
 		if c.CapacityDemand.Cooldown <= 0 {
-			add(Finding{Code: "capacity_demand.cooldown", Severity: SeverityError, Setting: "capacity_demand.cooldown", Title: "capacity-demand cooldown must be positive"})
+			add(Finding{Code: "capacity_demand.cooldown", Severity: SeverityError, Setting: "capacity_demand.cooldown", Title: "capacity-demand cooldown must be positive", Fix: `use a duration like "10m", which is the default.`})
 		}
 		if c.CapacityDemand.Timeout <= 0 {
-			add(Finding{Code: "capacity_demand.timeout", Severity: SeverityError, Setting: "capacity_demand.timeout", Title: "capacity-demand timeout must be positive"})
+			add(Finding{Code: "capacity_demand.timeout", Severity: SeverityError, Setting: "capacity_demand.timeout", Title: "capacity-demand timeout must be positive", Fix: `use a duration like "10s", which is the default.`})
 		}
 	}
 
@@ -1073,6 +1079,24 @@ func (c *Config) Validate() Findings {
 	// install that has been talking to a LAN Enterprise Server for a year.
 	// The threat is somebody with settings rights writing one of these
 	// through the API, and the API refuses that at the write.
+	//
+	// With the switch on those checks pass everything, so the switch itself is
+	// the only place left to say so. It is a warning, not info: it removes the
+	// one guard between a settings-writer and this machine's neighbourhood, and
+	// a LAN install that needs it is choosing to accept that, which is what a
+	// warning that names the setting is for.
+	if c.Security.AllowPrivateEgress {
+		add(Finding{
+			Code: "egress.private_allowed", Severity: SeverityWarning, Setting: AllowPrivateEgressSetting,
+			Title: "this controller may be pointed at private addresses",
+			Detail: "the outbound URL settings -- the OIDC issuer, the GitHub API, the capacity-demand destination, the runner download mirror, " +
+				"a backup remote and a provider -- may name this machine, a link-local address such as the cloud metadata service at 169.254.169.254, " +
+				"or a private network, and nothing is refused or warned about on the way. Anyone who can write those settings can aim this process " +
+				"at its own neighbourhood and read the answer back out of an error message.",
+			Fix: "turn " + AllowPrivateEgressSetting + " off unless the OIDC issuer, Enterprise Server, provider or backup remote really lives on a network you own; " +
+				"if it does, this warning is the acknowledgement and the setting can stay on.",
+		})
+	}
 	for _, o := range c.OutboundURLs() {
 		if f := CheckOutboundURL(o.Setting, o.Value, c.Security.AllowPrivateEgress); f != nil {
 			f.Severity = SeverityWarning

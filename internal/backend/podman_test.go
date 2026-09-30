@@ -33,13 +33,30 @@ func TestPodmanRefusesDinD(t *testing.T) {
 	spec := jitSpec()
 	spec.DockerMode = store.DockerDinD
 
-	_, err = b.Create(context.Background(), spec)
-	if err == nil {
-		t.Fatal("podman accepted docker-in-docker")
+	// The agent calls CreateWithResult, so it has to give the same answer as
+	// Create: a test of Create alone passed while production showed the terse
+	// message with no remedy in it.
+	entryPoints := map[string]func() error{
+		"Create": func() error {
+			_, err := b.Create(context.Background(), spec)
+			return err
+		},
+		"CreateWithResult": func() error {
+			_, err := b.CreateWithResult(context.Background(), spec)
+			return err
+		},
 	}
-	// The operator needs both alternatives, not just a refusal.
-	if !strings.Contains(err.Error(), "docker backend") || !strings.Contains(err.Error(), "nested") {
-		t.Fatalf("unhelpful message: %v", err)
+	for name, create := range entryPoints {
+		t.Run(name, func(t *testing.T) {
+			err := create()
+			if err == nil {
+				t.Fatal("podman accepted docker-in-docker")
+			}
+			// The operator needs both alternatives, not just a refusal.
+			if !strings.Contains(err.Error(), "docker backend") || !strings.Contains(err.Error(), "nested") {
+				t.Fatalf("unhelpful message: %v", err)
+			}
+		})
 	}
 }
 

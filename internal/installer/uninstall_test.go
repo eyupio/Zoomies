@@ -421,3 +421,99 @@ func TestUninstallVolumePromptNamesWhatIsInIt(t *testing.T) {
 		t.Errorf("the prompt does not show that keeping the volume is the default:\n%s", asked)
 	}
 }
+
+// For a container deployment the environment file is the only copy of the
+// encryption key, and the data volume is sealed with it. Uninstall keeps the
+// volume unless it is asked plainly, so it must keep the key that opens it:
+// otherwise "keeping it lets a later install pick up exactly where this left
+// off" is false, and the operator finds out when every stored GitHub App key
+// and webhook secret fails to decrypt.
+func TestUninstallKeepsTheKeyForAVolumeItKeeps(t *testing.T) {
+	yes, no := true, false
+
+	for _, tc := range []struct {
+		name         string
+		removeVolume *bool
+		keyKept      bool
+	}{
+		{name: "the volume is kept when nobody says otherwise", removeVolume: nil, keyKept: true},
+		{name: "the volume is kept when the flag says not to delete it", removeVolume: &no, keyKept: true},
+		{name: "the key goes with the volume it sealed", removeVolume: &yes, keyKept: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := uninstallOpts(t)
+			opts.Yes = true
+			opts.NonInteractive = true
+			opts.RemoveVolume = tc.removeVolume
+			var out bytes.Buffer
+			opts.Out = &out
+
+			deployDir := t.TempDir()
+			envFile := writeFile(t, deployDir, ".env", "ZOOMIES_ENCRYPTION_KEY=the-only-copy\n")
+			backup := writeFile(t, deployDir, ".env.bak.20260101-000000", "ZOOMIES_ENCRYPTION_KEY=the-only-copy\n")
+			compose := writeFile(t, deployDir, ComposeFileName, "services: {}\n")
+			// Names nothing on this machine can have, so the docker calls
+			// uninstall makes are refused rather than acted on.
+			rec := DeploymentRecord{
+				Deployment: DeploymentDocker,
+				Directory:  deployDir,
+				Container:  "zoomies-uninstall-test-none",
+				Volume:     "zoomies-uninstall-test-none",
+				EnvFile:    envFile,
+			}
+			if _, err := WriteDeploymentRecord(opts.ConfigDir, rec); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := Uninstall(context.Background(), opts); err != nil {
+				t.Fatalf("Uninstall: %v", err)
+			}
+
+			for _, path := range []string{envFile, backup} {
+				if got := exists(path); got != tc.keyKept {
+					t.Errorf("%s exists = %v, want %v\n%s", path, got, tc.keyKept, out.String())
+				}
+			}
+			// Nothing else needs to survive: the compose file is regenerated
+			// and the record describes a deployment that is gone.
+			if exists(compose) || exists(DeploymentRecordPath(opts.ConfigDir)) {
+				t.Errorf("the compose file and the deployment record should still be removed\n%s", out.String())
+			}
+			if tc.keyKept {
+				if report := out.String(); !strings.Contains(report, "encryption key") || !strings.Contains(report, envFile) {
+					t.Errorf("the report should say the environment file was left, and why:\n%s", report)
+				}
+			}
+		})
+	}
+}
+
+// The plan is printed before the volume question is asked, so what it says
+// about the key has to be true for both answers.
+func TestDeploymentItemsSayTheKeyStaysWithAKeptVolume(t *testing.T) {
+	yes := true
+	rec := DeploymentRecord{Deployment: DeploymentDocker, EnvFile: "/etc/zoomies/.env"}
+
+	for _, tc := range []struct {
+		name   string
+		remove *bool
+		want   string
+	}{
+		{"undecided", nil, "kept unless the data volume is deleted"},
+		{"the volume is going", &yes, "removed with the data volume"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := uninstallOpts(t)
+			opts.RemoveVolume = tc.remove
+			for _, item := range deploymentItems(rec, opts) {
+				if item.What == "environment file" {
+					if !strings.Contains(item.Note, "encryption key") || !strings.Contains(item.Note, tc.want) {
+						t.Fatalf("note = %q, want it to mention the key and %q", item.Note, tc.want)
+					}
+					return
+				}
+			}
+			t.Fatal("the environment file is not in the plan")
+		})
+	}
+}

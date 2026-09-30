@@ -1,10 +1,11 @@
 <!--
   Something failed. Say what happened and what to do about it, in the server's
   own words where there are any -- a 403 message names the role required, and
-  paraphrasing it would throw that away.
+  paraphrasing it would throw that away. Only the capital and the full stop are
+  ours: the server writes for a log line, and this is a sentence on a card.
 -->
 <script lang="ts">
-  import { supportHint } from '$lib/errors';
+  import { sentence, supportHint } from '$lib/errors';
   import { TriangleAlert, WifiOff } from '@lucide/svelte';
   import { ApiError } from '../api/client';
   import Button from './Button.svelte';
@@ -48,8 +49,11 @@
 
   const body = $derived(
     description ??
-      apiError?.message ??
-      (error instanceof Error ? error.message : `The cause was not reported. ${supportHint()}`),
+      (apiError
+        ? sentence(apiError.message)
+        : error instanceof Error
+          ? sentence(error.message)
+          : `The cause was not reported. ${supportHint()}`),
   );
 </script>
 

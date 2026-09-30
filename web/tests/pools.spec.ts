@@ -1173,3 +1173,31 @@ test('a fixed size can carry a minimum for hosts a little short of it', async ({
     page.getByText('The minimum has to be at or below the standard memory.'),
   ).toBeVisible();
 });
+
+/**
+ * The prewarm toast states how many hosts matched, and a fleet with a single
+ * host is the common case: "1 matching host(s)" is a placeholder that reached
+ * the screen.
+ */
+test('prewarming an image says how many hosts matched in words, singular or plural', async ({
+  page,
+}) => {
+  const pools = (await page.request.get('/api/v1/pools').then((r) => r.json())) as {
+    items: { id: string; name: string }[];
+  };
+  const pool = pools.items.find((p) => p.name === FIXTURE.linuxPool);
+  expect(pool).toBeDefined();
+  const prewarm = `**/api/v1/pools/${pool!.id}/prewarm`;
+  for (const [queued, sentence] of [
+    [1, '1 matching host.'],
+    [3, '3 matching hosts.'],
+  ] as const) {
+    await page.route(prewarm, (route) => route.fulfill({ json: { queued } }));
+    await goto(page, `/pools/${pool!.id}`, FIXTURE.linuxPool);
+    await page.getByRole('button', { name: 'Prewarm image' }).click();
+    const toast = page.locator('.toast[data-tone="success"]', { hasText: 'Image prewarm queued' });
+    await expect(toast).toContainText(sentence);
+    await expect(toast).not.toContainText('(s)');
+    await page.unroute(prewarm);
+  }
+});

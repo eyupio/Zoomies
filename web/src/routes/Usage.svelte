@@ -21,7 +21,7 @@
   import type { Usage, UsageGrouping } from '$lib/api/types';
   import { router } from '$lib/router';
   import { fleet } from '$lib/state/fleet.svelte';
-  import { formatAbsolute, formatNumber, formatPercent } from '$lib/format';
+  import { formatAbsolute, formatDuration, formatNumber, formatPercent } from '$lib/format';
   import Button from '$lib/components/Button.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import LoadingBoundary from '$lib/components/LoadingBoundary.svelte';
@@ -232,11 +232,10 @@
     return (seconds / 3600).toFixed(2);
   }
 
-  /** A mean wait in the units a person reads it in. */
+  /** A mean wait, spelt as every other duration is, so it matches the tile above. */
   function wait(seconds: number | null): string {
     if (seconds === null) return 'Nothing started';
-    if (seconds < 90) return `${seconds.toFixed(1)}s`;
-    return `${(seconds / 60).toFixed(1)} min`;
+    return formatDuration(seconds * 1000);
   }
 
   /** An estimate, marked as one by the note above the table, not by a symbol. */
@@ -622,7 +621,7 @@
   }
   .name.muted {
     color: var(--z-text-muted);
-    font-weight: var(--z-weight-regular);
+    font-weight: var(--z-weight-normal);
   }
   .tag {
     margin-left: var(--z-space-2);

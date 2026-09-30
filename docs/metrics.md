@@ -58,7 +58,7 @@ memory, so they are always current and never drift.
 | `zoomies_hosts` | gauge | `state` | Agent hosts, by `healthy`, `unhealthy` or `cordoned`. |
 | `zoomies_host_capacity` | gauge | — | Configured runner slots across healthy, uncordoned hosts: what their operators set. |
 | `zoomies_host_effective_capacity` | gauge | — | The same slots as the hosts' throttles leave them. Equal to the previous while no host is throttled; the gap between the two is the throttle. |
-| `zoomies_host_capacity_used` | gauge | — | Slots occupied. Divide by the effective figure for utilisation. |
+| `zoomies_host_capacity_used` | gauge | — | Slots occupied on healthy, uncordoned hosts — the same hosts the two capacity figures count, so dividing by the effective figure gives utilisation. Runners still finishing on a cordoned or silent host are not in it; `zoomies_runners` counts every live runner. |
 | `zoomies_host_cpu_usage_percent` | gauge | `host` | Recent whole-host CPU occupied, including I/O wait. Missing when stale or unmeasured. |
 | `zoomies_host_memory_available_bytes` | gauge | `host` | Recent available memory including reclaimable cache. Missing when stale or unmeasured. |
 | `zoomies_host_admission_held` | gauge | `host` | 1 while measured CPU or memory pressure holds new starts; running jobs continue. |

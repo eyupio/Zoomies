@@ -306,6 +306,78 @@ test('a dialog keeps focus, closes on Escape and hands focus back', async ({ pag
   await expect(trigger, 'focus returns to what opened the dialog').toBeFocused();
 });
 
+// A heading that skips a level tells a screen-reader user who navigates by
+// heading that a section is missing. Checked on the settings pages, which
+// share a layout and so should share an outline: Backups, Configuration and
+// About once went from the page's h1 straight to h3. Each names a heading that
+// only exists once the page's data has loaded, so an outline read too early
+// cannot pass for want of anything to skip.
+const SETTINGS_OUTLINES = [
+  { path: '/settings/backups', heading: 'Backups', loaded: '#backup-schedule' },
+  { path: '/settings/configuration', heading: 'Configuration', loaded: '[id^="section-"]' },
+  { path: '/settings/about', heading: 'About', loaded: '#docs-heading' },
+  { path: '/settings/events', heading: 'Events', loaded: '[id^="feed-group-"]' },
+];
+
+for (const { path, heading, loaded } of SETTINGS_OUTLINES) {
+  test(`${heading} settings never skip a heading level`, async ({ page }) => {
+    await goto(page, path, heading);
+    await expect(page.locator(loaded).first()).toBeVisible();
+
+    const levels = await page
+      .getByRole('main')
+      .getByRole('heading')
+      .evaluateAll((els) => els.map((el) => Number(el.tagName.slice(1))));
+    expect(levels[0], 'the outline starts at the page heading').toBe(1);
+    const skips = levels.filter((level, i) => i > 0 && level > (levels[i - 1] ?? 0) + 1);
+    expect(skips, `heading levels in order: ${levels.join(', ')}`).toEqual([]);
+  });
+}
+
+// A file input is visually hidden behind a button that opens its picker, so if
+// it takes focus itself nothing is drawn: the ring is clipped away with the
+// input, and a keyboard user loses the focus for a Tab. The button is the
+// control; the input must not be a stop of its own.
+const FILE_PICKERS = [
+  { path: '/pools', heading: 'Pools', open: 'Import', dialog: 'Import pools' },
+  {
+    path: '/settings/configuration',
+    heading: 'Configuration',
+    open: 'Import',
+    dialog: 'Import settings',
+  },
+  {
+    path: '/settings/backups',
+    heading: 'Backups',
+    open: 'Upload a backup',
+    dialog: 'Upload a backup',
+  },
+];
+
+for (const { path, heading, open, dialog } of FILE_PICKERS) {
+  test(`the ${dialog} dialog's file picker is reached through its button, not a hidden input`, async ({
+    page,
+  }) => {
+    await goto(page, path, heading);
+    await page.getByRole('button', { name: open, exact: true }).click();
+    await expect(page.getByRole('dialog', { name: dialog })).toBeVisible();
+
+    const chooser = page.getByRole('dialog', { name: dialog }).getByRole('button', {
+      name: 'Choose a file',
+    });
+    let reached = false;
+    for (let press = 0; press < 10; press++) {
+      await page.keyboard.press('Tab');
+      expect(
+        await page.evaluate(() => (document.activeElement as HTMLInputElement | null)?.type),
+        'focus never rests on an input nobody can see',
+      ).not.toBe('file');
+      reached ||= await chooser.evaluate((el) => el === document.activeElement);
+    }
+    expect(reached, 'the visible button is a tab stop').toBe(true);
+  });
+}
+
 test('a drawer keeps focus the way a dialog does, and gives it back', async ({ page }) => {
   // A drawer is a modal too. It was untested, and it is the one an operator
   // opens most: every row of the Jobs grid opens one.

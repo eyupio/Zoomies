@@ -140,6 +140,20 @@ test('a backwards range switches the CSV link off for the keyboard too', async (
   await expect(page.getByRole('link', { name: 'Export CSV' })).toHaveCount(1);
 });
 
+test('a backwards range says so as an alert, not only through the inputs it describes', async ({
+  page,
+}) => {
+  // A describedby link is read only when a field is revisited, so somebody who
+  // has just typed an end before the start would otherwise be told nothing.
+  await goto(page, '/usage?since=2026-08-01T00:00&until=2026-08-31T00:00', 'Usage');
+  const warning = page.getByRole('alert').filter({ hasText: 'The end is before the start' });
+  await expect(warning).toHaveCount(0);
+
+  await page.getByLabel('From', { exact: true }).fill('2026-09-15T00:00');
+  await page.getByLabel('From', { exact: true }).blur();
+  await expect(warning).toBeVisible();
+});
+
 test('changing grouping cancels a pending manual refresh', async ({ page }) => {
   await goto(page, '/usage', 'Usage');
   await expect(header(page, 'Runner-hours')).toHaveCount(1);
@@ -352,5 +366,61 @@ test('a range longer than the server allows names the setting that limits it', a
   await goto(page, '/usage?since=2020-01-01&until=2020-12-31', 'Usage');
   await expect(page.getByRole('region', { name: 'By release' }).getByRole('alert')).toContainText(
     'limits.job_stats_window',
+  );
+});
+
+/**
+ * One measure, one spelling. The tile once printed "125.0s" and the table
+ * under it "2.1 min" for the same mean, and a twenty-minute wait read "1200.0s"
+ * in the tile: two figures a screen apart that made an operator ask whether
+ * they were two measurements. Every other duration in the app is written by
+ * formatDuration, so both are.
+ */
+test('the average queue wait is written the same way in the tile and in the table', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/usage?**', async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    body.items = (body.items ?? []).map((row: object) => ({
+      ...row,
+      jobs_started: 4,
+      average_queue_wait_seconds: 125,
+    }));
+    await route.fulfill({ json: body });
+  });
+  await goto(page, '/usage', 'Usage');
+
+  const tile = page.locator('.metric').filter({ hasText: 'Average queue wait' });
+  await expect(tile.locator('dd')).toHaveText('2m 05s');
+  await expect(
+    table(page).getByRole('row').nth(1).getByRole('cell').filter({ hasText: '2m 05s' }),
+  ).toHaveCount(1);
+});
+
+/**
+ * "Nothing to show" has one spelling. The tiles above the table used an em dash
+ * where the table's own cells (and every formatter) write two hyphens, so a
+ * range with no completed jobs disagreed with itself about what empty looks like.
+ */
+test('a page with no completed jobs marks its missing figures the way the rest of the app does', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/usage?**', async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    body.items = (body.items ?? []).map((row: object) => ({
+      ...row,
+      jobs_completed: 0,
+      jobs_started: 0,
+      average_queue_wait_seconds: null,
+    }));
+    await route.fulfill({ json: body });
+  });
+  await goto(page, '/usage', 'Usage');
+  const tile = page.locator('.metric').filter({ hasText: 'Success rate' });
+  await expect(tile.locator('dd')).toHaveText('--');
+  await expect(page.locator('.metric').filter({ hasText: 'Average queue wait' })).toContainText(
+    '--',
   );
 });

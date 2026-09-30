@@ -6,7 +6,7 @@
  * The queue is capped, though, so the interesting case is a refusal followed by
  * a run of successes -- which is exactly what a bad afternoon looks like.
  */
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Page, type Route } from '@playwright/test';
 import { browserOverride, dataRows, FIXTURE, goto, grid } from './support/fixtures';
 
 test.use(browserOverride);
@@ -82,4 +82,40 @@ test('a refusal is not pushed off the screen by the successes that follow it', a
   // And it goes when it is dismissed, not before.
   await errorToasts(page).getByRole('button', { name: 'Dismiss' }).click();
   await expect(errorToasts(page)).toHaveCount(0);
+});
+
+/**
+ * The server writes its refusals for a log line: lowercase, no full stop. Under
+ * a sentence-case title they read as raw output, so the toast and the error
+ * panel capitalise and stop them -- and change nothing else, because a 403's
+ * words are the ones that name the role required.
+ */
+const REFUSAL = 'your account is not allowed to do that';
+const forbidden = (route: Route) =>
+  route.fulfill({
+    status: 403,
+    contentType: 'application/json',
+    body: JSON.stringify({ error: { code: 'forbidden', message: REFUSAL } }),
+  });
+
+test('a refused action explains itself in a sentence, in the server words', async ({ page }) => {
+  const pools = (await page.request.get('/api/v1/pools').then((r) => r.json())) as {
+    items: { id: string; name: string }[];
+  };
+  const pool = pools.items.find((p) => p.name === FIXTURE.linuxPool);
+  expect(pool).toBeDefined();
+  await page.route(`**/api/v1/pools/${pool!.id}/prewarm`, forbidden);
+  await goto(page, `/pools/${pool!.id}`, FIXTURE.linuxPool);
+  await page.getByRole('button', { name: 'Prewarm image' }).click();
+  await expect(errorToasts(page)).toHaveCount(1);
+  await expect(errorToasts(page)).toContainText('Your account is not allowed to do that.');
+  await expect(errorToasts(page)).not.toContainText(REFUSAL);
+});
+
+test('a report that failed to load shows the refusal as a sentence', async ({ page }) => {
+  await page.route('**/api/v1/usage?**', forbidden);
+  await page.goto('/usage', { waitUntil: 'domcontentloaded' });
+  await expect(page.getByRole('alert').filter({ hasText: 'not allowed' }).first()).toContainText(
+    'Your account is not allowed to do that.',
+  );
 });

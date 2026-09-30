@@ -8,7 +8,7 @@
  * Successes dismiss themselves. Errors do not: an operator who looked away
  * should still find out that the drain was refused.
  */
-import { supportHint } from '$lib/errors';
+import { sentence, supportHint } from '$lib/errors';
 import { ApiError } from '../api/client';
 
 export type ToastTone = 'info' | 'success' | 'warning' | 'error';
@@ -134,15 +134,18 @@ class Toasts {
   }
 
   /**
-   * Report a failed request. The server's message is shown verbatim -- on a 403
-   * it names the role required, and paraphrasing it would lose that.
+   * Report a failed request. The server's words are shown as they are -- on a
+   * 403 they name the role required, and paraphrasing them would lose that --
+   * but capitalised and stopped, because the server writes them for a log line
+   * and this is a sentence under a sentence-case title. The detail is
+   * often a Go error, a path or a URL, so it follows the message untouched.
    */
   fromError(cause: unknown, title: string, action?: ToastAction): number {
     if (cause instanceof ApiError) {
-      const detail = cause.detail ? `${cause.message} ${cause.detail}` : cause.message;
-      return this.error(title, detail, action);
+      const message = sentence(cause.message);
+      return this.error(title, cause.detail ? `${message} ${cause.detail}` : message, action);
     }
-    if (cause instanceof Error) return this.error(title, cause.message, action);
+    if (cause instanceof Error) return this.error(title, sentence(cause.message), action);
     return this.error(title, `The cause was not reported. ${supportHint()}`, action);
   }
 

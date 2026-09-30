@@ -45,6 +45,22 @@ test('two pool.dangerous problems on the same pool keep separate identities', ()
   assert.notEqual(socket, root);
 });
 
+// A host with both a docker and a podman daemon that cannot apply limits (or
+// cannot mount the shared folder) raises the same code twice against one host.
+// The backend in the title is all that separates them, so muting docker's must
+// not mute podman's.
+test('the same host problem raised for two backends keeps separate identities', () => {
+  for (const code of ['host.limits_unenforceable', 'host.shared_folder_unmounted']) {
+    const docker = problemKey(
+      problem({ code, target_kind: 'host', target_id: 'host_a', title: 'a docker problem' }),
+    );
+    const podman = problemKey(
+      problem({ code, target_kind: 'host', target_id: 'host_a', title: 'a podman problem' }),
+    );
+    assert.notEqual(docker, podman, code);
+  }
+});
+
 test('two problems for different pools never collide regardless of code', () => {
   const first = problemKey(problem({ target_id: 'pool_x64' }));
   const second = problemKey(problem({ target_id: 'pool_arm64' }));

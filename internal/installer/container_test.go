@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -266,6 +267,7 @@ func TestDockerRunArgs(t *testing.T) {
 			mutate: func(s *DockerRunSpec) {},
 			want: []string{
 				"run", "--detach", "--name", "zoomies", "--hostname", "zoomies", "--restart", "unless-stopped",
+				"--stop-timeout", "1200",
 				"--env-file", "/etc/zoomies/zoomies.env",
 				"--publish", "127.0.0.1:9090:8080",
 				"--volume", "zoomies-data:/var/lib/zoomies",
@@ -338,6 +340,26 @@ func TestDockerRunArgs(t *testing.T) {
 					t.Errorf("argv should not contain %q: %s", unwanted, line)
 				}
 			}
+		})
+	}
+}
+
+// A plain `docker stop` or `docker restart` honours the container's own stop
+// timeout, and Docker's default is ten seconds. The embedded agent's admitted
+// runner creation can take minutes, so a container created without the
+// Compose and systemd budget is SIGKILLed mid-flight by every restart, stop and
+// re-run of the installer.
+func TestDockerRunArgsGiveTheContainerTheSameStopBudgetAsCompose(t *testing.T) {
+	for _, command := range []string{"controller", "agent"} {
+		t.Run(command, func(t *testing.T) {
+			args := DockerRunArgs(DockerRunSpec{Command: command})
+			want := strconv.Itoa(int(serviceStopTimeout.Seconds()))
+			for i, arg := range args {
+				if arg == "--stop-timeout" && i+1 < len(args) && args[i+1] == want {
+					return
+				}
+			}
+			t.Fatalf("the run command has no --stop-timeout %s, so docker stop gives up after ten seconds:\n%s", want, strings.Join(args, " "))
 		})
 	}
 }

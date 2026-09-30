@@ -278,7 +278,7 @@
     color: var(--z-pending);
   }
   .of {
-    font-weight: var(--z-weight-regular);
+    font-weight: var(--z-weight-normal);
     color: var(--z-text-subtle);
   }
   .why {
