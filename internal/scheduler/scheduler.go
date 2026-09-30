@@ -692,7 +692,18 @@ func (t *tick) allocate(pools []*store.Pool, plans []PoolPlan, runners map[strin
 		if c := latest(a.ID).Compare(latest(b.ID)); c != 0 {
 			return c
 		}
-		if len(aq) > 0 && len(bq) > 0 {
+		// Waiting is only comparable between pools that have something waiting,
+		// so having demand is its own key ahead of the wait. Comparing wait
+		// only when both had demand and falling to the ID otherwise made a
+		// pool with none -- a warm minimum -- order by ID against pools ordered
+		// by wait: a cycle, and a sort left to pick whichever it met first.
+		if (len(aq) > 0) != (len(bq) > 0) {
+			if len(aq) > 0 {
+				return -1
+			}
+			return 1
+		}
+		if len(aq) > 0 {
 			if c := aq[0].QueuedAt.Compare(bq[0].QueuedAt); c != 0 {
 				return c
 			}

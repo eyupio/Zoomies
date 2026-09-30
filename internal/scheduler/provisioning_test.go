@@ -2,6 +2,8 @@ package scheduler
 
 import (
 	"github.com/eyupio/zoomies/internal/store"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -104,5 +106,44 @@ func TestExecutionOrderPreservesFairAllocation(t *testing.T) {
 	plan = Decide(snap)
 	if plan.Actions[0].PoolID != a.ID || plan.Actions[1].PoolID != a.ID {
 		t.Fatal("execution lost priority tiers")
+	}
+}
+
+// The order pools are served in has to be a total order, or which pool gets
+// the one create a tight budget allows depends on how the caller happened to
+// collect them rather than on who has waited. Here a pool with nothing queued
+// but a minimum to keep warm sits between two with jobs: it beats the first on
+// ID, loses to the second on ID, and the second beats the first on wait -- a
+// cycle, so the winner was whichever pool the sort left in front. Every
+// arrangement of the names, which is what sets the input order, must serve the
+// pool whose job has waited longest.
+func TestTheOldestWaitingPoolIsServedFirstWhateverOrderThePoolsArriveIn(t *testing.T) {
+	names := []string{"n1", "n2", "n3"}
+	for _, perm := range [][3]int{{0, 1, 2}, {0, 2, 1}, {1, 0, 2}, {1, 2, 0}, {2, 0, 1}, {2, 1, 0}} {
+		t.Run(strings.Join([]string{names[perm[0]], names[perm[1]], names[perm[2]]}, "-"), func(t *testing.T) {
+			recent := testPool(names[perm[0]], "recent")
+			recent.ID = "pool_1"
+			warm := testPool(names[perm[1]], "warm")
+			warm.ID = "pool_2"
+			warm.MinRunners = 1
+			oldest := testPool(names[perm[2]], "oldest")
+			oldest.ID = "pool_3"
+
+			s := snap([]*store.Pool{recent, warm, oldest}, nil, []*store.Job{
+				queued("j_recent", time.Minute, "recent"),
+				queued("j_oldest", 10*time.Minute, "oldest"),
+			}, []*store.Host{testHost("host_a", 10, 0)})
+			s.Policy.MaxCreatesPerTick = 1
+
+			var served []string
+			for _, p := range Decide(s).Pools {
+				if creates(p.Actions) > 0 {
+					served = append(served, p.PoolID)
+				}
+			}
+			if !slices.Equal(served, []string{"pool_3"}) {
+				t.Fatalf("served %v, want only the pool whose job has waited longest (pool_3)", served)
+			}
+		})
 	}
 }
