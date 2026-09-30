@@ -540,6 +540,16 @@ export const HOSTED: StatusMeta = meta(
  * A job whose runner stopped under it. GitHub records the job as an ordinary
  * failure; this badge is how the fleet owns up to having caused it.
  */
+/** A job whose runner, or one of its steps, the kernel killed for memory. */
+export const OOM_KILLED: StatusMeta = meta(
+  'oom_killed',
+  'Killed for memory',
+  'danger',
+  'triangle',
+  TriangleAlert,
+  "The kernel killed this job's runner, or one of its steps, for its memory limit. GitHub records an ordinary failure; the fault is the fleet's.",
+);
+
 export const RUNNER_LOST: StatusMeta = meta(
   'runner_lost',
   'Runner lost',
@@ -624,6 +634,7 @@ const JOB_EVENTS: Record<JobEventKind, StatusMeta> = {
     IterationCcw,
     "Zoomies asked GitHub to run this run's failed jobs again. They arrive as a new run attempt, so GitHub remains authoritative about what happens next.",
   ),
+  oom_killed: OOM_KILLED,
 };
 
 /**

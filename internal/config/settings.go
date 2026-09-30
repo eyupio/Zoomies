@@ -560,6 +560,11 @@ var registry = buildRegistry([]Setting{
 		Summary: "Headroom preserves resource-based placement. Shadow compares startup history and queued starts without changing placement. Readiness opts into the measured policy; all capacity and pressure checks still apply.",
 	},
 	{
+		Key: "scheduler.history_sizing", Label: "Size from job history", Env: "ZOOMIES_HISTORY_SIZING", Kind: KindEnum, Scope: ScopeInstance, Live: true,
+		Choices: []string{"off", "shadow", "on"},
+		Summary: "Place a runner only on a host with room for what the jobs waiting on its pool used on their recent runs, and size it up to that where the pool leaves its size to the host. Shadow works it out and records where it would have placed differently without changing anything; off ignores job history. GitHub picks which waiting job a runner takes, so the runner is placed for the largest of them.",
+	},
+	{
 		Key: "scheduler.registration_concurrency", Label: "Concurrent registrations per installation", Env: "ZOOMIES_REGISTRATION_CONCURRENCY", Kind: KindInt, Scope: ScopeInstance, Live: true,
 		Summary: "Maximum concurrent runner credential requests per GitHub installation (1–16). Excess demand stays with the scheduler; rate-limit holds pause new admissions.",
 	},

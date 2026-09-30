@@ -571,6 +571,32 @@ func completionMessage(j *store.Job) string {
 	return fmt.Sprintf("%s after %s", verb, took)
 }
 
+// noteOOMKilled marks the job a runner ran last as killed for memory, writes
+// its timeline entry and publishes it. It is idempotent for the reason
+// noteRunnerLost is: the same exit reaches here from a report and again from
+// a task result, and only the call that marked the job writes the entry.
+func (c *Controller) noteOOMKilled(ctx context.Context, r *store.Runner, message string) {
+	if message == "" {
+		message = "the kernel killed a process in it for its memory limit"
+	}
+	sentence := fmt.Sprintf("runner %s was killed for memory on host %s: %s", r.Name, r.HostID, message)
+	j, marked, err := c.st.MarkJobOOMKilled(ctx, r.ID, sentence)
+	if err != nil {
+		c.log.Warn("could not record an out-of-memory kill on its job", "runner", r.ID, "error", err)
+		return
+	}
+	if j == nil || !marked {
+		return
+	}
+	if err := c.st.AppendJobEvent(ctx, &store.JobEvent{
+		JobID: j.ID, Kind: store.JobEventOOMKilled, Source: sourceAgent,
+		Message: sentence, RunnerID: r.ID, RunnerName: r.Name, At: c.Now(),
+	}); err != nil {
+		c.log.Warn("could not record a job timeline entry", "job", j.ID, "kind", store.JobEventOOMKilled, "error", err)
+	}
+	c.publishJob(ctx, j)
+}
+
 // noteRunnerLost records that a runner stopped while it was still executing a
 // job. GitHub will report the job as failed in its own time, indistinguishable
 // from a test failure; this is what tells the operator the fleet did it.

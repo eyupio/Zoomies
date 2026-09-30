@@ -386,6 +386,13 @@ type JobView struct {
 	ControllerChannel string `json:"controller_channel,omitempty"`
 	AgentVersion      string `json:"agent_version,omitempty"`
 	HostID            string `json:"host_id,omitempty"`
+	// PeakCPUs and PeakMemoryMB are the most the job's runner was measured
+	// using while the job ran, absent when it was never measured. OOMKilled
+	// says the kernel killed the runner or one of its steps for memory, which
+	// is the fleet's failure and the one history sizing corrects for.
+	PeakCPUs     float64 `json:"peak_cpus,omitempty"`
+	PeakMemoryMB int64   `json:"peak_memory_mb,omitempty"`
+	OOMKilled    bool    `json:"oom_killed,omitempty"`
 }
 
 // JobSummaryView is a job without its steps: what GET /jobs returns under
@@ -419,6 +426,10 @@ type JobSummaryView struct {
 	ControllerVersion string `json:"controller_version,omitempty"`
 	ControllerChannel string `json:"controller_channel,omitempty"`
 	AgentVersion      string `json:"agent_version,omitempty"`
+	// PeakMemoryMB and OOMKilled are JobView's, so a caller comparing jobs can
+	// see which of them were heavy without opening each one.
+	PeakMemoryMB int64 `json:"peak_memory_mb,omitempty"`
+	OOMKilled    bool  `json:"oom_killed,omitempty"`
 }
 
 // NewJobSummaryView renders a job as its summary, given its pool's name.
@@ -430,6 +441,7 @@ func NewJobSummaryView(j *store.Job, poolName string) JobSummaryView {
 		QueueWaitMS: millis(j.QueueWait()), DurationMS: millis(j.Duration()),
 		Pool: poolName, Host: j.HostID, Runner: j.RunnerName,
 		ControllerVersion: j.ControllerVersion, ControllerChannel: j.ControllerChannel, AgentVersion: j.AgentVersion,
+		PeakMemoryMB: j.PeakMemoryMB, OOMKilled: j.OOMKilled,
 	}
 }
 
@@ -486,6 +498,9 @@ func NewJobView(j *store.Job, poolName string) JobView {
 		ControllerChannel: j.ControllerChannel,
 		AgentVersion:      j.AgentVersion,
 		HostID:            j.HostID,
+		PeakCPUs:          j.PeakCPUs,
+		PeakMemoryMB:      j.PeakMemoryMB,
+		OOMKilled:         j.OOMKilled,
 	}
 }
 
@@ -787,7 +802,7 @@ func cpuResourceView(r *store.Runner, p *store.Pool, h *store.Host) *CPUResource
 	}
 	guaranteed := r.AllocatedCPUs
 	if p.DockerMode == store.DockerDinD && (r.AllocationSource == store.AllocationFromPool ||
-		(r.AllocationSource == store.AllocationReduced && p.Resources.CPUs > 0)) {
+		((r.AllocationSource == store.AllocationReduced || r.AllocationSource == store.AllocationHistory) && p.Resources.CPUs > 0)) {
 		// A fixed DinD allocation is per container and the host ledger charges
 		// both halves. An automatic allocation -- reduced or not -- is already
 		// the logical runner's whole slot and is split between them, so only

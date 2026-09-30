@@ -122,7 +122,7 @@ func Reserve(p *store.Pool, h *store.Host) Reservation {
 // what it was given.
 func RunnerCharge(p *store.Pool, h *store.Host, r *store.Runner) Reservation {
 	res := Reserve(p, h)
-	if r == nil || r.AllocationSource != store.AllocationReduced {
+	if r == nil || (r.AllocationSource != store.AllocationReduced && r.AllocationSource != store.AllocationHistory) {
 		return res
 	}
 	if r.AllocatedCPUs > 0 {

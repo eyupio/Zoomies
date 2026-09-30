@@ -219,3 +219,73 @@ func TestJobNameFilterIsExactAndKeepsItsCommas(t *testing.T) {
 		t.Fatalf("job_name=%q returned %s", name, resp.body)
 	}
 }
+
+// A job's measured peaks and a memory kill reach both the job and the
+// statistics in the shape api/openapi.yaml promises: the job omits what was
+// never measured, and a group says null rather than a zero that reads as an
+// answer.
+func TestJobsAndTheirStatisticsCarryPeakUsage(t *testing.T) {
+	h := newHarness(t)
+	pool := h.pool(h.installation(), "linux")
+	_, cookie := h.user("viewer", store.RoleViewer)
+	now := time.Now()
+	jobs := h.releaseJobs(pool, "v1.3.0", 2, 7_000, now.Add(-time.Hour))
+	started := now.Add(-50 * time.Minute)
+	heavy, _, err := h.st.ApplyJob(h.ctx, &store.Job{GitHubJobID: 7_100, Repo: "acme/widgets", Workflow: "ci", JobName: "race",
+		Labels: store.StringSlice{"self-hosted"}, State: store.JobInProgress, PoolID: pool.ID, Matched: true,
+		RunnerID: "run_heavy", QueuedAt: started, StartedAt: &started})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.st.RecordJobUsage(h.ctx, "run_heavy", 3.9, 2900); err != nil {
+		t.Fatal(err)
+	}
+	done := now.Add(-time.Minute)
+	if _, _, err := h.st.ApplyJob(h.ctx, &store.Job{GitHubJobID: 7_100, Repo: "acme/widgets", State: store.JobCompleted,
+		Conclusion: "failure", StartedAt: &started, CompletedAt: &done}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := h.st.MarkJobOOMKilled(h.ctx, "run_heavy", "killed for memory"); err != nil {
+		t.Fatal(err)
+	}
+
+	resp := h.do(request{method: http.MethodGet, path: "/api/v1/jobs/" + heavy.ID, cookie: cookie})
+	resp.mustStatus(t, http.StatusOK, "one job")
+	var job map[string]any
+	if err := json.Unmarshal(resp.body, &job); err != nil {
+		t.Fatal(err)
+	}
+	if job["peak_cpus"] != 3.9 || job["peak_memory_mb"] != float64(2900) || job["oom_killed"] != true {
+		t.Fatalf("job = peak_cpus %v, peak_memory_mb %v, oom_killed %v", job["peak_cpus"], job["peak_memory_mb"], job["oom_killed"])
+	}
+	resp = h.do(request{method: http.MethodGet, path: "/api/v1/jobs/" + jobs[0].ID, cookie: cookie})
+	resp.mustStatus(t, http.StatusOK, "an unmeasured job")
+	for _, field := range []string{"peak_cpus", "peak_memory_mb", "oom_killed"} {
+		if strings.Contains(string(resp.body), `"`+field+`"`) {
+			t.Errorf("a job never measured carries %s: %s", field, resp.body)
+		}
+	}
+
+	resp = h.do(request{method: http.MethodGet, path: "/api/v1/jobs/stats?group_by=job_name&since=" +
+		url.QueryEscape(now.Add(-2*time.Hour).Format(time.RFC3339)), cookie: cookie})
+	resp.mustStatus(t, http.StatusOK, "job statistics")
+	var stats struct {
+		Groups []map[string]any `json:"groups"`
+	}
+	if err := json.Unmarshal(resp.body, &stats); err != nil {
+		t.Fatal(err)
+	}
+	by := map[string]map[string]any{}
+	for _, g := range stats.Groups {
+		by[g["keys"].(map[string]any)["job_name"].(string)] = g
+	}
+	if g := by["race"]; g["peak_cpus"] != 3.9 || g["peak_memory_mb"] != float64(2900) || g["oom_killed"] != float64(1) {
+		t.Fatalf("race group = %v", g)
+	}
+	if g := by["build"]; g["peak_memory_mb"] != nil || g["oom_killed"] != float64(0) {
+		t.Fatalf("build group = %v, want null peaks and no kills", g)
+	}
+	if _, ok := by["build"]["peak_cpus"]; !ok {
+		t.Fatal("peak_cpus is required on every group, as null when nothing was measured")
+	}
+}

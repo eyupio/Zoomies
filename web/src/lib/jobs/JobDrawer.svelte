@@ -12,12 +12,13 @@
 <script lang="ts">
   import { CircleX } from '@lucide/svelte';
   import { cancelJobWorkflow, rerunJobWorkflow } from '$lib/api/client';
-  import { formatDuration, shortId } from '$lib/format';
+  import { formatDuration, formatMegabytes, formatNumber, shortId } from '$lib/format';
   import {
     HOSTED,
     jobFailed,
     jobStatus,
     queueStatus,
+    OOM_KILLED,
     RUNNER_LOST,
     stuckUnmatched,
     UNMATCHED,
@@ -280,6 +281,21 @@
             {formatDuration(job.duration_ms)}
           {/if}
         </dd>
+
+        {#if job.peak_cpus || job.peak_memory_mb || job.oom_killed}
+          <dt>Peak usage</dt>
+          <dd class="tabular" data-testid="job-peak-usage">
+            {[
+              job.peak_cpus ? `${formatNumber(job.peak_cpus)} CPU` : '',
+              job.peak_memory_mb ? formatMegabytes(job.peak_memory_mb) : '',
+            ]
+              .filter(Boolean)
+              .join(' · ') || '--'}
+            {#if job.oom_killed}
+              <Badge status={OOM_KILLED} />
+            {/if}
+          </dd>
+        {/if}
 
         <dt>Job ID</dt>
         <dd><CopyButton value={job.id ?? ''} label="Copy the job ID" showValue /></dd>

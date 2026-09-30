@@ -95,6 +95,7 @@ func (c *Controller) ExplainJob(ctx context.Context, jobID string) (*JobExplanat
 }
 
 func (c *Controller) explainCompleted(job *store.Job, out *JobExplanation) {
+	defer explainOOM(job, out)
 	switch {
 	case job.FleetFailed():
 		out.Summary = "The runner this job was on stopped before the job finished."
@@ -112,6 +113,37 @@ func (c *Controller) explainCompleted(job *store.Job, out *JobExplanation) {
 	default:
 		out.Summary = "This job ran and " + job.Conclusion + "."
 	}
+}
+
+// explainOOM adds an out-of-memory kill to a finished job's explanation. A
+// step killed with exit 137 can leave a runner that finishes the job, and
+// GitHub then reports a failed step like any test failure; the kill is the
+// part the workflow's author cannot see, so it is said whatever else was.
+func explainOOM(job *store.Job, out *JobExplanation) {
+	if !job.OOMKilled {
+		return
+	}
+	peak := ""
+	if job.PeakMemoryMB > 0 {
+		peak = fmt.Sprintf(", having used up to %s", formatJobMB(job.PeakMemoryMB))
+	}
+	where := ""
+	if job.HostID != "" {
+		where = " on host " + job.HostID
+	}
+	sentence := fmt.Sprintf("The kernel killed this job's runner, or one of its steps, for its memory limit%s%s.", where, peak)
+	// The kill is the summary: it is the one fact about this job the
+	// conclusion GitHub recorded cannot tell anybody.
+	out.Summary = sentence
+	out.Fix = store.FaultOutOfMemory.Fix() + " With scheduler.history_sizing set to on, the next run of this job is placed on a host with room for what it needed."
+}
+
+// formatJobMB says a memory figure the way the rest of the explanation does.
+func formatJobMB(mb int64) string {
+	if mb >= 1024 {
+		return fmt.Sprintf("%.1f GB", float64(mb)/1024)
+	}
+	return fmt.Sprintf("%d MB", mb)
 }
 
 func (c *Controller) explainRunning(ctx context.Context, job *store.Job, out *JobExplanation) {
@@ -246,6 +278,14 @@ func (c *Controller) explainQueued(ctx context.Context, job *store.Job, out *Job
 				out.Detail = pp.Failing
 				out.Fix = startFailureFix(pp.FailingFault)
 				return
+			}
+			// What the jobs waiting are known to need, and what that did to
+			// where the runner goes -- or, in shadow, what it would have.
+			if pp.History != "" {
+				out.Detail += " Job history: " + pp.History + "."
+			}
+			if pp.HistoryUnfit != "" {
+				out.Detail += " " + capitalise(pp.HistoryUnfit) + "."
 			}
 			break
 		}

@@ -64,6 +64,13 @@ type Snapshot struct {
 	// only message is the refusal. The poller and the reap already stand down
 	// from a held installation; this is the scheduler doing the same.
 	HeldInstallations map[string]time.Time
+	// JobHistory is the recent measured runs of each queued job, keyed by the
+	// job and the pool that ran them, and HistorySizing is
+	// scheduler.history_sizing: off, shadow or on. The caller reads the
+	// history; the profile, and what it means for placement, are decided
+	// here. An empty mode is off.
+	JobHistory    map[store.JobUsageKey][]store.JobPeak
+	HistorySizing string
 }
 
 const (
@@ -195,6 +202,9 @@ type Action struct {
 	// standard size: what the runner is created with instead, at or above the
 	// pool's minimum. Nil means the standard.
 	Size *store.Resources `json:"size,omitempty"`
+	// SizedFromHistory says Size is above the standard rather than below it:
+	// the runner was sized for what the jobs waiting are known to need.
+	SizedFromHistory bool `json:"sized_from_history,omitempty"`
 }
 
 // sizePhrase says a runner size the way the reason for a create does.
@@ -287,8 +297,18 @@ type PoolPlan struct {
 	// Held is set when the pool's installation is inside a GitHub rate-limit
 	// backoff. It says until when, because the pool is otherwise healthy and
 	// its jobs are waiting on nothing the operator can see.
-	Held    string   `json:"held,omitempty"`
-	Actions []Action `json:"actions,omitempty"`
+	Held string `json:"held,omitempty"`
+	// History is what the jobs waiting on this pool are known to need and
+	// what that did to placement: the hosts held off and the size given, or,
+	// under shadow, what it would have done. Empty when nothing is known or
+	// it changed nothing.
+	History string `json:"history,omitempty"`
+	// HistoryUnfit is set when a job waiting on this pool is known to need
+	// more than any host that can run the pool has to give. Such a job is
+	// placed as it always was, and is likely to fail the way it did before;
+	// only a larger host fixes it, which is why it is reported.
+	HistoryUnfit string   `json:"history_unfit,omitempty"`
+	Actions      []Action `json:"actions,omitempty"`
 }
 
 // Plan is one tick's worth of decisions.
@@ -330,6 +350,8 @@ func Decide(s Snapshot) Plan {
 		lastProvisioned:    s.LastProvisioned,
 		held:               s.HeldInstallations,
 		stillRunning:       runnersWithAJob(s.Jobs),
+		history:            s.JobHistory,
+		historySizing:      s.HistorySizing,
 	}
 	t.hosts.readiness, t.hosts.preferReadiness = s.Readiness, s.PreferReadiness
 	if t.budget <= 0 {
@@ -389,6 +411,9 @@ type tick struct {
 	// is still running, and the late-report path keeps that workload alive
 	// on purpose; the reap has to know not to take it back.
 	stillRunning map[string]bool
+	// history and historySizing are Snapshot.JobHistory and HistorySizing.
+	history       map[store.JobUsageKey][]store.JobPeak
+	historySizing string
 }
 
 // assign maps every queued job onto the pool that will run it, and collects the
@@ -843,7 +868,33 @@ func creates(actions []Action) int {
 }
 
 func (t *tick) grant(p *store.Pool, plan *PoolPlan, runners []*store.Runner, queued []*store.Job) bool {
+	var need Requirement
+	var heldOff map[string]string
+	if t.historySizing == HistoryOn || t.historySizing == HistoryShadow {
+		need, plan.HistoryUnfit = t.poolNeed(p, queued)
+		if need.Known() {
+			heldOff = t.hosts.heldOff(p, need)
+		}
+	}
+	enforce := t.historySizing == HistoryOn && need.Known()
+	if enforce {
+		t.hosts.need = &need
+	}
 	placed := t.hosts.placeAvoiding(p, 1, recentBusyHosts(runners, t.now))
+	t.hosts.need = nil
+	if len(placed) == 0 && enforce && len(heldOff) > 0 {
+		// Some host would have taken a runner at the pool's own size, and
+		// every one of them is short of what the jobs waiting are known to
+		// need. That is a wait for a larger host to free up, not a fleet with
+		// nowhere to go: poolNeed only asks for what some host has.
+		held := t.hosts.sortedPhrases(heldOff)
+		plan.History = held
+		plan.Reason = cannotScale(p.Name, plan.Current+creates(plan.Actions), plan.Desired, held)
+		plan.Blocked = held
+		plan.BlockedFix = "wait for work on a larger host to finish, or add a host with that much room; the requirement is the jobs' own recent peaks, and scheduler.history_sizing=shadow places them as before"
+		plan.BlockedAtCapacity = true
+		return false
+	}
 	if len(placed) == 0 {
 		b := t.hosts.why(p)
 		plan.Reason = cannotScale(p.Name, plan.Current+creates(plan.Actions), plan.Desired, sentence(b.what, b.fix))
@@ -878,7 +929,9 @@ func (t *tick) grant(p *store.Pool, plan *PoolPlan, runners []*store.Runner, que
 		reason += fmt.Sprintf(" (%s deferred by the repository limit for %s)",
 			plural(plan.QuotaDeferredJobs, "job"), strings.Join(plan.QuotaDeferredRepositories, ", "))
 	}
-	if size := placed[0].size; size != nil {
+	if size := placed[0].size; size != nil && placed[0].raised {
+		reason += fmt.Sprintf(" (sized to %s)", sizePhrase(size.CPUs, size.MemoryMB))
+	} else if size != nil {
 		// Said in the reason as well as carried, so the Runners page and the
 		// scaling history both show that this runner is smaller than its pool
 		// asks for, and why.
@@ -892,7 +945,23 @@ func (t *tick) grant(p *store.Pool, plan *PoolPlan, runners []*store.Runner, que
 				sizePhrase(size.CPUs, size.MemoryMB), sizePhrase(p.Resources.CPUs, p.Resources.MemoryMB))
 		}
 	}
-	action := Action{Kind: ActionCreate, PoolID: p.ID, PoolName: p.Name, HostID: placed[0].hostID, Reason: reason, Size: placed[0].size}
+	switch {
+	case enforce:
+		note := fmt.Sprintf("placed for the jobs waiting, which need %s", need)
+		if held := t.hosts.sortedPhrases(heldOff); held != "" {
+			note += "; " + held
+		}
+		plan.History = note
+		reason += " (" + note + ")"
+	case need.Known():
+		// Shadow: the placement stands, and what history sizing would have
+		// done differently is recorded beside it rather than in the reason,
+		// which describes what actually happened.
+		if held, ok := heldOff[placed[0].hostID]; ok {
+			plan.History = "shadow: history sizing would have " + held
+		}
+	}
+	action := Action{Kind: ActionCreate, PoolID: p.ID, PoolName: p.Name, HostID: placed[0].hostID, Reason: reason, Size: placed[0].size, SizedFromHistory: placed[0].raised}
 	plan.Actions = append(plan.Actions, action)
 	t.creates = append(t.creates, action)
 	t.budget--
@@ -1139,6 +1208,10 @@ type hostSet struct {
 	promisedMemory map[string]int64
 	ours           map[string]bool
 	now            time.Time
+	// need is set while a runner is being placed for a known requirement
+	// under scheduler.history_sizing=on: a host that cannot hold it is not
+	// eligible, and the runner is sized up to it where its pool allows.
+	need *Requirement
 }
 
 // newHostSet seeds each host with its allocatable resources less what the
@@ -1217,6 +1290,9 @@ type placement struct {
 	hostID string
 	// size is nil for a runner at the pool's standard size.
 	size *store.Resources
+	// raised says size is larger than the standard, not smaller: the runner
+	// was sized up to what the jobs waiting are known to need.
+	raised bool
 }
 
 // place reserves up to n slots for the pool and returns the chosen host IDs.
@@ -1260,6 +1336,12 @@ func (hs *hostSet) placeAvoiding(p *store.Pool, n int, avoid map[string]bool) []
 			}
 			size = &grant
 		}
+		raised := false
+		if hs.need != nil {
+			before := size
+			res, size = sizeForNeed(p, res, size, *hs.need)
+			raised = size != before
+		}
 		hs.free[h.ID]--
 		hs.warming[h.ID]++
 		l := hs.left[h.ID]
@@ -1272,7 +1354,7 @@ func (hs *hostSet) placeAvoiding(p *store.Pool, n int, avoid map[string]bool) []
 		if cpu, ok := hs.observedCPU[h.ID]; ok {
 			hs.observedCPU[h.ID] = max(cpu-res.CPUs, 0)
 		}
-		out = append(out, placement{hostID: h.ID, size: size})
+		out = append(out, placement{hostID: h.ID, size: size, raised: raised})
 	}
 	return out
 }
@@ -1294,7 +1376,8 @@ func (hs *hostSet) pickReduced(p *store.Pool, avoid map[string]bool) (*store.Hos
 	var best, bestAvoided *option
 	for _, h := range hs.hosts {
 		if hs.free[h.ID] <= 0 || !HostCanRun(h, p, hs.now) ||
-			(hostUnderCPUPressure(h, hs.now) && hs.warming[h.ID] > 0) {
+			(hostUnderCPUPressure(h, hs.now) && hs.warming[h.ID] > 0) ||
+			(hs.need != nil && hs.shortOf(h, p, *hs.need) != "") {
 			continue
 		}
 		charge, grant, ok := ReducedSize(p, h, hs.leftFor(h, p), hs.alloc[h.ID])
@@ -1364,6 +1447,12 @@ func (hs *hostSet) pick(p *store.Pool, avoid map[string]bool) *store.Host {
 }
 
 func (hs *hostSet) eligible(h *store.Host, p *store.Pool) bool {
+	return hs.eligibleAsSized(h, p) && (hs.need == nil || hs.shortOf(h, p, *hs.need) == "")
+}
+
+// eligibleAsSized is eligible without a job history's requirement: whether h
+// would take a runner of p at the pool's own size.
+func (hs *hostSet) eligibleAsSized(h *store.Host, p *store.Pool) bool {
 	return hs.free[h.ID] > 0 && hs.hasRoom(h, p) && HostCanRun(h, p, hs.now) &&
 		!(hostUnderCPUPressure(h, hs.now) && hs.warming[h.ID] > 0)
 }

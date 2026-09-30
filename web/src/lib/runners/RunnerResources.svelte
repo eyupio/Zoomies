@@ -72,7 +72,9 @@
           ? 'from the pool'
           : allocationSource === 'reduced'
             ? 'reduced: no host had room for the pool\u2019s standard size'
-            : '';
+            : allocationSource === 'history'
+              ? 'sized for what the jobs waiting are known to need'
+              : '';
     return source ? `${parts.join(' · ')}, ${source}` : parts.join(' · ');
   });
 

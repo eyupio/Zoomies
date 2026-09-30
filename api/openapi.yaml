@@ -6254,13 +6254,15 @@ components:
           description: The memory limit this runner's workload was created with. Omitted when it has none.
         allocation_source:
           type: string
-          enum: [pool, host, reduced, ""]
+          enum: [pool, host, reduced, history, ""]
           description: >-
             Where the allocation came from: `pool` for the pool's own limits, `host` for one
-            slot's share of the host it landed on (the default when the pool sets none), and
+            slot's share of the host it landed on (the default when the pool sets none),
             `reduced` for a runner no host had room for at the pool's standard size, given what
-            one could spare at or above the pool's minimum. Omitted when the runner was created
-            with no limit at all.
+            one could spare at or above the pool's minimum, and `history` for a runner sized up
+            to what the jobs waiting on its pool are known to need from their recent runs
+            (`scheduler.history_sizing: on`). Omitted when the runner was created with no limit
+            at all.
         cpu_resource: { $ref: "#/components/schemas/CPUResourceState" }
         created_at: { type: string, format: date-time }
         container_started_at:
@@ -6823,6 +6825,24 @@ components:
         controller_channel: { type: string, description: The install channel of that controller build. }
         agent_version: { type: string, description: The agent version the host reported when a runner on it took the job. }
         host_id: { type: string, description: The host the job's runner was on, as stamped when the runner took it. }
+        peak_cpus:
+          type: number
+          description: >-
+            The most CPU, in cores, the job's runner was measured using while the job ran on
+            it -- the agent's usage samples, raised and never lowered. Absent when it was
+            never measured: a job from before this was recorded, a backend that reports no
+            usage, or a job too short to be sampled.
+        peak_memory_mb:
+          type: integer
+          format: int64
+          description: The most memory, in MB, the job's runner was measured using while the job ran. Absent when never measured.
+        oom_killed:
+          type: boolean
+          description: >-
+            True when the kernel killed the job's runner, or one of its steps (exit 137), for
+            its memory limit. It is the fleet's failure rather than the workflow's, and the one
+            `scheduler.history_sizing` corrects for: the next run of the job is placed for half
+            as much memory again as this one's peak. Absent when false.
         steps:
           type: array
           description: >-
@@ -6954,6 +6974,8 @@ components:
         controller_version: { type: string, description: The controller build that claimed the job. Absent when it was never stamped. }
         controller_channel: { type: string }
         agent_version: { type: string, description: The agent version the host reported when the job was assigned to it. }
+        peak_memory_mb: { type: integer, format: int64, description: "The most memory, in MB, the job was measured using. Absent when never measured." }
+        oom_killed: { type: boolean, description: True when the kernel killed the job's runner or one of its steps for memory. Absent when false. }
 
     JobPercentiles:
       type: object
@@ -6965,7 +6987,7 @@ components:
 
     JobStatsGroup:
       type: object
-      required: [keys, count, succeeded, failed, cancelled, fleet_failed, fleet_failed_by_kind, fleet_failure_rate, duration, queue_wait, startup]
+      required: [keys, count, succeeded, failed, cancelled, fleet_failed, fleet_failed_by_kind, fleet_failure_rate, duration, queue_wait, startup, peak_cpus, peak_memory_mb, oom_killed]
       properties:
         keys:
           type: object
@@ -6984,6 +7006,9 @@ components:
         duration: { $ref: "#/components/schemas/JobPercentiles" }
         queue_wait: { $ref: "#/components/schemas/JobPercentiles" }
         startup: { $ref: "#/components/schemas/JobPercentiles" }
+        peak_cpus: { type: [number, "null"], description: "The most CPU, in cores, any job in the group was measured using. Null when none was measured." }
+        peak_memory_mb: { type: [integer, "null"], format: int64, description: "The most memory, in MB, any job in the group was measured using. Null when none was measured." }
+        oom_killed: { type: integer, description: Jobs in the group whose runner, or one of its steps, the kernel killed for memory. }
 
     JobStats:
       type: object
@@ -7045,8 +7070,11 @@ components:
         `runner_start_failed` is the failure that touches no job: a runner this pool
         started died before it could take one, so the job is still queued and the next
         runner may run it -- said here because a pool that cannot start a container
-        otherwise looks exactly like a pool that is merely busy.
-      enum: [queued, waiting, approved, claimed, unmatched, started, completed, runner_lost, runner_returned, cancel_requested, runner_start_failed, rerun_requested]
+        otherwise looks exactly like a pool that is merely busy. `oom_killed` is the kernel
+        killing the job's runner, or one of its steps, for its memory limit -- which can be
+        recorded after `completed`, because a runner whose step was killed finishes the job
+        and reports the kill only when it exits.
+      enum: [queued, waiting, approved, claimed, unmatched, started, completed, runner_lost, runner_returned, cancel_requested, runner_start_failed, rerun_requested, oom_killed]
 
     JobEvent:
       type: object

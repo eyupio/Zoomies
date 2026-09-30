@@ -222,6 +222,12 @@ func terminalOutcome(r tracked, s backend.Status) (store.RunnerState, string, st
 		// Removed describes the runner's lifecycle, not its job's outcome.
 		// GitHub remains authoritative about whether the job succeeded.
 		return store.RunnerRemoved, "runner process exited; its exit status is unknown after an agent restart; check the job's GitHub outcome", ""
+	case s.ExitCode == 0 && s.OOMKilled:
+		// The runner finished, and the daemon says the kernel killed
+		// something in it for memory on the way: a step's process, which the
+		// job then failed on like any test. The lifecycle is a clean end; the
+		// fault is what lets the controller put it on the job.
+		return store.RunnerRemoved, "runner exited after its job, but the kernel killed a process in it for its memory limit", store.FaultOutOfMemory
 	case s.ExitCode == 0:
 		if r.ephemeral {
 			return store.RunnerRemoved, "ephemeral runner exited cleanly after its job", ""
@@ -238,7 +244,11 @@ func terminalOutcome(r tracked, s backend.Status) (store.RunnerState, string, st
 		} else if hint := entrypointExitHint(s.ExitCode); hint != "" {
 			msg += ": " + hint
 		}
-		return store.RunnerFailed, msg, exitFault(s.ExitCode)
+		fault := exitFault(s.ExitCode)
+		if s.OOMKilled {
+			fault = store.FaultOutOfMemory
+		}
+		return store.RunnerFailed, msg, fault
 	}
 }
 

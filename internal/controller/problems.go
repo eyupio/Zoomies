@@ -158,6 +158,7 @@ var problemAudience = map[string]Audience{
 	"host.unhealthy":                                AudienceFleet,
 	"host.version_behind":                           AudienceFleet,
 	"installation.unhealthy":                        AudienceFleet,
+	"jobs.oom_killed":                               AudienceFleet,
 	"jobs.runner_lost":                              AudienceFleet,
 	"jobs.unmatched":                                AudienceFleet,
 	"poller.paused":                                 AudienceFleet,
@@ -168,6 +169,7 @@ var problemAudience = map[string]Audience{
 	"pool.docker_client_missing":                    AudienceFleet,
 	"pool.elastic_cpu_unsupported":                  AudienceFleet,
 	"pool.github_rate_limited":                      AudienceFleet,
+	"pool.history_unfit":                            AudienceFleet,
 	"pool.host_overcommitted":                       AudienceFleet,
 	"pool.max_above_room":                           AudienceFleet,
 	"pool.no_capacity":                              AudienceFleet,
@@ -1389,6 +1391,17 @@ func (c *Controller) PoolCapacityProblems() []Problem {
 				TargetKind: "pool", TargetID: pp.PoolID,
 			})
 		}
+		if pp.HistoryUnfit != "" {
+			out = append(out, Problem{
+				Code:     "pool.history_unfit",
+				Severity: config.SeverityWarning,
+				Title:    fmt.Sprintf("no host can fit a job waiting on pool %s", pp.PoolName),
+				Detail: capitalise(pp.HistoryUnfit) + ". The requirement is the job's own recent peaks, with a margin on memory. " +
+					"It is placed as it always was, so it is likely to fail the way it did before; the jobs beside it are not held back for it.",
+				Fix:        "add a larger host this pool can run on, or split the job so each part needs less.",
+				TargetKind: "pool", TargetID: pp.PoolID,
+			})
+		}
 		if pp.Blocked == "" {
 			continue
 		}
@@ -1709,6 +1722,9 @@ func (c *Controller) jobProblems(ctx context.Context, out *[]Problem) error {
 	if err := c.lostRunnerProblems(ctx, out); err != nil {
 		return err
 	}
+	if err := c.oomKilledProblems(ctx, out); err != nil {
+		return err
+	}
 	all, err := c.unmatchedQueuedJobs(ctx)
 	if err != nil {
 		return err
@@ -1832,6 +1848,67 @@ func (c *Controller) lostRunnerProblems(ctx context.Context, out *[]Problem) err
 		Fix:        fix,
 		TargetKind: "job", TargetID: example.ID, Since: at,
 	})
+	return nil
+}
+
+// oomKilledProblems reports, host by host, the jobs the kernel killed
+// something in for memory in the last hour.
+//
+// jobs.runner_lost already counts a runner killed outright; this is its own
+// entry because the kill that matters most is the one that entry cannot see --
+// a step killed with exit 137 under a runner that lived on, which GitHub
+// records as a failed step like any test and no runner was lost for. It is per
+// host because the fix is: a host that keeps killing jobs is too small for the
+// work its pools send it.
+func (c *Controller) oomKilledProblems(ctx context.Context, out *[]Problem) error {
+	faulted, _, err := c.st.ListJobs(ctx, store.JobFilter{FaultedOnly: true},
+		store.Page{Limit: 100, Sort: "queued_at", Desc: true})
+	if err != nil {
+		return fmt.Errorf("listing jobs killed for memory: %w", err)
+	}
+	since := c.Now().Add(-problemWindow)
+	byHost := map[string][]*store.Job{}
+	var hosts []string
+	for _, j := range faulted {
+		if !j.OOMKilled || (j.CompletedAt != nil && !j.CompletedAt.After(since)) {
+			continue
+		}
+		host := j.HostID
+		if host == "" {
+			host = "an unrecorded host"
+		}
+		if byHost[host] == nil {
+			hosts = append(hosts, host)
+		}
+		byHost[host] = append(byHost[host], j)
+	}
+	slices.Sort(hosts)
+	history := c.cfg().Scheduler.HistorySizing == scheduler.HistoryOn
+	for _, host := range hosts {
+		jobs := byHost[host]
+		example := jobs[0]
+		title := fmt.Sprintf("1 job was killed for memory on host %s in the last hour", host)
+		if len(jobs) > 1 {
+			title = fmt.Sprintf("%d jobs were killed for memory on host %s in the last hour", len(jobs), host)
+		}
+		detail := fmt.Sprintf("The most recent is %s in %s", example.JobName, example.Repo)
+		if example.PeakMemoryMB > 0 {
+			detail += fmt.Sprintf(", which was measured using up to %s before it was killed", formatJobMB(example.PeakMemoryMB))
+		}
+		detail += ". GitHub records it as an ordinary failure."
+		fix := "give the pool a larger minimum memory or memory_mb, or set scheduler.history_sizing to on so the next run of the job is placed on a host with room for what it needed."
+		if history {
+			fix = "nothing to change for the next run: scheduler.history_sizing places it on a host with room for half as much again. If it keeps happening, the pool needs a larger host."
+		}
+		*out = append(*out, Problem{
+			Code:       "jobs.oom_killed",
+			Severity:   config.SeverityWarning,
+			Title:      title,
+			Detail:     detail,
+			Fix:        fix,
+			TargetKind: "job", TargetID: example.ID, Since: example.CompletedAt,
+		})
+	}
 	return nil
 }
 

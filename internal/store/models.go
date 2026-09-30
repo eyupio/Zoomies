@@ -1112,6 +1112,11 @@ const (
 	// minimum. The figures on the row are what it was given, and what its
 	// host is charged for it.
 	AllocationReduced = "reduced"
+	// AllocationHistory means the runner was sized up, above the host's share,
+	// to what the jobs waiting on its pool are known to need from their recent
+	// runs (scheduler.history_sizing=on). Like a reduced runner, the figures
+	// on the row are what it was given and what its host is charged.
+	AllocationHistory = "history"
 )
 
 // Runner is one runner instance: a row that the controller creates in
@@ -1330,6 +1335,15 @@ type Job struct {
 	ControllerChannel string `json:"controller_channel,omitempty"`
 	AgentVersion      string `json:"agent_version,omitempty"`
 	HostID            string `json:"host_id,omitempty"`
+	// PeakCPUs and PeakMemoryMB are the most the job's runner was measured
+	// using while the job ran on it; zero is "never measured". They are what
+	// the next run of the same job is sized and placed from.
+	PeakCPUs     float64 `json:"peak_cpus,omitempty"`
+	PeakMemoryMB int64   `json:"peak_memory_mb,omitempty"`
+	// OOMKilled says the kernel killed the runner, or a step's process inside
+	// it, for its memory limit while this job ran. A killed job's peak is the
+	// limit it hit rather than what it needed, which the profile allows for.
+	OOMKilled bool `json:"oom_killed,omitempty"`
 }
 
 // JobStep is one step of a workflow job as GitHub reported it.
@@ -1417,6 +1431,10 @@ const (
 	// jobs with a higher run attempt, and this entry is only the record that
 	// somebody here asked.
 	JobEventRerunRequested JobEventKind = "rerun_requested"
+	// JobEventOOMKilled records the kernel killing the job's runner, or one of
+	// its steps, for its memory limit. It may land after completed: a runner
+	// whose step was killed finishes the job and says so only as it exits.
+	JobEventOOMKilled JobEventKind = "oom_killed"
 )
 
 // JobEvent is one entry in a job's timeline: what happened, who observed it,

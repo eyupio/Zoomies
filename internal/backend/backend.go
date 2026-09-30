@@ -76,6 +76,10 @@ type Status struct {
 	Message   string    `json:"message,omitempty"`
 	StartedAt time.Time `json:"started_at,omitempty"`
 	ExitedAt  time.Time `json:"exited_at,omitempty"`
+	// OOMKilled is the daemon saying the kernel killed a process in the
+	// workload for its memory limit. It can be true with any exit code: a
+	// step killed under a runner that lived on exits the container cleanly.
+	OOMKilled bool `json:"oom_killed,omitempty"`
 }
 
 // Stats is a best-effort resource sample. Backends that cannot measure a field
