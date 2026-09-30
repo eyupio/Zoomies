@@ -76,7 +76,7 @@
     type Interval,
   } from '$lib/insights/activity';
   import { remember, remembered } from '$lib/state/prefs.svelte';
-  import { formatNumber, toMillis } from '$lib/format';
+  import { formatDuration, formatNumber, toMillis } from '$lib/format';
   let {
     rows,
     grouping,
@@ -276,7 +276,7 @@
     },
     {
       label: 'Average queue wait',
-      value: total.starts ? `${(total.wait / total.starts).toFixed(1)}s` : '—',
+      value: total.starts ? formatDuration((1000 * total.wait) / total.starts) : '—',
       detail: 'Weighted across jobs that started',
     },
     {

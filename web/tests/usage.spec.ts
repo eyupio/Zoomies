@@ -368,3 +368,32 @@ test('a range longer than the server allows names the setting that limits it', a
     'limits.job_stats_window',
   );
 });
+
+/**
+ * One measure, one spelling. The tile once printed "125.0s" and the table
+ * under it "2.1 min" for the same mean, and a twenty-minute wait read "1200.0s"
+ * in the tile: two figures a screen apart that made an operator ask whether
+ * they were two measurements. Every other duration in the app is written by
+ * formatDuration, so both are.
+ */
+test('the average queue wait is written the same way in the tile and in the table', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/usage?**', async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    body.items = (body.items ?? []).map((row: object) => ({
+      ...row,
+      jobs_started: 4,
+      average_queue_wait_seconds: 125,
+    }));
+    await route.fulfill({ json: body });
+  });
+  await goto(page, '/usage', 'Usage');
+
+  const tile = page.locator('.metric').filter({ hasText: 'Average queue wait' });
+  await expect(tile.locator('dd')).toHaveText('2m 05s');
+  await expect(
+    table(page).getByRole('row').nth(1).getByRole('cell').filter({ hasText: '2m 05s' }),
+  ).toHaveCount(1);
+});
