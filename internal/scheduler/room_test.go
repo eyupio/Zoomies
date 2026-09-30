@@ -59,6 +59,22 @@ func TestHostRoomIsTheSmallerOfTheMachineAndTheSlots(t *testing.T) {
 			wantRoom:  0,
 			wantLimit: "cpu",
 		},
+		{
+			// The pass refuses every runner on a host at its disk reserve,
+			// however little the pool asks for, so a pool that states no disk
+			// must not be told the host has room. The pool page and the
+			// pool.max_above_room warning add these figures up.
+			name: "a host at its disk reserve has room for none, whatever the pool asks for",
+			host: func() *store.Host {
+				h := sized("host_e", 4, 8, 32*1024, 500*1024)
+				h.DiskFreeMB = 0
+				return h
+			}(),
+			pool:      limited("light", 1, 1024),
+			wantFits:  0,
+			wantRoom:  0,
+			wantLimit: "disk",
+		},
 	}
 
 	for _, tc := range tests {
