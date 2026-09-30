@@ -63,7 +63,10 @@ zoomies agent join https://zoomies.example.com --token zoojoin_... \
 ```
 
 `join` redeems the token, writes the credentials, and installs the service that
-keeps the host enrolled; `--no-service` joins without one. A private controller
+keeps the host enrolled; `--no-service` joins without one. On a systemd host
+the service needs root, so run the shorter form with `sudo` — without it the
+command stops before the token is redeemed, rather than spending a single-use
+token and then failing at the unit file. A private controller
 takes `--ca-file` — prefer it over `--insecure`, which trusts anything on the
 path.
 

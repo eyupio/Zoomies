@@ -127,6 +127,21 @@ func Join(ctx context.Context, opts JoinOptions) error {
 			"`zoomies hosts join-token create --ttl 15m`, and pass it as --token")
 	}
 
+	// Decided before anything is written or redeemed. The join token is single
+	// use, and the unit goes to /etc/systemd/system, which a user without root
+	// cannot write: finding that out after a.Join leaves a spent token,
+	// credentials in the operator's home directory and an offline host on the
+	// controller for someone to remove.
+	kind := opts.Service
+	if kind == "" {
+		kind = DetectServiceKind(det)
+	}
+	if kind == ServiceSystemd && !det.Root {
+		return errors.New("installer: installing the agent as a systemd service needs root, and the join token is single-use, " +
+			"so nothing has been redeemed; re-run with sudo, or pass --no-service to join without installing a unit " +
+			"and start the agent yourself")
+	}
+
 	workDir := filepath.Join(opts.stateDir(), "work")
 	configFile := filepath.Join(opts.configDir(), "zoomies.yaml")
 	name := opts.Name
@@ -282,10 +297,6 @@ func Join(ctx context.Context, opts JoinOptions) error {
 	}
 
 	// --- Service ---------------------------------------------------------
-	kind := opts.Service
-	if kind == "" {
-		kind = DetectServiceKind(det)
-	}
 	u.step("Service")
 	if kind != ServiceSystemd && kind != ServiceLaunchd && kind != ServiceWindows {
 		u.note("no service manager here; start the agent yourself with:")

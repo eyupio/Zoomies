@@ -7,8 +7,12 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/eyupio/zoomies/internal/agent"
@@ -119,6 +123,81 @@ func TestJoinNeedsAControllerAndAToken(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "join-token create") {
 		t.Fatalf("the error should say how to get a token: %v", err)
+	}
+}
+
+// The join token is single-use, so a join that spends it and then fails at
+// the unit file -- /etc/systemd/system needs root -- leaves the operator with a
+// dead token, credentials in their home directory and an offline host on the
+// controller. The refusal has to come before the controller is contacted.
+func TestJoinRefusesASystemdUnitItCannotWriteBeforeSpendingTheToken(t *testing.T) {
+	cases := []struct {
+		name      string
+		detection Detection
+		service   ServiceKind
+		refused   bool
+	}{
+		{
+			name:      "a user without root on a systemd host",
+			detection: Detection{OS: "linux", Arch: "amd64", Hostname: "build-01", HasSystemd: true},
+			refused:   true,
+		},
+		{
+			name:      "a unit asked for outright on a host that would not have chosen one",
+			detection: Detection{OS: "linux", Arch: "amd64", Hostname: "build-01"},
+			service:   ServiceSystemd,
+			refused:   true,
+		},
+		{
+			// --no-service is the escape hatch: the operator has said they will
+			// run the agent themselves, so nothing needs root.
+			name:      "a user without root who asks for no service",
+			detection: Detection{OS: "linux", Arch: "amd64", Hostname: "build-01", HasSystemd: true},
+			service:   ServiceNone,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var contacted atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				contacted.Add(1)
+				http.Error(w, "no", http.StatusUnauthorized)
+			}))
+			t.Cleanup(srv.Close)
+
+			stateDir := t.TempDir()
+			det := tc.detection
+			err := Join(context.Background(), JoinOptions{
+				ControllerURL:     srv.URL,
+				JoinToken:         "zoojoin_test",
+				ConfigDir:         t.TempDir(),
+				StateDir:          stateDir,
+				Service:           tc.service,
+				AllowInsecureHTTP: true,
+				Out:               &strings.Builder{},
+				detection:         &det,
+			})
+			if err == nil {
+				t.Fatal("the join has no controller that accepts it, so it must fail somewhere")
+			}
+			if !tc.refused {
+				if contacted.Load() == 0 {
+					t.Fatalf("a join that needs no root should reach the controller, got: %v", err)
+				}
+				return
+			}
+			for _, want := range []string{"root", "sudo", "--no-service"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("the refusal should mention %q:\n%v", want, err)
+				}
+			}
+			if n := contacted.Load(); n != 0 {
+				t.Errorf("the controller was contacted %d times; that spends the single-use join token", n)
+			}
+			if _, statErr := os.Stat(filepath.Join(stateDir, "work")); statErr == nil {
+				t.Error("nothing should be written before the refusal")
+			}
+		})
 	}
 }
 
