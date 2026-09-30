@@ -72,6 +72,21 @@ func Load(path string) (Credentials, error) {
 	return c, nil
 }
 
+// syncFile and syncDir are how Save reaches the disk. They are variables only so
+// a test can watch the order they are called in: a power cut cannot be staged,
+// but the order is what makes the rename safe.
+var (
+	syncFile = func(f *os.File) error { return f.Sync() }
+	syncDir  = func(dir string) error {
+		d, err := os.Open(dir)
+		if err != nil {
+			return err
+		}
+		defer d.Close()
+		return d.Sync()
+	}
+)
+
 // Save persists credentials for the next run of the agent.
 //
 // The write is to a temporary file followed by a rename, because a half-written
@@ -108,11 +123,25 @@ func Save(path string, c Credentials) error {
 		tmp.Close()
 		return fmt.Errorf("agent: writing %s: %w", tmpName, err)
 	}
+	// A rename is only atomic against a crashed process. After a power cut the
+	// filesystem may keep the new name and lose the data behind it, leaving an
+	// empty agent.json for a token that is shown once and stored only as a hash.
+	if err := syncFile(tmp); err != nil {
+		tmp.Close()
+		return fmt.Errorf("agent: syncing %s to disk: %w", tmpName, err)
+	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("agent: closing %s: %w", tmpName, err)
 	}
 	if err := os.Rename(tmpName, path); err != nil {
 		return fmt.Errorf("agent: installing credentials at %s: %w", path, err)
+	}
+	// Best effort, and skipped where a directory cannot be opened for syncing
+	// (Windows) or the filesystem refuses it: the rename has happened, and the
+	// worst a lost directory entry does is leave the old file or none, which
+	// Load reports as not joined rather than as garbage.
+	if runtime.GOOS != "windows" {
+		_ = syncDir(dir)
 	}
 	return nil
 }
