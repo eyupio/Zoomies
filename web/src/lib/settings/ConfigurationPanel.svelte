@@ -106,10 +106,21 @@
    */
   const wanted = $derived(router.param('setting'));
   let sought = $state('');
+  // Plain, not $state: the effect must not track it. The effect reads
+  // `settings`, which is replaced after every save, refresh and import, and the
+  // address keeps its `?setting=` for the whole visit -- so without this the
+  // filters were wiped and the page scrolled back to the linked row each time
+  // somebody saved a different one.
+  let handled = '';
 
   $effect(() => {
     const key = wanted;
-    if (!key || !settings) return;
+    if (!key) {
+      handled = '';
+      return;
+    }
+    if (!settings || key === handled) return;
+    handled = key;
     // Untangled from the filters first, or the row may not be rendered to
     // scroll to. Both are cleared rather than only the one that would hide it:
     // which of them does depends on the key, and a page that sometimes honours
