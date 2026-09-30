@@ -788,7 +788,7 @@ func TestTheJobsRebuildKeepsEveryRowAndItsIndexes(t *testing.T) {
 			 '0019_job_eligible_at.sql', '0026_provisioning_queue.sql',
 			 '0034_job_fault_kind.sql', '0041_job_cancellation_requested.sql',
 			 '0043_job_run_number.sql', '0053_job_run_number_backfill.sql',
-			 '0054_jobs_run_index.sql', '0060_job_versions.sql')`,
+			 '0054_jobs_run_index.sql', '0060_job_versions.sql', '0061_job_usage.sql')`,
 		`DROP INDEX runners_provisioning_order`,
 		`ALTER TABLE runner_sessions DROP COLUMN controller_version`,
 		`ALTER TABLE runner_sessions DROP COLUMN controller_channel`,
@@ -857,12 +857,13 @@ func TestTheJobsRebuildKeepsEveryRowAndItsIndexes(t *testing.T) {
 	}
 	// Six from the rebuild itself, and one each for the fault category, the
 	// cancellation stamp and a run's jobs that later migrations added, and two
-	// for the job statistics' window and job-name grouping (0060). A
+	// for the job statistics' window and job-name grouping (0060), and one
+	// for a job's usage profile (0061). A
 	// rebuild that replayed and left a later one behind would take the Jobs
 	// page's category filter, its Running and Queued views, or every job
 	// event's run-number lookup back to a full scan.
-	if indexes != 11 {
-		t.Fatalf("the rebuilt jobs table has %d indexes, want 11", indexes)
+	if indexes != 12 {
+		t.Fatalf("the rebuilt jobs table has %d indexes, want 12", indexes)
 	}
 }
 

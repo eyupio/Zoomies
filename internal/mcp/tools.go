@@ -145,7 +145,8 @@ func tools() []*tool {
 			Name:  "job_stats",
 			Title: "Job statistics",
 			Description: "Completed jobs counted and timed, grouped by up to two of controller_version, day, host, pool and job_name: " +
-				"count, succeeded, failed, cancelled, fleet failures by kind and their rate, and p50 and p95 of duration, queue wait and startup, in milliseconds. " +
+				"count, succeeded, failed, cancelled, fleet failures by kind and their rate, p50 and p95 of duration, queue wait and startup, in milliseconds, " +
+				"and the peak CPU (cores) and memory (MB) any job in the group was measured using, with how many were killed for memory (oom_killed). " +
 				"group_by controller_version compares releases in one call. Cancelled and skipped jobs are left out of duration. " +
 				"Jobs without a stamped release are the group \"unknown\". Prefer this to paging through list_jobs for any question about a period.",
 			InputSchema: object(nil, map[string]any{
@@ -164,7 +165,8 @@ func tools() []*tool {
 			Name:  "get_job",
 			Title: "Get a job",
 			Description: "One job in full: its record and steps, its timeline of what the fleet observed and did, " +
-				"and the controller's explanation of why it is where it is, with a fix where there is one to make.",
+				"and the controller's explanation of why it is where it is, with a fix where there is one to make. " +
+				"The record carries the most CPU (peak_cpus, cores) and memory (peak_memory_mb) the job was measured using, and oom_killed when the kernel killed its runner or a step for memory, which the explanation then leads with.",
 			InputSchema: object([]string{"job_id"}, map[string]any{
 				"job_id": str("the job's ID, starting job_"),
 			}),

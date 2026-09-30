@@ -15,22 +15,28 @@ import (
 // Jobs
 // ---------------------------------------------------------------------------
 
-const jobCols = `id, github_job_id, github_run_id, repo, workflow, job_name, labels, state,
+// jobInsertCols are the columns a new job is written with. The usage columns
+// are left out: a job has used nothing when it is first seen, and only
+// RecordJobUsage and MarkJobOOMKilled ever raise them.
+const jobInsertCols = `id, github_job_id, github_run_id, repo, workflow, job_name, labels, state,
 	conclusion, installation_id, pool_id, runner_id, runner_name, html_url, queued_at,
 	started_at, completed_at, matched, eligible_at, head_branch, head_sha, run_attempt, run_number, steps, runner_fault, fault_kind, provisioning, provision_now, cancel_requested_at,
 	controller_version, controller_channel, agent_version, host_id`
+
+const jobCols = jobInsertCols + `, peak_cpus, peak_memory_mb, oom_killed`
 
 func scanJob(sc interface{ Scan(...any) error }) (*Job, error) {
 	var j Job
 	var queued int64
 	var started, completed, eligible, cancelRequested sql.NullInt64
-	var matched int
+	var matched, oomKilled int
 	var controllerVersion, controllerChannel, agentVersion, hostID sql.NullString
 	err := sc.Scan(&j.ID, &j.GitHubJobID, &j.GitHubRunID, &j.Repo, &j.Workflow, &j.JobName,
 		&j.Labels, &j.State, &j.Conclusion, &j.InstallationID, &j.PoolID, &j.RunnerID,
 		&j.RunnerName, &j.HTMLURL, &queued, &started, &completed, &matched, &eligible,
 		&j.HeadBranch, &j.HeadSHA, &j.RunAttempt, &j.RunNumber, &j.Steps, &j.RunnerFault, &j.FaultKind, &j.Provisioning, &j.ProvisionNow,
-		&cancelRequested, &controllerVersion, &controllerChannel, &agentVersion, &hostID)
+		&cancelRequested, &controllerVersion, &controllerChannel, &agentVersion, &hostID,
+		&j.PeakCPUs, &j.PeakMemoryMB, &oomKilled)
 	if err != nil {
 		return nil, err
 	}
@@ -40,6 +46,7 @@ func scanJob(sc interface{ Scan(...any) error }) (*Job, error) {
 	j.StartedAt, j.CompletedAt, j.EligibleAt = atp(started), atp(completed), atp(eligible)
 	j.CancelRequestedAt = atp(cancelRequested)
 	j.Matched = matched == 1
+	j.OOMKilled = oomKilled == 1
 	return &j, nil
 }
 
@@ -80,7 +87,7 @@ func (s *Store) ApplyJob(ctx context.Context, j *Job) (*Job, JobChange, error) {
 				now := s.Now()
 				j.EligibleAt = &now
 			}
-			_, err := tx.ExecContext(ctx, `INSERT INTO jobs (`+jobCols+`)
+			_, err := tx.ExecContext(ctx, `INSERT INTO jobs (`+jobInsertCols+`)
 				VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 				j.ID, j.GitHubJobID, j.GitHubRunID, j.Repo, j.Workflow, j.JobName, j.Labels,
 				string(j.State), j.Conclusion, j.InstallationID, j.PoolID, j.RunnerID,

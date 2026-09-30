@@ -1385,6 +1385,15 @@ func (c *Controller) applyReports(ctx context.Context, hostID string, reports []
 			if err := c.st.SetRunnerResourceSample(ctx, r.ID, rep.Stats.CPUPercent, rep.Stats.MemoryBytes, sample); err == nil {
 				cpuMoved = allocationFactorMoved(r.ResourceSample, rep.Stats)
 			}
+			if r.State == store.RunnerBusy && rep.Stats.SampledAt != nil {
+				// The same sample raises the peaks of the job the runner is
+				// running, which is what the next run of that job is placed
+				// from. A failure here costs one sample of history, never
+				// the report.
+				if err := c.st.RecordJobUsage(ctx, r.ID, rep.Stats.CPUPercent/100, rep.Stats.MemoryBytes/(1<<20)); err != nil {
+					c.log.Debug("could not record a job's usage", "runner", r.ID, "error", err)
+				}
+			}
 		}
 
 		state := rep.State
@@ -1399,6 +1408,13 @@ func (c *Controller) applyReports(ctx context.Context, hostID string, reports []
 		if err := c.applyRunnerState(ctx, r, state, rep.Message, rep.Fault); err != nil {
 			errs = append(errs, err)
 			continue
+		}
+		if rep.Fault == store.FaultOutOfMemory {
+			// Whatever the lifecycle says -- a runner killed outright, or one
+			// that finished its job after a step was killed -- the job it ran
+			// was the fleet's failure, and its history has to say it needed
+			// more than it had.
+			c.noteOOMKilled(ctx, r, rep.Message)
 		}
 		if cpuMoved {
 			// A boost given, taken back or tightened by a throttle is the

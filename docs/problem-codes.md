@@ -159,6 +159,7 @@ than about what any one setting says.
 
 | Code | Severity | Setting | What to do |
 | --- | --- | --- | --- |
+| `scheduler.history_sizing` | error | `scheduler.history_sizing` | Use `off`, `shadow` or `on`. |
 | `scheduler.placement_mode` | error | `scheduler.placement_mode` | Use `headroom`, `shadow` or `readiness`. |
 | `scheduler.interval` | error | `scheduler.interval` | Must be positive. |
 | `scheduler.burst` | error | `scheduler.max_creates_per_tick` | Must be at least 1. |
@@ -253,6 +254,8 @@ something it is not doing.
 | `pool.repository_scale_up_deferred` | warning | The per-repository creation limit held runners back. Expected under a burst; standing means the limit is too tight. |
 | `jobs.unmatched` | warning | Jobs are queued that no enabled pool here will run. Usually their labels match no pool: they may belong to another runner provider, or a pool may be missing a label. The entry says so instead when the cause is the GitHub target rather than the labels — a pool advertising exactly those labels but belonging to another installation, or a repository no installation here covers — because those need the installation changed, not the workflow. |
 | `jobs.runner_lost` | warning | A job's runner stopped under it, so the failure is the fleet's rather than the workflow's. When most of them share one category, the detail says so and the fix is that category's. |
+| `jobs.oom_killed` | warning | The kernel killed a job's runner, or one of its steps (exit 137), for its memory limit on a host in the last hour. GitHub records it as an ordinary failure; this is the fleet owning up. The entry names the job, the host and the most the job was measured using. With `scheduler.history_sizing: on` the next run of that job is placed on a host with room for half as much again; otherwise give the pool a larger minimum memory, or raise `memory_mb`. |
+| `pool.history_unfit` | warning | A job waiting on the pool is known, from its own recent runs, to need more CPU or memory than any host that can run the pool has to give. It is placed as it always was, so it is likely to fail the way it did before, and the jobs beside it are not held back for it. Add a larger host the pool can reach, or split the job. |
 | `runners.failed` | warning | Runners are in the failed state with their reasons recorded. |
 | `runners.cleanup_failed` | warning | Zoomies could not finish taking a runner away: a container still on its host, or a registration still on GitHub. Different from `runners.failed`, which is a job that did not run — this is something *left behind*. Most often GitHub's own bookkeeping is a few seconds behind the webhook that told Zoomies the job was done, and this clears on the next retry with nothing to do. A container Docker is still removing is waited for rather than raised, and appears here only once the removal has gone ten minutes without finishing; see [Cleanup](troubleshooting.md#what-zoomies-cleans-up-and-what-it-leaves) for the other shapes and what each needs. |
 | `runners.not_progressing` | warning | Runners have sat in `provisioning` or `registering` for over half the provision timeout, so the fleet says so while there is still time to look rather than only when it fails them. The entry splits the two shapes, because they are not fixed in the same place: a runner still waiting for a container is a backend or image problem on the host, and one whose container started without registering is the runner process failing to reach GitHub. |
@@ -391,12 +394,14 @@ against it in both directions, word for word.
 | `host.unhealthy` | A machine has stopped checking in, so fewer jobs can run at once. |
 | `host.version_behind` | A machine is running an older agent than the controller. |
 | `installation.unhealthy` | The fleet has lost a permission it needs on GitHub, so jobs from some repositories cannot start. |
+| `jobs.oom_killed` | A job ran out of memory on its machine, so it failed through no fault of its own. |
 | `jobs.runner_lost` | A runner stopped while running a job, so that job may fail or need a re-run. |
 | `jobs.unmatched` | Some jobs ask for runner labels this fleet does not offer, so they will wait until the workflow or the fleet changes. |
 | `poller.paused` | The controller has stopped asking GitHub for queued jobs, so a missed notification is not caught. |
 | `poller.stale` | The controller has not heard from GitHub recently, so new jobs may be noticed late. |
 | `pool.cache_above_disk` | A runner cache is set larger than the disk it lives on. |
 | `pool.cache_shared` | A runner cache is shared more widely than usual. |
+| `pool.history_unfit` | A job needs more memory or CPU than any machine that can run it has, so it may fail again. |
 | `pool.dangerous` | Some runners are set up with more access to their machine than the safe default. |
 | `pool.docker_client_missing` | Jobs that use Docker may fail because their runner image lacks the Docker client. |
 | `pool.elastic_cpu_unsupported` | Runners cannot borrow spare CPU on some machines, so busy jobs run at their normal size. |

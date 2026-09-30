@@ -495,6 +495,7 @@
       <Switch
         checked={includeRemoved}
         label="Include removed"
+        labelToggles={false}
         description="Removed runners are hidden by default: a busy fleet makes and destroys thousands of them, and they are all history."
         onchange={(on) => router.setQuery({ include_removed: on ? '1' : null })}
       />

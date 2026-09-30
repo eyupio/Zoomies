@@ -433,6 +433,9 @@ func TestStatusFromInspect(t *testing.T) {
 	if !strings.Contains(oom.Message, "memory_mb") {
 		t.Fatalf("an OOM kill must tell the operator what to change: %q", oom.Message)
 	}
+	if !oom.OOMKilled {
+		t.Fatal("an OOM kill must be carried as a fact, not only as a sentence")
+	}
 
 	timed := statusFromInspect(h, &ContainerInspect{State: &ContainerState{
 		Status: "exited", StartedAt: "2026-01-02T03:04:05Z", FinishedAt: "2026-01-02T03:09:05Z",

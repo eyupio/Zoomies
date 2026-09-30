@@ -98,6 +98,11 @@ func (c *Controller) Reconcile(ctx context.Context) error {
 		alternative := scheduler.Decide(candidate)
 		c.log.Debug("compared host placement policies", "current", plan.Pools, "readiness", alternative.Pools)
 	}
+	for _, pp := range plan.Pools {
+		if pp.History != "" {
+			c.log.Debug("job history placement", "pool", pp.PoolName, "mode", snap.HistorySizing, "decision", pp.History)
+		}
+	}
 	c.rememberPlacement(snap, plan, placementVersion)
 	c.setLastPlan(plan)
 	c.setReserved(snap)
@@ -166,7 +171,27 @@ func (c *Controller) snapshot(ctx context.Context) (scheduler.Snapshot, error) {
 			}
 		}
 	}
+	mode := c.cfg().Scheduler.HistorySizing
+	var history map[store.JobUsageKey][]store.JobPeak
+	if mode == scheduler.HistoryShadow || mode == scheduler.HistoryOn {
+		// Read for every distinct queued job, whichever pool ends up running
+		// it: the store answers per pool and the scheduler picks the pool's.
+		// A failed read costs this pass its history and nothing else -- the
+		// fleet places as it did before history existed.
+		var keys []store.JobUsageKey
+		for _, j := range jobs {
+			if j.State == store.JobQueued {
+				keys = append(keys, store.JobUsageKey{Repo: j.Repo, Workflow: j.Workflow, JobName: j.JobName})
+			}
+		}
+		if h, err := c.st.JobUsageHistory(ctx, keys); err == nil {
+			history = h
+		} else {
+			c.log.Warn("could not read job history; placing without it this pass", "error", err)
+		}
+	}
 	return scheduler.Snapshot{
+		JobHistory: history, HistorySizing: mode,
 		Readiness: readiness, PreferReadiness: c.cfg().Scheduler.PlacementMode == "readiness",
 		LastProvisioned:    lastProvisioned,
 		Now:                now,
@@ -390,6 +415,11 @@ func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, host *s
 		// and what an operator reading a slow job needs to know.
 		resources.CPUs, resources.MemoryMB = a.Size.CPUs, a.Size.MemoryMB
 		source = store.AllocationReduced
+		if a.SizedFromHistory {
+			// Larger than the share, not smaller: the jobs waiting are known
+			// to need more than a slot of this host.
+			source = store.AllocationHistory
+		}
 	}
 	resources.MinCPUs, resources.MinMemoryMB = 0, 0
 	name := github.RunnerName(pool)

@@ -891,6 +891,59 @@ binds a runner is the cgroup limit the container backends apply from the same
 the pool set none. The `process` backend applies none, so on a `process` pool the
 reservation is bookkeeping and nothing enforces it.
 
+### Sizing from job history
+
+A pool's size is the same for every job it runs, and jobs are not the same
+size. A pool whose minimum is 1 CPU and 1 GB can land a race-enabled test
+suite on a 4-CPU, 3 GB host, where the kernel kills `go vet` an hour and a
+half in. So the fleet remembers what each job used.
+
+While a job runs, the agent's usage samples — the same ones elastic CPU is
+decided on — raise the job's **peak CPU** and **peak memory**, and a runner
+the kernel killed for memory (the container's `OOMKilled`, or exit 137 from
+the runner or one of its steps) marks the job **OOM-killed**, a fault of the
+fleet's rather than the workflow's. Both show on the job's page, in
+`GET /api/v1/jobs/{id}`, in `job_stats` and in the MCP tools.
+
+A job's **requirement** is the ninetieth percentile of the peaks of its last
+twenty measured runs, keyed by repository, workflow, job name and pool, with
+a fifth more memory. A run that was OOM-killed counts as having needed half
+as much memory again as its peak, because its peak is the limit it hit. CPU
+gets no margin: a build uses every core it is given, and a margin would ratchet
+the requirement up run after run. The requirement is never below the pool's
+minimum, and the history is the job rows themselves, so it rolls forward and is
+pruned with `retention.jobs`.
+
+`scheduler.history_sizing` decides what the requirement does:
+
+| Mode | What happens |
+| --- | --- |
+| `off` | Nothing. Placement is the pool's size and the host's room. |
+| `shadow` (default) | The requirement is worked out, and where a runner went to a host short of it, a waiting job's explanation (`GET /api/v1/jobs/{id}/explanation`, and `get_job`) says so, and so does the controller's debug log. Placement is unchanged. |
+| `on` | A runner created for the pool's queue goes only to a host whose unpromised and measured-free CPU and memory hold the largest requirement among the jobs waiting, and a field the pool leaves to the host is sized up to it (allocation source `history`). A field the pool states is never raised: the requirement then only chooses the host. |
+
+The constraint is GitHub's: GitHub, not Zoomies, hands a queued job to an
+idle runner, so the fleet cannot put a particular job on a particular runner.
+It places and sizes each runner for the **largest** requirement among the jobs
+waiting on that pool, because any of them may be the one it is given. A light
+job may therefore run on a runner sized for a heavy one beside it, and a
+runner that was already idle before the heavy job queued may take it anyway.
+Pools with distinct labels for heavy jobs are still the way to guarantee a
+size.
+
+A host short of the requirement gets no runner for it, and the reason says
+why:
+
+```text
+cannot scale linux 0 -> 1: held off small-1: jobs waiting need ~6 GB, it has 2.9 GB
+```
+
+That is a wait, like `at capacity`: a larger host that finishes its work takes
+the runner. A job whose requirement no host that can run the pool could ever
+hold is left out of the requirement rather than holding every other job back,
+and raises `pool.history_unfit`: it needs a larger host, and waiting will not
+help.
+
 ### When nothing can be placed
 
 The scheduler says why, in one sentence, and the same reason appears in

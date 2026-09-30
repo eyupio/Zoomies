@@ -4543,10 +4543,10 @@ export interface components {
              */
             allocated_memory_mb?: number;
             /**
-             * @description Where the allocation came from: `pool` for the pool's own limits, `host` for one slot's share of the host it landed on (the default when the pool sets none), and `reduced` for a runner no host had room for at the pool's standard size, given what one could spare at or above the pool's minimum. Omitted when the runner was created with no limit at all.
+             * @description Where the allocation came from: `pool` for the pool's own limits, `host` for one slot's share of the host it landed on (the default when the pool sets none), `reduced` for a runner no host had room for at the pool's standard size, given what one could spare at or above the pool's minimum, and `history` for a runner sized up to what the jobs waiting on its pool are known to need from their recent runs (`scheduler.history_sizing: on`). Omitted when the runner was created with no limit at all.
              * @enum {string}
              */
-            allocation_source?: "pool" | "host" | "reduced" | "";
+            allocation_source?: "pool" | "host" | "reduced" | "history" | "";
             cpu_resource?: components["schemas"]["CPUResourceState"];
             /** Format: date-time */
             created_at?: string;
@@ -5076,6 +5076,15 @@ export interface components {
             agent_version?: string;
             /** @description The host the job's runner was on */
             host_id?: string;
+            /** @description The most CPU, in cores, the job's runner was measured using while the job ran on it -- the agent's usage samples, raised and never lowered. Absent when it was never measured: a job from before this was recorded, a backend that reports no usage, or a job too short to be sampled. */
+            peak_cpus?: number;
+            /**
+             * Format: int64
+             * @description The most memory, in MB, the job's runner was measured using while the job ran. Absent when never measured.
+             */
+            peak_memory_mb?: number;
+            /** @description True when the kernel killed the job's runner, or one of its steps (exit 137), for its memory limit. It is the fleet's failure rather than the workflow's, and the one `scheduler.history_sizing` corrects for: the next run of the job is placed for half as much memory again as this one's peak. Absent when false. */
+            oom_killed?: boolean;
             /** @description The job's steps as GitHub last reported them. A completed job carries every step with its conclusion; a running one carries them mid-flight. */
             steps?: components["schemas"]["JobStep"][];
             /** @description The step a completed job stopped at: the first that did not succeed, whether the job failed there or was cancelled there. Null when every step succeeded or while the job is still running. Worked out by the server so every client names the same step. */
@@ -5205,6 +5214,13 @@ export interface components {
             controller_channel?: string;
             /** @description The agent version the host reported when the job was assigned to it. */
             agent_version?: string;
+            /**
+             * Format: int64
+             * @description The most memory, in MB, the job was measured using. Absent when never measured.
+             */
+            peak_memory_mb?: number;
+            /** @description True when the kernel killed the job's runner or one of its steps for memory. Absent when false. */
+            oom_killed?: boolean;
         };
         JobPercentiles: {
             /** @description The jobs the figures were computed from. */
@@ -5240,6 +5256,15 @@ export interface components {
             duration: components["schemas"]["JobPercentiles"];
             queue_wait: components["schemas"]["JobPercentiles"];
             startup: components["schemas"]["JobPercentiles"];
+            /** @description The most CPU, in cores, any job in the group was measured using. Null when none was measured. */
+            peak_cpus: number | null;
+            /**
+             * Format: int64
+             * @description The most memory, in MB, any job in the group was measured using. Null when none was measured.
+             */
+            peak_memory_mb: number | null;
+            /** @description Jobs in the group whose runner */
+            oom_killed: number;
         };
         JobStats: {
             /**
@@ -5290,10 +5315,10 @@ export interface components {
          */
         FaultKind: "host_lost" | "out_of_memory" | "out_of_disk" | "removed" | "image" | "registration" | "backend" | "backend_busy" | "container_conflict" | "config" | "runner_exited";
         /**
-         * @description What happened. `runner_lost` is the one entry GitHub cannot produce: the runner stopped under the job, and GitHub will report an ordinary failure. `waiting` and `approved` bracket a deployment review: the time between them is GitHub's, and the queue wait starts at `approved`. `runner_returned` withdraws a `runner_lost`: the host was silent long enough to be given up on, came back with the runner still executing this job, and the job is being left to finish. `runner_start_failed` is the failure that touches no job: a runner this pool started died before it could take one, so the job is still queued and the next runner may run it -- said here because a pool that cannot start a container otherwise looks exactly like a pool that is merely busy.
+         * @description What happened. `runner_lost` is the one entry GitHub cannot produce: the runner stopped under the job, and GitHub will report an ordinary failure. `waiting` and `approved` bracket a deployment review: the time between them is GitHub's, and the queue wait starts at `approved`. `runner_returned` withdraws a `runner_lost`: the host was silent long enough to be given up on, came back with the runner still executing this job, and the job is being left to finish. `runner_start_failed` is the failure that touches no job: a runner this pool started died before it could take one, so the job is still queued and the next runner may run it -- said here because a pool that cannot start a container otherwise looks exactly like a pool that is merely busy. `oom_killed` is the kernel killing the job's runner, or one of its steps, for its memory limit -- which can be recorded after `completed`, because a runner whose step was killed finishes the job and reports the kill only when it exits.
          * @enum {string}
          */
-        JobEventKind: "queued" | "waiting" | "approved" | "claimed" | "unmatched" | "started" | "completed" | "runner_lost" | "runner_returned" | "cancel_requested" | "runner_start_failed" | "rerun_requested";
+        JobEventKind: "queued" | "waiting" | "approved" | "claimed" | "unmatched" | "started" | "completed" | "runner_lost" | "runner_returned" | "cancel_requested" | "runner_start_failed" | "rerun_requested" | "oom_killed";
         JobEvent: {
             id?: string;
             job_id?: string;

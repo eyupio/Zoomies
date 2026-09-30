@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"sort"
 	"strings"
@@ -69,6 +70,12 @@ type JobStatsGroup struct {
 	Duration         JobPercentiles `json:"duration"`
 	QueueWait        JobPercentiles `json:"queue_wait"`
 	Startup          JobPercentiles `json:"startup"`
+	// PeakCPUs and PeakMemoryMB are the most any job in the group was
+	// measured using, nil when none was measured. OOMKilled counts the jobs
+	// the kernel killed something in for its memory limit.
+	PeakCPUs     *float64 `json:"peak_cpus"`
+	PeakMemoryMB *int64   `json:"peak_memory_mb"`
+	OOMKilled    int      `json:"oom_killed"`
 }
 
 // JobStatsResult is JobStats' answer.
@@ -119,6 +126,7 @@ func (s *Store) JobStats(ctx context.Context, f JobFilter, groupBy []string) (*J
 	}
 	base := `WITH base AS (SELECT ` + keys[0] + ` AS k1, ` + keys[1] + ` AS k2, queued_at AS q,
 			conclusion, runner_fault, fault_kind,
+			NULLIF(peak_cpus, 0) AS pc, NULLIF(peak_memory_mb, 0) AS pm, oom_killed AS oom,
 			CASE WHEN started_at IS NOT NULL THEN MAX(started_at - queued_at, 0) END AS wait,
 			CASE WHEN started_at IS NOT NULL AND completed_at IS NOT NULL AND conclusion NOT IN ('cancelled','skipped')
 				THEN MAX(completed_at - started_at, 0) END AS dur,
@@ -185,6 +193,33 @@ func (s *Store) JobStats(ctx context.Context, f JobFilter, groupBy []string) (*J
 		}
 	}
 	if err := kinds.Err(); err != nil {
+		return nil, err
+	}
+
+	peaks, err := s.read.QueryContext(ctx, base+`SELECT k1, k2, MAX(pc), MAX(pm), SUM(oom) FROM base GROUP BY k1, k2`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer peaks.Close()
+	for peaks.Next() {
+		var k gk
+		var pc sql.NullFloat64
+		var pm sql.NullInt64
+		var oom int
+		if err := peaks.Scan(&k.a, &k.b, &pc, &pm, &oom); err != nil {
+			return nil, err
+		}
+		if g := groups[k]; g != nil {
+			if pc.Valid {
+				g.PeakCPUs = &pc.Float64
+			}
+			if pm.Valid {
+				g.PeakMemoryMB = &pm.Int64
+			}
+			g.OOMKilled = oom
+		}
+	}
+	if err := peaks.Err(); err != nil {
 		return nil, err
 	}
 
