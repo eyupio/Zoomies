@@ -78,3 +78,35 @@ test('private hosts retain a distinct badge alongside normal health and capacity
   await expect(page.getByText('Tailcat host', { exact: true }).first()).toBeVisible();
   await expect(page.getByText(/via Tailcat/).first()).toBeVisible();
 });
+
+/**
+ * The connection chooser is the one radio group that was styled by hand. Its
+ * legend was a raw 600 weight at body size where every other group's is the
+ * small, medium, muted label, and its card drew a focus ring on a mouse click,
+ * which the ring's own rule (keyboard focus only) says nothing should.
+ */
+test('the connection chooser labels itself like every other group and rings a card only for the keyboard', async ({
+  page,
+}) => {
+  await goto(page, '/hosts/new', 'Add a host');
+  const legend = page.locator('legend', { hasText: 'How should this host connect?' });
+  const weight = await page.evaluate(() =>
+    getComputedStyle(document.documentElement).getPropertyValue('--z-weight-medium').trim(),
+  );
+  // Soft, so the ring below is judged on the same run.
+  await expect.soft(legend).toHaveCSS('font-weight', weight);
+  // --z-text-xs, which computes to pixels.
+  await expect.soft(legend).toHaveCSS('font-size', '12px');
+
+  const card = page.locator('label.connection-choice', { hasText: 'Direct connection' });
+  const radio = card.getByRole('radio');
+  await radio.click();
+  await expect(radio).toBeFocused();
+  await expect(card).toHaveCSS('outline-style', 'none');
+
+  // Away and back by keyboard: now the ring is earned.
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Shift+Tab');
+  await expect(radio).toBeFocused();
+  await expect(card).toHaveCSS('outline-style', 'solid');
+});

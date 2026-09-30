@@ -729,7 +729,9 @@
     min-width: 0;
   }
   .connection-options legend {
-    font-weight: 600;
+    font-size: var(--z-text-xs);
+    font-weight: var(--z-weight-medium);
+    color: var(--z-text-muted);
     margin-bottom: var(--z-space-3);
   }
   .connection-choices {
@@ -742,7 +744,7 @@
     align-items: flex-start;
     gap: var(--z-space-3);
     padding: var(--z-space-4);
-    border: 1px solid var(--z-border);
+    border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
     cursor: pointer;
   }
@@ -750,9 +752,11 @@
     border-color: var(--z-accent);
     background: var(--z-accent-subtle);
   }
-  .connection-choice:focus-within {
-    outline: 2px solid var(--z-accent);
-    outline-offset: 2px;
+  /* Keyboard focus only, as the global ring is: :focus-within also matched the
+     radio a mouse click had just focused, so a click drew a ring nothing else does. */
+  .connection-choice:has(input:focus-visible) {
+    outline: var(--z-focus-width) solid var(--z-focus-colour);
+    outline-offset: var(--z-focus-offset);
   }
   .connection-choice input {
     accent-color: var(--z-accent);
