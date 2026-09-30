@@ -110,6 +110,12 @@ project has tested, so retire the scale set before giving a pool its name.
 Running both side by side is fine: pools and scale sets with different labels
 never see each other's jobs.
 
+## Further reading
+
+DevToolLab's [guide to CI acceleration services](https://devtoollab.com/blog/ci-acceleration-services)
+features Zoomies alongside the other ways of getting faster, cheaper runners,
+if you are weighing self-hosting against a hosted service.
+
 ## Where to go next
 
 - [Quick start](quickstart.md): a fresh host to a running job in about five

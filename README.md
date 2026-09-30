@@ -497,6 +497,9 @@ hand-registered long-lived runners is too little.
 | Audit log | — | — | ✓ |
 | To install | Helm, CRDs, a cluster | manual | **one command** |
 
+Featured in DevToolLab's
+[guide to CI acceleration services](https://devtoollab.com/blog/ci-acceleration-services).
+
 ## Project layout
 
 ```text
