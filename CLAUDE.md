@@ -65,13 +65,6 @@ review.
 
 Other invariants worth knowing before you edit:
 
-* **One writer.** `store.Store` funnels writes through a single connection
-  behind a mutex, with a separate pooled reader in WAL mode. Do not add a second
-  writer; `database is locked` is designed out of this codebase.
-* **The runner state machine is enforced in the store**, not the caller.
-  `provisioning → registering → idle ⇄ busy → draining → removed`, plus
-  `failed`. Go through `store.TransitionRunner`; an agent must not be able to
-  report a nonsensical state and corrupt fleet accounting.
 * **The controller never dials an agent.** Agents connect outbound only (long-poll
   for tasks, POST results), so a host behind NAT needs no inbound rule. That is
   why log streaming is inverted: the controller queues a `stream_logs` task and
@@ -86,126 +79,12 @@ Other invariants worth knowing before you edit:
   computed after every pass and sent only when they change, so a new kind of
   problem -- or a host whose slots or heartbeat moved with no row written --
   needs no publish call of its own.
-* **Sentinel errors** from the store: `ErrNotFound`, `ErrConflict`,
-  `ErrInvalidTransition`, and `ErrJoinTokenUsed` / `ErrJoinTokenExpired` for
-  the two ways a join token that exists is still refused. Match with
-  `errors.Is`. Refusals the auth service makes for a reason the caller can
-  act on are `auth.ErrInvalidInput`; the API answers those with a 422 and
-  everything else with a 500 and a request ID.
-* **IDs are prefixed** (`pool_`, `run_`, `job_`, `usr_`…) via `store.NewID`, so a
-  pasted ID is self-describing in a log line or bug report. Add new prefixes to
-  `internal/store/ids.go`.
+Scoped detail lives in subfolder files that Claude Code loads when it works there:
 
-## Things CI will fail you on
-
-Beyond tests and lint, several files must stay in sync with their sources. Each
-has a CI job that diffs them:
-
-* `internal/api/openapi_spec.go` is generated from `api/openapi.yaml`. After
-  editing the spec, run `go run internal/api/gen_openapi.go` from the repo root.
-* `web/src/lib/api/schema.d.ts` is generated from the same spec. Run
-  `make openapi` and commit the result.
-* The runner image catalogue in `internal/naming/images.go` is the source for
-  both workflows' build matrices, the Makefile's `variant.*` rows and the table
-  in `docs/naming.md`. Adding or swapping an operating system is a row there and
-  then `make generate`; editing any of the four by hand fails a test in
-  `internal/naming`.
-* `install.sh` at the repo root is copied verbatim to the site root — the script
-  people `curl` is the script a contributor edits. Do not create a second copy.
-* The app shell must stay under **200 KB gzipped** (`web/vite.config.ts`
-  enforces it, the number is documented in `docs/ui-guidelines.md`). Route chunks
-  are excluded, so move weight to a lazily loaded route rather than raising the
-  budget.
-* `go mod tidy` must leave `go.mod`/`go.sum` unchanged, and `gofmt -l` must be
-  empty.
-* `govulncheck ./...` must find nothing reachable. It runs in its own workflow,
-  on every change and weekly against `main`, so a module found vulnerable after
-  it merged still gets reported.
-* Every `uses:` in `.github/workflows` is pinned to a commit with its release
-  in a comment, and a workflow with more than one job grants no `write`
-  permission at the top. Both are tested in `internal/docs`; Dependabot moves a
-  pin and its comment together, and a new action gets the same treatment.
-* `mkdocs build --strict` — a docs link that points nowhere fails the build. The
-  site workflow also checks that `sitemap.xml` and `llms.txt` came out of it,
-  both generated (by `overrides/sitemap.xml` and `hooks/seo.py`) rather than
-  written, so a build that quietly stopped producing one would otherwise ship,
-  and that the header names a release: `hooks/source.py` resolves the latest
-  release, stars and forks from the GitHub API at build time, and an offline
-  build is allowed to go without them where the published site is not.
-
-## Configuration
-
-**Settings live in the database.** The Settings page writes the
-`instance_settings` table and nowhere else, and the controller layers it over
-the defaults and `zoomies.yaml` at start (`config.Rebuild`); a `ZOOMIES_*`
-variable is the operator's last-resort override on top, not where a setting is
-kept. So code that needs a setting's value reads the effective configuration --
-the running `*config.Config`, or `config.Effective` for a deployment that is
-not this process (the installer upgrading one reads its database read-only) --
-and never a `ZOOMIES_*` variable or a `.env` file's copy of one. A value read
-from the environment is wrong the moment an operator has used the Settings
-page. `TestNoCodeReadsASettingFromTheEnvironment` in `internal/docs` fails on
-any such read outside `internal/config`; do not add to its allowlist to get a
-change through. The one real exception is a remote agent, which has no
-database: its own instance settings come from its file and environment.
-
-The same goes for what the installer writes. A container controller's `.env`
-and Compose file carry only what opens the database and what Compose reads
-itself; `zoomies init` stores every answer in the database first
-(`SettingsEnv`, then `zoomies config import-env` in a one-off container), and
-`zoomies upgrade` moves an older deployment's out of its environment
-(`internal/installer/envsettings.go`). Never add a stored setting's variable
-to the `.env` template or the controller's `environment:` block --
-`TestAControllersComposeFileHandsItNoSetting` and
-`TestAControllersEnvFileHoldsOnlyWhatOpensItsDatabase` fail if you do.
-
-Every setting is a row in the registry in `internal/config/settings.go`, which
-gives it its `zoomies.yaml` key, its `ZOOMIES_*` override and its place on the
-Settings page. Adding a setting means adding the row, plus a row in
-`docs/configuration.md`.
-
-`config.Validate` returns `Finding`s in three severities, and the distinctions
-matter: **errors** stop startup with a message saying what to change;
-**warnings** never stop anything but each one names a setting that weakens the
-default posture; **info** findings are neither wrong nor risky, and exist for
-the defaults that surprise people (`agent.none`, `tls.self_signed`). A few
-codes choose their severity from the circumstances -- `auth.disabled` is a
-warning on loopback and an error on a public bind.
-
-The same list is printed at startup and rendered in the UI's problems panel,
-alongside the problems the running controller raises. If you add a setting that
-can make the deployment less safe, add the warning too -- silent dangerous
-toggles are the thing this design exists to prevent. Every code needs a row in
-`docs/problem-codes.md`, which `internal/docs` tests in both directions;
-`docs/security.md` explains what the dangerous ones cost.
-
-The safe configuration is the default: loopback bind, auth on, ephemeral
-runners, no Docker socket in jobs, no root.
-
-## The UI
-
-`web/` is Svelte 5 (runes), Tailwind v4, Vite, TypeScript, built straight into
-`internal/api/webdist` and embedded.
-
-* **Never write a raw colour in a component, and never write a raw value that
-  already has a token.** All design tokens live in
-  `web/src/lib/styles/tokens.css`. A colour written by hand only works in one
-  theme, so that half is absolute; the rest is a rule about repetition, and a
-  value that appears twice belongs in the token file. Media query widths, a
-  one-off measure in a component's own layout, and the log viewer's xterm
-  bridge are the documented exceptions.
-  [docs/ui-guidelines.md](docs/ui-guidelines.md) is the contract, and UI
-  changes should keep it true.
-* Status colours are a fixed mapping (idle, busy, pending, draining, danger,
-  neutral). Operators learn them; do not reuse them for anything else.
-* No state-management library (runes are it), no client-side router
-  (`web/src/lib/router.ts` is ours), no charting library (sparklines and bars are
-  inline SVG). These are deliberate — see `docs/dependencies.md`.
-* Nothing is reachable from the UI that is not reachable from the REST API. If a
-  page needs data, it comes from a documented route in
-  [docs/api-surface.md](docs/api-surface.md).
-* Playwright specs in `web/tests/` run against the real binary, including
-  accessibility and mobile passes.
+* [`internal/store/CLAUDE.md`](internal/store/CLAUDE.md) -- one writer, the runner state machine, sentinel errors, IDs.
+* [`internal/config/CLAUDE.md`](internal/config/CLAUDE.md) -- configuration: settings live in the database.
+* [`web/CLAUDE.md`](web/CLAUDE.md) -- the UI: tokens, status colours, no new libraries.
+* [`.github/CLAUDE.md`](.github/CLAUDE.md) -- "Things CI will fail you on": the files CI diffs against their sources.
 
 ## Dependencies
 
@@ -303,3 +182,11 @@ roadmap/            what supports it: the work-package record, decision records,
 install.sh          the one-line installer, served from the site root
 nixpacks.toml       the build a Nixpacks-based PaaS runs; see docs/paas.md
 ```
+
+## Memory file hierarchy
+
+Every `CLAUDE.md` stays under 200 lines. This root file is the always-loaded index
+and the rules that apply everywhere. A `CLAUDE.md` in a subfolder appends scoped
+context when work happens in that directory and never overrides or contradicts the
+root; if the two disagree, fix the disagreement rather than relying on load order.
+Put detail next to the code it concerns and leave a one-line pointer here.
