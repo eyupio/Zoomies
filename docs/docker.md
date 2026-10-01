@@ -90,7 +90,7 @@ Or start from the [compose file](compose.md) in the repository. A compose
 deployment runs the controller with an embedded agent, so the machine it is on
 is already a runner host; **Hosts → Add a host** gives you one line to paste on each further
 machine. The [quick start](quickstart.md) goes from a fresh host to a running
-job in about five minutes.
+job in five steps.
 
 ## Coming from runner containers you run yourself
 

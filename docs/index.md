@@ -1,6 +1,8 @@
 ---
 icon: material/home
-title: Give your GitHub Actions runners the Zoomies.
+# The header shows the page's title once the headline has scrolled out of view,
+# and the headline is too long for it: on a phone it read "Give your GitHub Ac…".
+title: Zoomies
 social_title: Zoomies — free, open-source self-hosted GitHub Actions runners
 description: >-
   Free, open-source self-hosted GitHub Actions runners: a fresh ephemeral
@@ -13,14 +15,13 @@ hide:
 
 <div class="zoomies-hero" markdown>
 
-<p class="eyebrow" markdown="span">**New** [Elastic CPU zoomies: a busy runner is lent the cores nobody else is using](elastic-cpu.md)</p>
+<p class="eyebrow">Free · open source · AGPL-3.0</p>
 
-# Give your GitHub Actions runners<br><span class="quiet">the <img class="mark zoomies-logo zoomies-logo--dark" src="brand/paw-swish-white.png" alt="" width="64" height="64"><img class="mark zoomies-logo zoomies-logo--light" src="brand/paw-swish-black.png" alt="" width="64" height="64"> Zoomies.</span>
+# GitHub Actions runners <br><span class="quiet">on machines you own.</span>
 
 <p class="lede">
-<strong>Free and open source.</strong> A fresh ephemeral runner for every job,
-autoscaling across your own hosts, run from a live web UI. No Kubernetes, no
-database server.
+Zoomies starts a fresh runner for every queued job and destroys it when the job
+is done. One binary, no Kubernetes, no database server.
 </p>
 
 <div class="zoomies-install" markdown>
@@ -31,15 +32,20 @@ curl -fsSL https://zoomies.sh/install.sh | sh
 
 </div>
 
-<p class="popular" markdown="span">Just looking? [Run the demo](quickstart.md#just-looking) with a fleet already in it and nothing installed.</p>
+<p class="actions" markdown>
+[Get started :material-arrow-right:](quickstart.md){ .md-button .md-button--primary }
+[Try the demo — no GitHub needed](quickstart.md#just-looking){ .md-button }
+</p>
 
-<p class="popular" markdown="span">Popular: [Quick start](quickstart.md) [The web UI](ui.md) [Private hosts with Tailcat](private-hosts.md) [Migrate existing runners](migration.md) [Compared with ARC](actions-runner-controller.md)</p>
+<p class="prereq">Runs on Linux, with Docker or Podman. Needs a GitHub organisation or repository you own.</p>
+
+<p class="popular" markdown="span">[See it running](ui.md) [Compared with ARC](actions-runner-controller.md) [What it costs](costs.md)</p>
 
 </div>
 
-Zoomies gives each job a fresh runner, scales across the hosts and runner
-operating systems you already use, and makes the fleet easy to see and operate —
-without Kubernetes and without a database server.
+The project's own CI runs on Zoomies: every job except the arm64 and Windows
+legs, in containers the Docker backend started.
+[What is and is not qualified](#what-is-qualified).
 { .zoomies-proof }
 
 ![The Overview: the activity matrix across the top, then four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and a feed of the fleet's recent events](screenshots/overview-dark.webp#only-dark){ .zoomies-shot }
@@ -182,16 +188,20 @@ anything. [How it works](migration.md).
 
 </div>
 
-## Five minutes to a running fleet
+## From a fresh host to a running fleet
 
 The installer detects your OS, architecture, container runtime and init system,
 then walks you through the rest: service user, encryption key, backend, TLS, the
 GitHub App — created for you through the manifest flow with exactly the
 permissions Zoomies needs — and your first account.
 
+<div class="zoomies-install" markdown>
+
 ```sh
 curl -fsSL https://zoomies.sh/install.sh | sh
 ```
+
+</div>
 
 Piping a script into a shell deserves a second look, and this one is written to
 survive one — [download it, read it, then run it](quickstart.md#1-install).
@@ -238,8 +248,8 @@ the same `runs-on` now reaches a fleet that gives every job a fresh runner.
 Retire the old machines as the work moves across.
 
 Either way, nothing is written until you have read it, and
-`zoomies demo` gives you a whole fixture fleet to walk the wizard through
-before you connect GitHub to anything.
+[`zoomies demo`](quickstart.md#just-looking) gives you a whole fixture fleet to walk
+the wizard through before you connect GitHub to anything.
 
 [Migrate existing runners :material-arrow-right:](migration.md){ .md-button }
 
@@ -291,16 +301,16 @@ hand-registered long-lived runners is too little.
 
 <div class="zoomies-compare" markdown>
 
-| | ARC | A few static runners | Zoomies |
+| | Zoomies | ARC | A few static runners |
 | --- | --- | --- | --- |
-| Runs without Kubernetes | :material-close:{ .no } no | :material-check-bold:{ .yes } yes | :material-check-bold:{ .yes } yes |
-| Ephemeral runners | :material-check-bold:{ .yes } yes | :material-minus:{ .partial } rarely | :material-check-bold:{ .yes } default |
-| Autoscaling | :material-check-bold:{ .yes } yes | :material-close:{ .no } no | :material-check-bold:{ .yes } yes |
-| Multi-host | :material-check-bold:{ .yes } yes | :material-close:{ .no } no | :material-check-bold:{ .yes } yes |
-| Auth model | GitHub App | a PAT per runner | GitHub App |
-| Web UI | :material-close:{ .no } no | :material-minus:{ .partial } sometimes | :material-check-bold:{ .yes } yes |
-| Audit log | :material-close:{ .no } no | :material-close:{ .no } no | :material-check-bold:{ .yes } yes |
-| To install | Helm, CRDs, a cluster | manual | one command |
+| Runs without Kubernetes | :material-check-bold:{ .yes } yes | :material-close:{ .no } no | :material-check-bold:{ .yes } yes |
+| Ephemeral runners | :material-check-bold:{ .yes } default | :material-check-bold:{ .yes } yes | :material-minus:{ .partial } rarely |
+| Autoscaling | :material-check-bold:{ .yes } yes | :material-check-bold:{ .yes } yes | :material-close:{ .no } no |
+| Multi-host | :material-check-bold:{ .yes } yes | :material-check-bold:{ .yes } yes | :material-close:{ .no } no |
+| Auth model | GitHub App | GitHub App | a PAT per runner |
+| Web UI | :material-check-bold:{ .yes } yes | :material-close:{ .no } no | :material-minus:{ .partial } sometimes |
+| Audit log | :material-check-bold:{ .yes } yes | :material-close:{ .no } no | :material-close:{ .no } no |
+| To install | one command | Helm, CRDs, a cluster | manual |
 
 </div>
 
@@ -335,8 +345,8 @@ been run and which have only been built.
 
 <p class="lede">
 One command installs it, and the quick start takes you from a fresh host to a
-running job in about five minutes. It is free, it is yours, and you can read
-every line of it. Still deciding? The FAQ answers what people ask before they
+running job in five steps. It is free, it is yours, and you can read every line
+of it. Still deciding? The FAQ answers what people ask before they
 self-host runners — what it costs, what it needs, and what it will not protect
 you from.
 </p>
