@@ -156,6 +156,7 @@ extra:
 nav:
   - Home: index.md
   - Quick start: quickstart.md
+  - Try the demo fleet: demo.md
   - Running the fleet from the web UI:
       - The UI, page by page: ui.md
       - Hosts and pools: hosts-and-pools.md

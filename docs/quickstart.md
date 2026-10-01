@@ -23,6 +23,9 @@ CLI or API equivalent is, and [Other ways in](#other-ways-in) collects them.
 curl -fsSL https://zoomies.sh/install.sh | sh
 ```
 
+To see the UI before you set anything up, [try the demo fleet](demo.md) — one
+pasted block, with no GitHub account and no setup questions.
+
 The script is POSIX `sh`, and it is written to be read before it is run — which
 is the way we would rather you did it:
 
@@ -113,6 +116,14 @@ socket with no group permissions at all — it says so and names the two ways ou
 instead of leaving you with a fleet that comes up unable to run anything.
 
 ## 3. Connect GitHub
+
+GitHub delivers its webhooks to the controller, so `server.external_url` has to
+be an address GitHub can reach — the App's webhook URL is written from it when
+the App is created. Without one the fleet still works, but Zoomies falls back to
+polling and reacts in tens of seconds rather than instantly: see
+[`server.external_url`](configuration.md#serverexternal_url). Running the
+controller at home? [A Cloudflare Tunnel](home-lab.md#where-the-controller-goes)
+gives it one without opening a port.
 
 Zoomies creates the GitHub App for you through the manifest flow. It opens your
 browser at a pre-filled form — and always prints the URL as well, so a headless
