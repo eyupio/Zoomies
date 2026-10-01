@@ -1,6 +1,7 @@
 <script lang="ts">
   import { prefs } from '$lib/state/prefs.svelte';
   import Tooltip from '$lib/components/Tooltip.svelte';
+  import OffStatusIcon from '$lib/components/OffStatusIcon.svelte';
   import ZoomiesStatusIcon from '$lib/runners/ZoomiesStatusIcon.svelte';
   import type { ActivityStatus } from './activity-status';
 
@@ -50,7 +51,7 @@
         <span class="leader"><ZoomiesStatusIcon state={activity.motion} {seed} /></span>
       </span>
     {:else}
-      <activity.status.icon class="standard-icon" size={20} aria-hidden="true" />
+      <OffStatusIcon status={activity.status} />
     {/if}
     <span class="labels">
       <span>{activity.label}</span>
@@ -90,9 +91,6 @@
     flex: none;
     width: var(--z-avatar-size);
     height: var(--z-avatar-size);
-  }
-  .activity-status :global(.standard-icon) {
-    flex: none;
   }
   .pack {
     width: calc(var(--z-avatar-size) * 1.5);

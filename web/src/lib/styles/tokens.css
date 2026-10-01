@@ -43,6 +43,7 @@
   --z-avatar-tag-ink: #6b5524;
   --z-avatar-accent: #5eb89c;
   --z-avatar-size: 2.75rem;
+  --z-status-icon-size: var(--z-space-6);
   /* The Standard spaniel is a black cocker with a white muzzle and toes,
      named by role rather than value so a theme can move a colour without
      redrawing the dog. Line is the outline, which traces the silhouette
@@ -65,7 +66,7 @@
   --z-standard-blaze: var(--z-brand-white);
   --z-standard-far: #34383f;
   --z-standard-ink: var(--z-brand-black);
-  /* Speed lines, the spin's swish and the scent trail: marks beside the dog
+  /* Speed lines and the scent trail: marks beside the dog
      rather than part of it, so a grey that reads on a light row. */
   --z-standard-cue: #4d525b;
 
