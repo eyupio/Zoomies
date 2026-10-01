@@ -2,8 +2,8 @@
   Creating a pool.
 
   The wizard itself lives in $lib/pools so that editing an existing pool, on the
-  pool's own page, is the same form rather than a second one that drifts away
-  from this one.
+  pool's own page, is the same steps rather than a second form that drifts
+  away from this one.
 
   A pool belongs to a GitHub App installation, so with none there is nothing to
   fill in. The wizard used to find that out on its second step, after a click
@@ -57,7 +57,7 @@
 <PageHeader
   title="Create a pool"
   breadcrumb={[{ label: 'Pools', href: '/pools' }, { label: 'Create a pool' }]}
-  subtitle="Name it, label it, create it. Everything else has a default you can change later."
+  subtitle="Who the runners register with, what labels they answer to and, if you want to decide them, which hosts they land on, how they run, how much machine each one gets and how many there are. The last step shows what the controller makes of it."
 />
 
 {#if canOperate}

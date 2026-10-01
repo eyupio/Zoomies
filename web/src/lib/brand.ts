@@ -108,33 +108,6 @@ export function runsOn(labels: readonly string[]): string {
   return `[${specific.join(', ')}]`;
 }
 
-/**
- * A whole workflow whose only job is to show that a runner of this pool took
- * it.
- *
- * The first-run checklist used to end at the migration wizard, which rewrites
- * workflows that already exist -- the wrong tool for somebody evaluating
- * Zoomies who has none worth touching, and a far bigger ask ("open pull
- * requests across my organisation") than "run hello-world". This is
- * self-contained on purpose: it assumes no Makefile, no language and no
- * checkout, and `workflow_dispatch` means nothing has to be pushed to a branch
- * somebody else is watching.
- */
-export function testWorkflow(labels: readonly string[]): string {
-  return [
-    'name: Zoomies test',
-    'on: workflow_dispatch',
-    'jobs:',
-    '  hello:',
-    `    runs-on: ${runsOn(labels)}`,
-    '    steps:',
-    '      - run: |',
-    '          echo "Hello from $(hostname)"',
-    '          uname -a',
-    '',
-  ].join('\n');
-}
-
 /** The workflow snippet a `runs-on` value belongs in. */
 export function runsOnSnippet(labels: readonly string[]): string {
   return `jobs:\n  build:\n    runs-on: ${runsOn(labels)}`;

@@ -425,6 +425,31 @@ test('the events feed carries the fleet’s other news, not only the scheduler�
   await expect(feed).toContainText(/A job.s runner stopped under it/);
 });
 
+test('an empty feed says when it is the operator’s own choices that emptied it', async ({
+  page,
+}) => {
+  // The other half of the first-run spec's "blames no filter": here the fleet
+  // has plenty to say and every kind is switched off, so the panel is empty
+  // for exactly the reason it gives, and says how many lines it is holding
+  // back so that "empty" and "silenced" cannot be mistaken for each other.
+  await goto(page, '/settings/events', 'Events');
+  const switches = page.getByRole('switch');
+  const count = await switches.count();
+  expect(count, 'the Events page lists the kinds').toBeGreaterThan(0);
+  for (let i = 0; i < count; i++) {
+    const kind = switches.nth(i);
+    if (await kind.isChecked()) await kind.click();
+  }
+  await goto(page, '/', 'Overview');
+
+  const feed = page.getByRole('region', { name: 'Recent events', exact: true });
+  await expect(feed).toContainText('Nothing in the kinds you are watching');
+  await expect(feed).toContainText(
+    /\d+ events? (is|are) not shown, because 12 kinds of event are switched off for this browser/,
+  );
+  await expect(feed).not.toContainText('Nothing has happened yet');
+});
+
 test('the events feed sits beside the pools and the running jobs, never under them', async ({
   page,
 }) => {

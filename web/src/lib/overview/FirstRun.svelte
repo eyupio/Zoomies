@@ -17,10 +17,12 @@
   per-browser: it is a nudge, not a setting, and it costs nothing to see again
   on another machine.
 
-  The last step is a job, not a migration. Every earlier step happens inside
-  Zoomies and the last one happens in the operator's own repository, so it
-  carries a workflow to copy that needs nothing else in place; moving
-  existing workflows is a quiet link beside it, for the people who have some.
+  It does not vanish silently, though. The first job is the moment the whole
+  checklist exists for, and a screen an operator has followed for five steps
+  that simply goes blank when it happens is a strange way to be told it worked.
+  If the checklist was on screen when that job started, it gives way to a line
+  saying so, and then to the two numbers the product is judged on: how long the
+  job waited for a runner, and how long it ran.
 -->
 <script lang="ts">
   import {
@@ -33,19 +35,19 @@
     UserCheck,
     X,
   } from '@lucide/svelte';
-  import { listInstallations } from '$lib/api/client';
+  import { untrack } from 'svelte';
+  import { listInstallations, listJobs } from '$lib/api/client';
   import { events } from '$lib/api/sse';
-  import { router } from '$lib/router';
-  import { isLoopbackURL } from '$lib/addresses';
-  import { runsOn, testWorkflow } from '$lib/brand';
+  import type { Job } from '$lib/api/types';
+  import { runsOn } from '$lib/brand';
+  import { formatDuration } from '$lib/format';
   import { fleet } from '$lib/state/fleet.svelte';
   import { storage } from '$lib/state/prefs.svelte';
   import { session } from '$lib/state/session.svelte';
-  import { toasts } from '$lib/state/toasts.svelte';
-  import { fleetHasRunJobs, judgeFirstJob } from './firstJob';
   import Button from '$lib/components/Button.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import IconButton from '$lib/components/IconButton.svelte';
+  import TestJob from '$lib/pools/TestJob.svelte';
 
   /**
    * Told whenever this panel appears or goes away, so the Overview can quieten
@@ -94,8 +96,22 @@
    * and this row never appears, so the single-VM path is unchanged.
    */
   const hasHost = $derived(fleet.hosts.length > 0);
-  /** A job of this fleet's own has started or finished: not a queued one, and not somebody else's. */
-  const hasJobs = $derived(fleetHasRunJobs(fleet.stats));
+  /**
+   * A job has run on this fleet: running now, or finished within the window.
+   *
+   * It reads the fleet's own counters -- the ones the tiles below show while
+   * "Other runners" is off -- and not the unscoped totals, which count every job
+   * GitHub reports for the organisation. On any organisation with other CI those
+   * are non-zero from the first webhook after GitHub is connected, and the
+   * checklist used to retire itself for good on somebody else's job, before a
+   * host, a pool or a workflow existed. A queued job does not count either: a
+   * job that cannot get a runner is exactly when the checklist has to stay.
+   */
+  const hasJobs = $derived.by(() => {
+    const own = fleet.stats?.fleet;
+    if (!own) return false;
+    return (own.running_jobs ?? 0) + (own.completed ?? 0) > 0;
+  });
 
   /**
    * The line a workflow writes, by the product's one rule.
@@ -107,7 +123,6 @@
    * wizard, the pool page and the installer all print.
    */
   const runsOnValue = $derived(runsOn(pools[0]?.labels ?? []));
-  const sample = $derived(testWorkflow(pools[0]?.labels ?? []));
 
   /**
    * The step the operator is on: the first one not done, in the order they are
@@ -118,15 +133,6 @@
   const current = $derived(
     !hasInstallation ? 'github' : !hasHost ? 'host' : !hasPool ? 'pool' : 'workflow',
   );
-
-  /**
-   * GitHub is told where to deliver webhooks when the App is created, so the
-   * dialog asks for the controller's public address before anything else when
-   * it has none. Saying so here means the first screen after the click is not
-   * a surprise.
-   */
-  const externalURL = $derived(session.meta?.external_url ?? '');
-  const needsAddress = $derived(externalURL === '' || isLoopbackURL(externalURL));
 
   /**
    * Shown only while the fleet has never done its job.
@@ -161,43 +167,78 @@
     storage.set(DISMISS_KEY, '1');
   }
 
+  // Whether the checklist has been on screen in this tab. Only then is there
+  // anybody to tell: a browser that opens the page after the fact has nothing
+  // to be shown the end of.
+  let witnessed = false;
+  $effect(() => {
+    if (show) witnessed = true;
+  });
+
+  /**
+   * The job the checklist ends on, and whether it is being followed.
+   *
+   * It is this fleet's own job, because the panel it replaces is about this
+   * fleet: a pool claimed it, so a hosted runner's job and a vendor's are not
+   * the moment. It stays on the first one it finds rather than following the
+   * newest, so the numbers on screen are those of the job that was announced.
+   */
+  let following = $state(false);
+  let moment = $state<Job | null>(null);
+  let momentHidden = $state(false);
+  const finished = $derived(moment?.state === 'completed');
+
   // Once a job has run the fleet is working, and the checklist has said
   // everything it has to say. Remembering that stops it coming back if the
   // stats window later empties.
   $effect(() => {
-    if (hasJobs && !dismissed) dismiss();
+    if (hasJobs && !dismissed) {
+      following = witnessed;
+      dismiss();
+    }
   });
 
-  /*
-    The best moment in the product used to be marked by a panel disappearing.
-    The first job to finish on a runner of the operator's own is the thing the
-    whole checklist was for, so it is said once, with where to go next.
-
-    Only a job that finishes while this page is open and the checklist was
-    showing counts: somebody opening the Overview of a fleet that has worked
-    for months, in a browser that has never dismissed it, has not just
-    succeeded at anything. And only success is celebrated -- a first job that
-    fails is the Jobs page's to explain, and a toast that cheers it would be
-    the wrong note.
-  */
-  let waitingForFirstJob = false;
-  $effect(() => {
-    if (show && !hasJobs) waitingForFirstJob = true;
-  });
-  $effect(() =>
-    events.subscribe('job.updated', (job) => {
-      if (!waitingForFirstJob) return;
-      const verdict = judgeFirstJob(job);
-      if (verdict.kind === 'waiting') return;
-      waitingForFirstJob = false;
-      if (!verdict.toast) return;
-      toasts.push({
-        tone: 'success',
-        ...verdict.toast,
-        action: { label: 'See your jobs', run: () => router.navigate('/jobs') },
-        timeout: 15000,
+  async function find(): Promise<void> {
+    try {
+      const page = await listJobs({
+        managed: true,
+        state: ['in_progress', 'completed'],
+        limit: 1,
       });
-    }),
+      moment ??= page.items?.[0] ?? null;
+    } catch {
+      // The panels below are already saying that the controller is unreachable.
+    }
+  }
+  $effect(() => {
+    if (!following || finished) return;
+    untrack(() => void find());
+    return events.subscribe('job.updated', (job) => {
+      if (!job.pool_id || (moment && moment.id !== job.id)) return;
+      if (job.state !== 'in_progress' && job.state !== 'completed') return;
+      moment = job;
+    });
+  });
+
+  const succeeded = $derived(finished && moment?.conclusion === 'success');
+  const where = $derived(moment?.runner_name ? ` on ${moment.runner_name}` : '');
+  const headline = $derived.by(() => {
+    if (!moment) return 'Your first job has started';
+    if (!finished) return `Your first job is running${where}`;
+    return succeeded ? `Your first job ran${where}` : `A job ran${where} and did not succeed`;
+  });
+  const detail = $derived.by(() => {
+    if (!moment) return 'A runner that Zoomies started for it has taken it.';
+    const waited = `It waited ${formatDuration(moment.queue_wait_ms)} for a runner`;
+    if (!finished) return `${waited} and is running now.`;
+    return succeeded
+      ? `${waited} and ran for ${formatDuration(moment.duration_ms)}. From here the pool scales itself.`
+      : `${waited} and ended ${moment.conclusion || 'without a conclusion'}. The Jobs page says which step it stopped at.`;
+  });
+  const jobsHref = $derived(
+    moment?.job_name
+      ? `/jobs?q=${encodeURIComponent(moment.job_name)}&repo=${encodeURIComponent(moment.repo ?? '')}`
+      : '/jobs',
   );
 </script>
 
@@ -212,9 +253,6 @@
     </header>
 
     <ol>
-      <!-- Nothing to do here, so nothing is drawn under it: a done row used to
-           reserve an empty action cell, and on a phone that was a strip of
-           blank space under every completed step. -->
       <li class="done">
         <span class="marker" aria-hidden="true"><Check size={13} /></span>
         <div class="body">
@@ -239,10 +277,6 @@
           <p class="why">
             Zoomies authenticates as a GitHub App: it is how the controller sees queued jobs and
             registers runners. Nothing can run until one is installed.
-            {#if !hasInstallation && canAdmin && needsAddress}
-              GitHub has to be able to reach this controller, so the next screen asks for its public
-              address first.
-            {/if}
           </p>
         </div>
         <div class="action">
@@ -254,6 +288,7 @@
                  second and third click of the same decision. -->
             <Button
               variant={current === 'github' ? 'primary' : 'secondary'}
+              size="sm"
               href="/installations?connect=1"
               iconAfter={ArrowRight}
             >
@@ -282,6 +317,7 @@
             {#if canAdmin}
               <Button
                 variant={current === 'host' ? 'primary' : 'secondary'}
+                size="sm"
                 href="/hosts/new"
                 iconAfter={ArrowRight}
               >
@@ -319,6 +355,7 @@
           {:else if canOperate}
             <Button
               variant={current === 'pool' ? 'primary' : 'secondary'}
+              size="sm"
               href="/pools/new"
               iconAfter={ArrowRight}
             >
@@ -335,10 +372,10 @@
         <div class="body">
           <p class="title">
             <PlayCircle size={14} aria-hidden="true" />
-            Run a job on it
+            Point a workflow at it
           </p>
           <p class="why">
-            Set <code>runs-on</code> in a workflow and run it. The job queues, the scheduler starts a
+            Change <code>runs-on</code> in a workflow and push. The job queues, the scheduler starts a
             runner for it, and it appears on this page.
           </p>
           {#if hasPool}
@@ -346,38 +383,38 @@
               <code>runs-on: {runsOnValue}</code>
               <CopyButton value={`runs-on: ${runsOnValue}`} label="Copy the runs-on line" />
             </p>
-            <!-- Nothing to migrate and nothing to edit: a whole workflow that
-                 says hello, for somebody who has no repository they are ready
-                 to touch. -->
-            <div class="sample">
-              <p class="why">
-                No workflow to try it on? Save this as
-                <code>.github/workflows/zoomies-test.yml</code> in any repository the App can see,
-                then open that repository's Actions tab and choose <strong>Run workflow</strong>.
-              </p>
-              <!-- The scroll container is a focusable group, not the <pre>: on a
-                   phone the lines run wider than the card, and a region a finger
-                   can scroll and a keyboard cannot is a WCAG 2.1.1 failure.
-                   DiffView does the same, for the same reason. -->
-              <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-              <div class="code" tabindex="0" role="group" aria-label="A test workflow">
-                <pre><code>{sample}</code></pre>
-              </div>
-              <CopyButton value={sample} label="Copy the test workflow" showLabel />
-            </div>
+            <div class="test-job"><TestJob labels={pools[0]?.labels ?? []} open /></div>
           {/if}
         </div>
         <div class="action">
           {#if hasPool}
-            <p class="aside">
-              Moving workflows you already have? <a href="/migrate">Use the migration wizard.</a>
-            </p>
+            <Button variant="secondary" size="sm" href="/migrate" iconAfter={ArrowRight}>
+              Rewrite workflows
+            </Button>
           {:else}
             <p class="blocked">After a pool exists.</p>
           {/if}
         </div>
       </li>
     </ol>
+  </section>
+{:else if following && !momentHidden}
+  <section class="firstrun" aria-labelledby="firstjob-heading">
+    <header>
+      <div>
+        <h2 id="firstjob-heading" class="moment">
+          {#if succeeded}<Check size={14} aria-hidden="true" />{/if}
+          {headline}
+        </h2>
+        <p role="status">{detail}</p>
+      </div>
+      <IconButton icon={X} label="Hide this note" size="sm" onclick={() => (momentHidden = true)} />
+    </header>
+    <div class="then">
+      <Button variant="secondary" size="sm" href={jobsHref} iconAfter={ArrowRight}>
+        See it on the Jobs page
+      </Button>
+    </div>
   </section>
 {/if}
 
@@ -405,6 +442,18 @@
     font-weight: var(--z-weight-semibold);
     color: var(--z-text);
   }
+  h2.moment {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-2);
+  }
+  /* The tick is the same one the finished steps wear, for the same reason. */
+  h2.moment :global(svg) {
+    color: var(--z-idle);
+  }
+  .then {
+    padding: 0 var(--z-space-5) var(--z-space-4);
+  }
   header p {
     margin: var(--z-space-1) 0 0;
     font-size: var(--z-text-xs);
@@ -418,17 +467,11 @@
     padding: 0 var(--z-space-5) var(--z-space-4);
     list-style: none;
   }
-  /*
-    The action sits under the description it belongs to, not in a column of its
-    own at the far edge of the card: on a wide screen that put the one button
-    the page is asking for about nine hundred pixels from its label.
-  */
   li {
     display: grid;
-    grid-template-columns: var(--z-space-6) minmax(0, 1fr);
+    grid-template-columns: var(--z-space-6) minmax(0, 1fr) auto;
     align-items: start;
-    column-gap: var(--z-space-3);
-    row-gap: var(--z-space-3);
+    gap: var(--z-space-3);
     padding: var(--z-space-3) 0;
   }
   li + li {
@@ -491,6 +534,10 @@
     gap: var(--z-space-2);
     margin: var(--z-space-2) 0 0;
   }
+  .test-job {
+    margin-top: var(--z-space-3);
+    max-width: 62ch;
+  }
   code {
     font-family: var(--z-font-mono);
     font-size: var(--z-text-xs);
@@ -504,52 +551,30 @@
     background: none;
   }
   .action {
-    grid-column: 2;
     display: flex;
     align-items: center;
-    margin-top: calc(var(--z-space-2) * -1);
+    min-height: var(--z-space-5);
   }
   .action a {
     font-size: var(--z-text-xs);
     color: var(--z-text-muted);
   }
-  .blocked,
-  .aside {
+  .blocked {
     margin: 0;
     font-size: var(--z-text-xs);
     color: var(--z-text-subtle);
+    text-align: right;
   }
-  .aside {
-    color: var(--z-text-muted);
-  }
-  .aside a {
-    color: var(--z-accent);
-  }
-  .sample {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: var(--z-space-2);
-    margin-top: var(--z-space-3);
-  }
-  .sample .why {
-    margin: 0;
-  }
-  .code {
-    align-self: stretch;
-    padding: var(--z-space-3);
-    overflow-x: auto;
-    border: var(--z-border-width) solid var(--z-border);
-    border-radius: var(--z-radius-sm);
-    background: var(--z-surface-sunken);
-  }
-  pre {
-    margin: 0;
-    font-size: var(--z-text-xs);
-    line-height: var(--z-leading-xs);
-  }
-  pre code {
-    padding: 0;
-    background: none;
+  @media (max-width: 768px) {
+    li {
+      grid-template-columns: var(--z-space-6) minmax(0, 1fr);
+    }
+    .action {
+      grid-column: 2;
+      margin-top: var(--z-space-2);
+    }
+    .blocked {
+      text-align: left;
+    }
   }
 </style>

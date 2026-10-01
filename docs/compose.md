@@ -93,17 +93,14 @@ instead, in this order:
    restart and stops being printed once an account exists.
 2. **GitHub.** **Installations → Connect GitHub** creates the App through the
    manifest flow, with exactly the permissions Zoomies needs, and takes the
-   private key and webhook secret directly. The dialog asks for the public
-   address first if the controller has none GitHub can reach: that is
-   [`server.external_url`](configuration.md#serverexternal_url), and a
-   Platform account can set it there and then, though it takes a restart to
-   apply.
+   private key and webhook secret directly.
 3. **The first pool.** Nothing creates one for you on this path, and nothing
    runs until one exists. **Pools → Create a pool** opens the wizard with a name
    and a label already filled in; [the quick start](quickstart.md#4-your-first-pool)
    walks the rest.
 
-The Overview repeats these as a checklist that ticks itself off as you go.
+The Overview repeats these as a checklist that ticks itself off as you go,
+ending with a test workflow to run once a pool exists.
 
 Open the **https** address, not `http://<ip>`. The session cookie is marked
 Secure because the external URL is https, a browser on a plain-http page

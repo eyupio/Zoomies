@@ -55,16 +55,30 @@
   --md-default-bg-color: #f6f7f9;
   --md-default-fg-color: #0b0c0e;
   --md-default-fg-color--light: #5b6069;
-  --md-default-fg-color--lighter: #6e737c;
+  /* 5.0:1 on the page ground. The old #6e737c was 4.45:1 -- a hair under the
+     4.5 that WCAG AA asks of text this small -- and it is what the sidebar's
+     section titles and the footer's secondary line are set in. */
+  --md-default-fg-color--lighter: #666b74;
   --md-default-fg-color--lightest: rgba(11, 12, 14, 0.08);
   --md-typeset-a-color: #1a63d8;
   --md-code-bg-color: #eef0f3;
   --md-code-fg-color: #1c1f26;
+  /* Material picked its syntax colours for a near-white code ground. On ours
+     (#eef0f3) its keyword blue is 4.32:1 and its string, constant, number,
+     function and special colours are 4.3 to 4.5:1 -- under the 4.5 that
+     WCAG AA asks of text this small, on every page that shows a workflow or a
+     command. Each below is the same hue a few points darker, at 4.8 to 5.1:1. */
+  --md-code-hl-keyword-color: #3a66b8;
+  --md-code-hl-string-color: #1a7447;
+  --md-code-hl-constant-color: #6750d7;
+  --md-code-hl-number-color: #c82828;
+  --md-code-hl-function-color: #9a41aa;
+  --md-code-hl-special-color: #cd1351;
   --md-footer-bg-color: #f6f7f9;
   --md-footer-bg-color--dark: #ffffff;
   --md-footer-fg-color: #0b0c0e;
   --md-footer-fg-color--light: #5b6069;
-  --md-footer-fg-color--lighter: #6e737c;
+  --md-footer-fg-color--lighter: #666b74;
 
   --z-surface: #ffffff;
   --z-surface-raised: #ffffff;
@@ -763,9 +777,9 @@ input,
   position: relative;
   isolation: isolate;
   display: grid;
-  /* One column that may shrink below its content, so that nothing in the hero
-     -- the install command above all -- can widen it and push everything else
-     off the edge. */
+  /* One column that may shrink below its content: the install command is a
+     single unbreakable line, and on a phone it must scroll inside its own box
+     rather than widen the column and push everything else off the edge. */
   grid-template-columns: minmax(0, 1fr);
   place-items: center;
   gap: 1.1rem;
@@ -931,9 +945,7 @@ input,
 }
 
 /* The install command, which is the one thing most visitors came for: a
-   single line in a raised box, with the copy button as a filled chip. Where
-   the box is too narrow for the line it wraps, and on a phone the chip leaves
-   the box altogether (see Phones, below). */
+   single line in a raised box, with the copy button as a filled chip. */
 .zoomies-install {
   width: min(30rem, 100%);
   text-align: left;
@@ -944,10 +956,8 @@ input,
   margin: 0;
 }
 .md-typeset .zoomies-install pre > code {
-  /* Room on the right for the chip, so no character is ever under it. A
-     command too long for the room wraps rather than scrolling: it used to
-     scroll, and a reader who cannot see that it scrolls cannot read the one
-     line this page exists to get them to run. */
+  /* Room on the right for the chip, so on a phone the command's tail scrolls
+     clear of it instead of disappearing under it. */
   padding: 0.95em 4.4em 0.95em 1.1em;
   border: 1px solid var(--z-line-strong);
   border-radius: var(--z-radius-lg);
@@ -955,11 +965,6 @@ input,
   color: var(--md-default-fg-color);
   font-size: 0.78rem;
   box-shadow: var(--z-shadow-md);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  /* So a command that has to wrap breaks where it reads best, after `curl
-     -fsSL`, and does not leave a lone `sh` on a line of its own. */
-  text-wrap: balance;
 }
 /* The command is a single line, so its copy button is centred on it the way an
    input's button would be, not pinned to the top corner as on a block that may
@@ -979,13 +984,6 @@ input,
   color: var(--z-accent-contrast);
 }
 
-/* The way in for a visitor who is not ready to install anything: the demo
-   fleet, as the quiet secondary button directly under the command. The hero's
-   grid already spaces its rows, so the paragraph brings no margin of its own. */
-.md-typeset .zoomies-hero .demo {
-  margin: 0;
-}
-
 /* The pages people come for, as a row of chips under the command. */
 .md-typeset .zoomies-hero .popular {
   display: flex;
@@ -995,10 +993,7 @@ input,
   gap: 0.4rem;
   margin: 0.15rem 0 0;
   font-size: 0.66rem;
-  /* The label is the chips' own grey. The lighter one it had was 4.45:1 on the
-     light ground, which is short of AA's 4.5; the chips' borders and fills are
-     what set them apart from it. */
-  color: var(--md-default-fg-color--light);
+  color: var(--md-default-fg-color--lighter);
 }
 .md-typeset .zoomies-hero .popular a {
   padding: 0.3em 0.7em;
@@ -1276,6 +1271,23 @@ input,
   .zoomies-hero {
     padding: 1.25rem 0 0.5rem;
   }
+  /* The glow is drawn two rem wider than the hero on each side so that it
+     bleeds past the text column. On a phone the column already reaches the
+     gutter, so the bleed is 24px of page that scrolls sideways, and the browser
+     answers by zooming out until nothing can be pressed. It stops at the edge. */
+  .zoomies-hero::before {
+    inset: -3rem 0 30%;
+  }
+  /* The install command wraps, at a space, instead of scrolling away under its
+     own copy chip: a phone shows the whole of the one string this page exists
+     to hand over, and the chip still copies it as a single line. */
+  .md-typeset .zoomies-install pre > code {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    /* Small enough that the address itself stays in one piece at the common
+       phone widths, so the break falls at a space and not inside "install.sh". */
+    font-size: 0.7rem;
+  }
   .zoomies-hero .lede {
     font-size: 0.8rem;
   }
@@ -1297,71 +1309,12 @@ input,
   }
 }
 
-/* A narrow phone, which is where two things on the home page cannot be what
-   they are on a bigger screen. 30em is 480px: every phone in portrait, and no
-   tablet. */
+/* The comparison table on a narrow phone. Four columns need 387px and the
+   column a phone has is 343px, so the Zoomies column -- the last of them, and
+   the one the table is there to show -- was the part that was cut off. The
+   comparison is ARC against Zoomies; the column between them is the one a phone
+   can do without. 30em is 480px: every phone in portrait, and no tablet. */
 @media screen and (max-width: 30em) {
-  /* The install command. The box is 343px wide on a 375px screen and the
-     command is 421px of monospace, so the chip beside it sat on the characters
-     it copies and the tail scrolled out of sight -- first paint read
-     `curl -fsSL https://zoomies.sh/i`. The command wraps instead, at the space,
-     so the address stays whole on its own line, and the chip leaves the box for
-     a full-width button underneath that says what it does: a 24px icon is not
-     something to aim a thumb at. */
-  .md-typeset .zoomies-install pre > code {
-    padding: 0.95em 1.1em;
-    font-size: 0.7rem;
-  }
-  /* Material writes the chip into the block ahead of the code, so a chip taken
-     out of the corner would land above the command; a column puts it after. */
-  .md-typeset .zoomies-install pre {
-    display: flex;
-    flex-direction: column;
-  }
-  .md-typeset .zoomies-install .md-code__nav,
-  .md-typeset .zoomies-install pre:hover > .md-code__nav {
-    order: 1;
-    position: static;
-    margin-top: 0.5rem;
-    padding: 0;
-    transform: none;
-    background: none;
-  }
-  .md-typeset .zoomies-install .md-code__button {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.45em;
-    width: 100%;
-    height: auto;
-    min-height: 2.4rem;
-    border: 0;
-    border-radius: var(--z-radius-md);
-    background: var(--z-accent);
-    font-family: var(--md-text-font-family);
-    font-size: 0.72rem;
-    font-weight: 550;
-    letter-spacing: -0.005em;
-    line-height: 1.3;
-  }
-  .md-typeset .zoomies-install .md-code__button:is(:hover, :focus-visible, :active) {
-    background: var(--z-accent-hover);
-  }
-  /* The label is generated rather than written, so it needs no script, and the
-     icon stays in front of it. */
-  .md-typeset .zoomies-install .md-code__button::before {
-    content: 'Copy command';
-    order: 1;
-  }
-  .md-typeset .zoomies-install .md-code__button::after {
-    flex: none;
-    margin: 0;
-  }
-
-  /* The comparison table. Four columns need 387px, and the Zoomies column is the
-     last of them, so it was the part a 343px column cut off. The comparison the
-     table is there to make is ARC against Zoomies; the column between them is
-     the one a phone can do without. */
   .md-typeset .zoomies-compare table:not([class]) :is(th, td):nth-child(3) {
     display: none;
   }

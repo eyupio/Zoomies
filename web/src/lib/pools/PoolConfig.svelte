@@ -204,18 +204,21 @@
        exactly that as a real limit. Saying so here is what stops "no limits"
        reading as "no reservation", which is the difference between a fleet
        that admits what it always did and one an operator thinks is unbounded. -->
-  <p class="note">
-    {#if automatic}
-      Each runner is given one slot's share of the machine it lands on — the same share the fleet
-      charges its host — so this pool is sized correctly on every host, and follows one that is
-      resized.{#if dind}
-        Its runner and its Docker daemon share that slot, so a slot here is one runner like anywhere
-        else.{/if}
-    {:else}
-      A runner is charged this against its host, wherever it lands.{#if dind}
-        Twice over: the build runs in a Docker daemon beside it, which is given the same limits.{/if}
-    {/if}
-  </p>
+  <div class="pair">
+    <dt class="sr-only">Note</dt>
+    <dd class="note">
+      {#if automatic}
+        Each runner is given one slot's share of the machine it lands on — the same share the fleet
+        charges its host — so this pool is sized correctly on every host, and follows one that is
+        resized.{#if dind}
+          Its runner and its Docker daemon share that slot, so a slot here is one runner like
+          anywhere else.{/if}
+      {:else}
+        A runner is charged this against its host, wherever it lands.{#if dind}
+          Twice over: the build runs in a Docker daemon beside it, which is given the same limits.{/if}
+      {/if}
+    </dd>
+  </div>
 
   {#if overrides.length > 0}
     <div class="pair">
@@ -231,10 +234,13 @@
         </ul>
       </dd>
     </div>
-    <p class="note">
-      Everything else about a runner's life follows this fleet's own settings, and keeps following
-      them when they change.
-    </p>
+    <div class="pair">
+      <dt class="sr-only">Note</dt>
+      <dd class="note">
+        Everything else about a runner's life follows this fleet's own settings, and keeps following
+        them when they change.
+      </dd>
+    </div>
   {/if}
 
   {#if pool.cache?.enabled}
@@ -346,7 +352,13 @@
     color: var(--z-text-muted);
   }
 
-  .note {
+  /* A note is prose, not a row of values, so it is not the flex row every other
+     description is, and it spans the term's column too: it has no visible term.
+     It lives in the list, with a hidden term of its own, because a paragraph is
+     not allowed to sit directly inside a definition list. */
+  dd.note {
+    display: block;
+    grid-column: 1 / -1;
     font-size: var(--z-text-xs);
     color: var(--z-text-subtle);
   }

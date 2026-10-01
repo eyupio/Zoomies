@@ -17,14 +17,25 @@ add later — happens in the **web UI**, which is where a Zoomies fleet is run.
 Prefer a file or a terminal? Each step below says where its Docker Compose,
 CLI or API equivalent is, and [Other ways in](#other-ways-in) collects them.
 
+## Just looking?
+
+```sh
+curl -fsSL https://zoomies.sh/install.sh | sh -s -- --demo
+```
+
+That downloads the binary to a temporary folder, checks it the way an install
+does, and runs `zoomies demo` from there: a controller on this machine only,
+with a fleet already in it — pools, hosts, runners and a morning's worth of
+jobs — and nobody to sign in as. It opens the address in your browser, asks for
+no `sudo`, writes nothing outside the temporary folder, and deletes both when
+you press Ctrl-C. `--port` picks the port. If the binary is already installed,
+`zoomies demo` does the same without the download.
+
 ## 1. Install
 
 ```sh
 curl -fsSL https://zoomies.sh/install.sh | sh
 ```
-
-To see the UI before you set anything up, [try the demo fleet](demo.md) — one
-pasted block, with no GitHub account and no setup questions.
 
 The script is POSIX `sh`, and it is written to be read before it is run — which
 is the way we would rather you did it:
@@ -86,7 +97,8 @@ instead, with agents joined from machines that have a container runtime. See
     the compose and docker paths the administrator, the GitHub App and the first
     pool are created in the browser afterwards rather than in the terminal. The
     closing summary prints all three with their exact addresses, and the
-    Overview repeats them as a checklist that ticks itself off as you go.
+    Overview repeats them as a checklist that ticks itself off as you go --
+    ending, once a pool exists, with a test workflow to run.
 
 Whichever you choose, the containerised deployments leave nothing to fill in.
 A controller's answers are stored in its database before it first starts, where
@@ -117,16 +129,6 @@ instead of leaving you with a fleet that comes up unable to run anything.
 
 ## 3. Connect GitHub
 
-GitHub delivers its webhooks to the controller, so `server.external_url` has to
-be an address GitHub can reach — the App's webhook URL is written from it when
-the App is created. Without one the fleet still works, but Zoomies falls back to
-polling and reacts in tens of seconds rather than instantly: see
-[`server.external_url`](configuration.md#serverexternal_url). Running the
-controller at home? [A Cloudflare Tunnel](home-lab.md#where-the-controller-goes)
-gives it one without opening a port. If the controller is still on loopback, both
-the installer and the Connect GitHub dialog ask for an address before they
-create anything.
-
 Zoomies creates the GitHub App for you through the manifest flow. It opens your
 browser at a pre-filled form — and always prints the URL as well, so a headless
 host still works — with exactly the permissions it needs and no more:
@@ -155,6 +157,17 @@ on your own account scoped to that repository, which is how a personal account
 is used -- and the credentials come back to the installer automatically. The
 private key is sealed with your instance encryption key before it touches the
 database, and is never returned by the API.
+
+!!! note "No public address?"
+
+    GitHub delivers webhooks to the controller's external URL, and the App is
+    created with that address in it for good. A controller on a laptop or a home
+    network has none GitHub can reach. Both the installer and the **Connect
+    GitHub** dialog say so and offer to create the App anyway; Zoomies then
+    polls GitHub for queued jobs, which starts runners in tens of seconds rather
+    than at once. If you would rather have webhooks, [where the controller
+    goes](home-lab.md#where-the-controller-goes) says how to give it an address
+    without opening a port.
 
 ## 4. Your first pool
 
@@ -228,13 +241,11 @@ images](configuration.md#jobs-that-build-container-images) says what it costs.
 
 ## 5. Run something
 
-Save this as `.github/workflows/zoomies-test.yml` in any repository the App can
-see. It needs no checkout, no language and no Makefile, so it works in a
-repository that has nothing else in it, and it is the same workflow the Overview
-offers to copy once a pool exists:
+Start with a file that touches nothing of yours. In any repository the App can
+see, add `.github/workflows/zoomies-test.yml` on the default branch:
 
 ```yaml
-name: Zoomies test
+name: Zoomies test job
 on: workflow_dispatch
 jobs:
   hello:
@@ -243,28 +254,48 @@ jobs:
       - run: |
           echo "Hello from $(hostname)"
           uname -a
+          sleep 5
+```
+
+Then open the repository's **Actions** tab, choose *Zoomies test job* and press
+**Run workflow**. (The Overview's checklist and the pool's own page print this
+file with your pool's label already in it, and a copy button.) It is a whole
+workflow rather than a fragment on purpose: GitHub refuses a file with no
+trigger, and `workflow_dispatch` means it runs when you press the button and at
+no other time.
+
+Zoomies sees the `workflow_job` webhook, starts a runner, and you watch the
+whole thing happen on the Overview page without refreshing — including the
+scheduler's reasoning, in its own words:
+
+```text
+scaled zoomies-linux-x64 0 -> 1: 1 job queued
+```
+
+When the job starts, the setup checklist gives way to a line saying which
+runner took it, and when it finishes, to how long it waited for a runner and how
+long it ran. The Jobs page keeps the record: how long each job waited, how long
+it ran, which runner took it, and — for anything that failed — the step it
+failed at.
+
+![The Jobs page: queue depth, running jobs, success rate, P95 wait and outcome composition above the job grid](screenshots/jobs-dark.webp#only-dark){ .zoomies-shot }
+![The Jobs page: queue depth, running jobs, success rate, P95 wait and outcome composition above the job grid](screenshots/jobs-light.webp#only-light){ .zoomies-shot }
+
+In a workflow you already have, the one line that changes is `runs-on`:
+
+```yaml
+jobs:
+  build:
+    runs-on: zoomies-linux-x64 # was: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make test
 ```
 
 One label is enough to reach a pool, and `runs-on: zoomies` works too, because
 every pool answers to that as well. [The labels to give a
 pool](configuration.md#the-labels-to-give-a-pool) says why they are branded, and
 what to write before anyone has decided which pool a repository belongs in.
-
-Commit it, open the repository's **Actions** tab, choose **Zoomies test** and
-press **Run workflow**. To move a workflow you already have, change its
-`runs-on` the same way. Zoomies sees the `workflow_job` webhook, starts a
-runner, and you watch the whole thing happen on the Overview page without
-refreshing — including the scheduler's reasoning, in its own words:
-
-```text
-scaled zoomies-linux-x64 0 -> 1: 1 job queued
-```
-
-The Jobs page keeps the record: how long each job waited, how long it ran,
-which runner took it, and — for anything that failed — the step it failed at.
-
-![The Jobs page: queue depth, running jobs, success rate, P95 wait and outcome composition above the job grid](screenshots/jobs-dark.webp#only-dark){ .zoomies-shot }
-![The Jobs page: queue depth, running jobs, success rate, P95 wait and outcome composition above the job grid](screenshots/jobs-light.webp#only-light){ .zoomies-shot }
 
 Every one of those rows is also a flag on `zoomies pools create`, and
 `--dry-run` gives the wizard's own verdict without creating anything:

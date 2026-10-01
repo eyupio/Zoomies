@@ -185,6 +185,53 @@ test('a segmented option is asked for by the label it shows', async ({ page }) =
   expect(audited, 'no segmented choice was found on any page').toBeGreaterThan(0);
 });
 
+/*
+ * A definition list may hold terms and descriptions, and groups of them, and
+ * nothing else. Seven pages' summary tiles and a pool's configuration list each
+ * put a paragraph or a bar directly inside one, which is invalid and which a
+ * screen reader answers by losing the pairing of term and value altogether.
+ */
+test('a definition list holds only terms and their descriptions', async ({ page }) => {
+  test.slow();
+
+  const pools = (await page.request.get('/api/v1/pools').then((r) => r.json())) as {
+    items: { id: string; name: string }[];
+  };
+  const pool = pools.items.find((p) => p.name === FIXTURE.linuxPool)!;
+  const pages = [...PAGES, { path: `/pools/${pool.id}`, heading: FIXTURE.linuxPool }];
+
+  let audited = 0;
+  for (const { path, heading } of pages) {
+    await goto(page, path, heading);
+    await settle(page, path);
+
+    const result = await page.evaluate(() => {
+      const allowed = new Set(['DT', 'DD', 'SCRIPT', 'TEMPLATE']);
+      const lists = Array.from(document.querySelectorAll('dl'));
+      const offenders = lists.flatMap((list) =>
+        Array.from(list.children)
+          .filter((child) => {
+            if (allowed.has(child.tagName)) return false;
+            // A wrapper is allowed, but only around terms and descriptions.
+            if (child.tagName === 'DIV') {
+              return Array.from(child.children).some(
+                (inner) => !['DT', 'DD'].includes(inner.tagName),
+              );
+            }
+            return true;
+          })
+          .map((child) => `<${child.tagName.toLowerCase()} class="${child.className}">`),
+      );
+      return { lists: lists.length, offenders };
+    });
+    audited += result.lists;
+    expect(result.offenders, `${path}: a definition list holds only dt and dd`).toEqual([]);
+  }
+
+  // An audit that found no list to audit passes for the wrong reason.
+  expect(audited, 'no definition list was found on any page').toBeGreaterThan(0);
+});
+
 test('every image has alternative text or is hidden from assistive technology', async ({
   page,
 }) => {

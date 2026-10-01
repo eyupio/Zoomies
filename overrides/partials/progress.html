@@ -1,0 +1,9 @@
+{#-
+  Material's own bar, with the one thing it leaves out: a name.
+
+  navigation.instant.progress draws a role="progressbar" on every page, and an
+  element with that role and no accessible name fails WCAG 4.1.2 (axe's
+  aria-progressbar-name) -- once per page, across the whole site. A screen reader
+  that lands on it can say "progress bar" and not what is loading.
+-#}
+<div class="md-progress" data-md-component="progress" role="progressbar" aria-label="Loading page"></div>

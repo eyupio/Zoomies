@@ -186,8 +186,6 @@
    * me?" to "what is waiting anywhere?".
    */
   const queuedHref = $derived(others ? jobsHref('queued') : '/queue');
-  // Undefined rather than zero when the controller has nothing to say: a
-  // median of "0ms" is a claim, and "--" is the truth.
   /**
    * Where the capacity actually is.
    *
@@ -203,25 +201,31 @@
     return `${hosts.used ?? 0} of ${hosts.capacity ?? 0} slots on ${pluralise(hosts.healthy ?? 0, 'healthy host')}`;
   });
 
-  /**
-   * A percentile the controller reports as zero is one nothing was measured for.
-   *
-   * The payload carries no sample count, and a real median of exactly 0ms does
-   * not happen -- a webhook has to arrive and a container has to start -- so a
-   * zero is the empty window speaking. The tiles used to print it as "0ms" and
-   * "p95 0ms" for a fleet that had never queued anything, which is the claim
-   * the comment above says they must not make.
-   */
-  const measured = (ms: number | undefined): number | undefined => (ms ? ms : undefined);
-
-  const medianWait = $derived(
-    measured(others ? stats?.median_wait_ms : stats?.fleet?.median_wait_ms),
+  // Undefined rather than zero when there is nothing to time. The controller
+  // answers 0 for a median it has no samples for, and a median of "0ms" is a
+  // claim -- instant -- where "--" is the truth, which is what every other
+  // empty value in the product says. A queue wait needs a job that has started
+  // on the side of the line this page is counting. A startup or a registration
+  // is read off the controller's own clock, which cannot read 0 for a runner
+  // that got that far.
+  const startedJobs = $derived(
+    others
+      ? (stats?.running_jobs ?? 0) + (stats?.completed ?? 0)
+      : (stats?.fleet?.running_jobs ?? 0) + (stats?.fleet?.completed ?? 0),
   );
-  const p95Wait = $derived(measured(others ? stats?.p95_wait_ms : stats?.fleet?.p95_wait_ms));
+  const medianWait = $derived(
+    startedJobs > 0 ? (others ? stats?.median_wait_ms : stats?.fleet?.median_wait_ms) : undefined,
+  );
+  const p95Wait = $derived(
+    startedJobs > 0 ? (others ? stats?.p95_wait_ms : stats?.fleet?.p95_wait_ms) : undefined,
+  );
+  const measured = (ms: number | undefined): number | undefined => (ms ? ms : undefined);
   const p50Startup = $derived(measured(stats?.p50_startup_ms));
-  const p95Startup = $derived(measured(stats?.p95_startup_ms));
+  const p95Startup = $derived(p50Startup === undefined ? undefined : stats?.p95_startup_ms);
   const p50Registration = $derived(measured(stats?.p50_registration_ms));
-  const p95Registration = $derived(measured(stats?.p95_registration_ms));
+  const p95Registration = $derived(
+    p50Registration === undefined ? undefined : stats?.p95_registration_ms,
+  );
 
   /** A series is only worth drawing, or comparing against, once it has a shape. */
   function trend(values: readonly number[]): readonly number[] | undefined {

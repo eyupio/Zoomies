@@ -24,7 +24,7 @@ test('the summary tiles show the loaded connections and stay once the page has l
 
   // A tile has no role of its own: it is a term and its definition.
   const tile = (label: string) => page.locator('.metric').filter({ hasText: label });
-  await expect(tile('GitHub connections').locator('dd')).toHaveText('1');
-  await expect(tile('Low API quota').locator('dd')).toHaveText('1');
+  await expect(tile('GitHub connections').locator('dd').first()).toHaveText('1');
+  await expect(tile('Low API quota').locator('dd').first()).toHaveText('1');
   await expect(tile('Low API quota')).toContainText('1 quota readings');
 });

@@ -17,9 +17,10 @@ choose one, and the screenshots below follow this site's.
 
 The fleet in them is the demo fixture the Playwright suite runs against: two
 pools, three hosts, a dozen runners across every state the controller knows,
-and a morning's worth of jobs. `ZOOMIES_SEED_DEMO=true` writes the same fleet
-into an empty controller, so you can walk through these pages yourself before
-connecting GitHub — [the demo page](demo.md) has the one block to paste.
+and a morning's worth of jobs. `zoomies demo` runs a throwaway controller with
+the same fleet in it — nothing installed, nobody to sign in as — so you can
+walk through these pages yourself before connecting GitHub.
+`ZOOMIES_SEED_DEMO=true` writes it into an empty controller of your own.
 
 ## Signing in
 
@@ -84,6 +85,18 @@ fleet ran or every job GitHub reported on an installed repository — the
 default is this fleet's own work, because that is the question an operator is
 usually asking.
 
+A new instance is different. It opens on a checklist in place of the matrix,
+which has nothing to draw yet: create the first account, connect GitHub, add a
+host if Zoomies has none of its own, create a pool and point a workflow at it.
+Each step is ticked from the fleet's real state and offers the one action that
+advances it. Once a pool exists the last step also hands over a complete test
+workflow with the pool's own label already in it, which touches nothing in your
+repositories: add it to any repository the App can see and press **Run
+workflow**. When the job starts the checklist gives way to a line saying which
+runner took it, and when it finishes, to how long the job waited for a runner
+and how long it ran. Only this fleet's own jobs count — a job on a hosted
+runner elsewhere in the organisation neither ticks a step nor retires the list.
+
 ![The Overview: the activity matrix across the top, then four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and a feed of the fleet's recent events](screenshots/overview-dark.webp#only-dark){ .zoomies-shot }
 ![The Overview: the activity matrix across the top, then four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and a feed of the fleet's recent events](screenshots/overview-light.webp#only-light){ .zoomies-shot }
 
@@ -122,8 +135,8 @@ safety away, so the trade is visible from the list.
 ![The Pools page: queue pressure and configured headroom above each pool's runner and configuration details](screenshots/pools-dark.webp#only-dark){ .zoomies-shot }
 ![The Pools page: queue pressure and configured headroom above each pool's runner and configuration details](screenshots/pools-light.webp#only-light){ .zoomies-shot }
 
-The wizard that creates one is seven steps on its advanced path, which every
-step of the simple path offers, and the **Size** step is where
+The wizard that creates one is five steps on its simple path and nine on its
+advanced path, which every step of the simple path offers, and the **Size** step is where
 the pool says how much machine one runner gets: *one share of each host*,
 with what every host in the fleet would give a runner listed underneath, or a
 fixed size on every host. Under the shared size sit the two fields of
@@ -578,10 +591,9 @@ off; **Settings → Appearance** sets which of the two every grid starts in.
 The design system behind all of this — tokens, status colours, components and
 the accessibility checklist — is in [UI guidelines](ui-guidelines.md).
 
-Nothing here needs a GitHub App to look at: the [quick start](quickstart.md)
-takes about five minutes, and [the demo fleet](demo.md)
-(`ZOOMIES_SEED_DEMO=true`) fills a fresh controller with the same fleet these
-screenshots were taken from.
+Nothing here needs a GitHub App to look at: [`zoomies demo`](cli.md) runs a
+throwaway controller with the same fleet these screenshots were taken from, and
+the [quick start](quickstart.md) sets up a real one.
 
 ## Provisioning queue
 

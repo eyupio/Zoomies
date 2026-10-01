@@ -148,14 +148,20 @@ class Feed {
   }
 
   /**
-   * How many this browser has turned off itself, as against the ones that
-   * start off. The empty panel tells the two apart: somebody who has narrowed
-   * the feed is told that is why it is empty, and somebody who has touched
-   * nothing is told what the feed is for -- not that two kinds of event they
-   * have never heard of are "switched off for this browser".
+   * How many entries this tab holds that this browser's choices keep off the
+   * page. Without it an empty panel can only guess why it is empty, and on a
+   * fleet where nothing has happened yet it blamed a filter nobody had touched.
    */
-  get filtered(): number {
-    return FEED_CATEGORIES.filter((category) => prefs.feedChoice(category.id) === false).length;
+  get silenced(): number {
+    const others = prefs.otherRunners;
+    let held = this.#captured.filter(
+      (entry) => !this.shows(entry.category) && (others || !entry.elsewhere),
+    ).length;
+    if (!this.shows('scaling')) held += fleet.scalingEvents.length;
+    if (!this.shows('runners')) {
+      held += fleet.runners.filter((runner) => runnerFailureEntry(runner) !== null).length;
+    }
+    return held;
   }
 
   /* -- writes -------------------------------------------------------------- */

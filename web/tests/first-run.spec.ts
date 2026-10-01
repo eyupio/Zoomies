@@ -50,15 +50,6 @@ test('the first screen says what it is, where it sits, and what follows', async 
   // told that first is the difference between a hint and a dead end.
   await expect(page.getByText(/setup token/i).first()).toBeVisible();
   await expect(page.getByText(/docker compose logs/i).first()).toBeVisible();
-  // The hint is true on every install, not only a Compose one: the log line is
-  // what an operator is looking for, and the Compose command is one way to
-  // read it.
-  await expect(page.getByText(/line beginning 'setup token'/)).toBeVisible();
-  // A field is a promise. Nothing in the product sends mail or reads an
-  // address from this account, so the first form does not ask for one.
-  await expect(page.getByLabel('Email')).toHaveCount(0);
-  // The role is called what the roles page calls it.
-  await expect(page.getByText(/highest\s+role \(Platform\)/)).toBeVisible();
   // The cursor starts at the one field they have to go and fetch.
   await expect(page.locator('input[name="setup-token"]')).toBeFocused();
 });
@@ -109,6 +100,45 @@ test('the first screen fits a phone', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Create the first account' })).toBeVisible();
   await expectPhoneSafe(page, 'the bootstrap page');
+});
+
+/**
+ * The way through the first screen is on the first screen.
+ *
+ * The card used to open with a 298px black logo tile and close with a fifth
+ * field -- an optional email that nothing in Zoomies ever sends mail to -- so
+ * on a 1440x900 laptop the button that creates the account sat 270px below the
+ * fold, and the one thing in view was the brand. An operator who has just run
+ * `docker compose up` is seconds from the product; the control that gets them
+ * there belongs on the screen they are already looking at.
+ */
+test('the button that creates the account is on screen on a laptop', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  const submit = page.getByRole('button', { name: 'Create the account' });
+  await expect(submit).toBeVisible();
+  const box = await submit.boundingBox();
+  expect(box, 'the submit button has a box').not.toBeNull();
+  expect(
+    box!.y + box!.height,
+    'the submit button ends below the fold of a 1440x900 window',
+  ).toBeLessThanOrEqual(900);
+
+  // Nor is there a field nobody uses to push it back down.
+  await expect(page.getByLabel('Email')).toHaveCount(0);
+});
+
+test('the setup token says where to find it for every way of running Zoomies', async ({ page }) => {
+  await page.goto('/');
+  const token = page.locator('input[name="setup-token"]');
+  // The visible hint is the Compose command, because that is what most people
+  // ran. Everyone else -- a container they started, a systemd unit, a PaaS --
+  // used to be left to guess where "the controller's log" is, and a form that
+  // cannot be finished without it is a dead end for them. The sentence is in
+  // the accessible description at all times, not only in the help bubble.
+  await expect(token).toHaveAccessibleDescription(/zoomies logs/);
+  await expect(token).toHaveAccessibleDescription(/docker logs/);
+  await expect(token).toHaveAccessibleDescription(/journalctl -u zoomies/);
 });
 
 test('submitting an empty form moves focus to the field that is missing', async ({ page }) => {
@@ -198,6 +228,30 @@ test('creating the administrator lands somewhere that names the next step', asyn
   await expect(checklist.getByText('After GitHub is connected.')).toBeVisible();
 });
 
+test('a fleet that has done nothing says so in dashes, and blames no filter', async ({ page }) => {
+  await signIn(page);
+
+  // The controller answers 0 for a median it has no samples for, and the tiles
+  // used to print it: "0ms" is a claim -- instant -- about a fleet that has not
+  // started a single runner, and it was the first thing a new operator read in
+  // the row meant to judge the fleet by. "--" is what every other empty value
+  // in the product says.
+  for (const name of [/^Median queue wait/, /^Runner startup/, /^Registration/]) {
+    const tile = page.getByRole('link', { name });
+    await expect(tile).toBeVisible();
+    await expect(tile).toContainText('--');
+    await expect(tile).not.toContainText(/\b0\s?ms\b/);
+  }
+
+  // Two kinds of event are off by default, and a fleet that has done nothing
+  // has nothing in any kind. The empty panel used to blame the two switches
+  // nobody had touched and send the operator to Settings for a problem that
+  // was not there.
+  const feed = page.getByRole('region', { name: 'Recent events', exact: true });
+  await expect(feed).toContainText('Nothing has happened yet');
+  await expect(feed).not.toContainText('switched off for this browser');
+});
+
 test('signing out and back in reports the three kinds of failure differently', async ({ page }) => {
   await page.goto('/');
   await page.context().clearCookies();
@@ -239,45 +293,6 @@ test('signing out and back in reports the three kinds of failure differently', a
   await page.fill('input[name="password"]', ADMIN.password);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByRole('heading', { name: 'Overview', level: 1 })).toBeVisible();
-});
-
-/**
- * A fleet with nothing in it is the checklist, and not a wall of zeros.
- *
- * Under the checklist this page used to draw about seventeen hundred pixels of
- * zeros and empty panels -- a "0ms" median queue wait for a fleet that had
- * never queued anything, a Pools panel whose button led into a wizard that
- * refused, a Recent events panel explaining that two kinds of event were
- * switched off -- all of it under the one thing the operator had to do.
- */
-test('a fleet with nothing in it is the checklist, not a wall of zeros', async ({ page }) => {
-  await signIn(page);
-
-  const checklist = page.getByRole('region', { name: 'Finish setting up' });
-  await expect(checklist).toBeVisible();
-  await expect(
-    page.getByText('Your fleet\u2019s live numbers appear here after its first job.'),
-  ).toBeVisible();
-  for (const name of ['Recent events', 'Pools', 'Active jobs']) {
-    await expect(
-      page.getByRole('region', { name, exact: true }),
-      `${name} is not drawn yet`,
-    ).toHaveCount(0);
-  }
-  await expect(page.getByRole('link', { name: /^Median queue wait/ })).toHaveCount(0);
-
-  // Nothing to refresh, and nobody else's runners to count.
-  const header = page.locator('header').filter({ has: page.getByRole('heading', { level: 1 }) });
-  await expect(header.getByRole('switch', { name: 'Other runners' })).toHaveCount(0);
-  await expect(header.getByRole('button', { name: /Refresh/ })).toHaveCount(0);
-
-  // The button the page is asking for sits under the step it belongs to, not in
-  // a column at the far edge of the card.
-  const title = checklist.getByText('Connect GitHub', { exact: true }).first();
-  const button = checklist.getByRole('link', { name: /Connect GitHub/ });
-  const [at, on] = [await title.boundingBox(), await button.boundingBox()];
-  expect(Math.abs((on?.x ?? 0) - (at?.x ?? 0)), 'the button is under its step').toBeLessThan(40);
-  expect(on?.y ?? 0, 'and below its description').toBeGreaterThan(at?.y ?? 0);
 });
 
 test('the checklist button opens the connect dialog instead of a page that asks again', async ({
@@ -323,66 +338,98 @@ test('a page that needs GitHub first says so, neutrally, with the button', async
   await expect(page.getByText(/No webhook has been received/)).toHaveCount(0);
 });
 
-/**
- * The wall the terminal installer offers three ways out of.
- *
- * A loopback listener, the installer's default, has no address GitHub can reach,
- * and a GitHub App's webhook URL is fixed when GitHub creates it. The dialog
- * refused to go on -- which was right -- and told an operator to edit a
- * configuration key, restart something and come back, on the one button the
- * checklist offers. This is the same refusal with the way out in it.
- */
-test('the connect dialog says what is wrong with the address and lets a Platform account fix it', async ({
+test('the connect dialog refuses before the form when GitHub cannot reach here', async ({
   page,
 }) => {
   await signIn(page);
-  await page.goto('/installations?connect=1');
+  await page.goto('/installations');
+  await page.getByRole('button', { name: 'Connect GitHub' }).first().click();
 
-  const dialog = page.getByRole('dialog', { name: 'Connect GitHub' });
+  const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
   // This fixture has no external URL, which is the state a fresh compose
   // deployment is in. The refusal used to come after the whole form had been
   // filled in, attached to the "Organisation" field.
   await expect(dialog.getByText('Zoomies has no external URL yet')).toBeVisible();
-  // No form nobody can submit, and no disabled button to puzzle over: the one
-  // thing to do is the field.
-  await expect(dialog.getByLabel('Organisation login')).toHaveCount(0);
-  await expect(dialog.getByRole('button', { name: 'Continue', exact: true })).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: 'Continue', exact: true })).toBeDisabled();
+  // The way out is a link to the setting, not the name of a configuration key
+  // to go and find. And there is no "create it anyway": with no address at all
+  // there is no webhook URL to give GitHub, and the server would refuse the
+  // manifest, so offering a tick that cannot work would be a lie.
+  await expect(dialog.getByRole('link', { name: 'Open the setting' })).toHaveAttribute(
+    'href',
+    '/settings/configuration?setting=server.external_url',
+  );
+  await expect(dialog.getByLabel('Create the App anyway')).toHaveCount(0);
+});
 
-  const address = dialog.getByLabel('Public address of this controller');
-  const save = dialog.getByRole('button', { name: 'Save address' });
-  // The dialog is refusing a loopback address, so it does not take one either.
-  await address.fill('http://localhost:8080');
-  await expect(dialog.getByText(/Only this machine can use that address/)).toBeVisible();
-  await expect(save).toBeDisabled();
+test('a private address can still be connected, once the operator says so', async ({ page }) => {
+  await signIn(page);
+  // The state an evaluation on a laptop, or a home lab, is in: Zoomies is
+  // reached at an address only this machine has. The fixture's own controller
+  // has none, so the browser is told the one install.sh's "local-only" answer
+  // produces. The guard is the dialog's alone -- the server only refuses an
+  // empty address -- which is why this needs no second controller.
+  await page.route('**/api/v1/meta', async (route) => {
+    const response = await route.fetch();
+    const meta = (await response.json()) as Record<string, unknown>;
+    await route.fulfill({
+      response,
+      json: {
+        ...meta,
+        external_url: 'http://localhost:8080',
+        webhook_url: 'http://localhost:8080/webhooks/github',
+      },
+    });
+  });
+  await page.goto('/installations');
+  await page.getByRole('button', { name: 'Connect GitHub' }).first().click();
 
-  await address.fill('https://zoomies.example.test/');
-  await expect(save).toBeEnabled();
-  await save.click();
+  const dialog = page.getByRole('dialog');
+  const proceed = dialog.getByRole('button', { name: 'Continue', exact: true });
+  await expect(dialog.getByText('GitHub cannot reach Zoomies')).toBeVisible();
+  await dialog.getByLabel('Organisation login').fill('acme');
+  // Refused until it is asked for: the address is fixed in the App for good.
+  await expect(proceed).toBeDisabled();
+  await expect(dialog.getByText('What GitHub will be told')).toBeHidden();
 
-  // The one thing no page can do for the operator is start the process again,
-  // so it says how, for the two ways Zoomies is installed.
-  await expect(dialog.getByText('Saved — restart the controller to use it')).toBeVisible();
-  await expect(dialog).toContainText('https://zoomies.example.test');
-  await expect(dialog).toContainText('zoomies deployment restart');
-  await expect(dialog).toContainText('sudo systemctl restart zoomies');
+  // The three ways forward the terminal installer offers, in the browser.
+  await expect(dialog.getByRole('link', { name: 'Open the setting' })).toHaveAttribute(
+    'href',
+    '/settings/configuration?setting=server.external_url',
+  );
+  const tunnel = dialog.getByRole('link', { name: /No public address\? Use a tunnel/ });
+  await expect(tunnel).toHaveAttribute(
+    'href',
+    'https://zoomies.sh/home-lab/#where-the-controller-goes',
+  );
+  await expect(tunnel).toHaveAttribute('target', '_blank');
+  await expect(tunnel).toHaveAttribute('rel', /noopener/);
 
-  // Stored for real, and waiting for a restart exactly as the Settings page says.
-  const settings = (await (await page.request.get('/api/v1/settings')).json()) as {
-    settings: { key: string; pending?: boolean }[];
-  };
-  expect(settings.settings.find((s) => s.key === 'server.external_url')?.pending).toBe(true);
+  // Choosing to go on shows exactly what will be baked into the App.
+  const anyway = dialog.getByLabel('Create the App anyway');
+  await anyway.check();
+  await expect(dialog.getByText('http://localhost:8080/webhooks/github')).toBeVisible();
+  await expect(proceed).toBeEnabled();
+  // And it is a choice that can be taken back.
+  await anyway.uncheck();
+  await expect(proceed).toBeDisabled();
+  await anyway.check();
 
-  // Close it, come back, and it goes straight to the instruction that matters
-  // rather than asking for an address it already has.
-  await page.keyboard.press('Escape');
-  await expect(dialog).toBeHidden();
-  await page.goto('/installations?connect=1');
-  await expect(
-    page
-      .getByRole('dialog', { name: 'Connect GitHub' })
-      .getByText('Saved — restart the controller to use it'),
-  ).toBeVisible();
+  await page.route('**/api/v1/installations/manifest', (route) =>
+    route.fulfill({
+      json: {
+        post_url: 'https://github.com/organizations/acme/settings/apps/new',
+        manifest: '{}',
+        state: 'state-from-the-test',
+      },
+    }),
+  );
+  const asked = page.waitForRequest('**/api/v1/installations/manifest');
+  await proceed.click();
+  expect((await asked).postDataJSON()).toMatchObject({ target: 'acme', target_type: 'org' });
+  // On to the step that sends the operator to GitHub.
+  await expect(dialog.getByRole('button', { name: 'Create the App on GitHub' })).toBeVisible();
 });
 
 test('Enter in the change-password dialog submits it', async ({ page }) => {

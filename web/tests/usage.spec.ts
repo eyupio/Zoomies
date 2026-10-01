@@ -392,7 +392,7 @@ test('the average queue wait is written the same way in the tile and in the tabl
   await goto(page, '/usage', 'Usage');
 
   const tile = page.locator('.metric').filter({ hasText: 'Average queue wait' });
-  await expect(tile.locator('dd')).toHaveText('2m 05s');
+  await expect(tile.locator('dd').first()).toHaveText('2m 05s');
   await expect(
     table(page).getByRole('row').nth(1).getByRole('cell').filter({ hasText: '2m 05s' }),
   ).toHaveCount(1);
@@ -419,7 +419,7 @@ test('a page with no completed jobs marks its missing figures the way the rest o
   });
   await goto(page, '/usage', 'Usage');
   const tile = page.locator('.metric').filter({ hasText: 'Success rate' });
-  await expect(tile.locator('dd')).toHaveText('--');
+  await expect(tile.locator('dd').first()).toHaveText('--');
   await expect(page.locator('.metric').filter({ hasText: 'Average queue wait' })).toContainText(
     '--',
   );

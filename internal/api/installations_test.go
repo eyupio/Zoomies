@@ -313,7 +313,7 @@ func TestFinishingAfterTheCredentialsAreGoneSaysWhatHappened(t *testing.T) {
 			msg = f.Message
 		}
 	}
-	for _, want := range []string{"App 4244", "do not survive a restart", "Use an App you already have"} {
+	for _, want := range []string{"App 4244", "do not survive a restart", "Existing App"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("the private_key error does not say %q: %q", want, msg)
 		}

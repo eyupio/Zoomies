@@ -6,6 +6,11 @@
   operator who sees an unauthenticated "create an administrator" page deserves
   to know why it is safe.
 
+  It asks for the least it can. An optional email used to sit at the bottom of
+  it, but nothing in Zoomies sends mail -- not a reset, not an alert -- so it
+  was a fifth field that did nothing, between the visitor and the product. It
+  can still be set, for display, under Settings -> Users.
+
   It is also step one of three, and says so. An operator arriving here from
   `docker compose up` has no way to know whether this account finishes setup or
   begins it; naming the two steps that follow is what makes the checklist they
@@ -176,8 +181,13 @@
 </script>
 
 <div class="card">
+  <!-- The standalone mark, not the lockup. The lockup is a 298px black square
+       (the brand guide keeps it above 220px wide), which on this card put the
+       submit button 270px below the fold of a 1440x900 laptop screen before the
+       first field had been seen. The guide's own answer for less room is the
+       mark above 64px: the original circular dog. -->
   <div class="brand">
-    <Logo variant="lockup" size={96} label="Zoomies" />
+    <Logo variant="mark" size={72} label="Zoomies" />
   </div>
   <!-- "First", not "1 of 4". How many steps there are depends on what this
        install is: a controller with an agent of its own has one fewer than one
@@ -186,8 +196,6 @@
        this says only which end of it we are at. -->
   <p class="step">First step</p>
   <h1>Create the first account</h1>
-  <!-- The role is named as it is called everywhere else: this account is
-       Platform, not "admin", and the roles page says so. -->
   <p class="lede">
     Nobody has an account on this instance yet. This form creates the first one, with the highest
     role (Platform), and stops being available the moment it exists. The setup token is how it knows
@@ -219,7 +227,8 @@
          error needs it and the form does not move as one appears. -->
     <Field
       label="Setup token"
-      hint="Printed in the controller's log at startup, on the line beginning 'setup token'. With Docker Compose: docker compose logs zoomies | grep 'setup token'"
+      hint="From the controller's log: docker compose logs zoomies | grep 'setup token'"
+      help="On a line beginning “setup token”. Installed with zoomies init: zoomies logs. Docker Compose: docker compose logs zoomies. Another container: docker logs and its name. systemd: journalctl -u zoomies. A PaaS: its log viewer."
       error={setupTokenError ?? fieldErrors.setup_token}
       required
     >
