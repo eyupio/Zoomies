@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { judgeFirstJob } from '../src/lib/overview/firstJob.ts';
+import { fleetHasRunJobs, judgeFirstJob } from '../src/lib/overview/firstJob.ts';
 
 const ran = {
   state: 'completed' as const,
@@ -48,4 +48,43 @@ test('a job with no recorded duration or runner name is still described truthful
   const result = judgeFirstJob({ ...ran, duration_ms: undefined, runner_name: '' });
   assert.ok(result.kind === 'finished' && result.toast);
   assert.match(result.toast.message, /^A runner finished it\. /);
+});
+
+// The unscoped totals in /stats count every job GitHub reports for the
+// organisation. An organisation with any other CI -- nearly every one that is
+// worth having -- would otherwise lose its checklist the first time anything
+// else queued, before a pool existed.
+test("somebody else's jobs do not end the checklist", () => {
+  assert.equal(
+    fleetHasRunJobs({
+      queued_jobs: 3,
+      running_jobs: 2,
+      completed: 12,
+      failed: 1,
+      fleet: { queued_jobs: 0, running_jobs: 0, completed: 0, failed: 0 },
+    } as Parameters<typeof fleetHasRunJobs>[0]),
+    false,
+  );
+});
+
+// A job that is only queued has not run. One stuck in the queue is exactly when
+// somebody still needs the checklist, so it must not dismiss it.
+test('a queued job of this fleet is not a job that ran', () => {
+  assert.equal(
+    fleetHasRunJobs({ fleet: { queued_jobs: 4, running_jobs: 0, completed: 0 } }),
+    false,
+  );
+});
+
+test('a job of this fleet that is running, or has finished, ends the checklist', () => {
+  assert.equal(fleetHasRunJobs({ fleet: { running_jobs: 1 } }), true);
+  assert.equal(fleetHasRunJobs({ fleet: { completed: 1 } }), true);
+});
+
+// Until the numbers have arrived there is no evidence either way, and the
+// checklist must not flash away on a page that is still loading.
+test('no figures yet is not evidence of a job', () => {
+  assert.equal(fleetHasRunJobs(null), false);
+  assert.equal(fleetHasRunJobs(undefined), false);
+  assert.equal(fleetHasRunJobs({}), false);
 });

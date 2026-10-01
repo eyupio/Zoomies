@@ -33,7 +33,10 @@ const NOTHING = [
   'p95_registration_ms',
 ];
 
-async function aFleetThatHasNeverRunAJob(page: Page): Promise<void> {
+async function aFleetThatHasNeverRunAJob(
+  page: Page,
+  { othersAreBusy = false }: { othersAreBusy?: boolean } = {},
+): Promise<void> {
   await page.addInitScript(() => {
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
@@ -49,6 +52,13 @@ async function aFleetThatHasNeverRunAJob(page: Page): Promise<void> {
     for (const key of NOTHING) {
       stats[key] = 0;
       if (stats.fleet) stats.fleet[key] = 0;
+    }
+    // Everything else in the same organisation: GitHub reports every job to the
+    // App, so the unscoped totals move while this fleet's own stay at zero.
+    if (othersAreBusy) {
+      stats.queued_jobs = 3;
+      stats.running_jobs = 2;
+      stats.completed = 12;
     }
     await route.fulfill({ response, json: stats });
   });
@@ -122,4 +132,16 @@ test('a fleet with a pool keeps its dashboard under the checklist', async ({ pag
   const wait = page.getByRole('link', { name: /^Median queue wait/ });
   await expect(wait).toContainText('--');
   await expect(wait).not.toContainText('0ms');
+});
+
+// The checklist is dismissed once a job has run *here*. For a long time it
+// counted every job GitHub reports for the organisation, so the first job
+// anybody ran on anybody else's runner took it away for good -- persisted, and
+// still gone after a reload -- before a host, a pool or a workflow existed.
+test("another workflow's job does not end the checklist", async ({ page }) => {
+  await aFleetThatHasNeverRunAJob(page, { othersAreBusy: true });
+
+  await expect(page.getByRole('region', { name: 'Finish setting up' })).toBeVisible();
+  const dismissed = await page.evaluate(() => localStorage.getItem('zoomies.firstrun.dismissed'));
+  expect(dismissed, 'the dismissal was remembered').toBeNull();
 });

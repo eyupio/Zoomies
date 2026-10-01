@@ -42,7 +42,7 @@
   import { storage } from '$lib/state/prefs.svelte';
   import { session } from '$lib/state/session.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
-  import { judgeFirstJob } from './firstJob';
+  import { fleetHasRunJobs, judgeFirstJob } from './firstJob';
   import Button from '$lib/components/Button.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import IconButton from '$lib/components/IconButton.svelte';
@@ -94,12 +94,8 @@
    * and this row never appears, so the single-VM path is unchanged.
    */
   const hasHost = $derived(fleet.hosts.length > 0);
-  /** A job has been seen here: queued, running or finished within the window. */
-  const hasJobs = $derived.by(() => {
-    const s = fleet.stats;
-    if (!s) return false;
-    return (s.queued_jobs ?? 0) + (s.running_jobs ?? 0) + (s.completed ?? 0) + (s.failed ?? 0) > 0;
-  });
+  /** A job of this fleet's own has started or finished: not a queued one, and not somebody else's. */
+  const hasJobs = $derived(fleetHasRunJobs(fleet.stats));
 
   /**
    * The line a workflow writes, by the product's one rule.
