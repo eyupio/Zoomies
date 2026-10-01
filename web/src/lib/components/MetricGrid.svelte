@@ -20,11 +20,16 @@
             >{item.label}<span aria-hidden="true">↗</span></a
           >{:else}{item.label}{/if}
       </dt>
-      <dd>{item.value}</dd>
-      <p>{item.detail}</p>
-      {#if item.progress != null}<div class="meter" aria-hidden="true">
-          <span style:width={`${Math.min(100, Math.max(0, item.progress))}%`}></span>
-        </div>{/if}
+      <dd class="value">{item.value}</dd>
+      <!-- A second description of the same term. Only dt and dd may sit in a
+           definition list's groups: the detail used to be a bare paragraph and
+           the meter a bare div, and a screen reader lost the pairing. -->
+      <dd class="detail">
+        {item.detail}
+        {#if item.progress != null}<div class="meter" aria-hidden="true">
+            <span style:width={`${Math.min(100, Math.max(0, item.progress))}%`}></span>
+          </div>{/if}
+      </dd>
     </div>
   {/each}
 </dl>
@@ -49,24 +54,26 @@
     color: var(--z-text-muted);
   }
   dd {
+    margin: 0;
+  }
+  .value {
     margin: var(--z-space-2) 0;
     font-size: var(--z-text-2xl);
     font-weight: var(--z-weight-semibold);
     font-variant-numeric: tabular-nums;
     letter-spacing: var(--z-tracking-tight);
   }
-  p {
-    margin: 0;
+  .detail {
     color: var(--z-text-muted);
     font-size: var(--z-text-xs);
   }
-  [data-tone='success'] dd {
+  [data-tone='success'] .value {
     color: var(--z-idle);
   }
-  [data-tone='danger'] dd {
+  [data-tone='danger'] .value {
     color: var(--z-danger);
   }
-  [data-tone='warning'] dd {
+  [data-tone='warning'] .value {
     color: var(--z-pending);
   }
   a {
@@ -90,10 +97,10 @@
     outline: 2px solid var(--z-accent);
     outline-offset: 2px;
   }
-  [data-tone='accent'] dd {
+  [data-tone='accent'] .value {
     color: var(--z-accent);
   }
-  [data-tone='busy'] dd {
+  [data-tone='busy'] .value {
     color: var(--z-busy);
   }
   .meter {

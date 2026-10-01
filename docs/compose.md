@@ -99,7 +99,8 @@ instead, in this order:
    and a label already filled in; [the quick start](quickstart.md#4-your-first-pool)
    walks the rest.
 
-The Overview repeats these as a checklist that ticks itself off as you go.
+The Overview repeats these as a checklist that ticks itself off as you go,
+ending with a test workflow to run once a pool exists.
 
 Open the **https** address, not `http://<ip>`. The session cookie is marked
 Secure because the external URL is https, a browser on a plain-http page

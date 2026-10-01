@@ -30,6 +30,7 @@
   import { session } from '$lib/state/session.svelte';
   import { storage } from '$lib/state/prefs.svelte';
   import Button from '$lib/components/Button.svelte';
+  import Checkbox from '$lib/components/Checkbox.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import Dialog from '$lib/components/Dialog.svelte';
   import Field from '$lib/components/Field.svelte';
@@ -38,6 +39,7 @@
   import Tabs from '$lib/components/Tabs.svelte';
   import Textarea from '$lib/components/Textarea.svelte';
   import { isLoopbackURL } from '$lib/addresses';
+  import { CONTROLLER_PLACEMENT_URL } from '$lib/links';
 
   interface Props {
     open?: boolean;
@@ -481,10 +483,28 @@
    * `http://localhost:8080/webhooks/github` under "What GitHub will be told",
    * with the button enabled. The App would be created, that address baked into
    * it for ever, and the symptom weeks later is "scaling is slow". The terminal
-   * installer refuses this; so does this.
+   * installer stops and asks before it goes on, and so does this -- see
+   * `acceptPolling` below for what it asks.
    */
   const localExternal = $derived(externalURL !== '' && isLoopbackURL(externalURL));
   const notReachable = $derived(externalURL === '' || localExternal);
+
+  /**
+   * The operator has read why and wants the App anyway.
+   *
+   * A controller that is meant to stay private -- a home lab, an evaluation on
+   * a laptop -- never gets a webhook, and the poller carries it: scaling reacts
+   * in tens of seconds instead of at once. The terminal installer offers
+   * exactly this ("Create it anyway") for exactly this state, and the comment
+   * above used to claim it refused outright. It is an explicit tick rather than
+   * a default because the address is fixed in the App for good.
+   *
+   * Only an address that exists but is unreachable qualifies. With no external
+   * URL at all there is no webhook address to give GitHub, and the server
+   * refuses to build the manifest, so nothing is offered.
+   */
+  let acceptPolling = $state(false);
+  const blocked = $derived(notReachable && !(localExternal && acceptPolling));
 
   const targetError = $derived(
     target.trim() === ''
@@ -874,12 +894,36 @@
                       GitHub is told where to deliver webhooks when the App is created, and that
                       address cannot be changed from here afterwards.
                     {/if}
-                    Set <code>server.external_url</code> to the address GitHub can reach, restart the
-                    controller, and come back.
+                    Set <code>server.external_url</code> to the address GitHub can reach and restart
+                    the controller.
+                    {#if localExternal}
+                      Or create the App anyway and let Zoomies poll GitHub for queued jobs, which
+                      reacts in tens of seconds rather than at once.
+                    {/if}
                   </p>
+                  <p class="blocked-actions">
+                    <a href="/settings/configuration?setting=server.external_url"
+                      >Open the setting</a
+                    >
+                    {#if localExternal}
+                      <a href={CONTROLLER_PLACEMENT_URL} target="_blank" rel="noopener noreferrer">
+                        No public address? Use a tunnel
+                        <ExternalLink size={12} aria-hidden="true" />
+                        <span class="sr-only">(opens in a new tab)</span>
+                      </a>
+                    {/if}
+                  </p>
+                  {#if localExternal}
+                    <Checkbox
+                      bind:checked={acceptPolling}
+                      label="Create the App anyway"
+                      description="Scaling will rely on polling until the App's webhook URL is an address GitHub can reach."
+                    />
+                  {/if}
                 </div>
               </div>
-            {:else}
+            {/if}
+            {#if !blocked}
               <p class="lede">
                 Zoomies builds a GitHub App manifest that asks for exactly the permissions it needs,
                 and nothing more. Nothing is created until you confirm it on GitHub.
@@ -1319,7 +1363,7 @@
           type="submit"
           form="connect-step"
           loading={busy}
-          disabled={notReachable || !target.trim() || Boolean(targetError)}
+          disabled={blocked || !target.trim() || Boolean(targetError)}
         >
           Continue to GitHub
         </Button>
@@ -1536,6 +1580,17 @@
   }
   .blocked-title {
     font-weight: var(--z-weight-medium);
+  }
+  .blocked-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--z-space-3);
+  }
+  .blocked-actions a {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--z-space-1);
+    color: var(--z-accent);
   }
 
   /* The claim "exactly the permissions it needs" is worth more with the list

@@ -41,6 +41,7 @@
   import PoolScaling from '$lib/pools/PoolScaling.svelte';
   import PoolWarnings from '$lib/pools/PoolWarnings.svelte';
   import RunsOnPreview from '$lib/pools/RunsOnPreview.svelte';
+  import TestJob from '$lib/pools/TestJob.svelte';
   import PoolWizardForm from '$lib/pools/PoolWizardForm.svelte';
   import { backendLabel } from '$lib/pools/PoolVocabulary.svelte';
   import { deletionConsequences } from '$lib/pools/consequences';
@@ -360,6 +361,7 @@
         </div>
         <div class="panel-body">
           <RunsOnPreview labels={pool.labels ?? []} />
+          <TestJob labels={pool.labels ?? []} />
           <a class="migrate-link" href={migrateHref}>Rewrite runs-on across repositories</a>
         </div>
       </section>

@@ -1,7 +1,9 @@
 # UI audit — conversion, first run and mobile
 
-Audited at commit `0b4734c`, 1 October 2026. Nothing here has been fixed; every
-finding says what to change and where.
+Audited at commit `0b4734c`, 1 October 2026. The findings below are as they
+were written, with the corrections made after fact-checking marked
+**Correction**; [what has been done since](#what-has-been-done-since) says which
+of them have been changed and which were left, and why.
 
 **Verdict.** The product is better than its front door. Once a fleet is
 populated the UI is genuinely strong: dense, honest, accessible, and the
@@ -11,6 +13,52 @@ button is off-screen, a GitHub step that refuses the home labs the landing page
 courts, and a checklist that deletes itself when a stranger's job arrives. And
 the page that sells it breaks on the phone it is most likely to be opened on
 first. Fix the funnel, not the dashboard.
+
+## What has been done since
+
+The follow-up is PR #563. Every fix there comes with the test that would have
+caught it, and where a finding's own suggestion was not followed this says why.
+
+| Finding | Status | What changed |
+| --- | --- | --- |
+| **C1** checklist deletes itself | Fixed | The checklist reads the fleet's own running and finished jobs, so a job on somebody else's runner, or one still queued, does not retire it. The regression test delivers a signed `workflow_job` for `ubuntu-latest` the way GitHub does; it failed on the old binary at the assertion that matters. |
+| **C2** sign-up buries its button | Fixed for desktop | The card leads with the 72px mark instead of the 298px lockup and drops the email field (H10). At 1440×900 the card is 924px tall and the button ends at 875px, inside the fold; it was 1,250px and 271px below it. The setup token has a help icon listing where the line is for `zoomies logs`, Compose, a started container, systemd and a PaaS. On a phone the button still ends at 913px of 812, which a form on a phone is allowed to do. |
+| **C3** Connect GitHub refuses the home lab | Fixed in the dialog | For a loopback address the dialog says what polling costs, links the setting and the tunnel page, and offers the installer's "create it anyway" as an explicit tick. With no address at all it still stops, because there is nothing to give GitHub. The Quick start has the "No public address?" note. |
+| **C4** no first-job moment | Done, less one link | Once a pool exists the checklist's last step, and the pool's own page, hand over a complete `workflow_dispatch` file with the pool's label in it, a copy button and the three steps. When the first job of the fleet's own starts, the checklist gives way to the runner, the wait and the run time. The Quick start's §5 is a whole file. |
+| **C5** nobody can see it work first | Done, less the hosted demo | `zoomies demo` runs a throwaway controller with the seeded fleet on `127.0.0.1`, nothing asked of the outside world, deleted on Ctrl-C. `install.sh --demo` runs it from a temporary directory with no sudo and no prompts. |
+| **C6** landing page scrolls sideways | Fixed | The hero's glow stops at the page edge and the install command wraps at a space. |
+| **H1** dashboard of zeros | Partly | The three timing tiles say `--` until there is something to time. The repeated instruction, the duplicate Create a pool button and the long empty page are untouched. |
+| **H2** five screens | Copy only | The page header no longer promises seven steps (the simple path is five, the advanced nine). The screens are as they were. |
+| **H10** unused email | Fixed | Removed from sign-up; still settable under Settings → Users. |
+| **N1**, **N6**, **N7**, **N9**, **N10** | Fixed | The events panel blames a filter only when its choices are what hold lines back. The light docs theme's sidebar titles and footer line and Material's six syntax colours clear 4.5:1. Summary tiles and a pool's configuration keep paragraphs and bars out of their definition lists. The docs' progress bar has a name. The checklist's first row has no blank band. |
+
+### Left alone, and why
+
+* **The hosted demo, a measured "five minutes", and the funnel measurement**
+  (C5 parts 3 and 4, H13). They need infrastructure, a CI job, or a decision
+  about whether a self-hosted project's installer and site should report
+  anything at all. None is mine to take.
+* **"Create it on GitHub" with the file prefilled** (C4). GitHub's `value=`
+  parameter on the new-file page could not be checked from where this was done,
+  and a link that might quietly drop the file's contents is worse than none.
+  The card hands over the file and the steps instead. Having Zoomies create and
+  dispatch the file itself is a decision about writing to a customer's
+  repository.
+* **A setup-token link that fills the form** (C2 step 4). A fragment never
+  reaches the server or its logs, but the address lands in terminal scrollback,
+  shell history and browser history, and the setup token is what proves the
+  person is the operator. Changes to how a first account is authorised need a
+  threat review, which is the owner's. The rest of C2 kept what its authors
+  chose on purpose: the lede and the "Then:" paragraph, the per-field hints and
+  the confirmation field.
+* **The installer's default** (the last step of C3). See the correction there:
+  the premise was wrong, and the default it suggested would have been worse.
+* **Judgement calls**, each a decision about the product's shape rather than a
+  fix: H3 (an express install), H4 (the Quick start's order), H5 to H7 (the
+  landing page's hierarchy and copy), H8 and H9 (phone type sizes and list
+  order, which are design-system choices), H11 (the warning on the page every
+  path lands on), H12 (the navigation's twelve sections), N2 to N5, N8 (a
+  treegrid changes how rows are reached from the keyboard), N11 and N12.
 
 ## Read this first
 
@@ -48,8 +96,8 @@ against it at **1440×900** and **375×812** (touch, 2× density), in light and
 dark. Controllers I ran: the project's seeded demo fleet; its empty first-run
 fixture (authentication on); its fleet-in-trouble fixture; its connect fixture
 with a fake GitHub; and two installs configured the way the installer would
-leave them (an `https` external URL, and the `http://localhost` one that
-`install.sh`'s "local-only" prompt produces). I built the marketing site with
+leave them (an `https` external URL, and the `http://localhost` one that the
+installer proposes for a loopback listener). I built the marketing site with
 `mkdocs` and drove it the same way.
 
 Across 19 app routes, the sign-up and sign-in pages, and 6 site pages I measured
@@ -266,8 +314,8 @@ the pool wizard's header miscounts its own steps in both modes (H2).
   steps to the browser"); route `/installations` → Connect GitHub; both
   viewports.
 * **Problem:** On a controller started with
-  `ZOOMIES_EXTERNAL_URL=http://localhost:8095` (what `install.sh`'s own
-  "local-only" prompt produces), the dialog says "GitHub cannot reach Zoomies …
+  `ZOOMIES_EXTERNAL_URL=http://localhost:8095` (the default `zoomies init`
+  proposes for a loopback listener), the dialog says "GitHub cannot reach Zoomies …
   Set `server.external_url` to the address GitHub can reach, restart the
   controller, and come back." "Continue to GitHub" stays **disabled even after a
   valid organisation is typed**. On an `https` external URL it enables
@@ -312,11 +360,18 @@ the pool wizard's header miscounts its own steps in both modes (H2).
 
   and at `:1322`: `disabled={(notReachable && !acceptPolling) || !target.trim() ||
   Boolean(targetError)}`. The deep-link scheme is the one
-  `web/src/lib/problems/ProblemItem.svelte:145` already uses. Then:
-  `install.sh:692` should default the external-URL prompt to
-  `http://<detected hostname>:<port>` and accept Enter instead of dying on an
-  empty answer, and the Quick start needs a "No public address?" box after
-  step 3.
+  `web/src/lib/problems/ProblemItem.svelte:145` already uses. The Quick start
+  also needs a "No public address?" box after step 3.
+
+  **Correction.** The first draft went on to say `install.sh:692` should default
+  the external-URL prompt to `http://<detected hostname>:<port>` instead of
+  dying on an empty answer. Two things in that were wrong. `install.sh` asks for
+  an external URL only when `--mode single` or `--mode controller` is passed;
+  the bare one-liner leaves it to `zoomies init`, which already proposes
+  `http://localhost:<port>` and accepts Enter. And a hostname default would have
+  been the worse answer: it is not loopback, so the dialog's guard would let it
+  through, and the App would be created with an address GitHub cannot reach
+  either. Nothing in `install.sh` was changed for this.
 
 ## C4. There is no "first job" moment — the product never helps you run one
 
@@ -379,11 +434,16 @@ the pool wizard's header miscounts its own steps in both modes (H2).
   `ZOOMIES_SEED_DEMO` is mentioned); the landing-page and README heroes (static
   screenshots only).
 * **Problem:** The only way to experience Zoomies is to answer **up to 18
-  interactive prompts** (4 in `install.sh`, 10 in `zoomies init`, 4 around the
-  GitHub App) and make two round trips to github.com. Thirteen of the eighteen
-  have a default the visitor has no basis to question; five need real input
-  (external URL, username, password twice, organisation). "Five minutes" is
-  asserted three times and measured never.
+  interactive prompts** (2 in `install.sh`, 12 in `zoomies init`, 4 around the
+  GitHub App) and make two round trips to github.com. Fourteen of the eighteen
+  have a default the visitor has no basis to question; four need real input
+  (username, password twice, organisation). "Five minutes" is asserted three
+  times and measured never.
+
+  **Correction.** The first draft said 4, 10 and 4, and five needing input,
+  counting the external-URL and port prompts as `install.sh`'s. They are asked
+  only with `--mode single` or `--mode controller`; on the bare one-liner they
+  are `zoomies init`'s, and both have defaults (Appendix B).
 
   The populated product is the best thing here, and the repo already ships a
   deterministic demo fleet. It is an environment variable mentioned in a
@@ -522,17 +582,22 @@ the pool wizard's header miscounts its own steps in both modes (H2).
   an empty answer — and port), `:1686` (Continue?);
   `internal/installer/installer.go:381,419,1513,1791,1831,1869,1985,1998,2002,2035`;
   `internal/installer/manifest.go:121,361,414`.
-* **Problem:** The very first thing `curl | sh` asks for, before it has
-  downloaded anything, is an "External hostname or URL" with **no default** — and
-  it exits if you press Enter. A visitor who types the command to try the thing
-  is stopped by a question about DNS. The release-channel question ("Latest
-  stable / Development") is asked of everyone though only contributors want the
-  second option. Questions such as "How should the controller be reached?" can
-  only be answered by someone who already operates it.
+* **Problem:** `curl | sh` itself asks two things before it has downloaded
+  anything: which build to install ("Latest stable / Development", asked of
+  everyone though only contributors want the second option) and whether to
+  continue. The other sixteen come from `zoomies init`: twelve about the host and
+  four about the GitHub App. Questions such as "How should the controller be
+  reached?" can only be answered by someone who already operates it. (With
+  `--mode single` or `--mode controller` the script also asks for an external
+  hostname, with **no default** and an exit on Enter, and a port.)
+
+  **Correction.** The first draft said the first thing the one-liner asks is
+  that external hostname. It is not: the bare one-liner never asks it.
 * **Fix:**
   1. `install.sh`: drop the "Which build?" prompt (keep `--version dev` for the
-     contributors who want it), and default the external URL to
-     `http://$(hostname -f):<port>` so Enter accepts it.
+     contributors who want it), and let the external-URL prompt that
+     `--mode single` asks accept Enter with the same `http://localhost:<port>`
+     `zoomies init` proposes. (Not a hostname: see the correction under C3.)
   2. Add `zoomies init --express`, offered as the first choice ("Express: single
      host, detected runtime, loopback, systemd — asks for an administrator and a
      GitHub organisation, nothing else"). It skips backend, capacity, listener,
@@ -1017,14 +1082,14 @@ flags and detection remove some.
 | # | Prompt | Source | Default? |
 | --- | --- | --- | --- |
 | 1 | Which build should be installed? | `install.sh:671` | yes (latest) |
-| 2 | External hostname or URL | `install.sh:687` | **none; exits if empty** |
-| 3 | Controller port | `install.sh:699` | yes (8080) |
-| 4 | Continue? | `install.sh:1686` | yes |
-| 5 | What is this host? | `installer.go:419` | yes (single) |
-| 6 | How should Zoomies run on this host? | `installer.go:1513` | yes |
-| 7 | Which backend should run your jobs? | `installer.go:1791` | yes |
-| 8 | How many runners may this host hold? | `installer.go:1831` | yes |
-| 9 | How should the controller be reached? | `installer.go:1869` | yes (loopback) |
+| 2 | Continue? | `install.sh:1686` | yes |
+| 3 | What is this host? | `installer.go:419` | yes (single) |
+| 4 | How should Zoomies run on this host? | `installer.go:1513` | yes |
+| 5 | Which backend should run your jobs? | `installer.go:1791` | yes |
+| 6 | How many runners may this host hold? | `installer.go:1831` | yes |
+| 7 | How should the controller be reached? | `installer.go:1869` | yes (loopback) |
+| 8 | Which port should Zoomies use? | `installer.go:1881` | yes (8080) |
+| 9 | External hostname or URL | `installer.go:1948` | yes (`http://localhost:<port>`, which is C3's trap) |
 | 10 | Username | `installer.go:1985` | none |
 | 11 | Password | `installer.go:1998` | none |
 | 12 | Password again | `installer.go:2002` | none |
@@ -1035,8 +1100,15 @@ flags and detection remove some.
 | 17 | Organisation login | `manifest.go:377` | none |
 | 18 | App name | `manifest.go:414` | yes (optional) |
 
-Thirteen accept Enter; five need real input (2, 10, 11, 12, 17). After these the
+Fourteen accept Enter; four need real input (10, 11, 12, 17). After these the
 operator completes the App on github.com (create, then install) and returns.
+
+**Correction.** The first draft listed an external-hostname prompt (no default,
+"exits if empty") and a port prompt at `install.sh:687` and `:699` as the
+script's second and third. They exist, but are asked only when `--mode single`
+or `--mode controller` is passed; the bare one-liner never reaches them, and
+rows 8 and 9 are the ones it meets, both with defaults. Line numbers throughout
+are those of the audited commit.
 
 # Appendix C — reproducing the three that need setup
 

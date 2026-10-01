@@ -33,6 +33,11 @@
 #      here, Cloudflare's published ranges are trusted as proxies, and audit
 #      entries and rate limits record the real client instead of Cloudflare.
 #
+#   --demo looks before it installs: the same download and checksum, but the
+#   binary runs from a temporary directory as `zoomies demo` -- a controller on
+#   this machine only, with a fleet already in it -- and is deleted with the demo.
+#   No sudo, no service, no questions.
+#
 # POSIX sh. No bashisms -- it is checked with dash and shellcheck in CI.
 
 set -eu
@@ -79,6 +84,7 @@ ASSUME_YES=0
 # nothing new to the host -- a folder, a mount -- unless somebody said so.
 YES_GIVEN=0
 ALLOW_UNVERIFIED=0
+DO_DEMO=0
 # Motion -- off until init_motion says otherwise. It is a courtesy, never the
 # interface: every value that could make an animated line the wrong thing to
 # draw (a captured stdout, NO_COLOR, a dumb terminal, CI, --no-animation) turns
@@ -452,6 +458,12 @@ Options:
                         checked against the release's checksums.txt. Only for
                         a private mirror that does not publish one.
   --uninstall           Run `zoomies uninstall`, then remove the binary.
+  --demo                Look around without installing anything. Downloads the
+                        binary to a temporary folder, checks it, and runs
+                        `zoomies demo` from there: a controller on this machine
+                        only, with a fleet already in it. No sudo, no service,
+                        no questions, and both are deleted when you press
+                        Ctrl-C. Takes --version, --port and --allow-unverified.
   --no-animation        Do not animate the waits, even on a terminal. Same as
                         ZOOMIES_NO_ANIMATION.
   --preview             Play the installer's animations and exit. Installs
@@ -470,6 +482,9 @@ Environment:
 Examples:
   # A single VM, interactive
   curl -fsSL https://zoomies.sh/install.sh | sh
+
+  # See it with a fleet in it first, installing nothing
+  curl -fsSL https://zoomies.sh/install.sh | sh -s -- --demo
 
   # Add a runner host in one line
   curl -fsSL https://zoomies.sh/install.sh | sh -s -- \
@@ -546,6 +561,7 @@ while [ $# -gt 0 ]; do
         --image=*)     UPGRADE_IMAGE="${1#*=}"; shift ;;
         --no-init)     RUN_INIT=0; BINARY_ONLY=1; shift ;;
         --uninstall)   DO_UNINSTALL=1; shift ;;
+        --demo)        DO_DEMO=1; shift ;;
         -y|--yes)      ASSUME_YES=1; YES_GIVEN=1; shift ;;
         --allow-unverified) ALLOW_UNVERIFIED=1; shift ;;
         --no-animation) NO_ANIM=1; shift ;;
@@ -581,6 +597,19 @@ if [ "$DO_UPGRADE" -eq 1 ]; then
     fi
 elif [ -n "$UPGRADE_IMAGE" ]; then
     die "--image belongs to --upgrade."
+fi
+
+# --demo installs nothing, so a flag about installing, joining, upgrading or
+# removing is a misunderstanding of it. Saying so costs a line; ignoring the
+# flag is how somebody comes to believe they have set up a controller.
+if [ "$DO_DEMO" -eq 1 ]; then
+    if [ "$DO_UPGRADE" -eq 1 ] || [ "$DO_UNINSTALL" -eq 1 ] || [ "$BINARY_ONLY" -eq 1 ] ||
+       [ -n "$MODE" ] || [ -n "$DEPLOYMENT" ] || [ -n "$CONTROLLER_URL" ] || [ -n "$JOIN_TOKEN" ] ||
+       [ -n "$EXTERNAL_URL" ] || [ -n "$ANSWERS" ] || [ -n "$CONFIG_DIR" ] ||
+       [ -n "$UPGRADE_IMAGE" ] || [ "$PREFIX_GIVEN" -eq 1 ]; then
+        die "--demo installs nothing; do not combine it with setup, join, upgrade, uninstall or --prefix options." \
+            "It takes --version, --port and --allow-unverified, and nothing else."
+    fi
 fi
 
 case "$MODE" in
@@ -1117,7 +1146,12 @@ resolve_version() {
     ok "latest is $VERSION"
 }
 
-install_binary() {
+# Downloads the release binary for this host into a fresh temporary directory
+# and checks it against the release's checksums. It leaves the directory in
+# $tmp and the verified, executable binary at $tmp/zoomies, with a trap that
+# removes the directory however the script ends; whoever called it decides
+# whether the binary is installed or only run.
+download_binary() {
     tag="$VERSION"
     # dev is a real, moving prerelease asset. Numeric versions keep the
     # project's v-prefixed tag spelling, while already-prefixed versions pass
@@ -1204,6 +1238,10 @@ install_binary() {
     fi
 
     chmod +x "$tmp/zoomies"
+}
+
+install_binary() {
+    download_binary
     if [ "$DO_UPGRADE" -eq 1 ]; then
         step "Checking the existing deployment before replacing its binary"
         upgrade_with "$tmp/zoomies" --check ||
@@ -1349,12 +1387,87 @@ do_uninstall() {
     exit 0
 }
 
+# ~40 MB of binary lands in $TMPDIR and is then copied into $PREFIX. A full
+# /tmp otherwise surfaces as a truncated download and therefore a checksum
+# mismatch, carrying "Do not run this binary ... report it" for what is a disk
+# problem.
+check_space() {
+    have df || return 0
+    free=$(df -Pk "$1" 2>/dev/null | awk 'NR==2 {print $4}')
+    [ -n "$free" ] || return 0
+    [ "$free" -ge 102400 ] ||
+        die "$1 has only $((free / 1024)) MB free, and Zoomies needs about 100 MB." \
+            "Free some space there, or point TMPDIR somewhere with room."
+}
+
+# A missing downloader surfaces as "could not work out the latest release",
+# which sends the operator to look at their network and at a --version flag
+# that fails the same way one step later. It is a missing package, and saying
+# so is one line.
+need_downloader() {
+    if have curl || have wget; then return 0; fi
+    die "neither curl nor wget is installed, and one of them is needed to download Zoomies." \
+        "Debian or Ubuntu:  sudo apt install curl" \
+        "Alpine:            sudo apk add curl" \
+        "Fedora:            sudo dnf install curl"
+}
+
+# ---------------------------------------------------------------------------
+# --demo
+#
+# Somebody deciding whether Zoomies is worth a machine and a GitHub organisation
+# used to have two choices: answer the installer's questions, or read about it.
+# This is the third. It downloads and checks the binary exactly as an install
+# would, and then runs `zoomies demo` from the temporary directory it landed in:
+# a controller on this machine only, with a fleet already in it, that deletes its
+# own data when it stops. Nothing is written outside $TMPDIR and nothing asks for
+# sudo, because nothing here is installed.
+# ---------------------------------------------------------------------------
+run_demo() {
+    need_downloader
+    check_space "${TMPDIR:-/tmp}"
+    resolve_version
+    download_binary
+    # An install copies the binary somewhere that runs programs; this runs it
+    # where it landed, and a temporary directory is the most common place for a
+    # hardened host to refuse that. The failure has a one-line fix, so it gets
+    # said rather than left as "Permission denied" from the shell.
+    if ! "$tmp/zoomies" version --short >/dev/null 2>&1; then
+        die "the downloaded binary will not run from $tmp." \
+            "If ${TMPDIR:-/tmp} is mounted noexec, point TMPDIR somewhere that is not:" \
+            "  TMPDIR=\$HOME sh install.sh --demo" \
+            "Otherwise the download may be for the wrong architecture ($OS/$ARCH was detected) or incomplete."
+    fi
+    say ""
+    step "Starting the demo"
+    # The binary is not exec'd, so that this shell is still here afterwards to
+    # delete it: an exec never runs the EXIT trap, and a temporary directory
+    # holding a 50 MB binary is not what somebody who asked for "nothing
+    # installed" expects to find in /tmp the next morning.
+    set -- demo
+    [ -n "$PORT" ] && set -- "$@" --port "$PORT"
+    demo_status=0
+    "$tmp/zoomies" "$@" || demo_status=$?
+    say ""
+    ok "Nothing was installed on this machine."
+    note "to set Zoomies up for real: curl -fsSL https://zoomies.sh/install.sh | sh"
+    exit "$demo_status"
+}
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
 banner
 detect_platform
+
+# --demo leaves here, before anything on this host is probed, offered or
+# written: the runtime checks below can offer to install Docker, and somebody
+# looking around has asked for none of it.
+if [ "$DO_DEMO" -eq 1 ]; then
+    run_demo
+fi
+
 detect_init
 detect_runtime
 detect_compose
@@ -1526,29 +1639,8 @@ install_runtime_pkg() {
 
 offer_container_runtime
 
-# A missing downloader surfaces as "could not work out the latest release",
-# which sends the operator to look at their network and at a --version flag
-# that fails the same way one step later. It is a missing package, and saying
-# so is one line.
-if ! have curl && ! have wget; then
-    die "neither curl nor wget is installed, and one of them is needed to download Zoomies." \
-        "Debian or Ubuntu:  sudo apt install curl" \
-        "Alpine:            sudo apk add curl" \
-        "Fedora:            sudo dnf install curl"
-fi
+need_downloader
 
-# ~40 MB of binary lands in $TMPDIR and is then copied into $PREFIX. A full
-# /tmp otherwise surfaces as a truncated download and therefore a checksum
-# mismatch, carrying "Do not run this binary ... report it" for what is a disk
-# problem.
-check_space() {
-    have df || return 0
-    free=$(df -Pk "$1" 2>/dev/null | awk 'NR==2 {print $4}')
-    [ -n "$free" ] || return 0
-    [ "$free" -ge 102400 ] ||
-        die "$1 has only $((free / 1024)) MB free, and Zoomies needs about 100 MB." \
-            "Free some space there, or point TMPDIR somewhere with room."
-}
 check_space "${TMPDIR:-/tmp}"
 
 detect_existing
