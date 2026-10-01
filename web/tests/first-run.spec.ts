@@ -285,6 +285,84 @@ test('the connect dialog refuses before the form when GitHub cannot reach here',
   // filled in, attached to the "Organisation" field.
   await expect(dialog.getByText('Zoomies has no external URL yet')).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Continue to GitHub' })).toBeDisabled();
+  // The way out is a link to the setting, not the name of a configuration key
+  // to go and find. And there is no "create it anyway": with no address at all
+  // there is no webhook URL to give GitHub, and the server would refuse the
+  // manifest, so offering a tick that cannot work would be a lie.
+  await expect(dialog.getByRole('link', { name: 'Open the setting' })).toHaveAttribute(
+    'href',
+    '/settings/configuration?setting=server.external_url',
+  );
+  await expect(dialog.getByLabel('Create the App anyway')).toHaveCount(0);
+});
+
+test('a private address can still be connected, once the operator says so', async ({ page }) => {
+  await signIn(page);
+  // The state an evaluation on a laptop, or a home lab, is in: Zoomies is
+  // reached at an address only this machine has. The fixture's own controller
+  // has none, so the browser is told the one install.sh's "local-only" answer
+  // produces. The guard is the dialog's alone -- the server only refuses an
+  // empty address -- which is why this needs no second controller.
+  await page.route('**/api/v1/meta', async (route) => {
+    const response = await route.fetch();
+    const meta = (await response.json()) as Record<string, unknown>;
+    await route.fulfill({
+      response,
+      json: {
+        ...meta,
+        external_url: 'http://localhost:8080',
+        webhook_url: 'http://localhost:8080/webhooks/github',
+      },
+    });
+  });
+  await page.goto('/installations');
+  await page.getByRole('button', { name: 'Connect GitHub' }).first().click();
+
+  const dialog = page.getByRole('dialog');
+  const proceed = dialog.getByRole('button', { name: 'Continue to GitHub' });
+  await expect(dialog.getByText('GitHub cannot reach Zoomies')).toBeVisible();
+  await dialog.getByLabel('Organisation login').fill('acme');
+  // Refused until it is asked for: the address is fixed in the App for good.
+  await expect(proceed).toBeDisabled();
+  await expect(dialog.getByText('What GitHub will be told')).toBeHidden();
+
+  // The three ways forward the terminal installer offers, in the browser.
+  await expect(dialog.getByRole('link', { name: 'Open the setting' })).toHaveAttribute(
+    'href',
+    '/settings/configuration?setting=server.external_url',
+  );
+  const tunnel = dialog.getByRole('link', { name: /No public address\? Use a tunnel/ });
+  await expect(tunnel).toHaveAttribute(
+    'href',
+    'https://zoomies.sh/home-lab/#where-the-controller-goes',
+  );
+  await expect(tunnel).toHaveAttribute('target', '_blank');
+  await expect(tunnel).toHaveAttribute('rel', /noopener/);
+
+  // Choosing to go on shows exactly what will be baked into the App.
+  const anyway = dialog.getByLabel('Create the App anyway');
+  await anyway.check();
+  await expect(dialog.getByText('http://localhost:8080/webhooks/github')).toBeVisible();
+  await expect(proceed).toBeEnabled();
+  // And it is a choice that can be taken back.
+  await anyway.uncheck();
+  await expect(proceed).toBeDisabled();
+  await anyway.check();
+
+  await page.route('**/api/v1/installations/manifest', (route) =>
+    route.fulfill({
+      json: {
+        post_url: 'https://github.com/organizations/acme/settings/apps/new',
+        manifest: '{}',
+        state: 'state-from-the-test',
+      },
+    }),
+  );
+  const asked = page.waitForRequest('**/api/v1/installations/manifest');
+  await proceed.click();
+  expect((await asked).postDataJSON()).toMatchObject({ target: 'acme', target_type: 'org' });
+  // On to the step that sends the operator to GitHub.
+  await expect(dialog.getByRole('button', { name: 'Exchange the code' })).toBeVisible();
 });
 
 test('Enter in the change-password dialog submits it', async ({ page }) => {

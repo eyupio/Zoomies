@@ -143,6 +143,17 @@ is used -- and the credentials come back to the installer automatically. The
 private key is sealed with your instance encryption key before it touches the
 database, and is never returned by the API.
 
+!!! note "No public address?"
+
+    GitHub delivers webhooks to the controller's external URL, and the App is
+    created with that address in it for good. A controller on a laptop or a home
+    network has none GitHub can reach. Both the installer and the **Connect
+    GitHub** dialog say so and offer to create the App anyway; Zoomies then
+    polls GitHub for queued jobs, which starts runners in tens of seconds rather
+    than at once. If you would rather have webhooks, [where the controller
+    goes](home-lab.md#where-the-controller-goes) says how to give it an address
+    without opening a port.
+
 ## 4. Your first pool
 
 A pool says what labels your runners answer to and how many may exist.
