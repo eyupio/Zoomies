@@ -85,7 +85,7 @@ mention on the home page), `docs/quickstart.md` (none), `docs/ui.md:18-22,580-58
 `internal/controller/seed.go` (`SeedDemo`). Route `/`, 1440 and 375.
 
 **Problem:** A seeded demo fleet exists and needs no GitHub. With
-`ZOOMIES_SEED_DEMO=true` the controller wrote 4 pools, 3 hosts, 12 runners and a
+`ZOOMIES_SEED_DEMO=true` the controller wrote 2 pools, 3 hosts, 12 runners and a
 populated Overview in my run. The home page mentions it once, as the last
 sentence of "Moving what you have now", about 4,700px down a 7,400px page. The
 hero offers one path: install on infrastructure you own, then create a GitHub App
@@ -915,19 +915,22 @@ pools panel), while the Runners page lays the same kind of tile two-up.
 
 **Fix:** Two columns below 640px for the six tiles, as on Runners.
 
-### N7. Docs drift: quickstart image list and "two pools"
+### N7. Docs drift: the quickstart's image list, and a seed log line that miscounts
 
 **Pass:** First-time user
 
-**Where:** `docs/quickstart.md:202-206`, `docs/ui.md:18-19`.
+**Where:** `docs/quickstart.md:202-206`, `internal/controller/seed.go:209-211`.
 
 **Problem:** The Quick Start lists five runner images; the home page lists seven.
 The home page says a test holds it to the catalogue; I found none that covers the
-Quick Start's list. `ui.md` says the demo fleet has "two pools"; the seed logged
-`pools=4`.
+Quick Start's list. Separately, the seed's log line reports `pools=4` because it
+counts the names it recognises (`len(demoPoolNames)`, which includes two legacy
+ones) rather than the pools it wrote, which is two. The docs' "two pools" is
+right. (An earlier draft of this audit called that a docs error; it was my misreading
+of the log line.)
 
-**Fix:** Generate both lists from `internal/naming/images.go` as the home page
-table is, and put the pool count in the `internal/docs` test.
+**Fix:** Point the Quick Start at the generated catalogue instead of repeating
+it, and log the number of pools actually seeded.
 
 ### N8. Header logo alt text and the product descriptor
 
@@ -941,8 +944,12 @@ already has an accessible name. The footer descriptor ("Self-hosted Git runners"
 and the lockup's ("SELF-HOSTED GIT RUNNERS") say "Git runners", which is ambiguous
 (GitLab? Gitea?) next to a site that says GitHub Actions runners.
 
-**Fix:** `alt=""` on both images; change the footer descriptor to "GitHub Actions
-runners on machines you own"; the lockup artwork is the brand owner's call.
+**Fix:** `alt=""` on both images. The descriptor is not a docs fix, and the first
+draft of this audit was wrong to propose one: the same string is in the product's
+footer, navigation and About panel, the README, the Open Graph title and the brand
+guide, and `IMPLEMENTATION_PLAN.md` (D16) already records it as the brand owner's
+call because it is drawn into the lockup artwork. Changing the docs footer alone
+would make the site disagree with the product. Leave it until the mark is redrawn.
 
 ### N9. The first sign-in toast repeats the checklist it points at
 
