@@ -102,6 +102,45 @@ test('the first screen fits a phone', async ({ page }) => {
   await expectPhoneSafe(page, 'the bootstrap page');
 });
 
+/**
+ * The way through the first screen is on the first screen.
+ *
+ * The card used to open with a 298px black logo tile and close with a fifth
+ * field -- an optional email that nothing in Zoomies ever sends mail to -- so
+ * on a 1440x900 laptop the button that creates the account sat 270px below the
+ * fold, and the one thing in view was the brand. An operator who has just run
+ * `docker compose up` is seconds from the product; the control that gets them
+ * there belongs on the screen they are already looking at.
+ */
+test('the button that creates the account is on screen on a laptop', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  const submit = page.getByRole('button', { name: 'Create the account' });
+  await expect(submit).toBeVisible();
+  const box = await submit.boundingBox();
+  expect(box, 'the submit button has a box').not.toBeNull();
+  expect(
+    box!.y + box!.height,
+    'the submit button ends below the fold of a 1440x900 window',
+  ).toBeLessThanOrEqual(900);
+
+  // Nor is there a field nobody uses to push it back down.
+  await expect(page.getByLabel('Email')).toHaveCount(0);
+});
+
+test('the setup token says where to find it for every way of running Zoomies', async ({ page }) => {
+  await page.goto('/');
+  const token = page.locator('input[name="setup-token"]');
+  // The visible hint is the Compose command, because that is what most people
+  // ran. Everyone else -- a container they started, a systemd unit, a PaaS --
+  // used to be left to guess where "the controller's log" is, and a form that
+  // cannot be finished without it is a dead end for them. The sentence is in
+  // the accessible description at all times, not only in the help bubble.
+  await expect(token).toHaveAccessibleDescription(/zoomies logs/);
+  await expect(token).toHaveAccessibleDescription(/docker logs/);
+  await expect(token).toHaveAccessibleDescription(/journalctl -u zoomies/);
+});
+
 test('submitting an empty form moves focus to the field that is missing', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('input[name="setup-token"]')).toBeFocused();
