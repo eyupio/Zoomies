@@ -16,6 +16,11 @@
   fleet works and a checklist on the dashboard is clutter. The dismissal is
   per-browser: it is a nudge, not a setting, and it costs nothing to see again
   on another machine.
+
+  The last step is a job, not a migration. Every earlier step happens inside
+  Zoomies and the last one happens in the operator's own repository, so it
+  carries a workflow to copy that needs nothing else in place; moving
+  existing workflows is a quiet link beside it, for the people who have some.
 -->
 <script lang="ts">
   import {
@@ -30,10 +35,14 @@
   } from '@lucide/svelte';
   import { listInstallations } from '$lib/api/client';
   import { events } from '$lib/api/sse';
-  import { runsOn } from '$lib/brand';
+  import { router } from '$lib/router';
+  import { isLoopbackURL } from '$lib/addresses';
+  import { runsOn, testWorkflow } from '$lib/brand';
   import { fleet } from '$lib/state/fleet.svelte';
   import { storage } from '$lib/state/prefs.svelte';
   import { session } from '$lib/state/session.svelte';
+  import { toasts } from '$lib/state/toasts.svelte';
+  import { judgeFirstJob } from './firstJob';
   import Button from '$lib/components/Button.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import IconButton from '$lib/components/IconButton.svelte';
@@ -102,6 +111,26 @@
    * wizard, the pool page and the installer all print.
    */
   const runsOnValue = $derived(runsOn(pools[0]?.labels ?? []));
+  const sample = $derived(testWorkflow(pools[0]?.labels ?? []));
+
+  /**
+   * The step the operator is on: the first one not done, in the order they are
+   * listed. It alone gets the primary button -- two of them side by side, on
+   * a controller with no host of its own, made the page ask for two things at
+   * once and answer neither.
+   */
+  const current = $derived(
+    !hasInstallation ? 'github' : !hasHost ? 'host' : !hasPool ? 'pool' : 'workflow',
+  );
+
+  /**
+   * GitHub is told where to deliver webhooks when the App is created, so the
+   * dialog asks for the controller's public address before anything else when
+   * it has none. Saying so here means the first screen after the click is not
+   * a surprise.
+   */
+  const externalURL = $derived(session.meta?.external_url ?? '');
+  const needsAddress = $derived(externalURL === '' || isLoopbackURL(externalURL));
 
   /**
    * Shown only while the fleet has never done its job.
@@ -142,6 +171,38 @@
   $effect(() => {
     if (hasJobs && !dismissed) dismiss();
   });
+
+  /*
+    The best moment in the product used to be marked by a panel disappearing.
+    The first job to finish on a runner of the operator's own is the thing the
+    whole checklist was for, so it is said once, with where to go next.
+
+    Only a job that finishes while this page is open and the checklist was
+    showing counts: somebody opening the Overview of a fleet that has worked
+    for months, in a browser that has never dismissed it, has not just
+    succeeded at anything. And only success is celebrated -- a first job that
+    fails is the Jobs page's to explain, and a toast that cheers it would be
+    the wrong note.
+  */
+  let waitingForFirstJob = false;
+  $effect(() => {
+    if (show && !hasJobs) waitingForFirstJob = true;
+  });
+  $effect(() =>
+    events.subscribe('job.updated', (job) => {
+      if (!waitingForFirstJob) return;
+      const verdict = judgeFirstJob(job);
+      if (verdict.kind === 'waiting') return;
+      waitingForFirstJob = false;
+      if (!verdict.toast) return;
+      toasts.push({
+        tone: 'success',
+        ...verdict.toast,
+        action: { label: 'See your jobs', run: () => router.navigate('/jobs') },
+        timeout: 15000,
+      });
+    }),
+  );
 </script>
 
 {#if show}
@@ -155,6 +216,9 @@
     </header>
 
     <ol>
+      <!-- Nothing to do here, so nothing is drawn under it: a done row used to
+           reserve an empty action cell, and on a phone that was a strip of
+           blank space under every completed step. -->
       <li class="done">
         <span class="marker" aria-hidden="true"><Check size={13} /></span>
         <div class="body">
@@ -164,7 +228,6 @@
           </p>
           <p class="why">Done — you are signed in as {session.identity?.name ?? 'the admin'}.</p>
         </div>
-        <div class="action"></div>
       </li>
 
       <li class:done={hasInstallation}>
@@ -180,13 +243,24 @@
           <p class="why">
             Zoomies authenticates as a GitHub App: it is how the controller sees queued jobs and
             registers runners. Nothing can run until one is installed.
+            {#if !hasInstallation && canAdmin && needsAddress}
+              GitHub has to be able to reach this controller, so the next screen asks for its public
+              address first.
+            {/if}
           </p>
         </div>
         <div class="action">
           {#if hasInstallation}
             <a href="/installations">Installed</a>
           {:else if canAdmin}
-            <Button variant="primary" size="sm" href="/installations" iconAfter={ArrowRight}>
+            <!-- `connect=1` opens the dialog on arrival. Without it this button
+                 landed on a page whose own "Connect GitHub" buttons were the
+                 second and third click of the same decision. -->
+            <Button
+              variant={current === 'github' ? 'primary' : 'secondary'}
+              href="/installations?connect=1"
+              iconAfter={ArrowRight}
+            >
               Connect GitHub
             </Button>
           {:else}
@@ -210,7 +284,11 @@
           </div>
           <div class="action">
             {#if canAdmin}
-              <Button variant="primary" size="sm" href="/hosts/new" iconAfter={ArrowRight}>
+              <Button
+                variant={current === 'host' ? 'primary' : 'secondary'}
+                href="/hosts/new"
+                iconAfter={ArrowRight}
+              >
                 Add a host
               </Button>
             {:else}
@@ -243,7 +321,11 @@
                  wizard's first step is the installation this step has not got. -->
             <p class="blocked">After GitHub is connected.</p>
           {:else if canOperate}
-            <Button variant="primary" size="sm" href="/pools/new" iconAfter={ArrowRight}>
+            <Button
+              variant={current === 'pool' ? 'primary' : 'secondary'}
+              href="/pools/new"
+              iconAfter={ArrowRight}
+            >
               Create a pool
             </Button>
           {:else}
@@ -257,10 +339,10 @@
         <div class="body">
           <p class="title">
             <PlayCircle size={14} aria-hidden="true" />
-            Point a workflow at it
+            Run a job on it
           </p>
           <p class="why">
-            Change <code>runs-on</code> in a workflow and push. The job queues, the scheduler starts a
+            Set <code>runs-on</code> in a workflow and run it. The job queues, the scheduler starts a
             runner for it, and it appears on this page.
           </p>
           {#if hasPool}
@@ -268,13 +350,32 @@
               <code>runs-on: {runsOnValue}</code>
               <CopyButton value={`runs-on: ${runsOnValue}`} label="Copy the runs-on line" />
             </p>
+            <!-- Nothing to migrate and nothing to edit: a whole workflow that
+                 says hello, for somebody who has no repository they are ready
+                 to touch. -->
+            <div class="sample">
+              <p class="why">
+                No workflow to try it on? Save this as
+                <code>.github/workflows/zoomies-test.yml</code> in any repository the App can see,
+                then open that repository's Actions tab and choose <strong>Run workflow</strong>.
+              </p>
+              <!-- The scroll container is a focusable group, not the <pre>: on a
+                   phone the lines run wider than the card, and a region a finger
+                   can scroll and a keyboard cannot is a WCAG 2.1.1 failure.
+                   DiffView does the same, for the same reason. -->
+              <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+              <div class="code" tabindex="0" role="group" aria-label="A test workflow">
+                <pre><code>{sample}</code></pre>
+              </div>
+              <CopyButton value={sample} label="Copy the test workflow" showLabel />
+            </div>
           {/if}
         </div>
         <div class="action">
           {#if hasPool}
-            <Button variant="secondary" size="sm" href="/migrate" iconAfter={ArrowRight}>
-              Rewrite workflows
-            </Button>
+            <p class="aside">
+              Moving workflows you already have? <a href="/migrate">Use the migration wizard.</a>
+            </p>
           {:else}
             <p class="blocked">After a pool exists.</p>
           {/if}
@@ -321,20 +422,32 @@
     padding: 0 var(--z-space-5) var(--z-space-4);
     list-style: none;
   }
+  /*
+    The action sits under the description it belongs to, not in a column of its
+    own at the far edge of the card: on a wide screen that put the one button
+    the page is asking for about nine hundred pixels from its label.
+  */
   li {
     display: grid;
-    grid-template-columns: var(--z-space-6) minmax(0, 1fr) auto;
+    grid-template-columns: var(--z-space-6) minmax(0, 1fr);
     align-items: start;
-    gap: var(--z-space-3);
+    column-gap: var(--z-space-3);
+    row-gap: var(--z-space-3);
     padding: var(--z-space-3) 0;
   }
   li + li {
     border-top: var(--z-border-width) solid var(--z-border);
   }
   /* A step that cannot start yet is quieter, but never hidden: the operator
-     should be able to read the whole path before walking it. */
-  li.waiting .body {
-    opacity: 0.72;
+     should be able to read the whole path before walking it. Quieter by
+     colour and a dashed marker, not by opacity: dimming the whole step took
+     its twelve-pixel explanation to about 3:1 on this ground, which is the
+     text the operator has to read next. */
+  li.waiting .title {
+    color: var(--z-text-muted);
+  }
+  li.waiting .marker {
+    border-style: dashed;
   }
   .marker {
     display: inline-flex;
@@ -395,30 +508,52 @@
     background: none;
   }
   .action {
+    grid-column: 2;
     display: flex;
     align-items: center;
-    min-height: var(--z-space-5);
+    margin-top: calc(var(--z-space-2) * -1);
   }
   .action a {
     font-size: var(--z-text-xs);
     color: var(--z-text-muted);
   }
-  .blocked {
+  .blocked,
+  .aside {
     margin: 0;
     font-size: var(--z-text-xs);
     color: var(--z-text-subtle);
-    text-align: right;
   }
-  @media (max-width: 768px) {
-    li {
-      grid-template-columns: var(--z-space-6) minmax(0, 1fr);
-    }
-    .action {
-      grid-column: 2;
-      margin-top: var(--z-space-2);
-    }
-    .blocked {
-      text-align: left;
-    }
+  .aside {
+    color: var(--z-text-muted);
+  }
+  .aside a {
+    color: var(--z-accent);
+  }
+  .sample {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--z-space-2);
+    margin-top: var(--z-space-3);
+  }
+  .sample .why {
+    margin: 0;
+  }
+  .code {
+    align-self: stretch;
+    padding: var(--z-space-3);
+    overflow-x: auto;
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-sm);
+    background: var(--z-surface-sunken);
+  }
+  pre {
+    margin: 0;
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+  }
+  pre code {
+    padding: 0;
+    background: none;
   }
 </style>

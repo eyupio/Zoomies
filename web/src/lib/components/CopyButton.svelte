@@ -59,7 +59,7 @@
 </script>
 
 <span class="copy {className}">
-  {#if showValue}<code class="value">{value}</code>{/if}
+  {#if showValue}<code class="value" title={value}>{value}</code>{/if}
   <button
     type="button"
     class="btn {size}"
@@ -81,13 +81,22 @@
 </span>
 
 <style>
+  /*
+    min-width: 0 on both, or the ellipsis below never fires. A flex item's floor
+    is its content, and this one is a flex item of whatever row it sits in, so
+    a long path made its own container as wide as the path -- and a phone,
+    scroll sideways -- however carefully the row above it let itself shrink.
+    The full text is in the title for anybody the ellipsis cut short.
+  */
   .copy {
     display: inline-flex;
     align-items: center;
     gap: var(--z-space-1);
+    min-width: 0;
     max-width: 100%;
   }
   .value {
+    min-width: 0;
     font-family: var(--z-font-mono);
     font-size: var(--z-text-xs);
     color: var(--z-text-muted);

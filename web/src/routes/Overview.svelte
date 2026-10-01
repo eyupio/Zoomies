@@ -69,6 +69,23 @@
   const loading = $derived(!fleet.loaded);
 
   /**
+   * A fleet with nothing in it yet: the checklist is up and there is no pool.
+   *
+   * Everything under the checklist on such a fleet is a zero or an empty panel,
+   * and some of it is a falsehood -- a "0ms median queue wait" for a fleet that
+   * has never queued anything, a button that opens a wizard which refuses on its
+   * first screen -- stacked in about seventeen hundred pixels under the one
+   * thing the operator has to do. So the page is the checklist and what it
+   * needs, and says where the numbers will be.
+   *
+   * The pool is the line, not the first job: once a pool exists the panels have
+   * something real to show (the pool, its host, the capacity), and an
+   * established fleet seen from a browser that never dismissed the checklist
+   * must not lose them for a quiet hour.
+   */
+  const fresh = $derived(setupPending && fleet.loaded && fleet.pools.length === 0);
+
+  /**
    * Whether the page is counting jobs this fleet had no hand in.
    *
    * One preference for the whole page: the tiles, the active list and the
@@ -101,12 +118,20 @@
 
 <PageHeader
   title="Overview"
-  subtitle={(others
-    ? 'What is happening across every runner GitHub reports on, this fleet\u2019s and everybody else\u2019s.'
-    : 'What this fleet is doing right now.') + coverage}
-  onrefresh={() => Promise.all([fleet.reconcile(), activity?.reload()]).then(() => undefined)}
+  subtitle={fresh
+    ? 'Your fleet\u2019s live numbers appear here after its first job.'
+    : (others
+        ? 'What is happening across every runner GitHub reports on, this fleet\u2019s and everybody else\u2019s.'
+        : 'What this fleet is doing right now.') + coverage}
+  onrefresh={fresh
+    ? undefined
+    : () => Promise.all([fleet.reconcile(), activity?.reload()]).then(() => undefined)}
 >
-  <Switch label="Other runners" checked={others} onchange={(on) => (prefs.otherRunners = on)} />
+  <!-- Neither this nor Refresh means anything before there is a fleet to count:
+       on a phone they sat above the checklist, ahead of the one thing to do. -->
+  {#if !fresh}
+    <Switch label="Other runners" checked={others} onchange={(on) => (prefs.otherRunners = on)} />
+  {/if}
 </PageHeader>
 
 {#if failed}
@@ -123,24 +148,26 @@
          for good once a job has run here. -->
     <FirstRun onpending={(pending) => (setupPending = pending)} />
     {#if !setupPending}<FleetActivity bind:this={activity} />{/if}
-    <FleetMetrics {loading} />
+    {#if !fresh}<FleetMetrics {loading} />{/if}
     <ProblemsSummary {loading} {setupPending} />
-    <div class="split">
-      <PoolUtilisation {loading} />
-      <div class="feed">
-        <EventsFeed {loading} />
+    {#if !fresh}
+      <div class="split">
+        <PoolUtilisation {loading} />
+        <div class="feed">
+          <EventsFeed {loading} />
+        </div>
+        <ActiveJobs />
       </div>
-      <ActiveJobs />
-    </div>
-    <!-- The same chart the Hosts page draws, not a summary of it: an operator
-         who has learnt to read one should not meet a different picture of the
-         same machines here. A host's controls live on the Hosts page, so
-         "Manage" goes there. -->
-    {#if fleet.loaded}<HostCapacityMap
-        hosts={fleet.hosts}
-        page="overview"
-        onmanage={() => navigate('/hosts')}
-      />{/if}
+      <!-- The same chart the Hosts page draws, not a summary of it: an operator
+           who has learnt to read one should not meet a different picture of the
+           same machines here. A host's controls live on the Hosts page, so
+           "Manage" goes there. -->
+      {#if fleet.loaded}<HostCapacityMap
+          hosts={fleet.hosts}
+          page="overview"
+          onmanage={() => navigate('/hosts')}
+        />{/if}
+    {/if}
   </div>
 {/if}
 

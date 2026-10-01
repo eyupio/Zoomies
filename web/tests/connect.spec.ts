@@ -33,13 +33,13 @@ function fake(): Fake {
   return JSON.parse(readFileSync('test-results/fakegithub.json', 'utf8')) as Fake;
 }
 
-/** Fill the "use an App you already have" form and submit it. */
+/** Fill the "existing App" form and submit it. */
 async function connectWith(page: import('@playwright/test').Page, key: string): Promise<void> {
   const details = fake();
   await page.getByRole('button', { name: 'Connect GitHub' }).first().click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
-  await dialog.getByRole('tab', { name: 'Use an App you already have' }).click();
+  await dialog.getByRole('tab', { name: 'Existing App' }).click();
 
   await dialog.getByLabel('Organisation login').fill('acme');
   await dialog.getByLabel('App ID').fill(details.appId);

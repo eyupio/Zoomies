@@ -16,7 +16,7 @@
 -->
 <script lang="ts">
   import { onDestroy, untrack } from 'svelte';
-  import { ExternalLink, GitPullRequest, RefreshCw } from '@lucide/svelte';
+  import { ExternalLink, GitPullRequest, Plug, RefreshCw } from '@lucide/svelte';
   import {
     ApiError,
     listInstallations,
@@ -30,8 +30,10 @@
     MigrationPlan,
     MigrationRepo,
   } from '$lib/api/types';
+  import { session } from '$lib/state/session.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
   import Button from '$lib/components/Button.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import ErrorState from '$lib/components/ErrorState.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import Wizard from '$lib/components/Wizard.svelte';
@@ -528,10 +530,21 @@
     onretry={() => (installationsAttempt += 1)}
   />
 {:else if installations.length === 0}
-  <ErrorState
-    title="No installation to migrate"
-    description="A migration reads and writes repositories through a GitHub App installation, and Zoomies has none. Connect one on the Installations page first."
-  />
+  <!-- A step not taken yet is not a failure, and red means failure here. Every
+       other page that wants something done first says so neutrally and carries
+       the button, so this one does too: it used to be a red alert with the
+       instruction as plain text and nothing to press. -->
+  <EmptyState
+    icon={Plug}
+    title="Connect GitHub to migrate"
+    description="A migration reads and rewrites workflows through a GitHub App installation, and Zoomies has none yet."
+  >
+    {#if session.can('admin')}
+      <Button variant="primary" href="/installations?connect=1">Connect GitHub</Button>
+    {:else}
+      <p class="need-admin">An administrator can connect one.</p>
+    {/if}
+  </EmptyState>
 {:else if outcome}
   <StepOutcome {outcome} />
   <p class="summary">
@@ -610,6 +623,11 @@
 {/if}
 
 <style>
+  .need-admin {
+    margin: 0;
+    font-size: var(--z-text-xs);
+    color: var(--z-text-subtle);
+  }
   .loading {
     display: flex;
     flex-direction: column;

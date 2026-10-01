@@ -27,6 +27,10 @@ export const QUICKSTART_URL = `${SITE_URL}/quickstart/`;
 export const CONFIGURATION_URL = `${SITE_URL}/configuration/`;
 export const API_SURFACE_URL = `${SITE_URL}/api-surface/`;
 export const SECURITY_URL = `${SITE_URL}/security/`;
+/** What `server.external_url` is for, and what happens without it. */
+export const EXTERNAL_URL_URL = `${CONFIGURATION_URL}#serverexternal_url`;
+/** Giving a controller at home an address GitHub can reach, without opening a port. */
+export const HOME_LAB_URL = `${SITE_URL}/home-lab/#where-the-controller-goes`;
 /** Where every figure of the installation report is defined. */
 export const INSTALLATION_REPORT_URL = `${SITE_URL}/metrics/#per-installation-report`;
 /** What an enrolled agent owns on its host, linked from the enrolment command. */

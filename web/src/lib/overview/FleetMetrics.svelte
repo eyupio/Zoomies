@@ -203,12 +203,25 @@
     return `${hosts.used ?? 0} of ${hosts.capacity ?? 0} slots on ${pluralise(hosts.healthy ?? 0, 'healthy host')}`;
   });
 
-  const medianWait = $derived(others ? stats?.median_wait_ms : stats?.fleet?.median_wait_ms);
-  const p95Wait = $derived(others ? stats?.p95_wait_ms : stats?.fleet?.p95_wait_ms);
-  const p50Startup = $derived(stats?.p50_startup_ms);
-  const p95Startup = $derived(stats?.p95_startup_ms);
-  const p50Registration = $derived(stats?.p50_registration_ms);
-  const p95Registration = $derived(stats?.p95_registration_ms);
+  /**
+   * A percentile the controller reports as zero is one nothing was measured for.
+   *
+   * The payload carries no sample count, and a real median of exactly 0ms does
+   * not happen -- a webhook has to arrive and a container has to start -- so a
+   * zero is the empty window speaking. The tiles used to print it as "0ms" and
+   * "p95 0ms" for a fleet that had never queued anything, which is the claim
+   * the comment above says they must not make.
+   */
+  const measured = (ms: number | undefined): number | undefined => (ms ? ms : undefined);
+
+  const medianWait = $derived(
+    measured(others ? stats?.median_wait_ms : stats?.fleet?.median_wait_ms),
+  );
+  const p95Wait = $derived(measured(others ? stats?.p95_wait_ms : stats?.fleet?.p95_wait_ms));
+  const p50Startup = $derived(measured(stats?.p50_startup_ms));
+  const p95Startup = $derived(measured(stats?.p95_startup_ms));
+  const p50Registration = $derived(measured(stats?.p50_registration_ms));
+  const p95Registration = $derived(measured(stats?.p95_registration_ms));
 
   /** A series is only worth drawing, or comparing against, once it has a shape. */
   function trend(values: readonly number[]): readonly number[] | undefined {

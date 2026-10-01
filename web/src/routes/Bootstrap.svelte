@@ -31,7 +31,6 @@
   let username = $state('');
   let password = $state('');
   let confirm = $state('');
-  let email = $state('');
   let setupToken = $state('');
   let touched = $state({ username: false, password: false, confirm: false, setupToken: false });
   let submitting = $state(false);
@@ -142,7 +141,6 @@
         username: username.trim(),
         password,
         setup_token: setupToken.trim(),
-        ...(email.trim() ? { email: email.trim() } : {}),
       });
       // The account exists; whether the session started with it is a separate
       // question, and the API can answer 201 without a cookie when it could
@@ -188,10 +186,12 @@
        this says only which end of it we are at. -->
   <p class="step">First step</p>
   <h1>Create the first account</h1>
+  <!-- The role is named as it is called everywhere else: this account is
+       Platform, not "admin", and the roles page says so. -->
   <p class="lede">
-    Nobody has an account on this instance yet. This form creates the first one, with the admin
-    role, and stops being available the moment it exists. The setup token is how it knows you are
-    the one who deployed Zoomies.
+    Nobody has an account on this instance yet. This form creates the first one, with the highest
+    role (Platform), and stops being available the moment it exists. The setup token is how it knows
+    you are the one who deployed Zoomies.
   </p>
   <p class="next">
     Then: connect a GitHub App, add a host if Zoomies has no agent of its own, create a pool, and
@@ -219,7 +219,7 @@
          error needs it and the form does not move as one appears. -->
     <Field
       label="Setup token"
-      hint="From the controller's log: docker compose logs zoomies | grep 'setup token'"
+      hint="Printed in the controller's log at startup, on the line beginning 'setup token'. With Docker Compose: docker compose logs zoomies | grep 'setup token'"
       error={setupTokenError ?? fieldErrors.setup_token}
       required
     >
@@ -328,24 +328,6 @@
             touched = { ...touched, confirm: true };
             capsLock = false;
           }}
-        />
-      {/snippet}
-    </Field>
-
-    <Field
-      label="Email"
-      hint="Optional. Used only to identify the account."
-      error={fieldErrors.email}
-    >
-      {#snippet children({ id, describedBy, invalid })}
-        <Input
-          bind:value={email}
-          {id}
-          {describedBy}
-          {invalid}
-          type="email"
-          autocomplete="email"
-          disabled={submitting}
         />
       {/snippet}
     </Field>

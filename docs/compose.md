@@ -93,7 +93,11 @@ instead, in this order:
    restart and stops being printed once an account exists.
 2. **GitHub.** **Installations → Connect GitHub** creates the App through the
    manifest flow, with exactly the permissions Zoomies needs, and takes the
-   private key and webhook secret directly.
+   private key and webhook secret directly. The dialog asks for the public
+   address first if the controller has none GitHub can reach: that is
+   [`server.external_url`](configuration.md#serverexternal_url), and a
+   Platform account can set it there and then, though it takes a restart to
+   apply.
 3. **The first pool.** Nothing creates one for you on this path, and nothing
    runs until one exists. **Pools → Create a pool** opens the wizard with a name
    and a label already filled in; [the quick start](quickstart.md#4-your-first-pool)

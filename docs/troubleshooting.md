@@ -42,7 +42,7 @@ bind is not optional here.
 encrypted, so the fleet's state survives — but the GitHub App's private key and
 every webhook secret were sealed with that key and cannot be recovered. Generate
 a new private key on the App's settings page on GitHub, then
-Installations → Connect GitHub → **Use an App you already have**, and paste the
+Installations → Connect GitHub → **Existing App**, and paste the
 new PEM and a fresh webhook secret. A new key is written on the next start; back
 that one up.
 

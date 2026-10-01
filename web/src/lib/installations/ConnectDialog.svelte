@@ -18,7 +18,7 @@
   resolves.
 -->
 <script lang="ts">
-  import { CircleAlert, ExternalLink, RotateCcw } from '@lucide/svelte';
+  import { ExternalLink, RotateCcw } from '@lucide/svelte';
   import {
     ApiError,
     createAppManifest,
@@ -30,6 +30,7 @@
   import { session } from '$lib/state/session.svelte';
   import { storage } from '$lib/state/prefs.svelte';
   import Button from '$lib/components/Button.svelte';
+  import Checkbox from '$lib/components/Checkbox.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import Dialog from '$lib/components/Dialog.svelte';
   import Field from '$lib/components/Field.svelte';
@@ -38,6 +39,7 @@
   import Tabs from '$lib/components/Tabs.svelte';
   import Textarea from '$lib/components/Textarea.svelte';
   import { isLoopbackURL } from '$lib/addresses';
+  import ExternalAddress from './ExternalAddress.svelte';
 
   interface Props {
     open?: boolean;
@@ -158,6 +160,12 @@
   let targetType = $state('org');
   let apiBase = $state('');
   let appName = $state('');
+  /**
+   * Whether the App also asks for what the migration wizard needs. Off unless
+   * the operator says so: a runner fleet does not need to write to anybody's
+   * code, and the permission list is the first thing a security reviewer reads.
+   */
+  let migration = $state(false);
   let code = $state('');
   let installationId = $state('');
   /**
@@ -265,6 +273,7 @@
     targetType = 'org';
     apiBase = '';
     appName = '';
+    migration = false;
     code = '';
     installationId = '';
     appIdInput = '';
@@ -442,10 +451,12 @@
    * wants to read. The promise "exactly the permissions it needs, and nothing
    * more" is worth more when it is followed by the list.
    *
-   * The migration wizard's three are in that list because they are asked for
-   * at creation. Adding them afterwards is not a click: GitHub holds the
-   * change until the account's owner accepts it, and until then the wizard
-   * cannot read a single workflow.
+   * The migration wizard's three are in the list only when the operator asks
+   * for them, because asking is the only moment it is cheap: adding them
+   * afterwards is not a click, GitHub holds the change until the account's
+   * owner accepts it, and until then the wizard cannot read a single workflow.
+   * Asked for by default they were the line that sent an evaluation to a
+   * security review, for a feature most fleets never use.
    */
   const webhookURL = $derived(session.meta?.webhook_url ?? '');
   const permissions = $derived([
@@ -456,9 +467,13 @@
       ? 'actions: write — read workflow jobs and cancel workflow runs from Zoomies'
       : 'actions: read — read workflow runs and jobs for the fallback poller',
     'metadata: read — required by GitHub for every App',
-    'contents: write — read and rewrite workflow files for the migration wizard',
-    "pull_requests: write — open the migration wizard's pull request",
-    'workflows: write — required by GitHub to change files under .github/workflows',
+    ...(migration
+      ? [
+          'contents: write — read and rewrite workflow files for the migration wizard',
+          "pull_requests: write — open the migration wizard's pull request",
+          'workflows: write — required by GitHub to change files under .github/workflows',
+        ]
+      : []),
     'workflow_job events — the webhook that makes scaling instant',
   ]);
 
@@ -506,11 +521,12 @@
         target: target.trim(),
         target_type: targetType as TargetType,
         api_base_url: apiBase.trim() || undefined,
+        migration,
       });
       postUrl = result.post_url ?? '';
       manifest = result.manifest ?? '';
       manifestState = result.state ?? '';
-      builtFrom = JSON.stringify([target.trim(), targetType, apiBase.trim(), appName.trim()]);
+      builtFrom = fingerprint();
       step = 1;
       saveProgress();
     } catch (cause) {
@@ -530,8 +546,12 @@
    * the first step build a new one before the second step can post anything.
    */
   let builtFrom = $state('');
+  /** Everything the manifest was built from, so a change to any of it is noticed. */
+  function fingerprint(): string {
+    return JSON.stringify([target.trim(), targetType, apiBase.trim(), appName.trim(), migration]);
+  }
   $effect(() => {
-    const now = JSON.stringify([target.trim(), targetType, apiBase.trim(), appName.trim()]);
+    const now = fingerprint();
     if (!postUrl) {
       builtFrom = now;
       return;
@@ -744,8 +764,8 @@
     bind:value={tab}
     label="How to connect"
     tabs={[
-      { id: 'manifest', label: 'Create a new App' },
-      { id: 'existing', label: 'Use an App you already have' },
+      { id: 'manifest', label: 'New App' },
+      { id: 'existing', label: 'Existing App' },
     ]}
   >
     {#snippet children(active)}
@@ -815,7 +835,18 @@
           {/each}
         </ol>
 
-        <!--
+        {#if step === 0 && notReachable}
+          <!-- A GitHub App's webhook URL is fixed at creation and is built from
+               server.external_url. Without a usable one, filling the form in
+               ends in a 422 attached to the wrong field, and a form nobody can
+               submit is not worth drawing. The panel carries the way out, so
+               this is a step to take and not a dead end.
+
+               It replaces the step form rather than sitting inside it: the
+               panel has a form of its own, and forms do not nest. -->
+          <ExternalAddress current={externalURL} />
+        {:else}
+          <!--
           A real form, so Enter submits.
 
           Every other form in the product does -- Bootstrap, Login, the pool
@@ -824,62 +855,34 @@
           The footer's primary belongs to it through `form=`, which lets the
           button stay pinned in the footer.
         -->
-        <form
-          id="connect-step"
-          class="stack"
-          bind:this={panel}
-          tabindex="-1"
-          role="group"
-          aria-label={STEPS[step]?.title}
-          onsubmit={(event) => {
-            event.preventDefault();
-            advance();
-          }}
-        >
-          <!-- At the top, where the eye returns after a failed action: at the
+          <form
+            id="connect-step"
+            class="stack"
+            bind:this={panel}
+            tabindex="-1"
+            role="group"
+            aria-label={STEPS[step]?.title}
+            onsubmit={(event) => {
+              event.preventDefault();
+              advance();
+            }}
+          >
+            <!-- At the top, where the eye returns after a failed action: at the
                bottom it sat below the fold of the dialog's scrolling body,
                under a pinned footer, so a 422 looked like nothing happened. -->
-          {#if failure || extraFailures.length > 0}
-            {#key failureSeq}
-              <div class="failure" role="alert" tabindex="-1" bind:this={failureBox}>
-                {#if failure}<p>{failure}</p>{/if}
-                {#if extraFailures.length > 0}
-                  <ul>
-                    {#each extraFailures as message (message)}<li>{message}</li>{/each}
-                  </ul>
-                {/if}
-              </div>
-            {/key}
-          {/if}
-          {#if step === 0}
-            {#if notReachable}
-              <!-- A GitHub App's webhook URL is fixed at creation and is built
-                   from server.external_url. Without one, filling this form in
-                   ends in a 422 attached to the wrong field. Say it first. -->
-              <div class="blocked" role="status">
-                <CircleAlert size={16} aria-hidden="true" />
-                <div>
-                  <p class="blocked-title">
-                    {localExternal
-                      ? 'GitHub cannot reach Zoomies'
-                      : 'Zoomies has no external URL yet'}
-                  </p>
-                  <p>
-                    {#if localExternal}
-                      Zoomies believes it is reached at <code>{externalURL}</code>, which is an
-                      address only this machine has. GitHub is told where to deliver webhooks when
-                      the App is created, and that address cannot be changed from here afterwards --
-                      so an App created now would carry one that never fires.
-                    {:else}
-                      GitHub is told where to deliver webhooks when the App is created, and that
-                      address cannot be changed from here afterwards.
-                    {/if}
-                    Set <code>server.external_url</code> to the address GitHub can reach, restart the
-                    controller, and come back.
-                  </p>
+            {#if failure || extraFailures.length > 0}
+              {#key failureSeq}
+                <div class="failure" role="alert" tabindex="-1" bind:this={failureBox}>
+                  {#if failure}<p>{failure}</p>{/if}
+                  {#if extraFailures.length > 0}
+                    <ul>
+                      {#each extraFailures as message (message)}<li>{message}</li>{/each}
+                    </ul>
+                  {/if}
                 </div>
-              </div>
-            {:else}
+              {/key}
+            {/if}
+            {#if step === 0}
               <p class="lede">
                 Zoomies builds a GitHub App manifest that asks for exactly the permissions it needs,
                 and nothing more. Nothing is created until you confirm it on GitHub.
@@ -901,142 +904,228 @@
                   </dd>
                 </dl>
               </div>
-            {/if}
 
-            <!--
-              The choice first, then the field it governs.
+              <!--
+                The choice first, then the field it governs.
 
-              The field's label, placeholder and hint all switch on this radio,
-              so asking for a value before offering the choice meant the
-              operator read an example for a decision they had not been given,
-              typed something, then watched the hint above them rewrite itself.
-              The terminal installer asks in this order (askGitHubTarget).
-            -->
-            <RadioGroup
-              bind:value={targetType}
-              name="target-type"
-              legend="What this App will manage"
-              inline
-              options={[
-                { value: 'org', label: 'An organisation' },
-                { value: 'repo', label: 'A single repository' },
-              ]}
-            />
+                The field's label, placeholder and hint all switch on this radio,
+                so asking for a value before offering the choice meant the
+                operator read an example for a decision they had not been given,
+                typed something, then watched the hint above them rewrite itself.
+                The terminal installer asks in this order (askGitHubTarget).
+              -->
+              <RadioGroup
+                bind:value={targetType}
+                name="target-type"
+                legend="What this App will manage"
+                inline
+                options={[
+                  { value: 'org', label: 'An organisation' },
+                  { value: 'repo', label: 'A single repository' },
+                ]}
+              />
 
-            {#if targetType === 'repo'}
-              <!-- The caveat belongs under the option it is about, not inside
-                   the hint of a field further down arguing against it. -->
-              <p class="caveat">
-                GitHub creates a repository App on your own account, and will only install it there.
-                If the repository belongs to an organisation, choose
-                <strong>An organisation</strong> and tick just that repository when you install.
-              </p>
-            {/if}
+              {#if targetType === 'repo'}
+                <!-- The caveat belongs under the option it is about, not inside
+                     the hint of a field further down arguing against it. -->
+                <p class="caveat">
+                  GitHub creates a repository App on your own account, and will only install it
+                  there. If the repository belongs to an organisation, choose
+                  <strong>An organisation</strong> and tick just that repository when you install.
+                </p>
+              {/if}
 
-            <Field
-              label={targetType === 'repo' ? 'Repository' : 'Organisation login'}
-              hint={targetHint}
-              error={errors.target ?? targetError}
-            >
-              {#snippet children({ id, describedBy, invalid })}
-                <Input
-                  bind:value={target}
-                  {id}
-                  {describedBy}
-                  invalid={invalid || Boolean(targetError)}
-                  placeholder={targetType === 'repo' ? 'acme/widgets' : 'acme'}
-                  mono
-                />
-              {/snippet}
-            </Field>
-
-            <Field
-              label="App name"
-              hint="Optional. Defaults to a name that includes the target, and must be unique across GitHub."
-              error={errors.name}
-            >
-              {#snippet children({ id, describedBy, invalid })}
-                <Input bind:value={appName} {id} {describedBy} {invalid} placeholder="Zoomies" />
-              {/snippet}
-            </Field>
-
-            <Field
-              label="API base URL"
-              hint="Optional. Leave empty for github.com; set it for GitHub Enterprise Server or a GHE.com tenant."
-              error={errors.api_base_url}
-            >
-              {#snippet children({ id, describedBy, invalid })}
-                <Input
-                  bind:value={apiBase}
-                  {id}
-                  {describedBy}
-                  {invalid}
-                  type="url"
-                  mono
-                  placeholder="https://api.github.com"
-                />
-              {/snippet}
-            </Field>
-          {:else if step === 1}
-            {#if arrivedWithCode}
-              <p class="lede">
-                GitHub has created the App and sent this tab back with a code. The code is exchanged
-                here for the App's credentials, which stay sealed on this instance; if the exchange
-                did not go through, the button below tries it again.
-              </p>
-            {:else if manifest}
-              <p class="lede">
-                The next button takes you to GitHub in this tab with the manifest already filled in.
-                Confirm it there and you will be brought straight back here, with the code in the
-                address bar.
-              </p>
-
-              <!-- The button lives here; the form it submits is a sibling of
-                   the step form, below, because a form cannot nest. -->
-              <div>
-                <Button type="submit" form="github-manifest" variant="primary">
-                  Create the App on GitHub
-                </Button>
-              </div>
-            {:else}
-              <p class="lede">
-                This browser has no manifest to send -- it was built somewhere else, or the page was
-                reloaded. Go back a step to build one here, or paste the code GitHub gave you.
-              </p>
-            {/if}
-
-            <!-- Folded away on the happy path: an empty "paste the code" field
-                 shown before the operator has been to GitHub reads as the main
-                 route rather than the fallback it is. -->
-            <details class="fallback" open={arrivedWithCode || !manifest}>
-              <summary>GitHub did not bring you back?</summary>
               <Field
-                label="Code from GitHub"
-                hint="If GitHub opened another browser, return to this browser and paste the full return URL here, or just its code= value. Keep the URL private."
-                error={errors.code ?? errors.state}
+                label={targetType === 'repo' ? 'Repository' : 'Organisation login'}
+                hint={targetHint}
+                error={errors.target ?? targetError}
               >
                 {#snippet children({ id, describedBy, invalid })}
-                  <Input bind:value={code} {id} {describedBy} {invalid} mono autocomplete="off" />
+                  <Input
+                    bind:value={target}
+                    {id}
+                    {describedBy}
+                    invalid={invalid || Boolean(targetError)}
+                    placeholder={targetType === 'repo' ? 'acme/widgets' : 'acme'}
+                    mono
+                  />
                 {/snippet}
               </Field>
-            </details>
-          {:else}
-            {#if appId !== null}
-              <p class="lede">
-                {appSlug ? `${appSlug} exists` : 'The App exists'} and its key is sealed here. It cannot
-                do anything yet: an App has to be installed on the account before it can see any repositories.
-              </p>
-            {:else}
-              <p class="lede">
-                GitHub reports that installation {installationIdValue || 'of the App'} was created, but
-                this browser does not know which App it belongs to. The App ID is on the App's settings
-                page, next to its name; Zoomies still holds the key it created, for an hour.
-              </p>
 
-              <Field label="App ID" error={errors.app_id} required>
+              <!-- Unticked, and said plainly why: the list above is the first
+                   thing a security reviewer reads, and a runner fleet has no
+                   use for write access to anybody's code. The wizard that does
+                   is optional, so what it needs is too. -->
+              <Checkbox
+                bind:checked={migration}
+                label="Also let Zoomies open migration pull requests"
+                description="Adds write access to contents, pull requests and workflows, which only the migration wizard uses. Runners do not need it. Adding it later is not a click: the account's owner has to approve the change on GitHub."
+              />
+
+              <!-- Two optional answers that almost nobody gives, behind a fold
+                   so everybody else is asked for one thing. A field that has an
+                   error, or a value, keeps its fold open. -->
+              <details
+                class="fallback"
+                open={Boolean(
+                  appName.trim() || apiBase.trim() || errors.name || errors.api_base_url,
+                )}
+              >
+                <summary>Advanced: a custom App name, GitHub Enterprise</summary>
+                <div class="stack">
+                  <Field
+                    label="App name"
+                    hint="Optional. Defaults to a name that includes the target, and must be unique across GitHub."
+                    error={errors.name}
+                  >
+                    {#snippet children({ id, describedBy, invalid })}
+                      <Input
+                        bind:value={appName}
+                        {id}
+                        {describedBy}
+                        {invalid}
+                        placeholder="Zoomies"
+                      />
+                    {/snippet}
+                  </Field>
+
+                  <Field
+                    label="API base URL"
+                    hint="Optional. Leave empty for github.com; set it for GitHub Enterprise Server or a GHE.com tenant."
+                    error={errors.api_base_url}
+                  >
+                    {#snippet children({ id, describedBy, invalid })}
+                      <Input
+                        bind:value={apiBase}
+                        {id}
+                        {describedBy}
+                        {invalid}
+                        type="url"
+                        mono
+                        placeholder="https://api.github.com"
+                      />
+                    {/snippet}
+                  </Field>
+                </div>
+              </details>
+            {:else if step === 1}
+              {#if arrivedWithCode}
+                <p class="lede">
+                  GitHub has created the App and sent this tab back with a code. The code is
+                  exchanged here for the App's credentials, which stay sealed on this instance; if
+                  the exchange did not go through, the button below tries it again.
+                </p>
+              {:else if manifest}
+                <p class="lede">
+                  The next button takes you to GitHub in this tab with the manifest already filled
+                  in. Confirm it there and you will be brought straight back here, with the code in
+                  the address bar.
+                </p>
+              {:else}
+                <p class="lede">
+                  This browser has no manifest to send -- it was built somewhere else, or the page
+                  was reloaded. Go back a step to build one here, or paste the code GitHub gave you.
+                </p>
+              {/if}
+
+              <!-- Folded away on the happy path: an empty "paste the code" field
+                 shown before the operator has been to GitHub reads as the main
+                 route rather than the fallback it is. -->
+              <details class="fallback" open={arrivedWithCode || !manifest}>
+                <summary>GitHub did not bring you back?</summary>
+                <Field
+                  label="Code from GitHub"
+                  hint="If GitHub opened another browser, return to this browser and paste the full return URL here, or just its code= value. Keep the URL private."
+                  error={errors.code ?? errors.state}
+                >
+                  {#snippet children({ id, describedBy, invalid })}
+                    <Input bind:value={code} {id} {describedBy} {invalid} mono autocomplete="off" />
+                  {/snippet}
+                </Field>
+                <!-- While the footer's primary is the one that leaves for GitHub,
+                   pasting a code has to have a button of its own. -->
+                {#if manifest && !arrivedWithCode}
+                  <div class="paste">
+                    <Button
+                      type="submit"
+                      variant="secondary"
+                      size="sm"
+                      loading={busy}
+                      disabled={!code.trim()}
+                    >
+                      Use this code
+                    </Button>
+                  </div>
+                {/if}
+              </details>
+            {:else}
+              {#if appId !== null}
+                <p class="lede">
+                  {appSlug ? `${appSlug} exists` : 'The App exists'} and its key is sealed here. It cannot
+                  do anything yet: an App has to be installed on the account before it can see any repositories.
+                </p>
+              {:else}
+                <p class="lede">
+                  GitHub reports that installation {installationIdValue || 'of the App'} was created,
+                  but this browser does not know which App it belongs to. The App ID is on the App's settings
+                  page, next to its name; Zoomies still holds the key it created, for an hour.
+                </p>
+
+                <Field label="App ID" error={errors.app_id} required>
+                  {#snippet children({ id, describedBy, invalid })}
+                    <Input
+                      bind:value={appIdInput}
+                      {id}
+                      {describedBy}
+                      {invalid}
+                      inputmode="numeric"
+                      mono
+                    />
+                  {/snippet}
+                </Field>
+              {/if}
+
+              {#if installUrl}
+                <div>
+                  <Button type="submit" form="github-install" variant="primary">
+                    Install it on {target || 'the account'}
+                  </Button>
+                </div>
+                <details class="fallback">
+                  <summary>Opened another browser or app?</summary>
+                  <p>
+                    Copy the installation link and paste it into this browser's address bar. After
+                    installing, return here and paste the return URL into Installation ID. You do
+                    not need to create the App again.
+                  </p>
+                  <CopyButton
+                    value={installUrl}
+                    label="Copy installation link"
+                    showLabel
+                    showValue
+                  />
+                  {#if appId !== null}
+                    <p>App ID (if another browser asks for it): <code>{appId}</code></p>
+                  {/if}
+                </details>
+              {/if}
+
+              <!--
+              Directly after the install link, because it is the only thing
+              still outstanding. GitHub sends the browser back here with the
+              number in the address bar, so on the ordinary path this field
+              fills itself; typing is the fallback, and pasting the whole URL
+              works because parseId takes the number out of it.
+            -->
+              <Field
+                label="Installation ID"
+                hint="GitHub brings you back here with this in the address bar. If it did not, paste the URL it left you on and Zoomies will take the number out of it."
+                error={errors.installation_id}
+                required
+              >
                 {#snippet children({ id, describedBy, invalid })}
                   <Input
-                    bind:value={appIdInput}
+                    bind:value={installationId}
                     {id}
                     {describedBy}
                     {invalid}
@@ -1045,81 +1134,36 @@
                   />
                 {/snippet}
               </Field>
-            {/if}
 
-            {#if installUrl}
-              <div>
-                <Button type="submit" form="github-install" variant="primary">
-                  Install it on {target || 'the account'}
-                </Button>
-              </div>
-              <details class="fallback">
-                <summary>Opened another browser or app?</summary>
-                <p>
-                  Copy the installation link and paste it into this browser's address bar. After
-                  installing, return here and paste the return URL into Installation ID. You do not
-                  need to create the App again.
-                </p>
-                <CopyButton value={installUrl} label="Copy installation link" showLabel showValue />
-                {#if appId !== null}
-                  <p>App ID (if another browser asks for it): <code>{appId}</code></p>
-                {/if}
-              </details>
-            {/if}
-
-            <!--
-              Directly after the install link, because it is the only thing
-              still outstanding. GitHub sends the browser back here with the
-              number in the address bar, so on the ordinary path this field
-              fills itself; typing is the fallback, and pasting the whole URL
-              works because parseId takes the number out of it.
-            -->
-            <Field
-              label="Installation ID"
-              hint="GitHub brings you back here with this in the address bar. If it did not, paste the URL it left you on and Zoomies will take the number out of it."
-              error={errors.installation_id}
-              required
-            >
-              {#snippet children({ id, describedBy, invalid })}
-                <Input
-                  bind:value={installationId}
-                  {id}
-                  {describedBy}
-                  {invalid}
-                  inputmode="numeric"
-                  mono
-                />
-              {/snippet}
-            </Field>
-
-            <!-- Last, and folded away: worth doing, but it is a cosmetic
+              <!-- Last, and folded away: worth doing, but it is a cosmetic
                  improvement to the App and it used to sit between the two
                  fields this step actually needs. -->
-            <details class="logo-step">
-              <summary>Give the App the Zoomies mark</summary>
-              <div class="logo-body">
-                <img class="logo-preview" src={APP_LOGO} alt="" width="56" height="56" />
-                <div class="logo-copy">
-                  <p>
-                    An App manifest cannot carry a logo — GitHub only takes an upload — so the App
-                    is wearing the grey default, and it signs every "Set up job" line in the
-                    organisation's logs. Download the mark and upload it under
-                    <em>Display information</em>.
-                  </p>
-                  <p class="logo-actions">
-                    <a href={APP_LOGO} download="zoomies-app-logo.png">Download the mark</a>
-                    {#if settingsUrl}
-                      <a href={settingsUrl} target="_blank" rel="noopener noreferrer">
-                        Open the App's settings
-                        <ExternalLink size={12} aria-hidden="true" />
-                      </a>
-                    {/if}
-                  </p>
+              <details class="logo-step">
+                <summary>Give the App the Zoomies mark</summary>
+                <div class="logo-body">
+                  <img class="logo-preview" src={APP_LOGO} alt="" width="56" height="56" />
+                  <div class="logo-copy">
+                    <p>
+                      An App manifest cannot carry a logo — GitHub only takes an upload — so the App
+                      is wearing the grey default, and it signs every "Set up job" line in the
+                      organisation's logs. Download the mark and upload it under
+                      <em>Display information</em>.
+                    </p>
+                    <p class="logo-actions">
+                      <a href={APP_LOGO} download="zoomies-app-logo.png">Download the mark</a>
+                      {#if settingsUrl}
+                        <a href={settingsUrl} target="_blank" rel="noopener noreferrer">
+                          Open the App's settings
+                          <ExternalLink size={12} aria-hidden="true" />
+                        </a>
+                      {/if}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            </details>
-          {/if}
-        </form>
+              </details>
+            {/if}
+          </form>
+        {/if}
 
         <!--
           The manifest goes to GitHub as a real form in the markup, submitted by
@@ -1314,25 +1358,42 @@
         {step === 0 ? 'Cancel' : 'Back'}
       </Button>
       {#if step === 0}
-        <Button
-          variant="primary"
-          type="submit"
-          form="connect-step"
-          loading={busy}
-          disabled={notReachable || !target.trim() || Boolean(targetError)}
-        >
-          Continue to GitHub
-        </Button>
+        <!-- While there is no address GitHub can reach, the panel's own button
+             is the one primary on screen. A disabled "Continue" beside it
+             would be a second, and one that explains nothing. -->
+        {#if !notReachable}
+          <Button
+            variant="primary"
+            type="submit"
+            form="connect-step"
+            loading={busy}
+            disabled={!target.trim() || Boolean(targetError)}
+          >
+            Continue
+          </Button>
+        {/if}
       {:else if step === 1}
-        <Button
-          variant="primary"
-          type="submit"
-          form="connect-step"
-          loading={busy}
-          disabled={!code.trim()}
-        >
-          Exchange the code
-        </Button>
+        {#if manifest && !arrivedWithCode}
+          <!-- The one that actually leaves for GitHub is the footer's primary,
+               and says so. Before, "Continue to GitHub" only advanced, the
+               in-body button left, and the footer then offered "Exchange the
+               code" -- jargon for a step the operator never performs, because
+               it runs itself on the way back. The form it submits is a sibling
+               of the step form, because a form cannot nest. -->
+          <Button type="submit" form="github-manifest" variant="primary">
+            Create the App on GitHub
+          </Button>
+        {:else}
+          <Button
+            variant="primary"
+            type="submit"
+            form="connect-step"
+            loading={busy}
+            disabled={!code.trim()}
+          >
+            Use this code
+          </Button>
+        {/if}
       {:else}
         <Button
           variant="primary"
@@ -1489,53 +1550,34 @@
     margin-top: var(--z-space-1);
   }
 
-  .resume,
-  .blocked {
+  .resume {
     display: flex;
     align-items: flex-start;
     gap: var(--z-space-3);
     margin-bottom: var(--z-space-4);
     padding: var(--z-space-3);
-    border-radius: var(--z-radius-sm);
-    font-size: var(--z-text-sm);
-    line-height: var(--z-leading-sm);
-  }
-  .resume {
     border: var(--z-border-width) solid var(--z-accent-border);
+    border-radius: var(--z-radius-sm);
     background: var(--z-accent-subtle);
     color: var(--z-text);
+    font-size: var(--z-text-sm);
+    line-height: var(--z-leading-sm);
   }
   .resume :global(svg) {
     flex: none;
     margin-top: var(--z-nudge-2);
     color: var(--z-accent);
   }
-  .resume div,
-  .blocked div {
+  .resume div {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
     gap: var(--z-space-2);
     min-width: 0;
   }
-  .resume p,
-  .blocked p {
+  .resume p {
     margin: 0;
     text-wrap: pretty;
-  }
-  .blocked {
-    margin-bottom: 0;
-    border: var(--z-border-width) solid var(--z-pending-border);
-    background: var(--z-pending-subtle);
-    color: var(--z-text);
-  }
-  .blocked :global(svg) {
-    flex: none;
-    margin-top: var(--z-nudge-2);
-    color: var(--z-pending);
-  }
-  .blocked-title {
-    font-weight: var(--z-weight-medium);
   }
 
   /* The claim "exactly the permissions it needs" is worth more with the list
@@ -1593,6 +1635,9 @@
   }
   .fallback[open] summary {
     margin-bottom: var(--z-space-3);
+  }
+  .paste {
+    margin-top: var(--z-space-3);
   }
 
   .settled {

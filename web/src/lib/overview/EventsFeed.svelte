@@ -56,6 +56,11 @@
   const categories = $derived(feed.categories);
   const hidden = $derived(feed.hidden);
   const everything = $derived(hidden === 0);
+  // The empty panel asks a different question from the header's "10 of 12
+  // kinds": has this browser narrowed the feed? Two kinds start off for
+  // everybody, so asking "is anything hidden?" there was never false on a fresh
+  // browser, and the first-run copy below was unreachable.
+  const untouched = $derived(feed.filtered === 0);
   const hasFleet = $derived(fleet.pools.length > 0 || fleet.hosts.length > 0);
 
   /*
@@ -147,8 +152,8 @@
     <EmptyState
       icon={History}
       compact
-      title={everything ? 'Nothing has happened yet' : 'Nothing in the kinds you are watching'}
-      description={everything
+      title={untouched ? 'Nothing has happened yet' : 'Nothing in the kinds you are watching'}
+      description={untouched
         ? hasFleet
           ? 'A line is written here every time a job finishes, a runner comes up or goes away, the scheduler decides something, or a host, machine or pool changes underneath them.'
           : 'Once there is a pool and a host, this is where the fleet says what it has been doing.'

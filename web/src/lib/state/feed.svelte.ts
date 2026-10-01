@@ -147,6 +147,17 @@ class Feed {
     return FEED_CATEGORIES.filter((category) => !this.shows(category.id)).length;
   }
 
+  /**
+   * How many this browser has turned off itself, as against the ones that
+   * start off. The empty panel tells the two apart: somebody who has narrowed
+   * the feed is told that is why it is empty, and somebody who has touched
+   * nothing is told what the feed is for -- not that two kinds of event they
+   * have never heard of are "switched off for this browser".
+   */
+  get filtered(): number {
+    return FEED_CATEGORIES.filter((category) => prefs.feedChoice(category.id) === false).length;
+  }
+
   /* -- writes -------------------------------------------------------------- */
 
   /**
