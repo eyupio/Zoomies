@@ -117,6 +117,14 @@ instead of leaving you with a fleet that comes up unable to run anything.
 
 ## 3. Connect GitHub
 
+GitHub delivers its webhooks to the controller, so `server.external_url` has to
+be an address GitHub can reach — the App's webhook URL is written from it when
+the App is created. Without one the fleet still works, but Zoomies falls back to
+polling and reacts in tens of seconds rather than instantly: see
+[`server.external_url`](configuration.md#serverexternal_url). Running the
+controller at home? [A Cloudflare Tunnel](home-lab.md#where-the-controller-goes)
+gives it one without opening a port.
+
 Zoomies creates the GitHub App for you through the manifest flow. It opens your
 browser at a pre-filled form — and always prints the URL as well, so a headless
 host still works — with exactly the permissions it needs and no more:
