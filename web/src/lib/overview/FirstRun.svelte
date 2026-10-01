@@ -37,6 +37,7 @@
   import Button from '$lib/components/Button.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import IconButton from '$lib/components/IconButton.svelte';
+  import { classifyExternalURL } from '$lib/installations/reachability';
 
   /**
    * Told whenever this panel appears or goes away, so the Overview can quieten
@@ -73,6 +74,19 @@
   );
 
   const hasInstallation = $derived((installations ?? 0) > 0);
+  /**
+   * What the controller believes its own address is, and so whether the Connect
+   * dialog will let an operator through.
+   *
+   * It refuses to build an App against an address GitHub cannot reach, because
+   * the webhook URL is fixed when the App is created. The installer's own
+   * single-VM default is `http://localhost:8080`, so on the commonest install
+   * this step's button used to open straight onto that refusal -- the one kind
+   * of action this panel promises never to offer. While the dialog would
+   * refuse, this step says so and offers the thing that fixes it instead.
+   */
+  const reach = $derived(classifyExternalURL(session.meta?.external_url));
+  const needsAddress = $derived(!hasInstallation && reach !== 'reachable');
   const pools = $derived(fleet.pools);
   const hasPool = $derived(pools.length > 0);
   /**
@@ -184,13 +198,23 @@
             Zoomies authenticates as a GitHub App: it is how the controller sees queued jobs and
             registers runners. Nothing can run until one is installed.
           </p>
+          {#if needsAddress}
+            <p class="precondition">
+              Needs a public address first —
+              {#if reach === 'loopback'}
+                Zoomies currently believes it is at <code>{session.meta?.external_url}</code>.
+              {:else}
+                no address is set.
+              {/if}
+            </p>
+          {/if}
         </div>
         <div class="action">
           {#if hasInstallation}
             <a href="/installations">Installed</a>
           {:else if canAdmin}
             <Button variant="primary" size="sm" href="/installations" iconAfter={ArrowRight}>
-              Connect GitHub
+              {needsAddress ? 'Set the address' : 'Connect GitHub'}
             </Button>
           {:else}
             <p class="blocked">An administrator connects this.</p>
@@ -379,6 +403,20 @@
     color: var(--z-text-muted);
     text-wrap: pretty;
   }
+  /*
+    The one reason this step cannot be pressed yet. It reads a notch stronger
+    than the explanation above it, and borrows no status colour: operators have
+    learned those as fleet states, and nothing here is a fleet state.
+  */
+  .precondition {
+    margin: var(--z-space-1) 0 0;
+    max-width: 62ch;
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+    color: var(--z-text);
+    text-wrap: pretty;
+    overflow-wrap: anywhere;
+  }
   .runs-on {
     display: flex;
     align-items: center;
@@ -393,7 +431,8 @@
     background: var(--z-surface-sunken);
     color: var(--z-text);
   }
-  .why code {
+  .why code,
+  .precondition code {
     padding: 0;
     background: none;
   }

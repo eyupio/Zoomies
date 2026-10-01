@@ -19,9 +19,9 @@
   Secrets are absent rather than starred out: the API does not send them at all.
 -->
 <script lang="ts">
-  import { supportHint } from '$lib/errors';
+  import { settingSaveError } from '$lib/errors';
   import { FileDown, FileUp, Lock, RotateCcw, Search, TriangleAlert } from '@lucide/svelte';
-  import { getSettings, settingsExportUrl, updateSettings, ApiError } from '$lib/api/client';
+  import { getSettings, settingsExportUrl, updateSettings } from '$lib/api/client';
   import { registerSearch } from '$lib/keys';
   import { router } from '$lib/router';
   import { session } from '$lib/state/session.svelte';
@@ -306,20 +306,8 @@
       }
       return '';
     } catch (cause) {
-      if (cause instanceof ApiError) {
-        const errors = cause.fieldErrors();
-        if (errors[key]) return errors[key];
-        /*
-          A refusal about the whole request rather than about this field --
-          the combination would leave a controller that will not start, and
-          the setting at fault is one nobody touched. Its reason is the useful
-          half, so it is carried through rather than dropped for the envelope's
-          one-line summary.
-        */
-        const general = Object.values(errors).filter(Boolean);
-        return general.length > 0 ? `${cause.message}: ${general.join(' ')}` : cause.message;
-      }
-      return `That change could not be made. ${supportHint()}`;
+      // Shared with the Connect dialog, which saves a setting too.
+      return settingSaveError(cause, key);
     }
   }
 </script>

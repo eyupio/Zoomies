@@ -184,9 +184,59 @@ test('creating the administrator lands somewhere that names the next step', asyn
   // can actually be completed, and it is not "Create a pool".
   const checklist = page.getByRole('region', { name: 'Finish setting up' });
   await expect(checklist).toBeVisible();
-  await expect(checklist.getByRole('link', { name: /Connect GitHub/ })).toBeVisible();
+  // This fixture has no external URL, so GitHub cannot be connected yet: the
+  // step says so and offers the address, rather than a blue button whose first
+  // screen is a refusal.
+  await expect(checklist.getByRole('link', { name: 'Set the address' })).toBeVisible();
+  await expect(checklist.getByRole('link', { name: 'Connect GitHub' })).toHaveCount(0);
+  await expect(
+    checklist.getByText('Needs a public address first — no address is set.'),
+  ).toBeVisible();
   // A pool is impossible without an installation, so it is not offered as one.
   await expect(checklist.getByText('After GitHub is connected.')).toBeVisible();
+});
+
+/** Make the controller report an address, for a page that is about what it believes it is. */
+async function reportAddress(
+  page: import('@playwright/test').Page,
+  address: string,
+): Promise<void> {
+  await page.route('**/api/v1/meta', async (route) => {
+    const response = await route.fetch();
+    const meta = (await response.json()) as Record<string, unknown>;
+    meta.external_url = address;
+    meta.webhook_url = address ? `${address}/webhooks/github` : '';
+    await route.fulfill({ response, json: meta });
+  });
+}
+
+test('the checklist names the loopback address GitHub cannot be sent to', async ({ page }) => {
+  // The installer's own single-VM default, and what an SSH tunnel is looking
+  // at: the controller believes it is at an address only this machine has.
+  await reportAddress(page, 'http://localhost:8080');
+  await signIn(page);
+
+  const checklist = page.getByRole('region', { name: 'Finish setting up' });
+  await expect(
+    checklist.getByText(
+      'Needs a public address first — Zoomies currently believes it is at http://localhost:8080.',
+    ),
+  ).toBeVisible();
+  const action = checklist.getByRole('link', { name: 'Set the address' });
+  await expect(action).toHaveAttribute('href', '/installations');
+  await expect(checklist.getByRole('link', { name: 'Connect GitHub' })).toHaveCount(0);
+});
+
+test('the checklist offers Connect GitHub once the controller has an address GitHub can reach', async ({
+  page,
+}) => {
+  await reportAddress(page, 'https://zoomies.example.test');
+  await signIn(page);
+
+  const checklist = page.getByRole('region', { name: 'Finish setting up' });
+  await expect(checklist.getByRole('link', { name: 'Connect GitHub' })).toBeVisible();
+  await expect(checklist.getByRole('link', { name: 'Set the address' })).toHaveCount(0);
+  await expect(checklist).not.toContainText('Needs a public address first');
 });
 
 /*
@@ -818,5 +868,74 @@ test.describe('what each role is shown', () => {
     // for who asked.
     expect((await platform.post('/api/v1/recovery/unfence')).status()).not.toBe(403);
     expect((await platform.post('/api/v1/backups/bak_nonexistent/restore')).status()).not.toBe(403);
+  });
+
+  // The address GitHub is sent to is a setting of the process rather than of the
+  // fleet. The platform's save is real -- through the controller, which holds the
+  // value for the next restart instead of applying it, because it reads it once,
+  // at startup. This is the only place the whole round trip is pinned against a
+  // controller that accepts it: the Connect project's has authentication off,
+  // and refuses an external URL for that reason.
+  test('the platform saves the address, and the controller holds it for the next restart', async ({
+    page,
+  }) => {
+    await signInAs(page, ADMIN.username);
+    await page.goto('/installations');
+    await expect(page.getByRole('heading', { name: 'Installations', level: 1 })).toBeVisible();
+    await page.getByRole('button', { name: 'Connect GitHub' }).first().click();
+
+    const dialog = page.getByRole('dialog', { name: 'Connect GitHub' });
+    const saving = page.waitForRequest(
+      (request) => request.method() === 'PATCH' && request.url().endsWith('/api/v1/settings'),
+    );
+    // Pasted with its trailing slash; saved without, as the controller keeps it.
+    await dialog.getByLabel('Public address').fill('https://zoomies.example.test/');
+    await dialog.getByRole('button', { name: 'Save address' }).click();
+    expect((await saving).postDataJSON()).toEqual({
+      'server.external_url': 'https://zoomies.example.test',
+    });
+
+    await expect(dialog.getByText('Saved', { exact: true })).toBeVisible();
+    await expect(dialog).toContainText(
+      'Zoomies will use https://zoomies.example.test once the controller restarts.',
+    );
+    await expect(dialog.getByText('sudo systemctl restart zoomies', { exact: true })).toBeVisible();
+
+    try {
+      // The controller agrees it is waiting, and has not applied it: the dialog
+      // would otherwise be unlocking a form against an address nobody holds.
+      const settings = await (await platform.get('/api/v1/settings')).json();
+      expect(settings.pending_restart).toContain('server.external_url');
+      const meta = await (await platform.get('/api/v1/meta')).json();
+      expect(meta.external_url ?? '').toBe('');
+    } finally {
+      // Put back: the specs after this one share this controller.
+      const undone = await platform.patch('/api/v1/settings', {
+        data: { 'server.external_url': null },
+      });
+      expect(undone.status()).toBe(200);
+    }
+  });
+
+  // An administrator who is not the platform cannot save it. The Connect dialog
+  // offers the box to everybody who can open it, and the controller is what
+  // decides: what it says is the API's own sentence, in the dialog's failure
+  // area, naming whose setting it is.
+  test('an administrator who does not run the process is told whose setting the address is', async ({
+    page,
+  }) => {
+    await signInAs(page, 'fleet-admin');
+    await page.goto('/installations');
+    await expect(page.getByRole('heading', { name: 'Installations', level: 1 })).toBeVisible();
+    await page.getByRole('button', { name: 'Connect GitHub' }).first().click();
+
+    const dialog = page.getByRole('dialog', { name: 'Connect GitHub' });
+    await dialog.getByLabel('Public address').fill('https://zoomies.example.test');
+    await dialog.getByRole('button', { name: 'Save address' }).click();
+
+    await expect(dialog.getByRole('alert')).toContainText(
+      'belongs to whoever runs this controller',
+    );
+    await expect(dialog.getByText('Saved', { exact: true })).toHaveCount(0);
   });
 });
