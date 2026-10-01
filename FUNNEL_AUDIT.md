@@ -33,7 +33,7 @@ security, brand or dependencies, and nobody has made it yet.
 | --- | --- | --- |
 | C1 | In progress | The home page and the Quick Start already lead to the demo. The `zoomies demo` command they describe is still being written, so they point at a development build for now. |
 | C2 | Done | The headline says what Zoomies is, with a primary button, a second for the demo, one line of prerequisites and the project's own CI as the proof line. |
-| C3 | In progress | The Quick Start says what to expect before the button is pressed. The dialog and the checklist are still being changed. |
+| C3 | Done | The refusal now offers two ways out. One is a box for the address GitHub will use, which saves `server.external_url`, shows the restart command and unlocks the form by itself when the controller is back. The other opens the Existing App tab and says Zoomies will poll. The checklist says a public address is needed first and its button reads "Set the address"; the tabs are "New App" and "Existing App" and fit at 375px; the Quick Start says what to expect. The one thing not done is a direct link into the dialog from the checklist. |
 | C4 | Done | "Before you start", the demo, then five steps; the installer's inventory folds away and the tuning moves to "After your first job". "Five minutes" is gone from the six places that said it. A measured time and an installer transcript would still help: both need a timed clean run on real hardware, which this sandbox cannot do. |
 | C5 | Done | The install command wraps on a phone, with its copy button below it as a 44px target. |
 | C6 | Decision | Loading Mermaid from `unpkg.com` is what breaks search and the diagrams when that host is blocked. The fix is to ship the 3.5 MB library from the site, which is a dependency under `docs/dependencies.md`'s rules. |
@@ -46,7 +46,7 @@ security, brand or dependencies, and nobody has made it yet.
 | H2 | Partly | The page title is "Zoomies", so the header no longer shows a truncated tagline. Header tabs and a call to action change the site's information architecture. |
 | H3 | Partly | The caching page is in the navigation. Reordering the rest for an evaluator is an information-architecture call. |
 | H4 | Partly | Every screenshot is lazy and sized. Recapturing the hero without the demo's warnings, and swapping in the phone captures, would put a 700px-tall image on the first phone screen, which is a design call. |
-| H5 | In progress | The wrong empty-feed message is being fixed. Hiding the rest of the dashboard until the first pool exists changes what the Overview is for, so it is left. |
+| H5 | Partly | A fresh browser's empty feed says nothing has happened yet; the "kinds you are watching" message appears only once the operator has moved a category. Hiding the rest of the dashboard until the first pool exists changes what the Overview is for, so it is left. |
 | H6 | Decision | Whether `external_url.missing` is a warning or information before the first connection, and whether the webhook panel belongs on an empty Installations page, are product calls. The panel's reachability check is useful before an App exists, which is why it was not simply hidden. The dialog now offers the fix, which was the missing half. |
 | H7 | Decision | Narrowing the prose column and rewriting the home page's sentences is an editorial pass. |
 | H8 | Done | Three across from 768px, and the last card takes the row instead of leaving a hole. Cutting the grid to three headline cards is a content call. |
@@ -71,7 +71,7 @@ security, brand or dependencies, and nobody has made it yet.
 | N7 | Partly | The Quick Start links to the generated image catalogue instead of repeating a list that had drifted. The seed's log line still counts names rather than pools. |
 | N8 | Partly | The header marks have empty alt text. The descriptor is the brand owner's call, as `IMPLEMENTATION_PLAN.md` D16 already records. |
 | N9 | Done | The toast says what is next and stops. |
-| N10 | In progress | Being fixed with the checklist. |
+| N10 | Done | The finished step no longer renders an empty action column, which left a 52px band on a phone. |
 | N11 | Done | See H2. |
 
 ### The other audit
