@@ -2,6 +2,17 @@
 
 Audited at `0b4734c` (main), 2026-10-01. Nothing in the codebase was changed; this file is the only addition.
 
+## Status of the fixes
+
+Implemented on this branch, with the tests named in each commit: C1 (gzip for the UI's files and for JSON answers), C3 (the exact newest-first shortcut for `/workflow-runs`), C4 steps 1–3 (the partial index, one shared faulted-jobs query, one shared computation of the problems list), H3 step 1 (the usage window as three index-served ranges), N1's index half (`idx_jobs_queued_id`) and N2 (a week's cache for images).
+
+Deliberately not done, because each needs a decision rather than a fix:
+
+- **C2, bucketing host samples on the server.** The chart's windows slide with the clock, so a server-side bucket boundary cannot match the browser's, and a peak that straddles one is shown lower than it was. Compression already takes the 24 h response from 3.7 MB to about 38 KB; whether the remaining approximation is acceptable is the question.
+- **C4 step 4, not gating the Overview on `/problems`.** The notifications and the feed treat an empty list as "all clear" and diff each list against the last, so loading it later needs a `problemsLoaded` flag threaded through both. With the query fixed the call is no longer the slow one.
+- **H4, `mmap_size`.** Faster on local disks, unsafe on some network filesystems; it wants to be a setting.
+- **H1, H2, H7, N3–N5, H5, H6.** Chunk grouping, resized brand artwork, layout reservations and font changes are design or build-pipeline choices; the job-statistics rewrite and the facets cache are larger than a fix and change what a stale answer means.
+
 ## Summary
 
 **Verdict.** The architecture is sound. There is one SQLite writer, a pooled reader, immutable hashed assets, an SSE-fed client cache (so nothing on the Overview polls), enforced bundle budgets, and batched pruning. The problems are not structural. They are a missing compression layer, a handful of queries whose cost scales with *all retained history* rather than the page or window being asked for, and one endpoint (`/hosts/samples`) that ships raw data the client then throws away. Every critical finding below has a small, local fix. I prototyped the query and index fixes against the same data and they hold (before/after numbers are in each finding).
