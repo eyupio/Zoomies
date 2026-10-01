@@ -164,7 +164,10 @@
           </p>
           <p class="why">Done — you are signed in as {session.identity?.name ?? 'the admin'}.</p>
         </div>
-        <div class="action"></div>
+        <!-- No action column: this step has nothing to press, and an empty one
+             stacks on a phone as a band of blank space between the step and its
+             divider. The grid keeps its third track, so a desktop row is
+             exactly as wide as it was. -->
       </li>
 
       <li class:done={hasInstallation}>

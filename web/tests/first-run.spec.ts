@@ -189,6 +189,49 @@ test('creating the administrator lands somewhere that names the next step', asyn
   await expect(checklist.getByText('After GitHub is connected.')).toBeVisible();
 });
 
+/*
+ * The finished step had an empty action column, which on a phone stacks as a
+ * band of blank space between that step and its divider. The band is measured
+ * as the distance from the last line of the step's text to the bottom of its
+ * row: the row's own padding is all there should be.
+ */
+test('on a phone the finished step leaves no blank band above its divider', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await signIn(page);
+
+  const checklist = page.getByRole('region', { name: 'Finish setting up' });
+  await expect(checklist).toBeVisible();
+  const done = checklist.getByRole('listitem').first();
+  const row = (await done.boundingBox())!;
+  const text = (await done.getByText(/^Done — you are signed in as/).boundingBox())!;
+  const below = row.y + row.height - (text.y + text.height);
+  expect(
+    below,
+    `${below}px under the finished step's text, which is more than its padding`,
+  ).toBeLessThanOrEqual(16);
+});
+
+test('on a desktop the checklist keeps its columns aligned', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await signIn(page);
+
+  const checklist = page.getByRole('region', { name: 'Finish setting up' });
+  await expect(checklist).toBeVisible();
+  // Class selectors, because nothing in the accessibility tree says which edge
+  // of a row is its title or its action. Every step's title starts at the same
+  // x, and every action that exists ends at the same x: removing the finished
+  // step's empty action must not have moved either.
+  const left = await checklist
+    .locator('li .title')
+    .evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().left)));
+  expect(new Set(left).size, `step titles start at ${left.join(', ')}`).toBe(1);
+  const right = await checklist
+    .locator('li .action')
+    .evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().right)));
+  expect(right.length).toBeGreaterThan(0);
+  expect(new Set(right).size, `step actions end at ${right.join(', ')}`).toBe(1);
+});
+
 test('signing out and back in reports the three kinds of failure differently', async ({ page }) => {
   await page.goto('/');
   await page.context().clearCookies();
