@@ -692,6 +692,10 @@ type manifestRequest struct {
 	Target     string `json:"target"`
 	TargetType string `json:"target_type"`
 	APIBaseURL string `json:"api_base_url"`
+	// Migration is the operator's answer to "also let Zoomies open migration
+	// pull requests?". Absent means no: a request from a client written before
+	// the question existed gets the smaller permission set.
+	Migration bool `json:"migration"`
 }
 
 type manifestResponse struct {
@@ -702,7 +706,8 @@ type manifestResponse struct {
 
 // handleCreateManifest builds the GitHub App manifest the browser posts.
 //
-// The manifest asks for exactly the permissions Zoomies needs. It cannot carry
+// The manifest asks for the permissions the fleet needs and, only when the
+// operator said so, the three the migration wizard needs on top. It cannot carry
 // a webhook secret -- GitHub rejects a manifest that names one -- so the secret
 // is GitHub's, and it arrives with the rest of the credentials when the code is
 // exchanged.
@@ -763,6 +768,7 @@ func (s *Server) handleCreateManifest(w http.ResponseWriter, r *http.Request) {
 		Organization:              org,
 		SetupURL:                  s.cfg().Server.ExternalURL + "/settings/github/setup",
 		AllowWorkflowCancellation: s.cfg().GitHub.AllowWorkflowCancellation,
+		Migration:                 req.Migration,
 	})
 	if err != nil {
 		unprocessable(w, err.Error(), []fieldError{{"name", err.Error()}})

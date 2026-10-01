@@ -151,8 +151,11 @@ you have a `compose` command:
 5. **Review** — the whole plan and the exact files it will write, before
    anything is written. Install, change an answer, or stop.
 6. **GitHub App** — opens your browser at a pre-filled App manifest with
-   exactly the permissions Zoomies needs and the webhook URL already set.
-   Create it, and the credentials come back to the installer automatically.
+   exactly the permissions Zoomies needs and the webhook URL already set. It
+   asks first whether you also want migration pull requests, which is the one
+   thing that needs write access to code, and the answer is no unless you
+   say otherwise. Create it, and the credentials come back to the installer
+   automatically.
 7. **First admin account**, and a **first pool** sized for the host.
 8. **Service** — a hardened systemd unit (or launchd), started and
    health-checked.

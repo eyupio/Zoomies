@@ -71,13 +71,12 @@ func TestManifestOrgShape(t *testing.T) {
 		t.Fatalf("default_events = %v, want exactly [workflow_job]", events)
 	}
 
+	// Runner administration, the read access that lets it see queued jobs, and
+	// the metadata read GitHub makes mandatory: nothing that can write code.
 	want := map[string]string{
 		"organization_self_hosted_runners": "write",
 		"actions":                          "read",
 		"metadata":                         "read",
-		"contents":                         "write",
-		"pull_requests":                    "write",
-		"workflows":                        "write",
 	}
 	if got := permissions(t, m); !maps.Equal(got, want) {
 		t.Fatalf("permissions = %v, want %v", got, want)
@@ -150,9 +149,6 @@ func TestManifestRepoShape(t *testing.T) {
 		"administration": "write",
 		"actions":        "read",
 		"metadata":       "read",
-		"contents":       "write",
-		"pull_requests":  "write",
-		"workflows":      "write",
 	}
 	got := permissions(t, m)
 	if !maps.Equal(got, want) {
@@ -334,6 +330,45 @@ func TestExchangeManifestCodeErrors(t *testing.T) {
 			t.Fatal("credential-less response accepted")
 		}
 	})
+}
+
+// An App that can write code and change CI workflows is the line a security
+// review stops at, and nothing but the migration wizard needs it. So the three
+// are asked for only when the operator has said they want the wizard -- and when
+// they have, the manifest asks for exactly what the wizard's own pre-flight
+// (MigrationPermissions) checks for, so the two cannot drift apart and leave an
+// App that was created for migration reporting itself as unable to.
+func TestManifestAsksForMigrationPermissionsOnlyWhenWanted(t *testing.T) {
+	for _, org := range []string{"", "acme"} {
+		base := ManifestOptions{
+			Name: "zoomies", URL: "https://z.example", WebhookURL: "https://z.example/w",
+			Organization: org,
+		}
+
+		without := permissions(t, decodeManifest(t, base))
+		for name := range MigrationPermissions {
+			if level, ok := without[name]; ok {
+				t.Errorf("org=%q: default manifest asks for %s:%s; migration permissions must be opt-in", org, name, level)
+			}
+		}
+
+		base.Migration = true
+		with := permissions(t, decodeManifest(t, base))
+		for name, want := range MigrationPermissions {
+			if got := with[name]; got != want {
+				t.Errorf("org=%q: migration manifest asks for %s:%q, want %q", org, name, got, want)
+			}
+		}
+		// Opting in adds the three and changes nothing else.
+		for name, level := range without {
+			if with[name] != level {
+				t.Errorf("org=%q: opting in changed %s from %q to %q", org, name, level, with[name])
+			}
+		}
+		if len(with) != len(without)+len(MigrationPermissions) {
+			t.Errorf("org=%q: opting in added %d permissions, want %d", org, len(with)-len(without), len(MigrationPermissions))
+		}
+	}
 }
 
 func TestManifestPermissionsAreMinimal(t *testing.T) {

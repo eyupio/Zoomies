@@ -857,7 +857,13 @@ export interface paths {
          *     there, and GitHub redirects back with a code that `manifest/exchange`
          *     turns into App credentials.
          *
-         *     The manifest asks for exactly the permissions Zoomies needs and no more.
+         *     The manifest asks for the permissions the fleet needs to run runners and
+         *     nothing else: runner administration for the target, read access to
+         *     Actions and the metadata read GitHub requires of every App. The three
+         *     repository permissions the migration wizard needs (`contents`,
+         *     `pull_requests` and `workflows`, all write) are added only when
+         *     `migration` is true, because nothing else in Zoomies writes to a
+         *     repository.
          */
         post: operations["createAppManifest"];
         delete?: never;
@@ -7778,6 +7784,15 @@ export interface operations {
                     target_type: components["schemas"]["TargetType"];
                     /** @example https://api.github.com */
                     api_base_url?: string;
+                    /**
+                     * @description Also request the three write permissions the migration wizard
+                     *     needs to open pull requests. Leave it off for a fleet that
+                     *     will not migrate workflows. Adding them to an existing App
+                     *     later is possible, but GitHub holds the change until the
+                     *     account's owner accepts it on the installation.
+                     * @default false
+                     */
+                    migration?: boolean;
                 };
             };
         };

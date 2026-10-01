@@ -5,6 +5,9 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"log/slog"
 	"net/http"
@@ -241,6 +244,36 @@ func TestRunnerPermissionDependsOnTheTarget(t *testing.T) {
 	}
 }
 
+// An operator reading GitHub's consent screen should find exactly what the
+// installer said it would ask for. The migration wizard's three write
+// permissions are the ones nobody expects a runner controller to want, so the
+// list names them when they are requested, and says in so many words that the
+// App cannot touch code when they are not.
+func TestNotePermissionsNamesTheMigrationPermissionsOnlyWhenTheyAreRequested(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		migration bool
+	}{{"without the migration wizard", false}, {"with the migration wizard", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			i, out := newUnattendedInstaller(t, nil)
+			i.notePermissions(&Plan{GitHub: GitHubPlan{TargetType: store.TargetOrg, Migration: tc.migration}})
+			body := out.String()
+
+			if !strings.Contains(body, "organization_self_hosted_runners:write") {
+				t.Errorf("the runner permission is missing:\n%s", body)
+			}
+			for _, perm := range []string{"contents:write", "pull_requests:write", "workflows:write"} {
+				if got := strings.Contains(body, perm); got != tc.migration {
+					t.Errorf("mentions %s = %v, want %v\n%s", perm, got, tc.migration, body)
+				}
+			}
+			if said := strings.Contains(body, "cannot read or change code"); said == tc.migration {
+				t.Errorf("says the App cannot touch code = %v, want %v\n%s", said, !tc.migration, body)
+			}
+		})
+	}
+}
+
 // GitHub cannot deliver to loopback, and an App's webhook URL is fixed when it
 // is created -- so an unattended run gets the warning and carries on, since
 // there is nobody there to answer the question.
@@ -381,4 +414,51 @@ func newRefusingGitHub(t *testing.T) string {
 	}))
 	t.Cleanup(srv.Close)
 	return srv.URL
+}
+
+// The prompts cannot be driven from a test, so the order they are asked in is
+// pinned by reading the function that asks them.
+//
+// On the default loopback install the reachability question ends in "connect it
+// later in the browser" often enough that asking the four questions about the
+// App first threw their answers away: the operator typed an organisation, an
+// API address and a name, was told GitHub could not reach them, chose to skip,
+// and met the same four questions again on a blank form in the browser. The
+// check reads only the external URL, so nothing is lost by asking it first.
+func TestTheReachabilityQuestionIsAskedBeforeTheQuestionsAboutTheApp(t *testing.T) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "manifest.go", nil, 0)
+	if err != nil {
+		t.Fatalf("parse manifest.go: %v", err)
+	}
+	var calls []string
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != "appFromManifest" {
+			continue
+		}
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			if call, ok := n.(*ast.CallExpr); ok {
+				if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+					calls = append(calls, sel.Sel.Name)
+				}
+			}
+			return true
+		})
+	}
+	position := func(name string) int {
+		for index, called := range calls {
+			if called == name {
+				return index
+			}
+		}
+		t.Fatalf("appFromManifest never calls %s", name)
+		return -1
+	}
+	reachable := position("checkWebhookReachable")
+	for _, later := range []string{"askGitHubTarget", "askMigrationPermissions"} {
+		if at := position(later); at < reachable {
+			t.Errorf("%s is asked before checkWebhookReachable: a Skip would throw its answers away", later)
+		}
+	}
 }

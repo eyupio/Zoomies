@@ -48,6 +48,13 @@ type ManifestOptions struct {
 	// can cancel workflow runs. It is opt-in because write is not needed to run
 	// the fleet.
 	AllowWorkflowCancellation bool
+	// Migration adds the three repository permissions the migration wizard needs
+	// to rewrite a runs-on line and open a pull request for it: contents,
+	// pull_requests and workflows, all at write. It is opt-in because nothing
+	// else in Zoomies writes to a repository, so an App that carries them by
+	// default hands every installation write access to code and to CI workflows
+	// for a feature most of them will never use.
+	Migration bool
 }
 
 // manifest is the wire format of GitHub's App manifest.
@@ -80,8 +87,9 @@ type hookAttributes struct {
 // The permission set is deliberately minimal, because an App that manages a
 // fleet's runners is a high-value credential: it asks for the runner
 // administration permission for the kind of target it will manage, read access
-// to Actions so it can see queued jobs, the three the migration wizard needs to
-// rewrite a runs-on line and open a pull request for it, and nothing else.
+// to Actions so it can see queued jobs, and nothing else. The three the
+// migration wizard needs to rewrite a runs-on line and open a pull request for
+// it are added only when the operator has said they want the wizard.
 // Metadata read is mandatory for every App.
 //
 // Every key here is one GitHub's manifest schema permits; it rejects anything
@@ -123,7 +131,7 @@ func Manifest(o ManifestOptions) ([]byte, error) {
 		// workflow_job is the only event Zoomies acts on. Subscribing to more
 		// would mean parsing payloads it has no use for.
 		DefaultEvents:      []string{"workflow_job"},
-		DefaultPermissions: manifestPermissions(o.Organization != "", o.AllowWorkflowCancellation),
+		DefaultPermissions: manifestPermissions(o.Organization != "", o.AllowWorkflowCancellation, o.Migration),
 	}
 	b, err := json.Marshal(m)
 	if err != nil {
@@ -136,16 +144,21 @@ func Manifest(o ManifestOptions) ([]byte, error) {
 // kind. An org App manages runners through the organisation permission and
 // never needs repository administration; a repo App is the other way round.
 //
-// The three migration permissions are asked for here, at creation, rather than
-// left for the operator to add later. Adding a permission to an App that
-// already exists is not a setting an operator can just flip: GitHub holds the
-// change until the account's owner accepts it on the installation, and until
-// they do the migration wizard cannot even *read* a workflow -- it reports
-// every repository as unreadable, which is a broken product rather than a
-// missing permission. Asking once, on the consent screen the operator is
-// already reading, is both honest and the only point in the flow where saying
-// yes costs a click.
-func manifestPermissions(org, allowWorkflowCancellation bool) map[string]string {
+// The three migration permissions are asked for only when the operator has said
+// they want the wizard. Nothing else in Zoomies writes to a repository, and
+// "can change code and CI workflows in every repository it is installed on" is
+// the sentence that ends a security review, so an App that carried them by
+// default made every installation pay for a feature most never use.
+//
+// The cost of the choice is real, and it is why this is a question on the
+// consent screen rather than a silent default either way. Adding a permission
+// to an App that already exists is not a setting an operator can just flip:
+// GitHub holds the change until the account's owner accepts it on the
+// installation, and until they do the migration wizard cannot even *read* a
+// workflow. So the question is asked where saying yes costs a click, and the
+// wizard names exactly what is missing, and where to add it, when the answer
+// was no (MissingForMigration).
+func manifestPermissions(org, allowWorkflowCancellation, migration bool) map[string]string {
 	actions := "read"
 	if allowWorkflowCancellation {
 		actions = "write"
@@ -153,13 +166,15 @@ func manifestPermissions(org, allowWorkflowCancellation bool) map[string]string 
 	p := map[string]string{
 		"actions":  actions,
 		"metadata": "read",
+	}
+	if migration {
 		// The migration wizard's three: read a repository's workflows, commit
 		// the rewritten file to a branch, and open the pull request. GitHub
 		// requires "workflows" specifically for a change under
 		// .github/workflows, and grants nothing else with it.
-		"contents":      "write",
-		"pull_requests": "write",
-		"workflows":     "write",
+		p["contents"] = "write"
+		p["pull_requests"] = "write"
+		p["workflows"] = "write"
 	}
 	if org {
 		p["organization_self_hosted_runners"] = "write"

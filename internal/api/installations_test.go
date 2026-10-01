@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -165,6 +166,47 @@ func TestManifestForTheConfiguredEnterpriseServerIsBuilt(t *testing.T) {
 	resp.mustStatus(t, http.StatusOK, "a manifest for the configured Enterprise host")
 	if got := resp.json(t)["post_url"]; got != "https://ghes.example.com/settings/apps/new" {
 		t.Errorf("post_url = %v", got)
+	}
+}
+
+// Nothing but the migration wizard writes to a repository, so a manifest built
+// for an operator who has not asked for the wizard must not ask GitHub for write
+// access to contents, pull requests or workflows. The question is a field on the
+// request, and an absent field has to mean no: a client written before the
+// question existed must not silently get the larger permission set.
+func TestManifestAsksForMigrationPermissionsOnlyWhenTheOperatorSaidSo(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("admin", store.RoleAdmin)
+
+	permissions := func(body map[string]any) map[string]any {
+		t.Helper()
+		resp := h.do(request{method: http.MethodPost, path: "/api/v1/installations/manifest",
+			cookie: h.session(admin), body: body})
+		resp.mustStatus(t, http.StatusOK, "building a manifest")
+		var m struct {
+			DefaultPermissions map[string]any `json:"default_permissions"`
+		}
+		if err := json.Unmarshal([]byte(resp.json(t)["manifest"].(string)), &m); err != nil {
+			t.Fatalf("the manifest is not JSON: %v", err)
+		}
+		return m.DefaultPermissions
+	}
+
+	without := permissions(map[string]any{"target": "acme"})
+	with := permissions(map[string]any{"target": "acme", "migration": true})
+	for _, name := range []string{"contents", "pull_requests", "workflows"} {
+		if got, ok := without[name]; ok {
+			t.Errorf("a request that did not ask for migration got %s:%v", name, got)
+		}
+		if got := with[name]; got != "write" {
+			t.Errorf("a request that asked for migration got %s:%v, want write", name, got)
+		}
+	}
+	// The runner permissions are the same either way: the question only adds.
+	for _, name := range []string{"organization_self_hosted_runners", "actions", "metadata"} {
+		if without[name] == nil || without[name] != with[name] {
+			t.Errorf("%s = %v without migration and %v with it, want the same non-empty level", name, without[name], with[name])
+		}
 	}
 }
 

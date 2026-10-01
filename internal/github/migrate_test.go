@@ -324,16 +324,17 @@ func TestListWorkflowsExplainsAForbidden(t *testing.T) {
 	}
 }
 
-// The migration permissions are asked for when the App is created, because
-// adding one afterwards is held by GitHub until the account's owner accepts it
-// -- and until they do the wizard cannot read a workflow at all. An App made
-// from this manifest can run the wizard the day it is installed.
-func TestManifestGrantsWhatTheMigrationNeeds(t *testing.T) {
-	for _, org := range []string{"", "acme"} {
-		b, err := Manifest(ManifestOptions{
-			Name: "zoomies", URL: "https://z.example", WebhookURL: "https://z.example/w",
-			Organization: org,
-		})
+// The migration permissions are opt-in at creation, because adding one
+// afterwards is held by GitHub until the account's owner accepts it -- and
+// until they do the wizard cannot read a workflow at all. So the question is
+// asked where saying yes costs a click, and the two answers have to mean what
+// they say: an App made with the option can run the wizard the day it is
+// installed, and one made without it says plainly which three permissions it
+// lacks rather than failing halfway through opening pull requests.
+func TestManifestGrantsWhatTheMigrationNeedsWhenAskedTo(t *testing.T) {
+	granted := func(t *testing.T, o ManifestOptions) *AppInfo {
+		t.Helper()
+		b, err := Manifest(o)
 		if err != nil {
 			t.Fatalf("Manifest: %v", err)
 		}
@@ -343,9 +344,23 @@ func TestManifestGrantsWhatTheMigrationNeeds(t *testing.T) {
 		if err := json.Unmarshal(b, &m); err != nil {
 			t.Fatalf("decode manifest: %v", err)
 		}
-		info := &AppInfo{Permissions: m.Permissions}
-		if missing := info.MissingForMigration(); len(missing) != 0 {
-			t.Errorf("an App created for org=%q still cannot migrate: %v", org, missing)
+		return &AppInfo{Permissions: m.Permissions}
+	}
+	for _, org := range []string{"", "acme"} {
+		base := ManifestOptions{
+			Name: "zoomies", URL: "https://z.example", WebhookURL: "https://z.example/w",
+			Organization: org,
+		}
+
+		base.Migration = true
+		if missing := granted(t, base).MissingForMigration(); len(missing) != 0 {
+			t.Errorf("an App created for migration (org=%q) still cannot migrate: %v", org, missing)
+		}
+
+		base.Migration = false
+		if missing := granted(t, base).MissingForMigration(); len(missing) != len(MigrationPermissions) {
+			t.Errorf("an App created without migration (org=%q) reports %v missing, want all %d named",
+				org, missing, len(MigrationPermissions))
 		}
 	}
 }
