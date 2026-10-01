@@ -83,8 +83,8 @@ func gzipPath(p string) bool {
 // It decides at the moment the handler commits to a status, from what the
 // handler said about the body: the media type and, for the handlers that know
 // it (writeJSON does), the length. Everything else -- a stream, an archive, a
-// body too small to be worth it, a response that is already encoded -- passes
-// through untouched, still flushable, which is what keeps the event stream and
+// body declared too small to be worth it, a response that is already encoded --
+// passes through untouched, still flushable, which is what keeps the event stream and
 // the log relay working behind it.
 func compressResponses(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -116,11 +116,16 @@ func (c *compressWriter) decide(status int) {
 	if status != http.StatusOK || h.Get("Content-Encoding") != "" || !compressibleType(h.Get("Content-Type")) {
 		return
 	}
-	// A length the handler declared is the best evidence of size. A handler
-	// that did not declare one is streaming, and a stream is not ours to buffer.
-	n, err := strconv.Atoi(h.Get("Content-Length"))
-	if err != nil || n < gzipMinSize {
-		return
+	// A declared length is the best evidence of size, and a body under the
+	// threshold is not worth the encoder. A handler that declared none wrote a
+	// body it did not buffer -- the CSV and YAML exports, which are among the
+	// largest answers there are -- and the media types this accepts are never
+	// streams (those are text/event-stream and the log relay's text/plain, which
+	// compressibleType refuses), so it is compressed from the first byte.
+	if declared := h.Get("Content-Length"); declared != "" {
+		if n, err := strconv.Atoi(declared); err != nil || n < gzipMinSize {
+			return
+		}
 	}
 	h.Del("Content-Length")
 	h.Set("Content-Encoding", "gzip")

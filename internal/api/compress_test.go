@@ -200,6 +200,23 @@ func TestCompressionLeavesCredentialsAndStreamsAlone(t *testing.T) {
 		}
 	}
 
+	// An export written without a declared length -- the usage CSV is one -- is
+	// the biggest kind of answer there is, and has to be compressed too.
+	csv := compressResponses(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		_, _ = io.WriteString(w, "pool,jobs\n")
+		_, _ = w.Write(bytes.Repeat([]byte("pool-a,12\n"), 500))
+	}))
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/usage.csv", nil)
+	r.Header.Set("Accept-Encoding", "gzip")
+	w := httptest.NewRecorder()
+	csv.ServeHTTP(w, r)
+	if w.Header().Get("Content-Encoding") != "gzip" {
+		t.Error("a CSV written without a Content-Length was not compressed")
+	} else if got := gunzip(t, w.Body.Bytes()); !bytes.HasPrefix(got, []byte("pool,jobs\npool-a,12\n")) || len(got) != len("pool,jobs\n")+500*len("pool-a,12\n") {
+		t.Errorf("the compressed CSV does not decode to what was written (%d bytes)", len(got))
+	}
+
 	// A stream: the first event must be readable while the handler is still
 	// holding the connection open.
 	release := make(chan struct{})

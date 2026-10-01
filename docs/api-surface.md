@@ -26,7 +26,8 @@ Conventions:
 * Every API response carries `Cache-Control: no-store`; nothing under `/api/v1`
   is meant to be cached by a browser or a proxy.
 * A `GET` that sends `Accept-Encoding: gzip` gets a gzipped body when the answer
-  is JSON or CSV and at least a kilobyte, with `Vary: Accept-Encoding`. Streams
+  is JSON, YAML or CSV (an answer that declares itself under a kilobyte is left
+  alone), with `Vary: Accept-Encoding`. Streams
   (the event stream, a runner's log), anything that is not a `GET`, and the
   routes that carry a credential — `/auth/*`, `/tokens`, `/join-tokens`,
   `/users`, `/mcp-clients`, `/mcp-connections`, `/backups` and the agent API —
