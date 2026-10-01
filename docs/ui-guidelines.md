@@ -36,7 +36,10 @@ is its derived boolean for state maps, filters and activity text. Those maps
 still accept a `quirky` argument so they remain importable as plain TypeScript.
 
 Off draws each state with a Lucide icon from the state map in
-`web/src/lib/status.ts`. **An icon names a state, never an action**: the
+`web/src/lib/status.ts`. Runner, workflow and queue icons sit in a compact
+24px tile, with an 18px glyph, a slightly firmer stroke and the state's subtle
+background and border. This keeps their weight and alignment consistent while
+labels and tooltips carry the meaning. **An icon names a state, never an action**: the
 Queue's Run now, Pause, Resume and Delete carry Zap, Pause, Play and the bin,
 Re-run a turning arrow, and the Runners page's Drain the slashed circle, so a
 status drawn with one of them beside those buttons reads as something to press.
@@ -80,12 +83,17 @@ under the belly, the haunch drawn as its own mass at the rear, and a feathered
 tail carried clear of the ground. Lying, the hip is the high point of the back
 half and the rump is round. Four silhouettes carry the states, so they can
 still be told apart at 32px: dogs at work run, dogs about to work or held back
-stand, dogs waiting sit, and dogs winding down lie down. Busy runners run on
-four separately animated legs, each bending at the knee; extra zoomies is
-faster and trails speed lines, and maximum zoomies trails a fourth, longest
-line and uses an approximately 0.32-second gait with an occasional whole-dog
-spin, the speed lines giving way to a short swish hugging the back of the head
-while it turns. Extra zoomies spins less frequently; normal work does not spin.
+stand, dogs waiting sit, and dogs winding down lie down. Busy runners walk on
+four separately animated legs with a roughly 1.6-second stride. Forelegs fold
+at the elbow; hind legs bend separately at the stifle and hock, keeping the
+paws low during recovery. Extra zoomies uses a roughly 0.8-second gallop and
+trails speed lines; maximum zoomies has a roughly 0.56-second gallop and a
+fourth, longest line. Hind push-off, brief suspension, forepaw landing and
+gathering share the torso's clock, with a forward-carried head, a small flex
+through the back and delayed ear follow-through. Occasionally these dogs
+chase a tight circle on the ground, passing through front, left-facing and
+rear views before running forward again; the speed lines step out during
+the turn. Extra zoomies turns less frequently; normal work does not turn.
 Idle and queued dogs sit and wait, now and then glancing up, twitching an ear or
 wagging, one gesture at a time. Provisioning dogs stand with their nose to the
 ground, snuffling along a scent trail; registering dogs sit on one foreleg and
