@@ -128,6 +128,7 @@ func (s *Server) apiRoutes() chi.Router {
 	r.NotFound(apiNotFound)
 	r.MethodNotAllowed(methodNotAllowed)
 	r.Use(noStore)
+	r.Use(compressResponses)
 	r.Use(limitBody)
 	r.Use(s.csrf)
 

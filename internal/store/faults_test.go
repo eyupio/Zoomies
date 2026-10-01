@@ -152,8 +152,9 @@ func TestTheMigrationClaimsFaultsWrittenBeforeTheCategoryExisted(t *testing.T) {
 	// Wind the category off a database that has the prose, which is what every
 	// deployment upgrading to this build looks like.
 	for _, stmt := range []string{
-		`DELETE FROM schema_migrations WHERE name = '0034_job_fault_kind.sql'`,
+		`DELETE FROM schema_migrations WHERE name IN ('0034_job_fault_kind.sql', '0062_job_indexes_for_scans.sql')`,
 		`DROP INDEX idx_jobs_fault_kind`,
+		`DROP INDEX idx_jobs_faulted`,
 		`ALTER TABLE jobs DROP COLUMN fault_kind`,
 	} {
 		if _, err := s.write.ExecContext(ctx, stmt); err != nil {

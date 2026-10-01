@@ -176,11 +176,17 @@ func (s *Store) UsageWithInterval(ctx context.Context, from, to time.Time, group
 		}
 		return &x.row.History[i]
 	}
+	// "Was this job around in the window" is queued before its end and not
+	// finished before its start, which is a condition on two columns and so
+	// served by neither index: written as one WHERE it reads every job ever kept
+	// to return the week's, 800 ms of a 3 s report at four hundred thousand
+	// rows. Cut by state it is three ranges the indexes serve -- finished in the
+	// window, finished with no stamp (which the old condition counted as still
+	// going), and not finished at all -- and returns the same rows.
 	rows, err := s.read.QueryContext(ctx, `SELECT `+expr+`, j.queued_at, j.started_at, j.completed_at, j.conclusion, j.runner_fault
-		FROM jobs j LEFT JOIN pools p ON p.id=j.pool_id LEFT JOIN runners r ON r.id=j.runner_id
+		FROM `+usageJobsInWindowSQL+` AS j LEFT JOIN pools p ON p.id=j.pool_id LEFT JOIN runners r ON r.id=j.runner_id
 		LEFT JOIN runner_sessions rs ON rs.runner_id=j.runner_id
-		WHERE j.queued_at < ? AND COALESCE(j.completed_at, ?) >= ?
-		AND `+managedJobSQL("j"), ms(to), ms(to), ms(from))
+		WHERE `+managedJobSQL("j"), usageWindowArgs(from, to)...)
 	if err != nil {
 		return nil, err
 	}
@@ -336,6 +342,26 @@ func (s *Store) UsageWithInterval(ctx context.Context, from, to time.Time, group
 	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
 	return out, nil
 }
+
+// usageJobsInWindowSQL is the jobs that were around in a window, as a
+// subquery; usageWindowArgs are its six placeholders. See UsageWithInterval for
+// why it is three ranges and not one condition.
+const usageJobsInWindowSQL = `(
+			SELECT ` + usageJobCols + ` FROM jobs WHERE state = 'completed' AND completed_at >= ? AND queued_at < ?
+			UNION ALL
+			SELECT ` + usageJobCols + ` FROM jobs WHERE state = 'completed' AND completed_at IS NULL AND queued_at < ?
+			UNION ALL
+			SELECT ` + usageJobCols + ` FROM jobs WHERE state IN ('` + string(JobWaiting) + `','` + string(JobQueued) + `','` + string(JobInProgress) + `')
+				AND queued_at < ? AND COALESCE(completed_at, ?) >= ?
+		)`
+
+func usageWindowArgs(from, to time.Time) []any {
+	return []any{ms(from), ms(to), ms(to), ms(to), ms(to), ms(from)}
+}
+
+// usageJobCols is what the usage report reads of a job, and what the label and
+// ownership predicates it is filtered by need.
+const usageJobCols = `id, pool_id, runner_id, repo, workflow, matched, state, labels, queued_at, started_at, completed_at, conclusion, runner_fault`
 
 func max64(a, b int64) int64 {
 	if a > b {

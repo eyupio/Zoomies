@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"testing"
 	"time"
 )
@@ -362,6 +363,134 @@ func TestARunsNumberIsRecordedOnEveryJobOfTheRun(t *testing.T) {
 		}
 		if j.RunNumber != 42 {
 			t.Errorf("job %d run number = %d, want 42", id, j.RunNumber)
+		}
+	}
+}
+
+// The shortcut that answers "the newest runs" without summing every job is only
+// allowed to exist because it is exact. This builds the cases that would catch
+// it being merely close: runs whose jobs were queued days apart because one was
+// re-run, re-runs the filter does not keep, and a great many runs queued in the
+// same second so that the order is decided by the tie-break.
+func TestTheNewestRunsShortcutAnswersExactlyWhatSummingEveryJobWould(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	rng := rand.New(rand.NewSource(7))
+
+	tx, err := s.write.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	insert, err := tx.PrepareContext(ctx, `INSERT INTO jobs (id, github_job_id, github_run_id, repo, workflow, job_name,
+		labels, state, conclusion, pool_id, runner_id, queued_at, started_at, completed_at, matched, run_attempt, head_branch)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobID := 0
+	add := func(run int, repo, job string, attempt int, queued time.Time, matched bool) {
+		jobID++
+		pool := ""
+		if matched {
+			pool = "pool_a"
+		}
+		state, conclusion := "completed", "success"
+		var started, completed any = queued.Add(5 * time.Second).UnixMilli(), queued.Add(time.Minute).UnixMilli()
+		if rng.Intn(10) == 0 {
+			state, conclusion, started, completed = "queued", "", nil, nil
+		}
+		if _, err := insert.ExecContext(ctx, fmt.Sprintf("job_%06d", jobID), 1_000_000+jobID, run, repo, "CI", job,
+			`["self-hosted"]`, state, conclusion, pool, "", queued.UnixMilli(), started, completed, matched, attempt, "main"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for run := 1; run <= 1200; run++ {
+		repo := fmt.Sprintf("acme/r%d", run%4)
+		// Coarse minutes, so that dozens of runs share a queue time.
+		queued := now.Add(-time.Duration(rng.Intn(600)) * time.Minute)
+		matched := rng.Intn(5) != 0
+		for _, job := range []string{"build", "test", "lint"} {
+			add(run, repo, job, 1, queued, matched)
+		}
+		switch r := rng.Intn(10); {
+		case r < 8:
+			// One job re-run days later, so the run's newest job is far newer
+			// than its own queued_at.
+			add(run, repo, "test", 2, queued.Add(72*time.Hour), matched)
+		case r == 8 && rng.Intn(8) == 0:
+			// Every job re-run days later, and the re-run is not one this
+			// fleet had a hand in: the old attempt is what the filter keeps.
+			// The single re-runs are common enough that the newest thousand jobs
+			// in the table are all re-runs, so the shortcut's first guess is
+			// wrong and the proof is what has to catch it.
+			for _, job := range []string{"build", "test", "lint"} {
+				add(run, repo, job, 2, queued.Add(96*time.Hour), false)
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	slow := func(f JobFilter, p Page) ([]*WorkflowRun, int) {
+		from, args := workflowRunsFrom(f)
+		var total int
+		if err := s.read.QueryRowContext(ctx, `SELECT COUNT(*) `+from, args...).Scan(&total); err != nil {
+			t.Fatal(err)
+		}
+		q := `SELECT ` + workflowRunCols + ` ` + from + ` ORDER BY ` + p.orderBy(workflowRunSortCols, "queued_at DESC") +
+			`, repo ASC, github_run_id ASC LIMIT ? OFFSET ?`
+		runs, _, err := s.queryWorkflowRuns(ctx, q, append(args, p.limit(50, 500), max(p.Offset, 0)), total)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return runs, total
+	}
+
+	shortcuts := 0
+	for name, f := range map[string]JobFilter{
+		"no filter":      {},
+		"one repository": {Repos: []string{"acme/r1"}},
+		"this fleet's":   {ManagedOnly: true},
+		"a pool":         {PoolIDs: []string{"pool_a"}},
+	} {
+		for _, p := range []Page{{Limit: 50}, {Limit: 25, Offset: 100}, {Limit: 500}, {Limit: 10, Offset: 900, Sort: "queued_at", Desc: true}} {
+			want, wantTotal := slow(f, p)
+			got, gotTotal, ok, err := s.listWorkflowRunsNewestFirst(ctx, f, p)
+			if err != nil {
+				t.Fatalf("%s %+v: %v", name, p, err)
+			}
+			if !ok {
+				continue
+			}
+			shortcuts++
+			if gotTotal != wantTotal || len(got) != len(want) {
+				t.Fatalf("%s %+v: shortcut says %d of %d, the long way says %d of %d", name, p, len(got), gotTotal, len(want), wantTotal)
+			}
+			for i := range want {
+				if fmt.Sprintf("%+v", *got[i]) != fmt.Sprintf("%+v", *want[i]) {
+					t.Fatalf("%s %+v: row %d differs\nshortcut: %+v\nlong way: %+v", name, p, i, *got[i], *want[i])
+				}
+			}
+		}
+	}
+	if shortcuts < 6 {
+		t.Fatalf("the shortcut answered only %d of the 16 questions; the test is not exercising it", shortcuts)
+	}
+
+	// And it stands aside for anything it cannot prove.
+	for name, tc := range map[string]struct {
+		f JobFilter
+		p Page
+	}{
+		"a status filter":  {JobFilter{States: []JobState{JobQueued}}, Page{Limit: 50}},
+		"another sort":     {JobFilter{}, Page{Limit: 50, Sort: "repo", Desc: true}},
+		"oldest first":     {JobFilter{}, Page{Limit: 50, Sort: "queued_at"}},
+		"everything shown": {JobFilter{}, Page{Limit: 500, Offset: 1000}},
+	} {
+		if _, _, ok, err := s.listWorkflowRunsNewestFirst(ctx, tc.f, tc.p); err != nil || ok {
+			t.Errorf("%s was answered by the shortcut (ok=%v, err=%v)", name, ok, err)
 		}
 	}
 }
