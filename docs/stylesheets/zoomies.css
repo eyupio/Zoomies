@@ -55,16 +55,30 @@
   --md-default-bg-color: #f6f7f9;
   --md-default-fg-color: #0b0c0e;
   --md-default-fg-color--light: #5b6069;
-  --md-default-fg-color--lighter: #6e737c;
+  /* 5.0:1 on the page ground. The old #6e737c was 4.45:1 -- a hair under the
+     4.5 that WCAG AA asks of text this small -- and it is what the sidebar's
+     section titles and the footer's secondary line are set in. */
+  --md-default-fg-color--lighter: #666b74;
   --md-default-fg-color--lightest: rgba(11, 12, 14, 0.08);
   --md-typeset-a-color: #1a63d8;
   --md-code-bg-color: #eef0f3;
   --md-code-fg-color: #1c1f26;
+  /* Material picked its syntax colours for a near-white code ground. On ours
+     (#eef0f3) its keyword blue is 4.32:1 and its string, constant, number,
+     function and special colours are 4.3 to 4.5:1 -- under the 4.5 that
+     WCAG AA asks of text this small, on every page that shows a workflow or a
+     command. Each below is the same hue a few points darker, at 4.8 to 5.1:1. */
+  --md-code-hl-keyword-color: #3a66b8;
+  --md-code-hl-string-color: #1a7447;
+  --md-code-hl-constant-color: #6750d7;
+  --md-code-hl-number-color: #c82828;
+  --md-code-hl-function-color: #9a41aa;
+  --md-code-hl-special-color: #cd1351;
   --md-footer-bg-color: #f6f7f9;
   --md-footer-bg-color--dark: #ffffff;
   --md-footer-fg-color: #0b0c0e;
   --md-footer-fg-color--light: #5b6069;
-  --md-footer-fg-color--lighter: #6e737c;
+  --md-footer-fg-color--lighter: #666b74;
 
   --z-surface: #ffffff;
   --z-surface-raised: #ffffff;
@@ -1201,6 +1215,23 @@ input,
 @media screen and (max-width: 44.9375em) {
   .zoomies-hero {
     padding: 1.25rem 0 0.5rem;
+  }
+  /* The glow is drawn two rem wider than the hero on each side so that it
+     bleeds past the text column. On a phone the column already reaches the
+     gutter, so the bleed is 24px of page that scrolls sideways, and the browser
+     answers by zooming out until nothing can be pressed. It stops at the edge. */
+  .zoomies-hero::before {
+    inset: -3rem 0 30%;
+  }
+  /* The install command wraps, at a space, instead of scrolling away under its
+     own copy chip: a phone shows the whole of the one string this page exists
+     to hand over, and the chip still copies it as a single line. */
+  .md-typeset .zoomies-install pre > code {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    /* Small enough that the address itself stays in one piece at the common
+       phone widths, so the break falls at a space and not inside "install.sh". */
+    font-size: 0.7rem;
   }
   .zoomies-hero .lede {
     font-size: 0.8rem;
