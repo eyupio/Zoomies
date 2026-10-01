@@ -133,6 +133,18 @@
     connectOpen = true;
   });
 
+  // The first-run checklist links here with `connect=1`, so "Connect GitHub"
+  // is one click rather than a click to arrive and a second to open the dialog.
+  // The parameter is taken out of the address bar straight away: it is an
+  // instruction, not a place, and a reload should not reopen what was closed.
+  // Somebody who cannot connect one lands on the page that says who can.
+  const connectRequested = $derived(router.param('connect'));
+  $effect(() => {
+    if (!connectRequested) return;
+    if (canAdmin) connectOpen = true;
+    router.setQuery({ connect: null });
+  });
+
   function clearReturnedParams(): void {
     if (!returnedCode && !returnedState && !returnedInstallationId) return;
     router.setQuery({ code: null, state: null, installation_id: null, setup_action: null });
@@ -314,7 +326,12 @@
     </div>
   </LoadingBoundary>
 
-  <WebhookHealth {canOperate} />
+  <!-- Nothing has been connected, so nothing has been told where to deliver
+       webhooks: an amber "no webhook has been received" under a page whose only
+       message is "connect GitHub" reports a fault in a thing that does not exist. -->
+  {#if installations.length > 0}
+    <WebhookHealth {canOperate} />
+  {/if}
 </div>
 
 <ConnectDialog

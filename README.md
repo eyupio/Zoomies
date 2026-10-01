@@ -155,8 +155,11 @@ you have a `compose` command:
 5. **Review** — the whole plan and the exact files it will write, before
    anything is written. Install, change an answer, or stop.
 6. **GitHub App** — opens your browser at a pre-filled App manifest with
-   exactly the permissions Zoomies needs and the webhook URL already set.
-   Create it, and the credentials come back to the installer automatically.
+   exactly the permissions Zoomies needs and the webhook URL already set. It
+   asks first whether you also want migration pull requests, which is the one
+   thing that needs write access to code, and the answer is no unless you
+   say otherwise. Create it, and the credentials come back to the installer
+   automatically.
 7. **First admin account**, and a **first pool** sized for the host.
 8. **Service** — a hardened systemd unit (or launchd), started and
    health-checked.
@@ -327,8 +330,9 @@ left alone, with the reason, both in the review screen and in the pull request
 body.
 
 It needs three App permissions the rest of Zoomies deliberately does not ask for
-(Contents, Pull requests, Workflows), and it tells you which are missing before
-it tries anything.
+(Contents, Pull requests, Workflows) — connecting GitHub asks whether you want
+them, and the default is no — and it tells you which are missing before it tries
+anything.
 
 **Already running your own static runners?** Then the wizard is not the tool —
 it deliberately leaves those jobs where they are, because somebody made that

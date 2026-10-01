@@ -295,6 +295,49 @@ test('signing out and back in reports the three kinds of failure differently', a
   await expect(page.getByRole('heading', { name: 'Overview', level: 1 })).toBeVisible();
 });
 
+test('the checklist button opens the connect dialog instead of a page that asks again', async ({
+  page,
+}) => {
+  await signIn(page);
+  const checklist = page.getByRole('region', { name: 'Finish setting up' });
+  await checklist.getByRole('link', { name: /Connect GitHub/ }).click();
+
+  await expect(page.getByRole('dialog', { name: 'Connect GitHub' })).toBeVisible();
+  // `connect=1` is an instruction, not a place: it is out of the address bar
+  // as soon as it has been followed, so a reload does not reopen what was closed.
+  await expect(page).toHaveURL(/\/installations$/);
+});
+
+test('a page that needs GitHub first says so, neutrally, with the button', async ({ page }) => {
+  await signIn(page);
+
+  // The pool wizard used to find this out on its second step, after a click
+  // through the first and four paragraphs of explainer.
+  await page.goto('/pools/new');
+  await expect(page.getByRole('heading', { name: 'Create a pool', level: 1 })).toBeVisible();
+  await expect(page.getByText('Connect GitHub first')).toBeVisible();
+  await expect(page.getByRole('radio')).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Connect GitHub' })).toHaveAttribute(
+    'href',
+    '/installations?connect=1',
+  );
+
+  // And the migration wizard said it in red, as an alert, with the instruction
+  // as plain text. Red means failure here; nothing has failed.
+  await page.goto('/migrate');
+  await expect(page.getByText('Connect GitHub to migrate')).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Connect GitHub' })).toHaveAttribute(
+    'href',
+    '/installations?connect=1',
+  );
+
+  // Nothing has been connected, so nothing can have failed to deliver a webhook.
+  await page.goto('/installations');
+  await expect(page.getByText('No GitHub connection yet')).toBeVisible();
+  await expect(page.getByText(/No webhook has been received/)).toHaveCount(0);
+});
+
 test('the connect dialog refuses before the form when GitHub cannot reach here', async ({
   page,
 }) => {
@@ -308,7 +351,7 @@ test('the connect dialog refuses before the form when GitHub cannot reach here',
   // deployment is in. The refusal used to come after the whole form had been
   // filled in, attached to the "Organisation" field.
   await expect(dialog.getByText('Zoomies has no external URL yet')).toBeVisible();
-  await expect(dialog.getByRole('button', { name: 'Continue to GitHub' })).toBeDisabled();
+  await expect(dialog.getByRole('button', { name: 'Continue', exact: true })).toBeDisabled();
   // The way out is a link to the setting, not the name of a configuration key
   // to go and find. And there is no "create it anyway": with no address at all
   // there is no webhook URL to give GitHub, and the server would refuse the
@@ -343,7 +386,7 @@ test('a private address can still be connected, once the operator says so', asyn
   await page.getByRole('button', { name: 'Connect GitHub' }).first().click();
 
   const dialog = page.getByRole('dialog');
-  const proceed = dialog.getByRole('button', { name: 'Continue to GitHub' });
+  const proceed = dialog.getByRole('button', { name: 'Continue', exact: true });
   await expect(dialog.getByText('GitHub cannot reach Zoomies')).toBeVisible();
   await dialog.getByLabel('Organisation login').fill('acme');
   // Refused until it is asked for: the address is fixed in the App for good.
@@ -386,7 +429,7 @@ test('a private address can still be connected, once the operator says so', asyn
   await proceed.click();
   expect((await asked).postDataJSON()).toMatchObject({ target: 'acme', target_type: 'org' });
   // On to the step that sends the operator to GitHub.
-  await expect(dialog.getByRole('button', { name: 'Exchange the code' })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Create the App on GitHub' })).toBeVisible();
 });
 
 test('Enter in the change-password dialog submits it', async ({ page }) => {

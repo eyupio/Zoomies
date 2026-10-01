@@ -66,7 +66,7 @@ test('GitHub creation and installation use direct native forms and survive a rel
   await page.getByRole('button', { name: 'Connect GitHub' }).first().click();
   const dialog = page.getByRole('dialog', { name: 'Connect GitHub' });
   await dialog.getByLabel('Organisation login').fill('acme');
-  await dialog.getByRole('button', { name: 'Continue to GitHub' }).click();
+  await dialog.getByRole('button', { name: 'Continue', exact: true }).click();
 
   const handoff = page.locator('form#github-manifest');
   await expect(handoff).toHaveAttribute('target', '_self');
@@ -125,6 +125,99 @@ test('GitHub creation and installation use direct native forms and survive a rel
   expect(page.context().pages()).toHaveLength(1);
 });
 
+/**
+ * What the App is told it may do, and who decides.
+ *
+ * The permission list is the first thing a security reviewer reads, and write
+ * access to code and workflows is for the migration wizard alone. It is asked
+ * for only when the operator says they want it, and what goes to the controller
+ * is what they said: the list on screen and the manifest GitHub receives have
+ * to be the same promise.
+ */
+test('the App asks for write access to code only when the operator ticks the box', async ({
+  page,
+}) => {
+  const asked: Record<string, unknown>[] = [];
+  await page.route('**/api/v1/meta', async (route) => {
+    const response = await route.fetch();
+    const meta = (await response.json()) as Record<string, unknown>;
+    meta.external_url = 'https://zoomies.example.test';
+    meta.webhook_url = 'https://zoomies.example.test/webhooks/github';
+    await route.fulfill({ response, json: meta });
+  });
+  await page.route('**/api/v1/installations/manifest', async (route) => {
+    asked.push(route.request().postDataJSON() as Record<string, unknown>);
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        post_url: 'https://github.com/settings/apps/new',
+        manifest: '{"name":"zoomies-acme"}',
+        state: 'a-state',
+      }),
+    });
+  });
+  await goto(page, '/installations', 'Installations');
+  await page.getByRole('button', { name: 'Connect GitHub' }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'Connect GitHub' });
+  const migration = dialog.getByRole('checkbox', { name: /migration pull requests/ });
+  const writes = ['contents: write', 'pull_requests: write', 'workflows: write'];
+
+  // Unticked, and the list is the runner permissions alone.
+  await expect(migration).not.toBeChecked();
+  for (const scope of writes) await expect(dialog).not.toContainText(scope);
+  await expect(dialog).toContainText('organization_self_hosted_runners: write');
+  await expect(dialog).toContainText('metadata: read');
+
+  // Ticking it changes the list the operator is reading, not just a flag.
+  await migration.check();
+  for (const scope of writes) await expect(dialog).toContainText(scope);
+
+  await dialog.getByLabel('Organisation login').fill('acme');
+  await dialog.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'Create the App on GitHub' })).toBeVisible();
+  expect(asked.at(-1)).toMatchObject({ target: 'acme', migration: true });
+
+  // Going back and unticking it invalidates the manifest that was built with
+  // it: GitHub reads the manifest, not the form, so a stale one would create
+  // an App with permissions the operator had just refused.
+  await dialog.getByRole('button', { name: 'Back' }).click();
+  await migration.uncheck();
+  for (const scope of writes) await expect(dialog).not.toContainText(scope);
+  await dialog.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'Create the App on GitHub' })).toBeVisible();
+  expect(asked).toHaveLength(2);
+  expect(asked.at(-1)).toMatchObject({ target: 'acme', migration: false });
+});
+
+test('the first step asks for one thing, and keeps the two optional answers behind a fold', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/meta', async (route) => {
+    const response = await route.fetch();
+    const meta = (await response.json()) as Record<string, unknown>;
+    meta.external_url = 'https://zoomies.example.test';
+    meta.webhook_url = 'https://zoomies.example.test/webhooks/github';
+    await route.fulfill({ response, json: meta });
+  });
+  await goto(page, '/installations', 'Installations');
+  await page.getByRole('button', { name: 'Connect GitHub' }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'Connect GitHub' });
+
+  // Both tabs are readable at any width: the second used to be clipped
+  // mid-word on a phone, with nothing to say there was more.
+  await expect(dialog.getByRole('tab', { name: 'New App' })).toBeVisible();
+  await expect(dialog.getByRole('tab', { name: 'Existing App' })).toBeVisible();
+
+  // A custom App name and a GitHub Enterprise address are answers almost
+  // nobody gives. They are there, one click away, and not in everybody's way.
+  await expect(dialog.getByLabel('Organisation login')).toBeVisible();
+  await expect(dialog.getByLabel('App name')).toBeHidden();
+  await expect(dialog.getByLabel('API base URL')).toBeHidden();
+  await dialog.getByText(/^Advanced: /).click();
+  await expect(dialog.getByLabel('App name')).toBeVisible();
+  await expect(dialog.getByLabel('API base URL')).toBeVisible();
+});
+
 test('a return URL from another browser can be exchanged without local setup storage', async ({
   page,
 }) => {
@@ -143,7 +236,7 @@ test('a return URL from another browser can be exchanged without local setup sto
       'https://zoomies.example.test/settings/github/setup?code=recovered-code&state=recovered-state',
     );
   const exchange = page.waitForRequest('**/api/v1/installations/manifest/exchange');
-  await dialog.getByRole('button', { name: 'Exchange the code' }).click();
+  await dialog.getByRole('button', { name: 'Use this code' }).click();
   expect((await exchange).postDataJSON()).toMatchObject({
     code: 'recovered-code',
     state: 'recovered-state',

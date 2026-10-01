@@ -125,6 +125,16 @@
   const runsOnValue = $derived(runsOn(pools[0]?.labels ?? []));
 
   /**
+   * The step the operator is on: the first one not done, in the order they are
+   * listed. It alone gets the primary button -- two of them side by side, on
+   * a controller with no host of its own, made the page ask for two things at
+   * once and answer neither.
+   */
+  const current = $derived(
+    !hasInstallation ? 'github' : !hasHost ? 'host' : !hasPool ? 'pool' : 'workflow',
+  );
+
+  /**
    * Shown only while the fleet has never done its job.
    *
    * `installations === null` means the count has not landed yet: rendering the
@@ -273,7 +283,15 @@
           {#if hasInstallation}
             <a href="/installations">Installed</a>
           {:else if canAdmin}
-            <Button variant="primary" size="sm" href="/installations" iconAfter={ArrowRight}>
+            <!-- `connect=1` opens the dialog on arrival. Without it this button
+                 landed on a page whose own "Connect GitHub" buttons were the
+                 second and third click of the same decision. -->
+            <Button
+              variant={current === 'github' ? 'primary' : 'secondary'}
+              size="sm"
+              href="/installations?connect=1"
+              iconAfter={ArrowRight}
+            >
               Connect GitHub
             </Button>
           {:else}
@@ -297,7 +315,12 @@
           </div>
           <div class="action">
             {#if canAdmin}
-              <Button variant="primary" size="sm" href="/hosts/new" iconAfter={ArrowRight}>
+              <Button
+                variant={current === 'host' ? 'primary' : 'secondary'}
+                size="sm"
+                href="/hosts/new"
+                iconAfter={ArrowRight}
+              >
                 Add a host
               </Button>
             {:else}
@@ -330,7 +353,12 @@
                  wizard's first step is the installation this step has not got. -->
             <p class="blocked">After GitHub is connected.</p>
           {:else if canOperate}
-            <Button variant="primary" size="sm" href="/pools/new" iconAfter={ArrowRight}>
+            <Button
+              variant={current === 'pool' ? 'primary' : 'secondary'}
+              size="sm"
+              href="/pools/new"
+              iconAfter={ArrowRight}
+            >
               Create a pool
             </Button>
           {:else}
@@ -450,9 +478,15 @@
     border-top: var(--z-border-width) solid var(--z-border);
   }
   /* A step that cannot start yet is quieter, but never hidden: the operator
-     should be able to read the whole path before walking it. */
-  li.waiting .body {
-    opacity: 0.72;
+     should be able to read the whole path before walking it. Quieter by
+     colour and a dashed marker, not by opacity: dimming the whole step took
+     its twelve-pixel explanation to about 3:1 on this ground, which is the
+     text the operator has to read next. */
+  li.waiting .title {
+    color: var(--z-text-muted);
+  }
+  li.waiting .marker {
+    border-style: dashed;
   }
   .marker {
     display: inline-flex;

@@ -111,6 +111,7 @@
   <div
     class="room {className}"
     class:none={total === 0 && hosts.length > 0}
+    class:empty={hosts.length === 0}
     class:warn={above || overcommitted.length > 0}
     class:stale={validating}
     aria-live="polite"
@@ -217,6 +218,13 @@
     border: var(--z-border-width-thick) solid var(--z-danger-border);
     background: var(--z-danger-subtle);
   }
+  /* No host yet is not "idle": the green says a runner is standing by, and the
+     status colours are a fixed mapping. It is a thing not known yet, and reads
+     as one. */
+  .room.empty {
+    border-color: var(--z-border);
+    background: var(--z-surface-sunken);
+  }
   /* A count being refreshed is still the last true answer, so it fades rather
      than being replaced by a skeleton under the slider being moved. */
   .room.stale {
@@ -240,6 +248,9 @@
   }
   .room.none .title {
     color: var(--z-danger);
+  }
+  .room.empty .title {
+    color: var(--z-text);
   }
   .body {
     margin: 0;

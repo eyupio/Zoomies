@@ -160,6 +160,12 @@
   let targetType = $state('org');
   let apiBase = $state('');
   let appName = $state('');
+  /**
+   * Whether the App also asks for what the migration wizard needs. Off unless
+   * the operator says so: a runner fleet does not need to write to anybody's
+   * code, and the permission list is the first thing a security reviewer reads.
+   */
+  let migration = $state(false);
   let code = $state('');
   let installationId = $state('');
   /**
@@ -267,6 +273,7 @@
     targetType = 'org';
     apiBase = '';
     appName = '';
+    migration = false;
     code = '';
     installationId = '';
     appIdInput = '';
@@ -444,10 +451,12 @@
    * wants to read. The promise "exactly the permissions it needs, and nothing
    * more" is worth more when it is followed by the list.
    *
-   * The migration wizard's three are in that list because they are asked for
-   * at creation. Adding them afterwards is not a click: GitHub holds the
-   * change until the account's owner accepts it, and until then the wizard
-   * cannot read a single workflow.
+   * The migration wizard's three are in the list only when the operator asks
+   * for them, because asking is the only moment it is cheap: adding them
+   * afterwards is not a click, GitHub holds the change until the account's
+   * owner accepts it, and until then the wizard cannot read a single workflow.
+   * Asked for by default they were the line that sent an evaluation to a
+   * security review, for a feature most fleets never use.
    */
   const webhookURL = $derived(session.meta?.webhook_url ?? '');
   const permissions = $derived([
@@ -458,9 +467,13 @@
       ? 'actions: write — read workflow jobs and cancel workflow runs from Zoomies'
       : 'actions: read — read workflow runs and jobs for the fallback poller',
     'metadata: read — required by GitHub for every App',
-    'contents: write — read and rewrite workflow files for the migration wizard',
-    "pull_requests: write — open the migration wizard's pull request",
-    'workflows: write — required by GitHub to change files under .github/workflows',
+    ...(migration
+      ? [
+          'contents: write — read and rewrite workflow files for the migration wizard',
+          "pull_requests: write — open the migration wizard's pull request",
+          'workflows: write — required by GitHub to change files under .github/workflows',
+        ]
+      : []),
     'workflow_job events — the webhook that makes scaling instant',
   ]);
 
@@ -526,11 +539,12 @@
         target: target.trim(),
         target_type: targetType as TargetType,
         api_base_url: apiBase.trim() || undefined,
+        migration,
       });
       postUrl = result.post_url ?? '';
       manifest = result.manifest ?? '';
       manifestState = result.state ?? '';
-      builtFrom = JSON.stringify([target.trim(), targetType, apiBase.trim(), appName.trim()]);
+      builtFrom = fingerprint();
       step = 1;
       saveProgress();
     } catch (cause) {
@@ -550,8 +564,12 @@
    * the first step build a new one before the second step can post anything.
    */
   let builtFrom = $state('');
+  /** Everything the manifest was built from, so a change to any of it is noticed. */
+  function fingerprint(): string {
+    return JSON.stringify([target.trim(), targetType, apiBase.trim(), appName.trim(), migration]);
+  }
   $effect(() => {
-    const now = JSON.stringify([target.trim(), targetType, apiBase.trim(), appName.trim()]);
+    const now = fingerprint();
     if (!postUrl) {
       builtFrom = now;
       return;
@@ -999,33 +1017,60 @@
               {/snippet}
             </Field>
 
-            <Field
-              label="App name"
-              hint="Optional. Defaults to a name that includes the target, and must be unique across GitHub."
-              error={errors.name}
-            >
-              {#snippet children({ id, describedBy, invalid })}
-                <Input bind:value={appName} {id} {describedBy} {invalid} placeholder="Zoomies" />
-              {/snippet}
-            </Field>
+            <!-- Unticked, and said plainly why: the list above is the first
+                 thing a security reviewer reads, and a runner fleet has no use
+                 for write access to anybody's code. The wizard that does is
+                 optional, so what it needs is too. -->
+            <Checkbox
+              bind:checked={migration}
+              label="Also let Zoomies open migration pull requests"
+              description="Adds write access to contents, pull requests and workflows, which only the migration wizard uses. Runners do not need it. Adding it later is not a click: the account's owner has to approve the change on GitHub."
+            />
 
-            <Field
-              label="API base URL"
-              hint="Optional. Leave empty for github.com; set it for GitHub Enterprise Server or a GHE.com tenant."
-              error={errors.api_base_url}
+            <!-- Two optional answers that almost nobody gives, behind a fold so
+                 everybody else is asked for one thing. A field that has an
+                 error, or a value, keeps its fold open. -->
+            <details
+              class="fallback"
+              open={Boolean(appName.trim() || apiBase.trim() || errors.name || errors.api_base_url)}
             >
-              {#snippet children({ id, describedBy, invalid })}
-                <Input
-                  bind:value={apiBase}
-                  {id}
-                  {describedBy}
-                  {invalid}
-                  type="url"
-                  mono
-                  placeholder="https://api.github.com"
-                />
-              {/snippet}
-            </Field>
+              <summary>Advanced: a custom App name, GitHub Enterprise</summary>
+              <div class="stack">
+                <Field
+                  label="App name"
+                  hint="Optional. Defaults to a name that includes the target, and must be unique across GitHub."
+                  error={errors.name}
+                >
+                  {#snippet children({ id, describedBy, invalid })}
+                    <Input
+                      bind:value={appName}
+                      {id}
+                      {describedBy}
+                      {invalid}
+                      placeholder="Zoomies"
+                    />
+                  {/snippet}
+                </Field>
+
+                <Field
+                  label="API base URL"
+                  hint="Optional. Leave empty for github.com; set it for GitHub Enterprise Server or a GHE.com tenant."
+                  error={errors.api_base_url}
+                >
+                  {#snippet children({ id, describedBy, invalid })}
+                    <Input
+                      bind:value={apiBase}
+                      {id}
+                      {describedBy}
+                      {invalid}
+                      type="url"
+                      mono
+                      placeholder="https://api.github.com"
+                    />
+                  {/snippet}
+                </Field>
+              </div>
+            </details>
           {:else if step === 1}
             {#if arrivedWithCode}
               <p class="lede">
@@ -1039,14 +1084,6 @@
                 Confirm it there and you will be brought straight back here, with the code in the
                 address bar.
               </p>
-
-              <!-- The button lives here; the form it submits is a sibling of
-                   the step form, below, because a form cannot nest. -->
-              <div>
-                <Button type="submit" form="github-manifest" variant="primary">
-                  Create the App on GitHub
-                </Button>
-              </div>
             {:else}
               <p class="lede">
                 This browser has no manifest to send -- it was built somewhere else, or the page was
@@ -1068,6 +1105,21 @@
                   <Input bind:value={code} {id} {describedBy} {invalid} mono autocomplete="off" />
                 {/snippet}
               </Field>
+              <!-- While the footer's primary is the one that leaves for GitHub,
+                   pasting a code has to have a button of its own. -->
+              {#if manifest && !arrivedWithCode}
+                <div class="paste">
+                  <Button
+                    type="submit"
+                    variant="secondary"
+                    size="sm"
+                    loading={busy}
+                    disabled={!code.trim()}
+                  >
+                    Use this code
+                  </Button>
+                </div>
+              {/if}
             </details>
           {:else}
             {#if appId !== null}
@@ -1370,18 +1422,30 @@
           loading={busy}
           disabled={blocked || !target.trim() || Boolean(targetError)}
         >
-          Continue to GitHub
+          Continue
         </Button>
       {:else if step === 1}
-        <Button
-          variant="primary"
-          type="submit"
-          form="connect-step"
-          loading={busy}
-          disabled={!code.trim()}
-        >
-          Exchange the code
-        </Button>
+        {#if manifest && !arrivedWithCode}
+          <!-- The one that actually leaves for GitHub is the footer's primary,
+               and says so. Before, "Continue to GitHub" only advanced, the
+               in-body button left, and the footer then offered "Exchange the
+               code" -- jargon for a step the operator never performs, because
+               it runs itself on the way back. The form it submits is a sibling
+               of the step form, because a form cannot nest. -->
+          <Button type="submit" form="github-manifest" variant="primary">
+            Create the App on GitHub
+          </Button>
+        {:else}
+          <Button
+            variant="primary"
+            type="submit"
+            form="connect-step"
+            loading={busy}
+            disabled={!code.trim()}
+          >
+            Use this code
+          </Button>
+        {/if}
       {:else}
         <Button
           variant="primary"
@@ -1653,6 +1717,9 @@
   }
   .fallback[open] summary {
     margin-bottom: var(--z-space-3);
+  }
+  .paste {
+    margin-top: var(--z-space-3);
   }
 
   .settled {

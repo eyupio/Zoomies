@@ -339,8 +339,9 @@ func (c *appClient) migrationError(op string, e error) error {
 const MigrationPermissionHint = `the migration wizard needs three repository permissions: ` +
 	`"Contents" (contents) read and write, "Pull requests" (pull_requests) read and write, and ` +
 	`"Workflows" (workflows) write, which GitHub requires specifically to change files under .github/workflows. ` +
-	`An App created by Zoomies asks for all three at creation, so this one either predates that or had them ` +
-	`removed: add them under the App's Permissions & events, then accept the change on the installation`
+	`An App created by Zoomies asks for them only when it is created with the migration option ticked, so this ` +
+	`one was created without it, predates it, or had them removed: add them under the App's Permissions & events, ` +
+	`then accept the change on the installation`
 
 // MigrationPermissions is the same requirement as data: permission name to the
 // level needed. The API compares it against what an installation was granted so

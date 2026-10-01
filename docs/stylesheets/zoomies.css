@@ -790,11 +790,16 @@ input,
 }
 /* A glow behind the headline, and a dot grid that fades out before it reaches
    the words, so the top of the page has texture and the text sits on a plain
-   surface. Both are the accent at low alpha, so they read in either theme. */
+   surface. Both are the accent at low alpha, so they read in either theme.
+   It bleeds above the hero but not past its sides. A side bleed of 2rem ran 24px
+   beyond the article's gutters at every width up to about 1366px, which on a
+   phone widened the layout viewport to 399px on a 375px screen (the page then
+   pans, or renders zoomed out) and on a laptop gave the page a sideways
+   scrollbar -- for a glow that has faded to nothing long before the edge. */
 .zoomies-hero::before {
   content: '';
   position: absolute;
-  inset: -3rem -2rem 30%;
+  inset: -3rem 0 30%;
   z-index: -1;
   pointer-events: none;
   background:
@@ -881,6 +886,37 @@ input,
   line-height: 1.55;
   color: var(--md-default-fg-color--light);
   text-wrap: pretty;
+}
+
+/* The article under the hero. Its column is 1288px wide at 1440px, which is
+   right for a table, a grid or a screenshot and wrong for a sentence: a
+   paragraph ran to 172 characters a line, and nobody finds their place again at
+   that length. Prose is held to a little under a hundred characters; 72ch is
+   that, since the zero this unit is measured in is wider than the average
+   letter. The hero, the proof line, the screenshots and their caption keep the
+   width they were given. */
+.md-content__inner:has(.zoomies-hero)
+  > :is(p, ul, ol):not(.zoomies-proof, .zoomies-shot-caption, :has(> .zoomies-shot)) {
+  max-width: 72ch;
+}
+/* The tables, on the other hand, take the whole column. Material draws each as
+   an inline-block that shrinks to its content, so the page's three were 983,
+   1288 and 656px wide, which read as three different mistakes -- and a box
+   stretched to the column over columns that were not would only have put empty
+   white beside the last of them. So a table here is a real table, as wide as
+   the column. The radius still clips the cells' fills at the corners, which is
+   what `overflow` on an inline-block was there for. (The article is itself the
+   `.md-typeset`, which is why `table` follows `.md-content__inner` directly in
+   this selector rather than `.md-typeset` as it does everywhere else.) */
+.md-content__inner:has(.zoomies-hero) .md-typeset__table {
+  display: block;
+}
+.md-content__inner:has(.zoomies-hero) table:not([class]) {
+  display: table;
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
 }
 
 /* The install command, which is the one thing most visitors came for: a
@@ -1090,6 +1126,18 @@ input,
 .md-typeset .zoomies-compare .no,
 .md-typeset .zoomies-compare .partial {
   color: var(--md-default-fg-color--lighter);
+}
+/* On a narrow phone four columns need 387px and the column the phone has is
+   343px, so the last of them was cut off at the edge of the screen with nothing
+   to say there was more -- 28px of it at 375px and 83px at 320px. The table
+   scrolls inside its own box instead: every column is still there and the page
+   does not move. 30em is 480px, which is every phone in portrait and no tablet. */
+@media screen and (max-width: 30em) {
+  .md-typeset .zoomies-compare .md-typeset__table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+  }
 }
 
 /* The closing call to action is the identity's own ground: Zoomies Black in

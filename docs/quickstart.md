@@ -164,17 +164,18 @@ host still works — with exactly the permissions it needs and no more:
 | `administration: write` | the same, for a repository target (a single repository, which is also how a personal account is used) |
 | `actions: write` | read workflow jobs and let operators cancel workflow runs from Zoomies; set `github.allow_workflow_cancellation: false` to request read-only access instead |
 | `metadata: read` | required by GitHub for any App |
-| `contents: write` | read and rewrite workflow files for the [migration wizard](migration.md) |
-| `pull_requests: write` | open the migration wizard's pull request |
-| `workflows: write` | GitHub requires it specifically to change files under `.github/workflows` |
 | `workflow_job` event | the webhook that makes scaling instant |
 
-The last three are the migration wizard's, and they are asked for now rather
-than later because later is expensive: adding a permission to an App that
-already exists is held by GitHub until the account's owner accepts it on the
-installation, and until they do the wizard cannot read a workflow at all. If you
-never migrate anything, remove them on the App's **Permissions & events** page —
-nothing else in Zoomies writes to a repository.
+That is the whole list, and none of it is access to your repositories' contents.
+Before it opens GitHub, Zoomies asks one more question: **Also let Zoomies open migration
+pull requests?** The answer is no unless you say otherwise. Yes adds three more
+permissions — `contents: write`, `pull_requests: write` and `workflows: write` —
+so the [migration wizard](migration.md) can rewrite `runs-on` and open one pull
+request per repository. Nothing else in Zoomies writes to a repository, so a
+fleet that never migrates never needs them. Decide now if you can: adding a
+permission to an App that already exists is held by GitHub until the account's
+owner accepts it on the installation, and until then the wizard cannot read a
+workflow at all ([how to add them later](migration.md#permissions)).
 
 Create the App, install it on your organisation -- or, for a repository target,
 on your own account scoped to that repository, which is how a personal account

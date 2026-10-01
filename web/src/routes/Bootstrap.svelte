@@ -199,9 +199,9 @@
   <p class="step">First step</p>
   <h1>Create the first account</h1>
   <p class="lede">
-    Nobody has an account on this instance yet. This form creates the first one, with the admin
-    role, and stops being available the moment it exists. The setup token is how it knows you are
-    the one who deployed Zoomies.
+    Nobody has an account on this instance yet. This form creates the first one, with the highest
+    role (Platform), and stops being available the moment it exists. The setup token is how it knows
+    you are the one who deployed Zoomies.
   </p>
   <p class="next">
     Then: connect a GitHub App, add a host if Zoomies has no agent of its own, create a pool, and

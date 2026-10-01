@@ -45,6 +45,10 @@ type GitHubPlan struct {
 	// Skip records a deliberate decision to connect GitHub later in the UI,
 	// which is a reasonable thing to want when the browser is elsewhere.
 	Skip bool
+	// Migration records that the operator wants the migration wizard, and so
+	// wants the App created with the three write permissions it needs. It is
+	// off unless they said yes: nothing else in Zoomies writes to a repository.
+	Migration bool
 }
 
 // manifestWait is how long the installer waits for GitHub to come back. Five
@@ -130,20 +134,28 @@ func (i *Installer) appFromManifest(ctx context.Context, st *store.Store, key *c
 		return nil
 	}
 
-	if err := i.askGitHubTarget(ctx, p); err != nil {
-		return err
-	}
-
 	// A webhook URL is fixed when the App is created, and GitHub cannot deliver
 	// to loopback. Loopback is also the default listener, so the flagship
 	// handshake would otherwise cheerfully create a real App on the operator's
 	// organisation whose webhook can never fire -- discovered weeks later as
 	// "scaling is slow", and fixable only by editing the App on GitHub.
+	//
+	// It is asked before the questions about the App, not after: it reads only
+	// the external URL, and on the default loopback install it ends in "skip"
+	// often enough that asking four questions first threw their answers away and
+	// had the browser ask them all again.
 	if err := i.checkWebhookReachable(ctx, p); err != nil {
 		return err
 	}
 	if p.GitHub.Skip {
 		return nil
+	}
+
+	if err := i.askGitHubTarget(ctx, p); err != nil {
+		return err
+	}
+	if err := i.askMigrationPermissions(ctx, p); err != nil {
+		return err
 	}
 
 	cfg := p.Config()
@@ -172,6 +184,7 @@ func (i *Installer) appFromManifest(ctx context.Context, st *store.Store, key *c
 		SetupURL:                  strings.TrimRight(p.ExternalURL, "/") + "/settings/github/setup",
 		RedirectURL:               srv.CallbackURL(),
 		AllowWorkflowCancellation: cfg.GitHub.AllowWorkflowCancellation,
+		Migration:                 p.GitHub.Migration,
 	})
 	if err != nil {
 		return err
@@ -180,12 +193,7 @@ func (i *Installer) appFromManifest(ctx context.Context, st *store.Store, key *c
 	srv.Start()
 
 	i.ui.note("webhook URL   " + webhookURL)
-	i.ui.note("permissions   actions:read, metadata:read, " + runnerPermission(p.GitHub.TargetType) + ":write, event workflow_job")
-	// The migration wizard's three are named separately because they are the
-	// ones an operator may not expect a runner controller to ask for, and a
-	// permission list that quietly grew is worse than one that says why.
-	i.ui.note("              contents:write, pull_requests:write, workflows:write -- for the")
-	i.ui.note("              migration wizard, which rewrites runs-on lines by pull request")
+	i.notePermissions(p)
 	i.ui.blank()
 	i.ui.note("Open this to create the App:")
 	i.ui.note("  " + srv.URL())
@@ -348,6 +356,45 @@ func (i *Installer) checkWebhookReachable(ctx context.Context, p *Plan) error {
 		return err
 	}
 	*p = updated
+	return nil
+}
+
+// notePermissions says what the App about to be created asks GitHub for, before
+// the browser opens, and says it truthfully either way: an operator reading the
+// consent screen should find exactly what this list promised.
+func (i *Installer) notePermissions(p *Plan) {
+	i.ui.note("permissions   actions:read, metadata:read, " + runnerPermission(p.GitHub.TargetType) + ":write, event workflow_job")
+	if !p.GitHub.Migration {
+		i.ui.note("              no repository permissions: this App cannot read or change code")
+		return
+	}
+	// The migration wizard's three are named separately because they are the
+	// ones an operator may not expect a runner controller to ask for, and a
+	// permission list that quietly grew is worse than one that says why.
+	i.ui.note("              contents:write, pull_requests:write, workflows:write -- for the")
+	i.ui.note("              migration wizard, which rewrites runs-on lines by pull request")
+}
+
+// askMigrationPermissions asks whether the App should also carry the three write
+// permissions the migration wizard needs. The default is no: nothing else in
+// Zoomies writes to a repository, and an operator about to hand a new App to
+// their organisation should not be handed write access to its code and its CI
+// workflows without having said so.
+//
+// The description says what no costs, because that is the half that is easy to
+// get wrong in the other direction: the permissions can be added later, but
+// GitHub holds the change until the account's owner accepts it.
+func (i *Installer) askMigrationPermissions(ctx context.Context, p *Plan) error {
+	want := p.GitHub.Migration
+	if err := i.confirm(ctx, "Also let Zoomies open migration pull requests?",
+		"The migration wizard rewrites runs-on in your workflows and opens one pull request per repository. "+
+			"That needs three more permissions on the App: contents, pull_requests and workflows, all write. "+
+			"Nothing else in Zoomies writes to a repository, so leave this off unless you will migrate. "+
+			"You can add them later, but GitHub holds the change until the account's owner accepts it.",
+		&want); err != nil {
+		return err
+	}
+	p.GitHub.Migration = want
 	return nil
 }
 

@@ -788,7 +788,7 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 | `MetricTile` | number, label, delta, sparkline |
 | `LogViewer` | `lib/logs/`. xterm.js with search, follow/pause, wrap toggle, download, and a line counter |
 | `RunnerTimeline` | `lib/runners/`. One row per state with how long the runner stayed there, reconstructed from the four timestamps a runner row carries -- and it says so, rather than letting an operator read it as an audit trail |
-| `Wizard` | the pool creation flow: target → labels → backend → scaling → review |
+| `Wizard` | the pool creation flow: target → labels → backend → scaling → review; on a phone its footer stays pinned above the bottom bar |
 
 ### The log viewer
 

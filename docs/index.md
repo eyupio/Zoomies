@@ -193,7 +193,8 @@ anything. [How it works](migration.md).
 The installer detects your OS, architecture, container runtime and init system,
 then walks you through the rest: service user, encryption key, backend, TLS, the
 GitHub App — created for you through the manifest flow with exactly the
-permissions Zoomies needs — and your first account.
+permissions Zoomies needs, and no write access to your code unless you say you
+want the migration wizard — and your first account.
 
 <div class="zoomies-install" markdown>
 

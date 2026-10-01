@@ -49,13 +49,26 @@
     }
   }
 
+  /**
+   * The controller mints a one-minute token of its own for the agent it runs
+   * inside itself, and it is spent or expired before anybody could look. Left in
+   * the list it greets every new operator with a row they never made, in the
+   * state colour of something that failed. One that is still good stays: it is
+   * a live credential, and tidying that away would be the wrong kind of tidy.
+   */
+  const shown = $derived(
+    tokens.filter(
+      (token) => !(token.created_by === 'system' && (token.used_at || token.usable === false)),
+    ),
+  );
+
   function labelText(labels: Record<string, string> | undefined): string {
     const entries = Object.entries(labels ?? {});
     return entries.length === 0 ? '' : entries.map(([k, v]) => `${k}=${v}`).join(' ');
   }
 </script>
 
-{#if tokens.length === 0}
+{#if shown.length === 0}
   <EmptyState
     compact
     title="No join tokens outstanding"
@@ -94,7 +107,7 @@
       </thead>
       <!-- svelte-ignore a11y_no_redundant_roles -->
       <tbody role="rowgroup">
-        {#each tokens as token (token.id)}
+        {#each shown as token (token.id)}
           <!-- svelte-ignore a11y_no_redundant_roles -->
           <tr role="row">
             <td role="cell" data-label="Prefix" class="mono">{token.prefix ?? '--'}</td>

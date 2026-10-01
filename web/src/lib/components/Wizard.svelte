@@ -218,4 +218,21 @@
       display: none;
     }
   }
+  /*
+    On a phone the controls that move the wizard on stay on screen, above the
+    navigation bar that is fixed to the bottom edge there (the same clearance the
+    shell's footer reserves). Without this "Next" was however many screens of
+    explainer below the choice it belongs to, and the first step of the pool
+    wizard is four paragraphs long.
+  */
+  @media (max-width: 768px) {
+    footer {
+      position: sticky;
+      bottom: calc(var(--z-space-16) + var(--z-safe-bottom));
+      z-index: var(--z-layer-sticky);
+      padding: var(--z-space-3) 0;
+      border-top: var(--z-border-width) solid var(--z-border);
+      background: var(--z-bg);
+    }
+  }
 </style>

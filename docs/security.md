@@ -96,11 +96,12 @@ on its own runners, and cannot read pools, jobs, users or the audit log.
 * **Multi-tenancy between untrusted organisations.** One Zoomies instance is one
   team's fleet. Pools are not a security boundary between tenants.
 * **Compromise of the GitHub App itself.** If the App's private key leaks, the
-  attacker can register runners against your org, and — because the App is
-  created with the [migration wizard's](migration.md) permissions — commit to a
-  branch and open a pull request on the repositories it is installed on. It
-  cannot merge one. Rotate the key in GitHub and re-enter it in Zoomies; a fleet
-  that will never migrate anything can drop those three permissions on the App's
+  attacker can register runners against your org. An App that was created with
+  the [migration wizard's](migration.md) permissions — which it asks for only
+  when you say you want the wizard — could also commit to a branch and open a
+  pull request on the repositories it is installed on. It cannot merge one.
+  Rotate the key in GitHub and re-enter it in Zoomies; an App that has those
+  three permissions and will never migrate anything can drop them on its
   **Permissions & events** page.
 * **Denial of service.** `repository_scale_up_limit` can best-effort throttle
   new runner creation attributed to one repository, but it is not a security
