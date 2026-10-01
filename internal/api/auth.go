@@ -21,6 +21,12 @@ import (
 // helper has to read it back.
 const SessionCookie = "zoomies_session"
 
+// maxAgentSessionBytes bounds the X-Zoomies-Agent-Session header before it is
+// folded into a host's row. The legitimate value is `ses_` plus sixteen hex
+// characters, so 128 bytes is a generous ceiling that still refuses one that
+// could have come only from an agent trying to pad its own host's row.
+const maxAgentSessionBytes = 128
+
 // ctxKey is this package's private context key type, so nothing outside can
 // collide with -- or forge -- what the middleware attaches.
 type ctxKey int
@@ -379,7 +385,14 @@ func (s *Server) agentAuth(next http.Handler) http.Handler {
 		// Every authenticated agent request carries the session, so recording
 		// it here catches a duplicate whichever call it makes first rather
 		// than only on the heartbeat.
-		s.ctrl.NoteAgentSession(r.Context(), h.ID, r.Header.Get(agent.HeaderAgentSession))
+		//
+		// The header is capped so that an authenticated agent cannot keep
+		// writing arbitrarily large values into its host's row by alternating
+		// them: a legitimate session is `ses_` plus sixteen hex characters,
+		// well under this ceiling.
+		if session := r.Header.Get(agent.HeaderAgentSession); len(session) <= maxAgentSessionBytes {
+			s.ctrl.NoteAgentSession(r.Context(), h.ID, session)
+		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxAgentHost, h)))
 	})
 }

@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/eyupio/zoomies/internal/agent"
@@ -42,6 +43,28 @@ func TestAnAgentsSessionHeaderReachesTheHostRow(t *testing.T) {
 	}
 	if host.AgentSessionAlternations != 1 {
 		t.Fatalf("alternations = %d, want 1 after the sessions swapped back", host.AgentSessionAlternations)
+	}
+}
+
+// A huge session value is dropped before it reaches the hosts row, so a
+// misbehaving agent that holds a token cannot keep bloating the database by
+// alternating two very long strings.
+func TestAnOversizedAgentSessionHeaderIsNotRecorded(t *testing.T) {
+	h := newHarness(t)
+	hostID, token := h.agentToken("vm-1")
+
+	oversize := "ses_" + strings.Repeat("a", maxAgentSessionBytes)
+	resp := h.do(request{method: http.MethodPost, path: "/api/v1/agent/heartbeat", token: token,
+		headers: map[string]string{agent.HeaderAgentSession: oversize},
+		body:    agent.HeartbeatRequest{ProtocolVersion: 1, Capacity: 2, Version: "test"}})
+	resp.mustStatus(t, http.StatusOK, "a heartbeat with an oversized session header")
+
+	host, err := h.st.GetHost(h.ctx, hostID)
+	if err != nil {
+		t.Fatalf("GetHost: %v", err)
+	}
+	if host.AgentSessionID != "" {
+		t.Fatalf("agent_session_id = %q, want empty for a header past the %d-byte cap", host.AgentSessionID, maxAgentSessionBytes)
 	}
 }
 
