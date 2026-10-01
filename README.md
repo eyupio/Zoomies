@@ -326,8 +326,9 @@ left alone, with the reason, both in the review screen and in the pull request
 body.
 
 It needs three App permissions the rest of Zoomies deliberately does not ask for
-(Contents, Pull requests, Workflows), and it tells you which are missing before
-it tries anything.
+(Contents, Pull requests, Workflows) — connecting GitHub asks whether you want
+them, and the default is no — and it tells you which are missing before it tries
+anything.
 
 **Already running your own static runners?** Then the wizard is not the tool —
 it deliberately leaves those jobs where they are, because somebody made that
