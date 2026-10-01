@@ -84,6 +84,18 @@ fleet ran or every job GitHub reported on an installed repository — the
 default is this fleet's own work, because that is the question an operator is
 usually asking.
 
+A new instance is different. It opens on a checklist in place of the matrix,
+which has nothing to draw yet: create the first account, connect GitHub, add a
+host if Zoomies has none of its own, create a pool and point a workflow at it.
+Each step is ticked from the fleet's real state and offers the one action that
+advances it. Once a pool exists the last step also hands over a complete test
+workflow with the pool's own label already in it, which touches nothing in your
+repositories: add it to any repository the App can see and press **Run
+workflow**. When the job starts the checklist gives way to a line saying which
+runner took it, and when it finishes, to how long the job waited for a runner
+and how long it ran. Only this fleet's own jobs count — a job on a hosted
+runner elsewhere in the organisation neither ticks a step nor retires the list.
+
 ![The Overview: the activity matrix across the top, then four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and a feed of the fleet's recent events](screenshots/overview-dark.webp#only-dark){ .zoomies-shot }
 ![The Overview: the activity matrix across the top, then four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and a feed of the fleet's recent events](screenshots/overview-light.webp#only-light){ .zoomies-shot }
 

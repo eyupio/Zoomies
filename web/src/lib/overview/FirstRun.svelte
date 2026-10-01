@@ -16,6 +16,13 @@
   fleet works and a checklist on the dashboard is clutter. The dismissal is
   per-browser: it is a nudge, not a setting, and it costs nothing to see again
   on another machine.
+
+  It does not vanish silently, though. The first job is the moment the whole
+  checklist exists for, and a screen an operator has followed for five steps
+  that simply goes blank when it happens is a strange way to be told it worked.
+  If the checklist was on screen when that job started, it gives way to a line
+  saying so, and then to the two numbers the product is judged on: how long the
+  job waited for a runner, and how long it ran.
 -->
 <script lang="ts">
   import {
@@ -28,15 +35,19 @@
     UserCheck,
     X,
   } from '@lucide/svelte';
-  import { listInstallations } from '$lib/api/client';
+  import { untrack } from 'svelte';
+  import { listInstallations, listJobs } from '$lib/api/client';
   import { events } from '$lib/api/sse';
+  import type { Job } from '$lib/api/types';
   import { runsOn } from '$lib/brand';
+  import { formatDuration } from '$lib/format';
   import { fleet } from '$lib/state/fleet.svelte';
   import { storage } from '$lib/state/prefs.svelte';
   import { session } from '$lib/state/session.svelte';
   import Button from '$lib/components/Button.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import IconButton from '$lib/components/IconButton.svelte';
+  import TestJob from '$lib/pools/TestJob.svelte';
 
   /**
    * Told whenever this panel appears or goes away, so the Overview can quieten
@@ -85,11 +96,21 @@
    * and this row never appears, so the single-VM path is unchanged.
    */
   const hasHost = $derived(fleet.hosts.length > 0);
-  /** A job has been seen here: queued, running or finished within the window. */
+  /**
+   * A job has run on this fleet: running now, or finished within the window.
+   *
+   * It reads the fleet's own counters -- the ones the tiles below show while
+   * "Other runners" is off -- and not the unscoped totals, which count every job
+   * GitHub reports for the organisation. On any organisation with other CI those
+   * are non-zero from the first webhook after GitHub is connected, and the
+   * checklist used to retire itself for good on somebody else's job, before a
+   * host, a pool or a workflow existed. A queued job does not count either: a
+   * job that cannot get a runner is exactly when the checklist has to stay.
+   */
   const hasJobs = $derived.by(() => {
-    const s = fleet.stats;
-    if (!s) return false;
-    return (s.queued_jobs ?? 0) + (s.running_jobs ?? 0) + (s.completed ?? 0) + (s.failed ?? 0) > 0;
+    const own = fleet.stats?.fleet;
+    if (!own) return false;
+    return (own.running_jobs ?? 0) + (own.completed ?? 0) > 0;
   });
 
   /**
@@ -136,12 +157,79 @@
     storage.set(DISMISS_KEY, '1');
   }
 
+  // Whether the checklist has been on screen in this tab. Only then is there
+  // anybody to tell: a browser that opens the page after the fact has nothing
+  // to be shown the end of.
+  let witnessed = false;
+  $effect(() => {
+    if (show) witnessed = true;
+  });
+
+  /**
+   * The job the checklist ends on, and whether it is being followed.
+   *
+   * It is this fleet's own job, because the panel it replaces is about this
+   * fleet: a pool claimed it, so a hosted runner's job and a vendor's are not
+   * the moment. It stays on the first one it finds rather than following the
+   * newest, so the numbers on screen are those of the job that was announced.
+   */
+  let following = $state(false);
+  let moment = $state<Job | null>(null);
+  let momentHidden = $state(false);
+  const finished = $derived(moment?.state === 'completed');
+
   // Once a job has run the fleet is working, and the checklist has said
   // everything it has to say. Remembering that stops it coming back if the
   // stats window later empties.
   $effect(() => {
-    if (hasJobs && !dismissed) dismiss();
+    if (hasJobs && !dismissed) {
+      following = witnessed;
+      dismiss();
+    }
   });
+
+  async function find(): Promise<void> {
+    try {
+      const page = await listJobs({
+        managed: true,
+        state: ['in_progress', 'completed'],
+        limit: 1,
+      });
+      moment ??= page.items?.[0] ?? null;
+    } catch {
+      // The panels below are already saying that the controller is unreachable.
+    }
+  }
+  $effect(() => {
+    if (!following || finished) return;
+    untrack(() => void find());
+    return events.subscribe('job.updated', (job) => {
+      if (!job.pool_id || (moment && moment.id !== job.id)) return;
+      if (job.state !== 'in_progress' && job.state !== 'completed') return;
+      moment = job;
+    });
+  });
+
+  const succeeded = $derived(finished && moment?.conclusion === 'success');
+  const where = $derived(moment?.runner_name ? ` on ${moment.runner_name}` : '');
+  const headline = $derived.by(() => {
+    if (!moment) return 'Your first job has started';
+    if (!finished) return `Your first job is running${where}`;
+    return succeeded ? `Your first job ran${where}` : `A job ran${where} and did not succeed`;
+  });
+  const detail = $derived.by(() => {
+    if (!moment) return 'A runner that Zoomies started for it has taken it.';
+    const waited = `It waited ${formatDuration(moment.queue_wait_ms)} for a runner`;
+    if (!finished) return `${waited} and is running now.`;
+    return succeeded
+      ? `${waited} and ran for ${formatDuration(moment.duration_ms)}. From here the pool scales itself.`
+      : `${waited} and ended ${moment.conclusion || 'without a conclusion'}. The Jobs page says which step it stopped at.`;
+  });
+  const jobsHref = $derived(
+    moment?.job_name
+      ? `/jobs?q=${encodeURIComponent(moment.job_name)}&repo=${encodeURIComponent(moment.repo ?? '')}`
+      : '/jobs',
+  );
 </script>
 
 {#if show}
@@ -164,7 +252,6 @@
           </p>
           <p class="why">Done — you are signed in as {session.identity?.name ?? 'the admin'}.</p>
         </div>
-        <div class="action"></div>
       </li>
 
       <li class:done={hasInstallation}>
@@ -268,6 +355,7 @@
               <code>runs-on: {runsOnValue}</code>
               <CopyButton value={`runs-on: ${runsOnValue}`} label="Copy the runs-on line" />
             </p>
+            <div class="test-job"><TestJob labels={pools[0]?.labels ?? []} open /></div>
           {/if}
         </div>
         <div class="action">
@@ -281,6 +369,24 @@
         </div>
       </li>
     </ol>
+  </section>
+{:else if following && !momentHidden}
+  <section class="firstrun" aria-labelledby="firstjob-heading">
+    <header>
+      <div>
+        <h2 id="firstjob-heading" class="moment">
+          {#if succeeded}<Check size={14} aria-hidden="true" />{/if}
+          {headline}
+        </h2>
+        <p role="status">{detail}</p>
+      </div>
+      <IconButton icon={X} label="Hide this note" size="sm" onclick={() => (momentHidden = true)} />
+    </header>
+    <div class="then">
+      <Button variant="secondary" size="sm" href={jobsHref} iconAfter={ArrowRight}>
+        See it on the Jobs page
+      </Button>
+    </div>
   </section>
 {/if}
 
@@ -307,6 +413,18 @@
     font-size: var(--z-text-base);
     font-weight: var(--z-weight-semibold);
     color: var(--z-text);
+  }
+  h2.moment {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-2);
+  }
+  /* The tick is the same one the finished steps wear, for the same reason. */
+  h2.moment :global(svg) {
+    color: var(--z-idle);
+  }
+  .then {
+    padding: 0 var(--z-space-5) var(--z-space-4);
   }
   header p {
     margin: var(--z-space-1) 0 0;
@@ -381,6 +499,10 @@
     align-items: center;
     gap: var(--z-space-2);
     margin: var(--z-space-2) 0 0;
+  }
+  .test-job {
+    margin-top: var(--z-space-3);
+    max-width: 62ch;
   }
   code {
     font-family: var(--z-font-mono);
