@@ -760,12 +760,17 @@
 
 <Dialog bind:open title="Connect GitHub" size="lg" onclose={close}>
   <output class="sr-only" aria-live="polite">{announcement}</output>
+  <!-- The tab labels are short so that both fit at 375px: "Use an App you already
+       have" was clipped to "Use an App you already h" in a list that scrolls
+       sideways, which hid the way through for a controller with no webhook. What
+       they mean is in the name of the list, the only accessible name Tabs lets a
+       caller give. -->
   <Tabs
     bind:value={tab}
-    label="How to connect"
+    label="How to connect: create a new App, or use an App you already have"
     tabs={[
-      { id: 'manifest', label: 'Create a new App' },
-      { id: 'existing', label: 'Use an App you already have' },
+      { id: 'manifest', label: 'New App' },
+      { id: 'existing', label: 'Existing App' },
     ]}
   >
     {#snippet children(active)}
