@@ -4,13 +4,20 @@
     role="img"
     aria-label="Zoomies: a happy cocker spaniel in a circular swish, above the Zoomies wordmark"
   >
+    <!-- Lazy, and not asking for priority: on the home page this sits thousands
+         of pixels below the fold, and a 180 KB image fetched first competes
+         with the page's first paint. The SVG's <image> layers below carry no
+         address on purpose -- an SVG <image> ignores loading="lazy", so ten of
+         them pointing at this file would fetch it while the page is still being
+         parsed. The script hands them this image's address once it has loaded. -->
     <img
       class="zoomies-brand__fallback off-glb"
       src="brand/logo-white-transparent.png"
       width="1254"
       height="1254"
       alt=""
-      fetchpriority="high"
+      loading="lazy"
+      decoding="async"
     />
     <svg
       class="zoomies-brand__svg"
@@ -126,7 +133,6 @@
         </mask>
       </defs>
       <image
-        xlink:href="brand/logo-white-transparent.png"
         width="1254"
         height="1254"
         mask="url(#zb-frame-mask)"
@@ -136,7 +142,6 @@
           <g class="zb-tail">
             <g clip-path="url(#zb-dog)">
               <image
-                xlink:href="brand/logo-white-transparent.png"
                 width="1254"
                 height="1254"
                 clip-path="url(#zb-tail)"
@@ -145,7 +150,6 @@
           </g>
           <g class="zb-paw-back">
             <image
-              xlink:href="brand/logo-white-transparent.png"
               width="1254"
               height="1254"
               clip-path="url(#zb-back)"
@@ -158,7 +162,6 @@
           />
           <g clip-path="url(#zb-dog)">
             <image
-              xlink:href="brand/logo-white-transparent.png"
               width="1254"
               height="1254"
               mask="url(#zb-body-mask)"
@@ -171,7 +174,6 @@
               d="M550 551L578 581L541 604L496 650Q482 684 441 675Q411 669 414 646L434 615L481 576Z"
             />
             <image
-              xlink:href="brand/logo-white-transparent.png"
               width="1254"
               height="1254"
               clip-path="url(#zb-front)"
@@ -181,7 +183,6 @@
             <g class="zb-ear-right">
               <g clip-path="url(#zb-dog)">
                 <image
-                  xlink:href="brand/logo-white-transparent.png"
                   width="1254"
                   height="1254"
                   clip-path="url(#zb-ear-right)"
@@ -191,7 +192,6 @@
             <g class="zb-ear-left">
               <g clip-path="url(#zb-dog)">
                 <image
-                  xlink:href="brand/logo-white-transparent.png"
                   width="1254"
                   height="1254"
                   clip-path="url(#zb-ear-left)"
@@ -206,7 +206,6 @@
             <g clip-path="url(#zb-dog)">
               <g clip-path="url(#zb-head)">
                 <image
-                  xlink:href="brand/logo-white-transparent.png"
                   width="1254"
                   height="1254"
                   mask="url(#zb-face-mask)"
@@ -215,7 +214,6 @@
             </g>
             <g class="zb-eyes">
               <image
-                xlink:href="brand/logo-white-transparent.png"
                 width="1254"
                 height="1254"
                 clip-path="url(#zb-eyes)"
@@ -223,7 +221,6 @@
             </g>
             <g class="zb-tongue">
               <image
-                xlink:href="brand/logo-white-transparent.png"
                 width="1254"
                 height="1254"
                 clip-path="url(#zb-tongue)"
