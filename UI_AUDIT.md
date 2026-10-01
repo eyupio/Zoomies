@@ -369,6 +369,7 @@ I list these so nobody spends time on them.
 - For every capture I recorded sideways overflow, targets under 24 and 44px, text under 12px and WCAG contrast (ancestor opacity included). *Result: no sideways scroll on any app route at 375px except N3; one failing contrast pattern (H9).*
 - The site was built with `mkdocs build` from `docs/requirements.txt`.
 - Click counts are literal Playwright clicks. A claim marked *(from source)* was not run.
+- After the fixes the same measurements were repeated on the screens they touched, on a fresh controller built from the branch: the first-run Overview is 900px tall at 1440 and 975px at 375 (it was 2,302 and about 3,900) with no sideways scroll and no text below its contrast threshold, the Configuration page fits at 375 with a 207-character database path, and the home page was re-measured at 21 widths from 320 to 1600px.
 - Screenshots are not committed (binary bloat); every finding names its route and viewport. To reproduce the first-run screens: `make build`, then `ZOOMIES_BIND=127.0.0.1:8080 ZOOMIES_DB_PATH=/tmp/z.db ZOOMIES_ENCRYPTION_KEY=$(openssl rand -base64 32) ./zoomies controller`, read the setup token from its log, and open the address at 1440×900 and 375×812.
 
 ### What the change tests
