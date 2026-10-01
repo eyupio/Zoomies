@@ -1285,14 +1285,16 @@ input,
   }
   /* The command wraps (above), so nothing needs the room the desktop rule keeps
      on its right for the copy chip. The chip moves below the text, where it can
-     be a 44px target instead of a 24px one beside the characters. */
+     be a 44px target instead of a 24px one beside the characters. The room is in
+     rem, not em: the command is set smaller than the page, and room measured in
+     its own em shrank with it until the chip sat on the last word. */
   .md-typeset .zoomies-install pre > code {
-    padding: 0.95em 1.1em 3.4em;
+    padding: 0.95em 1.1em 3.4rem;
   }
   .md-typeset .zoomies-install .md-code__nav {
     top: auto;
-    bottom: 0.5em;
-    right: 0.5em;
+    bottom: 0.5rem;
+    right: 0.5rem;
     transform: none;
   }
   .md-typeset .zoomies-install .md-code__button {
