@@ -754,11 +754,8 @@ input,
 }
 
 /* The hero sits on the page like everything under it: an eyebrow, the
-   headline, the install command and the pages people come for. The mark is in
-   the headline itself, as a small tile on Zoomies Black between the words --
-   brand.md says that black is the ground it sits on in both themes, and the
-   paw/swish is the artwork the brand reserves for this size. The identity's
-   full lockup, animated, closes the page instead (.zoomies-cta). */
+   headline, the install command, what to do about it and the pages people come
+   for. The identity's full lockup, animated, closes the page (.zoomies-cta). */
 .zoomies-hero {
   position: relative;
   isolation: isolate;
@@ -783,7 +780,10 @@ input,
 .zoomies-hero::before {
   content: '';
   position: absolute;
-  inset: -3rem -2rem 30%;
+  /* No negative inset on the sides: the glow used to reach 2rem past each edge,
+     which made the page 24px wider than a 375px phone and left only
+     `html { overflow-x: hidden }` between the reader and a sideways scroll. */
+  inset: -3rem 0 30%;
   z-index: -1;
   pointer-events: none;
   background:
@@ -808,6 +808,11 @@ input,
   font-weight: 500;
   color: var(--md-default-fg-color--light);
 }
+/* The left padding is smaller only to sit a badge snugly inside the pill; a
+   pill that holds plain text keeps the padding on both ends the same. */
+.md-typeset .zoomies-hero .eyebrow:not(:has(strong)) {
+  padding-left: 0.85em;
+}
 .md-typeset .zoomies-hero .eyebrow strong {
   padding: 0.1em 0.6em;
   border-radius: 999px;
@@ -826,9 +831,7 @@ input,
 }
 /* The hero's headline. It is an h1 rather than a paragraph because it is the
    page's real title, and Material's own h1 rules have to be overridden for it
-   to be set this large. The second line is quieter than the first, and the
-   paw/swish sits in it at the height of the type -- white on the dark scheme
-   and black on the light one, like the header's, with no box of its own. */
+   to be set this large. The second line is quieter than the first. */
 .md-typeset .zoomies-hero h1 {
   margin: 0;
   font-size: clamp(2rem, 5.6vw, 3.6rem);
@@ -841,39 +844,16 @@ input,
 .md-typeset .zoomies-hero h1 .quiet {
   color: var(--md-default-fg-color--lighter);
 }
-/* The hide-per-scheme rule above is outranked by this one, so it is repeated
-   here at this rule's own specificity. */
-[data-md-color-scheme='default'] .md-typeset .zoomies-hero h1 .mark.zoomies-logo--dark,
-[data-md-color-scheme='slate'] .md-typeset .zoomies-hero h1 .mark.zoomies-logo--light {
+/* The permalink Material appends to every heading is invisible until hovered,
+   but it still takes room: it pushed the last line of the headline 25px left of
+   centre on a desktop and 16px on a phone, and it was a stop in the tab order
+   with nothing to see. The hero's heading is not a section anyone links to. */
+.md-typeset .zoomies-hero h1 .headerlink {
   display: none;
 }
-.md-typeset .zoomies-hero h1 .mark {
-  display: inline-block;
-  width: 0.95em;
-  height: 0.95em;
-  margin: 0 0.04em;
-  vertical-align: -0.12em;
-  animation: zoomies-hop 2s ease-in-out infinite;
-}
-/* The paw hops the way the theme's icon does: a slow, small bounce. Anyone who
-   has asked for less motion gets a still one. */
-@keyframes zoomies-hop {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-0.18em);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .md-typeset .zoomies-hero h1 .mark {
-    animation: none;
-  }
-}
 
-/* The proof line under the hero: one sentence saying what the product does,
-   for the reader who has taken in the panel and wants the substance. */
+/* The proof line under the hero: one sentence of evidence, for the reader who
+   has taken in the panel and wants a reason to believe it. */
 .md-typeset .zoomies-proof {
   max-width: 46rem;
   margin: 0 auto 2.5rem;
@@ -932,6 +912,30 @@ input,
   color: var(--z-accent-contrast);
 }
 
+/* The two things a visitor can do about the command, side by side: read how to
+   install it, or see the product first. Same row as the closing call to
+   action's, so the page asks the same thing the same way twice. */
+.md-typeset .zoomies-hero .actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.6rem;
+  margin: 0;
+}
+
+/* What the command assumes, in one quiet line, so a visitor can tell whether
+   this is for them before they paste anything. Set in the body's secondary
+   text colour, not the quieter one: it is small, and the quieter one is under
+   4.5:1 on the light ground. */
+.md-typeset .zoomies-hero .prereq {
+  max-width: 34rem;
+  margin: 0;
+  font-size: 0.66rem;
+  line-height: 1.5;
+  color: var(--md-default-fg-color--light);
+  text-wrap: balance;
+}
+
 /* The pages people come for, as a row of chips under the command. */
 .md-typeset .zoomies-hero .popular {
   display: flex;
@@ -966,6 +970,21 @@ input,
   grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
   gap: 0.9rem;
   margin: 1.5rem 0 2.5rem;
+}
+/* Nine cards divide into three columns and into nothing else that fits. The
+   auto-fit layout above counts four columns from 1366px up and laid the grid
+   out 4 / 4 / 1, leaving one card alone on the last row beside three empty
+   cells; asking for three says what the content is. Below this width the cards
+   stack or pair, and the card that would be left on its own takes the row. */
+@media screen and (min-width: 48em) {
+  .zoomies-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media screen and (min-width: 40.625em) and (max-width: 47.9375em) {
+  .zoomies-grid > div:nth-last-child(2) {
+    grid-column: 1 / -1;
+  }
 }
 .zoomies-grid > div {
   padding: 1.15rem 1.2rem 1.25rem;
@@ -1033,13 +1052,17 @@ input,
   grid-column: 2;
 }
 
-/* The comparison table: the Zoomies column is the one the reader is here for. */
-.md-typeset .zoomies-compare table:not([class]) th:last-child,
-.md-typeset .zoomies-compare table:not([class]) td:last-child {
+/* The comparison table: the Zoomies column is the one the reader is here for,
+   so it is the second column, next to the row labels. It used to be the last,
+   and on a 375px phone the table scrolls sideways inside its box: the reader
+   saw "Zoomi", "ye" and "defau" at the cut and never the column the table
+   exists to show. */
+.md-typeset .zoomies-compare table:not([class]) th:nth-child(2),
+.md-typeset .zoomies-compare table:not([class]) td:nth-child(2) {
   background: var(--z-accent-subtle);
   font-weight: 550;
 }
-.md-typeset .zoomies-compare table:not([class]) th:last-child {
+.md-typeset .zoomies-compare table:not([class]) th:nth-child(2) {
   color: var(--z-accent);
 }
 .md-typeset .zoomies-compare .twemoji {
@@ -1208,6 +1231,42 @@ input,
   .md-typeset .zoomies-hero .eyebrow {
     font-size: 0.6rem;
   }
+  /* The headline is two clauses, white then grey, with a forced break between
+     them. On a phone the forced break left "own." stranded on a line of its
+     own, and taking the break out made the colour change in the middle of a
+     line, after "runners". Making the grey clause a block gives each its own
+     balanced lines -- four on every phone from 320px to 430px -- so the colour
+     changes where a line does. The break is redundant once the clause is a
+     block, and would add an empty line if it stayed. */
+  .md-typeset .zoomies-hero h1 br {
+    display: none;
+  }
+  .md-typeset .zoomies-hero h1 .quiet {
+    display: block;
+    text-wrap: balance;
+  }
+  /* The install command is the one thing a phone visitor came to copy, and at
+     343px it is 507px wide. Left to scroll, the copy chip sat on top of its
+     middle and `install.sh | sh` was off the screen. Let it wrap instead, and
+     move the chip below the text where it can be a 44px target rather than a
+     24px one laid over the characters. The right-hand padding the desktop rule
+     reserves for the chip scrolls with the text, which is why it never did the
+     job it was written for. */
+  .md-typeset .zoomies-install pre > code {
+    padding: 0.95em 1.1em 3.4em;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .md-typeset .zoomies-install .md-code__nav {
+    top: auto;
+    bottom: 0.5em;
+    right: 0.5em;
+    transform: none;
+  }
+  .md-typeset .zoomies-install .md-code__button {
+    width: 2.2rem;
+    height: 2.2rem;
+  }
   .zoomies-grid .wide {
     display: block;
   }
@@ -1226,14 +1285,6 @@ input,
   }
   .md-typeset .zoomies-cta .actions {
     justify-content: center;
-  }
-}
-
-/* The paw in the headline goes with the large setting; at a phone's size the
-   headline is three lines already and the theme hides its icon there too. */
-@media screen and (max-width: 59.9375em) {
-  .md-typeset .zoomies-hero h1 .mark {
-    display: none;
   }
 }
 
