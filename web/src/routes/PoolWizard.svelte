@@ -27,7 +27,7 @@
 <PageHeader
   title="Create a pool"
   breadcrumb={[{ label: 'Pools', href: '/pools' }, { label: 'Create a pool' }]}
-  subtitle="Seven steps: who the runners register with, what labels they answer to, which hosts they land on, how they run, how much machine each one gets, how many there are, and what the controller makes of it."
+  subtitle="A name and a label, or every setting if you want it."
 />
 
 {#if canOperate}
