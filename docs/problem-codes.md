@@ -70,7 +70,7 @@ on a public address the same setting is an error.
 | `tls.files_missing` | error | `server.tls` | `mode: files` needs both a certificate and a key. |
 | `tls.file_unreadable` | error | `server.tls.*` | The file is named but cannot be read. Usually ownership after an install as another user. |
 | `tls.self_signed` | info | `server.tls.mode` | Browsers and agents will not trust it without being told to. Fine for a private network, not for anything else. |
-| `external_url.missing` | warning | `server.external_url` | GitHub cannot be told where to deliver webhooks, so scaling falls back to the poller and reacts in tens of seconds. |
+| `external_url.missing` | warning | `server.external_url` | GitHub cannot be told where to deliver webhooks, so scaling falls back to the poller and reacts in tens of seconds. Set it under Settings, or from the Connect GitHub dialog, which saves it and says how to restart; it takes effect at the next start. |
 | `external_url.malformed` | error | `server.external_url` | Not an absolute URL. |
 | `external_url.insecure` | warning | `server.external_url` | GitHub will deliver webhooks over plaintext, so the payloads and their signatures cross the internet unencrypted. |
 

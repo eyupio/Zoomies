@@ -142,7 +142,7 @@ func (s *Server) handleCreateInstallation(w http.ResponseWriter, r *http.Request
 		// but not on this tab, and the sentence has to say so.
 		fields = append(fields, fieldError{"private_key", fmt.Sprintf(
 			"this controller no longer holds the credentials from creating App %d: they are kept in memory for an hour and do not survive a restart. "+
-				"Generate a new private key on the App's settings page, set a new webhook secret there, and connect it under \"Use an App you already have\".",
+				"Generate a new private key on the App's settings page, set a new webhook secret there, and connect it under \"Existing App\".",
 			req.AppID)})
 	case privateKey == "":
 		fields = append(fields, fieldError{"private_key", "paste the App's PEM private key; GitHub shows it once, when you generate it"})

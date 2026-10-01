@@ -166,12 +166,13 @@ address GitHub will use to reach the controller, and your first account.
     be told again afterwards. So Zoomies will not create an App until it knows an
     address GitHub can reach: not `localhost`, and not an address only your own
     network can see. If it does not know one yet, the **Connect GitHub** dialog
-    says so and lets you set it there; the address takes effect when the
-    controller next restarts.
+    says so and lets you set it there. The address takes effect when the
+    controller next restarts, so the dialog shows the command for that and
+    unlocks by itself when the controller is back.
 
-    No public address, as in a home lab? Connect an App you already have instead
-    (the dialog's second tab). Zoomies then polls GitHub for queued jobs, which
-    reacts in tens of seconds rather than at once.
+    No public address, as in a home lab? Use the dialog's **Existing App** tab
+    to connect an App you already have instead. Zoomies then polls GitHub for
+    queued jobs, which reacts in tens of seconds rather than at once.
     [Runners in your home lab](home-lab.md#where-the-controller-goes) says more.
 
 Zoomies creates the GitHub App for you through the manifest flow. It opens your
