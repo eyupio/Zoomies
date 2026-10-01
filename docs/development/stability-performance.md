@@ -1,3 +1,9 @@
+---
+# Implementation notes remain available to contributors through existing links.
+noindex: true
+description: Implementation evidence and remaining work from the September 2026 stability and performance review.
+---
+
 # Stability and performance implementation
 
 This change implements the first safety and performance tranche from the September 2026 review (SP-01–SP-29). Ephemeral runners remain the default. Persistent caches are independent, disposable acceleration data; a cache is neither a runner nor a workspace backup.

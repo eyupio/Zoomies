@@ -70,6 +70,10 @@ trusted workflows and a bad one for anything else; see
 
 ## A job that sits in the queue
 
+For a check in order, from GitHub routing through host capacity to registration,
+use [GitHub Actions job stuck queued on a self-hosted runner](queued-job.md).
+The explanations below cover Zoomies's backend and startup remedies in depth.
+
 Three different faults look the same from GitHub, and the problems drawer tells
 them apart:
 

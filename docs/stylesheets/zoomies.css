@@ -480,6 +480,12 @@ input,
 .md-header__button.md-logo:is(:hover, :focus-visible) {
   opacity: 1;
 }
+/* The second header topic holds the page title before the theme's script runs.
+   A long title must stay inside its flex item, including with JavaScript off. */
+.md-header__title {
+  min-width: 0;
+  overflow: hidden;
+}
 .md-search__form {
   border: 1px solid var(--z-line);
   border-radius: var(--z-radius-md);

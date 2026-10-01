@@ -103,7 +103,7 @@ information**. GitHub crops it to a circle, which the file already allows for.
 
 ## The badge
 
-[![CI has the Zoomies](badge.svg)](https://zoomies.sh)
+[![CI has the Zoomies](badge.svg){ width="153" height="20" }](https://zoomies.sh)
 
 A repository whose CI runs on Zoomies can say so with the badge, served from
 `https://zoomies.sh/badge.svg`. It is the paw/swish on Zoomies Black beside

@@ -75,6 +75,9 @@ Point Zoomies at a GitHub organisation, or at a repository on a personal
 account. It watches for queued jobs, starts a fresh runner for each one, and
 destroys the runner when the job finishes.
 
+[One fleet for many repositories](many-repositories.md) explains organisation
+and personal-account setups, and where runners can safely be shared.
+
 ```mermaid
 flowchart LR
     q["a job is queued<br/>on GitHub"]
@@ -117,8 +120,10 @@ under two cores gets four, and gives them back the moment they are wanted.
 :material-recycle-variant:{ .icon }
 
 ### Ephemeral by default
-One job per runner, then the container is gone. Nothing leaks from one workflow
-run to the next — not a clone, not a cache, not a credential.
+One job per runner, then the container and its workspace are gone. Selected
+downloads and build data can live outside the runner in an optional
+[persistent cache](persistent-caches.md); credentials and workspaces are not
+reused as caches.
 </div>
 
 <div markdown>
@@ -318,6 +323,11 @@ hand-registered long-lived runners is too little.
 [Zoomies and actions-runner-controller](actions-runner-controller.md) is the
 longer comparison, including where ARC is the better choice.
 
+[Choosing runners without Kubernetes](runners-without-kubernetes.md) starts
+with the simpler options. If you would rather rent capacity, compare Zoomies
+with [Blacksmith, WarpBuild and RunsOn](hosted-runner-services.md), including
+when a runner service is the better choice.
+
 ## A word about self-hosted runners
 
 A self-hosted runner executes code from your repositories, and on a public
@@ -338,7 +348,7 @@ been run and which have only been built.
 
 <div class="zoomies-cta" markdown>
 
---8<-- "docs/brand/animated-logo.html"
+--8<-- "overrides/partials/animated-logo.html"
 
 <div class="zoomies-cta__copy" markdown>
 

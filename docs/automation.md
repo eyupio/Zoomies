@@ -1,5 +1,9 @@
 ---
 icon: material/file-document-outline
+title: Automating a self-hosted Zoomies runner fleet
+description: >-
+  Install, configure, monitor and back up a Zoomies runner fleet from scripts.
+  Read the proposed automation contract and its current stability limits.
 ---
 
 # Automation contract
