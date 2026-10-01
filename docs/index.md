@@ -31,6 +31,8 @@ curl -fsSL https://zoomies.sh/install.sh | sh
 
 </div>
 
+<p class="demo" markdown="span">[Try the demo fleet (no GitHub needed) :material-arrow-right:](demo.md){ .md-button }</p>
+
 <p class="popular" markdown="span">Popular: [Quick start](quickstart.md) [The web UI](ui.md) [Private hosts with Tailcat](private-hosts.md) [Migrate existing runners](migration.md) [Compared with ARC](actions-runner-controller.md)</p>
 
 </div>
@@ -236,8 +238,8 @@ the same `runs-on` now reaches a fleet that gives every job a fresh runner.
 Retire the old machines as the work moves across.
 
 Either way, nothing is written until you have read it, and
-`ZOOMIES_SEED_DEMO=true` gives you a whole fixture fleet to walk the wizard
-through before you connect GitHub to anything.
+[the demo fleet](demo.md) (`ZOOMIES_SEED_DEMO=true`) gives you a whole fixture
+fleet to walk the wizard through before you connect GitHub to anything.
 
 [Migrate existing runners :material-arrow-right:](migration.md){ .md-button }
 
@@ -334,13 +336,15 @@ been run and which have only been built.
 <p class="lede">
 One command installs it, and the quick start takes you from a fresh host to a
 running job in about five minutes. It is free, it is yours, and you can read
-every line of it. Still deciding? The FAQ answers what people ask before they
+every line of it. Still deciding? The demo fleet shows you the whole UI with no
+GitHub account involved, and the FAQ answers what people ask before they
 self-host runners — what it costs, what it needs, and what it will not protect
 you from.
 </p>
 
 <p class="actions" markdown>
 [Install Zoomies :material-arrow-right:](quickstart.md){ .md-button .md-button--primary }
+[Try the demo fleet](demo.md){ .md-button }
 [See the web UI](ui.md){ .md-button }
 [Browse the FAQ](faq.md){ .md-button }
 </p>

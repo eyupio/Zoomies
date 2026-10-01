@@ -19,7 +19,7 @@ The fleet in them is the demo fixture the Playwright suite runs against: two
 pools, three hosts, a dozen runners across every state the controller knows,
 and a morning's worth of jobs. `ZOOMIES_SEED_DEMO=true` writes the same fleet
 into an empty controller, so you can walk through these pages yourself before
-connecting GitHub.
+connecting GitHub — [the demo page](demo.md) has the one block to paste.
 
 ## Signing in
 
@@ -579,8 +579,9 @@ The design system behind all of this — tokens, status colours, components and
 the accessibility checklist — is in [UI guidelines](ui-guidelines.md).
 
 Nothing here needs a GitHub App to look at: the [quick start](quickstart.md)
-takes about five minutes, and `ZOOMIES_SEED_DEMO=true` fills a fresh controller
-with the same fleet these screenshots were taken from.
+takes about five minutes, and [the demo fleet](demo.md)
+(`ZOOMIES_SEED_DEMO=true`) fills a fresh controller with the same fleet these
+screenshots were taken from.
 
 ## Provisioning queue
 

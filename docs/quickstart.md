@@ -23,6 +23,9 @@ CLI or API equivalent is, and [Other ways in](#other-ways-in) collects them.
 curl -fsSL https://zoomies.sh/install.sh | sh
 ```
 
+To see the UI before you set anything up, [try the demo fleet](demo.md) — one
+pasted block, with no GitHub account and no setup questions.
+
 The script is POSIX `sh`, and it is written to be read before it is run — which
 is the way we would rather you did it:
 
