@@ -1719,10 +1719,19 @@ func unenforceableProblem(h *store.Host, info store.HostBackend) (Problem, bool)
 }
 
 func (c *Controller) jobProblems(ctx context.Context, out *[]Problem) error {
-	if err := c.lostRunnerProblems(ctx, out); err != nil {
+	// Both of the next two read the same hundred faulted jobs, so it is one
+	// query rather than two: asked twice on every pass it was most of what the
+	// problems list cost. Each gets its own copy, because the first filters its
+	// slice in place.
+	faulted, _, err := c.st.ListJobs(ctx, store.JobFilter{FaultedOnly: true},
+		store.Page{Limit: 100, Sort: "queued_at", Desc: true})
+	if err != nil {
+		return fmt.Errorf("listing jobs that lost their runner: %w", err)
+	}
+	if err := c.lostRunnerProblems(ctx, out, slices.Clone(faulted)); err != nil {
 		return err
 	}
-	if err := c.oomKilledProblems(ctx, out); err != nil {
+	if err := c.oomKilledProblems(ctx, out, faulted); err != nil {
 		return err
 	}
 	all, err := c.unmatchedQueuedJobs(ctx)
@@ -1794,12 +1803,7 @@ const unmatchedGrace = 2 * time.Minute
 // hour. GitHub records these as failures like any test failure, and a team
 // that sees "CI is flaky" when the fleet is killing their jobs will blame the
 // wrong thing; this is where the fleet owns up.
-func (c *Controller) lostRunnerProblems(ctx context.Context, out *[]Problem) error {
-	faulted, _, err := c.st.ListJobs(ctx, store.JobFilter{FaultedOnly: true},
-		store.Page{Limit: 100, Sort: "queued_at", Desc: true})
-	if err != nil {
-		return fmt.Errorf("listing jobs that lost their runner: %w", err)
-	}
+func (c *Controller) lostRunnerProblems(ctx context.Context, out *[]Problem, faulted []*store.Job) error {
 	since := c.Now().Add(-problemWindow)
 	recent := faulted[:0]
 	for _, j := range faulted {
@@ -1860,12 +1864,7 @@ func (c *Controller) lostRunnerProblems(ctx context.Context, out *[]Problem) err
 // records as a failed step like any test and no runner was lost for. It is per
 // host because the fix is: a host that keeps killing jobs is too small for the
 // work its pools send it.
-func (c *Controller) oomKilledProblems(ctx context.Context, out *[]Problem) error {
-	faulted, _, err := c.st.ListJobs(ctx, store.JobFilter{FaultedOnly: true},
-		store.Page{Limit: 100, Sort: "queued_at", Desc: true})
-	if err != nil {
-		return fmt.Errorf("listing jobs killed for memory: %w", err)
-	}
+func (c *Controller) oomKilledProblems(ctx context.Context, out *[]Problem, faulted []*store.Job) error {
 	since := c.Now().Add(-problemWindow)
 	byHost := map[string][]*store.Job{}
 	var hosts []string

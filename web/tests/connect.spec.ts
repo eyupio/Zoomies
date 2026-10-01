@@ -34,7 +34,7 @@ function fake(): Fake {
   return JSON.parse(readFileSync('test-results/fakegithub.json', 'utf8')) as Fake;
 }
 
-/** Fill the "existing App" form and submit it. */
+/** Fill the "use an App you already have" form and submit it. */
 async function connectWith(page: import('@playwright/test').Page, key: string): Promise<void> {
   const details = fake();
   await page.getByRole('button', { name: 'Connect GitHub' }).first().click();
@@ -49,6 +49,34 @@ async function connectWith(page: import('@playwright/test').Page, key: string): 
   await dialog.getByLabel('Private key').fill(key);
   await dialog.getByRole('button', { name: 'Connect', exact: true }).click();
 }
+
+test('both tab labels are whole on a phone', async ({ page }) => {
+  // "Use an App you already have" was clipped to "Use an App you already h" in a
+  // tab list that scrolls sideways, so the way through for a controller with no
+  // webhook was the part of the dialog that could not be read.
+  await page.setViewportSize({ width: 375, height: 812 });
+  await goto(page, '/installations', 'Installations');
+  await page.getByRole('button', { name: 'Connect GitHub' }).first().click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+
+  const list = dialog.getByRole('tablist');
+  const { scrollWidth, clientWidth } = await list.evaluate((el) => ({
+    scrollWidth: el.scrollWidth,
+    clientWidth: el.clientWidth,
+  }));
+  expect(scrollWidth, 'the tab list scrolls sideways, so a label is cut off').toBeLessThanOrEqual(
+    clientWidth,
+  );
+  // And each tab ends inside the list, which is what "whole" means to a reader.
+  const edge = (await list.boundingBox())!;
+  for (const name of ['New App', 'Existing App']) {
+    const box = (await dialog.getByRole('tab', { name }).boundingBox())!;
+    expect(box.x + box.width, `the ${name} tab runs past the end of the list`).toBeLessThanOrEqual(
+      edge.x + edge.width + 0.5,
+    );
+  }
+});
 
 test('an App connected with an unusable key says so, and works once it is fixed', async ({
   page,

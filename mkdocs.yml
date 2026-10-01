@@ -133,6 +133,9 @@ hooks:
   # rendered by overrides/partials/source.html. Material would otherwise fetch
   # them in the browser and cache them in the tab for as long as it lives.
   - hooks/source.py
+  # Lazy, sized images: the colour scheme a reader is not using is never
+  # downloaded, and a page does not reflow as its screenshots arrive.
+  - hooks/images.py
 
 extra:
   # Who builds Zoomies. overrides/partials/copyright.html prints this in the
@@ -159,6 +162,7 @@ nav:
   - Running the fleet from the web UI:
       - The UI, page by page: ui.md
       - Hosts and pools: hosts-and-pools.md
+      - Persistent caches: persistent-caches.md
       - Elastic CPU zoomies: elastic-cpu.md
       - Private hosts with Tailcat: private-hosts.md
       - Proxmox VE: proxmox.md

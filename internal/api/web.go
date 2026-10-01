@@ -12,7 +12,9 @@ import (
 	"net/http"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -69,6 +71,12 @@ type spaHandler struct {
 	// served. See serveIndex for why it, rather than a modification time, is
 	// what decides whether a browser may keep the copy it has.
 	indexETag string
+	// gz holds each static file's gzip body, made the first time somebody asks
+	// for it. Compressing at startup would cost every controller start a few
+	// hundred milliseconds for files most operators never fetch; compressing per
+	// request would spend CPU on the same bytes thousands of times.
+	// A pointer so the handler can be copied; nil means nothing is kept.
+	gz *sync.Map // file name -> []byte
 }
 
 // newSPAHandler prepares the embedded UI for serving. externalURL is the
@@ -98,6 +106,7 @@ func newSPAHandler(externalURL string, allowIndexing bool) (*spaHandler, error) 
 		index:   index,
 		built:   !strings.Contains(string(index), placeholderMarker),
 		modTime: buildTime(),
+		gz:      &sync.Map{},
 	}
 	h.hashes = inlineScriptHashes(index)
 	// Computed from the substituted bytes, not the embedded ones: two
@@ -167,6 +176,9 @@ func (h *spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if st, serr := f.Stat(); serr == nil && !st.IsDir() {
 			if seeker, ok := f.(io.ReadSeeker); ok {
 				h.setCacheHeaders(w, name)
+				if h.serveGzip(w, r, name, st.Size(), seeker) {
+					return
+				}
 				http.ServeContent(w, r, path.Base(name), h.modTime, seeker)
 				return
 			}
@@ -182,6 +194,67 @@ func (h *spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.serveIndex(w, r)
+}
+
+// compressibleAsset is whether a static file is text a gzip body suits. Images
+// and fonts are already compressed, and a second pass makes them larger.
+func compressibleAsset(name string) bool {
+	switch strings.ToLower(path.Ext(name)) {
+	case ".js", ".mjs", ".css", ".svg", ".json", ".html", ".webmanifest", ".txt", ".xml", ".map":
+		return true
+	}
+	return false
+}
+
+func (h *spaHandler) load(name string) ([]byte, bool) {
+	if h.gz == nil {
+		return nil, false
+	}
+	v, ok := h.gz.Load(name)
+	if !ok {
+		return nil, false
+	}
+	return v.([]byte), true
+}
+
+// serveGzip answers with the file's gzip body when the client takes one, and
+// reports whether it did. A request for a byte range is left to the identity
+// body: a range of a compressed body is not a range of the file, and browsers
+// do not ask for one of a script.
+func (h *spaHandler) serveGzip(w http.ResponseWriter, r *http.Request, name string, size int64, f io.ReadSeeker) bool {
+	if !compressibleAsset(name) || size < gzipMinSize {
+		return false
+	}
+	// Said on the identity answer too, so a shared cache keeps the two apart.
+	w.Header().Add("Vary", "Accept-Encoding")
+	if r.Header.Get("Range") != "" || !acceptsGzip(r) {
+		return false
+	}
+	var body []byte
+	if v, ok := h.load(name); ok {
+		body = v
+	} else {
+		raw, err := io.ReadAll(f)
+		if err != nil {
+			return false
+		}
+		// Rewound for the caller, which falls back to the file on any later
+		// refusal and expects it where it left it.
+		if _, err := f.Seek(0, io.SeekStart); err != nil {
+			return false
+		}
+		body = gzipBody(raw)
+		if h.gz != nil {
+			h.gz.Store(name, body)
+		}
+	}
+	w.Header().Set("Content-Encoding", "gzip")
+	// ServeContent leaves the length off an encoded body, on the assumption
+	// that something downstream will change it. Nothing will, and without it
+	// the browser has no size to show a progress bar against.
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+	http.ServeContent(w, r, path.Base(name), h.modTime, bytes.NewReader(body))
+	return true
 }
 
 func (h *spaHandler) serveIndex(w http.ResponseWriter, r *http.Request) {
@@ -216,8 +289,19 @@ func (h *spaHandler) setCacheHeaders(w http.ResponseWriter, name string) {
 		w.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d, immutable", int(immutableMaxAge.Seconds())))
 		return
 	}
-	// Everything else at the root -- the favicon, a manifest -- is not hashed,
-	// so it is revalidated rather than held.
+	// Images are not hashed either, but they change with a release and not
+	// between two page loads, and the biggest of them (the logos) are three
+	// hundred kilobytes that a returning visitor on a phone fetched again every
+	// five minutes. A week is held; the day after is served stale while the
+	// browser checks, so a replaced logo shows up on the next visit and not the
+	// one after.
+	switch strings.ToLower(path.Ext(name)) {
+	case ".png", ".ico", ".jpg", ".jpeg", ".webp", ".avif":
+		w.Header().Set("Cache-Control", "public, max-age=604800, stale-while-revalidate=86400")
+		return
+	}
+	// Everything else at the root -- a manifest -- is not hashed and may change
+	// meaning, so it is revalidated rather than held.
 	w.Header().Set("Cache-Control", "public, max-age=300")
 }
 

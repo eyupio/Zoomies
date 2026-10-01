@@ -6,6 +6,12 @@
   light one. Both are the paw/swish, which the brand reserves for exactly this
   favicon scale, and the stylesheet shows whichever matches the active scheme
   rather than inverting one of them -- inverted line art comes out washed out.
+
+  Both are lazy, because `display: none` stops an image being drawn and not
+  being fetched: the one the scheme hides was a 118 KB or 243 KB download on every
+  page. A lazy image with no layout box is never requested, and the visible one
+  is in the viewport and loads at once. The alt text is empty on purpose: the
+  link around the mark already carries the site's name, and "logo" twice is noise.
 -#}
-<img src="{{ 'brand/paw-swish-white.png' | url }}" alt="logo" class="zoomies-logo zoomies-logo--dark">
-<img src="{{ 'brand/paw-swish-black.png' | url }}" alt="logo" class="zoomies-logo zoomies-logo--light">
+<img src="{{ 'brand/paw-swish-white.png' | url }}" alt="" loading="lazy" decoding="async" class="zoomies-logo zoomies-logo--dark">
+<img src="{{ 'brand/paw-swish-black.png' | url }}" alt="" loading="lazy" decoding="async" class="zoomies-logo zoomies-logo--light">

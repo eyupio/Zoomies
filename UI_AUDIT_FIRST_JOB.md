@@ -23,8 +23,10 @@ decision, and why, is the list under *What is still yours to decide*.
 separately, at the same commit, and merged first, so this file has a name of its own. The two were
 written without sight of each other and **use the same finding IDs for different findings**: `C1`
 here is the Connect GitHub dead end, and `C1` there is the checklist deleting itself. An ID in this
-file means this file. Its fixes (#563) merged while this branch was open. Where they overlap, this is
-where each of the other file's findings stands now:
+file means this file. Its fixes (#563) merged while this branch was open, and a third audit of the
+same commit, [`FUNNEL_AUDIT.md`](FUNNEL_AUDIT.md), merged after it with its own fixes for the docs
+site (#559); a Status line below that cites #559 is answered there. Where the first two overlap, this
+is where each of the other file's findings stands now:
 
 | `UI_AUDIT.md` | What it found | Where it stands |
 | --- | --- | --- |
@@ -33,21 +35,23 @@ where each of the other file's findings stands now:
 | C3 | Connect GitHub refuses the home lab | **Fixed on main (#563):** the dialog offers *Create the App anyway*. This branch's inline address field was set aside for it (C1 here) |
 | C4 | No first-job moment | **Done on main (#563)** (C2 and N12 here), less the prefilled GitHub link |
 | C5 | Nobody can see the product work before the install marathon | **Done on main (#563):** `zoomies demo` and `install.sh --demo` (C4 here) |
-| C6 | The landing page's CTA is clipped on a phone and the page scrolls sideways | **Fixed on main (#563) for phones. Here:** the same scroll between 720 and 1366px, and the comparison table, which ended 28px past a 375px screen (C3 here) |
+| C6 | The landing page's CTA is clipped on a phone and the page scrolls sideways | **Fixed on main (#563, #559) for phones. Here:** the same scroll between 720 and 1366px, and the comparison table, which still ended 28px past a 375px screen (C3 here) |
 | H1 | The Overview is a dashboard of zeros | **In part on main (#563):** dashes for the timings. The composition is left to decide (C6 here) |
 | H2 | Creating the first pool takes five screens | **Copy only on main (#563).** Here: a controller with no connection gets a prompt instead of the wizard (H5 here) |
 | H3 | The installer asks up to 18 questions | Not touched; one question moves earlier (H11 here) |
-| H4, H5, H6, H7 | Quick start order, landing hierarchy, hero, "what is qualified" | Not touched: copy and positioning |
+| H4, H5, H6 | Quick start order, landing hierarchy, hero | **Done on main (#559):** the Quick Start's order, the headline and the hero's buttons (H2 and H3 here) |
+| H7 | "What is qualified" | Not touched: copy |
 | H8, H9 | Phone text and tap sizes, lists below summaries | Not touched (H12 here, left to decide) |
 | H10 | The sign-up asks for an email | **Fixed on main (#563)** (H11 here) |
 | H11 | The Installations page opens with a warning and two identical buttons | **In part here** (H8 here): the warning waits for a connection, the two buttons remain |
 | H12, H13 | Twelve sections from minute zero, nothing measures the funnel | Not touched |
 | N1 | The events empty state blames a filter | **Fixed on main (#563)** |
 | N2 | Duplicate "Other runners" switch, and a Refresh button | Not touched (the duplicate is left to decide, C6 here) |
-| N3 | The Connect dialog clips its second tab and orphans a step | **In part here** (H6 here): the tabs fit, the stepper still wraps |
+| N3 | The Connect dialog clips its second tab and orphans a step | **In part on main (#565):** the tabs fit, with the same two labels this branch chose. The stepper still wraps |
 | N4 | The Connect dialog front-loads advanced options | **In part here** (H6 here): they are behind a fold, the disabled "Continue" is as main has it |
-| N5, N8, N11, N12 | Mermaid CDN, expandable rows in a grid, bottom-bar docs, the NEW pill | Not touched |
-| N6, N7, N9 | Docs contrast, definition-list markup, an unnamed progress bar | **Fixed on main (#563).** Here: the NEW chip's size (N9 here), a different element from N6's |
+| N5, N8, N11 | Mermaid CDN, expandable rows in a grid, bottom-bar docs | Not touched |
+| N12 | The NEW pill is three lines on a phone | **Gone on main (#559):** the pill left the hero (N9 here) |
+| N6, N7, N9 | Docs contrast, definition-list markup, an unnamed progress bar | **Fixed on main (#563)** |
 | N10 | A dead band in the checklist's first row | **Fixed on main (#563)** (N10 here) |
 
 ## Read this first
@@ -104,12 +108,12 @@ Severity: **Critical** blocks conversion or misleads someone at the moment of de
 | --- | --- | --- | --- | --- |
 | C1 | Connect GitHub dead-ends on a path the installer itself offers | Activation | both | Fixed on main (#563); the inline address field was set aside |
 | C2 | Nothing gets the user to a running job; the last step is the wrong tool | Activation | both | Fixed on main (#563); prefilled link not done |
-| C3 | Landing page broken at 375px: install command and proof table | Landing | mobile | In part on main (#563); here: the table and the laptop-width scroll |
-| C4 | No way to try it without a server, root and a GitHub org | Landing | both | Fixed on main (#563); recording and hosted demo left to decide |
+| C3 | Landing page broken at 375px: install command and proof table | Landing | mobile | In part on main (#563, #559); here: the table and the laptop-width scroll |
+| C4 | No way to try it without a server, root and a GitHub org | Landing | both | Fixed on main (#563, #559); recording and hosted demo left to decide |
 | C5 | App asks for write on code and workflows before any value | Activation | both | Fixed here, **needs sign-off** |
 | C6 | First-run Overview buries its one job and contradicts itself | First run | both | In part on main (#563); here: one primary, contrast. Composition left to decide |
-| H1–H12 | See below | | | Fixed here: H4, H6, H8, H9. In part here: H1, H5, H11. On main (#563): the rest of H1, H5's subtitle, H11's email. Left to decide: H2, H3, H7, H10, H12 |
-| N1–N12 | See below | | | Fixed here: N1, N2, N3. In part here: N7, N9. On main (#563): N10, N12. Left to decide: N4, N5, N6, N8, N11 |
+| H1–H12 | See below | | | Fixed here: H4 (the measure and the tables), H6, H8, H9. In part here: H1, H5, H11. On main: H2 and most of H3 (#559), the rest of H1, H5's subtitle and H11's email (#563), the grid in H4 (#559). Left to decide: H7, H10, H12 |
+| N1–N12 | See below | | | Fixed here: N1, N2, N3. In part here: N7. On main: N10, N12 (#563), N9 is moot (#559). Left to decide: N4, N5, N6, N8, N11 |
 
 ---
 
@@ -141,7 +145,7 @@ Severity: **Critical** blocks conversion or misleads someone at the moment of de
 
 ### C3 · The mobile landing page is broken in the two places that matter most: the install command and the proof table
 
-- **Status:** **Fixed on main (#563, its C6) for the install command and for phones; here, the two things it left.** The audit blamed the comparison table for the layout viewport growing to 399px. Bisecting with injected CSS shows that hiding the table, the install box or both left `innerWidth` at 399; the cause was the hero's decorative glow (`inset: -3rem -2rem 30%`, 423px wide, 24px past the gutters), and #563 reached the same diagnosis. Its fix stops the glow at the page edge **below 720px only**, so with its stylesheet alone the page still scrolled sideways by 24px at 768, 1024 and 1280px (1px at 1366), and the comparison table ended 28px past a 375px screen and 83px past a 320px one, with the Zoomies column, the one it exists to show, the part cut off. **Here:** the glow stops at the hero's sides at every width, and up to 480px the table drops its middle column ("A few static runners"), so the comparison it exists to make, ARC against Zoomies, is inside the screen (right edge 359px at 375, 304px at 320), with its wrapper scrolling rather than widening the page should a row outgrow it. Re-measured on the reconciled branch at nine widths from 320 to 1920px in both themes: no sideways scroll at any of them. The install command is #563's (it wraps at a space, with the chip where it was); this branch's version, which moved the chip below as a full-width button, was dropped for it. **The guard suggested under Fix is vacuous:** in a mobile-emulated context `scrollWidth <= innerWidth` reads 399 <= 399 at baseline and passes, so a site check should assert `innerWidth === 375`. Checked in Chromium only; Firefox and WebKit are not available here.
+- **Status:** **Fixed on main (#563 and #559) for the install command and for phones; here, the two things they left.** The audit blamed the comparison table for the layout viewport growing to 399px. Bisecting with injected CSS shows that hiding the table, the install box or both left `innerWidth` at 399; the cause was the hero's decorative glow (`inset: -3rem -2rem 30%`, 423px wide, 24px past the gutters), and #563 reached the same diagnosis. Its fix stops the glow at the page edge **below 720px only**, so with main's stylesheet alone the page still scrolled sideways by 24px at 768, 1024 and 1280px (1px at 1366). #559 put the Zoomies column first, which spares the one the table exists to show, but the table still ended 28px past a 375px screen and 83px past a 320px one, so its last column ("A few static runners") was cut off with nothing to say there was more. **Here:** the glow stops at the hero's sides at every width, and up to 480px the table scrolls inside its own box, so every column is there and the page does not move. Re-measured on the reconciled branch at nine widths from 320 to 1920px: no sideways scroll at any of them in either theme. The install command is main's (it wraps at a space, and #559 moves the copy button below the text as a 44px target); this branch's version of both was dropped. **The guard suggested under Fix is vacuous:** in a mobile-emulated context `scrollWidth <= innerWidth` reads 399 <= 399 at baseline and passes, so a site check should assert `innerWidth === 375`. Checked in Chromium only; Firefox and WebKit are not available here.
 - **Pass:** Designer
 - **Where:** `docs/index.md` L26–30 (hero command) and L290–303 (`.zoomies-compare`); `docs/stylesheets/zoomies.css` L897–935 (`.zoomies-install`), L1037–1044 (compare table), L1201–1232 (the only phone block; it touches neither). Viewport 375×812.
 - **Problem:** *Measured.* (a) The command is 421px of monospace in a 343px box with 4.4em of right padding for the copy chip. First paint reads `curl -fsSL https://zoomies.sh/i` and then the copy button sits **on top of** the remaining characters. The CSS comment (L906–907) says the tail "scrolls clear of it"; nothing tells a visitor it scrolls. They cannot read the one line the page exists to get them to run. (b) The comparison table is 385px wide in a 343px column. The layout viewport grows to 399px (`window.innerWidth` 399 against a 375px visual viewport; the full-page capture is **798px wide, not 750**), so the page pans sideways or renders zoomed out, and **the Zoomies column, the one the table exists to sell, is the part cut off** (header and "one comman…" clipped at the right edge). *Correction: the table is cut off, but it is not what widened the layout viewport; see Status.* Everything else on the page measured clean, which makes these two stand out: they are the first thing and the best-persuading thing.
@@ -152,7 +156,7 @@ Severity: **Critical** blocks conversion or misleads someone at the moment of de
 
 ### C4 · There is no way to try Zoomies without a server, root access and a GitHub organisation, and the demo that would fix it is buried
 
-- **Status:** **Fixed on main (#563, its C5).** `zoomies demo` runs a throwaway controller with the seeded fleet on `127.0.0.1`, deleted on Ctrl-C, and `install.sh --demo` runs it from a temporary directory with no sudo and no prompts; the home page offers it under the install command. An earlier version of this branch had a demo page with one pasted block and a test that held the block to the controller's own validation; it was dropped in favour of the command. **Not done:** the recorded walkthrough, and a **hosted** public demo, which delivery rule 15 (`ROADMAP.md`) rules out unless the owner changes it.
+- **Status:** **Fixed on main (#563, #559).** `zoomies demo` runs a throwaway controller with the seeded fleet on `127.0.0.1`, deleted on Ctrl-C, and `install.sh --demo` runs it from a temporary directory with no sudo and no prompts; the hero now has a second button, "Try the demo — no GitHub needed", directly under the install command. An earlier version of this branch had a demo page with one pasted block and a test that held the block to the controller's own validation; it was dropped in favour of the command. **Not done:** the recorded walkthrough, and a **hosted** public demo, which delivery rule 15 (`ROADMAP.md`) rules out unless the owner changes it.
 - **Pass:** First-time user
 - **Where:** `docs/index.md` L26–34 (hero: only the install command and doc links), L239 (the *only* mention on the home page, mid-paragraph in "Moving what you have now"), L326–350 (closing CTA); `docs/quickstart.md` (no mention at all); `docs/ui.md` L20–22 and L581–583; seeded by `internal/controller/seed.go` L123–. Both viewports.
 - **Problem:** To see anything real a visitor must: run an installer with root on a Linux box (it escalates with `sudo`), answer eight or more prompts, create a GitHub App on an organisation (with the permissions in C5), *then* push a workflow. The thing that answers "is the UI as good as the screenshot?" without any of that already exists: a seeded fleet of two pools, hosts, a dozen runners and a morning of jobs, **no GitHub required**. It is the very data behind the hero screenshot. It is mentioned in one sentence and offered nowhere. For a self-hosted tool, this *is* the free trial, and the funnel hides it.
@@ -215,7 +219,7 @@ Severity: **Critical** blocks conversion or misleads someone at the moment of de
 
 ### H2 · The landing headline spends the biggest type on a pun and the dimmest colour on the product name
 
-- **Status:** **Left for a decision.** Headline copy and hierarchy are brand voice.
+- **Status:** **Fixed on main (#559).** The headline now reads "GitHub Actions runners on machines you own.", the wording this finding suggested, with the product's name in the primary colour and a lede that says what Zoomies does. This branch changed nothing here.
 - **Pass:** Designer
 - **Where:** `docs/index.md` L18 (`# Give your GitHub Actions runners the Zoomies.`); `docs/stylesheets/zoomies.css` L841–845 (`.quiet`); compare `web/src/routes/Login.svelte` L619. Desktop and mobile.
 - **Problem:** The H1 is a joke that needs "the zoomies" as dog slang to land, and the second line, the only part that names the product, is deliberately set in the *quietest* text colour (comment at L829). It says nothing about the outcome. A first-time visitor reads 72px of whimsy, then must read the lede to learn it is CI infrastructure. The contrast is fine (line two is 4.45:1 light and 5.75:1 dark at 72px); the *hierarchy* is wrong. The better headline **is already in your product**: the Login panel says **"GitHub Actions runners on machines you own."**
@@ -223,7 +227,7 @@ Severity: **Critical** blocks conversion or misleads someone at the moment of de
 
 ### H3 · The header and hero offer six equal-weight exits and no persistent install action
 
-- **Status:** **Left for a decision.** Header actions, the NEW pill and the repository counts are marketing positioning.
+- **Status:** **In part on main (#559); the rest is left for a decision.** The hero has a primary "Get started" and a second button for the demo, the NEW pill is out of it, the chips are three ("See it running", "Compared with ARC", "What it costs") and the proof line under it is the project's own CI. **Left:** an Install button and a Docs link in the header, a sticky install bar once the command scrolls away, and the repository counts the header shows ("v1.3.4 ★52 ⑂43"), which are marketing positioning.
 - **Pass:** Designer
 - **Where:** `docs/index.md` L9–11 (`hide: navigation, toc`), L16 (the "NEW" pill), L34 (five "Popular" chips); `mkdocs.yml` L47–58 (no `navigation.tabs`); `overrides/partials/source.html` and `hooks/source.py` (header repository stats). Desktop 1440.
 - **Problem:** *Measured.* The header has a logo, a theme toggle, search and a repository link, with **no nav items (0 `.md-tabs`) and no button**. The first screen offers: the NEW pill (which leaves for a sub-feature page, "Elastic CPU zoomies", before the visitor knows what Zoomies is), the command, five "Popular" chips (one is "Private hosts with Tailcat", a term nobody outside the project can parse), search, and the repo link. The first `.md-button` on the page is at y=1,864 and "Install Zoomies" is at **y=7,120 of 7,518**. Scroll past the command at y≈500 and the next install offer is a repeat of the command at y≈3,800 (inside "Five minutes to a running fleet"), then the button at y=7,120. The only number the header shows is **"v1.3.4 ★52 ⑂43"**, as built today: small adoption advertised on every page.
@@ -231,7 +235,7 @@ Severity: **Critical** blocks conversion or misleads someone at the moment of de
 
 ### H4 · Landing typography and layout: 172-character lines, an orphaned card, three table widths
 
-- **Status:** **Fixed, apart from the card copy.** Prose directly under the hero is held to `72ch` (the site's root is 20px, so the audit's `46rem` would have been about 123 characters), which takes the first line from 172 characters to 95, with a median of 91 and a maximum of 100 across the page's twenty body blocks. The feature grid is three across, two on a tablet and one on a phone, so nine cards tile 3×3 under the full-width card with no orphan, and the three tables are real tables as wide as the column (983, 1,288 and 656px became 1,288px each). **Not done:** trimming each card to 25 words, which is copy.
+- **Status:** **Fixed, split with main.** **Here:** prose directly under the hero is held to `72ch` (the site's root is 20px, so the audit's `46rem` would have been about 123 characters), which takes the first line from 172 characters to 95; and the three tables are real tables as wide as the column (983, 1,288 and 656px became 1,288px each). **On main (#559):** the feature grid is three across from 768px with the last card taking the row, so nine cards tile with no orphan. **Not done:** trimming each card to 25 words, which is copy.
 - **Pass:** Designer
 - **Where:** `docs/stylesheets/zoomies.css` L428–430 (`.md-grid { max-width: 66rem }`), L964–969 (`.zoomies-grid`), tables; `docs/index.md`. Desktop 1440.
 - **Problem:** *Measured.* Body paragraphs are 1,288px wide, **172 characters on the first line** (aim for 60–80). The feature grid is described in the CSS as "a three-across grid", but `repeat(auto-fit, minmax(15rem, 1fr))` makes it **four across**, so nine cards leave a **lone orphan ("Safe defaults") with a void beside it** before the full-width tenth. The page's three tables are 983, 1,288 and 656px wide. Feature cards run 23–64 words (average about 42). The page is 1,979 words and 7,518px for a visitor who decides in seconds.
@@ -247,7 +251,7 @@ Severity: **Critical** blocks conversion or misleads someone at the moment of de
 
 ### H6 · The Connect dialog's buttons do not say what they do, the checklist adds a redundant click, and everyone is asked Enterprise questions
 
-- **Status:** **Fixed here, with one item left for a decision.** The footer's primary on step two is "Create the App on GitHub" and is the button that leaves, so there is one primary where there were two; "Exchange the code" is "Use this code" and appears where a code is actually pasted; step one's footer reads "Continue" (disabled while #563's "Create the App anyway" tick is unticked); App name and API base URL sit behind "Advanced: a custom App name, GitHub Enterprise" (open when either has a value or an error); the tabs are "New App" and "Existing App"; the checklist opens the dialog directly. **Not done:** collapsing the two primaries on an empty Installations page — Hosts has the same header-plus-empty-state pattern, so that is a product-wide convention to change in one go or not at all.
+- **Status:** **Fixed here, with one item left for a decision.** The footer's primary on step two is "Create the App on GitHub" and is the button that leaves, so there is one primary where there were two; "Exchange the code" is "Use this code" and appears where a code is actually pasted; step one's footer reads "Continue" (disabled while #563's "Create the App anyway" tick is unticked); App name and API base URL sit behind "Advanced: a custom App name, GitHub Enterprise" (open when either has a value or an error); the checklist opens the dialog directly. The tabs are "New App" and "Existing App" on main too (#565, the same two labels, with the longer wording moved into the tab list's accessible name). **Not done:** collapsing the two primaries on an empty Installations page — Hosts has the same header-plus-empty-state pattern, so that is a product-wide convention to change in one go or not at all.
 - **Pass:** First-time user and Designer
 - **Where:** `ConnectDialog.svelte` L1324 ("Continue to GitHub"), L998 ("Create the App on GitHub"), L1334 ("Exchange the code"), L912–979 (the fields), L743–750 (tabs); `FirstRun.svelte` L189; `routes/Installations.svelte` L219–223 and L249–253; `lib/components/Tabs.svelte` L126, L140. Desktop and mobile.
 - **Problem:** (i) **"Continue to GitHub" does not go to GitHub.** It advances to step 2, where the in-body "Create the App on GitHub" actually leaves, while the footer primary reads **"Exchange the code"** and is disabled until a code exists: two primaries on one screen, one of them jargon for a step the user never performs (it runs itself on return). (ii) The checklist's "Connect GitHub" does not open the dialog; it navigates to `/installations`, which shows **two more primary "Connect GitHub" buttons** (header and empty state). It is click 1 and click 2 of the measured path. (iii) Step 1 asks every user for org-or-repo, the login, **"App name (optional)"** and **"API base URL" (optional; GitHub Enterprise Server)**; the terminal installer asks the same four (`manifest.go` L356–420). (iv) At 375px the second tab, "Use an App you already have", is **clipped mid-word with no scroll cue**.
@@ -362,7 +366,7 @@ Severity: **Critical** blocks conversion or misleads someone at the moment of de
 
 ### N9 · Small contrast and size misses on the landing page
 
-- **Status:** **Fixed, between the two.** The "Popular:" label is 5.00:1 on the light ground (was 4.45:1) and 5.75:1 on the dark, through #563's lighter grey token (its N6); this branch's own change to it was dropped. The NEW chip's label is 12px (was 11.2px), which is this branch's.
+- **Status:** **Moot.** #559 rewrote the hero: the NEW chip and the "Popular:" label this finding measured are no longer on the page, and #563's lighter grey token covers the site's quiet text. This branch's change to the chip's size was dropped with it.
 - **Pass:** Designer · **Where:** `docs/stylesheets/zoomies.css` L936–945 (`.popular`) and L811–819 (the "NEW" chip).
 - **Problem:** *Measured.* The "Popular:" label is **4.45:1** in the light theme (needs 4.5), and the "NEW" chip's inner label is 11.2px.
 - **Fix:** Use `--md-default-fg-color--light` for the label (about 5.9:1) and a 12px minimum for the chip.
@@ -424,8 +428,8 @@ Each fix landed with a check at the layer it lives on, against the real binary w
 
 Left alone on purpose. Each is a product, brand or information-architecture call rather than a defect, and each Status line above says why.
 
-- **Copy and positioning:** the landing headline (H2); the header, hero actions and repository counts (H3).
-- **Layout and navigation:** whether a fleet with no pool should see the checklist and nothing else (C6: 900px tall against 2,276px at 1440); Bootstrap's split layout and lockup, dropping confirm-password, a `#setup=` URL fragment, and cutting the "Then: …" paragraph (an existing spec asserts it is there) (H1); creating a pool on one screen (H5); data-grid default columns (H7); twelve destinations from minute zero (H10); a phone layout for the data pages (H12); the tablet rail (N5); the Workflows default filter (N8); the add-host form (N6). The comparison table drops its middle column on a phone (C3): it is one rule to revert if a scrolling table is preferred.
+- **Copy and positioning:** the header's Install button, a sticky install bar and the repository counts (H3, in part).
+- **Layout and navigation:** whether a fleet with no pool should see the checklist and nothing else (C6: 900px tall against 2,276px at 1440); Bootstrap's split layout and lockup, dropping confirm-password, a `#setup=` URL fragment, and cutting the "Then: …" paragraph (an existing spec asserts it is there) (H1); creating a pool on one screen (H5); data-grid default columns (H7); twelve destinations from minute zero (H10); a phone layout for the data pages (H12); the tablet rail (N5); the Workflows default filter (N8); the add-host form (N6).
 - **Behaviour:** whether the connect dialog should take the missing external address itself for an account with the Platform role (C1: it was built and set aside for #563's approach); keeping the installer's GitHub answers across a skip (it needs somewhere to store them); the second *Other runners* switch; two primaries on an empty Installations page; whether a red "no host" check should block *Create pool*.
 - **Assets and build:** a recorded walkthrough; a **hosted** public demo, which delivery rule 15 rules out unless the owner changes it; pre-rendering the landing diagram (N4); an `init-env` script for Compose (N11).
 - **Not possible from here:** the *Open in GitHub* link that prefills the test workflow, because GitHub's current behaviour for it could not be confirmed offline.

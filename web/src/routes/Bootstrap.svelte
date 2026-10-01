@@ -160,9 +160,11 @@
         });
         return;
       }
+      // One sentence, because the page this lands on opens with the checklist
+      // that says what is left; a second one repeated it under the toast.
       toasts.success(
         `Signed in as ${identity?.name ?? username.trim()}`,
-        'Next: connect a GitHub App. The checklist on the Overview says what is left after that.',
+        'Next: connect a GitHub App.',
       );
       router.navigate('/');
     } catch (cause) {

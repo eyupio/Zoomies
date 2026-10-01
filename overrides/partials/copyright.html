@@ -28,6 +28,10 @@
       <li><a href="{{ 'security/' | url }}">Security</a></li>
       <li><a href="{{ 'api-surface/' | url }}">API</a></li>
       <li><a href="{{ 'faq/' | url }}">FAQ</a></li>
+      {#- Where a question goes is SUPPORT.md's table, and a tool that installs on
+          your infrastructure should not make you hunt for it. It lives in the
+          repository, like the roadmap the home page links to, so it is a link out. -#}
+      <li><a href="{{ config.repo_url }}/blob/main/SUPPORT.md" target="_blank" rel="noopener">Help</a></li>
       <li><a href="{{ config.repo_url }}" target="_blank" rel="noopener">Source</a></li>
     </ul>
   </nav>
