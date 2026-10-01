@@ -106,6 +106,10 @@ type Controller struct {
 	// list; see sso.go.
 	sso ssoBox
 
+	// problemsFlight shares one computation of the problems list between
+	// callers that overlap; see problems_flight.go.
+	problemsFlight problemsFlight
+
 	// cleanupCursor is owned by the serial reconcile loop.
 	cleanupCursor string
 	st            *store.Store

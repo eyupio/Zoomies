@@ -23,6 +23,12 @@ that needed no judgement call. This section says what happened to each; the
 findings themselves are left as written, so each can still be read against what
 it was.
 
+While this branch was open, the other audit's follow-up
+([`UI_AUDIT.md`](UI_AUDIT.md), PR #563) landed on `main` and fixed several of the
+same findings in its own way. Where it did, this section says **Done on main**,
+and what this branch had built for the same finding was dropped rather than
+reverse a decision that is already merged.
+
 **Done** means the fix is on this branch and was measured or tested. **Partly**
 says which half. **Decision** means the fix needs an owner's call on scope,
 security, brand or dependencies, and nobody has made it yet.
@@ -31,11 +37,11 @@ security, brand or dependencies, and nobody has made it yet.
 
 | | Status | What changed, or why not |
 | --- | --- | --- |
-| C1 | In progress | The home page and the Quick Start already lead to the demo. The `zoomies demo` command they describe is still being written, so they point at a development build for now. |
+| C1 | Done on main | `zoomies demo` runs a throwaway controller with the seeded fleet on `127.0.0.1`, and `install.sh --demo` runs it without installing anything. This branch's hero has a button for it, and the Quick Start's "Just looking?" section is main's. |
 | C2 | Done | The headline says what Zoomies is, with a primary button, a second for the demo, one line of prerequisites and the project's own CI as the proof line. |
-| C3 | Done | The refusal now offers two ways out. One is a box for the address GitHub will use, which saves `server.external_url`, shows the restart command and unlocks the form by itself when the controller is back. The other opens the Existing App tab and says Zoomies will poll. The checklist says a public address is needed first and its button reads "Set the address"; the tabs are "New App" and "Existing App" and fit at 375px; the Quick Start says what to expect. The one thing not done is a direct link into the dialog from the checklist. |
-| C4 | Done | "Before you start", the demo, then five steps; the installer's inventory folds away and the tuning moves to "After your first job". "Five minutes" is gone from the six places that said it. A measured time and an installer transcript would still help: both need a timed clean run on real hardware, which this sandbox cannot do. |
-| C5 | Done | The install command wraps on a phone, with its copy button below it as a 44px target. |
+| C3 | Done | On main, the dialog creates the App for a loopback address behind an explicit tick, with links to the setting and to the page about tunnels, which is the choice the terminal installer already makes. This branch built a different fix, an address box that saves the setting and waits for the restart, and dropped it for that reason. What was still broken was the second tab's label, clipped to "Use an App you already h" at 375px; the tabs are now "New App" and "Existing App". With no address at all the dialog still stops, as it must. |
+| C4 | Done | "Before you start", the demo, then five steps; the installer's inventory folds away and the tuning moves to "After your first job". "Five minutes" is gone from the six places that said it. On main, step 5 is now a complete test workflow and the checklist reports the first job. A measured time and an installer transcript would still help: both need a timed clean run on real hardware, which this sandbox cannot do. |
+| C5 | Done | On main the command wraps at a space. This branch also moves its copy button below the text, as a 44px target instead of a 24px one beside it. |
 | C6 | Decision | Loading Mermaid from `unpkg.com` is what breaks search and the diagrams when that host is blocked. The fix is to ship the 3.5 MB library from the site, which is a dependency under `docs/dependencies.md`'s rules. |
 
 ### High impact
@@ -46,15 +52,15 @@ security, brand or dependencies, and nobody has made it yet.
 | H2 | Partly | The page title is "Zoomies", so the header no longer shows a truncated tagline. Header tabs and a call to action change the site's information architecture. |
 | H3 | Partly | The caching page is in the navigation. Reordering the rest for an evaluator is an information-architecture call. |
 | H4 | Partly | Every screenshot is lazy and sized. Recapturing the hero without the demo's warnings, and swapping in the phone captures, would put a 700px-tall image on the first phone screen, which is a design call. |
-| H5 | Partly | A fresh browser's empty feed says nothing has happened yet; the "kinds you are watching" message appears only once the operator has moved a category. Hiding the rest of the dashboard until the first pool exists changes what the Overview is for, so it is left. |
-| H6 | Decision | Whether `external_url.missing` is a warning or information before the first connection, and whether the webhook panel belongs on an empty Installations page, are product calls. The panel's reachability check is useful before an App exists, which is why it was not simply hidden. The dialog now offers the fix, which was the missing half. |
+| H5 | Done on main | The empty feed blames a filter only when the operator's choices are what hold lines back, and the three timing tiles say "--" until there is something to time. Hiding the rest of the dashboard until the first pool exists changes what the Overview is for, so it is left. |
+| H6 | Decision | Whether `external_url.missing` is a warning or information before the first connection, and whether the webhook panel belongs on an empty Installations page, are product calls. The panel's reachability check is useful before an App exists, which is why it was not simply hidden. |
 | H7 | Decision | Narrowing the prose column and rewriting the home page's sentences is an editorial pass. |
 | H8 | Done | Three across from 768px, and the last card takes the row instead of leaving a hole. Cutting the grid to three headline cards is a content call. |
 | H9 | Partly | The comparison table leads with the Zoomies column and reads on a phone. Replacing the diagram with a stepper is a design call. |
 | H10 | Done | The hook, the lazy header logos and the closing logo. The header and footer marks are still the 118 KB and 243 KB files; shrinking them touches the brand pack. |
 | H11 | Partly | The project's own CI is the proof line under the hero. Badges, a maturity sentence and the header's star count are a call on how the project presents itself. |
 | H12 | Partly | The Elastic CPU announcement is out of the hero and the Quick Start now ends its fourth step on the defaults. The wizard's own fields are a product call. |
-| H13 | Decision | Removing the email field and carrying the setup token in a link are changes to account creation. |
+| H13 | Partly | On main the email field is gone and the button is on the first screen. Carrying the setup token in a link is left: both audits agree it needs a threat review. |
 | H14 | Partly | The footer links to `SUPPORT.md` as Help. A rendered help page and three FAQ entries are content to write. |
 | H15 | Decision | Turning the UI tour into a gallery is a rewrite of a 7,000-word page. |
 
@@ -63,15 +69,15 @@ security, brand or dependencies, and nobody has made it yet.
 | | Status | What changed, or why not |
 | --- | --- | --- |
 | N1 | Done | The pilcrow Material appends to a heading no longer pushes the last line off centre. |
-| N2 | Done | The hero's glow stays inside the viewport. |
-| N3 | Done | The quietest light-scheme text is #636872, 5.22:1 on the page. |
+| N2 | Done on main | The hero's glow stops at the edge of a phone. |
+| N3 | Done on main | The quietest light-scheme text is #666b74, 5.0:1 on the page, and Material's syntax colours clear 4.5:1. |
 | N4 | Partly | The docs site's buttons, chips and drawer rows are 44px on a phone. The product's top bar is a design decision. |
-| N5 | Done | The subtitle no longer gives a count that depends on the path. |
+| N5 | Done on main | The wizard's subtitle no longer gives a count, and the docs say five steps and nine. |
 | N6 | Decision | Two columns of tiles at 343px is a choice about what each tile can hold. |
 | N7 | Partly | The Quick Start links to the generated image catalogue instead of repeating a list that had drifted. The seed's log line still counts names rather than pools. |
 | N8 | Partly | The header marks have empty alt text. The descriptor is the brand owner's call, as `IMPLEMENTATION_PLAN.md` D16 already records. |
 | N9 | Done | The toast says what is next and stops. |
-| N10 | Done | The finished step no longer renders an empty action column, which left a 52px band on a phone. |
+| N10 | Done on main | The checklist's first row has no blank band. |
 | N11 | Done | See H2. |
 
 ### The other audit
@@ -102,8 +108,8 @@ found the same thing, this table says which is which.
 
 Only `UI_AUDIT.md` has C1 (the checklist deleting itself when a stranger's job
 arrives), H3 (up to eighteen installer prompts), H13 (nothing measures the
-funnel) and N7 to N9 and N11. None of them is covered here or touched on this
-branch.
+funnel) and N7 to N9 and N11. None of them is covered here, and its follow-up
+has fixed the first of them.
 
 ### Corrections to the audit
 
@@ -112,6 +118,10 @@ branch.
   pools" was right.
 * The closing logo's eager fetch was not the `decode()` call alone: its ten SVG
   layers carried the file's address, and an SVG image ignores `loading="lazy"`.
+* C3's premise, that an App built against a loopback address is a mistake to be
+  refused, was too strong. A home lab never gets a webhook and Zoomies polls
+  instead, which is why the installer lets an operator go on after saying what it
+  costs. The dialog now does the same.
 
 ---
 

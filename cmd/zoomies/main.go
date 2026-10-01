@@ -110,6 +110,7 @@ func commands() []*command {
 		{"mcp", groupFleet, "Serve this fleet to a coding agent over the Model Context Protocol", runMCP},
 		{"mcp-clients", groupFleet, "OAuth clients that may connect Claude to /mcp", runMCPClients},
 
+		{"demo", groupSetup, "Look around: a throwaway controller with a fleet already in it, on this machine only", runDemo},
 		{"init", groupSetup, "Set this host up: service, backend, GitHub App, first admin", runInit},
 		{"update", groupSetup, "Update an existing deployment (alias for upgrade)", runUpdate},
 		{"upgrade", groupSetup, "Upgrade an existing deployment without running setup again", runUpgrade},

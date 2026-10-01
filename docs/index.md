@@ -34,7 +34,7 @@ curl -fsSL https://zoomies.sh/install.sh | sh
 
 <p class="actions" markdown>
 [Get started :material-arrow-right:](quickstart.md){ .md-button .md-button--primary }
-[Try the demo — no GitHub needed](quickstart.md#try-it-first){ .md-button }
+[Try the demo — no GitHub needed](quickstart.md#just-looking){ .md-button }
 </p>
 
 <p class="prereq">Runs on Linux, with Docker or Podman. Needs a GitHub organisation or repository you own.</p>
@@ -248,7 +248,7 @@ the same `runs-on` now reaches a fleet that gives every job a fresh runner.
 Retire the old machines as the work moves across.
 
 Either way, nothing is written until you have read it, and
-[the demo](quickstart.md#try-it-first) gives you a whole fixture fleet to walk
+[`zoomies demo`](quickstart.md#just-looking) gives you a whole fixture fleet to walk
 the wizard through before you connect GitHub to anything.
 
 [Migrate existing runners :material-arrow-right:](migration.md){ .md-button }

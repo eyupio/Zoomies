@@ -33,6 +33,10 @@ anything precious on this.*
 curl -fsSL https://zoomies.sh/install.sh | sh
 ```
 
+Just looking? Add `-s -- --demo` after `sh` and nothing is installed: a
+controller with a fleet already in it runs on your machine only, and goes when
+you press Ctrl-C.
+
 **[zoomies.sh](https://zoomies.sh)** ·
 [Quick start](https://zoomies.sh/quickstart/) ·
 [See the web UI](https://zoomies.sh/ui/) ·

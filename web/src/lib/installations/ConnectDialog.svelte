@@ -11,35 +11,26 @@
        ID that produces is what finally records the connection here.
 
   There is a second way in for an App that already exists, because an operator
-  with a key and an installation ID should not have to make a new App. It is
-  also the way for a controller with no address GitHub can reach, such as a home
-  lab: it needs no webhook, because the poller finds queued jobs without one.
-
-  Building a new App against an address GitHub cannot reach is refused up
-  front, because the App's webhook URL is fixed when GitHub creates it. A
-  refusal with no way forward is a dead end, so the dialog says what is wrong
-  and offers both exits: set the address here, or take the polling route.
+  with a key and an installation ID should not have to make a new App.
 
   The stepper is hand-rolled rather than the Wizard component: advancing has to
   wait on a request that can fail, and Wizard advances as soon as its handler
   resolves.
 -->
 <script lang="ts">
-  import { tick } from 'svelte';
-  import { Check, CircleAlert, ExternalLink, RotateCcw } from '@lucide/svelte';
+  import { CircleAlert, ExternalLink, RotateCcw } from '@lucide/svelte';
   import {
     ApiError,
     createAppManifest,
     createInstallation,
     exchangeAppManifest,
-    getMeta,
-    updateSettings,
     verifyInstallation,
   } from '$lib/api/client';
   import type { InstallationHealth, TargetType } from '$lib/api/types';
   import { session } from '$lib/state/session.svelte';
   import { storage } from '$lib/state/prefs.svelte';
   import Button from '$lib/components/Button.svelte';
+  import Checkbox from '$lib/components/Checkbox.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import Dialog from '$lib/components/Dialog.svelte';
   import Field from '$lib/components/Field.svelte';
@@ -47,13 +38,8 @@
   import RadioGroup from '$lib/components/RadioGroup.svelte';
   import Tabs from '$lib/components/Tabs.svelte';
   import Textarea from '$lib/components/Textarea.svelte';
-  import { settingSaveError } from '$lib/errors';
-  import {
-    checkPublicAddress,
-    classifyExternalURL,
-    sameAddress,
-    suggestAddress,
-  } from './reachability';
+  import { isLoopbackURL } from '$lib/addresses';
+  import { CONTROLLER_PLACEMENT_URL } from '$lib/links';
 
   interface Props {
     open?: boolean;
@@ -206,43 +192,6 @@
   let manualKey = $state('');
   let manualSecret = $state('');
 
-  /* -- the address, when GitHub cannot reach this controller ------------------- */
-
-  /**
-   * What goes in the box: this browser's own address, when it is one GitHub
-   * could use. An operator who tunnelled in over SSH is looking at
-   * `http://localhost:8080`, which is exactly what must not be saved, so they
-   * start with an empty box rather than one that is wrong in the way they are
-   * already stuck on.
-   */
-  let address = $state(suggestAddress(window.location.origin));
-  /**
-   * An error waits for the operator to press Save or Enter, and tracks what they
-   * type from then on. Not the first keystroke, which would scold half an
-   * address; and not leaving the box, because the commonest way of leaving it
-   * is pressing Save: an error that appears when the pointer goes down moves the
-   * button out from under it, and the click is lost -- the failure the first-run
-   * tests already guard against on the sign-in form.
-   */
-  let addressTouched = $state(false);
-  let savingAddress = $state(false);
-  /**
-   * The address that has been saved and is waiting for a restart, or empty.
-   *
-   * The controller reads `server.external_url` once, when it starts, so saving
-   * cannot put it in force. Until the controller comes back reporting it, the
-   * form stays locked -- and this is what the dialog is waiting to see.
-   */
-  let savedAddress = $state('');
-  /** The last question put to the controller got no answer: it is restarting, or it is gone. */
-  let controllerAway = $state(false);
-  /**
-   * Where the cursor goes when the control that had it goes away: the box, when
-   * the saved card is put back; the saved card, when Save replaces the box.
-   */
-  let addressInput = $state<HTMLInputElement | null>(null);
-  let savedCard = $state<HTMLDivElement | null>(null);
-
   /**
    * Pick up where the other tab left off.
    *
@@ -256,13 +205,6 @@
   $effect(() => {
     if (!open || restored) return;
     restored = true;
-
-    // What this dialog refuses on is the address the controller reports now.
-    // The page may have been open since before the controller restarted with a
-    // new one -- the restart is exactly what the operator was told to do the
-    // last time this dialog was open -- and a refusal read from a stale answer
-    // would send them round the same loop again.
-    void session.reloadMeta();
 
     const saved = loadProgress();
     if (saved) {
@@ -345,14 +287,6 @@
     manualApiBase = '';
     manualKey = '';
     manualSecret = '';
-    // The address box starts again from this browser's own address, and the
-    // dialog stops waiting for a restart: what was saved stays saved, and it is
-    // the controller that says whether it is in force the next time this opens.
-    address = suggestAddress(window.location.origin);
-    addressTouched = false;
-    savingAddress = false;
-    savedAddress = '';
-    controllerAway = false;
   }
 
   function close(): void {
@@ -549,171 +483,28 @@
    * `http://localhost:8080/webhooks/github` under "What GitHub will be told",
    * with the button enabled. The App would be created, that address baked into
    * it for ever, and the symptom weeks later is "scaling is slow". The terminal
-   * installer refuses this; so does this.
+   * installer stops and asks before it goes on, and so does this -- see
+   * `acceptPolling` below for what it asks.
+   */
+  const localExternal = $derived(externalURL !== '' && isLoopbackURL(externalURL));
+  const notReachable = $derived(externalURL === '' || localExternal);
+
+  /**
+   * The operator has read why and wants the App anyway.
    *
-   * The rule is shared with the Overview's checklist, which used to offer this
-   * dialog's button without knowing the dialog would refuse.
-   */
-  const reach = $derived(classifyExternalURL(externalURL));
-  const notReachable = $derived(reach !== 'reachable');
-
-  /* -- giving Zoomies an address ------------------------------------------------ */
-
-  /**
-   * How often the dialog asks the controller whether it has come back with the
-   * address that was saved. Quick enough that the form unlocks while the
-   * operator is still looking at the dialog, and slow enough that a wait of a
-   * few minutes is a few dozen tiny requests rather than a flood.
-   */
-  const RESTART_POLL_MS = 2000;
-
-  const addressCheck = $derived(checkPublicAddress(address));
-  const addressError = $derived(addressTouched && !addressCheck.ok ? addressCheck.message : '');
-
-  /**
-   * Save the address through the Settings page's own route: the same key, the
-   * same PATCH, and the same reading of a refusal -- `settingSaveError` is the
-   * function that page uses, so a role the operator lacks or a value the
-   * controller will not start with is described in the words the API chose.
-   * Those land in the dialog's failure area, where every other refusal does.
-   */
-  async function saveAddress(): Promise<void> {
-    addressTouched = true;
-    if (savingAddress) return;
-    if (!addressCheck.ok) {
-      // The first invalid field takes focus on submit, as it does everywhere
-      // else a form here refuses.
-      addressInput?.focus();
-      return;
-    }
-    const value = addressCheck.value;
-    savingAddress = true;
-    clearFailure();
-    try {
-      await updateSettings({ 'server.external_url': value });
-      // Closed while the request was out: the controller has the value, and a
-      // dialog nobody is looking at has no use for the answer -- which would
-      // otherwise be waiting in it, already "saved", the next time it opens.
-      if (!open) return;
-      savedAddress = value;
-      controllerAway = false;
-      // Progress is otherwise written only once a manifest exists. An operator
-      // who has filled in the organisation and then reloads while the
-      // controller restarts finds the organisation where they left it. The
-      // saved address is not part of what is kept: whether it is in force is
-      // for the controller to say, and the dialog asks it again on opening.
-      saveProgress();
-      announcement = 'Address saved. It takes effect when the controller restarts.';
-      // The button that was pressed went with the box it sat under, and took the
-      // cursor with it. The way a step change in this dialog moves focus to its
-      // panel, this moves it to the result.
-      await tick();
-      savedCard?.focus();
-    } catch (cause) {
-      if (!open) return;
-      failureSeq += 1;
-      failure = settingSaveError(cause, 'server.external_url');
-      extraFailures = [];
-      errors = {};
-    } finally {
-      savingAddress = false;
-    }
-  }
-
-  /**
-   * Go back to the box. The saved value stays saved -- it takes effect at the
-   * next restart unless it is replaced -- but the dialog stops waiting for it,
-   * so a typo seen before the restart costs one click rather than a restart.
-   */
-  async function changeAddress(): Promise<void> {
-    savedAddress = '';
-    controllerAway = false;
-    clearFailure();
-    await tick();
-    addressInput?.focus();
-  }
-
-  /**
-   * One question to the controller: has it come back with the address that was
-   * saved?
+   * A controller that is meant to stay private -- a home lab, an evaluation on
+   * a laptop -- never gets a webhook, and the poller carries it: scaling reacts
+   * in tens of seconds instead of at once. The terminal installer offers
+   * exactly this ("Create it anyway") for exactly this state, and the comment
+   * above used to claim it refused outright. It is an explicit tick rather than
+   * a default because the address is fixed in the App for good.
    *
-   * Asked through the same request the session boots with, but not through
-   * `session.reloadMeta()`, which swallows a failure and keeps the old answer:
-   * the two things to tell apart here are "no answer, it is restarting" and
-   * "answered, still the old address", and only one of them is a reason to say
-   * so out loud.
+   * Only an address that exists but is unreachable qualifies. With no external
+   * URL at all there is no webhook address to give GitHub, and the server
+   * refuses to build the manifest, so nothing is offered.
    */
-  let asking = false;
-  async function checkRestart(): Promise<void> {
-    const wanted = savedAddress;
-    if (!wanted || asking) return;
-    asking = true;
-    try {
-      const meta = await getMeta();
-      // Closed, or saved over, while the question was out.
-      if (savedAddress !== wanted) return;
-      controllerAway = false;
-      if (!sameAddress(meta.external_url, wanted)) return;
-      // Through the session as well, so the pages that read the address hear it
-      // too -- and so that what unlocks this form is the very fact that locked
-      // it, not a second opinion from a request of its own.
-      await session.reloadMeta();
-      if (savedAddress !== wanted || !sameAddress(session.meta?.external_url, wanted)) return;
-      savedAddress = '';
-      announcement = 'The controller is back on the new address. The form is unlocked.';
-      // Whatever had the cursor -- a copy button, say -- went with the card. It
-      // goes back to the form, but only if it was lost: an operator who has
-      // started typing the organisation while this waited keeps their place.
-      await tick();
-      if (document.activeElement === document.body) panel?.focus();
-    } catch {
-      // The controller is restarting, which is what this is waiting for. Say so
-      // and keep asking: giving up would leave an operator watching a locked
-      // form that had long since been unlocked.
-      if (savedAddress === wanted) controllerAway = true;
-    } finally {
-      asking = false;
-    }
-  }
-
-  // The wait, for as long as there is something to wait for. Closing the dialog
-  // clears `savedAddress` through `reset`, and destroying the component runs the
-  // cleanup, so nothing is left asking a controller nobody is watching.
-  $effect(() => {
-    if (!open || !savedAddress) return;
-    const timer = setInterval(() => void checkRestart(), RESTART_POLL_MS);
-    return () => clearInterval(timer);
-  });
-
-  /**
-   * The restart commands, as the installer prints them and the docs give them.
-   *
-   * Nothing in `/meta` says how this controller was installed, so rather than
-   * guess, the dialog lists the forms and says to use the one that matches.
-   * Guessing wrong sends an operator to restart a service that does not exist.
-   * The unit name is the installer's (`UnitController`), and the container
-   * forms are `docs/compose.md`'s table.
-   */
-  const RESTART_COMMANDS = [
-    { how: 'As a Linux service', command: 'sudo systemctl restart zoomies' },
-    { how: 'As a container the installer made', command: 'zoomies deployment restart' },
-    { how: 'With Docker Compose', command: 'docker compose restart zoomies' },
-  ] as const;
-
-  /**
-   * The polling route: switch to the other tab, and put the cursor on it.
-   *
-   * The button that was pressed is gone with the panel it was in, which would
-   * leave focus on nothing -- on a dialog that traps it, that is the first
-   * thing in the dialog, not where the operator was.
-   */
-  let pollingCard = $state<HTMLElement | null>(null);
-  async function useExistingApp(): Promise<void> {
-    const dialog = pollingCard?.closest('[role="dialog"]');
-    tab = 'existing';
-    await tick();
-    dialog?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus();
-  }
+  let acceptPolling = $state(false);
+  const blocked = $derived(notReachable && !(localExternal && acceptPolling));
 
   const targetError = $derived(
     target.trim() === ''
@@ -969,15 +760,12 @@
 
 <Dialog bind:open title="Connect GitHub" size="lg" onclose={close}>
   <output class="sr-only" aria-live="polite">{announcement}</output>
-  <!-- The tab labels are short so that both fit at 375px; what they mean is in
-       the name of the list, which is the only accessible name Tabs lets a
-       caller give. -->
   <Tabs
     bind:value={tab}
-    label="How to connect: create a new App, or use an App you already have"
+    label="How to connect"
     tabs={[
-      { id: 'manifest', label: 'New App' },
-      { id: 'existing', label: 'Existing App' },
+      { id: 'manifest', label: 'Create a new App' },
+      { id: 'existing', label: 'Use an App you already have' },
     ]}
   >
     {#snippet children(active)}
@@ -1092,12 +880,12 @@
                 <CircleAlert size={16} aria-hidden="true" />
                 <div>
                   <p class="blocked-title">
-                    {reach === 'loopback'
+                    {localExternal
                       ? 'GitHub cannot reach Zoomies'
                       : 'Zoomies has no external URL yet'}
                   </p>
                   <p>
-                    {#if reach === 'loopback'}
+                    {#if localExternal}
                       Zoomies believes it is reached at <code>{externalURL}</code>, which is an
                       address only this machine has. GitHub is told where to deliver webhooks when
                       the App is created, and that address cannot be changed from here afterwards --
@@ -1106,129 +894,36 @@
                       GitHub is told where to deliver webhooks when the App is created, and that
                       address cannot be changed from here afterwards.
                     {/if}
+                    Set <code>server.external_url</code> to the address GitHub can reach and restart
+                    the controller.
+                    {#if localExternal}
+                      Or create the App anyway and let Zoomies poll GitHub for queued jobs, which
+                      reacts in tens of seconds rather than at once.
+                    {/if}
                   </p>
-                </div>
-              </div>
-
-              <!--
-                Two ways out, directly under the refusal. A refusal that names a
-                configuration key and a restart and offers nothing else is a dead
-                end for the operator who has no public address at all -- and the
-                way through for them, the other tab, was not mentioned anywhere.
-              -->
-              <div class="ways">
-                <div class="way">
-                  <h3>Give Zoomies the address GitHub will use</h3>
-                  {#if savedAddress}
-                    <!-- Focus lands here when Save is pressed, and the live region at
-                         the top of the dialog says what happened: the same two
-                         things a step change does. -->
-                    <div
-                      class="saved"
-                      role="group"
-                      aria-label="Address saved"
-                      tabindex="-1"
-                      bind:this={savedCard}
+                  <p class="blocked-actions">
+                    <a href="/settings/configuration?setting=server.external_url"
+                      >Open the setting</a
                     >
-                      <p class="saved-title">
-                        <Check size={14} aria-hidden="true" />
-                        Saved
-                      </p>
-                      <p>
-                        Zoomies will use <code>{savedAddress}</code> once the controller restarts. It
-                        reads its address only when it starts, so nothing changes until then.
-                      </p>
-                      <p>Restart it with whichever of these matches how you installed it.</p>
-                      <dl class="restart">
-                        {#each RESTART_COMMANDS as { how, command } (command)}
-                          <dt>{how}</dt>
-                          <dd>
-                            <code>{command}</code>
-                            <CopyButton value={command} label={`Copy the command: ${command}`} />
-                          </dd>
-                        {/each}
-                      </dl>
-                      <p class="small">
-                        Started some other way, by hand or under launchd? Restart that process.
-                      </p>
-                      <p class="waiting" aria-live="polite">
-                        <span class="ring" aria-hidden="true"></span>
-                        {#if controllerAway}
-                          Waiting for the controller to come back…
-                        {:else}
-                          Waiting for the restart. This form unlocks by itself, and nothing you have
-                          typed is lost.
-                        {/if}
-                      </p>
-                      <div>
-                        <Button variant="ghost" size="sm" onclick={() => void changeAddress()}>
-                          Use a different address
-                        </Button>
-                      </div>
-                    </div>
-                  {:else}
-                    <p>
-                      GitHub has to be able to open this address from outside. It is saved as the
-                      <code>server.external_url</code> setting, and takes effect when the controller restarts.
-                    </p>
-                    <Field
-                      label="Public address"
-                      hint="The address GitHub can open, for example https://zoomies.example.com."
-                      error={addressError}
-                    >
-                      {#snippet children({ id, describedBy, invalid })}
-                        <!-- Enter saves the address. The box sits inside the App's form,
-                             whose own submit is locked while there is no address, so
-                             without this Enter would do nothing at all. -->
-                        <!-- The placeholder is short because a phone's inputs are 16px
-                             and monospaced, and the longer example is in the hint:
-                             at 375px "https://zoomies.example.com" lost its last letter. -->
-                        <Input
-                          bind:value={address}
-                          bind:element={addressInput}
-                          {id}
-                          {describedBy}
-                          {invalid}
-                          mono
-                          inputmode="url"
-                          autocomplete="off"
-                          autocapitalize="none"
-                          spellcheck={false}
-                          placeholder="https://example.com"
-                          onkeydown={(event) => {
-                            if (event.key !== 'Enter') return;
-                            event.preventDefault();
-                            void saveAddress();
-                          }}
-                        />
-                      {/snippet}
-                    </Field>
-                    <div>
-                      <Button
-                        variant="primary"
-                        loading={savingAddress}
-                        onclick={() => void saveAddress()}
-                      >
-                        Save address
-                      </Button>
-                    </div>
+                    {#if localExternal}
+                      <a href={CONTROLLER_PLACEMENT_URL} target="_blank" rel="noopener noreferrer">
+                        No public address? Use a tunnel
+                        <ExternalLink size={12} aria-hidden="true" />
+                        <span class="sr-only">(opens in a new tab)</span>
+                      </a>
+                    {/if}
+                  </p>
+                  {#if localExternal}
+                    <Checkbox
+                      bind:checked={acceptPolling}
+                      label="Create the App anyway"
+                      description="Scaling will rely on polling until the App's webhook URL is an address GitHub can reach."
+                    />
                   {/if}
                 </div>
-
-                <div class="way" bind:this={pollingCard}>
-                  <h3>No public address, for example a home lab?</h3>
-                  <p>
-                    Zoomies will poll GitHub for queued jobs instead of receiving webhooks, which
-                    reacts in tens of seconds rather than instantly.
-                  </p>
-                  <div>
-                    <Button variant="secondary" onclick={() => void useExistingApp()}>
-                      Connect an existing App
-                    </Button>
-                  </div>
-                </div>
               </div>
-            {:else}
+            {/if}
+            {#if !blocked}
               <p class="lede">
                 Zoomies builds a GitHub App manifest that asks for exactly the permissions it needs,
                 and nothing more. Nothing is created until you confirm it on GitHub.
@@ -1668,7 +1363,7 @@
           type="submit"
           form="connect-step"
           loading={busy}
-          disabled={notReachable || !target.trim() || Boolean(targetError)}
+          disabled={blocked || !target.trim() || Boolean(targetError)}
         >
           Continue to GitHub
         </Button>
@@ -1886,120 +1581,16 @@
   .blocked-title {
     font-weight: var(--z-weight-medium);
   }
-
-  /*
-    The two ways out of the refusal, on the same sunken surface the permission
-    list uses, so they read as part of the screen the refusal is on rather than
-    as a second dialog laid over it.
-  */
-  .ways {
+  .blocked-actions {
     display: flex;
-    flex-direction: column;
+    flex-wrap: wrap;
     gap: var(--z-space-3);
   }
-  .way {
-    display: flex;
-    flex-direction: column;
-    gap: var(--z-space-3);
-    padding: var(--z-space-3);
-    border: var(--z-border-width) solid var(--z-border);
-    border-radius: var(--z-radius-sm);
-    background: var(--z-surface-sunken);
-    font-size: var(--z-text-sm);
-    line-height: var(--z-leading-sm);
-    color: var(--z-text-muted);
-  }
-  .way h3 {
-    margin: 0;
-    font-size: var(--z-text-sm);
-    font-weight: var(--z-weight-semibold);
-    color: var(--z-text);
-  }
-  .way p {
-    margin: 0;
-    max-width: 72ch;
-    text-wrap: pretty;
-  }
-  .way code {
-    font-family: var(--z-font-mono);
-    font-size: var(--z-text-xs);
-    overflow-wrap: anywhere;
-    color: var(--z-text);
-  }
-  .saved {
-    display: flex;
-    flex-direction: column;
-    gap: var(--z-space-3);
-  }
-  .saved-title {
-    display: flex;
+  .blocked-actions a {
+    display: inline-flex;
     align-items: center;
     gap: var(--z-space-1);
-    font-weight: var(--z-weight-semibold);
-    color: var(--z-text);
-  }
-  .saved-title :global(svg) {
-    color: var(--z-idle);
-  }
-  .way .small {
-    font-size: var(--z-text-xs);
-    line-height: var(--z-leading-xs);
-    color: var(--z-text-subtle);
-  }
-  .restart {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
-    align-items: center;
-    gap: var(--z-space-2) var(--z-space-4);
-    margin: 0;
-  }
-  .restart dt {
-    color: var(--z-text-subtle);
-  }
-  .restart dd {
-    display: flex;
-    align-items: center;
-    gap: var(--z-space-2);
-    margin: 0;
-    min-width: 0;
-  }
-  @media (max-width: 768px) {
-    .restart {
-      grid-template-columns: minmax(0, 1fr);
-      gap: var(--z-nudge-2) var(--z-space-4);
-    }
-    .restart dd {
-      margin-bottom: var(--z-space-2);
-    }
-  }
-  /* The wait is an action in flight, so it gets the spinner the restore's wait
-     has: a line of text that said "waiting" and did not move would look the
-     same stopped as running. */
-  .waiting {
-    display: flex;
-    align-items: center;
-    gap: var(--z-space-2);
-  }
-  .ring {
-    flex: none;
-    width: var(--z-space-4);
-    height: var(--z-space-4);
-    border: var(--z-border-width-thick) solid currentColor;
-    border-top-color: transparent;
-    border-radius: var(--z-radius-full);
-    animation: spin calc(var(--z-motion-slow) * 2) linear infinite;
-  }
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .ring {
-      animation: none;
-      border-top-color: currentColor;
-      opacity: 0.5;
-    }
+    color: var(--z-accent);
   }
 
   /* The claim "exactly the permissions it needs" is worth more with the list

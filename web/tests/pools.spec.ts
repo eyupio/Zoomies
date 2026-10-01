@@ -6,7 +6,7 @@
  * that being an accident: the list says which pools carry that risk and names
  * it, and the wizard spells out the dangerous choice and refuses to take it
  * without a deliberate confirmation. It also protects the wizard as a wizard --
- * seven steps, a preview of the runs-on line the labels produce, the server's
+ * its steps, a preview of the runs-on line the labels produce, the server's
  * own verdict before anything is created, and a Back button that does not
  * throw away what was typed.
  */
@@ -1012,6 +1012,35 @@ test("a pool page's recent jobs each link to GitHub under their own name", async
   expect(names.length).toBeGreaterThan(1);
   expect(new Set(names).size, 'each link names its own job').toBeGreaterThan(1);
   await expect(page.getByRole('link', { name: 'Open this run on GitHub' })).toHaveCount(0);
+});
+
+/*
+ * The last mile ends in a job. A pool's page used to end in one line of YAML,
+ * which is not a file anybody can run: it has no trigger, so GitHub refuses it,
+ * and it assumes a repository with something worth building in it. The page now
+ * also hands over a whole workflow that does nothing to anyone's code, with the
+ * label of the pool the page is about already in it.
+ */
+test("a pool's page hands over a whole test workflow that asks for that pool", async ({ page }) => {
+  const pools = (await page.request.get('/api/v1/pools').then((r) => r.json())) as {
+    items: { id: string; name: string }[];
+  };
+  const pool = pools.items.find((p) => p.name === FIXTURE.linuxPool)!;
+  await goto(page, `/pools/${pool.id}`, FIXTURE.linuxPool);
+
+  // A pool's page is visited for other reasons, so the card is shut until asked.
+  const workflow = page.getByRole('group', { name: 'The test workflow' });
+  await expect(workflow).toBeHidden();
+  await page.getByText('Or run a test job first').click();
+
+  await expect(workflow).toContainText('name: Zoomies test job');
+  await expect(workflow).toContainText('on: workflow_dispatch');
+  // The same value the snippet above it prints, because both come from the one rule.
+  const preview = page.getByRole('figure').filter({ hasText: 'What a workflow writes' });
+  const line = (await preview.textContent())?.match(/runs-on: \S+/)?.[0];
+  expect(line, 'the pool page prints a runs-on line').toBeTruthy();
+  await expect(workflow).toContainText(line!);
+  await expect(page.getByRole('button', { name: 'Copy the test workflow' })).toBeVisible();
 });
 
 /*

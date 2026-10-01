@@ -35,7 +35,6 @@ import { toMillis } from '../format';
 import {
   FEED_CATEGORIES,
   feedCategory,
-  feedIsFiltered,
   type FeedCategory,
   type FeedCategoryID,
 } from '../feed/categories';
@@ -149,12 +148,20 @@ class Feed {
   }
 
   /**
-   * Whether this browser has narrowed the feed itself, rather than showing what
-   * it opens with. `hidden` cannot say: two kinds are off by default, so it is
-   * never zero on a browser nobody has touched.
+   * How many entries this tab holds that this browser's choices keep off the
+   * page. Without it an empty panel can only guess why it is empty, and on a
+   * fleet where nothing has happened yet it blamed a filter nobody had touched.
    */
-  get filtered(): boolean {
-    return feedIsFiltered((id) => prefs.feedChoice(id));
+  get silenced(): number {
+    const others = prefs.otherRunners;
+    let held = this.#captured.filter(
+      (entry) => !this.shows(entry.category) && (others || !entry.elsewhere),
+    ).length;
+    if (!this.shows('scaling')) held += fleet.scalingEvents.length;
+    if (!this.shows('runners')) {
+      held += fleet.runners.filter((runner) => runnerFailureEntry(runner) !== null).length;
+    }
+    return held;
   }
 
   /* -- writes -------------------------------------------------------------- */

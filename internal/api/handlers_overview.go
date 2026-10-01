@@ -70,7 +70,7 @@ func (s *Server) handleSamples(w http.ResponseWriter, r *http.Request) {
 // the fleet. On a single-team instance the one account holds platform and the
 // list is undivided, which is what it was before the role existed.
 func (s *Server) handleProblems(w http.ResponseWriter, r *http.Request) {
-	items, err := s.ctrl.Problems(r.Context())
+	items, err := s.ctrl.SharedProblems(r.Context())
 	if err != nil {
 		s.internal(w, r, "gathering the current problems", err)
 		return

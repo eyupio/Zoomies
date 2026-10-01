@@ -874,12 +874,9 @@ yet passed through it.
 
 Validation rules come from the same source as the API's, generated into
 `web/src/lib/api/schema.d.ts` from the OpenAPI document. Errors appear inline on
-blur and again on submit; the first invalid field receives focus. A field that
-sits directly above the button that submits it is the exception: its error waits
-for Save or Enter and then follows each keystroke, because an error that appears
-when the pointer goes down on the button moves it out from under the pointer and
-the click is lost. Defaults are filled in from the host's detected capabilities,
-so pool creation is mostly pressing *Next*.
+blur and again on submit; the first invalid field receives focus. Defaults are
+filled in from the host's detected capabilities, so pool creation is mostly
+pressing *Next*.
 
 ### Destructive actions
 

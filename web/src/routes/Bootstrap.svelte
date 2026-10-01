@@ -6,6 +6,11 @@
   operator who sees an unauthenticated "create an administrator" page deserves
   to know why it is safe.
 
+  It asks for the least it can. An optional email used to sit at the bottom of
+  it, but nothing in Zoomies sends mail -- not a reset, not an alert -- so it
+  was a fifth field that did nothing, between the visitor and the product. It
+  can still be set, for display, under Settings -> Users.
+
   It is also step one of three, and says so. An operator arriving here from
   `docker compose up` has no way to know whether this account finishes setup or
   begins it; naming the two steps that follow is what makes the checklist they
@@ -31,7 +36,6 @@
   let username = $state('');
   let password = $state('');
   let confirm = $state('');
-  let email = $state('');
   let setupToken = $state('');
   let touched = $state({ username: false, password: false, confirm: false, setupToken: false });
   let submitting = $state(false);
@@ -142,7 +146,6 @@
         username: username.trim(),
         password,
         setup_token: setupToken.trim(),
-        ...(email.trim() ? { email: email.trim() } : {}),
       });
       // The account exists; whether the session started with it is a separate
       // question, and the API can answer 201 without a cookie when it could
@@ -180,8 +183,13 @@
 </script>
 
 <div class="card">
+  <!-- The standalone mark, not the lockup. The lockup is a 298px black square
+       (the brand guide keeps it above 220px wide), which on this card put the
+       submit button 270px below the fold of a 1440x900 laptop screen before the
+       first field had been seen. The guide's own answer for less room is the
+       mark above 64px: the original circular dog. -->
   <div class="brand">
-    <Logo variant="lockup" size={96} label="Zoomies" />
+    <Logo variant="mark" size={72} label="Zoomies" />
   </div>
   <!-- "First", not "1 of 4". How many steps there are depends on what this
        install is: a controller with an agent of its own has one fewer than one
@@ -222,6 +230,7 @@
     <Field
       label="Setup token"
       hint="From the controller's log: docker compose logs zoomies | grep 'setup token'"
+      help="On a line beginning “setup token”. Installed with zoomies init: zoomies logs. Docker Compose: docker compose logs zoomies. Another container: docker logs and its name. systemd: journalctl -u zoomies. A PaaS: its log viewer."
       error={setupTokenError ?? fieldErrors.setup_token}
       required
     >
@@ -330,24 +339,6 @@
             touched = { ...touched, confirm: true };
             capsLock = false;
           }}
-        />
-      {/snippet}
-    </Field>
-
-    <Field
-      label="Email"
-      hint="Optional. Used only to identify the account."
-      error={fieldErrors.email}
-    >
-      {#snippet children({ id, describedBy, invalid })}
-        <Input
-          bind:value={email}
-          {id}
-          {describedBy}
-          {invalid}
-          type="email"
-          autocomplete="email"
-          disabled={submitting}
         />
       {/snippet}
     </Field>

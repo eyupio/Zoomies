@@ -78,30 +78,3 @@ export function supportHint(requestId?: string): string {
     ? `Quote ${requestId} to whoever operates this instance; the cause is in its log.`
     : 'Quote the request ID to whoever operates this instance; the cause is in its log.';
 }
-
-/**
- * What went wrong saving one setting, in words for whoever asked.
- *
- * The API answers 422 with a message written for a person, and it names the
- * key it is about -- so that sentence is returned as it is, for the row or the
- * dialog to put beside the field rather than in a toast that floats away.
- *
- * A refusal about the whole request rather than about this field -- the
- * combination would leave a controller that will not start, and the setting at
- * fault is one nobody touched -- carries its reason in the field errors, and
- * that reason is the useful half. It is kept, after the envelope's one-line
- * summary, rather than dropped for it.
- *
- * It is one function because the Settings page and the Connect dialog both
- * save a setting, and a second copy of this is how the two come to describe the
- * same refusal in different words.
- */
-export function settingSaveError(cause: unknown, key: string): string {
-  if (cause instanceof ApiError) {
-    const errors = cause.fieldErrors();
-    if (errors[key]) return errors[key];
-    const general = Object.values(errors).filter(Boolean);
-    return general.length > 0 ? `${cause.message}: ${general.join(' ')}` : cause.message;
-  }
-  return `That change could not be made. ${supportHint()}`;
-}

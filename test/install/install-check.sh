@@ -199,6 +199,114 @@ else
     printf 'ok   refused-upgrade-keeps-the-installed-binary\n'
 fi
 
+# --demo downloads and checks the binary the way an install does, and then only
+# runs it: from the temporary directory it landed in, with nothing written to
+# the host and no elevation asked for. The fake release is the one above, with a
+# stub that says what it was asked and where it was run from, and a `sudo` that
+# fails the test if the script so much as reaches for it.
+demo="$root/demo"
+mkdir -p "$demo/release" "$demo/bin" "$demo/tmp"
+cat > "$demo/release/zoomies_linux_amd64" <<'STUB'
+#!/bin/sh
+# The script asks whether the binary runs before it hands over; only `demo` is
+# the one under test.
+[ "$1" = version ] && exit 0
+printf 'args=%s\n' "$*" >> "$DEMO_LOG"
+printf 'from=%s\n' "$0" >> "$DEMO_LOG"
+exit "${DEMO_EXIT:-0}"
+STUB
+chmod +x "$demo/release/zoomies_linux_amd64"
+(cd "$demo/release" && sha256sum zoomies_linux_amd64 > checksums.txt)
+cat > "$demo/bin/sudo" <<'STUB'
+#!/bin/sh
+printf 'sudo %s\n' "$*" >> "$DEMO_SUDO_LOG"
+exit 1
+STUB
+chmod +x "$demo/bin/sudo"
+
+demo_run() {
+    # demo_run <exit status the stub returns> [install.sh args...]
+    demo_exit=$1; shift
+    : > "$demo/log"; rm -f "$demo/sudo.log"
+    DEMO_EXIT="$demo_exit" DEMO_LOG="$demo/log" DEMO_SUDO_LOG="$demo/sudo.log" \
+        FAKE_RELEASE="$demo/release" TMPDIR="$demo/tmp" PATH="$demo/bin:$dev/bin:$PATH" \
+        "$SH" "$SCRIPT_UNDER_TEST" "$@" 2>&1
+}
+
+if ! out=$(demo_run 0 --demo --version dev --port 9123); then
+    printf 'FAIL demo: the script failed\n%s\n\n' "$out" >&2
+    failures=$((failures + 1))
+elif ! grep -qxF 'args=demo --port 9123' "$demo/log"; then
+    printf 'FAIL demo: the binary was not run as "zoomies demo --port 9123":\n%s\n' "$(cat "$demo/log")" >&2
+    failures=$((failures + 1))
+elif ! grep -q "^from=$demo/tmp/zoomies-install\\." "$demo/log"; then
+    printf 'FAIL demo: the binary did not run from a temporary directory:\n%s\n' "$(cat "$demo/log")" >&2
+    failures=$((failures + 1))
+elif [ -n "$(ls -A "$demo/tmp")" ]; then
+    printf 'FAIL demo: it left %s behind in the temporary directory\n' "$(ls -A "$demo/tmp")" >&2
+    failures=$((failures + 1))
+elif [ -e "$demo/sudo.log" ]; then
+    printf 'FAIL demo: it asked for sudo (%s) to install nothing\n' "$(cat "$demo/sudo.log")" >&2
+    failures=$((failures + 1))
+elif ! printf '%s' "$out" | grep -qF "Nothing was installed"; then
+    printf 'FAIL demo: it did not say that nothing was installed\n%s\n' "$out" >&2
+    failures=$((failures + 1))
+else
+    printf 'ok   demo-runs-from-a-temporary-directory-and-installs-nothing\n'
+fi
+
+# What the demo exits with is what the script exits with, so a demo that could
+# not start is a failed command to whatever ran it.
+if demo_run 7 --demo --version dev >/dev/null; then
+    printf 'FAIL demo: a demo that exited 7 was reported as a success\n' >&2
+    failures=$((failures + 1))
+else
+    demo_rc=0
+    demo_run 7 --demo --version dev >/dev/null || demo_rc=$?
+    if [ "$demo_rc" -ne 7 ]; then
+        printf 'FAIL demo: exit status %s, want 7\n' "$demo_rc" >&2
+        failures=$((failures + 1))
+    else
+        printf 'ok   demo-passes-its-exit-status-through\n'
+    fi
+fi
+
+# A binary that will not run from where it landed -- a noexec /tmp is the usual
+# reason -- is said to be that, with the one-line fix, and nothing is left behind.
+cat > "$demo/release/zoomies_linux_amd64" <<'STUB'
+#!/bin/sh
+exit 126
+STUB
+(cd "$demo/release" && sha256sum zoomies_linux_amd64 > checksums.txt)
+if out=$(demo_run 0 --demo --version dev); then
+    printf 'FAIL demo: a binary that will not run was reported as a success\n%s\n' "$out" >&2
+    failures=$((failures + 1))
+elif ! printf '%s' "$out" | grep -qF "noexec"; then
+    printf 'FAIL demo: a binary that will not run did not mention noexec\n%s\n' "$out" >&2
+    failures=$((failures + 1))
+elif [ -n "$(ls -A "$demo/tmp")" ]; then
+    printf 'FAIL demo: it left %s behind after a binary that would not run\n' "$(ls -A "$demo/tmp")" >&2
+    failures=$((failures + 1))
+else
+    printf 'ok   demo-says-when-the-binary-will-not-run-from-here\n'
+fi
+
+# Every flag about installing is a misunderstanding of --demo, and is said to be
+# one rather than quietly ignored.
+for combo in "--mode agent" "--deployment compose" "--upgrade" "--uninstall" "--no-init" \
+             "--external-url zoomies.example.com" "--prefix $demo/tmp" "--non-interactive --answers $0"; do
+    # shellcheck disable=SC2086 # the combination is several words on purpose
+    if out=$(demo_run 0 --demo --version dev $combo); then
+        printf 'FAIL demo: --demo %s was accepted\n%s\n' "$combo" "$out" >&2
+        failures=$((failures + 1))
+    elif ! printf '%s' "$out" | grep -qF -- "--demo installs nothing"; then
+        printf 'FAIL demo: --demo %s was refused, but not for that reason\n%s\n' "$combo" "$out" >&2
+        failures=$((failures + 1))
+    else
+        printf 'ok   demo-refuses %s\n' "$combo"
+    fi
+done
+
 if [ "$failures" -ne 0 ]; then
     printf '\n%d check(s) failed\n' "$failures" >&2
     exit 1

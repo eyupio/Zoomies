@@ -44,7 +44,7 @@ func (c *Controller) publishDerived(ctx context.Context) {
 		c.bus.Publish(events.KindStats, "", json.RawMessage(raw))
 	}
 
-	if problems, err := c.Problems(ctx); err != nil {
+	if problems, err := c.SharedProblems(ctx); err != nil {
 		c.log.Warn("could not gather the current problems for the event stream", "error", err)
 	} else if raw, changed := c.derivedChanged(&c.lastProblems, NewProblemsView(problems)); changed {
 		c.bus.Publish(events.KindProblems, "", json.RawMessage(raw))

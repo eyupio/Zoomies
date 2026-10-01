@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 	"time"
 )
@@ -162,17 +163,26 @@ var workflowRunSortCols = map[string]string{
 // a job, and keeps a run whenever any job of it matches: a run in a
 // repository, a run with a job on this pool, a run with a job still unmatched.
 func (s *Store) ListWorkflowRuns(ctx context.Context, f JobFilter, p Page) ([]*WorkflowRun, int, error) {
+	if runs, total, ok, err := s.listWorkflowRunsNewestFirst(ctx, f, p); err != nil || ok {
+		return runs, total, err
+	}
 	from, args := workflowRunsFrom(f)
 	var total int
 	if err := s.read.QueryRowContext(ctx, `SELECT COUNT(*) `+from, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	q := `SELECT repo, github_run_id, workflow, run_number, run_attempt, head_branch, head_sha,
-		installation_id, html_url, run_state, run_conclusion, queued_at, started_at, completed_at,
-		total, waiting, queued, in_progress, completed, succeeded, failed, cancelled, skipped,
-		faulted, unmatched, expedited, paused, removed, managed, hosted, cancelling ` + from +
+	q := `SELECT ` + workflowRunCols + ` ` + from +
 		` ORDER BY ` + p.orderBy(workflowRunSortCols, "queued_at DESC") + `, repo ASC, github_run_id ASC LIMIT ? OFFSET ?`
 	args = append(args, p.limit(50, 500), max(p.Offset, 0))
+	return s.queryWorkflowRuns(ctx, q, args, total)
+}
+
+const workflowRunCols = `repo, github_run_id, workflow, run_number, run_attempt, head_branch, head_sha,
+		installation_id, html_url, run_state, run_conclusion, queued_at, started_at, completed_at,
+		total, waiting, queued, in_progress, completed, succeeded, failed, cancelled, skipped,
+		faulted, unmatched, expedited, paused, removed, managed, hosted, cancelling`
+
+func (s *Store) queryWorkflowRuns(ctx context.Context, q string, args []any, total int) ([]*WorkflowRun, int, error) {
 	rows, err := s.read.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, 0, err
@@ -189,10 +199,89 @@ func (s *Store) ListWorkflowRuns(ctx context.Context, f JobFilter, p Page) ([]*W
 	return out, total, rows.Err()
 }
 
+// listWorkflowRunsNewestFirst answers the listing's default question -- the
+// newest runs, with no condition on a run's own status -- without summing
+// every job in the table to answer it. ok is false when the question is not
+// that one, or the shortcut cannot prove its answer, and the caller does it
+// the long way.
+//
+// The long way windows and aggregates every job row before it can sort, so its
+// cost is the whole retained history however small the page: nineteen seconds
+// at four hundred thousand jobs. This takes the runs that have a job among the
+// newest few thousand, sums only those, and keeps the answer only when it can
+// show that no other run could have ranked above it.
+//
+// The proof is the one line that makes it exact rather than approximate. A
+// run's queued_at is the earliest of its latest-attempt jobs. Let M be the
+// queued_at of the newest-but-Jth job in the table. Every run with a job at or
+// after M is a candidate and is summed in full; every other run has all of its
+// jobs, of every attempt, before M, so its own queued_at is before M too. If
+// the page's last row is at or after M, nothing outside the candidates can
+// outrank it, and the page is the page the long way would have returned. If it
+// is not, J grows fourfold; and if it will not settle, the long way runs.
+func (s *Store) listWorkflowRunsNewestFirst(ctx context.Context, f JobFilter, p Page) ([]*WorkflowRun, int, bool, error) {
+	// Only the default order, and only a filter that says nothing about a run's
+	// status: those are applied to the sums, which is what this avoids.
+	if _, known := workflowRunSortCols[p.Sort]; known && !(p.Sort == "queued_at" && p.Desc) {
+		return nil, 0, false, nil
+	}
+	if len(f.States) > 0 || len(f.Conclusions) > 0 || f.FailedOnly || f.FaultedOnly ||
+		f.WorkflowFailedOnly || f.Cancelling != nil {
+		return nil, 0, false, nil
+	}
+	limit, offset := p.limit(50, 500), max(p.Offset, 0)
+	need := offset + limit
+
+	where, whereArgs := jobWhere(f)
+	var total int
+	if err := s.read.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM (SELECT 1 FROM jobs `+where+` GROUP BY repo, github_run_id)`, whereArgs...).Scan(&total); err != nil {
+		return nil, 0, false, err
+	}
+	if total <= need {
+		// Everything is on this page, so there is nothing to rank against.
+		return nil, 0, false, nil
+	}
+
+	for newest := max(need*20, 1000); newest <= 200_000; newest *= 4 {
+		var bound int64
+		err := s.read.QueryRowContext(ctx,
+			`SELECT queued_at FROM jobs ORDER BY queued_at DESC, id ASC LIMIT 1 OFFSET ?`, newest-1).Scan(&bound)
+		if errors.Is(err, sql.ErrNoRows) {
+			// Fewer jobs than that: the whole table is cheap to sum.
+			return nil, 0, false, nil
+		}
+		if err != nil {
+			return nil, 0, false, err
+		}
+		restrict := ` WHERE (repo, github_run_id) IN (SELECT repo, github_run_id FROM jobs WHERE queued_at >= ?)`
+		from, args := workflowRunsFromRestricted(f, restrict, []any{bound})
+		q := `SELECT ` + workflowRunCols + ` ` + from +
+			` ORDER BY queued_at DESC, repo ASC, github_run_id ASC LIMIT ?`
+		runs, _, err := s.queryWorkflowRuns(ctx, q, append(args, need), total)
+		if err != nil {
+			return nil, 0, false, err
+		}
+		if len(runs) < need || ms(runs[need-1].QueuedAt) < bound {
+			continue
+		}
+		return runs[offset:need], total, true, nil
+	}
+	return nil, 0, false, nil
+}
+
 // workflowRunsFrom renders the FROM and WHERE of a run listing: the jobs
 // reduced to the latest attempt of each, summed per run, and narrowed by the
 // filter's two halves.
 func workflowRunsFrom(f JobFilter) (string, []any) {
+	return workflowRunsFromRestricted(f, "", nil)
+}
+
+// workflowRunsFromRestricted is workflowRunsFrom over only the jobs a WHERE
+// clause on the jobs table keeps, applied before the window is computed so that
+// the window sees those rows and no others. restrictArgs are that clause's
+// placeholders.
+func workflowRunsFromRestricted(f JobFilter, restrict string, restrictArgs []any) (string, []any) {
 	// The job half of the filter keeps a run whenever any of its jobs matches.
 	// The status half is cleared here and applied to the run's own aggregates
 	// below, since a job's state says nothing about its run's.
@@ -276,12 +365,14 @@ func workflowRunsFrom(f JobFilter) (string, []any) {
 	FROM (
 		SELECT jobs.*, ` + hostedJobSQL("jobs") + ` AS hosted, ` + managedJobSQL("jobs") + ` AS managed,
 			MAX(run_attempt) OVER (PARTITION BY repo, github_run_id, job_name) AS latest_attempt
-		FROM jobs
+		FROM jobs` + restrict + `
 	) AS jobs
 	` + inner + `
 	GROUP BY repo, github_run_id
 ) AS runs` + outer
-	return from, args
+	// The restriction's placeholders come first in the statement, inside the
+	// subquery, ahead of the filter's.
+	return from, append(append([]any{}, restrictArgs...), args...)
 }
 
 func scanWorkflowRun(sc interface{ Scan(...any) error }) (*WorkflowRun, error) {

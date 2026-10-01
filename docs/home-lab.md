@@ -43,8 +43,7 @@ jobs start.
   [`server.external_url`](configuration.md#serverexternal_url). A tunnel that
   gives the controller a public HTTPS address, such as the Cloudflare Tunnel the
   [compose file](compose.md#the-proxy-in-front) is set up for, restores
-  webhooks without opening a port. Without either, the **Existing App** tab of
-  **Connect GitHub** connects an App you already have and relies on polling.
+  webhooks without opening a port.
 
 ## Keeping jobs on the right machines
 

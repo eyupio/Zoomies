@@ -26,8 +26,7 @@
 <script lang="ts">
   import { History, SlidersHorizontal } from '@lucide/svelte';
   import { faultLabel } from '$lib/faults';
-  import { emptyFeedCopy } from '$lib/feed/empty';
-  import { formatNumber } from '$lib/format';
+  import { formatNumber, pluralise } from '$lib/format';
   import { feed } from '$lib/state/feed.svelte';
   import { fleet } from '$lib/state/fleet.svelte';
   import { toneTokens } from '$lib/status';
@@ -57,16 +56,12 @@
   const categories = $derived(feed.categories);
   const hidden = $derived(feed.hidden);
   const everything = $derived(hidden === 0);
-  /*
-    Whether an empty feed is this browser's doing. Not `!everything`: two kinds
-    start off, so a browser nobody has touched has some switched off and an
-    empty feed used to blame it for a choice it never made -- and kept the
-    first-run copy out of reach on a default configuration. The count in the
-    header is still the honest one; this is only about who to blame.
-  */
-  const filtered = $derived(feed.filtered);
+  // Whether the choices made on Settings -> Events are the reason the panel is
+  // empty. Only then is it worth saying so: a new fleet has two kinds off by
+  // default and nothing in any of them, and blaming the filter there sends an
+  // operator off to change a setting that is not the answer.
+  const silenced = $derived(feed.silenced);
   const hasFleet = $derived(fleet.pools.length > 0 || fleet.hosts.length > 0);
-  const empty = $derived(emptyFeedCopy({ filtered, hidden, hasFleet }));
 
   /*
     The hour's failures, and how many of them this deployment caused.
@@ -154,7 +149,16 @@
       {/each}
     </ul>
   {:else if entries.length === 0}
-    <EmptyState icon={History} compact title={empty.title} description={empty.description} />
+    <EmptyState
+      icon={History}
+      compact
+      title={silenced === 0 ? 'Nothing has happened yet' : 'Nothing in the kinds you are watching'}
+      description={silenced === 0
+        ? hasFleet
+          ? 'A line is written here every time a job finishes, a runner comes up or goes away, the scheduler decides something, or a host, machine or pool changes underneath them.'
+          : 'Once there is a pool and a host, this is where the fleet says what it has been doing.'
+        : `${pluralise(silenced, 'event')} ${silenced === 1 ? 'is' : 'are'} not shown, because ${pluralise(hidden, 'kind')} of event ${hidden === 1 ? 'is' : 'are'} switched off for this browser. Use \u201cChoose\u201d above to turn ${hidden === 1 ? 'it' : 'them'} back on.`}
+    />
   {:else}
     <ul class="feed">
       {#each entries as entry (entry.id)}

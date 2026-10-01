@@ -503,7 +503,7 @@
 </script>
 
 <!--
-  Pool creation and pool editing, in the same seven steps.
+  Pool creation and pool editing, in the same steps.
 
   The draft is one object held here, so going back never loses what was typed;
   the steps are presentation only. Client-side rules run continuously and gate
