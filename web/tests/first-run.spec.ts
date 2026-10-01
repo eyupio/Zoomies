@@ -232,6 +232,46 @@ test('on a desktop the checklist keeps its columns aligned', async ({ page }) =>
   expect(new Set(right).size, `step actions end at ${right.join(', ')}`).toBe(1);
 });
 
+/*
+ * What the feed says when it is empty.
+ *
+ * Two kinds of event start switched off, so a browser nobody has touched always
+ * has some off -- and its empty feed used to say "2 kinds of event are switched
+ * off for this browser", blaming a choice nobody made and putting the first-run
+ * copy written for this very moment out of reach.
+ */
+test('a new browser’s empty feed says nothing has happened, not that kinds were switched off', async ({
+  page,
+}) => {
+  await signIn(page);
+
+  const feed = page.getByRole('region', { name: 'Recent events', exact: true });
+  await expect(feed).toContainText('Nothing has happened yet');
+  // No pool or host here, so the copy about what there is to wait for.
+  await expect(feed).toContainText('Once there is a pool and a host');
+  // The header still counts the kinds honestly: two start off, and say so.
+  await expect(feed).toContainText(/\d+ of \d+ kinds/);
+  await expect(feed).not.toContainText('switched off');
+  await expect(feed).not.toContainText('Nothing in the kinds you are watching');
+});
+
+test('an empty feed the operator has narrowed says which kinds are switched off', async ({
+  page,
+}) => {
+  await signIn(page);
+  await page.goto('/settings/events');
+  await expect(page.getByRole('heading', { name: 'Events', level: 1 })).toBeVisible();
+  const off = await page.getByRole('switch', { checked: false }).count();
+  await page.getByRole('switch', { name: 'Scaling decisions' }).click();
+
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Overview', level: 1 })).toBeVisible();
+  const feed = page.getByRole('region', { name: 'Recent events', exact: true });
+  await expect(feed).toContainText('Nothing in the kinds you are watching');
+  await expect(feed).toContainText(`${off + 1} kinds of event are switched off for this browser`);
+  await expect(feed).not.toContainText('Nothing has happened yet');
+});
+
 test('signing out and back in reports the three kinds of failure differently', async ({ page }) => {
   await page.goto('/');
   await page.context().clearCookies();

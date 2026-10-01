@@ -210,3 +210,35 @@ export const FEED_CATEGORIES: readonly FeedCategory[] = [
 export function feedCategory(id: string): FeedCategory | undefined {
   return FEED_CATEGORIES.find((category) => category.id === id);
 }
+
+/**
+ * Whether an empty feed is the operator's doing.
+ *
+ * Counting the kinds that are off is not the answer. Two categories start off,
+ * so a browser nobody has touched always has some -- and an empty feed on a new
+ * install used to tell its owner that kinds were "switched off for this
+ * browser", blaming a choice nobody had made and hiding the first-run copy
+ * that was written for exactly that moment.
+ *
+ * The feed is filtered when something is off *and* the operator has moved at
+ * least one category away from where it started, in either direction. Both
+ * halves are needed: a choice that matches the default changes nothing, and an
+ * operator who has switched on everything has nothing off to be told about.
+ *
+ * `choice` is what the browser has decided about one category. It is
+ * undefined for a category nobody has chosen about, and a preference that has
+ * been through JSON can as easily hand back null, so both mean "no choice".
+ */
+export function feedIsFiltered(
+  choice: (id: FeedCategoryID) => boolean | null | undefined,
+  categories: readonly FeedCategory[] = FEED_CATEGORIES,
+): boolean {
+  let anyOff = false;
+  let anyMoved = false;
+  for (const category of categories) {
+    const picked = choice(category.id);
+    if ((picked ?? category.on) === false) anyOff = true;
+    if (picked != null && picked !== category.on) anyMoved = true;
+  }
+  return anyOff && anyMoved;
+}

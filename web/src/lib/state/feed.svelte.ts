@@ -35,6 +35,7 @@ import { toMillis } from '../format';
 import {
   FEED_CATEGORIES,
   feedCategory,
+  feedIsFiltered,
   type FeedCategory,
   type FeedCategoryID,
 } from '../feed/categories';
@@ -145,6 +146,15 @@ class Feed {
   /** How many categories are off, for the sentence the panel shows. */
   get hidden(): number {
     return FEED_CATEGORIES.filter((category) => !this.shows(category.id)).length;
+  }
+
+  /**
+   * Whether this browser has narrowed the feed itself, rather than showing what
+   * it opens with. `hidden` cannot say: two kinds are off by default, so it is
+   * never zero on a browser nobody has touched.
+   */
+  get filtered(): boolean {
+    return feedIsFiltered((id) => prefs.feedChoice(id));
   }
 
   /* -- writes -------------------------------------------------------------- */
