@@ -133,7 +133,7 @@ they merge it.
 
 A repository whose CI runs on Zoomies gets to say so on its front page:
 
-[![CI has the Zoomies](badge.svg)](https://zoomies.sh)
+[![CI has the Zoomies](badge.svg){ width="153" height="20" }](https://zoomies.sh)
 
 The review step offers it, ticked, and the pull request adds it to the README
 in the same commit series as the `runs-on` change. Untick **Add the badge to

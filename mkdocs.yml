@@ -171,6 +171,7 @@ nav:
       - Two-step verification: two-step.md
       - Upgrading: upgrading.md
       - Troubleshooting: troubleshooting.md
+      - A job stuck in the queue: queued-job.md
   - Other ways in:
       - Command line: cli.md
       - Docker Compose: compose.md
@@ -196,6 +197,7 @@ nav:
   - Many repositories: many-repositories.md
   - Runners in your home lab: home-lab.md
   - Runners in Docker: docker.md
+  - Runners without Kubernetes: runners-without-kubernetes.md
   - Compared with ARC: actions-runner-controller.md
   - Compared with runner services: hosted-runner-services.md
   - What it costs: costs.md

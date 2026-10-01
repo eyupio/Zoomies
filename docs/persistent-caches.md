@@ -1,3 +1,11 @@
+---
+icon: material/database-clock-outline
+title: Caching for ephemeral GitHub Actions runners
+description: >-
+  Keep Go, npm, pip, Maven and Docker build caches between ephemeral runners.
+  Configure Zoomies cache scopes and reuse builds safely across jobs and hosts.
+---
+
 # Persistent caches for ephemeral runners
 
 Keep runners ephemeral. Retain selected cache data outside the runner's writable filesystem so the next runner can reuse downloads and build outputs. Losing a cache must only make a build slower; workspaces, credentials, runner registration and job state must not depend on it.
@@ -11,15 +19,179 @@ Keep runners ephemeral. Retain selected cache data outside the runner's writable
 | DinD daemon state | One runner's isolated sidecar lifetime | Do not share live `/var/lib/docker` between daemons |
 | BuildKit build cache | External registry, or another explicitly managed BuildKit cache service | Separate cache reference and write credentials per repository and trust boundary |
 
+## Enable a pool cache
+
+Open the pool's cache settings when creating or editing a pool. Enable the
+cache, choose its scope and source, and leave space for runner images and
+workspaces. These are **pool settings**, not top-level keys to paste into
+`zoomies.yaml`; the [configuration reference](configuration.md#the-pool-cache)
+explains every field.
+
+```yaml
+cache:
+  enabled: true
+  scope: pool
+  source: ""
+  size_limit: 0
+  tools: false
+```
+
+An empty `source` selects a daemon-managed volume. A non-zero `size_limit`
+requires an absolute host path; zero sets no size target. Use a pool cache only
+for repositories that may share its data. For a repository-target installation,
+`scope: repository` selects that repository automatically; an organisation
+target also needs `repository: owner/name`, and matching labels still decide
+which jobs GitHub can assign. Read the trust limits below before sharing it.
+
+The mount is `/opt/zoomies-cache`. Enable `tools: true` as well to retain
+setup-action toolchains; [keeping a tool cache](configuration.md#keeping-a-tool-cache)
+explains its image scope and how it differs from package downloads.
+
 ## Local cache scopes
 
-Use the pool's existing cache scope and source settings, described in [Hosts and pools](hosts-and-pools.md). Recipes for pointing Go, npm, pip, Maven and a local BuildKit cache at the pool cache are in [the configuration reference](configuration.md#using-the-pool-cache-from-a-workflow). Persistent host caches help subsequent runners on the same host; they do not follow a runner to another pool host automatically. A repository-scoped cache name is not a security boundary on an organisation installation: GitHub may assign a different matching repository's job to that runner. Use repository-target installations or explicit trust-separated pools for strong isolation.
+Use the pool's existing cache scope and source settings, described in [Hosts and pools](hosts-and-pools.md). Persistent host caches help subsequent runners on the same host; they do not follow a runner to another pool host automatically. A repository-scoped cache name is not a security boundary on an organisation installation: GitHub may assign a different matching repository's job to that runner. Use repository-target installations or explicit trust-separated pools for strong isolation.
 
 Cache identities now hash the full scope, immutable pool ID and canonical repository tuple, with a readable prefix. Tool generations also hash the resolved image reference. Renaming a pool does not relocate its cache; changing image identity creates a new tool generation. Old cache namespaces remain untouched for active runners and must be retired after they drain.
 
 The writable per-runner tool view links to retained tools read-only. The entrypoint also exposes missing image-baked tools there, including completion markers used by setup actions. Existing retained tool entries take precedence. The image inventory is `/usr/local/share/zoomies/installed-software.json`; it lists installed distribution package versions and completed tool-cache entries, not a complete dependency SBOM.
 
 Set cache size targets and leave disk reserve for image pulls, workspaces, daemon metadata and logs. Maintenance honours cancellation but eviction is not a quota and a busy cache may defer eviction. Monitor both free bytes and inodes. Cache and Docker filesystems may differ from the agent work filesystem.
+
+## Using the pool cache from a workflow
+
+Zoomies mounts the cache and nothing more: it does not know which package
+manager a job runs, so a workflow has to point its tools at
+`/opt/zoomies-cache`. The recipes below do that in one step, and each keeps the
+rule the cache is built on — a missing or broken cache makes a job slower and
+never makes it fail. Every one creates its own folder under the cache and only
+uses it if that folder turned out writable, so the same workflow still runs on
+GitHub's hosted runners, on a pool with the cache off, on a cache folder whose
+permissions went wrong, and on the morning an operator emptied it.
+
+The pool's `scope` names the cache namespace; it does not restrict which job
+GitHub assigns to an organisation runner. A workflow cannot turn a shared mount
+into a security boundary. Keep untrusted jobs on a separate pool without access
+to a trusted cache.
+
+**Go.** The module and build caches are both safe to share between concurrent
+jobs; the Go toolchain locks and verifies them itself.
+
+```yaml
+- name: Use the pool cache for Go
+  run: |
+    d=/opt/zoomies-cache/go
+    if mkdir -p "$d/mod" "$d/build" 2>/dev/null && [ -w "$d/mod" ] && [ -w "$d/build" ]; then
+      echo "GOMODCACHE=$d/mod" >> "$GITHUB_ENV"
+      echo "GOCACHE=$d/build" >> "$GITHUB_ENV"
+    fi
+```
+
+Set it before `actions/setup-go`, and give that action `cache: false`, so the
+job does not also upload the same modules to GitHub's cache.
+
+**npm.** npm's cache is content-addressed and tolerates concurrent writers.
+Keep `npm ci`: it still installs `node_modules` fresh, it only stops downloading
+the tarballs again.
+
+```yaml
+- name: Use the pool cache for npm
+  run: |
+    d=/opt/zoomies-cache/npm
+    if mkdir -p "$d" 2>/dev/null && [ -w "$d" ]; then
+      echo "npm_config_cache=$d" >> "$GITHUB_ENV"
+    fi
+```
+
+**pip.** pip keeps downloads and built wheels in one folder, and a wheel built
+once is not built again.
+
+```yaml
+- name: Use the pool cache for pip
+  run: |
+    d=/opt/zoomies-cache/pip
+    if mkdir -p "$d" 2>/dev/null && [ -w "$d" ]; then
+      echo "PIP_CACHE_DIR=$d" >> "$GITHUB_ENV"
+    fi
+```
+
+**Maven.** The local repository is the one of the four that two jobs writing at
+once can corrupt, so the recipe turns on the file locking Maven 3.9 and later
+ship. On an older Maven, or a pool with `max_runners` above one and no locking,
+prefer `actions/cache` instead. It adds to any `MAVEN_OPTS` an earlier step set
+rather than replacing it.
+
+```yaml
+- name: Use the pool cache for Maven
+  run: |
+    d=/opt/zoomies-cache/maven
+    if mkdir -p "$d" 2>/dev/null && [ -w "$d" ]; then
+      echo "MAVEN_OPTS=${MAVEN_OPTS:+$MAVEN_OPTS }-Dmaven.repo.local=$d -Daether.syncContext.named.factory=file-lock -Daether.syncContext.named.nameMapper=file-gav" >> "$GITHUB_ENV"
+    fi
+```
+
+**BuildKit.** A pool with `docker_mode: dind` gives each runner a daemon that
+dies with it, so its layer cache goes too. Buildx can export that cache to a
+folder and read it back on the next runner. The `local` exporter needs a
+`docker-container` builder, which is what `docker/setup-buildx-action` creates.
+
+The exporter writes a whole cache at once, and two jobs exporting to one folder
+— two runs, or two jobs of one matrix, which share a run ID — can leave a
+half-written one. So each job exports to a folder `mktemp` made for it alone,
+and when its build succeeds it publishes that folder by renaming a link over
+`current`, which is atomic: a reader sees the old cache or the new one, never
+half of either. When two jobs finish together the last one to rename wins, and
+the other's export is simply not used. `ignore-error=true` keeps a failed
+export from failing a build that otherwise succeeded, and a reader that finds
+its cache replaced mid-build gets a slower build, not a failed one.
+
+The build itself always runs. Only the cache flags depend on the cache being
+usable, and a pull request reads the cache without writing to it (see below).
+
+```yaml
+- uses: docker/setup-buildx-action@<pinned commit>
+- name: Build, with the pool cache when it is usable
+  run: |
+    base=/opt/zoomies-cache/buildkit/app
+    args=() src="" out=""
+    if mkdir -p "$base" 2>/dev/null && [ -w "$base" ]; then
+      if [ -f "$base/current/index.json" ]; then
+        src=$(readlink -f "$base/current")
+        args+=(--cache-from "type=local,src=$src")
+      fi
+      if [ "$GITHUB_EVENT_NAME" != pull_request ] && out=$(mktemp -d "$base/export.XXXXXX"); then
+        args+=(--cache-to "type=local,dest=$out,mode=max,ignore-error=true")
+      fi
+    fi
+    docker buildx build "${args[@]}" --tag app:ci .
+    if [ -n "$out" ] && [ -f "$out/index.json" ]; then
+      if ln -s "$out" "$out.link" && mv -T "$out.link" "$base/current"; then
+        if [ -n "$src" ]; then rm -rf "$src"; fi
+      else
+        rm -rf "$out" "$out.link"
+      fi
+    elif [ -n "$out" ]; then
+      rm -rf "$out"
+    fi
+```
+
+Name the folder after the image and, if the pool builds for more than one
+platform, the platform too, so two builds do not replace each other's cache.
+The cache is not pruned by Buildx; the pool's `size_limit` is what bounds it.
+To share a cache across hosts rather than across runners on one host, use a
+registry cache instead — [the recipe below](#dind-and-buildkit) shares layers
+without sharing a live daemon.
+
+**Pull requests.** Everything a job writes to the cache is read by the jobs
+after it, so a pull request that can change the build can put something in the
+cache a later build on the default branch will use. GitHub's own cache stops
+that by letting a pull request read its base branch's entries and write only
+its own; a folder cannot. For workflows you control, the BuildKit recipe above reads but does not
+export on a pull request. Add `if: github.event_name != 'pull_request'` to the
+package-manager steps to leave those jobs using their normal cache folders.
+These are workflow conventions, not access controls: code with a writable
+mount can bypass them. Keep untrusted pull requests on a separate pool with no
+trusted cache mounted. [Security](security.md) explains why a public repository
+needs particular care with self-hosted runners.
 
 ## DinD and BuildKit
 

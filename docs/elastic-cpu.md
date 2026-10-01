@@ -1,9 +1,9 @@
 ---
 icon: material/rabbit
+title: "Dynamic CPU allocation for self-hosted GitHub Actions runners"
 description: >-
-  Elastic CPU zoomies: a busy runner is lent the CPU its host is not using,
-  every runner keeps its guarantee, and the next queued job keeps its room.
-  How to turn it on from the pool wizard, and what the runner page shows.
+  Lend idle host CPU to busy GitHub Actions runners while reserving capacity
+  for queued jobs. Configure Zoomies CPU boosts and read their live status.
 ---
 
 # Elastic CPU zoomies
