@@ -3,6 +3,7 @@
   import { formatNumber } from '$lib/format';
   import { prefs } from '$lib/state/prefs.svelte';
   import Tooltip from '$lib/components/Tooltip.svelte';
+  import OffStatusIcon from '$lib/components/OffStatusIcon.svelte';
   import ZoomiesStatusIcon from './ZoomiesStatusIcon.svelte';
   import { runnerDisplayStatus } from './runner-status';
 
@@ -76,7 +77,7 @@
     {#if prefs.quirkyStatus}
       <ZoomiesStatusIcon state={status.key} seed={runner.id} />
     {:else}
-      <status.icon class="standard-icon" size={20} aria-hidden="true" />
+      <OffStatusIcon {status} />
     {/if}
     <span class="label">{status.label}</span>
   </button>
@@ -108,9 +109,6 @@
     transition:
       background var(--z-motion-fast),
       border-color var(--z-motion-fast);
-  }
-  .runner-status :global(.standard-icon) {
-    flex: none;
   }
   .runner-status.active {
     background: var(--status-subtle);

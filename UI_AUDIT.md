@@ -1,394 +1,1076 @@
-# UI and conversion audit
+# UI audit — conversion, first run and mobile
 
-Audited at commit `0b4734c` on 1 October 2026, from the built binary (`make build`), a fresh
-auth-on controller, the demo-seeded fleet, the repository's own fake GitHub, and the
-`zoomies.sh` site built with `mkdocs build`. Desktop is 1440×900 at 1× and mobile is 375×812 at
-2× with touch.
+Audited at commit `0b4734c`, 1 October 2026. Nothing here has been fixed; every
+finding says what to change and where.
 
-The first commit on this branch is the audit alone. The commits after it implement the
-findings that need no product decision, and every finding below now opens with a **Status** line
-saying what became of it. The *Problem* text is left as it was written, describing the product
-at `0b4734c`, so a reviewer can see what the change answers to. What was left, and why, is the
-list under *What is still yours to decide*.
+**Verdict.** The product is better than its front door. Once a fleet is
+populated the UI is genuinely strong: dense, honest, accessible, and the
+scheduler explains itself in plain English. But before a visitor sees any of
+that they must survive up to eighteen terminal prompts, a sign-up form whose
+button is off-screen, a GitHub step that refuses the home labs the landing page
+courts, and a checklist that deletes itself when a stranger's job arrives. And
+the page that sells it breaks on the phone it is most likely to be opened on
+first. Fix the funnel, not the dashboard.
 
 ## Read this first
 
-**There is no paywall, trial, billing or upsell in this codebase, so there is nothing of that
-kind to audit.** The brief assumes a SaaS funnel. Zoomies is AGPL-3.0 and self-hosted: no
-accounts on a server of ours, no tiers, no pricing. I searched the web UI, the API, the Go
-packages, the site and the docs for `paywall`, `free trial`, `pricing`, `billing`, `premium`,
-`upsell`, `upgrade to`, `licence key`, `entitlement`, `plan limit`, `sponsor` and `donate`. The
-only hits are GitHub's own pricing quoted on `docs/costs.md` and *software* upgrades
-(`web/src/lib/state/upgrade.svelte.ts`, the agent-upgrade hints in `HostCard.svelte`). This is
-policy, not an omission: `SUPPORT.md` L5 says "no paid tier", and `ROADMAP.md` L380 and L478–482
-(delivery rule 15) say no page may name a plan, a tier or a hosted service. I have not invented
-findings to fit the template, and none of my fixes asks for one; where a suggestion could brush
-against that rule I say so (C4).
+### The brief assumes a trial and a paywall. There isn't one.
 
-What "start a free trial" means here, and what I audited instead:
+Zoomies is AGPL-3.0 and self-hosted. A search of `web/src`, `internal/`, `docs/`
+and the site overrides finds no billing, plan, seat, licence-key or trial logic,
+no upgrade modal and no upsell. Every "upgrade" in the UI is a software version
+bump (`web/src/lib/hosts/HostCard.svelte`, `web/src/lib/state/upgrade.svelte.ts`).
+The only monetisation touchpoint in the repository is `.github/FUNDING.yml`, a
+Ko-fi link that GitHub renders as a Sponsor button.
 
-> **zoomies.sh → `curl … | sh` → first account → connect GitHub → first pool → first job on your own runner.**
+So I audited the conversion that does exist. "Start a free trial" becomes
+**get to a first job running on your own runner**, and "paywall" becomes
+**anything that stops or interrupts a visitor before that moment**.
 
-The conversion event is the first job. The "free trial" equivalent is the zero-commitment demo
-fleet (`ZOOMIES_SEED_DEMO=true`), which exists and is almost invisible (C4).
+```mermaid
+flowchart LR
+    land["Landing page and README<br/>C6, H5, H6, H7"]
+    inst["Install and zoomies init<br/>up to 18 prompts: C5, H3, H4"]
+    sign["Create the first account<br/>button below the fold: C2, H10"]
+    gh["Connect GitHub<br/>needs a public URL: C3, H11"]
+    pool["Host and pool<br/>five screens: H1, H2, H12"]
+    job["First job<br/>no help: C4"]
+    gone["Checklist deleted by a<br/>stranger's job: C1"]
 
-**Who walks which path.** Per `docs/quickstart.md` §2, a *native* (systemd) install finishes in
-the terminal: administrator, GitHub App and first pool. The two *container* installs (Docker
-Compose, which is "the default whenever you have a `compose` command", and single Docker) "move
-the last three steps to the browser". So Bootstrap → the Overview checklist → Connect GitHub → the
-pool wizard is the **default path for anyone with Docker**, and the fallback for a native install
-whenever its owner skips GitHub in the terminal (C1). That is why most of this audit is about those
-four screens.
+    land --> inst --> sign --> gh --> pool --> job
+    gh -.-> gone
+```
 
-### Your four specific checks
+### How I tested
 
-| Check | Answer |
+I built the binary at `0b4734c` and drove a real Chromium (Playwright 1.63)
+against it at **1440×900** and **375×812** (touch, 2× density), in light and
+dark. Controllers I ran: the project's seeded demo fleet; its empty first-run
+fixture (authentication on); its fleet-in-trouble fixture; its connect fixture
+with a fake GitHub; and two installs configured the way the installer would
+leave them (an `https` external URL, and the `http://localhost` one that
+`install.sh`'s "local-only" prompt produces). I built the marketing site with
+`mkdocs` and drove it the same way.
+
+Across 19 app routes, the sign-up and sign-in pages, and 6 site pages I measured
+sideways scroll, tap-target sizes, font sizes (by characters, not by element),
+and ran axe-core against WCAG 2.0 to 2.2 A and AA.
+
+Each finding carries an evidence tag:
+
+* **Reproduced** — I made it happen in a running build.
+* **Measured** — a number from the browser.
+* **Code-verified** — read in the source, not executed end to end.
+* **Judgement** — my opinion; argue with it.
+
+I did not test with people, and the repository has no analytics (see H13), so
+nothing here is a conversion *rate*. It is where the funnel is narrow.
+
+### What I measured and threw away
+
+So nobody chases ghosts: the two warnings in the first-run Problems drawer
+(`external_url.missing`, `poll.disabled`) are that fixture's configuration, not
+a fresh install's. The process-backend warnings are my sandbox running as root.
+The demo fleet's red "9" is the harness (poller off, no external URL,
+authentication disabled) plus faults the seed plants on purpose (a cordoned host,
+two failed runners, dangerous pools), so I make **no** alarm-fatigue claim. The raw Mermaid
+source in my landing-page capture was because my sandbox blocks `unpkg.com`
+(see N5 for the real issue). The `audit (0b4734c)` footer is my build stamp. And
+the fixed bottom bar floating mid-page in full-page phone screenshots is a
+capture artefact, not a bug.
+
+### How the Critical section is ordered
+
+By users affected × severity ÷ effort, so the cheap, certain wins come first.
+
+| Severity | Findings |
 | --- | --- |
-| Upgrade or paywall modals before value | **None exist.** The checklist dismisses itself after the first job (`FirstRun.svelte` L142–145) and nothing is asked of the user afterwards. |
-| Several simultaneous upsell touchpoints (nagware) | **None.** The nearest analogue is a first-run Overview that stacks competing prompts, some of which contradict each other (C6). |
-| Broken or cramped mobile layouts | **Yes, in three places:** the landing page's install command and comparison table (C3), the Connect GitHub dialog (H6), and the first-run form (H1). The *app* is otherwise very clean: no sideways scroll on any of ~35 captured routes at 375px (one data-dependent exception, N3). |
-| Onboarding answers collected but never used | **Yes, two:** the installer's four GitHub answers are discarded on "Skip" and asked again in the browser, and the first-run Email field feeds nothing (H11). |
+| Critical | 6 |
+| High impact | 13 |
+| Nice to have | 12 |
 
-### What is already good, so nobody breaks it
+## What is already good — do not "fix" it
 
-- The **Login page** (`Login.svelte`): black brand panel, a real value proposition, three facts, instance host chip. It is the best page in the product, and better than Bootstrap and the landing hero (see H1, H2).
-- The **Connect dialog's "done" state** verifies the credentials before it claims success.
-- The installer's startup banner and its boxed **setup-token block**; the controller *refusing* auth-off behind a public address; the safe defaults generally.
-- The **populated Overview** is the product's strongest screen (activity matrix, sparkline tiles, plain-language scheduler reasons). The problem is that a new user cannot get there; they see the empty version (C6).
-- Contrast is excellent almost everywhere. Across 15 app routes at both widths my opacity-aware measure found **one** failing pattern: the dimmed checklist steps, three text runs (H9). Focus rings, skip links, reduced motion and 16px mobile inputs are all handled.
+* **The populated Overview.** Clear hierarchy, honest status colours, sparklines
+  that earn their space, and a feed that says `scaled zoomies-demo-linux-x64
+  4 -> 5: 1 job queued > 30s`. It is the best proof-of-value screen in the
+  product, and the funnel below exists to get people to it.
+* **Contrast.** axe found **zero** colour-contrast failures across 15 app routes,
+  in light and dark, at both widths.
+* **In-app phone layout does not overflow.** None of 19 routes, two themes,
+  scrolls sideways at 375px. `web/tests/mobile.spec.ts` earns its keep.
+* **Nothing interrupts.** No dialog opens by itself (every `open = true` in
+  `web/src` sits behind a click or a key), and the only persistent toast in the
+  app is the administrator-reset-password notice (`web/src/App.svelte:93-105`).
+* **Weight.** The app shell is 102.3 KB gzipped against a 200 KB budget, and the
+  hero screenshots are 141 KB and 143 KB.
+* **Honest recovery.** The checklist never offers a button that leads to a
+  refusal (`FirstRun.svelte:1-19`), and the pool wizard's no-GitHub dead end says
+  so and carries a Connect GitHub button.
+* **The sign-in page.** A real value proposition, three proof points, one
+  screen, and a tidy phone layout. Its transparent logo on a black panel is what
+  the sign-up card should have used (C2).
+* **Radical honesty on the site.** "What is qualified" is rare and builds trust
+  with the right reader. The problem is presentation (H7), not substance.
 
-### How to read the findings
+## Your four checks, answered
 
-Severity: **Critical** blocks conversion or misleads someone at the moment of decision. **High impact** costs real friction or trust. **Nice to have** is polish. Numbers are measured against the real binary unless marked *(from source)*. Line numbers are at `0b4734c`.
+**1. Upgrade or paywall modals before value.** None exist, and nothing opens
+unprompted. The only first-run overlay is a transient toast after sign-up, whose
+second sentence tells you to read the checklist you are already looking at (H1).
 
-| ID | Finding | Funnel step | Viewport | Status |
-| --- | --- | --- | --- | --- |
-| C1 | Connect GitHub dead-ends on a path the installer itself offers | Activation | both | Fixed, one exit left to decide |
-| C2 | Nothing gets the user to a running job; the last step is the wrong tool | Activation | both | Fixed, prefilled link not done |
-| C3 | Landing page broken at 375px: install command and proof table | Landing | mobile | Fixed, cause corrected |
-| C4 | No way to try it without a server, root and a GitHub org | Landing | both | In part; recording and hosted demo left to decide |
-| C5 | App asks for write on code and workflows before any value | Activation | both | Fixed, **needs sign-off** |
-| C6 | First-run Overview buries its one job and contradicts itself | First run | both | Fixed, two items left to decide |
-| H1–H12 | See below | | | Fixed: H4, H6, H8, H9. In part: H1, H5, H11. Left to decide: H2, H3, H7, H10, H12 |
-| N1–N12 | See below | | | Fixed: N1, N2, N3, N9, N10, N12. In part: N7. Left to decide: N4, N5, N6, N8, N11 |
+**2. Several simultaneous upsells; nagware.** There are no upsells. The closest
+equivalent is **three parallel "do this next" prompts for one action** on a clean
+fresh Overview (the checklist, the post-sign-up toast and the empty Pools panel's
+button), five when the controller has any advisory (the warnings bar and the bell
+badge join in). That is H1. The Sponsor button is
+GitHub's own, driven by `.github/FUNDING.yml`; the product and the docs never
+ask for money.
+
+**3. Broken or cramped mobile.** *Broken:* the landing page (C6) scrolls sideways
+and clips its install command, and the Connect dialog's second tab is cut
+mid-word (N3). *Cramped:* between half and three-quarters of text is 12px or
+smaller, the bottom navigation is 11px, and list pages bury the list (H8, H9).
+The in-app layout itself never overflows.
+
+**4. Onboarding answers collected but never used.** One clear case: the
+sign-up's **Email** field is stored and shown, then never used for anything,
+because the product has no mail capability at all (H10). On the other side, the
+product *does* honour several choices: the single-host answer removes the "Add a
+host" step (the checklist reads "Three steps", not "Four"); the checklist's
+`runs-on` line is derived from the pool's real labels (code-verified); and the
+theme follows the OS. It does **not** honour "I'm trying this locally" (C3), and
+the pool wizard's header miscounts its own steps in both modes (H2).
 
 ---
 
-## 1. Critical
+# 1. Critical
 
-### C1 · The Connect GitHub dialog is a dead end on a path the installer itself offers
+## C1. The setup checklist deletes itself the moment a stranger's job arrives
 
-- **Status:** **Fixed, with one exit left for a decision.** The amber paragraph is now a field (`ExternalAddress.svelte`): "Public address of this controller", prefilled with the address the browser is using when that is not loopback, saved through the call the Settings page makes. It then says how to restart, for a container install (`zoomies deployment restart`) and a service (`sudo systemctl restart zoomies`), and the dialog carries on by itself when `/meta` reports the new address. An environment-pinned value shows the API's own reason; an account below Platform is told whose job it is. The form is no longer drawn under the refusal, the disabled "Continue" is gone, and the checklist's button opens the dialog directly (`?connect=1`) and says up front that the next screen asks for the address. **Not done:** (i) "Create it anyway" — the dialog's own comment says the terminal installer refuses an unreachable address, but `checkWebhookReachable` in the installer offers exactly that, so which of the two is right is a product decision, not a fix; (ii) a `deployment` field on `/meta` (both restart commands are shown instead, which needs no API change). Covered by `first-run.spec.ts` against the real binary.
-- **Pass:** First-time user
-- **Where:** `web/src/lib/installations/ConnectDialog.svelte` L486–487 (`notReachable`), L855–881 (the amber panel), L1317–1325 (footer primary disabled). The promise it breaks is in `internal/installer/manifest.go` L333 (`"Skip GitHub for now -- connect it later in the browser"`). Reached from `FirstRun.svelte` L189 → `/installations`. Desktop 1440 and mobile 375 (at 375 the amber panel is about 40% of the visible dialog).
-- **Problem:** A loopback listener, the installer's default, derives `server.external_url` as `http://localhost:8080` (`installer.go` L735–757; the dialog's own comment at L478–485 says the same). On that default the terminal installer notices, warns that GitHub cannot reach it, and offers three answers: enter a reachable address (the default), create the App anyway, or "connect it later in the browser". The same wall meets anyone who starts `zoomies controller` by hand with defaults. The browser then greets that person, on the single call to action of the first-run checklist, with: *"Set `server.external_url` to the address GitHub can reach, restart the controller, and come back."* The primary button is disabled. There is no field, no link to Settings, no hint how to restart, and the three unusable form fields are still drawn underneath. The fix lives on a different page and needs a restart the UI cannot perform. The terminal had three exits; the browser has none. A new operator is asked to leave the product, edit config, restart a service nobody named and find their way back, *before seeing a single runner*. It is the point where I would expect the most evaluations to end. (I have no analytics; that is a judgement, not a measurement.)
-- **Fix:**
-  1. In the blocked state replace the paragraph with an inline field, "Public address of this controller", prefilled with `location.origin` when that is not loopback (the browser knows the address the operator actually typed; `Login.svelte` L206–215 already argues it is "always right"). Primary button: "Save and continue", which writes `server.external_url` through the same call the Settings page makes (`ConfigurationPanel.svelte` L293–299, `save` → `updateSettings`).
-  2. The setting is restart-bound (`internal/config/settings.go` L193–196), so after saving show the restart command for the detected deployment (`sudo systemctl restart zoomies`, or `docker compose restart zoomies`; this needs a new `deployment` field on `/meta`) and reuse `lib/settings/RestartWait.svelte` to poll `/healthz`, reload, and reopen the dialog on step 1.
-  3. Give the dialog the installer's other two exits. "Create it anyway, I'll fix the webhook URL on GitHub" is a legitimate answer, not a dangerous one: without a reachable address the fleet still works by polling and "reacts in tens of seconds rather than instantly" (`docs/configuration.md#serverexternal_url`), so a hard block is stricter than the product needs. And link the guidance that already exists, which the dialog never mentions: the Cloudflare Tunnel pattern in `docs/home-lab.md` L36–46. The quickstart's step 3 does not mention the external URL at all; add one sentence there too.
-  4. Surface the same state on the checklist: when `external_url` is loopback, the "Connect GitHub" row reads "First, set your public address" with a button to the same inline field, so the dead end is never one click deep. A deep link already exists (`ProblemItem.svelte` L145: `/settings/configuration?setting=…`) if you want a fast first step.
+* **Pass:** First-time user
+* **Evidence:** Reproduced end to end.
+* **Where:** `web/src/lib/overview/FirstRun.svelte:89` (`hasJobs`), `:113`
+  (`show`), `:134-144` (`dismiss()` and the effect that calls it); route `/`
+  (Overview), desktop and 375px. For contrast,
+  `web/src/lib/overview/FleetMetrics.svelte:165-166` reads the fleet-scoped
+  counters.
+* **Problem:** `hasJobs` sums `queued_jobs + running_jobs + completed + failed`
+  from the *unscoped* totals, which count every job GitHub reports for the
+  organisation, including those on GitHub-hosted runners. The effect at `:142`
+  then persists the dismissal to `localStorage` the moment that sum is non-zero.
 
-### C2 · Nothing gets the user to a running job, and the last checklist step points at the wrong tool
+  Reproduction: fresh controller, connect an installation, and the checklist
+  reads "Three steps between here and a job running on your own runner". Deliver
+  one signed `workflow_job` `queued` webhook for `runs-on: ubuntu-latest`
+  (HTTP 202). The checklist vanishes live, `zoomies.firstrun.dismissed` becomes
+  `"1"`, and it stays gone after a reload. At that instant `GET /api/v1/stats`
+  says `queued_jobs: 1` but `fleet.queued_jobs: 0`, and there are no pools.
 
-- **Status:** **Fixed, except the prefilled GitHub link.** Once a pool exists the last step carries a complete, self-contained test workflow (`workflow_dispatch`, `runs-on` from the pool's own labels, prints `hostname` and `uname -a`) with a copy button and where to save it, and "Rewrite workflows" is now a quiet link to the migration wizard. While the Overview is open, the first job to finish on a runner of the operator's own raises one success toast with the runner and how long it took, and a failed first job raises nothing (the rule is `judgeFirstJob`, unit-tested). It does not fire for a job that finished while the page was somewhere else: working out afterwards that a job was "the first" needs the jobs API to say so, and guessing would announce a first job to an established fleet seen from a new browser. **Not done:** the "Open in GitHub" deep link (`/new/<branch>?filename=&value=`) — I could not confirm GitHub's current behaviour for it from here, a broken link at the first meaningful action is worse than none, and the branch name is not known — and the repository picker it would have needed.
-- **Pass:** First-time user
-- **Where:** `web/src/lib/overview/FirstRun.svelte` L255–282 (step "Point a workflow at it", action "Rewrite workflows" → `/migrate`), `web/src/lib/migrate/MigrateWizard.svelte` (five steps). There is no "test", "smoke" or "dispatch" affordance anywhere in `web/src` (searched). The docs' version of this step is `docs/quickstart.md` §5. Desktop and mobile.
-- **Problem:** The checklist's own header promises "…a job running on your own runner". Every step up to the last happens inside Zoomies; the last happens outside it: find a repo, edit a workflow, commit, push, return. The quickstart's sample for that step runs `make test`, which only works in a repository that already has a Makefile, so even the docs' "hello world" is not self-contained. In the product the only help is a `runs-on:` line and a button, and that button opens the **migration wizard**, whose five steps end in pull requests opened on the user's repositories. For an evaluator with no workflows to migrate, that is the wrong tool, and "open PRs across my org" is a much scarier ask than "run hello-world". **Measured** on the manual-App tab (the only path testable without github.com): **10 clicks and 4 required fields from the Overview to a created pool**, then nothing in-product that starts a job. On the manifest tab I count about 12–14 clicks and two round trips to github.com *(from source)*. The user finishes Zoomies' half and is handed the start of their own.
-- **Fix:** Add a "Run a test job" affordance that needs no migration, shown once `hasPool`:
-  1. Under the existing `runs-on` line, render a minimal copyable workflow (`workflow_dispatch`, one job with `runs-on: <the pool's runsOn()>` that prints `hostname`).
-  2. Beside it, "Open in GitHub": `https://github.com/<target>/<repo>/new/<branch>?filename=.github/workflows/zoomies-test.yml&value=<urlencoded yaml>`. GitHub's new-file editor takes `filename` and `value`; verify against the current UI, and keep the YAML under the URL limit (≈8 KB; a minimal workflow is well under 0.5 KB). `<target>` is `installation.target` already; for an org target add a repository picker fed by the installation, or a free-text `owner/repo`. Use a self-contained sample (`echo`, `hostname`, `uname -a`) rather than `make test`, and fix the quickstart's §5 the same way.
-  3. When the first `job.updated` for this fleet arrives, the existing `hasJobs` effect (L142–145) silently dismisses the panel. Make it a moment instead: one toast, "Your first job ran on your own runner in 14s", linking to that job, with the next step (add a second host, turn on elastic CPU). That is the only legitimate "post-value prompt" this product needs, and it is a next step, not an upsell.
-  4. Demote "Rewrite workflows" to a quiet link: "Moving existing workflows? Use the migration wizard."
+  Any organisation with other CI activity — nearly every organisation you want —
+  loses its guide the first time any other workflow queues a job after GitHub is
+  connected, before a host, pool or workflow exists, and lands on an Overview of
+  zeros with no next step, at the moment of highest intent. The component's own
+  header says it goes away "once a job has run *here*". The code never checks
+  "here".
+* **Fix:**
 
-### C3 · The mobile landing page is broken in the two places that matter most: the install command and the proof table
+  ```ts
+  // web/src/lib/overview/FirstRun.svelte
+  /**
+   * This fleet's own work has started or finished. Reads the fleet-scoped
+   * counters -- what FleetMetrics shows with "Other runners" off -- because the
+   * unscoped totals include every job GitHub reports. A queued job has not run,
+   * so it does not count either: a job stuck in the queue is exactly when the
+   * checklist should stay.
+   */
+  const hasJobs = $derived.by(() => {
+    const own = fleet.stats?.fleet;
+    return !!own && (own.running_jobs ?? 0) + (own.completed ?? 0) > 0;
+  });
+  ```
 
-- **Status:** **Fixed, with a corrected diagnosis.** The audit blamed the comparison table for the layout viewport growing to 399px. Bisecting with injected CSS shows that hiding the table, the install box or both left `innerWidth` at 399; the cause was the hero's decorative glow (`inset: -3rem -2rem 30%`, 423px wide, 24px past the gutters), which also gave laptops from 320 to 1366px a sideways scrollbar. It now stops at the hero's sides, and `scrollWidth` equals `clientWidth` at every width from 320 to 1600px on `/`, `/demo/`, `/quickstart/` and `/ui/`. The two things that really were cut off are fixed too: up to 480px the install command wraps at the space, so all 45 characters are visible and none is under the chip (27 of 45 were), with the copy chip as a full-width 48px "Copy command" button underneath; and the comparison table drops its middle column on a phone so the Zoomies column is inside the screen, its wrapper scrolling rather than widening the page should a row outgrow it. **The guard suggested under Fix is vacuous:** in a mobile-emulated context `scrollWidth <= innerWidth` reads 399 <= 399 at baseline and passes, so a site check should assert `innerWidth === 375`. Checked in Chromium only; Firefox and WebKit are not available here.
-- **Pass:** Designer
-- **Where:** `docs/index.md` L26–30 (hero command) and L290–303 (`.zoomies-compare`); `docs/stylesheets/zoomies.css` L897–935 (`.zoomies-install`), L1037–1044 (compare table), L1201–1232 (the only phone block; it touches neither). Viewport 375×812.
-- **Problem:** *Measured.* (a) The command is 421px of monospace in a 343px box with 4.4em of right padding for the copy chip. First paint reads `curl -fsSL https://zoomies.sh/i` and then the copy button sits **on top of** the remaining characters. The CSS comment (L906–907) says the tail "scrolls clear of it"; nothing tells a visitor it scrolls. They cannot read the one line the page exists to get them to run. (b) The comparison table is 385px wide in a 343px column. The layout viewport grows to 399px (`window.innerWidth` 399 against a 375px visual viewport; the full-page capture is **798px wide, not 750**), so the page pans sideways or renders zoomed out, and **the Zoomies column, the one the table exists to sell, is the part cut off** (header and "one comman…" clipped at the right edge). *Correction: the table is cut off, but it is not what widened the layout viewport; see Status.* Everything else on the page measured clean, which makes these two stand out: they are the first thing and the best-persuading thing.
-- **Fix:**
-  1. Command: at `@media (max-width: 30em)` set `.md-typeset .zoomies-install pre > code { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.7rem; padding-right: 1.1em }` and move the chip below the text as a full-width labelled button: `.md-typeset .zoomies-install .md-code__nav { position: static; transform: none; width: 100%; margin-top: .5rem }`. Two wrapped lines of command beat one clipped line.
-  2. Table: `.md-typeset .zoomies-compare .md-typeset__table { display: block; max-width: 100%; overflow-x: auto }` as the safety net, and at ≤ 30em `.zoomies-compare table th, .zoomies-compare table td { padding: .5em .55em; font-size: .68rem }` and, because the Zoomies-against-ARC contrast is the point, hide the middle column on phones (`.zoomies-compare th:nth-child(3), .zoomies-compare td:nth-child(3) { display: none }`). Three columns fit 343px with room to spare (min-content is 385px with four; you need to save ≥ 42px).
-  3. Add a guard to the site build: a Playwright check that `document.documentElement.scrollWidth <= window.innerWidth` for `/` at 375px (`web/tests/mobile.spec.ts` already does this for the app). *Correction: in a mobile-emulated context that check passes at baseline (399 <= 399); assert `innerWidth === 375` instead.*
+  Leave the effect at `:142` alone; with this definition it is correct. Add a
+  case to `web/tests/connect.spec.ts` (it already has the fake GitHub and an
+  installation): POST a signed `workflow_job` for `ubuntu-latest`, then assert
+  "Finish setting up" is still visible and `zoomies.firstrun.dismissed` is
+  unset. Recipe in Appendix C.
 
-### C4 · There is no way to try Zoomies without a server, root access and a GitHub organisation, and the demo that would fix it is buried
+## C2. The sign-up form buries its own submit button
 
-- **Status:** **Fixed in part.** The hero has a secondary button, "Try the demo fleet (no GitHub needed)", directly under the command, and `docs/demo.md` is the one pasted block: install with `--no-init`, then the controller with `ZOOMIES_SEED_DEMO`, authentication off, a loopback bind and a throwaway key and database. It is linked from the hero, the closing call to action, the quick start's first step, `ui.md` and the navigation. `internal/docs/demo_test.go` holds the block to the controller's own validation (it builds the configuration the controller would from the variables the block sets and fails on any error-severity finding), checks that every `ZOOMIES_` name is a registered setting or the seeding switch, and that the block binds loopback and the page says authentication is off; it was mutation-tested with 15 mutations. The page says what running it actually does: four hosts (the controller's own machine joins the three seeded ones), the files it leaves behind, and that a controller asks github.com once a day which release is current. **Not done:** the recorded walkthrough, and a **hosted** public demo, which delivery rule 15 (`ROADMAP.md`) rules out unless the owner changes it. The installer line was not run (it needs the network and writes to `/usr/local/bin`), so what the page says about it comes from reading `install.sh`.
-- **Pass:** First-time user
-- **Where:** `docs/index.md` L26–34 (hero: only the install command and doc links), L239 (the *only* mention on the home page, mid-paragraph in "Moving what you have now"), L326–350 (closing CTA); `docs/quickstart.md` (no mention at all); `docs/ui.md` L20–22 and L581–583; seeded by `internal/controller/seed.go` L123–. Both viewports.
-- **Problem:** To see anything real a visitor must: run an installer with root on a Linux box (it escalates with `sudo`), answer eight or more prompts, create a GitHub App on an organisation (with the permissions in C5), *then* push a workflow. The thing that answers "is the UI as good as the screenshot?" without any of that already exists: a seeded fleet of two pools, hosts, a dozen runners and a morning of jobs, **no GitHub required**. It is the very data behind the hero screenshot. It is mentioned in one sentence and offered nowhere. For a self-hosted tool, this *is* the free trial, and the funnel hides it.
-- **Fix:**
-  1. Hero: add a secondary button next to the command: **"Try the demo fleet (no GitHub needed)"** → new `docs/demo.md` (link it from `quickstart.md` step 1 and the closing CTA too).
-  2. `docs/demo.md` is one copy-paste block. I ran this against the built binary and it works with no Docker present (it logs a "docker backend not available" warning and serves the seeded fleet; `ZOOMIES_EXTERNAL_URL` must stay unset, because auth-off with an external URL is refused by `config/validate.go` L595–602):
-     ```sh
-     curl -fsSL https://zoomies.sh/install.sh | sh -s -- --no-init
-     ZOOMIES_SEED_DEMO=true ZOOMIES_DISABLE_AUTH=true ZOOMIES_BIND=127.0.0.1:8080 \
-       ZOOMIES_ENCRYPTION_KEY=$(openssl rand -base64 32) ZOOMIES_DB_PATH=/tmp/zoomies-demo.db \
-       zoomies controller
+* **Pass:** First-time user
+* **Evidence:** Measured.
+* **Where:** `web/src/routes/Bootstrap.svelte` (whole card; hint at `:222`;
+  Confirm at `:307-333`; Email at `:335-351`);
+  `web/src/lib/components/Logo.svelte` (`lockup`: `lockupWidth =
+  Math.max(220, size * 3.1)`, drawn on `var(--z-brand-black)`); route `/` while
+  `session.phase === 'bootstrap'` (every container install); 1440×900 and
+  375×812.
+* **Problem:** The card is **1,250px tall**. At 1440×900 the "Create the
+  account" button's top edge is at y = 1171, **271px below the fold**; on a phone
+  it is at 1172px, 1.4 screens down. Why:
+  * A **298×298 hard-edged black tile** (the lockup frame) sits on a dark-grey
+    card, or on a white one in the light theme. It eats a third of the fold
+    before the first field.
+  * Two paragraphs (eight lines on desktop) explain a form the reader is
+    already looking at.
+  * The first field asked is the one the visitor understands least: a
+    32-character token to dig out of a log. Its hint, `docker compose logs
+    zoomies | grep 'setup token'`, is right for Compose only (wrong for
+    `docker run`, systemd or a PaaS), wraps awkwardly at the pipe, and is not
+    copyable.
+  * Five fields where three are needed: Confirm duplicates the reveal toggle,
+    and Email is never used (H10).
+
+  Everything on this card was written by someone who already knows the product.
+  The visitor has a Docker terminal open in another window and wants to be done.
+* **Fix:**
+  1. Logo: `variant="full" size={40}` (inline paw and wordmark, about 140×40) or
+     `variant="mark" size={56}`. Keep the lockup for the sign-in page, where it
+     is transparent on its black panel.
+  2. Copy: replace the lede and the "Then:" paragraph with one sentence: "Create
+     the first administrator. This form closes as soon as it exists." The
+     post-sign-up toast and the checklist already carry the rest.
+  3. Fields: Setup token, Username, Password (keep the reveal toggle and the
+     strength hint, and keep `autocomplete="new-password"` so password managers
+     save it). Delete "Confirm the password". Delete Email (H10).
+  4. Token delivery: print a ready-to-click address beside the token in the
+     controller's log and the installer's closing summary, and prefill from it.
+     A fragment never reaches the server or its logs:
+
+     ```svelte
+     <!-- Bootstrap.svelte -->
+     onMount(() => {
+       const token = new URLSearchParams(location.hash.slice(1)).get('setup');
+       if (!token) return;
+       setupToken = token;
+       history.replaceState(null, '', location.pathname); // out of history at once
+       usernameInput?.focus();
+     });
      ```
-     Then "open http://localhost:8080". Add a test in `internal/docs` that parses the block and runs the variables it sets through `config.Validate` (the repo already holds the docs to the code this way), so a renamed setting or a new refusal breaks the build instead of the demo.
-  3. Add a 60-second recorded walkthrough of the same fleet (MP4 or animated WebP, with the captions burned in) under the hero screenshot. I am deliberately **not** proposing a hosted public instance: delivery rule 15 (`ROADMAP.md` L478–482) says no page names a hosted service, so that is the owner's call, not an audit recommendation. A recording is inside the rule.
 
-### C5 · The GitHub App asks for write access to repository contents and workflows before the user has seen any value
+     Replace the single-line hint with a small tab strip (Compose, Docker,
+     systemd, PaaS), each with a `CopyButton`.
+  5. Gate it: in `web/tests/first-run.spec.ts` assert the submit button's bottom
+     edge is inside the viewport at 1440×900 and at 375×812.
 
-- **Status:** **Fixed.** A manifest asks for the runner permissions alone unless the request says `migration: true` (`github.ManifestOptions.Migration`, `POST /installations/manifest`, the generated client). The dialog has an unticked "Also let Zoomies open migration pull requests" box and the permission list under it changes as it is ticked; the installer asks the same question (default no) and prints the permissions it will ask for. Health checks ignore the three migration scopes, so an App without them is not reported unhealthy. The migration steps already name which permissions are missing and link to the App's permissions page, so nothing was added there; the hint now says the App was created without the option. Docs: the README, `migration.md`, `api-surface.md` and `security.md` say what is true now; the quick start's step 3 lists the runner permissions alone and explains the question, and the home page no longer claims the App can write to code unless asked. **This changes what an App can do, so it is flagged for explicit sign-off in the pull request**, with the failure modes: an existing App keeps whatever it already has, an operator who declines and later migrates has to approve the extra permissions as the owner of the account, and the migration wizard reports that clearly rather than failing part-way.
-- **Pass:** First-time user
-- **Where:** `web/src/lib/installations/ConnectDialog.svelte` L451–463 (the permission list, shown at step 1 of the manifest path). The same set is requested by the terminal installer, and `docs/index.md` L186–188 and `docs/quickstart.md` L115–142 call it "exactly the permissions it needs and no more". Desktop and mobile.
-- **Problem:** To run runners the App needs `organization_self_hosted_runners: write`, `actions: read` and `metadata: read`. The manifest *also* requests `contents: write`, `pull_requests: write` and `workflows: write`, for the optional migration wizard (L459–461). To a security reviewer, "can write code and change CI workflows in every repository it is installed on" is the line that sends an evaluation to a security review, and it is shown at the moment a visitor decides whether to trust the project with their organisation. The code comment (L445–449) is candid that this is a trade: adding scopes later needs an owner's approval, so everyone pays for one feature up front. The docs are candid too: right under the "exactly… no more" sentence, `docs/quickstart.md` says *"If you never migrate anything, remove them on the App's Permissions & events page"*. So the fix for an unneeded write scope is currently "delete it by hand after creating the App", the dialog does not say so, and it presents all eight as required.
-- **Fix:**
-  1. Default the manifest to the runner-only set. Add an unchecked checkbox on step 1: **"Also let Zoomies open migration pull requests (adds contents, pull_requests and workflows write)"**, with the one-line reason.
-  2. Plumb it through: a boolean on the manifest request in `api/openapi.yaml`, an option on `github.ManifestOptions`, the same prompt in `askGitHubTarget` (`manifest.go` L356), and regenerate the client (`make openapi`).
-  3. In `MigrateWizard.svelte` L531, when the installation lacks the scopes, say which and offer "Grant migration access", which opens the App's permission page on GitHub (the verify call already returns `missing_permissions`, as `ConnectDialog.svelte` L765 shows).
-  4. Change the claim on the home page and in the quickstart to say what is requested *by default*, and move the "remove them by hand" advice out of the docs and into the product (the checkbox makes it unnecessary).
+## C3. Connect GitHub refuses the home lab the landing page courts — and the browser is stricter than the terminal
 
-### C6 · The first-run Overview buries its one job and contradicts itself
+* **Pass:** First-time user
+* **Evidence:** Reproduced.
+* **Where:** `web/src/lib/installations/ConnectDialog.svelte:486-487`
+  (`localExternal`, `notReachable`), `:859-885` (the block), `:1322` (the
+  disabled button); `internal/installer/manifest.go:305-345`
+  (`checkWebhookReachable`, the three-way choice); `install.sh:687-693`;
+  `docs/home-lab.md:38-45`; `docs/quickstart.md` (containers "move the last three
+  steps to the browser"); route `/installations` → Connect GitHub; both
+  viewports.
+* **Problem:** On a controller started with
+  `ZOOMIES_EXTERNAL_URL=http://localhost:8095` (what `install.sh`'s own
+  "local-only" prompt produces), the dialog says "GitHub cannot reach Zoomies …
+  Set `server.external_url` to the address GitHub can reach, restart the
+  controller, and come back." "Continue to GitHub" stays **disabled even after a
+  valid organisation is typed**. On an `https` external URL it enables
+  immediately.
 
-- **Status:** **Fixed, with two items left for a decision.** While the checklist is up and there is no pool, the Overview is the checklist, the problems line and nothing else: **900px tall at 1440 (was 2,302) and 975px at 375 (was about 3,900)**, with the page's Refresh and "Other runners" controls hidden and the subtitle saying where the numbers will appear. The current step's button is `md`, sits under its own description, and is the only primary; a percentile the controller reports as zero is `--`; the empty events panel gives its first-run copy on a browser that has not narrowed the feed (`feed.filtered`). **Not done:** the second "Other runners" switch (the existing Overview spec asserts both are there on purpose, so removing one is a design decision), and the Pools panel's button (the panel is not drawn on a fleet with no pool, and the pool wizard now stops at a connect prompt, so the dead end is closed at its source).
-- **Pass:** Designer and First-time user
-- **Where:** `web/src/routes/Overview.svelte` L124–143; `lib/overview/FirstRun.svelte` L189; `lib/overview/PoolUtilisation.svelte` L134–147; `lib/overview/FleetMetrics.svelte` L190–191, L206–211, L266–296; `lib/overview/EventsFeed.svelte` L58, L150–155; `lib/overview/ActiveJobs.svelte` L140 with `Overview.svelte` L109; `lib/insights/HostCapacityMap.svelte`. Route `/` immediately after creating the account. Desktop and mobile.
-- **Problem:** *Measured, fresh install, no jobs.* The page is **2,302px tall at 1440** and about 3,900px at 375. The checklist is the top 560px (24%). Under it are 1,740px of zeros and empty panels:
-  - Six metric tiles reading `0`, `0ms` and `p95 0ms`. The code's own comment (`FleetMetrics.svelte` L190–191) says *"a median of 0ms is a claim, and -- is the truth"*; the tiles do not honour it. A never-used fleet advertising a 0ms median queue wait is a false claim.
-  - A **Pools panel with a "Create a pool" button** that leads to a wizard which dead-ends at step 2 ("No GitHub connection yet"). The comment directly above it (`PoolUtilisation.svelte` L140–144) says repeating this button "would send an operator with no installation into a wizard that refuses on its first screen", and then renders it, gated only on the *role*. The checklist a few hundred pixels above carefully says "After GitHub is connected."
-  - A "Recent events" empty state reading *"Nothing in the kinds you are watching: 2 kinds of event are switched off for this browser. Choose above turns them back on."* to someone who has no events. Two of twelve kinds are hidden by default, so `everything` is false (L58) and the friendly first-run copy at L152–154 (*"Once there is a pool and a host, this is where the fleet says what it has been doing"*) is unreachable.
-  - Two identical **"Other runners" switches**, one in the page header and one in the Active jobs panel, 1,000px apart, bound to the same preference.
-  - A 600px capacity chart with seven legend chips, two segmented controls and a time slider, for one idle host.
-  - And the checklist's own primary button is a 24px `sm` button parked at the far right of a 1,160px card, about 900px from the label it belongs to.
-  On a phone, a Refresh button and an "Other runners" switch sit *above* the checklist.
-- **Fix:**
-  1. While `setupPending` (already computed at `Overview.svelte` L63 and passed to `ProblemsSummary`), render **only** `<FirstRun>` plus one muted line, "Your fleet's live numbers appear here after the first job." Wrap `FleetMetrics`, the three panels and `HostCapacityMap` in `{#if !setupPending}` exactly as `FleetActivity` already is at L125. Hide Refresh and the switch in the same state.
-  2. In `FirstRun.svelte`, make the current step's button `size="md"` and place it directly under that step's description (a `.why` + button stack), not in a far-right grid cell. Keep the others as quiet text.
-  3. `PoolUtilisation.svelte` L145: gate the button on `installations > 0`, or remove it.
-  4. `FleetMetrics.svelte` L206–211: map a zero sample count to `undefined` so the tiles render `--` (the formatter and the convention from commit `349abef` already exist).
-  5. `EventsFeed.svelte` L58: define `everything` as "the user has not filtered", not "nothing is hidden by default", so a fresh browser gets the helpful copy.
-  6. Delete one of the two "Other runners" switches.
+  The block offers a config *key* rather than a UI label, no link, no override,
+  and no mention of the tunnel advice that exists. The terminal installer, in
+  the same state, offers three answers: enter another address; "Create it
+  anyway — I will fix the App's webhook URL on GitHub" (poller mode); or skip
+  GitHub for now. The dialog's own comment says "The terminal installer refuses
+  this; so does this", which is not what the installer does.
 
----
+  Container installs (Compose, Docker) do the GitHub step in the browser by
+  design, so those evaluators have no override at all. And the docs endorse the
+  blocked configuration: `docs/home-lab.md` says a controller "at home, on one of
+  the machines … falls back to polling". The landing page's second section is
+  "Your home lab belongs in the pack". Home labs are the people with no public
+  URL.
 
-## 2. High impact
+  Fairness: the guard is right in spirit, because an App's webhook URL is fixed
+  at creation. And on the installer and Compose paths `ZOOMIES_EXTERNAL_URL` is
+  *required*, so the *empty* variant of this message is unreachable by those
+  routes. The loopback variant is the one that bites.
+* **Fix:** Keep the guard as the default and give the dialog the installer's
+  three answers.
 
-### H1 · The Bootstrap screen, the very first screen of the product, is the weakest page in it
+  ```svelte
+  <!-- ConnectDialog.svelte, inside {#if notReachable} .blocked -->
+  <div class="blocked-actions">
+    <Button variant="secondary" size="sm"
+            href="/settings/configuration?setting=server.external_url">
+      Open the setting
+    </Button>
+    <Button variant="ghost" size="sm" target="_blank"
+            href="https://zoomies.sh/home-lab/#where-the-controller-goes">
+      No public address? Use a tunnel
+    </Button>
+  </div>
+  <Checkbox bind:checked={acceptPolling}
+            label="Create it anyway -- scaling reacts in tens of seconds until the webhook URL is reachable" />
+  ```
 
-- **Status:** **Partly fixed.** The Email field is gone (see H11), the setup-token hint is true on every install and keeps the Compose command as an example, and the lede names the role the account actually gets (Platform, N2). **Left for a decision:** the split layout and lockup, dropping confirm-password (a security-UX call), the `#setup=` URL fragment, and cutting the "Then: …" paragraph — an existing spec asserts the page says what follows, so that is a stated intention rather than a slip.
-- **Pass:** Designer and First-time user
-- **Where:** `web/src/routes/Bootstrap.svelte` L180–199 (lockup and two paragraphs), L222 (token hint), L307–351 (confirm and email); `lib/components/Logo.svelte` L44. Route `/` with no account. Desktop and mobile.
-- **Problem:** The card is **1,300px tall**. The lockup is a **298×298px black tile** (`Logo.svelte` L44: `max(220, size×3.1)` with `size={96}`; 261px on a phone). That size is deliberate brand policy ("first run" is one of the screens the pack gives the full lockup, `Logo.svelte` L7–9), so the problem is not the logo but that it is stacked *above* the form, followed by eight lines of preamble (the lede plus "Then: connect a GitHub App, …") before the first field. The Create button sits at **y=1,171, below the fold at 1440×900**; on a 375×812 phone the first field starts near y=650 and the button near y=1,190. The component's own comment (L360–365) says the only person who sees this "wants the form and nothing to read on the way to it". Meanwhile the **Login page is gorgeous** (brand panel, headline, facts), so the two pre-auth screens look like different products, and the weaker one is the first impression. The form asks for five things, one of which sends the user *out of the browser*: a setup token to be found in a log with `docker compose logs zoomies | grep 'setup token'` (compose wording shown to everyone, including PaaS and marketplace users, `docs/paas.md`, `docs/marketplace.md`); then username; password; confirm-password *plus* a show-password eye (redundant by design); and an email nothing uses (H11).
-- **Fix:** Give Bootstrap the Login page's split layout (`Login.svelte` L403–666: black brand panel, form column) instead of a single stacked card. The lockup keeps the room the brand pack gives it, and the form starts at the top of the right-hand column. On a phone, use Login's own band (`--lockup: 13.75rem`, the 220px floor) with the form rising over it as a sheet. That also removes the "two different products" inconsistency. Cut the lede to one sentence and delete "Then: …" (the checklist says it next). Drop the confirm field and the email field, leaving **three fields**. Remove the log hunt for installer users: the container installer already extracts the token (`internal/installer/container.go` L920–950), so print `https://host/#setup=<token>` and have `Bootstrap.svelte` read the URL *fragment* (it never reaches the server or a proxy's access log), collapsing the token field behind "I have a setup token" otherwise. Make the hint neutral ("printed in the controller's log at startup, on the line beginning `setup token`") with the compose command in a `<details>`. Target: the submit button is visible at 1440×900 and within one scroll at 375.
+  and at `:1322`: `disabled={(notReachable && !acceptPolling) || !target.trim() ||
+  Boolean(targetError)}`. The deep-link scheme is the one
+  `web/src/lib/problems/ProblemItem.svelte:145` already uses. Then:
+  `install.sh:692` should default the external-URL prompt to
+  `http://<detected hostname>:<port>` and accept Enter instead of dying on an
+  empty answer, and the Quick start needs a "No public address?" box after
+  step 3.
 
-### H2 · The landing headline spends the biggest type on a pun and the dimmest colour on the product name
+## C4. There is no "first job" moment — the product never helps you run one
 
-- **Status:** **Left for a decision.** Headline copy and hierarchy are brand voice.
-- **Pass:** Designer
-- **Where:** `docs/index.md` L18 (`# Give your GitHub Actions runners the Zoomies.`); `docs/stylesheets/zoomies.css` L841–845 (`.quiet`); compare `web/src/routes/Login.svelte` L619. Desktop and mobile.
-- **Problem:** The H1 is a joke that needs "the zoomies" as dog slang to land, and the second line, the only part that names the product, is deliberately set in the *quietest* text colour (comment at L829). It says nothing about the outcome. A first-time visitor reads 72px of whimsy, then must read the lede to learn it is CI infrastructure. The contrast is fine (line two is 4.45:1 light and 5.75:1 dark at 72px); the *hierarchy* is wrong. The better headline **is already in your product**: the Login panel says **"GitHub Actions runners on machines you own."**
-- **Fix:** H1 → "GitHub Actions runners on machines you own." Lede → "A fresh runner for every job, autoscaled across your own hosts. No Kubernetes, no database server." Remove `.quiet` (or apply it to the second *clause*, not the name). Under the command add one line of proof chips: `AGPL-3.0 · one binary · SQLite · about 5 minutes`. Keep "Give your CI the Zoomies." exactly where it already is, as the closing CTA, where the brand voice earns its place.
+* **Pass:** First-time user
+* **Evidence:** Code-verified (a search of `web/src` for smoke, test job, dispatch
+  or sample workflow returns nothing; the CLI has no `doctor` or `smoke`).
+* **Where:** `web/src/lib/overview/FirstRun.svelte:255-282` (step 5; its only
+  button is "Rewrite workflows" → `/migrate`); `web/src/lib/pools/RunsOnPreview.svelte`
+  (a single `runs-on:` line); `docs/quickstart.md:215-250` (§5).
+* **Problem:** Activation is the moment a job runs on your runner and you watch
+  it in the UI. Today that needs you to pick a repo, edit a real workflow and
+  push to a real branch — or to run the Migrate wizard, which opens pull
+  requests on real repositories, and which is the checklist's only button.
+  Nothing is safe, complete and one click: no full workflow, no
+  `workflow_dispatch`, no test button, and no celebration when it works.
 
-### H3 · The header and hero offer six equal-weight exits and no persistent install action
+  The Quick start's snippet is not a workflow file. It starts at `jobs:` with no
+  `on:` trigger (GitHub rejects a file without one) and runs `make test`, which
+  presumes a project with a Makefile. An evaluator with a fresh organisation
+  drifts away at the last step before value, and it is the only step with no
+  help.
+* **Fix:** Add a "Run a test job" card to step 5 of the checklist and to
+  `web/src/routes/PoolDetail.svelte` beside `RunsOnPreview`:
 
-- **Status:** **Left for a decision.** Header actions, the NEW pill and the repository counts are marketing positioning.
-- **Pass:** Designer
-- **Where:** `docs/index.md` L9–11 (`hide: navigation, toc`), L16 (the "NEW" pill), L34 (five "Popular" chips); `mkdocs.yml` L47–58 (no `navigation.tabs`); `overrides/partials/source.html` and `hooks/source.py` (header repository stats). Desktop 1440.
-- **Problem:** *Measured.* The header has a logo, a theme toggle, search and a repository link, with **no nav items (0 `.md-tabs`) and no button**. The first screen offers: the NEW pill (which leaves for a sub-feature page, "Elastic CPU zoomies", before the visitor knows what Zoomies is), the command, five "Popular" chips (one is "Private hosts with Tailcat", a term nobody outside the project can parse), search, and the repo link. The first `.md-button` on the page is at y=1,864 and "Install Zoomies" is at **y=7,120 of 7,518**. Scroll past the command at y≈500 and the next install offer is a repeat of the command at y≈3,800 (inside "Five minutes to a running fleet"), then the button at y=7,120. The only number the header shows is **"v1.3.4 ★52 ⑂43"**, as built today: small adoption advertised on every page.
-- **Fix:** Add a right-aligned primary **Install** button and a **Docs** link to the header (`overrides/main.html`, header block). Add a slim sticky bar once the hero command scrolls out of view (`curl … | sh  [Copy]`). Cut "Popular:" to two chips, "Quick start" and "Try the demo" (C4). Move the NEW pill below the fold or drop it. Gate the ★/⑂ counts behind a threshold in `hooks/source.py` until they help, and lead with the proof you do have: *"This repository's own CI runs on Zoomies"* (`docs/index.md` L270–277) as a one-line badge under the command.
+  ```yaml
+  name: Zoomies smoke test
+  on: workflow_dispatch
+  jobs:
+    hello:
+      runs-on: zoomies-linux-x64   # the pool's own runsOn() value
+      steps:
+        - run: |
+            echo "Hello from $(hostname)"
+            uname -a
+            sleep 5
+  ```
 
-### H4 · Landing typography and layout: 172-character lines, an orphaned card, three table widths
+  Two buttons. **Copy workflow**, and **Create it on GitHub →**, which opens
+  GitHub's prefilled new-file page,
+  `https://github.com/<owner>/<repo>/new/<default-branch>?filename=.github/workflows/zoomies-smoke-test.yml&value=<urlencoded yaml>`
+  (no extra App permission; confirm the `value` parameter against your target
+  before shipping). Reuse the repository picker in
+  `web/src/lib/migrate/StepRepositories.svelte`.
 
-- **Status:** **Fixed, apart from the card copy.** Prose directly under the hero is held to `72ch` (the site's root is 20px, so the audit's `46rem` would have been about 123 characters), which takes the first line from 172 characters to 95, with a median of 91 and a maximum of 100 across the page's twenty body blocks. The feature grid is three across, two on a tablet and one on a phone, so nine cards tile 3×3 under the full-width card with no orphan, and the three tables are real tables as wide as the column (983, 1,288 and 656px became 1,288px each). **Not done:** trimming each card to 25 words, which is copy.
-- **Pass:** Designer
-- **Where:** `docs/stylesheets/zoomies.css` L428–430 (`.md-grid { max-width: 66rem }`), L964–969 (`.zoomies-grid`), tables; `docs/index.md`. Desktop 1440.
-- **Problem:** *Measured.* Body paragraphs are 1,288px wide, **172 characters on the first line** (aim for 60–80). The feature grid is described in the CSS as "a three-across grid", but `repeat(auto-fit, minmax(15rem, 1fr))` makes it **four across**, so nine cards leave a **lone orphan ("Safe defaults") with a void beside it** before the full-width tenth. The page's three tables are 983, 1,288 and 656px wide. Feature cards run 23–64 words (average about 42). The page is 1,979 words and 7,518px for a visitor who decides in seconds.
-- **Fix:** `.md-content__inner:has(.zoomies-hero) > :is(p, ul, ol) { max-width: 46rem }` (leave tables, grids and screenshots full-width). `.zoomies-grid { grid-template-columns: repeat(3, minmax(0, 1fr)) }` at ≥ 60em, two at ≥ 45em, one below (9 = 3×3, no orphan). `.md-typeset table:not([class]) { width: 100% }` for all three tables. Trim each card to ≤ 25 words and let the existing "How it works →" links carry the detail.
+  When `fleet.stats.fleet.completed > 0`, replace the card with a success state:
+  "Your first job ran on *{runner}* — waited *{wait}*, started in *{startup}*"
+  with a link to the job; only then retire the checklist (C1). Make the Quick
+  start's §5 a complete file. Phase two: the App already holds `contents`,
+  `workflows` and `actions: write` (quickstart permission table), so Zoomies
+  could create and dispatch the file itself behind a confirm dialog.
 
-### H5 · The pool wizard misdescribes itself, dead-ends, then makes a user click through defaults
+## C5. Nobody can see the product work before the install marathon
 
-- **Status:** **Partly fixed.** The subtitle now says what the form does ("Name it, label it, create it. Everything else has a default you can change later."); a controller with no installation gets a "Connect GitHub first" empty state instead of the wizard (no more dead end on step two); and on a phone the `Wizard` footer is sticky above the bottom bar. **Left for a decision:** removing the mode step and rendering the Automatic path as one screen is a redesign of the most important form.
-- **Pass:** First-time user
-- **Where:** `web/src/routes/PoolWizard.svelte` L30 (subtitle) and L4–6 (comment); `lib/pools/PoolVocabulary.svelte` L328 (`SIMPLE_STEP_IDS`); `lib/pools/StepMode.svelte`; `lib/pools/PoolWizardForm.svelte` L1024; `lib/components/Wizard.svelte` L195–201. Desktop and mobile.
-- **Problem:** The page subtitle reads *"Seven steps: who the runners register with, what labels they answer to, which hosts they land on, how they run, how much machine each one gets, how many there are, and what the controller makes of it."* The stepper beside it says **"Step 1 of 5"** (the Automatic path: Setup, Target, Labels, Docker, Review). The first user-facing sentence of the most important form describes a larger job than the one in front of them, in 37 words. Step one is a fork ("how much do you want to decide?") with a four-paragraph explainer, a decision before value. A user who arrives from the Overview's Pools button with no GitHub connection spends a click and reads step 2 to discover "No GitHub connection yet" (`StepTarget.svelte` L123–126). Measured: every field has a default (a name is prefilled), yet it takes **5 button presses** to create the pool. On a phone, "Next" is about 800px of explainer below the choice cards, because the footer is not sticky.
-- **Fix:** Subtitle → "Name it, label it, create it. Everything else has a default you can change later." Delete the `mode` step on creation: render the Automatic form as **one screen** (name, installation, label preview, "Docker in jobs" as a toggle) with **Create pool** as the primary and a quiet "Advanced options" link that switches to `ADVANCED_STEP_IDS`. Guard the route: if there are no installations, render the existing "No GitHub connection yet" EmptyState *instead of* the wizard. Under `max-width: 768px` make the `Wizard.svelte` footer `position: sticky; bottom: calc(var(--z-space-16) + var(--z-safe-bottom))`, the same clearance `AppFooter.svelte` L115–116 reserves for the fixed bottom bar.
+* **Pass:** First-time user
+* **Evidence:** Code-verified (prompt inventory in Appendix B) and measured (a
+  seeded controller was healthy within four seconds).
+* **Where:** `install.sh`; `internal/installer/installer.go`,
+  `internal/installer/manifest.go`; `docs/index.md:183-200` ("Five minutes to a
+  running fleet") and `:236-241`; `docs/ui.md:20,582` (the only places
+  `ZOOMIES_SEED_DEMO` is mentioned); the landing-page and README heroes (static
+  screenshots only).
+* **Problem:** The only way to experience Zoomies is to answer **up to 18
+  interactive prompts** (4 in `install.sh`, 10 in `zoomies init`, 4 around the
+  GitHub App) and make two round trips to github.com. Thirteen of the eighteen
+  have a default the visitor has no basis to question; five need real input
+  (external URL, username, password twice, organisation). "Five minutes" is
+  asserted three times and measured never.
 
-### H6 · The Connect dialog's buttons do not say what they do, the checklist adds a redundant click, and everyone is asked Enterprise questions
+  The populated product is the best thing here, and the repo already ships a
+  deterministic demo fleet. It is an environment variable mentioned in a
+  migration paragraph. There is no hosted demo, no `zoomies demo`, no sample-data
+  switch. Every visitor not ready to hand a VM and a GitHub organisation to an
+  unknown project leaves without seeing the one screen that sells it.
+* **Fix:**
+  1. `zoomies demo` in `cmd/zoomies`: set `ZOOMIES_SEED_DEMO=true`,
+     `ZOOMIES_DISABLE_AUTH=true`, `ZOOMIES_BIND=127.0.0.1:8080`,
+     `ZOOMIES_AGENT_EMBEDDED=false` and a database under `os.MkdirTemp`; print
+     the URL, open the browser, delete the directory on Ctrl-C. It is essentially
+     the configuration `web/tests/support/serve.mjs` already runs.
+  2. `install.sh --demo`: download the binary to a temporary directory and exec
+     `zoomies demo`. No sudo, no service, no prompts.
+  3. Landing hero: a second action beside the install command, "Try the demo",
+     pointing at a hosted read-only controller on the same seed (a `viewer`-role
+     account, reset hourly).
+  4. Replace "five minutes" with a figure measured by a clean-VM job in CI and
+     printed in the installer's closing summary (H3).
 
-- **Status:** **Fixed, with one item left for a decision.** The footer's primary on step two is "Create the App on GitHub" and is the button that leaves, so there is one primary where there were two; "Exchange the code" is "Use this code" and appears where a code is actually pasted; step one's footer reads "Continue"; App name and API base URL sit behind "Advanced: a custom App name, GitHub Enterprise" (open when either has a value or an error); the tabs are "New App" and "Existing App"; the checklist opens the dialog directly. **Not done:** collapsing the two primaries on an empty Installations page — Hosts has the same header-plus-empty-state pattern, so that is a product-wide convention to change in one go or not at all.
-- **Pass:** First-time user and Designer
-- **Where:** `ConnectDialog.svelte` L1324 ("Continue to GitHub"), L998 ("Create the App on GitHub"), L1334 ("Exchange the code"), L912–979 (the fields), L743–750 (tabs); `FirstRun.svelte` L189; `routes/Installations.svelte` L219–223 and L249–253; `lib/components/Tabs.svelte` L126, L140. Desktop and mobile.
-- **Problem:** (i) **"Continue to GitHub" does not go to GitHub.** It advances to step 2, where the in-body "Create the App on GitHub" actually leaves, while the footer primary reads **"Exchange the code"** and is disabled until a code exists: two primaries on one screen, one of them jargon for a step the user never performs (it runs itself on return). (ii) The checklist's "Connect GitHub" does not open the dialog; it navigates to `/installations`, which shows **two more primary "Connect GitHub" buttons** (header and empty state). It is click 1 and click 2 of the measured path. (iii) Step 1 asks every user for org-or-repo, the login, **"App name (optional)"** and **"API base URL" (optional; GitHub Enterprise Server)**; the terminal installer asks the same four (`manifest.go` L356–420). (iv) At 375px the second tab, "Use an App you already have", is **clipped mid-word with no scroll cue**.
-- **Fix:** `FirstRun.svelte` L189 → `href="/installations?connect=1"`, and open the dialog in `Installations.svelte` when `router.param('connect')` is set (the same effect already opens it for `code` and `installation_id`, L131–134). When the list is empty, render a single primary, not two. Rename the footers: step 0 "Next: create the App on GitHub"; step 1's footer primary *is* the in-body action ("Open GitHub to create the App"), and "Exchange the code" becomes "Try again" inside the existing fallback `<details>`. Fold App name and API base URL into a collapsed "Advanced (GitHub Enterprise, custom name)". Shorten the tabs to "New App" and "Existing App", or use `Segmented` at ≤ 480px.
+## C6. The landing page's only CTA is clipped on a phone, and the page scrolls sideways
 
-### H7 · Data grids cut the one thing that tells rows apart
+* **Pass:** Designer
+* **Evidence:** Measured.
+* **Where:** `docs/stylesheets/zoomies.css:783` (`.zoomies-hero::before {
+  inset: -3rem -2rem 30% }`, no clipping), `:906` (`.zoomies-install pre >
+  code`: `padding: .95em 4.4em .95em 1.1em; font-size: .78rem`);
+  `docs/index.md:20-30`; docs-site route `/` at 375×812.
+* **Problem:** `document.scrollWidth` is **399px in a 375px window** — 24px of
+  sideways scroll. I bisected it to `.zoomies-hero`: the decorative glow bleeds
+  `2rem` past the gutter. The install command renders as
+  `curl -fsSL https://zoomies.sh/i[copy chip]`, with the chip covering
+  `nstall.sh | sh`, so the most important string on the site cannot be read on
+  the device where shared links open first. The CSS comment above `.zoomies-hero`
+  says the command "must scroll inside its own box rather than … push everything
+  else off the edge"; the pseudo-element then did exactly that. axe also flags
+  the scrollable code regions as not keyboard-focusable (4 nodes).
+* **Fix:**
 
-- **Status:** **Left for a decision.** Which columns a data grid shows by default, and a new `identity` column rule in `DataGrid`, change a shared component and what every operator sees.
-- **Pass:** Designer
-- **Where:** `web/src/routes/Pools.svelte` L372–455 (13 default-visible columns); `routes/Workflows.svelte` L384–447 (9 columns); `lib/components/DataGrid.svelte` L30–37 (declared widths are *shares*; "the grid never scrolls sideways") and L524/L551 (`priority: 'wide'` only drops columns below 1180px); `hiddenByDefault` is used **once** in the whole app (`routes/Jobs.svelte` L300). Desktop 1440 and 820.
-- **Problem:** *Measured on the demo fleet.* At 1440 the Pools table's two rows read `zoomies-demo-li…` and `zoomies-demo-li…`: **the suffix that differs (`x64` against `arm64`) is exactly the part clipped.** Status reads `Enal`, the risk pill `2 r`, and headers read `R…`, `LA…`, `T…`, `B…`, `P…`, `I…`, `LIF…`, `DO…`, `S…`, `AC…`. On Workflows the headers are `R…`, `REP…`, `WO…`, `BRAN…`, `QUE…` beside `QUEU…` (queue wait, or queued?). It is not an empty-state quirk: the *empty* Pools table shows the same truncated headers over "No pools yet", so a new user meets it before they have any data.
-- **Fix:** In `Pools.svelte` set `hiddenByDefault: true` on `target`, `backend`, `platform`, `idle_timeout`, `ephemeral` and `docker_mode`, leaving Name, Risk, Labels, Runners, Queued, Status and Actions (about 165px each at 1440). Add an `identity: true` column flag to `DataGrid` so an identifier column's declared width is a *floor* the share arithmetic cannot go below. Truncate names in the middle (`head…tail`: first 14 and last 8 characters, full text in `title`) so the suffix survives. Apply the same default-visible audit to Workflows (default-hide Branch).
+  ```css
+  /* docs/stylesheets/zoomies.css */
+  @media screen and (max-width: 44.9375em) {
+    .zoomies-hero::before { inset: -3rem 0 30%; }      /* stay inside the gutter */
+    .md-typeset .zoomies-install pre > code {
+      white-space: pre-wrap;                            /* wrap rather than hide under the chip */
+      word-break: break-all;
+      font-size: 0.74rem;
+    }
+  }
+  ```
 
-### H8 · Unmet prerequisites are rendered as errors or alerts, and some have no button
-
-- **Status:** **Fixed.** Migrate with no installation is a neutral "Connect GitHub to migrate" empty state with the button, and the Installations page draws the webhook panel only once there is a connection.
-- **Pass:** First-time user and Designer
-- **Where:** `lib/migrate/MigrateWizard.svelte` L531–534 (`<ErrorState title="No installation to migrate">`); `routes/Installations.svelte` L317 (`<WebhookHealth>` under the empty state); the wizard's step 2 (H5). Desktop and mobile.
-- **Problem:** Red means failure in this product ("operators learn them"). A user who simply has not done step 2 is shown **danger red** on Migrate (`ErrorState` is `role="alert"` with a warning triangle), with **no action**: "Connect one on the Installations page first." is plain text, not a link. Every other empty page (Pools, Installations) uses a neutral `EmptyState` with a button. On the Installations page, under a one-action empty state, a second diagnostic panel appears: an **amber** "No webhook has been received, so the controller is polling GitHub instead…", a "Check reachability" button and an empty deliveries list, for someone who has connected nothing.
-- **Fix:** Use `EmptyState` for every "do X first" state. Migrate → title "Connect GitHub to migrate", `<Button href="/installations?connect=1">Connect GitHub</Button>`. Render `<WebhookHealth>` only when `installations.length > 0` (`Installations.svelte` L317).
-
-### H9 · The checklist's explanatory text fails contrast exactly where it explains what to do next
-
-- **Status:** **Fixed.** The opacity is gone; a step that is not yet possible is shown by a muted title and a dashed marker. Measured on a fresh controller at 1440 and 375: no text run below its contrast threshold on the Overview.
-- **Pass:** Designer
-- **Where:** `web/src/lib/overview/FirstRun.svelte` L336–338 (`li.waiting .body { opacity: 0.72 }`), L371–378 (`.why`, 12px). Desktop and mobile.
-- **Problem:** *Measured, and it matches the hand calculation.* The effective colour of the dimmed steps' 12px copy is **3.1:1** on the `--z-accent-subtle` ground (AA needs 4.5:1; `tokens.css` L74–77 claims body copy "should be past 7:1"). It is the only failing text run on the first-run path, and it is the text for steps 3 and 4, the ones the user must read next.
-- **Fix:** Delete the `opacity`. Signal "not yet" with the title in `--z-text-muted`, the existing `.blocked` text and a dashed marker border. Keep `.why` at full `--z-text-muted`, which is about 5.5:1 on that ground.
-
-### H10 · Twelve destinations from minute zero, three of which matter
-
-- **Status:** **Left for a decision.** Navigation structure.
-- **Pass:** First-time user
-- **Where:** `web/src/lib/shell/sections.ts` L51–71 (`SECTIONS`), `Nav.svelte`, `NavMenu.svelte`. Desktop and mobile.
-- **Problem:** A fresh install shows 12 nav items in four groups. The setup path runs through Installations (9th), Hosts (7th), Pools (2nd) and Workflows (5th), scattered across three of the four groups, while Usage, Audit, Providers, Queue, Runners and Migrate are inert until a job exists. The checklist is the only guide, and it lives on one page; open Pools and it is gone.
-- **Fix:** Until `hasJobs`, pin a **"Setup · 2/4"** item at the top of the rail and the phone's bottom bar (links to `/`, progress from the same stores `FirstRun` reads) and collapse the not-yet-useful sections into a "More" group. They stay reachable by the `g` chords and ⌘K, so nothing is hidden from anyone who knows where to look.
-
-### H11 · Answers the product collects and then throws away
-
-- **Status:** **Fixed in part.** (a) `checkWebhookReachable` now runs before the four GitHub questions, so nobody is asked them and then told to skip; keeping answers across a skip needs somewhere to store them and is left for a decision. (b) The Email field is removed from Bootstrap; it stays in Settings → Users.
-- **Pass:** First-time user
-- **Where:** (a) `internal/installer/manifest.go` L133 (`askGitHubTarget`: four prompts) *before* L142 (`checkWebhookReachable`) and the "Skip" at L333, then `ConnectDialog.svelte` L156–162 (every field starts empty); (b) `web/src/routes/Bootstrap.svelte` L335–351 (Email: "Used only to identify the account").
-- **Problem:** (a) On the default loopback install the installer asks up to **four GitHub questions**, *then* tells the user GitHub cannot reach them and offers "Skip". Skip drops all four answers and the browser asks them again from a blank form. The reachability check reads only `p.ExternalURL`; it could have come first. (b) The first-run form collects an email "used only to identify the account". The username already does that, no feature reads it, and the product sends no email at all (no mail or SMTP code anywhere in `internal/`; `UsersPanel.svelte` L635 says passwords "are not emailed"). A field is a promise; this one is not kept. *Credit where due:* the pool wizard's Automatic/Advanced choice **is** respected on edit (`StepMode.svelte` docblock), the checklist's `runs-on` is derived from the real pool's labels (`FirstRun.svelte` L97–104), and Add-a-host prefills everything.
-- **Fix:** (a) Move `checkWebhookReachable` above `askGitHubTarget`; whatever was answered before a Skip should be saved (answer file or a `pending_github` settings row) so the dialog prefills target, type, API base and App name. (b) Delete Email from Bootstrap; keep it in Settings → Users, where OIDC fills it, or ship a feature that uses it first.
-
-### H12 · On a phone the product is a very long scroll with sub-24px controls
-
-- **Status:** **Left for a decision.** A phone layout for the data pages is a redesign, not a fix.
-- **Pass:** Designer
-- **Where:** All `web/src/routes/*` at 375. *Measured on the demo fleet:* Overview 5,584px, Hosts 6,512px, Usage 5,512px, Pool detail 5,161px. On Runners the first runner is about 2.3 screens down (six tiles, a lifecycle panel and the filters come first). Controls under the WCAG 2.2 AA 24px minimum before exceptions: row checkboxes 15×15, column-resize handles 12×40, header icon buttons 32×20, the top-bar logo link 22×22, tile links 136×20 (50 such controls on Runners, 40 on Overview).
-- **Problem:** `web/playwright.config.ts` calls read-only phone monitoring "a stated requirement". The answer to "is anything wrong?" is one scroll away; "which runner?" is three. Tiny targets make the rows you do reach hard to hit.
-- **Fix:** On `viewport.phone`, collapse the tile grid into a single horizontally scrolling strip, render the list *before* the lifecycle panel and put the filters behind a "Filter" button. Give grid checkboxes and tile links a 44px hit area via a padded `::after` (the look does not change; `--z-control-touch` already exists), and hide resize handles on coarse pointers.
-
----
-
-## 3. Nice to have
-
-### N1 · The Hosts page greets a new user with an "Expired" join token they never made
-
-- **Status:** **Fixed.** A spent or expired token the controller minted for itself (`created_by` `system`) is not listed; a live one still is.
-- **Pass:** First-time user · **Where:** `internal/controller/agents.go` L2000 (mints a one-minute `"system"` token for the embedded agent), `web/src/lib/hosts/JoinTokenList.svelte` L110; `/hosts`, both viewports.
-- **Problem:** A minute after start, every embedded install shows a row: `zoojoin_…` · **Expired** · created by `system` · "2m ago". It reads like something failed.
-- **Fix:** Filter `created_by === 'system'` out of the table, or label it "Embedded agent (used)".
-
-### N2 · Bootstrap promises "the admin role"; the account is `Platform`
-
-- **Status:** **Fixed.** The lede says "the highest role (Platform)".
-- **Pass:** First-time user · **Where:** `Bootstrap.svelte` L192–193 against `lib/roles.ts` L27–36; the phone nav sheet shows "Platform".
-- **Fix:** Say "the highest role, Platform" in the lede, or create `admin` and promote on demand.
-
-### N3 · Settings → Configuration is 18,249px long and overflows at 375 with a long value
-
-- **Status:** **Fixed.** `CopyButton` now lets its value truncate (`min-width: 0` on the chip and the value, with the full text as a tooltip). Measured with a 207-character database path: no sideways scroll at 375 or 1440. The jump bar and collapsed groups are not done.
-- **Pass:** Designer · **Where:** `lib/settings/ConfigurationPanel.svelte`; `lib/components/CopyButton.svelte` L90–97 (`.value` is `nowrap` with no `min-width: 0` on its parents). `/settings/configuration`.
-- **Problem:** *Measured.* 18,249px at 1440 and 29,078px at 375. With a 95-character database path, the copy chip ends 41px past the screen and the page scrolls sideways (the default `/var/lib/zoomies/zoomies.db` is a third as long and should fit; this is data-dependent). It is also the page C1 sends people to.
-- **Fix:** A sticky jump/search bar; collapse every group except the one named by `?setting=`; `min-width: 0` down the `.copy` chain and `.value { max-width: 100% }`.
-
-### N4 · The landing diagram depends on a third-party CDN and degrades to raw source
-
-- **Status:** **Left for a decision.** Pre-rendering the diagram changes the site's build.
-- **Pass:** Designer · **Where:** `docs/index.md` L70–80 (Mermaid); Material loads it from `unpkg.com`.
-- **Problem:** Behind my sandbox's TLS-intercepting proxy the load failed (`ERR_CERT_AUTHORITY_INVALID`) and "How it works" rendered the raw `flowchart LR …` block. Plenty of CI owners sit behind such proxies. On an unrestricted network this is fine, so I rate it polish.
-- **Fix:** Pre-render this one diagram to inline SVG in the site workflow (`mmdc`) and keep runtime Mermaid for the deeper docs.
-
-### N5 · Between 768 and 1180px the navigation is an unlabelled icon rail
-
-- **Status:** **Left for a decision.** Navigation structure.
-- **Pass:** Designer · **Where:** `tokens.css` L298–299 (the only two breakpoints), `Nav.svelte`. 820px.
-- **Problem:** Twelve icons, no labels, for a first-time visitor on an iPad; the Pools table at the same width again clips names.
-- **Fix:** Label the rail at ≥ 900px, or show the tile-grid sheet at tablet width.
-
-### N6 · Add a host: the warning that matters is styled as a hint, and six decisions share screen one
-
-- **Status:** **Left for a decision.** `Field`'s `notice` is deliberately not a status colour (its own comment says why), and collapsing the add-host fields is a redesign.
-- **Pass:** Designer · **Where:** `lib/hosts/AddHostFlow.svelte` L434 ("Only this machine answers on a loopback address…"); `/hosts/new`.
-- **Problem:** The most likely failure (a loopback controller address handed to a *different* machine) is the same grey as the helper text beneath it. "Tailcat" is link-blue but is not a link. Capacity, Labels and Token-validity are prefilled yet take screen space.
-- **Fix:** Use the warning tone for loopback; collapse Capacity, Labels and Token validity under "Advanced".
-
-### N7 · The pool wizard reuses the green "idle" status colour for "no host is standing by"
-
-- **Status:** **Fixed in part.** The room is a neutral tone while there is no host, so the idle green no longer says "a runner is standing by" about a machine that is not there. Whether the red check should block "Create pool" is left for a decision.
-- **Pass:** Designer · **Where:** `lib/pools/PoolRoom.svelte` L121 and L208–210 (`--z-idle-*`). `CLAUDE.md`: status colours are "a fixed mapping… do not reuse them for anything else".
-- **Problem:** On a controller with no agent, the review step shows a **red** "No connected host can run this pool" box, a **green** "No host is standing by" box, and an enabled "Create pool". Red that does not block, plus green for an unmet condition, is a mixed message.
-- **Fix:** A neutral tone for the empty room; downgrade the red check to warning, or disable "Create pool" until acknowledged.
-
-### N8 · Empty Workflows opens on the "Running" filter
-
-- **Status:** **Left for a decision.** The default filter of a data page.
-- **Pass:** First-time user · **Where:** `routes/Workflows.svelte` (the default state filter); `/workflows`.
-- **Problem:** A fleet that has never run a job opens on the Running chip with three rows of controls (chips, search plus five dropdowns plus two date pickers, three toggles) above an empty table, and a paragraph explaining what a quiet fleet is.
-- **Fix:** Default to "All" while `hasJobs` is false, and show the empty state with the "Run a test job" step from C2.
-
-### N9 · Small contrast and size misses on the landing page
-
-- **Status:** **Fixed.** The "Popular:" label is 5.90:1 on the light ground (was 4.45:1) and 10.35:1 on the dark, and the NEW chip's label is 12px (was 11.2px).
-- **Pass:** Designer · **Where:** `docs/stylesheets/zoomies.css` L936–945 (`.popular`) and L811–819 (the "NEW" chip).
-- **Problem:** *Measured.* The "Popular:" label is **4.45:1** in the light theme (needs 4.5), and the "NEW" chip's inner label is 11.2px.
-- **Fix:** Use `--md-default-fg-color--light` for the label (about 5.9:1) and a 12px minimum for the chip.
-
-### N10 · "Done" checklist rows reserve a dead action cell
-
-- **Status:** **Fixed.** A done step draws no action cell.
-- **Pass:** Designer · **Where:** `FirstRun.svelte` L167 (`<div class="action"></div>`) with the mobile rule that stacks `.action` under the body.
-- **Problem:** On a phone each completed step carries about 50px of blank space.
-- **Fix:** Do not render the empty `.action`, or `display: none` it at ≤ 768px.
-
-### N11 · The Docker Compose path asks for three hand-derived values
-
-- **Status:** **Left for a decision.** A new script and a Compose entry point.
-- **Pass:** First-time user · **Where:** `.env.example` (`ZOOMIES_EXTERNAL_URL`, `ZOOMIES_ENCRYPTION_KEY` via `openssl rand -base64 32`, `DOCKER_GID` via `stat -c '%g' /var/run/docker.sock`) *(from source)*.
-- **Problem:** Compose "refuses to start until the three values marked (required) are set". The installer fills them; a person following the manual path hits three lookups before their first `up`.
-- **Fix:** Ship a tiny `./init-env.sh` (or `docker compose run --rm zoomies init-env`) that writes all three, and link it from `docs/compose.md`.
-
-### N12 · No post-value moment
-
-- **Status:** **Fixed** with C2: the first successful job says so, once.
-- **Pass:** First-time user · **Where:** `FirstRun.svelte` L142–145 (silent self-dismissal).
-- **Problem:** The best moment in the product, the first job running on your own runner, is marked by a panel *disappearing*. There is no upsell here, and none is needed. A next step is.
-- **Fix:** See C2 step 3.
+  Copying is unaffected (the chip copies the text, not the layout). Add a 375px
+  `scrollWidth <= innerWidth` assertion to the site workflow so it cannot come
+  back.
 
 ---
 
-## Appendix
+# 2. High impact
 
-### Artefacts I measured and deliberately discarded
+## H1. A new operator's Overview is a dashboard of zeros that repeats itself
 
-I list these so nobody spends time on them.
+* **Pass:** First-time user
+* **Evidence:** Measured and reproduced.
+* **Where:** `web/src/routes/Overview.svelte:119-144`;
+  `web/src/lib/overview/{FleetMetrics,PoolUtilisation,EventsFeed,ActiveJobs}.svelte`;
+  `web/src/lib/insights/HostCapacityMap.svelte`; `web/src/routes/Bootstrap.svelte:160-163`
+  (the toast); route `/`, first run; 1440 and 375.
+* **Problem:** An empty fleet's Overview is **2.5 screens on desktop and 4.7 on a
+  phone**. Beneath the checklist: six tiles of `0` / `0ms`; a warnings strip; an
+  empty Pools panel with its own enabled "Create a pool" button (the checklist
+  deliberately greys that action until GitHub is connected, per
+  `FirstRun.svelte:1-19`); a feed; an empty Active jobs panel; and a Host
+  capacity chart with a dozen toggles and a time slider over no data.
 
-- **Mid-page bottom navigation in full-page mobile screenshots**: a Playwright stitching artefact of `position: fixed`, not a bug.
-- **Raw Mermaid text** on the landing page: my sandbox's TLS-intercepting proxy; reported only as N4.
-- **The amber "2" on the bell** in the first-run captures: caused by *my* use of the `process` backend as root, not by a default install. I have not counted it against the product.
-- **`ratio: 1` contrast hits on the landing page** (text colour scored equal to its background): I did not chase the cause, because the hero text I measured by hand (H2, N9) is fine.
-- **Mobile `hOverflow` on the landing page** that came from Material's off-canvas drawer at `left: -242px`: normal; only the install command and the compare table (C3) are real.
+  The same instruction is repeated by the checklist, the post-sign-up toast
+  ("Next: connect a GitHub App. The checklist on the Overview says what is left"
+  — shown on the page that *is* the checklist) and the Pools empty state: three
+  prompts on a clean install, five whenever the controller has any advisory,
+  because the warnings bar and the bell badge join in. Two filled primary buttons
+  compete inside the checklist ("Connect GitHub" and "Add a host"; after
+  connecting, "Add a host" and "Create a pool").
 
-### Method
+  And `Median queue wait`, `Runner startup p50` and `Registration p50` read
+  **`0ms`** with no data. The comment at `FleetMetrics.svelte:190` says `"0ms" is
+  a claim, and "--" is the truth`, but the API returns `0`, so a tile that has
+  never been measured reports perfect performance.
+* **Fix:**
+  1. In `Overview.svelte`, while `setupPending`, render only `<FirstRun/>` plus
+     one sentence ("This page fills in once your first job has run"). Hide
+     `FleetMetrics`, `ProblemsSummary`, the split and `HostCapacityMap`; the flag
+     already hides `FleetActivity` at `:125`.
+  2. Only the first unblocked step is `variant="primary"`; the rest are
+     `secondary` (`FirstRun.svelte:189,213,246`).
+  3. Drop the toast's second sentence.
+  4. `FleetMetrics.svelte`: show `NO_VALUE` when there is nothing to measure.
+     `const hasWaits = (others ? stats?.completed : stats?.fleet?.completed) > 0;`
+     then `formatDuration(hasWaits ? medianWait : undefined)` and the same for
+     the two startup tiles (or have the API omit the fields at zero samples,
+     which matches the author's comment).
+  5. Hide the Pools empty-state button while there is no installation.
 
-- App routes were captured on three controllers, built from this commit: a fresh auth-on instance (Bootstrap → Login → first-run), the `ZOOMIES_SEED_DEMO` fleet, and the repository's own fake GitHub (`web/tests/support/serve-connect.mjs`) for the connect → pool → checklist walk.
-- For every capture I recorded sideways overflow, targets under 24 and 44px, text under 12px and WCAG contrast (ancestor opacity included). *Result: no sideways scroll on any app route at 375px except N3; one failing contrast pattern (H9).*
-- The site was built with `mkdocs build` from `docs/requirements.txt`.
-- Click counts are literal Playwright clicks. A claim marked *(from source)* was not run.
-- After the fixes the same measurements were repeated on the screens they touched, on a fresh controller built from the branch: the first-run Overview is 900px tall at 1440 and 975px at 375 (it was 2,302 and about 3,900) with no sideways scroll and no text below its contrast threshold, the Configuration page fits at 375 with a 207-character database path, and the home page was re-measured at 21 widths from 320 to 1600px.
-- Screenshots are not committed (binary bloat); every finding names its route and viewport. To reproduce the first-run screens: `make build`, then `ZOOMIES_BIND=127.0.0.1:8080 ZOOMIES_DB_PATH=/tmp/z.db ZOOMIES_ENCRYPTION_KEY=$(openssl rand -base64 32) ./zoomies controller`, read the setup token from its log, and open the address at 1440×900 and 375×812.
+## H2. Creating the first pool takes five screens, and the page header miscounts them
 
-### What the change tests
+* **Pass:** First-time user
+* **Evidence:** Measured.
+* **Where:** `web/src/lib/pools/PoolWizardForm.svelte` (Setup, Target, Labels,
+  Docker, Review); `web/src/routes/PoolWizard.svelte:30`; route `/pools/new`;
+  both viewports.
+* **Problem:** On the seeded fleet, with one installation and every default
+  accepted, "Automatic" ("Name it, label it, done.") is **five screens and five
+  clicks** (four Next, then Create), on desktop and phone alike. The header says
+  "Seven steps: …". The stepper and footer in Automatic say "Step 1 of 5", and
+  Advanced says "Step 1 of 9", so the sentence is wrong in both modes.
 
-Each fix landed with a check at the layer it lives on, against the real binary where the behaviour is the browser's:
+  With no GitHub connected the wizard lets you through Setup and then stops at
+  step 2 with Next disabled (clearly explained, with a Connect GitHub button),
+  but the Overview's empty-pool button sends people here, so they have spent a
+  decision on a form that cannot finish. For a first pool the answers are known:
+  a name from the kennel, a derived label, the only installation, Docker none.
+* **Fix:**
+  1. When `installations.length === 1` and the mode is Automatic, open on a
+     single Review screen: the editable name, `RunsOnPreview`, a one-line summary
+     of size and min/max, **Create pool**, and a text button **Customise →** that
+     switches to Advanced.
+  2. `PoolWizard.svelte:30`: derive the sentence from the active step list or
+     delete the enumeration.
+  3. With zero installations, render the Connect GitHub empty state instead of
+     the wizard.
+  4. Playwright: the happy path takes one click.
 
-- **`web/tests/first-run.spec.ts`** (fresh auth-on controller): the first form has no Email field, a token hint that is true everywhere and names the role the account gets; a fleet with nothing in it is the checklist and nothing else, with its button under its own step; the checklist opens the connect dialog directly; Migrate and the pool wizard say "connect GitHub first" neutrally with the button, and Installations shows no webhook fault before there is a connection; and the address recovery end to end — a loopback address is refused, a good one is saved through the real settings API, the API then reports it pending a restart, and reopening the dialog goes straight to the instruction.
-- **`web/tests/github-setup.spec.ts`**: the migration box is unticked, the permission list changes as it is ticked, the request carries `migration`, and un-ticking after the manifest was built invalidates it; the first step keeps App name and API base URL behind a fold; both tabs are visible.
-- **`web/tests/checklist.spec.ts`**: the last step offers a complete test workflow for the pool's own label, copies exactly what is on screen, links the migration wizard quietly, is reachable by keyboard and does not widen the page; a fleet with a pool keeps its dashboard, with `--` where nothing has been measured.
-- **Unit:** `judgeFirstJob` (which jobs are the moment, and which are not cheered) and `testWorkflow`.
-- **Go:** the manifest asks for the runner permissions alone unless told otherwise; the API defaults `migration` to false; the installer names the permissions it will ask for and asks the reachability question before the questions about the App (pinned by reading the function, because the prompts cannot be driven from a test).
-- **Docs:** `internal/docs` holds the demo block to the controller's own validation.
+## H3. Installation asks up to 18 questions, and the first has no default
 
-### What is still yours to decide
+* **Pass:** First-time user
+* **Evidence:** Code-verified (inventory in Appendix B).
+* **Where:** `install.sh:668-713` (build channel, external URL — `:692` exits on
+  an empty answer — and port), `:1686` (Continue?);
+  `internal/installer/installer.go:381,419,1513,1791,1831,1869,1985,1998,2002,2035`;
+  `internal/installer/manifest.go:121,361,414`.
+* **Problem:** The very first thing `curl | sh` asks for, before it has
+  downloaded anything, is an "External hostname or URL" with **no default** — and
+  it exits if you press Enter. A visitor who types the command to try the thing
+  is stopped by a question about DNS. The release-channel question ("Latest
+  stable / Development") is asked of everyone though only contributors want the
+  second option. Questions such as "How should the controller be reached?" can
+  only be answered by someone who already operates it.
+* **Fix:**
+  1. `install.sh`: drop the "Which build?" prompt (keep `--version dev` for the
+     contributors who want it), and default the external URL to
+     `http://$(hostname -f):<port>` so Enter accepts it.
+  2. Add `zoomies init --express`, offered as the first choice ("Express: single
+     host, detected runtime, loopback, systemd — asks for an administrator and a
+     GitHub organisation, nothing else"). It skips backend, capacity, listener,
+     service and review when detection has one sensible answer.
+  3. Print the elapsed install time in the closing summary, and publish it (C5).
 
-Left alone on purpose. Each is a product, brand or information-architecture call rather than a defect, and each Status line above says why.
+## H4. The Quick start explains Elastic CPU before you have run a job
 
-- **Copy and positioning:** the landing headline (H2); the header, hero actions and repository counts (H3).
-- **Layout and navigation:** Bootstrap's split layout and lockup, dropping confirm-password, a `#setup=` URL fragment, and cutting the "Then: …" paragraph (an existing spec asserts it is there) (H1); creating a pool on one screen (H5); data-grid default columns (H7); twelve destinations from minute zero (H10); a phone layout for the data pages (H12); the tablet rail (N5); the Workflows default filter (N8); the add-host form (N6).
-- **Behaviour:** whether the connect dialog should offer *Create it anyway*, which the installer offers and the dialog's own comment says it refuses; keeping the installer's GitHub answers across a skip (it needs somewhere to store them); the second *Other runners* switch; two primaries on an empty Installations page; whether a red "no host" check should block *Create pool*.
-- **Assets and build:** a recorded walkthrough; a **hosted** public demo, which delivery rule 15 rules out unless the owner changes it; pre-rendering the landing diagram (N4); an `init-env` script for Compose (N11).
-- **Not possible from here:** the *Open in GitHub* link that prefills the test workflow, because GitHub's current behaviour for it could not be confirmed offline.
+* **Pass:** First-time user
+* **Evidence:** Measured.
+* **Where:** `docs/quickstart.md:60` (§2, ≈55 lines), `:115` (§3, the permission
+  table), `:145` (§4, ≈70 lines), `:215` (§5, "Run something"); docs-site route
+  `/quickstart/`: 10 screens on desktop, 17.4 on a phone.
+* **Problem:** The title promises "about five minutes". The only step that
+  produces value is §5, on line 215 of 339. Before it come a deployment chooser,
+  an eight-row permission table, a nine-row pool-defaults table, and four
+  paragraphs on Size per runner, Elastic CPU, Operating system and Docker in jobs
+  — reference material for someone who has not yet seen a job run.
+* **Fix:** Reorder to Install → Connect GitHub → Create the default pool (three
+  lines; defaults table collapsed in a `??? note`) → **Run a test job** (the C4
+  workflow) → "Make it yours". Move Elastic CPU, Operating system and Docker in
+  jobs to `docs/hosts-and-pools.md`, which already exists. `pymdownx.details` is
+  enabled in `mkdocs.yml`, so collapsible blocks need no new dependency.
+
+## H5. The landing page's hierarchy sends the visitor to a niche before the product
+
+* **Pass:** Designer
+* **Evidence:** Measured and judgement.
+* **Where:** `docs/index.md:16-35` (hero), `:51-62` (home lab, with the first
+  filled button), `:82+` (feature grid), `:283-300` (comparison);
+  `docs/stylesheets/zoomies.css:936-960` (`.popular`), `:964-981`
+  (`.zoomies-grid`); desktop 1440 and phone.
+* **Problem:**
+  * The hero's call to action is a code block. The first filled button on the
+    page is "Connect your private hosts →", for one segment, just over two
+    screens down (y = 1,863px at 1440×900). Nothing says "Quick start" in button
+    form.
+  * The header carries no persistent "Install" or "Quick start" button.
+  * `Popular:` chips look like navigation, not a decision.
+  * Nine feature cards of 6 to 9 lines each end in an **orphan** at 1440px (4 + 4
+    + 1, then a wide card): a single card alone on the last row of a four-column
+    grid reads as unfinished.
+  * The comparison table, the strongest persuasion on the page, is about 70% of
+    the way down, rendered at half the content width on desktop, and on a phone
+    the **Zoomies column is the one clipped off the right edge**.
+  * The page is 8.4 screens on desktop and **15.2 on a phone**.
+* **Fix:**
+  1. After `.zoomies-install` add `<p class="actions">` with **Quick start →**
+     (`.md-button--primary`) and **See the web UI** (`.md-button`). The `.actions`
+     row already exists for the closing CTA.
+  2. Override Material's `partials/header.html` in `overrides/` to add a
+     right-aligned "Quick start" button beside the repository block.
+  3. Move "Why not something else" directly under the product screenshot and the
+     home-lab section after "What you get".
+  4. Make the grid 3 × 3: `.zoomies-grid { grid-template-columns:
+     repeat(3, minmax(0, 1fr)); }` at `min-width: 60em`, `1fr` below. Cut each
+     card to two sentences and link out.
+  5. `.zoomies-compare table { width: 100% }`; on phones put the Zoomies column
+     **first** (reorder the Markdown columns: Zoomies, ARC, Static runners).
+
+## H6. The hero says "Zoomies", not what you get
+
+* **Pass:** Designer
+* **Evidence:** Judgement.
+* **Where:** `docs/index.md:18-27`; `README.md:7-20`;
+  `docs/stylesheets/zoomies.css:841-843` (`.quiet` → `--md-default-fg-color--lighter`).
+* **Problem:** The headline is a pun that needs decoding ("Give your GitHub
+  Actions runners the Zoomies."). The product's name is set in the `--lighter`
+  foreground (`.quiet`), visibly dimmer than the line above it. The sentence
+  beneath lists mechanisms ("fresh ephemeral runner", "autoscaling across your
+  own hosts", "no Kubernetes, no database server") instead of an outcome. Nothing in the first
+  screen says faster, cheaper or safer, and no number appears. The project
+  dogfoods itself ("every job but the arm64 and Windows legs runs on a Zoomies
+  fleet"), so real numbers exist and are unused.
+* **Fix:** Keep the pun as the eyebrow. Make the H1 the outcome, for example
+  "Self-hosted GitHub Actions runners that start in seconds and vanish after every
+  job." Replace the lede with a three-item proof row using figures from the
+  project's own CI fleet, stated with their date and window (median runner
+  startup, median queue wait, leftover state between jobs: none). **Do not** quote
+  the demo fleet's figures; they are fixtures. Remove `.quiet` from the brand
+  word (`zoomies.css:841`).
+
+## H7. "What is qualified" is the least readable text on the most trust-sensitive part of the page
+
+* **Pass:** Designer
+* **Evidence:** Measured and judgement.
+* **Where:** `docs/index.md:262-281`; `README.md:21-24`; the home page on desktop
+  and phone.
+* **Problem:** A paragraph of about 150 words whose key sentence runs 123 words
+  with nested clauses and two semicolons ("… exercised on every pull request, on the `process` backend
+  against a fake GitHub, on amd64 and on arm64; the Docker backend is unit-tested
+  against a fake Engine API, and while no *test* here starts a container, this
+  repository's own CI does — …"), sits mid-page. On a phone it is about 20 lines. The
+  README opens with "Read it before you put anything precious on this." *above the
+  badges and the screenshot*. The honesty is an asset; the presentation reads as
+  "not production-ready, good luck", and it appears three times (this section,
+  "A word about self-hosted runners", and the Safe defaults card).
+* **Fix:** Replace the paragraph with a four-row status table (Controller and
+  agents; Docker backend; Podman backend; Windows agent) with the columns
+  **Tested on every PR**, **Dogfooded in CI**, **Not yet run**, each cell a short
+  phrase. Link `roadmap/support-and-measurement.md` for the long form. In the
+  README, move the italic disclaimer under the screenshot and link the same
+  table. Merge the three trust sections into one.
+
+## H8. On a phone, half to three-quarters of the text is 12px or smaller, and tap targets fail WCAG 2.2
+
+* **Pass:** Designer
+* **Evidence:** Measured.
+* **Where:** `web/src/lib/styles/tokens.css:186-189` (`--z-text-2xs` 11px,
+  `-xs` 12px, `-sm` 13px); `web/src/lib/shell/Nav.svelte` (`.phone .label`,
+  `font-size: var(--z-text-2xs)`); `web/src/lib/shell/TopBar.svelte:184,257-264,429`
+  (the `.home` logo link); `web/src/lib/components/Checkbox.svelte:72-73`
+  (`--z-control-box: 15px`); every grid; 375px.
+* **Problem:** By characters on screen at 375px: Overview **65%** at or below
+  12px, Hosts **75%**, Jobs **64%**, Pools **48%**, Runners **48%**; the smallest
+  text is 10.5px. The phone gets the desktop type scale: only inputs step up to
+  16px. The bottom bar, the primary navigation, uses **11px labels**.
+
+  Targets, with a coarse pointer confirmed (`matchMedia('(pointer: coarse)')` is
+  true in my emulation and in Playwright's own Pixel 7 descriptor, which the
+  project's mobile suite uses): standard buttons are **32px** (`md`) and **24px**
+  (`sm`) tall, because the 44px `--z-control-touch` is applied only to a short
+  list (segmented choices, chips, sliders, column grips and the sign-in form's
+  `lg`; `docs/ui-guidelines.md:442-447`). That clears WCAG 2.2 AA's 24px floor
+  but is under the 44px that Apple and Google recommend. And WCAG 2.2
+  `target-size` (2.5.8, AA) still fails on every grid page — Pools 25 nodes,
+  Jobs 22, Runners 18, Queue 14, Audit 8, Hosts 7 on desktop — from the grid's
+  resize and reposition buttons (measured 12×40 and 20×24 despite the coarse
+  block at `DataGrid.svelte:1639`), the select-all checkbox (15×15) and link rows
+  20px tall; plus the 22×22 logo link on the phone's top bar.
+
+  The 13px base is a documented, deliberate decision for "a dense operational
+  tool" (`docs/ui-guidelines.md:377-380`), and I am not arguing for 16px on
+  desktop. But the same guidelines say "a phone is not a narrow desktop", and the
+  stated phone requirement is one-handed reading at 3am. That argues for a
+  phone scale.
+* **Fix:** A uniform one-pixel step on touch screens keeps the hierarchy and
+  avoids reflowing the layout:
+
+  ```css
+  /* web/src/lib/styles/tokens.css */
+  @media (max-width: 768px), (pointer: coarse) {
+    :root {
+      --z-text-2xs: 0.75rem;     /* 11 -> 12 */
+      --z-text-xs: 0.8125rem;    /* 12 -> 13 */
+      --z-text-sm: 0.875rem;     /* 13 -> 14 */
+      --z-text-base: 0.9375rem;  /* 14 -> 15 */
+    }
+  }
+  ```
+
+  Re-run `web/tests/mobile.spec.ts`; its no-sideways-scroll assertion is the
+  regression gate. Then:
+  * `.phone .label` in `Nav.svelte` → `var(--z-text-xs)`;
+  * `.home` in `TopBar.svelte` gets `min-width` and `min-height:
+    var(--z-control-touch)` under `pointer: coarse`;
+  * extend the `Button.svelte:208` coarse block from `.lg` to `.md`
+    (`height: var(--z-control-touch)`) and give `.sm` 32px; check the toolbars
+    still wrap;
+  * give the checkbox a label hit area with 44px of padding under
+    `pointer: coarse`;
+  * find why the grid's resize and reposition buttons measure 12×40 under the
+    coarse block at `DataGrid.svelte:1639`, and either grow them to 24px or hide
+    them on touch, where `lib/actions/columnGesture.ts` already provides the
+    gesture.
+
+## H9. On a phone, list pages put the list below their summaries
+
+* **Pass:** Designer
+* **Evidence:** Measured.
+* **Where:** `web/src/routes/Runners.svelte`, `Hosts.svelte`, `Pools.svelte`,
+  `Jobs.svelte`; `web/src/routes/Overview.svelte:119-144`; 375×812, demo fleet.
+* **Problem:** Distance from the top of the page to the first row or card of the
+  thing the page is named after: **Hosts 3.4 screens**, **Runners 2.5**, **Jobs
+  2.0**, **Pools 1.4**. Runners spends its first screens on six tiles, a
+  "provisioning demand" strip and a lifecycle explainer with a five-row legend.
+  Hosts adds a seven-state machine strip, mostly zeros, and the capacity chart
+  ahead of the first host. Whole pages are long: Usage 6.8 screens, Overview 6.6,
+  Hosts 6.6, Pool detail 6.3.
+
+  On the Overview the Activity matrix (a year of days) sits above the live tiles:
+  "Queued jobs" starts 626px down, 77% of the way through the first screen. The
+  project's own phone use case is "an operator woken at 3am reading a dashboard
+  one-handed" (`web/tests/mobile.spec.ts`), and that operator wants problems,
+  then live counts, then the list.
+* **Fix:** On the phone breakpoint put the list first and fold the explainers.
+  Wrap "Runner lifecycle", "Provisioning demand" and the machine-state strip in a
+  `<details>` that is closed under 768px (use the phone flag in
+  `$lib/state/viewport.svelte`). In `Overview.svelte`, give `.stack` children an
+  `order` under `@media (max-width: 768px)`: problems, live tiles, split, then the
+  matrix. Settings → Configuration (29.2 phone screens) already has search and a
+  section index; leave it.
+
+## H10. The sign-up asks for an email the product can never use
+
+* **Pass:** First-time user
+* **Evidence:** Code-verified.
+* **Where:** `web/src/routes/Bootstrap.svelte:34,145,335-351`;
+  `web/src/lib/settings/UsersPanel.svelte:536,635`; no mail sender anywhere in
+  `internal/` or `cmd/`.
+* **Problem:** "Email — Optional. Used only to identify the account." It is stored
+  (`users.email`), shown as a grey second line in the Users table, and filled from
+  OIDC claims. But there is no SMTP, no mail provider and no feature that sends
+  or reads it: not password reset ("Forgotten it? An administrator can reset
+  it." on the sign-in page), not alerts, not invitations (`UsersPanel`: "Send it
+  to them over something private; it is not emailed."). On the one form between
+  a visitor and the product it is a fifth field that does nothing.
+* **Fix:** Remove it from `Bootstrap.svelte`; the API already treats it as
+  optional (`internal/api/handlers_auth.go:124`), so there is no backend change.
+  Delete the `fieldErrors.email` plumbing. Keep it in Settings → Users for
+  display. If notifications arrive later, ask then, and say why.
+
+## H11. The page every path sends you to opens with a warning and two identical buttons
+
+* **Pass:** First-time user
+* **Evidence:** Reproduced.
+* **Where:** `web/src/routes/Installations.svelte:220` (header button),
+  `:244-256` (empty state and its button), `:317` (unconditional
+  `<WebhookHealth/>`); `web/src/lib/installations/WebhookHealth.svelte`; route
+  `/installations`, first run; both viewports.
+* **Problem:** Zero connections, and the page shows "Connect GitHub" top right,
+  "Connect GitHub" again about 300px lower, and then a full **Webhook delivery** panel:
+  "Check reachability", an **amber** callout ("No webhook has been received, so
+  the controller is polling GitHub … reacts more slowly and spends more of the
+  API quota"), an "Every delivery" filter and an empty table, for a connection
+  that cannot exist yet. On a phone, "Refresh" comes before "Connect GitHub" in
+  the action row. The first impression of the step everybody must pass is a
+  warning about something that cannot have happened.
+* **Fix:** Render `<WebhookHealth/>` only when there is at least one installation
+  (`Installations.svelte:317`). With none, show the empty state alone and drop
+  the header button on desktop. On phones, put the primary action first in the
+  row.
+
+## H12. Navigation offers twelve sections to someone who needs a handful
+
+* **Pass:** First-time user
+* **Evidence:** Judgement.
+* **Where:** `web/src/lib/shell/sections.ts:56-72`;
+  `web/src/lib/shell/Nav.svelte`, `NavMenu.svelte`; first run, desktop sidebar and
+  the phone's More sheet.
+* **Problem:** A fleet with no installation, pool or job shows Pools, Runners,
+  Queue, Workflows, Usage, Hosts, Providers, Installations, Migrate, Audit and
+  Settings. Runners, Queue, Workflows and Usage are empty until the first job,
+  Audit matters to a second administrator, and Providers is an advanced feature.
+  The only guidance toward Installations is the checklist. The vocabulary alone (pool,
+  host, runner, installation, provider, machine, cordon, drain, slot) is a wall
+  for a visitor who has not yet seen one running.
+* **Fix:** Derive a `setupMode` from the same state `FirstRun` uses (no
+  installation or no pool) and render only Overview, Installations, Hosts, Pools,
+  Migrate (the checklist's own last step) and Settings, with the rest behind a
+  "More" disclosure. Keep every `g`-chord
+  live. Lift the filter once the fleet's own first job has completed (the C1
+  definition).
+
+## H13. Nothing measures the funnel
+
+* **Pass:** First-time user
+* **Evidence:** Code-verified.
+* **Where:** `mkdocs.yml`, `overrides/main.html` (no analytics block);
+  `install.sh` (served as a static file); a search for common analytics
+  providers across `overrides/`, `docs/javascripts/` and `hooks/` returns nothing.
+* **Problem:** There is no visitor analytics, no count of `install.sh` fetches,
+  and no event on "copy install command" or "Install Zoomies". There is, rightly,
+  no telemetry in the product. So every number in this audit measures the UI, not
+  people: nobody can say what fraction of visitors copy the command, what
+  fraction finish `zoomies init`, or where they stop. You cannot fix a funnel you
+  cannot see.
+* **Fix:** Cookieless, self-hostable analytics on the **docs site only**
+  (Plausible, Umami or GoatCounter; no consent banner needed), added in
+  `overrides/main.html` inside `{% block analytics %}`. Custom events for a click
+  on the copy chip inside `.zoomies-install`, a click on `.md-button--primary`,
+  and 50% and 90% scroll depth on `/quickstart/`. Count installs by serving
+  `install.sh` through an edge function that logs a hit and redirects to the raw
+  file. Say on the landing page that the product itself sends no telemetry; for
+  this audience that is a selling point.
+
+---
+
+# 3. Nice to have
+
+## N1. The Recent events empty state blames a filter the user never touched
+
+* **Pass:** First-time user
+* **Where:** `web/src/lib/overview/EventsFeed.svelte:150-155`; route `/`, first run.
+* **Problem:** The title switches on `everything` (whether any kinds are hidden),
+  not on whether hidden kinds hold entries. On a brand-new fleet, two kinds are
+  hidden by default, so the panel says "Nothing in the kinds you are watching —
+  2 kinds of event are switched off for this browser. Choose above turns them back
+  on." The last sentence is also garbled.
+* **Fix:** Title "Nothing has happened yet" whenever the unfiltered feed is empty;
+  mention hidden kinds only when they hold entries, and write it as: `Use
+  "Choose" above to show them.`
+
+## N2. Duplicate "Other runners" switch, and a Refresh button on a page that says nothing needs pressing
+
+* **Pass:** Designer
+* **Where:** `web/src/routes/Overview.svelte:102-110` and
+  `web/src/lib/overview/ActiveJobs.svelte` (same preference, same label, one page).
+* **Problem:** Two identical switches bound to one preference, a screen apart.
+  "Refresh" sits beside a page whose subtitle promises it updates live.
+* **Fix:** Keep the page-level switch; make the panel text link to it instead of
+  repeating it. Collapse Refresh to an icon-only button on phones.
+
+## N3. The Connect dialog on a phone clips its second tab and orphans a step
+
+* **Pass:** Designer
+* **Evidence:** Measured (screenshot at 375px).
+* **Where:** `web/src/lib/installations/ConnectDialog.svelte` (the `Tabs` and the
+  stepper); `web/src/lib/components/Tabs.svelte`; route `/installations` → Connect
+  GitHub; 375px.
+* **Problem:** The second tab reads "Use an App you already h" — clipped mid-word
+  with no ellipsis, no wrap and no scroll cue — and the three-step indicator wraps,
+  leaving "3 Install it" alone on a row.
+* **Fix:** Shorten the label to "Existing App", or let `Tabs` scroll with an edge
+  fade. Under 480px collapse the stepper to "Step 1 of 3 — Describe the App".
+
+## N4. The Connect dialog's first step front-loads advanced options and gives no reason for a disabled button
+
+* **Pass:** First-time user
+* **Where:** `web/src/lib/installations/ConnectDialog.svelte:954-970` (App name,
+  API base URL), `:1322` (`disabled`).
+* **Problem:** "App name" and a GitHub-Enterprise "API base URL" are shown to
+  everyone, though nearly all want the defaults. "A single repository" is the
+  route for a personal account, but the label never says so; the caveat only
+  appears after you pick it. A greyed "Continue to GitHub" says nothing about why.
+* **Fix:** Put App name and API base URL in a closed `<details>` titled
+  "Advanced". Label the radio "A single repository (or a personal account)". Keep
+  the button enabled and put the reason in the field error on click, or add
+  `aria-describedby` helper text beside it.
+
+## N5. The "How it works" diagram falls back to raw source when its CDN is blocked
+
+* **Pass:** Designer
+* **Evidence:** Reproduced in a sandbox that blocks `unpkg.com`.
+* **Where:** `docs/index.md:64-80`; `mkdocs.yml:105-114` (Mermaid fence).
+* **Problem:** Material fetches Mermaid from `unpkg.com` at runtime. Blocked (a
+  corporate proxy, a privacy extension), the visitor sees the diagram's source code
+  in the middle of the landing page. It also contradicts the site's own stance of
+  self-hosting fonts so that no third party is involved (`mkdocs.yml:44-50`).
+* **Fix:** Self-host Mermaid via `extra_javascript` (check in the built page's
+  network panel that Material does not also fetch its own copy), or pre-render the
+  diagram to SVG at build time. Add a `<noscript>` list of the six steps.
+
+## N6. Two marginal contrast failures on the light docs theme
+
+* **Pass:** Designer
+* **Evidence:** Measured (axe `color-contrast`, `/quickstart/`, 12 nodes desktop, 10 phone).
+* **Where:** `docs/stylesheets/zoomies.css` (light scheme block).
+* **Problem:** `--md-default-fg-color--lighter: #6e737c` on `#f6f7f9` is 4.45:1
+  (the sidebar section titles); Material's default keyword colour `#3f6ec6` on the
+  code background `#eef0f3` is 4.32:1 (YAML and HTML tag names). Both need 4.5:1.
+* **Fix:** In the `[data-md-color-scheme='default']` block set
+  `--md-default-fg-color--lighter: #666b74;` (5.0:1) and
+  `--md-code-hl-keyword-color: #3a66b8;` (4.88:1).
+
+## N7. A malformed definition list on seven pages
+
+* **Pass:** Designer
+* **Evidence:** Measured (axe `definition-list`).
+* **Where:** `web/src/lib/components/MetricGrid.svelte:13-31`; used by Usage, Jobs,
+  Runners, Pools, Providers, Installations and Hosts.
+* **Problem:** Each `.metric` group inside the `<dl>` holds a `<dt>`, a `<dd>`, and
+  then a bare `<p>` and a `<div class="meter">`. Only `dt` and `dd` are valid
+  there, so screen readers lose the grouping.
+* **Fix:** Move the detail into the `<dd>` (`<dd>{item.value}<span
+  class="detail">{item.detail}</span></dd>`) and make the meter `aria-hidden`
+  decoration inside it.
+
+## N8. Expandable rows inside a plain grid
+
+* **Pass:** Designer
+* **Evidence:** Measured (axe `aria-conditional-attr`, Workflows, 2 nodes).
+* **Where:** `web/src/lib/components/DataGrid.svelte:1025` (`role="grid"`), used by `web/src/routes/Workflows.svelte`.
+* **Problem:** Rows carry `aria-expanded` inside a `role="grid"`, which only a
+  `treegrid` supports.
+* **Fix:** Use `role="treegrid"` whenever rows can expand.
+
+## N9. An unnamed progress bar on every docs page
+
+* **Pass:** Designer
+* **Evidence:** Measured (axe `aria-progressbar-name`, 1 node, every page).
+* **Where:** `mkdocs.yml:45` (`navigation.instant.progress`) → Material's `.md-progress`.
+* **Fix:** Give it an accessible name from `overrides/main.html`
+  (`document.querySelector('.md-progress')?.setAttribute('aria-label', 'Loading page')`)
+  or drop the feature.
+
+## N10. A dead band in the checklist's first row on a phone
+
+* **Pass:** Designer
+* **Where:** `web/src/lib/overview/FirstRun.svelte:167` (an empty
+  `<div class="action">`) with the phone rule at `:412-423`.
+* **Problem:** The "Create an administrator — Done" row renders an empty action
+  cell that takes `min-height` plus a top margin on narrow screens, leaving a blank
+  band of roughly 60px before the divider.
+* **Fix:** Do not render the empty div, or add `.action:empty { display: none }`.
+
+## N11. The docs and the code disagree about the phone's bottom bar
+
+* **Pass:** Designer
+* **Where:** `docs/ui-guidelines.md:935-937` ("Overview, Pools, Runners, Jobs")
+  versus `web/src/lib/shell/sections.ts` (`primary: true` on Workflows, not Jobs).
+* **Fix:** Pick one. If Jobs is the better tab for a 3am operator, move the flag;
+  otherwise correct the guideline.
+
+## N12. The "NEW" announcement is a three-line pill above the headline on a phone
+
+* **Pass:** Designer
+* **Where:** `docs/index.md:16`; `docs/stylesheets/zoomies.css:796-830,1208`.
+* **Problem:** On a phone the announcement wraps to three lines (about 75px) above
+  the H1, so the first thing read is a feature teaser, not the value proposition,
+  and it pushes the headline and the install command down.
+* **Fix:** Hide `.eyebrow` under 45em, or keep it to one line with
+  `white-space: nowrap; overflow: hidden; text-overflow: ellipsis`.
+
+---
+
+# Appendix A — measurements
+
+All at the audited commit, in Chromium. "Screens" is page height ÷ viewport height.
+
+### Sideways scroll at 375px
+
+| Surface | Result |
+| --- | --- |
+| 19 app routes × light and dark | none scrolls sideways |
+| Sign-up and sign-in pages | none |
+| Docs home (`/`) | **399px in a 375px window** (C6) |
+| Docs quick start, FAQ, costs, UI tour, private hosts | none |
+
+### Page height, in screens (desktop / phone)
+
+| Page | Desktop | Phone |
+| --- | --- | --- |
+| Overview, empty fleet | 2.5 | 4.7 |
+| Overview, demo fleet | 2.4 | 6.6 |
+| Pools | 1.1 | 1.8 |
+| Pool detail | 2.4 | 6.3 |
+| Runners | 1.9 | 3.3 |
+| Jobs | 1.3 | 2.6 |
+| Hosts | 2.7 | 6.6 |
+| Usage | 2.4 | 6.8 |
+| Settings → Configuration | 16.5 | 29.2 |
+| Docs home | 8.4 | 15.2 |
+| Docs quick start | 10.0 | 17.4 |
+
+### Share of characters on screen by font size
+
+| Page | At or below 12px (desktop) | At or below 12px (phone) | At or below 13px (phone) |
+| --- | --- | --- | --- |
+| Overview | 64.9% | 64.9% | 92.4% |
+| Runners | 48.2% | 47.6% | 96.8% |
+| Pools | 49.6% | 48.2% | 93.1% |
+| Hosts | 75.1% | 75.4% | 95.2% |
+| Jobs | 64.3% | 64.4% | 93.6% |
+
+### axe-core (WCAG 2.0 to 2.2, A and AA)
+
+| Rule | Where | Nodes |
+| --- | --- | --- |
+| `color-contrast` (app) | all 15 routes, both themes, both widths | **0** |
+| `target-size` | Pools, Jobs, Runners, Queue, Workflows, Audit, Hosts (desktop) | 25, 22, 18, 14, 18, 8, 7 |
+| `definition-list` | seven pages using `MetricGrid` | 1 to 2 each |
+| `aria-conditional-attr` | Workflows | 2 |
+| `color-contrast` (docs, light) | `/quickstart/` | 12 desktop, 10 phone |
+| `scrollable-region-focusable` | docs home, phone | 4 |
+| `aria-progressbar-name` | every docs page | 1 |
+
+### Sign-up form geometry (C2)
+
+| | 1440×900 | 375×812 |
+| --- | --- | --- |
+| Card height | 1,250px | about 1,250px |
+| Submit button top | y = 1171 (271px below the fold) | y = 1172 (1.4 screens) |
+| Logo tile | 298×298 | 298×298 |
+
+# Appendix B — the installer's prompts, default path
+
+The default is a native single host, Docker present, organisation target.
+Conditional prompts (certificate files, trusted proxies, a port clash) add more;
+flags and detection remove some.
+
+| # | Prompt | Source | Default? |
+| --- | --- | --- | --- |
+| 1 | Which build should be installed? | `install.sh:671` | yes (latest) |
+| 2 | External hostname or URL | `install.sh:687` | **none; exits if empty** |
+| 3 | Controller port | `install.sh:699` | yes (8080) |
+| 4 | Continue? | `install.sh:1686` | yes |
+| 5 | What is this host? | `installer.go:419` | yes (single) |
+| 6 | How should Zoomies run on this host? | `installer.go:1513` | yes |
+| 7 | Which backend should run your jobs? | `installer.go:1791` | yes |
+| 8 | How many runners may this host hold? | `installer.go:1831` | yes |
+| 9 | How should the controller be reached? | `installer.go:1869` | yes (loopback) |
+| 10 | Username | `installer.go:1985` | none |
+| 11 | Password | `installer.go:1998` | none |
+| 12 | Password again | `installer.go:2002` | none |
+| 13 | How should Zoomies be kept running? | `installer.go:2035` | yes (systemd) |
+| 14 | Install with these settings? | `installer.go:381` | yes |
+| 15 | Create the GitHub App now? | `manifest.go:121` | yes |
+| 16 | Whose runners will this fleet manage? | `manifest.go:361` | yes (organisation) |
+| 17 | Organisation login | `manifest.go:377` | none |
+| 18 | App name | `manifest.go:414` | yes (optional) |
+
+Thirteen accept Enter; five need real input (2, 10, 11, 12, 17). After these the
+operator completes the App on github.com (create, then install) and returns.
+
+# Appendix C — reproducing the three that need setup
+
+Everything uses the project's own fixtures; nothing was changed in the repo.
+
+**C1 (checklist deletion).** Build with `make build`. Run
+`node web/tests/support/serve-connect.mjs 8096 /tmp/fakegithub.json` (an empty
+controller, authentication off, and a fake GitHub). In the browser open
+`/installations` → Connect GitHub → **Use an App you already have** and fill it
+from `/tmp/fakegithub.json`, including a webhook secret you choose. Confirm
+`/` shows "Finish setting up". Then POST a signed delivery:
+
+```sh
+SECRET='the webhook secret you typed into the form'
+INSTALL_ID=$(jq -r .installationId /tmp/fakegithub.json)
+BODY=$(printf '{"action":"queued","workflow_job":{"id":900001,"run_id":800001,"run_attempt":1,"workflow_name":"CI","name":"build","labels":["ubuntu-latest"],"status":"queued","created_at":"2026-10-01T05:00:00Z","head_branch":"main","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"repository":{"full_name":"acme/widgets"},"installation":{"id":%s}}' "$INSTALL_ID")
+SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" | sed 's/^.* //')
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:8096/webhooks/github \
+  -H 'content-type: application/json' -H 'x-github-event: workflow_job' \
+  -H "x-github-delivery: $(uuidgen)" -H "x-hub-signature-256: sha256=$SIG" -d "$BODY"
+```
+
+Expect `202`, the checklist gone, and `localStorage['zoomies.firstrun.dismissed']`
+equal to `"1"`. `GET /api/v1/stats` shows `queued_jobs: 1`, `fleet.queued_jobs: 0`.
+
+**C3 (Connect wall).**
+`ZOOMIES_EXTERNAL_URL=http://localhost:8095 ZOOMIES_BIND=127.0.0.1:8095 zoomies controller`,
+create the account, then Installations → Connect GitHub, and type an organisation.
+Compare with `ZOOMIES_EXTERNAL_URL=https://zoomies.example.com`.
+
+**C6 (landing page).** `mkdocs build -d /tmp/site`, serve it, open `/` at 375px and
+compare `document.documentElement.scrollWidth` with `innerWidth`. To find the cause,
+hide each child of `.zoomies-hero` in turn; the pseudo-element is not in
+`querySelectorAll('*')`, which is why a naive overflow scan misses it.
+
+Screenshots were captured throughout and deliberately not committed, to keep
+binaries out of the repository; the recipes above regenerate any of them.
