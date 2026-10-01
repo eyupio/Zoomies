@@ -80,10 +80,11 @@ func runDemo(ctx context.Context, e *env, args []string) error {
 	// what it leaves is a directory under the temporary one.
 	defer os.RemoveAll(dir)
 
-	// The controller says a good deal at startup -- a banner, and one finding for
-	// every setting that is not the safe default, which here is all of them on
-	// purpose -- and none of it helps somebody who is only looking. It is kept,
-	// and shown only if the start fails, which is when it is the explanation.
+	// The controller says a good deal at startup -- a banner, and a finding for
+	// every setting that is not the safe default, such as authentication being
+	// off, which here is on purpose -- and none of it helps somebody who is only
+	// looking. It is kept, and shown only if the start fails, which is when it is
+	// the explanation.
 	var startup bytes.Buffer
 	quiet := &env{out: io.Discard, err: &startup, in: e.in}
 
@@ -99,7 +100,7 @@ func runDemo(ctx context.Context, e *env, args []string) error {
 		if !*noBrowser {
 			// Best effort, and the address is printed either way: half the
 			// machines this runs on have no desktop to open it on.
-			_ = openBrowser(pollCtx, url)
+			_ = openBrowser(url)
 		}
 	}()
 
@@ -263,16 +264,22 @@ func announceDemo(w io.Writer, url string) {
 }
 
 // openBrowser asks the desktop to open a page, and says whether it could.
-func openBrowser(ctx context.Context, target string) error {
+//
+// The opener is deliberately not tied to the demo's context. A context that is
+// cancelled kills the process it started, and on a desktop where xdg-open hands
+// itself over to the browser, that process is the browser -- so stopping the
+// demo would close somebody's other tabs along with it.
+func openBrowser(target string) error {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = exec.CommandContext(ctx, "open", target)
+		cmd = exec.Command("open", target)
 	case "windows":
-		cmd = exec.CommandContext(ctx, "rundll32", "url.dll,FileProtocolHandler", target)
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", target)
 	default:
-		cmd = exec.CommandContext(ctx, "xdg-open", target)
+		cmd = exec.Command("xdg-open", target)
 	}
+	detachFromTerminal(cmd)
 	if err := cmd.Start(); err != nil {
 		return err
 	}
