@@ -31,6 +31,8 @@ curl -fsSL https://zoomies.sh/install.sh | sh
 
 </div>
 
+<p class="popular" markdown="span">Just looking? [Run the demo](quickstart.md#just-looking) with a fleet already in it and nothing installed.</p>
+
 <p class="popular" markdown="span">Popular: [Quick start](quickstart.md) [The web UI](ui.md) [Private hosts with Tailcat](private-hosts.md) [Migrate existing runners](migration.md) [Compared with ARC](actions-runner-controller.md)</p>
 
 </div>
@@ -236,8 +238,8 @@ the same `runs-on` now reaches a fleet that gives every job a fresh runner.
 Retire the old machines as the work moves across.
 
 Either way, nothing is written until you have read it, and
-`ZOOMIES_SEED_DEMO=true` gives you a whole fixture fleet to walk the wizard
-through before you connect GitHub to anything.
+`zoomies demo` gives you a whole fixture fleet to walk the wizard through
+before you connect GitHub to anything.
 
 [Migrate existing runners :material-arrow-right:](migration.md){ .md-button }
 

@@ -17,9 +17,10 @@ choose one, and the screenshots below follow this site's.
 
 The fleet in them is the demo fixture the Playwright suite runs against: two
 pools, three hosts, a dozen runners across every state the controller knows,
-and a morning's worth of jobs. `ZOOMIES_SEED_DEMO=true` writes the same fleet
-into an empty controller, so you can walk through these pages yourself before
-connecting GitHub.
+and a morning's worth of jobs. `zoomies demo` runs a throwaway controller with
+the same fleet in it — nothing installed, nobody to sign in as — so you can
+walk through these pages yourself before connecting GitHub.
+`ZOOMIES_SEED_DEMO=true` writes it into an empty controller of your own.
 
 ## Signing in
 
@@ -590,9 +591,9 @@ off; **Settings → Appearance** sets which of the two every grid starts in.
 The design system behind all of this — tokens, status colours, components and
 the accessibility checklist — is in [UI guidelines](ui-guidelines.md).
 
-Nothing here needs a GitHub App to look at: the [quick start](quickstart.md)
-takes about five minutes, and `ZOOMIES_SEED_DEMO=true` fills a fresh controller
-with the same fleet these screenshots were taken from.
+Nothing here needs a GitHub App to look at: [`zoomies demo`](cli.md) runs a
+throwaway controller with the same fleet these screenshots were taken from, and
+the [quick start](quickstart.md) sets up a real one.
 
 ## Provisioning queue
 

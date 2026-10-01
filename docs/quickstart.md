@@ -17,6 +17,20 @@ add later — happens in the **web UI**, which is where a Zoomies fleet is run.
 Prefer a file or a terminal? Each step below says where its Docker Compose,
 CLI or API equivalent is, and [Other ways in](#other-ways-in) collects them.
 
+## Just looking?
+
+```sh
+curl -fsSL https://zoomies.sh/install.sh | sh -s -- --demo
+```
+
+That downloads the binary to a temporary folder, checks it the way an install
+does, and runs `zoomies demo` from there: a controller on this machine only,
+with a fleet already in it — pools, hosts, runners and a morning's worth of
+jobs — and nobody to sign in as. It opens the address in your browser, asks for
+no `sudo`, writes nothing outside the temporary folder, and deletes both when
+you press Ctrl-C. `--port` picks the port. If the binary is already installed,
+`zoomies demo` does the same without the download.
+
 ## 1. Install
 
 ```sh
