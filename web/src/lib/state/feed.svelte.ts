@@ -147,6 +147,23 @@ class Feed {
     return FEED_CATEGORIES.filter((category) => !this.shows(category.id)).length;
   }
 
+  /**
+   * How many entries this tab holds that this browser's choices keep off the
+   * page. Without it an empty panel can only guess why it is empty, and on a
+   * fleet where nothing has happened yet it blamed a filter nobody had touched.
+   */
+  get silenced(): number {
+    const others = prefs.otherRunners;
+    let held = this.#captured.filter(
+      (entry) => !this.shows(entry.category) && (others || !entry.elsewhere),
+    ).length;
+    if (!this.shows('scaling')) held += fleet.scalingEvents.length;
+    if (!this.shows('runners')) {
+      held += fleet.runners.filter((runner) => runnerFailureEntry(runner) !== null).length;
+    }
+    return held;
+  }
+
   /* -- writes -------------------------------------------------------------- */
 
   /**

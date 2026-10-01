@@ -134,8 +134,8 @@ safety away, so the trade is visible from the list.
 ![The Pools page: queue pressure and configured headroom above each pool's runner and configuration details](screenshots/pools-dark.webp#only-dark){ .zoomies-shot }
 ![The Pools page: queue pressure and configured headroom above each pool's runner and configuration details](screenshots/pools-light.webp#only-light){ .zoomies-shot }
 
-The wizard that creates one is seven steps on its advanced path, which every
-step of the simple path offers, and the **Size** step is where
+The wizard that creates one is five steps on its simple path and nine on its
+advanced path, which every step of the simple path offers, and the **Size** step is where
 the pool says how much machine one runner gets: *one share of each host*,
 with what every host in the fleet would give a runner listed underneath, or a
 fixed size on every host. Under the shared size sit the two fields of

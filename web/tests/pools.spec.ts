@@ -6,7 +6,7 @@
  * that being an accident: the list says which pools carry that risk and names
  * it, and the wizard spells out the dangerous choice and refuses to take it
  * without a deliberate confirmation. It also protects the wizard as a wizard --
- * seven steps, a preview of the runs-on line the labels produce, the server's
+ * its steps, a preview of the runs-on line the labels produce, the server's
  * own verdict before anything is created, and a Back button that does not
  * throw away what was typed.
  */

@@ -228,6 +228,30 @@ test('creating the administrator lands somewhere that names the next step', asyn
   await expect(checklist.getByText('After GitHub is connected.')).toBeVisible();
 });
 
+test('a fleet that has done nothing says so in dashes, and blames no filter', async ({ page }) => {
+  await signIn(page);
+
+  // The controller answers 0 for a median it has no samples for, and the tiles
+  // used to print it: "0ms" is a claim -- instant -- about a fleet that has not
+  // started a single runner, and it was the first thing a new operator read in
+  // the row meant to judge the fleet by. "--" is what every other empty value
+  // in the product says.
+  for (const name of [/^Median queue wait/, /^Runner startup/, /^Registration/]) {
+    const tile = page.getByRole('link', { name });
+    await expect(tile).toBeVisible();
+    await expect(tile).toContainText('--');
+    await expect(tile).not.toContainText(/\b0\s?ms\b/);
+  }
+
+  // Two kinds of event are off by default, and a fleet that has done nothing
+  // has nothing in any kind. The empty panel used to blame the two switches
+  // nobody had touched and send the operator to Settings for a problem that
+  // was not there.
+  const feed = page.getByRole('region', { name: 'Recent events', exact: true });
+  await expect(feed).toContainText('Nothing has happened yet');
+  await expect(feed).not.toContainText('switched off for this browser');
+});
+
 test('signing out and back in reports the three kinds of failure differently', async ({ page }) => {
   await page.goto('/');
   await page.context().clearCookies();
