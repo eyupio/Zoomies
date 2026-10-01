@@ -2,14 +2,14 @@
 icon: material/rocket-launch-outline
 title: "Install self-hosted GitHub Actions runners: quick start"
 description: >-
-  Install Zoomies and run your first job on a self-hosted ephemeral runner in
-  about five minutes — one curl command, one GitHub App, no Kubernetes.
+  Install Zoomies and run your first job on a self-hosted ephemeral runner —
+  one curl command, one GitHub App, no Kubernetes.
 ---
 
 # Quick start
 
-Five minutes, on a fresh Ubuntu, Debian, Fedora or Alpine host. macOS works too
-for running a controller in development.
+On a fresh Ubuntu, Debian, Fedora or Alpine host. macOS works too for running a
+controller in development.
 
 One command installs it and asks the questions only a terminal can answer.
 Everything after that — GitHub, the first pool, the first job, every host you
@@ -17,11 +17,51 @@ add later — happens in the **web UI**, which is where a Zoomies fleet is run.
 Prefer a file or a terminal? Each step below says where its Docker Compose,
 CLI or API equivalent is, and [Other ways in](#other-ways-in) collects them.
 
+!!! note "Before you start"
+
+    * **A Linux host you can reach.** A small cloud VM, a home server or a spare
+      machine. Jobs run in Docker or Podman by default; without either, the
+      `process` backend runs them straight on the host.
+    * **A GitHub organisation, or a repository on your own account, that you
+      own.** Creating the GitHub App and installing it takes an owner's rights,
+      so if that is not you, have the owner on hand for step 3.
+    * **An address GitHub can reach.** GitHub delivers webhooks to the
+      controller, and an App's webhook address is fixed when the App is created.
+      A cloud VM's hostname or a tunnel does it. If the controller can only be
+      reached from your own network, Zoomies falls back to polling GitHub, which
+      reacts in tens of seconds instead of at once; [step 3](#3-connect-github)
+      says how.
+
+## Try it first
+
+Not ready to put anything on a server? The demo is the real controller and the
+real web UI over a made-up fleet: pools, hosts, runners and a morning's worth of
+jobs. It needs no GitHub, no container runtime and no account, it listens on this
+machine only, and nothing it creates survives Ctrl-C.
+
+```sh
+curl -fsSL https://zoomies.sh/install.sh | sh -s -- \
+  --no-init --yes --version dev --prefix "$HOME/.local/bin"
+"$HOME/.local/bin/zoomies" demo
+```
+
+<!-- `--version dev` is here because `zoomies demo` is newer than the latest
+     release. Once a release carries it, drop the flag, so the page does not
+     point evaluators at a development build. -->
+
+The first command installs the binary and nothing else, and still checks the
+download against the release's `checksums.txt`. The second starts the demo and
+opens your browser. Press Ctrl-C to throw it all away, then carry on from step 1.
+
 ## 1. Install
+
+<div class="zoomies-install" markdown>
 
 ```sh
 curl -fsSL https://zoomies.sh/install.sh | sh
 ```
+
+</div>
 
 The script is POSIX `sh`, and it is written to be read before it is run — which
 is the way we would rather you did it:
@@ -32,25 +72,28 @@ less install.sh
 sh install.sh
 ```
 
-It works out your OS and architecture, your distribution and init system,
-whether Docker or Podman is present and whether its socket is actually
-reachable, whether that socket is rootless, which `compose` command you have,
-whether ports 8080 and 443 are free — where `ss` or `netstat` exists to tell it,
-and it says so when neither does — and whether Zoomies is already installed, in
-which case it upgrades in place and says so.
+??? note "What the installer checks, and what it asks first"
 
-The download must verify. It is checked against the release's `checksums.txt`,
-and every way that can fail — a mismatch, no entry for this asset, no hashing
-tool on the host, a checksums file that could not be fetched — refuses the
-install rather than warning about it. A private mirror that publishes no
-checksums is the one supported exception, with `--allow-unverified`.
+    It works out your OS and architecture, your distribution and init system,
+    whether Docker or Podman is present and whether its socket is actually
+    reachable, whether that socket is rootless, which `compose` command you have,
+    whether ports 8080 and 443 are free — where `ss` or `netstat` exists to tell
+    it, and it says so when neither does — and whether Zoomies is already
+    installed, in which case it upgrades in place and says so.
 
-Before it changes anything it prints what it is about to do — the version, where
-the binary goes, whether it needs `sudo`, and what it leaves alone — and asks
-once. `--yes` and `--non-interactive` skip the question.
+    The download must verify. It is checked against the release's
+    `checksums.txt`, and every way that can fail — a mismatch, no entry for this
+    asset, no hashing tool on the host, a checksums file that could not be
+    fetched — refuses the install rather than warning about it. A private mirror
+    that publishes no checksums is the one supported exception, with
+    `--allow-unverified`.
 
-Everything it discovered is handed to `zoomies init`, so the interactive setup
-never asks a question the script already answered.
+    Before it changes anything it prints what it is about to do — the version,
+    where the binary goes, whether it needs `sudo`, and what it leaves alone —
+    and asks once. `--yes` and `--non-interactive` skip the question.
+
+    Everything it discovered is handed to `zoomies init`, so the interactive
+    setup never asks a question the script already answered.
 
 Not installing on a host you own? A platform that builds with Nixpacks --
 Coolify, Dokploy, Railway, Zeabur -- can deploy the controller from the source
@@ -85,34 +128,51 @@ instead, with agents joined from machines that have a container runtime. See
     closing summary prints all three with their exact addresses, and the
     Overview repeats them as a checklist that ticks itself off as you go.
 
-Whichever you choose, the containerised deployments leave nothing to fill in.
-A controller's answers are stored in its database before it first starts, where
-the Settings page changes them; the `.env` holds only what opens that database
-and what Compose reads itself. Every variable in it carries a one-line comment
-saying what it is for, the file is `0600` because it holds your encryption key,
-and it is written atomically so an interrupted install never leaves a
-half-written file that compose would then read.
-
-Re-running the installer over an existing deployment is an upgrade, not a
-reinstall: it **keeps the existing encryption key** (minting a new one would
-make every stored secret undecryptable) and backs the old file up beside it.
-
 Then it walks the rest: a dedicated service user and directories, an encryption
 key (which it will tell you to back up, and say exactly what is lost without),
 the runner backend — preferring a rootless Docker or Podman socket, and
-spelling out the consequence of each alternative — the bind address and TLS, and
-your first account.
+spelling out the consequence of each alternative — the bind address and TLS, the
+address GitHub will use to reach the controller, and your first account.
 
-Setup does not assume the service account can reach the container socket, it
-checks. The account's access is worked out from the socket's own owner and mode
-rather than from a group called `docker`, which is the wrong group on a Podman
-socket or a distribution that names it something else; the account is added to
-whichever group that is; and the check runs **again** afterwards, so an install
-only reports success it has verified. Where joining a group cannot help — a
-socket with no group permissions at all — it says so and names the two ways out,
-instead of leaving you with a fleet that comes up unable to run anything.
+??? note "What setup does for you, in more detail"
+
+    Whichever you choose, the containerised deployments leave nothing to fill in.
+    A controller's answers are stored in its database before it first starts,
+    where the Settings page changes them; the `.env` holds only what opens that
+    database and what Compose reads itself. Every variable in it carries a
+    one-line comment saying what it is for, the file is `0600` because it holds
+    your encryption key, and it is written atomically so an interrupted install
+    never leaves a half-written file that compose would then read.
+
+    Re-running the installer over an existing deployment is an upgrade, not a
+    reinstall: it **keeps the existing encryption key** (minting a new one would
+    make every stored secret undecryptable) and backs the old file up beside it.
+
+    Setup does not assume the service account can reach the container socket, it
+    checks. The account's access is worked out from the socket's own owner and
+    mode rather than from a group called `docker`, which is the wrong group on a
+    Podman socket or a distribution that names it something else; the account is
+    added to whichever group that is; and the check runs **again** afterwards, so
+    an install only reports success it has verified. Where joining a group cannot
+    help — a socket with no group permissions at all — it says so and names the
+    two ways out, instead of leaving you with a fleet that comes up unable to run
+    anything.
 
 ## 3. Connect GitHub
+
+!!! note "Before you click Connect GitHub"
+
+    GitHub is told where to deliver webhooks when the App is created, and cannot
+    be told again afterwards. So Zoomies will not create an App until it knows an
+    address GitHub can reach: not `localhost`, and not an address only your own
+    network can see. If it does not know one yet, the **Connect GitHub** dialog
+    says so and lets you set it there; the address takes effect when the
+    controller next restarts.
+
+    No public address, as in a home lab? Connect an App you already have instead
+    (the dialog's second tab). Zoomies then polls GitHub for queued jobs, which
+    reacts in tens of seconds rather than at once.
+    [Runners in your home lab](home-lab.md#where-the-controller-goes) says more.
 
 Zoomies creates the GitHub App for you through the manifest flow. It opens your
 browser at a pre-filled form — and always prints the URL as well, so a headless
@@ -164,53 +224,13 @@ same defaults:
 | **Ephemeral** | yes |
 | **Docker in jobs** | none |
 
-The wizard does not make you invent the first two rows. It opens with a name
-already in the field — the brand and the shape of the pool, so
-`zoomies-ubuntu-2404`, or a name from the kennel before a host has connected —
-and a label derived from that name, so the
-pool is reachable by a workflow before you have typed anything. The dice beside the field roll another name;
-type over it and the wizard leaves the name and the label alone from then on.
-Every name it offers starts with `zoomies-`, which is what tells you a runner
-in GitHub's own settings is one of yours.
-
 Decline it, or set `pool.skip` in an answer file, and the Pools page starts
 empty; nothing runs until a pool exists. Either way, always set a maximum. It
 is your only backstop against a runaway workflow.
 
-**Size per runner** is the row that decides how many jobs run at once, and the
-default answer is to leave it to the host: each runner is given one slot's
-share of whichever machine it lands on, as a real limit rather than a promise,
-so the same pool is sized correctly on a 16-core box and on a 64-core one.
-There is no “unlimited” — a runner with no limit takes whatever the machine
-has while the fleet still counts it as one slot — and a pool whose jobs need a
-particular amount of machine everywhere can say so instead, on the advanced
-path. Its sliders open on the figures the whole fleet starts from, under
-**Settings → Configuration** (`runners.default_cpus`,
-`runners.default_memory_mb`).
-
-**Elastic CPU** is the row to come back to. A pool sized by its host can
-*observe*: on every heartbeat the controller works out how much of the host's
-spare CPU a busy runner could have been lent, with every other runner's
-guarantee and the next queued job's room held back, and publishes the answer to
-Prometheus without moving anything. A pool made in the wizard starts there;
-the installer's pool starts with it off, and **Edit** on the pool's page turns
-it on. Switch it to *Automatic boost* once the numbers say there is room, and
-a job that was compiling inside two cores gets the rest of the machine until
-something else wants it. [Elastic CPU zoomies](elastic-cpu.md) is the whole of
-it.
-
-**Operating system** is the other row worth a look. It picks which
-`zoomies-runner` variant the pool boots — Ubuntu 24.04 and 22.04, Debian 12,
-Fedora and Rocky Linux are published — and it stops the scheduler putting these
-runners on a host running something else. Leave it as *Any* and the pool takes
-the controller's default image and any host that fits otherwise. See
-[Naming and platforms](naming.md).
-
-**Docker in jobs** stays `none` until a workflow needs a daemon — a `docker`
-step, a `container:` or a `services:` block — and then `dind` is the one to
-choose. That one setting is enough: the pool is switched to a runner image with
-a Docker client as it is saved. [Jobs that build container
-images](configuration.md#jobs-that-build-container-images) says what it costs.
+The defaults are the ones to run your first job on. How a pool is sized, Elastic
+CPU, the operating system and Docker in jobs can all wait until it has run: they
+are under [After your first job](#after-your-first-job).
 
 ## 5. Run something
 
@@ -249,6 +269,61 @@ Every one of those rows is also a flag on `zoomies pools create`, and
 zoomies pools create --name zoomies-linux-x64 --labels zoomies-linux-x64 \
   --installation ins_k3f9qz2m --os ubuntu --os-version 24.04 --max 4 --dry-run
 ```
+
+## After your first job
+
+The defaults ran it. These are the settings worth a look now that something has.
+
+### Size per runner
+
+This is the row that decides how many jobs run at once, and the default answer is
+to leave it to the host: each runner is given one slot's share of whichever
+machine it lands on, as a real limit rather than a promise, so the same pool is
+sized correctly on a 16-core box and on a 64-core one. There is no “unlimited” —
+a runner with no limit takes whatever the machine has while the fleet still
+counts it as one slot — and a pool whose jobs need a particular amount of machine
+everywhere can say so instead, on the advanced path. Its sliders open on the
+figures the whole fleet starts from, under **Settings → Configuration**
+(`runners.default_cpus`, `runners.default_memory_mb`).
+
+### Elastic CPU
+
+This is the row to come back to. A pool sized by its host can *observe*: on every
+heartbeat the controller works out how much of the host's spare CPU a busy runner
+could have been lent, with every other runner's guarantee and the next queued
+job's room held back, and publishes the answer to Prometheus without moving
+anything. A pool made in the wizard starts there; the installer's pool starts
+with it off, and **Edit** on the pool's page turns it on. Switch it to *Automatic
+boost* once the numbers say there is room, and a job that was compiling inside
+two cores gets the rest of the machine until something else wants it.
+[Elastic CPU zoomies](elastic-cpu.md) is the whole of it.
+
+### Operating system
+
+The other row worth a look. It picks which `zoomies-runner` variant the pool
+boots — [the catalogue](naming.md#the-runner-image) lists what is published — and
+it stops the scheduler putting these runners on a host running something else.
+Leave it as *Any* and the pool takes the controller's default image and any host
+that fits otherwise. See [Naming and platforms](naming.md).
+
+### Docker in jobs
+
+This stays `none` until a workflow needs a daemon — a `docker` step, a
+`container:` or a `services:` block — and then `dind` is the one to choose. That
+one setting is enough: the pool is switched to a runner image with a Docker
+client as it is saved. [Jobs that build container
+images](configuration.md#jobs-that-build-container-images) says what it costs.
+
+### The names the wizard offers
+
+The wizard does not make you invent the first two rows. It opens with a name
+already in the field — the brand and the shape of the pool, so
+`zoomies-ubuntu-2404`, or a name from the kennel before a host has connected —
+and a label derived from that name, so the pool is reachable by a workflow before
+you have typed anything. The dice beside the field roll another name; type over
+it and the wizard leaves the name and the label alone from then on. Every name it
+offers starts with `zoomies-`, which is what tells you a runner in GitHub's own
+settings is one of yours.
 
 ## Moving the rest of your repositories
 

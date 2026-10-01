@@ -107,8 +107,7 @@ has no macOS runner image, so it does not help with those.
 
 ## Where to go next
 
-- [Quick start](quickstart.md): a fresh host to a running job in about five
-  minutes.
+- [Quick start](quickstart.md): a fresh host to a running job in five steps.
 - [Migrating repositories](migration.md): moving `runs-on` off GitHub's runners,
   one pull request per repository.
 - [Zoomies and the runner services](hosted-runner-services.md): Blacksmith,
