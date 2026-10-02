@@ -17,6 +17,7 @@
   import PageHeader from '$lib/components/PageHeader.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import ConnectionsTable from '$lib/mcp/ConnectionsTable.svelte';
+  import SourceAccessDialog from '$lib/mcp/SourceAccessDialog.svelte';
 
   let items = $state<MCPConnection[]>([]);
   let loading = $state(true);
@@ -42,6 +43,8 @@
 
   let confirmOpen = $state(false);
   let ending = $state<MCPConnection | null>(null);
+  let sourceOpen = $state(false);
+  let sourceConnection = $state<MCPConnection | null>(null);
 
   async function disconnect(): Promise<boolean> {
     const c = ending;
@@ -94,6 +97,10 @@
     <ConnectionsTable
       {items}
       caption="Your MCP connections"
+      onsources={(c) => {
+        sourceConnection = c;
+        sourceOpen = true;
+      }}
       ondisconnect={(c) => {
         ending = c;
         confirmOpen = true;
@@ -112,3 +119,5 @@
   onconfirm={disconnect}
   oncancel={() => (ending = null)}
 />
+
+<SourceAccessDialog bind:open={sourceOpen} connection={sourceConnection} />

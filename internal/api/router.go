@@ -174,6 +174,8 @@ func (s *Server) apiRoutes() chi.Router {
 		r.Post("/auth/mcp-requests/{id}/deny", s.mcpOAuth(s.handleDenyMCPRequest))
 		r.Get("/auth/mcp-connections", s.handleListOwnMCPConnections)
 		r.Delete("/auth/mcp-connections/{id}", s.handleRevokeOwnMCPConnection)
+		r.Get("/auth/mcp-connections/{id}/repositories", s.handleGetOwnContextSelection)
+		r.Put("/auth/mcp-connections/{id}/repositories", s.handlePutOwnContextSelection)
 
 		// Overview.
 		r.With(s.require(auth.ActionStatsRead)).Get("/stats", s.handleStats)
@@ -327,6 +329,19 @@ func (s *Server) apiRoutes() chi.Router {
 			r.With(s.require(auth.ActionMachinesDrain)).Post("/{id}/drain", s.handleDrainMachine)
 			r.With(s.require(auth.ActionMachinesDelete)).Delete("/{id}", s.handleDeleteMachine)
 			r.With(s.require(auth.ActionMachinesDelete)).Post("/{id}/release", s.handleReleaseMachine)
+		})
+
+		r.With(s.require(auth.ActionContextRead)).Get("/ai-context/access", s.handleListReaderAIContext)
+		r.Route("/ai-context", func(r chi.Router) {
+			r.Use(s.require(auth.ActionContextConfigure))
+			r.Get("/discovery", s.handleDiscoverAIContext)
+			r.Get("/draft", s.handleFindAIContextDraft)
+			r.Get("/repositories/{id}", s.handleGetAIContextRepository)
+			r.Get("/repositories", s.handleListAIContextRepositories)
+			r.Post("/repositories", s.handleCreateAIContextDraft)
+			r.Patch("/repositories/{id}/config", s.handleUpdateAIContextConfig)
+			r.Get("/repositories/{id}/members", s.handleGetAIContextMembers)
+			r.Put("/repositories/{id}/members", s.handlePutAIContextMembers)
 		})
 
 		// Migrations: what moving a repository's workflows onto this fleet

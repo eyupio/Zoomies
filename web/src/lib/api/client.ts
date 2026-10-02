@@ -881,3 +881,55 @@ export const selectProvisioning = (query?: Query<'selectProvisioning'>, signal?:
   api.get<Result<'selectProvisioning'>>('/provisioning/selection', { query, signal });
 export const controlProvisioning = (body: Body<'controlProvisioning'>) =>
   api.post<Result<'controlProvisioning'>>('/provisioning/bulk', { body });
+
+export const getOwnMCPContextSelection = (id: string, offset = 0, signal?: AbortSignal) =>
+  api.get<Result<'getOwnMCPContextSelection'>>(
+    `/auth/mcp-connections/${enc(id)}/repositories?limit=50&offset=${offset}`,
+    { signal },
+  );
+
+export const putOwnMCPContextSelection = (id: string, repositoryIds: string[]) =>
+  api.put(`/auth/mcp-connections/${enc(id)}/repositories`, {
+    body: { repository_ids: repositoryIds },
+  });
+
+export const listAIContextRepositories = (
+  offset = 0,
+  q = '',
+  installationId = '',
+  signal?: AbortSignal,
+) =>
+  api.get<Result<'listAIContextRepositories'>>(
+    `/ai-context/repositories?${new URLSearchParams({ offset: String(offset), q, installation_id: installationId })}`,
+    { signal },
+  );
+export const listReadableAIContext = (offset = 0, q = '', signal?: AbortSignal) =>
+  api.get<Result<'listReadableAIContext'>>(
+    `/ai-context/access?${new URLSearchParams({ offset: String(offset), q })}`,
+    { signal },
+  );
+export const getAIContextRepository = (id: string, signal?: AbortSignal) =>
+  api.get<Result<'getAIContextRepository'>>(`/ai-context/repositories/${enc(id)}`, { signal });
+export const findAIContextDraft = (installationId: string, repositoryId: number) =>
+  api.get<Result<'findAIContextDraft'>>(
+    `/ai-context/draft?${new URLSearchParams({ installation_id: installationId, repository_id: String(repositoryId) })}`,
+  );
+export const discoverAIContext = (installationId: string, signal?: AbortSignal) =>
+  api.get<Result<'discoverAIContext'>>(
+    `/ai-context/discovery?installation_id=${enc(installationId)}`,
+    { signal },
+  );
+export const createAIContextDraft = (installationId: string, repositoryId: number) =>
+  api.post<Result<'createAIContextDraft'>>('/ai-context/repositories', {
+    body: { installation_id: installationId, repository_id: repositoryId },
+  });
+export const updateAIContextConfig = (id: string, body: Body<'updateAIContextConfig'>) =>
+  api.patch<Result<'updateAIContextConfig'>>(`/ai-context/repositories/${enc(id)}/config`, {
+    body,
+  });
+export const getAIContextMembers = (id: string, signal?: AbortSignal) =>
+  api.get<Result<'getAIContextMembers'>>(`/ai-context/repositories/${enc(id)}/members`, { signal });
+export const putAIContextMembers = (id: string, userIds: string[]) =>
+  api.put<Result<'putAIContextMembers'>>(`/ai-context/repositories/${enc(id)}/members`, {
+    body: { user_ids: userIds },
+  });

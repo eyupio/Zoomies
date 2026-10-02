@@ -4,6 +4,184 @@
  */
 
 export interface paths {
+    "/api/v1/ai-context/access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List your explicitly shared source repositories
+         * @description Requires context.read and an owned account. Returns only available repositories with live user membership, never administrative drafts/configuration or another person's repositories.
+         */
+        get: operations["listReadableAIContext"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai-context/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Find an existing draft using its installation and stable repository ID
+         * @description Requires context.configure (admin). Uses the installation's server-resolved GitHub host; no source access is granted. Supports safe retry after a draft creation response is lost.
+         */
+        get: operations["findAIContextDraft"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai-context/repositories/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Resume a repository configuration draft
+         * @description Requires context.configure (admin).
+         */
+        get: operations["getAIContextRepository"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai-context/repositories/{id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read explicit repository source membership
+         * @description Requires context.configure (admin). Membership is independent of fleet roles and connection consent.
+         */
+        get: operations["getAIContextMembers"];
+        /**
+         * Replace explicit repository source membership
+         * @description Requires context.configure (admin). Removing a member also clears their existing connection consent. Membership does not make a draft available or approve a connection.
+         */
+        put: operations["putAIContextMembers"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/mcp-connections/{id}/repositories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read your connection's eligible source repositories and consent
+         * @description Requires a signed-in person owning an active connection. Tokens and MCP clients cannot use this endpoint. Only available repositories with live source membership are listed. The complete eligible selection is returned separately so paging cannot silently revoke off-page choices.
+         */
+        get: operations["getOwnMCPContextSelection"];
+        /**
+         * Choose your connection's source repositories explicitly
+         * @description Requires the signed-in owner of an active connection. Every selected repository must have live source membership and verified availability. Send an explicit empty array to remove all consent; an omitted or null field is refused. Revocation and membership are checked atomically.
+         */
+        put: operations["putOwnMCPContextSelection"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai-context/repositories/{id}/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Save AI Context draft configuration with a revision check
+         * @description Requires context.configure (admin). Source branch remains anchored to the discovered branch. A stale revision returns 409; saving does not enable source access or publish files.
+         */
+        patch: operations["updateAIContextConfig"];
+        trace?: never;
+    };
+    "/api/v1/ai-context/repositories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List AI Context configuration drafts
+         * @description Requires context.configure (admin). Includes unavailable drafts; listing does not grant source access.
+         */
+        get: operations["listAIContextRepositories"];
+        put?: never;
+        /**
+         * Prepare a repository configuration draft
+         * @description Requires context.configure (admin). Resolves the numeric repository ID through live installation discovery and uses its default branch. Requires Contents read; refuses archived or inaccessible repositories. Creates an unavailable draft without granting readers or writing repository files. A repeated selection returns 409.
+         */
+        post: operations["createAIContextDraft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ai-context/discovery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Discover repository candidates without enabling source access
+         * @description Requires context.configure (admin). Reads installation metadata only; does not change GitHub permissions or create repository files. Results are bounded to 500 repositories and capped reports possible truncation.
+         */
+        get: operations["discoverAIContext"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/usage": {
         parameters: {
             query?: never;
@@ -3188,6 +3366,49 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AIContextReaderPage: {
+            items: components["schemas"]["AIContextConnectionSelection"]["items"];
+            total: number;
+            limit: number;
+            offset: number;
+        };
+        AIContextMembers: {
+            user_ids: string[];
+        };
+        AIContextConnectionSelection: {
+            items: {
+                id: string;
+                full_name: string;
+            }[];
+            total: number;
+            limit: number;
+            offset: number;
+            selected_repository_ids: string[];
+        };
+        AIContextRepository: {
+            id: string;
+            repository: {
+                github_host: string;
+                installation_id: string;
+                /** Format: int64 */
+                repository_id: number;
+            };
+            full_name: string;
+            config: {
+                source_branch: string;
+                /** @enum {string} */
+                destination: "repository" | "zoomies" | "both";
+                exclude: string[];
+                keep_snapshots: number;
+            };
+            /** Format: int64 */
+            revision: number;
+            available: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
         /**
          * @description What an identity may do. `platform` is above `admin` and belongs to whoever runs the process rather than the fleet; on an instance where one team does both, the account that installed it holds it.
          * @enum {string}
@@ -6639,6 +6860,330 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    listReadableAIContext: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: components["parameters"]["Offset"];
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Authorised repository names */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIContextReaderPage"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    findAIContextDraft: {
+        parameters: {
+            query: {
+                installation_id: string;
+                repository_id: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Existing draft */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIContextRepository"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    getAIContextRepository: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Repository configuration */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIContextRepository"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getAIContextMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Repository members */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIContextMembers"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    putAIContextMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AIContextMembers"];
+            };
+        };
+        responses: {
+            /** @description Membership saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIContextMembers"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    getOwnMCPContextSelection: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: components["parameters"]["Offset"];
+            };
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Source consent choices */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIContextConnectionSelection"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    putOwnMCPContextSelection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    repository_ids: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description Source consent saved */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    updateAIContextConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: int64 */
+                    revision: number;
+                    config: components["schemas"]["AIContextRepository"]["config"];
+                };
+            };
+        };
+        responses: {
+            /** @description Updated configuration */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIContextRepository"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    listAIContextRepositories: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: components["parameters"]["Offset"];
+                installation_id?: string;
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A bounded page of repository configuration metadata */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["AIContextRepository"][];
+                        total: number;
+                        limit: number;
+                        offset: number;
+                    };
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createAIContextDraft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    installation_id: string;
+                    /** Format: int64 */
+                    repository_id: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Draft prepared */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIContextRepository"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    discoverAIContext: {
+        parameters: {
+            query: {
+                installation_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Repository candidates and separate read/setup permission probes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        default_exclusions: string[];
+                        default_keep_snapshots: number;
+                        can_read_contents: boolean;
+                        missing_setup_permissions: string[];
+                        capped: boolean;
+                        repositories: {
+                            /** Format: int64 */
+                            id: number;
+                            full_name: string;
+                            default_branch: string;
+                            private: boolean;
+                            archived: boolean;
+                            html_url: string;
+                        }[];
+                    };
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
     getUsage: {
         parameters: {
             query: {

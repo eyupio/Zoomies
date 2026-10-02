@@ -95,6 +95,252 @@ tags:
     description: Routes used by agents. Not for general clients.
 
 paths:
+  /api/v1/ai-context/access:
+    get:
+      operationId: listReadableAIContext
+      summary: List your explicitly shared source repositories
+      description: Requires context.read and an owned account. Returns only available repositories with live user membership, never administrative drafts/configuration or another person's repositories.
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, default: 50, minimum: 1, maximum: 100 }
+        - $ref: "#/components/parameters/Offset"
+        - in: query
+          name: q
+          schema: { type: string, maxLength: 200 }
+      responses:
+        "200":
+          description: Authorised repository names
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIContextReaderPage" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+  /api/v1/ai-context/draft:
+    get:
+      operationId: findAIContextDraft
+      summary: Find an existing draft using its installation and stable repository ID
+      description: Requires context.configure (admin). Uses the installation's server-resolved GitHub host; no source access is granted. Supports safe retry after a draft creation response is lost.
+      parameters:
+        - in: query
+          name: installation_id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: repository_id
+          required: true
+          schema: { type: integer, format: int64, minimum: 1 }
+      responses:
+        "200":
+          description: Existing draft
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIContextRepository" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+  /api/v1/ai-context/repositories/{id}:
+    get:
+      operationId: getAIContextRepository
+      summary: Resume a repository configuration draft
+      description: Requires context.configure (admin).
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: Repository configuration
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIContextRepository" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/ai-context/repositories/{id}/members:
+    parameters:
+      - $ref: "#/components/parameters/PathID"
+    get:
+      operationId: getAIContextMembers
+      summary: Read explicit repository source membership
+      description: Requires context.configure (admin). Membership is independent of fleet roles and connection consent.
+      responses:
+        "200":
+          description: Repository members
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIContextMembers" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    put:
+      operationId: putAIContextMembers
+      summary: Replace explicit repository source membership
+      description: Requires context.configure (admin). Removing a member also clears their existing connection consent. Membership does not make a draft available or approve a connection.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AIContextMembers" }
+      responses:
+        "200":
+          description: Membership saved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIContextMembers" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+  /api/v1/auth/mcp-connections/{id}/repositories:
+    parameters:
+      - $ref: "#/components/parameters/PathID"
+    get:
+      operationId: getOwnMCPContextSelection
+      summary: Read your connection's eligible source repositories and consent
+      description: Requires a signed-in person owning an active connection. Tokens and MCP clients cannot use this endpoint. Only available repositories with live source membership are listed. The complete eligible selection is returned separately so paging cannot silently revoke off-page choices.
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Source consent choices
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIContextConnectionSelection" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      operationId: putOwnMCPContextSelection
+      summary: Choose your connection's source repositories explicitly
+      description: Requires the signed-in owner of an active connection. Every selected repository must have live source membership and verified availability. Send an explicit empty array to remove all consent; an omitted or null field is refused. Revocation and membership are checked atomically.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [repository_ids]
+              properties:
+                repository_ids: { type: array, maxItems: 100, uniqueItems: true, items: { type: string } }
+      responses:
+        "204": { description: Source consent saved }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+  /api/v1/ai-context/repositories/{id}/config:
+    patch:
+      operationId: updateAIContextConfig
+      summary: Save AI Context draft configuration with a revision check
+      description: Requires context.configure (admin). Source branch remains anchored to the discovered branch. A stale revision returns 409; saving does not enable source access or publish files.
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision, config]
+              properties:
+                revision: { type: integer, format: int64, minimum: 1 }
+                config: { $ref: "#/components/schemas/AIContextRepository/properties/config" }
+      responses:
+        "200":
+          description: Updated configuration
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIContextRepository" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+  /api/v1/ai-context/repositories:
+    get:
+      operationId: listAIContextRepositories
+      summary: List AI Context configuration drafts
+      description: Requires context.configure (admin). Includes unavailable drafts; listing does not grant source access.
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+        - $ref: "#/components/parameters/Offset"
+        - in: query
+          name: installation_id
+          schema: { type: string }
+        - in: query
+          name: q
+          schema: { type: string, maxLength: 200 }
+      responses:
+        "200":
+          description: A bounded page of repository configuration metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total, limit, offset]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/AIContextRepository" } }
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      operationId: createAIContextDraft
+      summary: Prepare a repository configuration draft
+      description: Requires context.configure (admin). Resolves the numeric repository ID through live installation discovery and uses its default branch. Requires Contents read; refuses archived or inaccessible repositories. Creates an unavailable draft without granting readers or writing repository files. A repeated selection returns 409.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [installation_id, repository_id]
+              properties:
+                installation_id: { type: string }
+                repository_id: { type: integer, format: int64, minimum: 1 }
+      responses:
+        "201":
+          description: Draft prepared
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIContextRepository" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+  /api/v1/ai-context/discovery:
+    get:
+      operationId: discoverAIContext
+      summary: Discover repository candidates without enabling source access
+      description: Requires context.configure (admin). Reads installation metadata only; does not change GitHub permissions or create repository files. Results are bounded to 500 repositories and capped reports possible truncation.
+      parameters:
+        - in: query
+          name: installation_id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Repository candidates and separate read/setup permission probes
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [repositories, can_read_contents, missing_setup_permissions, capped, default_exclusions, default_keep_snapshots]
+                properties:
+                  default_exclusions: { type: array, items: { type: string } }
+                  default_keep_snapshots: { type: integer, minimum: 1, maximum: 100 }
+                  can_read_contents: { type: boolean }
+                  missing_setup_permissions: { type: array, items: { type: string } }
+                  capped: { type: boolean }
+                  repositories:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, full_name, default_branch, private, archived, html_url]
+                      properties:
+                        id: { type: integer, format: int64 }
+                        full_name: { type: string }
+                        default_branch: { type: string }
+                        private: { type: boolean }
+                        archived: { type: boolean }
+                        html_url: { type: string }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
   /usage:
     get:
       operationId: getUsage
@@ -4757,6 +5003,60 @@ components:
           schema: { $ref: "#/components/schemas/ErrorEnvelope" }
 
   schemas:
+    AIContextReaderPage:
+      type: object
+      required: [items, total, limit, offset]
+      properties:
+        items: { $ref: "#/components/schemas/AIContextConnectionSelection/properties/items" }
+        total: { type: integer }
+        limit: { type: integer }
+        offset: { type: integer }
+    AIContextMembers:
+      type: object
+      required: [user_ids]
+      properties:
+        user_ids: { type: array, maxItems: 200, uniqueItems: true, items: { type: string } }
+    AIContextConnectionSelection:
+      type: object
+      required: [items, total, limit, offset, selected_repository_ids]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [id, full_name]
+            properties:
+              id: { type: string }
+              full_name: { type: string }
+        total: { type: integer }
+        limit: { type: integer }
+        offset: { type: integer }
+        selected_repository_ids: { type: array, maxItems: 100, items: { type: string } }
+    AIContextRepository:
+      type: object
+      required: [id, repository, full_name, config, revision, available, created_at, updated_at]
+      properties:
+        id: { type: string }
+        repository:
+          type: object
+          required: [github_host, installation_id, repository_id]
+          properties:
+            github_host: { type: string }
+            installation_id: { type: string }
+            repository_id: { type: integer, format: int64 }
+        full_name: { type: string }
+        config:
+          type: object
+          required: [source_branch, destination, exclude, keep_snapshots]
+          properties:
+            source_branch: { type: string }
+            destination: { type: string, enum: [repository, zoomies, both] }
+            exclude: { type: array, items: { type: string } }
+            keep_snapshots: { type: integer, minimum: 1, maximum: 100 }
+        revision: { type: integer, format: int64 }
+        available: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
     # --- primitives -------------------------------------------------------
     Role:
       type: string

@@ -185,3 +185,107 @@ func TestDraftConfigurationSurvivesRestartAndInstallationDeletionCascades(t *tes
 		t.Fatalf("orphaned context config: %v", err)
 	}
 }
+
+func TestContextRepositoryListsHaveBoundedPages(t *testing.T) {
+	s := newTestStore(t)
+	r, _, _ := contextFixture(t, s)
+	rows, total, err := s.ListAIContextRepositories(t.Context(), 1, 0)
+	if err != nil || total != 1 || len(rows) != 1 || rows[0].ID != r.ID {
+		t.Fatalf("first page: %+v %d %v", rows, total, err)
+	}
+	rows, total, err = s.ListAIContextRepositories(t.Context(), 1, 1)
+	if err != nil || total != 1 || len(rows) != 0 || rows == nil {
+		t.Fatalf("last page: %+v %d %v", rows, total, err)
+	}
+	for _, page := range [][2]int{{0, 0}, {101, 0}, {1, -1}} {
+		if _, _, err := s.ListAIContextRepositories(t.Context(), page[0], page[1]); err == nil {
+			t.Fatalf("accepted unbounded page: %v", page)
+		}
+	}
+}
+
+func TestConnectionSourceChoicesHideUnsharedAndUnavailableRepositories(t *testing.T) {
+	s := newTestStore(t)
+	r, u, g := contextFixture(t, s)
+	s.SetAIContextAvailable(t.Context(), r.ID, true)
+	s.ReplaceAIContextMembers(t.Context(), r.ID, []string{u.ID})
+	makeRepo := func(id int64, name string, available, member bool) *AIContextRepository {
+		t.Helper()
+		other := &AIContextRepository{Key: r.Key, FullName: name, Config: r.Config}
+		other.Key.RepositoryID = id
+		if err := s.CreateAIContextRepository(t.Context(), other); err != nil {
+			t.Fatal(err)
+		}
+		if available {
+			s.SetAIContextAvailable(t.Context(), other.ID, true)
+		}
+		if member {
+			s.ReplaceAIContextMembers(t.Context(), other.ID, []string{u.ID})
+		}
+		return other
+	}
+	second := makeRepo(43, "acme/z-last", true, true)
+	makeRepo(44, "acme/private-unshared", true, false)
+	makeRepo(45, "acme/pending", false, true)
+	if err := s.ReplaceAIContextConnectionAccess(t.Context(), g.ID, u.ID, []string{r.ID, second.ID}); err != nil {
+		t.Fatal(err)
+	}
+	choices, err := s.AIContextConnectionChoices(t.Context(), g.ID, u.ID, 1, 0)
+	if err != nil || choices.Total != 2 || len(choices.Items) != 1 || len(choices.SelectedRepositoryIDs) != 2 {
+		t.Fatalf("choices = %+v, %v", choices, err)
+	}
+	page, err := s.AIContextConnectionChoices(t.Context(), g.ID, u.ID, 1, 1)
+	if err != nil || len(page.Items) != 1 || page.Items[0].ID != second.ID || len(page.SelectedRepositoryIDs) != 2 {
+		t.Fatalf("second page lost consent = %+v, %v", page, err)
+	}
+	if _, err := s.AIContextConnectionChoices(t.Context(), g.ID, "another-owner", 1, 0); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("another owner saw choices: %v", err)
+	}
+	if err := s.ReplaceAIContextMembers(t.Context(), r.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	choices, err = s.AIContextConnectionChoices(t.Context(), g.ID, u.ID, 1, 0)
+	if err != nil || choices.Total != 1 || len(choices.SelectedRepositoryIDs) != 1 || choices.SelectedRepositoryIDs[0] != second.ID {
+		t.Fatalf("revoked membership still visible = %+v, %v", choices, err)
+	}
+}
+
+func TestContextMetadataSearchAndDraftLookupKeepIdentityAndAccessBoundaries(t *testing.T) {
+	s := newTestStore(t)
+	r, u, _ := contextFixture(t, s)
+	got, err := s.FindAIContextRepository(t.Context(), r.Key)
+	if err != nil || got.ID != r.ID {
+		t.Fatalf("lookup=%+v %v", got, err)
+	}
+	otherKey := r.Key
+	otherKey.GitHubHost = "github.example"
+	if _, err := s.FindAIContextRepository(t.Context(), otherKey); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("cross-host lookup=%v", err)
+	}
+	rows, total, err := s.ListAIContextRepositoriesFiltered(t.Context(), 1, 0, r.Key.InstallationID, "widgets")
+	if err != nil || len(rows) != 1 || total != 1 {
+		t.Fatalf("filtered list=%+v %d %v", rows, total, err)
+	}
+	for _, search := range []string{"%", "_", "' OR 1=1 --", `\`} {
+		rows, total, err = s.ListAIContextRepositoriesFiltered(t.Context(), 1, 0, r.Key.InstallationID, search)
+		if err != nil || len(rows) != 0 || total != 0 {
+			t.Fatalf("search %q broadened list: %+v %d %v", search, rows, total, err)
+		}
+	}
+	s.SetAIContextAvailable(t.Context(), r.ID, true)
+	visible, count, err := s.ListAIContextReaderRepositories(t.Context(), u.ID, 1, 0, "")
+	if err != nil || len(visible) != 0 || count != 0 {
+		t.Fatalf("implicit membership=%+v %d %v", visible, count, err)
+	}
+	s.ReplaceAIContextMembers(t.Context(), r.ID, []string{u.ID})
+	visible, count, err = s.ListAIContextReaderRepositories(t.Context(), u.ID, 1, 0, "widgets")
+	if err != nil || len(visible) != 1 || count != 1 {
+		t.Fatalf("member list=%+v %d %v", visible, count, err)
+	}
+	u.Disabled = true
+	s.UpdateUser(t.Context(), u)
+	visible, count, err = s.ListAIContextReaderRepositories(t.Context(), u.ID, 1, 0, "")
+	if err != nil || len(visible) != 0 || count != 0 {
+		t.Fatalf("disabled reader=%+v %d %v", visible, count, err)
+	}
+}

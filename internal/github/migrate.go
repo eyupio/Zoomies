@@ -20,7 +20,9 @@ import (
 // hourly quota, which the scheduler shares.
 const (
 	// maxScanRepos is the most repositories one scan will list.
-	maxScanRepos = 500
+	maxScanRepos = RepositoryDiscoveryLimit
+	// RepositoryDiscoveryLimit bounds repository metadata discovery.
+	RepositoryDiscoveryLimit = 500
 	// maxWorkflowsPerRepo is the most workflow files read from one repository.
 	// A repository with more than this has a generated .github/workflows and
 	// is not a candidate for a hand-reviewed pull request.
@@ -103,6 +105,7 @@ func (c *appClient) ListRepositories(ctx context.Context, limit int) ([]Reposito
 
 func repositoryOf(r *gh.Repository) Repository {
 	return Repository{
+		ID:            r.GetID(),
 		FullName:      r.GetFullName(),
 		DefaultBranch: r.GetDefaultBranch(),
 		Private:       r.GetPrivate(),

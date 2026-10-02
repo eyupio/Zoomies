@@ -132,6 +132,18 @@ export const ROUTES: readonly RouteDef[] = [
     title: 'Migrate repositories',
     load: () => import('../routes/Migrate.svelte'),
   },
+  {
+    name: 'ai-context',
+    path: '/ai-context',
+    title: 'AI Context',
+    load: () => import('../routes/AiContext.svelte'),
+  },
+  {
+    name: 'ai-context-setup',
+    path: '/ai-context/setup',
+    title: 'Enable repositories',
+    load: () => import('../routes/AiContextSetup.svelte'),
+  },
   { name: 'audit', path: '/audit', title: 'Audit', load: () => import('../routes/Audit.svelte') },
   {
     // GitHub's return address, named in every App manifest Zoomies

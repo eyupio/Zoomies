@@ -323,6 +323,7 @@ type Client interface {
 
 // Repository is one repository an installation can see.
 type Repository struct {
+	ID            int64  `json:"id"`
 	FullName      string `json:"full_name"`
 	DefaultBranch string `json:"default_branch"`
 	Private       bool   `json:"private"`

@@ -582,8 +582,9 @@ fixed, because muscle memory is the point:
    fit beside an icon in a 232px column; every other place that names the page
    — its heading, the palette, the shortcut sheet, the browser title — uses the
    full name.
-9. **Audit** — who did what
-10. **Settings** — a section of pages rather than one page: your account and
+9. **AI Context** — prepare repositories for AI coding assistants; explicit source access is separate from fleet permissions.
+10. **Audit** — who did what
+11. **Settings** — a section of pages rather than one page: your account and
     appearance; users and API tokens; the configuration, backups and about.
     Each has an address of its own (`/settings/users`), the section's own rail
     lists them beside the page, and `/settings` alone goes to the first of
