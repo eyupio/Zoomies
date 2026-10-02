@@ -39,6 +39,7 @@ const (
 	PrefixOAuthClient  = "oac"
 	PrefixOAuthRequest = "oar"
 	PrefixOAuthGrant   = "ocg"
+	PrefixAIContext    = "aic"
 )
 
 var idEncoding = base32.NewEncoding("abcdefghijklmnopqrstuvwxyz234567").WithPadding(base32.NoPadding)

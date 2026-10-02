@@ -1,0 +1,239 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/eyupio/zoomies/internal/aicontext"
+)
+
+type AIContextRepository struct {
+	ID       string                  `json:"id"`
+	Key      aicontext.RepositoryKey `json:"repository"`
+	FullName string                  `json:"full_name"`
+	Config   aicontext.Config        `json:"config"`
+	Revision int64                   `json:"revision"`
+	// Available is a verified repository-access state, not whether a snapshot
+	// exists. Access removal closes this gate before retained blobs are read.
+	Available bool      `json:"available"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+const aiContextColumns = `id, installation_id, github_host, repository_id, full_name, config_json, revision, available, created_at, updated_at`
+
+func scanAIContext(sc interface{ Scan(...any) error }) (*AIContextRepository, error) {
+	var r AIContextRepository
+	var config string
+	var available int
+	var created, updated int64
+	err := sc.Scan(&r.ID, &r.Key.InstallationID, &r.Key.GitHubHost, &r.Key.RepositoryID, &r.FullName, &config, &r.Revision, &available, &created, &updated)
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal([]byte(config), &r.Config); err != nil {
+		return nil, err
+	}
+	r.Available, r.CreatedAt, r.UpdatedAt = available == 1, at(created), at(updated)
+	return &r, nil
+}
+
+func (s *Store) CreateAIContextRepository(ctx context.Context, r *AIContextRepository) error {
+	if err := r.Key.Validate(); err != nil {
+		return err
+	}
+	if err := r.Config.Validate(); err != nil {
+		return err
+	}
+	if r.FullName == "" || len(r.FullName) > 255 {
+		return fmt.Errorf("context needs the repository's full name")
+	}
+	if r.ID == "" {
+		r.ID = NewID(PrefixAIContext)
+	}
+	body, err := json.Marshal(r.Config)
+	if err != nil {
+		return err
+	}
+	now := s.Now()
+	_, err = s.exec(ctx, `INSERT INTO ai_context_repositories (`+aiContextColumns+`) VALUES (?,?,?,?,?,?,1,0,?,?)`,
+		r.ID, r.Key.InstallationID, r.Key.GitHubHost, r.Key.RepositoryID, r.FullName, string(body), ms(now), ms(now))
+	if err != nil {
+		return wrapWrite(err)
+	}
+	r.Revision, r.Available, r.CreatedAt, r.UpdatedAt = 1, false, now, now
+	return nil
+}
+
+func (s *Store) GetAIContextRepository(ctx context.Context, id string) (*AIContextRepository, error) {
+	r, err := scanAIContext(s.read.QueryRowContext(ctx, `SELECT `+aiContextColumns+` FROM ai_context_repositories WHERE id=?`, id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("context repository %s: %w", id, ErrNotFound)
+	}
+	return r, err
+}
+
+// SaveAIContextConfig is compare-and-swap: resuming yesterday's wizard cannot
+// silently replace the exclusions or destination somebody changed today.
+func (s *Store) SaveAIContextConfig(ctx context.Context, id string, revision int64, config aicontext.Config) error {
+	if err := config.Validate(); err != nil {
+		return err
+	}
+	if revision < 1 {
+		return ErrConflict
+	}
+	body, err := json.Marshal(config)
+	if err != nil {
+		return err
+	}
+	res, err := s.exec(ctx, `UPDATE ai_context_repositories SET config_json=?, revision=revision+1, updated_at=? WHERE id=? AND revision=?`, string(body), ms(s.Now()), id, revision)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrConflict
+	}
+	return nil
+}
+
+func (s *Store) SetAIContextAvailable(ctx context.Context, id string, available bool) error {
+	res, err := s.exec(ctx, `UPDATE ai_context_repositories SET available=?, updated_at=? WHERE id=?`, boolInt(available), ms(s.Now()), id)
+	if err != nil {
+		return err
+	}
+	return affected(res, "context repository", id)
+}
+
+func (s *Store) DeleteAIContextRepository(ctx context.Context, id string) error {
+	res, err := s.exec(ctx, `DELETE FROM ai_context_repositories WHERE id=?`, id)
+	if err != nil {
+		return err
+	}
+	return affected(res, "context repository", id)
+}
+
+// ReplaceAIContextMembers also removes consent for users losing membership.
+// Adding the user back later must not quietly re-enable an old app connection.
+func (s *Store) ReplaceAIContextMembers(ctx context.Context, repositoryID string, users []string) error {
+	if len(users) > 200 {
+		return fmt.Errorf("select at most 200 context readers")
+	}
+	return wrapWrite(s.tx(ctx, func(tx *sql.Tx) error {
+		var exists int
+		if err := tx.QueryRowContext(ctx, `SELECT 1 FROM ai_context_repositories WHERE id=?`, repositoryID).Scan(&exists); errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		} else if err != nil {
+			return err
+		}
+		// The temporary selection is held in Go; all changes still commit as
+		// one writer transaction, so a failed member insert retains old grants.
+		old := map[string]bool{}
+		rows, err := tx.QueryContext(ctx, `SELECT user_id FROM ai_context_members WHERE repository_id=?`, repositoryID)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var user string
+			if err := rows.Scan(&user); err != nil {
+				rows.Close()
+				return err
+			}
+			old[user] = true
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		rows.Close()
+		if _, err := tx.ExecContext(ctx, `DELETE FROM ai_context_members WHERE repository_id=?`, repositoryID); err != nil {
+			return err
+		}
+		seen := map[string]bool{}
+		for _, user := range users {
+			if user == "" || seen[user] {
+				return fmt.Errorf("select each context reader once")
+			}
+			seen[user] = true
+			if _, err := tx.ExecContext(ctx, `INSERT INTO ai_context_members(repository_id,user_id) VALUES(?,?)`, repositoryID, user); err != nil {
+				return err
+			}
+		}
+		for user := range old {
+			if !seen[user] {
+				if _, err := tx.ExecContext(ctx, `DELETE FROM ai_context_connection_repositories WHERE repository_id=? AND grant_id IN (SELECT id FROM oauth_grants WHERE user_id=?)`, repositoryID, user); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}))
+}
+
+func (s *Store) AIContextUserAccess(ctx context.Context, repositoryID, userID string) (bool, error) {
+	var allowed int
+	err := s.read.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM ai_context_members m
+		JOIN ai_context_repositories r ON r.id=m.repository_id JOIN users u ON u.id=m.user_id
+		WHERE m.repository_id=? AND m.user_id=? AND r.available=1 AND u.disabled=0)`, repositoryID, userID).Scan(&allowed)
+	return allowed == 1, err
+}
+
+// ReplaceAIContextConnectionAccess is called only after explicit consent.
+// Ownership, live user membership and connection revocation are checked here
+// as well as by the caller; a cached identity cannot restore revoked access.
+func (s *Store) ReplaceAIContextConnectionAccess(ctx context.Context, grantID, userID string, repositories []string) error {
+	if len(repositories) > 100 {
+		return fmt.Errorf("select at most 100 repositories for one connection")
+	}
+	return s.tx(ctx, func(tx *sql.Tx) error {
+		var active int
+		err := tx.QueryRowContext(ctx, `SELECT 1 FROM oauth_grants g JOIN users u ON u.id=g.user_id JOIN oauth_clients c ON c.id=g.client_id
+			WHERE g.id=? AND g.user_id=? AND g.revoked_at IS NULL AND c.revoked_at IS NULL AND u.disabled=0`, grantID, userID).Scan(&active)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM ai_context_connection_repositories WHERE grant_id=?`, grantID); err != nil {
+			return err
+		}
+		seen := map[string]bool{}
+		for _, repository := range repositories {
+			if seen[repository] {
+				return fmt.Errorf("select each context repository once")
+			}
+			seen[repository] = true
+			var allowed int
+			err := tx.QueryRowContext(ctx, `SELECT 1 FROM ai_context_members m JOIN ai_context_repositories r ON r.id=m.repository_id WHERE m.repository_id=? AND m.user_id=? AND r.available=1`, repository, userID).Scan(&allowed)
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrNotFound
+			}
+			if err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO ai_context_connection_repositories(grant_id,repository_id) VALUES(?,?)`, grantID, repository); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (s *Store) AIContextConnectionAccess(ctx context.Context, repositoryID, grantID, userID string) (bool, error) {
+	var allowed int
+	err := s.read.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM ai_context_connection_repositories a
+		JOIN oauth_grants g ON g.id=a.grant_id JOIN oauth_clients c ON c.id=g.client_id
+		JOIN ai_context_members m ON m.repository_id=a.repository_id AND m.user_id=g.user_id
+		JOIN ai_context_repositories r ON r.id=a.repository_id JOIN users u ON u.id=g.user_id
+		WHERE a.repository_id=? AND g.id=? AND g.user_id=? AND r.available=1 AND u.disabled=0
+		AND g.revoked_at IS NULL AND c.revoked_at IS NULL)`, repositoryID, grantID, userID).Scan(&allowed)
+	return allowed == 1, err
+}
