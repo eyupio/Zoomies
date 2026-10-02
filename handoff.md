@@ -1,6 +1,8 @@
 # Zoomies AI Context handoff
 
 Updated: 2 October 2026. Branch: `feature/ai-context`.
+Draft PR: https://github.com/eyupio/zoomies/pull/570
+Initial implementation commit: `1fc40892f593d97f40d43cd2212b51ae181634a6`.
 Base commit: `90a7463890631be139fb00c72e82351995c565ea`.
 
 ## Goal and source of truth
@@ -9,7 +11,7 @@ Implement [the agreed plan](docs/ai-context-implementation-plan.md). The user su
 
 ## Current state
 
-- First phase-1 foundation increment implemented; draft PR publication is pending.
+- First phase-1 foundation increment published in draft PR #570. CI has started; its Build check passed, other checks are queued/running. End-to-end feature readiness is not claimed.
 - `internal/aicontext`: branding constants, config/branch validation and config hash; host/installation/repository identity; bounded snapshot validation; compact Unicode source reads and literal search; private atomic digest-addressed disk storage.
 - `internal/store`: migration `0063_ai_context.sql`, restart-safe repository config with revision checks, explicit user membership and per-connection consent. Removed membership also clears app consent, so adding a user back cannot resurrect old grants.
 - `internal/auth`: separate context actions, repository-specific access checks and signed-in-owner consent service. No automatic source privilege for existing fleet/MCP grants or unowned tokens.
