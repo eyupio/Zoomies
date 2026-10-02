@@ -2,7 +2,8 @@
 
 Updated: 2 October 2026. Branch: `feature/ai-context-access`.
 Foundation PR: https://github.com/eyupio/zoomies/pull/570 (merged).
-Continuation PR: publication authorised by the user; being created.
+Continuation draft PR: https://github.com/eyupio/zoomies/pull/571
+Published implementation commit: `50098edf15de94562e54d60adedde8ebffa5df7d`.
 Continuation implementation commit: `b464e598` (local).
 Initial implementation commit: `1fc40892f593d97f40d43cd2212b51ae181634a6`.
 Base commit: `90a7463890631be139fb00c72e82351995c565ea`.
@@ -66,8 +67,8 @@ Validation for this increment:
 - `go test -race ./internal/api -run 'TestAIContext|TestMigrationPlan' -count=1`: passed, including capped discovery, role refusals, drafts, missing source permission, archived repositories and stale configuration.
 - `go test -race ./internal/store -run TestContext -count=1`: passed, including bounded pages.
 - `go build ./...`, `go vet ./internal/github ./internal/controller ./internal/api ./internal/store`, formatting and `git diff --check`: passed.
-- Full auth/store regression run in progress. Full repository test suite was not retried; the previous outbound-test restriction still applies.
+- Full `go test -race ./internal/auth -count=1` regression: passed (222.226s). Full store regression remains in progress. Full repository test suite was not retried; the previous outbound-test restriction still applies.
 
 Phase 1 is still incomplete: source consent UI/endpoints, repository membership administration, and live verification/revocation wiring remain. No navigation/wizard UI, managed setup PR, ingestion or MCP retrieval is shipped by this checkpoint. Drafts remain unavailable until a later verified enablement path is implemented.
 
-Publication status: the user explicitly authorised PR creation. CLI push has no configured credentials; publish the validated tree using the authenticated GitHub connector.
+Publication status: published through the authenticated GitHub connection after explicit user approval. The published implementation tree `6b13619c4575a07eba16fdba5c5e0fd754743884` exactly matches the validated local tree. PR #571 is a draft implementation checkpoint.
