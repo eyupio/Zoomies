@@ -211,6 +211,11 @@
         </p>
       {/if}
 
+      <p class="hint">
+        Repository source access starts with no grants. After connecting, use Source access under
+        Settings, MCP connections to choose available repositories explicitly.
+      </p>
+
       <p class="scope">
         <ShieldCheck size={16} aria-hidden="true" />
         <span>

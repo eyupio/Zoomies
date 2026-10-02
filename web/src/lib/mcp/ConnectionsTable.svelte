@@ -16,9 +16,10 @@
     showUser?: boolean;
     caption: string;
     ondisconnect: (connection: MCPConnection) => void;
+    onsources?: (connection: MCPConnection) => void;
   }
 
-  let { items, showUser = false, caption, ondisconnect }: Props = $props();
+  let { items, showUser = false, caption, ondisconnect, onsources }: Props = $props();
 </script>
 
 <CardTable>
@@ -53,9 +54,19 @@
             {/if}
           </td>
           <td role="cell" data-label="Actions" class="actions">
-            <Button size="sm" variant="ghost" onclick={() => ondisconnect(connection)}>
-              Disconnect
-            </Button>
+            <div class="connection-actions">
+              {#if onsources}
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  ariaHaspopup="dialog"
+                  onclick={() => onsources?.(connection)}>Source access</Button
+                >
+              {/if}
+              <Button size="sm" variant="ghost" onclick={() => ondisconnect(connection)}>
+                Disconnect
+              </Button>
+            </div>
           </td>
         </tr>
       {/each}
@@ -64,6 +75,12 @@
 </CardTable>
 
 <style>
+  .connection-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: var(--z-space-2);
+  }
   .name {
     font-weight: var(--z-weight-medium);
   }

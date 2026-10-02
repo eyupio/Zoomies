@@ -881,3 +881,14 @@ export const selectProvisioning = (query?: Query<'selectProvisioning'>, signal?:
   api.get<Result<'selectProvisioning'>>('/provisioning/selection', { query, signal });
 export const controlProvisioning = (body: Body<'controlProvisioning'>) =>
   api.post<Result<'controlProvisioning'>>('/provisioning/bulk', { body });
+
+export const getOwnMCPContextSelection = (id: string, offset = 0, signal?: AbortSignal) =>
+  api.get<Result<'getOwnMCPContextSelection'>>(
+    `/auth/mcp-connections/${enc(id)}/repositories?limit=50&offset=${offset}`,
+    { signal },
+  );
+
+export const putOwnMCPContextSelection = (id: string, repositoryIds: string[]) =>
+  api.put(`/auth/mcp-connections/${enc(id)}/repositories`, {
+    body: { repository_ids: repositoryIds },
+  });

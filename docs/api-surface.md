@@ -580,3 +580,7 @@ operator routes are not available through it.
 | GET | `/ai-context/repositories` | admin | Configuration metadata only; `limit` defaults to 50 (max 100), `offset` defaults to 0. Returns `items`, `total`, `limit`, `offset`. |
 | POST | `/ai-context/repositories` | admin | Prepare an unavailable draft from a discovered installation/repository ID and default branch; no automatic source membership. Duplicate selection returns 409. |
 | PATCH | `/ai-context/repositories/{id}/config` | admin | Save destination, exclusions and retention with a revision check. Keeps the discovered source branch; stale revisions return 409. |
+| GET | `/ai-context/repositories/{id}/members` | admin | Explicit source reader IDs; source membership is independent of fleet roles. |
+| PUT | `/ai-context/repositories/{id}/members` | admin | Replace up to 200 source readers. Removing membership also clears that person's connection consent. Requires an explicit `user_ids` array. |
+| GET | `/auth/mcp-connections/{id}/repositories` | signed-in owner | Paged eligible source repository names plus the complete eligible selection. Checks live user, membership, connection and client state. |
+| PUT | `/auth/mcp-connections/{id}/repositories` | signed-in owner | Replace up to 100 explicit source grants. Empty `repository_ids` removes all grants; omitted/null fields are refused. API tokens and MCP credentials cannot approve themselves. |

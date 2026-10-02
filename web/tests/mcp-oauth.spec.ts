@@ -19,14 +19,18 @@ test.use(browserOverride);
 test.describe.configure({ mode: 'serial' });
 
 async function signIn(page: Page): Promise<void> {
-  const meta = await (await page.request.get('/api/v1/meta')).json();
+  const metaResponse = await page.request.get('/api/v1/meta');
+  const meta = await metaResponse.json();
   if (meta.bootstrap_required) {
     const made = await page.request.post('/api/v1/auth/bootstrap', {
       data: { ...ADMIN, setup_token: setupToken() },
     });
     expect(made.ok()).toBeTruthy();
   }
-  const res = await page.request.post('/api/v1/auth/login', { data: ADMIN });
+  const res = await page.request.post('/api/v1/auth/login', {
+    data: ADMIN,
+    headers: { Origin: new URL(metaResponse.url()).origin },
+  });
   expect(res.status(), 'the admin signs in with a password alone here').toBe(200);
 }
 
@@ -96,6 +100,56 @@ test('the connection is listed on the account and can be ended there', async ({ 
   const row = page.getByRole('row', { name: /Claude/ });
   await expect(row).toBeVisible();
   await expect(row.getByRole('cell', { name: 'Viewer' })).toBeVisible();
+
+  // The real connection has no source grants. Opening its source controls
+  // must show an honest empty state, never infer access from the Viewer role.
+  await row.getByRole('button', { name: 'Source access' }).click();
+  const sources = page.getByRole('dialog', { name: 'Source access' });
+  await expect(sources).toBeVisible();
+  await expect(sources.getByText(/No source repositories are available to you yet/)).toBeVisible();
+  await page.screenshot({ path: 'test-results/source-access-desktop.png' });
+  await page.setViewportSize({ width: 375, height: 812 });
+  await expect(sources.getByRole('button', { name: 'Save source access' })).toBeVisible();
+  expect(await sources.evaluate((el) => el.getBoundingClientRect().right)).toBeLessThanOrEqual(375);
+  await page.screenshot({ path: 'test-results/source-access-mobile.png' });
+  await sources.getByRole('button', { name: 'Cancel' }).click();
+  await expect(row.getByRole('button', { name: 'Source access' })).toBeFocused();
+  await page.setViewportSize({ width: 1280, height: 720 });
+
+  // The API tests exercise live source membership; this paged fixture checks
+  // that editing page one never revokes an existing choice from page two.
+  const eligible = Array.from({ length: 61 }, (_, i) => ({
+    id: `context-${i}`,
+    full_name: `acme/repository-${String(i + 1).padStart(3, '0')}`,
+  }));
+  let saved: string[] | null = null;
+  const sourcePattern = '**/api/v1/auth/mcp-connections/*/repositories*';
+  await page.route(sourcePattern, async (route) => {
+    if (route.request().method() === 'PUT') {
+      saved = route.request().postDataJSON().repository_ids;
+      await route.fulfill({ status: 204 });
+      return;
+    }
+    const offset = Number(new URL(route.request().url()).searchParams.get('offset') ?? 0);
+    await route.fulfill({
+      json: {
+        items: eligible.slice(offset, offset + 50),
+        total: eligible.length,
+        limit: 50,
+        offset,
+        selected_repository_ids: ['context-60'],
+      },
+    });
+  });
+  await row.getByRole('button', { name: 'Source access' }).click();
+  await sources.getByRole('checkbox', { name: 'acme/repository-001' }).check();
+  await sources.getByRole('button', { name: 'Next' }).click();
+  await expect(sources.getByRole('checkbox', { name: 'acme/repository-061' })).toBeChecked();
+  await sources.getByRole('checkbox', { name: 'acme/repository-051' }).check();
+  await sources.getByRole('button', { name: 'Save source access' }).click();
+  await expect(sources).not.toBeVisible();
+  expect(saved).toEqual(['context-60', 'context-0', 'context-50']);
+  await page.unroute(sourcePattern);
 
   await page.goto('/settings/mcp-clients');
   await expect(page.getByRole('heading', { name: 'Clients', exact: true })).toBeVisible();

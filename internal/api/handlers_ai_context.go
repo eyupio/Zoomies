@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/eyupio/zoomies/internal/aicontext"
@@ -90,4 +91,94 @@ func (s *Server) handleUpdateAIContextConfig(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	writeJSON(w, http.StatusOK, existing)
+}
+
+func (s *Server) handleGetAIContextMembers(w http.ResponseWriter, r *http.Request) {
+	ids, err := s.ctrl.Store().AIContextMembers(r.Context(), chiURLParam(r, "id"))
+	if err != nil {
+		s.fail(w, r, "reading AI context members", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"user_ids": ids})
+}
+
+func (s *Server) handlePutAIContextMembers(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		UserIDs *[]string `json:"user_ids"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if in.UserIDs == nil {
+		unprocessable(w, "provide user_ids explicitly; use an empty array to remove all readers", nil)
+		return
+	}
+	if !uniqueSelection(w, *in.UserIDs, 200, "context readers") {
+		return
+	}
+	id := chiURLParam(r, "id")
+	if err := s.ctrl.Store().ReplaceAIContextMembers(r.Context(), id, *in.UserIDs); err != nil {
+		s.fail(w, r, "saving AI context members", err)
+		return
+	}
+	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "context.members", "ai_context", id, map[string]any{"members": len(*in.UserIDs)})
+	writeJSON(w, http.StatusOK, map[string]any{"user_ids": *in.UserIDs})
+}
+
+func uniqueSelection(w http.ResponseWriter, ids []string, maximum int, label string) bool {
+	if len(ids) > maximum {
+		unprocessable(w, fmt.Sprintf("select at most %d %s", maximum, label), nil)
+		return false
+	}
+	seen := map[string]bool{}
+	for _, id := range ids {
+		if id == "" || len(id) > 100 || seen[id] {
+			unprocessable(w, "select each "+label+" once using a known ID", nil)
+			return false
+		}
+		seen[id] = true
+	}
+	return true
+}
+
+func (s *Server) handleGetOwnContextSelection(w http.ResponseWriter, r *http.Request) {
+	uid := connectionOwner(w, r)
+	if uid == "" {
+		return
+	}
+	limit := clamp(queryInt(r, "limit", 50), 1, 100)
+	offset := queryInt(r, "offset", 0)
+	if offset < 0 {
+		offset = 0
+	}
+	out, err := s.ctrl.Store().AIContextConnectionChoices(r.Context(), chiURLParam(r, "id"), uid, limit, offset)
+	if err != nil {
+		s.fail(w, r, "reading connection source consent", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) handlePutOwnContextSelection(w http.ResponseWriter, r *http.Request) {
+	if connectionOwner(w, r) == "" {
+		return
+	}
+	var in struct {
+		RepositoryIDs *[]string `json:"repository_ids"`
+	}
+	if !decode(w, r, &in) {
+		return
+	}
+	if in.RepositoryIDs == nil {
+		unprocessable(w, "provide repository_ids explicitly; use an empty array to remove all source access", nil)
+		return
+	}
+	if !uniqueSelection(w, *in.RepositoryIDs, 100, "source repositories") {
+		return
+	}
+	if err := s.auth.SetContextConnectionRepositories(r.Context(), Identity(r.Context()), chiURLParam(r, "id"), *in.RepositoryIDs); err != nil {
+		s.fail(w, r, "saving connection source consent", err)
+		return
+	}
+	noContent(w)
 }

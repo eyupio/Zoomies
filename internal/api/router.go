@@ -174,6 +174,8 @@ func (s *Server) apiRoutes() chi.Router {
 		r.Post("/auth/mcp-requests/{id}/deny", s.mcpOAuth(s.handleDenyMCPRequest))
 		r.Get("/auth/mcp-connections", s.handleListOwnMCPConnections)
 		r.Delete("/auth/mcp-connections/{id}", s.handleRevokeOwnMCPConnection)
+		r.Get("/auth/mcp-connections/{id}/repositories", s.handleGetOwnContextSelection)
+		r.Put("/auth/mcp-connections/{id}/repositories", s.handlePutOwnContextSelection)
 
 		// Overview.
 		r.With(s.require(auth.ActionStatsRead)).Get("/stats", s.handleStats)
@@ -335,6 +337,8 @@ func (s *Server) apiRoutes() chi.Router {
 			r.Get("/repositories", s.handleListAIContextRepositories)
 			r.Post("/repositories", s.handleCreateAIContextDraft)
 			r.Patch("/repositories/{id}/config", s.handleUpdateAIContextConfig)
+			r.Get("/repositories/{id}/members", s.handleGetAIContextMembers)
+			r.Put("/repositories/{id}/members", s.handlePutAIContextMembers)
 		})
 
 		// Migrations: what moving a repository's workflows onto this fleet

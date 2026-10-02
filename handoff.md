@@ -55,7 +55,7 @@ Implement [the agreed plan](docs/ai-context-implementation-plan.md). The user su
 
 Read this file, then the relevant phase in the plan. Follow root/scoped CLAUDE.md and docs/architecture.md. SQL belongs only in internal/store; MCP tools use REST only. Never call a phase complete without its acceptance checks. Update this file with changed paths, exact test results, PR/commit and next concrete action.
 
-Next concrete action: expose explicit source membership and signed-in-owner connection consent endpoints, then wire repository selections into OAuth/connections UI. Build the AI Context navigation and wizard against the discovery/draft/list/config endpoints. Do not silently grant GitHub write permissions. Discovery currently scans at most 500 repositories; installations above that ceiling need real continuation/search support before claiming organisation-wide setup. DiskStorage is not wired to controller startup/backup/retention yet; Overview returns a full metadata list and the eventual endpoint must page it. Read's budget is source bytes, not escaped protocol bytes or exact model tokens.
+Next concrete action: build AI Context navigation and the Enable repositories wizard against the discovery/draft/list/config/membership endpoints, including resumable drafts and explicit reader selection. Connection source consent is now editable under Settings → MCP connections. Initial OAuth approval still grants no source repositories; consider inline repository consent only with atomic approval/consent persistence, not a second best-effort call after issuing the authorisation code. Do not silently grant GitHub write permissions. Discovery currently scans at most 500 repositories; installations above that ceiling need real continuation/search support before claiming organisation-wide setup. DiskStorage is not wired to controller startup/backup/retention yet; Overview returns a full metadata list and the eventual endpoint must page it. Read's budget is source bytes, not escaped protocol bytes or exact model tokens.
 
 ## Continuation checkpoint
 
@@ -67,8 +67,29 @@ Validation for this increment:
 - `go test -race ./internal/api -run 'TestAIContext|TestMigrationPlan' -count=1`: passed, including capped discovery, role refusals, drafts, missing source permission, archived repositories and stale configuration.
 - `go test -race ./internal/store -run TestContext -count=1`: passed, including bounded pages.
 - `go build ./...`, `go vet ./internal/github ./internal/controller ./internal/api ./internal/store`, formatting and `git diff --check`: passed.
-- Full `go test -race ./internal/auth -count=1` regression: passed (222.226s). Full store regression remains in progress. Full repository test suite was not retried; the previous outbound-test restriction still applies.
+- Full `go test -race ./internal/auth -count=1` regression: passed (222.226s). Full store regression timed out at 600s while starting `TestAnUnfinishedJobHoldsTheRollUpOnlyUntilItWouldBePruned`; that test passes in the subsequent targeted race run. Full store-suite success is not claimed. Full repository test suite was not retried; the previous outbound-test restriction still applies.
 
-Phase 1 is still incomplete: source consent UI/endpoints, repository membership administration, and live verification/revocation wiring remain. No navigation/wizard UI, managed setup PR, ingestion or MCP retrieval is shipped by this checkpoint. Drafts remain unavailable until a later verified enablement path is implemented.
+Phase 1 is still incomplete: live GitHub permission/removal reconciliation and verified repository enablement remain. The connection consent UI/endpoints and repository membership administration endpoints are now implemented. No navigation/wizard UI, managed setup PR, ingestion or MCP retrieval is shipped by this checkpoint. Drafts remain unavailable until a later verified enablement path is implemented.
 
 Publication status: published through the authenticated GitHub connection after explicit user approval. The published implementation tree `6b13619c4575a07eba16fdba5c5e0fd754743884` exactly matches the validated local tree. PR #571 is a draft implementation checkpoint.
+
+## Source consent checkpoint (stacked on PR #571)
+
+- Admin-only GET/PUT membership endpoints explicitly assign source readers. Removing membership clears the person's existing connection grants; re-adding membership does not restore consent.
+- Signed-in-owner GET/PUT connection repository endpoints check live user/client/connection state. API tokens and MCP access tokens cannot use them to widen their own privileges. Only available repositories with current membership appear; names/configuration belonging to other users are not returned.
+- Paged choices return the complete eligible selection separately so editing one page preserves off-page consent. Selection writes require an explicit array; missing/null fields never mean revoke all. The owner can explicitly clear all grants.
+- Settings → MCP connections adds Source access controls with a paged, accessible dialog, selected count, Remove all, cancellation, retry and an honest unavailable-repositories empty state. OAuth approval explains that source grants start empty. This checkpoint does not claim source retrieval or verified repository enablement.
+
+Changed paths: `internal/store/queries_ai_context.go` and tests; `internal/api/{handlers_ai_context,router,ai_context_test}.go`; `api/openapi.yaml` and generated clients; `web/src/lib/{api/client,mcp/ConnectionsTable,mcp/SourceAccessDialog,settings/McpConnectionsPanel}.svelte/ts`; `web/src/routes/McpConsent.svelte`; `web/tests/mcp-oauth.spec.ts`; `docs/api-surface.md`.
+
+Validation:
+- Targeted API AI Context/connection-source consent tests with `-race`: passed.
+- Targeted store context/membership/revocation/choice tests plus the test running at the full-suite timeout with `-race -timeout=90s`: passed (23.371s).
+- Targeted auth source-access/self-consent refusal tests with `-race`: passed.
+- `go build ./...`, binary build and targeted `go vet`: passed.
+- Svelte check: zero errors/warnings; changed-file ESLint/Prettier: passed; production app/status builds pass their size budgets.
+- MCP OAuth Playwright suite against an isolated real controller: five tests passed, including source dialog at desktop/375px, focus return, explicit empty state and off-page choice preservation. Paged UI data uses a browser route fixture; permission/ownership/revocation tests use the real API/store.
+- Desktop/mobile dialog screenshots visually inspected; no clipping or horizontal overflow. The test sign-in helper now sends its same-origin Origin header after bootstrap instead of relying on a cookie-authenticated POST with no Origin.
+- Formatting and `git diff --check`: passed.
+
+Remaining: navigation/wizard, managed setup templates/PRs, verified availability and live GitHub access removal wiring, ingestion/storage integration, compact MCP source tools, OIDC upload and assistant artifacts. Do not mark phase 1 or the feature complete.

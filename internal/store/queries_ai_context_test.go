@@ -203,3 +203,49 @@ func TestContextRepositoryListsHaveBoundedPages(t *testing.T) {
 		}
 	}
 }
+
+func TestConnectionSourceChoicesHideUnsharedAndUnavailableRepositories(t *testing.T) {
+	s := newTestStore(t)
+	r, u, g := contextFixture(t, s)
+	s.SetAIContextAvailable(t.Context(), r.ID, true)
+	s.ReplaceAIContextMembers(t.Context(), r.ID, []string{u.ID})
+	makeRepo := func(id int64, name string, available, member bool) *AIContextRepository {
+		t.Helper()
+		other := &AIContextRepository{Key: r.Key, FullName: name, Config: r.Config}
+		other.Key.RepositoryID = id
+		if err := s.CreateAIContextRepository(t.Context(), other); err != nil {
+			t.Fatal(err)
+		}
+		if available {
+			s.SetAIContextAvailable(t.Context(), other.ID, true)
+		}
+		if member {
+			s.ReplaceAIContextMembers(t.Context(), other.ID, []string{u.ID})
+		}
+		return other
+	}
+	second := makeRepo(43, "acme/z-last", true, true)
+	makeRepo(44, "acme/private-unshared", true, false)
+	makeRepo(45, "acme/pending", false, true)
+	if err := s.ReplaceAIContextConnectionAccess(t.Context(), g.ID, u.ID, []string{r.ID, second.ID}); err != nil {
+		t.Fatal(err)
+	}
+	choices, err := s.AIContextConnectionChoices(t.Context(), g.ID, u.ID, 1, 0)
+	if err != nil || choices.Total != 2 || len(choices.Items) != 1 || len(choices.SelectedRepositoryIDs) != 2 {
+		t.Fatalf("choices = %+v, %v", choices, err)
+	}
+	page, err := s.AIContextConnectionChoices(t.Context(), g.ID, u.ID, 1, 1)
+	if err != nil || len(page.Items) != 1 || page.Items[0].ID != second.ID || len(page.SelectedRepositoryIDs) != 2 {
+		t.Fatalf("second page lost consent = %+v, %v", page, err)
+	}
+	if _, err := s.AIContextConnectionChoices(t.Context(), g.ID, "another-owner", 1, 0); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("another owner saw choices: %v", err)
+	}
+	if err := s.ReplaceAIContextMembers(t.Context(), r.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	choices, err = s.AIContextConnectionChoices(t.Context(), g.ID, u.ID, 1, 0)
+	if err != nil || choices.Total != 1 || len(choices.SelectedRepositoryIDs) != 1 || choices.SelectedRepositoryIDs[0] != second.ID {
+		t.Fatalf("revoked membership still visible = %+v, %v", choices, err)
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/eyupio/zoomies/internal/aicontext"
 	"github.com/eyupio/zoomies/internal/controller"
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -128,4 +129,67 @@ func TestAIContextDiscoveryReportsItsRepositoryCeiling(t *testing.T) {
 	if !out.Capped || len(out.Repositories) != 500 {
 		t.Fatalf("capped discovery = %d, %v", len(out.Repositories), out.Capped)
 	}
+}
+
+func TestConnectionSourceConsentRequiresTheSignedInOwnerAndLiveMembership(t *testing.T) {
+	h := oauthHarness(t)
+	inst := h.installation()
+	reader, cookie := h.user("source-reader", store.RoleViewer)
+	_, otherCookie := h.user("other-reader", store.RoleViewer)
+	_, admin := h.user("source-admin", store.RoleAdmin)
+	client := h.registerNamedClient("Source test", claudeReturn)
+	requestID := requestFrom(t, h.authorize(client, claudeReturn, nil))
+	code := h.approve(cookie, requestID, store.RoleViewer)
+	pair := pairFrom(t, h.exchange(client, code, nil, nil))
+	list := h.do(request{method: http.MethodGet, path: "/api/v1/auth/mcp-connections", cookie: cookie})
+	list.mustStatus(t, http.StatusOK, "own connections")
+	var gs struct {
+		Items []mcpConnectionResponse `json:"items"`
+	}
+	list.into(t, &gs)
+	if len(gs.Items) != 1 {
+		t.Fatalf("connections = %+v", gs)
+	}
+	path := "/api/v1/auth/mcp-connections/" + gs.Items[0].ID + "/repositories"
+	repo := &store.AIContextRepository{Key: aicontext.RepositoryKey{GitHubHost: "github.com", InstallationID: inst.ID, RepositoryID: 991}, FullName: "acme/source", Config: aicontext.DefaultConfig("main")}
+	if err := h.st.CreateAIContextRepository(h.ctx, repo); err != nil {
+		t.Fatal(err)
+	}
+	membersPath := "/api/v1/ai-context/repositories/" + repo.ID + "/members"
+	h.do(request{method: http.MethodPut, path: membersPath, cookie: cookie, body: map[string]any{"user_ids": []string{reader.ID}}}).mustStatus(t, http.StatusForbidden, "viewer membership")
+	h.do(request{method: http.MethodPut, path: membersPath, cookie: admin, body: map[string]any{}}).mustStatus(t, http.StatusUnprocessableEntity, "omitted membership")
+	h.do(request{method: http.MethodPut, path: membersPath, cookie: admin, body: map[string]any{"user_ids": []string{reader.ID}}}).mustStatus(t, http.StatusOK, "explicit membership")
+	h.do(request{method: http.MethodGet, path: path, cookie: otherCookie}).mustStatus(t, http.StatusNotFound, "another owner's choices")
+	h.do(request{method: http.MethodPut, path: path, cookie: otherCookie, body: map[string]any{"repository_ids": []string{repo.ID}}}).mustStatus(t, http.StatusNotFound, "another owner's consent")
+	h.do(request{method: http.MethodPut, path: path, cookie: cookie, body: map[string]any{}}).mustStatus(t, http.StatusUnprocessableEntity, "omitted consent")
+	h.do(request{method: http.MethodPut, path: path, cookie: cookie, body: map[string]any{"repository_ids": []string{repo.ID}}}).mustStatus(t, http.StatusNotFound, "unavailable draft")
+	h.st.SetAIContextAvailable(h.ctx, repo.ID, true)
+	resp := h.do(request{method: http.MethodGet, path: path, cookie: cookie})
+	resp.mustStatus(t, http.StatusOK, "eligible choices")
+	var choices store.AIContextConnectionSelection
+	resp.into(t, &choices)
+	if len(choices.Items) != 1 || len(choices.SelectedRepositoryIDs) != 0 {
+		t.Fatalf("implicit source consent: %+v", choices)
+	}
+	for _, method := range []string{http.MethodGet, http.MethodPut} {
+		h.do(request{method: method, path: path, token: pair.AccessToken, body: map[string]any{"repository_ids": []string{repo.ID}}}).mustStatus(t, http.StatusUnauthorized, "MCP credentials are confined to MCP")
+	}
+	h.do(request{method: http.MethodPut, path: path, token: h.token("source-automation", store.RoleAdmin), body: map[string]any{"repository_ids": []string{repo.ID}}}).mustStatus(t, http.StatusForbidden, "API token cannot grant source consent")
+	h.do(request{method: http.MethodPut, path: path, cookie: cookie, body: map[string]any{"repository_ids": []string{repo.ID}}}).mustStatus(t, http.StatusNoContent, "explicit source consent")
+	resp = h.do(request{method: http.MethodGet, path: path, cookie: cookie})
+	resp.mustStatus(t, http.StatusOK, "saved selection")
+	resp.into(t, &choices)
+	if len(choices.SelectedRepositoryIDs) != 1 || choices.SelectedRepositoryIDs[0] != repo.ID {
+		t.Fatalf("selection = %+v", choices)
+	}
+	h.do(request{method: http.MethodPut, path: membersPath, cookie: admin, body: map[string]any{"user_ids": []string{}}}).mustStatus(t, http.StatusOK, "remove reader")
+	h.do(request{method: http.MethodPut, path: membersPath, cookie: admin, body: map[string]any{"user_ids": []string{reader.ID}}}).mustStatus(t, http.StatusOK, "restore reader")
+	resp = h.do(request{method: http.MethodGet, path: path, cookie: cookie})
+	resp.mustStatus(t, http.StatusOK, "restored membership")
+	resp.into(t, &choices)
+	if len(choices.SelectedRepositoryIDs) != 0 {
+		t.Fatal("restoring membership resurrected connection consent")
+	}
+	h.do(request{method: http.MethodDelete, path: "/api/v1/auth/mcp-connections/" + gs.Items[0].ID, cookie: cookie}).mustStatus(t, http.StatusNoContent, "revoke connection")
+	h.do(request{method: http.MethodGet, path: path, cookie: cookie}).mustStatus(t, http.StatusNotFound, "revoked connection choices")
 }

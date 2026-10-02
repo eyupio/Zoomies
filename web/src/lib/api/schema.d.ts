@@ -4,6 +4,60 @@
  */
 
 export interface paths {
+    "/api/v1/ai-context/repositories/{id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read explicit repository source membership
+         * @description Requires context.configure (admin). Membership is independent of fleet roles and connection consent.
+         */
+        get: operations["getAIContextMembers"];
+        /**
+         * Replace explicit repository source membership
+         * @description Requires context.configure (admin). Removing a member also clears their existing connection consent. Membership does not make a draft available or approve a connection.
+         */
+        put: operations["putAIContextMembers"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/mcp-connections/{id}/repositories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read your connection's eligible source repositories and consent
+         * @description Requires a signed-in person owning an active connection. Tokens and MCP clients cannot use this endpoint. Only available repositories with live source membership are listed. The complete eligible selection is returned separately so paging cannot silently revoke off-page choices.
+         */
+        get: operations["getOwnMCPContextSelection"];
+        /**
+         * Choose your connection's source repositories explicitly
+         * @description Requires the signed-in owner of an active connection. Every selected repository must have live source membership and verified availability. Send an explicit empty array to remove all consent; an omitted or null field is refused. Revocation and membership are checked atomically.
+         */
+        put: operations["putOwnMCPContextSelection"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ai-context/repositories/{id}/config": {
         parameters: {
             query?: never;
@@ -3252,6 +3306,19 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AIContextMembers: {
+            user_ids: string[];
+        };
+        AIContextConnectionSelection: {
+            items: {
+                id: string;
+                full_name: string;
+            }[];
+            total: number;
+            limit: number;
+            offset: number;
+            selected_repository_ids: string[];
+        };
         AIContextRepository: {
             id: string;
             repository: {
@@ -6727,6 +6794,118 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    getAIContextMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Repository members */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIContextMembers"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    putAIContextMembers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AIContextMembers"];
+            };
+        };
+        responses: {
+            /** @description Membership saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIContextMembers"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    getOwnMCPContextSelection: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: components["parameters"]["Offset"];
+            };
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Source consent choices */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIContextConnectionSelection"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    putOwnMCPContextSelection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    repository_ids: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description Source consent saved */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
     updateAIContextConfig: {
         parameters: {
             query?: never;

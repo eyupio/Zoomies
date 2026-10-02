@@ -95,6 +95,76 @@ tags:
     description: Routes used by agents. Not for general clients.
 
 paths:
+  /api/v1/ai-context/repositories/{id}/members:
+    parameters:
+      - $ref: "#/components/parameters/PathID"
+    get:
+      operationId: getAIContextMembers
+      summary: Read explicit repository source membership
+      description: Requires context.configure (admin). Membership is independent of fleet roles and connection consent.
+      responses:
+        "200":
+          description: Repository members
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIContextMembers" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    put:
+      operationId: putAIContextMembers
+      summary: Replace explicit repository source membership
+      description: Requires context.configure (admin). Removing a member also clears their existing connection consent. Membership does not make a draft available or approve a connection.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AIContextMembers" }
+      responses:
+        "200":
+          description: Membership saved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIContextMembers" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+  /api/v1/auth/mcp-connections/{id}/repositories:
+    parameters:
+      - $ref: "#/components/parameters/PathID"
+    get:
+      operationId: getOwnMCPContextSelection
+      summary: Read your connection's eligible source repositories and consent
+      description: Requires a signed-in person owning an active connection. Tokens and MCP clients cannot use this endpoint. Only available repositories with live source membership are listed. The complete eligible selection is returned separately so paging cannot silently revoke off-page choices.
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Source consent choices
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIContextConnectionSelection" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      operationId: putOwnMCPContextSelection
+      summary: Choose your connection's source repositories explicitly
+      description: Requires the signed-in owner of an active connection. Every selected repository must have live source membership and verified availability. Send an explicit empty array to remove all consent; an omitted or null field is refused. Revocation and membership are checked atomically.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [repository_ids]
+              properties:
+                repository_ids: { type: array, maxItems: 100, uniqueItems: true, items: { type: string } }
+      responses:
+        "204": { description: Source consent saved }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
   /api/v1/ai-context/repositories/{id}/config:
     patch:
       operationId: updateAIContextConfig
@@ -4866,6 +4936,27 @@ components:
           schema: { $ref: "#/components/schemas/ErrorEnvelope" }
 
   schemas:
+    AIContextMembers:
+      type: object
+      required: [user_ids]
+      properties:
+        user_ids: { type: array, maxItems: 200, uniqueItems: true, items: { type: string } }
+    AIContextConnectionSelection:
+      type: object
+      required: [items, total, limit, offset, selected_repository_ids]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [id, full_name]
+            properties:
+              id: { type: string }
+              full_name: { type: string }
+        total: { type: integer }
+        limit: { type: integer }
+        offset: { type: integer }
+        selected_repository_ids: { type: array, maxItems: 100, items: { type: string } }
     AIContextRepository:
       type: object
       required: [id, repository, full_name, config, revision, available, created_at, updated_at]
