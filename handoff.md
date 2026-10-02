@@ -1,8 +1,8 @@
 # Zoomies AI Context handoff
 
-Updated: 2 October 2026. Branch: `feature/ai-context-access`.
+Updated: 2 October 2026. Branch: `feature/ai-context-managed-files`.
 Foundation PR: https://github.com/eyupio/zoomies/pull/570 (merged).
-Continuation draft PR: https://github.com/eyupio/zoomies/pull/571
+Previous continuation PR: https://github.com/eyupio/zoomies/pull/571 (merged).
 Published implementation commit: `50098edf15de94562e54d60adedde8ebffa5df7d`.
 Continuation implementation commit: `b464e598` (local).
 Initial implementation commit: `1fc40892f593d97f40d43cd2212b51ae181634a6`.
@@ -107,3 +107,13 @@ Validation: targeted API race tests passed (14.901s); targeted store race tests 
 Next concrete action: implement managed repository setup templates and reviewed setup PR creation from these drafts, with pinned workflow actions, explicit write-permission checks, safe retry/reconciliation and verified availability. Live GitHub access removal, ingestion/storage integration, MCP retrieval, OIDC uploads and assistant artifacts remain. Earlier full-suite limitations still apply; do not mark the feature complete.
 
 Published wizard implementation commit: `52f022f275ca1db49612cb81fe89126258076b1e` on draft PR #571. Published tree `77f3ec61576e5a06f7445fa21efc2bccbfb9d82c` exactly matches the validated local implementation tree.
+
+## Managed setup file planning checkpoint
+
+PR #571 is merged (merge commit `3a6c457c03b031e42e877b3db6c8f60120ece09a`). Read the supplied Repomix export and verified the changed existing files against live main before continuing.
+
+Added `internal/aicontext/setup.go` and `setup_test.go`: deterministic configuration/instruction/badge planning; original blob identities for later optimistic publication; bounded UTF-8 input; Markdown README selection; Enterprise badge links; exact idempotent retries; preserved user text/CRLF. Unknown ownership, custom settings, newer template versions, changed sections, duplicate/reversed/incomplete markers, unsafe paths and missing blob identities refuse the entire plan. Missing READMEs are not invented. Zoomies-only remains unavailable.
+
+Validation: `go test -race ./internal/aicontext -count=1` passed (1.364s); `go vet ./internal/aicontext` passed; gofmt and `git diff --check` passed. Tests include preservation/retries, conflict refusal, custom config, Enterprise badges and unavailable destination. No API/UI changes or external workflow pilot in this increment. Earlier full-suite limitations still apply.
+
+Next concrete action: pinned workflow/generator template and commit-pinned regular-file GitHub reads; use the planner from admin preview/setup endpoints. Add live write checks, base-commit revalidation, durable setup PR identity and existing-PR reconciliation before exposing Create setup PRs in the wizard. Wire verified availability only after merge and validated generation. Managed PR publication, ingestion, MCP source tools and the remaining phases are not complete.

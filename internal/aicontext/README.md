@@ -29,3 +29,13 @@ connection. Existing fleet roles and connections receive no source access by
 migration. Only a signed-in owner can choose repositories for their connection.
 
 See root `handoff.md` for the implementation checkpoint and remaining work.
+
+`PlanSetupFiles` previews owned configuration, assistant instructions and the
+optional GitHub-rendered Markdown README badge. It preserves user text and line
+endings, returns original blob SHAs for publication preconditions, and refuses
+custom configuration or edited/ambiguous managed sections. Exact retries return
+no changes. Callers must fetch regular files at one trusted commit, check live
+write permissions and compare the base commit before publication. A blob SHA is
+not proof that a GitHub contents response was a regular file rather than a
+symlink. Workflow templates, setup PR persistence and verified enablement remain
+separate work; this planner performs no repository writes or source grants.
