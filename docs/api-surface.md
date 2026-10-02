@@ -571,3 +571,12 @@ minting a token. The default `connection` is `direct` for existing clients.
 Host responses and `host.updated` include `connection: "direct" | "tailcat"`,
 observed at enrolment and heartbeat. The tunnel accepts agent endpoints only;
 operator routes are not available through it.
+
+## AI Context
+
+| Method | Path | Role | Notes |
+| --- | --- | --- | --- |
+| GET | `/ai-context/discovery?installation_id=…` | admin | Discover up to 500 repository candidates with stable GitHub IDs. Reports Contents read permission separately from managed setup write permissions; `capped` warns of possible truncation. Creates no grants, drafts or repository files. |
+| GET | `/ai-context/repositories` | admin | Configuration metadata only; `limit` defaults to 50 (max 100), `offset` defaults to 0. Returns `items`, `total`, `limit`, `offset`. |
+| POST | `/ai-context/repositories` | admin | Prepare an unavailable draft from a discovered installation/repository ID and default branch; no automatic source membership. Duplicate selection returns 409. |
+| PATCH | `/ai-context/repositories/{id}/config` | admin | Save destination, exclusions and retention with a revision check. Keeps the discovered source branch; stale revisions return 409. |

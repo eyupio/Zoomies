@@ -209,6 +209,7 @@ func (f *FakeGitHub) addRepoLocked(fullName string) {
 		return
 	}
 	f.repos = append(f.repos, fullName)
+	f.repoLocked(fullName).id = int64(len(f.repos))
 }
 
 // AddRunnerGroup registers a runner group and returns it.
@@ -669,6 +670,7 @@ func (f *FakeGitHub) listInstallationRepos(w http.ResponseWriter, _ *http.Reques
 	for _, full := range f.repos {
 		owner, name, _ := SplitTarget(full)
 		repos = append(repos, map[string]any{
+			"id":        f.repoLocked(full).id,
 			"full_name": full,
 			"name":      name,
 			"owner":     map[string]any{"login": owner},

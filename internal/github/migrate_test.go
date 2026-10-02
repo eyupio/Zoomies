@@ -61,7 +61,7 @@ func TestListRepositoriesForARepoInstallation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListRepositories: %v", err)
 	}
-	if len(repos) != 1 || repos[0].FullName != "acme/widgets" {
+	if len(repos) != 1 || repos[0].FullName != "acme/widgets" || repos[0].ID <= 0 {
 		t.Fatalf("repos = %+v, want just the installation's own repository", repos)
 	}
 }
@@ -420,5 +420,27 @@ func TestReadReadmeWithoutOne(t *testing.T) {
 	_, err := c.ReadReadme(context.Background(), "acme/site")
 	if !errors.Is(err, ErrNoReadme) {
 		t.Errorf("err = %v, want ErrNoReadme", err)
+	}
+}
+
+func TestRepositoryIdentitySurvivesDefaultBranchChanges(t *testing.T) {
+	f, c := migrationFake(t)
+	before, err := c.ListRepositories(context.Background(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.SetDefaultBranch("acme/widgets", "trunk")
+	after, err := c.ListRepositories(context.Background(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]int64{}
+	for _, repo := range before {
+		ids[repo.FullName] = repo.ID
+	}
+	for _, repo := range after {
+		if repo.ID <= 0 || repo.ID != ids[repo.FullName] {
+			t.Fatalf("unstable repository identity: %+v", repo)
+		}
 	}
 }

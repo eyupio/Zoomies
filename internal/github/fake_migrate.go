@@ -29,6 +29,7 @@ type fakeRepo struct {
 	// pushedAt is what the poller sorts repositories by; a queued job bumps it.
 	pushedAt      time.Time
 	defaultBranch string
+	id            int64
 	// archived makes the repository read-only, as GitHub does: every write
 	// answers 403. It is here so a test can prove the migration never gets
 	// that far rather than only that it survives the refusal.
@@ -173,6 +174,7 @@ func (f *FakeGitHub) getRepo(w http.ResponseWriter, r *http.Request) {
 	repo := f.repoLocked(full)
 	owner, name, _ := SplitTarget(full)
 	writeJSON(w, http.StatusOK, map[string]any{
+		"id":             repo.id,
 		"full_name":      full,
 		"name":           name,
 		"owner":          map[string]any{"login": owner},

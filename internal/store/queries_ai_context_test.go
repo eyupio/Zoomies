@@ -185,3 +185,21 @@ func TestDraftConfigurationSurvivesRestartAndInstallationDeletionCascades(t *tes
 		t.Fatalf("orphaned context config: %v", err)
 	}
 }
+
+func TestContextRepositoryListsHaveBoundedPages(t *testing.T) {
+	s := newTestStore(t)
+	r, _, _ := contextFixture(t, s)
+	rows, total, err := s.ListAIContextRepositories(t.Context(), 1, 0)
+	if err != nil || total != 1 || len(rows) != 1 || rows[0].ID != r.ID {
+		t.Fatalf("first page: %+v %d %v", rows, total, err)
+	}
+	rows, total, err = s.ListAIContextRepositories(t.Context(), 1, 1)
+	if err != nil || total != 1 || len(rows) != 0 || rows == nil {
+		t.Fatalf("last page: %+v %d %v", rows, total, err)
+	}
+	for _, page := range [][2]int{{0, 0}, {101, 0}, {1, -1}} {
+		if _, _, err := s.ListAIContextRepositories(t.Context(), page[0], page[1]); err == nil {
+			t.Fatalf("accepted unbounded page: %v", page)
+		}
+	}
+}

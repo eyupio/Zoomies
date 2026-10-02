@@ -329,6 +329,14 @@ func (s *Server) apiRoutes() chi.Router {
 			r.With(s.require(auth.ActionMachinesDelete)).Post("/{id}/release", s.handleReleaseMachine)
 		})
 
+		r.Route("/ai-context", func(r chi.Router) {
+			r.Use(s.require(auth.ActionContextConfigure))
+			r.Get("/discovery", s.handleDiscoverAIContext)
+			r.Get("/repositories", s.handleListAIContextRepositories)
+			r.Post("/repositories", s.handleCreateAIContextDraft)
+			r.Patch("/repositories/{id}/config", s.handleUpdateAIContextConfig)
+		})
+
 		// Migrations: what moving a repository's workflows onto this fleet
 		// would change, and then doing it. The plan writes nothing.
 		r.Route("/migrations", func(r chi.Router) {

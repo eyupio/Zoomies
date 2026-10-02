@@ -237,3 +237,29 @@ func (s *Store) AIContextConnectionAccess(ctx context.Context, repositoryID, gra
 		AND g.revoked_at IS NULL AND c.revoked_at IS NULL)`, repositoryID, grantID, userID).Scan(&allowed)
 	return allowed == 1, err
 }
+
+// ListAIContextRepositories bounds configuration metadata separately from source
+// retrieval. Ordering includes the ID so equally named drafts cannot skip rows.
+func (s *Store) ListAIContextRepositories(ctx context.Context, limit, offset int) ([]AIContextRepository, int, error) {
+	if limit < 1 || limit > 100 || offset < 0 {
+		return nil, 0, fmt.Errorf("choose a page size between 1 and 100 and a non-negative offset")
+	}
+	var total int
+	if err := s.read.QueryRowContext(ctx, `SELECT COUNT(*) FROM ai_context_repositories`).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := s.read.QueryContext(ctx, `SELECT `+aiContextColumns+` FROM ai_context_repositories ORDER BY full_name,id LIMIT ? OFFSET ?`, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := make([]AIContextRepository, 0)
+	for rows.Next() {
+		row, err := scanAIContext(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		out = append(out, *row)
+	}
+	return out, total, rows.Err()
+}
