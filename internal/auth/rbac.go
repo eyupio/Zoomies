@@ -97,6 +97,14 @@ const (
 // Audit actions.
 const ActionAuditRead Action = "audit.read"
 
+// Context is source data, not fleet metadata. These actions are only the
+// coarse role/scope gate; ContextAccess also requires repository membership.
+const (
+	ActionContextRead      Action = "context.read"
+	ActionContextConfigure Action = "context.configure"
+	ActionContextRefresh   Action = "context.refresh"
+)
+
 // Migrations move a repository's workflows onto this fleet, which means
 // opening pull requests in repositories Zoomies does not own. Reading a plan
 // is an operator's job rather than a viewer's because it costs a burst of
@@ -168,6 +176,10 @@ const (
 // settings. Deleting a host is an admin action rather than an operator one
 // because it removes a machine's whole history, not just a runner.
 var actionRoles = map[Action]store.Role{
+	ActionContextRead:      store.RoleViewer,
+	ActionContextConfigure: store.RoleAdmin,
+	ActionContextRefresh:   store.RoleOperator,
+
 	ActionPoolsRead:   store.RoleViewer,
 	ActionPoolsWrite:  store.RoleOperator,
 	ActionPoolsDelete: store.RoleOperator,
