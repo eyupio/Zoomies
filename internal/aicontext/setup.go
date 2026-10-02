@@ -19,15 +19,17 @@ const (
 // SetupFile carries the original blob identity so the publisher can refuse
 // changes made after review. An absent file has an empty SHA and content.
 type SetupFile struct {
+	Mode    string
 	Path    string
 	SHA     string
 	Content string
 }
 
 type SetupChange struct {
-	Path        string
-	PreviousSHA string
-	Content     string
+	Mode        string `json:"mode"`
+	Path        string `json:"path"`
+	PreviousSHA string `json:"previous_sha"`
+	Content     string `json:"content"`
 }
 
 type managedConfig struct {
@@ -71,6 +73,9 @@ func PlanSetupFiles(key RepositoryKey, fullName string, config Config, files []S
 		if len(file.Content) > maxSetupFileBytes || !utf8.ValidString(file.Content) || strings.ContainsRune(file.Content, 0) {
 			return nil, fmt.Errorf("setup file %q must be bounded UTF-8 text", file.Path)
 		}
+		if file.Mode != "" && file.Mode != "100644" && file.Mode != "100755" {
+			return nil, fmt.Errorf("setup file %q must be a regular file", file.Path)
+		}
 		if file.SHA == "" && file.Content != "" {
 			return nil, fmt.Errorf("setup file %q needs its original blob SHA", file.Path)
 		}
@@ -113,7 +118,11 @@ func PlanSetupFiles(key RepositoryKey, fullName string, config Config, files []S
 	add := func(p, content string) {
 		f := existing[p]
 		if f.Content != content {
-			changes = append(changes, SetupChange{Path: p, PreviousSHA: f.SHA, Content: content})
+			mode := f.Mode
+			if mode == "" {
+				mode = "100644"
+			}
+			changes = append(changes, SetupChange{Mode: mode, Path: p, PreviousSHA: f.SHA, Content: content})
 		}
 	}
 	if old.SHA == "" {
@@ -130,7 +139,7 @@ func PlanSetupFiles(key RepositoryKey, fullName string, config Config, files []S
 	if readme != "" {
 		link := "https://" + key.GitHubHost + "/" + fullName + "/actions/workflows/" + url.PathEscape("zoomies-ai-context.yml")
 		badge := "[![Zoomies AI Context](" + link + "/badge.svg)](" + link + ")\n\nRepomix-generated context: [`" + OutputDirectory + "/`](https://" + key.GitHubHost + "/" + fullName + "/tree/" + OutputBranch + "/" + OutputDirectory + "). The badge shows workflow status, not context freshness or assistant connectivity. Private repository badges require GitHub access."
-		content, err := mergeSetupSection(existing[readme].Content, badge)
+		content, err := mergeBadgeSection(existing[readme].Content, badge)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", readme, err)
 		}
@@ -174,4 +183,25 @@ func mergeSetupSection(original, body string) (string, error) {
 		return "", fmt.Errorf("the managed section has changed; review a repair or upgrade instead")
 	}
 	return original, nil
+}
+
+func mergeBadgeSection(original, body string) (string, error) {
+	content, err := mergeSetupSection(original, body)
+	if err != nil || strings.Contains(original, managedStart) || original == "" {
+		return content, err
+	}
+	newline := "\n"
+	if strings.Contains(original, "\r\n") {
+		newline = "\r\n"
+	}
+	block := managedStart + newline + strings.ReplaceAll(body, "\n", newline) + newline + managedEnd + newline
+	// Put the badge immediately after a leading title, or before the existing
+	// text. Do not guess at markup or relocate somebody else's badge section.
+	if strings.HasPrefix(original, "# ") {
+		if end := strings.Index(original, "\n"); end >= 0 {
+			end++
+			return original[:end] + newline + block + newline + original[end:], nil
+		}
+	}
+	return block + newline + original, nil
 }

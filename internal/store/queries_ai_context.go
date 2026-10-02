@@ -13,11 +13,13 @@ import (
 )
 
 type AIContextRepository struct {
-	ID       string                  `json:"id"`
-	Key      aicontext.RepositoryKey `json:"repository"`
-	FullName string                  `json:"full_name"`
-	Config   aicontext.Config        `json:"config"`
-	Revision int64                   `json:"revision"`
+	SetupState string                  `json:"setup_state,omitempty"`
+	SetupPRURL string                  `json:"setup_pr_url,omitempty"`
+	ID         string                  `json:"id"`
+	Key        aicontext.RepositoryKey `json:"repository"`
+	FullName   string                  `json:"full_name"`
+	Config     aicontext.Config        `json:"config"`
+	Revision   int64                   `json:"revision"`
 	// Available is a verified repository-access state, not whether a snapshot
 	// exists. Access removal closes this gate before retained blobs are read.
 	Available bool      `json:"available"`
@@ -27,12 +29,14 @@ type AIContextRepository struct {
 
 const aiContextColumns = `id, installation_id, github_host, repository_id, full_name, config_json, revision, available, created_at, updated_at`
 
+const aiContextReadColumns = aiContextColumns + `, COALESCE((SELECT state FROM ai_context_setups WHERE repository_id=ai_context_repositories.id),''), COALESCE((SELECT pr_url FROM ai_context_setups WHERE repository_id=ai_context_repositories.id),'')`
+
 func scanAIContext(sc interface{ Scan(...any) error }) (*AIContextRepository, error) {
 	var r AIContextRepository
 	var config string
 	var available int
 	var created, updated int64
-	err := sc.Scan(&r.ID, &r.Key.InstallationID, &r.Key.GitHubHost, &r.Key.RepositoryID, &r.FullName, &config, &r.Revision, &available, &created, &updated)
+	err := sc.Scan(&r.ID, &r.Key.InstallationID, &r.Key.GitHubHost, &r.Key.RepositoryID, &r.FullName, &config, &r.Revision, &available, &created, &updated, &r.SetupState, &r.SetupPRURL)
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +75,7 @@ func (s *Store) CreateAIContextRepository(ctx context.Context, r *AIContextRepos
 }
 
 func (s *Store) GetAIContextRepository(ctx context.Context, id string) (*AIContextRepository, error) {
-	r, err := scanAIContext(s.read.QueryRowContext(ctx, `SELECT `+aiContextColumns+` FROM ai_context_repositories WHERE id=?`, id))
+	r, err := scanAIContext(s.read.QueryRowContext(ctx, `SELECT `+aiContextReadColumns+` FROM ai_context_repositories WHERE id=?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("context repository %s: %w", id, ErrNotFound)
 	}
@@ -91,7 +95,7 @@ func (s *Store) SaveAIContextConfig(ctx context.Context, id string, revision int
 	if err != nil {
 		return err
 	}
-	res, err := s.exec(ctx, `UPDATE ai_context_repositories SET config_json=?, revision=revision+1, updated_at=? WHERE id=? AND revision=?`, string(body), ms(s.Now()), id, revision)
+	res, err := s.exec(ctx, `UPDATE ai_context_repositories SET config_json=?, revision=revision+1, updated_at=? WHERE id=? AND revision=? AND NOT EXISTS (SELECT 1 FROM ai_context_setups WHERE repository_id=ai_context_repositories.id)`, string(body), ms(s.Now()), id, revision)
 	if err != nil {
 		return err
 	}
@@ -255,7 +259,7 @@ func (s *Store) ListAIContextRepositoriesFiltered(ctx context.Context, limit, of
 	if err := s.read.QueryRowContext(ctx, `SELECT COUNT(*) FROM ai_context_repositories`+where, installationID, installationID, pattern).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	rows, err := s.read.QueryContext(ctx, `SELECT `+aiContextColumns+` FROM ai_context_repositories`+where+` ORDER BY full_name,id LIMIT ? OFFSET ?`, installationID, installationID, pattern, limit, offset)
+	rows, err := s.read.QueryContext(ctx, `SELECT `+aiContextReadColumns+` FROM ai_context_repositories`+where+` ORDER BY full_name,id LIMIT ? OFFSET ?`, installationID, installationID, pattern, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -363,7 +367,7 @@ func (s *Store) FindAIContextRepository(ctx context.Context, key aicontext.Repos
 	if err := key.Validate(); err != nil {
 		return nil, err
 	}
-	row, err := scanAIContext(s.read.QueryRowContext(ctx, `SELECT `+aiContextColumns+` FROM ai_context_repositories WHERE github_host=? AND installation_id=? AND repository_id=?`, key.GitHubHost, key.InstallationID, key.RepositoryID))
+	row, err := scanAIContext(s.read.QueryRowContext(ctx, `SELECT `+aiContextReadColumns+` FROM ai_context_repositories WHERE github_host=? AND installation_id=? AND repository_id=?`, key.GitHubHost, key.InstallationID, key.RepositoryID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}

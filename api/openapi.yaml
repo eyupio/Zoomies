@@ -95,6 +95,45 @@ tags:
     description: Routes used by agents. Not for general clients.
 
 paths:
+  /api/v1/ai-context/repositories/{id}/setup:
+    parameters:
+      - $ref: "#/components/parameters/PathID"
+    get:
+      operationId: previewAIContextSetup
+      summary: Preview the complete managed repository setup without writing GitHub files
+      description: Requires context.configure (admin), live repository access and explicit GitHub setup write permissions. Returns pinned proposed file contents, original blob hashes and the plan hash. Refuses custom/ambiguous ownership and non-regular files. Existing durable proposals return their original review and PR state.
+      responses:
+        "200":
+          description: Reviewable setup proposal
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIContextSetupPreview" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+    post:
+      operationId: createAIContextSetupPR
+      summary: Create or recover one reviewed setup pull request
+      description: Requires context.configure (admin) and live GitHub Contents/Workflows/Pull requests write permissions. Explicitly approve the returned revision and plan hash. Persists the same proposal before writing, freezes configuration and publishes all files in one Git commit. Retries reconcile the same PR; no source availability or connection consent is granted. Opening a PR does not enable source retrieval.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision, plan_hash]
+              properties:
+                revision: { type: integer, format: int64, minimum: 1 }
+                plan_hash: { type: string, pattern: '^[a-f0-9]{64}$' }
+      responses:
+        "200":
+          description: Durable setup PR identity
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIContextSetupPreview" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
   /api/v1/ai-context/access:
     get:
       operationId: listReadableAIContext
@@ -5003,6 +5042,34 @@ components:
           schema: { $ref: "#/components/schemas/ErrorEnvelope" }
 
   schemas:
+    AIContextSetupPreview:
+      type: object
+      required: [revision, base_commit, branch, plan_hash, files]
+      properties:
+        revision: { type: integer, format: int64 }
+        base_commit: { type: string }
+        branch: { type: string }
+        plan_hash: { type: string }
+        files:
+          type: array
+          items:
+            type: object
+            required: [path, mode, previous_sha, content]
+            properties:
+              path: { type: string }
+              mode: { type: string, enum: ["100644", "100755"] }
+              previous_sha: { type: string }
+              content: { type: string }
+        setup:
+          type: object
+          required: [repository_id, revision, plan_hash, state, pr_number, pr_url]
+          properties:
+            repository_id: { type: string }
+            revision: { type: integer, format: int64 }
+            plan_hash: { type: string }
+            state: { type: string, enum: [pending, awaiting_merge] }
+            pr_number: { type: integer }
+            pr_url: { type: string }
     AIContextReaderPage:
       type: object
       required: [items, total, limit, offset]
@@ -5054,6 +5121,8 @@ components:
             exclude: { type: array, items: { type: string } }
             keep_snapshots: { type: integer, minimum: 1, maximum: 100 }
         revision: { type: integer, format: int64 }
+        setup_state: { type: string, enum: [pending, awaiting_merge] }
+        setup_pr_url: { type: string }
         available: { type: boolean }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
@@ -7500,6 +7569,8 @@ components:
       type: object
       properties:
         kind: { $ref: "#/components/schemas/BackendKind" }
+        setup_state: { type: string, enum: [pending, awaiting_merge] }
+        setup_pr_url: { type: string }
         available: { type: boolean }
         version: { type: string }
         rootless: { type: boolean }

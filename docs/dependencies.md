@@ -61,6 +61,12 @@ Build and test only:
 | `eslint`, `typescript-eslint`, `eslint-plugin-svelte`, `@eslint/js`, `globals` | Linting. |
 | `prettier`, `prettier-plugin-svelte` | Formatting. |
 
+## Managed AI Context workflows
+
+| Package | Why |
+| --- | --- |
+| `repomix` 1.18.1 | Scans and packs repository source for AI context. The setup template embeds its integrity-locked npm dependency tree; Actions installs it in a temporary tool directory with lifecycle scripts disabled. It is not a controller or browser dependency. Source bytes come from the pinned Git commit so Repomix boundary trimming cannot change line numbers. |
+
 ## The docs site
 
 `docs/requirements.txt`, pinned. These never reach a user's machine — they

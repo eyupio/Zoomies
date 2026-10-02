@@ -231,3 +231,35 @@ func (s *Server) handleListReaderAIContext(w http.ResponseWriter, r *http.Reques
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": rows, "total": total, "limit": limit, "offset": offset})
 }
+
+func (s *Server) handlePreviewAIContextSetup(w http.ResponseWriter, r *http.Request) {
+	out, err := s.ctrl.PreviewAIContextSetup(r.Context(), chiURLParam(r, "id"))
+	if err != nil {
+		if errors.Is(err, auth.ErrInvalidInput) {
+			unprocessable(w, err.Error(), nil)
+			return
+		}
+		s.fail(w, r, "previewing managed context setup", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) handleCreateAIContextSetupPR(w http.ResponseWriter, r *http.Request) {
+	var req controller.AIContextSetupApproval
+	if !decode(w, r, &req) {
+		return
+	}
+	id := chiURLParam(r, "id")
+	out, err := s.ctrl.CreateAIContextSetupPR(r.Context(), id, req)
+	if err != nil {
+		if errors.Is(err, auth.ErrInvalidInput) {
+			unprocessable(w, err.Error(), nil)
+			return
+		}
+		s.fail(w, r, "creating managed context setup PR", err)
+		return
+	}
+	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "context.setup", "ai_context", id, map[string]any{"pr_number": out.Setup.PRNumber, "plan_hash": out.PlanHash})
+	writeJSON(w, http.StatusOK, out)
+}

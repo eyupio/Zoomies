@@ -3,6 +3,8 @@
   import {
     ApiError,
     createAIContextDraft,
+    createAIContextSetupPR,
+    previewAIContextSetup,
     discoverAIContext,
     findAIContextDraft,
     getAIContextMembers,
@@ -14,6 +16,7 @@
   } from '$lib/api/client';
   import type {
     AIContextConfig,
+    AIContextSetupPreview,
     AIContextDiscovery,
     AIContextRepository,
     Installation,
@@ -61,7 +64,11 @@
       title: 'Access',
       description: 'Explicit source readers, separately from fleet roles.',
     },
-    { id: 'review', title: 'Review', description: 'Review and save resumable setup drafts.' },
+    {
+      id: 'review',
+      title: 'Review',
+      description: 'Save resumable drafts and inspect managed changes.',
+    },
   ];
   let step = $state(0);
   let loading = $state(true),
@@ -82,6 +89,7 @@
   let destination = $state<string>('both'),
     exclusions = $state(''),
     keep = $state('3');
+  let setupFrozen = $state(false);
   let resuming = $state<AIContextRepository | null>(null);
   type Outcome = {
     name: string;
@@ -89,6 +97,9 @@
     saved?: boolean;
     error?: string;
     blocked?: boolean;
+    preview?: AIContextSetupPreview;
+    setupError?: string;
+    submitted?: boolean;
   };
   let outcomes = $state<Record<number, Outcome>>({});
   let showResults = $state(false);
@@ -137,6 +148,7 @@
       step = 0;
       showResults = false;
       resuming = null;
+      setupFrozen = false;
       outcomes = {};
       repositoryIds = [];
       readerIds = [];
@@ -167,6 +179,22 @@
           exclusions = draft.config.exclude.join('\n');
           keep = String(draft.config.keep_snapshots);
           outcomes = { [draft.repository.repository_id]: { name: draft.full_name, draft } };
+          try {
+            const preview = await previewAIContextSetup(draft.id, controller.signal);
+            if (controller.signal.aborted) return;
+            setupFrozen = !!preview.setup;
+            if (setupFrozen)
+              outcomes[draft.repository.repository_id] = {
+                name: draft.full_name,
+                draft,
+                saved: true,
+                preview,
+                submitted: preview.setup?.state === 'awaiting_merge',
+              };
+          } catch {
+            // Draft editing remains available when permissions or conflicts
+            // prevent setup preview; the explicit review surfaces the refusal.
+          }
         }
         if (selectedInstallation) {
           const result = await discoverAIContext(selectedInstallation, controller.signal);
@@ -258,7 +286,8 @@
             .filter(Boolean),
           keep_snapshots: Number(keep),
         };
-        draft = await updateAIContextConfig(draft.id, { revision: draft.revision, config });
+        if (!setupFrozen)
+          draft = await updateAIContextConfig(draft.id, { revision: draft.revision, config });
         outcomes[repository.id] = { name: repository.full_name, draft };
         await putAIContextMembers(draft.id, readerIds);
         outcomes[repository.id] = { name: repository.full_name, draft, saved: true };
@@ -273,15 +302,69 @@
     }
     busy = false;
   }
+
+  async function reviewSetups(): Promise<void> {
+    await saveDrafts();
+    await previewSetups();
+  }
+  async function previewSetups(): Promise<void> {
+    if (busy) return;
+    busy = true;
+    for (const repository of selectedRepositories) {
+      const result = outcomes[repository.id];
+      if (!result?.saved || !result.draft || result.submitted) continue;
+      try {
+        const preview = await previewAIContextSetup(result.draft.id);
+        outcomes[repository.id] = {
+          ...result,
+          preview,
+          setupError: undefined,
+          submitted: preview.setup?.state === 'awaiting_merge',
+        };
+      } catch (cause) {
+        outcomes[repository.id] = {
+          ...result,
+          preview: undefined,
+          setupError: cause instanceof Error ? cause.message : 'Setup could not be previewed.',
+        };
+      }
+    }
+    busy = false;
+  }
+  async function createSetups(): Promise<void> {
+    if (busy) return;
+    busy = true;
+    for (const repository of selectedRepositories) {
+      const result = outcomes[repository.id];
+      if (!result?.saved || !result.draft || !result.preview || result.submitted) continue;
+      try {
+        const preview = await createAIContextSetupPR(result.draft.id, {
+          revision: result.preview.revision,
+          plan_hash: result.preview.plan_hash,
+        });
+        outcomes[repository.id] = { ...result, preview, submitted: true, setupError: undefined };
+      } catch (cause) {
+        outcomes[repository.id] = {
+          ...result,
+          preview: cause instanceof ApiError && cause.status === 409 ? undefined : result.preview,
+          setupError: cause instanceof Error ? cause.message : 'Setup PR could not be created.',
+        };
+      }
+    }
+    busy = false;
+  }
+  const readySetups = $derived(
+    Object.values(outcomes).filter((r) => r.saved && r.preview && !r.submitted),
+  );
 </script>
 
 {#if loading}<Skeleton lines={4} />
 {:else if showResults}
   <section class="result-panel" aria-labelledby="result-heading">
-    <h2 id="result-heading" tabindex="-1">Setup drafts</h2>
+    <h2 id="result-heading" tabindex="-1">Review repository changes</h2>
     <p class="muted">
-      Saved drafts can be resumed after a restart. Repository context becomes operational only after
-      setup is reviewed, merged and successfully built.
+      Saved drafts can be resumed after a restart. Merge and successful generation make repository
+      output available. Assistant access also requires verified ingestion.
     </p>
     <div class="choices" aria-live="polite">
       {#each Object.entries(outcomes) as [id, result] (id)}
@@ -289,10 +372,43 @@
           <div class="row">
             <h3>{result.name}</h3>
             <Badge
-              label={result.saved ? 'Draft saved' : result.error ? 'Needs attention' : 'Saving'}
+              label={result.submitted
+                ? 'Awaiting merge'
+                : result.setupError || result.error
+                  ? 'Needs attention'
+                  : result.saved
+                    ? 'Draft saved'
+                    : 'Saving'}
             />
           </div>
           {#if result.error}<p role="alert">{result.error}</p>{/if}
+          {#if result.setupError}<p role="alert">{result.setupError}</p>{/if}
+          {#if result.preview}
+            {#if result.submitted && result.preview.setup?.pr_url}
+              <Button size="sm" href={result.preview.setup.pr_url}>Open setup PR</Button>
+              <p class="muted">
+                Merge and successful generation are required. Assistant source access remains a
+                separate choice.
+              </p>
+            {:else}
+              <p class="muted">
+                Proposed against source commit <code>{result.preview.base_commit.slice(0, 12)}</code
+                >. Existing text is preserved; changed managed files block setup.
+              </p>
+              {#each result.preview.files as file (file.path)}
+                <details class="file-preview">
+                  <summary>{file.path} · {file.previous_sha ? 'Update' : 'New file'}</summary>
+                  <Textarea
+                    readonly
+                    mono
+                    rows={10}
+                    ariaLabel={`Proposed ${file.path}`}
+                    value={file.content}
+                  />
+                </details>
+              {/each}
+            {/if}
+          {/if}
           {#if result.draft}<Button
               size="sm"
               disabled={busy}
@@ -304,10 +420,21 @@
     </div>
     <div class="actions">
       <Button href="/ai-context" disabled={busy}>Back to AI Context</Button
-      >{#if failed.length}<Button variant="primary" loading={busy} onclick={saveDrafts}
+      >{#if failed.length}<Button variant="primary" loading={busy} onclick={reviewSetups}
           >Retry failed drafts</Button
         >{/if}
+      {#if Object.values(outcomes).some((r) => r.saved && !r.submitted)}
+        <Button loading={busy} onclick={previewSetups}>Recheck setup previews</Button>
+      {/if}
+      {#if readySetups.length}
+        <Button variant="primary" loading={busy} onclick={createSetups}>Create setup PRs</Button>
+      {/if}
     </div>
+    <p class="muted publication-note">
+      Creating setup PRs writes only the reviewed files on a new branch. Configuration is frozen
+      once publication starts so retries recover the same proposal. No repository becomes available
+      to assistants until verified ingestion.
+    </p>
   </section>
 {:else if installations.length === 0 && !failure}
   <EmptyState
@@ -328,8 +455,8 @@
     bind:current={step}
     {canAdvance}
     {busy}
-    finishLabel="Save setup drafts"
-    onfinish={saveDrafts}
+    finishLabel="Review setup changes"
+    onfinish={reviewSetups}
     oncancel={() => router.navigate('/ai-context')}
   >
     {#snippet children(current)}
@@ -423,12 +550,14 @@
           options={[
             {
               value: 'both',
+              disabled: setupFrozen,
               label: 'Repository and Zoomies',
               description:
                 'Publish repository context and make it available through Zoomies after verified ingestion.',
             },
             {
               value: 'repository',
+              disabled: setupFrozen,
               label: 'Repository',
               description:
                 'Keep generated context on a dedicated repository branch and as an Actions artifact.',
@@ -447,6 +576,10 @@
         </p>
       {:else if current.id === 'configuration'}
         <div class="form">
+          {#if setupFrozen}<p role="status">
+              This reviewed setup has already been submitted. Its configuration is frozen so retries
+              recover the same pull request.
+            </p>{/if}
           <div>
             <h3>Source branches</h3>
             <ul>
@@ -463,13 +596,14 @@
                 {id}
                 {describedBy}
                 bind:value={exclusions}
+                disabled={setupFrozen}
                 rows={7}
                 mono
               />{/snippet}</Field
           >
           <Field
             label="Snapshots to retain"
-            hint="Keep between 1 and 100 successful snapshots."
+            hint="Keep between 1 and 100 Zoomies snapshots once ingestion is available. Repository output follows normal Git history."
             error={!configValid
               ? 'Use a whole retention count from 1 to 100 and at most 100 exclusions.'
               : ''}
@@ -478,6 +612,7 @@
                 {describedBy}
                 {invalid}
                 bind:value={keep}
+                disabled={setupFrozen}
                 inputmode="numeric"
               />{/snippet}</Field
           >
@@ -509,7 +644,7 @@
                 label={user.display_name || user.username}
                 description={user.username}
                 checked={readerIds.includes(user.id)}
-                disabled={readerIds.length >= 200 && !readerIds.includes(user.id)}
+                disabled={setupFrozen || (readerIds.length >= 200 && !readerIds.includes(user.id))}
                 onchange={(checked) => {
                   readerIds = checked
                     ? [...readerIds, user.id]
@@ -549,8 +684,9 @@
             <li>Zoomies AI Context README badge and instruction guidance</li>
           </ul>
           <p class="muted">
-            Drafts are not active context. Creating setup pull requests will be a separate reviewed
-            action; it is not available in this preparation flow yet.
+            Drafts are not active context. The next screen previews every proposed file. Create
+            setup PRs only after reviewing those changes; opening a PR does not enable source
+            access.
           </p>
         </div>
       {/if}
@@ -559,6 +695,21 @@
 {/if}
 
 <style>
+  .file-preview {
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-sm);
+    padding: var(--z-space-3);
+    min-width: 0;
+  }
+  .file-preview summary {
+    cursor: pointer;
+    overflow-wrap: anywhere;
+  }
+
+  .publication-note {
+    margin-top: var(--z-space-4);
+  }
+
   .form,
   .choices {
     display: grid;

@@ -53,7 +53,47 @@ test('setup saves resumable drafts, retries only failures and never enables sour
       });
     return route.fallback();
   });
-  await page.getByRole('button', { name: 'Save setup drafts' }).click();
+  let setupPosts = 0;
+  await page.route('**/api/v1/ai-context/repositories/*/setup', async (route) => {
+    const draftId = route.request().url().split('/repositories/')[1]?.split('/')[0] ?? '';
+    const preview = {
+      revision: 2,
+      base_commit: 'a'.repeat(40),
+      branch: `zoomies-ai-context-setup-${draftId}`,
+      plan_hash: 'b'.repeat(64),
+      files: [
+        {
+          path: '.github/workflows/zoomies-ai-context.yml',
+          mode: '100644',
+          previous_sha: '',
+          content: 'name: Zoomies AI Context\n# <script>window.__contextInjected=true</script>\n',
+        },
+      ],
+    };
+    if (route.request().method() === 'POST') {
+      setupPosts++;
+      if (setupPosts === 2)
+        return route.fulfill({
+          status: 503,
+          json: { error: { code: 'unavailable', message: 'Temporary publication failure' } },
+        });
+      return route.fulfill({
+        json: {
+          ...preview,
+          setup: {
+            repository_id: draftId,
+            revision: 2,
+            plan_hash: preview.plan_hash,
+            state: 'awaiting_merge',
+            pr_number: setupPosts,
+            pr_url: `https://github.com/acme/site/pull/${setupPosts}`,
+          },
+        },
+      });
+    }
+    return route.fulfill({ json: preview });
+  });
+  await page.getByRole('button', { name: 'Review setup changes' }).click();
   await expect(page.getByText('Draft saved', { exact: true })).toHaveCount(1);
   await page.getByRole('button', { name: 'Retry failed drafts' }).click();
   await expect(page.getByText('Draft saved', { exact: true })).toHaveCount(2);
@@ -64,6 +104,31 @@ test('setup saves resumable drafts, retries only failures and never enables sour
     expect(draft.available).toBe(false);
     expect(draft.config.keep_snapshots).toBe(7);
   }
+  expect(setupPosts).toBe(0);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.locator('summary').first().click();
+  await expect(
+    page
+      .getByRole('textbox', { name: 'Proposed .github/workflows/zoomies-ai-context.yml' })
+      .first(),
+  ).toHaveValue(/Zoomies AI Context/);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(await page.evaluate(() => '__contextInjected' in window)).toBe(false);
+  await page.screenshot({
+    path: 'test-results/ai-context-managed-preview-mobile.png',
+    fullPage: true,
+  });
+  await page.getByRole('button', { name: 'Create setup PRs', exact: true }).click();
+  await expect(page.getByRole('link', { name: 'Open setup PR' })).toHaveCount(1);
+  await page.getByRole('button', { name: 'Create setup PRs', exact: true }).click();
+  await expect(page.getByRole('link', { name: 'Open setup PR' })).toHaveCount(2);
+  expect(setupPosts).toBe(3);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.screenshot({
+    path: 'test-results/ai-context-managed-results-desktop.png',
+    fullPage: true,
+  });
+  await page.unroute('**/api/v1/ai-context/repositories/*/setup');
   await page.getByRole('link', { name: 'Resume draft' }).first().click();
   await expect(page.getByLabel('GitHub installation')).toBeDisabled();
   await next.click();

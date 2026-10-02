@@ -147,7 +147,11 @@
             label={'config' in item
               ? item.available
                 ? 'Source access available'
-                : 'Draft'
+                : item.setup_state === 'awaiting_merge'
+                  ? 'Awaiting merge'
+                  : item.setup_state === 'pending'
+                    ? 'Setup pending'
+                    : 'Draft'
               : 'Shared with you'}
           />
         </div>
@@ -176,8 +180,10 @@
             </div>
           </dl>
           <div class="actions">
+            {#if item.setup_pr_url}<Button size="sm" href={item.setup_pr_url}>Open setup PR</Button
+              >{/if}
             <Button size="sm" href="/ai-context/setup?draft_id={encodeURIComponent(item.id)}"
-              >Resume setup</Button
+              >{item.setup_state ? 'View setup' : 'Resume setup'}</Button
             >
           </div>
         {:else}<Button size="sm" href="/settings/connections">Choose connection access</Button>{/if}
@@ -248,6 +254,8 @@
   .actions {
     display: flex;
     justify-content: flex-end;
+    gap: var(--z-space-3);
+    flex-wrap: wrap;
   }
   .paging {
     margin-top: var(--z-space-5);

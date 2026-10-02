@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	gh "github.com/google/go-github/v88/github"
 )
 
 // The fake's half of the migration surface: repository contents, refs and pull
@@ -26,6 +28,7 @@ import (
 
 // fakeRepo is one repository's contents, as far as the migration cares.
 type fakeRepo struct {
+	git *fakeContextGit
 	// pushedAt is what the poller sorts repositories by; a queued job bumps it.
 	pushedAt      time.Time
 	defaultBranch string
@@ -149,6 +152,7 @@ func blobSHA(content string) string {
 }
 
 func (f *FakeGitHub) registerMigrationRoutes(mux *http.ServeMux) {
+	f.registerContextGitRoutes(mux)
 	mux.HandleFunc("GET /repos/{owner}/{repo}", f.getRepo)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/contents/{path...}", f.getContents)
 	mux.HandleFunc("PUT /repos/{owner}/{repo}/contents/{path...}", f.putContents)
@@ -355,6 +359,9 @@ func (f *FakeGitHub) getRef(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	repo := f.repoLocked(full)
+	if branch == repo.defaultBranch {
+		repo.pinContextSource()
+	}
 	sha, ok := repo.branches[branch]
 	if !ok {
 		writeError(w, http.StatusNotFound, "Not Found")
@@ -475,6 +482,12 @@ func (f *FakeGitHub) createPull(w http.ResponseWriter, r *http.Request) {
 		repo.pullBodies = map[int]string{}
 	}
 	repo.pullBodies[number] = body.Body
+	repo.contextGit().Pulls = append(repo.contextGit().Pulls, &gh.PullRequest{Number: gh.Ptr(number), Title: gh.Ptr(body.Title), Body: gh.Ptr(body.Body), State: gh.Ptr("open"), Head: &gh.PullRequestBranch{Ref: gh.Ptr(body.Head)}, Base: &gh.PullRequestBranch{Ref: gh.Ptr(body.Base)}, HTMLURL: gh.Ptr(fmt.Sprintf("https://github.com/%s/pull/%d", full, number))})
+	if repo.contextGit().LoseNextPullResponse {
+		repo.contextGit().LoseNextPullResponse = false
+		writeError(w, http.StatusBadGateway, "Response lost after opening pull request")
+		return
+	}
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"number":   number,
 		"title":    body.Title,

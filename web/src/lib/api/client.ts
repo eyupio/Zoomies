@@ -933,3 +933,9 @@ export const putAIContextMembers = (id: string, userIds: string[]) =>
   api.put<Result<'putAIContextMembers'>>(`/ai-context/repositories/${enc(id)}/members`, {
     body: { user_ids: userIds },
   });
+
+export const previewAIContextSetup = (id: string, signal?: AbortSignal) =>
+  api.get<Result<'previewAIContextSetup'>>(`/ai-context/repositories/${enc(id)}/setup`, { signal });
+
+export const createAIContextSetupPR = (id: string, body: Body<'createAIContextSetupPR'>) =>
+  api.post<Result<'createAIContextSetupPR'>>(`/ai-context/repositories/${enc(id)}/setup`, { body });
