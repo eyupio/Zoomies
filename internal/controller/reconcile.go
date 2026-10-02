@@ -1101,13 +1101,25 @@ func (c *Controller) reap(ctx context.Context) {
 				c.confirmCleanup(ctx, row.ID, false)
 			}
 		}
+		// A fleet's runners share a handful of pools, so the pool each row
+		// names is read once per pass rather than once per registration.
+		// Only a successful read is remembered: a failed one is retried for
+		// the next registration, exactly as before.
+		pools := map[string]*store.Pool{}
 		for _, gr := range remote {
 			if !store.IsRunnerName(gr.Name) {
 				continue
 			}
 			row, rerr := c.st.GetRunnerByName(ctx, gr.Name)
 			if rerr == nil {
-				pool, err := c.st.GetPool(ctx, row.PoolID)
+				pool, ok := pools[row.PoolID]
+				var err error
+				if !ok {
+					pool, err = c.st.GetPool(ctx, row.PoolID)
+					if err == nil {
+						pools[row.PoolID] = pool
+					}
+				}
 				if err != nil || pool.InstallationID != inst.ID || (row.GitHubRunnerID != 0 && row.GitHubRunnerID != gr.ID) {
 					continue
 				}
