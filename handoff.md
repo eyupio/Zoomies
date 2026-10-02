@@ -93,3 +93,5 @@ Validation:
 - Formatting and `git diff --check`: passed.
 
 Remaining: navigation/wizard, managed setup templates/PRs, verified availability and live GitHub access removal wiring, ingestion/storage integration, compact MCP source tools, OIDC upload and assistant artifacts. Do not mark phase 1 or the feature complete.
+
+Published source-consent implementation commit: `e1a732992cdf39ce025d979ee4bb6ef727696c89` on PR #571. Published tree `faf9bcb0087991dcfe634cc42edf414269ef9de1` exactly matches the validated local implementation tree. The PR title/description now cover both preparation APIs and explicit source consent.
