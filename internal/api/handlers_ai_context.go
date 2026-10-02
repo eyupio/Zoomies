@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/eyupio/zoomies/internal/aicontext"
 	"github.com/eyupio/zoomies/internal/auth"
@@ -48,7 +49,11 @@ func (s *Server) handleListAIContextRepositories(w http.ResponseWriter, r *http.
 	if offset < 0 {
 		offset = 0
 	}
-	rows, total, err := s.ctrl.Store().ListAIContextRepositories(r.Context(), limit, offset)
+	if len(r.URL.Query().Get("q")) > 200 {
+		unprocessable(w, "use a search query of at most 200 characters", nil)
+		return
+	}
+	rows, total, err := s.ctrl.Store().ListAIContextRepositoriesFiltered(r.Context(), limit, offset, r.URL.Query().Get("installation_id"), r.URL.Query().Get("q"))
 	if err != nil {
 		s.fail(w, r, "listing AI context repositories", err)
 		return
@@ -181,4 +186,48 @@ func (s *Server) handlePutOwnContextSelection(w http.ResponseWriter, r *http.Req
 		return
 	}
 	noContent(w)
+}
+
+func (s *Server) handleGetAIContextRepository(w http.ResponseWriter, r *http.Request) {
+	out, err := s.ctrl.Store().GetAIContextRepository(r.Context(), chiURLParam(r, "id"))
+	if err != nil {
+		s.fail(w, r, "reading AI context configuration", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+func (s *Server) handleFindAIContextDraft(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.URL.Query().Get("repository_id"), 10, 64)
+	if err != nil || id <= 0 || r.URL.Query().Get("installation_id") == "" {
+		unprocessable(w, "choose a known installation and repository ID", nil)
+		return
+	}
+	out, err := s.ctrl.FindAIContextDraft(r.Context(), r.URL.Query().Get("installation_id"), id)
+	if err != nil {
+		s.fail(w, r, "finding an AI context draft", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+func (s *Server) handleListReaderAIContext(w http.ResponseWriter, r *http.Request) {
+	id := Identity(r.Context())
+	if id.UserID == "" || (id.Kind != auth.KindUser && id.Kind != auth.KindToken) {
+		forbidden(w, "source repositories require explicit membership for an account")
+		return
+	}
+	limit := clamp(queryInt(r, "limit", 50), 1, 100)
+	offset := queryInt(r, "offset", 0)
+	if offset < 0 {
+		offset = 0
+	}
+	if len(r.URL.Query().Get("q")) > 200 {
+		unprocessable(w, "use a search query of at most 200 characters", nil)
+		return
+	}
+	rows, total, err := s.ctrl.Store().ListAIContextReaderRepositories(r.Context(), id.UserID, limit, offset, r.URL.Query().Get("q"))
+	if err != nil {
+		s.fail(w, r, "listing your AI context repositories", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": rows, "total": total, "limit": limit, "offset": offset})
 }

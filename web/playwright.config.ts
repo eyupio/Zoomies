@@ -58,13 +58,15 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: /(first-run|two-step|mcp-oauth|diagnostics|connect|status-page)\.spec\.ts/,
+      testIgnore:
+        /(first-run|two-step|mcp-oauth|diagnostics|connect|ai-context|status-page)\.spec\.ts/,
     },
     // Read-only monitoring on a phone is a stated requirement, so it is tested.
     {
       name: 'mobile',
       use: { ...devices['Pixel 7'] },
-      testIgnore: /(first-run|two-step|mcp-oauth|diagnostics|connect|status-page)\.spec\.ts/,
+      testIgnore:
+        /(first-run|two-step|mcp-oauth|diagnostics|connect|ai-context|status-page)\.spec\.ts/,
     },
     {
       name: 'first-run',
@@ -86,7 +88,7 @@ export default defineConfig({
     },
     {
       name: 'connect',
-      testMatch: /connect\.spec\.ts/,
+      testMatch: /(connect|ai-context)\.spec\.ts/,
       use: { ...devices['Desktop Chrome'], baseURL: `http://127.0.0.1:${CONNECT_PORT}` },
     },
   ],

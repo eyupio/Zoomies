@@ -294,3 +294,7 @@ export interface EventPayloads {
 }
 
 export type EventKind = keyof EventPayloads;
+
+export type AIContextRepository = Schemas['AIContextRepository'];
+export type AIContextConfig = AIContextRepository['config'];
+export type AIContextDiscovery = Result<'discoverAIContext'>;

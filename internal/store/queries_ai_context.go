@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/aicontext"
@@ -241,14 +242,20 @@ func (s *Store) AIContextConnectionAccess(ctx context.Context, repositoryID, gra
 // ListAIContextRepositories bounds configuration metadata separately from source
 // retrieval. Ordering includes the ID so equally named drafts cannot skip rows.
 func (s *Store) ListAIContextRepositories(ctx context.Context, limit, offset int) ([]AIContextRepository, int, error) {
-	if limit < 1 || limit > 100 || offset < 0 {
+	return s.ListAIContextRepositoriesFiltered(ctx, limit, offset, "", "")
+}
+
+func (s *Store) ListAIContextRepositoriesFiltered(ctx context.Context, limit, offset int, installationID, query string) ([]AIContextRepository, int, error) {
+	if limit < 1 || limit > 100 || offset < 0 || len(query) > 200 {
 		return nil, 0, fmt.Errorf("choose a page size between 1 and 100 and a non-negative offset")
 	}
+	pattern := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query) + "%"
+	const where = ` WHERE (?='' OR installation_id=?) AND full_name LIKE ? ESCAPE '\'`
 	var total int
-	if err := s.read.QueryRowContext(ctx, `SELECT COUNT(*) FROM ai_context_repositories`).Scan(&total); err != nil {
+	if err := s.read.QueryRowContext(ctx, `SELECT COUNT(*) FROM ai_context_repositories`+where, installationID, installationID, pattern).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	rows, err := s.read.QueryContext(ctx, `SELECT `+aiContextColumns+` FROM ai_context_repositories ORDER BY full_name,id LIMIT ? OFFSET ?`, limit, offset)
+	rows, err := s.read.QueryContext(ctx, `SELECT `+aiContextColumns+` FROM ai_context_repositories`+where+` ORDER BY full_name,id LIMIT ? OFFSET ?`, installationID, installationID, pattern, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -350,4 +357,43 @@ func (s *Store) AIContextConnectionChoices(ctx context.Context, grantID, userID 
 		out.SelectedRepositoryIDs = append(out.SelectedRepositoryIDs, id)
 	}
 	return out, rows.Err()
+}
+
+func (s *Store) FindAIContextRepository(ctx context.Context, key aicontext.RepositoryKey) (*AIContextRepository, error) {
+	if err := key.Validate(); err != nil {
+		return nil, err
+	}
+	row, err := scanAIContext(s.read.QueryRowContext(ctx, `SELECT `+aiContextColumns+` FROM ai_context_repositories WHERE github_host=? AND installation_id=? AND repository_id=?`, key.GitHubHost, key.InstallationID, key.RepositoryID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return row, err
+}
+
+// Reader metadata is gated in the query, before paging: an ordinary fleet
+// viewer cannot enumerate private drafts, names or configuration.
+func (s *Store) ListAIContextReaderRepositories(ctx context.Context, userID string, limit, offset int, query string) ([]AIContextChoice, int, error) {
+	if limit < 1 || limit > 100 || offset < 0 || len(query) > 200 {
+		return nil, 0, fmt.Errorf("choose a bounded page and search query")
+	}
+	pattern := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query) + "%"
+	const from = ` FROM ai_context_repositories r JOIN ai_context_members m ON m.repository_id=r.id JOIN users u ON u.id=m.user_id WHERE m.user_id=? AND u.disabled=0 AND r.available=1 AND r.full_name LIKE ? ESCAPE '\'`
+	var total int
+	if err := s.read.QueryRowContext(ctx, `SELECT COUNT(*)`+from, userID, pattern).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := s.read.QueryContext(ctx, `SELECT r.id,r.full_name`+from+` ORDER BY r.full_name,r.id LIMIT ? OFFSET ?`, userID, pattern, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := []AIContextChoice{}
+	for rows.Next() {
+		var c AIContextChoice
+		if err := rows.Scan(&c.ID, &c.FullName); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, c)
+	}
+	return out, total, rows.Err()
 }

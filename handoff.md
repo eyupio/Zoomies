@@ -95,3 +95,13 @@ Validation:
 Remaining: navigation/wizard, managed setup templates/PRs, verified availability and live GitHub access removal wiring, ingestion/storage integration, compact MCP source tools, OIDC upload and assistant artifacts. Do not mark phase 1 or the feature complete.
 
 Published source-consent implementation commit: `e1a732992cdf39ce025d979ee4bb6ef727696c89` on PR #571. Published tree `faf9bcb0087991dcfe634cc42edf414269ef9de1` exactly matches the validated local implementation tree. The PR title/description now cover both preparation APIs and explicit source consent.
+
+## Navigation and preparation wizard checkpoint (PR #571)
+
+AI Context is now a lazy-loaded navigation section with keyboard and command-palette entries. Administrators can search/filter paged drafts and resume them; readers see only available repositories with explicit membership. Added administrator-only single-draft and stable source-identity lookup endpoints and a separate bounded reader list. Discovery supplies canonical exclusion/retention defaults.
+
+The six-step preparation wizard supports repository selection, readiness checks, destination, exclusions/retention, explicit source readers, review and resumable draft saves. No repositories/readers are preselected. Zoomies-only is disabled pending secure uploads. Partial saves retain successes and retry failures; existing drafts must be resumed before their saved configuration/readers can be changed. Saved drafts remain unavailable and do not create setup PRs or source grants for app connections.
+
+Validation: targeted API race tests passed (14.901s); targeted store race tests passed (12.115s), including literal search escaping and reader access boundaries. Svelte check had zero errors/warnings; production UI/status build, changed-file lint/formatting, binary build and targeted go vet passed. A new Playwright test passed against the real controller and fake GitHub (1.2s): two repositories, simulated temporary second-save failure, retry only failures, persisted retention, unavailable drafts and same-page draft resumption. Desktop review and 375px configuration screenshots were inspected; no horizontal overflow. Test is included in the connect project.
+
+Next concrete action: implement managed repository setup templates and reviewed setup PR creation from these drafts, with pinned workflow actions, explicit write-permission checks, safe retry/reconciliation and verified availability. Live GitHub access removal, ingestion/storage integration, MCP retrieval, OIDC uploads and assistant artifacts remain. Earlier full-suite limitations still apply; do not mark the feature complete.

@@ -19,6 +19,8 @@ type AIContextDiscovery struct {
 	Repositories            []github.Repository `json:"repositories"`
 	CanReadContents         bool                `json:"can_read_contents"`
 	MissingSetupPermissions []string            `json:"missing_setup_permissions"`
+	DefaultExclusions       []string            `json:"default_exclusions"`
+	DefaultKeepSnapshots    int                 `json:"default_keep_snapshots"`
 	Capped                  bool                `json:"capped"`
 }
 
@@ -39,7 +41,8 @@ func (c *Controller) DiscoverAIContext(ctx context.Context, installationID strin
 	}
 	// ListRepositories has a hard ceiling. Conservatively report that ceiling
 	// even when an installation happens to have exactly this many repositories.
-	out := &AIContextDiscovery{Repositories: repos, CanReadContents: info.CanReadContents(), MissingSetupPermissions: info.MissingForMigration(), Capped: len(repos) >= github.RepositoryDiscoveryLimit}
+	defaults := aicontext.DefaultConfig("main")
+	out := &AIContextDiscovery{DefaultExclusions: defaults.Exclude, DefaultKeepSnapshots: defaults.KeepSnapshots, Repositories: repos, CanReadContents: info.CanReadContents(), MissingSetupPermissions: info.MissingForMigration(), Capped: len(repos) >= github.RepositoryDiscoveryLimit}
 	if out.Repositories == nil {
 		out.Repositories = []github.Repository{}
 	}
@@ -89,20 +92,43 @@ func (c *Controller) CreateAIContextDraft(ctx context.Context, req AIContextDraf
 	if err != nil {
 		return nil, err
 	}
-	host := "github.com"
-	if inst.APIBaseURL != "" {
-		u, err := url.Parse(inst.APIBaseURL)
-		if err != nil || u.Host == "" || u.User != nil {
-			return nil, fmt.Errorf("%w: correct the installation's GitHub API URL", auth.ErrInvalidInput)
-		}
-		host = strings.ToLower(u.Host)
-		if host == "api.github.com" {
-			host = "github.com"
-		}
+	host, err := aiContextGitHubHost(inst.APIBaseURL)
+	if err != nil {
+		return nil, err
 	}
 	draft := &store.AIContextRepository{Key: aicontext.RepositoryKey{GitHubHost: host, InstallationID: inst.ID, RepositoryID: selected.ID}, FullName: selected.FullName, Config: cfg}
 	if err := c.st.CreateAIContextRepository(ctx, draft); err != nil {
 		return nil, err
 	}
 	return draft, nil
+}
+
+func aiContextGitHubHost(baseURL string) (string, error) {
+	if baseURL == "" {
+		return "github.com", nil
+	}
+	u, err := url.Parse(baseURL)
+	if err != nil || u.Host == "" || u.User != nil {
+		return "", fmt.Errorf("%w: correct the installation's GitHub API URL", auth.ErrInvalidInput)
+	}
+	host := strings.ToLower(u.Host)
+	if host == "api.github.com" {
+		host = "github.com"
+	}
+	return host, nil
+}
+
+func (c *Controller) FindAIContextDraft(ctx context.Context, installationID string, repositoryID int64) (*store.AIContextRepository, error) {
+	inst, err := c.st.GetInstallation(ctx, installationID)
+	if err != nil {
+		return nil, err
+	}
+	host, err := aiContextGitHubHost(inst.APIBaseURL)
+	if err != nil {
+		return nil, err
+	}
+	if repositoryID <= 0 {
+		return nil, fmt.Errorf("%w: choose a known repository ID", auth.ErrInvalidInput)
+	}
+	return c.st.FindAIContextRepository(ctx, aicontext.RepositoryKey{GitHubHost: host, InstallationID: installationID, RepositoryID: repositoryID})
 }

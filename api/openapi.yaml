@@ -95,6 +95,65 @@ tags:
     description: Routes used by agents. Not for general clients.
 
 paths:
+  /api/v1/ai-context/access:
+    get:
+      operationId: listReadableAIContext
+      summary: List your explicitly shared source repositories
+      description: Requires context.read and an owned account. Returns only available repositories with live user membership, never administrative drafts/configuration or another person's repositories.
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, default: 50, minimum: 1, maximum: 100 }
+        - $ref: "#/components/parameters/Offset"
+        - in: query
+          name: q
+          schema: { type: string, maxLength: 200 }
+      responses:
+        "200":
+          description: Authorised repository names
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIContextReaderPage" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+  /api/v1/ai-context/draft:
+    get:
+      operationId: findAIContextDraft
+      summary: Find an existing draft using its installation and stable repository ID
+      description: Requires context.configure (admin). Uses the installation's server-resolved GitHub host; no source access is granted. Supports safe retry after a draft creation response is lost.
+      parameters:
+        - in: query
+          name: installation_id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: repository_id
+          required: true
+          schema: { type: integer, format: int64, minimum: 1 }
+      responses:
+        "200":
+          description: Existing draft
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIContextRepository" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+  /api/v1/ai-context/repositories/{id}:
+    get:
+      operationId: getAIContextRepository
+      summary: Resume a repository configuration draft
+      description: Requires context.configure (admin).
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: Repository configuration
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIContextRepository" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
   /api/v1/ai-context/repositories/{id}/members:
     parameters:
       - $ref: "#/components/parameters/PathID"
@@ -201,6 +260,12 @@ paths:
           name: limit
           schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
         - $ref: "#/components/parameters/Offset"
+        - in: query
+          name: installation_id
+          schema: { type: string }
+        - in: query
+          name: q
+          schema: { type: string, maxLength: 200 }
       responses:
         "200":
           description: A bounded page of repository configuration metadata
@@ -255,8 +320,10 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [repositories, can_read_contents, missing_setup_permissions, capped]
+                required: [repositories, can_read_contents, missing_setup_permissions, capped, default_exclusions, default_keep_snapshots]
                 properties:
+                  default_exclusions: { type: array, items: { type: string } }
+                  default_keep_snapshots: { type: integer, minimum: 1, maximum: 100 }
                   can_read_contents: { type: boolean }
                   missing_setup_permissions: { type: array, items: { type: string } }
                   capped: { type: boolean }
@@ -4936,6 +5003,14 @@ components:
           schema: { $ref: "#/components/schemas/ErrorEnvelope" }
 
   schemas:
+    AIContextReaderPage:
+      type: object
+      required: [items, total, limit, offset]
+      properties:
+        items: { $ref: "#/components/schemas/AIContextConnectionSelection/properties/items" }
+        total: { type: integer }
+        limit: { type: integer }
+        offset: { type: integer }
     AIContextMembers:
       type: object
       required: [user_ids]

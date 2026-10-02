@@ -584,3 +584,8 @@ operator routes are not available through it.
 | PUT | `/ai-context/repositories/{id}/members` | admin | Replace up to 200 source readers. Removing membership also clears that person's connection consent. Requires an explicit `user_ids` array. |
 | GET | `/auth/mcp-connections/{id}/repositories` | signed-in owner | Paged eligible source repository names plus the complete eligible selection. Checks live user, membership, connection and client state. |
 | PUT | `/auth/mcp-connections/{id}/repositories` | signed-in owner | Replace up to 100 explicit source grants. Empty `repository_ids` removes all grants; omitted/null fields are refused. API tokens and MCP credentials cannot approve themselves. |
+| GET | `/ai-context/repositories/{id}` | admin | Resume one server-backed configuration draft. |
+| GET | `/ai-context/draft?installation_id=…&repository_id=…` | admin | Resolve an existing draft by stable identity and the installation's server-resolved GitHub host. Supports safe retry after an uncertain creation response. |
+| GET | `/ai-context/access` | source reader | Paged available repository names with live explicit membership. Owned `context:read` tokens may use it; unowned tokens and fleet roles alone cannot enumerate source repositories. |
+
+The administrator configuration list also accepts `q` (literal name search, at most 200 characters) and `installation_id`. The reader list accepts `q`. Both filter before paging. Discovery supplies canonical exclusion and retention defaults so the setup wizard does not maintain a second copy of them.

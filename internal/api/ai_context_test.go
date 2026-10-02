@@ -97,6 +97,16 @@ func TestAIContextDraftUsesDiscoveredIdentityAndGrantsNobodySourceAccess(t *test
 	h.do(request{method: http.MethodPatch, path: "/api/v1/ai-context/repositories/" + draft.ID + "/config", cookie: admin, body: update}).mustStatus(t, http.StatusConflict, "stale configuration")
 	saved.Config.SourceBranch = "unverified-branch"
 	h.do(request{method: http.MethodPatch, path: "/api/v1/ai-context/repositories/" + draft.ID + "/config", cookie: admin, body: map[string]any{"revision": saved.Revision, "config": saved.Config}}).mustStatus(t, http.StatusUnprocessableEntity, "unverified source branch")
+
+	lookup := h.do(request{method: http.MethodGet, path: fmt.Sprintf("/api/v1/ai-context/draft?installation_id=%s&repository_id=%d", inst.ID, body.RepositoryID), cookie: admin})
+	lookup.mustStatus(t, http.StatusOK, "stable draft lookup")
+	var recovered store.AIContextRepository
+	lookup.into(t, &recovered)
+	if recovered.ID != draft.ID || recovered.Revision != 2 {
+		t.Fatalf("resumed wrong draft: %+v", recovered)
+	}
+	h.do(request{method: http.MethodGet, path: "/api/v1/ai-context/repositories/" + draft.ID, cookie: operator}).mustStatus(t, http.StatusForbidden, "operator draft resumption")
+	h.do(request{method: http.MethodGet, path: "/api/v1/ai-context/repositories/" + draft.ID, cookie: admin}).mustStatus(t, http.StatusOK, "draft resumption")
 	body.RepositoryID = 999999
 	h.do(request{method: http.MethodPost, path: "/api/v1/ai-context/repositories", cookie: admin, body: body}).mustStatus(t, http.StatusUnprocessableEntity, "undiscovered repository")
 }
@@ -164,6 +174,25 @@ func TestConnectionSourceConsentRequiresTheSignedInOwnerAndLiveMembership(t *tes
 	h.do(request{method: http.MethodPut, path: path, cookie: cookie, body: map[string]any{}}).mustStatus(t, http.StatusUnprocessableEntity, "omitted consent")
 	h.do(request{method: http.MethodPut, path: path, cookie: cookie, body: map[string]any{"repository_ids": []string{repo.ID}}}).mustStatus(t, http.StatusNotFound, "unavailable draft")
 	h.st.SetAIContextAvailable(h.ctx, repo.ID, true)
+
+	ownPage := h.do(request{method: http.MethodGet, path: "/api/v1/ai-context/access", cookie: cookie})
+	ownPage.mustStatus(t, http.StatusOK, "reader repository list")
+	var own struct {
+		Items []store.AIContextChoice `json:"items"`
+		Total int                     `json:"total"`
+	}
+	ownPage.into(t, &own)
+	if len(own.Items) != 1 || own.Total != 1 || own.Items[0].ID != repo.ID {
+		t.Fatalf("reader list = %+v", own)
+	}
+	for _, withoutMembership := range []string{otherCookie, admin} {
+		page := h.do(request{method: http.MethodGet, path: "/api/v1/ai-context/access", cookie: withoutMembership})
+		page.mustStatus(t, http.StatusOK, "unshared source list")
+		page.into(t, &own)
+		if own.Total != 0 || len(own.Items) != 0 {
+			t.Fatalf("fleet role leaked names: %+v", own)
+		}
+	}
 	resp := h.do(request{method: http.MethodGet, path: path, cookie: cookie})
 	resp.mustStatus(t, http.StatusOK, "eligible choices")
 	var choices store.AIContextConnectionSelection

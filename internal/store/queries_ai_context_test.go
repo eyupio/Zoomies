@@ -249,3 +249,43 @@ func TestConnectionSourceChoicesHideUnsharedAndUnavailableRepositories(t *testin
 		t.Fatalf("revoked membership still visible = %+v, %v", choices, err)
 	}
 }
+
+func TestContextMetadataSearchAndDraftLookupKeepIdentityAndAccessBoundaries(t *testing.T) {
+	s := newTestStore(t)
+	r, u, _ := contextFixture(t, s)
+	got, err := s.FindAIContextRepository(t.Context(), r.Key)
+	if err != nil || got.ID != r.ID {
+		t.Fatalf("lookup=%+v %v", got, err)
+	}
+	otherKey := r.Key
+	otherKey.GitHubHost = "github.example"
+	if _, err := s.FindAIContextRepository(t.Context(), otherKey); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("cross-host lookup=%v", err)
+	}
+	rows, total, err := s.ListAIContextRepositoriesFiltered(t.Context(), 1, 0, r.Key.InstallationID, "widgets")
+	if err != nil || len(rows) != 1 || total != 1 {
+		t.Fatalf("filtered list=%+v %d %v", rows, total, err)
+	}
+	for _, search := range []string{"%", "_", "' OR 1=1 --", `\`} {
+		rows, total, err = s.ListAIContextRepositoriesFiltered(t.Context(), 1, 0, r.Key.InstallationID, search)
+		if err != nil || len(rows) != 0 || total != 0 {
+			t.Fatalf("search %q broadened list: %+v %d %v", search, rows, total, err)
+		}
+	}
+	s.SetAIContextAvailable(t.Context(), r.ID, true)
+	visible, count, err := s.ListAIContextReaderRepositories(t.Context(), u.ID, 1, 0, "")
+	if err != nil || len(visible) != 0 || count != 0 {
+		t.Fatalf("implicit membership=%+v %d %v", visible, count, err)
+	}
+	s.ReplaceAIContextMembers(t.Context(), r.ID, []string{u.ID})
+	visible, count, err = s.ListAIContextReaderRepositories(t.Context(), u.ID, 1, 0, "widgets")
+	if err != nil || len(visible) != 1 || count != 1 {
+		t.Fatalf("member list=%+v %d %v", visible, count, err)
+	}
+	u.Disabled = true
+	s.UpdateUser(t.Context(), u)
+	visible, count, err = s.ListAIContextReaderRepositories(t.Context(), u.ID, 1, 0, "")
+	if err != nil || len(visible) != 0 || count != 0 {
+		t.Fatalf("disabled reader=%+v %d %v", visible, count, err)
+	}
+}

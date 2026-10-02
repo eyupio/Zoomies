@@ -65,6 +65,7 @@ export const SECTIONS = [
   { path: '/providers', label: 'Providers' },
   { path: '/installations', label: 'Installations' },
   { path: '/migrate', label: 'Migrate', heading: 'Migrate repositories' },
+  { path: '/ai-context', label: 'AI Context' },
   { path: '/audit', label: 'Audit' },
   {
     path: '/settings',

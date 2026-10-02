@@ -331,9 +331,12 @@ func (s *Server) apiRoutes() chi.Router {
 			r.With(s.require(auth.ActionMachinesDelete)).Post("/{id}/release", s.handleReleaseMachine)
 		})
 
+		r.With(s.require(auth.ActionContextRead)).Get("/ai-context/access", s.handleListReaderAIContext)
 		r.Route("/ai-context", func(r chi.Router) {
 			r.Use(s.require(auth.ActionContextConfigure))
 			r.Get("/discovery", s.handleDiscoverAIContext)
+			r.Get("/draft", s.handleFindAIContextDraft)
+			r.Get("/repositories/{id}", s.handleGetAIContextRepository)
 			r.Get("/repositories", s.handleListAIContextRepositories)
 			r.Post("/repositories", s.handleCreateAIContextDraft)
 			r.Patch("/repositories/{id}/config", s.handleUpdateAIContextConfig)

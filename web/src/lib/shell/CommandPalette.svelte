@@ -7,6 +7,7 @@
 -->
 <script lang="ts">
   import {
+    BookOpenText,
     Boxes,
     ChartNoAxesCombined,
     CircleSlash,
@@ -148,6 +149,13 @@
         label: 'Migrate repositories',
         icon: GitPullRequestArrow,
         run: () => router.navigate('/migrate'),
+      },
+      {
+        id: 'go-ai-context',
+        group: 'Go to',
+        label: 'AI Context',
+        icon: BookOpenText,
+        run: () => router.navigate('/ai-context'),
       },
       {
         id: 'go-audit',
