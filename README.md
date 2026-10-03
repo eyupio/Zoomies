@@ -4,6 +4,7 @@
 Repomix-generated context: [`.zoomies/ai-context/`](https://github.com/eyupio/zoomies/tree/zoomies-ai-context/.zoomies/ai-context). The badge shows workflow status, not context freshness or assistant connectivity. Private repository badges require GitHub access.
 <!-- zoomies-ai-context:end -->
 
+
 <div align="center">
 
 <picture>
