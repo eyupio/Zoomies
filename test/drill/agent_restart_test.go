@@ -35,8 +35,11 @@ func TestKillingTheAgentMidJobLeavesTheWorkRunning(t *testing.T) {
 		}
 		return false
 	})
-	waitFor(t, waitWorkloadUp, "a workload to appear on the host", func() bool {
-		return len(f.liveWorkloads()) == 1
+	// The stub can publish its started marker before the backend has written
+	// runner.pid. Wait for that durable record too: killing the agent earlier
+	// interrupts creation, and the survival check cannot identify the process.
+	waitFor(t, waitWorkloadUp, "a workload and its persisted PID to appear on the host", func() bool {
+		return len(f.liveWorkloads()) == 1 && f.workloadRunning(runner.Name)
 	})
 	rec.note("workload on host", f.liveWorkloads()[0])
 
