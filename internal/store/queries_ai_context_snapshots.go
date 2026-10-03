@@ -87,6 +87,9 @@ func (s *Store) publishAIContextSnapshot(ctx context.Context, id string, revisio
 		if err := config.CheckSourceFiles(snapshot.Files); err != nil {
 			return err
 		}
+		if config.Disabled {
+			return fmt.Errorf("removed context cannot receive snapshots")
+		}
 		if config.Destination != aicontext.Both {
 			return fmt.Errorf("durable context snapshots require repository and Zoomies output")
 		}

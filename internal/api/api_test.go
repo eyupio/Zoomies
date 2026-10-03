@@ -728,6 +728,8 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "GET", path: "/api/v1/ai-context/repositories/missing/setup", role: store.RoleAdmin, action: auth.ActionContextConfigure},
 		{method: "POST", path: "/api/v1/ai-context/repositories/missing/setup", role: store.RoleAdmin, action: auth.ActionContextConfigure},
 		{method: "POST", path: "/api/v1/ai-context/repositories/missing/recheck", role: store.RoleAdmin, action: auth.ActionContextConfigure},
+		{method: "POST", path: "/api/v1/ai-context/repositories/missing/maintenance", role: store.RoleAdmin, action: auth.ActionContextConfigure},
+		{method: "POST", path: "/api/v1/ai-context/repositories/missing/maintenance/apply", role: store.RoleAdmin, action: auth.ActionContextConfigure},
 
 		{method: "GET", path: "/api/v1/stats", role: store.RoleViewer, action: auth.ActionStatsRead},
 		{method: "GET", path: "/api/v1/samples", role: store.RoleViewer, action: auth.ActionStatsRead},

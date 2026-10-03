@@ -28,6 +28,7 @@ type ContextSetupSource struct {
 }
 
 type ContextSetupRequest struct {
+	Action     string
 	Repo       string
 	Base       string
 	BaseCommit string
@@ -165,13 +166,32 @@ func (c *appClient) OpenContextSetup(ctx context.Context, req ContextSetupReques
 	}
 	entries := make([]*gh.TreeEntry, 0, len(req.Files))
 	for _, f := range req.Files {
-		entries = append(entries, &gh.TreeEntry{Path: gh.Ptr(f.Path), Mode: gh.Ptr(contextSetupFileMode(f.Mode)), Type: gh.Ptr("blob"), Content: gh.Ptr(f.Content)})
+		if f.Delete {
+			if f.PreviousSHA == "" || f.Content != "" {
+				return nil, ErrSetupConflict
+			}
+			entries = append(entries, &gh.TreeEntry{Path: gh.Ptr(f.Path), Mode: gh.Ptr(contextSetupFileMode(f.Mode)), Type: gh.Ptr("blob")})
+		} else {
+			entries = append(entries, &gh.TreeEntry{Path: gh.Ptr(f.Path), Mode: gh.Ptr(contextSetupFileMode(f.Mode)), Type: gh.Ptr("blob"), Content: gh.Ptr(f.Content)})
+		}
 	}
 	tree, resp, err := c.asInstallation.Git.CreateTree(ctx, owner, name, base.GetTree().GetSHA(), entries)
 	if err != nil {
 		return nil, c.migrationError("prepare complete setup tree", classify(resp, err))
 	}
-	message := "Enable Zoomies AI Context\n\nZoomies setup: " + req.PlanHash
+	title := "Enable Zoomies AI Context"
+	switch req.Action {
+	case "reinstall":
+		title = "Reinstall Zoomies AI Context"
+	case "amend":
+		title = "Amend Zoomies AI Context"
+	case "remove":
+		title = "Remove Zoomies AI Context"
+	case "":
+	default:
+		return nil, ErrSetupConflict
+	}
+	message := title + "\n\nZoomies setup: " + req.PlanHash
 
 	if existingErr == nil {
 		previous, resp, err := c.asInstallation.Git.GetCommit(ctx, owner, name, existing.GetObject().GetSHA())
@@ -199,6 +219,9 @@ func (c *appClient) OpenContextSetup(ctx context.Context, req ContextSetupReques
 		}
 	}
 	body := "Prepare this repository for AI coding assistants with Zoomies-managed Repomix context.\n\nReview the workflow, exclusions, generated source copy and instruction/badge sections. Merge runs generation; it does not grant assistant connections source access. The workflow uses a read-only generation job and a separate write-only publication job.\n\n<!-- zoomies-ai-context:setup " + req.PlanHash + " -->"
+	if req.Action == "remove" {
+		body = "Remove the Zoomies AI Context workflow and managed files/sections. Other repository text and the historical generated context branch are preserved. Zoomies access, cached snapshots, readers and connection consent have been revoked; reinstall requires explicit access selection again.\n\n<!-- zoomies-ai-context:setup " + req.PlanHash + " -->"
+	}
 	// Closed PRs are included: a retry must not reopen a deliberately declined
 	// proposal or produce a duplicate after an uncertain successful response.
 	pulls, resp, err := c.asInstallation.PullRequests.List(ctx, owner, name, &gh.PullRequestListOptions{State: "all", Head: owner + ":" + req.Head, Base: req.Base, ListOptions: gh.ListOptions{PerPage: 100}})
@@ -209,7 +232,7 @@ func (c *appClient) OpenContextSetup(ctx context.Context, req ContextSetupReques
 		return nil, fmt.Errorf("%w: too many setup pull requests to reconcile safely", ErrSetupConflict)
 	}
 	if len(pulls) > 0 {
-		if len(pulls) != 1 || pulls[0].GetBody() != body || pulls[0].GetTitle() != "Enable Zoomies AI Context" {
+		if len(pulls) != 1 || pulls[0].GetBody() != body || pulls[0].GetTitle() != title {
 			return nil, fmt.Errorf("%w: existing pull request differs from the reviewed setup", ErrSetupConflict)
 		}
 		pr := pulls[0]
@@ -218,7 +241,7 @@ func (c *appClient) OpenContextSetup(ctx context.Context, req ContextSetupReques
 		}
 		return &PullRequest{Number: pr.GetNumber(), HTMLURL: pr.GetHTMLURL(), Branch: req.Head}, nil
 	}
-	pr, resp, err := c.asInstallation.PullRequests.Create(ctx, owner, name, &gh.NewPullRequest{Title: gh.Ptr("Enable Zoomies AI Context"), Body: gh.Ptr(body), Head: gh.Ptr(req.Head), Base: gh.Ptr(req.Base)})
+	pr, resp, err := c.asInstallation.PullRequests.Create(ctx, owner, name, &gh.NewPullRequest{Title: gh.Ptr(title), Body: gh.Ptr(body), Head: gh.Ptr(req.Head), Base: gh.Ptr(req.Base)})
 	if err != nil {
 		// Keep the complete branch even on a timeout: the request may have opened
 		// a PR. The same durable head is reconciled on the next explicit retry.

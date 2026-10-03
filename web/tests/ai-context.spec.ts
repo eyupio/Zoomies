@@ -263,3 +263,121 @@ test('verification shows retained source separately from failure and rechecks on
     fullPage: true,
   });
 });
+
+test('maintenance reviews amended settings, recovers publication and shows removal effects', async ({
+  page,
+}) => {
+  const repository = {
+    id: 'aic_maintenance',
+    full_name: 'acme/context',
+    repository: { github_host: 'github.com', installation_id: 'installation', repository_id: 42 },
+    config: {
+      source_branch: 'main',
+      destination: 'both',
+      exclude: ['private/**'],
+      keep_snapshots: 3,
+    },
+    revision: 2,
+    available: false,
+    setup_state: 'awaiting_merge',
+    setup_pr_url: 'https://github.com/acme/context/pull/1',
+    created_at: '2026-10-03T10:00:00Z',
+    updated_at: '2026-10-03T10:00:00Z',
+  };
+  await page.route('**/api/v1/ai-context/repositories?*', (route) =>
+    route.fulfill({ json: { items: [repository], total: 1, limit: 50, offset: 0 } }),
+  );
+  await page.route('**/api/v1/ai-context/repositories/aic_maintenance', (route) =>
+    route.fulfill({ json: repository }),
+  );
+  await page.route('**/api/v1/ai-context/repositories/aic_maintenance/setup', (route) =>
+    route.fulfill({
+      json: {
+        revision: 2,
+        base_commit: 'a'.repeat(40),
+        branch: 'original',
+        plan_hash: 'b'.repeat(64),
+        files: [],
+        setup: { state: 'awaiting_merge', pr_number: 1, pr_url: repository.setup_pr_url },
+      },
+    }),
+  );
+  let reviewBody: { mode?: string; config?: { keep_snapshots: number; exclude: string[] } } = {};
+  let publications = 0;
+  const preview = {
+    revision: 2,
+    base_commit: 'a'.repeat(40),
+    branch: 'maintenance',
+    plan_hash: 'c'.repeat(64),
+    files: [
+      {
+        path: 'AGENTS.md',
+        previous_sha: 'b'.repeat(40),
+        mode: '100644',
+        content: '<script>window.__contextInjected=true</script>',
+      },
+    ],
+  };
+  await page.route('**/api/v1/ai-context/repositories/aic_maintenance/maintenance', (route) => {
+    reviewBody = route.request().postDataJSON();
+    return route.fulfill({ json: preview });
+  });
+  await page.route(
+    '**/api/v1/ai-context/repositories/aic_maintenance/maintenance/apply',
+    (route) => {
+      publications++;
+      if (publications === 1)
+        return route.fulfill({
+          status: 503,
+          json: {
+            error: { code: 'unavailable', message: 'Lost GitHub response; retry this operation.' },
+          },
+        });
+      expect(route.request().postDataJSON().plan_hash).toBe(preview.plan_hash);
+      return route.fulfill({
+        json: {
+          ...preview,
+          setup: {
+            state: 'awaiting_merge',
+            pr_number: 2,
+            pr_url: 'https://github.com/acme/context/pull/2',
+          },
+        },
+      });
+    },
+  );
+  await goto(page, '/ai-context', 'AI Context');
+  await expect(page.getByRole('link', { name: 'Reinstall / repair', exact: true })).toBeVisible();
+  await page.getByRole('link', { name: 'Amend', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Amend AI Context', exact: true })).toBeVisible();
+  await page.getByLabel('Snapshots to retain').fill('6');
+  await page.getByLabel('Exclusions, one pattern per line').fill('private/**\nsecrets/**');
+  await page.getByRole('button', { name: 'Review changes', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Review repository changes' })).toBeVisible();
+  expect(reviewBody.mode).toBe('amend');
+  expect(reviewBody.config?.keep_snapshots).toBe(6);
+  expect(reviewBody.config?.exclude).toEqual(['private/**', 'secrets/**']);
+  await page.getByText('Update AGENTS.md', { exact: true }).click();
+  expect(await page.evaluate(() => '__contextInjected' in window)).toBe(false);
+  await page.setViewportSize({ width: 375, height: 812 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/ai-context-maintenance-mobile.png', fullPage: true });
+  await page.getByRole('button', { name: 'Create reviewed maintenance PR' }).click();
+  await expect(
+    page.getByText('Lost GitHub response; retry this operation.', { exact: true }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Create reviewed maintenance PR' }).click();
+  await expect(page.getByRole('link', { name: 'Open maintenance PR' })).toHaveAttribute(
+    'href',
+    'https://github.com/acme/context/pull/2',
+  );
+  await goto(page, '/ai-context', 'AI Context');
+  await page.getByRole('link', { name: 'Remove', exact: true }).click();
+  await expect(page.getByText(/immediately revokes Zoomies source access/)).toBeVisible();
+  await expect(page.getByText(/historical generated context branch/)).toBeVisible();
+  await page.getByRole('button', { name: 'Review changes', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: 'Revoke access and create removal PR' }),
+  ).toBeVisible();
+  expect(reviewBody.mode).toBe('remove');
+});

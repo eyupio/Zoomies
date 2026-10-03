@@ -324,6 +324,50 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/Unprocessable" }
+  /ai-context/repositories/{id}/maintenance:
+    parameters:
+      - $ref: "#/components/parameters/PathID"
+    post:
+      x-zoomies-role: admin
+      operationId: previewAIContextMaintenance
+      summary: Preview reinstall, amend or removal without changing repository access
+      description: Requires context.configure and GitHub setup permissions. Merge or close the previous proposal first. Apply checks the reviewed plan hash and atomically closes availability before publication. Removal also purges cached snapshots, readers and connection consent; the historical generated branch remains. Retries recover the same persisted operation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AIContextMaintenanceRequest" }
+      responses:
+        "200":
+          description: Reviewable maintenance proposal
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIContextSetupPreview" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+  /ai-context/repositories/{id}/maintenance/apply:
+    parameters:
+      - $ref: "#/components/parameters/PathID"
+    post:
+      x-zoomies-role: admin
+      operationId: applyAIContextMaintenance
+      summary: Publish an explicitly reviewed maintenance PR
+      description: Requires context.configure and GitHub setup permissions. Merge or close the previous proposal first. Apply checks the reviewed plan hash and atomically closes availability before publication. Removal also purges cached snapshots, readers and connection consent; the historical generated branch remains. Retries recover the same persisted operation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AIContextMaintenanceRequest" }
+      responses:
+        "200":
+          description: Reviewable maintenance proposal
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIContextSetupPreview" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
   /ai-context/access:
     get:
       x-zoomies-role: viewer
@@ -5243,10 +5287,21 @@ components:
           schema: { $ref: "#/components/schemas/ErrorEnvelope" }
 
   schemas:
+    AIContextMaintenanceRequest:
+      type: object
+      required: [mode, revision]
+      properties:
+        mode: { type: string, enum: [reinstall, amend, remove] }
+        revision: { type: integer, format: int64 }
+        plan_hash: { type: string, pattern: '^[a-f0-9]{64}$' }
+        config: { $ref: "#/components/schemas/AIContextRepository/properties/config" }
     AIContextSetupPreview:
       type: object
       required: [revision, base_commit, branch, plan_hash, files]
       properties:
+        mode: { type: string }
+        config: { $ref: "#/components/schemas/AIContextRepository/properties/config" }
+        previous_hash: { type: string }
         revision: { type: integer, format: int64 }
         base_commit: { type: string }
         branch: { type: string }
@@ -5261,6 +5316,7 @@ components:
               mode: { type: string, enum: ["100644", "100755"] }
               previous_sha: { type: string }
               content: { type: string }
+              delete: { type: boolean }
         setup:
           type: object
           required: [repository_id, revision, plan_hash, state, pr_number, pr_url]
@@ -5368,7 +5424,9 @@ components:
             destination: { type: string, enum: [repository, zoomies, both] }
             exclude: { type: array, items: { type: string } }
             keep_snapshots: { type: integer, minimum: 1, maximum: 100 }
-            readme_badge: { type: boolean, description: "Add the managed README badge; omitted means enabled." }
+            readme_badge: { type: boolean, deprecated: true, description: "Legacy field; the README badge is automatic." }
+            setup_generation: { type: integer, format: int64 }
+            disabled: { type: boolean }
         revision: { type: integer, format: int64 }
         freshness:
           type: object

@@ -25,6 +25,28 @@ type ContextPublication struct {
 	Snapshot     *aicontext.Snapshot
 }
 
+type ContextSetupStatusClient interface {
+	ContextSetupStatus(context.Context, string, int, string) (string, error)
+}
+
+func (c *appClient) ContextSetupStatus(ctx context.Context, repo string, number int, branch string) (string, error) {
+	owner, name, err := splitRepo(repo)
+	if err != nil {
+		return "", err
+	}
+	pr, resp, err := c.asInstallation.PullRequests.Get(ctx, owner, name, number)
+	if err != nil {
+		return "", c.fail("check context setup outcome", resp, err)
+	}
+	if pr.GetBase().GetRef() != branch {
+		return "", ErrSetupConflict
+	}
+	if pr.GetMerged() && pr.GetMergeCommitSHA() != "" {
+		return "merged", nil
+	}
+	return pr.GetState(), nil
+}
+
 func (c *appClient) ContextSetupMerged(ctx context.Context, repo string, number int, branch string) (bool, error) {
 	owner, name, err := splitRepo(repo)
 	if err != nil {

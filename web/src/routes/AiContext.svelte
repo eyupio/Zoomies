@@ -191,7 +191,11 @@
                         : 'draft'
                 : 'available',
             )}
-            label={'config' in item ? undefined : 'Shared with you'}
+            label={'config' in item
+              ? item.config.disabled
+                ? 'Removed from Zoomies'
+                : undefined
+              : 'Shared with you'}
           />
         </div>
         {#if 'config' in item}
@@ -251,6 +255,19 @@
             <Button size="sm" href="/ai-context/setup?draft_id={encodeURIComponent(item.id)}"
               >{item.setup_state ? 'View setup' : 'Resume setup'}</Button
             >
+            {#if item.setup_state}
+              {#each ['reinstall', 'amend', 'remove'] as mode (mode)}
+                <Button
+                  size="sm"
+                  href="/ai-context/setup?draft_id={encodeURIComponent(item.id)}&mode={mode}"
+                  >{mode === 'reinstall'
+                    ? 'Reinstall / repair'
+                    : mode === 'amend'
+                      ? 'Amend'
+                      : 'Remove'}</Button
+                >
+              {/each}
+            {/if}
           </div>
         {:else}<Button size="sm" href="/settings/connections">Choose connection access</Button>{/if}
         <details class="assistant-guidance">

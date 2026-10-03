@@ -128,6 +128,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ai-context/repositories/{id}/maintenance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview reinstall, amend or removal without changing repository access
+         * @description Requires context.configure and GitHub setup permissions. Merge or close the previous proposal first. Apply checks the reviewed plan hash and atomically closes availability before publication. Removal also purges cached snapshots, readers and connection consent; the historical generated branch remains. Retries recover the same persisted operation.
+         */
+        post: operations["previewAIContextMaintenance"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai-context/repositories/{id}/maintenance/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Publish an explicitly reviewed maintenance PR
+         * @description Requires context.configure and GitHub setup permissions. Merge or close the previous proposal first. Apply checks the reviewed plan hash and atomically closes availability before publication. Removal also purges cached snapshots, readers and connection consent; the historical generated branch remains. Retries recover the same persisted operation.
+         */
+        post: operations["applyAIContextMaintenance"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ai-context/access": {
         parameters: {
             query?: never;
@@ -3490,7 +3536,18 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AIContextMaintenanceRequest: {
+            /** @enum {string} */
+            mode: "reinstall" | "amend" | "remove";
+            /** Format: int64 */
+            revision: number;
+            plan_hash?: string;
+            config?: components["schemas"]["AIContextRepository"]["config"];
+        };
         AIContextSetupPreview: {
+            mode?: string;
+            config?: components["schemas"]["AIContextRepository"]["config"];
+            previous_hash?: string;
             /** Format: int64 */
             revision: number;
             base_commit: string;
@@ -3502,6 +3559,7 @@ export interface components {
                 mode: "100644" | "100755";
                 previous_sha: string;
                 content: string;
+                delete?: boolean;
             }[];
             setup?: {
                 repository_id: string;
@@ -3577,8 +3635,14 @@ export interface components {
                 destination: "repository" | "zoomies" | "both";
                 exclude: string[];
                 keep_snapshots: number;
-                /** @description Add the managed README badge; omitted means enabled. */
+                /**
+                 * @deprecated
+                 * @description Legacy field; the README badge is automatic.
+                 */
                 readme_badge?: boolean;
+                /** Format: int64 */
+                setup_generation?: number;
+                disabled?: boolean;
             };
             /** Format: int64 */
             revision: number;
@@ -7273,6 +7337,66 @@ export interface operations {
         };
         responses: {
             /** @description Durable setup PR identity */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIContextSetupPreview"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    previewAIContextMaintenance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AIContextMaintenanceRequest"];
+            };
+        };
+        responses: {
+            /** @description Reviewable maintenance proposal */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIContextSetupPreview"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    applyAIContextMaintenance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AIContextMaintenanceRequest"];
+            };
+        };
+        responses: {
+            /** @description Reviewable maintenance proposal */
             200: {
                 headers: {
                     [name: string]: unknown;

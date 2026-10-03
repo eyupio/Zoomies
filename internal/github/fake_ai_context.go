@@ -173,6 +173,10 @@ func (f *FakeGitHub) contextCreateTree(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 403, "Missing Workflows write")
 			return
 		}
+		if e.Content == nil && e.SHA == nil {
+			delete(files, e.GetPath())
+			continue
+		}
 		if e.Content != nil {
 			sha := blobSHA(e.GetContent())
 			g.Blobs[sha] = e.GetContent()

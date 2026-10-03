@@ -30,6 +30,7 @@ type SetupChange struct {
 	Path        string `json:"path"`
 	PreviousSHA string `json:"previous_sha"`
 	Content     string `json:"content"`
+	Delete      bool   `json:"delete,omitempty"`
 }
 
 type managedConfig struct {
@@ -136,7 +137,7 @@ func PlanSetupFiles(key RepositoryKey, fullName string, config Config, files []S
 		}
 		add(p, content)
 	}
-	if readme != "" && (config.ReadmeBadge == nil || *config.ReadmeBadge) {
+	if readme != "" {
 		link := "https://" + key.GitHubHost + "/" + fullName + "/actions/workflows/" + url.PathEscape("zoomies-ai-context.yml")
 		badge := "[![Zoomies AI Context](" + link + "/badge.svg)](" + link + ")\n\nRepomix-generated context: [`" + OutputDirectory + "/`](https://" + key.GitHubHost + "/" + fullName + "/tree/" + OutputBranch + "/" + OutputDirectory + "). The badge shows workflow status, not context freshness or assistant connectivity. Private repository badges require GitHub access."
 		content, err := mergeBadgeSection(existing[readme].Content, badge)

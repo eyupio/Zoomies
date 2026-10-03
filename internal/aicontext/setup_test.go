@@ -28,7 +28,7 @@ func TestAssistantInstructionsDescribeTheSelectedDestinationAndConnection(t *tes
 	}
 }
 
-func TestSetupAllowsTheReadmeBadgeToBeLeftOutWithoutRemovingExistingText(t *testing.T) {
+func TestSetupAlwaysAddsTheReadmeBadgeAndPreservesExistingText(t *testing.T) {
 	key, config := setupInputs()
 	include := false
 	config.ReadmeBadge = &include
@@ -36,10 +36,17 @@ func TestSetupAllowsTheReadmeBadgeToBeLeftOutWithoutRemovingExistingText(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
+	found := false
 	for _, change := range changes {
 		if change.Path == "README.md" {
-			t.Fatal("opting out changed the README")
+			found = true
+			if !strings.Contains(change.Content, "User badge stays here.") || !strings.Contains(change.Content, BadgeMarkdown(key, "owner/repo")) {
+				t.Fatal("automatic badge lost user text")
+			}
 		}
+	}
+	if !found {
+		t.Fatal("automatic README badge missing")
 	}
 	if !strings.Contains(BadgeMarkdown(key, "owner/repo"), "zoomies-ai-context.yml/badge.svg") {
 		t.Fatal("badge uses the wrong workflow")
