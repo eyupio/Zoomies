@@ -1,6 +1,6 @@
 # Zoomies AI Context handoff
 
-Updated: 3 October 2026. Branch: `feature/ai-context-source-retrieval`. Latest checkpoint is at the end of this file.
+Updated: 3 October 2026. Branch: `feature/ai-context-maintenance`. Latest checkpoint is at the end of this file.
 Foundation PR: https://github.com/eyupio/zoomies/pull/570 (merged).
 Previous continuation PR: https://github.com/eyupio/zoomies/pull/571 (merged).
 Published implementation commit: `50098edf15de94562e54d60adedde8ebffa5df7d`.
@@ -230,3 +230,5 @@ Live evidence: PR #577 is merged, main b9489f738d3afa98559634786d4e16c87dd78a44.
 Validation: maintenance API lifecycle passed through reinstall → amend → remove → reinstall, including lost GitHub PR responses, same-PR retries, rejected open proposals, wrong approval hashes, preview non-mutation, generation changes, file deletion and user README preservation. Source/planner/GitHub/store race checks and targeted AI Context/OpenAPI API race tests passed. Removal store checks cover atomic conflict rollback, cached source/member/connection-consent purge and rejection of old or disabled publications. Targeted vet passed. Svelte check reported zero errors/warnings, production builds and lint passed. Three real-controller/fake-GitHub Playwright journeys passed (9.9s), including maintenance settings/review, publication retry, removal effects, safe rendering and 375px layout. Mobile screenshot visually inspected. The broader API suite was blocked by automatic approval review for its external tailcat.dev request; no bypass attempted.
 
 Still outstanding from the product correction: safely scoped user-level enablement/ownership (current admin gate remains), repository-only transient retrieval, Zoomies-only uploads and live assistant pilot. This maintenance increment does not claim those are complete.
+
+Published the maintenance checkpoint in PR #579: https://github.com/eyupio/zoomies/pull/579. Implementation commit 2ec3829f1e7c05d57b86379af10037dc4bf47a59 has tree bde4e5cccc80dff32303a32c65f941f28e81c361, exactly matching the validated local code. The PR is open; merge/deployment and remote CI completion are not claimed.
