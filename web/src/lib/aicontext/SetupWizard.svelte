@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import {
     ApiError,
     createAIContextDraft,
@@ -23,6 +23,8 @@
     User,
   } from '$lib/api/types';
   import { router } from '$lib/router';
+  import CopyButton from '$lib/components/CopyButton.svelte';
+  import { aiContextStatus } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
   import Checkbox from '$lib/components/Checkbox.svelte';
@@ -103,6 +105,14 @@
   };
   let outcomes = $state<Record<number, Outcome>>({});
   let showResults = $state(false);
+  let resultHeading = $state<HTMLHeadingElement | null>(null);
+  let operation = $state<'drafts' | 'preview' | 'publish' | null>(null);
+  const retentionValid = $derived(
+    Number.isInteger(Number(keep)) && Number(keep) >= 1 && Number(keep) <= 100,
+  );
+  const exclusionsValid = $derived(
+    exclusions.split('\n').filter((line) => line.trim()).length <= 100,
+  );
 
   const selectedRepositories = $derived(
     (discovery?.repositories ?? []).filter((r) => repositoryIds.includes(r.id)),
@@ -121,12 +131,7 @@
           .includes(readerSearch.toLowerCase()),
     ),
   );
-  const configValid = $derived(
-    Number.isInteger(Number(keep)) &&
-      Number(keep) >= 1 &&
-      Number(keep) <= 100 &&
-      exclusions.split('\n').filter((line) => line.trim()).length <= 100,
-  );
+  const configValid = $derived(retentionValid && exclusionsValid);
   const canAdvance = $derived(
     !loading &&
       !discovering &&
@@ -251,7 +256,13 @@
   async function saveDrafts(): Promise<void> {
     if (busy) return;
     busy = true;
+    operation = 'drafts';
+    const openingReview = !showResults;
     showResults = true;
+    if (openingReview) {
+      await tick();
+      resultHeading?.focus();
+    }
     for (const repository of selectedRepositories) {
       if (!outcomes[repository.id]) outcomes[repository.id] = { name: repository.full_name };
     }
@@ -301,6 +312,7 @@
       }
     }
     busy = false;
+    operation = null;
   }
 
   async function reviewSetups(): Promise<void> {
@@ -310,6 +322,7 @@
   async function previewSetups(): Promise<void> {
     if (busy) return;
     busy = true;
+    operation = 'preview';
     for (const repository of selectedRepositories) {
       const result = outcomes[repository.id];
       if (!result?.saved || !result.draft || result.submitted) continue;
@@ -330,10 +343,12 @@
       }
     }
     busy = false;
+    operation = null;
   }
   async function createSetups(): Promise<void> {
     if (busy) return;
     busy = true;
+    operation = 'publish';
     for (const repository of selectedRepositories) {
       const result = outcomes[repository.id];
       if (!result?.saved || !result.draft || !result.preview || result.submitted) continue;
@@ -352,6 +367,7 @@
       }
     }
     busy = false;
+    operation = null;
   }
   const readySetups = $derived(
     Object.values(outcomes).filter((r) => r.saved && r.preview && !r.submitted),
@@ -361,31 +377,44 @@
 {#if loading}<Skeleton lines={4} />
 {:else if showResults}
   <section class="result-panel" aria-labelledby="result-heading">
-    <h2 id="result-heading" tabindex="-1">Review repository changes</h2>
+    <h2 id="result-heading" bind:this={resultHeading} tabindex="-1">Review repository changes</h2>
     <p class="muted">
       Saved drafts can be resumed after a restart. Merge and successful generation make repository
       output available. Assistant access also requires verified ingestion.
     </p>
-    <div class="choices" aria-live="polite">
+    <p class="review-progress" role="status">
+      {#if operation === 'drafts'}Saving repository drafts…
+      {:else if operation === 'preview'}Checking proposed files…
+      {:else if operation === 'publish'}Creating setup pull requests…
+      {:else}{Object.values(outcomes).filter((r) => r.submitted).length} of {Object.keys(outcomes)
+          .length} setup PRs created · {readySetups.length} ready to review{/if}
+    </p>
+    <div class="results" aria-busy={busy}>
       {#each Object.entries(outcomes) as [id, result] (id)}
         <section class="result">
           <div class="row">
             <h3>{result.name}</h3>
             <Badge
-              label={result.submitted
-                ? 'Awaiting merge'
-                : result.setupError || result.error
-                  ? 'Needs attention'
-                  : result.saved
-                    ? 'Draft saved'
-                    : 'Saving'}
+              status={aiContextStatus(
+                result.submitted
+                  ? 'awaiting_merge'
+                  : result.setupError || result.error
+                    ? 'attention'
+                    : result.preview
+                      ? 'review'
+                      : result.saved
+                        ? 'draft'
+                        : 'working',
+              )}
             />
           </div>
-          {#if result.error}<p role="alert">{result.error}</p>{/if}
-          {#if result.setupError}<p role="alert">{result.setupError}</p>{/if}
+          {#if result.error}<p class="refusal" role="alert">{result.error}</p>{/if}
+          {#if result.setupError}<p class="refusal" role="alert">{result.setupError}</p>{/if}
           {#if result.preview}
             {#if result.submitted && result.preview.setup?.pr_url}
-              <Button size="sm" href={result.preview.setup.pr_url}>Open setup PR</Button>
+              <div class="repository-actions">
+                <Button size="sm" newTab href={result.preview.setup.pr_url}>Open setup PR</Button>
+              </div>
               <p class="muted">
                 Merge and successful generation are required. Assistant source access remains a
                 separate choice.
@@ -397,7 +426,14 @@
               </p>
               {#each result.preview.files as file (file.path)}
                 <details class="file-preview">
-                  <summary>{file.path} · {file.previous_sha ? 'Update' : 'New file'}</summary>
+                  <summary
+                    ><span class="file-path">{file.path}</span><span class="file-kind"
+                      >{file.previous_sha ? 'Update' : 'New file'}</span
+                    ></summary
+                  >
+                  <div class="preview-tools">
+                    <CopyButton value={file.content} label="Copy contents" showLabel />
+                  </div>
                   <Textarea
                     readonly
                     mono
@@ -409,26 +445,41 @@
               {/each}
             {/if}
           {/if}
-          {#if result.draft}<Button
-              size="sm"
-              disabled={busy}
-              href="/ai-context/setup?draft_id={encodeURIComponent(result.draft.id)}"
-              >Resume draft</Button
-            >{/if}
+          {#if result.draft}<div class="repository-actions">
+              <Button
+                size="sm"
+                disabled={busy}
+                href="/ai-context/setup?draft_id={encodeURIComponent(result.draft.id)}"
+                >{result.submitted ? 'View setup' : 'Resume draft'}</Button
+              >
+            </div>{/if}
         </section>
       {/each}
     </div>
     <div class="actions">
-      <Button href="/ai-context" disabled={busy}>Back to AI Context</Button
-      >{#if failed.length}<Button variant="primary" loading={busy} onclick={reviewSetups}
-          >Retry failed drafts</Button
-        >{/if}
-      {#if Object.values(outcomes).some((r) => r.saved && !r.submitted)}
-        <Button loading={busy} onclick={previewSetups}>Recheck setup previews</Button>
-      {/if}
-      {#if readySetups.length}
-        <Button variant="primary" loading={busy} onclick={createSetups}>Create setup PRs</Button>
-      {/if}
+      <div class="secondary-actions">
+        <Button href="/ai-context" disabled={busy}>Back to AI Context</Button>
+      </div>
+      <div class="submit-actions">
+        {#if failed.length}<Button
+            disabled={busy}
+            loading={operation === 'drafts'}
+            onclick={reviewSetups}>Retry failed drafts</Button
+          >{/if}
+        {#if Object.values(outcomes).some((r) => r.saved && !r.submitted)}
+          <Button disabled={busy} loading={operation === 'preview'} onclick={previewSetups}
+            >Recheck setup previews</Button
+          >
+        {/if}
+        {#if readySetups.length}
+          <Button
+            variant="primary"
+            disabled={busy}
+            loading={operation === 'publish'}
+            onclick={createSetups}>Create setup PRs</Button
+          >
+        {/if}
+      </div>
     </div>
     <p class="muted publication-note">
       Creating setup PRs writes only the reviewed files on a new branch. Configuration is frozen
@@ -539,8 +590,10 @@
               A selected repository is no longer visible to this installation. Return to repository
               selection or ask its administrator to restore access.
             </p>{/if}
-          <Button loading={discovering} onclick={() => void recheck()}>Recheck permissions</Button
-          ><Button href="/installations">Manage installations</Button>
+          <div class="repository-actions">
+            <Button loading={discovering} onclick={() => void recheck()}>Recheck permissions</Button
+            ><Button href="/installations">Manage installations</Button>
+          </div>
         </div>
       {:else if current.id === 'output'}
         <RadioGroup
@@ -591,10 +644,13 @@
           </div>
           <Field
             label="Exclusions"
+            error={!exclusionsValid ? 'Use at most 100 exclusion patterns.' : ''}
+            help="Patterns are relative to the repository root. Mandatory credential exclusions always apply."
             hint="One repository-relative pattern per line. Secrets, dependencies and generated files are excluded by default."
-            >{#snippet children({ id, describedBy })}<Textarea
+            >{#snippet children({ id, describedBy, invalid })}<Textarea
                 {id}
                 {describedBy}
+                {invalid}
                 bind:value={exclusions}
                 disabled={setupFrozen}
                 rows={7}
@@ -604,9 +660,7 @@
           <Field
             label="Snapshots to retain"
             hint="Keep between 1 and 100 Zoomies snapshots once ingestion is available. Repository output follows normal Git history."
-            error={!configValid
-              ? 'Use a whole retention count from 1 to 100 and at most 100 exclusions.'
-              : ''}
+            error={!retentionValid ? 'Use a whole number from 1 to 100.' : ''}
             >{#snippet children({ id, describedBy, invalid })}<Input
                 {id}
                 {describedBy}
@@ -651,6 +705,11 @@
                     : readerIds.filter((id) => id !== user.id);
                 }}
               />{/each}
+            {#if matchingUsers.length === 0}<p class="muted">
+                {readerSearch
+                  ? 'No matching people. Try another search.'
+                  : 'No eligible source readers. You can continue without adding anyone.'}
+              </p>{/if}
           </div>
         </div>
       {:else}
@@ -675,6 +734,12 @@
               <dd>{readerIds.length} explicitly selected</dd>
             </div>
           </dl>
+          <h3>Selected repositories</h3>
+          <ul class="paths">
+            {#each selectedRepositories as repository (repository.id)}<li>
+                {repository.full_name}
+              </li>{/each}
+          </ul>
           <h3>Repository setup paths</h3>
           <ul class="paths">
             <li><code>.github/workflows/zoomies-ai-context.yml</code></li>
@@ -704,6 +769,73 @@
   .file-preview summary {
     cursor: pointer;
     overflow-wrap: anywhere;
+    font-size: var(--z-text-sm);
+  }
+  .file-path {
+    font-family: var(--z-font-mono);
+  }
+  .file-kind {
+    color: var(--z-text-subtle);
+    margin-left: var(--z-space-2);
+    white-space: nowrap;
+  }
+  .preview-tools {
+    display: flex;
+    justify-content: flex-end;
+    margin: var(--z-space-3) 0;
+  }
+  .results {
+    display: grid;
+    gap: var(--z-space-4);
+    margin-top: var(--z-space-4);
+    min-width: 0;
+  }
+  .review-progress {
+    margin-top: var(--z-space-4);
+    color: var(--z-text-muted);
+    font-size: var(--z-text-sm);
+  }
+  .refusal {
+    padding: var(--z-space-3);
+    border-left: var(--z-border-width-rail) solid var(--z-danger);
+    background: var(--z-danger-subtle);
+    overflow-wrap: anywhere;
+  }
+  .repository-actions,
+  .secondary-actions,
+  .submit-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--z-space-3);
+  }
+  .row h3 {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    flex: 1;
+    margin: 0;
+  }
+  .result-panel h2 {
+    margin: 0 0 var(--z-space-3);
+    font-size: var(--z-text-lg);
+  }
+  @media (max-width: 600px) {
+    .result-panel {
+      padding: var(--z-space-4);
+    }
+    .result {
+      padding: var(--z-space-3);
+    }
+    .actions,
+    .secondary-actions,
+    .submit-actions {
+      width: 100%;
+    }
+    .submit-actions {
+      flex-direction: column;
+    }
+    .submit-actions :global(.btn) {
+      width: 100%;
+    }
   }
 
   .publication-note {
@@ -755,9 +887,7 @@
     display: grid;
     gap: var(--z-space-3);
   }
-  .result-panel > .choices {
-    margin-top: var(--z-space-4);
-  }
+
   dl {
     display: grid;
     gap: var(--z-space-3);

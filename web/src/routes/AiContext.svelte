@@ -8,6 +8,7 @@
   import type { AIContextRepository, Installation } from '$lib/api/types';
   import { router } from '$lib/router';
   import { session } from '$lib/state/session.svelte';
+  import { aiContextStatus } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
@@ -129,12 +130,22 @@
 {:else if items.length === 0}
   <EmptyState
     icon={BookOpenText}
-    title={query || installationId ? 'No matching repositories' : 'Prepare your first repository'}
-    description={canConfigure
-      ? 'Choose repositories, output and source readers. Save your setup drafts, then review repository changes before context is published.'
-      : 'Repositories appear here only after an administrator makes them available and explicitly adds you as a source reader.'}
+    title={query || installationId
+      ? 'No matching repositories'
+      : canConfigure
+        ? 'Prepare your first repository'
+        : 'No shared repositories yet'}
+    description={query || installationId
+      ? 'Try another search or clear the filters to see all repositories.'
+      : canConfigure
+        ? 'Choose repositories, output and source readers. Save your setup drafts, then review repository changes before context is published.'
+        : 'Repositories appear here only after an administrator makes them available and explicitly adds you as a source reader.'}
   >
-    {#if canConfigure}<Button variant="primary" href="/ai-context/setup">Enable repositories</Button
+    {#if query || installationId}<Button
+        onclick={() => router.setQuery({ q: null, installation_id: null, offset: null })}
+        >Clear filters</Button
+      >{:else if canConfigure}<Button variant="primary" href="/ai-context/setup"
+        >Enable repositories</Button
       >{:else}<Button href="/settings/connections">MCP connections</Button>{/if}
   </EmptyState>
 {:else}
@@ -144,15 +155,18 @@
         <div class="heading">
           <h2>{item.full_name}</h2>
           <Badge
-            label={'config' in item
-              ? item.available
-                ? 'Source access available'
-                : item.setup_state === 'awaiting_merge'
-                  ? 'Awaiting merge'
-                  : item.setup_state === 'pending'
-                    ? 'Setup pending'
-                    : 'Draft'
-              : 'Shared with you'}
+            status={aiContextStatus(
+              'config' in item
+                ? item.available
+                  ? 'available'
+                  : item.setup_state === 'awaiting_merge'
+                    ? 'awaiting_merge'
+                    : item.setup_state === 'pending'
+                      ? 'working'
+                      : 'draft'
+                : 'available',
+            )}
+            label={'config' in item ? undefined : 'Shared with you'}
           />
         </div>
         {#if 'config' in item}
@@ -180,7 +194,8 @@
             </div>
           </dl>
           <div class="actions">
-            {#if item.setup_pr_url}<Button size="sm" href={item.setup_pr_url}>Open setup PR</Button
+            {#if item.setup_pr_url}<Button size="sm" newTab href={item.setup_pr_url}
+                >Open setup PR</Button
               >{/if}
             <Button size="sm" href="/ai-context/setup?draft_id={encodeURIComponent(item.id)}"
               >{item.setup_state ? 'View setup' : 'Resume setup'}</Button
@@ -219,6 +234,7 @@
     gap: var(--z-space-4);
   }
   .repository {
+    min-width: 0;
     background: var(--z-surface);
     border: var(--z-border-width) solid var(--z-border);
     border-radius: var(--z-radius-md);
@@ -234,6 +250,7 @@
     gap: var(--z-space-3);
   }
   h2 {
+    min-width: 0;
     margin: 0;
     font-size: var(--z-text-base);
   }

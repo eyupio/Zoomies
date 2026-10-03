@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
-import { browserOverride, goto } from './support/fixtures';
+import { browserOverride, chooseTheme, goto } from './support/fixtures';
 
 test.use(browserOverride);
 
@@ -36,7 +36,17 @@ test('setup saves resumable drafts, retries only failures and never enables sour
     await next.click();
     await expect(page.getByRole('radio', { name: /^Zoomies only/ })).toBeDisabled();
     await next.click();
+    await page.getByLabel('Snapshots to retain').fill('0');
+    await expect(page.getByText('Use a whole number from 1 to 100.')).toBeVisible();
+    await expect(next).toBeDisabled();
     await page.getByLabel('Snapshots to retain').fill('7');
+    const exclusions = page.getByRole('textbox', { name: 'Exclusions', exact: true });
+    const originalExclusions = await exclusions.inputValue();
+    await exclusions.fill(Array.from({ length: 101 }, (_, i) => `excluded-${i}`).join('\n'));
+    await expect(exclusions).toHaveAttribute('aria-invalid', 'true');
+    await expect(page.getByText('Use at most 100 exclusion patterns.')).toBeVisible();
+    await expect(page.getByText('Use a whole number from 1 to 100.')).toHaveCount(0);
+    await exclusions.fill(originalExclusions);
     await page.setViewportSize({ width: 375, height: 812 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
@@ -99,9 +109,10 @@ test('setup saves resumable drafts, retries only failures and never enables sour
       return route.fulfill({ json: preview });
     });
     await page.getByRole('button', { name: 'Review setup changes' }).click();
-    await expect(page.getByText('Draft saved', { exact: true })).toHaveCount(1);
+    await expect(page.getByRole('heading', { name: 'Review repository changes' })).toBeFocused();
+    await expect(page.getByText('Ready to review', { exact: true })).toHaveCount(1);
     await page.getByRole('button', { name: 'Retry failed drafts' }).click();
-    await expect(page.getByText('Draft saved', { exact: true })).toHaveCount(2);
+    await expect(page.getByText('Ready to review', { exact: true })).toHaveCount(2);
     expect(patches).toBe(3);
     const drafts = await (await request.get('/api/v1/ai-context/repositories')).json();
     expect(drafts.items).toHaveLength(2);
@@ -121,22 +132,42 @@ test('setup saves resumable drafts, retries only failures and never enables sour
       true,
     );
     expect(await page.evaluate(() => '__contextInjected' in window)).toBe(false);
+    await expect(page.getByRole('button', { name: 'Copy contents' }).first()).toBeVisible();
+    expect(await page.locator('.results').evaluate((el) => getComputedStyle(el).overflowY)).toBe(
+      'visible',
+    );
     await page.screenshot({
       path: 'test-results/ai-context-managed-preview-mobile.png',
       fullPage: true,
     });
+    await chooseTheme(page, 'dark');
+    await page.screenshot({
+      path: 'test-results/ai-context-review-mobile-dark.png',
+      fullPage: true,
+    });
+    await chooseTheme(page, 'light');
     await page.getByRole('button', { name: 'Create setup PRs', exact: true }).click();
-    await expect(page.getByRole('link', { name: 'Open setup PR' })).toHaveCount(1);
+    await expect(page.getByRole('link', { name: /Open setup PR/ })).toHaveCount(1);
     await page.getByRole('button', { name: 'Create setup PRs', exact: true }).click();
-    await expect(page.getByRole('link', { name: 'Open setup PR' })).toHaveCount(2);
+    await expect(page.getByRole('link', { name: /Open setup PR/ })).toHaveCount(2);
+    await expect(page.getByRole('link', { name: /Open setup PR/ }).first()).toHaveAttribute(
+      'target',
+      '_blank',
+    );
     expect(setupPosts).toBe(3);
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.screenshot({
       path: 'test-results/ai-context-managed-results-desktop.png',
       fullPage: true,
     });
+    await chooseTheme(page, 'dark');
+    await page.screenshot({
+      path: 'test-results/ai-context-results-desktop-dark.png',
+      fullPage: true,
+    });
+    await chooseTheme(page, 'light');
     await page.unroute('**/api/v1/ai-context/repositories/*/setup');
-    await page.getByRole('link', { name: 'Resume draft' }).first().click();
+    await page.getByRole('link', { name: 'View setup' }).first().click();
     await expect(page.getByLabel('GitHub installation')).toBeDisabled();
     await next.click();
     await next.click();
