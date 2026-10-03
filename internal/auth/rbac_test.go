@@ -69,6 +69,13 @@ func TestEveryActionHasARole(t *testing.T) {
 // way carries no more than the viewer does.
 var ownCredentials = map[Action]bool{ActionTokensOwn: true}
 
+// ownershipChecked are write actions a viewer holds only as the coarse gate:
+// every handler behind them also requires the caller to own what they change
+// (context.manage: an installation an administrator delegated), so the role
+// alone reaches nothing. Adding to this list is a security decision; the route
+// walk in internal/api shows which handlers carry the second check.
+var ownershipChecked = map[Action]bool{ActionContextManage: true}
+
 // TestRoleAuthority walks the full action list for every role. A viewer must
 // not be able to perform any write action -- that single assertion is what
 // stops a new mutating endpoint from being given away for free.
@@ -82,7 +89,7 @@ func TestRoleAuthority(t *testing.T) {
 			if got != want {
 				t.Errorf("%s may do %s = %v; want %v (minimum role %s)", role, a, got, want, a.MinRole())
 			}
-			if role == store.RoleViewer && got && !readVerbs[a.Verb()] && !ownCredentials[a] {
+			if role == store.RoleViewer && got && !readVerbs[a.Verb()] && !ownCredentials[a] && !ownershipChecked[a] {
 				t.Errorf("a viewer may perform the write action %s; every mutating action needs operator or admin", a)
 			}
 			if !got && Explain(id, a) == "" {

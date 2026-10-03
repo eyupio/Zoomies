@@ -3,10 +3,10 @@
   import {
     listAIContextRepositories,
     listReadableAIContext,
-    listInstallations,
+    listContextInstallations,
     recheckAIContext,
   } from '$lib/api/client';
-  import type { AIContextRepository, Installation } from '$lib/api/types';
+  import type { AIContextRepository } from '$lib/api/types';
   import { router } from '$lib/router';
   import { session } from '$lib/state/session.svelte';
   import { formatAbsolute } from '$lib/format';
@@ -19,10 +19,11 @@
   import Field from '$lib/components/Field.svelte';
   import Input from '$lib/components/Input.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
+  import OwnersDialog from '$lib/aicontext/OwnersDialog.svelte';
   import Select from '$lib/components/Select.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
 
-  const canConfigure = $derived(session.can('admin'));
+  const isAdmin = $derived(session.can('admin'));
   const query = $derived(router.param('q'));
   const installationId = $derived(router.param('installation_id'));
   const offset = $derived(Math.max(0, Number(router.param('offset')) || 0));
@@ -32,8 +33,14 @@
       | { id: string; full_name: string; instructions?: string; badge_markdown?: string }
     )[]
   >([]);
-  type KnownInstallation = Installation & { id: string; target: string };
+  // The installations this person may enable repositories for: all of them for
+  // an administrator, otherwise only the ones an administrator made them owner of.
+  type KnownInstallation = { id: string; target: string };
   let installations = $state<KnownInstallation[]>([]);
+  let installationsLoaded = $state(false);
+  let ownersFor = $state<KnownInstallation | null>(null);
+  let ownersOpen = $state(false);
+  const canConfigure = $derived(isAdmin || installations.length > 0);
   let total = $state(0);
   let loading = $state(true);
   let failure = $state<unknown>(null);
@@ -55,6 +62,7 @@
   }
 
   $effect(() => {
+    if (!installationsLoaded) return;
     const admin = canConfigure,
       q = query,
       page = offset,
@@ -86,17 +94,17 @@
     };
   });
   $effect(() => {
-    if (!canConfigure) return;
+    void reload;
     const controller = new AbortController();
-    void listInstallations(controller.signal)
+    void listContextInstallations(controller.signal)
       .then((result) => {
-        if (!controller.signal.aborted)
-          installations = (result.items ?? []).filter(
-            (i): i is KnownInstallation => !!i.id && !!i.target,
-          );
+        if (!controller.signal.aborted) installations = result.items ?? [];
       })
       .catch(() => {
-        /* The configuration list remains usable without installation labels. */
+        /* Without the list this person is treated as a reader, which is the safe side. */
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) installationsLoaded = true;
       });
     return () => controller.abort();
   });
@@ -113,6 +121,28 @@
       >Enable repositories</Button
     >{/if}
 </PageHeader>
+
+{#if isAdmin && installations.length > 0}
+  <details class="owners">
+    <summary>Installation owners</summary>
+    <p class="muted">
+      An owner can enable repositories for an installation without being an administrator. Ownership
+      never grants source access.
+    </p>
+    <div class="actions">
+      {#each installations as installation (installation.id)}
+        <Button
+          size="sm"
+          onclick={() => {
+            ownersFor = installation;
+            ownersOpen = true;
+          }}>Owners of {installation.target}</Button
+        >
+      {/each}
+    </div>
+  </details>
+  <OwnersDialog bind:open={ownersOpen} installation={ownersFor} />
+{/if}
 
 <div class="filters">
   <Field label="Search repositories" hideLabel>
@@ -142,7 +172,7 @@
   {/if}
 </div>
 
-{#if loading}<Skeleton lines={4} />
+{#if loading || !installationsLoaded}<Skeleton lines={4} />
 {:else if failure}<ErrorState
     error={failure}
     title="Repositories could not be loaded"
@@ -162,7 +192,7 @@
       ? 'Try another search or clear the filters to see all repositories.'
       : canConfigure
         ? 'Choose repositories, output and source readers. Save your setup drafts, then review repository changes before context is published.'
-        : 'Repositories appear here only after an administrator makes them available and explicitly adds you as a source reader.'}
+        : 'Repositories appear here only after an administrator or installation owner makes them available and explicitly adds you as a source reader.'}
   >
     {#if query || installationId}<Button
         onclick={() => router.setQuery({ q: null, installation_id: null, offset: null })}
@@ -316,6 +346,12 @@
 {/if}
 
 <style>
+  .owners {
+    margin-bottom: var(--z-space-4);
+  }
+  .owners summary {
+    cursor: pointer;
+  }
   .assistant-guidance {
     margin-top: var(--z-space-4);
   }

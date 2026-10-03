@@ -271,7 +271,7 @@ paths:
       tags: [AI Context]
       summary: Verify setup, GitHub access and generated context
       operationId: recheckAIContext
-      x-zoomies-role: admin
+      x-zoomies-role: viewer
       parameters:
         - { name: id, in: path, required: true, schema: { type: string } }
       responses:
@@ -287,10 +287,10 @@ paths:
     parameters:
       - $ref: "#/components/parameters/PathID"
     get:
-      x-zoomies-role: admin
+      x-zoomies-role: viewer
       operationId: previewAIContextSetup
       summary: Preview the complete managed repository setup without writing GitHub files
-      description: Requires context.configure (admin), live repository access and explicit GitHub setup write permissions. Returns pinned proposed file contents, original blob hashes and the plan hash. Refuses custom/ambiguous ownership and non-regular files. Existing durable proposals return their original review and PR state.
+      description: Requires context.configure (admin) or ownership of the repository's installation (context.manage), plus live repository access and explicit GitHub setup write permissions. Returns pinned proposed file contents, original blob hashes and the plan hash. Refuses custom/ambiguous ownership and non-regular files. Existing durable proposals return their original review and PR state.
       responses:
         "200":
           description: Reviewable setup proposal
@@ -301,10 +301,10 @@ paths:
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/Unprocessable" }
     post:
-      x-zoomies-role: admin
+      x-zoomies-role: viewer
       operationId: createAIContextSetupPR
       summary: Create or recover one reviewed setup pull request
-      description: Requires context.configure (admin) and live GitHub Contents/Workflows/Pull requests write permissions. Explicitly approve the returned revision and plan hash. Persists the same proposal before writing, freezes configuration and publishes all files in one Git commit. Retries reconcile the same PR; no source availability or connection consent is granted. Opening a PR does not enable source retrieval.
+      description: Requires context.configure (admin) or ownership of the repository's installation (context.manage), plus live GitHub Contents/Workflows/Pull requests write permissions. Explicitly approve the returned revision and plan hash. Persists the same proposal before writing, freezes configuration and publishes all files in one Git commit. Retries reconcile the same PR; no source availability or connection consent is granted. Opening a PR does not enable source retrieval.
       requestBody:
         required: true
         content:
@@ -328,10 +328,10 @@ paths:
     parameters:
       - $ref: "#/components/parameters/PathID"
     post:
-      x-zoomies-role: admin
+      x-zoomies-role: viewer
       operationId: previewAIContextMaintenance
       summary: Preview reinstall, amend or removal without changing repository access
-      description: Requires context.configure and GitHub setup permissions. Merge or close the previous proposal first. Apply checks the reviewed plan hash and atomically closes availability before publication. Removal also purges cached snapshots, readers and connection consent; the historical generated branch remains. Retries recover the same persisted operation.
+      description: Requires context.configure or installation ownership (context.manage), and GitHub setup permissions. Merge or close the previous proposal first. Apply checks the reviewed plan hash and atomically closes availability before publication. Removal also purges cached snapshots, readers and connection consent; the historical generated branch remains. Retries recover the same persisted operation.
       requestBody:
         required: true
         content:
@@ -350,10 +350,10 @@ paths:
     parameters:
       - $ref: "#/components/parameters/PathID"
     post:
-      x-zoomies-role: admin
+      x-zoomies-role: viewer
       operationId: applyAIContextMaintenance
       summary: Publish an explicitly reviewed maintenance PR
-      description: Requires context.configure and GitHub setup permissions. Merge or close the previous proposal first. Apply checks the reviewed plan hash and atomically closes availability before publication. Removal also purges cached snapshots, readers and connection consent; the historical generated branch remains. Retries recover the same persisted operation.
+      description: Requires context.configure or installation ownership (context.manage), and GitHub setup permissions. Merge or close the previous proposal first. Apply checks the reviewed plan hash and atomically closes availability before publication. Removal also purges cached snapshots, readers and connection consent; the historical generated branch remains. Retries recover the same persisted operation.
       requestBody:
         required: true
         content:
@@ -390,12 +390,61 @@ paths:
               schema: { $ref: "#/components/schemas/AIContextReaderPage" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "422": { $ref: "#/components/responses/Unprocessable" }
-  /ai-context/draft:
+  /ai-context/installations:
+    get:
+      x-zoomies-role: viewer
+      operationId: listAIContextInstallations
+      summary: Installations the caller may enable AI Context for
+      description: Requires context.manage. Administrators see every installation; anyone else sees only the installations an administrator made them owner of, with just a label. Tokens and OAuth connections see none.
+      responses:
+        "200":
+          description: Manageable installations
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIContextInstallations" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /ai-context/installations/{id}/owners:
+    parameters:
+      - $ref: "#/components/parameters/PathID"
     get:
       x-zoomies-role: admin
+      operationId: getAIContextInstallationOwners
+      summary: Read who may enable AI Context for an installation
+      description: Requires context.configure (admin).
+      responses:
+        "200":
+          description: Installation owners
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIContextMembers" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      x-zoomies-role: admin
+      operationId: putAIContextInstallationOwners
+      summary: Replace an installation's AI Context owners
+      description: Requires context.configure (admin). An owner can discover, configure and set up that installation's repositories, and can add or remove only themselves as a reader. Ownership grants no source access and no connection consent. user_ids is required; an empty array removes every owner.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AIContextMembers" }
+      responses:
+        "200":
+          description: Owners saved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIContextMembers" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+  /ai-context/draft:
+    get:
+      x-zoomies-role: viewer
       operationId: findAIContextDraft
       summary: Find an existing draft using its installation and stable repository ID
-      description: Requires context.configure (admin). Uses the installation's server-resolved GitHub host; no source access is granted. Supports safe retry after a draft creation response is lost.
+      description: Requires context.configure (admin) or ownership of the repository's installation (context.manage); anyone else receives 404. Uses the installation's server-resolved GitHub host; no source access is granted. Supports safe retry after a draft creation response is lost.
       parameters:
         - in: query
           name: installation_id
@@ -416,10 +465,10 @@ paths:
         "422": { $ref: "#/components/responses/Unprocessable" }
   /ai-context/repositories/{id}:
     get:
-      x-zoomies-role: admin
+      x-zoomies-role: viewer
       operationId: getAIContextRepository
       summary: Resume a repository configuration draft
-      description: Requires context.configure (admin).
+      description: Requires context.configure (admin) or ownership of the repository's installation (context.manage); anyone else receives 404.
       parameters:
         - $ref: "#/components/parameters/PathID"
       responses:
@@ -434,10 +483,10 @@ paths:
     parameters:
       - $ref: "#/components/parameters/PathID"
     get:
-      x-zoomies-role: admin
+      x-zoomies-role: viewer
       operationId: getAIContextMembers
       summary: Read explicit repository source membership
-      description: Requires context.configure (admin). Membership is independent of fleet roles and connection consent.
+      description: Requires context.configure (admin) or ownership of the repository's installation (context.manage); anyone else receives 404. Membership is independent of fleet roles and connection consent.
       responses:
         "200":
           description: Repository members
@@ -446,10 +495,10 @@ paths:
               schema: { $ref: "#/components/schemas/AIContextMembers" }
         "403": { $ref: "#/components/responses/Forbidden" }
     put:
-      x-zoomies-role: admin
+      x-zoomies-role: viewer
       operationId: putAIContextMembers
       summary: Replace explicit repository source membership
-      description: Requires context.configure (admin). Removing a member also clears their existing connection consent. Membership does not make a draft available or approve a connection.
+      description: Requires context.configure (admin) or ownership of the repository's installation (context.manage); anyone else receives 404. Removing a member also clears their existing connection consent. Membership does not make a draft available or approve a connection.
       requestBody:
         required: true
         content:
@@ -506,10 +555,10 @@ paths:
         "422": { $ref: "#/components/responses/Unprocessable" }
   /ai-context/repositories/{id}/config:
     patch:
-      x-zoomies-role: admin
+      x-zoomies-role: viewer
       operationId: updateAIContextConfig
       summary: Save AI Context draft configuration with a revision check
-      description: Requires context.configure (admin). Source branch remains anchored to the discovered branch. A stale revision returns 409; saving does not enable source access or publish files.
+      description: Requires context.configure (admin) or ownership of the repository's installation (context.manage); anyone else receives 404. Source branch remains anchored to the discovered branch. A stale revision returns 409; saving does not enable source access or publish files.
       parameters:
         - $ref: "#/components/parameters/PathID"
       requestBody:
@@ -533,10 +582,10 @@ paths:
         "422": { $ref: "#/components/responses/Unprocessable" }
   /ai-context/repositories:
     get:
-      x-zoomies-role: admin
+      x-zoomies-role: viewer
       operationId: listAIContextRepositories
       summary: List AI Context configuration drafts
-      description: Requires context.configure (admin). Includes unavailable drafts; listing does not grant source access.
+      description: Requires context.configure (admin) or ownership of the repository's installation (context.manage); anyone else receives 404. Includes unavailable drafts; listing does not grant source access.
       parameters:
         - in: query
           name: limit
@@ -563,10 +612,10 @@ paths:
                   offset: { type: integer }
         "403": { $ref: "#/components/responses/Forbidden" }
     post:
-      x-zoomies-role: admin
+      x-zoomies-role: viewer
       operationId: createAIContextDraft
       summary: Prepare a repository configuration draft
-      description: Requires context.configure (admin). Resolves the numeric repository ID through live installation discovery and uses its default branch. Requires Contents read; refuses archived or inaccessible repositories. Creates an unavailable draft without granting readers or writing repository files. A repeated selection returns 409.
+      description: Requires context.configure (admin) or ownership of the repository's installation (context.manage); anyone else receives 404. Resolves the numeric repository ID through live installation discovery and uses its default branch. Requires Contents read; refuses archived or inaccessible repositories. Creates an unavailable draft without granting readers or writing repository files. A repeated selection returns 409.
       requestBody:
         required: true
         content:
@@ -588,10 +637,10 @@ paths:
         "422": { $ref: "#/components/responses/Unprocessable" }
   /ai-context/discovery:
     get:
-      x-zoomies-role: admin
+      x-zoomies-role: viewer
       operationId: discoverAIContext
       summary: Discover repository candidates without enabling source access
-      description: Requires context.configure (admin). Reads installation metadata only; does not change GitHub permissions or create repository files. Results are bounded to 500 repositories and capped reports possible truncation.
+      description: Requires context.configure (admin) or ownership of the repository's installation (context.manage); anyone else receives 404. Reads installation metadata only; does not change GitHub permissions or create repository files. Results are bounded to 500 repositories and capped reports possible truncation.
       parameters:
         - in: query
           name: installation_id
@@ -5380,6 +5429,19 @@ components:
         total: { type: integer }
         limit: { type: integer }
         offset: { type: integer }
+    AIContextInstallations:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [id, target, target_type]
+            properties:
+              id: { type: string }
+              target: { type: string }
+              target_type: { type: string, enum: [org, repo] }
     AIContextMembers:
       type: object
       required: [user_ids]

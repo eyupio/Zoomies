@@ -244,3 +244,18 @@ Changed paths: `internal/controller/ai_context_ingestion.go`, `internal/store/qu
 Validation: `go test -race -count=1 -run 'TestRepositoryOnlyRetrieval|TestContextSource|TestContextMCP' ./internal/api` passed (18.2s). The new test checks the read succeeds, freshness is recorded with no stored snapshot, the page's snapshot id equals the recorded digest, and removing GitHub Contents access stops serving. `go build ./...`, vet of controller/store/api and gofmt passed. Full-suite and store/auth regressions were not rerun; the earlier outbound-test restriction still applies. No live pilot.
 
 Next concrete action: user-level enablement/ownership (see the product correction above), then Zoomies-only OIDC upload, the context browser and the live assistant pilot.
+
+## Installation owners checkpoint — 3 October 2026
+
+User decision: non-admins enable repositories through **installation ownership** delegated by an administrator. There is no GitHub identity link yet. Migration 0066 adds `ai_context_installation_owners`, which cascades on installation or user deletion; a disabled user owns nothing. The new `context.manage` action is viewer-level and only a coarse gate. Every configuration handler then calls `contextInstallationAccess` / `contextRepositoryAccess` (`internal/api/handlers_ai_context_owners.go`): administrators pass, signed-in owners pass for their own installation, and everyone else, including all tokens and OAuth connections, gets a 404. The 404 does not reveal whether an installation or draft exists. Owners list only their own installations' repositories. They may add or remove only themselves as readers: the members GET shows them only themselves, and a PUT keeps everyone else's membership. Ownership grants no source access or connection consent. Admin-only `GET/PUT /ai-context/installations/{id}/owners` (max 50, explicit array) and `GET /ai-context/installations` (manageable list) are new. `TestRoleAuthority` has an explicit `ownershipChecked` exemption for `context.manage`.
+
+UI: the AI Context page uses `/ai-context/installations` to decide whether to show configuration controls. Admins get an "Installation owners" panel and dialog. The setup route admits owners. For owners, the wizard skips the user directory and offers only "Me" as a reader.
+
+Validation:
+- Go `-race` passed: API owner, AI Context, source, role, scope and spec tests (127.9s); store owner, context and migration tests (79.6s).
+- auth and docs package tests passed; vet and gofmt clean.
+- Svelte check found 0 errors; prettier and eslint clean.
+- Playwright `ai-context.spec.ts` passed all 4 tests against the real binary, including the new admin owner-delegation journey. Run it with `PLAYWRIGHT_CHROMIUM=/opt/pw-browsers/chromium-1194/chrome-linux/chrome`.
+- The owner-side UI (non-admin session) has no browser test because the connect project runs with auth off. The owner's permissions are covered by Go integration tests.
+
+Next: user-facing docs for AI Context (setup, ownership, readers, connecting assistants, screenshots), then Zoomies-only OIDC upload and the live pilot.

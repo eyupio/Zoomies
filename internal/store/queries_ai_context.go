@@ -276,16 +276,31 @@ func (s *Store) ListAIContextRepositories(ctx context.Context, limit, offset int
 }
 
 func (s *Store) ListAIContextRepositoriesFiltered(ctx context.Context, limit, offset int, installationID, query string) ([]AIContextRepository, int, error) {
+	return s.listAIContextRepositories(ctx, limit, offset, installationID, query, "")
+}
+
+// ListAIContextRepositoriesOwnedBy is the same page restricted to installations
+// the user owns, so an owner's listing cannot reach another installation's rows
+// however the filters are combined.
+func (s *Store) ListAIContextRepositoriesOwnedBy(ctx context.Context, limit, offset int, installationID, query, userID string) ([]AIContextRepository, int, error) {
+	if userID == "" {
+		return nil, 0, fmt.Errorf("an owner is required")
+	}
+	return s.listAIContextRepositories(ctx, limit, offset, installationID, query, userID)
+}
+
+func (s *Store) listAIContextRepositories(ctx context.Context, limit, offset int, installationID, query, ownerID string) ([]AIContextRepository, int, error) {
 	if limit < 1 || limit > 100 || offset < 0 || len(query) > 200 {
 		return nil, 0, fmt.Errorf("choose a page size between 1 and 100 and a non-negative offset")
 	}
 	pattern := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query) + "%"
-	const where = ` WHERE (?='' OR installation_id=?) AND full_name LIKE ? ESCAPE '\'`
+	const where = ` WHERE (?='' OR installation_id=?) AND full_name LIKE ? ESCAPE '\'
+		AND (?='' OR installation_id IN (SELECT o.installation_id FROM ai_context_installation_owners o JOIN users u ON u.id=o.user_id WHERE o.user_id=? AND u.disabled=0))`
 	var total int
-	if err := s.read.QueryRowContext(ctx, `SELECT COUNT(*) FROM ai_context_repositories`+where, installationID, installationID, pattern).Scan(&total); err != nil {
+	if err := s.read.QueryRowContext(ctx, `SELECT COUNT(*) FROM ai_context_repositories`+where, installationID, installationID, pattern, ownerID, ownerID).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	rows, err := s.read.QueryContext(ctx, `SELECT `+aiContextReadColumns+` FROM ai_context_repositories`+where+` ORDER BY full_name,id LIMIT ? OFFSET ?`, installationID, installationID, pattern, limit, offset)
+	rows, err := s.read.QueryContext(ctx, `SELECT `+aiContextReadColumns+` FROM ai_context_repositories`+where+` ORDER BY full_name,id LIMIT ? OFFSET ?`, installationID, installationID, pattern, ownerID, ownerID, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}

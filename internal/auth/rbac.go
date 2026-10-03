@@ -102,6 +102,10 @@ const ActionAuditRead Action = "audit.read"
 const (
 	ActionContextRead      Action = "context.read"
 	ActionContextConfigure Action = "context.configure"
+	// ActionContextManage is only the coarse gate for installation owners. It
+	// grants nothing by itself: every handler also checks that the caller owns
+	// the installation (or holds context.configure).
+	ActionContextManage Action = "context.manage"
 )
 
 // Migrations move a repository's workflows onto this fleet, which means
@@ -177,6 +181,7 @@ const (
 var actionRoles = map[Action]store.Role{
 	ActionContextRead:      store.RoleViewer,
 	ActionContextConfigure: store.RoleAdmin,
+	ActionContextManage:    store.RoleViewer,
 
 	ActionPoolsRead:   store.RoleViewer,
 	ActionPoolsWrite:  store.RoleOperator,
