@@ -1,6 +1,6 @@
 # Zoomies AI Context handoff
 
-Updated: 2 October 2026. Branch: `feature/ai-context-managed-files`.
+Updated: 3 October 2026. Branch: `feature/ai-context-source-retrieval`. Latest checkpoint is at the end of this file.
 Foundation PR: https://github.com/eyupio/zoomies/pull/570 (merged).
 Previous continuation PR: https://github.com/eyupio/zoomies/pull/571 (merged).
 Published implementation commit: `50098edf15de94562e54d60adedde8ebffa5df7d`.
@@ -177,3 +177,28 @@ Validation: full store/GitHub/aicontext package tests passed; focused race tests
 Next: authorised compact REST/MCP source retrieval must check explicit caller grants before and after live verification and bound encoded responses; do not expose store snapshots directly. The controller's verified-snapshot helper repeats live access/setup checks, but has no source REST/MCP route yet. Repository-only transient retrieval remains unavailable; background verification reports this explicitly and stores no source for that destination. Zoomies-only OIDC ingestion, generated-branch push enqueueing, repair/upgrade proposals, pause/removal lifecycle improvements, Enterprise workflow templates and live Jiggered/Claude/ChatGPT acceptance remain unfinished. Do not mark the complete AI Context feature or live acceptance gates complete.
 
 Published implementation commit: `b562a552a13906a774d6473bf5e2322240564466`; implementation tree: `8e8ced4832bbfb66266ff8a64f0884fa8224cc9b`, exactly matching the validated local implementation tree. CI was queued when publication was checked; no remote CI success is claimed. This publication note is a documentation-only follow-up.
+
+## Compact authorised REST/MCP retrieval checkpoint — 3 October 2026
+
+PR #576 is merged at `5e633cd6fed4b69b038cda859747b442298a2c04`. The local baseline was compared with the attachment and the merged remote tree; the merged dependency lock updates were synchronised before testing. Baseline tree: `7cf72bb4c8efcf67846b79697113bed2951a436f`. This continuation is a new branch, `feature/ai-context-source-retrieval`.
+
+Implemented four read-only source endpoints under `/ai-context/source/{id}/`: overview, read, search and pack. Explicit caller membership/connection consent is checked before network verification, after verification and before writing source. Credentials are revalidated too: a removed session/API token or OAuth access token cannot finish an in-flight source read. In-process MCP keeps OAuth credentials off REST and revalidates them through their original MCP request. Inaccessible repositories return a source-free 404; unowned automation tokens receive 403. Failed live GitHub checks never fall back to retained source. Responses are no-store.
+
+`internal/aicontext/retrieval.go` bounds the fully escaped JSON page, rather than only source bytes: 1,024–24,000 bytes, default 8,000. Overview pages at most 100 file summaries; search returns at most 12 literal matches with original line numbers; packs select up to six unique safe paths and share their budget. Read/pack excerpts preserve UTF-8 byte offsets and carry explicit per-file continuation. Every source response identifies its immutable commit and snapshot. Non-zero continuation offsets require the returned commit; changes return 409 instead of mixing versions. MCP has an additional 32,000-byte encoded tool-result ceiling; callers can reduce their budget/page on refusal. Token counts are not measured.
+
+MCP exposes `context_overview`, `context_read`, `context_search` and `context_pack` through REST only. Known-file reads need no discovery call. Overview without a repository discovers only the current credential's eligible repositories; connections see their explicitly consented subset, not all of their owner's memberships. Discovery is bounded and does not imply that later live verification will succeed. Existing connections still start with zero source repositories, and removing/re-adding membership does not restore consent.
+
+Changed paths: `internal/aicontext/{retrieval,retrieval_test}.go`; `internal/store/queries_ai_context{,_test}.go`; `internal/api/{handlers_ai_context_source,ai_context_source_test,handlers_ai_context,auth,mcp,router,api_test}.go`; `internal/mcp/{context,context_test,tools,server}.go`; OpenAPI and both generated clients; architecture/API/assistant documentation and the implementation plan. No new dependencies, migrations or UI source changes.
+
+Validation:
+- Full `go test -race ./internal/aicontext ./internal/mcp -count=1`: passed. Real Repomix generation was not rerun; its optional CLI integration remains outside this increment's evidence.
+- Targeted context/source/membership/self-consent store/auth race tests: passed (store 41.920s, auth 5.842s).
+- API context, source, authorisation-role/scope/contract and MCP OAuth regression tests with `-race`: passed (124.595s).
+- Additional source race run: passed (8.765s), including access-token deletion while GitHub verification is in progress, membership revocation during verification, explicit connection consent, all four MCP tools, direct REST refusal of OAuth tokens, GitHub permission removal, known-file reads and commit-pinned continuations.
+- Regenerated-contract/spec checks after removing unrelated formatting changes: passed. Full MCP race tests were rechecked after enforcing discovery budgets.
+- `go build ./...`, targeted `go vet`, full staticcheck, Go formatting and `git diff --check`: passed. Svelte check: zero errors/warnings. No browser UI changed, so no new browser/visual pilot is claimed.
+- The existing full-repository outbound-test restriction remains; full repository-suite success is not claimed.
+
+Next concrete action: implement repository-only transient retrieval through the same trusted verification and caller gates, without retaining source, then the context browser and measured live assistant pilot. Generated-branch push enqueueing, repair/upgrade proposals, pause/removal lifecycle, Enterprise templates, Zoomies-only OIDC ingestion and assistant-written artifacts remain outstanding. No live Jiggered setup/Actions or Claude/ChatGPT pilot was performed. Do not mark phase 4 acceptance or the whole feature complete.
+
+Publication status: local implementation commit `4012dd34`, tree `674efbcf5355c2121a0e0e13146a7f44c43dccea`. Automatic approval review rejected the initial GitHub blob upload of `api/openapi.yaml`, saying implementation work did not explicitly authorise exporting that payload to the repository. No remote blob, commit, branch or PR was created. Ask for explicit approval to publish these validated changes to `eyupio/zoomies`; do not bypass the rejection. A reviewable patch is provided. The final focused source race recheck passed (8.863s).

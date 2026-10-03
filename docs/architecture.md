@@ -632,7 +632,8 @@ source, and deleting a configured repository cascades to its snapshots. The
 256 MiB retained-payload guard excludes SQLite/WAL overhead and backup copies.
 Verification failure closes availability and retains the previous valid
 snapshot; that snapshot never becomes a fallback for failed live verification.
-Future source REST/MCP routes must enforce explicit caller grants before and
-after live verification. Polling is recovery and status reconciliation, not an
+Source REST/MCP routes enforce explicit caller grants and revalidate credentials
+before and after live verification. Encoded response budgets account for JSON
+escaping; continuation requests pin the returned source commit. Polling is recovery and status reconciliation, not an
 independent source authorisation boundary. Repository-only live retrieval,
 Zoomies-only uploads and generated-branch push enqueueing remain follow-on work.

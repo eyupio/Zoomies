@@ -12,6 +12,7 @@ import (
 	"github.com/eyupio/zoomies/internal/aicontext"
 	"github.com/eyupio/zoomies/internal/auth"
 	"github.com/eyupio/zoomies/internal/controller"
+	"github.com/eyupio/zoomies/internal/store"
 )
 
 func (s *Server) handleDiscoverAIContext(w http.ResponseWriter, r *http.Request) {
@@ -214,7 +215,7 @@ func (s *Server) handleFindAIContextDraft(w http.ResponseWriter, r *http.Request
 }
 func (s *Server) handleListReaderAIContext(w http.ResponseWriter, r *http.Request) {
 	id := Identity(r.Context())
-	if id.UserID == "" || (id.Kind != auth.KindUser && id.Kind != auth.KindToken) {
+	if id.UserID == "" || (id.Kind != auth.KindUser && id.Kind != auth.KindToken && id.Kind != auth.KindConnection) {
 		forbidden(w, "source repositories require explicit membership for an account")
 		return
 	}
@@ -227,7 +228,15 @@ func (s *Server) handleListReaderAIContext(w http.ResponseWriter, r *http.Reques
 		unprocessable(w, "use a search query of at most 200 characters", nil)
 		return
 	}
-	rows, total, err := s.ctrl.Store().ListAIContextReaderRepositories(r.Context(), id.UserID, limit, offset, r.URL.Query().Get("q"))
+	var rows []store.AIContextChoice
+	var total int
+	var err error
+	if id.Kind == auth.KindConnection {
+		rows, total, err = s.ctrl.Store().ListAIContextGrantedRepositories(r.Context(), id.ID, id.UserID, limit, offset, r.URL.Query().Get("q"))
+	} else {
+		rows, total, err = s.ctrl.Store().ListAIContextReaderRepositories(r.Context(), id.UserID, limit, offset, r.URL.Query().Get("q"))
+	}
+	w.Header().Set("Cache-Control", "no-store")
 	if err != nil {
 		s.fail(w, r, "listing your AI context repositories", err)
 		return

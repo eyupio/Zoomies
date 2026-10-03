@@ -106,7 +106,9 @@ As an alternative where App event changes are unavailable, reconciliation suppor
 
 ## MCP retrieval and token efficiency
 
-Proposed tools: context_overview, context_search, context_read and context_pack. Overview also discovers repositories authorised for this connection; preserve a small tool surface.
+Implemented for verified Both-mode snapshots: context_overview, context_search, context_read and context_pack. Overview also discovers repositories authorised for this connection; preserve a small tool surface.
+
+Source calls accept repository identity and optional expected source commit; continuation offsets require the returned commit. Encoded REST JSON is bounded to 1,024–24,000 bytes (default 8,000), with a separate 32,000-byte MCP result ceiling. File metadata is paged, search returns at most 12 matches and packs select up to six explicit files. Repository-only transient reads and the live client/measurement acceptance gates remain outstanding.
 
 All calls accept repository identity and optional expected source commit. Responses carry minimal commit/freshness metadata, stable pagination and explicit truncation. No forced overview call for a known-file edit. Search is bounded literal search first; add richer indexing only after measuring need. Packs support a named area or validated file selection, bounded by a configurable response budget.
 

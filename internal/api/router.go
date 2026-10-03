@@ -332,6 +332,9 @@ func (s *Server) apiRoutes() chi.Router {
 		})
 
 		r.With(s.require(auth.ActionContextRead)).Get("/ai-context/access", s.handleListReaderAIContext)
+		for _, operation := range []string{"overview", "read", "search", "pack"} {
+			r.With(s.require(auth.ActionContextRead)).Get("/ai-context/source/{id}/"+operation, s.handleAIContextSource)
+		}
 		r.Route("/ai-context", func(r chi.Router) {
 			r.Use(s.require(auth.ActionContextConfigure))
 			r.Get("/discovery", s.handleDiscoverAIContext)

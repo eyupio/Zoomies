@@ -289,3 +289,38 @@ func TestContextMetadataSearchAndDraftLookupKeepIdentityAndAccessBoundaries(t *t
 		t.Fatalf("disabled reader=%+v %d %v", visible, count, err)
 	}
 }
+
+func TestContextDiscoveryShowsOnlyTheConnectionsLiveConsent(t *testing.T) {
+	s := newTestStore(t)
+	r, u, g := contextFixture(t, s)
+	if err := s.SetAIContextAvailable(t.Context(), r.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ReplaceAIContextMembers(t.Context(), r.ID, []string{u.ID}); err != nil {
+		t.Fatal(err)
+	}
+	check := func(want int) {
+		t.Helper()
+		items, total, err := s.ListAIContextGrantedRepositories(t.Context(), g.ID, u.ID, 12, 0, "")
+		if err != nil || total != want || len(items) != want {
+			t.Fatalf("discovery %v %d %v", items, total, err)
+		}
+	}
+	check(0)
+	if err := s.ReplaceAIContextConnectionAccess(t.Context(), g.ID, u.ID, []string{r.ID}); err != nil {
+		t.Fatal(err)
+	}
+	check(1)
+	items, total, err := s.ListAIContextGrantedRepositories(t.Context(), g.ID, "other-user", 12, 0, "")
+	if err != nil || total != 0 || len(items) != 0 {
+		t.Fatal("other user source names leaked")
+	}
+	if err := s.ReplaceAIContextMembers(t.Context(), r.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	check(0)
+	if err := s.ReplaceAIContextMembers(t.Context(), r.ID, []string{u.ID}); err != nil {
+		t.Fatal(err)
+	}
+	check(0)
+}

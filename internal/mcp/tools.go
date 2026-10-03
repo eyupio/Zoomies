@@ -71,7 +71,7 @@ func enum(description string, values ...string) map[string]any {
 // handful rather than one tool per route: an agent given every route in the
 // API, admin ones included, chooses worse and costs more to run.
 func tools() []*tool {
-	return []*tool{
+	return append(contextTools(), []*tool{
 		{
 			Name:  "fleet_status",
 			Title: "Fleet status",
@@ -285,7 +285,7 @@ func tools() []*tool {
 				return jsonContent(body), nil
 			},
 		},
-	}
+	}...)
 }
 
 func listJobs(ctx context.Context, c API, raw json.RawMessage) ([]Content, error) {
