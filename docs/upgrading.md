@@ -102,6 +102,7 @@ upgrade says so and offers what a host that runs runners needs.
 | --- | --- | --- |
 | The [shared folder](configuration.md#the-shared-folder), or a folder in it | hosts that run runners: an agent, or a controller with its embedded agent on | Create it, owned by the account Zoomies runs as — uid 65532 in the container images, the state directory's owner for a native install. A shared folder owned by someone else is given back to that account. |
 | The shared folder's mount | the same, in a container | `/var/lib/zoomies/shared:/var/lib/zoomies/shared` |
+| A pool's cache folder | the same, in a container, for each pool whose cache has a size limit and lives in a host folder outside the shared folder | The folder at its own path. The host's daemon mounts it into runners on its own, so the cache works without it, but the agent keeps the limit by measuring the folder, and without the mount it finds nothing to measure and never evicts. A folder the container already sees, through a folder above it bound at its own path, is left alone. |
 | The runtime's socket, and the group that owns it | the same, on the Docker or Podman backend | The socket at its own path, and its owning group as `group_add` so the image's account can use it |
 | The TLS certificate and key | a controller serving TLS from files | Both, read-only, at their own paths |
 | `docker-compose.yml` itself | every Compose deployment | Write it again from `deployment.json` and the deployment's settings. |

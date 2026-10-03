@@ -37,7 +37,11 @@ cache:
 ```
 
 An empty `source` selects a daemon-managed volume. A non-zero `size_limit`
-requires an absolute host path; zero sets no size target. Use a pool cache only
+requires an absolute host path; zero sets no size target. In a container deployment, put a size-limited cache under the
+shared folder, `/var/lib/zoomies/shared/cache/pools`, which the controller's
+container already mounts at its own path: the agent enforces the limit by
+measuring the folder, so it has to see it. A folder anywhere else needs the same
+mount, which `zoomies upgrade` offers to add. Use a pool cache only
 for repositories that may share its data. For a repository-target installation,
 `scope: repository` selects that repository automatically; an organisation
 target also needs `repository: owner/name`, and matching labels still decide

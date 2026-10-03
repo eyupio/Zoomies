@@ -134,3 +134,25 @@ func TestAReplacementGainsAGroupAndKeepsItsOthers(t *testing.T) {
 		t.Errorf("host config = %v", host)
 	}
 }
+
+// A pool's cache folder needs no mount of its own when the container already
+// sees it through a host folder bound at its own path -- and only then: a
+// volume, or a bind to another path, hides the host's folder instead.
+func TestAFolderIsSeenOnlyThroughASamePathBindAboveIt(t *testing.T) {
+	r := &ContainerReplacement{body: map[string]json.RawMessage{
+		"HostConfig": json.RawMessage(`{"Binds":["zoomies-data:/var/lib/zoomies","/srv/mounted:/srv/mounted","/opt/x:/elsewhere"],"Mounts":[{"Type":"bind","Source":"/data","Target":"/data"},{"Type":"volume","Source":"v","Target":"/vol"}]}`),
+	}}
+	for target, want := range map[string]bool{
+		"/srv/mounted/cache":   true,
+		"/data/cache":          true,
+		"/srv/mounted":         false, // the folder itself is HasBind's question
+		"/var/lib/zoomies/c":   false, // under a named volume
+		"/elsewhere/cache":     false, // under a bind from another host path
+		"/vol/cache":           false,
+		"/srv/mounted-other/x": false,
+	} {
+		if got := r.HasBindAbove(target); got != want {
+			t.Errorf("HasBindAbove(%s) = %v, want %v", target, got, want)
+		}
+	}
+}
