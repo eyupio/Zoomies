@@ -56,8 +56,7 @@ func (c *appClient) ReadContextSetup(ctx context.Context, repo, branch string) (
 		return nil, c.fail("read context source commit", resp, err)
 	}
 	trees := map[string]*gh.Tree{}
-	var fileAt func(string) (*gh.TreeEntry, error)
-	fileAt = func(p string) (*gh.TreeEntry, error) {
+	fileAt := func(p string) (*gh.TreeEntry, error) {
 		treeSHA := gitCommit.GetTree().GetSHA()
 		parts := strings.Split(p, "/")
 		for i, part := range parts {

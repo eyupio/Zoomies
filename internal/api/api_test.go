@@ -651,6 +651,9 @@ type route struct {
 	// credentials in its body rather than about the caller -- which is exactly
 	// what a failed sign-in is.
 	checksCredentials bool
+	// accountOnly refuses bearer tokens even when their scopes match. Source
+	// membership must belong to the signed-in account.
+	accountOnly bool
 	// action is the permission the route's own gate checks, and the scope a
 	// narrowed token therefore has to carry. Empty means no gate: the public
 	// routes, and the three self-service ones every signed-in identity may
@@ -706,6 +709,20 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "POST", path: "/api/v1/auth/mcp-requests/missing/deny", role: store.RoleViewer},
 		{method: "GET", path: "/api/v1/auth/mcp-connections", role: store.RoleViewer},
 		{method: "DELETE", path: "/api/v1/auth/mcp-connections/missing", role: store.RoleViewer},
+
+		{method: "GET", path: "/api/v1/auth/mcp-connections/missing/repositories", role: store.RoleViewer},
+		{method: "PUT", path: "/api/v1/auth/mcp-connections/missing/repositories", role: store.RoleViewer},
+		{method: "GET", path: "/api/v1/ai-context/access", role: store.RoleViewer, action: auth.ActionContextRead, accountOnly: true},
+		{method: "GET", path: "/api/v1/ai-context/discovery", role: store.RoleAdmin, action: auth.ActionContextConfigure},
+		{method: "GET", path: "/api/v1/ai-context/draft", role: store.RoleAdmin, action: auth.ActionContextConfigure},
+		{method: "GET", path: "/api/v1/ai-context/repositories", role: store.RoleAdmin, action: auth.ActionContextConfigure},
+		{method: "POST", path: "/api/v1/ai-context/repositories", role: store.RoleAdmin, action: auth.ActionContextConfigure},
+		{method: "GET", path: "/api/v1/ai-context/repositories/missing", role: store.RoleAdmin, action: auth.ActionContextConfigure},
+		{method: "PATCH", path: "/api/v1/ai-context/repositories/missing/config", role: store.RoleAdmin, action: auth.ActionContextConfigure},
+		{method: "GET", path: "/api/v1/ai-context/repositories/missing/members", role: store.RoleAdmin, action: auth.ActionContextConfigure},
+		{method: "PUT", path: "/api/v1/ai-context/repositories/missing/members", role: store.RoleAdmin, action: auth.ActionContextConfigure},
+		{method: "GET", path: "/api/v1/ai-context/repositories/missing/setup", role: store.RoleAdmin, action: auth.ActionContextConfigure},
+		{method: "POST", path: "/api/v1/ai-context/repositories/missing/setup", role: store.RoleAdmin, action: auth.ActionContextConfigure},
 
 		{method: "GET", path: "/api/v1/stats", role: store.RoleViewer, action: auth.ActionStatsRead},
 		{method: "GET", path: "/api/v1/samples", role: store.RoleViewer, action: auth.ActionStatsRead},
@@ -1045,6 +1062,10 @@ func TestScopedTokenRouteAuthorisation(t *testing.T) {
 				// and nothing else.
 				allowed := h.do(request{method: rt.method, path: rt.path, body: rt.body,
 					token: h.token(scope+" for "+rt.method+" "+rt.path, rt.role, scope)})
+				if rt.accountOnly {
+					allowed.mustStatus(t, http.StatusForbidden, "source membership cannot be inferred from a token scope")
+					continue
+				}
 				if allowed.status == http.StatusForbidden || allowed.status == http.StatusUnauthorized {
 					t.Errorf("a token scoped to %q was refused %d: %s", scope, allowed.status, truncate(allowed.body))
 				}

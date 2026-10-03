@@ -4,7 +4,7 @@
  */
 
 export interface paths {
-    "/api/v1/ai-context/repositories/{id}/setup": {
+    "/ai-context/repositories/{id}/setup": {
         parameters: {
             query?: never;
             header?: never;
@@ -31,7 +31,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/ai-context/access": {
+    "/ai-context/access": {
         parameters: {
             query?: never;
             header?: never;
@@ -51,7 +51,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/ai-context/draft": {
+    "/ai-context/draft": {
         parameters: {
             query?: never;
             header?: never;
@@ -71,7 +71,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/ai-context/repositories/{id}": {
+    "/ai-context/repositories/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -91,7 +91,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/ai-context/repositories/{id}/members": {
+    "/ai-context/repositories/{id}/members": {
         parameters: {
             query?: never;
             header?: never;
@@ -118,7 +118,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/mcp-connections/{id}/repositories": {
+    "/auth/mcp-connections/{id}/repositories": {
         parameters: {
             query?: never;
             header?: never;
@@ -145,7 +145,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/ai-context/repositories/{id}/config": {
+    "/ai-context/repositories/{id}/config": {
         parameters: {
             query?: never;
             header?: never;
@@ -165,7 +165,7 @@ export interface paths {
         patch: operations["updateAIContextConfig"];
         trace?: never;
     };
-    "/api/v1/ai-context/repositories": {
+    "/ai-context/repositories": {
         parameters: {
             query?: never;
             header?: never;
@@ -189,7 +189,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/ai-context/discovery": {
+    "/ai-context/discovery": {
         parameters: {
             query?: never;
             header?: never;

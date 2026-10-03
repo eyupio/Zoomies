@@ -59,7 +59,7 @@ func PlanSetupFiles(key RepositoryKey, fullName string, config Config, files []S
 		return nil, err
 	}
 	if config.Destination == Zoomies {
-		return nil, fmt.Errorf("Zoomies-only output needs secure uploads before setup")
+		return nil, fmt.Errorf("zoomies-only output needs secure uploads before setup")
 	}
 	existing := make(map[string]SetupFile, len(files))
 	readme := ""

@@ -95,10 +95,11 @@ tags:
     description: Routes used by agents. Not for general clients.
 
 paths:
-  /api/v1/ai-context/repositories/{id}/setup:
+  /ai-context/repositories/{id}/setup:
     parameters:
       - $ref: "#/components/parameters/PathID"
     get:
+      x-zoomies-role: admin
       operationId: previewAIContextSetup
       summary: Preview the complete managed repository setup without writing GitHub files
       description: Requires context.configure (admin), live repository access and explicit GitHub setup write permissions. Returns pinned proposed file contents, original blob hashes and the plan hash. Refuses custom/ambiguous ownership and non-regular files. Existing durable proposals return their original review and PR state.
@@ -112,6 +113,7 @@ paths:
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/Unprocessable" }
     post:
+      x-zoomies-role: admin
       operationId: createAIContextSetupPR
       summary: Create or recover one reviewed setup pull request
       description: Requires context.configure (admin) and live GitHub Contents/Workflows/Pull requests write permissions. Explicitly approve the returned revision and plan hash. Persists the same proposal before writing, freezes configuration and publishes all files in one Git commit. Retries reconcile the same PR; no source availability or connection consent is granted. Opening a PR does not enable source retrieval.
@@ -134,8 +136,9 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/Unprocessable" }
-  /api/v1/ai-context/access:
+  /ai-context/access:
     get:
+      x-zoomies-role: viewer
       operationId: listReadableAIContext
       summary: List your explicitly shared source repositories
       description: Requires context.read and an owned account. Returns only available repositories with live user membership, never administrative drafts/configuration or another person's repositories.
@@ -155,8 +158,9 @@ paths:
               schema: { $ref: "#/components/schemas/AIContextReaderPage" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "422": { $ref: "#/components/responses/Unprocessable" }
-  /api/v1/ai-context/draft:
+  /ai-context/draft:
     get:
+      x-zoomies-role: admin
       operationId: findAIContextDraft
       summary: Find an existing draft using its installation and stable repository ID
       description: Requires context.configure (admin). Uses the installation's server-resolved GitHub host; no source access is granted. Supports safe retry after a draft creation response is lost.
@@ -178,8 +182,9 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "422": { $ref: "#/components/responses/Unprocessable" }
-  /api/v1/ai-context/repositories/{id}:
+  /ai-context/repositories/{id}:
     get:
+      x-zoomies-role: admin
       operationId: getAIContextRepository
       summary: Resume a repository configuration draft
       description: Requires context.configure (admin).
@@ -193,10 +198,11 @@ paths:
               schema: { $ref: "#/components/schemas/AIContextRepository" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
-  /api/v1/ai-context/repositories/{id}/members:
+  /ai-context/repositories/{id}/members:
     parameters:
       - $ref: "#/components/parameters/PathID"
     get:
+      x-zoomies-role: admin
       operationId: getAIContextMembers
       summary: Read explicit repository source membership
       description: Requires context.configure (admin). Membership is independent of fleet roles and connection consent.
@@ -208,6 +214,7 @@ paths:
               schema: { $ref: "#/components/schemas/AIContextMembers" }
         "403": { $ref: "#/components/responses/Forbidden" }
     put:
+      x-zoomies-role: admin
       operationId: putAIContextMembers
       summary: Replace explicit repository source membership
       description: Requires context.configure (admin). Removing a member also clears their existing connection consent. Membership does not make a draft available or approve a connection.
@@ -225,10 +232,11 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/Unprocessable" }
-  /api/v1/auth/mcp-connections/{id}/repositories:
+  /auth/mcp-connections/{id}/repositories:
     parameters:
       - $ref: "#/components/parameters/PathID"
     get:
+      x-zoomies-role: viewer
       operationId: getOwnMCPContextSelection
       summary: Read your connection's eligible source repositories and consent
       description: Requires a signed-in person owning an active connection. Tokens and MCP clients cannot use this endpoint. Only available repositories with live source membership are listed. The complete eligible selection is returned separately so paging cannot silently revoke off-page choices.
@@ -246,6 +254,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
     put:
+      x-zoomies-role: viewer
       operationId: putOwnMCPContextSelection
       summary: Choose your connection's source repositories explicitly
       description: Requires the signed-in owner of an active connection. Every selected repository must have live source membership and verified availability. Send an explicit empty array to remove all consent; an omitted or null field is refused. Revocation and membership are checked atomically.
@@ -263,8 +272,9 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/Unprocessable" }
-  /api/v1/ai-context/repositories/{id}/config:
+  /ai-context/repositories/{id}/config:
     patch:
+      x-zoomies-role: admin
       operationId: updateAIContextConfig
       summary: Save AI Context draft configuration with a revision check
       description: Requires context.configure (admin). Source branch remains anchored to the discovered branch. A stale revision returns 409; saving does not enable source access or publish files.
@@ -289,8 +299,9 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/Unprocessable" }
-  /api/v1/ai-context/repositories:
+  /ai-context/repositories:
     get:
+      x-zoomies-role: admin
       operationId: listAIContextRepositories
       summary: List AI Context configuration drafts
       description: Requires context.configure (admin). Includes unavailable drafts; listing does not grant source access.
@@ -320,6 +331,7 @@ paths:
                   offset: { type: integer }
         "403": { $ref: "#/components/responses/Forbidden" }
     post:
+      x-zoomies-role: admin
       operationId: createAIContextDraft
       summary: Prepare a repository configuration draft
       description: Requires context.configure (admin). Resolves the numeric repository ID through live installation discovery and uses its default branch. Requires Contents read; refuses archived or inaccessible repositories. Creates an unavailable draft without granting readers or writing repository files. A repeated selection returns 409.
@@ -342,8 +354,9 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/Unprocessable" }
-  /api/v1/ai-context/discovery:
+  /ai-context/discovery:
     get:
+      x-zoomies-role: admin
       operationId: discoverAIContext
       summary: Discover repository candidates without enabling source access
       description: Requires context.configure (admin). Reads installation metadata only; does not change GitHub permissions or create repository files. Results are bounded to 500 repositories and capped reports possible truncation.

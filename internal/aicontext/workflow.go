@@ -23,7 +23,7 @@ func SetupWorkflow(key RepositoryKey, config Config) (string, error) {
 		return "", err
 	}
 	if config.Destination == Zoomies {
-		return "", fmt.Errorf("Zoomies-only output needs secure uploads")
+		return "", fmt.Errorf("zoomies-only output needs secure uploads")
 	}
 	// Artifact actions v4+ are unavailable on GHES. Refuse a workflow that
 	// would only fail after merge; Enterprise templates need a separate pilot.
