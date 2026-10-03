@@ -349,11 +349,12 @@ func TestReapRecordsARetryThatFailsAgain(t *testing.T) {
 	}
 	first := h.runnerByID(t, r.ID)
 
-	// Timestamps are stored to the millisecond and the harness clock only moves
-	// when told to, so without this the retry can land in the same millisecond
-	// as the first failure and "did not move" is indistinguishable from "moved
-	// by less than the clock can show".
-	h.advance(time.Second)
+	// Timestamps are stored to the millisecond, and the store reads the wall
+	// clock itself rather than the harness's offset one, so advance() cannot
+	// separate the two failures. Without a real wait the retry can land in the
+	// same millisecond as the first failure, and "did not move" is
+	// indistinguishable from "moved by less than the clock can show".
+	time.Sleep(2 * time.Millisecond)
 	h.gh.SetMethodError(http.MethodDelete, "/actions/runners/", http.StatusForbidden, "Resource not accessible by integration")
 	h.c.reap(h.ctx)
 
