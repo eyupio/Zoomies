@@ -146,3 +146,79 @@ func SafeSourcePath(p string) bool {
 	}
 	return true
 }
+
+// CheckSourceFiles repeats generator exclusions at admission. A valid config
+// hash must not reintroduce deliberately excluded files through a forged pack.
+func (c Config) CheckSourceFiles(files []File) error {
+	patterns := make([]*regexp.Regexp, 0, len(c.Exclude))
+	for _, pattern := range c.Exclude {
+		patterns = append(patterns, contextGlob(pattern))
+	}
+	for _, file := range files {
+		if !SafeSourcePath(file.Path) {
+			return fmt.Errorf("context contains an unsafe source path")
+		}
+		for _, pattern := range patterns {
+			if pattern.MatchString(file.Path) {
+				return fmt.Errorf("context contains a file excluded by its approved configuration")
+			}
+		}
+	}
+	return nil
+}
+
+// Match Python fnmatchcase, including wildcards crossing directory separators.
+// Patterns and paths are bounded before reaching this matcher.
+func contextGlob(pattern string) *regexp.Regexp {
+	var b strings.Builder
+	b.WriteString("(?s)^")
+	optionalDirectories := false
+	for strings.HasPrefix(pattern, "**/") {
+		optionalDirectories = true
+		pattern = strings.TrimPrefix(pattern, "**/")
+	}
+	if optionalDirectories {
+		b.WriteString("(?:.*/)?")
+	}
+	for i := 0; i < len(pattern); i++ {
+		switch pattern[i] {
+		case '*':
+			b.WriteString(".*")
+		case '?':
+			b.WriteByte('.')
+		case '[':
+			j := i + 1
+			if j < len(pattern) && pattern[j] == '!' {
+				j++
+			}
+			if j < len(pattern) && pattern[j] == ']' {
+				j++
+			}
+			for j < len(pattern) && pattern[j] != ']' {
+				j++
+			}
+			if j == len(pattern) {
+				b.WriteString(`\[`)
+				continue
+			}
+			group := strings.ReplaceAll(pattern[i+1:j], "]", `\]`)
+			if strings.HasPrefix(group, "!") {
+				group = "^" + group[1:]
+			} else if strings.HasPrefix(group, "^") {
+				group = `\^` + group[1:]
+			}
+			candidate := "[" + group + "]"
+			if _, err := regexp.Compile(candidate); err != nil {
+				// Invalid ranges fail closed rather than admit excluded source.
+				b.WriteString(".*")
+			} else {
+				b.WriteString(candidate)
+			}
+			i = j
+		default:
+			b.WriteString(regexp.QuoteMeta(string(pattern[i])))
+		}
+	}
+	b.WriteByte('$')
+	return regexp.MustCompile(b.String())
+}

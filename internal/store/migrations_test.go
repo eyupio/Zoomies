@@ -76,6 +76,7 @@ var shippedMigrations = []string{
 	"0062_job_indexes_for_scans.sql",
 	"0063_ai_context.sql",
 	"0064_ai_context_setup.sql",
+	"0065_ai_context_snapshots.sql",
 }
 
 // The two prefixes shared by files that already shipped. They sort by what

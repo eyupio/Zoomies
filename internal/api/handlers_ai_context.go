@@ -1,10 +1,13 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"github.com/go-chi/chi/v5"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/eyupio/zoomies/internal/aicontext"
 	"github.com/eyupio/zoomies/internal/auth"
@@ -261,5 +264,25 @@ func (s *Server) handleCreateAIContextSetupPR(w http.ResponseWriter, r *http.Req
 		return
 	}
 	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "context.setup", "ai_context", id, map[string]any{"pr_number": out.Setup.PRNumber, "plan_hash": out.PlanHash})
+	writeJSON(w, http.StatusOK, out)
+}
+
+// Recheck reports persisted verification state even if GitHub is unavailable.
+// It checks existing output; it never triggers a workflow or writes a branch.
+func (s *Server) handleRecheckAIContext(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if _, err := s.ctrl.Store().GetAIContextRepository(r.Context(), id); err != nil {
+		s.fail(w, r, "finding the context repository", err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	defer cancel()
+	_ = s.ctrl.RefreshAIContext(ctx, id)
+	out, err := s.ctrl.Store().GetAIContextRepository(r.Context(), id)
+	if err != nil {
+		s.fail(w, r, "reading context verification", err)
+		return
+	}
+	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "context.recheck", "ai_context", id, map[string]any{"available": out.Available})
 	writeJSON(w, http.StatusOK, out)
 }

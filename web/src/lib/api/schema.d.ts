@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+    "/ai-context/repositories/{id}/recheck": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify setup, GitHub access and generated context */
+        post: operations["recheckAIContext"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ai-context/repositories/{id}/setup": {
         parameters: {
             query?: never;
@@ -3454,6 +3471,16 @@ export interface components {
             };
             /** Format: int64 */
             revision: number;
+            freshness?: {
+                /** @enum {string} */
+                state: "awaiting_merge" | "unavailable" | "stale" | "ready";
+                desired_commit: string;
+                published_commit: string;
+                snapshot_id: string;
+                /** Format: date-time */
+                checked_at: string;
+                failure?: string;
+            };
             /** @enum {string} */
             setup_state?: "pending" | "awaiting_merge";
             setup_pr_url?: string;
@@ -5754,6 +5781,16 @@ export interface components {
         };
         BackendInfo: {
             kind?: components["schemas"]["BackendKind"];
+            freshness?: {
+                /** @enum {string} */
+                state: "awaiting_merge" | "unavailable" | "stale" | "ready";
+                desired_commit: string;
+                published_commit: string;
+                snapshot_id: string;
+                /** Format: date-time */
+                checked_at: string;
+                failure?: string;
+            };
             /** @enum {string} */
             setup_state?: "pending" | "awaiting_merge";
             setup_pr_url?: string;
@@ -6917,6 +6954,31 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    recheckAIContext: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current persisted verification state, including a safe failure reason */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIContextRepository"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
     previewAIContextSetup: {
         parameters: {
             query?: never;

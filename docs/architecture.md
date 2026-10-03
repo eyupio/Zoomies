@@ -613,3 +613,26 @@ field travels with the normal host view and `host.updated` event.
 The Go library brings WireGuard and the userspace network stack into the binary.
 This is a deliberate binary-size and toolchain trade-off for installation with
 no separate Tailcat binary. It has no browser dependency or shell-budget cost.
+
+## Verified AI Context snapshots
+
+AI Context verification runs outside the fleet reconciliation lock. A separate
+bounded loop checks explicitly submitted setup proposals; administrators can
+also recheck existing output. Before admission, the controller verifies setup
+merge, current installation access, repository identity, the trusted default
+branch and exact managed operational files. GitHub reads pin immutable source
+and output commits. A valid publication must have the complete managed output
+layout, bounded UTF-8 source, matching manifest/configuration identity and
+original regular Git blob hashes for every included file. Approved exclusions
+are enforced again on admission.
+
+Both-mode snapshots live in SQLite with their freshness record, so publication,
+retention and availability change in one transaction. Existing backups include
+source, and deleting a configured repository cascades to its snapshots. The
+256 MiB retained-payload guard excludes SQLite/WAL overhead and backup copies.
+Verification failure closes availability and retains the previous valid
+snapshot; that snapshot never becomes a fallback for failed live verification.
+Future source REST/MCP routes must enforce explicit caller grants before and
+after live verification. Polling is recovery and status reconciliation, not an
+independent source authorisation boundary. Repository-only live retrieval,
+Zoomies-only uploads and generated-branch push enqueueing remain follow-on work.

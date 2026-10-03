@@ -143,11 +143,9 @@ func (f *FakeGitHub) repoLocked(repo string) *fakeRepo {
 	return r
 }
 
-// blobSHA is a stand-in for git's object hash: stable for the same content,
-// which is all the fake needs to enforce "the SHA you committed against is the
-// one that is there".
+// blobSHA uses Git's object identity so source verification exercises real hashes.
 func blobSHA(content string) string {
-	sum := sha1.Sum([]byte(content))
+	sum := sha1.Sum([]byte(fmt.Sprintf("blob %d\x00%s", len(content), content)))
 	return hex.EncodeToString(sum[:])
 }
 
