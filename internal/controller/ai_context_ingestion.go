@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -112,16 +113,25 @@ func (c *Controller) trustedAIContext(ctx context.Context, r *store.AIContextRep
 	return ingestion, source, nil
 }
 func (c *Controller) RefreshAIContext(ctx context.Context, id string) error {
+	_, _, err := c.verifyAIContext(ctx, id)
+	return err
+}
+
+// verifyAIContext runs the live access, setup and publication checks. For
+// repository-only output it returns the verified snapshot in memory and records
+// freshness without storing a byte of source; for Both the snapshot lives in the
+// database and the returned one is nil.
+func (c *Controller) verifyAIContext(ctx context.Context, id string) (*aicontext.Snapshot, string, error) {
 	select {
 	case c.aiContextChecks <- struct{}{}:
 		defer func() { <-c.aiContextChecks }()
 	case <-ctx.Done():
-		return ctx.Err()
+		return nil, "", ctx.Err()
 	}
 
 	r, err := c.st.GetAIContextRepository(ctx, id)
 	if err != nil {
-		return err
+		return nil, "", err
 	}
 	// Close the access gate on every failed verification, including transient
 	// network failures. Source never falls back to an unverified retained pack.
@@ -132,26 +142,27 @@ func (c *Controller) RefreshAIContext(ctx context.Context, id string) error {
 			state, reason = "awaiting_merge", "Merge the reviewed setup PR before generating context."
 		}
 		_ = c.failAIContextCheck(ctx, id, state, "", reason)
-		return err
+		return nil, "", err
 	}
-	if r.Config.Destination != aicontext.Both {
-		_ = c.st.FailAIContextCheck(ctx, id, "unavailable", source.Commit, "Repository-only retrieval is not yet available.")
-		return fmt.Errorf("repository-only context retrieval is not yet available")
+	if r.Config.Destination == aicontext.Zoomies {
+		_ = c.failAIContextCheck(ctx, id, "unavailable", source.Commit, "Zoomies-only retrieval is not yet available.")
+		return nil, "", fmt.Errorf("zoomies-only context retrieval is not yet available")
 	}
-	freshness, _ := c.st.GetAIContextFreshness(ctx, id)
-	if freshness != nil && freshness.PublishedCommit == source.Commit && freshness.Digest != "" {
-		_, err := c.st.GetAIContextSnapshot(ctx, id, freshness.Digest)
-		if err == nil {
-			hash, _ := r.Config.Hash()
-			err = c.st.ConfirmAIContextSnapshot(ctx, id, r.Revision, freshness.Digest, source.Commit, hash)
-			if err == nil {
-				return nil
+	transient := r.Config.Destination == aicontext.Repository
+	hash, _ := r.Config.Hash()
+	if !transient {
+		freshness, _ := c.st.GetAIContextFreshness(ctx, id)
+		if freshness != nil && freshness.PublishedCommit == source.Commit && freshness.Digest != "" {
+			if _, err := c.st.GetAIContextSnapshot(ctx, id, freshness.Digest); err == nil {
+				if err = c.st.ConfirmAIContextSnapshot(ctx, id, r.Revision, freshness.Digest, source.Commit, hash); err == nil {
+					return nil, freshness.Digest, nil
+				}
 			}
 		}
 	}
 	publication, err := client.ReadContextPublication(ctx, r.FullName, r.Config.SourceBranch)
+	var digest string
 	if err == nil {
-		hash, _ := r.Config.Hash()
 		err = publication.Snapshot.Match(r.Key, r.Config.SourceBranch, source.Commit, hash)
 		if err == nil {
 			err = r.Config.CheckSourceFiles(publication.Snapshot.Files)
@@ -159,25 +170,45 @@ func (c *Controller) RefreshAIContext(ctx context.Context, id string) error {
 		if err == nil && publication.Snapshot.Manifest.Generator != "repomix@1.18.1" {
 			err = fmt.Errorf("context generator identity does not match its managed workflow")
 		}
-		if err == nil {
+	}
+	if err == nil {
+		if transient {
+			var body []byte
+			if body, err = json.Marshal(publication.Snapshot); err == nil {
+				digest = aicontext.Hash(body)
+				err = c.st.ConfirmAIContextTransient(ctx, id, r.Revision, source.Commit, digest, hash)
+			}
+		} else {
 			err = c.st.PublishAIContextSnapshot(ctx, id, r.Revision, publication.Snapshot)
 		}
 	}
 	if err != nil {
-		_ = c.failAIContextCheck(ctx, id, "stale", source.Commit, "Current generation could not be verified. The previous snapshot is retained.")
+		reason := "Current generation could not be verified. The previous snapshot is retained."
+		if transient {
+			reason = "Current generation could not be verified. Repository-only output keeps no copy."
+		}
+		_ = c.failAIContextCheck(ctx, id, "stale", source.Commit, reason)
+		return nil, "", err
 	}
-	return err
+	if transient {
+		return publication.Snapshot, digest, nil
+	}
+	return nil, digest, nil
 }
 
 // VerifiedAIContextSnapshot repeats live access and workflow checks before
-// returning retained source. Background polling alone is not an access gate.
+// returning source. Background polling alone is not an access gate.
 func (c *Controller) VerifiedAIContextSnapshot(ctx context.Context, id string) (*aicontext.Snapshot, *store.AIContextFreshness, error) {
-	if err := c.RefreshAIContext(ctx, id); err != nil {
+	transient, _, err := c.verifyAIContext(ctx, id)
+	if err != nil {
 		return nil, nil, err
 	}
 	f, err := c.st.GetAIContextFreshness(ctx, id)
 	if err != nil {
 		return nil, nil, err
+	}
+	if transient != nil {
+		return transient, f, nil
 	}
 	snapshot, err := c.st.GetAIContextSnapshot(ctx, id, f.Digest)
 	return snapshot, f, err

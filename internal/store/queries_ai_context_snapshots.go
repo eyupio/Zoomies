@@ -167,3 +167,34 @@ func (s *Store) ConfirmAIContextSnapshot(ctx context.Context, id string, revisio
 		return err
 	})
 }
+
+// Repository-only output keeps its source in the repository. A verified check
+// still has to mark the repository available and record what was seen, but the
+// store holds no payload: the digest names a snapshot that exists only for the
+// request that read it.
+func (s *Store) ConfirmAIContextTransient(ctx context.Context, id string, revision int64, commit, digest, configHash string) error {
+	return s.tx(ctx, func(tx *sql.Tx) error {
+		var configJSON string
+		if err := tx.QueryRowContext(ctx, `SELECT config_json FROM ai_context_repositories WHERE id=? AND revision=?`, id, revision).Scan(&configJSON); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrConflict
+			}
+			return err
+		}
+		var config aicontext.Config
+		if err := json.Unmarshal([]byte(configJSON), &config); err != nil {
+			return err
+		}
+		if hash, err := config.Hash(); err != nil || hash != configHash {
+			return ErrConflict
+		}
+		if config.Disabled || config.Destination != aicontext.Repository {
+			return fmt.Errorf("transient context requires repository-only output")
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE ai_context_repositories SET available=1,updated_at=? WHERE id=?`, ms(s.Now()), id); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `INSERT INTO ai_context_freshness VALUES(?,'ready',?,?,?,?, '') ON CONFLICT(repository_id) DO UPDATE SET state='ready',desired_commit=excluded.desired_commit,published_commit=excluded.published_commit,digest=excluded.digest,checked_at=excluded.checked_at,failure=''`, id, commit, commit, digest, ms(s.Now()))
+		return err
+	})
+}

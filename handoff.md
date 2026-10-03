@@ -232,3 +232,15 @@ Validation: maintenance API lifecycle passed through reinstall → amend → rem
 Still outstanding from the product correction: safely scoped user-level enablement/ownership (current admin gate remains), repository-only transient retrieval, Zoomies-only uploads and live assistant pilot. This maintenance increment does not claim those are complete.
 
 Published the maintenance checkpoint in PR #579: https://github.com/eyupio/zoomies/pull/579. Implementation commit 2ec3829f1e7c05d57b86379af10037dc4bf47a59 has tree bde4e5cccc80dff32303a32c65f941f28e81c361, exactly matching the validated local code. The PR is open; merge/deployment and remote CI completion are not claimed.
+
+## Repository-only transient retrieval checkpoint — 3 October 2026
+
+Repository-only output now serves source through the same four REST/MCP routes. `Controller.verifyAIContext` (behind `RefreshAIContext` and `VerifiedAIContextSnapshot`) runs the unchanged live access, merge, workflow and publication checks. For Both it still stores the snapshot. For Repository it returns the verified snapshot in memory for that request only and calls the new `store.ConfirmAIContextTransient`, which marks the repository available and writes freshness (commit and digest) but no payload row. The digest is the hash of the marshalled snapshot, so page identity matches Both. Zoomies-only still reports unavailable. A failed check closes availability and says no copy is kept.
+
+Cost to know: each repository-only request, and each five-minute background check, downloads the generated branch (up to the 32 MiB snapshot bound) because nothing is cached. If that proves heavy, add a cheap "published commit unchanged" probe before the full read; deliberately not done here.
+
+Changed paths: `internal/controller/ai_context_ingestion.go`, `internal/store/queries_ai_context_snapshots.go`, `internal/api/ai_context_source_test.go`. No migration, dependency, OpenAPI or UI change.
+
+Validation: `go test -race -count=1 -run 'TestRepositoryOnlyRetrieval|TestContextSource|TestContextMCP' ./internal/api` passed (18.2s). The new test checks the read succeeds, freshness is recorded with no stored snapshot, the page's snapshot id equals the recorded digest, and removing GitHub Contents access stops serving. `go build ./...`, vet of controller/store/api and gofmt passed. Full-suite and store/auth regressions were not rerun; the earlier outbound-test restriction still applies. No live pilot.
+
+Next concrete action: user-level enablement/ownership (see the product correction above), then Zoomies-only OIDC upload, the context browser and the live assistant pilot.
