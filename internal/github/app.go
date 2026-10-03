@@ -658,11 +658,11 @@ func (c *appClient) pollRepos(ctx context.Context, requests *int) ([]string, err
 	return out, nil
 }
 
-// queuedJobsForRun lists a run's queued jobs, following the listing's pages: a
-// matrix can hold 256 jobs, and completed jobs stay in the listing, so the tail
-// past the first page is otherwise never seen. The caller has already paid for
-// the first page; each further one comes off requests, and a run that outlasts
-// the sweep's budget is cut short with what it has rather than failed.
+// queuedJobsForRun lists a run's unfinished jobs, following the listing's
+// pages: a matrix can hold 256 jobs, and completed jobs stay in the listing, so
+// the tail past the first page is otherwise never seen. The caller has already
+// paid for the first page; each further one comes off requests, and a run that
+// outlasts the sweep's budget is cut short with what it has rather than failed.
 func (c *appClient) queuedJobsForRun(ctx context.Context, owner, repo string, run *gh.WorkflowRun, requests *int) ([]QueuedJob, error) {
 	opts := &gh.ListWorkflowJobsOptions{
 		Filter:      "latest",
@@ -691,10 +691,18 @@ func (c *appClient) queuedJobsForRun(ctx context.Context, owner, repo string, ru
 	}
 }
 
+// queuedJobsOnPage keeps the jobs of one page that are waiting or running.
+//
+// Running ones are kept because a sweep is a sample, not a stream: an idle
+// runner takes a job within a second or two of GitHub queuing it, so the job
+// is already in progress the first time a sweep sees it, and a listing that
+// dropped it would leave the runner under it looking free for the whole build.
+// They cost no request -- they are on the page this sweep already paid for.
 func queuedJobsOnPage(full string, run *gh.WorkflowRun, jobs []*gh.WorkflowJob) []QueuedJob {
 	var out []QueuedJob
 	for _, j := range jobs {
-		if j.GetStatus() != string(store.JobQueued) {
+		status := store.JobState(j.GetStatus())
+		if status != store.JobQueued && status != store.JobInProgress {
 			continue
 		}
 		q := QueuedJob{
@@ -716,6 +724,11 @@ func queuedJobsOnPage(full string, run *gh.WorkflowRun, jobs []*gh.WorkflowJob) 
 		}
 		if q.QueuedAt.IsZero() {
 			q.QueuedAt = run.GetCreatedAt().Time
+		}
+		// GitHub stamps started_at on a queued job too, equal to created_at,
+		// so it only means something once the job has left the queue.
+		if started := j.GetStartedAt().Time; status == store.JobInProgress && !started.IsZero() {
+			q.StartedAt = &started
 		}
 		out = append(out, q)
 	}

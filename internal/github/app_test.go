@@ -284,12 +284,21 @@ func TestListQueuedJobs(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ListQueuedJobs: %v", err)
 		}
-		if len(jobs) != 1 {
-			t.Fatalf("got %d jobs, want only the queued one: %+v", len(jobs), jobs)
+		if len(jobs) != 2 {
+			t.Fatalf("got %d jobs, want the queued and the running one and not the finished one: %+v", len(jobs), jobs)
 		}
 		j := jobs[0]
 		if j.ID != queued.ID || j.RunID != queued.RunID || j.Repo != "acme/widgets" {
 			t.Fatalf("job = %+v, want %+v", j, queued)
+		}
+		if j.Status != string(store.JobQueued) || j.StartedAt != nil {
+			t.Fatalf("queued job = %+v, want no start: GitHub stamps one on a job nobody has taken", j)
+		}
+		// A runner can take a job between two sweeps, so the listing is the
+		// only place a polling-only controller ever learns which one did.
+		r := jobs[1]
+		if r.ID != running.ID || r.Status != string(store.JobInProgress) || r.RunnerName != "zoomies-linux-abcd" || r.StartedAt == nil {
+			t.Fatalf("running job = %+v, want it in progress on its runner with a start", r)
 		}
 		if j.WorkflowName != "CI" || j.JobName != "build" || j.HTMLURL == "" || j.QueuedAt.IsZero() {
 			t.Fatalf("job detail lost: %+v", j)
