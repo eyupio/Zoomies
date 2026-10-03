@@ -1,0 +1,320 @@
+# Managed by Zoomies AI Context; template 1. Review upgrades through a PR.
+name: Zoomies AI Context
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: zoomies-ai-context
+  cancel-in-progress: true
+jobs:
+  generate:
+    if: "${{ github.ref == 'refs/heads/main' \u0026\u0026 (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: source
+          persist-credentials: false
+          submodules: false
+          lfs: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Install pinned generator without repository scripts
+        shell: bash
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/zoomies-tools"
+          cp source/.github/zoomies-ai-context/package.json "$RUNNER_TEMP/zoomies-tools/package.json"
+          cp source/.github/zoomies-ai-context/package-lock.json "$RUNNER_TEMP/zoomies-tools/package-lock.json"
+          npm ci --prefix "$RUNNER_TEMP/zoomies-tools" --ignore-scripts --no-audit --no-fund > /dev/null 2>&1
+      - name: Generate bounded source context
+        env:
+          SOURCE_DIR: ${{ github.workspace }}/source
+          OUTPUT_DIR: ${{ runner.temp }}/zoomies-context
+          REPOMIX_CLI: ${{ runner.temp }}/zoomies-tools/node_modules/.bin/repomix
+          SOURCE_COMMIT: ${{ github.sha }}
+          EXPECTED_CONFIG: "{\"manager\":\"zoomies-ai-context\",\"template_version\":1,\"source_branch\":\"main\",\"destination\":\"both\",\"exclude\":[\"**/.env*\",\"**/node_modules/**\",\"**/.git/**\",\"**/dist/**\",\"**/vendor/**\",\"**/*.pem\",\"**/*.key\",\"**/*.db\",\".zoomies/**\"],\"keep_snapshots\":3}"
+          REPOSITORY_IDENTITY: "{\"github_host\":\"github.com\",\"installation_id\":\"ins_7xad5wpfjwbo6\",\"repository_id\":1357002726}"
+          CONFIG_HASH: "7330915e7ed54f78124dca1e723d245e92a616ea9f1d3c6f65e8c137b8e10f17"
+        shell: python
+        run: |
+          # Managed by Zoomies AI Context. Repository text is data, never executable setup.
+          import datetime
+          import fnmatch
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import subprocess
+          import tempfile
+          
+          MAX_FILE = 1 << 20
+          MAX_SOURCE = 12 << 20
+          MAX_SNAPSHOT = 16 << 20
+          MAX_FILES = 5000
+          
+          
+          def command(*args, **kwargs):
+              return subprocess.check_output(args, stderr=subprocess.DEVNULL, **kwargs)
+          
+          
+          def excluded(name, patterns):
+              for pattern in patterns:
+                  if fnmatch.fnmatchcase(name, pattern):
+                      return True
+                  while pattern.startswith('**/'):
+                      pattern = pattern[3:]
+                      if fnmatch.fnmatchcase(name, pattern):
+                          return True
+              return False
+          
+          
+          def safe_path(name):
+              parts = name.split('/')
+              return (name and len(name) <= 1024 and not name.startswith('/')
+                      and not any(c in name for c in '\\\x00\r\n:')
+                      and all(p not in ('', '.', '..') and p.lower() not in ('.git', 'node_modules', '.zoomies')
+                              and not p.lower().startswith('.env') for p in parts)
+                      and not name.lower().endswith(('.pem', '.key', '.p12', '.pfx', '.db', '.sqlite', '.sqlite3')))
+          
+          
+          def build(root, output, cli, expected, identity, config_hash, source_commit):
+              if not re.fullmatch('[0-9a-f]{40}', source_commit):
+                  raise ValueError('A pinned source commit is required')
+              if command('git', '-C', str(root), 'rev-parse', 'HEAD').decode().strip() != source_commit:
+                  raise ValueError('Checkout does not match the source commit')
+              raw = command('git', '-C', str(root), 'show', source_commit + ':zoomies-ai-context.config.json')
+              if len(raw) > 512 << 10 or json.loads(raw) != expected:
+                  raise ValueError('Managed configuration changed; review a setup repair')
+              entries = command('git', '-C', str(root), 'ls-tree', '-rz', '--full-tree', source_commit).split(b'\0')
+              originals = {}
+              total = 0
+              with tempfile.TemporaryDirectory(prefix='zoomies-context-') as tmp:
+                  stage = Path(tmp) / 'source'
+                  stage.mkdir()
+                  for entry in entries:
+                      if not entry:
+                          continue
+                      info, name = entry.split(b'\t', 1)
+                      mode, kind, blob = info.decode().split(' ')
+                      name = name.decode('utf-8', errors='strict')
+                      if mode not in ('100644', '100755') or kind != 'blob' or not safe_path(name):
+                          continue
+                      if excluded(name, expected['exclude']):
+                          continue
+                      size = int(command('git', '-C', str(root), 'cat-file', '-s', blob))
+                      if size > MAX_FILE:
+                          raise ValueError('A source file exceeds the context size limit; add an exclusion')
+                      content = command('git', '-C', str(root), 'cat-file', 'blob', blob)
+                      try:
+                          text = content.decode('utf-8', errors='strict')
+                      except UnicodeDecodeError:
+                          continue
+                      if '\0' in text:
+                          continue
+                      total += len(content)
+                      if total > MAX_SOURCE or len(originals) >= MAX_FILES:
+                          raise ValueError('Source context exceeds its limits; add exclusions')
+                      originals[name] = text
+                      target = stage / name
+                      target.parent.mkdir(parents=True, exist_ok=True)
+                      target.write_bytes(content)
+                  if not originals:
+                      raise ValueError('No eligible source files remain')
+                  repomix_config = Path(tmp) / 'repomix.json'
+                  repomix_config.write_text(json.dumps({
+                      'output': {'style': 'json', 'compress': False, 'removeComments': False,
+                                 'removeEmptyLines': False, 'showLineNumbers': False, 'truncateBase64': False},
+                      'ignore': {'useGitignore': False, 'useDefaultPatterns': False, 'customPatterns': []},
+                      'security': {'enableSecurityCheck': True},
+                  }))
+                  pack = Path(tmp) / 'pack.json'
+                  subprocess.run([str(cli), str(stage), '--config', str(repomix_config), '--output', str(pack), '--quiet'],
+                                 cwd=tmp, check=True, timeout=300, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                  if pack.stat().st_size > 32 << 20:
+                      raise ValueError('Repomix output exceeds its limit')
+                  generated = json.loads(pack.read_text())['files']
+                  # Repomix trims file boundaries. Verify that this is its only change,
+                  # then retain Git's exact original bytes and line numbers.
+                  # Repomix removes files its security scan identifies. Fail publication
+                  # rather than quietly publishing an incomplete, apparently fresh pack.
+                  js_whitespace = '\u0009\u000b\u000c\u0020\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u202f\u205f\u3000\ufeff\n\r\u2028\u2029'
+                  if generated != {p: c.strip(js_whitespace) for p, c in originals.items()}:
+                      raise ValueError('Repomix omitted or changed source; inspect exclusions and secret scanning')
+                  snapshot = {'manifest': {
+                      'schema_version': 1, 'repository': identity,
+                      'source_branch': expected['source_branch'], 'source_commit': source_commit,
+                      'config_hash': config_hash, 'generated_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                      'manager': 'zoomies', 'generator': 'repomix@1.18.1',
+                  }, 'files': [{'path': p, 'sha256': hashlib.sha256(c.encode()).hexdigest(), 'content': c}
+                              for p, c in sorted(originals.items())]}
+                  encoded = json.dumps(snapshot, ensure_ascii=False, separators=(',', ':')).encode()
+                  if len(encoded) > MAX_SNAPSHOT:
+                      raise ValueError('Serialized snapshot exceeds its limit')
+                  output.mkdir(parents=True, exist_ok=False)
+                  (output / 'snapshot.json').write_bytes(encoded)
+                  (output / 'NOTICE.md').write_text('Managed by Zoomies AI Context. Generated by Repomix. Do not edit.\n')
+                  (output / 'manifest.json').write_text(json.dumps({
+                      'manager': 'zoomies', 'template_version': 1, 'generator': 'repomix@1.18.1',
+                      'source_commit': source_commit, 'config_hash': config_hash,
+                      'snapshot_sha256': hashlib.sha256(encoded).hexdigest(),
+                      'token_count_method': 'not measured',
+                  }, indent=2) + '\n')
+          
+          
+          if __name__ == '__main__':
+              try:
+                  build(Path(os.environ['SOURCE_DIR']), Path(os.environ['OUTPUT_DIR']), Path(os.environ['REPOMIX_CLI']),
+                        json.loads(os.environ['EXPECTED_CONFIG']), json.loads(os.environ['REPOSITORY_IDENTITY']),
+                        os.environ['CONFIG_HASH'], os.environ['SOURCE_COMMIT'])
+              except Exception:
+                  # Generator diagnostics can contain source or secrets. Actions sees
+                  # only a fixed refusal; the previous valid branch remains untouched.
+                  raise SystemExit('Context generation refused. Check source limits, exclusions, managed configuration and secret scanning.')
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: zoomies-ai-context
+          path: ${{ runner.temp }}/zoomies-context/
+          if-no-files-found: error
+          retention-days: 1
+  publish:
+    needs: generate
+    if: "${{ github.ref == 'refs/heads/main' }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: zoomies-ai-context
+          path: ${{ runner.temp }}/zoomies-context
+      - name: Validate and atomically publish the generated branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_DIR: ${{ runner.temp }}/zoomies-context
+          SOURCE_COMMIT: ${{ github.sha }}
+          SOURCE_BRANCH: "main"
+          REPOSITORY_IDENTITY: "{\"github_host\":\"github.com\",\"installation_id\":\"ins_7xad5wpfjwbo6\",\"repository_id\":1357002726}"
+          CONFIG_HASH: "7330915e7ed54f78124dca1e723d245e92a616ea9f1d3c6f65e8c137b8e10f17"
+        shell: python
+        run: |
+          # Managed by Zoomies AI Context. Never execute files downloaded from the artifact.
+          import base64
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          
+          
+          def publish(directory, api, repo, token, branch, commit, identity, config_hash):
+              def request(method, endpoint, body=None):
+                  data = None if body is None else json.dumps(body).encode()
+                  req = urllib.request.Request(api.rstrip('/') + '/repos/' + repo + endpoint, data=data, method=method,
+                                               headers={'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json',
+                                                        'Content-Type': 'application/json', 'X-GitHub-Api-Version': '2022-11-28'})
+                  # Never send credentials through an API redirect.
+                  class NoRedirect(urllib.request.HTTPRedirectHandler):
+                      def redirect_request(self, *args):
+                          return None
+                  try:
+                      with urllib.request.build_opener(NoRedirect).open(req, timeout=30) as response:
+                          return json.load(response)
+                  except urllib.error.HTTPError as error:
+                      if error.code == 404 and method == 'GET':
+                          return None
+                      raise
+              if not re.fullmatch('[0-9a-f]{40}', commit):
+                  raise ValueError('Source identity missing')
+              names = {'snapshot.json', 'manifest.json', 'NOTICE.md'}
+              if set(p.name for p in directory.iterdir()) != names:
+                  raise ValueError('Unexpected artifact files')
+              contents = {}
+              for name in sorted(names):
+                  p = directory / name
+                  if p.is_symlink() or not p.is_file() or p.stat().st_size > 16 << 20:
+                      raise ValueError('Unsafe artifact file')
+                  contents[name] = p.read_bytes()
+              snapshot = json.loads(contents['snapshot.json'])
+              manifest = snapshot['manifest']
+              publication = json.loads(contents['manifest.json'])
+              if contents['NOTICE.md'] != b'Managed by Zoomies AI Context. Generated by Repomix. Do not edit.\n':
+                  raise ValueError('Missing managed notice')
+              if (manifest['repository'] != identity or manifest['source_branch'] != branch
+                      or manifest['source_commit'] != commit or manifest['config_hash'] != config_hash
+                      or manifest['manager'] != 'zoomies' or manifest['generator'] != 'repomix@1.18.1'
+                      or manifest['schema_version'] != 1 or publication['snapshot_sha256'] != hashlib.sha256(contents['snapshot.json']).hexdigest()):
+                  raise ValueError('Artifact identity mismatch')
+              seen = set()
+              total = 0
+              files = snapshot['files']
+              if not 1 <= len(files) <= 5000:
+                  raise ValueError('Invalid source count')
+              for file in files:
+                  name, data = file['path'], file['content'].encode()
+                  parts = name.split('/')
+                  if (not name or len(name) > 1024 or name.startswith('/') or name in seen
+                          or any(c in name for c in '\\\x00\r\n:')
+                          or any(p in ('', '.', '..') or p.lower() in ('.git', 'node_modules', '.zoomies') or p.lower().startswith('.env') for p in parts)
+                          or name.lower().endswith(('.pem', '.key', '.p12', '.pfx', '.db', '.sqlite', '.sqlite3'))
+                          or len(data) > 1 << 20 or b'\0' in data or hashlib.sha256(data).hexdigest() != file['sha256']):
+                      raise ValueError('Unsafe source or corrupt hash')
+                  seen.add(name)
+                  total += len(data)
+              if total > 12 << 20:
+                  raise ValueError('Source exceeds limit')
+              ref = '/git/ref/heads/' + urllib.parse.quote(branch, safe='')
+              if request('GET', ref)['object']['sha'] != commit:
+                  raise ValueError('Source was superseded; generate its latest commit')
+              output_ref = '/git/ref/heads/zoomies-ai-context'
+              existing = request('GET', output_ref)
+              parent = None
+              if existing:
+                  parent = existing['object']['sha']
+                  old = request('GET', '/contents/.zoomies/ai-context/NOTICE.md?ref=' + parent)
+                  if not old or old.get('encoding') != 'base64' or base64.b64decode(old['content']) != contents['NOTICE.md']:
+                      raise ValueError('Generated branch has no recognised ownership; review a repair')
+                  previous = request('GET', '/git/commits/' + parent)
+                  if not previous['message'].startswith('Publish Zoomies AI Context\n'):
+                      raise ValueError('Generated branch ownership changed; review a repair')
+                  old_tree = request('GET', '/git/trees/' + previous['tree']['sha'] + '?recursive=1')
+                  if old_tree.get('truncated') or {f['path'] for f in old_tree['tree'] if f['type'] != 'tree'} != {'.zoomies/ai-context/' + name for name in names}:
+                      raise ValueError('Generated branch contains user files; review a repair')
+              entries = []
+              for name, content in contents.items():
+                  blob = request('POST', '/git/blobs', {'encoding': 'base64', 'content': base64.b64encode(content).decode()})
+                  entries.append({'path': '.zoomies/ai-context/' + name, 'mode': '100644', 'type': 'blob', 'sha': blob['sha']})
+              tree = request('POST', '/git/trees', {'tree': entries})
+              created = request('POST', '/git/commits', {'message': 'Publish Zoomies AI Context\n\nSource: ' + commit,
+                                'tree': tree['sha'], 'parents': [parent] if parent else []})
+              if request('GET', ref)['object']['sha'] != commit:
+                  raise ValueError('Source changed before publication; rerun generation')
+              if existing:
+                  # This is a fast-forward from the exact parent read above. A competing
+                  # publication fails rather than replacing a newer snapshot.
+                  request('PATCH', '/git/refs/heads/zoomies-ai-context', {'sha': created['sha'], 'force': False})
+              else:
+                  request('POST', '/git/refs', {'ref': 'refs/heads/zoomies-ai-context', 'sha': created['sha']})
+          
+          
+          if __name__ == '__main__':
+              try:
+                  publish(Path(os.environ['ARTIFACT_DIR']), os.environ['GITHUB_API_URL'], os.environ['GITHUB_REPOSITORY'],
+                          os.environ['GH_TOKEN'], os.environ['SOURCE_BRANCH'], os.environ['SOURCE_COMMIT'],
+                          json.loads(os.environ['REPOSITORY_IDENTITY']), os.environ['CONFIG_HASH'])
+              except Exception:
+                  raise SystemExit('Context publication refused. Check GitHub write access, artifact integrity, source freshness and generated branch ownership.')
