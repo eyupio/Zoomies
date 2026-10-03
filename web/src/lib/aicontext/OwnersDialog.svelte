@@ -100,7 +100,10 @@
       }}
     />
   {:else}
-    <p class="summary" aria-live="polite">{selected.length} owners selected</p>
+    <p class="summary" aria-live="polite">
+      {selected.length}
+      {selected.length === 1 ? 'owner' : 'owners'} selected
+    </p>
     <div class="choices">
       {#each people as person (person.id)}
         <Checkbox

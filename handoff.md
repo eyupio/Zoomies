@@ -259,3 +259,25 @@ Validation:
 - The owner-side UI (non-admin session) has no browser test because the connect project runs with auth off. The owner's permissions are covered by Go integration tests.
 
 Next: user-facing docs for AI Context (setup, ownership, readers, connecting assistants, screenshots), then Zoomies-only OIDC upload and the live pilot.
+
+## User documentation checkpoint — 3 October 2026
+
+`docs/ai-context.md` is the user guide. It covers:
+- why a runner controller now does this, which answers the user's concern that the product is moving beyond runners
+- how it works (Mermaid sequence), the three access gates, and the output choices
+- a who-can-do-what table and prerequisites
+- the six-step setup, using it via the four MCP tools, and maintenance statuses
+- troubleshooting, security, limits, and what is not built yet
+
+It is in the mkdocs nav as "AI Context for assistants". Also updated:
+- the AI Context section of `docs/ui.md`
+- the source section of `docs/connect-claude.md`: owners, and repository-only now available
+- a roles note in `docs/security.md`
+- a new FAQ entry, with its FAQPage structured copy
+
+Screenshots come from the real binary via `make screenshots`, three new shots in both themes: `ai-context`, `ai-context-wizard` and `ai-context-owners`. To make them possible, the demo client now reports `contents: read` and gives demo repositories stable IDs. The migrate demo's permission blocker is unchanged. `migrate.spec.ts`'s "No workflows" match became exact, because the permission notice also contains that phrase.
+
+Validation:
+- `mkdocs build --strict` passed; the Mermaid diagram validated.
+- `internal/docs` and `internal/controller` tests passed.
+- Playwright migrate, ai-context and navigation: 42 passed.

@@ -172,6 +172,7 @@ nav:
       - Upgrading: upgrading.md
       - Troubleshooting: troubleshooting.md
       - A job stuck in the queue: queued-job.md
+  - AI Context for assistants: ai-context.md
   - Other ways in:
       - Command line: cli.md
       - Docker Compose: compose.md

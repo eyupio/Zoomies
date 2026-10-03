@@ -424,7 +424,7 @@ test('an administrator makes someone an installation owner without granting sour
     await expect(dialog.getByText('0 owners selected')).toBeVisible();
     await expect(dialog.getByText(/does not grant source access/)).toBeVisible();
     await dialog.getByRole('checkbox', { name: /context-owner/ }).check();
-    await expect(dialog.getByText('1 owners selected')).toBeVisible();
+    await expect(dialog.getByText('1 owner selected')).toBeVisible();
     await dialog.getByRole('button', { name: 'Save owners' }).click();
     await expect(dialog).toBeHidden();
 
