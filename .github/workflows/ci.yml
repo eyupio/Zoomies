@@ -283,6 +283,35 @@ jobs:
   # package, so their counters are merged rather than concatenated -- see
   # cover-merge in the Makefile -- and the merged profile is what Codecov and
   # the job summary see.
+  ai-context-workflow:
+    name: AI Context generator and publication contract
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.27.1'
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Install the exact managed generator toolchain
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/zoomies-tools"
+          cp internal/aicontext/templates/package-lock.json "$RUNNER_TEMP/zoomies-tools/package-lock.json"
+          printf '%s\n' '{"name":"zoomies-ai-context","private":true,"dependencies":{"repomix":"1.18.1"}}' > "$RUNNER_TEMP/zoomies-tools/package.json"
+          npm ci --prefix "$RUNNER_TEMP/zoomies-tools" --ignore-scripts --no-audit --no-fund
+      - name: Verify real Repomix generation and publication boundaries
+        env:
+          ZOOMIES_TEST_REPOMIX_CLI: ${{ runner.temp }}/zoomies-tools/node_modules/.bin/repomix
+        run: go test -race ./internal/aicontext -count=1
+
   coverage:
     name: Coverage
     needs: [changes, go]

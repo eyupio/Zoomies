@@ -585,7 +585,11 @@ operator routes are not available through it.
 | GET | `/auth/mcp-connections/{id}/repositories` | signed-in owner | Paged eligible source repository names plus the complete eligible selection. Checks live user, membership, connection and client state. |
 | PUT | `/auth/mcp-connections/{id}/repositories` | signed-in owner | Replace up to 100 explicit source grants. Empty `repository_ids` removes all grants; omitted/null fields are refused. API tokens and MCP credentials cannot approve themselves. |
 | GET | `/ai-context/repositories/{id}` | admin | Resume one server-backed configuration draft. |
+| GET | `/ai-context/repositories/{id}/setup` | admin | Preview pinned managed files, original blob identities and plan hash; no GitHub writes. Live setup permissions and regular files are required. |
+| POST | `/ai-context/repositories/{id}/setup` | admin | Approve revision/plan hash explicitly. Persist and freeze the reviewed configuration before atomically publishing one setup branch/PR. Retries recover the same proposal; no source availability or connection grants. |
 | GET | `/ai-context/draft?installation_id=…&repository_id=…` | admin | Resolve an existing draft by stable identity and the installation's server-resolved GitHub host. Supports safe retry after an uncertain creation response. |
 | GET | `/ai-context/access` | source reader | Paged available repository names with live explicit membership. Owned `context:read` tokens may use it; unowned tokens and fleet roles alone cannot enumerate source repositories. |
 
 The administrator configuration list also accepts `q` (literal name search, at most 200 characters) and `installation_id`. The reader list accepts `q`. Both filter before paging. Discovery supplies canonical exclusion and retention defaults so the setup wizard does not maintain a second copy of them.
+
+Submitted AI Context configuration cannot be changed through the draft PATCH endpoint. The setup lease expires after five minutes so a controller restart can retry the same persisted proposal; a lost PR response is reconciled on the same immutable branch. User changes to that branch or closure of an uncertain PR are preserved and require attention. New workflow/repair proposals and verified availability are follow-on work.

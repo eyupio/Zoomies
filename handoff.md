@@ -1,8 +1,8 @@
 # Zoomies AI Context handoff
 
-Updated: 2 October 2026. Branch: `feature/ai-context-access`.
+Updated: 2 October 2026. Branch: `feature/ai-context-managed-files`.
 Foundation PR: https://github.com/eyupio/zoomies/pull/570 (merged).
-Continuation draft PR: https://github.com/eyupio/zoomies/pull/571
+Previous continuation PR: https://github.com/eyupio/zoomies/pull/571 (merged).
 Published implementation commit: `50098edf15de94562e54d60adedde8ebffa5df7d`.
 Continuation implementation commit: `b464e598` (local).
 Initial implementation commit: `1fc40892f593d97f40d43cd2212b51ae181634a6`.
@@ -104,6 +104,60 @@ The six-step preparation wizard supports repository selection, readiness checks,
 
 Validation: targeted API race tests passed (14.901s); targeted store race tests passed (12.115s), including literal search escaping and reader access boundaries. Svelte check had zero errors/warnings; production UI/status build, changed-file lint/formatting, binary build and targeted go vet passed. A new Playwright test passed against the real controller and fake GitHub (1.2s): two repositories, simulated temporary second-save failure, retry only failures, persisted retention, unavailable drafts and same-page draft resumption. Desktop review and 375px configuration screenshots were inspected; no horizontal overflow. Test is included in the connect project.
 
-Next concrete action: implement managed repository setup templates and reviewed setup PR creation from these drafts, with pinned workflow actions, explicit write-permission checks, safe retry/reconciliation and verified availability. Live GitHub access removal, ingestion/storage integration, MCP retrieval, OIDC uploads and assistant artifacts remain. Earlier full-suite limitations still apply; do not mark the feature complete.
+Next concrete action at that checkpoint: implement managed repository setup templates and reviewed setup PR creation from these drafts, with pinned workflow actions, explicit write-permission checks, safe retry/reconciliation and verified availability. See the latest checkpoint below for current work. Live GitHub access removal, ingestion/storage integration, MCP retrieval, OIDC uploads and assistant artifacts remain. Earlier full-suite limitations still apply; do not mark the feature complete.
 
 Published wizard implementation commit: `52f022f275ca1db49612cb81fe89126258076b1e` on draft PR #571. Published tree `77f3ec61576e5a06f7445fa21efc2bccbfb9d82c` exactly matches the validated local implementation tree.
+
+## Managed setup file planning checkpoint
+
+PR #571 is merged (merge commit `3a6c457c03b031e42e877b3db6c8f60120ece09a`). Read the supplied Repomix export and verified the changed existing files against live main before continuing.
+
+Added `internal/aicontext/setup.go` and `setup_test.go`: deterministic configuration/instruction/badge planning; original blob identities for later optimistic publication; bounded UTF-8 input; Markdown README selection; Enterprise badge links; exact idempotent retries; preserved user text/CRLF. Unknown ownership, custom settings, newer template versions, changed sections, duplicate/reversed/incomplete markers, unsafe paths and missing blob identities refuse the entire plan. Missing READMEs are not invented. Zoomies-only remains unavailable.
+
+Validation: `go test -race ./internal/aicontext -count=1` passed (1.364s); `go vet ./internal/aicontext` passed; gofmt and `git diff --check` passed. Tests include preservation/retries, conflict refusal, custom config, Enterprise badges and unavailable destination. No API/UI changes or external workflow pilot in this increment. Earlier full-suite limitations still apply.
+
+Next concrete action: pinned workflow/generator template and commit-pinned regular-file GitHub reads; use the planner from admin preview/setup endpoints. Add live write checks, base-commit revalidation, durable setup PR identity and existing-PR reconciliation before exposing Create setup PRs in the wizard. Wire verified availability only after merge and validated generation. Managed PR publication, ingestion, MCP source tools and the remaining phases are not complete.
+
+Published continuation PR: https://github.com/eyupio/zoomies/pull/572. Implementation commit: `6bbdebcf97d1b2f720bb627d84d4b97af239abbf`; tree `685a05e250d3cf9b73b2bd75a942c4a15321a38b` exactly matches the validated local implementation tree. PR targets merged main; no repository was enabled. This publication note is a documentation-only follow-up.
+
+## Managed workflow and reviewed setup PR checkpoint (stacked on PR #572)
+
+Implemented the next managed setup increment on `feature/ai-context-managed-files`:
+
+- Embedded pinned workflow/toolchain templates for repository and Both output. Actions pins were checked against their official GitHub tag refs. Repomix is pinned to 1.18.1 with its integrity-locked npm tree; installation uses a temporary tool directory and disables lifecycle scripts. No repository build or install script runs.
+- Generation stages bounded regular Git blobs from the exact trusted source commit, applies mandatory credential-path exclusions and configured exclusions, invokes Repomix secret scanning with private logs, and preserves original bytes/line numbers after verifying Repomix's boundary trimming. Empty, omitted, oversized or modified packs fail before publication. Snapshots pass the existing Go Decode/Match contract. Token counts are explicitly not measured.
+- A separate contents-write job validates artifact identity, paths, file hashes, size and source freshness. It atomically moves the owned generated branch without force, preserves its prior valid output on failure, and refuses unowned branches or extra user files. Git history is preserved; Zoomies snapshot retention awaits ingestion.
+- Commit-pinned Git tree/blob reads refuse symlinks, submodules, unsafe parents and oversized setup files. The GitHub-rendered Markdown README badge goes near the leading title; user text, line endings and executable modes are preserved. Conflicts and unknown ownership refuse the entire proposal.
+- Admin-only GET/POST setup endpoints return proposed contents and require explicit revision/plan-hash approval. Migration write permissions are checked live. The complete setup is one Git tree/commit; the publisher never uses the older sequential migration writer. Durable migration 0064 stores the reviewed proposal before writes, freezes configuration, leases publication and recovers the same branch/PR after restart or a lost response. Existing edited branches and closed uncertain PRs are preserved. Unrelated source changes do not prevent recovery of an already-created exact proposal.
+- The wizard saves drafts, shows copyable accessible file previews and offers Create setup PRs as a separate explicit action. Partial failures retain successes; retries submit only failures. Setup state and PR links are visible on bounded admin repository pages. No repository is automatically enabled and no app/source consent is created by PR publication.
+- Added a dedicated CI generator contract job. OpenAPI, generated clients, API/UI/dependency documentation and stale front-page navigation counts are updated.
+
+Validation:
+- `go test -race ./internal/aicontext ./internal/github ./internal/docs -count=1` passed; the aicontext run set `ZOOMIES_TEST_REPOMIX_CLI` and exercised real Repomix generation. Python publication boundary tests also run from the Go suite.
+- Targeted API/store context tests with `-race` passed, including explicit review, role denial, stale source/configuration, frozen configuration, live permission refusal, one-PR retries, lease ownership/expiry and metadata pages. Additional lost-response/closed-PR/user-edited-branch tests passed. Durable setup restart/cascade verification passed with the other setup store tests (9.688s).
+- Five Python publication boundary tests passed: corrupt hashes/symlinks, superseded source, complete atomic publication, unowned/user files and non-force updates.
+- `go build ./...`, binary build and targeted `go vet` passed. Svelte check: zero errors/warnings; changed-file ESLint/Prettier and production UI/status builds passed their size budgets.
+- The real-controller/fake-GitHub browser flow passed at desktop and 375px, including draft partial retry, escaped source preview, no horizontal overflow and PR retry-only-failures. Setup preview/publication replies use browser fixtures because the fake API's loopback host intentionally fails the production Enterprise template gate. The actual setup APIs/publisher are exercised against fake GitHub in Go integration tests. This browser test is not a live GitHub Actions pilot.
+- Desktop/mobile preview and results screenshots were visually inspected. The previous general full-suite restrictions still apply; full repository-suite success is not claimed.
+
+Limitations and next concrete action:
+
+Finish verified merge/access reconciliation and durable branch ingestion, then authorised compact REST/MCP retrieval and the live client pilot. Add workflow repair/upgrade proposals and recovery when an abandoned pending proposal has no safe branch to resume. Submitted state is persisted PR-creation state, not live merge/freshness verification. GitHub Enterprise artifact templates and Zoomies-only OIDC uploads remain unavailable. No Jiggered setup PR or live Actions run was created by this increment; no live Claude/ChatGPT retrieval was established. Do not mark phase 1, phase 2 acceptance gates or the full feature complete. Remaining phases 3–6 still apply.
+
+Published on existing PR https://github.com/eyupio/zoomies/pull/572. Implementation commit: `3cd5280130a14f747fa26d42d93b8f078d2f3396`; tree `cd85aee7d74f8e9590c252571bd151ec5ef42932` exactly matches the validated local implementation tree. The PR title/body now describe the complete managed setup increment. This publication note is a documentation-only follow-up. The feature and live acceptance gates remain unfinished as described above.
+
+
+## PR #572 CI regression fixes
+
+The first full CI run found missing integration checks from the AI Context work: new OpenAPI paths included `/api/v1` despite the server URL already supplying it, role metadata and the hand-written route authorisation table were incomplete, migration 0064 was absent from the fixed shipped-name list, and staticcheck found two capitalised errors and a redundant declaration. Corrected the contract and regenerated both clients, added every context/connection selection route to the role walk, and explicitly verified that source membership refuses bearer tokens even with matching scopes. Removed the unused context.refresh action until its endpoint exists, rather than offering a permission with no behaviour. Added migration 0064 to the ledger test and fixed the staticcheck findings.
+
+The AI Context browser test also left its installation in the shared connect controller. The following invalid-key connection was refused as a duplicate and then verified the older healthy installation. The AI Context test now removes only the installation it created in a finally block; the existing connection test remains unchanged. The combined AI Context/connect browser run passed all five tests (8.5s), reproducing the original test order. Svelte check, changed-spec ESLint/Prettier, targeted store/auth/context/GitHub race tests, full staticcheck and binary build passed. The combined API contract/role/scope race tests passed (42.531s); targeted AI Context API regression tests passed (18.573s). Full repository-suite success and live AI Context acceptance are not claimed.
+
+
+## AI Context UX and UI polish review
+
+Reviewed the new repository list, six-step preparation flow, partial-failure review, file previews and published results against the shared component/token contract. The main defects were nested review scrolling on mobile, stretched full-width desktop actions, indistinguishable neutral status badges, simultaneous loading spinners on unrelated actions, no focus handoff into review, and exclusion errors reported under retention.
+
+Applied scoped polish: page-level scrolling for review results; compact grouped card actions and full-width mobile publication actions; central status metadata with text, tone and shape; operation-specific progress/loading and a ready/published count; review-heading focus; copy controls and monospaced file paths; new-tab external PR links; field-specific validation and exclusion help; a selected-repository review list; reader search empty messages; and clear-filter recovery plus accurate reader empty-state copy on the repository list. These changes preserve explicit setup approval and partial retry behaviour.
+
+Validation: Svelte check has zero errors/warnings; changed-file ESLint/Prettier passed; production builds pass budgets (app shell 103.1 KB/200 KB, status 18.3 KB/30 KB); binary build passed. Combined real-controller/fake-GitHub AI Context/connect browser journeys passed all five tests (9.4s), including review focus, accessible validation attribution, mobile no horizontal overflow, copy-control visibility, ordinary result scrolling, partial retries, and external link target. Desktop/mobile screenshots in light/dark themes were visually inspected. Setup preview/write replies remain browser fixtures as described above; this is UI validation, not a live setup workflow pilot. The remaining feature and acceptance work is unchanged.

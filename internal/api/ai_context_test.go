@@ -222,3 +222,81 @@ func TestConnectionSourceConsentRequiresTheSignedInOwnerAndLiveMembership(t *tes
 	h.do(request{method: http.MethodDelete, path: "/api/v1/auth/mcp-connections/" + gs.Items[0].ID, cookie: cookie}).mustStatus(t, http.StatusNoContent, "revoke connection")
 	h.do(request{method: http.MethodGet, path: path, cookie: cookie}).mustStatus(t, http.StatusNotFound, "revoked connection choices")
 }
+
+func TestAIContextSetupRequiresReviewAndRecoversTheSamePRWithoutSourceGrants(t *testing.T) {
+	h, inst, operator := migrationHarness(t)
+	_, admin := h.user("setup-admin", store.RoleAdmin)
+	response := h.do(request{method: http.MethodGet, path: "/api/v1/ai-context/discovery?installation_id=" + inst.ID, cookie: admin})
+	var discovery controller.AIContextDiscovery
+	response.into(t, &discovery)
+	selected := discovery.Repositories[0]
+	draft := store.AIContextRepository{Key: aicontext.RepositoryKey{GitHubHost: "github.com", InstallationID: inst.ID, RepositoryID: selected.ID}, FullName: selected.FullName, Config: aicontext.DefaultConfig(selected.DefaultBranch)}
+	if err := h.st.CreateAIContextRepository(h.ctx, &draft); err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/v1/ai-context/repositories/" + draft.ID + "/setup"
+	h.do(request{method: http.MethodGet, path: path, cookie: operator}).mustStatus(t, http.StatusForbidden, "operator preview")
+	h.do(request{method: http.MethodPost, path: path, cookie: operator, body: controller.AIContextSetupApproval{}}).mustStatus(t, http.StatusForbidden, "operator setup")
+	response = h.do(request{method: http.MethodGet, path: path, cookie: admin})
+	response.mustStatus(t, http.StatusOK, "preview")
+	var plan controller.AIContextSetupPreview
+	response.into(t, &plan)
+	if len(plan.Files) != 6 || plan.Setup != nil {
+		t.Fatalf("unexpected preview: %+v", plan)
+	}
+	h.do(request{method: http.MethodPost, path: path, cookie: admin, body: controller.AIContextSetupApproval{Revision: plan.Revision, PlanHash: "wrong"}}).mustStatus(t, http.StatusConflict, "wrong approval")
+	if len(h.gh.Branches(draft.FullName)) != 1 {
+		t.Fatal("preview or invalid approval wrote a branch")
+	}
+	approval := controller.AIContextSetupApproval{Revision: plan.Revision, PlanHash: plan.PlanHash}
+	response = h.do(request{method: http.MethodPost, path: path, cookie: admin, body: approval})
+	response.mustStatus(t, http.StatusOK, "create PR")
+	response.into(t, &plan)
+	if plan.Setup == nil || plan.Setup.State != "awaiting_merge" || plan.Setup.PRNumber <= 0 {
+		t.Fatalf("PR identity missing: %+v", plan)
+	}
+	number := plan.Setup.PRNumber
+	response = h.do(request{method: http.MethodPost, path: path, cookie: admin, body: approval})
+	response.mustStatus(t, http.StatusOK, "recover PR")
+	response.into(t, &plan)
+	if plan.Setup.PRNumber != number || len(h.gh.Branches(draft.FullName)) != 2 {
+		t.Fatal("retry created another PR")
+	}
+	saved, err := h.st.GetAIContextRepository(h.ctx, draft.ID)
+	if err != nil || saved.Available {
+		t.Fatal("opening a PR enabled source access")
+	}
+	h.do(request{method: http.MethodPatch, path: "/api/v1/ai-context/repositories/" + draft.ID + "/config", cookie: admin, body: map[string]any{"revision": draft.Revision, "config": draft.Config}}).mustStatus(t, http.StatusConflict, "frozen setup configuration")
+	h.gh.SetPermissions(map[string]string{"contents": "read", "metadata": "read"})
+	h.do(request{method: http.MethodPost, path: path, cookie: admin, body: approval}).mustStatus(t, http.StatusUnprocessableEntity, "live write permission removed")
+}
+
+func TestAIContextSetupRefusesChangedSourceAndUserOwnedFiles(t *testing.T) {
+	h, inst, _ := migrationHarness(t)
+	_, admin := h.user("setup-admin", store.RoleAdmin)
+	client, err := h.ctrl.ClientFor(h.ctx, inst.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repos, err := client.ListRepositories(h.ctx, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected := repos[0]
+	draft := store.AIContextRepository{Key: aicontext.RepositoryKey{GitHubHost: "github.com", InstallationID: inst.ID, RepositoryID: selected.ID}, FullName: selected.FullName, Config: aicontext.DefaultConfig(selected.DefaultBranch)}
+	if err := h.st.CreateAIContextRepository(h.ctx, &draft); err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/v1/ai-context/repositories/" + draft.ID + "/setup"
+	response := h.do(request{method: http.MethodGet, path: path, cookie: admin})
+	response.mustStatus(t, http.StatusOK, "preview")
+	var plan controller.AIContextSetupPreview
+	response.into(t, &plan)
+	h.gh.AddFile(draft.FullName, "new.go", "package new")
+	h.do(request{method: http.MethodPost, path: path, cookie: admin, body: controller.AIContextSetupApproval{Revision: plan.Revision, PlanHash: plan.PlanHash}}).mustStatus(t, http.StatusConflict, "stale reviewed source")
+	h.gh.AddFile(draft.FullName, aicontext.ConfigPath, "{\"custom\":true}")
+	h.do(request{method: http.MethodGet, path: path, cookie: admin}).mustStatus(t, http.StatusUnprocessableEntity, "custom configuration")
+	if len(h.gh.Branches(draft.FullName)) != 1 {
+		t.Fatal("refusal wrote a branch")
+	}
+}

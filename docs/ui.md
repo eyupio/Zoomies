@@ -9,7 +9,7 @@ description: >-
 
 # The UI
 
-Twelve pages, one job each. Everything on them is live — every page updates in
+Thirteen pages, one job each. Everything on them is live — every page updates in
 place from the controller's event stream, so you never have to press refresh,
 though the same button sits at the top of each one for when you want to be sure
 — and nothing is reachable from the UI that is not reachable from the
@@ -493,6 +493,27 @@ works](migration.md).
 
 ![The migration wizard's review step: the exact diff for one repository, changing runs-on from ubuntu-latest to the pool's labels, and the jobs it will not touch](screenshots/migrate-dark.webp#only-dark){ .zoomies-shot }
 ![The migration wizard's review step: the exact diff for one repository, changing runs-on from ubuntu-latest to the pool's labels, and the jobs it will not touch](screenshots/migrate-light.webp#only-light){ .zoomies-shot }
+
+## AI Context
+
+Prepare repositories for AI coding assistants. Administrators choose an
+installation and repositories, source exclusions, output and explicit readers.
+Save resumable drafts, inspect the proposed workflow, configuration, instruction
+sections and README badge, then choose **Create setup PRs**. Conflicting user
+files stop setup rather than being overwritten. Successful repositories remain
+saved when another proposal fails; retry submits only the remaining proposals.
+
+Setup uses a pinned Repomix toolchain in a read-only job and atomically publishes
+a generated branch in a separate job. Opening a PR is **Awaiting merge**, not
+source availability. Both output awaits Zoomies ingestion; repository generation
+is available after merge and a successful Actions run. Zoomies-only output and
+GitHub Enterprise artifact workflows remain unavailable. The generated branch
+follows Git history; the retention setting applies to eventual Zoomies snapshots.
+
+Source readers and consent for each MCP connection are separate choices. Existing
+fleet roles and connections receive no source access. Submitted configuration is
+frozen so a restart or lost response recovers the same proposal. Workflow upgrades
+and changes to submitted proposals still need a separate repair flow.
 
 ## Audit
 

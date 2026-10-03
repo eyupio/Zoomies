@@ -29,3 +29,31 @@ connection. Existing fleet roles and connections receive no source access by
 migration. Only a signed-in owner can choose repositories for their connection.
 
 See root `handoff.md` for the implementation checkpoint and remaining work.
+
+`PlanSetupFiles` previews owned configuration, assistant instructions and the
+optional GitHub-rendered Markdown README badge. It preserves user text and line
+endings, returns original blob SHAs for publication preconditions, and refuses
+custom configuration or edited/ambiguous managed sections. Exact retries return
+no changes. Callers must fetch regular files at one trusted commit, check live
+write permissions and compare the base commit before publication. A blob SHA is
+not proof that a GitHub contents response was a regular file rather than a
+symlink. Workflow templates, setup PR persistence and verified enablement remain
+separate work; this planner performs no repository writes or source grants.
+
+
+`PlanManagedSetup` adds the pinned workflow and integrity-locked Repomix npm
+files. Generation uses only bounded regular blobs from the trusted source
+commit, runs no repository build/install scripts, suppresses source-bearing
+logs, and preserves exact original bytes after checking Repomix's scan. The
+publication job validates the artifact and moves only the owned generated branch
+without force. GitHub Enterprise is refused explicitly because these artifact
+actions need a separately verified Enterprise template.
+
+Setup previews and PR creation live in `internal/controller/ai_context_setup.go`
+and the admin-only `/ai-context/repositories/{id}/setup` endpoints. A durable
+reviewed proposal freezes configuration before GitHub writes, leases one
+publisher and reconciles a lost response against the same complete commit/PR.
+Original file modes are preserved. Saved setup state and PR links appear on
+bounded administrative pages. This does not make repository context available
+to MCP; verified ingestion, retrieval and workflow repair/upgrade proposals
+remain separate work.

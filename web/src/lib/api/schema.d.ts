@@ -4,7 +4,34 @@
  */
 
 export interface paths {
-    "/api/v1/ai-context/access": {
+    "/ai-context/repositories/{id}/setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Preview the complete managed repository setup without writing GitHub files
+         * @description Requires context.configure (admin), live repository access and explicit GitHub setup write permissions. Returns pinned proposed file contents, original blob hashes and the plan hash. Refuses custom/ambiguous ownership and non-regular files. Existing durable proposals return their original review and PR state.
+         */
+        get: operations["previewAIContextSetup"];
+        put?: never;
+        /**
+         * Create or recover one reviewed setup pull request
+         * @description Requires context.configure (admin) and live GitHub Contents/Workflows/Pull requests write permissions. Explicitly approve the returned revision and plan hash. Persists the same proposal before writing, freezes configuration and publishes all files in one Git commit. Retries reconcile the same PR; no source availability or connection consent is granted. Opening a PR does not enable source retrieval.
+         */
+        post: operations["createAIContextSetupPR"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai-context/access": {
         parameters: {
             query?: never;
             header?: never;
@@ -24,7 +51,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/ai-context/draft": {
+    "/ai-context/draft": {
         parameters: {
             query?: never;
             header?: never;
@@ -44,7 +71,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/ai-context/repositories/{id}": {
+    "/ai-context/repositories/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -64,7 +91,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/ai-context/repositories/{id}/members": {
+    "/ai-context/repositories/{id}/members": {
         parameters: {
             query?: never;
             header?: never;
@@ -91,7 +118,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/auth/mcp-connections/{id}/repositories": {
+    "/auth/mcp-connections/{id}/repositories": {
         parameters: {
             query?: never;
             header?: never;
@@ -118,7 +145,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/ai-context/repositories/{id}/config": {
+    "/ai-context/repositories/{id}/config": {
         parameters: {
             query?: never;
             header?: never;
@@ -138,7 +165,7 @@ export interface paths {
         patch: operations["updateAIContextConfig"];
         trace?: never;
     };
-    "/api/v1/ai-context/repositories": {
+    "/ai-context/repositories": {
         parameters: {
             query?: never;
             header?: never;
@@ -162,7 +189,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/ai-context/discovery": {
+    "/ai-context/discovery": {
         parameters: {
             query?: never;
             header?: never;
@@ -3366,6 +3393,30 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AIContextSetupPreview: {
+            /** Format: int64 */
+            revision: number;
+            base_commit: string;
+            branch: string;
+            plan_hash: string;
+            files: {
+                path: string;
+                /** @enum {string} */
+                mode: "100644" | "100755";
+                previous_sha: string;
+                content: string;
+            }[];
+            setup?: {
+                repository_id: string;
+                /** Format: int64 */
+                revision: number;
+                plan_hash: string;
+                /** @enum {string} */
+                state: "pending" | "awaiting_merge";
+                pr_number: number;
+                pr_url: string;
+            };
+        };
         AIContextReaderPage: {
             items: components["schemas"]["AIContextConnectionSelection"]["items"];
             total: number;
@@ -3403,6 +3454,9 @@ export interface components {
             };
             /** Format: int64 */
             revision: number;
+            /** @enum {string} */
+            setup_state?: "pending" | "awaiting_merge";
+            setup_pr_url?: string;
             available: boolean;
             /** Format: date-time */
             created_at: string;
@@ -5700,6 +5754,9 @@ export interface components {
         };
         BackendInfo: {
             kind?: components["schemas"]["BackendKind"];
+            /** @enum {string} */
+            setup_state?: "pending" | "awaiting_merge";
+            setup_pr_url?: string;
             available?: boolean;
             version?: string;
             rootless?: boolean;
@@ -6860,6 +6917,66 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    previewAIContextSetup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Reviewable setup proposal */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIContextSetupPreview"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    createAIContextSetupPR: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: int64 */
+                    revision: number;
+                    plan_hash: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Durable setup PR identity */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIContextSetupPreview"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
     listReadableAIContext: {
         parameters: {
             query?: {

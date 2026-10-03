@@ -979,3 +979,57 @@ export function reachabilityStatus(reachable: boolean | undefined): StatusMeta {
   }
   return meta('unchecked', 'Not checked', 'neutral', 'dashed', CircleDashed);
 }
+
+const contextStates = {
+  draft: meta(
+    'draft',
+    'Draft saved',
+    'neutral',
+    'hollow',
+    Circle,
+    'Saved configuration; repository setup has not been submitted.',
+  ),
+  review: meta(
+    'review',
+    'Ready to review',
+    'pending',
+    'dashed',
+    CircleDashed,
+    'Review the proposed files before creating a setup pull request.',
+  ),
+  awaiting_merge: meta(
+    'awaiting_merge',
+    'Awaiting merge',
+    'pending',
+    'dashed',
+    Clock,
+    'A setup PR was created. Merge and successful generation are still required.',
+  ),
+  attention: meta(
+    'attention',
+    'Needs attention',
+    'danger',
+    'triangle',
+    CircleX,
+    'Resolve the reported problem, then retry the affected repository.',
+  ),
+  working: meta(
+    'working',
+    'Preparing',
+    'busy',
+    'filled',
+    Activity,
+    'Saving configuration and checking proposed files.',
+  ),
+  available: meta(
+    'available',
+    'Source access available',
+    'idle',
+    'hollow',
+    CircleCheck,
+    'Verified source context is available to explicitly authorised readers.',
+  ),
+};
+export function aiContextStatus(state: keyof typeof contextStates): StatusMeta {
+  return contextStates[state];
+}

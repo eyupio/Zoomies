@@ -102,7 +102,6 @@ const ActionAuditRead Action = "audit.read"
 const (
 	ActionContextRead      Action = "context.read"
 	ActionContextConfigure Action = "context.configure"
-	ActionContextRefresh   Action = "context.refresh"
 )
 
 // Migrations move a repository's workflows onto this fleet, which means
@@ -178,7 +177,6 @@ const (
 var actionRoles = map[Action]store.Role{
 	ActionContextRead:      store.RoleViewer,
 	ActionContextConfigure: store.RoleAdmin,
-	ActionContextRefresh:   store.RoleOperator,
 
 	ActionPoolsRead:   store.RoleViewer,
 	ActionPoolsWrite:  store.RoleOperator,
