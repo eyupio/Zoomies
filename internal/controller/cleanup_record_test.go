@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/store"
@@ -348,6 +349,11 @@ func TestReapRecordsARetryThatFailsAgain(t *testing.T) {
 	}
 	first := h.runnerByID(t, r.ID)
 
+	// Timestamps are stored to the millisecond and the harness clock only moves
+	// when told to, so without this the retry can land in the same millisecond
+	// as the first failure and "did not move" is indistinguishable from "moved
+	// by less than the clock can show".
+	h.advance(time.Second)
 	h.gh.SetMethodError(http.MethodDelete, "/actions/runners/", http.StatusForbidden, "Resource not accessible by integration")
 	h.c.reap(h.ctx)
 
