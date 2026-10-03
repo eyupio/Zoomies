@@ -90,8 +90,8 @@ func (s *Store) publishAIContextSnapshot(ctx context.Context, id string, revisio
 		if config.Disabled {
 			return fmt.Errorf("removed context cannot receive snapshots")
 		}
-		if config.Destination != aicontext.Both {
-			return fmt.Errorf("durable context snapshots require repository and Zoomies output")
+		if config.Destination != aicontext.Both && config.Destination != aicontext.Zoomies {
+			return fmt.Errorf("durable context snapshots require Zoomies or repository-and-Zoomies output")
 		}
 		if err := snapshot.Match(aicontext.RepositoryKey{GitHubHost: host, InstallationID: installation, RepositoryID: numericID}, config.SourceBranch, snapshot.Manifest.SourceCommit, hash); err != nil {
 			return err

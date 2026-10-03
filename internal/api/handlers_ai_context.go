@@ -94,6 +94,13 @@ func (s *Server) handleUpdateAIContextConfig(w http.ResponseWriter, r *http.Requ
 	if !decode(w, r, &req) {
 		return
 	}
+	// The upload address is the controller's to set, never the caller's: it
+	// is where the workflow's OIDC token is aimed, so a client cannot point a
+	// repository's uploads somewhere else.
+	req.Config.UploadURL = ""
+	if req.Config.Destination == aicontext.Zoomies {
+		req.Config.UploadURL = aicontext.UploadURLFor(s.cfg().Server.ExternalURL)
+	}
 	if err := req.Config.Validate(); err != nil {
 		unprocessable(w, err.Error(), nil)
 		return

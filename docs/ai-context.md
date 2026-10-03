@@ -90,12 +90,40 @@ kept.
 | --- | --- | --- |
 | **Repository and Zoomies** | The workflow publishes the generated branch, and Zoomies keeps a verified copy in its database, retaining the number of snapshots you choose. | The default. Every read still checks access with GitHub, but the source comes from Zoomies' verified copy rather than being downloaded again. |
 | **Repository** | The workflow publishes the generated branch and Zoomies keeps nothing. Every read fetches the branch from GitHub, verifies it and serves it from memory. | When source must not be stored outside GitHub. Each read costs more GitHub API quota and time. |
-| **Zoomies only** | Not available yet. | — |
+| **Zoomies only** | No generated branch. The workflow uploads the snapshot to Zoomies, which verifies it against GitHub and keeps it in its database. | When the repository should carry no generated output. Needs [an https address GitHub's runners can reach](#zoomies-only-uploads). |
 
-Both outputs write the same branch, `zoomies-ai-context`, with the pack under
+The first two write the same branch, `zoomies-ai-context`, with the pack under
 `.zoomies/ai-context/`. An assistant that can read GitHub directly can use that
 branch without Zoomies at all. The instructions Zoomies writes into the
 repository say how.
+
+### Zoomies-only uploads
+
+With *Zoomies only*, the workflow's last job sends the snapshot to
+`https://<your controller>/api/v1/ai-context/uploads`. It holds no secret to do
+it. GitHub Actions issues each run a short-lived OIDC token that states, signed
+by GitHub, which repository, branch, commit and workflow file the run is. The
+job asks for one with your controller's upload address as its audience and
+sends it with the snapshot.
+
+Zoomies accepts the upload only if all of this holds:
+
+* The token is signed by GitHub, unexpired, and minted for this controller's
+  address — a token for another Zoomies is useless here.
+* It comes from the repository's own `zoomies-ai-context.yml`, on the trusted
+  branch, from a push or a manual run. A pull request — including one from a
+  fork — cannot upload.
+* Its commit is still the head of the trusted branch, and the token has not
+  been used before.
+* The setup pull request is merged and the managed workflow is unchanged, as
+  for every other output.
+* Every file in the snapshot is the blob at that path in that commit.
+
+The upload address is part of the reviewed configuration. It comes from
+`server.external_url`, so the controller needs an https address that
+GitHub-hosted runners can reach, and it fetches GitHub's signing keys from
+`token.actions.githubusercontent.com`. If you change `server.external_url`,
+use **Reinstall / repair** so the workflow uploads to the new address.
 
 ## Who can do what
 
@@ -131,6 +159,8 @@ they are scoped. An agent cannot enable repositories on its owner's behalf.
   left alone.
 * For assistants, **OAuth for MCP**: the controller reached over https with
   `server.external_url` set. See [Connect Claude](connect-claude.md#before-you-start).
+* For *Zoomies only*, the same https address, reachable from GitHub's runners.
+  The wizard offers the option only when it is set.
 
 ## Set it up
 
@@ -205,10 +235,13 @@ that push runs the workflow. It has two jobs:
   empty or altered — before anything is published.
 * **Publish** checks the generated files once more and moves the
   `zoomies-ai-context` branch forward without a force push. If it fails, the
-  previous good output stays where it was.
+  previous good output stays where it was. With *Zoomies only*, an **upload**
+  job takes its place: it holds an OIDC token instead of write access and sends
+  the snapshot to Zoomies, which verifies it before keeping it.
 
 Zoomies checks repositories awaiting verification every five minutes, or
-straight away when you choose **Recheck context**. Once verification passes,
+straight away when you choose **Recheck context**. A *Zoomies only* upload is
+verified the moment it arrives. Once verification passes,
 the repository shows **Context verified**.
 
 ![The AI Context page listing two repositories in the acme installation, each a saved draft with its source branch, output and installation, and the Installation owners panel above them](screenshots/ai-context-dark.webp#only-dark){ .zoomies-shot }
@@ -299,6 +332,12 @@ the reason. The usual ones are a repository over the limits below, or a text fil
 over 1 MiB that is not excluded. Add an exclusion with **Amend**, merge, and the
 next push regenerates.
 
+**The *upload* job failed.** Its log quotes Zoomies' reason. *Not valid for this
+controller* means the token was minted for another address: run
+**Reinstall / repair** after changing `server.external_url`. *Superseded* means
+a newer push won, which is expected; the newer run uploads. A failure to reach
+the controller at all means GitHub's runners cannot reach your https address.
+
 **Verification failed after the workflow succeeded.** Somebody edited
 `.github/workflows/zoomies-ai-context.yml` or `zoomies-ai-context.config.json`
 by hand, the installation lost a permission, or the repository was renamed,
@@ -326,13 +365,16 @@ conflicting part, then retry.
   Revoking any of them closes access on the next request. A stored copy is
   never served when that check fails.
 * **Output is checked against Git itself.** Each file in the pack is matched to
-  the original blob in the source commit, so a generated branch cannot slip in
-  code that was never in the repository.
+  the original blob in the source commit, so neither a generated branch nor an
+  upload can slip in code that was never in the repository.
+* **Uploads carry no stored secret.** A *Zoomies only* workflow proves who it is
+  with a token GitHub mints for that run and this controller, valid for minutes
+  and accepted once.
 * **Stored copies are bounded and removable.** With *Repository and Zoomies*,
   snapshots are kept in the controller's database, so they are in your backups
   and covered by the same disk protection. All repositories together are capped
-  at 256 MiB of stored snapshots. **Remove** deletes them at once. With
-  *Repository*, Zoomies stores no source at all.
+  at 256 MiB of stored snapshots. **Remove** deletes them at once. *Zoomies only*
+  is stored the same way. With *Repository*, Zoomies stores no source at all.
 * **Source is data, not instructions.** Anyone who can push to a repository can
   write text that looks like an instruction. Zoomies' own guidance tells
   assistants to treat every file as untrusted, and you should expect them to.
@@ -361,8 +403,6 @@ replies small, but it is not a tokenizer count.
 
 ## Not yet
 
-* **Zoomies-only output**, for a repository that should not carry a generated
-  branch.
 * **GitHub Enterprise Server.**
 * **Owners chosen from GitHub itself.** Today an administrator makes someone an
   owner. Deriving it from a person's own GitHub permissions needs a GitHub

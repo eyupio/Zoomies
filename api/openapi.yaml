@@ -439,6 +439,47 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/Unprocessable" }
+  /ai-context/uploads:
+    post:
+      operationId: uploadAIContext
+      tags: [ai-context]
+      summary: Receive a Zoomies-only snapshot from the managed workflow
+      description: >-
+        Called by the managed GitHub Actions workflow, never by a person. The only
+        credential is the run's GitHub Actions OIDC token, minted with this
+        controller's upload address as its audience. The token must come from the
+        repository's managed workflow file, on its trusted branch, from a push or
+        manual run, for the commit that is still the branch head; each token is
+        accepted once. Every file is then matched to the regular blob at that path
+        in the commit before the snapshot is stored. The body is the snapshot JSON,
+        at most 32 MiB. Answers 404 when server.external_url is not an https address.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "202":
+          description: Verified and stored
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [repository_id, commit, snapshot_id]
+                properties:
+                  repository_id: { type: string }
+                  commit: { type: string }
+                  snapshot_id: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413":
+          description: The snapshot is larger than 32 MiB
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
   /ai-context/draft:
     get:
       x-zoomies-role: viewer
@@ -653,8 +694,9 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [repositories, can_read_contents, missing_setup_permissions, capped, default_exclusions, default_keep_snapshots]
+                required: [repositories, can_read_contents, missing_setup_permissions, capped, default_exclusions, default_keep_snapshots, zoomies_upload_available]
                 properties:
+                  zoomies_upload_available: { type: boolean, description: "Whether this controller can accept Zoomies-only uploads: true when server.external_url is an https address." }
                   default_exclusions: { type: array, items: { type: string } }
                   default_keep_snapshots: { type: integer, minimum: 1, maximum: 100 }
                   can_read_contents: { type: boolean }
@@ -5489,6 +5531,7 @@ components:
             readme_badge: { type: boolean, deprecated: true, description: "Legacy field; the README badge is automatic." }
             setup_generation: { type: integer, format: int64 }
             disabled: { type: boolean }
+            upload_url: { type: string, readOnly: true, description: "Set by the controller for Zoomies-only output: where the workflow uploads, and the audience of its OIDC token. Any value a client sends is replaced." }
         revision: { type: integer, format: int64 }
         freshness:
           type: object

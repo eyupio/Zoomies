@@ -201,3 +201,68 @@ func TestWorkflowEscapesGitHubFilterOperatorsInLiteralSourceBranches(t *testing.
 		t.Fatalf("branch treated as a GitHub glob: %v", branches)
 	}
 }
+
+// Zoomies-only output keeps the repository read-only: its last job may mint
+// an OIDC token and nothing else, and sends the snapshot only to the address
+// that was reviewed in the configuration.
+func TestZoomiesOnlyWorkflowUploadsWithAnOIDCTokenAndNeverWritesTheRepository(t *testing.T) {
+	key, config := setupInputs()
+	config.Destination = Zoomies
+	if _, err := SetupWorkflow(key, config); err == nil {
+		t.Fatal("a Zoomies-only workflow was planned without an upload address")
+	}
+	config.UploadURL = UploadURLFor("https://zoomies.example.com/")
+	workflow, err := SetupWorkflow(key, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed struct {
+		Jobs map[string]struct {
+			Permissions map[string]string `yaml:"permissions"`
+			Steps       []struct {
+				Env map[string]string `yaml:"env"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(workflow), &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := parsed.Jobs["publish"]; ok {
+		t.Fatal("Zoomies-only output still publishes a branch")
+	}
+	upload, ok := parsed.Jobs["upload"]
+	if !ok {
+		t.Fatal("no upload job")
+	}
+	if len(upload.Permissions) != 1 || upload.Permissions["id-token"] != "write" {
+		t.Fatalf("the upload job's permissions should be id-token: write alone, got %v", upload.Permissions)
+	}
+	for name, job := range parsed.Jobs {
+		for permission, level := range job.Permissions {
+			if level == "write" && !(name == "upload" && permission == "id-token") {
+				t.Fatalf("%s grants %s: write", name, permission)
+			}
+		}
+	}
+	last := upload.Steps[len(upload.Steps)-1]
+	if last.Env["UPLOAD_URL"] != "https://zoomies.example.com"+UploadPath {
+		t.Fatalf("upload address %q", last.Env["UPLOAD_URL"])
+	}
+}
+
+func TestOnlyZoomiesOnlyOutputCarriesAnHTTPSUploadAddress(t *testing.T) {
+	_, config := setupInputs()
+	for _, bad := range []string{"", "http://zoomies.example.com" + UploadPath, "https://zoomies.example.com/elsewhere", "https://u@zoomies.example.com" + UploadPath} {
+		config.Destination, config.UploadURL = Zoomies, bad
+		if config.Validate() == nil {
+			t.Errorf("accepted upload address %q", bad)
+		}
+	}
+	config.Destination, config.UploadURL = Both, UploadURLFor("https://zoomies.example.com")
+	if config.Validate() == nil {
+		t.Error("Both output accepted an upload address")
+	}
+	if UploadURLFor("http://zoomies.example.com") != "" || UploadURLFor("") != "" {
+		t.Error("a non-https controller produced an upload address")
+	}
+}

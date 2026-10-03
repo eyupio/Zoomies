@@ -18,6 +18,7 @@ import (
 type ContextIngestionClient interface {
 	ReadContextPublication(context.Context, string, string) (*ContextPublication, error)
 	ContextSetupMerged(context.Context, string, int, string) (bool, error)
+	VerifyContextSnapshot(ctx context.Context, repo, branch, commit string, snapshot *aicontext.Snapshot) error
 }
 type ContextPublication struct {
 	Source       *ContextSetupSource
@@ -115,18 +116,37 @@ func (c *appClient) ReadContextPublication(ctx context.Context, repo, branch str
 	if err != nil {
 		return nil, fmt.Errorf("context snapshot fails validation")
 	}
+	if err := c.verifyContextSnapshot(ctx, owner, name, branch, source.Commit, snapshot); err != nil {
+		return nil, err
+	}
+	return &ContextPublication{source, ref.GetObject().GetSHA(), snapshot}, nil
+}
+
+// VerifyContextSnapshot checks a snapshot that did not come from a branch --
+// a Zoomies-only upload -- against the repository itself: every file must be
+// the regular blob at that path in the commit, and the commit must still be
+// the head of the trusted branch.
+func (c *appClient) VerifyContextSnapshot(ctx context.Context, repo, branch, commit string, snapshot *aicontext.Snapshot) error {
+	owner, name, err := splitRepo(repo)
+	if err != nil {
+		return err
+	}
+	return c.verifyContextSnapshot(ctx, owner, name, branch, commit, snapshot)
+}
+
+func (c *appClient) verifyContextSnapshot(ctx context.Context, owner, name, branch, commit string, snapshot *aicontext.Snapshot) error {
 	// File digests alone do not prove source authenticity. Match original Git
 	// blob identities against the pinned trusted source tree before admitting it.
-	sourceCommit, resp, err := c.asInstallation.Git.GetCommit(ctx, owner, name, source.Commit)
+	sourceCommit, resp, err := c.asInstallation.Git.GetCommit(ctx, owner, name, commit)
 	if err != nil {
-		return nil, c.fail("read trusted context commit", resp, err)
+		return c.fail("read trusted context commit", resp, err)
 	}
 	sourceTree, resp, err := c.asInstallation.Git.GetTree(ctx, owner, name, sourceCommit.GetTree().GetSHA(), true)
 	if err != nil {
-		return nil, c.fail("read trusted context tree", resp, err)
+		return c.fail("read trusted context tree", resp, err)
 	}
 	if sourceTree.GetTruncated() || len(sourceTree.Entries) > 100000 {
-		return nil, fmt.Errorf("trusted context tree exceeds its validation limit")
+		return fmt.Errorf("trusted context tree exceeds its validation limit")
 	}
 	entries := map[string]*gh.TreeEntry{}
 	for _, e := range sourceTree.Entries {
@@ -135,18 +155,19 @@ func (c *appClient) ReadContextPublication(ctx context.Context, repo, branch str
 	for _, file := range snapshot.Files {
 		e := entries[file.Path]
 		if e == nil || e.GetType() != "blob" || (e.GetMode() != "100644" && e.GetMode() != "100755") || e.GetSHA() != contextGitBlobSHA(file.Content) {
-			return nil, fmt.Errorf("context content does not match regular files in the trusted commit")
+			return fmt.Errorf("context content does not match regular files in the trusted commit")
 		}
 	}
 	latest, resp, err := c.asInstallation.Git.GetRef(ctx, owner, name, "heads/"+branch)
 	if err != nil {
-		return nil, c.fail("recheck trusted context branch", resp, err)
+		return c.fail("recheck trusted context branch", resp, err)
 	}
-	if latest.GetObject().GetSHA() != source.Commit {
-		return nil, fmt.Errorf("context source changed during validation; retry its latest generation")
+	if latest.GetObject().GetSHA() != commit {
+		return fmt.Errorf("context source changed during validation; retry its latest generation")
 	}
-	return &ContextPublication{source, ref.GetObject().GetSHA(), snapshot}, nil
+	return nil
 }
+
 func contextGitBlobSHA(content string) string {
 	h := sha1.New()
 	fmt.Fprintf(h, "blob %d\x00", len(content))

@@ -78,6 +78,7 @@ var shippedMigrations = []string{
 	"0064_ai_context_setup.sql",
 	"0065_ai_context_snapshots.sql",
 	"0066_ai_context_owners.sql",
+	"0067_ai_context_upload_tokens.sql",
 }
 
 // The two prefixes shared by files that already shipped. They sort by what

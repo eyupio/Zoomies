@@ -281,3 +281,36 @@ Validation:
 - `mkdocs build --strict` passed; the Mermaid diagram validated.
 - `internal/docs` and `internal/controller` tests passed.
 - Playwright migrate, ai-context and navigation: 42 passed.
+
+## Zoomies-only OIDC upload checkpoint — 3 October 2026
+
+Phase 5 is implemented. A Zoomies-only repository's workflow keeps the read-only generate job. Its last job is now `upload` rather than `publish`: it has `id-token: write` and no other permission, mints a GitHub Actions OIDC token whose audience is this controller's upload address, and POSTs `snapshot.json` to `POST /api/v1/ai-context/uploads` (`internal/aicontext/templates/upload.py`; no redirects followed, artifact identity re-checked before any token is requested). Both/Repository workflows are byte-identical to before (checked by diffing the rendered templates), so installed repositories do not drift.
+
+- **Config:** `Config.UploadURL` is required (https, ending `/api/v1/ai-context/uploads`) for Zoomies and forbidden otherwise. It is hashed, so the workflow's target is part of the reviewed proposal. It is always set server-side from `server.external_url` (config PATCH and maintenance), never taken from the client. Discovery reports `zoomies_upload_available`, and the wizard enables the option only then.
+- **Token verification** (`internal/github/actions_oidc.go`, go-oidc RemoteKeySet on `token.actions.githubusercontent.com/.well-known/jwks`): RS256 signature, issuer, audience equal to the upload URL, expiry, and a required `jti`. `github.NewFakeActionsIssuer` signs test tokens with no new dependency.
+- **Ingestion** (`controller.IngestAIContextUpload`). In order:
+  1. The repository is the single enabled Zoomies-only row matching `github.com` and `repository_id`, and its UploadURL equals the audience.
+  2. `ref` is `refs/heads/<branch>`; `event_name` is push or workflow_dispatch, so a PR or fork run cannot upload.
+  3. `job_workflow_ref` is `<full_name>/.github/workflows/zoomies-ai-context.yml@refs/heads/<branch>`, with the owner/name compared case-insensitively; `sha` is 40 hex.
+  4. The `jti` is claimed once (migration 0067, pruned after expiry).
+  5. The snapshot commit equals `sha`.
+  6. `trustedAIContext` holds (merged setup, unchanged managed files, live access), and `sha` is still the branch head.
+  7. Match, CheckSourceFiles and the generator identity pass, and every file matches its Git blob (`VerifyContextSnapshot`, extracted from the Both path).
+  8. The snapshot is published.
+- **Handler:** it verifies the token before reading the body (max 32 MiB) and maps errors to 401/403/404/409/413. It is mounted outside the API's CSRF check and body limit, audited as `context.upload` by `github-actions`.
+- **Refresh:** a Zoomies-only refresh never fetches. It confirms the stored snapshot if it matches the current trusted head, otherwise marks the repository stale with "Waiting for the workflow to upload…".
+
+Validation:
+- `-race` passed:
+  - `internal/aicontext` and `internal/github`, including 4 new Python upload tests (12 Python tests in all)
+  - targeted store context/upload/migration/ownership tests
+  - API AI Context, owner, source, upload, route-table, spec and shape tests
+- `internal/controller`, `internal/docs` and `internal/mcp` passed; go vet and staticcheck are clean on the changed packages.
+- Mutation checks: removing the blob verification lets a forged file through, and removing the jti claim lets a replay through. The tests catch both.
+- Svelte check 0 errors; Playwright ai-context 4/4 passed; mkdocs `--strict` passed.
+
+Limits and next steps:
+- No live GitHub Actions run against a real https controller has been done. That is the remaining acceptance gate for phase 5.
+- If the JWKS fetch fails (network), the upload gets a 401, which reads like a bad token. It should become a distinct 503.
+- Uploads are verified only for `github.com` (GHES still unsupported).
+- After that: the live assistant pilot, and phase 6 (assistant-written artifacts).

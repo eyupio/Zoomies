@@ -220,5 +220,6 @@ source routes use owned API tokens or browser sessions; OAuth connection tokens
 remain accepted exclusively on `/mcp`.
 
 Repositories with *Repository* output are read from their generated branch on
-each request and never stored by Zoomies. Zoomies-only output and GitHub
-Enterprise Server are not available yet.
+each request and never stored by Zoomies. Zoomies-only repositories are
+uploaded by their workflow and read like Repository and Zoomies ones. GitHub
+Enterprise Server is not available yet.

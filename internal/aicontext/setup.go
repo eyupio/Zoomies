@@ -59,9 +59,6 @@ func PlanSetupFiles(key RepositoryKey, fullName string, config Config, files []S
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
-	if config.Destination == Zoomies {
-		return nil, fmt.Errorf("zoomies-only output needs secure uploads before setup")
-	}
 	existing := make(map[string]SetupFile, len(files))
 	readme := ""
 	for _, file := range files {
@@ -140,6 +137,10 @@ func PlanSetupFiles(key RepositoryKey, fullName string, config Config, files []S
 	if readme != "" {
 		link := "https://" + key.GitHubHost + "/" + fullName + "/actions/workflows/" + url.PathEscape("zoomies-ai-context.yml")
 		badge := "[![Zoomies AI Context](" + link + "/badge.svg)](" + link + ")\n\nRepomix-generated context: [`" + OutputDirectory + "/`](https://" + key.GitHubHost + "/" + fullName + "/tree/" + OutputBranch + "/" + OutputDirectory + "). The badge shows workflow status, not context freshness or assistant connectivity. Private repository badges require GitHub access."
+		if config.Destination == Zoomies {
+			// There is no generated branch to link to: the context lives in Zoomies.
+			badge = "[![Zoomies AI Context](" + link + "/badge.svg)](" + link + ")\n\nRepomix-generated context is uploaded to Zoomies rather than kept in this repository. The badge shows workflow status, not context freshness or assistant connectivity. Private repository badges require GitHub access."
+		}
 		content, err := mergeBadgeSection(existing[readme].Content, badge)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", readme, err)

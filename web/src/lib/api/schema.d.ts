@@ -241,6 +241,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ai-context/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Receive a Zoomies-only snapshot from the managed workflow
+         * @description Called by the managed GitHub Actions workflow, never by a person. The only credential is the run's GitHub Actions OIDC token, minted with this controller's upload address as its audience. The token must come from the repository's managed workflow file, on its trusted branch, from a push or manual run, for the commit that is still the branch head; each token is accepted once. Every file is then matched to the regular blob at that path in the commit before the snapshot is stored. The body is the snapshot JSON, at most 32 MiB. Answers 404 when server.external_url is not an https address.
+         */
+        post: operations["uploadAIContext"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ai-context/draft": {
         parameters: {
             query?: never;
@@ -3698,6 +3718,8 @@ export interface components {
                 /** Format: int64 */
                 setup_generation?: number;
                 disabled?: boolean;
+                /** @description Set by the controller for Zoomies-only output: where the workflow uploads, and the audience of its OIDC token. Any value a client sends is replaced. */
+                readonly upload_url?: string;
             };
             /** Format: int64 */
             revision: number;
@@ -7568,6 +7590,49 @@ export interface operations {
             422: components["responses"]["Unprocessable"];
         };
     };
+    uploadAIContext: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        responses: {
+            /** @description Verified and stored */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        repository_id: string;
+                        commit: string;
+                        snapshot_id: string;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            /** @description The snapshot is larger than 32 MiB */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
     findAIContextDraft: {
         parameters: {
             query: {
@@ -7845,6 +7910,8 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
+                        /** @description Whether this controller can accept Zoomies-only uploads: true when server.external_url is an https address. */
+                        zoomies_upload_available: boolean;
                         default_exclusions: string[];
                         default_keep_snapshots: number;
                         can_read_contents: boolean;

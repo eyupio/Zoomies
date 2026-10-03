@@ -22,6 +22,9 @@ type AIContextDiscovery struct {
 	DefaultExclusions       []string            `json:"default_exclusions"`
 	DefaultKeepSnapshots    int                 `json:"default_keep_snapshots"`
 	Capped                  bool                `json:"capped"`
+	// ZoomiesUploadAvailable says whether this controller can take
+	// Zoomies-only uploads at all: GitHub's runners need an https address.
+	ZoomiesUploadAvailable bool `json:"zoomies_upload_available"`
 }
 
 func (c *Controller) DiscoverAIContext(ctx context.Context, installationID string) (*AIContextDiscovery, error) {
@@ -42,7 +45,7 @@ func (c *Controller) DiscoverAIContext(ctx context.Context, installationID strin
 	// ListRepositories has a hard ceiling. Conservatively report that ceiling
 	// even when an installation happens to have exactly this many repositories.
 	defaults := aicontext.DefaultConfig("main")
-	out := &AIContextDiscovery{DefaultExclusions: defaults.Exclude, DefaultKeepSnapshots: defaults.KeepSnapshots, Repositories: repos, CanReadContents: info.CanReadContents(), MissingSetupPermissions: info.MissingForMigration(), Capped: len(repos) >= github.RepositoryDiscoveryLimit}
+	out := &AIContextDiscovery{DefaultExclusions: defaults.Exclude, DefaultKeepSnapshots: defaults.KeepSnapshots, Repositories: repos, CanReadContents: info.CanReadContents(), MissingSetupPermissions: info.MissingForMigration(), Capped: len(repos) >= github.RepositoryDiscoveryLimit, ZoomiesUploadAvailable: aicontext.UploadURLFor(c.cfg().Server.ExternalURL) != ""}
 	if out.Repositories == nil {
 		out.Repositories = []github.Repository{}
 	}

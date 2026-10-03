@@ -14,6 +14,8 @@ import (
 
 var errAIContextAwaitingMerge = errors.New("merge the reviewed setup PR before generating context")
 
+var errAIContextAwaitingUpload = errors.New("the workflow has not uploaded context for the current commit yet")
+
 // Context verification has its own bounded loop so a repository pack cannot
 // hold the fleet's scheduling lock. Polling also recovers missed push events.
 func (c *Controller) aiContextLoop(ctx context.Context) {
@@ -145,8 +147,19 @@ func (c *Controller) verifyAIContext(ctx context.Context, id string) (*aicontext
 		return nil, "", err
 	}
 	if r.Config.Destination == aicontext.Zoomies {
-		_ = c.failAIContextCheck(ctx, id, "unavailable", source.Commit, "Zoomies-only retrieval is not yet available.")
-		return nil, "", fmt.Errorf("zoomies-only context retrieval is not yet available")
+		// Nothing to fetch: the workflow uploads, and the upload is verified
+		// when it arrives. A check only confirms the stored snapshot is still
+		// the current commit's, with everything above still true.
+		hash, _ := r.Config.Hash()
+		if f, _ := c.st.GetAIContextFreshness(ctx, id); f != nil && f.PublishedCommit == source.Commit && f.Digest != "" {
+			if _, err := c.st.GetAIContextSnapshot(ctx, id, f.Digest); err == nil {
+				if err = c.st.ConfirmAIContextSnapshot(ctx, id, r.Revision, f.Digest, source.Commit, hash); err == nil {
+					return nil, f.Digest, nil
+				}
+			}
+		}
+		_ = c.failAIContextCheck(ctx, id, "stale", source.Commit, "Waiting for the workflow to upload context for the current commit. The previous snapshot is retained.")
+		return nil, "", errAIContextAwaitingUpload
 	}
 	transient := r.Config.Destination == aicontext.Repository
 	hash, _ := r.Config.Hash()

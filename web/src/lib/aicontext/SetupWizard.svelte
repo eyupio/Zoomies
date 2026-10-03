@@ -155,7 +155,7 @@
       selectedRepositories.every((r) => !r.archived) &&
       (step !== 1 || discovery?.can_read_contents === true) &&
       (step !== 3 || configValid) &&
-      (step < 2 || destination !== 'zoomies'),
+      (step < 2 || destination !== 'zoomies' || discovery?.zoomies_upload_available === true),
   );
   const failed = $derived(Object.values(outcomes).filter((r) => r.error && !r.blocked));
 
@@ -451,7 +451,7 @@
                   automatically load them.
                 </p>
                 <CopyButton value={aiInstructions(result)} label="Copy AI instructions" showLabel />
-                {#if result.draft?.config.destination === 'both'}
+                {#if result.draft?.config.destination !== 'repository'}
                   <p>
                     Context also lives in Zoomies after verification. Connect your assistant to
                     Zoomies and choose this repository under Settings → MCP connections → Source
@@ -661,14 +661,16 @@
             {
               value: 'zoomies',
               label: 'Zoomies only',
-              description: 'Unavailable until secure workflow uploads are supported.',
-              disabled: true,
+              description: discovery?.zoomies_upload_available
+                ? 'The workflow uploads context straight to Zoomies with a short-lived GitHub Actions token. No generated branch is written.'
+                : 'Needs server.external_url set to an https address GitHub can reach.',
+              disabled: setupFrozen || !discovery?.zoomies_upload_available,
             },
           ]}
         />
         <p class="muted">
-          Both includes an additional source copy in Zoomies. Explicit reader membership and
-          connection consent control access to that copy.
+          Repository and Zoomies, and Zoomies only, keep a verified source copy in Zoomies. Explicit
+          reader membership and connection consent control access to that copy.
         </p>
         <p class="muted">
           The Zoomies AI Context badge is added to your README automatically. Its Markdown is also
@@ -774,7 +776,13 @@
           <dl>
             <div>
               <dt>Output</dt>
-              <dd>{destination === 'both' ? 'Repository and Zoomies' : 'Repository'}</dd>
+              <dd>
+                {destination === 'both'
+                  ? 'Repository and Zoomies'
+                  : destination === 'zoomies'
+                    ? 'Zoomies only'
+                    : 'Repository'}
+              </dd>
             </div>
             <div>
               <dt>Retention</dt>

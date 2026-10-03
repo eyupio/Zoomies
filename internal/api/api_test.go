@@ -672,6 +672,9 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "GET", path: "/readyz", public: true},
 		{method: "GET", path: "/api/openapi.yaml", public: true},
 		{method: "GET", path: "/api/v1/meta", public: true},
+		// A Zoomies-only upload's credential is the GitHub Actions OIDC token
+		// in its Authorization header, which the handler verifies itself.
+		{method: "POST", path: "/api/v1/ai-context/uploads", public: true, checksCredentials: true},
 		// Off by default, so this walk sees a 404; the modes are status_test.go's.
 		{method: "GET", path: "/api/v1/status", public: true},
 

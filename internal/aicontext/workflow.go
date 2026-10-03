@@ -22,9 +22,6 @@ func SetupWorkflow(key RepositoryKey, config Config) (string, error) {
 	if err := config.Validate(); err != nil {
 		return "", err
 	}
-	if config.Destination == Zoomies {
-		return "", fmt.Errorf("zoomies-only output needs secure uploads")
-	}
 	// Artifact actions v4+ are unavailable on GHES. Refuse a workflow that
 	// would only fail after merge; Enterprise templates need a separate pilot.
 	if key.GitHubHost != "github.com" {
@@ -37,6 +34,7 @@ func SetupWorkflow(key RepositoryKey, config Config) (string, error) {
 	pushBranch, _ := json.Marshal(strings.NewReplacer("!", `\!`, "+", `\+`).Replace(config.SourceBranch))
 	generate, _ := setupTemplates.ReadFile("templates/generate.py")
 	publish, _ := setupTemplates.ReadFile("templates/publish.py")
+	upload, _ := setupTemplates.ReadFile("templates/upload.py")
 	quote := func(s string) string { b, _ := json.Marshal(s); return string(b) }
 	workflow := `# Managed by Zoomies AI Context; template 1. Review upgrades through a PR.
 name: Zoomies AI Context
@@ -94,7 +92,11 @@ jobs:
           path: ${{ runner.temp }}/zoomies-context/
           if-no-files-found: error
           retention-days: 1
-  publish:
+@@DELIVER@@`
+	// Zoomies-only output never writes to the repository: its last job holds
+	// an OIDC token instead of contents: write, and sends the snapshot to the
+	// controller named in the reviewed configuration.
+	deliver := `  publish:
     needs: generate
     if: github.ref == TRUSTED_REF
     runs-on: ubuntu-latest
@@ -118,13 +120,40 @@ jobs:
         run: |
 @@PUBLISH@@
 `
+	if config.Destination == Zoomies {
+		deliver = `  upload:
+    needs: generate
+    if: github.ref == TRUSTED_REF
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: zoomies-ai-context
+          path: ${{ runner.temp }}/zoomies-context
+      - name: Upload the verified context to Zoomies
+        env:
+          ARTIFACT_DIR: ${{ runner.temp }}/zoomies-context
+          SOURCE_COMMIT: ${{ github.sha }}
+          SOURCE_BRANCH: @@BRANCH@@
+          REPOSITORY_IDENTITY: @@IDENTITY@@
+          CONFIG_HASH: @@HASH@@
+          UPLOAD_URL: @@UPLOAD_URL@@
+        shell: python
+        run: |
+@@UPLOAD@@
+`
+	}
+	workflow = strings.Replace(workflow, "@@DELIVER@@", deliver, 1)
 	// GitHub expressions need a single-quoted literal, with apostrophes
 	// doubled; JSON/YAML quoting protects the surrounding YAML scalar.
 	trustedRef := quote("${{ github.ref == 'refs/heads/" + strings.ReplaceAll(config.SourceBranch, "'", "''") + "' }}")
 	condition := "${{ github.ref == 'refs/heads/" + strings.ReplaceAll(config.SourceBranch, "'", "''") + "' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}"
 	workflow = strings.ReplaceAll(workflow, "github.ref == TRUSTED_REF && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')", quote(condition))
 	workflow = strings.ReplaceAll(workflow, "github.ref == TRUSTED_REF", trustedRef)
-	workflow = strings.NewReplacer("@@PUSH_BRANCH@@", string(pushBranch), "@@BRANCH@@", string(branch), "@@CONFIG@@", quote(string(cfg)), "@@IDENTITY@@", quote(string(identity)), "@@HASH@@", quote(hash), "@@GENERATE@@", indentScript(string(generate)), "@@PUBLISH@@", indentScript(string(publish))).Replace(workflow)
+	workflow = strings.NewReplacer("@@PUSH_BRANCH@@", string(pushBranch), "@@BRANCH@@", string(branch), "@@CONFIG@@", quote(string(cfg)), "@@IDENTITY@@", quote(string(identity)), "@@HASH@@", quote(hash), "@@GENERATE@@", indentScript(string(generate)), "@@PUBLISH@@", indentScript(string(publish)), "@@UPLOAD_URL@@", quote(config.UploadURL), "@@UPLOAD@@", indentScript(string(upload))).Replace(workflow)
 	return workflow, nil
 }
 
