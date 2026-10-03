@@ -977,3 +977,27 @@ test('a month and a quarter cut their days into squares, and a year is twelve mo
   await expect(detail.getByRole('img', { name: /^Hour by hour:/ })).toBeVisible();
   await expect(detail.getByRole('link', { name: 'Jobs that day' })).toBeVisible();
 });
+
+// The setup checklist decides whether this fleet has run a job from the
+// fleet's own counters. Until those arrive "no jobs yet" is unknown, not true:
+// shown in that gap, the checklist counted as seen, and a fleet with a day of
+// finished jobs was then congratulated on its first one -- a banner that also
+// pushed the problems line off the first screen.
+test('a fleet that has run jobs is never announced its first one while its counters load', async ({
+  page,
+}) => {
+  await page.evaluate(() => localStorage.clear());
+  await page.route('**/api/v1/stats*', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    await route.continue();
+  });
+  const counters = page.waitForResponse((response) => response.url().includes('/api/v1/stats'));
+  await page.reload();
+  await expect(page.getByRole('heading', { level: 1, name: 'Overview' })).toBeVisible();
+  await counters;
+  // Once the counters have landed, whatever they would trigger has a moment
+  // to render; the banner fetches its job before it shows.
+  await page.waitForTimeout(1_500);
+  await expect(page.getByRole('heading', { name: /^Your first job/ })).toHaveCount(0);
+  await expect(page.getByText(/^(One step|Two steps|Three steps|Four steps|No) /)).toHaveCount(0);
+});
