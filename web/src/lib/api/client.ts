@@ -939,3 +939,6 @@ export const previewAIContextSetup = (id: string, signal?: AbortSignal) =>
 
 export const createAIContextSetupPR = (id: string, body: Body<'createAIContextSetupPR'>) =>
   api.post<Result<'createAIContextSetupPR'>>(`/ai-context/repositories/${enc(id)}/setup`, { body });
+
+export const recheckAIContext = (id: string) =>
+  api.post<Result<'recheckAIContext'>>(`/ai-context/repositories/${enc(id)}/recheck`);

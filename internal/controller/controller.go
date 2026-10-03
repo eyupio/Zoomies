@@ -102,6 +102,7 @@ type Options struct {
 
 // Controller owns the control plane's moving parts and their lifecycles.
 type Controller struct {
+	aiContextChecks chan struct{}
 	// sso is what the API last said about single sign-on, for the problems
 	// list; see sso.go.
 	sso ssoBox
@@ -399,6 +400,7 @@ func New(opts Options) (*Controller, error) {
 	}
 
 	c := &Controller{
+		aiContextChecks:         make(chan struct{}, 1),
 		st:                      opts.Store,
 		lease:                   opts.Lease,
 		live:                    config.NewLive(opts.Config),
@@ -508,6 +510,7 @@ func (c *Controller) Start(ctx context.Context) error {
 	c.spawn("installations", loopCtx, c.probeLoop)
 	c.spawn("background", loopCtx, c.backgroundLoop)
 	c.spawn("enrichment", loopCtx, c.enrichmentLoop)
+	c.spawn("ai-context", loopCtx, c.aiContextLoop)
 	// Its own loop, because a copy of a large database takes as long as it
 	// takes and the housekeeping pass should not wait for it.
 	c.spawn("backups", loopCtx, c.backupLoop)

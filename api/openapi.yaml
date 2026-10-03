@@ -95,6 +95,23 @@ tags:
     description: Routes used by agents. Not for general clients.
 
 paths:
+  /ai-context/repositories/{id}/recheck:
+    post:
+      tags: [AI Context]
+      summary: Verify setup, GitHub access and generated context
+      operationId: recheckAIContext
+      x-zoomies-role: admin
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Current persisted verification state, including a safe failure reason
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIContextRepository" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
   /ai-context/repositories/{id}/setup:
     parameters:
       - $ref: "#/components/parameters/PathID"
@@ -5134,6 +5151,16 @@ components:
             exclude: { type: array, items: { type: string } }
             keep_snapshots: { type: integer, minimum: 1, maximum: 100 }
         revision: { type: integer, format: int64 }
+        freshness:
+          type: object
+          required: [state, desired_commit, published_commit, snapshot_id, checked_at]
+          properties:
+            state: { type: string, enum: [awaiting_merge, unavailable, stale, ready] }
+            desired_commit: { type: string }
+            published_commit: { type: string }
+            snapshot_id: { type: string }
+            checked_at: { type: string, format: date-time }
+            failure: { type: string }
         setup_state: { type: string, enum: [pending, awaiting_merge] }
         setup_pr_url: { type: string }
         available: { type: boolean }
@@ -7582,6 +7609,16 @@ components:
       type: object
       properties:
         kind: { $ref: "#/components/schemas/BackendKind" }
+        freshness:
+          type: object
+          required: [state, desired_commit, published_commit, snapshot_id, checked_at]
+          properties:
+            state: { type: string, enum: [awaiting_merge, unavailable, stale, ready] }
+            desired_commit: { type: string }
+            published_commit: { type: string }
+            snapshot_id: { type: string }
+            checked_at: { type: string, format: date-time }
+            failure: { type: string }
         setup_state: { type: string, enum: [pending, awaiting_merge] }
         setup_pr_url: { type: string }
         available: { type: boolean }

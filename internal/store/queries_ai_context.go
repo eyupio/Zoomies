@@ -13,6 +13,7 @@ import (
 )
 
 type AIContextRepository struct {
+	Freshness  *AIContextFreshness     `json:"freshness,omitempty"`
 	SetupState string                  `json:"setup_state,omitempty"`
 	SetupPRURL string                  `json:"setup_pr_url,omitempty"`
 	ID         string                  `json:"id"`
@@ -29,19 +30,33 @@ type AIContextRepository struct {
 
 const aiContextColumns = `id, installation_id, github_host, repository_id, full_name, config_json, revision, available, created_at, updated_at`
 
-const aiContextReadColumns = aiContextColumns + `, COALESCE((SELECT state FROM ai_context_setups WHERE repository_id=ai_context_repositories.id),''), COALESCE((SELECT pr_url FROM ai_context_setups WHERE repository_id=ai_context_repositories.id),'')`
+const aiContextReadColumns = aiContextColumns + `, COALESCE((SELECT state FROM ai_context_setups WHERE repository_id=ai_context_repositories.id),''), COALESCE((SELECT pr_url FROM ai_context_setups WHERE repository_id=ai_context_repositories.id),''), COALESCE((SELECT json_object('state',state,'desired_commit',desired_commit,'published_commit',published_commit,'snapshot_id',digest,'checked_at',checked_at,'failure',failure) FROM ai_context_freshness WHERE repository_id=ai_context_repositories.id),'null')`
 
 func scanAIContext(sc interface{ Scan(...any) error }) (*AIContextRepository, error) {
 	var r AIContextRepository
-	var config string
+	var config, freshness string
 	var available int
 	var created, updated int64
-	err := sc.Scan(&r.ID, &r.Key.InstallationID, &r.Key.GitHubHost, &r.Key.RepositoryID, &r.FullName, &config, &r.Revision, &available, &created, &updated, &r.SetupState, &r.SetupPRURL)
+	err := sc.Scan(&r.ID, &r.Key.InstallationID, &r.Key.GitHubHost, &r.Key.RepositoryID, &r.FullName, &config, &r.Revision, &available, &created, &updated, &r.SetupState, &r.SetupPRURL, &freshness)
 	if err != nil {
 		return nil, err
 	}
 	if err := json.Unmarshal([]byte(config), &r.Config); err != nil {
 		return nil, err
+	}
+	if freshness != "null" {
+		var stored struct {
+			State           string `json:"state"`
+			DesiredCommit   string `json:"desired_commit"`
+			PublishedCommit string `json:"published_commit"`
+			Digest          string `json:"snapshot_id"`
+			CheckedAt       int64  `json:"checked_at"`
+			Failure         string `json:"failure"`
+		}
+		if err := json.Unmarshal([]byte(freshness), &stored); err != nil {
+			return nil, err
+		}
+		r.Freshness = &AIContextFreshness{State: stored.State, DesiredCommit: stored.DesiredCommit, PublishedCommit: stored.PublishedCommit, Digest: stored.Digest, CheckedAt: at(stored.CheckedAt), Failure: stored.Failure}
 	}
 	r.Available, r.CreatedAt, r.UpdatedAt = available == 1, at(created), at(updated)
 	return &r, nil

@@ -182,3 +182,64 @@ test('setup saves resumable drafts, retries only failures and never enables sour
     }
   }
 });
+
+test('verification shows retained source separately from failure and rechecks one repository', async ({
+  page,
+}) => {
+  const repository = {
+    id: 'aic_review',
+    full_name: 'acme/context',
+    repository: { github_host: 'github.com', installation_id: 'installation', repository_id: 42 },
+    config: { source_branch: 'main', destination: 'both', exclude: [], keep_snapshots: 3 },
+    revision: 1,
+    available: false,
+    setup_state: 'awaiting_merge',
+    setup_pr_url: 'https://github.com/acme/context/pull/1',
+    created_at: '2026-10-03T10:00:00Z',
+    updated_at: '2026-10-03T10:00:00Z',
+    freshness: {
+      state: 'stale',
+      desired_commit: 'b'.repeat(40),
+      published_commit: 'a'.repeat(40),
+      snapshot_id: 'c'.repeat(64),
+      checked_at: '2026-10-03T10:00:00Z',
+      failure: 'Current generation could not be verified. The previous snapshot is retained.',
+    },
+  };
+  await page.route('**/api/v1/ai-context/repositories?*', (route) =>
+    route.fulfill({ json: { items: [repository], total: 1, limit: 50, offset: 0 } }),
+  );
+  await page.route('**/api/v1/ai-context/repositories/aic_review/recheck', (route) =>
+    route.fulfill({
+      json: {
+        ...repository,
+        available: true,
+        freshness: {
+          ...repository.freshness,
+          state: 'ready',
+          published_commit: 'b'.repeat(40),
+          failure: '',
+        },
+      },
+    }),
+  );
+  await goto(page, '/ai-context', 'AI Context');
+  await chooseTheme(page, 'light');
+  await expect(page.getByText('Generation out of date', { exact: true })).toBeVisible();
+  await expect(page.getByText(repository.freshness.failure)).toBeVisible();
+  await expect(page.getByText('aaaaaaaaaaaa', { exact: true })).toBeVisible();
+  await expect(page.getByText('Last checked', { exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 375, height: 812 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/ai-context-freshness-mobile.png', fullPage: true });
+  await page.getByRole('button', { name: 'Recheck context' }).click();
+  await expect(page.getByText('Context verified', { exact: true })).toBeVisible();
+  await expect(page.getByText(repository.freshness.failure)).toHaveCount(0);
+  await expect(page.getByText('bbbbbbbbbbbb', { exact: true })).toBeVisible();
+  await chooseTheme(page, 'dark');
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.screenshot({
+    path: 'test-results/ai-context-freshness-desktop-dark.png',
+    fullPage: true,
+  });
+});

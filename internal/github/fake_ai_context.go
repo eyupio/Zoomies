@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 
 	gh "github.com/google/go-github/v88/github"
@@ -104,6 +105,7 @@ func (f *FakeGitHub) registerContextGitRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /repos/{owner}/{repo}/git/trees", f.contextCreateTree)
 	mux.HandleFunc("POST /repos/{owner}/{repo}/git/commits", f.contextCreateCommit)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls", f.contextListPulls)
+	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls/{number}", f.contextGetPull)
 }
 
 func (f *FakeGitHub) contextGitRead(w http.ResponseWriter, r *http.Request) {
@@ -124,6 +126,17 @@ func (f *FakeGitHub) contextGitRead(w http.ResponseWriter, r *http.Request) {
 		}
 	case strings.Contains(r.URL.Path, "/git/trees/"):
 		if obj := g.Trees[sha]; obj != nil {
+			if r.URL.Query().Get("recursive") != "" {
+				files := map[string]*gh.TreeEntry{}
+				g.flatten(sha, "", files)
+				flat := &gh.Tree{SHA: obj.SHA}
+				for _, e := range files {
+					flat.Entries = append(flat.Entries, e)
+				}
+				sort.Slice(flat.Entries, func(i, j int) bool { return flat.Entries[i].GetPath() < flat.Entries[j].GetPath() })
+				writeJSON(w, 200, flat)
+				return
+			}
 			writeJSON(w, 200, obj)
 			return
 		}
@@ -224,4 +237,65 @@ func (f *FakeGitHub) LoseNextContextPullResponse(repo string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.repoLocked(repo).contextGit().LoseNextPullResponse = true
+}
+
+func (f *FakeGitHub) contextGetPull(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	number, _ := strconv.Atoi(r.PathValue("number"))
+	for _, pr := range f.repoLocked(fullName(r)).contextGit().Pulls {
+		if pr.GetNumber() == number {
+			writeJSON(w, 200, pr)
+			return
+		}
+	}
+	writeError(w, 404, "Not Found")
+}
+
+// MergeContextPull models the reviewed setup becoming trusted branch content.
+func (f *FakeGitHub) MergeContextPull(repo string, number int) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	r := f.repoLocked(repo)
+	g := r.contextGit()
+	for _, pr := range g.Pulls {
+		if pr.GetNumber() != number {
+			continue
+		}
+		commit := g.Commits[r.branches[pr.GetHead().GetRef()]]
+		if commit == nil {
+			return false
+		}
+		files := map[string]*gh.TreeEntry{}
+		g.flatten(commit.GetTree().GetSHA(), "", files)
+		r.files = map[string]string{}
+		for p, e := range files {
+			r.files[p] = g.Blobs[e.GetSHA()]
+			g.Modes[p] = e.GetMode()
+		}
+		r.pinContextSource()
+		pr.Merged = gh.Ptr(true)
+		pr.State = gh.Ptr("closed")
+		pr.MergeCommitSHA = gh.Ptr(r.branches[r.defaultBranch])
+		return true
+	}
+	return false
+}
+
+// SetContextBranch publishes complete immutable objects without touching source.
+func (f *FakeGitHub) SetContextBranch(repo, branch string, contents map[string]string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	r := f.repoLocked(repo)
+	g := r.contextGit()
+	files := map[string]*gh.TreeEntry{}
+	for p, c := range contents {
+		sha := blobSHA(c)
+		g.Blobs[sha] = c
+		files[p] = &gh.TreeEntry{Path: gh.Ptr(p), Type: gh.Ptr("blob"), Mode: gh.Ptr("100644"), SHA: gh.Ptr(sha), Size: gh.Ptr(len(c))}
+	}
+	tree := g.treeOf(files)
+	sha := blobSHA("publication:" + tree.GetSHA())
+	g.Commits[sha] = &gh.Commit{SHA: gh.Ptr(sha), Tree: tree}
+	r.branches[branch] = sha
 }

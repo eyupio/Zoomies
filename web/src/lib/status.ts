@@ -981,6 +981,30 @@ export function reachabilityStatus(reachable: boolean | undefined): StatusMeta {
 }
 
 const contextStates = {
+  stale: meta(
+    'stale',
+    'Generation out of date',
+    'danger',
+    'triangle',
+    TriangleAlert,
+    'The last valid snapshot is retained. Generate and verify context for the current source commit.',
+  ),
+  unavailable: meta(
+    'unavailable',
+    'Verification failed',
+    'danger',
+    'triangle',
+    CircleX,
+    'Repository setup or GitHub access could not be verified. Source access is closed.',
+  ),
+  ready: meta(
+    'ready',
+    'Context verified',
+    'idle',
+    'hollow',
+    CircleCheck,
+    'The current source commit was verified against the managed workflow and generated files.',
+  ),
   draft: meta(
     'draft',
     'Draft saved',

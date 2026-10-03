@@ -4,10 +4,12 @@
     listAIContextRepositories,
     listReadableAIContext,
     listInstallations,
+    recheckAIContext,
   } from '$lib/api/client';
   import type { AIContextRepository, Installation } from '$lib/api/types';
   import { router } from '$lib/router';
   import { session } from '$lib/state/session.svelte';
+  import { formatAbsolute } from '$lib/format';
   import { aiContextStatus } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
@@ -30,6 +32,21 @@
   let loading = $state(true);
   let failure = $state<unknown>(null);
   let reload = $state(0);
+  let checking = $state<string | null>(null);
+  let checkFailure = $state<{ id: string; cause: unknown } | null>(null);
+
+  async function recheck(id: string) {
+    checking = id;
+    checkFailure = null;
+    try {
+      const verified = await recheckAIContext(id);
+      items = items.map((item) => (item.id === id ? verified : item));
+    } catch (cause) {
+      checkFailure = { id, cause };
+    } finally {
+      checking = null;
+    }
+  }
 
   $effect(() => {
     const admin = canConfigure,
@@ -157,13 +174,15 @@
           <Badge
             status={aiContextStatus(
               'config' in item
-                ? item.available
-                  ? 'available'
-                  : item.setup_state === 'awaiting_merge'
-                    ? 'awaiting_merge'
-                    : item.setup_state === 'pending'
-                      ? 'working'
-                      : 'draft'
+                ? item.freshness?.state
+                  ? item.freshness.state
+                  : item.available
+                    ? 'available'
+                    : item.setup_state === 'awaiting_merge'
+                      ? 'awaiting_merge'
+                      : item.setup_state === 'pending'
+                        ? 'working'
+                        : 'draft'
                 : 'available',
             )}
             label={'config' in item ? undefined : 'Shared with you'}
@@ -193,7 +212,33 @@
               </dd>
             </div>
           </dl>
+          {#if item.freshness}
+            <dl>
+              <div>
+                <dt>Last checked</dt>
+                <dd>{formatAbsolute(item.freshness.checked_at)}</dd>
+              </div>
+              {#if item.freshness.published_commit}<div>
+                  <dt>Last verified commit</dt>
+                  <dd><code>{item.freshness.published_commit.slice(0, 12)}</code></dd>
+                </div>{/if}
+            </dl>
+            {#if item.freshness.failure}<p class="verification-failure">
+                {item.freshness.failure}
+              </p>{/if}
+          {/if}
+          {#if checkFailure?.id === item.id}<ErrorState
+              error={checkFailure.cause}
+              title="Verification could not finish"
+              onretry={() => recheck(item.id)}
+            />{/if}
           <div class="actions">
+            {#if item.setup_state === 'awaiting_merge'}<Button
+                size="sm"
+                loading={checking === item.id}
+                disabled={checking !== null}
+                onclick={() => recheck(item.id)}>Recheck context</Button
+              >{/if}
             {#if item.setup_pr_url}<Button size="sm" newTab href={item.setup_pr_url}
                 >Open setup PR</Button
               >{/if}
@@ -219,6 +264,11 @@
 {/if}
 
 <style>
+  .verification-failure {
+    color: var(--z-danger);
+    font-size: var(--z-text-sm);
+    margin-bottom: var(--z-space-3);
+  }
   .filters {
     display: flex;
     flex-wrap: wrap;
