@@ -160,8 +160,9 @@ type Runner struct {
 	Ephemeral bool
 }
 
-// QueuedJob is a job the fallback poller found waiting. It carries only what
-// the scheduler needs to match it to a pool.
+// QueuedJob is a job the fallback poller found unfinished: waiting for a
+// runner, or already running on one. It carries only what the scheduler needs
+// to match it to a pool and, once it has started, to its runner.
 type QueuedJob struct {
 	ID    int64
 	RunID int64
@@ -276,7 +277,8 @@ type Client interface {
 	// scope.
 	CreateRunnerGroup(ctx context.Context, req RunnerGroupCreate) (*RunnerGroup, error)
 	// ListQueuedJobs is the webhook fallback: it walks recent workflow runs and
-	// returns the jobs still waiting for a runner.
+	// returns the jobs still waiting for a runner and the ones running on one.
+	// Status tells the two apart.
 	ListQueuedJobs(ctx context.Context) ([]QueuedJob, error)
 	// GetWorkflowJob reconciles a known job even after its run has completed.
 	GetWorkflowJob(ctx context.Context, repo string, id int64) (*WorkflowJobEvent, error)

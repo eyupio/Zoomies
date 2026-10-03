@@ -94,7 +94,8 @@ func (c *Controller) pollInterval() time.Duration {
 	return 30 * time.Second
 }
 
-// pollOnce lists queued jobs for every installation and records what it finds.
+// pollOnce lists unfinished jobs for every installation and records what it
+// finds.
 //
 // Queue discovery skips installations with recent webhooks. Known unfinished
 // jobs are checked separately in bounded pages so a missing completion cannot
@@ -208,6 +209,10 @@ func (c *Controller) discoverJobs(ctx context.Context) {
 // repository, and if each path picked its own answer the job's installation
 // would flip with every delivery. The polled installation is the fallback,
 // because it did report the job.
+//
+// The count returned is of jobs left waiting, which is what the caller wakes
+// the scheduler for. A job found already running is handed to
+// ingestStartedJob, which wakes it itself.
 func (c *Controller) ingestQueuedJobs(ctx context.Context, polled *store.Installation, jobs []github.QueuedJob) (int, error) {
 	if len(jobs) == 0 {
 		return 0, nil
@@ -219,6 +224,10 @@ func (c *Controller) ingestQueuedJobs(ctx context.Context, polled *store.Install
 
 	changed := 0
 	for _, q := range jobs {
+		if store.JobState(q.Status) == store.JobInProgress {
+			c.ingestStartedJob(ctx, q)
+			continue
+		}
 		job := &store.Job{
 			GitHubJobID:    q.ID,
 			GitHubRunID:    q.RunID,
@@ -252,6 +261,66 @@ func (c *Controller) ingestQueuedJobs(ctx context.Context, polled *store.Install
 		c.publishJob(ctx, saved)
 	}
 	return changed, nil
+}
+
+// ingestStartedJob records a job a sweep found running on one of this fleet's
+// runners before anything here had recorded it as started.
+//
+// Without webhooks that is the ordinary case, not a rare one: an idle runner
+// takes a job within a second or two of GitHub queuing it, far inside the
+// sweep interval, so the job is never seen queued at all. Nothing else moves a
+// runner to busy, and reconcileKnownJobs only rechecks rows that exist, so the
+// runner stayed idle on paper for the whole build and stood in for the next
+// queued job, which then waited for a runner the pool had room to start.
+//
+// It goes through applyWorkflowJob because that is what a delivered
+// in_progress would have gone through: one owner for the job row, the runner
+// link and the busy transition, with the store refusing to move either
+// backwards. Two cases are left where they were. A job this controller already
+// has as started or finished belongs to reconcileKnownJobs, and applying it
+// again on every sweep would cost a write and a scheduling pass per running
+// job for nothing. A job running somewhere else occupies nothing here, and a
+// row for it would never be reconciled to a completion.
+func (c *Controller) ingestStartedJob(ctx context.Context, q github.QueuedJob) {
+	if q.RunnerName == "" {
+		return
+	}
+	known, err := c.st.GetJobByGitHubID(ctx, q.ID)
+	switch {
+	case err == nil:
+		if known.State == store.JobInProgress || known.State == store.JobCompleted {
+			return
+		}
+	case !errors.Is(err, store.ErrNotFound):
+		c.log.Warn("could not look up a polled running job", "github_job_id", q.ID, "error", err)
+		return
+	}
+	if _, err := c.st.GetRunnerByName(ctx, q.RunnerName); err != nil {
+		if !errors.Is(err, store.ErrNotFound) {
+			c.log.Warn("could not look up the runner of a polled running job",
+				"github_job_id", q.ID, "runner", q.RunnerName, "error", err)
+		}
+		return
+	}
+	started := &github.WorkflowJobEvent{
+		Action:       string(store.JobInProgress),
+		JobID:        q.ID,
+		RunID:        q.RunID,
+		Repo:         q.Repo,
+		WorkflowName: q.WorkflowName,
+		JobName:      q.JobName,
+		Labels:       q.Labels,
+		RunnerName:   q.RunnerName,
+		Status:       q.Status,
+		QueuedAt:     q.QueuedAt,
+		HTMLURL:      q.HTMLURL,
+	}
+	if q.StartedAt != nil {
+		started.StartedAt = *q.StartedAt
+	}
+	if err := c.applyWorkflowJob(ctx, started, sourcePoller); err != nil {
+		c.log.Warn("could not record a polled running job", "github_job_id", q.ID, "error", err)
+	}
 }
 
 // holdRateLimited stands every background sweep down from one installation for
