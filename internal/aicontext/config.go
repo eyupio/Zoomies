@@ -55,6 +55,7 @@ type Config struct {
 	Destination   Destination `json:"destination"`
 	Exclude       []string    `json:"exclude"`
 	KeepSnapshots int         `json:"keep_snapshots"`
+	ReadmeBadge   *bool       `json:"readme_badge,omitempty"`
 }
 
 func DefaultConfig(branch string) Config {

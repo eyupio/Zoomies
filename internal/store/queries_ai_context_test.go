@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -34,6 +35,29 @@ func contextFixture(t *testing.T, s *Store) (*AIContextRepository, *User, *OAuth
 		t.Fatal(err)
 	}
 	return r, u, g
+}
+
+func TestContextInstructionsAndBadgeAreAvailableAfterReloadingSavedSetup(t *testing.T) {
+	s := newTestStore(t)
+	r, _, _ := contextFixture(t, s)
+	saved, err := s.GetAIContextRepository(t.Context(), r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := json.Marshal(saved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var metadata struct {
+		Instructions string `json:"instructions"`
+		Badge        string `json:"badge_markdown"`
+	}
+	if err := json.Unmarshal(b, &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata.Instructions != aicontext.AssistantInstructions(saved.Key, saved.FullName, saved.Config) || metadata.Badge != aicontext.BadgeMarkdown(saved.Key, saved.FullName) {
+		t.Fatal("saved setup lost its shareable instructions or badge")
+	}
 }
 
 func TestContextStartsUnavailableAndExistingConnectionsHaveNoSourceAccess(t *testing.T) {

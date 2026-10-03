@@ -129,7 +129,29 @@ jobs:
 }
 
 func indentScript(s string) string {
-	return "          " + strings.ReplaceAll(strings.TrimSuffix(s, "\n"), "\n", "\n          ")
+	lines := strings.Split(strings.TrimSuffix(s, "\n"), "\n")
+	for i, line := range lines {
+		if line != "" {
+			lines[i] = "          " + line
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// LegacySetupWorkflow recognises the exact initial template during upgrades;
+// arbitrary changes still close the ingestion gate.
+func LegacySetupWorkflow(key RepositoryKey, config Config) (string, error) {
+	w, err := SetupWorkflow(key, config)
+	if err != nil {
+		return "", err
+	}
+	for _, name := range []string{"generate", "publish"} {
+		current, _ := setupTemplates.ReadFile("templates/" + name + ".py")
+		legacy, _ := setupTemplates.ReadFile("templates/legacy_" + name + ".py")
+		oldIndent := "          " + strings.ReplaceAll(strings.TrimSuffix(string(legacy), "\n"), "\n", "\n          ")
+		w = strings.Replace(w, indentScript(string(current)), oldIndent, 1)
+	}
+	return w, nil
 }
 
 // PlanManagedSetup adds executable workflow/toolchain files only when they are

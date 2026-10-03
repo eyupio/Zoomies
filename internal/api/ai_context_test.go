@@ -3,12 +3,52 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/eyupio/zoomies/internal/aicontext"
 	"github.com/eyupio/zoomies/internal/controller"
 	"github.com/eyupio/zoomies/internal/store"
 )
+
+func TestContextReaderInstructionsAndBadgeRemainPrivateToMembers(t *testing.T) {
+	h, inst, _ := migrationHarness(t)
+	discovery, err := h.ctrl.DiscoverAIContext(h.ctx, inst.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	draft, err := h.ctrl.CreateAIContextDraft(h.ctx, controller.AIContextDraftRequest{InstallationID: inst.ID, RepositoryID: discovery.Repositories[0].ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, cookie := h.user("instructions-reader", store.RoleViewer)
+	if err := h.st.ReplaceAIContextMembers(h.ctx, draft.ID, []string{reader.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.st.SetAIContextAvailable(h.ctx, draft.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	response := h.do(request{method: http.MethodGet, path: "/api/v1/ai-context/access", cookie: cookie})
+	response.mustStatus(t, http.StatusOK, "reader instructions")
+	var page struct {
+		Items []struct {
+			Instructions string `json:"instructions"`
+			Badge        string `json:"badge_markdown"`
+		} `json:"items"`
+	}
+	response.into(t, &page)
+	if len(page.Items) != 1 || !strings.Contains(page.Items[0].Instructions, "context_overview") || !strings.Contains(page.Items[0].Badge, "zoomies-ai-context.yml/badge.svg") {
+		t.Fatal("reader guidance missing")
+	}
+	if err := h.st.ReplaceAIContextMembers(h.ctx, draft.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	response = h.do(request{method: http.MethodGet, path: "/api/v1/ai-context/access", cookie: cookie})
+	response.into(t, &page)
+	if len(page.Items) != 0 {
+		t.Fatal("revoked reader retained repository instructions")
+	}
+}
 
 func TestAIContextDiscoveryRequiresConfigurationAuthority(t *testing.T) {
 	h, inst, _ := migrationHarness(t)

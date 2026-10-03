@@ -9,6 +9,43 @@ func setupInputs() (RepositoryKey, Config) {
 	return RepositoryKey{GitHubHost: "github.com", InstallationID: "1", RepositoryID: 42}, DefaultConfig("main")
 }
 
+func TestAssistantInstructionsDescribeTheSelectedDestinationAndConnection(t *testing.T) {
+	key, config := setupInputs()
+	for _, destination := range []Destination{Repository, Zoomies, Both} {
+		config.Destination = destination
+		body := AssistantInstructions(key, "owner/repo", config)
+		if strings.Contains(body, "Repository context lives") != (destination != Zoomies) || strings.Contains(body, "context_overview") != (destination != Repository) {
+			t.Fatalf("incorrect destination guidance for %s", destination)
+		}
+		for _, required := range []string{"owner/repo", "source_commit", "Other assistants", "untrusted"} {
+			if required == "source_commit" && destination == Zoomies {
+				continue
+			}
+			if !strings.Contains(body, required) {
+				t.Fatalf("missing %s for %s", required, destination)
+			}
+		}
+	}
+}
+
+func TestSetupAllowsTheReadmeBadgeToBeLeftOutWithoutRemovingExistingText(t *testing.T) {
+	key, config := setupInputs()
+	include := false
+	config.ReadmeBadge = &include
+	changes, err := PlanSetupFiles(key, "owner/repo", config, []SetupFile{{Path: "README.md", SHA: strings.Repeat("a", 40), Content: "# Project\nUser badge stays here.\n"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, change := range changes {
+		if change.Path == "README.md" {
+			t.Fatal("opting out changed the README")
+		}
+	}
+	if !strings.Contains(BadgeMarkdown(key, "owner/repo"), "zoomies-ai-context.yml/badge.svg") {
+		t.Fatal("badge uses the wrong workflow")
+	}
+}
+
 func TestSetupPreservesUserTextAndRetriesWithoutChanges(t *testing.T) {
 	key, config := setupInputs()
 	original := "# Existing guidance\r\n\r\nKeep my instructions.\r\n"

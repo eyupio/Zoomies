@@ -96,6 +96,12 @@ func (c *Controller) trustedAIContext(ctx context.Context, r *store.AIContextRep
 		switch file.Path {
 		case aicontext.ConfigPath, aicontext.WorkflowPath, aicontext.GeneratorPackagePath, aicontext.GeneratorLockPath:
 			if files[file.Path] != file.Content {
+				if file.Path == aicontext.WorkflowPath {
+					legacy, legacyErr := aicontext.LegacySetupWorkflow(r.Key, r.Config)
+					if legacyErr == nil && files[file.Path] == legacy {
+						continue
+					}
+				}
 				return nil, nil, fmt.Errorf("managed workflow or configuration changed; review a repair before ingestion")
 			}
 		}

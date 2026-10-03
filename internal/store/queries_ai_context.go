@@ -28,6 +28,17 @@ type AIContextRepository struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// MarshalJSON derives shareable setup guidance from the saved destination, so
+// it remains available after the preparation wizard has finished.
+func (r AIContextRepository) MarshalJSON() ([]byte, error) {
+	type repository AIContextRepository
+	return json.Marshal(struct {
+		repository
+		Instructions  string `json:"instructions"`
+		BadgeMarkdown string `json:"badge_markdown"`
+	}{repository: repository(r), Instructions: aicontext.AssistantInstructions(r.Key, r.FullName, r.Config), BadgeMarkdown: aicontext.BadgeMarkdown(r.Key, r.FullName)})
+}
+
 const aiContextColumns = `id, installation_id, github_host, repository_id, full_name, config_json, revision, available, created_at, updated_at`
 
 const aiContextReadColumns = aiContextColumns + `, COALESCE((SELECT state FROM ai_context_setups WHERE repository_id=ai_context_repositories.id),''), COALESCE((SELECT pr_url FROM ai_context_setups WHERE repository_id=ai_context_repositories.id),''), COALESCE((SELECT json_object('state',state,'desired_commit',desired_commit,'published_commit',published_commit,'snapshot_id',digest,'checked_at',checked_at,'failure',failure) FROM ai_context_freshness WHERE repository_id=ai_context_repositories.id),'null')`

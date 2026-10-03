@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,6 +21,26 @@ func fixture() *Snapshot {
 		Repository: RepositoryKey{"github.com", "ins_test", 42}, SourceBranch: "main",
 		SourceCommit: strings.Repeat("a", 40), ConfigHash: hash, GeneratedAt: time.Unix(1, 0).UTC(), Manager: "zoomies", Generator: "repomix@1.18.1"},
 		Files: []File{{Path: "main.go", Content: text, SHA256: Hash([]byte(text))}}}
+}
+
+func TestSnapshotsAdmitThePilotSizeButStillRefuseSourceBeyondTheBound(t *testing.T) {
+	s := fixture()
+	s.Files = nil
+	content := strings.Repeat("a", MaxFileBytes)
+	for i := 0; i < 24; i++ {
+		s.Files = append(s.Files, File{Path: fmt.Sprintf("src/file-%02d.go", i), Content: content, SHA256: Hash([]byte(content))})
+	}
+	body, err := json.Marshal(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Decode(bytes.NewReader(body)); err != nil {
+		t.Fatal("bounded 24 MiB source refused", err)
+	}
+	s.Files = append(s.Files, File{Path: "src/overflow.go", Content: "a", SHA256: Hash([]byte("a"))})
+	if err := s.Validate(); err == nil {
+		t.Fatal("source beyond its bound admitted")
+	}
 }
 
 func TestSnapshotsRejectUnsafeOrUnverifiableContent(t *testing.T) {

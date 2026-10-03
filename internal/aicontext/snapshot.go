@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	MaxSnapshotBytes = 16 << 20
-	MaxSourceBytes   = 12 << 20
+	MaxSnapshotBytes = 32 << 20
+	MaxSourceBytes   = 24 << 20
 	MaxFileBytes     = 1 << 20
 	MaxFiles         = 5000
 	MaxResponseBytes = 24000

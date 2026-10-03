@@ -6,12 +6,43 @@ import io
 import json
 from pathlib import Path
 import tempfile
+import subprocess
 import unittest
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('publisher', Path(__file__).parent / 'templates' / 'publish.py')
 publisher = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(publisher)
+
+spec = importlib.util.spec_from_file_location('generator', Path(__file__).parent / 'templates' / 'generate.py')
+generator = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(generator)
+
+
+class SourceClassificationTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        subprocess.run(['git', 'init', '-q', str(self.root)], check=True)
+
+    def read(self, content):
+        blob = subprocess.check_output(['git', '-C', str(self.root), 'hash-object', '-w', '--stdin'], input=content).decode().strip()
+        return generator.source_blob(self.root, blob, len(content))
+
+    def test_large_binary_assets_are_skipped_before_text_limits(self):
+        for prefix in (b'%PDF-1.7\n\xff', b'\x89PNG\r\n\x1a\n', b'image\0'):
+            self.assertIsNone(self.read(prefix + b'x' * (generator.MAX_FILE * 2)))
+
+    def test_oversized_text_is_still_refused_without_source_in_diagnostics(self):
+        with self.assertRaisesRegex(generator.GenerationRefusal, '^A source file exceeds the context size limit; add an exclusion$'):
+            self.read(b'private source\n' * generator.MAX_FILE)
+
+    def test_valid_utf8_source_preserves_exact_bytes_and_limit(self):
+        content = b'a' * (generator.MAX_FILE - 2) + 'é'.encode()
+        self.assertEqual(self.read(content), (content, content.decode()))
+        with self.assertRaises(generator.GenerationRefusal):
+            self.read(b'a' * generator.MAX_FILE + 'é'.encode())
 
 
 class PublicationTests(unittest.TestCase):

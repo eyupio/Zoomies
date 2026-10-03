@@ -1,0 +1,18 @@
+{
+  "manager": "zoomies-ai-context",
+  "template_version": 1,
+  "source_branch": "main",
+  "destination": "both",
+  "exclude": [
+    "**/.env*",
+    "**/node_modules/**",
+    "**/.git/**",
+    "**/dist/**",
+    "**/vendor/**",
+    "**/*.pem",
+    "**/*.key",
+    "**/*.db",
+    ".zoomies/**"
+  ],
+  "keep_snapshots": 3
+}

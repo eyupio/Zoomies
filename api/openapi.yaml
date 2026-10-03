@@ -5311,7 +5311,16 @@ components:
       type: object
       required: [items, total, limit, offset]
       properties:
-        items: { $ref: "#/components/schemas/AIContextConnectionSelection/properties/items" }
+        items:
+          type: array
+          items:
+            type: object
+            required: [id, full_name, instructions, badge_markdown]
+            properties:
+              id: { type: string }
+              full_name: { type: string }
+              instructions: { type: string }
+              badge_markdown: { type: string }
         total: { type: integer }
         limit: { type: integer }
         offset: { type: integer }
@@ -5349,6 +5358,8 @@ components:
             installation_id: { type: string }
             repository_id: { type: integer, format: int64 }
         full_name: { type: string }
+        instructions: { type: string }
+        badge_markdown: { type: string }
         config:
           type: object
           required: [source_branch, destination, exclude, keep_snapshots]
@@ -5357,6 +5368,7 @@ components:
             destination: { type: string, enum: [repository, zoomies, both] }
             exclude: { type: array, items: { type: string } }
             keep_snapshots: { type: integer, minimum: 1, maximum: 100 }
+            readme_badge: { type: boolean, description: "Add the managed README badge; omitted means enabled." }
         revision: { type: integer, format: int64 }
         freshness:
           type: object

@@ -91,6 +91,7 @@
   let destination = $state<string>('both'),
     exclusions = $state(''),
     keep = $state('3');
+  let readmeBadge = $state(true);
   let setupFrozen = $state(false);
   let resuming = $state<AIContextRepository | null>(null);
   type Outcome = {
@@ -110,6 +111,19 @@
   const retentionValid = $derived(
     Number.isInteger(Number(keep)) && Number(keep) >= 1 && Number(keep) <= 100,
   );
+  function aiInstructions(result: Outcome): string {
+    if (result.draft?.instructions) return result.draft.instructions;
+    const guidance = result.preview?.files.find((file) => file.path === 'AGENTS.md')?.content;
+    if (guidance) {
+      const section = guidance
+        .split('<!-- zoomies-ai-context:start -->')[1]
+        ?.split('<!-- zoomies-ai-context:end -->')[0]
+        ?.trim();
+      if (section)
+        return `For ${result.name}, use these repository context instructions:\n\n${section}`;
+    }
+    return `Read the Zoomies AI Context section in AGENTS.md on the default branch of ${result.name} using your authorised GitHub access, and follow its destination and freshness instructions. If the setup PR is not merged or generation has failed, report that context is not ready.`;
+  }
   const exclusionsValid = $derived(
     exclusions.split('\n').filter((line) => line.trim()).length <= 100,
   );
@@ -181,6 +195,7 @@
           repositoryIds = [draft.repository.repository_id];
           readerIds = members.user_ids;
           destination = draft.config.destination;
+          readmeBadge = draft.config.readme_badge !== false;
           exclusions = draft.config.exclude.join('\n');
           keep = String(draft.config.keep_snapshots);
           outcomes = { [draft.repository.repository_id]: { name: draft.full_name, draft } };
@@ -296,6 +311,7 @@
             .map((line) => line.trim())
             .filter(Boolean),
           keep_snapshots: Number(keep),
+          ...(readmeBadge ? { readme_badge: undefined } : { readme_badge: false }),
         };
         if (!setupFrozen)
           draft = await updateAIContextConfig(draft.id, { revision: draft.revision, config });
@@ -419,6 +435,25 @@
                 Merge and successful generation are required. Assistant source access remains a
                 separate choice.
               </p>
+              <div class="assistant-setup">
+                <h4>Connect your assistant</h4>
+                <p>
+                  Claude Code reads CLAUDE.md in your checkout. For any assistant with GitHub
+                  access, copy these instructions into the conversation; repository access does not
+                  automatically load them.
+                </p>
+                <CopyButton value={aiInstructions(result)} label="Copy AI instructions" showLabel />
+                {#if result.draft?.config.destination === 'both'}
+                  <p>
+                    Context also lives in Zoomies after verification. Connect your assistant to
+                    Zoomies and choose this repository under Settings → MCP connections → Source
+                    access.
+                  </p>
+                  <Button size="sm" href="/settings/connections">Manage MCP connections</Button>
+                {:else}
+                  <p>Context lives on the zoomies-ai-context branch under .zoomies/ai-context/.</p>
+                {/if}
+              </div>
             {:else}
               <p class="muted">
                 Proposed against source commit <code>{result.preview.base_commit.slice(0, 12)}</code
@@ -626,6 +661,14 @@
         <p class="muted">
           Both includes an additional source copy in Zoomies. Explicit reader membership and
           connection consent control access to that copy.
+        </p>
+        <Checkbox
+          bind:checked={readmeBadge}
+          disabled={setupFrozen}
+          label="Add Zoomies AI Context badge to README"
+        />
+        <p class="muted">
+          The badge shows workflow status. Copy its Markdown from AI Context whenever you need it.
         </p>
       {:else if current.id === 'configuration'}
         <div class="form">

@@ -3537,7 +3537,12 @@ export interface components {
             }[];
         };
         AIContextReaderPage: {
-            items: components["schemas"]["AIContextConnectionSelection"]["items"];
+            items: {
+                id: string;
+                full_name: string;
+                instructions: string;
+                badge_markdown: string;
+            }[];
             total: number;
             limit: number;
             offset: number;
@@ -3564,12 +3569,16 @@ export interface components {
                 repository_id: number;
             };
             full_name: string;
+            instructions?: string;
+            badge_markdown?: string;
             config: {
                 source_branch: string;
                 /** @enum {string} */
                 destination: "repository" | "zoomies" | "both";
                 exclude: string[];
                 keep_snapshots: number;
+                /** @description Add the managed README badge; omitted means enabled. */
+                readme_badge?: boolean;
             };
             /** Format: int64 */
             revision: number;
