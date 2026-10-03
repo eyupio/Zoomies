@@ -14,5 +14,6 @@
     "**/*.db",
     ".zoomies/**"
   ],
-  "keep_snapshots": 3
+  "keep_snapshots": 3,
+  "setup_generation": 1
 }

@@ -192,6 +192,8 @@ root; if the two disagree, fix the disagreement rather than relying on load orde
 Put detail next to the code it concerns and leave a one-line pointer here.
 
 
+
+
 <!-- zoomies-ai-context:start -->
 ## Zoomies AI Context
 
