@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -87,11 +88,13 @@ type wantMount struct {
 	covered bool
 }
 
-// isUnder reports whether path is dir or inside it.
-func isUnder(path, dir string) bool {
-	dir = filepath.Clean(dir)
-	path = filepath.Clean(path)
-	return path == dir || (dir != "/" && strings.HasPrefix(path, dir+"/"))
+// isUnder reports whether p is dir or inside it. Both are paths inside a
+// Linux container or on its host, so they are compared with forward slashes
+// whatever this upgrade runs on.
+func isUnder(p, dir string) bool {
+	dir = path.Clean(dir)
+	p = path.Clean(p)
+	return p == dir || (dir != "/" && strings.HasPrefix(p, dir+"/"))
 }
 
 // wantedMounts is every mount the installer would give this deployment
@@ -369,8 +372,8 @@ func composeServiceMounts(body []byte) (serviceMounts, error) {
 		case yaml.ScalarNode:
 			if target, ok := shortMountTarget(v.Value); ok {
 				out.targets[target] = true
-				if source, _, _ := strings.Cut(v.Value, ":"); source == target && filepath.IsAbs(source) {
-					out.samePath[filepath.Clean(source)] = true
+				if source, _, _ := strings.Cut(v.Value, ":"); source == target && path.IsAbs(source) {
+					out.samePath[path.Clean(source)] = true
 				}
 			}
 		case yaml.MappingNode:
@@ -381,8 +384,8 @@ func composeServiceMounts(body []byte) (serviceMounts, error) {
 			}
 			if err := v.Decode(&long); err == nil && long.Target != "" {
 				out.targets[long.Target] = true
-				if long.Type == "bind" && long.Source == long.Target && filepath.IsAbs(long.Source) {
-					out.samePath[filepath.Clean(long.Source)] = true
+				if long.Type == "bind" && long.Source == long.Target && path.IsAbs(long.Source) {
+					out.samePath[path.Clean(long.Source)] = true
 				}
 			}
 		}

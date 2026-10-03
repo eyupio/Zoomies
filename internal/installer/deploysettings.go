@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -114,11 +115,13 @@ func sizeLimitedCacheDirs(pools []*store.Pool) []cacheDir {
 	var order []string
 	for _, pool := range pools {
 		c := pool.Cache
+		// A cache source is a path on the Linux host the runners run on,
+		// whatever machine this upgrade happens to run from.
 		source := strings.TrimSpace(c.Source)
-		if !c.Enabled || c.SizeLimit <= 0 || !filepath.IsAbs(source) || strings.Contains(source, "..") {
+		if !c.Enabled || c.SizeLimit <= 0 || !path.IsAbs(source) || strings.Contains(source, "..") {
 			continue
 		}
-		dir := filepath.Clean(source)
+		dir := path.Clean(source)
 		if byPath[dir] == nil {
 			byPath[dir] = &cacheDir{path: dir}
 			order = append(order, dir)
