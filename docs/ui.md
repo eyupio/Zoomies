@@ -496,24 +496,24 @@ works](migration.md).
 
 ## AI Context
 
-Prepare repositories for AI coding assistants. Administrators choose an
-installation and repositories, source exclusions, output and explicit readers.
-Save resumable drafts, inspect the proposed workflow, configuration, instruction
-sections and README badge, then choose **Create setup PRs**. Conflicting user
-files stop setup rather than being overwritten. Successful repositories remain
-saved when another proposal fails; retry submits only the remaining proposals.
+Repositories prepared for AI coding assistants, and the way to prepare more.
+**Enable repositories** opens a six-step wizard: choose repositories, check the
+installation's permissions, pick where the context lives, set exclusions and
+retention, choose source readers, and review. Saving makes resumable drafts.
+**Review setup changes** then shows every file the setup pull request would
+write before one is opened. Each repository's card shows its status, when it was
+last checked and the last commit verified, with **Recheck context**,
+**Reinstall / repair**, **Amend** and **Remove**, and the AI instructions and
+badge to copy.
 
-Setup uses a pinned Repomix toolchain in a read-only job and atomically publishes
-a generated branch in a separate job. Opening a PR is **Awaiting merge**, not
-source availability. Both output awaits Zoomies ingestion; repository generation
-is available after merge and a successful Actions run. Zoomies-only output and
-GitHub Enterprise artifact workflows remain unavailable. The generated branch
-follows Git history; the retention setting applies to eventual Zoomies snapshots.
+Administrators can also choose **Installation owners**, who enable repositories
+for one installation without being administrators. A person who is only a
+source reader sees just the repositories shared with them.
 
-Source readers and consent for each MCP connection are separate choices. Existing
-fleet roles and connections receive no source access. Submitted configuration is
-frozen so a restart or lost response recovers the same proposal. Workflow upgrades
-and changes to submitted proposals still need a separate repair flow.
+![The AI Context page listing two repositories in the acme installation, each a saved draft with its source branch, output and installation, and the Installation owners panel above them](screenshots/ai-context-dark.webp#only-dark){ .zoomies-shot }
+![The AI Context page listing two repositories in the acme installation, each a saved draft with its source branch, output and installation, and the Installation owners panel above them](screenshots/ai-context-light.webp#only-light){ .zoomies-shot }
+
+[AI Context](ai-context.md) walks through setting it up and using it.
 
 ## Audit
 

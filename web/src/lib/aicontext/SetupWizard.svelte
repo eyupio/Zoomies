@@ -9,7 +9,7 @@
     findAIContextDraft,
     getAIContextMembers,
     getAIContextRepository,
-    listInstallations,
+    listContextInstallations,
     listUsers,
     putAIContextMembers,
     updateAIContextConfig,
@@ -19,10 +19,10 @@
     AIContextSetupPreview,
     AIContextDiscovery,
     AIContextRepository,
-    Installation,
     User,
   } from '$lib/api/types';
   import { router } from '$lib/router';
+  import { session } from '$lib/state/session.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import { aiContextStatus } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
@@ -78,7 +78,8 @@
     busy = $state(false);
   let failure = $state<unknown>(null);
   let reload = $state(0);
-  type KnownInstallation = Installation & { id: string; target: string };
+  const isAdmin = $derived(session.can('admin'));
+  type KnownInstallation = { id: string; target: string };
   type KnownUser = User & { id: string; username: string };
   let installations = $state<KnownInstallation[]>([]),
     users = $state<KnownUser[]>([]);
@@ -154,7 +155,7 @@
       selectedRepositories.every((r) => !r.archived) &&
       (step !== 1 || discovery?.can_read_contents === true) &&
       (step !== 3 || configValid) &&
-      (step < 2 || destination !== 'zoomies'),
+      (step < 2 || destination !== 'zoomies' || discovery?.zoomies_upload_available === true),
   );
   const failed = $derived(Object.values(outcomes).filter((r) => r.error && !r.blocked));
 
@@ -176,16 +177,25 @@
     loading = true;
     failure = null;
     void Promise.all([
-      listInstallations(controller.signal),
-      listUsers(controller.signal),
+      listContextInstallations(controller.signal),
+      // The user directory is an administrator's. An owner chooses only
+      // themselves as a reader, so they never need it.
+      isAdmin ? listUsers(controller.signal) : Promise.resolve({ items: [] }),
       resumeId ? getAIContextRepository(resumeId, controller.signal) : Promise.resolve(null),
     ])
       .then(async ([installationList, userList, draft]) => {
         if (controller.signal.aborted) return;
-        installations = (installationList.items ?? []).filter(
-          (i): i is KnownInstallation => !!i.id && !!i.target,
-        );
+        installations = installationList.items ?? [];
         users = (userList.items ?? []).filter((u): u is KnownUser => !!u.id && !!u.username);
+        if (!isAdmin && session.identity?.id) {
+          users = [
+            {
+              id: session.identity.id,
+              username: session.identity.name ?? 'You',
+              display_name: 'Me',
+            } as KnownUser,
+          ];
+        }
         if (draft) {
           const members = await getAIContextMembers(draft.id, controller.signal);
           if (controller.signal.aborted) return;
@@ -441,7 +451,7 @@
                   automatically load them.
                 </p>
                 <CopyButton value={aiInstructions(result)} label="Copy AI instructions" showLabel />
-                {#if result.draft?.config.destination === 'both'}
+                {#if result.draft?.config.destination !== 'repository'}
                   <p>
                     Context also lives in Zoomies after verification. Connect your assistant to
                     Zoomies and choose this repository under Settings → MCP connections → Source
@@ -651,14 +661,16 @@
             {
               value: 'zoomies',
               label: 'Zoomies only',
-              description: 'Unavailable until secure workflow uploads are supported.',
-              disabled: true,
+              description: discovery?.zoomies_upload_available
+                ? 'The workflow uploads context straight to Zoomies with a short-lived GitHub Actions token. No generated branch is written.'
+                : 'Needs server.external_url set to an https address GitHub can reach.',
+              disabled: setupFrozen || !discovery?.zoomies_upload_available,
             },
           ]}
         />
         <p class="muted">
-          Both includes an additional source copy in Zoomies. Explicit reader membership and
-          connection consent control access to that copy.
+          Repository and Zoomies, and Zoomies only, keep a verified source copy in Zoomies. Explicit
+          reader membership and connection consent control access to that copy.
         </p>
         <p class="muted">
           The Zoomies AI Context badge is added to your README automatically. Its Markdown is also
@@ -717,9 +729,11 @@
       {:else if current.id === 'access'}
         <div class="form">
           <p>
-            Choose source readers explicitly. Administrator and fleet roles do not add readers
-            automatically. Each person then chooses which of their MCP connections may read these
-            repositories.
+            {isAdmin
+              ? 'Choose source readers explicitly.'
+              : 'Choose whether you read these repositories yourself; an administrator assigns other readers.'}
+            Administrator and fleet roles do not add readers automatically. Each person then chooses which
+            of their MCP connections may read these repositories.
           </p>
           <Field label="Search source readers" hideLabel
             >{#snippet children({ id })}<Input
@@ -762,7 +776,13 @@
           <dl>
             <div>
               <dt>Output</dt>
-              <dd>{destination === 'both' ? 'Repository and Zoomies' : 'Repository'}</dd>
+              <dd>
+                {destination === 'both'
+                  ? 'Repository and Zoomies'
+                  : destination === 'zoomies'
+                    ? 'Zoomies only'
+                    : 'Repository'}
+              </dd>
             </div>
             <div>
               <dt>Retention</dt>

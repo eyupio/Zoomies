@@ -287,6 +287,14 @@ says so when it does, and a daemon that already applies limits is left alone.
 | **admin** | Everything an operator may, plus manage users, API tokens, installations, join tokens and settings, and take a support bundle. |
 | **platform** | Everything an administrator may, plus the two things that belong to whoever runs the process rather than the fleet: lifting the recovery fence, and taking, downloading and restoring backups. A backup is the whole database — every account's password hash and every sealed credential, under the key this host holds — so `backups:read` on a token is the instance, not merely the fleet. The role exists for the instance where one team runs the controller and another uses it; where one team does both, the account that installed it holds this role and nothing looks any different. |
 
+Reading repository source through [AI Context](ai-context.md) is not part of
+any role. It needs explicit membership of the repository and, for an MCP
+connection, its owner's explicit consent. An administrator can also make a
+person an **installation owner**, who may enable AI Context for that one
+installation and add only themselves as a reader. The viewer-level
+`context.manage` action is only the coarse gate: every handler behind it checks
+the ownership again, and tokens and OAuth connections never qualify.
+
 The mapping from every individual API action to its minimum role is a table in
 `internal/auth/rbac.go`, and a test walks the full action list — so a new
 endpoint cannot be added without deciding who may call it.

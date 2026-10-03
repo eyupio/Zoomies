@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -82,6 +83,18 @@ type wantMount struct {
 	// bind is what is added: source:target[:mode].
 	bind string
 	why  string
+	// covered marks a mount that any mount of a folder above it already
+	// provides: a pool's cache under a folder the operator mounted is seen.
+	covered bool
+}
+
+// isUnder reports whether p is dir or inside it. Both are paths inside a
+// Linux container or on its host, so they are compared with forward slashes
+// whatever this upgrade runs on.
+func isUnder(p, dir string) bool {
+	dir = path.Clean(dir)
+	p = path.Clean(p)
+	return p == dir || (dir != "/" && strings.HasPrefix(p, dir+"/"))
 }
 
 // wantedMounts is every mount the installer would give this deployment
@@ -102,6 +115,20 @@ func (p *upgradePlan) wantedMounts(s deploymentSettings) ([]wantMount, int) {
 		out = append(out, wantMount{target: sock, bind: sock + ":" + sock,
 			why: "the runtime's socket, which the agent creates runner containers on"})
 		gid = p.socketGroup(sock)
+	}
+	if runs {
+		// A size-limited pool cache outside the shared folder: the host's
+		// daemon mounts it into runners without help, so the cache works --
+		// but the agent in this container cannot see the folder, finds
+		// nothing to measure, and the limit is never kept. Mounting it at its
+		// own path is what makes the limit real.
+		for _, dir := range s.cacheDirs {
+			if isUnder(dir.path, SharedHostDir) {
+				continue
+			}
+			out = append(out, wantMount{target: dir.path, bind: dir.path + ":" + dir.path, covered: true,
+				why: fmt.Sprintf("the cache folder of pool %s, whose size limit the agent keeps by measuring it", strings.Join(dir.pools, ", "))})
+		}
 	}
 	tls := s.cfg.Server.TLS
 	if p.record.Mode != ModeAgent && tls.Mode == config.TLSFiles && tls.CertFile != "" && tls.KeyFile != "" {
@@ -178,7 +205,7 @@ func (p *upgradePlan) dockerLayoutChanges(s deploymentSettings) []layoutChange {
 	want, gid := p.wantedMounts(s)
 	if p.replacement != nil {
 		for _, m := range want {
-			if p.replacement.HasBind(m.target) {
+			if p.replacement.HasBind(m.target) || (m.covered && p.replacement.HasBindAbove(m.target)) {
 				continue
 			}
 			bind := m.bind
@@ -303,10 +330,24 @@ func runtimeSocket(cfg *config.Config) string {
 type serviceMounts struct {
 	targets map[string]bool
 	groups  map[string]bool
+	// samePath are host folders bound at their own path. Only those make a
+	// folder inside them the same folder on both sides: a named volume at
+	// /var/lib/zoomies hides the host's /var/lib/zoomies/anything.
+	samePath map[string]bool
 }
 
 func (h serviceMounts) mounts(m wantMount) bool {
-	return h.targets[m.target] || (m.alt != "" && h.targets[m.alt])
+	if h.targets[m.target] || (m.alt != "" && h.targets[m.alt]) {
+		return true
+	}
+	if m.covered {
+		for dir := range h.samePath {
+			if isUnder(m.target, dir) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // composeServiceMounts reads the zoomies service's volumes, in either of
@@ -318,7 +359,7 @@ func composeServiceMounts(body []byte) (serviceMounts, error) {
 			GroupAdd []string    `yaml:"group_add"`
 		} `yaml:"services"`
 	}
-	out := serviceMounts{targets: map[string]bool{}, groups: map[string]bool{}}
+	out := serviceMounts{targets: map[string]bool{}, groups: map[string]bool{}, samePath: map[string]bool{}}
 	if err := yaml.Unmarshal(body, &doc); err != nil {
 		return out, err
 	}
@@ -331,13 +372,21 @@ func composeServiceMounts(body []byte) (serviceMounts, error) {
 		case yaml.ScalarNode:
 			if target, ok := shortMountTarget(v.Value); ok {
 				out.targets[target] = true
+				if source, _, _ := strings.Cut(v.Value, ":"); source == target && path.IsAbs(source) {
+					out.samePath[path.Clean(source)] = true
+				}
 			}
 		case yaml.MappingNode:
 			var long struct {
+				Type   string `yaml:"type"`
+				Source string `yaml:"source"`
 				Target string `yaml:"target"`
 			}
 			if err := v.Decode(&long); err == nil && long.Target != "" {
 				out.targets[long.Target] = true
+				if long.Type == "bind" && long.Source == long.Target && path.IsAbs(long.Source) {
+					out.samePath[path.Clean(long.Source)] = true
+				}
 			}
 		}
 	}

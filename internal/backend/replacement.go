@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 )
 
@@ -135,25 +136,72 @@ func (c *APIClient) RemoveContainerKeepingVolumes(ctx context.Context, id string
 // HasBind reports whether the replacement already mounts something at target,
 // by a bind or an explicit mount.
 func (r *ContainerReplacement) HasBind(target string) bool {
+	for _, t := range r.bindTargets() {
+		if t == target {
+			return true
+		}
+	}
+	return false
+}
+
+// HasBindAbove reports whether the replacement binds a host folder at its own
+// path that target is inside, so target is the same folder on both sides and
+// a mount of it would add nothing. A volume or a bind to another path does not
+// count: inside the container it hides the host's folder rather than showing it.
+func (r *ContainerReplacement) HasBindAbove(target string) bool {
+	target = path.Clean(target)
+	for _, dir := range r.samePathBinds() {
+		if dir != "/" && strings.HasPrefix(target, dir+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *ContainerReplacement) hostConfig() map[string]json.RawMessage {
 	var host map[string]json.RawMessage
 	if err := json.Unmarshal(r.body["HostConfig"], &host); err != nil {
-		return false
+		return nil
 	}
+	return host
+}
+
+func (r *ContainerReplacement) bindTargets() []string {
+	host := r.hostConfig()
+	var out []string
 	var binds []string
 	_ = json.Unmarshal(host["Binds"], &binds)
 	for _, b := range binds {
-		if parts := strings.Split(b, ":"); len(parts) > 1 && parts[1] == target {
-			return true
+		if parts := strings.Split(b, ":"); len(parts) > 1 {
+			out = append(out, parts[1])
 		}
 	}
 	var mounts []struct{ Target string }
 	_ = json.Unmarshal(host["Mounts"], &mounts)
 	for _, m := range mounts {
-		if m.Target == target {
-			return true
+		out = append(out, m.Target)
+	}
+	return out
+}
+
+func (r *ContainerReplacement) samePathBinds() []string {
+	host := r.hostConfig()
+	var out []string
+	var binds []string
+	_ = json.Unmarshal(host["Binds"], &binds)
+	for _, b := range binds {
+		if parts := strings.Split(b, ":"); len(parts) > 1 && parts[0] == parts[1] && path.IsAbs(parts[0]) {
+			out = append(out, path.Clean(parts[0]))
 		}
 	}
-	return false
+	var mounts []struct{ Type, Source, Target string }
+	_ = json.Unmarshal(host["Mounts"], &mounts)
+	for _, m := range mounts {
+		if m.Type == "bind" && m.Source == m.Target && path.IsAbs(m.Source) {
+			out = append(out, path.Clean(m.Source))
+		}
+	}
+	return out
 }
 
 // AddBind adds one bind to the replacement, which is how an upgrade gives a

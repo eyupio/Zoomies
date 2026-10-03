@@ -381,3 +381,64 @@ test('maintenance reviews amended settings, recovers publication and shows remov
   ).toBeVisible();
   expect(reviewBody.mode).toBe('remove');
 });
+
+test('an administrator makes someone an installation owner without granting source access', async ({
+  page,
+  request,
+}) => {
+  let createdInstallation = '';
+  let installation = '';
+  let userId = '';
+  try {
+    const fake = JSON.parse(readFileSync('test-results/fakegithub.json', 'utf8'));
+    const installations = await (await request.get('/api/v1/installations')).json();
+    if (installations.items.length) {
+      installation = installations.items[0].id;
+    } else {
+      const created = await request.post('/api/v1/installations', {
+        data: {
+          app_id: Number(fake.appId),
+          installation_id: Number(fake.installationId),
+          target: 'acme',
+          target_type: 'org',
+          api_base_url: fake.url,
+          private_key: fake.privateKey,
+        },
+      });
+      expect(created.status(), await created.text()).toBe(201);
+      installation = createdInstallation = (await created.json()).id;
+    }
+    const user = await request.post('/api/v1/users', {
+      data: { username: 'context-owner', password: 'correct horse battery staple', role: 'viewer' },
+    });
+    expect(user.status(), await user.text()).toBe(201);
+    userId = (await user.json()).id;
+
+    await goto(page, '/ai-context', 'AI Context');
+    await page.getByText('Installation owners', { exact: true }).click();
+    await page
+      .getByRole('button', { name: /^Owners of / })
+      .first()
+      .click();
+    const dialog = page.getByRole('dialog', { name: 'Installation owners' });
+    await expect(dialog.getByText('0 owners selected')).toBeVisible();
+    await expect(dialog.getByText(/does not grant source access/)).toBeVisible();
+    await dialog.getByRole('checkbox', { name: /context-owner/ }).check();
+    await expect(dialog.getByText('1 owner selected')).toBeVisible();
+    await dialog.getByRole('button', { name: 'Save owners' }).click();
+    await expect(dialog).toBeHidden();
+
+    const owners = await (
+      await request.get(`/api/v1/ai-context/installations/${installation}/owners`)
+    ).json();
+    expect(owners.user_ids).toEqual([userId]);
+  } finally {
+    if (installation) {
+      await request.put(`/api/v1/ai-context/installations/${installation}/owners`, {
+        data: { user_ids: [] },
+      });
+    }
+    if (userId) await request.delete(`/api/v1/users/${userId}`);
+    if (createdInstallation) await request.delete(`/api/v1/installations/${createdInstallation}`);
+  }
+});

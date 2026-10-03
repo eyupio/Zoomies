@@ -893,6 +893,16 @@ export const putOwnMCPContextSelection = (id: string, repositoryIds: string[]) =
     body: { repository_ids: repositoryIds },
   });
 
+export const listContextInstallations = (signal?: AbortSignal) =>
+  api.get<Result<'listAIContextInstallations'>>('/ai-context/installations', { signal });
+export const getContextInstallationOwners = (id: string, signal?: AbortSignal) =>
+  api.get<Result<'getAIContextInstallationOwners'>>(`/ai-context/installations/${enc(id)}/owners`, {
+    signal,
+  });
+export const putContextInstallationOwners = (id: string, userIds: string[]) =>
+  api.put<Result<'putAIContextInstallationOwners'>>(`/ai-context/installations/${enc(id)}/owners`, {
+    body: { user_ids: userIds },
+  });
 export const listAIContextRepositories = (
   offset = 0,
   q = '',

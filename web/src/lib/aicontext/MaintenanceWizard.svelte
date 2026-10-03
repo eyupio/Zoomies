@@ -48,7 +48,8 @@
       if (validMode === 'amend')
         request.config = {
           ...repository.config,
-          destination: destination === 'repository' ? 'repository' : 'both',
+          destination:
+            destination === 'repository' || destination === 'zoomies' ? destination : 'both',
           exclude: exclusions
             .split('\n')
             .map((s) => s.trim())
@@ -111,7 +112,7 @@
       >Destination<select bind:value={destination}
         ><option value="both">Repository and Zoomies</option><option value="repository"
           >Repository only</option
-        ></select
+        ><option value="zoomies">Zoomies only</option></select
       ></label
     >
     <label>Exclusions, one pattern per line<Textarea bind:value={exclusions} /></label>

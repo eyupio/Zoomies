@@ -25,7 +25,7 @@ Two things are deliberately **not** here, and both were close calls — see
 | `github.com/bradleyfalzon/ghinstallation/v2` | GitHub App installation tokens: JWT signing, token caching, refresh. It is 400 lines we would otherwise get subtly wrong. |
 | `golang.org/x/crypto` | `argon2` for password hashing. The algorithm is not something to implement. |
 | `golang.org/x/oauth2` | OIDC's authorisation-code flow. |
-| `github.com/coreos/go-oidc/v3` | OIDC discovery and ID-token verification, including JWKS rotation. Optional feature, well-maintained library. |
+| `github.com/coreos/go-oidc/v3` | OIDC discovery and ID-token verification, including JWKS rotation: single sign-on, and the GitHub Actions tokens Zoomies-only AI Context uploads carry. Optional features, well-maintained library. |
 | `github.com/prometheus/client_golang` | The metrics endpoint. The exposition format has enough edge cases that hand-writing it is a false economy. |
 | `gopkg.in/yaml.v3` | `zoomies.yaml`. Strict decoding turns a misspelled key into an error naming the line. |
 | `github.com/charmbracelet/huh` | The installer's prompts — select, input, confirm, with validation. It is what makes `zoomies init` feel like a product rather than a script. It brings `bubbletea` with it as its runtime, which is why that appears in `go.mod` as indirect and has no row of its own. |

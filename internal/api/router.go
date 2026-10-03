@@ -112,6 +112,11 @@ func (s *Server) routes() http.Handler {
 		// handler bounds it itself for the same reason.
 		r.With(s.require(auth.ActionInstallationsWrite)).Post("/api/v1/installations/import", s.handleImportInstallation)
 	})
+	// A Zoomies-only AI Context upload. Its credential is the GitHub Actions
+	// OIDC token the run carries, not a session, so it sits outside the user
+	// API's authentication and CSRF check, and outside its body limit: the
+	// handler bounds a snapshot itself.
+	r.With(noStore).Post("/api/v1/ai-context/uploads", s.handleAIContextUpload)
 	r.Mount("/api/v1", s.apiRoutes())
 
 	if s.cfg().Metrics.Enabled {
@@ -336,20 +341,30 @@ func (s *Server) apiRoutes() chi.Router {
 			r.With(s.require(auth.ActionContextRead)).Get("/ai-context/source/{id}/"+operation, s.handleAIContextSource)
 		}
 		r.Route("/ai-context", func(r chi.Router) {
-			r.Use(s.require(auth.ActionContextConfigure))
-			r.Get("/discovery", s.handleDiscoverAIContext)
-			r.Get("/draft", s.handleFindAIContextDraft)
-			r.Get("/repositories/{id}", s.handleGetAIContextRepository)
-			r.Get("/repositories/{id}/setup", s.handlePreviewAIContextSetup)
-			r.Post("/repositories/{id}/setup", s.handleCreateAIContextSetupPR)
-			r.Post("/repositories/{id}/maintenance", s.handleAIContextMaintenance)
-			r.Post("/repositories/{id}/maintenance/apply", s.handleAIContextMaintenance)
-			r.Post("/repositories/{id}/recheck", s.handleRecheckAIContext)
-			r.Get("/repositories", s.handleListAIContextRepositories)
-			r.Post("/repositories", s.handleCreateAIContextDraft)
-			r.Patch("/repositories/{id}/config", s.handleUpdateAIContextConfig)
-			r.Get("/repositories/{id}/members", s.handleGetAIContextMembers)
-			r.Put("/repositories/{id}/members", s.handlePutAIContextMembers)
+			// Delegation is an administrator's alone, so it sits outside the
+			// owners' group below rather than inside a gate it would need two
+			// scopes to pass.
+			r.With(s.require(auth.ActionContextConfigure)).Get("/installations/{id}/owners", s.handleGetContextInstallationOwners)
+			r.With(s.require(auth.ActionContextConfigure)).Put("/installations/{id}/owners", s.handlePutContextInstallationOwners)
+			r.Group(func(r chi.Router) {
+				// Coarse gate only: each handler then checks that the caller is
+				// an administrator or owns the installation concerned.
+				r.Use(s.require(auth.ActionContextManage))
+				r.Get("/installations", s.handleListContextInstallations)
+				r.Get("/discovery", s.handleDiscoverAIContext)
+				r.Get("/draft", s.handleFindAIContextDraft)
+				r.Get("/repositories/{id}", s.handleGetAIContextRepository)
+				r.Get("/repositories/{id}/setup", s.handlePreviewAIContextSetup)
+				r.Post("/repositories/{id}/setup", s.handleCreateAIContextSetupPR)
+				r.Post("/repositories/{id}/maintenance", s.handleAIContextMaintenance)
+				r.Post("/repositories/{id}/maintenance/apply", s.handleAIContextMaintenance)
+				r.Post("/repositories/{id}/recheck", s.handleRecheckAIContext)
+				r.Get("/repositories", s.handleListAIContextRepositories)
+				r.Post("/repositories", s.handleCreateAIContextDraft)
+				r.Patch("/repositories/{id}/config", s.handleUpdateAIContextConfig)
+				r.Get("/repositories/{id}/members", s.handleGetAIContextMembers)
+				r.Put("/repositories/{id}/members", s.handlePutAIContextMembers)
+			})
 		})
 
 		// Migrations: what moving a repository's workflows onto this fleet

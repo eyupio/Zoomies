@@ -48,6 +48,9 @@ func (d *demoClient) Probe(context.Context) (*github.AppInfo, error) {
 			"organization_self_hosted_runners": "write",
 			"actions":                          "read",
 			"metadata":                         "read",
+			// Read-only source access, so AI Context's wizard can be shown
+			// preparing a draft. Setup writes still refuse, as every write does.
+			"contents": "read",
 		},
 		Events: []string{"workflow_job"},
 		// The demo fixture is a fleet with nothing wrong, and an installation
@@ -107,8 +110,11 @@ func (d *demoClient) ListRepositories(context.Context, int) ([]github.Repository
 	names := append(append([]string{}, demoRepos...), demoQuietRepos...)
 	names = append(append(names, demoMigratedRepos...), demoArchivedRepos...)
 	out := make([]github.Repository, 0, len(names))
-	for _, name := range names {
+	for i, name := range names {
 		out = append(out, github.Repository{
+			// Stable numeric IDs, as GitHub gives: AI Context keys a
+			// repository by its ID so a rename cannot move its source grants.
+			ID:            int64(900001 + i),
 			FullName:      name,
 			DefaultBranch: "main",
 			Private:       true,

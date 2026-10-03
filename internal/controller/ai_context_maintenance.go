@@ -68,6 +68,12 @@ func (c *Controller) PreviewAIContextMaintenance(ctx context.Context, id string,
 		return nil, fmt.Errorf("%w: keep the verified source branch", auth.ErrInvalidInput)
 	}
 	config.ReadmeBadge = nil
+	// The upload address follows the controller, never the request: a
+	// reinstall after server.external_url changed re-aims the workflow too.
+	config.UploadURL = ""
+	if config.Destination == aicontext.Zoomies {
+		config.UploadURL = aicontext.UploadURLFor(c.cfg().Server.ExternalURL)
+	}
 	config.SetupGeneration = r.Config.SetupGeneration + 1
 	config.Disabled = req.Mode == "remove"
 	if err = config.Validate(); err != nil {

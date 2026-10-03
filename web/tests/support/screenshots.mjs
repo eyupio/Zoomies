@@ -175,6 +175,58 @@ const SHOTS = [
       await page.getByRole('heading', { level: 2, name: 'Review' }).waitFor();
     },
   },
+  {
+    name: 'ai-context',
+    path: '/ai-context',
+    heading: 'AI Context',
+    async prepare(page) {
+      // Two saved drafts, so the page shows what an installation's list looks
+      // like before anything is published. Created through the same API the
+      // wizard uses; a repeat in the second colour scheme is a fresh database.
+      await seedAIContextDrafts(page, ['acme/widgets', 'acme/api']);
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await page.getByRole('heading', { level: 2, name: 'acme/widgets' }).waitFor();
+    },
+  },
+  {
+    name: 'ai-context-wizard',
+    path: '/ai-context/setup',
+    heading: 'Enable repositories',
+    async prepare(page) {
+      // The review step: what will be saved, and every path setup will touch.
+      await page.getByLabel('GitHub installation').selectOption({ label: FIXTURE.org });
+      await page.getByRole('checkbox', { name: 'acme/site', exact: true }).check();
+      await page.getByRole('checkbox', { name: 'acme/docs', exact: true }).check();
+      for (let step = 0; step < 5; step++) {
+        await page.getByRole('button', { name: 'Next', exact: true }).click();
+      }
+      await page.getByRole('heading', { name: 'Repository setup paths' }).waitFor();
+    },
+  },
+  {
+    name: 'ai-context-owners',
+    path: '/ai-context',
+    heading: 'AI Context',
+    async prepare(page) {
+      // Somebody to delegate to who is not an administrator.
+      const made = await page.request.post('/api/v1/users', {
+        headers: { Origin: new URL(page.url()).origin },
+        data: {
+          username: 'bob',
+          display_name: 'Bob Chen',
+          password: 'screenshots-only-not-a-secret',
+          role: 'viewer',
+        },
+      });
+      if (made.status() !== 201 && made.status() !== 409) {
+        throw new Error(`creating the owner returned ${made.status()}: ${await made.text()}`);
+      }
+      await page.getByText('Installation owners', { exact: true }).click();
+      await page.getByRole('button', { name: `Owners of ${FIXTURE.org}` }).click();
+      const dialog = page.getByRole('dialog', { name: 'Installation owners' });
+      await dialog.getByRole('checkbox', { name: /Bob Chen/ }).check();
+    },
+  },
   { name: 'audit', path: '/audit', heading: 'Audit' },
   // The section's rail beside the page that has a table on it.
   { name: 'settings', path: '/settings/users', heading: 'Users' },
@@ -237,6 +289,29 @@ const SHOTS = [
 const launchOptions = process.env.PLAYWRIGHT_CHROMIUM
   ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM }
   : {};
+
+/**
+ * Saved AI Context drafts for the named demo repositories, through the API the
+ * wizard calls. A draft that already exists answers 409 and is left alone.
+ */
+async function seedAIContextDrafts(page, names) {
+  const { items } = await (await page.request.get('/api/v1/ai-context/installations')).json();
+  const installation = items[0].id;
+  const discovery = await (
+    await page.request.get(`/api/v1/ai-context/discovery?installation_id=${installation}`)
+  ).json();
+  for (const name of names) {
+    const repository = discovery.repositories.find((r) => r.full_name === name);
+    const res = await page.request.post('/api/v1/ai-context/repositories', {
+      // A cookie-authenticated write has to show it came from the UI.
+      headers: { Origin: new URL(page.url()).origin },
+      data: { installation_id: installation, repository_id: repository.id },
+    });
+    if (res.status() !== 201 && res.status() !== 409) {
+      throw new Error(`creating the ${name} draft returned ${res.status()}: ${await res.text()}`);
+    }
+  }
+}
 
 /** Boot a seeded controller with authentication on, and wait until it answers. */
 async function bootController(dir) {

@@ -113,13 +113,13 @@ export interface paths {
         };
         /**
          * Preview the complete managed repository setup without writing GitHub files
-         * @description Requires context.configure (admin), live repository access and explicit GitHub setup write permissions. Returns pinned proposed file contents, original blob hashes and the plan hash. Refuses custom/ambiguous ownership and non-regular files. Existing durable proposals return their original review and PR state.
+         * @description Requires context.configure (admin) or ownership of the repository's installation (context.manage), plus live repository access and explicit GitHub setup write permissions. Returns pinned proposed file contents, original blob hashes and the plan hash. Refuses custom/ambiguous ownership and non-regular files. Existing durable proposals return their original review and PR state.
          */
         get: operations["previewAIContextSetup"];
         put?: never;
         /**
          * Create or recover one reviewed setup pull request
-         * @description Requires context.configure (admin) and live GitHub Contents/Workflows/Pull requests write permissions. Explicitly approve the returned revision and plan hash. Persists the same proposal before writing, freezes configuration and publishes all files in one Git commit. Retries reconcile the same PR; no source availability or connection consent is granted. Opening a PR does not enable source retrieval.
+         * @description Requires context.configure (admin) or ownership of the repository's installation (context.manage), plus live GitHub Contents/Workflows/Pull requests write permissions. Explicitly approve the returned revision and plan hash. Persists the same proposal before writing, freezes configuration and publishes all files in one Git commit. Retries reconcile the same PR; no source availability or connection consent is granted. Opening a PR does not enable source retrieval.
          */
         post: operations["createAIContextSetupPR"];
         delete?: never;
@@ -142,7 +142,7 @@ export interface paths {
         put?: never;
         /**
          * Preview reinstall, amend or removal without changing repository access
-         * @description Requires context.configure and GitHub setup permissions. Merge or close the previous proposal first. Apply checks the reviewed plan hash and atomically closes availability before publication. Removal also purges cached snapshots, readers and connection consent; the historical generated branch remains. Retries recover the same persisted operation.
+         * @description Requires context.configure or installation ownership (context.manage), and GitHub setup permissions. Merge or close the previous proposal first. Apply checks the reviewed plan hash and atomically closes availability before publication. Removal also purges cached snapshots, readers and connection consent; the historical generated branch remains. Retries recover the same persisted operation.
          */
         post: operations["previewAIContextMaintenance"];
         delete?: never;
@@ -165,7 +165,7 @@ export interface paths {
         put?: never;
         /**
          * Publish an explicitly reviewed maintenance PR
-         * @description Requires context.configure and GitHub setup permissions. Merge or close the previous proposal first. Apply checks the reviewed plan hash and atomically closes availability before publication. Removal also purges cached snapshots, readers and connection consent; the historical generated branch remains. Retries recover the same persisted operation.
+         * @description Requires context.configure or installation ownership (context.manage), and GitHub setup permissions. Merge or close the previous proposal first. Apply checks the reviewed plan hash and atomically closes availability before publication. Removal also purges cached snapshots, readers and connection consent; the historical generated branch remains. Retries recover the same persisted operation.
          */
         post: operations["applyAIContextMaintenance"];
         delete?: never;
@@ -194,6 +194,73 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ai-context/installations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Installations the caller may enable AI Context for
+         * @description Requires context.manage. Administrators see every installation; anyone else sees only the installations an administrator made them owner of, with just a label. Tokens and OAuth connections see none.
+         */
+        get: operations["listAIContextInstallations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai-context/installations/{id}/owners": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read who may enable AI Context for an installation
+         * @description Requires context.configure (admin).
+         */
+        get: operations["getAIContextInstallationOwners"];
+        /**
+         * Replace an installation's AI Context owners
+         * @description Requires context.configure (admin). An owner can discover, configure and set up that installation's repositories, and can add or remove only themselves as a reader. Ownership grants no source access and no connection consent. user_ids is required; an empty array removes every owner.
+         */
+        put: operations["putAIContextInstallationOwners"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai-context/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Receive a Zoomies-only snapshot from the managed workflow
+         * @description Called by the managed GitHub Actions workflow, never by a person. The only credential is the run's GitHub Actions OIDC token, minted with this controller's upload address as its audience. The token must come from the repository's managed workflow file, on its trusted branch, from a push or manual run, for the commit that is still the branch head; each token is accepted once. Every file is then matched to the regular blob at that path in the commit before the snapshot is stored. The body is the snapshot JSON, at most 32 MiB. Answers 404 when server.external_url is not an https address.
+         */
+        post: operations["uploadAIContext"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ai-context/draft": {
         parameters: {
             query?: never;
@@ -203,7 +270,7 @@ export interface paths {
         };
         /**
          * Find an existing draft using its installation and stable repository ID
-         * @description Requires context.configure (admin). Uses the installation's server-resolved GitHub host; no source access is granted. Supports safe retry after a draft creation response is lost.
+         * @description Requires context.configure (admin) or ownership of the repository's installation (context.manage); anyone else receives 404. Uses the installation's server-resolved GitHub host; no source access is granted. Supports safe retry after a draft creation response is lost.
          */
         get: operations["findAIContextDraft"];
         put?: never;
@@ -223,7 +290,7 @@ export interface paths {
         };
         /**
          * Resume a repository configuration draft
-         * @description Requires context.configure (admin).
+         * @description Requires context.configure (admin) or ownership of the repository's installation (context.manage); anyone else receives 404.
          */
         get: operations["getAIContextRepository"];
         put?: never;
@@ -246,12 +313,12 @@ export interface paths {
         };
         /**
          * Read explicit repository source membership
-         * @description Requires context.configure (admin). Membership is independent of fleet roles and connection consent.
+         * @description Requires context.configure (admin) or ownership of the repository's installation (context.manage); anyone else receives 404. Membership is independent of fleet roles and connection consent.
          */
         get: operations["getAIContextMembers"];
         /**
          * Replace explicit repository source membership
-         * @description Requires context.configure (admin). Removing a member also clears their existing connection consent. Membership does not make a draft available or approve a connection.
+         * @description Requires context.configure (admin) or ownership of the repository's installation (context.manage); anyone else receives 404. Removing a member also clears their existing connection consent. Membership does not make a draft available or approve a connection.
          */
         put: operations["putAIContextMembers"];
         post?: never;
@@ -303,7 +370,7 @@ export interface paths {
         head?: never;
         /**
          * Save AI Context draft configuration with a revision check
-         * @description Requires context.configure (admin). Source branch remains anchored to the discovered branch. A stale revision returns 409; saving does not enable source access or publish files.
+         * @description Requires context.configure (admin) or ownership of the repository's installation (context.manage); anyone else receives 404. Source branch remains anchored to the discovered branch. A stale revision returns 409; saving does not enable source access or publish files.
          */
         patch: operations["updateAIContextConfig"];
         trace?: never;
@@ -317,13 +384,13 @@ export interface paths {
         };
         /**
          * List AI Context configuration drafts
-         * @description Requires context.configure (admin). Includes unavailable drafts; listing does not grant source access.
+         * @description Requires context.configure (admin) or ownership of the repository's installation (context.manage); anyone else receives 404. Includes unavailable drafts; listing does not grant source access.
          */
         get: operations["listAIContextRepositories"];
         put?: never;
         /**
          * Prepare a repository configuration draft
-         * @description Requires context.configure (admin). Resolves the numeric repository ID through live installation discovery and uses its default branch. Requires Contents read; refuses archived or inaccessible repositories. Creates an unavailable draft without granting readers or writing repository files. A repeated selection returns 409.
+         * @description Requires context.configure (admin) or ownership of the repository's installation (context.manage); anyone else receives 404. Resolves the numeric repository ID through live installation discovery and uses its default branch. Requires Contents read; refuses archived or inaccessible repositories. Creates an unavailable draft without granting readers or writing repository files. A repeated selection returns 409.
          */
         post: operations["createAIContextDraft"];
         delete?: never;
@@ -341,7 +408,7 @@ export interface paths {
         };
         /**
          * Discover repository candidates without enabling source access
-         * @description Requires context.configure (admin). Reads installation metadata only; does not change GitHub permissions or create repository files. Results are bounded to 500 repositories and capped reports possible truncation.
+         * @description Requires context.configure (admin) or ownership of the repository's installation (context.manage); anyone else receives 404. Reads installation metadata only; does not change GitHub permissions or create repository files. Results are bounded to 500 repositories and capped reports possible truncation.
          */
         get: operations["discoverAIContext"];
         put?: never;
@@ -3605,6 +3672,14 @@ export interface components {
             limit: number;
             offset: number;
         };
+        AIContextInstallations: {
+            items: {
+                id: string;
+                target: string;
+                /** @enum {string} */
+                target_type: "org" | "repo";
+            }[];
+        };
         AIContextMembers: {
             user_ids: string[];
         };
@@ -3643,6 +3718,8 @@ export interface components {
                 /** Format: int64 */
                 setup_generation?: number;
                 disabled?: boolean;
+                /** @description Set by the controller for Zoomies-only output: where the workflow uploads, and the audience of its OIDC token. Any value a client sends is replaced. */
+                readonly upload_url?: string;
             };
             /** Format: int64 */
             revision: number;
@@ -7436,6 +7513,126 @@ export interface operations {
             422: components["responses"]["Unprocessable"];
         };
     };
+    listAIContextInstallations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Manageable installations */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIContextInstallations"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getAIContextInstallationOwners: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Installation owners */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIContextMembers"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    putAIContextInstallationOwners: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AIContextMembers"];
+            };
+        };
+        responses: {
+            /** @description Owners saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIContextMembers"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    uploadAIContext: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        responses: {
+            /** @description Verified and stored */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        repository_id: string;
+                        commit: string;
+                        snapshot_id: string;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            /** @description The snapshot is larger than 32 MiB */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
     findAIContextDraft: {
         parameters: {
             query: {
@@ -7713,6 +7910,8 @@ export interface operations {
                 };
                 content: {
                     "application/json": {
+                        /** @description Whether this controller can accept Zoomies-only uploads: true when server.external_url is an https address. */
+                        zoomies_upload_available: boolean;
                         default_exclusions: string[];
                         default_keep_snapshots: number;
                         can_read_contents: boolean;

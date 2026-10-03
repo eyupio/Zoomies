@@ -58,6 +58,26 @@ type Config struct {
 	ReadmeBadge     *bool       `json:"readme_badge,omitempty"` // Legacy settings remain readable.
 	SetupGeneration int64       `json:"setup_generation,omitempty"`
 	Disabled        bool        `json:"disabled,omitempty"`
+	// UploadURL is where a Zoomies-only workflow sends its snapshot, and the
+	// audience its OIDC token is minted for. It is part of the hashed config,
+	// so a workflow cannot be pointed at another controller without a
+	// reviewed change. Only Zoomies-only output carries one.
+	UploadURL string `json:"upload_url,omitempty"`
+}
+
+// UploadPath is where a controller accepts Zoomies-only uploads.
+const UploadPath = "/api/v1/ai-context/uploads"
+
+// UploadURLFor derives the upload address from server.external_url. It is
+// empty when the controller has no https address GitHub's runners could
+// reach, which is what makes Zoomies-only output unavailable there.
+func UploadURLFor(externalURL string) string {
+	base := strings.TrimRight(strings.TrimSpace(externalURL), "/")
+	u, err := url.Parse(base)
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return ""
+	}
+	return base + UploadPath
 }
 
 func DefaultConfig(branch string) Config {
@@ -93,6 +113,16 @@ func (c Config) Validate() error {
 	}
 	if c.Destination != Repository && c.Destination != Zoomies && c.Destination != Both {
 		return fmt.Errorf("choose repository, zoomies or both as the context destination")
+	}
+	if c.Destination == Zoomies {
+		u, err := url.Parse(c.UploadURL)
+		if c.UploadURL == "" || len(c.UploadURL) > 512 || err != nil || u.Scheme != "https" || u.Host == "" ||
+			u.User != nil || u.RawQuery != "" || u.Fragment != "" || !strings.HasSuffix(u.Path, UploadPath) ||
+			strings.ContainsAny(c.UploadURL, " \t\r\n\"'") {
+			return fmt.Errorf("zoomies-only output needs this controller's https upload address; set server.external_url to an https address GitHub can reach")
+		}
+	} else if c.UploadURL != "" {
+		return fmt.Errorf("only zoomies-only output carries an upload address")
 	}
 	if c.KeepSnapshots < 1 || c.KeepSnapshots > 100 {
 		return fmt.Errorf("keep between 1 and 100 context snapshots")

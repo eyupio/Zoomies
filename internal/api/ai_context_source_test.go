@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"github.com/eyupio/zoomies/internal/aicontext"
 	"github.com/eyupio/zoomies/internal/auth"
 	"github.com/eyupio/zoomies/internal/controller"
@@ -17,6 +18,11 @@ import (
 
 func sourceHarness(t *testing.T) (*harness, store.AIContextRepository, *store.User, string) {
 	t.Helper()
+	return sourceHarnessFor(t, aicontext.Both)
+}
+
+func sourceHarnessFor(t *testing.T, destination aicontext.Destination) (*harness, store.AIContextRepository, *store.User, string) {
+	t.Helper()
 	h, inst, _ := migrationHarness(t)
 	reader, admin := h.user("ingestion-admin", store.RoleAdmin)
 	discovery, err := h.ctrl.DiscoverAIContext(h.ctx, inst.ID)
@@ -25,6 +31,7 @@ func sourceHarness(t *testing.T) (*harness, store.AIContextRepository, *store.Us
 	}
 	selected := discovery.Repositories[0]
 	draft := store.AIContextRepository{Key: aicontext.RepositoryKey{GitHubHost: "github.com", InstallationID: inst.ID, RepositoryID: selected.ID}, FullName: selected.FullName, Config: aicontext.DefaultConfig(selected.DefaultBranch)}
+	draft.Config.Destination = destination
 	if err := h.st.CreateAIContextRepository(h.ctx, &draft); err != nil {
 		t.Fatal(err)
 	}
@@ -214,5 +221,35 @@ func waitForContextVerification(t *testing.T, h *harness, before int) {
 			t.Fatal("verification never started")
 		case <-tick.C:
 		}
+	}
+}
+
+// Repository-only output promises that Zoomies keeps no copy. Retrieval still
+// has to pass every live check, so the source is read from the generated branch
+// per request and only freshness metadata is written.
+func TestRepositoryOnlyRetrievalServesVerifiedSourceWithoutStoringIt(t *testing.T) {
+	h, draft, _, cookie := sourceHarnessFor(t, aicontext.Repository)
+	base := "/api/v1/ai-context/source/" + draft.ID + "/"
+	r := h.do(request{method: http.MethodGet, path: base + "read?path=src/main.go", cookie: cookie})
+	r.mustStatus(t, http.StatusOK, "repository-only read")
+	if !strings.Contains(string(r.body), "package widgets") {
+		t.Fatal("source missing from repository-only read")
+	}
+	f, err := h.st.GetAIContextFreshness(h.ctx, draft.ID)
+	if err != nil || f.State != "ready" || f.Digest == "" {
+		t.Fatal("freshness not recorded", f, err)
+	}
+	if _, err := h.st.GetAIContextSnapshot(h.ctx, draft.ID, f.Digest); !errors.Is(err, store.ErrNotFound) {
+		t.Fatal("repository-only output must not retain a snapshot", err)
+	}
+	var page aicontext.Page
+	r.into(t, &page)
+	if page.Snapshot != f.Digest {
+		t.Fatal("snapshot identity differs from recorded freshness")
+	}
+	h.gh.SetPermissions(map[string]string{"metadata": "read"})
+	r = h.do(request{method: http.MethodGet, path: base + "read?path=src/main.go", cookie: cookie})
+	if r.status == http.StatusOK || strings.Contains(string(r.body), "package widgets") {
+		t.Fatal("revoked GitHub access still served repository-only source")
 	}
 }

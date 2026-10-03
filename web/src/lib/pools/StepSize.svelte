@@ -600,7 +600,7 @@
       <Field
         label="Host path or volume prefix"
         error={errors['cache.source']}
-        hint="An absolute path on the host, or a named-volume prefix. A size limit needs the path: there is nothing to measure inside a volume."
+        hint="An absolute path on the host, or a named-volume prefix. A size limit needs the path: there is nothing to measure inside a volume. The shared folder is already visible to a containerised controller."
       >
         {#snippet children({ id, describedBy, invalid })}
           <Input
@@ -609,7 +609,7 @@
             {describedBy}
             {invalid}
             mono
-            placeholder="/var/lib/zoomies-cache"
+            placeholder="/var/lib/zoomies/shared/cache/pools"
             autocomplete="off"
             onblur={() => touch('cache.source')}
           />

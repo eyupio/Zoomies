@@ -50,11 +50,11 @@ func TestContextReaderInstructionsAndBadgeRemainPrivateToMembers(t *testing.T) {
 	}
 }
 
-func TestAIContextDiscoveryRequiresConfigurationAuthority(t *testing.T) {
+func TestAIContextDiscoveryRequiresAdministrationOrInstallationOwnership(t *testing.T) {
 	h, inst, _ := migrationHarness(t)
 	for _, role := range []store.Role{store.RoleViewer, store.RoleOperator} {
 		_, cookie := h.user(string(role)+"-context", role)
-		h.do(request{method: http.MethodGet, path: "/api/v1/ai-context/discovery?installation_id=" + inst.ID, cookie: cookie}).mustStatus(t, http.StatusForbidden, "source discovery")
+		h.do(request{method: http.MethodGet, path: "/api/v1/ai-context/discovery?installation_id=" + inst.ID, cookie: cookie}).mustStatus(t, http.StatusNotFound, "source discovery without ownership")
 	}
 	_, cookie := h.user("context-admin", store.RoleAdmin)
 	resp := h.do(request{method: http.MethodGet, path: "/api/v1/ai-context/discovery?installation_id=" + inst.ID, cookie: cookie})
@@ -102,7 +102,7 @@ func TestAIContextDraftUsesDiscoveredIdentityAndGrantsNobodySourceAccess(t *test
 	var candidates controller.AIContextDiscovery
 	discovery.into(t, &candidates)
 	body := controller.AIContextDraftRequest{InstallationID: inst.ID, RepositoryID: candidates.Repositories[0].ID}
-	h.do(request{method: http.MethodPost, path: "/api/v1/ai-context/repositories", cookie: operator, body: body}).mustStatus(t, http.StatusForbidden, "operator draft")
+	h.do(request{method: http.MethodPost, path: "/api/v1/ai-context/repositories", cookie: operator, body: body}).mustStatus(t, http.StatusNotFound, "operator draft")
 	resp := h.do(request{method: http.MethodPost, path: "/api/v1/ai-context/repositories", cookie: admin, body: body})
 	resp.mustStatus(t, http.StatusCreated, "create draft")
 	var draft store.AIContextRepository
@@ -122,11 +122,13 @@ func TestAIContextDraftUsesDiscoveredIdentityAndGrantsNobodySourceAccess(t *test
 	if len(page.Items) != 1 || page.Total != 1 || page.Limit != 1 {
 		t.Fatalf("page = %+v", page)
 	}
-	h.do(request{method: http.MethodGet, path: "/api/v1/ai-context/repositories", cookie: operator}).mustStatus(t, http.StatusForbidden, "operator metadata list")
+	if got := h.do(request{method: http.MethodGet, path: "/api/v1/ai-context/repositories", cookie: operator}); got.status != http.StatusOK || strings.Contains(string(got.body), draft.ID) {
+		t.Fatal("operator metadata list must be empty for a non-owner", got.status)
+	}
 
 	draft.Config.KeepSnapshots = 7
 	update := map[string]any{"revision": draft.Revision, "config": draft.Config}
-	h.do(request{method: http.MethodPatch, path: "/api/v1/ai-context/repositories/" + draft.ID + "/config", cookie: operator, body: update}).mustStatus(t, http.StatusForbidden, "operator configuration")
+	h.do(request{method: http.MethodPatch, path: "/api/v1/ai-context/repositories/" + draft.ID + "/config", cookie: operator, body: update}).mustStatus(t, http.StatusNotFound, "operator configuration")
 	resp = h.do(request{method: http.MethodPatch, path: "/api/v1/ai-context/repositories/" + draft.ID + "/config", cookie: admin, body: update})
 	resp.mustStatus(t, http.StatusOK, "save configuration")
 	var saved store.AIContextRepository
@@ -145,7 +147,7 @@ func TestAIContextDraftUsesDiscoveredIdentityAndGrantsNobodySourceAccess(t *test
 	if recovered.ID != draft.ID || recovered.Revision != 2 {
 		t.Fatalf("resumed wrong draft: %+v", recovered)
 	}
-	h.do(request{method: http.MethodGet, path: "/api/v1/ai-context/repositories/" + draft.ID, cookie: operator}).mustStatus(t, http.StatusForbidden, "operator draft resumption")
+	h.do(request{method: http.MethodGet, path: "/api/v1/ai-context/repositories/" + draft.ID, cookie: operator}).mustStatus(t, http.StatusNotFound, "operator draft resumption")
 	h.do(request{method: http.MethodGet, path: "/api/v1/ai-context/repositories/" + draft.ID, cookie: admin}).mustStatus(t, http.StatusOK, "draft resumption")
 	body.RepositoryID = 999999
 	h.do(request{method: http.MethodPost, path: "/api/v1/ai-context/repositories", cookie: admin, body: body}).mustStatus(t, http.StatusUnprocessableEntity, "undiscovered repository")
@@ -206,7 +208,7 @@ func TestConnectionSourceConsentRequiresTheSignedInOwnerAndLiveMembership(t *tes
 		t.Fatal(err)
 	}
 	membersPath := "/api/v1/ai-context/repositories/" + repo.ID + "/members"
-	h.do(request{method: http.MethodPut, path: membersPath, cookie: cookie, body: map[string]any{"user_ids": []string{reader.ID}}}).mustStatus(t, http.StatusForbidden, "viewer membership")
+	h.do(request{method: http.MethodPut, path: membersPath, cookie: cookie, body: map[string]any{"user_ids": []string{reader.ID}}}).mustStatus(t, http.StatusNotFound, "viewer membership")
 	h.do(request{method: http.MethodPut, path: membersPath, cookie: admin, body: map[string]any{}}).mustStatus(t, http.StatusUnprocessableEntity, "omitted membership")
 	h.do(request{method: http.MethodPut, path: membersPath, cookie: admin, body: map[string]any{"user_ids": []string{reader.ID}}}).mustStatus(t, http.StatusOK, "explicit membership")
 	h.do(request{method: http.MethodGet, path: path, cookie: otherCookie}).mustStatus(t, http.StatusNotFound, "another owner's choices")
@@ -275,8 +277,8 @@ func TestAIContextSetupRequiresReviewAndRecoversTheSamePRWithoutSourceGrants(t *
 		t.Fatal(err)
 	}
 	path := "/api/v1/ai-context/repositories/" + draft.ID + "/setup"
-	h.do(request{method: http.MethodGet, path: path, cookie: operator}).mustStatus(t, http.StatusForbidden, "operator preview")
-	h.do(request{method: http.MethodPost, path: path, cookie: operator, body: controller.AIContextSetupApproval{}}).mustStatus(t, http.StatusForbidden, "operator setup")
+	h.do(request{method: http.MethodGet, path: path, cookie: operator}).mustStatus(t, http.StatusNotFound, "operator preview")
+	h.do(request{method: http.MethodPost, path: path, cookie: operator, body: controller.AIContextSetupApproval{}}).mustStatus(t, http.StatusNotFound, "operator setup")
 	response = h.do(request{method: http.MethodGet, path: path, cookie: admin})
 	response.mustStatus(t, http.StatusOK, "preview")
 	var plan controller.AIContextSetupPreview

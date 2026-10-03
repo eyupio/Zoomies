@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/eyupio/zoomies/internal/config"
@@ -30,6 +32,16 @@ type deploymentSettings struct {
 	cfg  *config.Config
 	read bool
 	why  string
+	// cacheDirs are the host folders pools keep a size-limited cache in. The
+	// agent keeps that limit by measuring the folder itself, so a container
+	// deployment has to mount each one at its own path.
+	cacheDirs []cacheDir
+}
+
+// cacheDir is one host folder pool caches live under, and the pools using it.
+type cacheDir struct {
+	path  string
+	pools []string
 }
 
 // settings reads the deployment's configuration. It never fails the upgrade:
@@ -88,7 +100,40 @@ func (p *upgradePlan) settings(ctx context.Context) deploymentSettings {
 	if err != nil {
 		return p.unreadSettings(file, env, err.Error())
 	}
-	return deploymentSettings{cfg: cfg, read: true}
+	// A pool that cannot be listed costs only the cache mounts: the settings
+	// above still decide everything else.
+	pools, _ := st.ListPools(ctx)
+	return deploymentSettings{cfg: cfg, read: true, cacheDirs: sizeLimitedCacheDirs(pools)}
+}
+
+// sizeLimitedCacheDirs is every absolute host folder a pool keeps a
+// size-limited cache in, once each, in a stable order. A cache with no limit
+// is left out: the host's daemon mounts it into runners on its own, and only
+// enforcing a limit needs the agent to see inside it.
+func sizeLimitedCacheDirs(pools []*store.Pool) []cacheDir {
+	byPath := map[string]*cacheDir{}
+	var order []string
+	for _, pool := range pools {
+		c := pool.Cache
+		// A cache source is a path on the Linux host the runners run on,
+		// whatever machine this upgrade happens to run from.
+		source := strings.TrimSpace(c.Source)
+		if !c.Enabled || c.SizeLimit <= 0 || !path.IsAbs(source) || strings.Contains(source, "..") {
+			continue
+		}
+		dir := path.Clean(source)
+		if byPath[dir] == nil {
+			byPath[dir] = &cacheDir{path: dir}
+			order = append(order, dir)
+		}
+		byPath[dir].pools = append(byPath[dir].pools, pool.Name)
+	}
+	sort.Strings(order)
+	out := make([]cacheDir, 0, len(order))
+	for _, dir := range order {
+		out = append(out, *byPath[dir])
+	}
+	return out
 }
 
 func (p *upgradePlan) unreadSettings(file string, env map[string]string, why string) deploymentSettings {

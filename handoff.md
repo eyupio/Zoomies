@@ -232,3 +232,85 @@ Validation: maintenance API lifecycle passed through reinstall → amend → rem
 Still outstanding from the product correction: safely scoped user-level enablement/ownership (current admin gate remains), repository-only transient retrieval, Zoomies-only uploads and live assistant pilot. This maintenance increment does not claim those are complete.
 
 Published the maintenance checkpoint in PR #579: https://github.com/eyupio/zoomies/pull/579. Implementation commit 2ec3829f1e7c05d57b86379af10037dc4bf47a59 has tree bde4e5cccc80dff32303a32c65f941f28e81c361, exactly matching the validated local code. The PR is open; merge/deployment and remote CI completion are not claimed.
+
+## Repository-only transient retrieval checkpoint — 3 October 2026
+
+Repository-only output now serves source through the same four REST/MCP routes. `Controller.verifyAIContext` (behind `RefreshAIContext` and `VerifiedAIContextSnapshot`) runs the unchanged live access, merge, workflow and publication checks. For Both it still stores the snapshot. For Repository it returns the verified snapshot in memory for that request only and calls the new `store.ConfirmAIContextTransient`, which marks the repository available and writes freshness (commit and digest) but no payload row. The digest is the hash of the marshalled snapshot, so page identity matches Both. Zoomies-only still reports unavailable. A failed check closes availability and says no copy is kept.
+
+Cost to know: each repository-only request, and each five-minute background check, downloads the generated branch (up to the 32 MiB snapshot bound) because nothing is cached. If that proves heavy, add a cheap "published commit unchanged" probe before the full read; deliberately not done here.
+
+Changed paths: `internal/controller/ai_context_ingestion.go`, `internal/store/queries_ai_context_snapshots.go`, `internal/api/ai_context_source_test.go`. No migration, dependency, OpenAPI or UI change.
+
+Validation: `go test -race -count=1 -run 'TestRepositoryOnlyRetrieval|TestContextSource|TestContextMCP' ./internal/api` passed (18.2s). The new test checks the read succeeds, freshness is recorded with no stored snapshot, the page's snapshot id equals the recorded digest, and removing GitHub Contents access stops serving. `go build ./...`, vet of controller/store/api and gofmt passed. Full-suite and store/auth regressions were not rerun; the earlier outbound-test restriction still applies. No live pilot.
+
+Next concrete action: user-level enablement/ownership (see the product correction above), then Zoomies-only OIDC upload, the context browser and the live assistant pilot.
+
+## Installation owners checkpoint — 3 October 2026
+
+User decision: non-admins enable repositories through **installation ownership** delegated by an administrator. There is no GitHub identity link yet. Migration 0066 adds `ai_context_installation_owners`, which cascades on installation or user deletion; a disabled user owns nothing. The new `context.manage` action is viewer-level and only a coarse gate. Every configuration handler then calls `contextInstallationAccess` / `contextRepositoryAccess` (`internal/api/handlers_ai_context_owners.go`): administrators pass, signed-in owners pass for their own installation, and everyone else, including all tokens and OAuth connections, gets a 404. The 404 does not reveal whether an installation or draft exists. Owners list only their own installations' repositories. They may add or remove only themselves as readers: the members GET shows them only themselves, and a PUT keeps everyone else's membership. Ownership grants no source access or connection consent. Admin-only `GET/PUT /ai-context/installations/{id}/owners` (max 50, explicit array) and `GET /ai-context/installations` (manageable list) are new. `TestRoleAuthority` has an explicit `ownershipChecked` exemption for `context.manage`.
+
+UI: the AI Context page uses `/ai-context/installations` to decide whether to show configuration controls. Admins get an "Installation owners" panel and dialog. The setup route admits owners. For owners, the wizard skips the user directory and offers only "Me" as a reader.
+
+Validation:
+- Go `-race` passed: API owner, AI Context, source, role, scope and spec tests (127.9s); store owner, context and migration tests (79.6s).
+- auth and docs package tests passed; vet and gofmt clean.
+- Svelte check found 0 errors; prettier and eslint clean.
+- Playwright `ai-context.spec.ts` passed all 4 tests against the real binary, including the new admin owner-delegation journey. Run it with `PLAYWRIGHT_CHROMIUM=/opt/pw-browsers/chromium-1194/chrome-linux/chrome`.
+- The owner-side UI (non-admin session) has no browser test because the connect project runs with auth off. The owner's permissions are covered by Go integration tests.
+
+Next: user-facing docs for AI Context (setup, ownership, readers, connecting assistants, screenshots), then Zoomies-only OIDC upload and the live pilot.
+
+## User documentation checkpoint — 3 October 2026
+
+`docs/ai-context.md` is the user guide. It covers:
+- why a runner controller now does this, which answers the user's concern that the product is moving beyond runners
+- how it works (Mermaid sequence), the three access gates, and the output choices
+- a who-can-do-what table and prerequisites
+- the six-step setup, using it via the four MCP tools, and maintenance statuses
+- troubleshooting, security, limits, and what is not built yet
+
+It is in the mkdocs nav as "AI Context for assistants". Also updated:
+- the AI Context section of `docs/ui.md`
+- the source section of `docs/connect-claude.md`: owners, and repository-only now available
+- a roles note in `docs/security.md`
+- a new FAQ entry, with its FAQPage structured copy
+
+Screenshots come from the real binary via `make screenshots`, three new shots in both themes: `ai-context`, `ai-context-wizard` and `ai-context-owners`. To make them possible, the demo client now reports `contents: read` and gives demo repositories stable IDs. The migrate demo's permission blocker is unchanged. `migrate.spec.ts`'s "No workflows" match became exact, because the permission notice also contains that phrase.
+
+Validation:
+- `mkdocs build --strict` passed; the Mermaid diagram validated.
+- `internal/docs` and `internal/controller` tests passed.
+- Playwright migrate, ai-context and navigation: 42 passed.
+
+## Zoomies-only OIDC upload checkpoint — 3 October 2026
+
+Phase 5 is implemented. A Zoomies-only repository's workflow keeps the read-only generate job. Its last job is now `upload` rather than `publish`: it has `id-token: write` and no other permission, mints a GitHub Actions OIDC token whose audience is this controller's upload address, and POSTs `snapshot.json` to `POST /api/v1/ai-context/uploads` (`internal/aicontext/templates/upload.py`; no redirects followed, artifact identity re-checked before any token is requested). Both/Repository workflows are byte-identical to before (checked by diffing the rendered templates), so installed repositories do not drift.
+
+- **Config:** `Config.UploadURL` is required (https, ending `/api/v1/ai-context/uploads`) for Zoomies and forbidden otherwise. It is hashed, so the workflow's target is part of the reviewed proposal. It is always set server-side from `server.external_url` (config PATCH and maintenance), never taken from the client. Discovery reports `zoomies_upload_available`, and the wizard enables the option only then.
+- **Token verification** (`internal/github/actions_oidc.go`, go-oidc RemoteKeySet on `token.actions.githubusercontent.com/.well-known/jwks`): RS256 signature, issuer, audience equal to the upload URL, expiry, and a required `jti`. `github.NewFakeActionsIssuer` signs test tokens with no new dependency.
+- **Ingestion** (`controller.IngestAIContextUpload`). In order:
+  1. The repository is the single enabled Zoomies-only row matching `github.com` and `repository_id`, and its UploadURL equals the audience.
+  2. `ref` is `refs/heads/<branch>`; `event_name` is push or workflow_dispatch, so a PR or fork run cannot upload.
+  3. `job_workflow_ref` is `<full_name>/.github/workflows/zoomies-ai-context.yml@refs/heads/<branch>`, with the owner/name compared case-insensitively; `sha` is 40 hex.
+  4. The `jti` is claimed once (migration 0067, pruned after expiry).
+  5. The snapshot commit equals `sha`.
+  6. `trustedAIContext` holds (merged setup, unchanged managed files, live access), and `sha` is still the branch head.
+  7. Match, CheckSourceFiles and the generator identity pass, and every file matches its Git blob (`VerifyContextSnapshot`, extracted from the Both path).
+  8. The snapshot is published.
+- **Handler:** it verifies the token before reading the body (max 32 MiB) and maps errors to 401/403/404/409/413. It is mounted outside the API's CSRF check and body limit, audited as `context.upload` by `github-actions`.
+- **Refresh:** a Zoomies-only refresh never fetches. It confirms the stored snapshot if it matches the current trusted head, otherwise marks the repository stale with "Waiting for the workflow to upload…".
+
+Validation:
+- `-race` passed:
+  - `internal/aicontext` and `internal/github`, including 4 new Python upload tests (12 Python tests in all)
+  - targeted store context/upload/migration/ownership tests
+  - API AI Context, owner, source, upload, route-table, spec and shape tests
+- `internal/controller`, `internal/docs` and `internal/mcp` passed; go vet and staticcheck are clean on the changed packages.
+- Mutation checks: removing the blob verification lets a forged file through, and removing the jti claim lets a replay through. The tests catch both.
+- Svelte check 0 errors; Playwright ai-context 4/4 passed; mkdocs `--strict` passed.
+
+Limits and next steps:
+- No live GitHub Actions run against a real https controller has been done. That is the remaining acceptance gate for phase 5.
+- If the JWKS fetch fails (network), the upload gets a 401, which reads like a bad token. It should become a distinct 503.
+- Uploads are verified only for `github.com` (GHES still unsupported).
+- After that: the live assistant pilot, and phase 6 (assistant-written artifacts).

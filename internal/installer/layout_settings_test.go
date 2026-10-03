@@ -157,3 +157,74 @@ func TestAnUnreadableDatabaseOffersWhatARunnerHostNeeds(t *testing.T) {
 		t.Errorf("output:\n%s", out.String())
 	}
 }
+
+// A pool cache with a size limit is kept under it by the agent, which has to
+// see the folder to measure it. Under Compose a host folder outside the shared
+// folder is mounted into runners by the host's daemon but not into the
+// controller's own container -- the cache works, and the limit quietly never
+// does. The upgrade mounts each such folder at its own path, and leaves alone
+// the ones the container can already see.
+func TestAnUpgradeMountsTheCacheFoldersWhoseSizeLimitTheAgentKeeps(t *testing.T) {
+	opts, rec, volume := controllerFixture(t, map[string]string{"agent.embedded": "true"})
+	st, err := store.Open(context.Background(), store.Options{Path: filepath.Join(volume, "zoomies.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inst := &store.Installation{AppID: 1, InstallationID: 1, Target: "acme", TargetType: store.TargetOrg}
+	if err := st.CreateInstallation(context.Background(), inst); err != nil {
+		t.Fatal(err)
+	}
+	for _, pool := range []struct {
+		name, source string
+		limit        int64
+	}{
+		{"limited", "/srv/zoomies-cache", 10 << 30},
+		{"limited-too", "/srv/zoomies-cache/", 5 << 30},           // the same folder, spelt differently
+		{"unlimited", "/srv/unlimited-cache", 0},                  // no limit: nothing to measure
+		{"shared", SharedHostDir + "/cache/pools", 10 << 30},      // already mounted
+		{"under-a-volume", "/var/lib/zoomies/elsewhere", 1 << 30}, // a named volume at /var/lib/zoomies hides the host's folder
+		{"under-a-bind", "/srv/mounted/cache", 1 << 30},           // under a folder bound at its own path
+		{"volume", "zoomies-cache", 0},
+	} {
+		p := &store.Pool{Name: pool.name, InstallationID: inst.ID, Backend: "docker", DockerMode: "none", Labels: store.StringSlice{pool.name},
+			Cache: store.CacheConfig{Enabled: true, Scope: store.CacheScopePool, Source: pool.source, SizeLimit: pool.limit}}
+		if err := st.CreatePool(context.Background(), p); err != nil {
+			t.Fatalf("pool %s: %v", pool.name, err)
+		}
+	}
+	_ = st.Close()
+
+	compose, err := os.ReadFile(rec.ComposeFile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	compose = []byte(strings.Replace(string(compose), "      - zoomies-data:/var/lib/zoomies\n", "      - zoomies-data:/var/lib/zoomies\n      - /srv/mounted:/srv/mounted\n", 1))
+	if err := os.WriteFile(rec.ComposeFile(), compose, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	fakeVolume(&opts, volume, nil)
+	opts.socketGroup = func(string) int { return 998 }
+	var out bytes.Buffer
+	opts.Out, opts.AssumeYes = &out, true
+	if err := Upgrade(context.Background(), opts); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "pool zoomies-limited, zoomies-limited-too") {
+		t.Errorf("the upgrade did not say which pools the cache mount is for:\n%s", out.String())
+	}
+	body, err := os.ReadFile(rec.ComposeFile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(body), "/srv/zoomies-cache:/srv/zoomies-cache") != 1 {
+		t.Errorf("the size-limited cache folder is not mounted exactly once:\n%s", body)
+	}
+	if !strings.Contains(string(body), "/var/lib/zoomies/elsewhere:/var/lib/zoomies/elsewhere") {
+		t.Errorf("a folder hidden by the data volume was not mounted:\n%s", body)
+	}
+	for _, absent := range []string{"/srv/unlimited-cache", "/cache/pools:", "/srv/mounted/cache"} {
+		if strings.Contains(string(body), absent) {
+			t.Errorf("%s was mounted, but the container can already see it or it has no limit:\n%s", absent, body)
+		}
+	}
+}

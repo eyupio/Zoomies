@@ -179,7 +179,7 @@ test('a repository with nothing to move is hidden, and can be shown', async ({ p
   // It is listed so the operator can see it was looked at, and it cannot be
   // chosen, because there is nothing in it to choose.
   await expect(quiet).toBeDisabled();
-  await expect(page.getByText('No workflows')).toBeVisible();
+  await expect(page.getByText('No workflows', { exact: true })).toBeVisible();
 });
 
 test('a repository nothing could be opened against cannot be chosen', async ({ page }) => {

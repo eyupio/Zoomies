@@ -14,6 +14,10 @@ spec = importlib.util.spec_from_file_location('publisher', Path(__file__).parent
 publisher = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(publisher)
 
+spec = importlib.util.spec_from_file_location('uploader', Path(__file__).parent / 'templates' / 'upload.py')
+uploader = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(uploader)
+
 spec = importlib.util.spec_from_file_location('generator', Path(__file__).parent / 'templates' / 'generate.py')
 generator = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(generator)
@@ -148,6 +152,69 @@ class PublicationTests(unittest.TestCase):
         self.assertFalse(body['force'])
         commit = next(b for m, p, b in self.calls if m == 'POST' and p == '/git/commits')
         self.assertEqual(commit['parents'], [self.existing])
+
+
+class UploadTests(unittest.TestCase):
+    """Zoomies-only output: the snapshot leaves the job only with an OIDC token
+    minted for the configured controller, and only after the artifact checks."""
+
+    URL = 'https://zoomies.example.com/api/v1/ai-context/uploads'
+
+    def setUp(self):
+        PublicationTests.setUp(self)
+        self.requests = []
+
+    write_artifact = PublicationTests.write_artifact
+
+    def open(self, request, timeout=None):
+        self.requests.append(request)
+        if request.full_url.startswith('https://token.actions.test/'):
+            return io.BytesIO(json.dumps({'value': 'oidc-token'}).encode())
+        class Response(io.BytesIO):
+            status = 202
+        return Response(b'{}')
+
+    def upload(self, url=None):
+        class Opener:
+            pass
+        opener = Opener()
+        opener.open = self.open
+        return uploader.upload(self.directory, 'main', self.commit, self.identity, self.hash, url or self.URL,
+                               'https://token.actions.test/token?api-version=2.0', 'request-token', opener)
+
+    def test_the_token_is_minted_for_the_configured_controller_and_sent_only_there(self):
+        self.assertEqual(self.upload(), 202)
+        mint, post = self.requests
+        self.assertIn('audience=' + uploader.urllib.parse.quote(self.URL, safe=''), mint.full_url)
+        self.assertEqual(mint.get_header('Authorization'), 'Bearer request-token')
+        self.assertEqual(post.full_url, self.URL)
+        self.assertEqual(post.get_header('Authorization'), 'Bearer oidc-token')
+        self.assertEqual(post.data, (self.directory / 'snapshot.json').read_bytes())
+
+    def test_a_corrupt_artifact_never_asks_for_a_token(self):
+        self.files[0]['sha256'] = 'f' * 64
+        self.write_artifact()
+        self.manifest['source_commit'] = 'c' * 40
+        self.write_artifact()
+        with self.assertRaises(ValueError):
+            self.upload()
+        self.assertFalse(self.requests)
+
+    def test_a_plain_http_controller_is_refused_before_anything_is_sent(self):
+        for url in ('http://zoomies.example.com/api/v1/ai-context/uploads',
+                    'https://user@zoomies.example.com/api/v1/ai-context/uploads'):
+            with self.assertRaises(ValueError):
+                self.upload(url)
+        self.assertFalse(self.requests)
+
+    def test_without_id_token_permission_nothing_is_sent(self):
+        class Opener:
+            pass
+        opener = Opener()
+        opener.open = self.open
+        with self.assertRaises(ValueError):
+            uploader.upload(self.directory, 'main', self.commit, self.identity, self.hash, self.URL, '', '', opener)
+        self.assertFalse(self.requests)
 
 
 if __name__ == '__main__':

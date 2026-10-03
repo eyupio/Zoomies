@@ -22,6 +22,9 @@ func (s *Server) handleDiscoverAIContext(w http.ResponseWriter, r *http.Request)
 		unprocessable(w, "choose the GitHub installation to discover repositories", []fieldError{{"installation_id", "an installation is required"}})
 		return
 	}
+	if !s.contextInstallationAccess(w, r, id) {
+		return
+	}
 	out, err := s.ctrl.DiscoverAIContext(r.Context(), id)
 	if err != nil {
 		s.fail(w, r, "discovering AI context repositories", err)
@@ -33,6 +36,9 @@ func (s *Server) handleDiscoverAIContext(w http.ResponseWriter, r *http.Request)
 func (s *Server) handleCreateAIContextDraft(w http.ResponseWriter, r *http.Request) {
 	var req controller.AIContextDraftRequest
 	if !decode(w, r, &req) {
+		return
+	}
+	if !s.contextInstallationAccess(w, r, req.InstallationID) {
 		return
 	}
 	out, err := s.ctrl.CreateAIContextDraft(r.Context(), req)
@@ -58,7 +64,21 @@ func (s *Server) handleListAIContextRepositories(w http.ResponseWriter, r *http.
 		unprocessable(w, "use a search query of at most 200 characters", nil)
 		return
 	}
-	rows, total, err := s.ctrl.Store().ListAIContextRepositoriesFiltered(r.Context(), limit, offset, r.URL.Query().Get("installation_id"), r.URL.Query().Get("q"))
+	var rows []store.AIContextRepository
+	var total int
+	var err error
+	if installation := r.URL.Query().Get("installation_id"); contextAdmin(r) {
+		rows, total, err = s.ctrl.Store().ListAIContextRepositoriesFiltered(r.Context(), limit, offset, installation, r.URL.Query().Get("q"))
+	} else {
+		// An owner lists across their own installations only; a filter naming
+		// someone else's simply matches nothing.
+		actor := Identity(r.Context())
+		if actor == nil || actor.Kind != auth.KindUser || actor.UserID == "" {
+			notFound(w, "installation or repository is unavailable to this account")
+			return
+		}
+		rows, total, err = s.ctrl.Store().ListAIContextRepositoriesOwnedBy(r.Context(), limit, offset, installation, r.URL.Query().Get("q"), actor.UserID)
+	}
 	if err != nil {
 		s.fail(w, r, "listing AI context repositories", err)
 		return
@@ -74,14 +94,20 @@ func (s *Server) handleUpdateAIContextConfig(w http.ResponseWriter, r *http.Requ
 	if !decode(w, r, &req) {
 		return
 	}
+	// The upload address is the controller's to set, never the caller's: it
+	// is where the workflow's OIDC token is aimed, so a client cannot point a
+	// repository's uploads somewhere else.
+	req.Config.UploadURL = ""
+	if req.Config.Destination == aicontext.Zoomies {
+		req.Config.UploadURL = aicontext.UploadURLFor(s.cfg().Server.ExternalURL)
+	}
 	if err := req.Config.Validate(); err != nil {
 		unprocessable(w, err.Error(), nil)
 		return
 	}
 	id := chiURLParam(r, "id")
-	existing, err := s.ctrl.Store().GetAIContextRepository(r.Context(), id)
-	if err != nil {
-		s.fail(w, r, "reading the AI context draft", err)
+	existing, ok := s.contextRepositoryAccess(w, r, id)
+	if !ok {
 		return
 	}
 	// Initial setup is anchored to the discovered default branch. Supporting
@@ -95,7 +121,7 @@ func (s *Server) handleUpdateAIContextConfig(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "context.configure", "ai_context", id, map[string]any{"revision": req.Revision + 1})
-	existing, err = s.ctrl.Store().GetAIContextRepository(r.Context(), id)
+	existing, err := s.ctrl.Store().GetAIContextRepository(r.Context(), id)
 	if err != nil {
 		s.fail(w, r, "reading AI context configuration", err)
 		return
@@ -104,10 +130,25 @@ func (s *Server) handleUpdateAIContextConfig(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *Server) handleGetAIContextMembers(w http.ResponseWriter, r *http.Request) {
-	ids, err := s.ctrl.Store().AIContextMembers(r.Context(), chiURLParam(r, "id"))
+	id := chiURLParam(r, "id")
+	if _, ok := s.contextRepositoryAccess(w, r, id); !ok {
+		return
+	}
+	ids, err := s.ctrl.Store().AIContextMembers(r.Context(), id)
 	if err != nil {
 		s.fail(w, r, "reading AI context members", err)
 		return
+	}
+	if !contextAdmin(r) {
+		// An owner sees only whether they themselves are a reader; other
+		// people's membership is the administrator's to show.
+		own := []string{}
+		for _, member := range ids {
+			if member == Identity(r.Context()).UserID {
+				own = append(own, member)
+			}
+		}
+		ids = own
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"user_ids": ids})
 }
@@ -127,12 +168,43 @@ func (s *Server) handlePutAIContextMembers(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	id := chiURLParam(r, "id")
-	if err := s.ctrl.Store().ReplaceAIContextMembers(r.Context(), id, *in.UserIDs); err != nil {
+	if _, ok := s.contextRepositoryAccess(w, r, id); !ok {
+		return
+	}
+	selection := *in.UserIDs
+	if !contextAdmin(r) {
+		// Owning an installation lets a person read their own repositories;
+		// choosing other readers stays with administrators, who can see the
+		// user directory. Everyone else's membership is left as it is.
+		self := Identity(r.Context()).UserID
+		for _, user := range selection {
+			if user != self {
+				unprocessable(w, "installation owners can add or remove only themselves as readers; ask an administrator to assign others", nil)
+				return
+			}
+		}
+		current, err := s.ctrl.Store().AIContextMembers(r.Context(), id)
+		if err != nil {
+			s.fail(w, r, "reading AI context members", err)
+			return
+		}
+		merged := []string{}
+		for _, member := range current {
+			if member != self {
+				merged = append(merged, member)
+			}
+		}
+		selection = append(merged, selection...)
+	}
+	if err := s.ctrl.Store().ReplaceAIContextMembers(r.Context(), id, selection); err != nil {
 		s.fail(w, r, "saving AI context members", err)
 		return
 	}
-	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "context.members", "ai_context", id, map[string]any{"members": len(*in.UserIDs)})
-	writeJSON(w, http.StatusOK, map[string]any{"user_ids": *in.UserIDs})
+	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "context.members", "ai_context", id, map[string]any{"members": len(selection)})
+	if !contextAdmin(r) {
+		selection = *in.UserIDs
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"user_ids": selection})
 }
 
 func uniqueSelection(w http.ResponseWriter, ids []string, maximum int, label string) bool {
@@ -194,9 +266,8 @@ func (s *Server) handlePutOwnContextSelection(w http.ResponseWriter, r *http.Req
 }
 
 func (s *Server) handleGetAIContextRepository(w http.ResponseWriter, r *http.Request) {
-	out, err := s.ctrl.Store().GetAIContextRepository(r.Context(), chiURLParam(r, "id"))
-	if err != nil {
-		s.fail(w, r, "reading AI context configuration", err)
+	out, ok := s.contextRepositoryAccess(w, r, chiURLParam(r, "id"))
+	if !ok {
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -205,6 +276,9 @@ func (s *Server) handleFindAIContextDraft(w http.ResponseWriter, r *http.Request
 	id, err := strconv.ParseInt(r.URL.Query().Get("repository_id"), 10, 64)
 	if err != nil || id <= 0 || r.URL.Query().Get("installation_id") == "" {
 		unprocessable(w, "choose a known installation and repository ID", nil)
+		return
+	}
+	if !s.contextInstallationAccess(w, r, r.URL.Query().Get("installation_id")) {
 		return
 	}
 	out, err := s.ctrl.FindAIContextDraft(r.Context(), r.URL.Query().Get("installation_id"), id)
@@ -268,6 +342,9 @@ func (s *Server) handleListReaderAIContext(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) handlePreviewAIContextSetup(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.contextRepositoryAccess(w, r, chiURLParam(r, "id")); !ok {
+		return
+	}
 	out, err := s.ctrl.PreviewAIContextSetup(r.Context(), chiURLParam(r, "id"))
 	if err != nil {
 		if errors.Is(err, auth.ErrInvalidInput) {
@@ -286,6 +363,9 @@ func (s *Server) handleCreateAIContextSetupPR(w http.ResponseWriter, r *http.Req
 		return
 	}
 	id := chiURLParam(r, "id")
+	if _, ok := s.contextRepositoryAccess(w, r, id); !ok {
+		return
+	}
 	out, err := s.ctrl.CreateAIContextSetupPR(r.Context(), id, req)
 	if err != nil {
 		if errors.Is(err, auth.ErrInvalidInput) {
@@ -303,8 +383,7 @@ func (s *Server) handleCreateAIContextSetupPR(w http.ResponseWriter, r *http.Req
 // It checks existing output; it never triggers a workflow or writes a branch.
 func (s *Server) handleRecheckAIContext(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	if _, err := s.ctrl.Store().GetAIContextRepository(r.Context(), id); err != nil {
-		s.fail(w, r, "finding the context repository", err)
+	if _, ok := s.contextRepositoryAccess(w, r, id); !ok {
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
@@ -325,6 +404,9 @@ func (s *Server) handleAIContextMaintenance(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	id := chiURLParam(r, "id")
+	if _, ok := s.contextRepositoryAccess(w, r, id); !ok {
+		return
+	}
 	var out *controller.AIContextSetupPreview
 	var err error
 	if strings.HasSuffix(r.URL.Path, "/apply") {

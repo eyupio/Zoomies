@@ -225,6 +225,16 @@ A runner that is too old exits with code 7. Zoomies reports that as a
 configuration failure and backs off rather than retrying in a loop;
 [troubleshooting](troubleshooting.md#runner-exits-with-code-7) has the fix.
 
+## Why does a runner controller give AI assistants repository context?
+
+Because AI Context needs what Zoomies already has: a GitHub App installation,
+sign-in and roles, an audit log and an MCP server that Claude connects to by
+address. It prepares a repository with a reviewed pull request, and lets an
+assistant read the verified source through Zoomies, only for the people and
+connections you choose. It is the first feature that is not about runners, and
+it leaves the fleet alone: it starts no runners and uses no pool. See
+[AI Context](ai-context.md).
+
 ## Can I run Zoomies as a service for other people?
 
 Yes. The licence has one thing to say about it: if you change Zoomies and let
@@ -389,6 +399,14 @@ modified or not, asks nothing of you. The full text is in
       "acceptedAnswer": {
         "@type": "Answer",
         "text": "Not on the stock images. From 25 September 2026 GitHub stops sending jobs to self-hosted runners older than 2.329.0, and to any runner that has not updated within 30 days of a new actions/runner release. Zoomies runner images carry the current release, a weekly job bumps it when a new one ships, and every ephemeral runner is created fresh from the image, which is refreshed hourly in the background. You need to act only if a pool pins runner_version or an image digest, if you use the process backend (upgrade the controller and agents), or if you have switched the image refresh off."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Why does a runner controller give AI assistants repository context?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Because AI Context needs what Zoomies already has: a GitHub App installation, sign-in and roles, an audit log and an MCP server that Claude connects to by address. It prepares a repository with a reviewed pull request, and lets an assistant read the verified source through Zoomies, only for the people and connections you choose. It is the first feature that is not about runners, and it leaves the fleet alone: it starts no runners and uses no pool."
       }
     },
     {
