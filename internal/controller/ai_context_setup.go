@@ -14,12 +14,15 @@ import (
 )
 
 type AIContextSetupPreview struct {
-	Revision   int64                   `json:"revision"`
-	BaseCommit string                  `json:"base_commit"`
-	Branch     string                  `json:"branch"`
-	PlanHash   string                  `json:"plan_hash"`
-	Files      []aicontext.SetupChange `json:"files"`
-	Setup      *store.AIContextSetup   `json:"setup,omitempty"`
+	Mode         string                  `json:"mode,omitempty"`
+	Config       *aicontext.Config       `json:"config,omitempty"`
+	PreviousHash string                  `json:"previous_hash,omitempty"`
+	Revision     int64                   `json:"revision"`
+	BaseCommit   string                  `json:"base_commit"`
+	Branch       string                  `json:"branch"`
+	PlanHash     string                  `json:"plan_hash"`
+	Files        []aicontext.SetupChange `json:"files"`
+	Setup        *store.AIContextSetup   `json:"setup,omitempty"`
 }
 
 type AIContextSetupApproval struct {
@@ -131,6 +134,10 @@ func (c *Controller) CreateAIContextSetupPR(ctx context.Context, id string, appr
 	if err := c.st.ClaimAIContextSetup(ctx, operation); err != nil {
 		return nil, err
 	}
+	return c.publishAIContextPlan(ctx, r, client, plan, operation)
+}
+
+func (c *Controller) publishAIContextPlan(ctx context.Context, r *store.AIContextRepository, client github.ContextSetupClient, plan *AIContextSetupPreview, operation *store.AIContextSetup) (*AIContextSetupPreview, error) {
 	// An HTTP disconnect must not strand an otherwise finished PR. The
 	// bounded operation is persisted first, and safe to reconcile after crash.
 	detached, cancel := context.WithTimeout(context.WithoutCancel(ctx), 4*time.Minute)
@@ -138,18 +145,18 @@ func (c *Controller) CreateAIContextSetupPR(ctx context.Context, id string, appr
 	defer func() {
 		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
-		_ = c.st.ReleaseAIContextSetup(cleanup, id, operation.LeaseToken)
+		_ = c.st.ReleaseAIContextSetup(cleanup, r.ID, operation.LeaseToken)
 	}()
-	pr, err := client.OpenContextSetup(detached, github.ContextSetupRequest{Repo: r.FullName, Base: r.Config.SourceBranch, BaseCommit: plan.BaseCommit, Head: plan.Branch, PlanHash: plan.PlanHash, Files: plan.Files})
+	pr, err := client.OpenContextSetup(detached, github.ContextSetupRequest{Action: plan.Mode, Repo: r.FullName, Base: r.Config.SourceBranch, BaseCommit: plan.BaseCommit, Head: plan.Branch, PlanHash: plan.PlanHash, Files: plan.Files})
 	if err != nil {
 		if errors.Is(err, github.ErrSetupConflict) {
 			return nil, fmt.Errorf("%w: %s", store.ErrConflict, err)
 		}
 		return nil, err
 	}
-	if err := c.st.CompleteAIContextSetup(detached, id, operation.LeaseToken, pr.Number, pr.HTMLURL); err != nil {
+	if err := c.st.CompleteAIContextSetup(detached, r.ID, operation.LeaseToken, pr.Number, pr.HTMLURL); err != nil {
 		return nil, err
 	}
-	plan.Setup, err = c.st.GetAIContextSetup(detached, id)
+	plan.Setup, err = c.st.GetAIContextSetup(detached, r.ID)
 	return plan, err
 }

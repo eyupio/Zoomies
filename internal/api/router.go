@@ -342,6 +342,8 @@ func (s *Server) apiRoutes() chi.Router {
 			r.Get("/repositories/{id}", s.handleGetAIContextRepository)
 			r.Get("/repositories/{id}/setup", s.handlePreviewAIContextSetup)
 			r.Post("/repositories/{id}/setup", s.handleCreateAIContextSetupPR)
+			r.Post("/repositories/{id}/maintenance", s.handleAIContextMaintenance)
+			r.Post("/repositories/{id}/maintenance/apply", s.handleAIContextMaintenance)
 			r.Post("/repositories/{id}/recheck", s.handleRecheckAIContext)
 			r.Get("/repositories", s.handleListAIContextRepositories)
 			r.Post("/repositories", s.handleCreateAIContextDraft)

@@ -7,6 +7,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/aicontext"
@@ -315,5 +316,32 @@ func (s *Server) handleRecheckAIContext(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "context.recheck", "ai_context", id, map[string]any{"available": out.Available})
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) handleAIContextMaintenance(w http.ResponseWriter, r *http.Request) {
+	var req controller.AIContextMaintenanceRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	id := chiURLParam(r, "id")
+	var out *controller.AIContextSetupPreview
+	var err error
+	if strings.HasSuffix(r.URL.Path, "/apply") {
+		out, err = s.ctrl.ApplyAIContextMaintenance(r.Context(), id, req)
+	} else {
+		out, err = s.ctrl.PreviewAIContextMaintenance(r.Context(), id, req)
+	}
+	if err != nil {
+		if errors.Is(err, auth.ErrInvalidInput) {
+			unprocessable(w, err.Error(), nil)
+			return
+		}
+		s.fail(w, r, "maintaining AI Context", err)
+		return
+	}
+	if out.Setup != nil {
+		s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "context."+req.Mode, "ai_context", id, map[string]any{"plan_hash": out.PlanHash})
+	}
 	writeJSON(w, http.StatusOK, out)
 }

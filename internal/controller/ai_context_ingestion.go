@@ -44,6 +44,9 @@ func (c *Controller) aiContextLoop(ctx context.Context) {
 	}
 }
 func (c *Controller) trustedAIContext(ctx context.Context, r *store.AIContextRepository) (github.ContextIngestionClient, *github.ContextSetupSource, error) {
+	if r.Config.Disabled {
+		return nil, nil, fmt.Errorf("AI Context has been removed; reinstall it to resume source access")
+	}
 	setup, err := c.st.GetAIContextSetup(ctx, r.ID)
 	if err != nil {
 		return nil, nil, err

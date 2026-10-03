@@ -91,7 +91,6 @@
   let destination = $state<string>('both'),
     exclusions = $state(''),
     keep = $state('3');
-  let readmeBadge = $state(true);
   let setupFrozen = $state(false);
   let resuming = $state<AIContextRepository | null>(null);
   type Outcome = {
@@ -195,7 +194,6 @@
           repositoryIds = [draft.repository.repository_id];
           readerIds = members.user_ids;
           destination = draft.config.destination;
-          readmeBadge = draft.config.readme_badge !== false;
           exclusions = draft.config.exclude.join('\n');
           keep = String(draft.config.keep_snapshots);
           outcomes = { [draft.repository.repository_id]: { name: draft.full_name, draft } };
@@ -311,7 +309,7 @@
             .map((line) => line.trim())
             .filter(Boolean),
           keep_snapshots: Number(keep),
-          ...(readmeBadge ? { readme_badge: undefined } : { readme_badge: false }),
+          readme_badge: undefined,
         };
         if (!setupFrozen)
           draft = await updateAIContextConfig(draft.id, { revision: draft.revision, config });
@@ -662,19 +660,17 @@
           Both includes an additional source copy in Zoomies. Explicit reader membership and
           connection consent control access to that copy.
         </p>
-        <Checkbox
-          bind:checked={readmeBadge}
-          disabled={setupFrozen}
-          label="Add Zoomies AI Context badge to README"
-        />
         <p class="muted">
-          The badge shows workflow status. Copy its Markdown from AI Context whenever you need it.
+          The Zoomies AI Context badge is added to your README automatically. Its Markdown is also
+          available from AI Context.
         </p>
       {:else if current.id === 'configuration'}
         <div class="form">
           {#if setupFrozen}<p role="status">
               This reviewed setup has already been submitted. Its configuration is frozen so retries
-              recover the same pull request.
+              recover the same pull request. Use the AI Context repository card to reinstall, amend
+              or remove it after merging or closing the previous PR.
+              <a href="/ai-context">Manage AI Context</a>
             </p>{/if}
           <div>
             <h3>Source branches</h3>

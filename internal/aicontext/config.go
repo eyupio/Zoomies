@@ -51,11 +51,13 @@ func (k RepositoryKey) Validate() error {
 }
 
 type Config struct {
-	SourceBranch  string      `json:"source_branch"`
-	Destination   Destination `json:"destination"`
-	Exclude       []string    `json:"exclude"`
-	KeepSnapshots int         `json:"keep_snapshots"`
-	ReadmeBadge   *bool       `json:"readme_badge,omitempty"`
+	SourceBranch    string      `json:"source_branch"`
+	Destination     Destination `json:"destination"`
+	Exclude         []string    `json:"exclude"`
+	KeepSnapshots   int         `json:"keep_snapshots"`
+	ReadmeBadge     *bool       `json:"readme_badge,omitempty"` // Legacy settings remain readable.
+	SetupGeneration int64       `json:"setup_generation,omitempty"`
+	Disabled        bool        `json:"disabled,omitempty"`
 }
 
 func DefaultConfig(branch string) Config {
@@ -83,6 +85,9 @@ func ValidBranch(s string) bool {
 }
 
 func (c Config) Validate() error {
+	if c.SetupGeneration < 0 || c.SetupGeneration > 1_000_000 {
+		return fmt.Errorf("context setup generation is out of range")
+	}
 	if !ValidBranch(c.SourceBranch) || c.SourceBranch == OutputBranch {
 		return fmt.Errorf("choose a valid source branch other than the generated context branch")
 	}
