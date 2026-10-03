@@ -110,6 +110,8 @@ func (s *Server) authenticateMCP(r *http.Request) (*auth.Identity, error) {
 	return s.auth.Authenticate(r.Context(), auth.AuthInput{Authorization: header, IP: ClientIP(r.Context())})
 }
 
+type contextCredentialCheck struct{}
+
 func inProcessIdentity(r *http.Request) *auth.Identity {
 	id, _ := r.Context().Value(ctxInProcess).(*auth.Identity)
 	return id
@@ -166,6 +168,7 @@ func (a inProcessAPI) do(ctx context.Context, method, path string, q url.Values,
 	if a.as != nil && a.as.Kind == auth.KindConnection {
 		forward = forward[1:]
 		req = req.WithContext(context.WithValue(req.Context(), ctxInProcess, a.as))
+		req = req.WithContext(context.WithValue(req.Context(), contextCredentialCheck{}, func(ctx context.Context) (*auth.Identity, error) { return a.s.authenticateMCP(a.from.WithContext(ctx)) }))
 	}
 	for _, h := range forward {
 		if v := a.from.Header.Values(h); len(v) > 0 {

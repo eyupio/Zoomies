@@ -13,6 +13,7 @@
   import { aiContextStatus } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
+  import CopyButton from '$lib/components/CopyButton.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import ErrorState from '$lib/components/ErrorState.svelte';
   import Field from '$lib/components/Field.svelte';
@@ -25,7 +26,12 @@
   const query = $derived(router.param('q'));
   const installationId = $derived(router.param('installation_id'));
   const offset = $derived(Math.max(0, Number(router.param('offset')) || 0));
-  let items = $state<(AIContextRepository | { id: string; full_name: string })[]>([]);
+  let items = $state<
+    (
+      | AIContextRepository
+      | { id: string; full_name: string; instructions?: string; badge_markdown?: string }
+    )[]
+  >([]);
   type KnownInstallation = Installation & { id: string; target: string };
   let installations = $state<KnownInstallation[]>([]);
   let total = $state(0);
@@ -247,6 +253,35 @@
             >
           </div>
         {:else}<Button size="sm" href="/settings/connections">Choose connection access</Button>{/if}
+        <details class="assistant-guidance">
+          <summary>AI instructions and README badge</summary>
+          <p>
+            Copy these instructions into any AI prompt. Check that generation and verification have
+            completed before relying on context.
+          </p>
+          <div class="actions">
+            {#if item.instructions}<CopyButton
+                value={item.instructions}
+                label="Copy AI instructions"
+                showLabel
+              />{/if}
+            {#if item.badge_markdown}<CopyButton
+                value={item.badge_markdown}
+                label="Copy badge Markdown"
+                showLabel
+              />{/if}
+          </div>
+          {#if item.badge_markdown}
+            <p class="muted">
+              The Zoomies AI Context badge shows workflow status, not context freshness. Private
+              badges require GitHub access.
+            </p>
+          {/if}
+          {#if item.instructions}<details>
+              <summary>Preview AI instructions</summary>
+              <pre>{item.instructions}</pre>
+            </details>{/if}
+        </details>
       </section>
     {/each}
   </div>
@@ -264,6 +299,17 @@
 {/if}
 
 <style>
+  .assistant-guidance {
+    margin-top: var(--z-space-4);
+  }
+  .assistant-guidance summary {
+    cursor: pointer;
+  }
+  .assistant-guidance pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: var(--z-text-sm);
+  }
   .verification-failure {
     color: var(--z-danger);
     font-size: var(--z-text-sm);

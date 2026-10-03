@@ -35,7 +35,7 @@ def publish(directory, api, repo, token, branch, commit, identity, config_hash):
     contents = {}
     for name in sorted(names):
         p = directory / name
-        if p.is_symlink() or not p.is_file() or p.stat().st_size > 32 << 20:
+        if p.is_symlink() or not p.is_file() or p.stat().st_size > 16 << 20:
             raise ValueError('Unsafe artifact file')
         contents[name] = p.read_bytes()
     snapshot = json.loads(contents['snapshot.json'])
@@ -64,7 +64,7 @@ def publish(directory, api, repo, token, branch, commit, identity, config_hash):
             raise ValueError('Unsafe source or corrupt hash')
         seen.add(name)
         total += len(data)
-    if total > 24 << 20:
+    if total > 12 << 20:
         raise ValueError('Source exceeds limit')
     ref = '/git/ref/heads/' + urllib.parse.quote(branch, safe='')
     if request('GET', ref)['object']['sha'] != commit:

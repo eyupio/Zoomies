@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -34,6 +35,29 @@ func contextFixture(t *testing.T, s *Store) (*AIContextRepository, *User, *OAuth
 		t.Fatal(err)
 	}
 	return r, u, g
+}
+
+func TestContextInstructionsAndBadgeAreAvailableAfterReloadingSavedSetup(t *testing.T) {
+	s := newTestStore(t)
+	r, _, _ := contextFixture(t, s)
+	saved, err := s.GetAIContextRepository(t.Context(), r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := json.Marshal(saved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var metadata struct {
+		Instructions string `json:"instructions"`
+		Badge        string `json:"badge_markdown"`
+	}
+	if err := json.Unmarshal(b, &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata.Instructions != aicontext.AssistantInstructions(saved.Key, saved.FullName, saved.Config) || metadata.Badge != aicontext.BadgeMarkdown(saved.Key, saved.FullName) {
+		t.Fatal("saved setup lost its shareable instructions or badge")
+	}
 }
 
 func TestContextStartsUnavailableAndExistingConnectionsHaveNoSourceAccess(t *testing.T) {
@@ -288,4 +312,39 @@ func TestContextMetadataSearchAndDraftLookupKeepIdentityAndAccessBoundaries(t *t
 	if err != nil || len(visible) != 0 || count != 0 {
 		t.Fatalf("disabled reader=%+v %d %v", visible, count, err)
 	}
+}
+
+func TestContextDiscoveryShowsOnlyTheConnectionsLiveConsent(t *testing.T) {
+	s := newTestStore(t)
+	r, u, g := contextFixture(t, s)
+	if err := s.SetAIContextAvailable(t.Context(), r.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ReplaceAIContextMembers(t.Context(), r.ID, []string{u.ID}); err != nil {
+		t.Fatal(err)
+	}
+	check := func(want int) {
+		t.Helper()
+		items, total, err := s.ListAIContextGrantedRepositories(t.Context(), g.ID, u.ID, 12, 0, "")
+		if err != nil || total != want || len(items) != want {
+			t.Fatalf("discovery %v %d %v", items, total, err)
+		}
+	}
+	check(0)
+	if err := s.ReplaceAIContextConnectionAccess(t.Context(), g.ID, u.ID, []string{r.ID}); err != nil {
+		t.Fatal(err)
+	}
+	check(1)
+	items, total, err := s.ListAIContextGrantedRepositories(t.Context(), g.ID, "other-user", 12, 0, "")
+	if err != nil || total != 0 || len(items) != 0 {
+		t.Fatal("other user source names leaked")
+	}
+	if err := s.ReplaceAIContextMembers(t.Context(), r.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	check(0)
+	if err := s.ReplaceAIContextMembers(t.Context(), r.ID, []string{u.ID}); err != nil {
+		t.Fatal(err)
+	}
+	check(0)
 }

@@ -593,3 +593,28 @@ operator routes are not available through it.
 The administrator configuration list also accepts `q` (literal name search, at most 200 characters) and `installation_id`. The reader list accepts `q`. Both filter before paging. Discovery supplies canonical exclusion and retention defaults so the setup wizard does not maintain a second copy of them.
 
 Submitted AI Context configuration cannot be changed through the draft PATCH endpoint. The setup lease expires after five minutes so a controller restart can retry the same persisted proposal; a lost PR response is reconciled on the same immutable branch. User changes to that branch or closure of an uncertain PR are preserved and require attention. Submitted proposals now enter bounded background verification. The administrator-only `POST /ai-context/repositories/{id}/recheck` verifies existing setup/output and returns the repository with its current `freshness` record; verification failures are represented in that record with a source-free reason. It does not dispatch Actions or modify repository files. The configured repository GET/list shapes include last checked time, desired commit, last verified commit and snapshot identity. A successful Both-mode verification opens availability; every failed verification closes it while retaining the previous snapshot. New workflow/repair proposals and source REST/MCP retrieval remain follow-on work.
+
+### Compact AI Context source reads
+
+`GET /ai-context/source/{id}/overview`, `/read`, `/search` and `/pack` require
+`context.read` plus explicit repository membership. MCP connections additionally
+require consent for that connection. Unowned automation tokens cannot read
+source. Repository discovery through `/ai-context/access` now accepts connections
+and returns only their consented subset; it does not perform live GitHub checks.
+
+Source requests repeat credential and access checks after live verification and
+before writing the response. In-process MCP calls revalidate the original
+credential without forwarding OAuth tokens to REST. A caller cannot use retained
+source after a failed check. Inaccessible repositories return 404 without
+revealing whether they exist; unowned tokens return 403.
+
+All source responses use `Cache-Control: no-store`. Query `budget` bounds the
+fully escaped JSON body (1,024–24,000 bytes; default 8,000). Read uses `path` and
+UTF-8 byte `offset`; pack uses 1–6 repeated `path` parameters with offset zero.
+Overview pages at most 100 file summaries, search at most 12 literal matches.
+Every reply carries `commit` and `snapshot`. Continuation offsets require the
+returned `commit`; a different current commit returns 409. Verification failure
+closes availability and returns no source. Search and overview use top-level
+`next_offset`; each truncated pack/read excerpt has its own `next_offset`.
+MCP wraps these routes as `context_overview`, `context_read`, `context_search`
+and `context_pack`, with a separate 32,000-byte encoded tool-result ceiling.

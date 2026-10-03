@@ -1,5 +1,11 @@
 # Zoomies AI Context — implementation plan
 
+## Product correction — 3 October 2026
+
+AI Context is a core Zoomies feature. Every signed-in user must be able to enable repositories they are authorised to manage; fleet administrator status is not the product gate. Implement verified user/installation ownership or GitHub identity linkage before opening shared installation discovery and setup writes to ordinary users. The current implementation still has the administrator gate, and removing that gate alone would expose other users' repositories.
+
+Keep the Repository, Zoomies and Both destinations explicit. Assistant instructions must name the saved destination and retrieval/freshness procedure, work in any AI prompt, and remain available on the AI Context repository page after setup. Offer the Zoomies AI Context README badge during setup and persistent badge Markdown afterwards. Existing GitHub organisation access can retrieve repository-hosted context; it does not establish a Zoomies MCP connection or its repository consent.
+
 Date: 2 October 2026. Status: proposed implementation; no Zoomies changes made by this plan.
 
 ## Goal and agreed scope
@@ -80,7 +86,7 @@ Add focused context packages rather than mixing indexing into scheduler code:
 - internal/mcp: thin context tools calling the authorised routes.
 - web: setup wizard, repository context page, access controls and failures.
 
-The first durable Both-mode implementation stores bounded source blobs and freshness in SQLite. This changes the original separate-directory proposal: publication, retention, metadata and access availability now commit atomically, and existing database backups contain the source without a second restore step. Repository deletion cascades to retained source. The hard admission guard is 256 MiB of retained JSON payload across the instance; SQLite pages, WAL and backups can consume additional disk space, so this is not a disk quota. Each encoded snapshot is limited to 16 MiB, each source file to 1 MiB, source text to 12 MiB and file count to 5,000. Retention honours the configured count. Consider a storage interface and configurable capacity after pilot measurements, preserving atomic admission and backup completeness.
+The first durable Both-mode implementation stores bounded source blobs and freshness in SQLite. This changes the original separate-directory proposal: publication, retention, metadata and access availability now commit atomically, and existing database backups contain the source without a second restore step. Repository deletion cascades to retained source. The hard admission guard is 256 MiB of retained JSON payload across the instance; SQLite pages, WAL and backups can consume additional disk space, so this is not a disk quota. Each encoded snapshot is limited to 32 MiB, each source file to 1 MiB, source text to 24 MiB and file count to 5,000. Retention honours the configured count. Consider a storage interface and configurable capacity after pilot measurements, preserving atomic admission and backup completeness.
 
 Snapshot identity includes GitHub host, installation, repository ID, source commit and configuration hash. Repository names alone are insufficient across GitHub Enterprise hosts or renames. Source packs preserve original content and line numbers; compressed summaries remain navigation aids rather than editing evidence.
 
@@ -106,7 +112,9 @@ As an alternative where App event changes are unavailable, reconciliation suppor
 
 ## MCP retrieval and token efficiency
 
-Proposed tools: context_overview, context_search, context_read and context_pack. Overview also discovers repositories authorised for this connection; preserve a small tool surface.
+Implemented for verified Both-mode snapshots: context_overview, context_search, context_read and context_pack. Overview also discovers repositories authorised for this connection; preserve a small tool surface.
+
+Source calls accept repository identity and optional expected source commit; continuation offsets require the returned commit. Encoded REST JSON is bounded to 1,024–24,000 bytes (default 8,000), with a separate 32,000-byte MCP result ceiling. File metadata is paged, search returns at most 12 matches and packs select up to six explicit files. Repository-only transient reads and the live client/measurement acceptance gates remain outstanding.
 
 All calls accept repository identity and optional expected source commit. Responses carry minimal commit/freshness metadata, stable pagination and explicit truncation. No forced overview call for a known-file edit. Search is bounded literal search first; add richer indexing only after measuring need. Packs support a named area or validated file selection, bounded by a configurable response budget.
 

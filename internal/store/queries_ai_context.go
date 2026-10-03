@@ -28,6 +28,17 @@ type AIContextRepository struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// MarshalJSON derives shareable setup guidance from the saved destination, so
+// it remains available after the preparation wizard has finished.
+func (r AIContextRepository) MarshalJSON() ([]byte, error) {
+	type repository AIContextRepository
+	return json.Marshal(struct {
+		repository
+		Instructions  string `json:"instructions"`
+		BadgeMarkdown string `json:"badge_markdown"`
+	}{repository: repository(r), Instructions: aicontext.AssistantInstructions(r.Key, r.FullName, r.Config), BadgeMarkdown: aicontext.BadgeMarkdown(r.Key, r.FullName)})
+}
+
 const aiContextColumns = `id, installation_id, github_host, repository_id, full_name, config_json, revision, available, created_at, updated_at`
 
 const aiContextReadColumns = aiContextColumns + `, COALESCE((SELECT state FROM ai_context_setups WHERE repository_id=ai_context_repositories.id),''), COALESCE((SELECT pr_url FROM ai_context_setups WHERE repository_id=ai_context_repositories.id),''), COALESCE((SELECT json_object('state',state,'desired_commit',desired_commit,'published_commit',published_commit,'snapshot_id',digest,'checked_at',checked_at,'failure',failure) FROM ai_context_freshness WHERE repository_id=ai_context_repositories.id),'null')`
@@ -413,6 +424,34 @@ func (s *Store) ListAIContextReaderRepositories(ctx context.Context, userID stri
 			return nil, 0, err
 		}
 		out = append(out, c)
+	}
+	return out, total, rows.Err()
+}
+
+// ListAIContextGrantedRepositories reveals only repositories selected for this
+// connection, never the owner's wider membership or other connections' grants.
+func (s *Store) ListAIContextGrantedRepositories(ctx context.Context, grantID, userID string, limit, offset int, query string) ([]AIContextChoice, int, error) {
+	if limit < 1 || limit > 100 || offset < 0 || len(query) > 200 {
+		return nil, 0, fmt.Errorf("choose a bounded page and search query")
+	}
+	pattern := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query) + "%"
+	const from = ` FROM ai_context_repositories r JOIN ai_context_connection_repositories a ON a.repository_id=r.id JOIN oauth_grants g ON g.id=a.grant_id JOIN oauth_clients c ON c.id=g.client_id JOIN ai_context_members m ON m.repository_id=r.id AND m.user_id=g.user_id JOIN users u ON u.id=g.user_id WHERE g.id=? AND g.user_id=? AND g.revoked_at IS NULL AND c.revoked_at IS NULL AND u.disabled=0 AND r.available=1 AND r.full_name LIKE ? ESCAPE '\'`
+	var total int
+	if err := s.read.QueryRowContext(ctx, `SELECT COUNT(*)`+from, grantID, userID, pattern).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := s.read.QueryContext(ctx, `SELECT r.id,r.full_name`+from+` ORDER BY r.full_name,r.id LIMIT ? OFFSET ?`, grantID, userID, pattern, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := []AIContextChoice{}
+	for rows.Next() {
+		var choice AIContextChoice
+		if err := rows.Scan(&choice.ID, &choice.FullName); err != nil {
+			return nil, 0, err
+		}
+		out = append(out, choice)
 	}
 	return out, total, rows.Err()
 }

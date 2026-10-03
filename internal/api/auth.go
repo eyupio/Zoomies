@@ -149,6 +149,9 @@ func (s *Server) optionalAuth(next http.Handler) http.Handler {
 
 // resolveIdentity turns the request's credentials into an identity.
 func (s *Server) resolveIdentity(r *http.Request) (*auth.Identity, error) {
+	if check, ok := r.Context().Value(contextCredentialCheck{}).(func(context.Context) (*auth.Identity, error)); ok {
+		return check(r.Context())
+	}
 	if id := inProcessIdentity(r); id != nil {
 		return id, nil
 	}

@@ -150,6 +150,14 @@ test('setup saves resumable drafts, retries only failures and never enables sour
     await expect(page.getByRole('link', { name: /Open setup PR/ })).toHaveCount(1);
     await page.getByRole('button', { name: 'Create setup PRs', exact: true }).click();
     await expect(page.getByRole('link', { name: /Open setup PR/ })).toHaveCount(2);
+    await expect(page.getByRole('heading', { name: 'Connect your assistant' })).toHaveCount(2);
+    await expect(page.getByRole('button', { name: 'Copy AI instructions' })).toHaveCount(2);
+    await expect(
+      page.getByRole('link', { name: 'Manage MCP connections' }).first(),
+    ).toHaveAttribute('href', '/settings/connections');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
     await expect(page.getByRole('link', { name: /Open setup PR/ }).first()).toHaveAttribute(
       'target',
       '_blank',
@@ -173,6 +181,18 @@ test('setup saves resumable drafts, retries only failures and never enables sour
     await next.click();
     await next.click();
     await expect(page.getByLabel('Snapshots to retain')).toHaveValue('7');
+    await goto(page, '/ai-context', 'AI Context');
+    await page.getByText('AI instructions and README badge', { exact: true }).first().click();
+    await expect(page.getByRole('button', { name: 'Copy AI instructions' }).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Copy badge Markdown' }).first()).toBeVisible();
+    await page.setViewportSize({ width: 375, height: 812 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await page.screenshot({
+      path: 'test-results/ai-context-instructions-mobile.png',
+      fullPage: true,
+    });
   } finally {
     // The connect journey uses this same controller and expects no existing
     // App. Remove only the installation this test created, even on failure.
