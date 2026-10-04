@@ -110,6 +110,11 @@ func (LocalSystem) WriteFile(p string, b []byte, m fs.FileMode) error {
 		return e
 	}
 	defer os.Remove(f.Name())
+	owner, _ := os.Lstat(p)
+	if e = preserveOwner(f, owner); e != nil {
+		_ = f.Close()
+		return e
+	}
 	if e = f.Chmod(m); e == nil {
 		_, e = f.Write(b)
 	}
@@ -135,13 +140,14 @@ func (LocalSystem) WriteFile(p string, b []byte, m fs.FileMode) error {
 }
 
 type Options struct {
-	System     System
-	OS         string
-	UID        int
-	Now        func() time.Time
-	WorkDir    string
-	DockerRoot string
-	DockerHost string
+	System         System
+	OS             string
+	UID            int
+	Now            func() time.Time
+	WorkDir        string
+	DockerRoot     string
+	DockerHost     string
+	HostReportPath string
 	// SecurityMaintenanceReady is deliberately false until the maintenance
 	// scheduler can prove security updates are run only on a drained host.
 	// TODO: wire to the effective maintenance window configuration when built.

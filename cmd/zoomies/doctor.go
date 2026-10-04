@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -40,6 +41,10 @@ func runDoctor(ctx context.Context, e *env, args []string) error {
 	interactive := fs.Bool("interactive", false, "offer individual local fixes after showing the report")
 	js := fs.Bool("json", false, "print a machine-readable report")
 	tier := fs.String("tier", "safe", "safe, aggressive or dedicated; kernel checks appear in every tier")
+	watch := fs.Bool("watch", false, "continuously publish a read-only native host report every minute")
+	reportFile := fs.String("report-file", "", "with --watch: observation JSON file, readable by the container")
+	work := fs.String("work-dir", "", "host path to runner work directory")
+	dockerHost := fs.String("docker-host", "", "Docker socket to inspect on this host")
 	host := fs.String("host", "", "read a remote host's latest report through the controller")
 	cfg := fs.String("config", "", "local Zoomies configuration file")
 	cf := registerClientFlags(fs, false)
@@ -53,6 +58,28 @@ func runDoctor(ctx context.Context, e *env, args []string) error {
 	t, err := tierValue(*tier)
 	if err != nil {
 		return usagef("doctor", "%s", err)
+	}
+	if *watch {
+		if *interactive || *host != "" || *js {
+			return usagef("doctor", "--watch cannot be combined with --interactive, --host or --json")
+		}
+		if *reportFile == "" {
+			return usagef("doctor", "--watch requires --report-file")
+		}
+		engine, err := localDoctor(*cfg)
+		if err != nil {
+			return err
+		}
+		if *work != "" {
+			engine.WorkDir = *work
+		}
+		if *dockerHost != "" {
+			engine.DockerHost = *dockerHost
+		}
+		if engine.Container {
+			return fmt.Errorf("run the host health reporter using the native binary on the host")
+		}
+		return watchDoctor(ctx, e, engine, t, *reportFile)
 	}
 	if *interactive && (*js || *host != "") {
 		return usagef("doctor", "--interactive requires a local, human-readable report")
@@ -161,4 +188,68 @@ func plainCell(s string) string {
 		}
 		return r
 	}, s)
+}
+
+func watchDoctor(ctx context.Context, e *env, engine *hosttune.Engine, t hosttune.Tier, path string) error {
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for {
+		r := engine.Run(ctx, t)
+		b, err := json.Marshal(r)
+		if err != nil {
+			return err
+		}
+		if err = engine.System.WriteFile(path, append(b, '\n'), 0644); err != nil {
+			return err
+		}
+		w, n, s := r.Counts()
+		fmt.Fprintf(e.out, "Host health report updated: %d warning(s), %d error(s), %d skipped check(s)\n", w, n, s)
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+		}
+	}
+}
+func afterHostSetup(ctx context.Context, e *env, fresh, tune, noTune, interactive bool, work string) error {
+	engine, err := localDoctor("")
+	if err != nil {
+		return err
+	}
+	if work != "" {
+		engine.WorkDir = work
+	}
+	before, _ := hosttune.ReadReport(engine.System, engine.WorkDir)
+	r := engine.Run(ctx, hosttune.Safe)
+	printDoctor(e.out, r, false)
+	if !fresh {
+		if hosttune.NewWarnings(before, r) > 0 {
+			fmt.Fprintln(e.out, "New host health warnings; review them with zoomies tune.")
+		}
+		return nil
+	}
+	fmt.Fprintln(e.out, "Aggressive and dedicated-host tuning are available separately with zoomies tune.")
+	approved := tune && !noTune
+	if !tune && !noTune && interactive {
+		fmt.Fprint(e.out, "Apply recommended safe tuning? [y/N] ")
+		scanner := bufio.NewScanner(e.in)
+		if scanner.Scan() {
+			approved = strings.EqualFold(strings.TrimSpace(scanner.Text()), "y")
+		}
+	}
+	if approved {
+		return engine.Tune(ctx, hosttune.TuneOptions{Tier: hosttune.Safe, Yes: true, Out: e.out, In: e.in, Actor: "installer"})
+	}
+	return nil
+}
+func upgradeDoctor(ctx context.Context, e *env, cfg *config.Config) {
+	options := hosttune.LocalOptions(cfg.Agent.WorkDir)
+	options.DockerHost = cfg.Agent.DockerHost
+	engine := hosttune.New(options)
+	before, _ := hosttune.ReadReport(engine.System, engine.WorkDir)
+	r := engine.Run(ctx, hosttune.Safe)
+	printDoctor(e.out, r, false)
+	if hosttune.NewWarnings(before, r) > 0 {
+		fmt.Fprintln(e.out, "New host health warnings; review them with zoomies tune.")
+	}
 }

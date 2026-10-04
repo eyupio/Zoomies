@@ -75,6 +75,7 @@ ANSWERS=""
 RUN_INIT=1
 DO_UNINSTALL=0
 DO_UPGRADE=0
+TUNE_MODE=""
 BINARY_ONLY=0
 PREFIX_GIVEN=0
 CONFIG_DIR=""
@@ -553,6 +554,8 @@ while [ $# -gt 0 ]; do
         # never touched.
         --answers)     needs_value --answers $# "a path to a YAML answer file"; ANSWERS="$2"; NON_INTERACTIVE=1; ASSUME_YES=1; shift 2 ;;
         --answers=*)   ANSWERS="${1#*=}"; NON_INTERACTIVE=1; ASSUME_YES=1; shift ;;
+        --tune)        TUNE_MODE=tune; shift ;;
+        --no-tune)     TUNE_MODE=no-tune; shift ;;
         --non-interactive) NON_INTERACTIVE=1; ASSUME_YES=1; shift ;;
         --upgrade)     DO_UPGRADE=1; RUN_INIT=0; shift ;;
         --config-dir)  needs_value --config-dir $# "the existing configuration directory"; CONFIG_DIR="$2"; shift 2 ;;
@@ -1793,6 +1796,7 @@ else
 fi
 
 if [ "$DO_UPGRADE" -eq 1 ]; then
+    [ -z "$TUNE_MODE" ] || note "Tuning flags do not apply to upgrades; upgrades run doctor only."
     say ""
     upgrade_with "$PREFIX/zoomies" || die "the binary is installed, but the deployment upgrade did not finish; fix the error above and run --upgrade again."
     exit 0
@@ -1830,6 +1834,7 @@ set -- init \
 [ -n "$PORT" ] && set -- "$@" --port "$PORT"
 [ -n "$ANSWERS" ] && set -- "$@" --answers "$ANSWERS"
 [ -n "$CONFIG_DIR" ] && set -- "$@" --config-dir "$CONFIG_DIR"
+[ -z "$TUNE_MODE" ] || set -- "$@" "--$TUNE_MODE"
 [ "$NON_INTERACTIVE" -eq 1 ] && set -- "$@" --non-interactive
 [ "$ASSUME_YES" -eq 1 ] && set -- "$@" --yes
 
