@@ -151,8 +151,8 @@
   <details class="context-explainer">
     <summary>How token savings work</summary>
     <p>
-      Enable a repository, review and merge its setup PR, then connect your assistant. It can discover
-      files, search for relevant code and request selected source within a reply budget.
+      Enable a repository, review and merge its setup PR, then connect your assistant. It can
+      discover files, search for relevant code and request selected source within a reply budget.
     </p>
     <p>
       For example, retrieving 5,000 tokens of context instead of loading a 100,000-token repository
@@ -164,8 +164,10 @@
       come from exclusions and selective retrieval. Loading the entire snapshot still uses the full
       pack.
     </p>
-    <a href={AI_CONTEXT_URL + '#how-it-reduces-token-usage'} target="_blank" rel="noopener noreferrer"
-      >Read the AI Context guide</a
+    <a
+      href={AI_CONTEXT_URL + '#how-it-reduces-token-usage'}
+      target="_blank"
+      rel="noopener noreferrer">Read the AI Context guide</a
     >
   </details>
   <p class="access-note">
