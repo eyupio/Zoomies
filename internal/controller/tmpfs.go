@@ -39,22 +39,26 @@ func tmpfsMemoryWarning(p *store.Pool) (Problem, bool) {
 	if limit <= 0 || !p.Tmpfs.Any() {
 		return Problem{}, false
 	}
+	// A typed limit is given to the runner and to the daemon alike, and each is
+	// charged for its own folders, so each is judged against it separately: the
+	// work folder and /tmp are the runner's, the image store is the daemon's.
 	work, tmp := p.Tmpfs.Sizes(limit)
-	given := work + tmp
+	runner := work + tmp
+	daemon := p.Tmpfs.DaemonSize(limit)
 	severity := config.SeverityInfo
 	var title, detail string
 	switch {
-	case given*2 > limit:
+	case runner*2 > limit || daemon*2 > limit:
 		severity = config.SeverityWarning
 		title = fmt.Sprintf("pool %s: its in-memory folders may take more than half of its memory limit", p.Name)
-		detail = fmt.Sprintf("a tmpfs is charged to the runner's memory limit, so the job has what the folders leave. "+
-			"This pool's limit is %s and its folders may fill %s, so a job that fills them is killed for want of memory.",
-			formatRoomMB(limit), formatRoomMB(given))
-	case given < p.Tmpfs.ReserveMB():
+		detail = fmt.Sprintf("a tmpfs is charged to the memory limit of the container it is in, so the job has what the folders leave. "+
+			"This pool's limit is %s and %s, so a job that fills them is killed for want of memory.",
+			formatRoomMB(limit), tightFolders(runner, daemon, limit))
+	case runner < p.Tmpfs.ReserveMB() || daemon < p.Tmpfs.DaemonReserveMB():
 		title = fmt.Sprintf("pool %s: its in-memory folders were fitted to a small memory limit", p.Name)
-		detail = fmt.Sprintf("a tmpfs is charged to the runner's memory limit, so folders left to size themselves are fitted into half of it. "+
-			"This pool's limit is %s, which gives them %s in all where they would be given %s with room.",
-			formatRoomMB(limit), formatRoomMB(given), formatRoomMB(p.Tmpfs.ReserveMB()))
+		detail = fmt.Sprintf("a tmpfs is charged to the memory limit of the container it is in, so folders left to size themselves are fitted into half of it. "+
+			"This pool's limit is %s, which is not enough to give them the size they would be given with room.",
+			formatRoomMB(limit))
 	default:
 		return Problem{}, false
 	}
@@ -68,6 +72,18 @@ func tmpfsMemoryWarning(p *store.Pool) (Problem, bool) {
 		TargetKind: "pool",
 		TargetID:   p.ID,
 	}, true
+}
+
+// tightFolders says which container's folders take more than half the limit.
+func tightFolders(runner, daemon, limit int64) string {
+	switch {
+	case runner*2 > limit && daemon*2 > limit:
+		return fmt.Sprintf("the runner's folders may fill %s and the Docker image store %s", formatRoomMB(runner), formatRoomMB(daemon))
+	case daemon*2 > limit:
+		return fmt.Sprintf("the Docker image store may fill %s", formatRoomMB(daemon))
+	default:
+		return fmt.Sprintf("its folders may fill %s", formatRoomMB(runner))
+	}
 }
 
 // cacheInMemoryWarning is a pool cache kept in a memory-backed directory with
@@ -243,6 +259,13 @@ func (c *Controller) tmpfsAdviceProblems(ctx context.Context, out *[]Problem) er
 		}
 		sort.Strings(names)
 		fix := fmt.Sprintf("turn on the in-memory work folder for pool %s -- Keep the work folder in memory in the pool editor, or zoomies pools edit with --tmpfs-work -- and compare a few runs.", p.Name)
+		if p.DockerMode == store.DockerDinD {
+			// The sidecar's image store is where a dind job's pulls and builds are
+			// written, so on a pool like this it is likely the larger share of the
+			// traffic; it is its own choice because an image bigger than the mount
+			// does not pull.
+			fix += " This pool builds inside Docker-in-Docker, where the daemon writes every pulled image and built layer: its image store can be kept in memory too (--tmpfs-docker), if the images it pulls fit."
+		}
 		if rec := room.RecommendedMemoryMB(p.Resources.MemoryMB); rec > 0 {
 			fix += fmt.Sprintf(" The folder is charged to the runner memory limit, so raise that limit to %s to leave the job the room it has now.", formatRoomMB(rec))
 		}

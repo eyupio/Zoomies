@@ -323,3 +323,63 @@ func TestTheEmbeddedAgentAdvertisesTmpfs(t *testing.T) {
 		t.Fatal("a host advertising nothing is taken as supporting it")
 	}
 }
+
+// The runner's folders and the daemon's image store are charged to different
+// containers, each with the typed limit, so each is judged against it on its
+// own, and the proposal covers whichever needs more rather than both.
+func TestTheImageStoreHasItsOwnShareOfTheMemoryLimit(t *testing.T) {
+	pool := func(tmpfs store.TmpfsConfig) *store.Pool {
+		return &store.Pool{Name: "zoomies-dind", Backend: store.BackendDocker, DockerMode: store.DockerDinD,
+			Resources: store.Resources{MemoryMB: 8192}, Tmpfs: tmpfs}
+	}
+	// 5 GB of image store in a 8 GB daemon is over half of it.
+	tight, ok := tmpfsMemoryWarning(pool(store.TmpfsConfig{Daemon: store.TmpfsMount{Enabled: true, SizeMB: 5000}}))
+	if !ok || tight.Severity != config.SeverityWarning || !strings.Contains(tight.Detail, "Docker image store") {
+		t.Fatalf("a 5 GB image store in an 8 GB limit was not warned about by name: %+v, ok = %v", tight, ok)
+	}
+	// 8192 + 5000: the daemon's folder added once.
+	if !strings.Contains(tight.Fix, "12.9 GB") {
+		t.Errorf("fix %q does not propose 12.9 GB", tight.Fix)
+	}
+	// Each container fits its own half of the limit: nothing to say, although the
+	// two add up to more than the limit, because they are not charged together.
+	if w, ok := tmpfsMemoryWarning(pool(store.TmpfsConfig{
+		Work:   store.TmpfsMount{Enabled: true, SizeMB: 3000},
+		Daemon: store.TmpfsMount{Enabled: true, SizeMB: 4000},
+	})); ok {
+		t.Errorf("folders in different containers were added together: %+v", w)
+	}
+}
+
+// On a Docker-in-Docker pool the image store is likely most of the disk
+// traffic, so the advice to keep the work folder in memory says it can be kept
+// there too -- and why it is a choice of its own.
+func TestTheAdviceForADockerInDockerPoolMentionsTheImageStore(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	pool.DockerMode = store.DockerDinD
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	h.diskBoundHost(host, 25*time.Minute, 20_000)
+	h.ranJobs(pool, host, 4)
+
+	p := h.problemOrNil("pool.tmpfs_suggested")
+	if p == nil {
+		t.Fatal("no advice for a pool that ran on a disk-bound host")
+	}
+	for _, want := range []string{"--tmpfs-docker", "Docker-in-Docker", "fit"} {
+		if !strings.Contains(p.Fix, want) {
+			t.Errorf("fix %q does not mention %q", p.Fix, want)
+		}
+	}
+
+	// A pool with no daemon has no image store to suggest.
+	pool.DockerMode = store.DockerNone
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	if p := h.problemOrNil("pool.tmpfs_suggested"); p == nil || strings.Contains(p.Fix, "--tmpfs-docker") {
+		t.Errorf("a pool with no daemon was told about an image store: %+v", p)
+	}
+}

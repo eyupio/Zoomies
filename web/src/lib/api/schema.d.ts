@@ -5029,12 +5029,14 @@ export interface components {
              */
             size_mb?: number;
         };
-        /** @description Which of a runner's folders are kept in memory (tmpfs) instead of on the host's disk. Opt-in, and off for every pool until somebody turns it on. A tmpfs is charged to the runner's memory limit, so what it may fill comes out of the limit rather than being added to it; a pool that turns it on is warned (`pool.tmpfs_memory_tight`) with the limit that would leave the job the room it has now. Needs the Docker or Podman backend. Docker-in-docker's own image store is not covered, and neither is the shared pool cache, which cannot be a per-runner tmpfs because every runner would start with it cold: to keep that in memory, point its source at a directory the host mounts in memory and give it a size limit. */
+        /** @description Which of a runner's folders are kept in memory (tmpfs) instead of on the host's disk. Opt-in, and off for every pool until somebody turns it on. A tmpfs is charged to the runner's memory limit, so what it may fill comes out of the limit rather than being added to it; a pool that turns it on is warned (`pool.tmpfs_memory_tight`) with the limit that would leave the job the room it has now. Needs the Docker or Podman backend. The shared pool cache is not covered: it cannot be a per-runner tmpfs because every runner would start with it cold. To keep that in memory, point its source at a directory the host mounts in memory and give it a size limit. */
         TmpfsConfig: {
             /** @description The runner's `_work` folder -- the checkout, build output and the runner's own temporary files. The one worth having. */
             work?: components["schemas"]["TmpfsMount"];
             /** @description `/tmp`. Separate because some toolchains put their heaviest traffic there and some jobs leave gigabytes in it. */
             tmp?: components["schemas"]["TmpfsMount"];
+            /** @description The Docker-in-Docker sidecar's image store, `/var/lib/docker` in the daemon's container: where every image a job pulls and every layer it builds is written. Needs `docker_mode: dind`. It is charged to the daemon's own memory limit -- its half of one slot's share for a pool sized by its host, the full typed limit otherwise -- and is a choice of its own because an image bigger than the mount does not pull. Left to size itself it is 8192 MB, fitted into half the daemon's limit. */
+            daemon?: components["schemas"]["TmpfsMount"];
         };
         PoolsExport: {
             export_version: number;

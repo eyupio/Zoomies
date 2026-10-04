@@ -294,6 +294,8 @@
       'tmpfs.work.size_mb',
       'tmpfs.tmp.enabled',
       'tmpfs.tmp.size_mb',
+      'tmpfs.daemon.enabled',
+      'tmpfs.daemon.size_mb',
     ],
     scaling: [
       'min_runners',
@@ -411,6 +413,8 @@
     'tmpfs.work.size_mb': 'Work folder size',
     'tmpfs.tmp.enabled': '/tmp in memory',
     'tmpfs.tmp.size_mb': '/tmp size',
+    'tmpfs.daemon.enabled': 'Docker image store in memory',
+    'tmpfs.daemon.size_mb': 'Docker image store size',
     host_selector: 'Hosts',
     env: 'Environment',
     'runner_settings.provision_timeout': 'Provision timeout',

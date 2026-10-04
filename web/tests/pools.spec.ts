@@ -1198,6 +1198,11 @@ test('a container pool can keep its work folder in memory, and is told what that
   await expect(tmp).not.toBeChecked();
   await expect(page.getByText('Raise the memory limit to')).toHaveCount(0);
 
+  // A pool with no Docker-in-Docker sidecar has no image store to keep in memory.
+  await expect(
+    page.getByRole('checkbox', { name: 'Keep the Docker image store in memory' }),
+  ).toHaveCount(0);
+
   // The work folder is the one the editor offers; /tmp is its own choice.
   await work.check();
   await expect(tmp).not.toBeChecked();
@@ -1214,6 +1219,48 @@ test('a container pool can keep its work folder in memory, and is told what that
 
   // A size below the floor is refused where it is typed.
   const size = page.getByRole('textbox', { name: 'Work folder size (MB)' });
+  await size.fill('8');
+  await size.blur();
+  await expect(page.getByRole('alert').filter({ hasText: /at least 64/ })).toBeVisible();
+});
+
+test('a Docker-in-Docker pool can keep the sidecar image store in memory, and only such a pool is offered it', async ({
+  page,
+}) => {
+  // The image store is the sidecar's, a second container with a memory limit of
+  // its own, so a pool with no sidecar is not offered it; and it is a choice of
+  // its own because an image bigger than the store does not pull.
+  await goto(page, '/pools/new', 'Create a pool');
+  await toAdvanced(page);
+  await nameField(page).fill('e2e-tmpfs-dind');
+  await next(page).click();
+  await addLabel(page, 'tmpfs-dind');
+  await next(page).click();
+  await next(page).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Backend' })).toBeVisible();
+  await page.getByRole('radio', { name: 'Docker in Docker' }).check();
+  await next(page).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Size' })).toBeVisible();
+  await page.getByRole('radio', { name: 'A fixed size on every host' }).check();
+  const memory = page.getByRole('textbox', { name: 'Memory per runner', exact: true });
+  await memory.fill('6g');
+  await memory.press('Enter');
+
+  const store = page.getByRole('checkbox', { name: 'Keep the Docker image store in memory' });
+  await expect(store).not.toBeChecked();
+  await expect(page.getByRole('textbox', { name: 'Image store size (MB)' })).toHaveCount(0);
+  await store.check();
+  await expect(page.getByRole('textbox', { name: 'Image store size (MB)' })).toBeVisible();
+
+  // A 6 GB limit and the 8 GB default store: the proposal is at least twice the
+  // store, 16 GB, and taking it ends the proposal rather than moving it.
+  await expect(page.getByText('Raise the memory limit to 16 GB')).toBeVisible();
+  await page.getByRole('button', { name: 'Set the limit to 16 GB' }).click();
+  await expect(memory).toHaveValue('16 GB');
+  await expect(page.getByText('Raise the memory limit to')).toHaveCount(0);
+
+  // A size below the floor is refused where it is typed.
+  const size = page.getByRole('textbox', { name: 'Image store size (MB)' });
   await size.fill('8');
   await size.blur();
   await expect(page.getByRole('alert').filter({ hasText: /at least 64/ })).toBeVisible();

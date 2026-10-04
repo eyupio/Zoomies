@@ -106,6 +106,9 @@
     tmpfs_work_size: string;
     tmpfs_tmp: boolean;
     tmpfs_tmp_size: string;
+    /** The Docker-in-Docker sidecar's image store; only a dind pool has one. */
+    tmpfs_daemon: boolean;
+    tmpfs_daemon_size: string;
     /** Carried through untouched: the wizard does not edit it, and must not lose it. */
     pids_limit: string;
     host_selector: Record<string, string>;
@@ -170,6 +173,8 @@
       tmpfs_work_size: '',
       tmpfs_tmp: false,
       tmpfs_tmp_size: '',
+      tmpfs_daemon: false,
+      tmpfs_daemon_size: '',
       pids_limit: '',
       host_selector: {},
       restrict_hosts: false,
@@ -233,6 +238,8 @@
       tmpfs_work_size: fromNumber(pool.tmpfs?.work?.size_mb),
       tmpfs_tmp: pool.tmpfs?.tmp?.enabled === true,
       tmpfs_tmp_size: fromNumber(pool.tmpfs?.tmp?.size_mb),
+      tmpfs_daemon: pool.tmpfs?.daemon?.enabled === true,
+      tmpfs_daemon_size: fromNumber(pool.tmpfs?.daemon?.size_mb),
       pids_limit: fromNumber(resources.pids_limit),
       host_selector: { ...(pool.host_selector ?? {}) },
       restrict_hosts: Object.keys(pool.host_selector ?? {}).length > 0,
@@ -260,6 +267,7 @@
       draft.cache_enabled ||
       draft.tmpfs_work ||
       draft.tmpfs_tmp ||
+      draft.tmpfs_daemon ||
       draft.image.trim() !== '' ||
       draft.runner_version.trim() !== '' ||
       draft.platform_os.trim() !== '' ||
@@ -305,6 +313,7 @@
     const resources: Resources = {};
     const fixed = draft.sizing === 'fixed';
     const elasticBackend = draft.backend === 'docker' || draft.backend === 'podman';
+    const hasSidecar = draft.backend === 'docker' && draft.docker_mode === 'dind';
     const cpus = toNumber(draft.cpus);
     const memory = toInteger(draft.memory_mb);
     const disk = toInteger(draft.disk_gb);
@@ -382,6 +391,12 @@
         tmp: {
           enabled: elasticBackend && draft.tmpfs_tmp,
           size_mb: elasticBackend && draft.tmpfs_tmp ? (toInteger(draft.tmpfs_tmp_size) ?? 0) : 0,
+        },
+        // The image store is the sidecar's, so only a Docker-in-Docker pool on the
+        // Docker backend has one; anything else would be refused by the server.
+        daemon: {
+          enabled: hasSidecar && draft.tmpfs_daemon,
+          size_mb: hasSidecar && draft.tmpfs_daemon ? (toInteger(draft.tmpfs_daemon_size) ?? 0) : 0,
         },
       },
     };
@@ -533,23 +548,31 @@
     // The server's own rules for the folders, said beside the control. A tmpfs
     // is charged to the runner's memory limit, so typed sizes that take the
     // whole of a typed limit leave a job nothing to run in.
+    // The runner's folders add up against the runner's limit; the image store is
+    // charged to the daemon's container and is held to its own.
     let typedTmpfs = 0;
+    let typedDaemon = 0;
     for (const [on, raw, key] of [
       [draft.tmpfs_work, draft.tmpfs_work_size, 'tmpfs.work.size_mb'],
       [draft.tmpfs_tmp, draft.tmpfs_tmp_size, 'tmpfs.tmp.size_mb'],
+      [draft.tmpfs_daemon, draft.tmpfs_daemon_size, 'tmpfs.daemon.size_mb'],
     ] as const) {
       if (!on || raw.trim() === '') continue;
       const mb = toInteger(raw);
       if (mb === undefined || mb < MIN_TMPFS_MB)
         errors[key] =
           `Use a whole number of megabytes, at least ${MIN_TMPFS_MB}, or leave it empty to size it from the memory limit.`;
+      else if (key === 'tmpfs.daemon.size_mb') typedDaemon += mb;
       else typedTmpfs += mb;
     }
-    if (draft.sizing === 'fixed' && typedTmpfs > 0) {
+    if (draft.sizing === 'fixed') {
       const memory = toInteger(draft.memory_mb);
-      if (memory !== undefined && memory > 0 && typedTmpfs >= memory)
+      if (memory !== undefined && memory > 0 && typedTmpfs >= memory && typedTmpfs > 0)
         errors['tmpfs.work.size_mb'] ||=
           `These folders may take ${typedTmpfs} MB and the memory limit is ${memory} MB. They are charged to that limit, so raise it to at least ${memory + typedTmpfs} MB or shrink them.`;
+      if (memory !== undefined && memory > 0 && typedDaemon >= memory && typedDaemon > 0)
+        errors['tmpfs.daemon.size_mb'] ||=
+          `The image store may take ${typedDaemon} MB and the memory limit is ${memory} MB. The daemon's tmpfs is charged to that limit, so raise it to at least ${memory + typedDaemon} MB or shrink the store.`;
     }
 
     if (draft.docker_mode === 'host-socket' && !socketConfirmed)

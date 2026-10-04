@@ -257,7 +257,7 @@
     </div>
   {/if}
 
-  {#if pool.tmpfs?.work?.enabled || pool.tmpfs?.tmp?.enabled}
+  {#if pool.tmpfs?.work?.enabled || pool.tmpfs?.tmp?.enabled || pool.tmpfs?.daemon?.enabled}
     <div class="pair">
       <dt>In memory</dt>
       <dd>
@@ -273,6 +273,13 @@
             <code>/tmp</code>, {pool.tmpfs.tmp.size_mb
               ? `up to ${formatMegabytes(pool.tmpfs.tmp.size_mb)}`
               : 'sized from the memory limit'}
+          </span>
+        {/if}
+        {#if pool.tmpfs?.daemon?.enabled}
+          <span>
+            Docker image store, {pool.tmpfs.daemon.size_mb
+              ? `up to ${formatMegabytes(pool.tmpfs.daemon.size_mb)}`
+              : 'sized from the daemon’s memory limit'}
           </span>
         {/if}
       </dd>

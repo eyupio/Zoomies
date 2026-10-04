@@ -199,6 +199,17 @@ func TestPoolValidationNamesTheField(t *testing.T) {
 		{"a negative in-memory size", func(b map[string]any) {
 			b["tmpfs"] = map[string]any{"tmp": map[string]any{"enabled": true, "size_mb": -5}}
 		}, "tmpfs.tmp.size_mb", "negative"},
+		// The image store is the sidecar's, so a pool with no sidecar has nothing
+		// to put in memory, and is told what to change.
+		{"an image store on a pool with no sidecar", func(b map[string]any) {
+			b["docker_mode"] = "none"
+			b["tmpfs"] = map[string]any{"daemon": map[string]any{"enabled": true}}
+		}, "tmpfs.daemon.enabled", "docker_mode dind"},
+		{"an image store as big as the memory limit", func(b map[string]any) {
+			b["docker_mode"] = "dind"
+			b["resources"] = map[string]any{"cpus": 2, "memory_mb": 8192}
+			b["tmpfs"] = map[string]any{"daemon": map[string]any{"enabled": true, "size_mb": 8192}}
+		}, "tmpfs.daemon.size_mb", "to at least 16384 MB"},
 		{"folders that take the whole memory limit", func(b map[string]any) {
 			b["resources"] = map[string]any{"cpus": 2, "memory_mb": 4096}
 			b["tmpfs"] = map[string]any{"work": map[string]any{"enabled": true, "size_mb": 4096}}
@@ -1643,4 +1654,42 @@ func TestThePoolDryRunProposesAMemoryLimitForInMemoryFolders(t *testing.T) {
 	if w := find(verdict(16384), "pool.tmpfs_memory_tight"); w != nil {
 		t.Errorf("a 16 GB pool was warned: %+v", *w)
 	}
+}
+
+// The image store round-trips like the other two folders, and belongs to a pool
+// that has a sidecar to keep it on.
+func TestADockerInDockerPoolKeepsItsImageStoreInMemory(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	body := poolBody(inst.ID)
+	body["docker_mode"] = "dind"
+	body["tmpfs"] = map[string]any{"daemon": map[string]any{"enabled": true, "size_mb": 6144}}
+	res := h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: cookie, body: body})
+	res.mustStatus(t, http.StatusCreated, "create")
+	var got struct {
+		ID    string            `json:"id"`
+		Tmpfs store.TmpfsConfig `json:"tmpfs"`
+	}
+	res.into(t, &got)
+	want := store.TmpfsConfig{Daemon: store.TmpfsMount{Enabled: true, SizeMB: 6144}}
+	if got.Tmpfs != want {
+		t.Fatalf("tmpfs = %+v, want %+v", got.Tmpfs, want)
+	}
+	stored, err := h.st.GetPool(h.ctx, got.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Tmpfs != want {
+		t.Errorf("stored tmpfs = %+v, want %+v", stored.Tmpfs, want)
+	}
+
+	// Taking the sidecar away from the pool leaves nothing to keep in memory, and
+	// the edit that does it is refused rather than leaving a setting that cannot
+	// apply.
+	edit := h.do(request{method: http.MethodPatch, path: "/api/v1/pools/" + got.ID, cookie: cookie,
+		body: map[string]any{"docker_mode": "none"}})
+	edit.mustStatus(t, http.StatusUnprocessableEntity, "drop the sidecar under the image store")
 }

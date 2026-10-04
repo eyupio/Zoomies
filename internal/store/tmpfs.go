@@ -19,6 +19,11 @@ const (
 	// size of its own is given when the runner has no memory limit to fit them to.
 	DefaultTmpfsWorkMB int64 = 4096
 	DefaultTmpfsTmpMB  int64 = 1024
+	// DefaultTmpfsDaemonMB is the same for the docker-in-docker sidecar's image
+	// store. It is larger because what lives there -- every image a job pulls and
+	// every layer it builds -- is larger than a checkout, and a pull that does not
+	// fit fails the job rather than slowing it.
+	DefaultTmpfsDaemonMB int64 = 8192
 	// MinTmpfsMB is the least a tmpfs may be. Below it a checkout fails in a way
 	// that reads as a broken runner rather than a small mount.
 	MinTmpfsMB int64 = 64
@@ -44,10 +49,20 @@ type TmpfsConfig struct {
 	// traffic there and some jobs leave gigabytes in it, and an operator should
 	// choose that cost knowingly.
 	Tmp TmpfsMount `json:"tmp"`
+	// Daemon is the docker-in-docker sidecar's image store, /var/lib/docker in
+	// the daemon's container: where every image a job pulls and every layer it
+	// builds is written. It is a different container from the two above, with a
+	// memory limit of its own -- the daemon's half of the pair for a pool sized by
+	// its host, the full typed limit otherwise -- and the tmpfs is charged to that
+	// limit, not the runner's. It is its own choice, and only a pool with
+	// docker_mode dind has the container to mount it on, because filling it is
+	// the one way this setting can fail a job that used to pass: an image bigger
+	// than the mount does not pull.
+	Daemon TmpfsMount `json:"daemon"`
 }
 
 // Any reports whether any folder is kept in memory.
-func (c TmpfsConfig) Any() bool { return c.Work.Enabled || c.Tmp.Enabled }
+func (c TmpfsConfig) Any() bool { return c.Work.Enabled || c.Tmp.Enabled || c.Daemon.Enabled }
 
 // ReserveMB is the memory this configuration may take, which is what a memory
 // limit sized for the job alone should be raised by. A mount with no size of
@@ -70,14 +85,55 @@ func (c TmpfsConfig) ReserveMB() int64 {
 	return total
 }
 
+// DaemonReserveMB is the memory the sidecar's image store may take: what was
+// typed, or the default for one left to size itself, and nothing when it is off.
+// It is counted apart from ReserveMB because it is charged to another container.
+func (c TmpfsConfig) DaemonReserveMB() int64 {
+	switch {
+	case !c.Daemon.Enabled:
+		return 0
+	case c.Daemon.SizeMB > 0:
+		return c.Daemon.SizeMB
+	default:
+		return DefaultTmpfsDaemonMB
+	}
+}
+
 // RecommendedMemoryMB is the limit that leaves a runner capMB's worth of room
 // for its job on top of whatever the tmpfs mounts may fill. Zero when there is
 // nothing to propose: no limit to raise, or no mount in memory.
+//
+// A typed limit is given to the runner and to the daemon alike, and each
+// container is charged for its own folders, so the limit has to cover whichever
+// needs more: the sum would pay for room neither container uses.
 func (c TmpfsConfig) RecommendedMemoryMB(capMB int64) int64 {
 	if capMB <= 0 || !c.Any() {
 		return 0
 	}
-	return capMB + c.ReserveMB()
+	reserve := max(c.ReserveMB(), c.DaemonReserveMB())
+	// At least twice what the folders may take, as well as the limit plus them:
+	// folders are fitted into half a limit, so a proposal that left them more than
+	// half would still be tight when it was taken, and the next would follow it
+	// upward. On a limit smaller than the folders the sum alone falls short of that.
+	return max(capMB+reserve, 2*reserve)
+}
+
+// DaemonSize returns what the image store is given on a daemon whose memory
+// limit is capMB (zero is no limit): a typed size as it stands, otherwise the
+// default fitted into half the limit, for the reason Sizes fits the others -- a
+// store filling to its ceiling while the build also wants memory is the
+// out-of-memory this setting must not cause by itself.
+func (c TmpfsConfig) DaemonSize(capMB int64) int64 {
+	switch {
+	case !c.Daemon.Enabled:
+		return 0
+	case c.Daemon.SizeMB > 0:
+		return c.Daemon.SizeMB
+	case capMB <= 0:
+		return DefaultTmpfsDaemonMB
+	default:
+		return min(DefaultTmpfsDaemonMB, max(capMB/2, MinTmpfsMB))
+	}
 }
 
 // Sizes returns what each mount is actually given on a runner whose memory
@@ -135,7 +191,7 @@ func (c TmpfsConfig) Validate(capMB int64) (field, problem string) {
 	for _, m := range []struct {
 		name  string
 		mount TmpfsMount
-	}{{"work", c.Work}, {"tmp", c.Tmp}} {
+	}{{"work", c.Work}, {"tmp", c.Tmp}, {"daemon", c.Daemon}} {
 		name := "tmpfs." + m.name + ".size_mb"
 		if m.mount.SizeMB < 0 {
 			return name, "a size cannot be negative; use 0 to size it from the memory limit"
@@ -146,10 +202,17 @@ func (c TmpfsConfig) Validate(capMB int64) (field, problem string) {
 		if m.mount.SizeMB > 0 && m.mount.SizeMB < MinTmpfsMB {
 			return name, fmt.Sprintf("a size must be at least %d MB, or 0 to size it from the memory limit", MinTmpfsMB)
 		}
-		if m.mount.SizeMB > 0 {
+		// The image store is charged to the daemon's container, whose limit is
+		// checked on its own below; only the runner's folders add up against the
+		// runner's.
+		if m.mount.SizeMB > 0 && m.name != "daemon" {
 			explicit += m.mount.SizeMB
 			last = name
 		}
+	}
+	if capMB > 0 && c.Daemon.Enabled && c.Daemon.SizeMB >= capMB {
+		return "tmpfs.daemon.size_mb", fmt.Sprintf("the image store is %d MB and the memory limit is %d MB; the daemon's tmpfs is charged to that limit, "+
+			"so raise the limit (to at least %d MB) or shrink the store", c.Daemon.SizeMB, capMB, capMB+c.Daemon.SizeMB)
 	}
 	if capMB > 0 && explicit >= capMB {
 		return last, fmt.Sprintf("the sizes total %d MB and the runner's memory limit is %d MB; a tmpfs is charged to that limit, "+

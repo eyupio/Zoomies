@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   CACHE_NOTCHES,
   CPU_NOTCHES,
+  DEFAULT_TMPFS_DAEMON_MB,
   DEFAULT_TMPFS_TMP_MB,
   DEFAULT_TMPFS_WORK_MB,
   MEMORY_NOTCHES,
@@ -12,6 +13,7 @@ import {
   cpuLabel,
   gbLabel,
   memoryLabel,
+  daemonReserveMb,
   recommendedMemoryMb,
   tmpfsIsTight,
   tmpfsReserveMb,
@@ -114,4 +116,35 @@ test('the folders are only worth a word when they take more than half the limit'
   assert.equal(tmpfsIsTight(6144 + 4096, 4096), false);
   // No limit typed means the host picks the size, so there is nothing to raise.
   assert.equal(tmpfsIsTight(0, 4096), false);
+});
+
+// The same arithmetic as store.TmpfsConfig.RecommendedMemoryMB: a typed limit is
+// given to the runner and to the daemon alike, each charged for its own folders,
+// so the proposal covers whichever needs more rather than both.
+test('the proposed limit covers the container that needs more, not both', () => {
+  const off = { enabled: false, sizeMb: undefined };
+  const work = { enabled: true, sizeMb: 2000 };
+  assert.equal(daemonReserveMb(off), 0);
+  assert.equal(daemonReserveMb({ enabled: true, sizeMb: undefined }), DEFAULT_TMPFS_DAEMON_MB);
+  assert.equal(recommendedMemoryMb(8192, work, off, { enabled: true, sizeMb: 6000 }), 8192 + 6000);
+  assert.equal(recommendedMemoryMb(8192, work, off, { enabled: true, sizeMb: 1000 }), 8192 + 2000);
+  // A pool with only its image store in memory is still proposed a limit.
+  assert.equal(
+    recommendedMemoryMb(8192, off, off, { enabled: true, sizeMb: undefined }),
+    8192 + DEFAULT_TMPFS_DAEMON_MB,
+  );
+});
+
+// A proposal that is taken must end itself: the limit is at least twice what the
+// folders may take, which is more than the limit plus them on a small limit.
+test('a proposed limit leaves the folders no more than half of it', () => {
+  const off = { enabled: false, sizeMb: undefined };
+  const work = { enabled: true, sizeMb: undefined };
+  const daemon = { enabled: true, sizeMb: undefined };
+  for (const limit of [1024, 2048, 6144, 8192]) {
+    const proposed = recommendedMemoryMb(limit, work, off, daemon);
+    assert.ok(proposed >= 2 * DEFAULT_TMPFS_DAEMON_MB, `${limit} -> ${proposed}`);
+    assert.equal(tmpfsIsTight(proposed, DEFAULT_TMPFS_DAEMON_MB), false);
+  }
+  assert.equal(recommendedMemoryMb(6144, work, off), 6144 + DEFAULT_TMPFS_WORK_MB);
 });

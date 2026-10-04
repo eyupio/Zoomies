@@ -144,6 +144,28 @@ func tmpfsMounts(spec Spec, capMB int64, workBound bool) map[string]string {
 	return out
 }
 
+// DaemonStoreMount is the docker-in-docker sidecar's image store, which a pool
+// may keep in memory. It is a folder of the sidecar's container, not the runner's.
+const DaemonStoreMount = "/var/lib/docker"
+
+// daemonTmpfsOptions are the options of the image store's tmpfs. They are fewer
+// than the runner's on purpose: the nested daemon creates device nodes and keeps
+// setuid binaries inside image layers, and a mount that refuses either is a
+// build that fails inside the job with an error about the image, not the mount.
+// Root-only, as the folder is on disk, because only the daemon opens it.
+const daemonTmpfsOptions = "rw,mode=0710"
+
+// daemonTmpfsMounts is the sidecar's HostConfig.Tmpfs map, nil when its image
+// store stays on disk. It is sized from the daemon's own memory limit, since
+// that is the cgroup the tmpfs is charged to.
+func daemonTmpfsMounts(spec Spec, capMB int64) map[string]string {
+	size := spec.Tmpfs.DaemonSize(capMB)
+	if size <= 0 {
+		return nil
+	}
+	return map[string]string{DaemonStoreMount: fmt.Sprintf("size=%dm,%s", size, daemonTmpfsOptions)}
+}
+
 // RunnerToolCacheMount is where a pool's tool cache is mounted in a runner, and
 // what AGENT_TOOLSDIRECTORY is pointed at when the pool keeps one. It is not
 // the image's own /opt/hostedtoolcache: mounting over that would hide the
@@ -762,6 +784,11 @@ func buildDinDConfig(spec Spec, fl flavor, o containerOptions) ContainerCreateRe
 		limit := res.PidsLimit
 		hc.PidsLimit = &limit
 	}
+	// Every image a dind job pulls and every layer it builds is written here, so
+	// on a host with slow disks this is the traffic the work folder in memory does
+	// not reach. It is charged to this container, which is why it is sized from
+	// the daemon's half of the pair, or its full typed limit, and not the runner's.
+	hc.Tmpfs = daemonTmpfsMounts(spec, res.MemoryMB)
 	// The sidecar pulls every image a dind job uses, so behind a proxy that
 	// re-signs TLS it needs the CA as much as the runner does. dockerd is Go,
 	// and Go adds every file in the SSL_CERT_DIR directories to the system

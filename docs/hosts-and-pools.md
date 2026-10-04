@@ -597,23 +597,46 @@ tmpfs:
   tmp:
     enabled: false    # /tmp, as well; its own choice
     size_mb: 0
+  daemon:
+    enabled: false    # the Docker-in-Docker sidecar's image store; docker_mode: dind only
+    size_mb: 0
 ```
 
 | Setting | What it does |
 | --- | --- |
 | `work` | The runner's `_work` folder. The one worth having, and the one the pool editor offers first. |
 | `tmp` | `/tmp`. Off unless asked for: some toolchains put their heaviest traffic there, and some jobs leave gigabytes behind. |
-| `size_mb` | The folder's ceiling, at least 64. `0` fits it to the memory limit: 4096 MB for the work folder and 1024 MB for `/tmp`, shrunk so the two together take no more than half of the limit. |
+| `daemon` | The Docker-in-Docker sidecar's image store, `/var/lib/docker` in the daemon's container: where every image a job pulls and every layer it builds is written. Needs `docker_mode: dind`. Its own choice, because it is the one folder that can fail a job that used to pass — an image bigger than the store does not pull. |
+| `size_mb` | The folder's ceiling, at least 64. `0` fits it to the memory limit: 4096 MB for the work folder, 1024 MB for `/tmp` and 8192 MB for the image store, shrunk so the work folder and `/tmp` together take no more than half of the runner's limit, and the image store no more than half of the daemon's. |
 
 **The memory limit.** Zoomies never raises it for you, because it is also what
 the scheduler charges the host for and changing it changes how many runners fit.
 It proposes instead. The pool editor offers the limit that leaves the job the
-room it has now — the current one plus what the folders may fill — as soon as the
-folders take more than half of it, and `pool.tmpfs_memory_tight` says the same in
-the problems list and in the dry run. Sizes you type that add up to the whole
+room it has now — the current one plus what the folders may fill, and never less
+than twice what they may fill, because folders are fitted into half a limit and a
+proposal that left them more would be tight again when it was taken — as soon as
+the folders take more than half of it, and `pool.tmpfs_memory_tight` says the same
+in the problems list and in the dry run. Sizes you type that add up to the whole
 limit or more are refused; a pool with no limit of its own is sized from its
 host's share, and folders left to size themselves are fitted into half of
 whatever that turns out to be.
+
+**Two containers, two limits.** A Docker-in-Docker runner is a pair, and a tmpfs
+is charged to the container it is in: the work folder and `/tmp` to the runner,
+the image store to the daemon. What each container's limit is depends on how the
+pool is sized.
+
+- *A typed size* is given to both containers in full — a pool that asked for 8 GB
+  and got it only in the container that is not building would have asked for
+  nothing — and the host is charged for both. The proposal covers whichever
+  container needs more, not the sum, because each is charged for its own folders.
+- *A size left to the host* is one slot's share, and the pair splits it evenly,
+  because a slot is one runner: a host set to eight slots may carry eight runners,
+  not four because half of them brought a daemon. The host is charged once. The
+  split is an accounting rule, not a measurement of where a build's memory goes —
+  the memory a Docker-in-Docker job reports is the two containers added together.
+  If the daemon is where your jobs spend memory and disk, give the pool a typed
+  size, which gives it all of the limit.
 
 **When to turn it on.** Zoomies tells you. `pool.tmpfs_suggested` is raised for
 a pool when, on one host, all three are true: the pool ran jobs there in the
@@ -627,9 +650,14 @@ a before-and-after run of one real workflow tells you more than any figure.
 
 **What it does not cover.**
 
-- *Docker-in-docker.* The sidecar's image store is its own container's layer.
-  The work folder in memory does not speed `docker build` or `docker pull`
-  inside a job. The folder is sized from the runner's half of the pair.
+- *Docker-in-docker, unless you ask.* The work folder in memory does not speed
+  `docker build` or `docker pull` inside a job: those write to the sidecar's image
+  store, which is the `daemon` folder above and is off until you turn it on. When
+  it is on it replaces `/var/lib/docker` in the sidecar with a tmpfs, so size it
+  for the largest image your jobs pull, with the layers it unpacks. It covers the
+  default sidecar image, which keeps images in `/var/lib/docker`; a newer sidecar
+  that stores them under `/var/lib/containerd` is not covered. Test it on one
+  pool, with a job that pulls your biggest image, before relying on it.
 - *Jobs that mount the work folder into another container.* A step that runs
   `docker run -v $PWD:...` against the host's Docker names a path that daemon
   resolves on the host, where the tmpfs is not.
@@ -1126,10 +1154,10 @@ nothing. Upgrade the agent and the machine starts answering for its own size.
 
 The number to check a limit against is not the one on the pool. A runner is
 charged what its pool asks for, a field left unset is charged one slot's worth
-of the host instead, and a **docker-in-docker pool is charged twice over** —
-whichever of those two the figure came from, so a slot on a host such a pool
-uses is worth two — because the backend gives the build's sidecar the same
-limits as the runner:
+of the host instead, and a **docker-in-docker pool is charged twice over for
+a figure it typed**, because the backend gives the build's sidecar the same
+limits as the runner. A field left to the host is one slot's share that the pair
+splits between them, and is charged once:
 so a pool asking for 8 CPU needs a 16-CPU host, and a 12-CPU machine that
 matches its selector in every other way will never take one. The pool wizard
 says so as the limits are typed: it names each host its selector reaches that

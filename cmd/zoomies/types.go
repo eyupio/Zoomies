@@ -85,6 +85,8 @@ type poolItem struct {
 type poolTmpfs struct {
 	Work poolTmpfsMount `json:"work"`
 	Tmp  poolTmpfsMount `json:"tmp"`
+	// Daemon is the Docker-in-Docker sidecar's image store.
+	Daemon poolTmpfsMount `json:"daemon"`
 }
 
 type poolTmpfsMount struct {

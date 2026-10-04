@@ -200,6 +200,8 @@ export const MIN_TMPFS_MB = 64;
 /** What a folder with no size of its own is given on a runner with room. */
 export const DEFAULT_TMPFS_WORK_MB = 4096;
 export const DEFAULT_TMPFS_TMP_MB = 1024;
+/** The Docker-in-Docker sidecar's image store: larger, because a pull that does not fit fails the job. */
+export const DEFAULT_TMPFS_DAEMON_MB = 8192;
 
 export interface TmpfsFolder {
   enabled: boolean;
@@ -218,14 +220,36 @@ export function tmpfsReserveMb(work: TmpfsFolder, tmp: TmpfsFolder): number {
   return one(work, DEFAULT_TMPFS_WORK_MB) + one(tmp, DEFAULT_TMPFS_TMP_MB);
 }
 
+/** What the sidecar's image store may take: what was typed, or the default. */
+export function daemonReserveMb(daemon: TmpfsFolder): number {
+  return !daemon.enabled
+    ? 0
+    : daemon.sizeMb && daemon.sizeMb > 0
+      ? daemon.sizeMb
+      : DEFAULT_TMPFS_DAEMON_MB;
+}
+
 /**
  * The limit that leaves the job the room the current one gives it, with the
  * folders on top. Zero when there is nothing to propose: no limit to raise
  * (the host's share is sized from the machine), or nothing in memory.
+ *
+ * A typed limit is given to the runner and to the daemon alike, and each is
+ * charged for its own folders, so the limit covers whichever needs more. Adding
+ * the two would pay for room neither container uses.
  */
-export function recommendedMemoryMb(limitMb: number, work: TmpfsFolder, tmp: TmpfsFolder): number {
-  const reserve = tmpfsReserveMb(work, tmp);
-  return limitMb > 0 && reserve > 0 ? limitMb + reserve : 0;
+export function recommendedMemoryMb(
+  limitMb: number,
+  work: TmpfsFolder,
+  tmp: TmpfsFolder,
+  daemon: TmpfsFolder = { enabled: false, sizeMb: undefined },
+): number {
+  const reserve = Math.max(tmpfsReserveMb(work, tmp), daemonReserveMb(daemon));
+  // At least twice what the folders may take, as well as the limit plus them:
+  // folders are fitted into half a limit, so a proposal that left them more than
+  // half would still be tight when it was taken. On a limit smaller than the
+  // folders the sum alone falls short of that.
+  return limitMb > 0 && reserve > 0 ? Math.max(limitMb + reserve, 2 * reserve) : 0;
 }
 
 /**

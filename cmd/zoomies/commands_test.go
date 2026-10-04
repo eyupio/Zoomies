@@ -602,3 +602,57 @@ func TestPoolsGetShowsWhichFoldersAreInMemory(t *testing.T) {
 		t.Errorf("a pool with nothing in memory must say no:\n%s", out)
 	}
 }
+
+// The Docker image store is one more folder in the same object: naming it must
+// carry the other two forward from the pool as it stands, as naming either of
+// them carries it.
+func TestPoolsEditCarriesTheOtherFoldersForwardWhenOnlyTheImageStoreIsNamed(t *testing.T) {
+	var sent map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case http.MethodGet:
+			_, _ = w.Write([]byte(`{"id":"pool_1","name":"zoomies-4vcpu","resources":{},"sizing":"automatic",
+				"tmpfs":{"work":{"enabled":true,"size_mb":6144},"tmp":{"enabled":false}}}`))
+		case http.MethodPatch:
+			if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
+				t.Errorf("decoding the PATCH body: %v", err)
+			}
+			_, _ = w.Write([]byte(`{"id":"pool_1","name":"zoomies-4vcpu","enabled":true}`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	runCLI(t, "pools", "edit", "pool_1", "--tmpfs-docker", "--tmpfs-docker-size", "4096", "--url", srv.URL)
+
+	tmpfs, _ := sent["tmpfs"].(map[string]any)
+	work, _ := tmpfs["work"].(map[string]any)
+	daemon, _ := tmpfs["daemon"].(map[string]any)
+	if work["enabled"] != true || work["size_mb"] != 6144.0 {
+		t.Errorf("the work folder must be carried forward untouched, got %v", work)
+	}
+	if daemon["enabled"] != true || daemon["size_mb"] != 4096.0 {
+		t.Errorf("the image store must be on at the size typed, got %v", daemon)
+	}
+}
+
+func TestPoolsCreateRefusesAnImageStoreSizeWithoutTheImageStore(t *testing.T) {
+	e, _, errOut := newTestEnv(t)
+	code := dispatch(context.Background(), e, []string{"pools", "create", "--name", "p", "--labels", "p",
+		"--tmpfs-docker-size", "4096", "--url", "http://127.0.0.1:1"})
+	if code != exitUsage || !strings.Contains(errOut.String(), "--tmpfs-docker") {
+		t.Fatalf("exit code = %d, want a usage error naming --tmpfs-docker:\n%s", code, errOut.String())
+	}
+}
+
+func TestPoolsGetShowsTheImageStoreWhenItIsInMemory(t *testing.T) {
+	srv := jsonRoutes(t, map[string]string{
+		"/api/v1/pools/pool_1": `{"id":"pool_1","name":"zoomies-dind","backend":"docker","docker_mode":"dind",
+			"resources":{},"sizing":"automatic","counts":{},
+			"tmpfs":{"daemon":{"enabled":true,"size_mb":6144}}}`,
+	})
+	out, _ := runCLI(t, "pools", "get", "pool_1", "--url", srv.URL)
+	if !strings.Contains(out, "Docker image store (6144 MB)") {
+		t.Errorf("pools get must show the image store and its size:\n%s", out)
+	}
+}

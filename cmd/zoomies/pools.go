@@ -216,7 +216,7 @@ func poolTmpfsLabel(pool poolItem) string {
 	for _, m := range []struct {
 		name  string
 		mount poolTmpfsMount
-	}{{"_work", pool.Tmpfs.Work}, {"/tmp", pool.Tmpfs.Tmp}} {
+	}{{"_work", pool.Tmpfs.Work}, {"/tmp", pool.Tmpfs.Tmp}, {"Docker image store", pool.Tmpfs.Daemon}} {
 		if !m.mount.Enabled {
 			continue
 		}
@@ -327,6 +327,8 @@ type poolSpec struct {
 	tmpfsWorkSize     *int64
 	tmpfsTmp          *bool
 	tmpfsTmpSize      *int64
+	tmpfsDocker       *bool
+	tmpfsDockerSize   *int64
 }
 
 // registerPoolFlags declares them, with the API's own defaults so that a
@@ -381,6 +383,8 @@ func registerPoolFlags(fs *flagSet) *poolSpec {
 	spec.tmpfsWorkSize = fs.Int64("tmpfs-work-size", 0, "the _work folder's ceiling in MiB (at least 64); 0 sizes it from the memory limit, at most 4096 and half the limit")
 	spec.tmpfsTmp = fs.Bool("tmpfs-tmp", false, "keep /tmp in memory as well; off unless asked for, because some jobs leave gigabytes there")
 	spec.tmpfsTmpSize = fs.Int64("tmpfs-tmp-size", 0, "the /tmp folder's ceiling in MiB (at least 64); 0 sizes it from the memory limit, at most 1024")
+	spec.tmpfsDocker = fs.Bool("tmpfs-docker", false, "keep the Docker-in-Docker sidecar's image store in memory; needs --docker-mode dind; an image bigger than the store does not pull, and it is charged to the sidecar's memory limit")
+	spec.tmpfsDockerSize = fs.Int64("tmpfs-docker-size", 0, "the image store's ceiling in MiB (at least 64); 0 sizes it from the sidecar's memory limit, at most 8192 and half of it")
 	return spec
 }
 
@@ -539,8 +543,9 @@ func (spec *poolSpec) body(fs *flagSet, onlyChanged bool) map[string]any {
 			return out
 		}
 		body["tmpfs"] = map[string]any{
-			"work": mount(spec.currentTmpfs.Work, "tmpfs-work", spec.tmpfsWork, "tmpfs-work-size", spec.tmpfsWorkSize),
-			"tmp":  mount(spec.currentTmpfs.Tmp, "tmpfs-tmp", spec.tmpfsTmp, "tmpfs-tmp-size", spec.tmpfsTmpSize),
+			"work":   mount(spec.currentTmpfs.Work, "tmpfs-work", spec.tmpfsWork, "tmpfs-work-size", spec.tmpfsWorkSize),
+			"tmp":    mount(spec.currentTmpfs.Tmp, "tmpfs-tmp", spec.tmpfsTmp, "tmpfs-tmp-size", spec.tmpfsTmpSize),
+			"daemon": mount(spec.currentTmpfs.Daemon, "tmpfs-docker", spec.tmpfsDocker, "tmpfs-docker-size", spec.tmpfsDockerSize),
 		}
 	}
 	return body
@@ -549,7 +554,8 @@ func (spec *poolSpec) body(fs *flagSet, onlyChanged bool) map[string]any {
 // tmpfsChanged is whether any in-memory folder flag was typed.
 func (spec *poolSpec) tmpfsChanged(fs *flagSet) bool {
 	return fs.changed("tmpfs-work") || fs.changed("tmpfs-work-size") ||
-		fs.changed("tmpfs-tmp") || fs.changed("tmpfs-tmp-size")
+		fs.changed("tmpfs-tmp") || fs.changed("tmpfs-tmp-size") ||
+		fs.changed("tmpfs-docker") || fs.changed("tmpfs-docker-size")
 }
 
 // resources is the size this invocation means, with anything not typed taken
@@ -630,6 +636,9 @@ func poolsCreate(ctx context.Context, e *env, args []string) error {
 	}
 	if fs.changed("tmpfs-tmp-size") && !*spec.tmpfsTmp {
 		return usagef("pools create", "--tmpfs-tmp-size needs --tmpfs-tmp, which is what puts /tmp in memory")
+	}
+	if fs.changed("tmpfs-docker-size") && !*spec.tmpfsDocker {
+		return usagef("pools create", "--tmpfs-docker-size needs --tmpfs-docker, which is what puts the image store in memory")
 	}
 	if err := spec.checkSizeChoice(fs, "pools create"); err != nil {
 		return err

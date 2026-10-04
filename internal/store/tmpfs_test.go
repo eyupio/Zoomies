@@ -82,3 +82,96 @@ func TestTmpfsValidateRefusesWhatCannotWork(t *testing.T) {
 		})
 	}
 }
+
+// The image store is charged to the daemon's container, which has a memory
+// limit of its own, so it is sized from that limit and not the runner's.
+func TestTheImageStoreIsFittedToTheDaemonsMemoryLimit(t *testing.T) {
+	on := TmpfsConfig{Daemon: TmpfsMount{Enabled: true}}
+	cases := []struct {
+		name  string
+		cfg   TmpfsConfig
+		capMB int64
+		want  int64
+	}{
+		{"off", TmpfsConfig{}, 16384, 0},
+		{"no limit takes the default", on, 0, DefaultTmpfsDaemonMB},
+		{"a roomy limit takes the default", on, 65536, DefaultTmpfsDaemonMB},
+		{"a small limit shrinks it to half", on, 6000, 3000},
+		{"a typed size is never shrunk", TmpfsConfig{Daemon: TmpfsMount{Enabled: true, SizeMB: 5000}}, 6000, 5000},
+		{"an absurdly small limit still gets a usable store", on, 100, MinTmpfsMB},
+	}
+	for _, tc := range cases {
+		if got := tc.cfg.DaemonSize(tc.capMB); got != tc.want {
+			t.Errorf("%s: DaemonSize(%d) = %d, want %d", tc.name, tc.capMB, got, tc.want)
+		}
+	}
+}
+
+// A typed limit is given to the runner and to the daemon alike, and each is
+// charged for its own folders, so the proposed limit covers whichever needs more
+// -- not both, which would pay for room neither container uses.
+func TestTheProposedLimitCoversTheContainerThatNeedsMore(t *testing.T) {
+	cfg := TmpfsConfig{
+		Work:   TmpfsMount{Enabled: true, SizeMB: 2000},
+		Daemon: TmpfsMount{Enabled: true, SizeMB: 6000},
+	}
+	if got, want := cfg.RecommendedMemoryMB(8192), int64(8192+6000); got != want {
+		t.Fatalf("RecommendedMemoryMB = %d, want the daemon's 6000 added once, %d", got, want)
+	}
+	cfg.Daemon.SizeMB = 1000
+	if got, want := cfg.RecommendedMemoryMB(8192), int64(8192+2000); got != want {
+		t.Fatalf("RecommendedMemoryMB = %d, want the runner's 2000 added once, %d", got, want)
+	}
+	if got := (TmpfsConfig{Daemon: TmpfsMount{Enabled: true}}).DaemonReserveMB(); got != DefaultTmpfsDaemonMB {
+		t.Fatalf("DaemonReserveMB = %d, want the default %d", got, DefaultTmpfsDaemonMB)
+	}
+	if !(TmpfsConfig{Daemon: TmpfsMount{Enabled: true}}).Any() {
+		t.Fatal("a pool keeping only its image store in memory reads as keeping nothing")
+	}
+}
+
+// The image store is held to its own container's limit: it does not add up with
+// the runner's folders, which are charged to another cgroup.
+func TestTheImageStoreIsValidatedAgainstTheDaemonsOwnLimit(t *testing.T) {
+	both := TmpfsConfig{
+		Work:   TmpfsMount{Enabled: true, SizeMB: 3000},
+		Daemon: TmpfsMount{Enabled: true, SizeMB: 3000},
+	}
+	if field, problem := both.Validate(4096); field != "" {
+		t.Fatalf("each fits its own 4096 MB limit, but %s was refused: %s", field, problem)
+	}
+	whole := TmpfsConfig{Daemon: TmpfsMount{Enabled: true, SizeMB: 4096}}
+	field, problem := whole.Validate(4096)
+	if field != "tmpfs.daemon.size_mb" || !strings.Contains(problem, "to at least 8192 MB") {
+		t.Fatalf("Validate = %q, %q; want the image store named with the limit that fits it", field, problem)
+	}
+	if field, _ := (TmpfsConfig{Daemon: TmpfsMount{Enabled: true, SizeMB: 8}}).Validate(0); field != "tmpfs.daemon.size_mb" {
+		t.Fatalf("a store below the floor blamed %q", field)
+	}
+}
+
+// A proposal that is taken must end the warning, or the next one follows it
+// upward. Folders are fitted into half a limit, so the proposed limit is at
+// least twice what they may take -- which is more than the limit plus them when
+// the limit is smaller than they are.
+func TestAProposedLimitEndsTheWarningWhenItIsTaken(t *testing.T) {
+	for _, cfg := range []TmpfsConfig{
+		{Work: TmpfsMount{Enabled: true}},
+		{Daemon: TmpfsMount{Enabled: true}},
+		{Work: TmpfsMount{Enabled: true}, Tmp: TmpfsMount{Enabled: true}, Daemon: TmpfsMount{Enabled: true}},
+	} {
+		for _, limit := range []int64{1024, 2048, 6144, 8192} {
+			rec := cfg.RecommendedMemoryMB(limit)
+			work, tmp := cfg.Sizes(rec)
+			if work+tmp < cfg.ReserveMB() || cfg.DaemonSize(rec) < cfg.DaemonReserveMB() {
+				t.Errorf("%+v: at the proposed %d MB (from %d) the folders are still fitted down: %d+%d, store %d",
+					cfg, rec, limit, work, tmp, cfg.DaemonSize(rec))
+			}
+		}
+	}
+	// And where the sum is already enough, it is the sum.
+	cfg := TmpfsConfig{Work: TmpfsMount{Enabled: true}}
+	if got, want := cfg.RecommendedMemoryMB(6144), int64(6144+4096); got != want {
+		t.Errorf("RecommendedMemoryMB(6144) = %d, want %d", got, want)
+	}
+}

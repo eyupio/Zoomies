@@ -153,3 +153,64 @@ func TestTheSpecCarriesTmpfsToTheAgentAndOmitsItWhenOff(t *testing.T) {
 		t.Errorf("tmpfs = %+v after the round trip, want %+v", back.Tmpfs, on.Tmpfs)
 	}
 }
+
+func dindTmpfsSpec(cfg store.TmpfsConfig) Spec {
+	s := tmpfsSpec(cfg)
+	s.DockerMode = store.DockerDinD
+	return s
+}
+
+// The image store is on the sidecar, not the runner: it is where a dind job's
+// pulls and builds are written, and it is a different container with its own
+// memory limit.
+func TestTheSidecarsImageStoreIsMountedInMemoryAndTheRunnersIsNot(t *testing.T) {
+	spec := dindTmpfsSpec(store.TmpfsConfig{Daemon: store.TmpfsMount{Enabled: true, SizeMB: 6144}})
+	spec.Resources = store.Resources{CPUs: 4, MemoryMB: 16384}
+	side := buildDinDConfig(spec, dockerFlavor(), containerOptions{Now: time.Now(), DinDImage: DefaultDinDImage})
+	if got, want := side.HostConfig.Tmpfs[DaemonStoreMount], "size=6144m,rw,mode=0710"; got != want {
+		t.Errorf("sidecar tmpfs = %q, want %q", got, want)
+	}
+	run := buildRunnerConfig(spec, dockerFlavor(), containerOptions{Now: time.Now()})
+	if len(run.HostConfig.Tmpfs) != 0 {
+		t.Errorf("runner tmpfs = %v, want none: the image store is the sidecar's", run.HostConfig.Tmpfs)
+	}
+}
+
+// Off is off: the sidecar's create carries no Tmpfs key at all, so an upgrade
+// changes no container the daemon is asked to make.
+func TestASidecarWithNoImageStoreInMemoryGetsNoTmpfs(t *testing.T) {
+	spec := dindTmpfsSpec(store.TmpfsConfig{Work: store.TmpfsMount{Enabled: true}})
+	side := buildDinDConfig(spec, dockerFlavor(), containerOptions{Now: time.Now(), DinDImage: DefaultDinDImage})
+	if side.HostConfig.Tmpfs != nil {
+		t.Errorf("sidecar tmpfs = %v, want none", side.HostConfig.Tmpfs)
+	}
+	body, err := json.Marshal(side)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "Tmpfs") {
+		t.Errorf("the sidecar's create request mentions Tmpfs: %s", body)
+	}
+}
+
+// The store is fitted to the daemon's own limit. For a pool sized by its host
+// that is the daemon's half of one slot's share; for a typed limit it is the
+// whole of it, because a typed limit is given to both containers.
+func TestTheImageStoreIsFittedToTheDaemonsOwnHalf(t *testing.T) {
+	auto := dindTmpfsSpec(store.TmpfsConfig{Daemon: store.TmpfsMount{Enabled: true}})
+	auto.ResourcesSource = store.AllocationFromHost
+	auto.Resources = store.Resources{CPUs: 4, MemoryMB: 6001}
+	side := buildDinDConfig(auto, dockerFlavor(), containerOptions{Now: time.Now(), DinDImage: DefaultDinDImage})
+	// The daemon takes the remainder of an odd split: 6001 - 3000 = 3001, and the
+	// store is half of what the daemon has, 1500.
+	if got, want := side.HostConfig.Tmpfs[DaemonStoreMount], "size=1500m,rw,mode=0710"; got != want {
+		t.Errorf("automatic pool: sidecar tmpfs = %q, want %q", got, want)
+	}
+
+	typed := dindTmpfsSpec(store.TmpfsConfig{Daemon: store.TmpfsMount{Enabled: true}})
+	typed.Resources = store.Resources{CPUs: 4, MemoryMB: 32768}
+	side = buildDinDConfig(typed, dockerFlavor(), containerOptions{Now: time.Now(), DinDImage: DefaultDinDImage})
+	if got, want := side.HostConfig.Tmpfs[DaemonStoreMount], "size=8192m,rw,mode=0710"; got != want {
+		t.Errorf("typed pool: sidecar tmpfs = %q, want %q", got, want)
+	}
+}

@@ -752,6 +752,11 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 		if p.Backend == store.BackendProcess {
 			add("tmpfs.work.enabled", "in-memory folders are mounted into a container, so they need the Docker or Podman backend; for a process runner point agent.work_dir at a tmpfs on the host instead")
 		}
+		// The image store is the docker-in-docker sidecar's, so a pool with no
+		// sidecar has no container to mount it on.
+		if p.Tmpfs.Daemon.Enabled && p.DockerMode != store.DockerDinD {
+			add("tmpfs.daemon.enabled", "the image store is the Docker-in-Docker sidecar's, so it needs docker_mode dind; this pool has no sidecar to keep it in memory")
+		}
 		// A pool with no limit is sized from its host's share when a runner is
 		// created, and the folders are fitted to whatever that turns out to be;
 		// only a limit typed here can be checked against sizes typed here.
