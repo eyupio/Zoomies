@@ -37,7 +37,8 @@ type Stranding struct {
 	// or, for a pool edit, one that used to have room for it.
 	Host string `json:"host"`
 	// Code is which of the placement rules it now fails, in the same
-	// vocabulary HostFit's exclusions use: selector, backend, platform, size.
+	// vocabulary HostFit's exclusions use: selector, backend, platform, size,
+	// profile.
 	Code   string `json:"code"`
 	Reason string `json:"reason"`
 }
@@ -160,6 +161,13 @@ func HostRefusal(h *store.Host, p *store.Pool) (code, reason string) {
 		return ExcludedBackend, backendReason(h, p)
 	case !scheduler.HostIsPlatform(h, p):
 		return ExcludedPlatform, platformReason(h, p)
+	}
+	// The host's own profile is asked before its size: it is two things an
+	// operator wrote disagreeing, and the sentence names both, where the
+	// shortfall would call the host too small for a pool it is merely not
+	// configured for.
+	if ex := scheduler.ExcludedBySize(h, p); ex != nil {
+		return ExcludedProfile, ex.Reason
 	}
 	if short := scheduler.HostShortfall(h, p); short != "" {
 		return ExcludedSize, short

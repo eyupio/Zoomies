@@ -146,7 +146,7 @@ func ExcludedBySize(h *store.Host, p *store.Pool) *SizeExclusion {
 		cpus, memoryMB := StandardSize(p, h)
 		poolMin := p.Resources.MinCPUs
 		if cpus > 0 && max(poolMin, floor.CPUs) > cpus+cpuEpsilon {
-			whose, need := "this pool's", poolMin
+			whose, need := poolsOrFleets(p.FleetMinimum.CPUs > 0), poolMin
 			if floor.CPUs >= poolMin {
 				whose, need = "this host's own", floor.CPUs
 			}
@@ -156,7 +156,7 @@ func ExcludedBySize(h *store.Host, p *store.Pool) *SizeExclusion {
 		}
 		poolMinMemory := p.Resources.MinMemoryMB
 		if memoryMB > 0 && max(poolMinMemory, floor.MemoryMB) > memoryMB {
-			whose, need := "this pool's", poolMinMemory
+			whose, need := poolsOrFleets(p.FleetMinimum.MemoryMB > 0), poolMinMemory
 			if floor.MemoryMB >= poolMinMemory {
 				whose, need = "this host's own", floor.MemoryMB
 			}
@@ -177,6 +177,16 @@ func ExcludedBySize(h *store.Host, p *store.Pool) *SizeExclusion {
 		}
 	}
 	return nil
+}
+
+// poolsOrFleets names whose minimum a figure is: the pool's own, or the
+// fleet's where the pool follows it -- an operator told "this pool's minimum"
+// would go looking for a field the pool never set.
+func poolsOrFleets(fleet bool) string {
+	if fleet {
+		return "the fleet's"
+	}
+	return "this pool's"
 }
 
 // standardPhrase says what a host's standard runner is, and where the figure

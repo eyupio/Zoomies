@@ -444,3 +444,52 @@ func TestTheBurstCeilingIsTheSmallerOfThePoolsAndTheHosts(t *testing.T) {
 		})
 	}
 }
+
+// The floor is the factor that leaves the smallest limited container exactly
+// the minimum, capped at one: a container already under it cannot be helped by
+// a factor, so the CPU part of the throttle stands down for it.
+func TestTheThrottleFloorFactorProtectsTheSmallestLimitedContainer(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		minimum    float64
+		containers []float64
+		want       float64
+	}{
+		{"no minimum", 0, []float64{1.5, 3}, 0},
+		{"nothing limited to protect", 1, nil, 0},
+		{"unlimited containers have nothing to scale", 1, []float64{0, 0}, 0},
+		{"the smallest sets it", 1, []float64{3, 1.5, 6}, 1.0 / 1.5},
+		{"one container", 1, []float64{4}, 0.25},
+		{"a container already at the minimum", 2, []float64{2, 4}, 1},
+		{"a container under the minimum stands the factor down", 2, []float64{1.5, 4}, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ThrottleFloorFactor(tc.minimum, tc.containers)
+			if got < tc.want-1e-9 || got > tc.want+1e-9 {
+				t.Fatalf("ThrottleFloorFactor(%v, %v) = %v, want %v", tc.minimum, tc.containers, got, tc.want)
+			}
+		})
+	}
+}
+
+// The percentage on the host card is the ladder's, and the host's own minimum
+// is what can make a runner's share larger than it; the sentence says so where
+// it can be true and not otherwise.
+func TestAThrottledHostWithAMinimumSaysItWillNotGoBelowIt(t *testing.T) {
+	h := sized("big", 8, 12, hostFor(30*1024), 100000)
+	h.ActiveRunners = 2
+	h.Throttle = store.HostThrottle{Level: 2, Reason: "CPU stayed above 85%"}
+
+	if got := ThrottleReason(h); strings.Contains(got, "never below") {
+		t.Fatalf("a host with no minimum says %q", got)
+	}
+	h.RunnerProfile.Minimum = store.RunnerSize{CPUs: 1.5}
+	if got := ThrottleReason(h); !strings.Contains(got, "at 50% of it, but never below this host's minimum of 1.5 CPU a runner") {
+		t.Fatalf("the sentence does not name the host's floor: %q", got)
+	}
+	// And the slot count it quotes is the profile's, not the capacity beside it.
+	h.RunnerProfile.Standard = store.RunnerStandard{CPUs: 3, MemoryMB: 8 * 1024}
+	if got := ThrottleReason(h); !strings.Contains(got, "throttled to 1 of 3 slots") {
+		t.Fatalf("the slots are not the profile's: %q", got)
+	}
+}

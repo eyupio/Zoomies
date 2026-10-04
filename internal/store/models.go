@@ -782,6 +782,12 @@ type Pool struct {
 	// (controller.sizingPool). A pool without it falls back to a slot's share,
 	// which is what such a pool was sized by before profiles existed.
 	FleetStandard RunnerSize `json:"-"`
+	// FleetMinimum is the part of this pool's minimum that came from the
+	// fleet's runners.minimum_* rather than from the pool: the figure the
+	// controller's sizing copy filled in, and zero on a field the pool set
+	// itself. It exists so an explanation can say whose minimum a host fell
+	// short of, and is never stored or serialised.
+	FleetMinimum RunnerSize `json:"-"`
 	// HostSelector matches Host.Labels; empty means "any host".
 	// RunnerSettings is what this pool overrides of the fleet's own runner
 	// timings. Every field is nil on a pool that follows the fleet, which is

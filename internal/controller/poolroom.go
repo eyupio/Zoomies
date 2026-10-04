@@ -60,12 +60,39 @@ type PoolHostRoom struct {
 	// one placed elsewhere is held at its share, and nothing but this says so
 	// while the pool is still being edited.
 	ElasticCPU bool `json:"elastic_cpu"`
+	// Sizing is how a runner of this pool is sized here -- its standard, its
+	// floor and its CPU ceiling, each with where it came from -- and Excluded
+	// is the sentence, with ExcludedBy its code, where the host's runner profile
+	// keeps the pool off it altogether. Excluded hosts are listed, with no room,
+	// rather than dropped: "this host is left out, and this is the limit" is the
+	// row an operator came to read.
+	Sizing     PoolHostSizing `json:"sizing"`
+	Excluded   string         `json:"excluded,omitempty"`
+	ExcludedBy string         `json:"excluded_by,omitempty"`
 }
 
 // Overcommitted reports whether this host promises more slots than the machine
 // can back at this pool's size -- the state where the fleet's own capacity
 // figures say there is room and every create for that room is refused.
-func (r PoolHostRoom) Overcommitted() bool { return r.Slots > r.Fits }
+//
+// A host the pool is kept off is not one. It is listed so its row can say why,
+// but the pool is never asked to place a runner there, so its slots are not
+// promises about this pool, and telling an operator to lower the capacity of a
+// host that is working as set would be the wrong fix for a right result.
+func (r PoolHostRoom) Overcommitted() bool { return r.ExcludedBy == "" && r.Slots > r.Fits }
+
+// Placeable is the hosts a runner of this pool can be placed on. An excluded
+// host is listed with no room rather than dropped, and takes no part in any
+// count, charge or warning about where the pool lands.
+func (r PoolRoom) Placeable() []PoolHostRoom {
+	out := make([]PoolHostRoom, 0, len(r.Hosts))
+	for _, h := range r.Hosts {
+		if h.ExcludedBy == "" {
+			out = append(out, h)
+		}
+	}
+	return out
+}
 
 // PoolRoom is the fleet's answer, and the per-host detail behind it.
 type PoolRoom struct {
@@ -101,7 +128,8 @@ func (r PoolRoom) Overcommitted() []PoolHostRoom {
 // HostFit already says so in its own words. Counting it here would put machine
 // the pool can never reach into the number an operator sets a maximum from.
 func (c *Controller) PoolRoom(ctx context.Context, p *store.Pool) (PoolRoom, error) {
-	p = sizingPool(p, c.cfg().Runners)
+	raw, fleet := p, c.cfg().Runners
+	p = sizingPool(p, fleet)
 	hosts, err := c.st.ListHosts(ctx)
 	if err != nil {
 		return PoolRoom{}, err
@@ -112,10 +140,15 @@ func (c *Controller) PoolRoom(ctx context.Context, p *store.Pool) (PoolRoom, err
 		if !scheduler.HostSelects(h, p) || !scheduler.HostAvailable(h, now) {
 			continue
 		}
-		if code, _ := HostRefusal(h, p); code != "" && code != ExcludedSize {
+		code, reason := HostRefusal(h, p)
+		if code != "" && code != ExcludedSize && code != ExcludedProfile {
 			continue
 		}
 		entry := poolHostRoom(h, p)
+		entry.Sizing = poolHostSizing(raw, p, h, fleet)
+		if code == ExcludedProfile {
+			entry.Excluded, entry.ExcludedBy = reason, code
+		}
 		alloc := h.Allocatable()
 		out.Hosts = append(out.Hosts, entry)
 		out.Runners += entry.Room
@@ -170,7 +203,8 @@ func poolHostRoom(h *store.Host, p *store.Pool) PoolHostRoom {
 // slots and a runner's size, a cache limit and a disk.
 func PoolRoomWarnings(p *store.Pool, room PoolRoom) []Problem {
 	var out []Problem
-	if len(room.Hosts) == 0 {
+	placeable := room.Placeable()
+	if len(placeable) == 0 {
 		// A pool no host can run is already said in the fleet's own words,
 		// and saying it again as arithmetic helps nobody.
 		return out
@@ -185,8 +219,8 @@ func PoolRoomWarnings(p *store.Pool, room PoolRoom) []Problem {
 			Detail: fmt.Sprintf("one runner of this pool is charged %s CPU and %s, and the %s it can land on %s room for %s at that size. "+
 				"The maximum is a backstop rather than a target, so this is not wrong -- but %s above the room are runners the scheduler will never create, "+
 				"and the jobs that ask for them wait with nothing on any page saying why.",
-				scheduler.FormatCPUs(chargeCPUs(room)), formatRoomMB(chargeMemoryMB(room)),
-				plural(len(room.Hosts), "host"), verb(len(room.Hosts)), plural(room.Runners, "runner"),
+				scheduler.FormatCPUs(chargeCPUs(placeable)), formatRoomMB(chargeMemoryMB(placeable)),
+				plural(len(placeable), "host"), verb(len(placeable)), plural(room.Runners, "runner"),
 				plural(p.MaxRunners-room.Runners, "runner")),
 			Fix:        fmt.Sprintf("lower the maximum to %d, ask for less per runner, or give the pool more hosts.", room.Runners),
 			TargetKind: "pool",
@@ -218,7 +252,7 @@ func PoolRoomWarnings(p *store.Pool, room PoolRoom) []Problem {
 		out = append(out, w)
 	}
 
-	if w, ok := heldByOldAgents(p, room); ok {
+	if w, ok := heldByOldAgents(p, placeable); ok {
 		out = append(out, w)
 	}
 
@@ -311,12 +345,12 @@ func strandedByFixedSize(p *store.Pool, room PoolRoom) (Problem, bool) {
 //
 // Observe mode raises nothing. It measures and never moves a quota, so the
 // agent's part is never asked of it.
-func heldByOldAgents(p *store.Pool, room PoolRoom) (Problem, bool) {
+func heldByOldAgents(p *store.Pool, hosts []PoolHostRoom) (Problem, bool) {
 	if !p.CPUBurst.Enforces() {
 		return Problem{}, false
 	}
 	var names []string
-	for _, h := range room.Hosts {
+	for _, h := range hosts {
 		if !h.ElasticCPU {
 			names = append(names, h.Host)
 		}
@@ -332,7 +366,7 @@ func heldByOldAgents(p *store.Pool, room PoolRoom) (Problem, bool) {
 		Code:     "pool.elastic_cpu_unsupported",
 		Severity: config.SeverityWarning,
 		Title: fmt.Sprintf("pool %s: %d of its %s %s an agent that cannot lend CPU",
-			p.Name, len(names), plural(len(room.Hosts), "host"), runs),
+			p.Name, len(names), plural(len(hosts), "host"), runs),
 		Detail: "elastic CPU moves a live runner's quota through the agent on its host, and these agents are too old to say they can: " +
 			strings.Join(names, ", ") + ". A runner placed there is held at its guaranteed share, exactly as with elastic CPU off, " +
 			"and nothing on the pool says which of its runners that happened to.",
@@ -355,18 +389,18 @@ func verb(n int) string {
 // only where a host's own share is standing in for a figure the pool did not
 // give -- which, now that every pool has a size, is a pool made before it was
 // mandatory. The first host that can run it is the one quoted.
-func chargeCPUs(room PoolRoom) float64 {
-	if len(room.Hosts) == 0 {
+func chargeCPUs(hosts []PoolHostRoom) float64 {
+	if len(hosts) == 0 {
 		return 0
 	}
-	return room.Hosts[0].ChargeCPUs
+	return hosts[0].ChargeCPUs
 }
 
-func chargeMemoryMB(room PoolRoom) int64 {
-	if len(room.Hosts) == 0 {
+func chargeMemoryMB(hosts []PoolHostRoom) int64 {
+	if len(hosts) == 0 {
 		return 0
 	}
-	return room.Hosts[0].ChargeMemoryMB
+	return hosts[0].ChargeMemoryMB
 }
 
 // formatRoomMB writes a size the way the scheduler's own explanations do.

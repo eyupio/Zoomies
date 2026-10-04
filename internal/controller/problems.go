@@ -172,6 +172,8 @@ var problemAudience = map[string]Audience{
 	"pool.history_unfit":                            AudienceFleet,
 	"pool.host_overcommitted":                       AudienceFleet,
 	"pool.max_above_room":                           AudienceFleet,
+	"pool.no_eligible_host":                         AudienceFleet,
+	"pool.profile_default":                          AudienceFleet,
 	"pool.no_capacity":                              AudienceFleet,
 	"pool.provision_timeout_short":                  AudienceFleet,
 	"pool.repository_scale_up_deferred":             AudienceFleet,
@@ -363,6 +365,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	gather("the encryption key", c.keyProblems)
 	gather("host versions", c.hostSkewProblems)
 	gather("host resources", c.hostResourceProblems)
+	gather("runner profiles", c.runnerProfileProblems)
 	gather("host incidents", c.hostIncidentProblems)
 	out = append(out, c.fenceProblems()...)
 	out = append(out, c.ssoProblems()...)
@@ -1027,6 +1030,21 @@ func (c *Controller) hostResourceProblems(ctx context.Context, out *[]Problem) e
 	return nil
 }
 
+// runnerProfileProblems is profileProblems over the fleet as it stands, with
+// the pools sized as the scheduler sizes them.
+func (c *Controller) runnerProfileProblems(ctx context.Context, out *[]Problem) error {
+	hosts, err := c.st.ListHosts(ctx)
+	if err != nil {
+		return fmt.Errorf("listing hosts: %w", err)
+	}
+	pools, err := c.st.ListPools(ctx)
+	if err != nil {
+		return fmt.Errorf("listing pools: %w", err)
+	}
+	*out = append(*out, profileProblems(hosts, c.sizingPools(pools), c.cfg().Runners)...)
+	return nil
+}
+
 func (c *Controller) installationProblems(ctx context.Context, out *[]Problem) error {
 	insts, err := c.st.ListInstallations(ctx)
 	if err != nil {
@@ -1489,7 +1507,8 @@ const overprovisionedSlotMemoryMB int64 = 2048
 // there is worth two.
 func overprovisionedProblem(h *store.Host, pools []*store.Pool, defaults bool) (Problem, bool) {
 	a := h.Allocatable()
-	if h.Capacity <= 0 || (!a.CPUsKnown && !a.MemoryKnown) {
+	slots := h.Slots()
+	if slots <= 0 || (!a.CPUsKnown && !a.MemoryKnown) {
 		return Problem{}, false
 	}
 	pair, typed := dindPoolPlacesOn(h, pools)
@@ -1505,7 +1524,7 @@ func overprovisionedProblem(h *store.Host, pools []*store.Pool, defaults bool) (
 	if a.MemoryKnown {
 		fits = min(fits, max(1, int(a.MemoryMB/(needMemoryMB*containers))))
 	}
-	if h.Capacity <= fits {
+	if slots <= fits {
 		return Problem{}, false
 	}
 	var machine, allocatable []string
@@ -1518,7 +1537,7 @@ func overprovisionedProblem(h *store.Host, pools []*store.Pool, defaults bool) (
 		allocatable = append(allocatable, fmt.Sprintf("%d MB of allocatable memory", a.MemoryMB))
 	}
 	detail := fmt.Sprintf("%s has capacity %d on %s (%s, less the reserve)",
-		h.Name, h.Capacity, strings.Join(allocatable, " and "), strings.Join(machine, " and "))
+		h.Name, slots, strings.Join(allocatable, " and "), strings.Join(machine, " and "))
 	// The share is named only where it is given. A host offering only the
 	// process backend, or a daemon that cannot apply the limit, or an agent
 	// that has not said, gives its runners no default at all, and a sentence
@@ -1538,11 +1557,11 @@ func overprovisionedProblem(h *store.Host, pools []*store.Pool, defaults bool) (
 	switch {
 	case len(each) > 0:
 		detail += fmt.Sprintf(", so each runner's default share is %s; a runner with less than %s CPU or under %d MB crawls through a build, and %d of them together are what the machine was already too small for.",
-			strings.Join(each, " and "), scheduler.FormatCPUs(needCPUs), needMemoryMB, h.Capacity)
+			strings.Join(each, " and "), scheduler.FormatCPUs(needCPUs), needMemoryMB, slots)
 	case defaults:
-		detail += fmt.Sprintf(", and its runners are given no default limit here -- its daemon cannot apply one, or its agent has not said whether it can, or it runs only the process backend -- so nothing limits them: each of the %d can take the whole machine at once, which is the shape that stops Docker answering.", h.Capacity)
+		detail += fmt.Sprintf(", and its runners are given no default limit here -- its daemon cannot apply one, or its agent has not said whether it can, or it runs only the process backend -- so nothing limits them: each of the %d can take the whole machine at once, which is the shape that stops Docker answering.", slots)
 	default:
-		detail += fmt.Sprintf(", and scheduler.default_runner_limits is off, so nothing limits its runners: each of the %d can take the whole machine at once, which is the shape that stops Docker answering.", h.Capacity)
+		detail += fmt.Sprintf(", and scheduler.default_runner_limits is off, so nothing limits its runners: each of the %d can take the whole machine at once, which is the shape that stops Docker answering.", slots)
 	}
 	// Which pool made a slot a pair, because "two containers" is not a thing
 	// an operator can check against anything on the host's own card. The two

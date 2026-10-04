@@ -55,7 +55,8 @@ type HostFit struct {
 type HostExclusion struct {
 	Host string `json:"host"`
 	// Code is which of the placement rules turned this host down, for a caller
-	// that wants to group or colour them: unavailable, backend, platform, size.
+	// that wants to group or colour them: unavailable, backend, platform, size,
+	// profile.
 	Code   string `json:"code"`
 	Reason string `json:"reason"`
 }
@@ -71,6 +72,10 @@ const (
 	ExcludedBackend     = "backend"
 	ExcludedPlatform    = "platform"
 	ExcludedSize        = "size"
+	// ExcludedProfile is a host whose runner profile and the pool's size
+	// disagree: its minimum is above a size the pool states, or its standard is
+	// below the floor of a pool that takes its size from the host.
+	ExcludedProfile = "profile"
 	// ReducedSize is not an exclusion: it marks a host in HostFit.Reduced.
 	ReducedSize = "reduced"
 )
@@ -119,7 +124,7 @@ func (c *Controller) HostFit(ctx context.Context, p *store.Pool) (HostFit, error
 			}
 		case ExcludedPlatform:
 			fit.PlatformMismatch++
-		case ExcludedSize:
+		case ExcludedSize, ExcludedProfile:
 			if fit.Detail == "" {
 				fit.Detail = h.Name + " cannot run it: " + reason + "."
 			}

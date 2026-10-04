@@ -862,7 +862,7 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 		ControllerVersion:  version.Short(),
 		ResyncRequested:    c.markHostSeen(hostID, false),
 		UnknownRunners:     c.unknownRunners(ctx, hostID, req.Runners),
-		Throttle:           throttleDirective(h),
+		Throttle:           c.throttleDirective(ctx, h),
 		ElasticCPU:         elasticCPU,
 	}, nil
 }
