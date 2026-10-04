@@ -49,7 +49,8 @@ func localDoctor(path string) (*hosttune.Engine, error) {
 	return hosttune.New(o), nil
 }
 func runDoctor(ctx context.Context, e *env, args []string) error {
-	fs := newFlagSet(e, "zoomies doctor [--json] [--tier safe|aggressive|dedicated] [--host <id>]", "Check host OS settings and explain recommended changes. No host settings are changed.")
+	fs := newFlagSet(e, "zoomies doctor [--verbose] [--json] [--tier safe|aggressive|dedicated] [--host <id>]", "Check host OS settings and explain recommended changes. No host settings are changed.")
+	verbose := fs.Bool("verbose", false, "show all checks, values and explanations")
 	interactive := fs.Bool("interactive", false, "offer individual local fixes after showing the report")
 	js := fs.Bool("json", false, "print a machine-readable report")
 	tier := fs.String("tier", "safe", "safe, aggressive or dedicated; kernel checks appear in every tier")
@@ -72,8 +73,8 @@ func runDoctor(ctx context.Context, e *env, args []string) error {
 		return usagef("doctor", "%s", err)
 	}
 	if *watch {
-		if *interactive || *host != "" || *js {
-			return usagef("doctor", "--watch cannot be combined with --interactive, --host or --json")
+		if *interactive || *host != "" || *js || *verbose {
+			return usagef("doctor", "--watch cannot be combined with --interactive, --host, --json or --verbose")
 		}
 		if *reportFile == "" {
 			return usagef("doctor", "--watch requires --report-file")
@@ -128,16 +129,30 @@ func runDoctor(ctx context.Context, e *env, args []string) error {
 	}
 	if *js {
 		err = json.NewEncoder(e.out).Encode(r)
-	} else {
+	} else if *verbose {
 		printDoctor(e.out, r, *host != "")
+	} else {
+		installer.PaletteFor(e.out).Title(e.out, "Host health", strings.TrimSpace(r.OS+" "+r.Distro))
+		printDoctorBrief(e.out, r, 0)
+		details := "zoomies doctor --verbose"
+		if *host != "" {
+			details = "zoomies doctor --host <host-id> --verbose"
+		}
+		installer.PaletteFor(e.out).Hint(e.out, "Details: %s", details)
+		if time.Since(r.CheckedAt) > 10*time.Minute {
+			installer.PaletteFor(e.out).Hint(e.out, "Report older than 10 minutes; observations may have changed.")
+		}
+		if *host != "" {
+			installer.PaletteFor(e.out).Hint(e.out, "Latest agent report; run tuning locally on that host.")
+		}
 	}
 	if err != nil {
 		return err
 	}
-	// A bare `zoomies doctor` at a terminal offers the fixes it can make;
-	// --interactive goes straight to tune, which still asks about each one.
-	if *host == "" && !*js && (*interactive || offerTune(e, r)) {
-		a := []string{"--config", *cfg}
+	// Only an explicit interactive request enters tuning. A routine health
+	// check finishes without another menu or approval conversation.
+	if *host == "" && !*js && *interactive {
+		a := []string{"--config", *cfg, "--work-dir", *work, "--docker-host", *dockerHost}
 		if t == hosttune.Dedicated {
 			a = append(a, "--dedicated")
 		} else {
@@ -150,9 +165,15 @@ func runDoctor(ctx context.Context, e *env, args []string) error {
 		if err != nil {
 			return err
 		}
+		if *work != "" {
+			engine.WorkDir = *work
+		}
+		if *dockerHost != "" {
+			engine.DockerHost = *dockerHost
+		}
 		fmt.Fprintln(e.out)
 		r = engine.Run(ctx, t)
-		printDoctor(e.out, r, false)
+		printDoctorBrief(e.out, r, 0)
 	}
 	if r.ExitCode() != 0 {
 		return doctorExit(r.ExitCode())
@@ -160,22 +181,6 @@ func runDoctor(ctx context.Context, e *env, args []string) error {
 	return nil
 }
 
-// offerTune asks whether to review the fixes tune can make. It asks only when a
-// person is there to answer and there is something to fix; a script or a cron
-// job running doctor must never block on a prompt or change the host.
-func offerTune(e *env, r hosttune.Report) bool {
-	f, ok := e.in.(*os.File)
-	if !ok || !term.IsTerminal(int(f.Fd())) || !isTerminal(e.out) {
-		return false
-	}
-	n := actionableCount(r)
-	if n == 0 {
-		return false
-	}
-	ui := installer.PaletteFor(e.out)
-	fmt.Fprintln(e.out)
-	return strings.EqualFold(askLine(e.in, e.out, ui.Bold(fmt.Sprintf("Apply %d safe fix(es) with tune? [y/N] ", n))), "y")
-}
 func filterDoctor(rs []hosttune.Result, t hosttune.Tier) []hosttune.Result {
 	out := []hosttune.Result{}
 	for _, r := range rs {
@@ -383,16 +388,9 @@ func afterHostSetup(ctx context.Context, e *env, fresh, tune, noTune, interactiv
 	return nil
 }
 
-// briefRows is how many findings the post-upgrade summary lists before it says
-// how many more there are; the full report is one keystroke away.
-const briefRows = 6
-
-// upgradeDoctor is the host-health step at the end of an upgrade. It says in a
-// few lines whether the host needs attention and, when somebody is there to
-// answer, offers the two things they can do about it. Upgrade never tunes on
-// its own, including with --yes: tuning changes the OS, which an approval to
-// upgrade the software does not cover, so it only ever runs from the menu.
-func upgradeDoctor(ctx context.Context, e *env, cfg *config.Config, interactive bool) {
+// Upgrade ends with observations, never a tuning menu. Software approval and
+// permission to change the OS remain separate even at an interactive terminal.
+func upgradeDoctor(ctx context.Context, e *env, cfg *config.Config) {
 	options := hosttune.LocalOptions(cfg.Agent.WorkDir)
 	options.DockerHost = cfg.Agent.DockerHost
 	if b, err := options.System.ReadFile(filepath.Join(config.SharedDir(), "host-health", "report.json")); err == nil {
@@ -402,52 +400,38 @@ func upgradeDoctor(ctx context.Context, e *env, cfg *config.Config, interactive 
 		}
 	}
 	engine := hosttune.New(options)
-	before, _ := hosttune.ReadReport(engine.System, engine.WorkDir)
 	r := engine.Run(ctx, hosttune.Safe)
-	printDoctorBrief(e.out, r, hosttune.NewWarnings(before, r))
-	warnings, errs, _ := r.Counts()
-	if warnings+errs == 0 {
-		return
-	}
-	ui := installer.PaletteFor(e.out)
-	if !interactive {
-		ui.Hint(e.out, "Full report: zoomies doctor    Safe fixes: sudo zoomies tune")
-		return
-	}
-	for {
-		fixable := actionableCount(r)
-		fmt.Fprintln(e.out)
-		if fixable > 0 {
-			fmt.Fprintf(e.out, "  %s  review and apply %d safe fix(es), one at a time, with a way back\n", ui.Accent("[t]"), fixable)
+	printUpgradeHealth(e.out, r)
+}
+
+func printUpgradeHealth(w io.Writer, r hosttune.Report) {
+	ui := installer.PaletteFor(w)
+	warnings, errs, skipped := r.Counts()
+	switch {
+	case warnings+errs > 0:
+		message := fmt.Sprintf("Host health: %s, %s", countOf(warnings, "warning"), countOf(errs, "error"))
+		if errs > 0 {
+			ui.Fail(w, "%s", message)
+		} else {
+			ui.Warn(w, "%s", message)
 		}
-		fmt.Fprintf(e.out, "  %s  show the full doctor report\n", ui.Accent("[d]"))
-		fmt.Fprintf(e.out, "  %s  finish\n", ui.Accent("[Enter]"))
-		switch strings.ToLower(askLine(e.in, e.out, ui.Bold("What next? "))) {
-		case "d":
-			fmt.Fprintln(e.out)
-			printDoctor(e.out, r, false)
-		case "t":
-			if fixable == 0 {
-				continue
-			}
-			if err := runTune(ctx, e, nil); err != nil {
-				fmt.Fprintln(e.err, "Tuning stopped:", err)
-			}
-			r = engine.Run(ctx, hosttune.Safe)
-			fmt.Fprintln(e.out)
-			printDoctorBrief(e.out, r, 0)
-			if w, n, _ := r.Counts(); w+n == 0 {
-				return
-			}
-		default:
-			return
-		}
+		ui.Hint(w, "Review: zoomies doctor")
+	case skipped > 0:
+		ui.Warn(w, "Host health: %d checks unavailable", skipped)
+		ui.Hint(w, "Review: zoomies doctor")
+	default:
+		ui.Done(w, "Host health checks passed")
+	}
+	if r.RebootPending {
+		ui.Hint(w, "Reboot pending; drain this host before a planned reboot.")
 	}
 }
 
+const briefRows = 3
+
 func actionableCount(r hosttune.Report) (n int) {
 	for _, x := range r.Results {
-		if x.Actionable && !x.Optional {
+		if x.Status == hosttune.Warn && x.Actionable && !x.Optional {
 			n++
 		}
 	}
@@ -456,21 +440,21 @@ func actionableCount(r hosttune.Report) (n int) {
 
 // printDoctorBrief is the report as a person skims it: one line when all is
 // well, and otherwise only the checks that are not, each on a single line with
-// what to change. The table printDoctor prints is for reading on purpose.
+// what to change. The verbose report keeps the complete explanations.
 func printDoctorBrief(w io.Writer, r hosttune.Report, fresh int) {
 	ui := installer.PaletteFor(w)
 	warnings, errs, skipped := r.Counts()
 	skippedNote := func() {
 		if skipped > 0 {
-			ui.Hint(w, "%d check(s) could not run here; zoomies doctor says why.", skipped)
+			ui.Hint(w, "%d checks unavailable; see --verbose for details.", skipped)
 		}
 	}
 	if warnings+errs == 0 {
-		ui.Done(w, "All checks pass")
+		ui.Done(w, "No warnings or errors")
 		skippedNote()
 		return
 	}
-	head := fmt.Sprintf("%d to look at", warnings+errs)
+	head := fmt.Sprintf("%s, %s", countOf(warnings, "warning"), countOf(errs, "error"))
 	if fresh > 0 {
 		head += fmt.Sprintf(", %d new since the last report", fresh)
 	}
@@ -489,19 +473,24 @@ func printDoctorBrief(w io.Writer, r hosttune.Report, fresh int) {
 			break
 		}
 		shown++
-		line := fmt.Sprintf("     %s  %s", ui.Bold(plainCell(x.Title)), ui.Dim(plainCell(x.Current)))
+		text := plainCell(x.Title)
 		if x.Recommended != "" {
-			line += ui.Dim(" -> ") + plainCell(x.Recommended)
+			text += ": " + plainCell(x.Recommended)
 		}
-		if x.Actionable && !x.Optional {
-			line += "  " + ui.Green("[fixable]")
+		if x.Status == hosttune.Warn && x.Actionable && !x.Optional {
+			text += "  [fixable]"
 		}
-		fmt.Fprintln(w, line)
+		for _, line := range wrapText(text, termWidth(w)-5) {
+			fmt.Fprintf(w, "     %s\n", line)
+		}
 	}
 	if r.RebootPending {
 		ui.Hint(w, "A reboot is pending. Drain this host first; Zoomies will not reboot it.")
 	}
 	skippedNote()
+	if actionableCount(r) > 0 {
+		ui.Hint(w, "Review fixes: sudo zoomies tune")
+	}
 }
 
 // askLine reads one line a byte at a time, so nothing beyond it is consumed:

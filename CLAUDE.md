@@ -90,7 +90,9 @@ Scoped detail lives in subfolder files that Claude Code loads when it works ther
 
 `internal/hosttune` owns isolated OS checks and consent-based tuning. Doctor is
 read-only unless `--interactive` delegates an explicitly approved fix to tune.
-`zoomies upgrade` and `update` must never call tuning, including with `--yes`.
+`zoomies upgrade`, `update` and `deployment update` share the complete upgrade
+flow and must never call tuning or open a tuning menu, including with `--yes`.
+Doctor is concise by default; `--verbose` gives the full report.
 Native agents collect health; container installations use the installed native
 binary in `zoomies-host-health.service`, publishing through the shared mount.
 Keep GET host payloads, `host.updated`, OpenAPI and UI types consistent. Tests

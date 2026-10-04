@@ -16,6 +16,7 @@ import (
 
 	"github.com/eyupio/zoomies/internal/backend"
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/naming"
 )
 
 // UpgradeOptions selects an existing deployment. Upgrade never enrols a host,
@@ -30,7 +31,9 @@ type UpgradeOptions struct {
 	Image      string
 	Mode       Mode
 	Check      bool
-	Out        io.Writer
+	// Continuation keeps the binary-download half and service half under one heading.
+	Continuation bool
+	Out          io.Writer
 	// In is where an answer to "add them now?" is read from, and Interactive
 	// says somebody is there to give one. AssumeYes is --yes: approval given
 	// in advance. With neither, what this release expects and the deployment
@@ -59,6 +62,7 @@ type upgradePlan struct {
 	record      DeploymentRecord
 	image       string
 	unit        string
+	nativeUnits []string
 	launchd     bool
 	client      *backend.APIClient
 	replacement *backend.ContainerReplacement
@@ -102,17 +106,25 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) error {
 	if err != nil {
 		return err
 	}
-	// Before anything is pulled or restarted, so that what is added -- a
-	// mount above all -- is there when the upgraded service starts.
+	ui := PaletteFor(opts.Out)
+	if !opts.Continuation {
+		ui.Title(opts.Out, "Zoomies upgrade", p.describe())
+	}
+	if opts.Check {
+		ui.Rule(opts.Out, "Deployment preview")
+	} else {
+		ui.Rule(opts.Out, "2/4 Deployment")
+	}
+	ui.Hint(opts.Out, "Target: %s", p.describe())
 	if err := p.settleLayout(ctx); err != nil {
 		return err
 	}
 	p.settleSettings(ctx)
 	if opts.Check {
+		ui.Done(opts.Out, "Deployment checks passed; no changes made")
 		if opts.Doctor != nil {
 			opts.Doctor(ctx, p.settings(ctx).cfg)
 		}
-		fmt.Fprintln(opts.Out, "The existing deployment can be upgraded without running setup again.")
 		return nil
 	}
 	beforeImage := p.localImageID(ctx)
@@ -122,9 +134,6 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) error {
 	// on an upgrade that moved the service and migrated its database.
 	beforeRunning := p.runningImageID(ctx)
 	serving := p.serveCheck(ctx)
-	ui := PaletteFor(opts.Out)
-	ui.Title(opts.Out, "Zoomies upgrade", p.describe())
-	ui.Hint(opts.Out, "Configuration, credentials and data stay as they are.")
 	if err := p.pullRunnerImages(ctx); err != nil {
 		return err
 	}
@@ -134,33 +143,70 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) error {
 	case DeploymentDocker:
 		err = p.upgradeDocker(ctx)
 	default:
-		fmt.Fprintln(opts.Out, "Restarting "+p.unit+" with the installed binary. Reporting resumes after the restart.")
-		if p.launchd {
-			_, err = opts.run(ctx, "launchctl", "kickstart", "-k", p.unit)
-		} else {
-			_, err = opts.run(ctx, "systemctl", "restart", p.unit)
-			if err == nil {
-				_, err = opts.run(ctx, "systemctl", "is-active", "--quiet", p.unit)
+		for _, unit := range p.nativeUnits {
+			ui.Doing(opts.Out, "Restarting %s", shortUnit(unit))
+			if p.launchd {
+				_, err = opts.run(ctx, "launchctl", "kickstart", "-k", unit)
+			} else {
+				_, err = opts.run(ctx, "systemctl", "restart", unit)
+				if err == nil {
+					_, err = opts.run(ctx, "systemctl", "is-active", "--quiet", unit)
+				}
+			}
+			if err != nil {
+				break
 			}
 		}
 	}
 	if err != nil {
 		return fmt.Errorf("installer: the upgrade did not finish: %w", err)
 	}
+	if err := p.restartHealthReporter(ctx); err != nil {
+		return err
+	}
+	ui.Rule(opts.Out, "3/4 Verify")
 	if err := p.waitServing(ctx, serving); err != nil {
 		return fmt.Errorf("installer: %w", err)
+	}
+	if !p.record.Deployment.Containerised() {
+		ui.Done(opts.Out, "Native services are active")
 	}
 	if p.record.Deployment.Containerised() {
 		afterImage := p.localImageID(ctx)
 		reportImage(opts.Out, p.image, beforeImage, afterImage, beforeRunning, p.runningImageID(ctx))
 	}
-	// The verdict comes before the health report so it is not scrolled away by
-	// it, and the report comes last because it may stop to ask what to do next.
-	ui.Done(opts.Out, "%s", ui.Bold("Upgrade complete."))
+	ui.Rule(opts.Out, "4/4 Host health")
 	if opts.Doctor != nil {
-		fmt.Fprintln(opts.Out)
-		ui.Rule(opts.Out, "Host health")
 		opts.Doctor(ctx, p.settings(ctx).cfg)
+	} else {
+		ui.Hint(opts.Out, "Review host health with: zoomies doctor")
+	}
+	fmt.Fprintln(opts.Out)
+	ui.Done(opts.Out, "%s", ui.Bold("Upgrade complete."))
+	return nil
+}
+
+// A container's read-only reporter is a separate native process. Replacing its
+// executable alone leaves the old checks running until the service restarts.
+func (p *upgradePlan) restartHealthReporter(ctx context.Context) error {
+	if runtime.GOOS != "linux" {
+		return nil
+	}
+	state, err := p.opts.run(ctx, "systemctl", "show", HostHealthUnit, "--property=ActiveState", "--value")
+	if err != nil || strings.TrimSpace(state) != "active" {
+		return nil
+	}
+	start, err := p.opts.run(ctx, "systemctl", "show", HostHealthUnit, "--property=ExecStart", "--value")
+	if err != nil {
+		return fmt.Errorf("installer: cannot inspect the running host health reporter: %w", err)
+	}
+	if !strings.Contains(start, "path="+p.opts.BinaryPath+" ;") && !strings.Contains(start, "path="+p.opts.BinaryPath+";") {
+		PaletteFor(p.opts.Out).Warn(p.opts.Out, "Host health reporter uses another binary; upgrade it separately")
+		return nil
+	}
+	PaletteFor(p.opts.Out).Doing(p.opts.Out, "Restarting the read-only host health reporter")
+	if _, err := p.opts.run(ctx, "systemctl", "restart", HostHealthUnit); err != nil {
+		return fmt.Errorf("installer: service updated, but the host health reporter could not restart: %w", err)
 	}
 	return nil
 }
@@ -172,6 +218,8 @@ func (p *upgradePlan) describe() string {
 		return "the Compose deployment"
 	case p.record.Deployment == DeploymentDocker:
 		return "the Docker deployment"
+	case len(p.nativeUnits) > 1:
+		return "native controller and agent"
 	case p.unit != "":
 		return shortUnit(p.unit)
 	}
@@ -195,7 +243,7 @@ func (p *upgradePlan) settleLayout(ctx context.Context) error {
 		return err
 	}
 	out := p.opts.Out
-	fmt.Fprintln(out, "This release expects what this deployment does not have yet:")
+	fmt.Fprintln(out, "Deployment additions to review:")
 	required := ""
 	for _, c := range changes {
 		fmt.Fprintln(out, "  - "+c.what)
@@ -215,7 +263,7 @@ func (p *upgradePlan) settleLayout(ctx context.Context) error {
 		if required != "" && p.opts.NonInteractive && !p.opts.AssumeYes {
 			return refuse()
 		}
-		fmt.Fprintln(out, "The upgrade will offer to add them, and adds nothing without your approval.")
+		fmt.Fprintln(out, "The upgrade will offer to add these; approval is required.")
 		return nil
 	case p.opts.AssumeYes:
 		approved = true
@@ -226,8 +274,8 @@ func (p *upgradePlan) settleLayout(ctx context.Context) error {
 		if required != "" {
 			return refuse()
 		}
-		fmt.Fprintln(out, "Left as they are: nothing on this host changes without approval, and the upgrade goes on without them.")
-		fmt.Fprintln(out, "To add them, run: zoomies upgrade --yes  (as root, as the upgrade itself is)")
+		fmt.Fprintln(out, "Optional additions skipped. Continuing the upgrade.")
+		fmt.Fprintln(out, "Add later: sudo zoomies upgrade --yes")
 		return nil
 	}
 	for _, c := range changes {
@@ -297,21 +345,18 @@ func (p *upgradePlan) runningImageID(ctx context.Context) string {
 // separately whether the channel it follows moved, because those differ
 // whenever the tag was pulled before the service was recreated from it.
 func reportImage(out io.Writer, image, tagBefore, tagAfter, runBefore, runAfter string) {
-	moved := runBefore != "" && runAfter != "" && runBefore != runAfter
+	ui := PaletteFor(out)
 	switch {
-	case moved && tagBefore != "" && tagAfter == tagBefore:
-		fmt.Fprintf(out, "The service moved from %s to %s. %s already resolved to %s on this host before this upgrade, so nothing new was downloaded.\n", shortImageID(runBefore), shortImageID(runAfter), image, shortImageID(tagAfter))
-	case moved:
-		fmt.Fprintf(out, "Image channel advanced: the service moved from %s to %s, which %s now resolves to.\n", shortImageID(runBefore), shortImageID(runAfter), image)
-	case tagBefore != "" && tagAfter == tagBefore:
-		fmt.Fprintf(out, "Image channel did not advance: %s still resolves to %s. The service was recreated from the same published image.\n", image, shortImageID(tagAfter))
-	case tagAfter != "" && tagBefore != "":
-		fmt.Fprintf(out, "Image channel advanced: %s now resolves to %s (was %s).\n", image, shortImageID(tagAfter), shortImageID(tagBefore))
+	case runBefore != "" && runAfter != "" && runBefore != runAfter:
+		ui.Done(out, "Service image updated: %s -> %s", shortImageID(runBefore), shortImageID(runAfter))
+	case runBefore != "" && runBefore == runAfter:
+		ui.Done(out, "Service image unchanged: %s", shortImageID(runAfter))
 	case tagAfter != "":
-		fmt.Fprintf(out, "Pulled %s at %s.\n", image, shortImageID(tagAfter))
+		ui.Done(out, "Service image applied: %s", shortImageID(tagAfter))
 	default:
-		fmt.Fprintf(out, "Recreated the service from %s. Confirm its reported build; moving tags advance only after a successful publish.\n", image)
+		ui.Warn(out, "Service restarted; image identity could not be verified")
 	}
+	ui.Hint(out, "%s", image)
 }
 
 func shortImageID(id string) string {
@@ -339,6 +384,7 @@ func prepareUpgrade(ctx context.Context, opts UpgradeOptions) (*upgradePlan, err
 	if opts.Mode != "" && p.record.Mode != "" && opts.Mode != p.record.Mode {
 		return nil, fmt.Errorf("installer: this is a %s deployment, not %s; run the command on the intended host", p.record.Mode, opts.Mode)
 	}
+	p.opts.Runtime = deploymentRuntime(p.record, opts.Runtime)
 	if !p.record.Deployment.Containerised() {
 		if err := p.prepareNative(ctx); err != nil {
 			return nil, err
@@ -423,7 +469,7 @@ func upgradeImage(rec DeploymentRecord, override string) (string, error) {
 }
 
 func (p *upgradePlan) prepareNative(ctx context.Context) error {
-	units := []string{UnitAgent, UnitController}
+	units := []string{UnitController, UnitAgent}
 	if p.opts.Mode == ModeAgent {
 		units = []string{UnitAgent}
 	} else if p.opts.Mode != "" {
@@ -442,33 +488,34 @@ func (p *upgradePlan) prepareNative(ctx context.Context) error {
 			}
 			binary, err := launchdBinary(data)
 			if err != nil || filepath.Clean(binary) != p.opts.BinaryPath {
-				return fmt.Errorf("installer: %s does not run %s; pass --prefix for its ProgramArguments executable", label, p.opts.BinaryPath)
+				return fmt.Errorf("installer: %s does not run %s; pass --installed-binary for its ProgramArguments executable", label, p.opts.BinaryPath)
 			}
 			domain := fmt.Sprintf("gui/%d/", os.Geteuid())
 			if os.Geteuid() == 0 {
 				domain = "system/"
 			}
-			if p.unit != "" {
-				return fmt.Errorf("installer: more than one native service exists; choose --mode agent or --mode controller")
+			p.nativeUnits = append(p.nativeUnits, domain+label)
+			if p.unit == "" {
+				p.unit = domain + label
 			}
-			p.unit, p.launchd = domain+label, true
+			p.launchd = true
 			continue
 		}
 		state, err := p.opts.run(ctx, "systemctl", "show", "--property=LoadState", "--value", unit)
 		if err != nil || strings.TrimSpace(state) != "loaded" {
 			continue
 		}
-		if p.unit != "" {
-			return fmt.Errorf("installer: more than one native service exists; choose --mode agent or --mode controller")
-		}
 		execStart, err := p.opts.run(ctx, "systemctl", "show", "--property=ExecStart", "--value", unit)
 		if err != nil {
 			return err
 		}
 		if !strings.Contains(execStart, "path="+p.opts.BinaryPath+" ;") && !strings.Contains(execStart, "path="+p.opts.BinaryPath+";") {
-			return fmt.Errorf("installer: %s does not run %s; pass --prefix for the directory its ExecStart uses", unit, p.opts.BinaryPath)
+			return fmt.Errorf("installer: %s does not run %s; pass --installed-binary with the path its ExecStart uses", unit, p.opts.BinaryPath)
 		}
-		p.unit = unit
+		p.nativeUnits = append(p.nativeUnits, unit)
+		if p.unit == "" {
+			p.unit = unit
+		}
 	}
 	if p.unit == "" {
 		return fmt.Errorf("installer: no existing Zoomies deployment was found; run on the installed host, or pass --config-dir for its deployment record")
@@ -514,8 +561,16 @@ func (p *upgradePlan) composeArgv(args ...string) (string, []string) {
 }
 
 func (p *upgradePlan) pullRunnerImages(ctx context.Context) error {
-	if p.opts.DockerHost == "" && !p.record.Deployment.Containerised() {
-		return nil
+	if !p.record.Deployment.Containerised() && p.opts.DockerHost == "" {
+		s := p.settings(ctx)
+		runsAgent := p.unit == UnitAgent || len(p.nativeUnits) > 1 || s.cfg.Agent.Embedded
+		if !runsAgent || (s.cfg.Agent.Backend != "docker" && s.cfg.Agent.Backend != "podman") {
+			return nil
+		}
+		p.opts.DockerHost = s.cfg.Agent.DockerHost
+		if s.cfg.Agent.Backend == "podman" {
+			p.opts.Runtime = "podman"
+		}
 	}
 	images, err := p.docker(ctx, "image", "ls", "--format", "{{.Repository}}:{{.Tag}}")
 	if err != nil {
@@ -524,13 +579,15 @@ func (p *upgradePlan) pullRunnerImages(ctx context.Context) error {
 	seen := map[string]bool{}
 	var stock []string
 	for _, image := range strings.Fields(images) {
-		if !strings.HasPrefix(image, "ghcr.io/eyupio/zoomies-runner") || strings.HasSuffix(image, ":<none>") || seen[image] {
+		repo, _, _ := naming.SplitImage(image)
+		if (repo != naming.RunnerImageRepo && repo != "ghcr.io/eyupio/zoomies-runner-docker" && repo != naming.RunnerFullImageRepo) || strings.HasSuffix(image, ":<none>") || seen[image] {
 			continue
 		}
 		seen[image] = true
 		stock = append(stock, image)
 	}
 	if len(stock) == 0 {
+		PaletteFor(p.opts.Out).Hint(p.opts.Out, "No cached stock runner images to refresh")
 		return nil
 	}
 	PaletteFor(p.opts.Out).Doing(p.opts.Out, "Refreshing %d runner image(s) for future jobs; running runners keep theirs", len(stock))
@@ -539,6 +596,7 @@ func (p *upgradePlan) pullRunnerImages(ctx context.Context) error {
 			return fmt.Errorf("pull %s; the deployment has not been restarted: %w", image, err)
 		}
 	}
+	PaletteFor(p.opts.Out).Done(p.opts.Out, "Runner images refreshed for future jobs")
 	return nil
 }
 
@@ -580,7 +638,7 @@ func replaceEnvImage(path, image string) ([]byte, os.FileMode, error) {
 }
 
 func (p *upgradePlan) upgradeCompose(ctx context.Context) error {
-	fmt.Fprintln(p.opts.Out, "Pulling "+p.image)
+	PaletteFor(p.opts.Out).Doing(p.opts.Out, "Updating service image %s", p.image)
 	if _, err := p.compose(ctx, "pull", "zoomies"); err != nil {
 		return err
 	}
@@ -631,7 +689,7 @@ func (p *upgradePlan) upgradeCompose(ctx context.Context) error {
 }
 
 func (p *upgradePlan) upgradeDocker(ctx context.Context) error {
-	fmt.Fprintln(p.opts.Out, "Pulling "+p.image)
+	PaletteFor(p.opts.Out).Doing(p.opts.Out, "Updating service image %s", p.image)
 	if _, err := p.docker(ctx, "pull", p.image); err != nil {
 		return err
 	}

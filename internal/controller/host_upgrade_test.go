@@ -26,7 +26,7 @@ func TestHostUpgradeCommandsMatchTheControllerWithoutDowngradingAheadAgents(t *t
 				if cmd != "" {
 					t.Fatalf("unexpected command %q", cmd)
 				}
-			} else if !strings.Contains(cmd, tt.want) || !strings.Contains(cmd, "--upgrade --mode agent") {
+			} else if !strings.Contains(cmd, tt.want) || !strings.Contains(cmd, "zoomies upgrade --mode agent") {
 				t.Fatalf("command %q", cmd)
 			}
 			if strings.Contains(cmd, "join-token") {

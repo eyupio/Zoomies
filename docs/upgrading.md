@@ -8,16 +8,40 @@ description: >-
 
 # Upgrading
 
-Run the installer with `--upgrade` to update an existing deployment:
+Use one command on the installed host:
+
+```sh
+sudo zoomies upgrade
+```
+
+It checks the existing deployment, downloads and verifies the new binary,
+refreshes cached stock runner images, updates the controller or agent service,
+and checks the result. Native hosts with both controller and agent services
+upgrade both when they share the installed binary. An active native host-health
+reporter using that binary is restarted too. Use `--mode controller` or
+`--mode agent` to select one service explicitly.
+
+The terminal shows four short stages: **Binary**, **Deployment**, **Verify**
+and **Host health**, followed by the upgrade result. Host health is read-only
+and never opens a tuning menu. Run `zoomies doctor` afterwards to review
+warnings, or `sudo zoomies tune` to review individual fixes. Upgrade approval,
+including `--yes`, does not approve OS tuning.
+
+`zoomies update` and `zoomies deployment update` remain compatibility aliases
+for the same complete flow. They now include the binary update. Use
+`--no-download` when you deliberately want to apply the installed binary.
+A failed download stops the upgrade and gives a retry command; it does not
+silently continue with an older executable.
+
+The one-line installer remains available for older installations:
 
 ```sh
 curl -fsSL https://zoomies.sh/install.sh | sh -s -- --upgrade
 ```
 
-It downloads and verifies the new binary, checks the existing deployment before
-replacing the binary, then restarts its native service or updates its Compose
-or Docker container. The first controller start applies any schema migrations.
-It does not run setup again or ask a host to redeem a new join token.
+The first controller start applies schema migrations. Upgrade does not run
+setup again or require a new join token. Each remote host is upgraded locally;
+a controller upgrade does not remotely replace binaries across the fleet.
 
 For a **remote agent**, copy the upgrade command from its card on **Hosts**.
 That command targets the controller's published version instead of blindly
@@ -28,7 +52,7 @@ than the controller by the time you run the command.
 
 The upgrade keeps configuration, credentials, host identity, data volumes,
 ports and runtime options. It refreshes locally cached stock runner images
-under their existing tags, including Docker-enabled variants; running runners
+under their existing tags, including Docker-enabled and full variants; running runners
 keep their current images. It does not retag a pool's pinned or custom image.
 A custom **service** image needs an explicit `--image <reference>`.
 
@@ -57,7 +81,7 @@ provisioning runners to finish starting, then upgrade and uncordon it.
 Existing running jobs can continue throughout.
 
 For a custom installation, pass `--config-dir <directory>` and, where needed,
-`--prefix <binary-directory>`. Upgrade uses `deployment.json` for container
+`--installed-binary <path>` (`--prefix <binary-directory>` for `install.sh`). Upgrade uses `deployment.json` for container
 installs and the existing systemd or launchd service for native ones. It
 refuses an unrecognised deployment instead of guessing at a replacement.
 
@@ -139,7 +163,7 @@ anything and says so. `--check` lists what the real run will offer and adds
 none of it.
 
 `zoomies upgrade --check` checks the existing deployment without modifying it.
-`zoomies update` is its shorter alias and accepts the same flags. Both commands
+`zoomies update` is a compatibility alias and accepts the same flags. Both commands
 fetch the newest release (or the rolling `dev` build, for a host running one),
 verify its checksum, replace the installed binary and carry on in the new one,
 so a host upgraded this way gets the new release's checks and prompts too. They
@@ -713,7 +737,7 @@ well as the controller to receive autonomous host-cleanup confirmations.
 
 ## Host health after an upgrade
 
-Upgrades run read-only doctor checks and point to `zoomies tune` when new
-warnings appear. They never apply OS tuning, including with `--yes`. Container
+Upgrades finish with a read-only host health summary and point to `zoomies
+doctor` when warnings appear. They never apply OS tuning, including with `--yes`. Container
 deployments are offered a native read-only health service through the existing
 layout review; approval is required to add it. See [Host health and tuning](host-health.md).
