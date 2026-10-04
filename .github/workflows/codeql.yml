@@ -19,6 +19,7 @@ on:
       - "**.html"
       - ".github/workflows/codeql.yml"
   pull_request:
+    types: [opened, synchronize, reopened, closed]
     paths:
       - "**.go"
       - "go.mod"
@@ -36,9 +37,18 @@ on:
 permissions:
   contents: read
 
+# A pull request's analysis is replaced by a newer push and dropped when the
+# pull request is closed or merged: closing starts a run that takes over the
+# pull request's group, cancels the analysis still going, and skips the job.
+# Main's runs and the weekly one are never cancelled. ci.yml says why.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   analyze:
     name: CodeQL (${{ matrix.language }})
+    if: github.event.action != 'closed'
     # GitHub's runner, not the fleet's. A fleet slot is a 2-core, 4 GB runner
     # whose cgroup gives CodeQL under 2 GB, and both analyses outgrew it: the
     # JavaScript queries stop with "CodeQL is out of memory" and the traced Go

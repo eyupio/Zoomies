@@ -153,6 +153,16 @@ the UI or `deploy/` — so a documentation merge leaves `--version dev` where it
 was. A manual dispatch runs everything. CodeQL, govulncheck, the fuzz targets
 and Scorecard run only when their own inputs change, and weekly regardless.
 
+A pull request's checks stop when the pull request does. Pushing to it replaces
+the run in flight, and closing or merging it starts a run that takes over the
+pull request's concurrency group, cancels the one still going and skips every
+job — so a merged pull request does not keep its fleet slots while the commit
+on `main` queues behind them. Only a pull request is ever cancelled: runs on
+`main` queue instead, because they publish the dev channel. A new workflow that
+runs on `pull_request` needs the same three parts, and `internal/docs` fails
+without them: the `closed` type, the shared group, and a
+`github.event.action != 'closed'` guard leading every job's condition.
+
 ## Commit and open a pull request
 
 Use clear, imperative commit subjects:

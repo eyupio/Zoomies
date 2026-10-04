@@ -31,6 +31,15 @@ has a CI job that diffs them:
   in a comment, and a workflow with more than one job grants no `write`
   permission at the top. Both are tested in `internal/docs`; Dependabot moves a
   pin and its comment together, and a new action gets the same treatment.
+* A workflow that runs on `pull_request` lists `closed` among its types, groups
+  its concurrency by pull-request number with `cancel-in-progress` true for
+  pull requests only, and leads every job's condition with
+  `github.event.action != 'closed'` — inside parentheses around any `||` the
+  condition already had. Closing or merging a pull request starts a run whose
+  only purpose is to take over the group and cancel the one in flight, so
+  nothing may start for it. `internal/docs` tests all of it;
+  `cancel-merged-checks.yml` is the one exemption, because it is the closed
+  handler and a guard on its job would switch it off.
 * `mkdocs build --strict` — a docs link that points nowhere fails the build. The
   site workflow also checks that `sitemap.xml` and `llms.txt` came out of it,
   both generated (by `overrides/sitemap.xml` and `hooks/seo.py`) rather than

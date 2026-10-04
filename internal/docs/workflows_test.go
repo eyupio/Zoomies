@@ -4,8 +4,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"sort"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 const workflowDir = "../../.github/workflows"
@@ -404,9 +408,221 @@ func TestMainPublishesAnInstallableDevBinary(t *testing.T) {
 
 func TestMainPublishingRunsCannotCancelOneAnother(t *testing.T) {
 	ci := workflowFiles(t)["ci.yml"]
-	want := "cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}"
+	// Only a pull request is ever cancelled. Main's push, a dispatch and the
+	// recovery run all publish, so none of them may be the one that is replaced.
+	want := "cancel-in-progress: ${{ github.event_name == 'pull_request' }}"
 	if !strings.Contains(ci, want) {
 		t.Fatalf("ci.yml is missing %q; a newer main run can cancel the publisher and leave :dev stale", want)
+	}
+}
+
+// A pull request's checks have to stop when the pull request does.
+//
+// Closing or merging one used to cancel nothing by itself: its checks run on
+// refs/pull/N/merge and main's on refs/heads/main, so no run ever arrived in the
+// group they were holding, and a merged pull request kept its fleet slots while
+// the commit it had become queued behind them. The fix is a `closed` run that
+// takes over the pull request's group and then does nothing, and each part of it
+// is a line somebody could drop as tidying: the event, the group keyed on the
+// pull request, the expression that cancels only a pull request, and the guard
+// on every job.
+//
+// cancel-merged-checks.yml is the closed handler itself, so a guard on its job
+// would switch it off.
+func TestAClosedPullRequestStopsItsOwnChecksAndStartsNothing(t *testing.T) {
+	handlers := map[string]bool{"cancel-merged-checks.yml": true}
+	const (
+		wantGroup  = "${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}"
+		wantCancel = "${{ github.event_name == 'pull_request' }}"
+	)
+	type workflow struct {
+		On          yaml.Node `yaml:"on"`
+		Concurrency struct {
+			Group            string `yaml:"group"`
+			CancelInProgress string `yaml:"cancel-in-progress"`
+		} `yaml:"concurrency"`
+		Jobs map[string]struct {
+			If string `yaml:"if"`
+		} `yaml:"jobs"`
+	}
+
+	files := workflowFiles(t)
+	names := make([]string, 0, len(files))
+	for name := range files {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	var checked int
+	for _, name := range names {
+		var wf workflow
+		if err := yaml.Unmarshal([]byte(files[name]), &wf); err != nil {
+			t.Errorf("parsing %s: %v", name, err)
+			continue
+		}
+		types, runsOnPullRequests := pullRequestTypes(wf.On)
+		if !runsOnPullRequests || handlers[name] {
+			continue
+		}
+		checked++
+
+		for _, want := range []string{"opened", "synchronize", "reopened", "closed"} {
+			if !slices.Contains(types, want) {
+				t.Errorf("%s: pull_request does not list %q, so closing or merging a pull request cannot cancel its checks "+
+					"(listing types replaces GitHub's defaults, which are opened, synchronize and reopened)", name, want)
+			}
+		}
+		if wf.Concurrency.Group != wantGroup {
+			t.Errorf("%s: concurrency group is %q, want %q; a group keyed on anything else is one the closed run does not join",
+				name, wf.Concurrency.Group, wantGroup)
+		}
+		if wf.Concurrency.CancelInProgress != wantCancel {
+			t.Errorf("%s: cancel-in-progress is %q, want %q; anything else cancels a run on main, which may be publishing, "+
+				"or fails to cancel the pull request's", name, wf.Concurrency.CancelInProgress, wantCancel)
+		}
+		for id, job := range wf.Jobs {
+			if problem := closedGuardProblem(job.If); problem != "" {
+				t.Errorf("%s: job %s %s", name, id, problem)
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no workflow runs on pull_request; this test is looking at the wrong thing")
+	}
+}
+
+// pullRequestTypes reads a workflow's `on:` and says whether it runs on
+// pull_request, and for which activity types if it says.
+func pullRequestTypes(on yaml.Node) (types []string, found bool) {
+	switch on.Kind {
+	case yaml.MappingNode:
+		for i := 0; i+1 < len(on.Content); i += 2 {
+			if on.Content[i].Value != "pull_request" {
+				continue
+			}
+			var trigger struct {
+				Types []string `yaml:"types"`
+			}
+			// A trigger written with no value is null, which decodes to nothing.
+			_ = on.Content[i+1].Decode(&trigger)
+			return trigger.Types, true
+		}
+	case yaml.SequenceNode:
+		for _, n := range on.Content {
+			if n.Value == "pull_request" {
+				return nil, true
+			}
+		}
+	case yaml.ScalarNode:
+		return nil, on.Value == "pull_request"
+	}
+	return nil, false
+}
+
+// closedGuard is what keeps the run a closed pull request starts from starting
+// anything: the closed event exists only to cancel the run in flight.
+const closedGuard = "github.event.action != 'closed'"
+
+// closedGuardProblem says what is wrong with a job's condition, or returns
+// nothing when the guard covers the whole of it.
+func closedGuardProblem(cond string) string {
+	c := strings.TrimSpace(cond)
+	if c == "" {
+		return "has no condition, so a closed pull request starts it"
+	}
+	c = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(c, "${{"), "}}"))
+	// A status function may lead. It has to: GitHub skips a job whose
+	// dependency was skipped only when the condition has none, so a job that
+	// begins !cancelled() is the one that would run on a closed event's skipped
+	// `changes`.
+	c = strings.TrimPrefix(c, "!cancelled() && ")
+	rest, ok := strings.CutPrefix(c, closedGuard)
+	if !ok || (rest != "" && !strings.HasPrefix(rest, " && ")) {
+		return "does not lead with " + closedGuard + ", so a closed pull request can start it"
+	}
+	// && binds tighter than ||, so `guard && a || b` is `(guard && a) || b` and
+	// still runs the job when b holds.
+	if hasTopLevelOr(rest) {
+		return "has an || outside parentheses, so the guard covers only the operand before it"
+	}
+	return ""
+}
+
+// hasTopLevelOr reports whether an expression has an || outside every
+// parenthesis and every string literal.
+func hasTopLevelOr(expr string) bool {
+	depth, quoted := 0, false
+	for i := 0; i < len(expr); i++ {
+		switch ch := expr[i]; {
+		case ch == '\'':
+			// An escaped quote inside a literal is two of them, which toggles
+			// twice and leaves the state where it was.
+			quoted = !quoted
+		case quoted:
+		case ch == '(':
+			depth++
+		case ch == ')':
+			depth--
+		case ch == '|' && depth == 0 && i+1 < len(expr) && expr[i+1] == '|':
+			return true
+		}
+	}
+	return false
+}
+
+// The check above is only as good as its reading of a condition, and the two
+// mistakes it exists for look fine at a glance.
+func TestTheClosedGuardCheckRejectsAGuardThatDoesNotCoverTheJob(t *testing.T) {
+	for _, tc := range []struct {
+		name, cond string
+		ok         bool
+	}{
+		{"a bare guard", "github.event.action != 'closed'", true},
+		{"a guard and a condition", "github.event.action != 'closed' && needs.changes.outputs.go == 'true'", true},
+		{"an || under parentheses", "github.event.action != 'closed' && (needs.changes.outputs.go == 'true' || needs.changes.outputs.web == 'true')", true},
+		{"a status function in the expression syntax",
+			"${{ !cancelled() && github.event.action != 'closed' && (github.event_name == 'pull_request' || github.ref != 'refs/heads/main') && !contains(needs.*.result, 'failure') }}", true},
+		{"no condition", "", false},
+		{"no guard", "needs.changes.outputs.go == 'true'", false},
+		{"a guard that is not first", "needs.changes.outputs.go == 'true' && github.event.action != 'closed'", false},
+		{"the || the guard does not cover", "github.event.action != 'closed' && needs.changes.outputs.go == 'true' || needs.changes.outputs.web == 'true'", false},
+		{"a status function and no guard", "${{ !cancelled() && needs.images.outputs.publish == 'true' }}", false},
+		{"a parenthesis inside a literal", "github.event.action != 'closed' && github.head_ref != '(' || github.ref != 'x'", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := closedGuardProblem(tc.cond) == ""; got != tc.ok {
+				t.Errorf("closedGuardProblem(%q) accepted = %v, want %v", tc.cond, got, tc.ok)
+			}
+		})
+	}
+}
+
+// Nothing that releases or deploys may be cancelled by the run that follows it.
+//
+// A cancelled release leaves a tag with half its assets, and a cancelled Pages
+// deployment leaves the site on the one before. Neither workflow has a newer
+// run to blame for that, so neither is allowed to be told to cancel one.
+func TestReleasesAndDeploysAreNeverCancelled(t *testing.T) {
+	files := workflowFiles(t)
+	if release := files["release.yml"]; strings.Contains(release, "cancel-in-progress: true") {
+		t.Error("release.yml cancels in-progress runs; a cancelled release can leave a tag with half its assets")
+	}
+	var docs struct {
+		Jobs map[string]struct {
+			Concurrency struct {
+				Group            string `yaml:"group"`
+				CancelInProgress string `yaml:"cancel-in-progress"`
+			} `yaml:"concurrency"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(files["docs.yml"]), &docs); err != nil {
+		t.Fatalf("parsing docs.yml: %v", err)
+	}
+	deploy := docs.Jobs["deploy"].Concurrency
+	if deploy.Group != "pages" || deploy.CancelInProgress != "false" {
+		t.Errorf("docs.yml's deploy job has concurrency group %q with cancel-in-progress %q, want pages and false; "+
+			"Pages takes one deployment at a time and a cancelled one leaves the site on the version before",
+			deploy.Group, deploy.CancelInProgress)
 	}
 }
 
@@ -486,7 +702,7 @@ func TestCIDogfoodsZoomiesWithRecoveryForEveryJob(t *testing.T) {
 	if strings.Contains(ci, "useblacksmith/") {
 		t.Error("CI still depends on Blacksmith-specific builders")
 	}
-	if !strings.Contains(ci, "if: ${{ !cancelled() && (github.event_name == 'pull_request'") {
+	if !strings.Contains(ci, "if: ${{ !cancelled() && github.event.action != 'closed' && (github.event_name == 'pull_request'") {
 		t.Error("Images must respect cancellation while allowing skipped PR publishing dependencies")
 	}
 }
