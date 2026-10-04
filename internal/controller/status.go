@@ -276,6 +276,7 @@ var publicSentences = map[string]string{
 	"pool.runners_failing":                          "Runners are failing to start, so jobs are waiting longer than usual.",
 	"pool.size_strands_hosts":                       "Runners are sized larger than some machines can hold, so those machines stay idle.",
 	"pool.size_unlimited":                           "Some runners have no size limit, so one job can slow the others on its machine.",
+	"pool.tmpfs_host_off":                           "Some machines keep runners' working files on disk by choice, so runners placed there are not sped up.",
 	"pool.tmpfs_memory_tight":                       "Some runners could run out of memory because the working space they keep in memory takes much of their limit.",
 	"pool.tmpfs_suggested":                          "Jobs on some runners are slow and their machines have spare memory, so keeping working files in memory could speed them up.",
 	"pool.tmpfs_unsupported":                        "Some machines cannot keep runners' working files in memory, so those runners use disk as before.",

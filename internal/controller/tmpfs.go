@@ -133,7 +133,9 @@ func heldWithoutTmpfs(p *store.Pool, hosts []PoolHostRoom) (Problem, bool) {
 	}
 	var names []string
 	for _, h := range hosts {
-		if !h.Tmpfs {
+		// A host whose operator turned the folders off is not running an old agent
+		// as far as the pool is concerned: that is its own, deliberate, answer.
+		if !h.Tmpfs && !h.TmpfsOff {
 			names = append(names, h.Host)
 		}
 	}
@@ -154,6 +156,41 @@ func heldWithoutTmpfs(p *store.Pool, hosts []PoolHostRoom) (Problem, bool) {
 			"and nothing on the pool says which of its runners that happened to.",
 		Fix: "upgrade the agent on those hosts -- the command is on each host's card under Hosts -- " +
 			"or point the pool at other hosts with its host selector until they are.",
+		TargetKind: "pool",
+		TargetID:   p.ID,
+	}, true
+}
+
+// keptOnDiskByHost names the hosts where an operator has turned in-memory
+// folders off.
+//
+// It is information and not a warning: a machine's owner knows how much memory
+// it has and the pool's does not, so the host having the last word is the design,
+// not a mistake. It is said anyway, where the pool is saved, because a pool that
+// asks for folders in memory and is placed on such a host runs there exactly as
+// it always did, and nothing on the pool says which of its runners that was.
+func keptOnDiskByHost(p *store.Pool, hosts []PoolHostRoom) (Problem, bool) {
+	if !p.Tmpfs.Any() {
+		return Problem{}, false
+	}
+	var names []string
+	for _, h := range hosts {
+		if h.TmpfsOff {
+			names = append(names, h.Host)
+		}
+	}
+	if len(names) == 0 {
+		return Problem{}, false
+	}
+	return Problem{
+		Code:     "pool.tmpfs_host_off",
+		Severity: config.SeverityInfo,
+		Title: fmt.Sprintf("pool %s: %s keep in-memory folders off", p.Name,
+			plural(len(names), "host")),
+		Detail: "an operator turned in-memory folders off in the runner profile of " + strings.Join(names, ", ") +
+			", so a runner of this pool placed there has its folders on disk, as it would with the setting off.",
+		Fix: "nothing, if that is what the host's owner meant. To use memory there, clear \"Keep in-memory folders off this machine\" under Runner sizes on the host's card " +
+			"-- or run zoomies hosts edit with --tmpfs-off=false -- or point this pool at other hosts with its host selector.",
 		TargetKind: "pool",
 		TargetID:   p.ID,
 	}, true
@@ -217,7 +254,9 @@ func (c *Controller) tmpfsAdviceProblems(ctx context.Context, out *[]Problem) er
 	now := c.Now()
 	var bound []*store.Host
 	for _, h := range hosts {
-		if h.Cordoned || h.Incompatible || !h.Usage.DiskBound(now) {
+		// A host whose operator turned the folders off cannot be helped by a
+		// suggestion to use them.
+		if h.Cordoned || h.Incompatible || h.RunnerProfile.Tmpfs.Disabled || !h.Usage.DiskBound(now) {
 			continue
 		}
 		bound = append(bound, h)
@@ -245,8 +284,14 @@ func (c *Controller) tmpfsAdviceProblems(ctx context.Context, out *[]Problem) er
 			if ran[[2]string{p.ID, h.ID}] < tmpfsAdviceMinJobs {
 				continue
 			}
+			// What the folder needs from this host is what it would be given here, which
+			// the host's own ceiling may lower.
+			need := room.ReserveMB()
+			if ceiling := h.RunnerProfile.Tmpfs.MaxMB; ceiling > 0 {
+				need = min(need, ceiling)
+			}
 			avail := h.Usage.MemoryAvailableMB
-			if avail == nil || *avail-h.MemoryReserve() < room.ReserveMB() {
+			if avail == nil || *avail-h.MemoryReserve() < need {
 				continue
 			}
 			names = append(names, h.Name)

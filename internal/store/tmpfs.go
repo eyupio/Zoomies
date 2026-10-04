@@ -177,6 +177,46 @@ func (c TmpfsConfig) Sizes(capMB int64) (workMB, tmpMB int64) {
 	return workMB, tmpMB
 }
 
+// HostTmpfs is a host's say over a pool's in-memory folders: some machines have
+// memory to spare for them and some do not, and the pool, which is one setting
+// for every host it lands on, cannot know which is which.
+//
+// It belongs to the host's runner profile, beside how big a runner is there,
+// because it is the same kind of answer -- what a runner on this machine is
+// built like -- and the operator's alone: an agent reports what it measures and
+// never writes it. Zero is "not said", which leaves the pool's setting as it
+// stands, so a host that says nothing changes nothing.
+type HostTmpfs struct {
+	// Disabled keeps every in-memory folder off this host, whatever a pool asks
+	// for: its runners use disk, as they did before the setting existed. It is
+	// for a machine with less memory than the pools that land on it assume.
+	Disabled bool `json:"disabled,omitempty"`
+	// MaxMB is the most any single in-memory folder may be on this host, applied
+	// after a pool's own size is fitted to the runner's limit. Zero is no host
+	// ceiling. A pool's size can lower it and never raise it, so a machine's
+	// owner has the last word on how much of it a folder may take.
+	MaxMB int64 `json:"max_mb,omitempty"`
+}
+
+// Apply is the configuration a runner on this host is created with, and the
+// ceiling its agent applies to each folder after fitting it to the runner's
+// limit. A disabled host gets no folders, and no ceiling, since there is
+// nothing to cap.
+func (h HostTmpfs) Apply(c TmpfsConfig) (TmpfsConfig, int64) {
+	if h.Disabled {
+		return TmpfsConfig{}, 0
+	}
+	return c, h.MaxMB
+}
+
+// Cap lowers a folder's size to the host's ceiling, if it has one.
+func Cap(sizeMB, maxMB int64) int64 {
+	if maxMB > 0 && sizeMB > maxMB {
+		return maxMB
+	}
+	return sizeMB
+}
+
 // Validate checks the configuration against the pool's memory limit (zero is
 // none). It refuses what cannot work rather than what is merely unwise: sizes
 // below the floor, and sizes that together take the whole limit, because a

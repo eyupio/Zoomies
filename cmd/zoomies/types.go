@@ -331,6 +331,11 @@ type runnerProfile struct {
 		MemoryMB     int64   `json:"memory_mb,omitempty"`
 		BurstMaxCPUs float64 `json:"burst_max_cpus,omitempty"`
 	} `json:"standard"`
+	// Tmpfs is the host's say over pools' in-memory folders.
+	Tmpfs struct {
+		Disabled bool  `json:"disabled,omitempty"`
+		MaxMB    int64 `json:"max_mb,omitempty"`
+	} `json:"tmpfs"`
 }
 
 type joinTokenItem struct {

@@ -214,3 +214,61 @@ func TestTheImageStoreIsFittedToTheDaemonsOwnHalf(t *testing.T) {
 		t.Errorf("typed pool: sidecar tmpfs = %q, want %q", got, want)
 	}
 }
+
+// The host's ceiling is applied after the folder is fitted to the runner's
+// limit, so it lowers a size however the size was arrived at -- typed, or fitted
+// -- and cannot raise one.
+func TestAHostCeilingLowersEveryInMemoryFolderAndNeverRaisesOne(t *testing.T) {
+	spec := dindTmpfsSpec(store.TmpfsConfig{
+		Work:   store.TmpfsMount{Enabled: true},
+		Tmp:    store.TmpfsMount{Enabled: true, SizeMB: 512},
+		Daemon: store.TmpfsMount{Enabled: true, SizeMB: 6000},
+	})
+	spec.Resources = store.Resources{CPUs: 4, MemoryMB: 32768}
+	spec.TmpfsMaxMB = 2048
+
+	run := buildRunnerConfig(spec, dockerFlavor(), containerOptions{Now: time.Now()})
+	// The fitted default is 4096 and is lowered; the typed 512 is under the ceiling.
+	if got, want := run.HostConfig.Tmpfs[RunnerWorkMount], "size=2048m,rw,nosuid,nodev,mode=1777"; got != want {
+		t.Errorf("work = %q, want %q", got, want)
+	}
+	if got, want := run.HostConfig.Tmpfs[RunnerTmpMount], "size=512m,rw,nosuid,nodev,mode=1777"; got != want {
+		t.Errorf("tmp = %q, want %q", got, want)
+	}
+	side := buildDinDConfig(spec, dockerFlavor(), containerOptions{Now: time.Now(), DinDImage: DefaultDinDImage})
+	if got, want := side.HostConfig.Tmpfs[DaemonStoreMount], "size=2048m,rw,mode=0710"; got != want {
+		t.Errorf("image store = %q, want %q", got, want)
+	}
+
+	// With no ceiling nothing is lowered.
+	spec.TmpfsMaxMB = 0
+	run = buildRunnerConfig(spec, dockerFlavor(), containerOptions{Now: time.Now()})
+	if got, want := run.HostConfig.Tmpfs[RunnerWorkMount], "size=4096m,rw,nosuid,nodev,mode=1777"; got != want {
+		t.Errorf("without a ceiling, work = %q, want %q", got, want)
+	}
+}
+
+// The ceiling travels to the agent in the task, and a spec with none carries no
+// key, so an agent that predates it reads the same document as before.
+func TestTheHostCeilingTravelsInTheSpecAndIsOmittedWhenNone(t *testing.T) {
+	plain, err := json.Marshal(tmpfsSpec(store.TmpfsConfig{Work: store.TmpfsMount{Enabled: true}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(plain), "tmpfs_max_mb") {
+		t.Errorf("a spec with no ceiling carries one: %s", plain)
+	}
+	capped := tmpfsSpec(store.TmpfsConfig{Work: store.TmpfsMount{Enabled: true}})
+	capped.TmpfsMaxMB = 1024
+	body, err := json.Marshal(capped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back Spec
+	if err := json.Unmarshal(body, &back); err != nil {
+		t.Fatal(err)
+	}
+	if back.TmpfsMaxMB != 1024 {
+		t.Errorf("ceiling = %d after the round trip, want 1024", back.TmpfsMaxMB)
+	}
+}

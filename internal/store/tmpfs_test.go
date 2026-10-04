@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -173,5 +174,61 @@ func TestAProposedLimitEndsTheWarningWhenItIsTaken(t *testing.T) {
 	cfg := TmpfsConfig{Work: TmpfsMount{Enabled: true}}
 	if got, want := cfg.RecommendedMemoryMB(6144), int64(6144+4096); got != want {
 		t.Errorf("RecommendedMemoryMB(6144) = %d, want %d", got, want)
+	}
+}
+
+// A host's policy is its owner's last word: off means none, a ceiling lowers a
+// folder and never raises it, and a host that says nothing changes nothing.
+func TestAHostsPolicyLowersAFolderAndNeverRaisesIt(t *testing.T) {
+	pool := TmpfsConfig{Work: TmpfsMount{Enabled: true, SizeMB: 4096}, Daemon: TmpfsMount{Enabled: true}}
+
+	if got, max := (HostTmpfs{}).Apply(pool); got != pool || max != 0 {
+		t.Errorf("a silent host changed the pool's setting: %+v max %d", got, max)
+	}
+	if got, max := (HostTmpfs{Disabled: true, MaxMB: 1024}).Apply(pool); got.Any() || max != 0 {
+		t.Errorf("a disabled host kept %+v with a ceiling of %d", got, max)
+	}
+	if got, max := (HostTmpfs{MaxMB: 2048}).Apply(pool); got != pool || max != 2048 {
+		t.Errorf("a ceiling must leave the setting as it was and hand the agent the number: %+v max %d", got, max)
+	}
+
+	for _, tc := range []struct{ size, max, want int64 }{
+		{4096, 0, 4096},    // no ceiling
+		{4096, 2048, 2048}, // lowered
+		{1024, 2048, 1024}, // never raised
+		{0, 2048, 0},       // a folder that is off stays off
+	} {
+		if got := Cap(tc.size, tc.max); got != tc.want {
+			t.Errorf("Cap(%d, %d) = %d, want %d", tc.size, tc.max, got, tc.want)
+		}
+	}
+}
+
+// The policy is part of the runner profile, so it must survive being stored and
+// read back with the figures beside it, and a profile that says only this is
+// still a profile an operator set.
+func TestAHostsInMemoryPolicyIsStoredWithItsRunnerProfile(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	h := &Host{Name: "builder", Capacity: 2, Backends: StringSlice{"docker"}, Labels: StringMap{}, OS: "linux", Arch: "amd64"}
+	if err := s.CreateHost(ctx, h); err != nil {
+		t.Fatal(err)
+	}
+	profile := RunnerProfile{
+		Standard: RunnerStandard{CPUs: 2, MemoryMB: 8192},
+		Tmpfs:    HostTmpfs{Disabled: true},
+	}
+	if !(RunnerProfile{Tmpfs: HostTmpfs{MaxMB: 512}}).Set() {
+		t.Fatal("a profile that only caps the folders reads as one nobody set")
+	}
+	if err := s.PatchHost(ctx, h.ID, HostChanges{RunnerProfile: &profile}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetHost(ctx, h.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RunnerProfile != profile {
+		t.Fatalf("profile = %+v, want %+v", got.RunnerProfile, profile)
 	}
 }

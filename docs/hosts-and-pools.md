@@ -374,7 +374,7 @@ capacity somebody typed for each. A **runner profile** is what an operator says
 about one host instead — how big a runner is there, and the least it may be —
 and the scheduler places by it.
 
-A profile has two tiers, every field is optional, and a field left out follows
+A profile has two tiers and a policy, every field is optional, and a field left out follows
 the fleet's own setting. A host that has never been given one behaves exactly as
 it did before profiles existed: nothing changes on any host until somebody
 writes one.
@@ -384,6 +384,7 @@ writes one.
 | `minimum.cpus`, `minimum.memory_mb` | The least a runner is given on this host. | `runners.minimum_cpus` and `runners.minimum_memory_mb` |
 | `standard.cpus`, `standard.memory_mb` | The size of one runner here, for a pool that takes its size from the host. It is also what decides how many runners the host takes. | `runners.default_cpus` and `runners.default_memory_mb` |
 | `standard.burst_max_cpus` | The most CPU one runner here may use, its own share and any CPU lent to it together. | no ceiling of the host's |
+| `tmpfs.disabled`, `tmpfs.max_mb` | Whether pools may keep a runner's folders [in memory](#keeping-the-work-folder-in-memory) on this host, and the most any one folder may be. | each pool's own setting |
 
 A profile is set from the host's menu on **Hosts** (*Set runner sizes*), with
 `zoomies hosts edit`, or with `runner_profile` on `PATCH /api/v1/hosts/{id}`,
@@ -582,6 +583,9 @@ orders of magnitude, and the difference in a real build is whatever share of it
 was waiting. Measure one workflow before and after rather than trusting a
 benchmark.
 
+![The Size step of the pool editor with the work folder kept in memory. It names what the folder costs and offers a memory limit of 10 GB that leaves the job the room it has now.](screenshots/pool-size-memory-dark.webp#only-dark){ .zoomies-shot }
+![The Size step of the pool editor with the work folder kept in memory. It names what the folder costs and offers a memory limit of 10 GB that leaves the job the room it has now.](screenshots/pool-size-memory-light.webp#only-light){ .zoomies-shot }
+
 It is **off for every pool** until somebody turns it on, because of what it
 costs. A tmpfs is charged to the runner's own memory limit, so the room a folder
 may fill comes *out of* the limit the pool was sized with for the job; it is not
@@ -669,6 +673,35 @@ a before-and-after run of one real workflow tells you more than any figure.
 - *Tool downloads.* A pool with no tool cache has `setup-python`, `setup-node`
   and the rest unpack into `_work/_tool`, which is in memory and counts against
   the folder's size.
+
+**A host has the last word.** The setting is the pool's, and a pool is one
+setting for every host it lands on — but a fleet has machines with memory to
+spare and machines without, and only the host's owner knows which is which. So a
+host's [runner profile](#runner-profiles-how-big-a-runner-is-on-one-host) can
+say:
+
+- `tmpfs.disabled` — keep every in-memory folder off this machine, whatever a
+  pool asks for. Its runners use disk, as they did before the setting existed.
+- `tmpfs.max_mb` — the most any one folder may be on this machine. It is applied
+  after a pool's size is fitted to the runner's limit, so it lowers a size
+  however the size was arrived at, typed or fitted, and it never raises one. It
+  cannot be combined with `disabled`, because a host that keeps the folders off
+  has nothing to cap, and it is at least 64 MB.
+
+![The Runner sizes dialog for a host, scrolled to In-memory folders, where its owner can keep pools' folders off the machine or cap how large any one may be.](screenshots/host-runner-sizes-dark.webp#only-dark){ .zoomies-shot }
+![The Runner sizes dialog for a host, scrolled to In-memory folders, where its owner can keep pools' folders off the machine or cap how large any one may be.](screenshots/host-runner-sizes-light.webp#only-light){ .zoomies-shot }
+
+Set them under **Runner sizes** on the host's card, with
+`zoomies hosts edit <host> --tmpfs-off` or `--tmpfs-max-mb 2048`, or with
+`runner_profile.tmpfs` on `PATCH /api/v1/hosts/{id}`. A host that says nothing
+changes nothing. The host is read when a runner is created, not when the pass
+begins, so an edit made while GitHub is being asked for the runner's registration
+applies to that runner too; a runner already running keeps its folders as they
+were. The suggestion to turn the setting on skips a host that has it off, and
+judges one with a ceiling against the most a folder could take there. A pool that
+asks for folders in memory and is placed on a host that keeps them off is told so
+as information (`pool.tmpfs_host_off`), because that runner runs on disk and
+nothing on the pool would otherwise say which one.
 
 An agent too old to mount the folders starts the runner on disk, as with the
 setting off. `pool.tmpfs_unsupported` names those hosts where the pool is

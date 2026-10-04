@@ -4594,6 +4594,8 @@ export interface components {
             elastic_cpu?: boolean;
             /** @description Whether this host's agent mounts a pool's in-memory folders. A pool that asks for them is honoured only where it is true; a runner of one placed elsewhere starts on disk. */
             tmpfs?: boolean;
+            /** @description Whether this host's operator turned in-memory folders off in its runner profile. A pool that asks for them is not given them here. Absent where they are allowed. */
+            tmpfs_off?: boolean;
             sizing?: components["schemas"]["PoolHostSizing"];
             /** @description Why the host's runner profile keeps this pool off it, as a sentence about the host with its name left out. Absent where the host can run the pool. */
             excluded?: string;
@@ -6339,6 +6341,18 @@ export interface components {
             minimum?: components["schemas"]["RunnerSize"];
             /** @description The size of one runner here for a pool that takes its size from the host. A pool whose own minimum is above it is not placed here. */
             standard?: components["schemas"]["RunnerStandard"];
+            /** @description The host's say over pools' in-memory folders: whether it keeps them off, and the most any one of them may be here. Absent leaves each pool's own setting as it stands. */
+            tmpfs?: components["schemas"]["HostTmpfs"];
+        };
+        /** @description A host's policy for the in-memory folders pools may ask for. Some machines have memory to spare for them and some do not, and a pool is one setting for every host it lands on, so the host's owner has the last word. */
+        HostTmpfs: {
+            /** @description Keep every in-memory folder off this host, whatever a pool asks for. Its runners use disk, as they did before the setting existed. */
+            disabled?: boolean;
+            /**
+             * Format: int64
+             * @description The most any one in-memory folder may be on this host, in MB (at least 64), applied after a pool's size is fitted to the runner's limit. A pool's size can lower it and never raise it. Zero is no host ceiling; it cannot be combined with `disabled`.
+             */
+            max_mb?: number;
         };
         /** @description One tier of a host's effective profile -- the figure in force on each field and whose it is. */
         EffectiveSize: {

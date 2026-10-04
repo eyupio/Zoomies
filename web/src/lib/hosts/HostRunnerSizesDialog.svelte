@@ -27,8 +27,10 @@
   import { fleet } from '$lib/state/fleet.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
   import Button from '$lib/components/Button.svelte';
+  import Checkbox from '$lib/components/Checkbox.svelte';
   import Dialog from '$lib/components/Dialog.svelte';
   import Field from '$lib/components/Field.svelte';
+  import Input from '$lib/components/Input.svelte';
   import QuantityField from '$lib/components/QuantityField.svelte';
   import { CPU_NOTCHES, MEMORY_NOTCHES, cpuLabel, memoryLabel, withValue } from '$lib/pools/sizing';
   import { CircleCheck, Info, TriangleAlert } from '@lucide/svelte';
@@ -84,6 +86,8 @@
       figures.standardCpus,
       figures.standardMemoryMb,
       figures.burstMaxCpus,
+      figures.tmpfsOff,
+      figures.tmpfsMaxMb,
     ];
     untrack(() => {
       stranding = '';
@@ -419,6 +423,43 @@
           {/snippet}
         </Field>
       </div>
+    </fieldset>
+
+    <fieldset class="group">
+      <legend>In-memory folders</legend>
+      <p class="note-text">
+        A pool can ask to keep a runner's work folder, <code>/tmp</code> or Docker image store in memory
+        instead of on disk. A pool is one setting for every host it lands on, and this host's memory is
+        its owner's to judge, so here you have the last word. A runner already running is not changed.
+      </p>
+      <Checkbox
+        bind:checked={figures.tmpfsOff}
+        label="Keep in-memory folders off this machine"
+        description="Whatever a pool asks for, its runners here keep their folders on disk, as they did before the setting existed. For a machine with less memory than the pools that land on it assume."
+      />
+      {#if !figures.tmpfsOff}
+        <Field
+          label="Largest folder (MB)"
+          error={errors['runner_profile.tmpfs.max_mb'] ?? ''}
+          hint="The most any one in-memory folder may be on this machine, whatever its pool asks for. A pool's size can lower it and never raise it. Empty sets no ceiling of this host's."
+        >
+          {#snippet children({ id, describedBy, invalid: bad })}
+            <Input
+              value={figures.tmpfsMaxMb > 0 ? String(figures.tmpfsMaxMb) : ''}
+              {id}
+              {describedBy}
+              invalid={bad}
+              inputmode="numeric"
+              placeholder="no ceiling"
+              autocomplete="off"
+              oninput={(event) => {
+                const n = Number((event.currentTarget as HTMLInputElement).value.trim());
+                figures.tmpfsMaxMb = Number.isInteger(n) && n > 0 ? n : 0;
+              }}
+            />
+          {/snippet}
+        </Field>
+      {/if}
     </fieldset>
 
     {#if !isUnset(figures)}

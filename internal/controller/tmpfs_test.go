@@ -383,3 +383,135 @@ func TestTheAdviceForADockerInDockerPoolMentionsTheImageStore(t *testing.T) {
 		t.Errorf("a pool with no daemon was told about an image store: %+v", p)
 	}
 }
+
+// A host that has memory to spare and one that has not cannot both be served by
+// one pool setting, so the host has the last word: off keeps its runners on
+// disk, a ceiling lowers every folder, and neither changes what the pool says
+// for the hosts that say nothing.
+func TestAHostHasTheLastWordOnAPoolsInMemoryFolders(t *testing.T) {
+	cases := []struct {
+		name    string
+		profile store.HostTmpfs
+		want    store.TmpfsConfig
+		wantMax int64
+	}{
+		{"a host that says nothing leaves the pool's setting alone", store.HostTmpfs{},
+			store.TmpfsConfig{Work: store.TmpfsMount{Enabled: true}, Tmp: store.TmpfsMount{Enabled: true, SizeMB: 512}}, 0},
+		{"a host with a ceiling hands the agent the pool's setting and the ceiling", store.HostTmpfs{MaxMB: 2048},
+			store.TmpfsConfig{Work: store.TmpfsMount{Enabled: true}, Tmp: store.TmpfsMount{Enabled: true, SizeMB: 512}}, 2048},
+		{"a host that turned them off gets no folders and no ceiling", store.HostTmpfs{Disabled: true}, store.TmpfsConfig{}, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			inst := h.installation()
+			pool := h.pool(inst, "linux-x64")
+			pool.MinRunners = 1
+			pool.Tmpfs = store.TmpfsConfig{Work: store.TmpfsMount{Enabled: true}, Tmp: store.TmpfsMount{Enabled: true, SizeMB: 512}}
+			if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+				t.Fatalf("UpdatePool: %v", err)
+			}
+			host := h.measuredHost("measured", 8, 32768, 4, enforcesEverything)
+			profile := store.RunnerProfile{Tmpfs: tc.profile}
+			if err := h.st.PatchHost(h.ctx, host.ID, store.HostChanges{RunnerProfile: &profile}); err != nil {
+				t.Fatalf("PatchHost: %v", err)
+			}
+
+			if err := h.c.Reconcile(h.ctx); err != nil {
+				t.Fatalf("Reconcile: %v", err)
+			}
+			h.c.lifecycleCalls.Wait()
+			task := h.taskOfKind(host.ID, agent.TaskCreateRunner)
+			if task.Spec == nil {
+				t.Fatal("the create task carries no spec")
+			}
+			if task.Spec.Tmpfs != tc.want || task.Spec.TmpfsMaxMB != tc.wantMax {
+				t.Errorf("spec tmpfs = %+v max %d, want %+v max %d", task.Spec.Tmpfs, task.Spec.TmpfsMaxMB, tc.want, tc.wantMax)
+			}
+		})
+	}
+}
+
+// A pool that keeps nothing in memory is not changed by a host that has a
+// ceiling: the ceiling is a limit on folders, not a setting that creates them.
+func TestAHostCeilingDoesNotTurnOnFoldersThePoolDidNotAskFor(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+	pool.MinRunners = 1
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+	host := h.measuredHost("measured", 8, 32768, 4, enforcesEverything)
+	profile := store.RunnerProfile{Tmpfs: store.HostTmpfs{MaxMB: 1024}}
+	if err := h.st.PatchHost(h.ctx, host.ID, store.HostChanges{RunnerProfile: &profile}); err != nil {
+		t.Fatalf("PatchHost: %v", err)
+	}
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	h.c.lifecycleCalls.Wait()
+	task := h.taskOfKind(host.ID, agent.TaskCreateRunner)
+	if task.Spec == nil || task.Spec.Tmpfs.Any() {
+		t.Errorf("spec tmpfs = %+v, want nothing in memory", task.Spec)
+	}
+}
+
+// A host's owner turning the folders off is a decision, so it is information on
+// the pools that land there and not a warning, and it is not mistaken for an
+// agent too old to mount them.
+func TestAPoolIsToldWhichHostsKeepItsFoldersOnDiskByChoice(t *testing.T) {
+	pool := &store.Pool{Name: "zoomies-ci", Tmpfs: store.TmpfsConfig{Work: store.TmpfsMount{Enabled: true}}}
+	hosts := []PoolHostRoom{
+		{Host: "roomy", Tmpfs: true},
+		{Host: "tight", Tmpfs: true, TmpfsOff: true},
+		{Host: "old-and-off", Tmpfs: false, TmpfsOff: true},
+	}
+	w, ok := keptOnDiskByHost(pool, hosts)
+	if !ok || w.Severity != config.SeverityInfo || w.Code != "pool.tmpfs_host_off" {
+		t.Fatalf("warning = %+v, ok = %v; want information naming the hosts that turned it off", w, ok)
+	}
+	if !strings.Contains(w.Detail, "tight") || !strings.Contains(w.Detail, "old-and-off") || strings.Contains(w.Detail, "roomy") {
+		t.Errorf("detail %q should name exactly the hosts that turned it off", w.Detail)
+	}
+	// The same host is not also reported as an agent that cannot do it.
+	if u, ok := heldWithoutTmpfs(pool, hosts); ok {
+		t.Errorf("a host that turned it off was also called an old agent: %+v", u)
+	}
+	if _, ok := keptOnDiskByHost(&store.Pool{Name: "zoomies-ci"}, hosts); ok {
+		t.Error("a pool with nothing in memory was told about hosts that keep folders off")
+	}
+}
+
+// The suggestion to turn the work folder on is for a pool on a host that could
+// use it, so a host that turned it off is skipped, and one with a ceiling is
+// judged against the most a folder could take there.
+func TestTheAdviceRespectsAHostsOwnPolicy(t *testing.T) {
+	cases := []struct {
+		name    string
+		profile store.HostTmpfs
+		spareMB int64 // memory free beyond the host's own reserve
+		want    bool
+	}{
+		{"a host that turned the folders off is not advised to use them", store.HostTmpfs{Disabled: true}, 20_000, false},
+		{"a host with a small ceiling needs only that much to spare", store.HostTmpfs{MaxMB: 512}, 600, true},
+		{"a host with a ceiling still needs it to spare", store.HostTmpfs{MaxMB: 512}, 100, false},
+		{"a host that says nothing is judged as before", store.HostTmpfs{}, 20_000, true},
+		{"and needs the whole default to spare", store.HostTmpfs{}, 600, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			_, pool, host := h.fleet()
+			profile := store.RunnerProfile{Tmpfs: tc.profile}
+			if err := h.st.PatchHost(h.ctx, host.ID, store.HostChanges{RunnerProfile: &profile}); err != nil {
+				t.Fatal(err)
+			}
+			h.diskBoundHost(host, 25*time.Minute, host.MemoryReserve()+tc.spareMB)
+			h.ranJobs(pool, host, 4)
+			if got := h.problemOrNil("pool.tmpfs_suggested") != nil; got != tc.want {
+				t.Errorf("advised = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

@@ -184,6 +184,7 @@ var problemAudience = map[string]Audience{
 	"pool.runners_failing":                          AudienceFleet,
 	"pool.size_strands_hosts":                       AudienceFleet,
 	"pool.size_unlimited":                           AudienceFleet,
+	"pool.tmpfs_host_off":                           AudienceFleet,
 	"pool.tmpfs_memory_tight":                       AudienceFleet,
 	"pool.tmpfs_suggested":                          AudienceFleet,
 	"pool.tmpfs_unsupported":                        AudienceFleet,

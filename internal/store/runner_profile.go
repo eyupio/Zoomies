@@ -29,6 +29,10 @@ type RunnerProfile struct {
 	// Standard is the size of one runner here for a pool that takes its size
 	// from the host, and what the slot count is derived from.
 	Standard RunnerStandard `json:"standard,omitzero"`
+	// Tmpfs is whether, and how far, a pool may keep a runner's folders in
+	// memory on this host. It is the same kind of answer as the two above -- how
+	// a runner here is built -- and is just as much the operator's.
+	Tmpfs HostTmpfs `json:"tmpfs,omitzero"`
 }
 
 // RunnerSize is a size of runner: how much CPU and memory it has. It is the

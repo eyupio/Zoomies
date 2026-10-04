@@ -63,6 +63,11 @@ type PoolHostRoom struct {
 	// Tmpfs is whether this host's agent mounts a pool's in-memory folders. A
 	// pool that asks for them is honoured only where it is true.
 	Tmpfs bool `json:"tmpfs"`
+	// TmpfsOff is whether this host's operator turned in-memory folders off, in
+	// its runner profile. A pool that asks for them is not given them here, which
+	// is a decision of the host's owner and not a fault, but is not something the
+	// pool's own page can show unless somebody says it.
+	TmpfsOff bool `json:"tmpfs_off,omitempty"`
 	// Sizing is how a runner of this pool is sized here -- its standard, its
 	// floor and its CPU ceiling, each with where it came from -- and Excluded
 	// is the sentence, with ExcludedBy its code, where the host's runner profile
@@ -195,6 +200,7 @@ func poolHostRoom(h *store.Host, p *store.Pool) PoolHostRoom {
 		DiskKnown:      alloc.DiskKnown,
 		ElasticCPU:     h.Supports(agent.FeatureElasticCPU),
 		Tmpfs:          hostSupportsTmpfs(h),
+		TmpfsOff:       h.RunnerProfile.Tmpfs.Disabled,
 	}
 }
 
@@ -261,6 +267,10 @@ func PoolRoomWarnings(p *store.Pool, room PoolRoom) []Problem {
 	}
 
 	if w, ok := heldWithoutTmpfs(p, placeable); ok {
+		out = append(out, w)
+	}
+
+	if w, ok := keptOnDiskByHost(p, placeable); ok {
 		out = append(out, w)
 	}
 

@@ -545,6 +545,20 @@ func (c *Controller) finishCreateRunner(ctx context.Context, inst *store.Install
 	if timeout := c.policy().For(pool).ProvisionTimeout; timeout > 0 {
 		spec.StartBefore = r.CreatedAt.Add(timeout)
 	}
+	// The host's say over in-memory folders, read now rather than when the pass
+	// began: an operator who turned them off while the GitHub call was in flight
+	// meant this runner too. A host that cannot be read gets disk, which is what
+	// it had before the setting existed, rather than the pool's word over a
+	// machine whose owner may have said no.
+	if pool.Tmpfs.Any() {
+		if host, err := c.st.GetHost(ctx, a.HostID); err == nil {
+			spec.Tmpfs, spec.TmpfsMaxMB = host.RunnerProfile.Tmpfs.Apply(pool.Tmpfs)
+		} else {
+			c.log.Warn("could not read the host to apply its in-memory folder policy; creating the runner with its folders on disk",
+				"pool", pool.Name, "host", a.HostID, "error", err)
+			spec.Tmpfs, spec.TmpfsMaxMB = store.TmpfsConfig{}, 0
+		}
+	}
 
 	// Credential minting is deliberately detached from the reconcile pass. In
 	// that gap GitHub may cancel the queued job and the next pass may drain the

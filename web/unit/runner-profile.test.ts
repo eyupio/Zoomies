@@ -25,7 +25,15 @@ test('a stored profile reads back into the form, and an empty one is every figur
       minimum: { cpus: 2, memory_mb: 4096 },
       standard: { cpus: 3, memory_mb: 8192, burst_max_cpus: 6 },
     }),
-    { minCpus: 2, minMemoryMb: 4096, standardCpus: 3, standardMemoryMb: 8192, burstMaxCpus: 6 },
+    {
+      minCpus: 2,
+      minMemoryMb: 4096,
+      standardCpus: 3,
+      standardMemoryMb: 8192,
+      burstMaxCpus: 6,
+      tmpfsOff: false,
+      tmpfsMaxMb: 0,
+    },
   );
 });
 
@@ -46,6 +54,8 @@ test('the request carries only the figures that are set, and {} where none is', 
     standardCpus: 3,
     standardMemoryMb: 8192,
     burstMaxCpus: 6,
+    tmpfsOff: false,
+    tmpfsMaxMb: 0,
   };
   assert.deepEqual(figuresOf(profileBody(full)), full);
   assert.ok(isUnset(NO_FIGURES));
