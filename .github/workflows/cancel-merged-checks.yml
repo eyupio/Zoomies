@@ -5,6 +5,14 @@ name: Cancel Checks For Merged Pull Requests
 # in-progress against the pull request's old head at that point is answering
 # a question nobody will read -- cancel it rather than let it spend a fleet
 # slot or a GitHub-hosted minute on a result the merge already superseded.
+#
+# Those workflows now also cancel their own pull request's run when it closes
+# (the closed event takes over the run's concurrency group), which covers a pull
+# request closed without a merge and a run the group is holding back -- one
+# that is pending, which the queued and in_progress listings below do not
+# return. So this is the backstop for any workflow that does not do that, and
+# for the first merges while it is new. It lists its own run among those it
+# cancels, which ends its loop early.
 
 on:
   pull_request:

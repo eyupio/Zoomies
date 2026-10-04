@@ -240,9 +240,13 @@ age, so these values must not be read as proof of freshness.
 ### When webhooks cannot reach you
 
 If `github.poll_fallback` is on (the default), a poller lists queued jobs on an
-interval and feeds the same code path. The UI's problems drawer says
-plainly when the controller is running on polling alone, because a fleet that
-silently stopped receiving webhooks looks exactly like a quiet fleet.
+interval and feeds the same code path. It records jobs it first finds already
+running on one of the fleet's own runners too, because an idle runner takes a
+job within seconds — far inside the interval — and without a webhook nothing
+else would tell the controller that runner had gone busy. The UI's problems
+drawer says plainly when the controller is running on polling alone, because a
+fleet that silently stopped receiving webhooks looks exactly like a quiet
+fleet.
 
 Both of the poller's decisions are made per installation, and that is
 load-bearing on a controller serving more than one. It skips an installation
@@ -618,7 +622,9 @@ no separate Tailcat binary. It has no browser dependency or shell-budget cost.
 
 AI Context verification runs outside the fleet reconciliation lock. A separate
 bounded loop checks explicitly submitted setup proposals; administrators can
-also recheck existing output. Before admission, the controller verifies setup
+also recheck existing output, or ask GitHub to run the managed workflow when it
+has not caught up (a request that admits nothing: the result still arrives
+through verification). Before admission, the controller verifies setup
 merge, current installation access, repository identity, the trusted default
 branch and exact managed operational files. GitHub reads pin immutable source
 and output commits. A valid publication must have the complete managed output

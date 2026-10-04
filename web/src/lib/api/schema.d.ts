@@ -101,6 +101,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ai-context/repositories/{id}/regenerate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run the managed context workflow now
+         * @description Requires context.configure (admin) or ownership of the repository's installation (context.manage). Verifies the reviewed setup is still intact, then asks GitHub to run the Zoomies AI Context workflow on the trusted branch. It needs the App's Actions write permission. It starts a run and nothing more -- the generated context is admitted by verification (a recheck, or the background check), so this cannot open source access itself.
+         */
+        post: operations["regenerateAIContext"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ai-context/repositories/{id}/setup": {
         parameters: {
             query?: never;
@@ -6144,7 +6164,34 @@ export interface components {
             /** @description What is wrong with the host's shared folder, the one runners' caches are bound from: a containerised agent whose container does not mount it from the host, which keeps no tool cache there. Empty when nothing is. See host.shared_folder_unmounted. */
             shared_folder?: string;
         };
+        HostDoctorResult: {
+            id: string;
+            title: string;
+            /** @enum {string} */
+            tier: "safe" | "aggressive" | "dedicated";
+            /** @enum {string} */
+            status: "ok" | "warn" | "skip" | "error";
+            current: string;
+            recommended: string;
+            rationale: string;
+            reason?: string;
+            actionable: boolean;
+            optional?: boolean;
+        };
+        HostDoctor: {
+            /** @description Host filesystem path inspected for runner disk headroom. */
+            work_dir?: string;
+            /** Format: date-time */
+            checked_at: string;
+            os: string;
+            distro: string;
+            /** @description True when only the container's view could be inspected. */
+            container: boolean;
+            results: components["schemas"]["HostDoctorResult"][];
+            reboot_pending: boolean;
+        };
         Host: {
+            doctor?: components["schemas"]["HostDoctor"];
             usage?: components["schemas"]["HostUsage"];
             /** @description Usage is less than 90 seconds old. Unknown or stale readings retain reservation-based placement. */
             usage_fresh?: boolean;
@@ -6970,6 +7017,7 @@ export interface components {
             heartbeat_interval?: components["schemas"]["Duration"];
         };
         AgentHeartbeatRequest: {
+            doctor?: components["schemas"]["HostDoctor"];
             usage?: components["schemas"]["HostUsage"];
             protocol_version?: number;
             /** @description The agent's configured value */
@@ -7441,6 +7489,32 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    regenerateAIContext: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description GitHub accepted the request to run the workflow; the repository's current verification state */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIContextRepository"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     previewAIContextSetup: {

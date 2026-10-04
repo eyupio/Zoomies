@@ -339,7 +339,7 @@ Still open:
 
 Decision (owner): **Markdown notes per repository.** An assistant publishes versioned Markdown reports, plans or notes about a verified repository over MCP. Publishing needs a separate permission. Notes live in SQLite, are attributed and marked AI-written, are readable by the repository's readers, and are shown as escaped text.
 
-- **Store.** Migration `0068_ai_context_artifacts.sql` adds:
+- **Store.** Migration `0069_ai_context_artifacts.sql` adds (renumbered from 0068 when main shipped `0068_host_doctor.sql`):
   - `ai_context_artifacts`, keyed by (repository, slug, version);
   - `publish` on `ai_context_connection_repositories`.
 

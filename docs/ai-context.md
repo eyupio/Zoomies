@@ -77,7 +77,7 @@ more source than a small bug fix.
 
 Fewer input tokens can reduce usage-based input charges and leave more room
 before a conversation needs to be shortened. Subscription limits, provider
-caching and model pricing determine the practical benefit; a 95% reduction in
+caching and the model's rates determine the practical benefit; a 95% reduction in
 repository context does not mean a 95% reduction in the total bill or total
 tokens.
 

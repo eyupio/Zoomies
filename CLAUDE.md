@@ -86,6 +86,19 @@ Scoped detail lives in subfolder files that Claude Code loads when it works ther
 * [`web/CLAUDE.md`](web/CLAUDE.md) -- the UI: tokens, status colours, no new libraries.
 * [`.github/CLAUDE.md`](.github/CLAUDE.md) -- "Things CI will fail you on": the files CI diffs against their sources.
 
+## Host health and tuning
+
+`internal/hosttune` owns isolated OS checks and consent-based tuning. Doctor is
+read-only unless `--interactive` delegates an explicitly approved fix to tune.
+`zoomies upgrade` and `update` must never call tuning, including with `--yes`.
+Native agents collect health; container installations use the installed native
+binary in `zoomies-host-health.service`, publishing through the shared mount.
+Keep GET host payloads, `host.updated`, OpenAPI and UI types consistent. Tests
+inject all host filesystem/command access; never modify the test machine.
+Tuning state lives separately in `/var/lib/zoomies-host-tune/state.json` and
+must survive uninstall. Never reboot, change CPU mitigations, or restart Docker
+while work can run. See `docs/host-health.md` for consent and reversal rules.
+
 ## Dependencies
 
 Every dependency carries a one-line justification in

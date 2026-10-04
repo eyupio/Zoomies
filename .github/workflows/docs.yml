@@ -16,6 +16,7 @@ on:
       - "install.sh"
       - ".github/workflows/docs.yml"
   pull_request:
+    types: [opened, synchronize, reopened, closed]
     paths:
       - "docs/**"
       - "overrides/**"
@@ -48,8 +49,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  # One group per pull request, and one per ref for everything else. A pull
+  # request's build is replaced by a newer push and dropped when the pull
+  # request closes, as in ci.yml; no other run is ever cancelled. Deployments
+  # only happen from main, so they queue in main's group, and the deploy job
+  # names the Pages group again for itself below.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   refresh-release:
@@ -57,7 +63,7 @@ jobs:
     # A release run belongs to its tag even if checkout selects main. Pages
     # rejects that tag before the deploy job starts, so request a new run whose
     # ref really is main. workflow_dispatch can be triggered by GITHUB_TOKEN.
-    if: github.event_name == 'release' && github.event.repository.has_pages
+    if: github.event.action != 'closed' && github.event_name == 'release' && github.event.repository.has_pages
     runs-on: ubuntu-latest
     permissions:
       actions: write
@@ -71,7 +77,7 @@ jobs:
   build:
     name: Build
     # The main-branch run requested above owns both the build and deployment.
-    if: github.event_name != 'release'
+    if: github.event.action != 'closed' && github.event_name != 'release'
     outputs:
       # The pages this build changed, as an IndexNow payload (hooks/indexnow.py),
       # for the deploy job to submit once they are actually live. Empty when
@@ -181,9 +187,17 @@ jobs:
     name: Deploy
     # Only from main, and only when Pages is enabled. Release events request a
     # main-branch run above; tags and pull requests never enter the environment.
-    if: github.event.repository.has_pages && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: github.event.action != 'closed' && github.event.repository.has_pages && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     needs: build
     runs-on: ${{ inputs.runner == 'github' && 'ubuntu-latest' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Pages takes one deployment at a time, so deployments queue behind one
+    # another here and are never cancelled. This used to be the whole
+    # workflow's group, which also held every pull request's build: one could
+    # sit in the queue ahead of a deployment, and because a newer run takes the
+    # queue's only waiting place it could displace the deployment behind it.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     permissions:
       pages: write
       id-token: write

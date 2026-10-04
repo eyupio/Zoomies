@@ -21,6 +21,8 @@ import (
 // UpgradeOptions selects an existing deployment. Upgrade never enrols a host,
 // generates credentials, or rewrites its configuration from installer defaults.
 type UpgradeOptions struct {
+	// Doctor reports only; it has no tuning path.
+	Doctor     func(context.Context, *config.Config)
 	ConfigDir  string
 	BinaryPath string
 	DockerHost string
@@ -107,6 +109,9 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) error {
 	}
 	p.settleSettings(ctx)
 	if opts.Check {
+		if opts.Doctor != nil {
+			opts.Doctor(ctx, p.settings(ctx).cfg)
+		}
 		fmt.Fprintln(opts.Out, "The existing deployment can be upgraded without running setup again.")
 		return nil
 	}
@@ -146,6 +151,9 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) error {
 	if p.record.Deployment.Containerised() {
 		afterImage := p.localImageID(ctx)
 		reportImage(opts.Out, p.image, beforeImage, afterImage, beforeRunning, p.runningImageID(ctx))
+	}
+	if opts.Doctor != nil {
+		opts.Doctor(ctx, p.settings(ctx).cfg)
 	}
 	fmt.Fprintln(opts.Out, "Upgrade complete. Check the Hosts page for the agent's next heartbeat.")
 	return nil

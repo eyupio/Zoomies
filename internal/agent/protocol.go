@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/eyupio/zoomies/internal/backend"
+	"github.com/eyupio/zoomies/internal/hosttune"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -102,6 +103,7 @@ type JoinResponse struct {
 // HeartbeatRequest is sent on every interval. It carries the agent's own view
 // of its runners so the controller can detect drift without polling.
 type HeartbeatRequest struct {
+	Doctor          *hosttune.Report `json:"doctor,omitempty"`
 	Usage           *store.HostUsage `json:"usage,omitempty"`
 	ProtocolVersion int              `json:"protocol_version"`
 	// Capacity is the agent's configured value, sent for the log and for

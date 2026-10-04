@@ -36,6 +36,7 @@ import (
 	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/github"
+	"github.com/eyupio/zoomies/internal/hosttune"
 	"github.com/eyupio/zoomies/internal/provider"
 	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
@@ -52,6 +53,7 @@ const SeedEnvVar = "ZOOMIES_SEED_DEMO"
 // forgets the event bus should get a working controller rather than a nil
 // dereference three loops later.
 type Options struct {
+	Doctor *hosttune.Monitor
 	// Store is the only writer of persistent state.
 	Store *store.Store
 	// Config is the validated configuration; the controller reads the
@@ -102,7 +104,14 @@ type Options struct {
 
 // Controller owns the control plane's moving parts and their lifecycles.
 type Controller struct {
+	doctor          *hosttune.Monitor
 	aiContextChecks chan struct{}
+	// aiContextRuns remembers, per repository, which commit the controller has
+	// been waiting on the managed workflow for and how often it has started it.
+	// It lives in memory on purpose: forgetting it on a restart costs at most one
+	// extra run, where remembering it would cost a migration.
+	aiContextRunsMu sync.Mutex
+	aiContextRuns   map[string]*aiContextRun
 	// actionsTokens verifies the OIDC tokens Zoomies-only uploads carry, with
 	// one verifier per issuer: GitHub.com's, and each Enterprise Server's own.
 	actionsTokens actionsVerifiers
@@ -404,6 +413,7 @@ func New(opts Options) (*Controller, error) {
 
 	c := &Controller{
 		aiContextChecks:         make(chan struct{}, 1),
+		aiContextRuns:           map[string]*aiContextRun{},
 		actionsTokens:           actionsVerifiers{issuerFor: github.ActionsIssuerFor},
 		st:                      opts.Store,
 		lease:                   opts.Lease,
@@ -413,6 +423,7 @@ func New(opts Options) (*Controller, error) {
 		authsvc:                 authsvc,
 		bus:                     bus,
 		factory:                 factory,
+		doctor:                  opts.Doctor,
 		backends:                opts.Backends,
 		log:                     log,
 		clock:                   clock,

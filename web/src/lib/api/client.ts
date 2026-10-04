@@ -967,6 +967,9 @@ export const createAIContextSetupPR = (id: string, body: Body<'createAIContextSe
 export const recheckAIContext = (id: string) =>
   api.post<Result<'recheckAIContext'>>(`/ai-context/repositories/${enc(id)}/recheck`);
 
+export const regenerateAIContext = (id: string) =>
+  api.post<Result<'regenerateAIContext'>>(`/ai-context/repositories/${enc(id)}/regenerate`);
+
 export const previewAIContextMaintenance = (
   id: string,
   body: Body<'previewAIContextMaintenance'>,

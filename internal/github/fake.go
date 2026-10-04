@@ -54,6 +54,9 @@ type FakeGitHub struct {
 	// answers and forgets, and a test asserting that Zoomies asked GitHub
 	// exactly once needs somewhere to look.
 	reruns int
+	// contextDispatches counts manual runs of a repository's managed AI
+	// Context workflow, keyed by repository and workflow file.
+	contextDispatches map[string]int
 
 	nextJobID     int64
 	nextRunID     int64

@@ -21,6 +21,7 @@ import (
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/controller"
 	"github.com/eyupio/zoomies/internal/cryptox"
+	"github.com/eyupio/zoomies/internal/hosttune"
 	"github.com/eyupio/zoomies/internal/logging"
 	"github.com/eyupio/zoomies/internal/provider"
 	"github.com/eyupio/zoomies/internal/provider/proxmox"
@@ -166,7 +167,11 @@ func runController(ctx context.Context, e *env, args []string) error {
 		return err
 	}
 
+	health := hosttune.LocalOptions(cfg.Agent.WorkDir)
+	health.DockerHost = cfg.Agent.DockerHost
+	health.HostReportPath = filepath.Join(config.SharedDir(), "host-health", "report.json")
 	ctrl, err := controller.New(controller.Options{
+		Doctor:    hosttune.NewMonitor(hosttune.New(health)),
 		Store:     st,
 		Config:    cfg,
 		Key:       key,

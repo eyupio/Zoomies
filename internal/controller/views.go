@@ -13,6 +13,7 @@ import (
 	"github.com/eyupio/zoomies/internal/backend"
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/github"
+	"github.com/eyupio/zoomies/internal/hosttune"
 	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/version"
@@ -57,6 +58,7 @@ type BackendInfoView struct {
 
 // HostView is one agent host and the room it has left.
 type HostView struct {
+	Doctor          *hosttune.Report `json:"doctor,omitempty"`
 	Usage           *store.HostUsage `json:"usage,omitempty"`
 	UsageFresh      bool             `json:"usage_fresh"`
 	AdmissionReason string           `json:"admission_reason,omitempty"`
@@ -205,6 +207,7 @@ type HostView struct {
 // backends it never reported on.
 func (c *Controller) HostView(h *store.Host) HostView {
 	out := HostView{
+		Doctor:             h.Doctor.Report,
 		ID:                 h.ID,
 		Name:               h.Name,
 		Address:            h.Address,

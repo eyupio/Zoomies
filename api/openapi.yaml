@@ -283,6 +283,25 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+  /ai-context/repositories/{id}/regenerate:
+    post:
+      tags: [AI Context]
+      summary: Run the managed context workflow now
+      description: Requires context.configure (admin) or ownership of the repository's installation (context.manage). Verifies the reviewed setup is still intact, then asks GitHub to run the Zoomies AI Context workflow on the trusted branch. It needs the App's Actions write permission. It starts a run and nothing more -- the generated context is admitted by verification (a recheck, or the background check), so this cannot open source access itself.
+      operationId: regenerateAIContext
+      x-zoomies-role: viewer
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "202":
+          description: GitHub accepted the request to run the workflow; the repository's current verification state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIContextRepository" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
   /ai-context/repositories/{id}/setup:
     parameters:
       - $ref: "#/components/parameters/PathID"
@@ -8134,9 +8153,35 @@ components:
             a containerised agent whose container does not mount it from the host, which keeps
             no tool cache there. Empty when nothing is. See host.shared_folder_unmounted.
 
+    HostDoctorResult:
+      type: object
+      required: [id, title, tier, status, current, recommended, rationale, actionable]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        tier: { type: string, enum: [safe, aggressive, dedicated] }
+        status: { type: string, enum: [ok, warn, skip, error] }
+        current: { type: string }
+        recommended: { type: string }
+        rationale: { type: string }
+        reason: { type: string }
+        actionable: { type: boolean }
+        optional: { type: boolean }
+    HostDoctor:
+      type: object
+      required: [checked_at, os, distro, container, results, reboot_pending]
+      properties:
+        work_dir: { type: string, description: Host filesystem path inspected for runner disk headroom. }
+        checked_at: { type: string, format: date-time }
+        os: { type: string }
+        distro: { type: string }
+        container: { type: boolean, description: True when only the container's view could be inspected. }
+        results: { type: array, maxItems: 64, items: { $ref: "#/components/schemas/HostDoctorResult" } }
+        reboot_pending: { type: boolean }
     Host:
       type: object
       properties:
+        doctor: { $ref: "#/components/schemas/HostDoctor" }
         usage: { $ref: "#/components/schemas/HostUsage" }
         usage_fresh: { type: boolean, description: Usage is less than 90 seconds old. Unknown or stale readings retain reservation-based placement. }
         admission_reason: { type: string, description: Why current host pressure is holding new runner starts. Empty when no pressure hold applies. }
@@ -9007,6 +9052,7 @@ components:
     AgentHeartbeatRequest:
       type: object
       properties:
+        doctor: { $ref: "#/components/schemas/HostDoctor" }
         usage: { $ref: "#/components/schemas/HostUsage" }
         protocol_version: { type: integer }
         capacity: { type: integer, description: The agent's configured value, sent for the log. The controller does not write it. }

@@ -170,6 +170,7 @@ nav:
       - Backup and restore: backup-and-restore.md
       - Two-step verification: two-step.md
       - Upgrading: upgrading.md
+      - Host health and tuning: host-health.md
       - Troubleshooting: troubleshooting.md
       - A job stuck in the queue: queued-job.md
   - AI Context for assistants: ai-context.md

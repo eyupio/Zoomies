@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/eyupio/zoomies/internal/backend"
+	"github.com/eyupio/zoomies/internal/hosttune"
 	"github.com/eyupio/zoomies/internal/machine"
 	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/version"
@@ -113,6 +114,8 @@ const (
 
 // Options configures an Agent.
 type Options struct {
+	// Doctor is enabled by production wiring; tests inject a fake or leave it nil.
+	Doctor *hosttune.Monitor
 	// Name is how this host appears in the UI and in `zoomies hosts`.
 	Name string
 	// WorkDir holds the agent's credentials and the runners' scratch space.
@@ -793,6 +796,7 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 	cpus, memoryMB := hostSize(infos, m)
 	total, free := a.workDirSpace()
 	resp, err := a.tr.Heartbeat(hctx, HeartbeatRequest{
+		Doctor:          a.opts.Doctor.Latest(ctx),
 		Usage:           a.hostUsage(infos, cpus, memoryMB),
 		ProtocolVersion: ProtocolVersion,
 		Features:        []string{FeatureElasticCPU, FeatureToolCacheFill},

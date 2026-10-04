@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+    # closed is here so that closing or merging a pull request starts a run of
+    # its own. That run joins the pull request's concurrency group below,
+    # cancels the run still going, and then skips every job.
+    types: [opened, synchronize, reopened, closed]
   workflow_dispatch:
     inputs:
       runner:
@@ -16,12 +20,18 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
-  # A pull request only needs its newest result. Main is also the publisher for
-  # the moving :dev channel, though: cancelling it before Images has pushed can
-  # leave every successful merge unavailable to `zoomies upgrade`. Queue main
-  # runs so the newest one always gets a chance to publish.
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  # One group per pull request, and one per ref for everything else.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # A pull request only needs its newest result, and none at all once it is
+  # closed or merged. Its checks run on refs/pull/N/merge and main's on
+  # refs/heads/main, so the two never shared a group and a merged pull request
+  # kept its fleet slots while the commit it had become queued behind them.
+  #
+  # Only a pull request is ever cancelled. Main is also the publisher for the
+  # moving :dev channel: cancelling it before Images has pushed can leave every
+  # successful merge unavailable to `zoomies upgrade`. Queue main runs so the
+  # newest one always gets a chance to publish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   GO_VERSION: "1.27.1"
@@ -31,6 +41,12 @@ env:
 # manual dispatch with runner=github recovers every job, including image builds.
 # Pin the pool to an already published runner image digest; advance that pin
 # separately after validating new images so builds do not require their output.
+#
+# Every job's condition leads with `github.event.action != 'closed'`. A closed
+# pull request starts a run only to take over the pull request's concurrency
+# group and cancel the run in flight, so nothing may start for it -- including
+# the jobs whose condition begins !cancelled(), which GitHub does not skip just
+# because the job they wait on was skipped.
 jobs:
   # Which jobs a change needs. A docs-only change used to run the whole suite:
   # an hour of the Go packages under the race detector, the Playwright suite,
@@ -56,6 +72,7 @@ jobs:
   # kind of file runs too much rather than too little.
   changes:
     name: What changed
+    if: github.event.action != 'closed'
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     outputs:
       go: ${{ steps.filter.outputs.go }}
@@ -175,7 +192,7 @@ jobs:
   go:
     name: Go (${{ matrix.shard }})
     needs: [changes]
-    if: needs.changes.outputs.shards != '[]'
+    if: github.event.action != 'closed' && needs.changes.outputs.shards != '[]'
     permissions:
       contents: read
     # On the fleet the controller shard takes 45 to 50 minutes when the runner
@@ -286,7 +303,7 @@ jobs:
   ai-context-workflow:
     name: AI Context generator and publication contract
     needs: changes
-    if: needs.changes.outputs.go == 'true'
+    if: github.event.action != 'closed' && needs.changes.outputs.go == 'true'
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     timeout-minutes: 10
     permissions:
@@ -315,7 +332,7 @@ jobs:
   coverage:
     name: Coverage
     needs: [changes, go]
-    if: github.event_name != 'pull_request' && needs.changes.outputs.go == 'true'
+    if: github.event.action != 'closed' && github.event_name != 'pull_request' && needs.changes.outputs.go == 'true'
     permissions:
       contents: read
       id-token: write # Codecov authenticates uploads without a stored secret.
@@ -362,7 +379,7 @@ jobs:
   drill:
     name: Drill
     needs: [changes]
-    if: needs.changes.outputs.go == 'true'
+    if: github.event.action != 'closed' && needs.changes.outputs.go == 'true'
     # The drill uses two local processes and no Docker daemon. Keep it off the
     # project runner pool so a lost runner cannot discard its evidence or block
     # this independent integration check.
@@ -430,7 +447,7 @@ jobs:
     name: Linux arm64
     runs-on: ubuntu-24.04-arm
     needs: [changes]
-    if: needs.changes.outputs.go == 'true'
+    if: github.event.action != 'closed' && needs.changes.outputs.go == 'true'
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -472,7 +489,7 @@ jobs:
     name: Windows
     runs-on: windows-latest
     needs: [changes]
-    if: needs.changes.outputs.go == 'true'
+    if: github.event.action != 'closed' && needs.changes.outputs.go == 'true'
     timeout-minutes: 60
     defaults:
       run:
@@ -504,7 +521,7 @@ jobs:
   upgrade:
     name: Upgrade
     needs: [changes]
-    if: needs.changes.outputs.go == 'true' || needs.changes.outputs.installer == 'true'
+    if: github.event.action != 'closed' && (needs.changes.outputs.go == 'true' || needs.changes.outputs.installer == 'true')
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -563,7 +580,7 @@ jobs:
   staticcheck:
     name: staticcheck
     needs: [changes]
-    if: needs.changes.outputs.go == 'true'
+    if: github.event.action != 'closed' && needs.changes.outputs.go == 'true'
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -582,7 +599,7 @@ jobs:
   ui:
     name: UI
     needs: [changes]
-    if: needs.changes.outputs.go == 'true' || needs.changes.outputs.web == 'true'
+    if: github.event.action != 'closed' && (needs.changes.outputs.go == 'true' || needs.changes.outputs.web == 'true')
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -629,7 +646,7 @@ jobs:
     # The suite drives the real binary, so a Go change can break it as
     # surely as a web one.
     needs: [changes, ui]
-    if: needs.changes.outputs.go == 'true' || needs.changes.outputs.web == 'true'
+    if: github.event.action != 'closed' && (needs.changes.outputs.go == 'true' || needs.changes.outputs.web == 'true')
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -707,7 +724,7 @@ jobs:
     name: Cross-compile
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     needs: [changes, ui]
-    if: needs.changes.outputs.go == 'true'
+    if: github.event.action != 'closed' && needs.changes.outputs.go == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -754,7 +771,7 @@ jobs:
     # waits on are skipped when their inputs did not change, and a skipped job
     # is not a failed one, so the condition says "none failed" rather than
     # leaving GitHub to skip this one because a job it waits on did not run.
-    if: ${{ !cancelled() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')) && needs.changes.outputs.publish == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    if: ${{ !cancelled() && github.event.action != 'closed' && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')) && needs.changes.outputs.publish == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     needs: [changes, go, ui, installer]
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     permissions:
@@ -874,7 +891,7 @@ jobs:
   installer:
     name: install.sh
     needs: [changes]
-    if: needs.changes.outputs.installer == 'true'
+    if: github.event.action != 'closed' && needs.changes.outputs.installer == 'true'
     # Not gated on sudo: a pool running the process backend gives its agent's
     # systemd unit NoNewPrivileges=yes (the job tree hangs off that same
     # process), which makes sudo refuse to escalate, passwordless entry in
@@ -949,7 +966,7 @@ jobs:
     # them whenever it publishes binaries, whatever changed: a Go-only commit
     # still changes the binary inside the controller image, and the dev
     # channel's binaries and images must name the same commit.
-    if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.ref != 'refs/heads/main' || needs.dev-binaries.result == 'success') && (needs.changes.outputs.deploy == 'true' || needs.changes.outputs.publish == 'true') }}
+    if: ${{ !cancelled() && github.event.action != 'closed' && (github.event_name == 'pull_request' || github.ref != 'refs/heads/main' || needs.dev-binaries.result == 'success') && (needs.changes.outputs.deploy == 'true' || needs.changes.outputs.publish == 'true') }}
     # Publishing needs to write packages; everything else here only reads.
     permissions:
       contents: read
@@ -1173,7 +1190,7 @@ jobs:
     name: Runner image (${{ matrix.tag }}, ${{ matrix.arch }})
     runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || (((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64') }}
     needs: [images]
-    if: needs.images.outputs.runner == 'true'
+    if: github.event.action != 'closed' && needs.images.outputs.runner == 'true'
     permissions:
       contents: read
       packages: write
@@ -1518,7 +1535,7 @@ jobs:
     name: Runner image manifests
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
     needs: [images, runner-images]
-    if: ${{ !cancelled() && needs.images.outputs.publish == 'true' && needs.images.outputs.runner == 'true' && needs.runner-images.result != 'skipped' }}
+    if: ${{ !cancelled() && github.event.action != 'closed' && needs.images.outputs.publish == 'true' && needs.images.outputs.runner == 'true' && needs.runner-images.result != 'skipped' }}
     permissions:
       contents: read
       packages: write
