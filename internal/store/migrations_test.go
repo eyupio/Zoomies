@@ -84,6 +84,7 @@ var shippedMigrations = []string{
 	"0070_runner_profiles.sql",
 	"0071_job_granted_size.sql",
 	"0072_pool_tmpfs.sql",
+	"0073_ai_context_workflow_outdated.sql",
 }
 
 // The two prefixes shared by files that already shipped. They sort by what

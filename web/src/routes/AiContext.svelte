@@ -305,26 +305,33 @@
       <section class="repository" aria-label={item.full_name}>
         <div class="heading">
           <h2>{item.full_name}</h2>
-          <Badge
-            status={aiContextStatus(
-              'config' in item
-                ? item.freshness?.state
-                  ? item.freshness.state
-                  : item.available
-                    ? 'available'
-                    : item.setup_state === 'awaiting_merge'
-                      ? 'awaiting_merge'
-                      : item.setup_state === 'pending'
-                        ? 'working'
-                        : 'draft'
-                : 'available',
-            )}
-            label={'config' in item
-              ? item.config.disabled
-                ? 'Removed from Zoomies'
-                : undefined
-              : 'Shared with you'}
-          />
+          <div class="badges">
+            <Badge
+              status={aiContextStatus(
+                'config' in item
+                  ? item.freshness?.state
+                    ? item.freshness.state
+                    : item.available
+                      ? 'available'
+                      : item.setup_state === 'awaiting_merge'
+                        ? 'awaiting_merge'
+                        : item.setup_state === 'pending'
+                          ? 'working'
+                          : 'draft'
+                  : 'available',
+              )}
+              label={'config' in item
+                ? item.config.disabled
+                  ? 'Removed from Zoomies'
+                  : undefined
+                : 'Shared with you'}
+            />
+            {#if 'config' in item && item.workflow_outdated && !item.config.disabled}<Badge
+                tone="accent"
+                label="Workflow out of date"
+                title="The workflow was written by an earlier Zoomies release. It still works; Reinstall / repair moves it to the current generator."
+              />{/if}
+          </div>
         </div>
         {#if 'config' in item}
           <dl>
@@ -396,6 +403,7 @@
               {#each ['reinstall', 'amend', 'remove'] as mode (mode)}
                 <Button
                   size="sm"
+                  variant={mode === 'reinstall' && item.workflow_outdated ? 'primary' : 'secondary'}
                   href="/ai-context/setup?draft_id={encodeURIComponent(item.id)}&mode={mode}"
                   >{mode === 'reinstall'
                     ? 'Reinstall / repair'
@@ -518,6 +526,12 @@
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     font-size: var(--z-text-sm);
+  }
+  .badges {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--z-space-2);
   }
   .verification-failure {
     color: var(--z-danger);

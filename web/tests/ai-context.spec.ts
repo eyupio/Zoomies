@@ -585,3 +585,34 @@ test('a slow note never appears under the title of the one read after it', async
   await expect(page.getByText('SLOW BODY')).toHaveCount(0);
   await expect(page.getByLabel('Fast plan, as written')).toHaveText('FAST BODY');
 });
+
+test('a workflow from an earlier release is badged and offers the repair first', async ({
+  page,
+}) => {
+  const base = {
+    repository: { github_host: 'github.com', installation_id: 'installation', repository_id: 42 },
+    config: { source_branch: 'main', destination: 'both', exclude: [], keep_snapshots: 3 },
+    revision: 1,
+    available: true,
+    setup_state: 'awaiting_merge',
+    setup_pr_url: 'https://github.com/acme/context/pull/1',
+    created_at: '2026-10-03T10:00:00Z',
+    updated_at: '2026-10-03T10:00:00Z',
+  };
+  const items = [
+    { ...base, id: 'aic_old', full_name: 'acme/old', workflow_outdated: true },
+    { ...base, id: 'aic_new', full_name: 'acme/new', workflow_outdated: false },
+  ];
+  await page.route('**/api/v1/ai-context/repositories?*', (route) =>
+    route.fulfill({ json: { items, total: 2, limit: 50, offset: 0 } }),
+  );
+  await goto(page, '/ai-context', 'AI Context');
+  await expect(page.getByText('Workflow out of date', { exact: true })).toHaveCount(1);
+  const old = page.getByRole('region', { name: 'acme/old' });
+  await expect(old.getByText('Workflow out of date', { exact: true })).toBeVisible();
+  await expect(old.getByRole('link', { name: 'Reinstall / repair' })).toHaveClass(/primary/);
+  const current = page.getByRole('region', { name: 'acme/new' });
+  await expect(current.getByRole('link', { name: 'Reinstall / repair' })).not.toHaveClass(
+    /primary/,
+  );
+});

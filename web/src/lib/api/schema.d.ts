@@ -3847,6 +3847,8 @@ export interface components {
             /** @enum {string} */
             setup_state?: "pending" | "awaiting_merge";
             setup_pr_url?: string;
+            /** @description True while the installed workflow is exactly one an earlier release wrote. It still works and is still trusted; Reinstall / repair moves it to the current generator. Set by the last verification that reached the workflow, so it can lag a merge until the next check. */
+            workflow_outdated: boolean;
             available: boolean;
             /** Format: date-time */
             created_at: string;

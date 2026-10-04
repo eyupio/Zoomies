@@ -162,17 +162,22 @@ func (c *Controller) trustedAIContext(ctx context.Context, r *store.AIContextRep
 	for _, file := range source.Files {
 		files[file.Path] = file.Content
 	}
+	outdated := false
 	for _, file := range desired {
 		switch file.Path {
 		case aicontext.ConfigPath, aicontext.WorkflowPath, aicontext.GeneratorPackagePath, aicontext.GeneratorLockPath:
 			if files[file.Path] != file.Content {
 				if file.Path == aicontext.WorkflowPath && aicontext.IsOlderSetupWorkflow(r.Key, r.Config, files[file.Path]) {
+					outdated = true
 					continue
 				}
 				return nil, nil, errAIContextManagedDrifts
 			}
 		}
 	}
+	// Only a verification that got this far knows the answer; a failed one leaves
+	// the last observation standing rather than clearing the badge on a blip.
+	_ = c.st.SetAIContextWorkflowOutdated(ctx, r.ID, outdated)
 	return ingestion, source, nil
 }
 func (c *Controller) RefreshAIContext(ctx context.Context, id string) error {
