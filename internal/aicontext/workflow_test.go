@@ -113,7 +113,10 @@ func TestGeneratorProducesAValidCommitPinnedSnapshotWithRealRepomix(t *testing.T
 	run("git", "config", "user.email", "test@example.org")
 	key, config := setupInputs()
 	cfg, _ := json.Marshal(managedConfig{Manager: "zoomies-ai-context", TemplateVersion: 1, Config: config})
-	for p, c := range map[string]string{"main.go": "package main\n\nfunc main() { println(42) }\n", ".env": "SHOULD_NOT_APPEAR=1\n", "private.key": "excluded key\n", "zoomies-ai-context.config.json": string(cfg), "skip.go": "excluded\n"} {
+	for p, c := range map[string]string{"main.go": "package main\n\nfunc main() { println(42) }\n", ".env": "SHOULD_NOT_APPEAR=1\n", "private.key": "excluded key\n", "zoomies-ai-context.config.json": string(cfg), "skip.go": "excluded\n",
+		// One file over the limit and one the real secret scan withholds: neither
+		// may fail the run, and neither may pass as absent.
+		"big.txt": strings.Repeat("a line of generated text\n", MaxFileBytes/20), "fixture_test.go": "package main\n\nvar origin = \"https://user:pass@example.com\"\n"} {
 		if err := os.WriteFile(filepath.Join(source, p), []byte(c), 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -163,6 +166,22 @@ func TestGeneratorProducesAValidCommitPinnedSnapshotWithRealRepomix(t *testing.T
 	}
 	if !found {
 		t.Fatal("source missing")
+	}
+	reasons := map[string]string{}
+	for _, o := range snapshot.Omitted {
+		reasons[o.Path] = o.Reason
+	}
+	if len(reasons) != 2 || reasons["big.txt"] != OmittedTooLarge || reasons["fixture_test.go"] != OmittedFlagged {
+		t.Fatalf("omitted files: %+v", snapshot.Omitted)
+	}
+	for _, f := range snapshot.Files {
+		if f.Path == "big.txt" || f.Path == "fixture_test.go" || strings.Contains(f.Content, "user:pass") {
+			t.Fatalf("withheld content was carried: %s", f.Path)
+		}
+	}
+	page, err := snapshot.FilePage(strings.Repeat("d", 64), 0, 20, 8000)
+	if err != nil || !strings.Contains(string(page), `"omitted_total":2`) {
+		t.Fatalf("overview page: %s %v", page, err)
 	}
 }
 
