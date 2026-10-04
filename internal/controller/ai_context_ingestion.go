@@ -338,12 +338,14 @@ func (c *Controller) RegenerateAIContext(ctx context.Context, id string) error {
 }
 
 // How long the controller gives a push-triggered run to publish before it starts
-// one itself, how many times it will do that for one commit, and how far apart.
-// The grace covers a normal run (the workflow's own timeout is fifteen minutes
-// for generation); the cap stops a workflow that fails every time from being
-// started for ever.
+// one itself, how many runs it will start for one commit, and how far apart.
+// The grace covers the whole pipeline -- the workflow allows fifteen minutes to
+// generate and ten to publish -- because its concurrency group cancels a run in
+// progress: starting one while a healthy run is still working would throw that
+// run's work away. The cap stops a workflow that fails every time from being
+// started for ever; only a dispatch GitHub accepted counts against it.
 const (
-	aiContextRunGrace    = 10 * time.Minute
+	aiContextRunGrace    = 30 * time.Minute
 	aiContextRunAttempts = 2
 	aiContextRunSpacing  = 30 * time.Minute
 )
@@ -395,8 +397,12 @@ func (c *Controller) SyncAIContext(ctx context.Context, id string, grace time.Du
 		run = &aiContextRun{commit: f.DesiredCommit, since: now}
 		c.aiContextRuns[id] = run
 	}
-	due := now.Sub(run.since) >= grace && run.attempts < aiContextRunAttempts && (run.attempts == 0 || now.Sub(run.lastStart) >= aiContextRunSpacing)
+	due := now.Sub(run.since) >= grace && run.attempts < aiContextRunAttempts && (run.lastStart.IsZero() || now.Sub(run.lastStart) >= aiContextRunSpacing)
 	if due {
+		// Spacing applies to a failed request too, so an outage or a missing
+		// permission is retried every half hour rather than every pass; the count
+		// is given back below, so it never uses up the attempts a working
+		// dispatch would have had.
 		run.attempts++
 		run.lastStart = now
 	}
@@ -405,6 +411,11 @@ func (c *Controller) SyncAIContext(ctx context.Context, id string, grace time.Du
 		return verifyErr
 	}
 	if err := c.RegenerateAIContext(ctx, id); err != nil {
+		c.aiContextRunsMu.Lock()
+		if c.aiContextRuns[id] == run {
+			run.attempts--
+		}
+		c.aiContextRunsMu.Unlock()
 		c.log.Warn("could not start the AI Context workflow", "repository", id, "error", err)
 	}
 	return verifyErr

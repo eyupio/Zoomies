@@ -49,7 +49,11 @@
   let failure = $state<unknown>(null);
   let reload = $state(0);
   let checking = $state<string | null>(null);
-  let checkFailure = $state<{ id: string; cause: unknown } | null>(null);
+  let checkFailure = $state<{
+    id: string;
+    cause: unknown;
+    retry: 'recheck' | 'regenerate';
+  } | null>(null);
 
   async function recheck(id: string) {
     checking = id;
@@ -58,7 +62,7 @@
       const verified = await recheckAIContext(id);
       items = items.map((item) => (item.id === id ? verified : item));
     } catch (cause) {
-      checkFailure = { id, cause };
+      checkFailure = { id, cause, retry: 'recheck' };
     } finally {
       checking = null;
     }
@@ -79,7 +83,7 @@
         'Recheck context once the run finishes; it usually takes a few minutes.',
       );
     } catch (cause) {
-      checkFailure = { id, cause };
+      checkFailure = { id, cause, retry: 'regenerate' };
     } finally {
       regenerating = null;
     }
@@ -362,8 +366,11 @@
           {/if}
           {#if checkFailure?.id === item.id}<ErrorState
               error={checkFailure.cause}
-              title="That could not finish"
-              onretry={() => recheck(item.id)}
+              title={checkFailure.retry === 'regenerate'
+                ? 'The workflow could not be started'
+                : 'Verification could not finish'}
+              onretry={() =>
+                checkFailure?.retry === 'regenerate' ? regenerate(item.id) : recheck(item.id)}
             />{/if}
           <div class="actions">
             {#if item.setup_state === 'awaiting_merge'}<Button
