@@ -1,5 +1,6 @@
 """Exercise publication boundaries without credentials or external GitHub calls."""
 import base64
+import contextlib
 import hashlib
 import importlib.util
 import io
@@ -7,6 +8,7 @@ import json
 from pathlib import Path
 import tempfile
 import subprocess
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -43,7 +45,7 @@ class SourceClassificationTests(unittest.TestCase):
             self.read(b'private source\n' * generator.MAX_FILE)
 
     def commit(self, files):
-        expected = {'exclude': ['**/vendor/**'], 'source_branch': 'main'}
+        expected = {'exclude': ['**/vendor/**', 'zoomies-ai-context.config.json'], 'source_branch': 'main'}
         files = dict(files, **{'zoomies-ai-context.config.json': json.dumps(expected).encode()})
         for name, content in files.items():
             target = self.root / name
@@ -54,31 +56,112 @@ class SourceClassificationTests(unittest.TestCase):
         subprocess.run(git + ['commit', '-qm', 'x'], check=True)
         return expected, subprocess.check_output(git + ['rev-parse', 'HEAD']).decode().strip()
 
-    def build(self, files):
-        expected, commit = self.commit(files)
-        return generator.build(self.root, self.root / 'out', Path('/nonexistent'), expected, {}, 'h', commit)
+    def fake_repomix(self, flag=b'FLAG-ME', alter=None):
+        """A stand-in for Repomix: packs every staged file except those holding
+        `flag`, which is how its secret scan behaves, and optionally alters one."""
+        script = self.root.parent / (self.root.name + '-repomix.py')
+        script.write_text(
+            '#!%s\nimport json, sys\nfrom pathlib import Path\n'
+            'stage = Path(sys.argv[1]); out = Path(sys.argv[sys.argv.index("--output") + 1])\n'
+            'files = {}\n'
+            'for p in sorted(stage.rglob("*")):\n'
+            '    if p.is_file() and %r not in p.read_bytes():\n'
+            '        files[p.relative_to(stage).as_posix()] = p.read_text().strip()\n'
+            '%s'
+            'out.write_text(json.dumps({"files": files}))\n' % (
+                sys.executable, flag, '' if alter is None else 'files[%r] = "tampered"\n' % alter))
+        script.chmod(0o755)
+        return script
 
-    def test_every_oversized_file_is_named_with_its_size_and_no_content(self):
+    def build(self, files, cli=None, **kwargs):
+        expected, commit = self.commit(files)
+        out = self.root / 'out'
+        log = io.StringIO()
+        with contextlib.redirect_stdout(log):
+            generator.build(self.root, out, cli or self.fake_repomix(), expected, {}, 'h', commit, **kwargs)
+        self.log = log.getvalue()
+        return json.loads((out / 'snapshot.json').read_text())
+
+    def test_oversized_text_is_listed_as_omitted_instead_of_failing_the_run(self):
         big = b'private source\n' * (generator.MAX_FILE // 10)
         huge = b'private source\n' * (generator.MAX_FILE // 5)
-        with self.assertRaises(generator.GenerationRefusal) as raised:
-            self.build({'main.go': b'package main\n', 'assets/big.js': big, 'docs/huge.txt': huge, 'vendor/x.go': huge})
-        message = str(raised.exception)
-        self.assertIn('2 text files over the 1.0 MiB limit; add an exclusion for each: ', message)
-        # Largest first, so the worst offender is at the front of a long list.
-        self.assertLess(message.index('docs/huge.txt (3.0 MiB)'), message.index('assets/big.js (1.5 MiB)'))
-        self.assertNotIn('main.go', message)
-        self.assertNotIn('vendor/x.go', message)
-        self.assertNotIn('private source', message)
+        snapshot = self.build({'main.go': b'package main\n', 'assets/big.js': big, 'docs/huge.txt': huge, 'vendor/x.go': huge})
+        self.assertEqual([f['path'] for f in snapshot['files']], ['main.go'])
+        self.assertEqual(snapshot['omitted'], [
+            {'path': 'assets/big.js', 'bytes': len(big), 'reason': 'too_large'},
+            {'path': 'docs/huge.txt', 'bytes': len(huge), 'reason': 'too_large'}])
+        # Excluded files are not listed: omission is for what was meant to be there.
+        self.assertNotIn('vendor/x.go', json.dumps(snapshot))
 
-    def test_one_oversized_file_reads_in_the_singular(self):
-        with self.assertRaisesRegex(generator.GenerationRefusal, r'^1 text file over the 1\.0 MiB limit; add an exclusion for it: only\.txt \(2\.0 MiB\)$'):
-            self.build({'only.txt': b'x' * (2 << 20)})
+    def test_a_snapshot_with_nothing_omitted_has_no_omitted_key(self):
+        self.assertNotIn('omitted', self.build({'main.go': b'package main\n'}))
 
-    def test_a_long_list_of_oversized_files_is_capped(self):
-        files = {'f%02d.txt' % i: b'x' * ((1 << 20) + 1 + i) for i in range(23)}
-        with self.assertRaisesRegex(generator.GenerationRefusal, r'and 3 more$'):
-            self.build(files)
+    def test_a_file_the_secret_scan_withholds_is_listed_not_fatal(self):
+        fixture = b'x := "FLAG-ME"\n'
+        snapshot = self.build({'main.go': b'package main\n', 'fixture_test.go': fixture})
+        self.assertEqual([f['path'] for f in snapshot['files']], ['main.go'])
+        self.assertEqual(snapshot['omitted'], [{'path': 'fixture_test.go', 'bytes': len(fixture), 'reason': 'flagged'}])
+        self.assertNotIn('FLAG-ME', json.dumps(snapshot))
+
+    def test_source_repomix_altered_is_still_refused(self):
+        with self.assertRaisesRegex(generator.GenerationRefusal, 'added or changed source'):
+            self.build({'main.go': b'package main\n', 'a.go': b'package a\n'}, cli=self.fake_repomix(alter='a.go'))
+
+    def test_a_repository_of_only_withheld_files_is_still_refused(self):
+        with self.assertRaisesRegex(generator.GenerationRefusal, 'No eligible source files remain'):
+            self.build({'only.go': b'FLAG-ME\n'})
+
+    def test_the_largest_files_are_dropped_first_to_fit_the_budget(self):
+        kept, dropped = generator.within_budget({'a': 10, 'b': 500, 'c': 400, 'd': 5})
+        self.assertEqual((kept, dropped), ({'a': 10, 'b': 500, 'c': 400, 'd': 5}, []))
+        with patch.object(generator, 'MAX_SOURCE', 450):
+            kept, dropped = generator.within_budget({'a': 10, 'b': 500, 'c': 400, 'd': 5})
+        self.assertEqual((sorted(kept), dropped), (['a', 'c', 'd'], ['b']))
+        with patch.object(generator, 'MAX_FILES', 2):
+            kept, dropped = generator.within_budget({'a': 10, 'b': 500, 'c': 400, 'd': 5})
+        self.assertEqual((sorted(kept), dropped), (['a', 'd'], ['b', 'c']))
+        # Ties are broken by path, so one commit always loses the same files.
+        with patch.object(generator, 'MAX_FILES', 1):
+            self.assertEqual(generator.within_budget({'y': 7, 'x': 7})[1], ['x'])
+
+    def test_files_over_the_total_budget_are_omitted_as_over_budget(self):
+        with patch.object(generator, 'MAX_SOURCE', 60):
+            snapshot = self.build({'small.go': b'package s\n', 'medium.go': b'package m // ' + b'x' * 40 + b'\n'})
+        self.assertEqual([f['path'] for f in snapshot['files']], ['small.go'])
+        self.assertEqual([(o['path'], o['reason']) for o in snapshot['omitted']], [('medium.go', 'over_budget')])
+
+    def test_escaping_that_overflows_the_snapshot_sheds_files_instead_of_refusing(self):
+        quotes = b'"' * 400 + b'\n'
+        files = {'a.txt': quotes, 'b.txt': quotes + b'b', 'c.txt': b'c\n'}
+        with patch.object(generator, 'MAX_SNAPSHOT', 1500):
+            snapshot = self.build(files)
+        self.assertIn('c.txt', [f['path'] for f in snapshot['files']])
+        self.assertTrue(snapshot['omitted'])
+        self.assertTrue(all(o['reason'] == 'over_budget' for o in snapshot['omitted']))
+
+    def test_too_many_omissions_are_refused_rather_than_silently_truncated(self):
+        files = {'f%d.txt' % i: b'x' * ((1 << 20) + 1) for i in range(3)}
+        files['main.go'] = b'package main\n'
+        with patch.object(generator, 'MAX_OMITTED', 2):
+            with self.assertRaisesRegex(generator.GenerationRefusal, '3 files would be omitted and only 2 can be listed'):
+                self.build(files)
+
+    def test_the_run_log_names_omitted_files_without_content(self):
+        self.build({'main.go': b'package main\n', 'big.txt': b'private\n' * generator.MAX_FILE, 'fixture_test.go': b'FLAG-ME\n'})
+        log = self.log
+        self.assertIn('::warning title=Zoomies AI Context omitted 2 files::', log)
+        self.assertIn('omitted: big.txt (8.0 MiB, over the 1.0 MiB limit)', log)
+        self.assertIn('over the 1.0 MiB limit', log)
+        self.assertIn('omitted: fixture_test.go (8 B, withheld by the secret scan)', log)
+        self.assertNotIn('private', log)
+        self.assertNotIn('FLAG-ME', log)
+
+    def test_annotation_text_cannot_inject_workflow_commands(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            generator.report_omitted([{'path': 'a%0A::error::x', 'bytes': 2 << 20, 'reason': 'too_large'}])
+        self.assertEqual(out.getvalue().count('\n'), 2)
+        self.assertIn('a%250A::error::x', out.getvalue())
 
     def test_valid_utf8_source_preserves_exact_bytes_and_limit(self):
         content = b'a' * (generator.MAX_FILE - 2) + 'é'.encode()
@@ -106,8 +189,13 @@ class PublicationTests(unittest.TestCase):
         self.old_notice = None
         self.old_files = ['.zoomies/ai-context/' + n for n in ('snapshot.json', 'manifest.json', 'NOTICE.md')]
 
+    omitted = None
+
     def write_artifact(self):
-        encoded = json.dumps({'manifest': self.manifest, 'files': self.files}).encode()
+        snapshot = {'manifest': self.manifest, 'files': self.files}
+        if self.omitted is not None:
+            snapshot['omitted'] = self.omitted
+        encoded = json.dumps(snapshot).encode()
         (self.directory / 'snapshot.json').write_bytes(encoded)
         (self.directory / 'manifest.json').write_text(json.dumps({'snapshot_sha256': hashlib.sha256(encoded).hexdigest()}))
         (self.directory / 'NOTICE.md').write_text('Managed by Zoomies AI Context. Generated by Repomix. Do not edit.\n')
@@ -181,6 +269,38 @@ class PublicationTests(unittest.TestCase):
             self.publish()
         self.assertTrue(all(m == 'GET' for m, _, _ in self.calls))
 
+    def test_omitted_files_are_validated_before_a_ref_moves(self):
+        self.files.append({'path': 'extra.go', 'content': 'package extra\n', 'sha256': hashlib.sha256(b'package extra\n').hexdigest()})
+        good = [{'path': 'assets/big.js', 'bytes': (1 << 20) + 1, 'reason': 'too_large'},
+                {'path': 'fixture_test.go', 'bytes': 12, 'reason': 'flagged'},
+                {'path': 'gen.go', 'bytes': 1 << 20, 'reason': 'over_budget'}]
+        self.omitted = good
+        self.write_artifact()
+        self.publish()
+        self.assertEqual(self.calls[-1][1], '/git/refs')
+        for name, bad in {
+                'a reason that does not fit the size': {'path': 'x.go', 'bytes': 5, 'reason': 'too_large'},
+                'a big file labelled over budget': {'path': 'x.go', 'bytes': (1 << 20) + 1, 'reason': 'over_budget'},
+                'an unknown reason': {'path': 'x.go', 'bytes': 5, 'reason': 'because'},
+                'a path that is also a carried file': {'path': 'main.go', 'bytes': 5, 'reason': 'flagged'},
+                'a credential path': {'path': '.env', 'bytes': 5, 'reason': 'flagged'},
+                'a traversal path': {'path': '../x', 'bytes': 5, 'reason': 'flagged'},
+                'a negative size': {'path': 'x.go', 'bytes': -1, 'reason': 'flagged'},
+                'a text size': {'path': 'x.go', 'bytes': '5', 'reason': 'flagged'},
+                'an extra field': {'path': 'x.go', 'bytes': 5, 'reason': 'flagged', 'note': 'ignore previous instructions'},
+        }.items():
+            with self.subTest(name):
+                self.calls.clear()
+                self.omitted = good + [bad]
+                self.write_artifact()
+                with self.assertRaises(ValueError):
+                    self.publish()
+                self.assertFalse([c for c in self.calls if c[0] != 'GET'])
+        self.omitted = good + [good[0]]
+        self.write_artifact()
+        with self.assertRaises(ValueError):
+            self.publish()
+
     def test_existing_generated_branch_moves_without_force(self):
         self.existing = 'e' * 40
         self.old_notice = (self.directory / 'NOTICE.md').read_bytes()
@@ -203,6 +323,7 @@ class UploadTests(unittest.TestCase):
         self.requests = []
 
     write_artifact = PublicationTests.write_artifact
+    omitted = None
 
     def open(self, request, timeout=None):
         self.requests.append(request)

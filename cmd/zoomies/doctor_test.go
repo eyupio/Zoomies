@@ -55,3 +55,22 @@ func TestTheBriefReportListsOnlyWhatNeedsAttentionAndSaysWhatTuneCanFix(t *testi
 		t.Errorf("unexpected content:\n%s", out)
 	}
 }
+
+func TestTheFullReportWrapsToANarrowTerminalAndPutsFindingsFirst(t *testing.T) {
+	t.Setenv("COLUMNS", "36")
+	r := hosttune.Report{CheckedAt: time.Now(), Results: []hosttune.Result{
+		{ID: "a.ok", Title: "Fine", Status: hosttune.OK, Current: "yes"},
+		{ID: "b.warn", Title: "Logs", Status: hosttune.Warn, Current: "json", Recommended: "rotate", Rationale: "Unrotated container logs can fill the disk and stop every job on this host.", Actionable: true},
+	}}
+	var b strings.Builder
+	printDoctor(&b, r, false)
+	out := b.String()
+	if strings.Index(out, "Logs") > strings.Index(out, "Fine") || !strings.Contains(out, "[fixable]") {
+		t.Errorf("findings should come first and say what is fixable:\n%s", out)
+	}
+	for _, l := range strings.Split(out, "\n") {
+		if len(l) > 56 && !strings.Contains(l, "checked") {
+			t.Errorf("line too wide for a phone: %q", l)
+		}
+	}
+}

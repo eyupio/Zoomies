@@ -53,34 +53,19 @@ def publish(directory, api, repo, token, branch, commit, identity, config_hash):
     files = snapshot['files']
     if not 1 <= len(files) <= 5000:
         raise ValueError('Invalid source count')
-    def unsafe(name):
-        parts = name.split('/')
-        return (not name or len(name) > 1024 or name.startswith('/') or name in seen
-                or any(c in name for c in '\\\x00\r\n:')
-                or any(p in ('', '.', '..') or p.lower() in ('.git', 'node_modules', '.zoomies') or p.lower().startswith('.env') for p in parts)
-                or name.lower().endswith(('.pem', '.key', '.p12', '.pfx', '.db', '.sqlite', '.sqlite3')))
     for file in files:
         name, data = file['path'], file['content'].encode()
-        if unsafe(name) or len(data) > 1 << 20 or b'\0' in data or hashlib.sha256(data).hexdigest() != file['sha256']:
+        parts = name.split('/')
+        if (not name or len(name) > 1024 or name.startswith('/') or name in seen
+                or any(c in name for c in '\\\x00\r\n:')
+                or any(p in ('', '.', '..') or p.lower() in ('.git', 'node_modules', '.zoomies') or p.lower().startswith('.env') for p in parts)
+                or name.lower().endswith(('.pem', '.key', '.p12', '.pfx', '.db', '.sqlite', '.sqlite3'))
+                or len(data) > 1 << 20 or b'\0' in data or hashlib.sha256(data).hexdigest() != file['sha256']):
             raise ValueError('Unsafe source or corrupt hash')
         seen.add(name)
         total += len(data)
     if total > 24 << 20:
         raise ValueError('Source exceeds limit')
-    # Omitted files carry no content, so only what a reader is told is checked:
-    # a safe, unique path, a size, and a reason that agrees with that size.
-    omitted = snapshot.get('omitted', [])
-    if len(omitted) > 5000:
-        raise ValueError('Too many omitted files')
-    for entry in omitted:
-        if set(entry) != {'path', 'bytes', 'reason'}:
-            raise ValueError('Unexpected omitted file fields')
-        name, size, reason = entry['path'], entry['bytes'], entry['reason']
-        if (not isinstance(name, str) or unsafe(name) or type(size) is not int or size < 0
-                or reason not in ('too_large', 'over_budget', 'flagged')
-                or (reason == 'too_large') != (size > 1 << 20)):
-            raise ValueError('Unsafe or inconsistent omitted file')
-        seen.add(name)
     ref = '/git/ref/heads/' + urllib.parse.quote(branch, safe='')
     if request('GET', ref)['object']['sha'] != commit:
         raise ValueError('Source was superseded; generate its latest commit')
