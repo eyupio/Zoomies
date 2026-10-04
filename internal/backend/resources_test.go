@@ -414,6 +414,12 @@ func TestDinDStatsSayHowBusyTheBusierHalfIs(t *testing.T) {
 	if got.CPUPercent != 232 || got.BusiestHalfPercent != 96 {
 		t.Fatalf("stats = %+v, want 232%% for the pair and 96%% for its busier half", got)
 	}
+	// And each half on its own, beside the quota it was created with, which is
+	// what lets the controller judge how the slot was divided.
+	if got.Halves == nil || got.Halves.Runner.CPULimit != 2 || got.Halves.Daemon.CPULimit != 2 ||
+		got.Halves.Runner.CPUs != 0.4 || got.Halves.Daemon.CPUs != 1.92 {
+		t.Fatalf("halves = %+v, want the runner at 0.4 and the daemon at 1.92 cores, each of 2", got.Halves)
+	}
 }
 
 // A docker-in-docker pair's boost used to go to the daemon whatever the job

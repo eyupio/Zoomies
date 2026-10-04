@@ -523,6 +523,39 @@ type Resources struct {
 	// pool following that setting. Zero with no fleet minimum is none.
 	MinCPUs     float64 `json:"min_cpus,omitempty"`
 	MinMemoryMB int64   `json:"min_memory_mb,omitempty"`
+	// DaemonSharePercent is the part of a host-sized slot a docker-in-docker pool
+	// gives its daemon; the runner keeps the rest. Zero is the even split. It
+	// divides only a share the host chose (SplitWithDaemon): a limit typed above is
+	// given to both containers in full whatever this says.
+	DaemonSharePercent int `json:"daemon_share_percent,omitempty"`
+}
+
+const (
+	// DefaultDaemonSharePercent is the even split every pool had before the share
+	// could be set.
+	DefaultDaemonSharePercent = 50
+	// MinDaemonSharePercent and MaxDaemonSharePercent keep either container a real
+	// share: a half given almost nothing is no limit at all in effect, which is
+	// how one build takes the machine.
+	MinDaemonSharePercent = 10
+	MaxDaemonSharePercent = 90
+)
+
+// DaemonPercent is the daemon's share of a split slot, with zero read as even.
+func (r Resources) DaemonPercent() int {
+	if r.DaemonSharePercent <= 0 {
+		return DefaultDaemonSharePercent
+	}
+	return r.DaemonSharePercent
+}
+
+// PairFactor is how many times the smaller half a slot must hold: two for an even
+// split, five when one container takes 80%. A slot's floor is each half's own
+// floor scaled by it, so uneven pairs are refused on a host too small for the
+// thinner half rather than starved there.
+func (r Resources) PairFactor() float64 {
+	d := r.DaemonPercent()
+	return 100 / float64(min(d, 100-d))
 }
 
 // Reducible reports whether a runner of these resources may be placed below
@@ -603,19 +636,33 @@ func (p CPUBurstPolicy) Enforces() bool { return p.Mode == CPUBurstAutomatic }
 // Limits an operator typed are not split: those say what the job may have, the
 // daemon is given the same, and scheduler.Reserve charges the host for both.
 func (r Resources) SplitWithDaemon() (runner, daemon Resources) {
+	return r.SplitWithDaemonShare(DefaultDaemonSharePercent)
+}
+
+// SplitWithDaemonShare is SplitWithDaemon with the daemon taking percent of the
+// slot. The even split stays the default because the work is on both sides, but
+// a pool whose builds all run in the daemon can give it more. A percent outside
+// the permitted range is the even split, never a half with no room.
+func (r Resources) SplitWithDaemonShare(percent int) (runner, daemon Resources) {
+	if percent < MinDaemonSharePercent || percent > MaxDaemonSharePercent {
+		percent = DefaultDaemonSharePercent
+	}
 	runner, daemon = r, r
-	// An even split, and nothing clever for a share too small to take one: a
-	// slot that cannot carry both halves is refused before a runner is placed
-	// on it -- scheduler.ShareFloor -- because the alternative here is giving
-	// the daemon whatever is left over, and a leftover of nothing is no limit
-	// at all, which is how one build takes the machine.
 	if r.CPUs > 0 {
-		runner.CPUs = r.CPUs / 2
-		daemon.CPUs = r.CPUs - runner.CPUs
+		daemon.CPUs = r.CPUs * float64(percent) / 100
+		runner.CPUs = r.CPUs - daemon.CPUs
+		if percent == DefaultDaemonSharePercent {
+			runner.CPUs = r.CPUs / 2
+			daemon.CPUs = r.CPUs - runner.CPUs
+		}
 	}
 	if r.MemoryMB > 0 {
-		runner.MemoryMB = r.MemoryMB / 2
-		daemon.MemoryMB = r.MemoryMB - runner.MemoryMB
+		daemon.MemoryMB = r.MemoryMB * int64(percent) / 100
+		runner.MemoryMB = r.MemoryMB - daemon.MemoryMB
+		if percent == DefaultDaemonSharePercent {
+			runner.MemoryMB = r.MemoryMB / 2
+			daemon.MemoryMB = r.MemoryMB - runner.MemoryMB
+		}
 	}
 	// Pids and disk are not divided. A pids limit is a guard against a fork
 	// bomb rather than a budget, and halving it would refuse a legitimate
@@ -763,6 +810,9 @@ type Pool struct {
 	Resources         Resources      `json:"resources"`
 	CPUBurst          CPUBurstPolicy `json:"cpu_burst"`
 	Cache             CacheConfig    `json:"cache"`
+	// Tmpfs keeps the runner's work folder and /tmp in memory. Off unless an
+	// operator opts in, because it spends the pool's memory limit on disk speed.
+	Tmpfs TmpfsConfig `json:"tmpfs"`
 	// SizeFromProfile leaves the size of this pool's runners to the host they
 	// land on, as that host's runner profile says it: the standard size the
 	// operator gave the host, or the fleet's default where the host says
@@ -1486,7 +1536,7 @@ type Job struct {
 	// it, SizeReason the sentence for why, and SizeBasis how it got there (the
 	// SizeBasis* constants). They are stamped once, by StampJobClass, so a job
 	// can say what it was taken to need after the history that decided it has
-	// moved on. Empty is "not classified": a job from before migration 0073,
+	// moved on. Empty is "not classified": a job from before migration 0074,
 	// or any job while size routing is off.
 	SizeClass  SizeClass `json:"size_class,omitempty"`
 	SizeReason string    `json:"size_reason,omitempty"`

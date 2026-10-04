@@ -15,6 +15,9 @@ type Page struct {
 	Matches    []Match       `json:"matches,omitempty"`
 	NextOffset *int          `json:"next_offset,omitempty"`
 	Total      int           `json:"total,omitempty"`
+	// OmittedTotal is repeated on every page, searches included: results from a
+	// snapshot that does not carry some files are not a statement about them.
+	OmittedTotal int `json:"omitted_total,omitempty"`
 }
 
 func EncodedPage(p Page, budget int) ([]byte, error) {
@@ -39,7 +42,7 @@ func (s *Snapshot) FilePage(digest string, offset, limit, budget int) ([]byte, e
 	if offset > len(files) {
 		return nil, fmt.Errorf("offset is outside this snapshot")
 	}
-	p := Page{Commit: s.Manifest.SourceCommit, Snapshot: digest, Total: len(files)}
+	p := Page{Commit: s.Manifest.SourceCommit, Snapshot: digest, Total: len(files), OmittedTotal: len(s.Omitted)}
 	end := min(offset+limit, len(files))
 	for end >= offset {
 		p.Files = files[offset:end]
@@ -64,7 +67,7 @@ func (s *Snapshot) ReadPage(digest string, paths []string, offset, budget int) (
 		return nil, fmt.Errorf("choose 1–6 files; byte offsets apply to a single file")
 	}
 	seen := map[string]bool{}
-	p := Page{Commit: s.Manifest.SourceCommit, Snapshot: digest}
+	p := Page{Commit: s.Manifest.SourceCommit, Snapshot: digest, OmittedTotal: len(s.Omitted)}
 	for _, path := range paths {
 		if !SafeSourcePath(path) || seen[path] {
 			return nil, fmt.Errorf("choose unique safe source paths")
@@ -113,7 +116,7 @@ func (s *Snapshot) SearchResult(digest, query, prefix string, offset, limit, bud
 	if err != nil {
 		return nil, err
 	}
-	p := Page{Commit: s.Manifest.SourceCommit, Snapshot: digest, Matches: result.Matches, NextOffset: result.NextOffset}
+	p := Page{Commit: s.Manifest.SourceCommit, Snapshot: digest, Matches: result.Matches, NextOffset: result.NextOffset, OmittedTotal: len(s.Omitted)}
 	for {
 		if b, err := EncodedPage(p, budget); err == nil {
 			return b, nil

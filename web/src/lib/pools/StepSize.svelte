@@ -56,6 +56,10 @@
     gbLabel,
     memoryLabel,
     nearest,
+    daemonReserveMb,
+    recommendedMemoryMb,
+    tmpfsIsTight,
+    tmpfsReserveMb,
     withValue,
   } from './sizing';
   import type { PoolDraft } from './PoolWizardForm.svelte';
@@ -72,6 +76,48 @@
   }
 
   let { draft, errors, touch, defaults, verdict, validating }: Props = $props();
+
+  /* -- the folders kept in memory ------------------------------------------- */
+
+  /** A typed size, or undefined for one left to the memory limit. */
+  function typedMb(raw: string): number | undefined {
+    const n = Number(raw.trim());
+    return raw.trim() !== '' && Number.isInteger(n) && n > 0 ? n : undefined;
+  }
+
+  const containerBackend = $derived(draft.backend === 'docker' || draft.backend === 'podman');
+  /** The limit typed here; zero where the host picks, which there is nothing to raise. */
+  const typedLimitMb = $derived(draft.sizing === 'fixed' ? (typedMb(draft.memory_mb) ?? 0) : 0);
+  /**
+   * The limit that leaves the job the room it has now with the folders on top.
+   * A tmpfs is charged to the runner's memory limit, so switching one on
+   * without raising the limit leaves the job less than it had.
+   */
+  const workFolder = $derived({
+    enabled: draft.tmpfs_work,
+    sizeMb: typedMb(draft.tmpfs_work_size),
+  });
+  const tmpFolder = $derived({ enabled: draft.tmpfs_tmp, sizeMb: typedMb(draft.tmpfs_tmp_size) });
+  /**
+   * Only a Docker-in-Docker pool on the Docker backend has a sidecar, and the
+   * sidecar is a second container with a memory limit of its own: the image
+   * store is charged to it, and the work folder and /tmp are not.
+   */
+  const hasSidecar = $derived(draft.backend === 'docker' && draft.docker_mode === 'dind');
+  const daemonFolder = $derived({
+    enabled: hasSidecar && draft.tmpfs_daemon,
+    sizeMb: typedMb(draft.tmpfs_daemon_size),
+  });
+  // Only when a container's folders take enough of the limit to matter, each judged
+  // against the limit it is charged to, so accepting the proposal ends it rather
+  // than moving it.
+  const proposedLimitMb = $derived(
+    tmpfsIsTight(typedLimitMb, tmpfsReserveMb(workFolder, tmpFolder)) ||
+      tmpfsIsTight(typedLimitMb, daemonReserveMb(daemonFolder))
+      ? recommendedMemoryMb(typedLimitMb, workFolder, tmpFolder, daemonFolder)
+      : 0,
+  );
+  const tmpfsOn = $derived(draft.tmpfs_work || draft.tmpfs_tmp || daemonFolder.enabled);
 
   /* -- the size ------------------------------------------------------------- */
 
@@ -303,6 +349,26 @@
       {/snippet}
     </Field>
   </div>
+  {#if hasSidecar && draft.sizing !== 'fixed'}
+    <Field
+      label="Docker sidecar's share (%)"
+      error={errors['resources.daemon_share_percent']}
+      hint="A runner and its sidecar split one slot. Builds, image pulls and container tests run in the sidecar, so give it more if the runner container is mostly idle. Empty is an even split (50%); the runner keeps the rest. A host too small to give the smaller half a workable size is not used."
+    >
+      {#snippet children({ id, describedBy, invalid })}
+        <Input
+          bind:value={draft.daemon_share}
+          {id}
+          {describedBy}
+          {invalid}
+          inputmode="numeric"
+          placeholder="50 (even split)"
+          autocomplete="off"
+          onblur={() => touch('resources.daemon_share_percent')}
+        />
+      {/snippet}
+    </Field>
+  {/if}
   {#if minCpus > 0 || minMemoryMb > 0}
     {#if profileSize}
       <p class="echo">
@@ -619,6 +685,130 @@
     {validating}
   />
 </fieldset>
+
+{#if containerBackend}
+  <fieldset class="group">
+    <legend>Scratch space in memory</legend>
+    <p class="hint">
+      A runner's work folder and <code>/tmp</code> normally live on its host's disk. On a host with slow
+      disks and memory to spare, keeping them in memory removes the wait on every checkout, install and
+      build. They are charged to the runner's memory limit, and gone when the runner is.
+    </p>
+
+    <Checkbox
+      bind:checked={draft.tmpfs_work}
+      label="Keep the work folder in memory"
+      description="The checkout, build output and the runner's own temporary files. The one worth having."
+      onchange={() => touch('tmpfs.work.enabled')}
+    />
+    {#if draft.tmpfs_work}
+      <Field
+        label="Work folder size (MB)"
+        error={errors['tmpfs.work.size_mb']}
+        hint="Leave it empty to fit it to the memory limit: up to 4096 MB, and no more than half of the limit."
+      >
+        {#snippet children({ id, describedBy, invalid })}
+          <Input
+            bind:value={draft.tmpfs_work_size}
+            {id}
+            {describedBy}
+            {invalid}
+            inputmode="numeric"
+            placeholder="sized from the memory limit"
+            autocomplete="off"
+            onblur={() => touch('tmpfs.work.size_mb')}
+          />
+        {/snippet}
+      </Field>
+    {/if}
+
+    <Checkbox
+      bind:checked={draft.tmpfs_tmp}
+      label="Keep /tmp in memory as well"
+      description="Some toolchains put their heaviest traffic there, and some jobs leave gigabytes behind. Off unless you ask."
+      onchange={() => touch('tmpfs.tmp.enabled')}
+    />
+    {#if draft.tmpfs_tmp}
+      <Field
+        label="/tmp size (MB)"
+        error={errors['tmpfs.tmp.size_mb']}
+        hint="Leave it empty to fit it to the memory limit: up to 1024 MB."
+      >
+        {#snippet children({ id, describedBy, invalid })}
+          <Input
+            bind:value={draft.tmpfs_tmp_size}
+            {id}
+            {describedBy}
+            {invalid}
+            inputmode="numeric"
+            placeholder="sized from the memory limit"
+            autocomplete="off"
+            onblur={() => touch('tmpfs.tmp.size_mb')}
+          />
+        {/snippet}
+      </Field>
+    {/if}
+
+    {#if hasSidecar}
+      <Checkbox
+        bind:checked={draft.tmpfs_daemon}
+        label="Keep the Docker image store in memory"
+        description="The Docker-in-Docker sidecar writes every image a job pulls and every layer it builds here, which is usually most of this pool's disk traffic. It is charged to the sidecar's own memory limit, and an image bigger than the store does not pull — so size it for the largest image your jobs use."
+        onchange={() => touch('tmpfs.daemon.enabled')}
+      />
+      {#if draft.tmpfs_daemon}
+        <Field
+          label="Image store size (MB)"
+          error={errors['tmpfs.daemon.size_mb']}
+          hint="Leave it empty to fit it to the sidecar's memory limit: up to 8192 MB, and no more than half of it."
+        >
+          {#snippet children({ id, describedBy, invalid })}
+            <Input
+              bind:value={draft.tmpfs_daemon_size}
+              {id}
+              {describedBy}
+              {invalid}
+              inputmode="numeric"
+              placeholder="sized from the memory limit"
+              autocomplete="off"
+              onblur={() => touch('tmpfs.daemon.size_mb')}
+            />
+          {/snippet}
+        </Field>
+      {/if}
+    {/if}
+
+    {#if tmpfsOn && proposedLimitMb > 0}
+      <div class="callout" role="status">
+        <TriangleAlert size={16} aria-hidden="true" />
+        <div>
+          <p class="callout-title">Raise the memory limit to {memoryLabel(proposedLimitMb)}</p>
+          <p>
+            These folders may fill up to {memoryLabel(proposedLimitMb - typedLimitMb)}, and they
+            come out of the {memoryLabel(typedLimitMb)} limit rather than being added to it. At
+            {memoryLabel(proposedLimitMb)} the job keeps the room it has now.
+          </p>
+          <Button
+            variant="secondary"
+            size="sm"
+            onclick={() => (draft.memory_mb = String(proposedLimitMb))}
+          >
+            Set the limit to {memoryLabel(proposedLimitMb)}
+          </Button>
+        </div>
+      </div>
+    {:else if tmpfsOn && draft.sizing === 'automatic'}
+      <p class="echo">
+        This pool's runners are each given a share of their host{hasSidecar
+          ? ', split between the runner and its Docker sidecar'
+          : ''}, and the folders are fitted into half of the container's part — so they cannot take
+        the memory a job needs. Choose a fixed size to set the limit yourself{hasSidecar
+          ? ', which gives each container the whole of it'
+          : ''}.
+      </p>
+    {/if}
+  </fieldset>
+{/if}
 
 <fieldset class="group">
   <legend>Performance cache</legend>

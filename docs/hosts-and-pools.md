@@ -380,7 +380,7 @@ capacity somebody typed for each. A **runner profile** is what an operator says
 about one host instead — how big a runner is there, and the least it may be —
 and the scheduler places by it.
 
-A profile has two tiers, every field is optional, and a field left out follows
+A profile has two tiers and a policy, every field is optional, and a field left out follows
 the fleet's own setting. A host that has never been given one behaves exactly as
 it did before profiles existed: nothing changes on any host until somebody
 writes one.
@@ -390,6 +390,7 @@ writes one.
 | `minimum.cpus`, `minimum.memory_mb` | The least a runner is given on this host. | `runners.minimum_cpus` and `runners.minimum_memory_mb` |
 | `standard.cpus`, `standard.memory_mb` | The size of one runner here, for a pool that takes its size from the host. It is also what decides how many runners the host takes. | `runners.default_cpus` and `runners.default_memory_mb` |
 | `standard.burst_max_cpus` | The most CPU one runner here may use, its own share and any CPU lent to it together. | no ceiling of the host's |
+| `tmpfs.disabled`, `tmpfs.max_mb` | Whether pools may keep a runner's folders [in memory](#keeping-the-work-folder-in-memory) on this host, and the most any one folder may be. | each pool's own setting |
 
 A profile is set from the host's menu on **Hosts** (*Set runner sizes*), with
 `zoomies hosts edit`, or with `runner_profile` on `PATCH /api/v1/hosts/{id}`,
@@ -575,6 +576,155 @@ The fleet's own defaults are held in the right order by a test and by
 `pool.provision_timeout_short`, which the wizard also says while the number is
 being chosen.
 
+### Keeping the work folder in memory
+
+A runner's work folder — the checkout, build output, the runner's own temporary
+files — normally lives on its container's writable layer, which is on the host's
+Docker data root. On a host with slow disks and memory to spare that layer is
+where every checkout, install and build waits. A pool can keep the folder in
+memory instead: a tmpfs mounted over `_work`, gone when the runner is. How much
+that is worth depends on how much of a job is spent writing files, and on how
+slow the disk is; on a saturated disk the difference in raw write speed is
+orders of magnitude, and the difference in a real build is whatever share of it
+was waiting. Measure one workflow before and after rather than trusting a
+benchmark.
+
+![The Size step of the pool editor with the work folder kept in memory. It names what the folder costs and offers a memory limit of 10 GB that leaves the job the room it has now.](screenshots/pool-size-memory-dark.webp#only-dark){ .zoomies-shot }
+![The Size step of the pool editor with the work folder kept in memory. It names what the folder costs and offers a memory limit of 10 GB that leaves the job the room it has now.](screenshots/pool-size-memory-light.webp#only-light){ .zoomies-shot }
+
+It is **off for every pool** until somebody turns it on, because of what it
+costs. A tmpfs is charged to the runner's own memory limit, so the room a folder
+may fill comes *out of* the limit the pool was sized with for the job; it is not
+added to it. A pool that turns the setting on without raising its limit leaves
+the job less memory than it had, which shows up later as a kill in a build that
+always passed.
+
+```yaml
+tmpfs:
+  work:
+    enabled: true
+    size_mb: 0        # 0 sizes it from the memory limit
+  tmp:
+    enabled: false    # /tmp, as well; its own choice
+    size_mb: 0
+  daemon:
+    enabled: false    # the Docker-in-Docker sidecar's image store; docker_mode: dind only
+    size_mb: 0
+```
+
+| Setting | What it does |
+| --- | --- |
+| `work` | The runner's `_work` folder. The one worth having, and the one the pool editor offers first. |
+| `tmp` | `/tmp`. Off unless asked for: some toolchains put their heaviest traffic there, and some jobs leave gigabytes behind. |
+| `daemon` | The Docker-in-Docker sidecar's image store, `/var/lib/docker` in the daemon's container: where every image a job pulls and every layer it builds is written. Needs `docker_mode: dind`. Its own choice, because it is the one folder that can fail a job that used to pass — an image bigger than the store does not pull. |
+| `size_mb` | The folder's ceiling, at least 64. `0` fits it to the memory limit: 4096 MB for the work folder, 1024 MB for `/tmp` and 8192 MB for the image store, shrunk so the work folder and `/tmp` together take no more than half of the runner's limit, and the image store no more than half of the daemon's. |
+
+**The memory limit.** Zoomies never raises it for you, because it is also what
+the scheduler charges the host for and changing it changes how many runners fit.
+It proposes instead. The pool editor offers the limit that leaves the job the
+room it has now — the current one plus what the folders may fill, and never less
+than twice what they may fill, because folders are fitted into half a limit and a
+proposal that left them more would be tight again when it was taken — as soon as
+the folders take more than half of it, and `pool.tmpfs_memory_tight` says the same
+in the problems list and in the dry run. Sizes you type that add up to the whole
+limit or more are refused; a pool with no limit of its own is sized from its
+host's share, and folders left to size themselves are fitted into half of
+whatever that turns out to be.
+
+**Two containers, two limits.** A Docker-in-Docker runner is a pair, and a tmpfs
+is charged to the container it is in: the work folder and `/tmp` to the runner,
+the image store to the daemon. What each container's limit is depends on how the
+pool is sized.
+
+- *A typed size* is given to both containers in full — a pool that asked for 8 GB
+  and got it only in the container that is not building would have asked for
+  nothing — and the host is charged for both. The proposal covers whichever
+  container needs more, not the sum, because each is charged for its own folders.
+- *A size left to the host* is one slot's share, and the pair splits it evenly,
+  because a slot is one runner: a host set to eight slots may carry eight runners,
+  not four because half of them brought a daemon. The host is charged once. The
+  split is an accounting rule, not a measurement of where a build's memory goes —
+  the memory a Docker-in-Docker job reports is the two containers added together.
+  If the daemon is where your jobs spend memory and disk, set the pool's
+  **Docker sidecar's share** (Size step of the pool editor, or
+  `--daemon-share`): the percentage of the slot the daemon is given, from 10 to
+  90, with the runner keeping the rest. Seventy gives the daemon 70% of the
+  slot's CPU and memory. The host is still charged one slot, and a host whose
+  slot is too small to give the thinner half a workable size is not used for the
+  pool, which the pool's host list says. It divides only a share the host chose;
+  a typed size goes to both containers in full whatever it says.
+
+  You don't have to guess the number. The agent reports what each container of
+  a pair used, and when one has been squeezed against its own limit while the
+  other idled — across enough jobs on several runners — `pool.daemon_share_suggested`
+  names the pool and a share to try. It informs and never changes the pool; it
+  applies only to host-sized pools, and clears itself once you change the share.
+
+**When to turn it on.** Zoomies tells you. `pool.tmpfs_suggested` is raised for
+a pool when, on one host, all three are true: the pool ran jobs there in the
+last six hours, the host has been waiting on its disk for at least ten minutes,
+and it has free memory beyond its own reserve for a work folder. It stays for as
+long as that holds, rather than appearing once, and clears itself when the
+setting is on, the disk calms or the memory is spent. It is information and
+never a warning: nothing is failing, only slower than it needs to be. To see
+what a host is doing, `iostat -x 5` shows `%util` and `await` for its disk, and
+a before-and-after run of one real workflow tells you more than any figure.
+
+**What it does not cover.**
+
+- *Docker-in-docker, unless you ask.* The work folder in memory does not speed
+  `docker build` or `docker pull` inside a job: those write to the sidecar's image
+  store, which is the `daemon` folder above and is off until you turn it on. When
+  it is on it replaces `/var/lib/docker` in the sidecar with a tmpfs, so size it
+  for the largest image your jobs pull, with the layers it unpacks. It covers the
+  default sidecar image, which keeps images in `/var/lib/docker`; a newer sidecar
+  that stores them under `/var/lib/containerd` is not covered. Test it on one
+  pool, with a job that pulls your biggest image, before relying on it.
+- *Jobs that mount the work folder into another container.* A step that runs
+  `docker run -v $PWD:...` against the host's Docker names a path that daemon
+  resolves on the host, where the tmpfs is not.
+- *The shared cache.* A tmpfs belongs to one container, so a cache in one would
+  start cold for every runner, which is no cache at all. To keep the cache in
+  memory, see [Keeping the cache in memory](persistent-caches.md#keeping-the-cache-in-memory).
+- *The process backend.* It has no container to mount on, and the setting is
+  refused there. Point `agent.work_dir` at a tmpfs on the host instead.
+- *Tool downloads.* A pool with no tool cache has `setup-python`, `setup-node`
+  and the rest unpack into `_work/_tool`, which is in memory and counts against
+  the folder's size.
+
+**A host has the last word.** The setting is the pool's, and a pool is one
+setting for every host it lands on — but a fleet has machines with memory to
+spare and machines without, and only the host's owner knows which is which. So a
+host's [runner profile](#runner-profiles-how-big-a-runner-is-on-one-host) can
+say:
+
+- `tmpfs.disabled` — keep every in-memory folder off this machine, whatever a
+  pool asks for. Its runners use disk, as they did before the setting existed.
+- `tmpfs.max_mb` — the most any one folder may be on this machine. It is applied
+  after a pool's size is fitted to the runner's limit, so it lowers a size
+  however the size was arrived at, typed or fitted, and it never raises one. It
+  cannot be combined with `disabled`, because a host that keeps the folders off
+  has nothing to cap, and it is at least 64 MB.
+
+![The Runner sizes dialog for a host, scrolled to In-memory folders, where its owner can keep pools' folders off the machine or cap how large any one may be.](screenshots/host-runner-sizes-dark.webp#only-dark){ .zoomies-shot }
+![The Runner sizes dialog for a host, scrolled to In-memory folders, where its owner can keep pools' folders off the machine or cap how large any one may be.](screenshots/host-runner-sizes-light.webp#only-light){ .zoomies-shot }
+
+Set them under **Runner sizes** on the host's card, with
+`zoomies hosts edit <host> --tmpfs-off` or `--tmpfs-max-mb 2048`, or with
+`runner_profile.tmpfs` on `PATCH /api/v1/hosts/{id}`. A host that says nothing
+changes nothing. The host is read when a runner is created, not when the pass
+begins, so an edit made while GitHub is being asked for the runner's registration
+applies to that runner too; a runner already running keeps its folders as they
+were. The suggestion to turn the setting on skips a host that has it off, and
+judges one with a ceiling against the most a folder could take there. A pool that
+asks for folders in memory and is placed on a host that keeps them off is told so
+as information (`pool.tmpfs_host_off`), because that runner runs on disk and
+nothing on the pool would otherwise say which one.
+
+An agent too old to mount the folders starts the runner on disk, as with the
+setting off. `pool.tmpfs_unsupported` names those hosts where the pool is
+saved, with the same fix as elastic CPU's: upgrade the agent.
+
 ### Sizing a machine from the other side
 
 The same figures size a machine from the other side. The recommended capacity
@@ -685,7 +835,14 @@ so the same snapshot always produces the same plan.
 Linux agents sample whole-host CPU occupancy, `MemAvailable` and the one-minute
 load average on their normal heartbeats, including work outside Zoomies. CPU
 uses counter differences, so the first sample reports memory and load only; I/O
-wait counts as occupied. Available memory includes reclaimable cache. The load
+wait counts as occupied. The same counters give I/O wait on its own — the share of
+time the machine sat idle with something waiting on disk — because a build
+stalled on a saturated disk reads as a machine hard at work, and that is the one
+figure that tells the two apart. It is judged the way CPU is: it starts a clock
+at 20% and holds it until it falls below 10%, and a host that has been there for
+ten minutes is called *disk-bound*, which is what
+[keeping the work folder in memory](#keeping-the-work-folder-in-memory) is
+suggested on. Available memory includes reclaimable cache. The load
 average is there because CPU occupancy pins at 100% and then stops saying
 anything: load keeps counting what is queued behind the cores, so it is what
 says a host has been pushed *past* them rather than merely to them. Sampling
@@ -1048,10 +1205,10 @@ nothing. Upgrade the agent and the machine starts answering for its own size.
 
 The number to check a limit against is not the one on the pool. A runner is
 charged what its pool asks for, a field left unset is charged one slot's worth
-of the host instead, and a **docker-in-docker pool is charged twice over** —
-whichever of those two the figure came from, so a slot on a host such a pool
-uses is worth two — because the backend gives the build's sidecar the same
-limits as the runner:
+of the host instead, and a **docker-in-docker pool is charged twice over for
+a figure it typed**, because the backend gives the build's sidecar the same
+limits as the runner. A field left to the host is one slot's share that the pair
+splits between them, and is charged once:
 so a pool asking for 8 CPU needs a 16-CPU host, and a 12-CPU machine that
 matches its selector in every other way will never take one. The pool wizard
 says so as the limits are typed: it names each host its selector reaches that

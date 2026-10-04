@@ -383,9 +383,12 @@ func (c *Controller) decideLoan(r *store.Runner, p *store.Pool, base float64, st
 		// store.Resources.SplitWithDaemon), and BusiestHalfPercent is that
 		// half's use of its own share. An agent too old to report it leaves
 		// the pair judged on its sum, as it always was.
-		half, _ := store.Resources{CPUs: base}.SplitWithDaemon()
-		in.HolderBaseCPUs = half.CPUs
-		in.HolderUsedCPUs = st.BusiestHalfPercent / 100 * half.CPUs
+		// The busier half is judged against its own share, which a pool
+		// that gives its daemon more than half has made the daemon's.
+		half, daemon := store.Resources{CPUs: base}.SplitWithDaemonShare(p.Resources.DaemonSharePercent)
+		holder := max(half.CPUs, daemon.CPUs)
+		in.HolderBaseCPUs = holder
+		in.HolderUsedCPUs = st.BusiestHalfPercent / 100 * holder
 	}
 	c.loansMu.Lock()
 	defer c.loansMu.Unlock()

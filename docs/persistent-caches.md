@@ -61,6 +61,45 @@ The writable per-runner tool view links to retained tools read-only. The entrypo
 
 Set cache size targets and leave disk reserve for image pulls, workspaces, daemon metadata and logs. Maintenance honours cancellation but eviction is not a quota and a busy cache may defer eviction. Monitor both free bytes and inodes. Cache and Docker filesystems may differ from the agent work filesystem.
 
+## Keeping the cache in memory
+
+The pool cache cannot be a tmpfs of each runner's own. It is kept *between*
+runners, and a tmpfs belongs to one container and is gone when it is, so every
+runner would start with an empty cache — which is no cache. The form that works
+is a directory the **host** mounts in memory, given as the cache's source. It is
+bind-mounted into every runner like any other host path, so sharing, the in-use
+check and eviction all keep working.
+
+```sh
+# on each host that should keep it in memory; add it to /etc/fstab to survive a reboot
+sudo mount -t tmpfs -o size=8g,mode=0777 tmpfs /var/lib/zoomies/shared/cache/pools
+```
+
+```yaml
+cache:
+  enabled: true
+  scope: pool
+  source: /var/lib/zoomies/shared/cache/pools   # the mounted tmpfs
+  size_limit: 6442450944                        # 6 GiB, inside the mount's 8g
+```
+
+Three things are different from a cache on disk:
+
+- **Set a size limit.** Memory is the host's disk here, and the limit is the only
+  thing evicting from it. With none, the cache grows until the host has no memory
+  left, which takes every runner and the agent with it. A source under `/dev/shm`
+  with no limit is warned about as `pool.cache_memory_unbounded`. Keep the limit
+  inside the mount's own `size=`, with room to spare.
+- **It is lost at a reboot.** A cache is disposable accelerator data and a missing
+  one is recreated empty, so nothing breaks — the first runner after a restart
+  just pays for the downloads again.
+- **It is not charged to a runner's memory limit.** The mount belongs to the host,
+  so a job's cgroup is not where it is counted, but page cache a job dirties may
+  be. Leave memory beyond the limit for the runners themselves.
+
+A tool cache lives under the host's shared folder rather than the cache source,
+so it stays on disk unless that folder is the mount.
+
 ## Using the pool cache from a workflow
 
 Zoomies mounts the cache and nothing more: it does not know which package

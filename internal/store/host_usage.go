@@ -29,6 +29,16 @@ type HostUsage struct {
 	// judging admission and the throttle on it would have a boost trip the
 	// very hold that then withdraws it.
 	LentCPUPercent float64 `json:"lent_cpu_percent,omitempty"`
+	// IOWaitPercent is the share of CPU time the machine spent idle with
+	// something waiting on disk, as the agent measured it between heartbeats.
+	// CPUPercent counts that time as busy, so a build stalled on a saturated disk
+	// reads as a host hard at work; this is the figure that says otherwise.
+	IOWaitPercent *float64 `json:"io_wait_percent,omitempty"`
+	// IOWaitHighSince is when I/O wait rose to IOWaitHighPercent and has not
+	// fallen below IOWaitCalmPercent since. The controller owns it, for the reason
+	// it owns CPUHighSince: an agent that sent its own could keep a host looking
+	// disk-bound, or never.
+	IOWaitHighSince *time.Time `json:"io_wait_high_since,omitempty"`
 }
 
 // UnlentCPUPercent is the host's CPU less what runners were using of CPU lent
@@ -49,6 +59,27 @@ const HostUsageMaxAge = 90 * time.Second
 // ladder is paced against it: a rung may not be climbed faster than the hold
 // that feeds it can trip, and internal/controller pins the two together.
 const CPUHoldWindow = 30 * time.Second
+
+// I/O wait is judged the way CPU is: one threshold to start the clock and a
+// lower one to stop it, so a host hovering around the line is one sustained
+// condition rather than a dozen short ones. The advice that rests on it -- that
+// a pool's scratch folders could live in memory -- is persistent, and a clock
+// that reset on every dip would never reach IOWaitSustained on a busy disk,
+// which dips constantly.
+const (
+	IOWaitHighPercent = 20.0
+	IOWaitCalmPercent = 10.0
+	// IOWaitSustained is how long a host has to have been waiting on disk before
+	// anything is said about it. A build's checkout is a burst of I/O, and a
+	// notification for each one would teach an operator to ignore the list.
+	IOWaitSustained = 10 * time.Minute
+)
+
+// DiskBound reports whether this host has been waiting on its disk, steadily,
+// for long enough to say so.
+func (u HostUsage) DiskBound(now time.Time) bool {
+	return u.Fresh(now) && u.IOWaitHighSince != nil && now.Sub(*u.IOWaitHighSince) >= IOWaitSustained
+}
 
 func (u HostUsage) Fresh(now time.Time) bool {
 	return !u.SampledAt.IsZero() && !now.Before(u.SampledAt) && now.Sub(u.SampledAt) < HostUsageMaxAge
@@ -86,6 +117,22 @@ func ObserveHostUsage(previous, measured HostUsage, lentPercent float64, memoryM
 	if v := measured.MemoryAvailableMB; v != nil && *v >= 0 && memoryMB > 0 && *v <= memoryMB {
 		value := *v
 		u.MemoryAvailableMB = &value
+	}
+	if v := measured.IOWaitPercent; v != nil && !math.IsNaN(*v) && !math.IsInf(*v, 0) && *v >= 0 && *v <= 100 {
+		wait := *v
+		u.IOWaitPercent = &wait
+		held := previous.Fresh(now) && previous.IOWaitHighSince != nil
+		switch {
+		case wait >= IOWaitHighPercent && held:
+			since := *previous.IOWaitHighSince
+			u.IOWaitHighSince = &since
+		case wait >= IOWaitHighPercent:
+			since := now
+			u.IOWaitHighSince = &since
+		case wait >= IOWaitCalmPercent && held:
+			since := *previous.IOWaitHighSince
+			u.IOWaitHighSince = &since
+		}
 	}
 	// A load average has no ceiling -- that is the point of it -- but it is
 	// never negative, and a NaN or an infinity is an agent that read

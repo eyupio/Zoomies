@@ -107,6 +107,27 @@ type Stats struct {
 	// half busy. Zero for a single container, and from an agent that predates
 	// it, which a controller reads as "judge the sum", as it always did.
 	BusiestHalfPercent float64 `json:"busiest_half_percent,omitempty"`
+	// Halves is, for a docker-in-docker pair, what each container used on its
+	// own. The sums above cannot say which half a limit is binding on, and that
+	// is what the controller needs to judge how the pair's slot is divided
+	// (daemon_share_percent). Nil for a single container, and from an agent that
+	// predates it, which a controller reads as "nothing to judge by".
+	Halves *PairHalves `json:"halves,omitempty"`
+}
+
+// PairHalves is the two containers of a docker-in-docker runner, sampled apart.
+type PairHalves struct {
+	Runner HalfUse `json:"runner"`
+	Daemon HalfUse `json:"daemon"`
+}
+
+// HalfUse is one container's use at a sample, beside the limits it was created
+// with. A limit of zero means the container had none to be judged against.
+type HalfUse struct {
+	CPUs        float64 `json:"cpus"`
+	CPULimit    float64 `json:"cpu_limit,omitempty"`
+	MemoryBytes int64   `json:"memory_bytes"`
+	MemoryLimit int64   `json:"memory_limit,omitempty"`
 }
 
 // Info describes a backend's capabilities on this particular host. The agent
@@ -198,10 +219,24 @@ type Spec struct {
 	// because the difference decides what a runner killed for exceeding its
 	// memory limit should tell the operator to change. Empty from a
 	// controller that predates it, which a backend reads as the pool's.
-	ResourcesSource string            `json:"resources_source,omitempty"`
-	Cache           store.CacheConfig `json:"cache"`
-	Repository      string            `json:"repository,omitempty"`
-	DockerMode      store.DockerMode  `json:"docker_mode"`
+	ResourcesSource string `json:"resources_source,omitempty"`
+	// DaemonSharePercent is the part of a host-sized slot the docker-in-docker
+	// daemon is given; zero is the even split. See store.Resources.
+	DaemonSharePercent int               `json:"daemon_share_percent,omitempty"`
+	Cache              store.CacheConfig `json:"cache"`
+	// Tmpfs keeps the runner's work folder and /tmp in memory. A container
+	// backend mounts them; an agent that predates the field ignores it and the
+	// runner simply uses disk, which is why the controller warns about a pool
+	// placed on such a host (agent.FeatureTmpfs, pool.tmpfs_unsupported) rather
+	// than leaving a job as slow as before with nothing saying why.
+	Tmpfs store.TmpfsConfig `json:"tmpfs,omitzero"`
+	// TmpfsMaxMB is the host's ceiling on any one in-memory folder, applied after
+	// the folder is fitted to the runner's limit. Zero is none. It is separate
+	// from Tmpfs because it can only be applied here: a pool left to size itself
+	// is fitted to a limit the controller does not resolve, and the agent does.
+	TmpfsMaxMB int64            `json:"tmpfs_max_mb,omitempty"`
+	Repository string           `json:"repository,omitempty"`
+	DockerMode store.DockerMode `json:"docker_mode"`
 	// RunAsRoot keeps the container's default user instead of dropping to the
 	// unprivileged "runner" account.
 	RunAsRoot bool `json:"run_as_root"`

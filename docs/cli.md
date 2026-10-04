@@ -96,6 +96,20 @@ running. `--cpu-burst-size-builds` (`true`) starts an `automatic` pool's runners
 with Cargo, .NET and the JVM sized for that ceiling; it applies from the next
 runner started.
 
+`--tmpfs-work` keeps the runner's `_work` folder in memory instead of on the
+host's disk, and `--tmpfs-tmp` does the same for `/tmp`; `--tmpfs-work-size` and
+`--tmpfs-tmp-size` set each folder's ceiling in MiB, and `0` fits it to the
+memory limit. Both are off unless typed, the folders are charged to the runner's
+memory limit, and a size on a create needs the folder it is for. On an edit,
+naming one carries the others forward as they stand. `--tmpfs-docker` and
+`--tmpfs-docker-size` do the same for a Docker-in-Docker pool's image store, which
+needs `--docker-mode dind`. See [keeping the work folder
+in memory](hosts-and-pools.md#keeping-the-work-folder-in-memory).
+
+`--daemon-share <percent>` sets how much of a host-sized slot a Docker-in-Docker
+pool's daemon is given, 10 to 90, with the runner keeping the rest; `0` is the
+even split.
+
 On `edit`, only the flags you actually type are sent — the defaults above are
 not applied to a partial update, so editing a pool's image cannot silently reset
 its ceiling.
@@ -215,7 +229,7 @@ run it again, that is your call to make.
 | Command | What it does |
 | --- | --- |
 | `hosts list` | The hosts that have joined. A host with runner sizes of its own gets a line under the table saying what they are, whose they are, and how many slots they give. The size column says which [size class](auto-pools.md) a host is in once the controller works classes out, a line under the table lists the tags you have put on a host, and a host that counts towards no automatic pool says why. |
-| `hosts edit <host-id>` | Change a host's capacity (`--capacity`), its reserve (`--reserve-cpus`, `--reserve-memory-mb`, `--reserve-disk-mb`) or how big a runner is on it: `--standard-cpus` and `--standard-memory-mb` for the size one runner is given, `--min-cpus` and `--min-memory-mb` for the least, `--burst-max-cpus` for the most CPU one may use, lent CPU included. Zero follows the fleet's own setting again, and `--clear-profile` removes the whole profile. `--tag key=value` puts a tag on the host and `--untag key` takes one off, each repeatable, and a bare `--tag gpu` is `gpu=true`; a flag is one tag and is not split on commas, so `--tag rack=b4,b5` is a rack called `b4,b5`. The tags you do not name are kept, and the ones the controller derives from the machine are never written. `--untag` takes a name and not a value, and says so when the host has no such tag of its own, or when it is one the controller works out, rather than succeeding and changing nothing. Anything you do not name is left alone, including the rest of a profile you changed one figure of. An edit that would leave a pool with nowhere to run is refused unless `--confirm`. See [runner profiles](hosts-and-pools.md#runner-profiles-how-big-a-runner-is-on-one-host). |
+| `hosts edit <host-id>` | Change a host's capacity (`--capacity`), its reserve (`--reserve-cpus`, `--reserve-memory-mb`, `--reserve-disk-mb`) or how big a runner is on it: `--standard-cpus` and `--standard-memory-mb` for the size one runner is given, `--min-cpus` and `--min-memory-mb` for the least, `--burst-max-cpus` for the most CPU one may use, lent CPU included. `--tmpfs-off` keeps pools' [in-memory folders](hosts-and-pools.md#keeping-the-work-folder-in-memory) off the host (`--tmpfs-off=false` lets them back) and `--tmpfs-max-mb` caps any one of them. Zero follows the fleet's own setting again, and `--clear-profile` removes the whole profile. `--tag key=value` puts a tag on the host and `--untag key` takes one off, each repeatable, and a bare `--tag gpu` is `gpu=true`; a flag is one tag and is not split on commas, so `--tag rack=b4,b5` is a rack called `b4,b5`. The tags you do not name are kept, and the ones the controller derives from the machine are never written. `--untag` takes a name and not a value, and says so when the host has no such tag of its own, or when it is one the controller works out, rather than succeeding and changing nothing. Anything you do not name is left alone, including the rest of a profile you changed one figure of. An edit that would leave a pool with nowhere to run is refused unless `--confirm`. See [runner profiles](hosts-and-pools.md#runner-profiles-how-big-a-runner-is-on-one-host). |
 | `hosts cordon <host-id>` | Stop scheduling new runners onto it. What it already has keeps running. |
 | `hosts uncordon <host-id>` | Let it accept runners again. |
 | `hosts drain <host-id> [--yes]` | Cordon it, then drain every runner on it, so it empties as its jobs finish. The order matters: draining an uncordoned host means the scheduler puts fresh runners on it while the old ones are still going. Each runner gets five minutes to finish what it is on; a longer job is stopped, which is what makes the host actually empty. A runner that is busy is only drained with `--yes`; without it that runner is refused and the host stays cordoned. |

@@ -84,7 +84,7 @@ func (s *Store) publishAIContextSnapshot(ctx context.Context, id string, revisio
 		if err != nil {
 			return err
 		}
-		if err := config.CheckSourceFiles(snapshot.Files); err != nil {
+		if err := config.CheckSnapshotFiles(snapshot); err != nil {
 			return err
 		}
 		if config.Disabled {

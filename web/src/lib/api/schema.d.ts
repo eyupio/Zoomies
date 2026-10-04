@@ -3785,17 +3785,32 @@ export interface components {
             commit: string;
             snapshot: string;
             total?: number;
+            /** @description How many files the snapshot lists but does not carry. Present on every page, searches included, whenever it is not zero; results from such a snapshot say nothing about those files. */
+            omitted_total?: number;
             next_offset?: number;
             files?: {
                 path: string;
+                /** @description The file's size; for an omitted file */
                 bytes: number;
                 lines: number;
+                /**
+                 * @description Set when the file exists in the source but its content is not in the snapshot. too_large is over the 1 MiB per-file limit, over_budget was dropped (largest first) to fit the file-count and size limits, flagged was withheld by the generator's secret scan.
+                 * @enum {string}
+                 */
+                omitted?: "too_large" | "over_budget" | "flagged";
             }[];
             excerpts?: {
                 path: string;
                 text: string;
                 offset: number;
                 next_offset: number | null;
+                /**
+                 * @description Set instead of text when the file is listed but not carried. Read it from the source if it is needed.
+                 * @enum {string}
+                 */
+                omitted?: "too_large" | "over_budget" | "flagged";
+                /** @description The omitted file's size in Git. */
+                bytes?: number;
             }[];
             matches?: {
                 path: string;
@@ -4560,6 +4575,11 @@ export interface components {
              * @example 3072
              */
             min_memory_mb?: number;
+            /**
+             * @description For a `docker_mode: dind` pool whose size comes from the host: the percentage of one slot given to the Docker daemon, which does the building; the runner keeps the rest. Zero is the even split every pool had before this was settable. Between 10 and 90 otherwise. It divides only a share the host chose -- a typed `cpus` or `memory_mb` is given to both containers in full -- and the host is charged one slot either way. A slot too small to give the thinner half what a runner needs is refused rather than divided.
+             * @example 70
+             */
+            daemon_share_percent?: number;
         };
         /** @description Whether an automatically-sized Docker or Podman pool only observes, or may use, CPU left over after every live runner's guaranteed host share and one imminent start have been protected. Memory never changes while a job runs. Existing pools default to off; new pools default to observe. */
         CPUBurstPolicy: {
@@ -4648,6 +4668,10 @@ export interface components {
             disk_known?: boolean;
             /** @description Whether this host's agent can move a live runner's CPU quota. An elastic pool is honoured only where it is true; a runner of one placed elsewhere is held at its share. */
             elastic_cpu?: boolean;
+            /** @description Whether this host's agent mounts a pool's in-memory folders. A pool that asks for them is honoured only where it is true; a runner of one placed elsewhere starts on disk. */
+            tmpfs?: boolean;
+            /** @description Whether this host's operator turned in-memory folders off in its runner profile. A pool that asks for them is not given them here. Absent where they are allowed. */
+            tmpfs_off?: boolean;
             sizing?: components["schemas"]["PoolHostSizing"];
             /** @description Why the host's runner profile keeps this pool off it, as a sentence about the host with its name left out. Absent where the host can run the pool. */
             excluded?: string;
@@ -5018,6 +5042,7 @@ export interface components {
             };
             runner_settings?: components["schemas"]["RunnerSettings"];
             cache?: components["schemas"]["CacheConfig"];
+            tmpfs?: components["schemas"]["TmpfsConfig"];
             host_selector?: {
                 [key: string]: string;
             };
@@ -5074,6 +5099,25 @@ export interface components {
              */
             tools: boolean;
         };
+        /** @description One runner folder kept in memory. */
+        TmpfsMount: {
+            /** @default false */
+            enabled: boolean;
+            /**
+             * Format: int64
+             * @description The folder's ceiling in MB, at least 64. Zero sizes it from the runner's memory limit: the default (4096 MB for the work folder, 1024 MB for /tmp), shrunk so the folders together take no more than half of that limit.
+             */
+            size_mb?: number;
+        };
+        /** @description Which of a runner's folders are kept in memory (tmpfs) instead of on the host's disk. Opt-in, and off for every pool until somebody turns it on. A tmpfs is charged to the runner's memory limit, so what it may fill comes out of the limit rather than being added to it; a pool that turns it on is warned (`pool.tmpfs_memory_tight`) with the limit that would leave the job the room it has now. Needs the Docker or Podman backend. The shared pool cache is not covered: it cannot be a per-runner tmpfs because every runner would start with it cold. To keep that in memory, point its source at a directory the host mounts in memory and give it a size limit. */
+        TmpfsConfig: {
+            /** @description The runner's `_work` folder -- the checkout, build output and the runner's own temporary files. The one worth having. */
+            work?: components["schemas"]["TmpfsMount"];
+            /** @description `/tmp`. Separate because some toolchains put their heaviest traffic there and some jobs leave gigabytes in it. */
+            tmp?: components["schemas"]["TmpfsMount"];
+            /** @description The Docker-in-Docker sidecar's image store, `/var/lib/docker` in the daemon's container: where every image a job pulls and every layer it builds is written. Needs `docker_mode: dind`. It is charged to the daemon's own memory limit -- its half of one slot's share for a pool sized by its host, the full typed limit otherwise -- and is a choice of its own because an image bigger than the mount does not pull. Left to size itself it is 8192 MB, fitted into half the daemon's limit. */
+            daemon?: components["schemas"]["TmpfsMount"];
+        };
         PoolsExport: {
             export_version: number;
             /** Format: date-time */
@@ -5115,6 +5159,7 @@ export interface components {
                 docker_wait?: string | null;
             };
             cache: components["schemas"]["CacheConfig"];
+            tmpfs?: components["schemas"]["TmpfsConfig"];
             host_selector: {
                 [key: string]: string;
             };
@@ -5205,6 +5250,7 @@ export interface components {
             cpu_burst: components["schemas"]["CPUBurstPolicy"];
             runner_settings?: components["schemas"]["RunnerSettings"];
             cache?: components["schemas"]["CacheConfig"];
+            tmpfs?: components["schemas"]["TmpfsConfig"];
             host_selector?: {
                 [key: string]: string;
             };
@@ -5252,6 +5298,7 @@ export interface components {
             cpu_burst?: components["schemas"]["CPUBurstPolicy"];
             runner_settings?: components["schemas"]["RunnerSettings"];
             cache?: components["schemas"]["CacheConfig"];
+            tmpfs?: components["schemas"]["TmpfsConfig"];
             host_selector?: {
                 [key: string]: string;
             };
@@ -6375,6 +6422,13 @@ export interface components {
             cpu_held?: boolean;
             /** @description The part of cpu_percent runners were using out of CPU elastic CPU lent them. The admission hold and the throttle judge CPU without it. Owned by the controller. */
             lent_cpu_percent?: number;
+            /** @description The share of CPU time the machine spent idle with something waiting on disk between samples. cpu_percent counts that time as busy; this is what tells a host stalled on its disk from one hard at work. Absent when unmeasured. */
+            io_wait_percent?: number;
+            /**
+             * Format: date-time
+             * @description When I/O wait rose to 20% and has not fallen below 10% since. A host that has been there for ten minutes is called disk-bound
+             */
+            io_wait_high_since?: string;
             /** @description The kernel's one-minute load average for the whole machine, as the agent read it from /proc/loadavg. Absent when unmeasured. Judged against the host's CPU count: a load of at least twice the CPUs is what steps the throttle up, because a runnable queue that deep is a machine that has stopped keeping up even when the CPU figure saturates at 100. */
             load_average_1m?: number;
         };
@@ -6587,6 +6641,18 @@ export interface components {
             minimum?: components["schemas"]["RunnerSize"];
             /** @description The size of one runner here for a pool that takes its size from the host. A pool whose own minimum is above it is not placed here. */
             standard?: components["schemas"]["RunnerStandard"];
+            /** @description The host's say over pools' in-memory folders: whether it keeps them off, and the most any one of them may be here. Absent leaves each pool's own setting as it stands. */
+            tmpfs?: components["schemas"]["HostTmpfs"];
+        };
+        /** @description A host's policy for the in-memory folders pools may ask for. Some machines have memory to spare for them and some do not, and a pool is one setting for every host it lands on, so the host's owner has the last word. */
+        HostTmpfs: {
+            /** @description Keep every in-memory folder off this host, whatever a pool asks for. Its runners use disk, as they did before the setting existed. */
+            disabled?: boolean;
+            /**
+             * Format: int64
+             * @description The most any one in-memory folder may be on this host, in MB (at least 64), applied after a pool's size is fitted to the runner's limit. A pool's size can lower it and never raise it. Zero is no host ceiling; it cannot be combined with `disabled`.
+             */
+            max_mb?: number;
         };
         /** @description One tier of a host's effective profile -- the figure in force on each field and whose it is. */
         EffectiveSize: {
@@ -7557,6 +7623,30 @@ export interface components {
              * @description For a docker-in-docker pair
              */
             busiest_half_percent?: number;
+            /** @description For a docker-in-docker pair, what each container used on its own, beside the limits it was created with. Absent for a single container and from an agent that predates it. The controller judges how the pair's slot is divided from it (`pool.daemon_share_suggested`). */
+            halves?: {
+                runner?: components["schemas"]["WorkloadHalfUse"];
+                daemon?: components["schemas"]["WorkloadHalfUse"];
+            };
+        };
+        WorkloadHalfUse: {
+            /**
+             * Format: double
+             * @description Cores in use at the sample.
+             */
+            cpus?: number;
+            /**
+             * Format: double
+             * @description The CPU quota the container was created with
+             */
+            cpu_limit?: number;
+            /** Format: int64 */
+            memory_bytes?: number;
+            /**
+             * Format: int64
+             * @description Absent when the container had no limit.
+             */
+            memory_limit?: number;
         };
         /** @enum {string} */
         AgentTaskKind: "create_runner" | "stop_runner" | "remove_runner" | "stream_logs" | "cancel_logs" | "prewarm_image" | "fill_tool_cache";
@@ -7627,6 +7717,7 @@ export interface components {
             ephemeral?: boolean;
             resources?: components["schemas"]["Resources"];
             cache?: components["schemas"]["CacheConfig"];
+            tmpfs?: components["schemas"]["TmpfsConfig"];
             repository?: string;
             docker_mode?: components["schemas"]["DockerMode"];
             run_as_root?: boolean;

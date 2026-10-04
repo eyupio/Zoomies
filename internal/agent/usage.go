@@ -24,5 +24,5 @@ func (a *Agent) hostUsage(infos []backend.Info, cpus int, memoryMB int64) *store
 	if u.CPUPercent == nil && u.MemoryAvailableMB == nil && u.LoadAverage1 == nil {
 		return nil
 	}
-	return &store.HostUsage{CPUPercent: u.CPUPercent, MemoryAvailableMB: u.MemoryAvailableMB, LoadAverage1: u.LoadAverage1}
+	return &store.HostUsage{CPUPercent: u.CPUPercent, MemoryAvailableMB: u.MemoryAvailableMB, LoadAverage1: u.LoadAverage1, IOWaitPercent: u.IOWaitPercent}
 }

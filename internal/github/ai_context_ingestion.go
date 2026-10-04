@@ -196,6 +196,16 @@ func (c *appClient) verifyContextSnapshot(ctx context.Context, owner, name, bran
 			return fmt.Errorf("%w: context content does not match regular files in the trusted commit", ErrContextMismatch)
 		}
 	}
+	// An omitted file carries no content to hash, so the claim that it exists
+	// and how large it is gets the same scrutiny: the trusted tree must have a
+	// regular blob of that size at that path. Otherwise a workflow could list
+	// files that were never there, or hide one behind a made-up reason.
+	for _, o := range snapshot.Omitted {
+		e := entries[o.Path]
+		if e == nil || e.GetType() != "blob" || (e.GetMode() != "100644" && e.GetMode() != "100755") || e.GetSize() != o.Bytes {
+			return fmt.Errorf("%w: an omitted file does not match a regular file of that size in the trusted commit", ErrContextMismatch)
+		}
+	}
 	latest, resp, err := c.asInstallation.Git.GetRef(ctx, owner, name, "heads/"+branch)
 	if err != nil {
 		return c.fail("recheck trusted context branch", resp, err)

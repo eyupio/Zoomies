@@ -7,8 +7,12 @@ description: Read host OS health reports, approve individual tuning changes, and
 # Host health checks and tuning
 
 `zoomies doctor` explains the host's current OS settings, warnings, skipped
-checks and recommended changes. It starts with a summary, then a table. Nothing
-is tuned unless you explicitly approve it. Ubuntu 24.04 and Debian 13 are the
+checks and recommended changes. It starts with a summary, then lists what needs
+attention (each with its current value, the better one and why), the skipped
+checks, and one line for each check that passes. The text wraps to your terminal
+width, so it reads on a phone. At a terminal, when `zoomies tune` can fix
+something, doctor asks `[y/N]` before it runs tune. Nothing is tuned unless you
+explicitly approve it. Ubuntu 24.04 and Debian 13 are the
 first supported tuning platforms. Other Linux distributions are report-only;
 non-Linux hosts report unsupported checks.
 

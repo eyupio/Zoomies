@@ -263,6 +263,11 @@ func (c *Controller) apply(ctx context.Context, snap scheduler.Snapshot, plan sc
 	}
 
 	type changes struct{ created, drained int }
+	// Each scheduler drain asks GitHub a question before it stops anything, and
+	// this loop holds reconcileMu throughout, so the number asked per pass is
+	// capped. A drain left over is not lost: the scheduler decides it again
+	// next pass, from a snapshot that has caught up.
+	withdrawals := 0
 	counts := make(map[string]*changes, len(plan.Pools))
 	for _, a := range plan.Actions {
 		if ctx.Err() != nil {
@@ -298,6 +303,12 @@ func (c *Controller) apply(ctx context.Context, snap scheduler.Snapshot, plan sc
 			}
 			n.created++
 		case scheduler.ActionDrain:
+			if withdrawals >= maxWithdrawalsPerPass {
+				c.log.Debug("left a drain for the next pass so this one does not hold the scheduling lock on GitHub",
+					"runner", a.RunnerID, "pool", a.PoolName)
+				continue
+			}
+			withdrawals++
 			if err := c.drainRunnerID(ctx, a.RunnerID, a.Reason, pool); err != nil {
 				c.logRunnerAction("drain", a, err)
 				continue
@@ -326,6 +337,15 @@ func (c *Controller) apply(ctx context.Context, snap scheduler.Snapshot, plan sc
 		}
 	}
 }
+
+// maxWithdrawalsPerPass bounds how many scheduler drains one pass attempts. Each
+// can wait up to withdrawTimeout on GitHub under reconcileMu, so a pool disabled
+// with dozens of idle runners would otherwise stall every other pool, the
+// machine loop's callers and the webhook-driven passes for minutes.
+const maxWithdrawalsPerPass = 8
+
+// withdrawTimeout is how long one registration withdrawal may wait on GitHub.
+const withdrawTimeout = 5 * time.Second
 
 // logRunnerAction reports a failed action, quietly when the runner has simply
 // gone: two passes racing over the same dead runner is normal, not an error.
@@ -511,9 +531,11 @@ func (c *Controller) finishCreateRunner(ctx context.Context, inst *store.Install
 		// What the row records, not the pool's field: a pool that sets no
 		// limit gets one slot's share of the host, and the agent applies
 		// whatever this says without knowing the difference.
-		Resources:       resources,
-		ResourcesSource: wireSource(source),
-		Cache:           pool.Cache,
+		Resources:          resources,
+		ResourcesSource:    wireSource(source),
+		Cache:              pool.Cache,
+		Tmpfs:              pool.Tmpfs,
+		DaemonSharePercent: pool.Resources.DaemonSharePercent,
 		// An organisation installation's target is the organisation, which is
 		// no repository at all; a pool under one names its cache's repository
 		// itself, and that is the identity the runner should carry.
@@ -525,6 +547,20 @@ func (c *Controller) finishCreateRunner(ctx context.Context, inst *store.Install
 	}
 	if timeout := c.policy().For(pool).ProvisionTimeout; timeout > 0 {
 		spec.StartBefore = r.CreatedAt.Add(timeout)
+	}
+	// The host's say over in-memory folders, read now rather than when the pass
+	// began: an operator who turned them off while the GitHub call was in flight
+	// meant this runner too. A host that cannot be read gets disk, which is what
+	// it had before the setting existed, rather than the pool's word over a
+	// machine whose owner may have said no.
+	if pool.Tmpfs.Any() {
+		if host, err := c.st.GetHost(ctx, a.HostID); err == nil {
+			spec.Tmpfs, spec.TmpfsMaxMB = host.RunnerProfile.Tmpfs.Apply(pool.Tmpfs)
+		} else {
+			c.log.Warn("could not read the host to apply its in-memory folder policy; creating the runner with its folders on disk",
+				"pool", pool.Name, "host", a.HostID, "error", err)
+			spec.Tmpfs, spec.TmpfsMaxMB = store.TmpfsConfig{}, 0
+		}
 	}
 
 	// Credential minting is deliberately detached from the reconcile pass. In
@@ -760,17 +796,21 @@ func (c *Controller) drainRunnerID(ctx context.Context, id, reason string, pool 
 // drainRunner moves a runner to draining and asks its host to stop it.
 //
 // unlessBusy is for the scheduler's own drains, which were decided for a runner
-// that was not running a job. The row is checked in the same write as the
-// transition, so one that has taken a job since is refused with
-// store.ErrInvalidTransition instead of having its job stopped. An operator's
-// drain passes false: draining a busy runner is what they asked for, behind
-// the confirmation DrainRunner has already taken.
+// that was not running a job. Its registration is withdrawn from GitHub first,
+// which GitHub refuses for a runner it has given a job; then the row is checked
+// in the same write as the transition, so one that has taken a job since is
+// refused with store.ErrInvalidTransition instead of having its job stopped.
+// An operator's drain passes false: draining a busy runner is what they asked
+// for, behind the confirmation DrainRunner has already taken.
 func (c *Controller) drainRunner(ctx context.Context, r *store.Runner, reason string, pool *store.Pool, unlessBusy bool) (*store.Runner, error) {
 	if !c.mayAct() {
 		return nil, errors.New("controller authority is paused; retry after recovery or lease renewal")
 	}
 	transition := c.st.TransitionRunner
 	if unlessBusy {
+		if err := c.withdrawRegistration(ctx, r, pool); err != nil {
+			return nil, err
+		}
 		transition = c.st.TransitionRunnerUnlessBusy
 	}
 	updated, err := transition(ctx, r.ID, store.RunnerDraining, reason)
@@ -786,6 +826,86 @@ func (c *Controller) drainRunner(ctx context.Context, r *store.Runner, reason st
 	})
 	c.log.Info("draining a runner", "runner", r.ID, "name", r.Name, "reason", reason)
 	return updated, nil
+}
+
+// withdrawRegistration takes a runner's registration off GitHub before the
+// scheduler stops it, and refuses the drain when GitHub will not let it go.
+//
+// The row is the last thing this controller heard, not what GitHub has since
+// done. A runner it still reads as idle can have been handed a job a second
+// ago -- on a polling-only fleet, up to a whole sweep ago -- and the stop that
+// follows is a SIGINT, which the runner answers by cancelling the job it is
+// on. TransitionRunnerUnlessBusy cannot see that job: it guards only what has
+// already been recorded here.
+//
+// GitHub can. It refuses to delete a registration that is running a job, and
+// once the registration is gone it has nothing to assign a job to, so asking
+// first makes the stop safe whichever way the answer falls. A refusal, or no
+// answer at all, leaves the runner as it was: the next pass decides again, by
+// which time a sweep has recorded the job if there is one.
+//
+// It asks GitHub inside a scheduling pass -- a delete, and a listing first for
+// a runner whose ID was never recorded -- which removeRunnerID goes out of its
+// way to avoid. A drain is rare and a job cancelled by its own fleet is not
+// something a later pass can put back, so this one waits, for no longer than
+// a known-job check does.
+func (c *Controller) withdrawRegistration(ctx context.Context, r *store.Runner, pool *store.Pool) error {
+	if pool == nil {
+		p, err := c.st.GetPool(ctx, r.PoolID)
+		if err != nil {
+			return fmt.Errorf("finding the pool of %s to withdraw its registration: %w", r.Name, err)
+		}
+		pool = p
+	}
+	if IsDemoID(pool.InstallationID) || (r.GitHubRunnerID == 0 && !store.IsRunnerName(r.Name)) {
+		return nil
+	}
+	inst, err := c.st.GetInstallation(ctx, pool.InstallationID)
+	if err != nil {
+		return fmt.Errorf("finding the installation of %s to withdraw its registration: %w", r.Name, err)
+	}
+	if c.githubHeld(inst.ID, c.Now()) {
+		return fmt.Errorf("%w: GitHub is rate-limiting the installation of %s, so its registration cannot be withdrawn yet",
+			store.ErrInvalidTransition, r.Name)
+	}
+	client, err := c.clients.get(ctx, inst)
+	if err != nil {
+		return fmt.Errorf("reaching GitHub to withdraw the registration of %s: %w", r.Name, err)
+	}
+	callCtx, cancel := context.WithTimeout(ctx, withdrawTimeout)
+	defer cancel()
+	id := r.GitHubRunnerID
+	if id == 0 {
+		remote, err := client.ListRunners(callCtx)
+		c.observeGitHub(inst.ID, err)
+		if err != nil {
+			if errors.Is(err, github.ErrRateLimited) {
+				c.holdRateLimited(inst.ID, err, c.Now(), "finding a runner registration to withdraw")
+			}
+			return fmt.Errorf("finding the registration of %s to withdraw it: %w", r.Name, err)
+		}
+		for _, gr := range remote {
+			if gr.Name == r.Name {
+				id = gr.ID
+				break
+			}
+		}
+		if id == 0 {
+			// Never registered, or already gone: nothing can be assigned to it.
+			return nil
+		}
+	}
+	err = client.DeleteRunner(callCtx, id)
+	c.observeGitHub(inst.ID, err)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, github.ErrRunnerBusy):
+		return fmt.Errorf("%w: GitHub says %s is running a job, so it is not being stopped", store.ErrInvalidTransition, r.Name)
+	case errors.Is(err, github.ErrRateLimited):
+		c.holdRateLimited(inst.ID, err, c.Now(), "withdrawing a runner registration")
+	}
+	return fmt.Errorf("withdrawing the registration of %s before stopping it: %w", r.Name, err)
 }
 
 // removeRunnerID is the scheduler's own path to a removal, reached only from

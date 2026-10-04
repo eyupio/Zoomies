@@ -208,6 +208,17 @@ func (c Config) CheckSourceFiles(files []File) error {
 	return nil
 }
 
+// CheckSnapshotFiles applies CheckSourceFiles to everything a snapshot names,
+// carried or omitted: an excluded path must not reappear as a list entry either.
+func (c Config) CheckSnapshotFiles(s *Snapshot) error {
+	files := make([]File, 0, len(s.Files)+len(s.Omitted))
+	files = append(files, s.Files...)
+	for _, o := range s.Omitted {
+		files = append(files, File{Path: o.Path})
+	}
+	return c.CheckSourceFiles(files)
+}
+
 // Match Python fnmatchcase, including wildcards crossing directory separators.
 // Patterns and paths are bounded before reaching this matcher.
 func contextGlob(pattern string) *regexp.Regexp {

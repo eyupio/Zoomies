@@ -524,3 +524,154 @@ func TestPoolsGetSaysAPoolTakesItsSizeFromItsHosts(t *testing.T) {
 		t.Errorf("a profile pool is not sized by a slot's share:\n%s", out)
 	}
 }
+
+// The in-memory folders are one object, like the size: an edit that types only
+// a size for /tmp has to carry the work folder's mode forward from the pool as
+// it stands, or "make /tmp bigger" would quietly put _work back on disk.
+func TestPoolsEditCarriesTheOtherInMemoryFolderForward(t *testing.T) {
+	var sent map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case http.MethodGet:
+			_, _ = w.Write([]byte(`{"id":"pool_1","name":"zoomies-4vcpu","resources":{},"sizing":"automatic",
+				"tmpfs":{"work":{"enabled":true,"size_mb":6144},"tmp":{"enabled":true}}}`))
+		case http.MethodPatch:
+			if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
+				t.Errorf("decoding the PATCH body: %v", err)
+			}
+			_, _ = w.Write([]byte(`{"id":"pool_1","name":"zoomies-4vcpu","enabled":true}`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	runCLI(t, "pools", "edit", "pool_1", "--tmpfs-tmp-size", "2048", "--url", srv.URL)
+
+	tmpfs, _ := sent["tmpfs"].(map[string]any)
+	work, _ := tmpfs["work"].(map[string]any)
+	tmp, _ := tmpfs["tmp"].(map[string]any)
+	if work["enabled"] != true || work["size_mb"] != 6144.0 {
+		t.Errorf("the work folder must be carried forward untouched, got %v", work)
+	}
+	if tmp["enabled"] != true || tmp["size_mb"] != 2048.0 {
+		t.Errorf("/tmp must keep its mode and take the new size, got %v", tmp)
+	}
+}
+
+// An edit that touches nothing about the folders must not send them, or a PATCH
+// for a label would reset them to whatever this CLI's flag defaults say.
+func TestPoolsEditLeavesTheInMemoryFoldersAloneWhenNotNamed(t *testing.T) {
+	var sent map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodPatch {
+			if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
+				t.Errorf("decoding the PATCH body: %v", err)
+			}
+		}
+		_, _ = w.Write([]byte(`{"id":"pool_1","name":"zoomies-4vcpu","enabled":true}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	runCLI(t, "pools", "edit", "pool_1", "--max", "9", "--url", srv.URL)
+
+	if _, ok := sent["tmpfs"]; ok {
+		t.Errorf("an edit that names no in-memory folder must not send them: %v", sent)
+	}
+}
+
+// A size for a folder that is off would be sent as nothing to size, and the pool
+// would quietly keep the folder on disk; it is refused as a usage error instead.
+func TestPoolsCreateRefusesAFolderSizeWithoutTheFolder(t *testing.T) {
+	for flag, want := range map[string]string{
+		"--tmpfs-work-size": "--tmpfs-work",
+		"--tmpfs-tmp-size":  "--tmpfs-tmp",
+	} {
+		e, _, errOut := newTestEnv(t)
+		code := dispatch(context.Background(), e, []string{"pools", "create", "--name", "p", "--labels", "p",
+			flag, "2048", "--url", "http://127.0.0.1:1"})
+		if code != exitUsage {
+			t.Fatalf("%s: exit code = %d, want %d", flag, code, exitUsage)
+		}
+		if !strings.Contains(errOut.String(), want) {
+			t.Errorf("%s: the refusal must name %s:\n%s", flag, want, errOut.String())
+		}
+	}
+}
+
+// `pools get` says which folders are in memory and how much memory that spends,
+// because "yes" alone does not.
+func TestPoolsGetShowsWhichFoldersAreInMemory(t *testing.T) {
+	srv := jsonRoutes(t, map[string]string{
+		"/api/v1/pools/pool_1": `{"id":"pool_1","name":"zoomies-4vcpu","backend":"docker",
+			"resources":{},"sizing":"automatic","counts":{},
+			"tmpfs":{"work":{"enabled":true,"size_mb":4096},"tmp":{"enabled":true}}}`,
+		"/api/v1/pools/pool_2": `{"id":"pool_2","name":"zoomies-plain","backend":"docker",
+			"resources":{},"sizing":"automatic","counts":{}}`,
+	})
+
+	out, _ := runCLI(t, "pools", "get", "pool_1", "--url", srv.URL)
+	for _, want := range []string{"in memory", "_work (4096 MB)", "/tmp (sized from the memory limit)"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("pools get must show %q:\n%s", want, out)
+		}
+	}
+	out, _ = runCLI(t, "pools", "get", "pool_2", "--url", srv.URL)
+	if !strings.Contains(out, "in memory") || strings.Contains(out, "_work (") {
+		t.Errorf("a pool with nothing in memory must say no:\n%s", out)
+	}
+}
+
+// The Docker image store is one more folder in the same object: naming it must
+// carry the other two forward from the pool as it stands, as naming either of
+// them carries it.
+func TestPoolsEditCarriesTheOtherFoldersForwardWhenOnlyTheImageStoreIsNamed(t *testing.T) {
+	var sent map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case http.MethodGet:
+			_, _ = w.Write([]byte(`{"id":"pool_1","name":"zoomies-4vcpu","resources":{},"sizing":"automatic",
+				"tmpfs":{"work":{"enabled":true,"size_mb":6144},"tmp":{"enabled":false}}}`))
+		case http.MethodPatch:
+			if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
+				t.Errorf("decoding the PATCH body: %v", err)
+			}
+			_, _ = w.Write([]byte(`{"id":"pool_1","name":"zoomies-4vcpu","enabled":true}`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	runCLI(t, "pools", "edit", "pool_1", "--tmpfs-docker", "--tmpfs-docker-size", "4096", "--url", srv.URL)
+
+	tmpfs, _ := sent["tmpfs"].(map[string]any)
+	work, _ := tmpfs["work"].(map[string]any)
+	daemon, _ := tmpfs["daemon"].(map[string]any)
+	if work["enabled"] != true || work["size_mb"] != 6144.0 {
+		t.Errorf("the work folder must be carried forward untouched, got %v", work)
+	}
+	if daemon["enabled"] != true || daemon["size_mb"] != 4096.0 {
+		t.Errorf("the image store must be on at the size typed, got %v", daemon)
+	}
+}
+
+func TestPoolsCreateRefusesAnImageStoreSizeWithoutTheImageStore(t *testing.T) {
+	e, _, errOut := newTestEnv(t)
+	code := dispatch(context.Background(), e, []string{"pools", "create", "--name", "p", "--labels", "p",
+		"--tmpfs-docker-size", "4096", "--url", "http://127.0.0.1:1"})
+	if code != exitUsage || !strings.Contains(errOut.String(), "--tmpfs-docker") {
+		t.Fatalf("exit code = %d, want a usage error naming --tmpfs-docker:\n%s", code, errOut.String())
+	}
+}
+
+func TestPoolsGetShowsTheImageStoreWhenItIsInMemory(t *testing.T) {
+	srv := jsonRoutes(t, map[string]string{
+		"/api/v1/pools/pool_1": `{"id":"pool_1","name":"zoomies-dind","backend":"docker","docker_mode":"dind",
+			"resources":{},"sizing":"automatic","counts":{},
+			"tmpfs":{"daemon":{"enabled":true,"size_mb":6144}}}`,
+	})
+	out, _ := runCLI(t, "pools", "get", "pool_1", "--url", srv.URL)
+	if !strings.Contains(out, "Docker image store (6144 MB)") {
+		t.Errorf("pools get must show the image store and its size:\n%s", out)
+	}
+}

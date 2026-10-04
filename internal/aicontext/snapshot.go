@@ -36,9 +36,29 @@ type File struct {
 	Content string `json:"content"`
 }
 
+// Why a file is listed rather than carried. A snapshot that quietly lacked
+// these files would read as complete; listing them lets an assistant (and an
+// operator) see exactly what is missing and why, and fall back to the source.
+const (
+	OmittedTooLarge   = "too_large"   // a text file over MaxFileBytes
+	OmittedOverBudget = "over_budget" // dropped, largest first, to fit the file count and size limits
+	OmittedFlagged    = "flagged"     // withheld by the generator's secret scan
+	MaxOmitted        = MaxFiles
+)
+
+// Omitted names a regular text file that exists in the source commit but whose
+// content is not in this snapshot. Bytes is its size in Git, which ingestion
+// checks against the trusted tree like any other claim a workflow makes.
+type Omitted struct {
+	Path   string `json:"path"`
+	Bytes  int    `json:"bytes"`
+	Reason string `json:"reason"`
+}
+
 type Snapshot struct {
-	Manifest Manifest `json:"manifest"`
-	Files    []File   `json:"files"`
+	Manifest Manifest  `json:"manifest"`
+	Files    []File    `json:"files"`
+	Omitted  []Omitted `json:"omitted,omitempty"`
 }
 
 func Decode(r io.Reader) (*Snapshot, error) {
@@ -97,6 +117,23 @@ func (s *Snapshot) Validate() error {
 			return fmt.Errorf("context exceeds the total source limit")
 		}
 	}
+	if len(s.Omitted) > MaxOmitted {
+		return fmt.Errorf("context lists more than %d omitted files; add exclusions", MaxOmitted)
+	}
+	for _, o := range s.Omitted {
+		if !SafeSourcePath(o.Path) || seen[o.Path] {
+			return fmt.Errorf("context contains an unsafe, duplicate or already included omitted path")
+		}
+		if o.Bytes < 0 || (o.Reason != OmittedTooLarge && o.Reason != OmittedOverBudget && o.Reason != OmittedFlagged) {
+			return fmt.Errorf("context lists an omitted file with an invalid size or reason")
+		}
+		// Only files over the limit are ever too large, and every other reason
+		// concerns a file that fits it, so a forged label cannot swap them.
+		if (o.Reason == OmittedTooLarge) != (o.Bytes > MaxFileBytes) {
+			return fmt.Errorf("context lists an omitted file whose size does not match its reason")
+		}
+		seen[o.Path] = true
+	}
 	return nil
 }
 
@@ -117,16 +154,25 @@ type FileSummary struct {
 	Path  string `json:"path"`
 	Bytes int    `json:"bytes"`
 	Lines int    `json:"lines"`
+	// Omitted is set, with the reason, when the file exists in the source but
+	// its content is not in this snapshot. Bytes is then its size in Git.
+	Omitted string `json:"omitted,omitempty"`
 }
 
+// Overview lists every file the source commit has that the context knows about:
+// carried files and omitted ones in one path-sorted list, so a reader paging
+// through it cannot miss that something is absent.
 func (s *Snapshot) Overview() []FileSummary {
-	result := make([]FileSummary, 0, len(s.Files))
+	result := make([]FileSummary, 0, len(s.Files)+len(s.Omitted))
 	for _, f := range s.Files {
 		lines := len(strings.Split(f.Content, "\n"))
 		if f.Content == "" {
 			lines = 0
 		}
-		result = append(result, FileSummary{f.Path, len(f.Content), lines})
+		result = append(result, FileSummary{Path: f.Path, Bytes: len(f.Content), Lines: lines})
+	}
+	for _, o := range s.Omitted {
+		result = append(result, FileSummary{Path: o.Path, Bytes: o.Bytes, Omitted: o.Reason})
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Path < result[j].Path })
 	return result
@@ -137,6 +183,10 @@ type Excerpt struct {
 	Text       string `json:"text"`
 	Offset     int    `json:"offset"`
 	NextOffset *int   `json:"next_offset"`
+	// Omitted and Bytes answer a read of a file the snapshot lists but does not
+	// carry: no text, the reason, and the size to read from the source instead.
+	Omitted string `json:"omitted,omitempty"`
+	Bytes   int    `json:"bytes,omitempty"`
 }
 
 // Read uses UTF-8 byte offsets and a compact source string. Line-per-object
@@ -144,6 +194,14 @@ type Excerpt struct {
 func (s *Snapshot) Read(p string, offset, budget int) (Excerpt, error) {
 	if offset < 0 || budget < 4 || budget > MaxResponseBytes {
 		return Excerpt{}, fmt.Errorf("use a non-negative offset and a response budget between 4 and %d bytes", MaxResponseBytes)
+	}
+	for _, o := range s.Omitted {
+		if o.Path == p {
+			if offset != 0 {
+				return Excerpt{}, fmt.Errorf("an omitted file has no text; its offset must be 0")
+			}
+			return Excerpt{Path: p, Omitted: o.Reason, Bytes: o.Bytes}, nil
+		}
 	}
 	for _, f := range s.Files {
 		if f.Path != p {

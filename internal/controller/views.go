@@ -1050,6 +1050,7 @@ type PoolView struct {
 	// is what an unedited pool does.
 	RunnerSettings store.RunnerSettings `json:"runner_settings"`
 	Cache          store.CacheConfig    `json:"cache"`
+	Tmpfs          store.TmpfsConfig    `json:"tmpfs"`
 	HostSelector   map[string]string    `json:"host_selector"`
 	Env            map[string]string    `json:"env"`
 	RunAsRoot      bool                 `json:"run_as_root"`
@@ -1220,6 +1221,7 @@ func (v *PoolRenderer) View(p *store.Pool) PoolView {
 		EffectiveMinimum:       v.minimum(p),
 		RunnerSettings:         p.RunnerSettings,
 		Cache:                  p.Cache,
+		Tmpfs:                  p.Tmpfs,
 		HostSelector:           emptyMap(p.HostSelector),
 		Env:                    emptyMap(p.Env),
 		RunAsRoot:              p.RunAsRoot,
@@ -1348,6 +1350,12 @@ func PoolWarnings(p *store.Pool, inst *store.Installation, cfg *config.Config) [
 		})
 	}
 	if w, ok := cacheSharingWarning(p, inst); ok {
+		out = append(out, w)
+	}
+	if w, ok := tmpfsMemoryWarning(p); ok {
+		out = append(out, w)
+	}
+	if w, ok := cacheInMemoryWarning(p); ok {
 		out = append(out, w)
 	}
 	if w, ok := dockerClientWarning(p, cfg); ok {

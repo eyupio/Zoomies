@@ -184,6 +184,7 @@ func poolsGet(ctx context.Context, e *env, args []string) error {
 		{"host selector", dash(kvValue(pool.HostSelector).String())},
 		{"sizing", poolSizing(pool)},
 		{"elastic CPU", poolCPUBurstLabel(pool)},
+		{"in memory", poolTmpfsLabel(pool)},
 		{"created", p.relTime(pool.CreatedAt)},
 		{"updated", p.relTime(pool.UpdatedAt)},
 	}
@@ -218,6 +219,14 @@ func autoAsk(a *poolAuto) string {
 // poolSizing says what one runner of this pool is given, in the wizard's own
 // words, because "cpus 0" reads as unlimited and it is the opposite.
 func poolSizing(pool poolItem) string {
+	out := poolSizingBase(pool)
+	if share := pool.Resources.DaemonSharePercent; share > 0 && pool.Sizing != "fixed" {
+		out += fmt.Sprintf("; the Docker daemon takes %d%% of a slot, the runner %d%%", share, 100-share)
+	}
+	return out
+}
+
+func poolSizingBase(pool poolItem) string {
 	if pool.Sizing == "profile" || pool.SizeFromProfile {
 		out := "profile: the standard size each host sets"
 		if std := pool.FleetStandard; std.CPUs > 0 || std.MemoryMB > 0 {
@@ -237,6 +246,30 @@ func poolSizing(pool poolItem) string {
 		return "fixed: " + strings.Join(parts, ", ") + " on every host"
 	}
 	return "automatic: one slot's share of each host"
+}
+
+// poolTmpfsLabel says which of the runner's folders the pool keeps in memory,
+// with the ceiling beside each, because "on" alone does not say how much memory
+// the pool is spending.
+func poolTmpfsLabel(pool poolItem) string {
+	var parts []string
+	for _, m := range []struct {
+		name  string
+		mount poolTmpfsMount
+	}{{"_work", pool.Tmpfs.Work}, {"/tmp", pool.Tmpfs.Tmp}, {"Docker image store", pool.Tmpfs.Daemon}} {
+		if !m.mount.Enabled {
+			continue
+		}
+		if m.mount.SizeMB > 0 {
+			parts = append(parts, fmt.Sprintf("%s (%d MB)", m.name, m.mount.SizeMB))
+		} else {
+			parts = append(parts, m.name+" (sized from the memory limit)")
+		}
+	}
+	if len(parts) == 0 {
+		return "no"
+	}
+	return strings.Join(parts, ", ")
 }
 
 // poolCPUBurstLabel renders the elastic CPU policy the way the pool wizard
@@ -304,9 +337,14 @@ type poolSpec struct {
 	// of it carries the rest forward rather than clearing it. Zero on a
 	// create, where there is nothing to carry.
 	current poolResources
+	// daemonShare is --daemon-share, the daemon's part of a split slot.
+	daemonShare *int
 	// currentBurst is the elastic CPU policy the pool has now, kept for the
 	// same reason: a ceiling typed alone must not switch the mode off.
 	currentBurst poolCPUBurst
+	// currentTmpfs is the pool's in-memory folders as they stand, for the same
+	// reason: a size typed for one folder must not switch the other off.
+	currentTmpfs poolTmpfs
 	os           *string
 	osVersion    *string
 	arch         *string
@@ -327,6 +365,12 @@ type poolSpec struct {
 	cpuBurst          *string
 	cpuBurstMax       *float64
 	sizeBuilds        *bool
+	tmpfsWork         *bool
+	tmpfsWorkSize     *int64
+	tmpfsTmp          *bool
+	tmpfsTmpSize      *int64
+	tmpfsDocker       *bool
+	tmpfsDockerSize   *int64
 }
 
 // registerPoolFlags declares them, with the API's own defaults so that a
@@ -358,6 +402,7 @@ func registerPoolFlags(fs *flagSet) *poolSpec {
 	fs.Var(spec.envVars, "env", "environment variables for every job in this pool, e.g. HTTP_PROXY=...")
 	spec.cpus = fs.Float64("cpus", 0, "CPU limit per runner; 0 leaves the size to the host, which gives each runner one slot's share of its machine")
 	spec.memoryMB = fs.Int64("memory-mb", 0, "memory limit per runner, in MiB; 0 leaves the size to the host")
+	spec.daemonShare = fs.Int("daemon-share", 0, "for a --docker-mode dind pool sized by its host: the percentage of one slot given to the Docker daemon, 10 to 90; 0 is an even split")
 	spec.sizeFromHost = fs.Bool("size-from-host", false, "take each runner's size from the host it lands on, as that host's runner sizes say (see zoomies hosts edit); a pool does this or states a size, so it cannot be combined with --cpus or --memory-mb")
 	spec.diskGB = fs.Int64("disk-gb", 0, "disk limit per runner, in GiB")
 	spec.pidsLimit = fs.Int64("pids-limit", 0, "the container's pids cgroup limit (0 is no limit)")
@@ -377,6 +422,12 @@ func registerPoolFlags(fs *flagSet) *poolSpec {
 	spec.cpuBurst = fs.String("cpu-burst", "", "elastic CPU: off, observe (measure without moving a quota) or automatic (lend spare host CPU to busy runners); needs automatic sizing on docker or podman")
 	spec.sizeBuilds = fs.Bool("cpu-burst-size-builds", true, "with --cpu-burst automatic, start runners with CARGO_BUILD_JOBS, DOTNET_PROCESSOR_COUNT and the JVM's processor count set to the ceiling, so a build has workers for CPU lent after it started")
 	spec.cpuBurstMax = fs.Float64("cpu-burst-max", 0, "the most CPU one runner may be lent up to, in cores; 0 is the host's allocatable CPU")
+	spec.tmpfsWork = fs.Bool("tmpfs-work", false, "keep the runner's _work folder in memory instead of on the host's disk; the folder is charged to the runner's memory limit; needs docker or podman")
+	spec.tmpfsWorkSize = fs.Int64("tmpfs-work-size", 0, "the _work folder's ceiling in MiB (at least 64); 0 sizes it from the memory limit, at most 4096 and half the limit")
+	spec.tmpfsTmp = fs.Bool("tmpfs-tmp", false, "keep /tmp in memory as well; off unless asked for, because some jobs leave gigabytes there")
+	spec.tmpfsTmpSize = fs.Int64("tmpfs-tmp-size", 0, "the /tmp folder's ceiling in MiB (at least 64); 0 sizes it from the memory limit, at most 1024")
+	spec.tmpfsDocker = fs.Bool("tmpfs-docker", false, "keep the Docker-in-Docker sidecar's image store in memory; needs --docker-mode dind; an image bigger than the store does not pull, and it is charged to the sidecar's memory limit")
+	spec.tmpfsDockerSize = fs.Int64("tmpfs-docker-size", 0, "the image store's ceiling in MiB (at least 64); 0 sizes it from the sidecar's memory limit, at most 8192 and half of it")
 	return spec
 }
 
@@ -494,7 +545,7 @@ func (spec *poolSpec) body(fs *flagSet, onlyChanged bool) map[string]any {
 		delete(res, "cpus")
 		delete(res, "memory_mb")
 		body["resources"] = res
-	case fs.changed("cpus") || fs.changed("memory-mb") || fs.changed("disk-gb") || fs.changed("pids-limit"):
+	case fs.changed("cpus") || fs.changed("memory-mb") || fs.changed("disk-gb") || fs.changed("pids-limit") || fs.changed("daemon-share"):
 		body["resources"] = spec.resources(fs)
 	}
 	// The elastic CPU policy is one object for the same reason the size is,
@@ -516,7 +567,38 @@ func (spec *poolSpec) body(fs *flagSet, onlyChanged bool) map[string]any {
 		}
 		body["cpu_burst"] = burst
 	}
+	// The in-memory folders are one object, so an edit that types only a size
+	// carries the other folder, and the mode of this one, forward from the pool
+	// as it stands rather than switching them off.
+	if spec.tmpfsChanged(fs) {
+		mount := func(current poolTmpfsMount, toggle string, on *bool, sizeFlag string, size *int64) map[string]any {
+			enabled, mb := current.Enabled, current.SizeMB
+			if fs.changed(toggle) {
+				enabled = *on
+			}
+			if fs.changed(sizeFlag) {
+				mb = *size
+			}
+			out := map[string]any{"enabled": enabled}
+			if mb > 0 {
+				out["size_mb"] = mb
+			}
+			return out
+		}
+		body["tmpfs"] = map[string]any{
+			"work":   mount(spec.currentTmpfs.Work, "tmpfs-work", spec.tmpfsWork, "tmpfs-work-size", spec.tmpfsWorkSize),
+			"tmp":    mount(spec.currentTmpfs.Tmp, "tmpfs-tmp", spec.tmpfsTmp, "tmpfs-tmp-size", spec.tmpfsTmpSize),
+			"daemon": mount(spec.currentTmpfs.Daemon, "tmpfs-docker", spec.tmpfsDocker, "tmpfs-docker-size", spec.tmpfsDockerSize),
+		}
+	}
 	return body
+}
+
+// tmpfsChanged is whether any in-memory folder flag was typed.
+func (spec *poolSpec) tmpfsChanged(fs *flagSet) bool {
+	return fs.changed("tmpfs-work") || fs.changed("tmpfs-work-size") ||
+		fs.changed("tmpfs-tmp") || fs.changed("tmpfs-tmp-size") ||
+		fs.changed("tmpfs-docker") || fs.changed("tmpfs-docker-size")
 }
 
 // resources is the size this invocation means, with anything not typed taken
@@ -537,6 +619,10 @@ func (spec *poolSpec) resources(fs *flagSet) map[string]any {
 	if fs.changed("disk-gb") {
 		disk = *spec.diskGB
 	}
+	share := spec.current.DaemonSharePercent
+	if fs.changed("daemon-share") {
+		share = *spec.daemonShare
+	}
 	if fs.changed("pids-limit") {
 		pids = *spec.pidsLimit
 	}
@@ -551,6 +637,9 @@ func (spec *poolSpec) resources(fs *flagSet) map[string]any {
 	}
 	if pids > 0 {
 		out["pids_limit"] = pids
+	}
+	if share > 0 {
+		out["daemon_share_percent"] = share
 	}
 	return out
 }
@@ -588,6 +677,18 @@ func poolsCreate(ctx context.Context, e *env, args []string) error {
 	// the policy is absent -- so a create that names one has to name the other.
 	if fs.changed("cpu-burst-max") && !fs.changed("cpu-burst") {
 		return usagef("pools create", "--cpu-burst-max needs --cpu-burst to say which mode the ceiling applies to: observe or automatic")
+	}
+	// A size alone would be sent for a folder that is off, which the API reads
+	// as nothing to size; saying so here is kinder than a pool that quietly
+	// keeps its folder on disk.
+	if fs.changed("tmpfs-work-size") && !*spec.tmpfsWork {
+		return usagef("pools create", "--tmpfs-work-size needs --tmpfs-work, which is what puts the _work folder in memory")
+	}
+	if fs.changed("tmpfs-tmp-size") && !*spec.tmpfsTmp {
+		return usagef("pools create", "--tmpfs-tmp-size needs --tmpfs-tmp, which is what puts /tmp in memory")
+	}
+	if fs.changed("tmpfs-docker-size") && !*spec.tmpfsDocker {
+		return usagef("pools create", "--tmpfs-docker-size needs --tmpfs-docker, which is what puts the image store in memory")
 	}
 	if err := spec.checkSizeChoice(fs, "pools create"); err != nil {
 		return err
@@ -708,6 +809,7 @@ func poolsEdit(ctx context.Context, e *env, args []string) error {
 		"zoomies pools edit pool_k3f9qz2m --warm 2 --cap 6   # a pool the controller keeps",
 		"zoomies pools edit pool_k3f9qz2m --size-from-host",
 		"zoomies pools edit pool_k3f9qz2m --cpu-burst automatic --cpu-burst-max 6",
+		"zoomies pools edit pool_k3f9qz2m --tmpfs-work --memory-mb 12288",
 		"zoomies pools edit pool_k3f9qz2m --os ubuntu --os-version 24.04",
 		"zoomies pools edit pool_k3f9qz2m --labels zoomies-4vcpu-ubuntu-2404,gpu")
 	if err := fs.parse(args); err != nil {
@@ -732,15 +834,17 @@ func poolsEdit(ctx context.Context, e *env, args []string) error {
 	// forward -- `resources` is one object, and a partial one clears what it
 	// leaves out -- so the pool as it stands is read first. It is read only
 	// when it is needed, so an edit that changes a label costs no extra call.
-	if fs.changed("cpus") || fs.changed("memory-mb") || fs.changed("disk-gb") || fs.changed("pids-limit") ||
+	if fs.changed("cpus") || fs.changed("memory-mb") || fs.changed("disk-gb") || fs.changed("pids-limit") || fs.changed("daemon-share") ||
 		fs.changed("size-from-host") ||
-		fs.changed("cpu-burst") || fs.changed("cpu-burst-max") || fs.changed("cpu-burst-size-builds") {
+		fs.changed("cpu-burst") || fs.changed("cpu-burst-max") || fs.changed("cpu-burst-size-builds") ||
+		spec.tmpfsChanged(fs) {
 		var existing poolItem
 		if _, err := client.get(ctx, "/pools/"+url.PathEscape(id), nil, &existing); err != nil {
-			return fmt.Errorf("reading the pool as it stands, which an edit to part of its size or elastic CPU policy has to keep: %w", err)
+			return fmt.Errorf("reading the pool as it stands, which an edit to part of its size, elastic CPU policy or in-memory folders has to keep: %w", err)
 		}
 		spec.current = existing.Resources
 		spec.currentBurst = existing.CPUBurst
+		spec.currentTmpfs = existing.Tmpfs
 	}
 
 	body := spec.body(fs, true)

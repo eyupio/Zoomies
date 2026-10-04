@@ -1212,12 +1212,12 @@ func TestAPinSaysWhatIsWrongWithEachFieldItself(t *testing.T) {
 // The upgrade
 // ---------------------------------------------------------------------------
 
-// 0072 and 0073 must change nothing for a fleet that has not asked for them:
+// 0073 and 0074 must change nothing for a fleet that has not asked for them:
 // every host reads as unclassified, every pool as one an operator made, every
 // job as never classed, and the tables they add are empty.
 func TestAnInstallFromBeforeSizeRoutingUpgradesUnchanged(t *testing.T) {
 	ctx := context.Background()
-	path := atSchemaBefore(t, "0072_size_classes.sql")
+	path := atSchemaBefore(t, "0073_size_classes.sql")
 	db, err := sql.Open("sqlite", "file:"+path)
 	if err != nil {
 		t.Fatal(err)

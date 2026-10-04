@@ -1433,6 +1433,7 @@ func (c *Controller) applyReports(ctx context.Context, hostID string, reports []
 				cpuMoved = allocationFactorMoved(r.ResourceSample, rep.Stats)
 			}
 			if r.State == store.RunnerBusy && rep.Stats.SampledAt != nil {
+				c.observePair(r, rep.Stats)
 				// The same sample raises the peaks of the job the runner is
 				// running, which is what the next run of that job is placed
 				// from. A failure here costs one sample of history, never

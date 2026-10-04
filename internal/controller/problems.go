@@ -167,6 +167,7 @@ var problemAudience = map[string]Audience{
 	"poller.stale":                                  AudienceFleet,
 	"pool.auto_blocked":                             AudienceFleet,
 	"pool.cache_above_disk":                         AudienceFleet,
+	"pool.cache_memory_unbounded":                   AudienceFleet,
 	"pool.cache_shared":                             AudienceFleet,
 	"pool.dangerous":                                AudienceFleet,
 	"pool.docker_client_missing":                    AudienceFleet,
@@ -186,6 +187,11 @@ var problemAudience = map[string]Audience{
 	"pool.runners_failing":                          AudienceFleet,
 	"pool.size_strands_hosts":                       AudienceFleet,
 	"pool.size_unlimited":                           AudienceFleet,
+	"pool.tmpfs_host_off":                           AudienceFleet,
+	"pool.tmpfs_memory_tight":                       AudienceFleet,
+	"pool.tmpfs_suggested":                          AudienceFleet,
+	"pool.daemon_share_suggested":                   AudienceFleet,
+	"pool.tmpfs_unsupported":                        AudienceFleet,
 	"provider.bootstrap_failed":                     AudienceFleet,
 	"provider.contract_unsupported":                 AudienceFleet,
 	"provider.credentials_refused":                  AudienceFleet,
@@ -368,6 +374,9 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	gather("the encryption key", c.keyProblems)
 	gather("host versions", c.hostSkewProblems)
 	gather("host resources", c.hostResourceProblems)
+	gather("in-memory folders", c.tmpfsAdviceProblems)
+	gather("in-memory folders by host", c.tmpfsHostProblems)
+	gather("sidecar share", c.daemonShareAdviceProblems)
 	gather("runner profiles", c.runnerProfileProblems)
 	gather("automatic pools", c.autoPoolProblems)
 	gather("label advice", c.labelAdviceProblems)

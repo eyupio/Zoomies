@@ -64,6 +64,7 @@ type HostView = {
   runner_profile?: {
     minimum?: { cpus?: number; memory_mb?: number };
     standard?: { cpus?: number; memory_mb?: number; burst_max_cpus?: number };
+    tmpfs?: { disabled?: boolean; max_mb?: number };
   };
 };
 
@@ -396,4 +397,46 @@ test('clearing every figure hands the host back to the fleet', async ({ page }) 
   const saved = await readHost(page);
   expect(saved.slots).toBe(8);
   expect(saved.runner_profile).toBeUndefined();
+});
+
+test("a host can cap pools' in-memory folders or keep them off, and the card says which", async ({
+  page,
+}) => {
+  // Some machines have memory to spare for a pool's in-memory folders and some
+  // do not, and the pool is one setting for every host it lands on, so the host
+  // has the last word. This is the whole path: the dialog, the controller and the
+  // card, with no pool involved -- the policy is a fact about the machine.
+  await goto(page, '/hosts', 'Hosts');
+  const dialog = await openDialog(page);
+  const off = dialog.getByRole('checkbox', { name: 'Keep in-memory folders off this machine' });
+  const ceiling = dialog.getByRole('textbox', { name: 'Largest folder (MB)' });
+  await expect(off).not.toBeChecked();
+
+  // A ceiling below the floor is refused where it is typed, and Save waits.
+  await ceiling.fill('32');
+  await expect(dialog.getByText(/below 64 MB/)).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Save sizes' })).toBeDisabled();
+
+  await ceiling.fill('2048');
+  await dialog.getByRole('button', { name: 'Save sizes' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(card(page).getByTestId('host-runner-sizes')).toContainText('Up to 2 GB each');
+  expect((await readHost(page)).runner_profile?.tmpfs).toEqual({ max_mb: 2048 });
+
+  // Keeping the folders off supersedes a ceiling: there is nothing to cap, so the
+  // field goes away rather than leaving a number that means nothing.
+  const again = await openDialog(page);
+  await again.getByRole('checkbox', { name: 'Keep in-memory folders off this machine' }).check();
+  await expect(again.getByRole('textbox', { name: 'Largest folder (MB)' })).toHaveCount(0);
+  await again.getByRole('button', { name: 'Save sizes' }).click();
+  await expect(again).toBeHidden();
+  await expect(card(page).getByTestId('host-runner-sizes')).toContainText('Kept off');
+  expect((await readHost(page)).runner_profile?.tmpfs).toEqual({ disabled: true });
+
+  // And it can be handed back, which leaves a host that says nothing.
+  const last = await openDialog(page);
+  await last.getByRole('button', { name: 'Follow the fleet in everything' }).click();
+  await last.getByRole('button', { name: 'Save sizes' }).click();
+  await expect(last).toBeHidden();
+  expect((await readHost(page)).runner_profile).toBeUndefined();
 });

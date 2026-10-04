@@ -11,7 +11,7 @@ import (
 
 // profileFlags are the flags that edit a host's runner profile, in the order
 // the help lists them.
-var profileFlags = []string{"min-cpus", "min-memory-mb", "standard-cpus", "standard-memory-mb", "burst-max-cpus"}
+var profileFlags = []string{"min-cpus", "min-memory-mb", "standard-cpus", "standard-memory-mb", "burst-max-cpus", "tmpfs-off", "tmpfs-max-mb"}
 
 // hostsEdit is `zoomies hosts edit`: the host's capacity, its reserve and how
 // big a runner is on it, which is the host's half of what the API's PATCH takes.
@@ -36,6 +36,8 @@ func hostsEdit(ctx context.Context, e *env, args []string) error {
 	standardCPUs := fs.Float64("standard-cpus", 0, "the CPU one runner is given here for a pool that takes its size from the host; 0 follows runners.default_cpus")
 	standardMemory := fs.Int64("standard-memory-mb", 0, "the memory one runner is given here, in MB; 0 follows runners.default_memory_mb")
 	burstMax := fs.Float64("burst-max-cpus", 0, "the most CPU one runner here may use, lent CPU included; 0 sets no host ceiling")
+	tmpfsOff := fs.Bool("tmpfs-off", false, "keep pools' in-memory folders off this host, whatever a pool asks for; --tmpfs-off=false lets them back")
+	tmpfsMax := fs.Int64("tmpfs-max-mb", 0, "the most any one in-memory folder may be on this host, in MB (at least 64); 0 sets no host ceiling")
 	clearProfile := fs.Bool("clear-profile", false, "remove the host's runner profile, so it follows the fleet's settings again")
 	tags, untags := tagValue{}, &listValue{}
 	fs.Var(tags, "tag", "put a tag on the host: key=value, or a bare key for key=true (repeatable); a pool's host selector asks for tags")
@@ -45,6 +47,8 @@ func hostsEdit(ctx context.Context, e *env, args []string) error {
 		"zoomies hosts edit hst_k3f9qz2m --standard-cpus 3 --standard-memory-mb 8192",
 		"zoomies hosts edit hst_k3f9qz2m --min-cpus 1 --standard-cpus 2 --burst-max-cpus 4",
 		"zoomies hosts edit hst_k3f9qz2m --capacity 6 --reserve-memory-mb 4096",
+		"zoomies hosts edit hst_k3f9qz2m --tmpfs-max-mb 2048",
+		"zoomies hosts edit hst_k3f9qz2m --tmpfs-off",
 		"zoomies hosts edit hst_k3f9qz2m --clear-profile",
 		"zoomies hosts edit hst_k3f9qz2m --tag rack=b4 --tag gpu",
 		"zoomies hosts edit hst_k3f9qz2m --tag size=large --untag rack",
@@ -117,6 +121,12 @@ func hostsEdit(ctx context.Context, e *env, args []string) error {
 		}
 		if fs.changed("burst-max-cpus") {
 			profile.Standard.BurstMaxCPUs = *burstMax
+		}
+		if fs.changed("tmpfs-off") {
+			profile.Tmpfs.Disabled = *tmpfsOff
+		}
+		if fs.changed("tmpfs-max-mb") {
+			profile.Tmpfs.MaxMB = *tmpfsMax
 		}
 		body["runner_profile"] = profile
 	}
