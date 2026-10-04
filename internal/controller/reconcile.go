@@ -260,6 +260,11 @@ func (c *Controller) apply(ctx context.Context, snap scheduler.Snapshot, plan sc
 	}
 
 	type changes struct{ created, drained int }
+	// Each scheduler drain asks GitHub a question before it stops anything, and
+	// this loop holds reconcileMu throughout, so the number asked per pass is
+	// capped. A drain left over is not lost: the scheduler decides it again
+	// next pass, from a snapshot that has caught up.
+	withdrawals := 0
 	counts := make(map[string]*changes, len(plan.Pools))
 	for _, a := range plan.Actions {
 		if ctx.Err() != nil {
@@ -295,6 +300,12 @@ func (c *Controller) apply(ctx context.Context, snap scheduler.Snapshot, plan sc
 			}
 			n.created++
 		case scheduler.ActionDrain:
+			if withdrawals >= maxWithdrawalsPerPass {
+				c.log.Debug("left a drain for the next pass so this one does not hold the scheduling lock on GitHub",
+					"runner", a.RunnerID, "pool", a.PoolName)
+				continue
+			}
+			withdrawals++
 			if err := c.drainRunnerID(ctx, a.RunnerID, a.Reason, pool); err != nil {
 				c.logRunnerAction("drain", a, err)
 				continue
@@ -323,6 +334,15 @@ func (c *Controller) apply(ctx context.Context, snap scheduler.Snapshot, plan sc
 		}
 	}
 }
+
+// maxWithdrawalsPerPass bounds how many scheduler drains one pass attempts. Each
+// can wait up to withdrawTimeout on GitHub under reconcileMu, so a pool disabled
+// with dozens of idle runners would otherwise stall every other pool, the
+// machine loop's callers and the webhook-driven passes for minutes.
+const maxWithdrawalsPerPass = 8
+
+// withdrawTimeout is how long one registration withdrawal may wait on GitHub.
+const withdrawTimeout = 5 * time.Second
 
 // logRunnerAction reports a failed action, quietly when the runner has simply
 // gone: two passes racing over the same dead runner is normal, not an error.
@@ -819,7 +839,7 @@ func (c *Controller) withdrawRegistration(ctx context.Context, r *store.Runner, 
 	if err != nil {
 		return fmt.Errorf("reaching GitHub to withdraw the registration of %s: %w", r.Name, err)
 	}
-	callCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	callCtx, cancel := context.WithTimeout(ctx, withdrawTimeout)
 	defer cancel()
 	id := r.GitHubRunnerID
 	if id == 0 {

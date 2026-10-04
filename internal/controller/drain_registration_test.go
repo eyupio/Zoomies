@@ -135,3 +135,48 @@ func TestADrainStandsDownWhenLookingUpARegistrationIsRateLimited(t *testing.T) {
 		}
 	}
 }
+
+// A pass holds the scheduling lock for every drain it applies, and each drain
+// now waits on GitHub. Disabling a pool with many idle runners must not turn
+// into one pass that waits on GitHub that many times; the rest are decided
+// again on the next pass, so none is lost.
+func TestAPassWithdrawsOnlyAFewRegistrationsAndLeavesTheRestForTheNext(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	total := maxWithdrawalsPerPass + 4
+	ids := make([]string, 0, total)
+	for range total {
+		r := h.runnerRow(pool, host, store.RunnerIdle)
+		h.gh.AddRunner(r.Name, pool.Labels)
+		ids = append(ids, r.ID)
+	}
+	pool.Enabled = false
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+	draining := func() int {
+		n := 0
+		for _, id := range ids {
+			if h.runnerByID(t, id).State == store.RunnerDraining {
+				n++
+			}
+		}
+		return n
+	}
+	pass := func() {
+		snap, err := h.c.snapshot(h.ctx)
+		if err != nil {
+			t.Fatalf("snapshot: %v", err)
+		}
+		h.c.apply(h.ctx, snap, scheduler.Decide(snap))
+	}
+
+	pass()
+	if got := draining(); got != maxWithdrawalsPerPass {
+		t.Fatalf("one pass drained %d runners, want the cap of %d", got, maxWithdrawalsPerPass)
+	}
+	pass()
+	if got := draining(); got != total {
+		t.Fatalf("after a second pass %d runners are draining, want all %d", got, total)
+	}
+}
