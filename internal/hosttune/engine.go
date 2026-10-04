@@ -55,7 +55,11 @@ func (LocalSystem) ReadDir(p string) ([]fs.DirEntry, error) { return os.ReadDir(
 func (LocalSystem) Stat(p string) (fs.FileInfo, error)      { return os.Lstat(p) }
 func (LocalSystem) Remove(p string) error                   { return os.Remove(p) }
 func (LocalSystem) Run(ctx context.Context, n string, a ...string) (string, error) {
-	cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	budget := 30 * time.Second
+	if n == "apt-get" {
+		budget = 20 * time.Minute
+	}
+	cctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 	c := exec.CommandContext(cctx, n, a...)
 	c.Env = append(os.Environ(), "LC_ALL=C", "DEBIAN_FRONTEND=noninteractive")
@@ -272,6 +276,9 @@ func (e *Engine) Run(ctx context.Context, t Tier) Report {
 		x.Tier = c.Tier
 		x.Rationale = c.Rationale
 		x.Optional = c.Optional
+		if c.ID == "kernel.hwe-install" && strings.HasPrefix(x.Reason, "optional install") {
+			x.Reason = ""
+		}
 		x.Actionable = c.Plan != nil && x.Status == Warn && x.Reason == "" && e.Supported() && !e.Container && e.UID == 0
 		if c.ID == "kernel.pending" && x.Status == Warn {
 			r.RebootPending = true

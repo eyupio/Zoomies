@@ -120,6 +120,7 @@ func commands() []*command {
 		{"backup", groupSetup, "Copy this host's database, with a manifest saying what it needs", runBackup},
 		{"restore", groupSetup, "Put a backup's database back, and fence the fleet while you check it", runRestore},
 		{"config", groupSetup, "Check a configuration file, or print the effective one", runConfig},
+		{"tune", groupSetup, "Review, apply or revert explicitly approved host tuning", runTune},
 		{"doctor", groupSetup, "Check host OS health and explain recommended changes", runDoctor},
 		{"healthcheck", groupSetup, "Probe a controller's /healthz; the container HEALTHCHECK", runHealthcheck},
 		{"version", groupSetup, "Print the version", runVersion},

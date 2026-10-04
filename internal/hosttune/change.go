@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -100,6 +101,9 @@ func (e *Engine) Plan(ctx context.Context, r Result) (Change, error) {
 		return Change{}, fmt.Errorf("tuning requires root on a supported Linux host outside a container")
 	}
 	fresh := c.Detect(ctx, e)
+	if c.ID == "kernel.hwe-install" && strings.HasPrefix(fresh.Reason, "optional install") {
+		fresh.Reason = ""
+	}
 	if fresh.Status != Warn || fresh.Reason != "" {
 		return Change{}, fmt.Errorf("%s cannot be changed: %s (%s)", r.ID, fresh.Status, fresh.Reason)
 	}

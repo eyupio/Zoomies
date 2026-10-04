@@ -37,6 +37,7 @@ func localDoctor(path string) (*hosttune.Engine, error) {
 }
 func runDoctor(ctx context.Context, e *env, args []string) error {
 	fs := newFlagSet(e, "zoomies doctor [--json] [--tier safe|aggressive|dedicated] [--host <id>]", "Check host OS settings and explain recommended changes. No host settings are changed.")
+	interactive := fs.Bool("interactive", false, "offer individual local fixes after showing the report")
 	js := fs.Bool("json", false, "print a machine-readable report")
 	tier := fs.String("tier", "safe", "safe, aggressive or dedicated; kernel checks appear in every tier")
 	host := fs.String("host", "", "read a remote host's latest report through the controller")
@@ -52,6 +53,9 @@ func runDoctor(ctx context.Context, e *env, args []string) error {
 	t, err := tierValue(*tier)
 	if err != nil {
 		return usagef("doctor", "%s", err)
+	}
+	if *interactive && (*js || *host != "") {
+		return usagef("doctor", "--interactive requires a local, human-readable report")
 	}
 	var r hosttune.Report
 	if *host != "" {
@@ -84,6 +88,23 @@ func runDoctor(ctx context.Context, e *env, args []string) error {
 	}
 	if err != nil {
 		return err
+	}
+	if *interactive {
+		a := []string{"--config", *cfg}
+		if t == hosttune.Dedicated {
+			a = append(a, "--dedicated")
+		} else {
+			a = append(a, "--tier", string(t))
+		}
+		if err = runTune(ctx, e, a); err != nil {
+			return err
+		}
+		engine, err := localDoctor(*cfg)
+		if err != nil {
+			return err
+		}
+		r = engine.Run(ctx, t)
+		printDoctor(e.out, r, false)
 	}
 	if r.ExitCode() != 0 {
 		return doctorExit(r.ExitCode())
