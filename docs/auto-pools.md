@@ -115,7 +115,8 @@ is made when the first host of its kind arrives, and kept after its last one lea
 | Labels | `zoomies`, `zoomies-medium`, `linux` and `x64` or `arm64` — the class label is what a workflow writes to ask for it by name. |
 | Hosts | Those in its class, and of its architecture. A host is in exactly one. |
 | Runner size | The standard of the host's own [runner profile](hosts-and-pools.md#runner-profiles-how-big-a-runner-is-on-one-host), or where it has none the runner of the class: 1 CPU and 2 GB, 2 CPUs and 4 GB, 4 CPUs and 8 GB (`runners.small_*`, `runners.medium_*`, `runners.large_*`). |
-| Docker | `none`, or `dind` with `scheduler.auto_pools_docker_mode`. The host's own socket is never offered to a pool the controller makes. |
+| Docker | `none`, or `dind` with `scheduler.auto_pools_docker_mode`. The host's own socket is never offered to a pool the controller makes. A `dind` pool divides its slot evenly between the runner and its daemon. |
+| In-memory folders | Off: the work folder, `/tmp` and the daemon's image store stay on disk. A host's own [in-memory folder policy](hosts-and-pools.md#keeping-the-work-folder-in-memory) still applies where a pool turns them on. |
 | Runner group | On an organisation installation, Zoomies' own runner group, which is what a pool created by hand there gets where it names none; a repository's installation has no groups. |
 | Maximum | The slots of the hosts that count towards it. |
 | Minimum | The warm runners an operator asked for, and never more than the maximum. |
@@ -161,7 +162,9 @@ pool's page, with `zoomies pools edit <pool-id> --warm 2 --cap 6`, or with `auto
 `PATCH /api/v1/pools/{id}`; `pools enable` and `pools disable` are the pause. Any
 other field is refused, naming it: the ones the controller works out are said to be
 worked out, and the rest are set up one way for every automatic pool, so for those you
-make a pool of your own. It cannot be deleted while the controller is keeping it —
+make a pool of your own — a different split of a Docker-in-Docker slot, or folders kept
+in memory, for example. The advice on how such a pool divides its slot is not given for
+an automatic pool for the same reason. It cannot be deleted while the controller is keeping it —
 `scheduler.auto_pools` is `on` and the pool belongs to the installation the pools are
 kept for — because it would make the pool again: pause it, or set the switch to
 `shadow` or `off`. A pool it is not keeping is a leftover that nothing would make

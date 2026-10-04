@@ -207,7 +207,11 @@ func (c *Controller) daemonShareAdviceProblems(ctx context.Context, out *[]Probl
 		return fmt.Errorf("listing pools: %w", err)
 	}
 	for _, p := range pools {
-		if !p.Enabled || p.DockerMode != store.DockerDinD {
+		// A pool the controller keeps divides its slot evenly and has no setting
+		// for it: the advice would send an operator to an edit that is refused, and
+		// one that was accepted would be put back with the rest of the pool's fixed
+		// settings. They make a pool of their own where the split matters.
+		if !p.Enabled || p.DockerMode != store.DockerDinD || p.FromHosts() {
 			continue
 		}
 		c.pairMu.Lock()
