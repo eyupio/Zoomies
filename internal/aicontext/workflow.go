@@ -22,10 +22,11 @@ func SetupWorkflow(key RepositoryKey, config Config) (string, error) {
 	if err := config.Validate(); err != nil {
 		return "", err
 	}
-	// Artifact actions v4+ are unavailable on GHES. Refuse a workflow that
-	// would only fail after merge; Enterprise templates need a separate pilot.
-	if key.GitHubHost != "github.com" {
-		return "", fmt.Errorf("managed context workflows currently require GitHub.com; GitHub Enterprise artifact support needs a separate workflow template")
+	// GHE.com is laid out like GitHub.com but signs Actions tokens with its own
+	// issuer and has not been tried; refuse it rather than guess, so nothing
+	// is merged that would only fail afterwards.
+	if key.GitHubHost == "ghe.com" || strings.HasSuffix(key.GitHubHost, ".ghe.com") {
+		return "", fmt.Errorf("managed context workflows are not available for GHE.com yet; use a repository on GitHub.com or GitHub Enterprise Server")
 	}
 	cfg, _ := json.Marshal(managedConfig{Manager: "zoomies-ai-context", TemplateVersion: SetupTemplateVersion, Config: config})
 	identity, _ := json.Marshal(key)
@@ -153,8 +154,31 @@ jobs:
 	condition := "${{ github.ref == 'refs/heads/" + strings.ReplaceAll(config.SourceBranch, "'", "''") + "' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}"
 	workflow = strings.ReplaceAll(workflow, "github.ref == TRUSTED_REF && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')", quote(condition))
 	workflow = strings.ReplaceAll(workflow, "github.ref == TRUSTED_REF", trustedRef)
+	if key.GitHubHost != "github.com" {
+		workflow = enterpriseServerWorkflow(workflow)
+	}
 	workflow = strings.NewReplacer("@@PUSH_BRANCH@@", string(pushBranch), "@@BRANCH@@", string(branch), "@@CONFIG@@", quote(string(cfg)), "@@IDENTITY@@", quote(string(identity)), "@@HASH@@", quote(hash), "@@GENERATE@@", indentScript(string(generate)), "@@PUBLISH@@", indentScript(string(publish)), "@@UPLOAD_URL@@", quote(config.UploadURL), "@@UPLOAD@@", indentScript(string(upload))).Replace(workflow)
 	return workflow, nil
+}
+
+// enterpriseServerWorkflow rewrites the GitHub.com workflow for GitHub
+// Enterprise Server. Artifact actions v4 and later do not run there, so the
+// jobs hand the context over with v3 -- which keeps the generator in a job
+// that cannot write to the repository -- and every action is pinned to the
+// release Enterprise Server bundles, so the workflow runs without GitHub
+// Connect. Enterprise Server has no GitHub-hosted runners: the jobs ask for
+// any self-hosted Linux runner, which a Zoomies pool is.
+func enterpriseServerWorkflow(workflow string) string {
+	return strings.NewReplacer(
+		"runs-on: ubuntu-latest", "runs-on: [self-hosted, linux]",
+		"actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1", "actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0",
+		// setup-node v4 has no package-manager-cache input, and caches nothing
+		// unless asked, which is what the GitHub.com workflow sets it to.
+		"actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0", "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0",
+		"          package-manager-cache: false\n", "",
+		"actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1", "actions/upload-artifact@c6a366c94c3e0affe28c06c8df20a878f24da3cf # v3.2.2",
+		"actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5", "actions/download-artifact@a9bc5e6ef2cb54c177f32aa5726adaa15e7e2d59 # v3.1.0",
+	).Replace(workflow)
 }
 
 func indentScript(s string) string {

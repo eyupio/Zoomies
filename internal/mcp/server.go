@@ -74,6 +74,13 @@ type API interface {
 	Stream(ctx context.Context, path string, accept string) (io.ReadCloser, error)
 }
 
+// BodyCaller is an API that can also send a JSON request body. It is separate
+// from API so that a transport without one still serves every read tool; a
+// tool that writes says so, rather than squeezing a document into a query.
+type BodyCaller interface {
+	CallBody(ctx context.Context, method, path string, query url.Values, body []byte) ([]byte, error)
+}
+
 // StatusError is an API refusal that knows its HTTP status, which is how a
 // tool turns a 404 into a sentence naming what was looked for.
 type StatusError interface {

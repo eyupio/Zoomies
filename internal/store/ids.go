@@ -40,6 +40,8 @@ const (
 	PrefixOAuthRequest = "oar"
 	PrefixOAuthGrant   = "ocg"
 	PrefixAIContext    = "aic"
+	// PrefixAIArtifact names one version of an assistant-written note.
+	PrefixAIArtifact = "aia"
 )
 
 var idEncoding = base32.NewEncoding("abcdefghijklmnopqrstuvwxyz234567").WithPadding(base32.NoPadding)

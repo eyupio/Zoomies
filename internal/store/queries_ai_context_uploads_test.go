@@ -43,6 +43,11 @@ func TestOnlyAnEnabledZoomiesOnlyRepositoryReceivesUploads(t *testing.T) {
 	if err := s.SaveAIContextConfig(t.Context(), r.ID, r.Revision, config); err != nil {
 		t.Fatal(err)
 	}
+	// Only a host with a Zoomies-only repository is one whose Actions tokens
+	// an upload may be checked against.
+	if hosts, err := s.AIContextUploadHosts(t.Context()); err != nil || len(hosts) != 1 || hosts[0] != r.Key.GitHubHost {
+		t.Fatal("upload hosts", hosts, err)
+	}
 	found, err := s.FindAIContextUploadTarget(t.Context(), "github.com", r.Key.RepositoryID)
 	if err != nil || found.ID != r.ID {
 		t.Fatal("the Zoomies-only repository was not found", err)

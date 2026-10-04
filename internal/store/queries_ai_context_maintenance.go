@@ -43,7 +43,7 @@ func (s *Store) ClaimAIContextMaintenance(ctx context.Context, operation *AICont
 			return err
 		}
 		if config.Disabled {
-			for _, table := range []string{"ai_context_connection_repositories", "ai_context_members", "ai_context_snapshots"} {
+			for _, table := range []string{"ai_context_connection_repositories", "ai_context_members", "ai_context_snapshots", "ai_context_artifacts"} {
 				if _, err = tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE repository_id=?`, operation.RepositoryID); err != nil {
 					return err
 				}

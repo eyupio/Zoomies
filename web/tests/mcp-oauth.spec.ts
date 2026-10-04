@@ -123,10 +123,12 @@ test('the connection is listed on the account and can be ended there', async ({ 
     full_name: `acme/repository-${String(i + 1).padStart(3, '0')}`,
   }));
   let saved: string[] | null = null;
+  let savedPublish: string[] | null = null;
   const sourcePattern = '**/api/v1/auth/mcp-connections/*/repositories*';
   await page.route(sourcePattern, async (route) => {
     if (route.request().method() === 'PUT') {
       saved = route.request().postDataJSON().repository_ids;
+      savedPublish = route.request().postDataJSON().publish_repository_ids;
       await route.fulfill({ status: 204 });
       return;
     }
@@ -138,17 +140,29 @@ test('the connection is listed on the account and can be ended there', async ({ 
         limit: 50,
         offset,
         selected_repository_ids: ['context-60'],
+        publish_repository_ids: ['context-60'],
       },
     });
   });
   await row.getByRole('button', { name: 'Source access' }).click();
-  await sources.getByRole('checkbox', { name: 'acme/repository-001' }).check();
+  await sources.getByRole('checkbox', { name: 'acme/repository-001', exact: true }).check();
   await sources.getByRole('button', { name: 'Next' }).click();
-  await expect(sources.getByRole('checkbox', { name: 'acme/repository-061' })).toBeChecked();
-  await sources.getByRole('checkbox', { name: 'acme/repository-051' }).check();
+  await expect(
+    sources.getByRole('checkbox', { name: 'acme/repository-061', exact: true }),
+  ).toBeChecked();
+  await expect(
+    sources.getByRole('checkbox', { name: 'May publish notes to acme/repository-061' }),
+  ).toBeChecked();
+  // Publishing is offered only inside reading: no switch until it is chosen.
+  await expect(
+    sources.getByRole('checkbox', { name: 'May publish notes to acme/repository-051' }),
+  ).toHaveCount(0);
+  await sources.getByRole('checkbox', { name: 'acme/repository-051', exact: true }).check();
+  await sources.getByRole('checkbox', { name: 'May publish notes to acme/repository-051' }).check();
   await sources.getByRole('button', { name: 'Save source access' }).click();
   await expect(sources).not.toBeVisible();
   expect(saved).toEqual(['context-60', 'context-0', 'context-50']);
+  expect(savedPublish).toEqual(['context-60', 'context-50']);
   await page.unroute(sourcePattern);
 
   await page.goto('/settings/mcp-clients');

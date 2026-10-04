@@ -219,9 +219,23 @@ func (s *Store) AIContextUserAccess(ctx context.Context, repositoryID, userID st
 // ReplaceAIContextConnectionAccess is called only after explicit consent.
 // Ownership, live user membership and connection revocation are checked here
 // as well as by the caller; a cached identity cannot restore revoked access.
-func (s *Store) ReplaceAIContextConnectionAccess(ctx context.Context, grantID, userID string, repositories []string) error {
+//
+// publish is the subset of repositories this connection may also write notes
+// to. nil keeps the publish consent already given for repositories that stay
+// selected, so a client that only knows about read consent cannot widen or
+// clear the write half by accident; an empty slice clears it.
+func (s *Store) ReplaceAIContextConnectionAccess(ctx context.Context, grantID, userID string, repositories, publish []string) error {
 	if len(repositories) > 100 {
 		return fmt.Errorf("select at most 100 repositories for one connection")
+	}
+	selected := map[string]bool{}
+	for _, repository := range repositories {
+		selected[repository] = true
+	}
+	for _, repository := range publish {
+		if !selected[repository] {
+			return fmt.Errorf("a connection can only publish notes to repositories it may also read")
+		}
 	}
 	return s.tx(ctx, func(tx *sql.Tx) error {
 		var active int
@@ -232,6 +246,29 @@ func (s *Store) ReplaceAIContextConnectionAccess(ctx context.Context, grantID, u
 		}
 		if err != nil {
 			return err
+		}
+		writes := map[string]bool{}
+		if publish == nil {
+			rows, err := tx.QueryContext(ctx, `SELECT repository_id FROM ai_context_connection_repositories WHERE grant_id=? AND publish=1`, grantID)
+			if err != nil {
+				return err
+			}
+			for rows.Next() {
+				var id string
+				if err := rows.Scan(&id); err != nil {
+					rows.Close()
+					return err
+				}
+				writes[id] = true
+			}
+			rows.Close()
+			if err := rows.Err(); err != nil {
+				return err
+			}
+		} else {
+			for _, id := range publish {
+				writes[id] = true
+			}
 		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM ai_context_connection_repositories WHERE grant_id=?`, grantID); err != nil {
 			return err
@@ -250,7 +287,7 @@ func (s *Store) ReplaceAIContextConnectionAccess(ctx context.Context, grantID, u
 			if err != nil {
 				return err
 			}
-			if _, err := tx.ExecContext(ctx, `INSERT INTO ai_context_connection_repositories(grant_id,repository_id) VALUES(?,?)`, grantID, repository); err != nil {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO ai_context_connection_repositories(grant_id,repository_id,publish) VALUES(?,?,?)`, grantID, repository, boolInt(writes[repository])); err != nil {
 				return err
 			}
 		}
@@ -259,13 +296,23 @@ func (s *Store) ReplaceAIContextConnectionAccess(ctx context.Context, grantID, u
 }
 
 func (s *Store) AIContextConnectionAccess(ctx context.Context, repositoryID, grantID, userID string) (bool, error) {
+	return s.aiContextConnectionAccess(ctx, repositoryID, grantID, userID, false)
+}
+
+// AIContextConnectionPublishAccess is read access plus the owner's separate
+// consent for this connection to write notes to the repository.
+func (s *Store) AIContextConnectionPublishAccess(ctx context.Context, repositoryID, grantID, userID string) (bool, error) {
+	return s.aiContextConnectionAccess(ctx, repositoryID, grantID, userID, true)
+}
+
+func (s *Store) aiContextConnectionAccess(ctx context.Context, repositoryID, grantID, userID string, publish bool) (bool, error) {
 	var allowed int
 	err := s.read.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM ai_context_connection_repositories a
 		JOIN oauth_grants g ON g.id=a.grant_id JOIN oauth_clients c ON c.id=g.client_id
 		JOIN ai_context_members m ON m.repository_id=a.repository_id AND m.user_id=g.user_id
 		JOIN ai_context_repositories r ON r.id=a.repository_id JOIN users u ON u.id=g.user_id
 		WHERE a.repository_id=? AND g.id=? AND g.user_id=? AND r.available=1 AND u.disabled=0
-		AND g.revoked_at IS NULL AND c.revoked_at IS NULL)`, repositoryID, grantID, userID).Scan(&allowed)
+		AND g.revoked_at IS NULL AND c.revoked_at IS NULL AND (?=0 OR a.publish=1))`, repositoryID, grantID, userID, boolInt(publish)).Scan(&allowed)
 	return allowed == 1, err
 }
 
@@ -349,6 +396,9 @@ type AIContextConnectionSelection struct {
 	Limit                 int               `json:"limit"`
 	Offset                int               `json:"offset"`
 	SelectedRepositoryIDs []string          `json:"selected_repository_ids"`
+	// PublishRepositoryIDs is the subset this connection may also write
+	// notes to, likewise complete rather than per page.
+	PublishRepositoryIDs []string `json:"publish_repository_ids"`
 }
 
 // AIContextConnectionChoices checks the live owner/client/grant on every query,
@@ -366,7 +416,7 @@ func (s *Store) AIContextConnectionChoices(ctx context.Context, grantID, userID 
 		return nil, ErrNotFound
 	}
 	const eligible = ` FROM ai_context_repositories r JOIN ai_context_members m ON m.repository_id=r.id WHERE m.user_id=? AND r.available=1 AND ` + active
-	out := &AIContextConnectionSelection{Items: []AIContextChoice{}, SelectedRepositoryIDs: []string{}, Limit: limit, Offset: offset}
+	out := &AIContextConnectionSelection{Items: []AIContextChoice{}, SelectedRepositoryIDs: []string{}, PublishRepositoryIDs: []string{}, Limit: limit, Offset: offset}
 	if err := s.read.QueryRowContext(ctx, `SELECT COUNT(*)`+eligible, userID, grantID, userID).Scan(&out.Total); err != nil {
 		return nil, err
 	}
@@ -389,17 +439,21 @@ func (s *Store) AIContextConnectionChoices(ctx context.Context, grantID, userID 
 	}
 	// Return the complete eligible selection, not merely the current page. A
 	// save on page one must not quietly revoke choices made on page two.
-	rows, err = s.read.QueryContext(ctx, `SELECT r.id`+eligible+` AND EXISTS(SELECT 1 FROM ai_context_connection_repositories a WHERE a.repository_id=r.id AND a.grant_id=?) ORDER BY r.id`, userID, grantID, userID, grantID)
+	rows, err = s.read.QueryContext(ctx, `SELECT r.id,(SELECT a.publish FROM ai_context_connection_repositories a WHERE a.repository_id=r.id AND a.grant_id=?)`+eligible+` AND EXISTS(SELECT 1 FROM ai_context_connection_repositories a WHERE a.repository_id=r.id AND a.grant_id=?) ORDER BY r.id`, grantID, userID, grantID, userID, grantID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var id string
-		if err := rows.Scan(&id); err != nil {
+		var publish int
+		if err := rows.Scan(&id, &publish); err != nil {
 			return nil, err
 		}
 		out.SelectedRepositoryIDs = append(out.SelectedRepositoryIDs, id)
+		if publish == 1 {
+			out.PublishRepositoryIDs = append(out.PublishRepositoryIDs, id)
+		}
 	}
 	return out, rows.Err()
 }

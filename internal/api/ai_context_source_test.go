@@ -132,7 +132,7 @@ func TestContextMCPDiscoveryAndReadsFollowTheConnectionsExplicitConsent(t *testi
 	if err != nil || len(grants) != 1 {
 		t.Fatal("grant", err)
 	}
-	if err := h.st.ReplaceAIContextConnectionAccess(h.ctx, grants[0].ID, owner.ID, []string{draft.ID}); err != nil {
+	if err := h.st.ReplaceAIContextConnectionAccess(h.ctx, grants[0].ID, owner.ID, []string{draft.ID}, nil); err != nil {
 		t.Fatal(err)
 	}
 	for _, op := range []string{"context_read", "context_pack", "context_search", "context_overview"} {
@@ -173,7 +173,7 @@ func TestContextMCPDiscoveryAndReadsFollowTheConnectionsExplicitConsent(t *testi
 	}
 	// Removing just the access token leaves the grant and consent intact. This
 	// specifically exercises credential revalidation, beyond membership checks.
-	if err := h.st.ReplaceAIContextConnectionAccess(h.ctx, grants[0].ID, owner.ID, []string{draft.ID}); err != nil {
+	if err := h.st.ReplaceAIContextConnectionAccess(h.ctx, grants[0].ID, owner.ID, []string{draft.ID}, nil); err != nil {
 		t.Fatal(err)
 	}
 	h.gh.SetDelay("GET", "/app", 150*time.Millisecond)

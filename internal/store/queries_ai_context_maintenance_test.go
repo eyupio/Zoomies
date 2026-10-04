@@ -24,7 +24,12 @@ func TestContextRemovalIsAtomicAndCannotResurrectConsentOrOldSource(t *testing.T
 	if err := s.PublishAIContextSnapshot(t.Context(), r.ID, r.Revision, snapshot); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.ReplaceAIContextConnectionAccess(t.Context(), g.ID, u.ID, []string{r.ID}); err != nil {
+	if err := s.ReplaceAIContextConnectionAccess(t.Context(), g.ID, u.ID, []string{r.ID}, nil); err != nil {
+		t.Fatal(err)
+	}
+	// A note is derived from the source, so removal takes it too.
+	note := &AIContextArtifact{RepositoryID: r.ID, Slug: "review", Kind: "report", Title: "Review", Body: "findings", AuthorName: u.Username, ViaKind: "user"}
+	if err := s.PublishAIContextArtifact(t.Context(), note, u.ID); err != nil {
 		t.Fatal(err)
 	}
 	config := r.Config
@@ -46,6 +51,9 @@ func TestContextRemovalIsAtomicAndCannotResurrectConsentOrOldSource(t *testing.T
 	members, err := s.AIContextMembers(t.Context(), r.ID)
 	if err != nil || len(members) != 0 {
 		t.Fatal("removed members retained", err)
+	}
+	if _, err := s.GetAIContextArtifact(t.Context(), r.ID, "review", 0); !errors.Is(err, ErrNotFound) {
+		t.Fatal("removed context kept its notes", err)
 	}
 	if err := s.PublishAIContextSnapshot(t.Context(), r.ID, r.Revision, snapshot); !errors.Is(err, ErrConflict) {
 		t.Fatal("old in-flight publication succeeded", err)

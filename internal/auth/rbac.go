@@ -106,6 +106,10 @@ const (
 	// grants nothing by itself: every handler also checks that the caller owns
 	// the installation (or holds context.configure).
 	ActionContextManage Action = "context.manage"
+	// ActionContextPublish is the coarse gate on writing notes about a
+	// repository. Like context.read it grants nothing alone: ContextPublishAccess
+	// also needs membership and, for a connection, its owner's publish consent.
+	ActionContextPublish Action = "context.publish"
 )
 
 // Migrations move a repository's workflows onto this fleet, which means
@@ -182,6 +186,7 @@ var actionRoles = map[Action]store.Role{
 	ActionContextRead:      store.RoleViewer,
 	ActionContextConfigure: store.RoleAdmin,
 	ActionContextManage:    store.RoleViewer,
+	ActionContextPublish:   store.RoleViewer,
 
 	ActionPoolsRead:   store.RoleViewer,
 	ActionPoolsWrite:  store.RoleOperator,

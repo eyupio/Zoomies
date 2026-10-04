@@ -720,6 +720,9 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "GET", path: "/api/v1/ai-context/source/missing/read", role: store.RoleViewer, action: auth.ActionContextRead, accountOnly: true},
 		{method: "GET", path: "/api/v1/ai-context/source/missing/search", role: store.RoleViewer, action: auth.ActionContextRead, accountOnly: true},
 		{method: "GET", path: "/api/v1/ai-context/source/missing/pack", role: store.RoleViewer, action: auth.ActionContextRead, accountOnly: true},
+		{method: "GET", path: "/api/v1/ai-context/source/missing/notes", role: store.RoleViewer, action: auth.ActionContextRead, accountOnly: true},
+		{method: "GET", path: "/api/v1/ai-context/source/missing/notes/review", role: store.RoleViewer, action: auth.ActionContextRead, accountOnly: true},
+		{method: "POST", path: "/api/v1/ai-context/source/missing/notes", role: store.RoleViewer, action: auth.ActionContextPublish, accountOnly: true, body: map[string]any{}},
 		{method: "GET", path: "/api/v1/ai-context/installations", role: store.RoleViewer, action: auth.ActionContextManage},
 		{method: "GET", path: "/api/v1/ai-context/installations/" + ids.installation + "/owners", role: store.RoleAdmin, action: auth.ActionContextConfigure},
 		{method: "PUT", path: "/api/v1/ai-context/installations/" + ids.installation + "/owners", role: store.RoleAdmin, action: auth.ActionContextConfigure, body: map[string]any{"user_ids": []string{}}},
@@ -1244,6 +1247,11 @@ func normalisePath(p string) string {
 		// remote may not be called "check".
 		if i > 0 && parts[i-1] == "remotes" && part != "check" {
 			parts[i] = "{name}"
+			continue
+		}
+		// A note is named by its slug, which the assistant chose.
+		if i > 0 && parts[i-1] == "notes" {
+			parts[i] = "{slug}"
 			continue
 		}
 		if strings.HasPrefix(part, "ins_") || strings.HasPrefix(part, "pool_") ||

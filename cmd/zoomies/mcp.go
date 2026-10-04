@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/url"
 
@@ -59,6 +60,10 @@ type mcpAPI struct{ c *apiClient }
 
 func (a mcpAPI) Call(ctx context.Context, method, path string, q url.Values) ([]byte, error) {
 	return a.c.do(ctx, method, path, q, nil, nil)
+}
+
+func (a mcpAPI) CallBody(ctx context.Context, method, path string, q url.Values, body []byte) ([]byte, error) {
+	return a.c.do(ctx, method, path, q, json.RawMessage(body), nil)
 }
 
 func (a mcpAPI) Stream(ctx context.Context, path, accept string) (io.ReadCloser, error) {

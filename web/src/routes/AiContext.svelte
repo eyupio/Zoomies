@@ -22,6 +22,7 @@
   import Field from '$lib/components/Field.svelte';
   import Input from '$lib/components/Input.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
+  import NotesPanel from '$lib/aicontext/NotesPanel.svelte';
   import OwnersDialog from '$lib/aicontext/OwnersDialog.svelte';
   import Select from '$lib/components/Select.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
@@ -411,6 +412,7 @@
             <CopyButton value={item.instructions} label="Copy AI instructions" showLabel />
           </div>
         {/if}
+        {#if !('config' in item) || item.available}<NotesPanel repositoryId={item.id} />{/if}
         <details class="assistant-guidance">
           <summary>AI instructions and README badge</summary>
           <p>

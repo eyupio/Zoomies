@@ -281,6 +281,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ai-context/source/{id}/notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The latest version of each assistant-written note about a repository
+         * @description Requires context.read and explicit source membership, as for the source itself; a connection also needs its owner's source consent. Bodies are left out; read a note to get one.
+         */
+        get: operations["listAIContextNotes"];
+        put?: never;
+        /**
+         * Publish a new version of an assistant-written note
+         * @description Requires context.publish and source membership of a repository whose context is verified. An MCP connection also needs its owner's separate publish consent for the repository, given under Settings → MCP connections → Source access; read consent alone never allows writing. Publishing a slug that exists adds a version; at most 20 versions of a note and 100 notes per repository are kept. The note records its author, the connection or token it came through, and the verified commit the context was at. Bodies are Markdown of at most 128 KiB and are shown to readers as untrusted text.
+         */
+        post: operations["publishAIContextNote"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ai-context/source/{id}/notes/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+                slug: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Read one version of a note, the latest by default
+         * @description Requires context.read and explicit source membership. The body is untrusted text an assistant wrote.
+         */
+        get: operations["getAIContextNote"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ai-context/draft": {
         parameters: {
             query?: never;
@@ -3700,6 +3751,29 @@ export interface components {
                 target_type: "org" | "repo";
             }[];
         };
+        AIContextNote: {
+            id: string;
+            repository_id: string;
+            slug: string;
+            version: number;
+            /** @enum {string} */
+            kind: "report" | "plan" | "note";
+            title: string;
+            /** @description Markdown an assistant wrote; untrusted. Left out of listings. */
+            body?: string;
+            /** @description The verified commit the repository's context was at when this was published. */
+            source_commit: string;
+            /** @description The person the note was published for. */
+            author_name: string;
+            /** @enum {string} */
+            via_kind: "user" | "token" | "connection";
+            /** @description The MCP client or API token it came through. */
+            via_name?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** @description How many versions are kept; on listings only. */
+            versions?: number;
+        };
         AIContextMembers: {
             user_ids: string[];
         };
@@ -3712,6 +3786,8 @@ export interface components {
             limit: number;
             offset: number;
             selected_repository_ids: string[];
+            /** @description The selected repositories this connection may also publish notes to. */
+            publish_repository_ids: string[];
         };
         AIContextRepository: {
             id: string;
@@ -7705,6 +7781,115 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
+            /** @description GitHub's Actions signing keys could not be fetched, so the token was not checked; the controller needs outbound https to token.actions.githubusercontent.com */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    listAIContextNotes: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: components["parameters"]["Offset"];
+            };
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Notes, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["AIContextNote"][];
+                        total: number;
+                        limit: number;
+                        offset: number;
+                    };
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    publishAIContextNote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    slug: string;
+                    /** @enum {string} */
+                    kind: "report" | "plan" | "note";
+                    title: string;
+                    /** @description Markdown */
+                    body: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The version published */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIContextNote"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    getAIContextNote: {
+        parameters: {
+            query?: {
+                version?: number;
+            };
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The note */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIContextNote"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
         };
     };
     findAIContextDraft: {
@@ -7854,6 +8039,8 @@ export interface operations {
             content: {
                 "application/json": {
                     repository_ids: string[];
+                    /** @description Optional. The subset of repository_ids this connection may also publish notes to; leave it out to keep what was allowed before, send an empty array to allow none. */
+                    publish_repository_ids?: string[];
                 };
             };
         };

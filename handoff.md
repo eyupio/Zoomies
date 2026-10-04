@@ -314,3 +314,97 @@ Limits and next steps:
 - If the JWKS fetch fails (network), the upload gets a 401, which reads like a bad token. It should become a distinct 503.
 - Uploads are verified only for `github.com` (GHES still unsupported).
 - After that: the live assistant pilot, and phase 6 (assistant-written artifacts).
+
+## Since the Zoomies-only checkpoint — 4 October 2026
+
+PR #584 (repository-only retrieval, installation owners, user docs, Zoomies-only uploads) and #585 are merged.
+
+Also merged, outside AI Context:
+- **#584 — `zoomies upgrade` mounts size-limited cache folders.** For Compose and `docker run`, it now offers to mount each size-limited pool cache folder at its own path. These are folders outside the shared folder and not already under a same-path bind. Without the mount, the containerised agent cannot measure them, so the limit was silently never enforced. The wizard now suggests `/var/lib/zoomies/shared/cache/pools`.
+- **#585 — Overview setup checklist.** It now waits for `fleet.stats` before deciding the fleet has no jobs. A fleet with jobs was being congratulated on its "first job".
+
+This checkpoint: when the controller cannot fetch GitHub's Actions signing keys, an upload now gets a **503** naming `token.actions.githubusercontent.com`, not a 401 that blames the workflow. go-oidc formats key-set errors with `%v`, so `fetchRecordingKeys` wraps the key set to record a fetch failure. `TestAnUnreachableIssuerIsNotABadToken` pins go-oidc's `fetching keys` prefix. The API test, the OpenAPI 503 response, the generated clients and a troubleshooting line in `docs/ai-context.md` are updated.
+
+Validation:
+- `-race` passed on `internal/github` and on the API upload/AI Context tests.
+- The contract/spec tests and `internal/docs` passed; staticcheck is clean; mkdocs `--strict` passed.
+
+Still open:
+1. **Live phase-5 acceptance:** a real GitHub Actions upload to an https controller. It needs a deployed controller, which this environment cannot reach.
+2. **Live assistant pilot:** Claude reading a verified repository over `/mcp`.
+3. **GHES** for managed workflows and uploads.
+4. ~~Phase 6, assistant-written artifacts~~ — see the next checkpoint.
+
+## Phase 6 checkpoint: assistant notes — 4 October 2026
+
+Decision (owner): **Markdown notes per repository.** An assistant publishes versioned Markdown reports, plans or notes about a verified repository over MCP. Publishing needs a separate permission. Notes live in SQLite, are attributed and marked AI-written, are readable by the repository's readers, and are shown as escaped text.
+
+- **Store.** Migration `0069_ai_context_artifacts.sql` adds (renumbered from 0068 when main shipped `0068_host_doctor.sql`):
+  - `ai_context_artifacts`, keyed by (repository, slug, version);
+  - `publish` on `ai_context_connection_repositories`.
+
+  `queries_ai_context_artifacts.go` publishes, lists the latest version per slug and gets one version. It enforces:
+  - the slug pattern and the three kinds;
+  - a one-line title of at most 200 characters, and a body of at most 128 KiB of UTF-8;
+  - verified repositories only;
+  - 100 slugs per repository, keeping the newest 20 versions.
+
+  Each note records the repository's last verified commit. `ReplaceAIContextConnectionAccess` takes a `publish` subset: nil keeps it, empty clears it. Removing a repository's AI Context deletes its notes. The new sentinel is `ErrInvalidArtifact`.
+- **Auth.** The new action is `context.publish` (viewer-level coarse gate, in the `ownershipChecked` exemption). `ContextPublishAccess`:
+  - users and owned tokens need membership;
+  - connections also need publish consent.
+
+  Publish consent must be a subset of read consent, otherwise the result is `ErrInvalidInput` → 422.
+- **API.** Routes:
+  - `GET /ai-context/source/{id}/notes`;
+  - `GET .../notes/{slug}?version=`;
+  - `POST .../notes`, which returns 201, writes a `context.publish` audit entry, and records via kind/name.
+
+  The connection selection `PUT` accepts `publish_repository_ids`. The OpenAPI spec and generated clients are updated.
+- **MCP.** `context_notes` (read-only) and `context_publish` (action, via a new `BodyCaller`). `TestMCPOverHTTPOffersActionsAsFarAsTheTokensRoleReaches` now uses each tool's own minimum role.
+- **UI.**
+  - Source access has a nested **May publish notes** tick per selected repository.
+  - `NotesPanel.svelte` shows **Assistant notes** on reader cards and verified admin cards: AI-written badge, kind, version, author, via, commit, and the body in a `<pre>`.
+- **Docs.**
+  - `ai-context.md`: an "Assistant notes" section, plus rows in the role table and limits.
+  - `connect-claude.md`: the two tools.
+  - `api-surface.md`: the routes.
+
+Validation:
+- `-race` passed on store/auth/API/MCP: notes, connection consent, removal, migration, contract/route table, MCP offer.
+- `cmd/zoomies` MCP tests passed; staticcheck is clean.
+- svelte-check: 0 errors.
+- Playwright `ai-context` + `mcp-oauth` passed (10), including a hostile body that renders as text and the publish-consent round trip.
+- mkdocs `--strict` passed.
+
+Next concrete action: the live assistant pilot, now including a `context_publish` round trip. Then the live phase-5 upload and GHES. No further phase is planned beyond 6.
+
+The local `-race` run of all of `internal/store` takes about 22 minutes in this environment. It passed with `-timeout 25m`. The 10-minute default timeout is not a hang.
+
+## GitHub Enterprise Server checkpoint — 4 October 2026
+
+Decision (owner): **artifact v3 on GHES**. A GHES variant of the managed workflow keeps the two-job privilege separation. Zoomies-only uploads trust the server's own OIDC issuer. Docs mark it unpiloted.
+
+- **`internal/aicontext/workflow.go`.** `SetupWorkflow` no longer refuses non-github.com hosts. `*.ghe.com` is still refused, with its own message: GHE.com has a different issuer and an untried layout.
+  - For any other host, `enterpriseServerWorkflow` rewrites the github.com template:
+    - `runs-on: [self-hosted, linux]`;
+    - `checkout` and `setup-node` at v4.4.0, with `package-manager-cache` dropped;
+    - `upload-artifact` v3.2.2 and `download-artifact` v3.1.0;
+    - all pinned by commit SHA, taken from `git ls-remote` of the lightweight tags.
+  - The github.com output is byte-identical to before, which a test pins.
+- **`internal/github/actions_oidc.go`.**
+  - `ActionsIssuerFor(host)`: github.com gives `token.actions.githubusercontent.com`; otherwise `https://HOST/_services/token`.
+  - `UnverifiedActionsIssuer(raw)` reads the issuer for routing only.
+  - `ActionsKeysError{Host}` satisfies `errors.Is(ErrActionsKeysUnavailable)`. The 503 now names the host to allow.
+- **Controller.**
+  - `actionsVerifiers` keeps one verifier per issuer.
+  - `verifyUploadToken` accepts a claimed issuer only if it equals `issuerFor(host)` for github.com or a host from `store.AIContextUploadHosts`, the distinct hosts of enabled Zoomies-only repositories. So a token cannot make the controller fetch arbitrary JWKS. The matched host is used for `FindAIContextUploadTarget`.
+  - `SetActionsIssuerFor` is the test hook; `SetActionsIssuer` wraps it for github.com.
+- **Tests.**
+  - aicontext: GHES template for Both and Zoomies-only, the github.com template unchanged, GHE.com refused.
+  - github: issuer per host, unverified-issuer parsing, the key error names its host.
+  - store: upload hosts.
+  - API: GHES upload end to end against the server's own fake issuer; a github.com token with the same repository ID gets 404; an unknown issuer, or a GHES host with no repository, gets 401 and nothing is fetched. The 503 test now signs with the unreachable issuer.
+- **Docs.** `ai-context.md` gains an "Enterprise Server" section (artifacts v3, bundled actions and actions-sync, self-hosted runners, issuer reachability, unpiloted). The prerequisites and troubleshooting are updated. "Not yet" is now GHE.com.
+
+Still open: a real GHES pilot (setup PR, Both run, Zoomies-only upload), GHE.com, and the live assistant pilot and phase-5 upload on github.com.

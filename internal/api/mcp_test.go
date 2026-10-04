@@ -123,10 +123,14 @@ func TestMCPOverHTTPOffersActionsAsFarAsTheTokensRoleReaches(t *testing.T) {
 	viewer := h.token("reader", store.RoleViewer)
 	operator := h.token("actor", store.RoleOperator)
 
+	// Each tool is offered exactly as far as its own action's role reaches:
+	// the fleet's actions are an operator's, while publishing a note is a
+	// reader's, gated again on the route by membership and consent.
 	names := h.mcpToolNames(viewer)
-	for tool := range mcpToolActions {
-		if slices.Contains(names, tool) {
-			t.Errorf("%s must not be offered to a viewer token, got %v", tool, names)
+	for tool, action := range mcpToolActions {
+		want := store.RoleViewer.AtLeast(action.MinRole())
+		if slices.Contains(names, tool) != want {
+			t.Errorf("%s offered to a viewer token = %v, want %v (it needs %s): %v", tool, !want, want, action.MinRole(), names)
 		}
 	}
 	r := h.mcpTool(viewer, "drain_runner", map[string]any{"runner_id": "run_x"})

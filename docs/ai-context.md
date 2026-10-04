@@ -260,6 +260,8 @@ use **Reinstall / repair** so the workflow uploads to the new address.
 | Choose source readers | Anyone | Only themselves | | |
 | Read a repository's source | If also a reader | If also a reader | ✓ | |
 | Give an MCP connection a repository | Their own connections | Their own connections | Their own connections | |
+| Read a repository's assistant notes | If also a reader | If also a reader | ✓ | |
+| Let a connection publish notes | Their own connections | Their own connections | Their own connections | |
 
 **An installation owner** is somebody an administrator has trusted with one
 GitHub installation. They see only that installation and its repositories. They
@@ -272,8 +274,10 @@ they are scoped. An agent cannot enable repositories on its owner's behalf.
 
 ## Before you start
 
-* **GitHub.com.** The managed workflow is for GitHub.com today. GitHub
-  Enterprise Server needs a different artifact workflow, which is not built yet.
+* **GitHub.com or GitHub Enterprise Server.** On Enterprise Server the
+  workflow is shaped for it — see [Enterprise Server](#enterprise-server).
+  GHE.com, GitHub's data-residency cloud, is not supported yet: setup refuses
+  rather than open a pull request whose workflow would only fail once merged.
 * **A connected installation** with **Contents: read**, so Zoomies can find
   your repositories and read them back. To open setup pull requests it also
   needs **Contents**, **Workflows** and **Pull requests: write** — the same
@@ -474,8 +478,8 @@ existing generated JSON format and workflow remain the same.
 
 ## Use it
 
-With the **Zoomies MCP route**, ask the assistant about your code in the ordinary way. Behind that, it uses four
-read-only tools:
+With the **Zoomies MCP route**, ask the assistant about your code in the ordinary way. Behind that,
+it reads with four read-only tools:
 
 | Tool | What it does |
 | --- | --- |
@@ -494,6 +498,39 @@ not fill the assistant's context window with a whole repository.
 The details of each tool are in [Connect Claude](connect-claude.md#verified-repository-source).
 The same reads are available over REST for scripts; see the
 [API reference](api-surface.md).
+
+### Assistant notes
+
+An assistant can also write something down. A **note** is a Markdown report,
+plan or note about one repository — a review's findings, an upgrade plan, a map
+of a part of the code — that the assistant publishes with `context_publish` and
+that every reader of that repository can then read, in the assistant or under
+**Assistant notes** on the repository's card in AI Context.
+
+Writing is a separate permission from reading. In **Source access**, a
+connection's repository gets a second tick, **May publish notes**, which is off
+until you turn it on and which you can only turn on for a repository the
+connection may read. A connection that may read but not publish is refused, and
+told where its owner can change that.
+
+| Tool | What it does |
+| --- | --- |
+| `context_notes` | Without a slug, lists the repository's notes, newest first. With one, reads that note — its latest version, or an earlier one by number. |
+| `context_publish` | Publishes a note under a slug. Publishing the same slug again adds a version; the earlier ones are kept. |
+
+Every note is marked **AI-written** and carries who it is from: the person the
+connection belongs to, the client it came through, and the commit the
+repository's verified context was at when it was written, so a reader can tell
+a plan written against last month's code from one written today. Publishing is
+also in the audit log, under the person.
+
+A note's body is shown as plain text, never rendered as HTML: it is what a model
+wrote after reading code anyone with a pull request can change, so nothing in it
+can run, link or restyle the page. Read a note as an assistant's opinion, not a
+reviewed document.
+
+Notes belong to the repository's context. Removing AI Context from a repository
+deletes its notes along with its source.
 
 ## Keep it running
 
@@ -535,7 +572,10 @@ next push regenerates.
 controller* means the token was minted for another address: run
 **Reinstall / repair** after changing `server.external_url`. *Superseded* means
 a newer push won, which is expected; the newer run uploads. A failure to reach
-the controller at all means GitHub's runners cannot reach your https address.
+the controller at all means GitHub's runners cannot reach your https address. *Could not fetch GitHub's Actions signing keys* (HTTP 503) is the other
+direction: the controller cannot reach `token.actions.githubusercontent.com`, so
+allow outbound https to it and re-run the workflow. On Enterprise Server the
+host to allow is the server itself, and the message names it.
 
 **Verification failed after the workflow succeeded.** Somebody edited
 `.github/workflows/zoomies-ai-context.yml` or `zoomies-ai-context.config.json`
@@ -596,13 +636,51 @@ conflicting part, then retry.
 | Source readers per repository | 200 |
 | Owners per installation | 50 |
 | One reply to an assistant | 8,000 bytes by default, 24,000 at most |
+| Notes per repository | 100 |
+| Versions kept of one note | 20, the oldest dropped first |
+| One note's body | 128 KiB of UTF-8 Markdown |
+| One note's title | 200 characters, one line |
 
 Binary files are skipped. Sizes are bytes, not tokens: the reply budget keeps
 replies small, but it is not a tokenizer count.
 
+## Enterprise Server
+
+On GitHub Enterprise Server the setup pull request carries a workflow made for
+it, and nothing else about setting up or using AI Context changes. Three
+things differ, each because GitHub.com's workflow could not run there:
+
+* **Artifacts v3.** Enterprise Server does not run the artifact actions v4 and
+  later that GitHub.com's workflow uses to hand the context from the job that
+  generates it to the job that publishes or uploads it. Its workflow uses v3
+  instead, so the generator still runs in a job that cannot write to the
+  repository.
+* **The actions Enterprise Server bundles.** `actions/checkout` and
+  `actions/setup-node` are pinned to v4.4.0, artifacts to `upload-artifact`
+  v3.2.2 and `download-artifact` v3.1.0, each by commit. If your server's
+  bundled copies are older and GitHub Connect is off, an administrator syncs
+  those releases with
+  [actions-sync](https://docs.github.com/en/enterprise-server/admin/managing-github-actions-for-your-enterprise/managing-access-to-actions-from-githubcom/manually-syncing-actions-from-githubcom).
+* **Self-hosted runners.** Enterprise Server has no GitHub-hosted runners, so
+  the jobs ask for `[self-hosted, linux]` — any Linux pool of Zoomies' own will
+  do. The runner needs Python 3 and network access to download Node.js, which
+  the Zoomies runner image has.
+
+For *Zoomies only*, the token comes from the server that ran the workflow,
+not from GitHub.com: Zoomies checks it against
+`https://<your server>/_services/token`, so the controller must be able to
+reach your server over https. It only ever fetches keys from GitHub.com's
+issuer or from an Enterprise Server one of its Zoomies-only repositories lives
+on, whatever a token says it came from.
+
+The Enterprise Server workflow has not yet been run on a real server. If it
+fails there, the run's log and **Verification** on the AI Context page say
+where.
+
 ## Not yet
 
-* **GitHub Enterprise Server.**
+* **GHE.com.** Its repositories are refused until its own token issuer has been
+  tried.
 * **Owners chosen from GitHub itself.** Today an administrator makes someone an
   owner. Deriving it from a person's own GitHub permissions needs a GitHub
   identity link, which is planned.

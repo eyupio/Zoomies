@@ -247,6 +247,10 @@ func (s *Server) handlePutOwnContextSelection(w http.ResponseWriter, r *http.Req
 	}
 	var in struct {
 		RepositoryIDs *[]string `json:"repository_ids"`
+		// PublishRepositoryIDs is optional: absent keeps the publish consent
+		// already given, so a client that knows only read consent cannot
+		// change the write half.
+		PublishRepositoryIDs *[]string `json:"publish_repository_ids"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -258,7 +262,18 @@ func (s *Server) handlePutOwnContextSelection(w http.ResponseWriter, r *http.Req
 	if !uniqueSelection(w, *in.RepositoryIDs, 100, "source repositories") {
 		return
 	}
-	if err := s.auth.SetContextConnectionRepositories(r.Context(), Identity(r.Context()), chiURLParam(r, "id"), *in.RepositoryIDs); err != nil {
+	var publish []string
+	if in.PublishRepositoryIDs != nil {
+		if !uniqueSelection(w, *in.PublishRepositoryIDs, 100, "repositories to publish to") {
+			return
+		}
+		publish = append([]string{}, *in.PublishRepositoryIDs...)
+	}
+	if err := s.auth.SetContextConnectionRepositories(r.Context(), Identity(r.Context()), chiURLParam(r, "id"), *in.RepositoryIDs, publish); err != nil {
+		if errors.Is(err, auth.ErrInvalidInput) {
+			unprocessable(w, strings.TrimPrefix(err.Error(), auth.ErrInvalidInput.Error()+": "), nil)
+			return
+		}
 		s.fail(w, r, "saving connection source consent", err)
 		return
 	}

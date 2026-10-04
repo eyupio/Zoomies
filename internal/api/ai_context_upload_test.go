@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -14,8 +15,10 @@ import (
 )
 
 type uploadFixture struct {
-	h        *harness
-	issuer   *github.FakeActionsIssuer
+	h      *harness
+	issuer *github.FakeActionsIssuer
+	// dotcom is GitHub.com's issuer; on a GitHub.com fixture it is issuer.
+	dotcom   *github.FakeActionsIssuer
 	repo     store.AIContextRepository
 	commit   string
 	snapshot []byte
@@ -29,10 +32,28 @@ const uploadBase = "https://zoomies.example.com"
 // its workflow would upload for the current head of the trusted branch.
 func zoomiesOnlyFixture(t *testing.T) *uploadFixture {
 	t.Helper()
+	return zoomiesOnlyFixtureOn(t, "github.com")
+}
+
+// zoomiesOnlyFixtureOn is zoomiesOnlyFixture for a repository on host, whose
+// Actions tokens come from an issuer of its own unless host is GitHub.com.
+func zoomiesOnlyFixtureOn(t *testing.T, host string) *uploadFixture {
+	t.Helper()
 	h, inst, _ := migrationHarness(t)
 	h.cfg.Server.ExternalURL = uploadBase
-	issuer := github.NewFakeActionsIssuer(t)
-	h.ctrl.SetActionsIssuer(issuer.URL)
+	dotcom, issuer := github.NewFakeActionsIssuer(t), github.NewFakeActionsIssuer(t)
+	if host == "github.com" {
+		issuer = dotcom
+	}
+	h.ctrl.SetActionsIssuerFor(func(h string) string {
+		switch h {
+		case "github.com":
+			return dotcom.URL
+		case host:
+			return issuer.URL
+		}
+		return github.ActionsIssuerFor(h)
+	})
 	reader, cookie := h.user("upload-reader", store.RoleViewer)
 
 	discovery, err := h.ctrl.DiscoverAIContext(h.ctx, inst.ID)
@@ -40,7 +61,7 @@ func zoomiesOnlyFixture(t *testing.T) *uploadFixture {
 		t.Fatal(err)
 	}
 	selected := discovery.Repositories[0]
-	draft := store.AIContextRepository{Key: aicontext.RepositoryKey{GitHubHost: "github.com", InstallationID: inst.ID, RepositoryID: selected.ID}, FullName: selected.FullName, Config: aicontext.DefaultConfig(selected.DefaultBranch)}
+	draft := store.AIContextRepository{Key: aicontext.RepositoryKey{GitHubHost: host, InstallationID: inst.ID, RepositoryID: selected.ID}, FullName: selected.FullName, Config: aicontext.DefaultConfig(selected.DefaultBranch)}
 	draft.Config.Destination, draft.Config.UploadURL = aicontext.Zoomies, aicontext.UploadURLFor(uploadBase)
 	if err := h.st.CreateAIContextRepository(h.ctx, &draft); err != nil {
 		t.Fatal(err)
@@ -75,7 +96,7 @@ func zoomiesOnlyFixture(t *testing.T) *uploadFixture {
 	hash, _ := stored.Config.Hash()
 	snapshot := aicontext.Snapshot{Manifest: aicontext.Manifest{SchemaVersion: 1, Repository: draft.Key, SourceBranch: draft.Config.SourceBranch, SourceCommit: source.Commit, ConfigHash: hash, GeneratedAt: time.Now().UTC(), Manager: "zoomies", Generator: "repomix@1.18.1"}, Files: []aicontext.File{{Path: "src/main.go", Content: "package widgets\n", SHA256: aicontext.Hash([]byte("package widgets\n"))}}}
 	body, _ := json.Marshal(snapshot)
-	return &uploadFixture{h: h, issuer: issuer, repo: *stored, commit: source.Commit, snapshot: body, cookie: cookie}
+	return &uploadFixture{h: h, issuer: issuer, dotcom: dotcom, repo: *stored, commit: source.Commit, snapshot: body, cookie: cookie}
 }
 
 // claims are what GitHub would put in the token of the managed workflow's
@@ -96,8 +117,12 @@ func (f *uploadFixture) claims() map[string]any {
 func jsonNumber(n int64) string { b, _ := json.Marshal(n); return string(b) }
 
 func (f *uploadFixture) upload(claims map[string]any, body []byte) *response {
+	return f.uploadSignedBy(f.issuer, claims, body)
+}
+
+func (f *uploadFixture) uploadSignedBy(issuer *github.FakeActionsIssuer, claims map[string]any, body []byte) *response {
 	return f.h.do(request{method: http.MethodPost, path: "/api/v1/ai-context/uploads", rawBody: string(body),
-		token: f.issuer.Sign(f.h.t, claims)})
+		token: issuer.Sign(f.h.t, claims)})
 }
 
 func TestAZoomiesOnlyUploadIsVerifiedAgainstGitHubBeforeAnyoneCanReadIt(t *testing.T) {
@@ -154,5 +179,51 @@ func TestUploadsFromAnythingButTheManagedWorkflowOnItsTrustedBranchAreRefused(t 
 
 	if r := f.h.do(request{method: http.MethodGet, path: "/api/v1/ai-context/source/" + f.repo.ID + "/read?path=src/main.go", cookie: f.cookie}); r.status == http.StatusOK {
 		t.Fatal("a refused upload became readable source")
+	}
+}
+
+// A controller that cannot reach GitHub's signing keys says so as a 503 with
+// the host to allow, not a 401 that would send the operator to the workflow.
+func TestAnUploadTheControllerCannotCheckIsUnavailableNotUnauthorised(t *testing.T) {
+	f := zoomiesOnlyFixture(t)
+	f.h.ctrl.SetActionsIssuer("http://127.0.0.1:1")
+	claims := f.claims()
+	claims["iss"] = "http://127.0.0.1:1"
+	r := f.upload(claims, f.snapshot)
+	r.mustStatus(t, http.StatusServiceUnavailable, "an upload whose token could not be checked")
+	if !strings.Contains(string(r.body), "127.0.0.1:1") {
+		t.Fatalf("the refusal does not name the host to allow: %s", r.body)
+	}
+}
+
+func TestAnEnterpriseServerUploadIsCheckedAgainstThatServersOwnKeys(t *testing.T) {
+	f := zoomiesOnlyFixtureOn(t, "ghes.example.org")
+	if workflow, _ := f.h.gh.FileContent(f.repo.FullName, aicontext.WorkflowPath); !strings.Contains(workflow, "upload-artifact@c6a366c94c3e0affe28c06c8df20a878f24da3cf") {
+		t.Fatal("the merged setup did not use the Enterprise Server workflow")
+	}
+	// GitHub.com's issuer vouches for GitHub.com's repositories. A token it
+	// signed with this repository's numeric ID is about some other repository
+	// that happens to share it, and must not reach this one.
+	f.uploadSignedBy(f.dotcom, f.claims(), f.snapshot).mustStatus(t, http.StatusNotFound, "a GitHub.com token for an Enterprise Server repository")
+	f.upload(f.claims(), f.snapshot).mustStatus(t, http.StatusAccepted, "the Enterprise Server workflow's upload")
+	r := f.h.do(request{method: http.MethodGet, path: "/api/v1/ai-context/source/" + f.repo.ID + "/read?path=src/main.go", cookie: f.cookie})
+	r.mustStatus(t, http.StatusOK, "reading the uploaded context")
+}
+
+func TestATokenFromAnIssuerZoomiesDoesNotKnowIsNeverFetched(t *testing.T) {
+	f := zoomiesOnlyFixture(t)
+	// A stranger can sign a token naming any issuer it likes. Following it
+	// would let anyone make the controller fetch keys from an address of
+	// their choosing, so only known issuers are ever contacted.
+	fetched := false
+	stranger := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fetched = true }))
+	t.Cleanup(stranger.Close)
+	claims := f.claims()
+	claims["iss"] = stranger.URL
+	f.upload(claims, f.snapshot).mustStatus(t, http.StatusUnauthorized, "a token from an unknown issuer")
+	claims["iss"] = github.ActionsIssuerFor("unknown.example.org")
+	f.upload(claims, f.snapshot).mustStatus(t, http.StatusUnauthorized, "a token from an Enterprise Server with no repository here")
+	if fetched {
+		t.Fatal("the controller fetched keys from an issuer the token named")
 	}
 }

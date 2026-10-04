@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/eyupio/zoomies/internal/aicontext"
 	"github.com/eyupio/zoomies/internal/github"
@@ -26,17 +27,81 @@ var ErrAIContextUploadSuperseded = errors.New("this upload has been superseded")
 
 var commitSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
-// SetActionsIssuer points upload verification at another OIDC issuer. Tests
-// use it with github.NewFakeActionsIssuer; production keeps GitHub's.
+// actionsVerifiers holds a token verifier per issuer, made on first use so
+// each keeps its own cached key set.
+type actionsVerifiers struct {
+	mu        sync.Mutex
+	issuerFor func(host string) string
+	byIssuer  map[string]*github.ActionsTokenVerifier
+}
+
+func (v *actionsVerifiers) issuer(host string) string {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return strings.TrimRight(v.issuerFor(host), "/")
+}
+
+func (v *actionsVerifiers) verifier(issuer string) *github.ActionsTokenVerifier {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.byIssuer == nil {
+		v.byIssuer = map[string]*github.ActionsTokenVerifier{}
+	}
+	if v.byIssuer[issuer] == nil {
+		v.byIssuer[issuer] = github.NewActionsTokenVerifier(issuer)
+	}
+	return v.byIssuer[issuer]
+}
+
+// SetActionsIssuer points GitHub.com upload verification at another OIDC
+// issuer. Tests use it with github.NewFakeActionsIssuer; production keeps
+// GitHub's.
 func (c *Controller) SetActionsIssuer(issuer string) {
-	c.actionsTokens = github.NewActionsTokenVerifier(issuer)
+	c.SetActionsIssuerFor(func(host string) string {
+		if host == "github.com" {
+			return issuer
+		}
+		return github.ActionsIssuerFor(host)
+	})
+}
+
+// SetActionsIssuerFor replaces how a host's Actions issuer is found, for tests
+// that stand in for an Enterprise Server's.
+func (c *Controller) SetActionsIssuerFor(issuerFor func(host string) string) {
+	c.actionsTokens.mu.Lock()
+	defer c.actionsTokens.mu.Unlock()
+	c.actionsTokens.issuerFor, c.actionsTokens.byIssuer = issuerFor, nil
+}
+
+// verifyUploadToken checks a token against the issuer of the GitHub host it
+// claims to come from, and returns that host. The claim picks which keys to
+// check against and nothing more: it is accepted only when it names
+// GitHub.com's issuer or that of an Enterprise Server one of this controller's
+// Zoomies-only repositories lives on, so a stranger's token cannot send the
+// controller to fetch keys from an address of its choosing.
+func (c *Controller) verifyUploadToken(ctx context.Context, rawToken, audience string) (*github.ActionsClaims, string, error) {
+	claimed, err := github.UnverifiedActionsIssuer(rawToken)
+	if err != nil {
+		return nil, "", err
+	}
+	hosts, err := c.st.AIContextUploadHosts(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	for _, host := range append([]string{"github.com"}, hosts...) {
+		if issuer := c.actionsTokens.issuer(host); issuer == claimed {
+			claims, err := c.actionsTokens.verifier(issuer).Verify(ctx, rawToken, audience)
+			return claims, host, err
+		}
+	}
+	return nil, "", fmt.Errorf("%w: it was issued by %q, which is neither GitHub.com nor an Enterprise Server with a Zoomies-only repository here", github.ErrActionsToken, claimed)
 }
 
 // CheckAIContextUploadToken verifies an upload's token alone, so the API can
 // refuse a stranger before reading a body of up to 32 MiB. The full check runs
 // again in IngestAIContextUpload; the keys are cached, so that costs nothing.
 func (c *Controller) CheckAIContextUploadToken(ctx context.Context, rawToken, audience string) error {
-	_, err := c.actionsTokens.Verify(ctx, rawToken, audience)
+	_, _, err := c.verifyUploadToken(ctx, rawToken, audience)
 	return err
 }
 
@@ -45,7 +110,7 @@ func (c *Controller) CheckAIContextUploadToken(ctx context.Context, rawToken, au
 // checks on a generated branch is then checked here too, against GitHub.
 // Nothing about the request body is trusted until all of that holds.
 func (c *Controller) IngestAIContextUpload(ctx context.Context, rawToken, audience string, body []byte) (*store.AIContextRepository, error) {
-	claims, err := c.actionsTokens.Verify(ctx, rawToken, audience)
+	claims, host, err := c.verifyUploadToken(ctx, rawToken, audience)
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +118,7 @@ func (c *Controller) IngestAIContextUpload(ctx context.Context, rawToken, audien
 	if err != nil || numericID <= 0 {
 		return nil, fmt.Errorf("%w: the token names no repository", ErrAIContextUploadRefused)
 	}
-	r, err := c.st.FindAIContextUploadTarget(ctx, "github.com", numericID)
+	r, err := c.st.FindAIContextUploadTarget(ctx, host, numericID)
 	if err != nil {
 		return nil, err
 	}

@@ -212,6 +212,14 @@ excerpt; continue with `context_read`, that offset and the returned `commit`.
 Metadata and search pages carry a top-level `next_offset`. If source changes,
 restart from offset zero rather than mixing commits.
 
+Two more tools carry [assistant notes](ai-context.md#assistant-notes).
+`context_notes` lists a repository's notes, or reads one by `slug` (and
+optional `version`); it needs the same access as reading source.
+`context_publish` takes `repository_id`, `slug` (lower-case letters, digits and
+hyphens), `kind` (`report`, `plan` or `note`), a one-line `title` and a Markdown
+`body`, and adds a version. It is refused unless the connection's owner ticked
+**May publish notes** for that repository under **Source access**.
+
 Each source request checks explicit access before and after live GitHub
 verification. Revoked membership, connection consent or GitHub permissions,
 workflow drift and stale output close retrieval; retained source is never a
