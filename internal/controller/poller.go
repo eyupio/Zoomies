@@ -175,6 +175,8 @@ func (c *Controller) discoverJobs(ctx context.Context) {
 			c.log.Warn("could not poll for queued jobs", "installation", inst.ID, "error", err)
 			continue
 		}
+		// Waiting and running both: "found" is what the listing held, and
+		// "changed" the part of it still waiting for a runner.
 		found += len(jobs)
 		n, err := c.ingestQueuedJobs(ctx, inst, jobs)
 		if err != nil {
@@ -185,7 +187,7 @@ func (c *Controller) discoverJobs(ctx context.Context) {
 	}
 
 	if found > 0 {
-		c.log.Debug("polled GitHub for queued jobs", "found", found, "new_or_changed", changed)
+		c.log.Debug("polled GitHub for unfinished jobs", "found", found, "new_or_changed", changed)
 	}
 	if changed > 0 {
 		c.Nudge()

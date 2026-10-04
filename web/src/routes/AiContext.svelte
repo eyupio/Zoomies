@@ -164,8 +164,10 @@
       come from exclusions and selective retrieval. Loading the entire snapshot still uses the full
       pack.
     </p>
-    <a href={AI_CONTEXT_URL + '#how-it-reduces-token-usage'} target="_blank" rel="noopener noreferrer"
-      >Read the AI Context guide</a
+    <a
+      href={AI_CONTEXT_URL + '#how-it-reduces-token-usage'}
+      target="_blank"
+      rel="noopener noreferrer">Read the AI Context guide</a
     >
   </details>
   <details class="context-explainer">
