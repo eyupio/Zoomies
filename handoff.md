@@ -1,6 +1,6 @@
 # Zoomies AI Context handoff
 
-Updated: 3 October 2026. Branch: `feature/ai-context-maintenance`. Latest checkpoint is at the end of this file.
+Updated: 4 October 2026. Latest merged PR: https://github.com/eyupio/zoomies/pull/586 (phase 6 notes, GHES, test speed-up). Latest checkpoint is at the end of this file.
 Foundation PR: https://github.com/eyupio/zoomies/pull/570 (merged).
 Previous continuation PR: https://github.com/eyupio/zoomies/pull/571 (merged).
 Published implementation commit: `50098edf15de94562e54d60adedde8ebffa5df7d`.
@@ -408,3 +408,23 @@ Decision (owner): **artifact v3 on GHES**. A GHES variant of the managed workflo
 - **Docs.** `ai-context.md` gains an "Enterprise Server" section (artifacts v3, bundled actions and actions-sync, self-hosted runners, issuer reachability, unpiloted). The prerequisites and troubleshooting are updated. "Not yet" is now GHE.com.
 
 Still open: a real GHES pilot (setup PR, Both run, Zoomies-only upload), GHE.com, and the live assistant pilot and phase-5 upload on github.com.
+
+## PR #586 merged — 4 October 2026
+
+PR #586 merged as `33c0b2b`. It carries the phase 6 and GHES checkpoints above, plus:
+
+- **Faster test stores.** `internal/store/memory_template.go`: the first `:memory:` store in a test process migrates for real, and its schema and seed rows are captured; every later in-memory store replays them in one transaction instead of re-running every migration. Under `-race` an Open fell from about 3s to a small fraction of that, so the store suite went from 1,360s to 491s here and the controller suite from over 1,500s to 425s. File databases always migrate, and `TestAnInMemoryStoreIsTheMigratedDatabaseExactly` pins that a replayed store equals a migrated one. Next speed-up, not started: `t.Parallel()`, which no test uses yet.
+- **Notes race fix.** Codex review: reading note A then note B before A loaded could show A's body under B. `NotesPanel.svelte` now aborts the previous read and applies a reply only while its slug is still current; a Playwright test holds A's reply back and fails on the old code.
+- **Merges with main.**
+  - #588 landed an unformatted `AiContext.svelte`; Prettier was run on it.
+  - #590 renamed the setup wizard's "Connect your assistant" heading without updating `ai-context.spec.ts`; the test now looks for "Use AI Context with your assistant".
+  - `main` shipped `0068_host_doctor.sql`, so the notes migration is `0069_ai_context_artifacts.sql`.
+- **CI note.** The final head's CI had not reported when the PR merged. staticcheck once failed with no output on the self-hosted runner while the same version (v0.8.1) was clean locally; its result on later heads was not checked.
+
+Still open, all needing a real deployment:
+1. A GHES pilot: setup PR, a Both run, a Zoomies-only upload.
+2. GHE.com support, which needs its own issuer and is refused until tried.
+3. The live assistant pilot over `/mcp`, including a `context_publish` round trip.
+4. A live Zoomies-only upload on github.com to an https controller.
+
+Next concrete action: run one of the live pilots above against a deployed controller. Code work, if wanted first: `t.Parallel()` for the store and controller suites.
