@@ -5,6 +5,9 @@
   key and value, so `arch=arm64` and `arch=amd64` have to stay distinguishable.
   Each row is a pair of fields with its own remove button, which keeps the whole
   thing keyboard operable without inventing a widget.
+
+  The same editor serves a join token's labels and a host's tags, which are the
+  same map under two names, so what a row is called is a prop.
 -->
 <script lang="ts">
   import { Plus, Trash2 } from '@lucide/svelte';
@@ -19,6 +22,16 @@
     label?: string;
     describedBy?: string;
     class?: string;
+    /** What one row is called: a "label" on a join token, a "tag" on a host. */
+    noun?: string;
+    /** What to say while there are no rows, where the default would mislead. */
+    empty?: string;
+    /**
+     * Why a row cannot be saved, or undefined where it can. Asked of every row on
+     * every change, so a value that is wrong is said to be wrong where it is
+     * typed rather than by the server after the dialog has closed over it.
+     */
+    rowError?: (row: { key: string; value: string }) => string | undefined;
   }
 
   let {
@@ -26,7 +39,11 @@
     label = 'Labels',
     describedBy,
     class: className = '',
+    noun = 'label',
+    empty,
+    rowError,
   }: Props = $props();
+  const Noun = $derived(noun.charAt(0).toUpperCase() + noun.slice(1));
 
   const uid = $props.id();
 
@@ -54,8 +71,8 @@
 <div class="editor {className}" role="group" aria-label={label} aria-describedby={describedBy}>
   {#if rows.length === 0}
     <p class="empty">
-      No labels. Pools select hosts by these, so a host with none matches only pools that ask for
-      nothing in particular.
+      {empty ??
+        `No ${noun}s. Pools select hosts by these, so a host with none matches only pools that ask for nothing in particular.`}
     </p>
   {:else}
     <div class="head" aria-hidden="true">
@@ -69,7 +86,7 @@
           bind:value={row.key}
           size="sm"
           mono
-          ariaLabel="Label {index + 1} key"
+          ariaLabel="{Noun} {index + 1} key"
           id="{uid}-key-{index}"
           invalid={Boolean(duplicate) && row.key.trim() === duplicate}
           describedBy={Boolean(duplicate) && row.key.trim() === duplicate ? errorId : undefined}
@@ -78,16 +95,23 @@
           bind:value={row.value}
           size="sm"
           mono
-          ariaLabel="Label {index + 1} value"
+          ariaLabel="{Noun} {index + 1} value"
           id="{uid}-value-{index}"
+          invalid={rowError?.(row) !== undefined}
+          describedBy={rowError?.(row) !== undefined ? `${uid}-row-error-${index}` : undefined}
         />
         <IconButton
           icon={Trash2}
-          label="Remove the label {row.key || index + 1}"
+          label="Remove the {noun} {row.key || index + 1}"
           size="sm"
           onclick={() => remove(index)}
         />
       </div>
+      {#if rowError?.(row)}
+        <!-- role="alert" for the same reason as the duplicate below: the link
+             from the input is only read if somebody goes back to it. -->
+        <p class="error" id="{uid}-row-error-{index}" role="alert">{rowError(row)}</p>
+      {/if}
     {/each}
   {/if}
 
@@ -96,13 +120,13 @@
          describedby link on the offending inputs alone is only read if the
          field is revisited. -->
     <p class="error" id={errorId} role="alert">
-      Two labels are both called <span class="mono">{duplicate}</span>. The last one would win, so
+      Two {noun}s are both called <span class="mono">{duplicate}</span>. The last one would win, so
       rename or remove one.
     </p>
   {/if}
 
   <div>
-    <Button size="sm" variant="secondary" icon={Plus} onclick={add}>Add a label</Button>
+    <Button size="sm" variant="secondary" icon={Plus} onclick={add}>Add a {noun}</Button>
   </div>
 </div>
 

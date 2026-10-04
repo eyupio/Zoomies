@@ -38,6 +38,7 @@ import {
   type FeedCategory,
   type FeedCategoryID,
 } from '../feed/categories';
+import { AUTOMATIC_ACTIONS } from '../feed/cause';
 import {
   cpuChange,
   hostChanges,
@@ -386,16 +387,22 @@ class Feed {
    * category that could not be backfilled still fills from the stream.
    */
   async #seed(id: FeedCategoryID): Promise<void> {
-    if (id !== 'jobs' && id !== 'outcomes' && id !== 'audit') return;
+    if (id !== 'jobs' && id !== 'outcomes' && id !== 'audit' && id !== 'automatic') return;
     // The jobs the fetch asks for depend on the Overview's own switch, so the
     // mode is part of what "already seeded" means: asking for every runner's
     // jobs after opening on this fleet's own is a second, different past.
-    const key = id === 'audit' ? id : `${id}:${prefs.otherRunners ? 'all' : 'ours'}`;
+    const key =
+      id === 'audit' || id === 'automatic' ? id : `${id}:${prefs.otherRunners ? 'all' : 'ours'}`;
     if (this.#seeded.has(key)) return;
     this.#seeded.add(key);
     try {
-      if (id === 'audit') {
-        const page = await listAudit({ limit: SEED_LIMIT });
+      if (id === 'audit' || id === 'automatic') {
+        // The automatic category asks for its own actions by name, so a fleet
+        // with a busy audit log still finds the controller's changes in it.
+        const page = await listAudit({
+          action: id === 'automatic' ? Object.keys(AUTOMATIC_ACTIONS) : undefined,
+          limit: SEED_LIMIT,
+        });
         for (const event of page.items ?? []) {
           const entry = auditEntry(event);
           if (entry) this.#push(entry);

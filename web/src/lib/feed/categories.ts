@@ -19,6 +19,7 @@
  */
 import {
   Boxes,
+  Bot,
   Circle,
   CircleCheck,
   PawPrint,
@@ -42,13 +43,14 @@ export type FeedCategoryID =
   | 'hosts'
   | 'machines'
   | 'pools'
+  | 'automatic'
   | 'github'
   | 'problems'
   | 'audit';
 
 /**
  * The headings the settings page lists the categories under, in order. They
- * are only a way to read twelve switches without a wall of them: what a
+ * are only a way to read the switches without a wall of them: what a
  * category reports is its own business, and nothing branches on the group.
  */
 export const FEED_GROUPS = [
@@ -175,6 +177,16 @@ export const FEED_CATEGORIES: readonly FeedCategory[] = [
     history: false,
   },
   {
+    id: 'automatic',
+    label: 'Automatic changes',
+    group: 'Infrastructure',
+    description:
+      'What the controller changed on its own about size classes and the pools it keeps, with its reason: “maximum runners 5 → 10: host build-2 joined”. Nothing appears here until automatic pools or size routing are on.',
+    icon: Bot,
+    on: true,
+    history: true,
+  },
+  {
     id: 'github',
     label: 'GitHub connection',
     group: 'Connections and records',
@@ -199,7 +211,7 @@ export const FEED_CATEGORIES: readonly FeedCategory[] = [
     label: 'Who changed what',
     group: 'Connections and records',
     description:
-      'Every recorded action and who took it. Off by default: on a fleet with automation against the API it is the busiest thing here, and the Audit page has all of it with filters.',
+      'Every recorded action and who took it, apart from what the controller did on its own, which has a category of its own above. Off by default: on a fleet with automation against the API it is the busiest thing here, and the Audit page has all of it with filters.',
     icon: ScrollText,
     on: false,
     history: true,

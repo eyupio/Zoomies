@@ -27,6 +27,8 @@ export const QUICKSTART_URL = `${SITE_URL}/quickstart/`;
 export const CONFIGURATION_URL = `${SITE_URL}/configuration/`;
 export const API_SURFACE_URL = `${SITE_URL}/api-surface/`;
 export const SECURITY_URL = `${SITE_URL}/security/`;
+/** What size classes and automatic pools are, and what routing by size does and does not promise. */
+export const AUTO_POOLS_URL = `${SITE_URL}/auto-pools/`;
 /** How repository context is prepared and read by assistants. */
 export const AI_CONTEXT_URL = `${SITE_URL}/ai-context/`;
 /** The codebase packing tool used by AI Context generation. */

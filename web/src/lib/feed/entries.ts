@@ -16,6 +16,7 @@
  */
 import {
   Boxes,
+  Bot,
   CircleMinus,
   Plug,
   Minus,
@@ -56,6 +57,7 @@ import {
   type StatusTone,
 } from '../status';
 import type { FeedCategoryID } from './categories';
+import { automaticTitle, causeOf, subjectOf } from './cause';
 import {
   jobFailure,
   type HostChange,
@@ -542,14 +544,21 @@ export function auditEntry(event: AuditEvent): FeedEntry | null {
     event.target_kind && event.target_id
       ? `${event.target_kind} ${shortId(event.target_id)}`
       : undefined;
+  // What the controller did on its own is not "who changed what": nobody did,
+  // and it has a reason, which is what the entry is read for -- "pool.auto_resize"
+  // alone is a number that moved. It has a category of its own, on by default,
+  // because a fleet that has turned automatic pools on wants to watch them work.
+  const automatic = automaticTitle(event.action);
+  const cause = causeOf(event);
+  const subject = automatic ? (subjectOf(event) ?? target) : target;
   return {
     id: `audit:${event.id}`,
-    category: 'audit',
+    category: automatic ? 'automatic' : 'audit',
     at: event.created_at ?? now(),
     tone: 'neutral',
-    icon: ScrollText,
-    title: `${actor} ran ${event.action}`,
-    detail: target,
+    icon: automatic ? Bot : ScrollText,
+    title: automatic ?? `${actor} ran ${event.action}`,
+    detail: cause ? (subject ? `${subject}: ${cause}` : cause) : subject,
     target: {
       label: 'Audit',
       href: `/audit?action=${encodeURIComponent(event.action)}`,

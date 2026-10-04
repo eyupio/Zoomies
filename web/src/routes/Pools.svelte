@@ -23,11 +23,13 @@
     deletePool,
     disablePool,
     enablePool,
+    getAutoPools,
     listInstallations,
     listPools,
     poolsExportUrl,
   } from '$lib/api/client';
-  import type { Pool } from '$lib/api/types';
+  import { events } from '$lib/api/sse';
+  import type { AutoPools, Pool } from '$lib/api/types';
   import { formatGoDuration, formatNumber, parseGoDuration, pluralise } from '$lib/format';
   import { registerSearch } from '$lib/keys';
   import { navigate, router } from '$lib/router';
@@ -54,7 +56,9 @@
   import PageHeader from '$lib/components/PageHeader.svelte';
   import Select from '$lib/components/Select.svelte';
   import UtilisationBar from '$lib/components/UtilisationBar.svelte';
+  import AutoPoolsPanel from '$lib/pools/AutoPoolsPanel.svelte';
   import ImportPoolsDialog from '$lib/pools/ImportPoolsDialog.svelte';
+  import PoolAutoDialog from '$lib/pools/PoolAutoDialog.svelte';
   import PoolLabels from '$lib/pools/PoolLabels.svelte';
   import PoolRunnerLimitsDialog from '$lib/pools/PoolRunnerLimitsDialog.svelte';
   import PoolRiskBadge from '$lib/pools/PoolRiskBadge.svelte';
@@ -63,7 +67,9 @@
     dockerModeLabel,
     platformLabelOrAny,
   } from '$lib/pools/PoolVocabulary.svelte';
+  import { isAutomatic } from '$lib/pools/auto';
   import { deletionConsequences } from '$lib/pools/consequences';
+  import Badge from '$lib/components/Badge.svelte';
 
   const canOperate = $derived(session.can('operator'));
 
@@ -102,6 +108,46 @@
     void listInstallations()
       .then((result) => (installationCount = (result.items ?? []).length))
       .catch(() => (installationCount = null));
+  });
+
+  /* -- what the controller is doing about size classes ----------------------
+   * Fetched here, not kept in the fleet cache: it is read on this page and on a
+   * pool's own, and a fourth collection there would cost every signed-in tab a
+   * request on every reconcile. It follows the stream instead -- a pool or a
+   * host changing is what changes it -- and the burst a host joining causes is
+   * one fetch, because the answer is the same for all of them.
+   * ------------------------------------------------------------------------ */
+
+  let autoStatus = $state<AutoPools | null>(null);
+
+  $effect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let controller = new AbortController();
+    const load = (): void => {
+      controller.abort();
+      controller = new AbortController();
+      const signal = controller.signal;
+      // A failed read leaves what is on screen: the panel is context for the
+      // grid, and the grid reports an outage for itself.
+      void getAutoPools(signal)
+        .then((result) => (autoStatus = result))
+        .catch(() => undefined);
+    };
+    load();
+    const soon = (): void => {
+      clearTimeout(timer);
+      timer = setTimeout(load, 800);
+    };
+    const stop = [
+      events.subscribe(['pool.created', 'pool.updated', 'pool.deleted'], soon),
+      events.subscribe(['host.updated', 'host.deleted'], soon),
+      events.subscribe('problems.updated', soon),
+    ];
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+      for (const off of stop) off();
+    };
   });
 
   /* -- filters, kept in the URL so a view can be pasted to a colleague ------ */
@@ -282,6 +328,45 @@
 
   function actionsFor(pool: Pool): MenuItem[] {
     const enabled = pool.enabled !== false;
+    if (isAutomatic(pool)) {
+      // A pool the controller keeps is taken out of use by pausing it, and its
+      // limits follow its hosts, so those two items are the ones that change.
+      const paused = pool.auto?.paused === true;
+      return [
+        paused
+          ? {
+              id: 'resume',
+              label: 'Resume',
+              icon: Power,
+              onSelect: () => setPaused(pool, false),
+            }
+          : {
+              id: 'pause',
+              label: 'Pause',
+              icon: PowerOff,
+              onSelect: () => setPaused(pool, true),
+            },
+        {
+          id: 'auto-settings',
+          label: 'Settings',
+          icon: Pencil,
+          onSelect: () => askAuto(pool),
+        },
+        {
+          id: 'delete',
+          label: 'Delete',
+          icon: Trash2,
+          danger: true,
+          separated: true,
+          // Not while the controller is keeping it, because it would make the
+          // pool again; the panel above the grid says why. A pool it is not
+          // keeping -- the switch only reports, or the pool belongs to another
+          // installation -- is a leftover, and goes like any other.
+          disabled: pool.auto?.kept === true,
+          onSelect: () => askDelete(pool),
+        },
+      ];
+    }
     return [
       enabled
         ? {
@@ -317,6 +402,30 @@
         onSelect: () => askDelete(pool),
       },
     ];
+  }
+
+  /**
+   * Pause or resume a pool the controller keeps. The server reads enable and
+   * disable on such a pool as exactly this, so the request is the one the other
+   * pools use; what differs is what the row says while it waits for the answer.
+   */
+  function setPaused(pool: Pool, paused: boolean): void {
+    if (!pool.id || !pool.auto) return;
+    const id = pool.id;
+    void fleet.optimistic(
+      id,
+      { auto: { ...pool.auto, paused }, ...(paused ? { enabled: false } : {}) },
+      () => (paused ? disablePool(id) : enablePool(id)),
+      paused ? 'That pool was not paused' : 'That pool was not resumed',
+    );
+  }
+
+  let autoPool = $state<Pool | null>(null);
+  let autoOpen = $state(false);
+
+  function askAuto(pool: Pool): void {
+    autoPool = pool;
+    autoOpen = true;
   }
 
   let sizing = $state<Pool | null>(null);
@@ -477,9 +586,16 @@
 </script>
 
 {#snippet nameCell(pool: Pool)}
-  <a class="pool-name" href="/pools/{pool.id}" title={pool.name ?? undefined}>
-    {pool.name ?? 'unnamed'}
-  </a>
+  <span class="name-line">
+    <a class="pool-name" href="/pools/{pool.id}" title={pool.name ?? undefined}>
+      {pool.name ?? 'unnamed'}
+    </a>
+    {#if pool.auto}
+      <!-- The accent a host's "Embedded" badge has, never a status colour: that
+           the controller keeps a pool is a fact about it, not a state it is in. -->
+      <Badge tone="accent" label="Automatic" size="sm" dot={false} title={pool.auto.summary} />
+    {/if}
+  </span>
 {/snippet}
 
 {#snippet riskCell(pool: Pool)}
@@ -581,6 +697,8 @@
 
 <PoolPressure pools={fleet.pools.filter(matches)} />
 
+<AutoPoolsPanel status={autoStatus} />
+
 <DataGrid
   gridId="pools"
   label="Pools"
@@ -620,6 +738,8 @@
 
 <PoolRunnerLimitsDialog bind:open={sizeOpen} pool={sizing} onclose={() => (sizing = null)} />
 
+<PoolAutoDialog bind:open={autoOpen} pool={autoPool} onclose={() => (autoPool = null)} />
+
 <ConfirmDialog
   bind:open={deleteOpen}
   title="Delete pool"
@@ -649,6 +769,20 @@
   }
   .status-filter {
     width: 10rem;
+  }
+  /* The badge under the name, not beside it: the Name column is the first the
+     grid narrows on a laptop, and a name squeezed to one letter beside its own
+     badge is a pool nobody can tell from the next. */
+  .name-line {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--z-space-1);
+    min-width: 0;
+    max-width: 100%;
+  }
+  .name-line .pool-name {
+    min-width: 0;
   }
   /* Pool names are hyphenated, so without this they set one segment per line
      and the whole row grows to fit. The full name is in the title. */

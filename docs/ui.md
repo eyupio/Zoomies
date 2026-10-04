@@ -75,8 +75,11 @@ decisions in its own words — *scaled zoomies-demo-linux-x64 4 → 5: 1 job
 queued* — beside how each job ended and the step it stopped at, a runner
 that failed and a runner that came up ready for work, a runner lent spare CPU
 — *Squirrel spotted — maximum zoomies* — or slowed because its host is under
-pressure, a host that went quiet, a machine a provider is renting and a pool
-somebody changed. What went right is in it as much as what went wrong. Which of those it carries is yours to choose, one switch per
+pressure, a host that went quiet, a machine a provider is renting, a pool
+somebody changed, and what the controller changed on its own about
+[size classes and automatic pools](auto-pools.md) with its reason — *maximum
+runners 5 → 10: host build-2 joined*. What went right is in it as much as what
+went wrong. Which of those it carries is yours to choose, one switch per
 kind on **Settings → Events**, and the panel counts what it is showing rather
 than quietly leaving the rest out. When
 something needs a person it is one line and a *Review* button, never a list
@@ -156,6 +159,24 @@ running.
 
 ![A pool's page: its runners and their states, recent jobs, the runs-on line to copy, and its configuration](screenshots/pool-dark.webp#only-dark){ .zoomies-shot }
 ![A pool's page: its runners and their states, recent jobs, the runs-on line to copy, and its configuration](screenshots/pool-light.webp#only-light){ .zoomies-shot }
+
+**Automatic pools.** With `scheduler.auto_pools` off, which is the default, the
+page says so in one sentence and nothing else changes. Once it or
+`scheduler.size_routing` is `shadow` or `on`, a panel above the grid says what the
+controller is doing about [size classes](auto-pools.md): what each switch is set
+to, the pools it keeps and the hosts in them, what it would do and has not — the
+whole of `shadow` — what it could not do and what to change, the hosts that count
+towards no pool and why, and where each class begins. It is closed to one line
+until something there needs you, and then it opens by itself. A pool the
+controller keeps is marked **Automatic** in the grid. Its page explains where its
+maximum comes from — the hosts that count and what they hold — and offers what an
+operator may change: **Settings** for the runners to keep ready, a cap and the
+idle timeout, and **Pause** and **Resume**. There is no wizard to reopen, because
+its labels and size follow its hosts; and **Delete** waits while the controller is
+keeping the pool, because it would make it again. A pool it is not keeping — the
+switch is only reporting or is off, or the pool belongs to an installation the pools
+no longer belong to — says so on its page, holds the limits it had, and can be
+deleted.
 
 ## Runners
 
@@ -317,6 +338,26 @@ claimed, says "Not recorded" rather than being guessed at. The same figure is a
 ![A failed job's drawer: the failing step named at the top, then the job's details, its steps with timings and a link to the run](screenshots/job-dark.webp#only-dark){ .zoomies-shot }
 ![A failed job's drawer: the failing step named at the top, then the job's details, its steps with timings and a link to the run](screenshots/job-light.webp#only-light){ .zoomies-shot }
 
+While `scheduler.size_routing` is `shadow` or `on`, the drawer also says which
+[size class](auto-pools.md#job-classes) the job was put in and on what authority
+— the size label it wrote, an operator's pin, its earlier runs or the default —
+with the controller's sentence for why. A job sent to another class because its
+own had no pool or no room says so under **Sent to**, with the reason, and **Ran
+on** says which class of host took it. A job that landed on a class other than
+the one it was sent to is explained rather than blamed: for a job that wrote only
+the base label, GitHub chooses the runner, and the sentence says how to make it a
+promise. **CPU held back** appears when its runner was cut short by its CPU limit.
+The same facts are a **Size class** column, hidden until you choose it from
+**Columns**.
+
+**Size labels and pins** is a panel above the filters that appears once routing is
+on or anything is pinned. It lists the jobs whose `runs-on` could say something
+better, from what their own runs used — a class that is too small, none at all for
+a job that needs more than the default, a class larger than the job uses — each
+with what to write instead, and **Pin to** puts the job in the class its runs call
+for without editing the workflow. Below it are the pins in force, each removable,
+and a form that pins a repository or one job.
+
 ## Usage
 
 Runner-hours, jobs and queue waits over a range — today, until you change
@@ -378,8 +419,8 @@ hold, and the reserve — the cores, memory and disk the scheduler leaves alone
 for the machine's own sake. Each sits on a slider with the recommendation marked
 on it, worked out from the machine's size and the largest ask across your enabled
 pools, and *Set to recommendations* puts all four back in one press; a setting
-past its mark warns rather than refuses. *Edit*, beside the labels, sets the
-labels and nothing else. A cordoned host keeps its runners and takes no new
+past its mark warns rather than refuses. *Edit*, beside the tags, sets the
+tags and nothing else. A cordoned host keeps its runners and takes no new
 ones. *Add a host* mints a join token and prints the one line to paste on the
 new machine.
 
@@ -405,6 +446,21 @@ the machine, held back for the daemon whatever the operator sets.
 
 ![The Hosts page: fleet health and eligible slots, and the capacity map — every host's measured and committed utilisation on one chart over the last day, with the hosts and measurements to draw switched on and off beneath it](screenshots/hosts-dark.webp#only-dark){ .zoomies-shot }
 ![The Hosts page: fleet health and eligible slots, and the capacity map — every host's measured and committed utilisation on one chart over the last day, with the hosts and measurements to draw switched on and off beneath it](screenshots/hosts-light.webp#only-light){ .zoomies-shot }
+
+**Tags and size class.** A host's tags are the labels pools select it by, and its
+card lists them in two groups: those stored on the host, which **Edit** changes,
+and those the controller works out from the machine — `os`, `arch` and, while a
+size switch is on, `size` — under a caption saying so. Once either switch is
+`shadow` or `on`, a **Size class** block says which class the host is in, in the
+controller's own words, whether an operator's `size` tag put it there and what its
+machine measures, and any move it is being held before making, with when it takes
+effect. It also says whether the host's slots count towards an automatic pool and,
+when they do not, why. The dialog lists the derived tags beside the editable ones,
+and refuses a `size` tag that is not `small`, `medium` or `large` where it is
+typed. A tag with a name and no value is a flag, stored as `true` — what
+`zoomies hosts edit --tag gpu` writes — so a pool's host selector asks for it the
+same way whichever you used. See
+[size classes and automatic pools](auto-pools.md#host-classes-and-tags).
 
 ## Providers
 
