@@ -32,6 +32,14 @@ export interface ProfileFigures {
   tmpfsOff: boolean;
   /** The most any one in-memory folder may be here, in MB; zero is no host ceiling. */
   tmpfsMaxMb: number;
+  /**
+   * The size each in-memory folder is asked for here when a pool leaves it to size
+   * itself, in MB, in place of the built-in default; zero is the default. The
+   * folder-sized counterpart of a standard runner size.
+   */
+  tmpfsWorkMb: number;
+  tmpfsTmpMb: number;
+  tmpfsDaemonMb: number;
 }
 
 export const NO_FIGURES: Readonly<ProfileFigures> = {
@@ -42,6 +50,9 @@ export const NO_FIGURES: Readonly<ProfileFigures> = {
   burstMaxCpus: 0,
   tmpfsOff: false,
   tmpfsMaxMb: 0,
+  tmpfsWorkMb: 0,
+  tmpfsTmpMb: 0,
+  tmpfsDaemonMb: 0,
 };
 
 /**
@@ -62,6 +73,9 @@ export function figuresOf(profile: RunnerProfile | null | undefined): ProfileFig
     burstMaxCpus: profile?.standard?.burst_max_cpus ?? 0,
     tmpfsOff: profile?.tmpfs?.disabled === true,
     tmpfsMaxMb: profile?.tmpfs?.max_mb ?? 0,
+    tmpfsWorkMb: profile?.tmpfs?.work_mb ?? 0,
+    tmpfsTmpMb: profile?.tmpfs?.tmp_mb ?? 0,
+    tmpfsDaemonMb: profile?.tmpfs?.daemon_mb ?? 0,
   };
 }
 
@@ -84,6 +98,12 @@ export function profileBody(f: ProfileFigures): RunnerProfile {
   // A ceiling on a host that keeps the folders off is a contradiction the API
   // refuses, and nothing to send: the toggle is the stronger of the two.
   if (f.tmpfsMaxMb > 0 && !f.tmpfsOff) tmpfs.max_mb = f.tmpfsMaxMb;
+  // The same for the sizes: there is no folder to size where they are off.
+  if (!f.tmpfsOff) {
+    if (f.tmpfsWorkMb > 0) tmpfs.work_mb = f.tmpfsWorkMb;
+    if (f.tmpfsTmpMb > 0) tmpfs.tmp_mb = f.tmpfsTmpMb;
+    if (f.tmpfsDaemonMb > 0) tmpfs.daemon_mb = f.tmpfsDaemonMb;
+  }
   const body: RunnerProfile = {};
   if (Object.keys(minimum).length > 0) body.minimum = minimum;
   if (Object.keys(standard).length > 0) body.standard = standard;
@@ -100,7 +120,10 @@ export function isUnset(f: ProfileFigures): boolean {
     f.standardMemoryMb <= 0 &&
     f.burstMaxCpus <= 0 &&
     !f.tmpfsOff &&
-    f.tmpfsMaxMb <= 0
+    f.tmpfsMaxMb <= 0 &&
+    f.tmpfsWorkMb <= 0 &&
+    f.tmpfsTmpMb <= 0 &&
+    f.tmpfsDaemonMb <= 0
   );
 }
 
@@ -113,7 +136,10 @@ export function sameFigures(a: ProfileFigures, b: ProfileFigures): boolean {
     a.standardMemoryMb === b.standardMemoryMb &&
     a.burstMaxCpus === b.burstMaxCpus &&
     a.tmpfsOff === b.tmpfsOff &&
-    a.tmpfsMaxMb === b.tmpfsMaxMb
+    a.tmpfsMaxMb === b.tmpfsMaxMb &&
+    a.tmpfsWorkMb === b.tmpfsWorkMb &&
+    a.tmpfsTmpMb === b.tmpfsTmpMb &&
+    a.tmpfsDaemonMb === b.tmpfsDaemonMb
   );
 }
 
@@ -167,6 +193,19 @@ export function profileErrors(f: ProfileFigures, machine: MachineShape): Record<
   if (!f.tmpfsOff && f.tmpfsMaxMb > 0 && f.tmpfsMaxMb < MIN_TMPFS_MB)
     errors[key('tmpfs.max_mb')] =
       `A ceiling below ${MIN_TMPFS_MB} MB leaves no folder a checkout fits in. Leave it empty to set none, or keep the folders off here instead.`;
+
+  // The sizes a folder is asked for here are held to the same floor.
+  if (!f.tmpfsOff) {
+    for (const [name, mb] of [
+      ['tmpfs.work_mb', f.tmpfsWorkMb],
+      ['tmpfs.tmp_mb', f.tmpfsTmpMb],
+      ['tmpfs.daemon_mb', f.tmpfsDaemonMb],
+    ] as const) {
+      if (mb > 0 && mb < MIN_TMPFS_MB)
+        errors[key(name)] =
+          `A folder below ${MIN_TMPFS_MB} MB is not one a checkout fits in. Leave it empty to use the default.`;
+    }
+  }
 
   // A minimum above the standard is a floor above the size it floors.
   if (

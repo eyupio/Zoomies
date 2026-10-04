@@ -42,9 +42,18 @@ func tmpfsMemoryWarning(p *store.Pool) (Problem, bool) {
 	// A typed limit is given to the runner and to the daemon alike, and each is
 	// charged for its own folders, so each is judged against it separately: the
 	// work folder and /tmp are the runner's, the image store is the daemon's.
-	work, tmp := p.Tmpfs.Sizes(limit)
-	runner := work + tmp
-	daemon := p.Tmpfs.DaemonSize(limit)
+	// Placed as the agent places them, so an automatic folder that is on disk
+	// here takes no memory and is not a reason to warn: autoKeptOnDisk says it.
+	var runner, daemon int64
+	short := false
+	for _, o := range outcomes(p.Tmpfs, limit, limit, store.HostTmpfs{}) {
+		if o.Daemon {
+			daemon += o.Got
+		} else {
+			runner += o.Got
+		}
+		short = short || o.Got > 0 && o.Got < o.Ask
+	}
 	severity := config.SeverityInfo
 	var title, detail string
 	switch {
@@ -54,7 +63,7 @@ func tmpfsMemoryWarning(p *store.Pool) (Problem, bool) {
 		detail = fmt.Sprintf("a tmpfs is charged to the memory limit of the container it is in, so the job has what the folders leave. "+
 			"This pool's limit is %s and %s, so a job that fills them is killed for want of memory.",
 			formatRoomMB(limit), tightFolders(runner, daemon, limit))
-	case runner < p.Tmpfs.ReserveMB() || daemon < p.Tmpfs.DaemonReserveMB():
+	case short:
 		title = fmt.Sprintf("pool %s: its in-memory folders were fitted to a small memory limit", p.Name)
 		detail = fmt.Sprintf("a tmpfs is charged to the memory limit of the container it is in, so folders left to size themselves are fitted into half of it. "+
 			"This pool's limit is %s, which is not enough to give them the size they would be given with room.",
@@ -358,8 +367,69 @@ func (c *Controller) tmpfsHostProblems(ctx context.Context, out *[]Problem) erro
 		if w, ok := hostSizedTmpfsWarning(p, placeable); ok {
 			*out = append(*out, w)
 		}
+		if w, ok := autoKeptOnDisk(p, placeable); ok {
+			*out = append(*out, w)
+		}
 	}
 	return nil
+}
+
+// folderOutcome is what one in-memory folder is asked for and what a runner is
+// given: Got zero is on disk.
+type folderOutcome struct {
+	Name     string
+	Ask, Got int64
+	Auto     bool
+	Daemon   bool
+}
+
+// outcomes places a pool's in-memory folders on a runner and a daemon of the
+// given memory limits, on a host with policy h, and says what each was asked
+// for and given. Only the folders the pool keeps in memory are listed. It is
+// the one place the controller's warnings reckon sizes, and it uses
+// TmpfsConfig.PlaceRunner and PlaceDaemon, which the agent mounts from, so what
+// an operator is told is what a runner gets.
+func outcomes(c store.TmpfsConfig, runnerMB, daemonMB int64, h store.HostTmpfs) []folderOutcome {
+	ask := func(m store.TmpfsMount, standard, def int64) int64 {
+		if m.SizeMB > 0 {
+			return m.SizeMB
+		}
+		if standard > 0 {
+			return standard
+		}
+		return def
+	}
+	work, tmp := c.PlaceRunner(runnerMB, h)
+	var out []folderOutcome
+	if c.Work.Enabled {
+		out = append(out, folderOutcome{"work folder", ask(c.Work, h.WorkMB, store.DefaultTmpfsWorkMB), work, c.Work.Auto, false})
+	}
+	if c.Tmp.Enabled {
+		out = append(out, folderOutcome{"/tmp", ask(c.Tmp, h.TmpMB, store.DefaultTmpfsTmpMB), tmp, c.Tmp.Auto, false})
+	}
+	if c.Daemon.Enabled {
+		out = append(out, folderOutcome{"Docker image store", ask(c.Daemon, h.DaemonMB, store.DefaultTmpfsDaemonMB), c.PlaceDaemon(daemonMB, h), c.Daemon.Auto, true})
+	}
+	return out
+}
+
+// runnerLimitsOn is the memory limits a runner of p is given on a host: the
+// pool's typed limit to both containers, or one runner's charge there divided
+// between runner and daemon by the pool's share. False where there is nothing to
+// judge by, a host that has measured no memory.
+func runnerLimitsOn(p *store.Pool, h PoolHostRoom) (runnerMB, daemonMB int64, ok bool) {
+	dind := p.DockerMode == store.DockerDinD
+	if p.Resources.MemoryMB > 0 {
+		return p.Resources.MemoryMB, p.Resources.MemoryMB, true
+	}
+	if h.ChargeMemoryMB <= 0 {
+		return 0, 0, false
+	}
+	if !dind {
+		return h.ChargeMemoryMB, 0, true
+	}
+	r, d := store.Resources{MemoryMB: h.ChargeMemoryMB}.SplitWithDaemonShare(p.Resources.DaemonPercent())
+	return r.MemoryMB, d.MemoryMB, true
 }
 
 // hostSizedTmpfsWarning is tmpfsMemoryWarning for a pool whose runners are sized
@@ -370,62 +440,56 @@ func (c *Controller) tmpfsHostProblems(ctx context.Context, out *[]Problem) erro
 //
 // The limit is worked out per host, as the scheduler gives it: one runner's
 // charge, divided between the runner and its daemon by the pool's share. The
-// folders are fitted to that exactly as the agent fits them, and the hosts they
-// come out too small on are named. The proposal is a slot at which they fit
-// unreduced, which is a runner profile's standard size to raise (or a share to
-// move), never a number written into the pool: the pool does not store one.
+// folders are placed as the agent places them, and the hosts they come out too
+// small on are named. A folder that is automatic and was kept on disk is not
+// here: that is the setting working, and autoKeptOnDisk says it. The proposal is
+// a slot at which the folders fit unreduced, which is a runner profile's
+// standard size to raise (or a share to move), never a number written into the
+// pool: the pool does not store one.
 func hostSizedTmpfsWarning(p *store.Pool, hosts []PoolHostRoom) (Problem, bool) {
 	if p == nil || !p.Tmpfs.Any() || p.Resources.MemoryMB > 0 {
 		return Problem{}, false
 	}
 	dind := p.DockerMode == store.DockerDinD
-	askRunner, askDaemon := p.Tmpfs.ReserveMB(), int64(0)
-	if dind {
-		askDaemon = p.Tmpfs.DaemonReserveMB()
-	}
-	// The slot at which an ask fits unreduced is the one that leaves it half
-	// the container's part, which is how far the agent fits a folder into one.
 	share := int64(p.Resources.DaemonPercent())
 	var cut []string
-	var worst int64
-	var needSlot int64
+	var worst, needSlot int64
 	severity := config.SeverityInfo
 	for _, h := range hosts {
-		if h.ChargeMemoryMB <= 0 || !h.Tmpfs || h.TmpfsOff {
+		if !h.Tmpfs || h.TmpfsOff {
 			continue
 		}
-		runnerLimit, daemonLimit := h.ChargeMemoryMB, int64(0)
-		if dind {
-			r, d := store.Resources{MemoryMB: h.ChargeMemoryMB}.SplitWithDaemonShare(int(share))
-			runnerLimit, daemonLimit = r.MemoryMB, d.MemoryMB
-		}
-		work, tmp := p.Tmpfs.Sizes(runnerLimit)
-		gotRunner := work + tmp
-		gotDaemon := int64(0)
-		if dind {
-			gotDaemon = p.Tmpfs.DaemonSize(daemonLimit)
-		}
-		if gotRunner >= askRunner && gotDaemon >= askDaemon {
+		runnerMB, daemonMB, ok := runnerLimitsOn(p, h)
+		if !ok {
 			continue
 		}
-		line := fmt.Sprintf("%s (a runner has %s", h.Host, formatRoomMB(runnerLimit))
-		if askRunner > 0 {
-			line += fmt.Sprintf(", so its folders are %s of the %s asked for", formatRoomMB(gotRunner), formatRoomMB(askRunner))
+		var lines []string
+		var slot int64
+		for _, o := range outcomes(p.Tmpfs, runnerMB, daemonMB, h.TmpfsPolicy) {
+			if o.Got == 0 || o.Got >= o.Ask {
+				continue
+			}
+			lines = append(lines, fmt.Sprintf("%s %s of the %s asked for", o.Name, formatRoomMB(o.Got), formatRoomMB(o.Ask)))
+			// A folder that came out under half of what was asked is one the jobs
+			// notice: a checkout or a build that fills it fails with "no space left
+			// on device", which names neither the mount nor the setting.
+			if o.Got*2 < o.Ask {
+				severity = config.SeverityWarning
+			}
+			need := 2 * o.Ask
+			switch {
+			case !dind:
+				slot = max(slot, need)
+			case o.Daemon:
+				slot = max(slot, need*100/max(share, 1))
+			default:
+				slot = max(slot, need*100/max(100-share, 1))
+			}
 		}
-		if dind && askDaemon > 0 {
-			line += fmt.Sprintf(" and its Docker image store %s of %s", formatRoomMB(gotDaemon), formatRoomMB(askDaemon))
+		if len(lines) == 0 {
+			continue
 		}
-		cut = append(cut, line+")")
-		// A folder that came out under half of what was asked is one the jobs
-		// notice: a checkout or a build that fills it fails with "no space left
-		// on device", which names neither the mount nor the setting.
-		if askRunner > 0 && gotRunner*2 < askRunner || askDaemon > 0 && gotDaemon*2 < askDaemon {
-			severity = config.SeverityWarning
-		}
-		slot := 2 * askRunner
-		if dind {
-			slot = max(slot*100/max(100-share, 1), 2*askDaemon*100/max(share, 1))
-		}
+		cut = append(cut, fmt.Sprintf("%s (a runner has %s: %s)", h.Host, formatRoomMB(runnerMB), strings.Join(lines, ", ")))
 		worst = max(worst, h.ChargeMemoryMB)
 		needSlot = max(needSlot, slot)
 	}
@@ -440,9 +504,58 @@ func hostSizedTmpfsWarning(p *store.Pool, hosts []PoolHostRoom) (Problem, bool) 
 		Detail: "a tmpfs is charged to the memory limit of the container it is in, and this pool's runners are sized by their host, so the limit is a share of the machine -- " +
 			"for a docker-in-docker runner only its part of that share. Folders left to size themselves are fitted into half of it, and these came out smaller than asked for: " +
 			strings.Join(cut, "; ") + ". A job that fills a folder fails with \"no space left on device\".",
-		Fix: fmt.Sprintf("give these hosts runners of about %s or more (Runner sizes on each host, or fewer slots), "+
-			"move the daemon's share toward the container that needs the room, or turn off the folders that do not fit (zoomies pools edit %s --tmpfs-tmp=false). "+
-			"The largest runner here is charged %s now.", formatRoomMB(needSlot), p.Name, formatRoomMB(worst)),
+		Fix: fmt.Sprintf("let the folders decide per runner (Placement: Auto in the pool editor, or zoomies pools edit %s --tmpfs-auto), which keeps a folder on disk where it would be too small; "+
+			"or give these hosts runners of about %s or more (Runner sizes on each host, or fewer slots); move the daemon's share toward the container that needs the room; or turn off the folder that does not fit (zoomies pools edit %s --tmpfs-tmp=false). "+
+			"The largest runner here is charged %s now.", p.Name, formatRoomMB(needSlot), p.Name, formatRoomMB(worst)),
+		TargetKind: "pool",
+		TargetID:   p.ID,
+	}, true
+}
+
+// autoKeptOnDisk names the hosts where an automatic folder is on disk because
+// the runner there has no room for it to be worth having. It is information:
+// the setting working as designed. It is said because a pool that asked for
+// memory and got disk on some machines is otherwise indistinguishable from one
+// that is broken, and the operator who wants memory there has one lever --
+// bigger runners on that host -- which the line names.
+func autoKeptOnDisk(p *store.Pool, hosts []PoolHostRoom) (Problem, bool) {
+	if p == nil || !p.Tmpfs.Any() {
+		return Problem{}, false
+	}
+	var lines []string
+	var needSlot int64
+	for _, h := range hosts {
+		if !h.Tmpfs || h.TmpfsOff {
+			continue
+		}
+		runnerMB, daemonMB, ok := runnerLimitsOn(p, h)
+		if !ok {
+			continue
+		}
+		var names []string
+		for _, o := range outcomes(p.Tmpfs, runnerMB, daemonMB, h.TmpfsPolicy) {
+			if o.Auto && o.Got == 0 {
+				names = append(names, o.Name)
+			}
+		}
+		if len(names) == 0 {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("%s (%s on disk: a runner has %s)", h.Host, strings.Join(names, " and "), formatRoomMB(runnerMB)))
+		needSlot = max(needSlot, h.ChargeMemoryMB)
+	}
+	if len(lines) == 0 {
+		return Problem{}, false
+	}
+	sort.Strings(lines)
+	return Problem{
+		Code:     "pool.tmpfs_auto_on_disk",
+		Severity: config.SeverityInfo,
+		Title:    fmt.Sprintf("pool %s: its automatic in-memory folders are on disk on %s", p.Name, plural(len(lines), "host")),
+		Detail: "this pool lets each runner decide, and a folder goes in memory only where the runner has room for it to be useful -- below that it would fill and fail jobs with " +
+			"\"no space left on device\" while saving little disk traffic. On these hosts the runner is too small, so the folder is on disk: " + strings.Join(lines, "; ") + ".",
+		Fix: "nothing is wrong. To have these folders in memory there, give those hosts bigger runners (Runner sizes on each host, or fewer slots), " +
+			"or lower the folders' sizes on the host (Runner sizes, in-memory folders).",
 		TargetKind: "pool",
 		TargetID:   p.ID,
 	}, true

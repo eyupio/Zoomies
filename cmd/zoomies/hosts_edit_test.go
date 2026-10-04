@@ -238,3 +238,42 @@ func TestClearingTheProfileCannotBeCombinedWithTheInMemoryPolicy(t *testing.T) {
 		t.Fatalf("exit code = %d, want a usage error naming --tmpfs-off:\n%s", code, errOut)
 	}
 }
+
+// The sizes a folder is asked for on a host are part of the profile the API
+// replaces whole, so naming one keeps the ceiling and the other sizes, and a
+// zero hands that size back to the default.
+func TestAHostsFolderSizesAreEditedWithoutLosingTheRestOfThePolicy(t *testing.T) {
+	const current = `{"id":"hst_a","name":"big","capacity":8,"slots":3,
+		"runner_profile":{"standard":{"cpus":3,"memory_mb":8192},"tmpfs":{"max_mb":20000,"work_mb":16384,"daemon_mb":32768}},
+		"effective_profile":{"standard":{"cpus":3,"memory_mb":8192,"cpus_source":"host","memory_mb_source":"host"}}}`
+	for _, tc := range []struct {
+		name string
+		args []string
+		want map[string]float64
+	}{
+		{"a new /tmp size keeps the rest", []string{"--tmpfs-tmp-mb", "4096"}, map[string]float64{"max_mb": 20000, "work_mb": 16384, "daemon_mb": 32768, "tmp_mb": 4096}},
+		{"a zero hands one size back", []string{"--tmpfs-work-mb", "0"}, map[string]float64{"max_mb": 20000, "daemon_mb": 32768}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var patched map[string]any
+			var query string
+			srv := hostServer(t, current, &patched, &query, http.StatusOK, current)
+			defer srv.Close()
+			e, _, errOut := newTestEnv(t)
+			args := append(append([]string{"hosts", "edit", "hst_a"}, tc.args...), "--url", srv.URL)
+			if code := dispatch(context.Background(), e, args); code != exitOK {
+				t.Fatalf("exit code = %d\n%s", code, errOut)
+			}
+			profile, _ := patched["runner_profile"].(map[string]any)
+			tmpfs, _ := profile["tmpfs"].(map[string]any)
+			if len(tmpfs) != len(tc.want) {
+				t.Errorf("tmpfs = %v, want %v", tmpfs, tc.want)
+			}
+			for k, v := range tc.want {
+				if tmpfs[k] != v {
+					t.Errorf("tmpfs[%s] = %v, want %v (all: %v)", k, tmpfs[k], v, tmpfs)
+				}
+			}
+		})
+	}
+}

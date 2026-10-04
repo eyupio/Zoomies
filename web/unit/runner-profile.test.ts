@@ -33,6 +33,9 @@ test('a stored profile reads back into the form, and an empty one is every figur
       burstMaxCpus: 6,
       tmpfsOff: false,
       tmpfsMaxMb: 0,
+      tmpfsWorkMb: 0,
+      tmpfsTmpMb: 0,
+      tmpfsDaemonMb: 0,
     },
   );
 });
@@ -56,6 +59,9 @@ test('the request carries only the figures that are set, and {} where none is', 
     burstMaxCpus: 6,
     tmpfsOff: false,
     tmpfsMaxMb: 0,
+    tmpfsWorkMb: 0,
+    tmpfsTmpMb: 0,
+    tmpfsDaemonMb: 0,
   };
   assert.deepEqual(figuresOf(profileBody(full)), full);
   assert.ok(isUnset(NO_FIGURES));

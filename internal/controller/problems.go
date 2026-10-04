@@ -187,6 +187,7 @@ var problemAudience = map[string]Audience{
 	"pool.tmpfs_host_off":                           AudienceFleet,
 	"pool.tmpfs_memory_tight":                       AudienceFleet,
 	"pool.tmpfs_suggested":                          AudienceFleet,
+	"pool.tmpfs_auto_on_disk":                       AudienceFleet,
 	"pool.daemon_share_suggested":                   AudienceFleet,
 	"pool.tmpfs_unsupported":                        AudienceFleet,
 	"provider.bootstrap_failed":                     AudienceFleet,

@@ -556,7 +556,7 @@ func TestAHostSizedPoolWhoseFoldersAreFittedToSmallRunnersIsWarned(t *testing.T)
 			t.Errorf("detail %q does not say %q", w.Detail, want)
 		}
 	}
-	if !strings.Contains(w.Fix, "--tmpfs-tmp=false") || !strings.Contains(w.Fix, "zoomies-ci") {
+	if !strings.Contains(w.Fix, "--tmpfs-auto") || !strings.Contains(w.Fix, "--tmpfs-tmp=false") || !strings.Contains(w.Fix, "zoomies-ci") {
 		t.Errorf("fix %q names no way out", w.Fix)
 	}
 
@@ -594,5 +594,38 @@ func TestAHostSizedPoolWithoutASidecarGetsTheWholeSlot(t *testing.T) {
 	w, ok := hostSizedTmpfsWarning(pool, []PoolHostRoom{{Host: "h", Tmpfs: true, ChargeMemoryMB: 4096}})
 	if !ok || w.Severity != config.SeverityInfo {
 		t.Fatalf("warning = %+v, ok = %v; a 4 GB runner fits half of 4 GB, which is small but not under half of the ask", w, ok)
+	}
+}
+
+// An automatic folder on disk is the setting working, and is said as such, once,
+// with the hosts and what their runners have -- not as a fault.
+func TestAutomaticFoldersOnDiskAreSaidAsInformation(t *testing.T) {
+	pool := &store.Pool{Name: "zoomies-ci", DockerMode: store.DockerDinD, Resources: store.Resources{DaemonSharePercent: 60},
+		Tmpfs: store.TmpfsConfig{Work: store.TmpfsMount{Enabled: true, Auto: true}, Daemon: store.TmpfsMount{Enabled: true, Auto: true}}}
+	small := PoolHostRoom{Host: "twelve-core", Tmpfs: true, ChargeMemoryMB: 5120}
+	roomy := PoolHostRoom{Host: "big", Tmpfs: true, ChargeMemoryMB: 65536}
+	w, ok := autoKeptOnDisk(pool, []PoolHostRoom{small, roomy})
+	if !ok || w.Code != "pool.tmpfs_auto_on_disk" || w.Severity != config.SeverityInfo {
+		t.Fatalf("warning = %+v, ok = %v", w, ok)
+	}
+	if !strings.Contains(w.Detail, "twelve-core") || strings.Contains(w.Detail, "big") {
+		t.Errorf("detail %q should name only the small host", w.Detail)
+	}
+	// The tight-fit warning is not raised for what auto put on disk.
+	if _, ok := hostSizedTmpfsWarning(pool, []PoolHostRoom{small}); ok {
+		t.Error("a folder auto kept on disk was also reported as fitted too small")
+	}
+	// A pool that is not automatic has nothing to say here.
+	manual := *pool
+	manual.Tmpfs = store.TmpfsConfig{Work: store.TmpfsMount{Enabled: true}}
+	if _, ok := autoKeptOnDisk(&manual, []PoolHostRoom{small}); ok {
+		t.Error("a manual pool was told its folders were put on disk")
+	}
+	// A host's own standard changes what is asked, so what counts as small.
+	big := small
+	big.ChargeMemoryMB = 40960
+	big.TmpfsPolicy = store.HostTmpfs{WorkMB: 4096}
+	if _, ok := autoKeptOnDisk(pool, []PoolHostRoom{big}); ok {
+		t.Error("a 40 GB slot with a 4 GB host standard should have room for the folders")
 	}
 }

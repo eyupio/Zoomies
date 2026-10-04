@@ -695,6 +695,28 @@
       build. They are charged to the runner's memory limit, and gone when the runner is.
     </p>
 
+    <RadioGroup
+      bind:value={
+        () => (draft.tmpfs_auto ? 'auto' : 'always'), (v) => (draft.tmpfs_auto = v === 'auto')
+      }
+      name="tmpfs-placement"
+      legend="Placement"
+      options={[
+        {
+          value: 'auto',
+          label: 'Auto (recommended)',
+          description:
+            'Each runner decides: a folder is in memory where the runner has room for it to be useful (2 GB for the work folder, 1 GB for /tmp, 4 GB for the image store), and on disk where it has not. Safe for a pool whose hosts differ, and the pool says where a folder stayed on disk.',
+        },
+        {
+          value: 'always',
+          label: 'Always in memory',
+          description:
+            'Every runner gets the folders in memory, fitted as small as its limit demands. A runner too small for a folder fills it and fails jobs with "no space left on device".',
+        },
+      ]}
+    />
+
     <Checkbox
       bind:checked={draft.tmpfs_work}
       label="Keep the work folder in memory"
@@ -778,7 +800,7 @@
       {/if}
     {/if}
 
-    {#if tmpfsOn && proposedLimitMb > 0}
+    {#if tmpfsOn && !draft.tmpfs_auto && proposedLimitMb > 0}
       <div class="callout" role="status">
         <TriangleAlert size={16} aria-hidden="true" />
         <div>
@@ -797,7 +819,7 @@
           </Button>
         </div>
       </div>
-    {:else if tmpfsOn && draft.sizing === 'automatic'}
+    {:else if tmpfsOn && !draft.tmpfs_auto && draft.sizing === 'automatic'}
       <p class="echo">
         This pool's runners are each given a share of their host{hasSidecar
           ? ', split between the runner and its Docker sidecar'

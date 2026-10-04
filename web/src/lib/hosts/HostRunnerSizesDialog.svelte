@@ -20,6 +20,34 @@
   when the pool is on its way out.
 -->
 <script lang="ts">
+  // The sizes a folder is asked for on this host, one row each. `key` is typed to
+  // the figures that are numbers, so the form can read and write them by name.
+  const FOLDER_SIZES: readonly {
+    key: 'tmpfsWorkMb' | 'tmpfsTmpMb' | 'tmpfsDaemonMb';
+    name: string;
+    label: string;
+    placeholder: string;
+  }[] = [
+    {
+      key: 'tmpfsWorkMb',
+      name: 'tmpfs.work_mb',
+      label: 'Work folder size (MB)',
+      placeholder: 'default 4096',
+    },
+    {
+      key: 'tmpfsTmpMb',
+      name: 'tmpfs.tmp_mb',
+      label: '/tmp size (MB)',
+      placeholder: 'default 1024',
+    },
+    {
+      key: 'tmpfsDaemonMb',
+      name: 'tmpfs.daemon_mb',
+      label: 'Docker image store size (MB)',
+      placeholder: 'default 8192',
+    },
+  ];
+
   import { untrack } from 'svelte';
   import { ApiError, updateHost } from '$lib/api/client';
   import type { Host } from '$lib/api/types';
@@ -88,6 +116,9 @@
       figures.burstMaxCpus,
       figures.tmpfsOff,
       figures.tmpfsMaxMb,
+      figures.tmpfsWorkMb,
+      figures.tmpfsTmpMb,
+      figures.tmpfsDaemonMb,
     ];
     untrack(() => {
       stranding = '';
@@ -434,10 +465,35 @@
       </p>
       <Checkbox
         bind:checked={figures.tmpfsOff}
-        label="Keep in-memory folders off this machine"
-        description="Whatever a pool asks for, its runners here keep their folders on disk, as they did before the setting existed. For a machine with less memory than the pools that land on it assume."
+        label="Fall back to disk on this machine (temporary)"
+        description="A tactical fix, for a machine that cannot spare the memory today: whatever a pool asks for, its runners here keep their folders on disk, as they did before the setting existed. The pool is told for as long as this is on, so it is not forgotten. The lasting answers are the sizes below and a pool's Auto placement."
       />
       {#if !figures.tmpfsOff}
+        <p class="note-text">
+          Sizes a folder is asked for on this machine when a pool leaves it to size itself — the
+          counterpart of a standard runner size. A machine with a great deal of memory can offer far
+          more than the defaults, and one with little, less. Each is still fitted to the runner's
+          limit and lowered to the ceiling below; leave one empty to use the default.
+        </p>
+        {#each FOLDER_SIZES as f (f.key)}
+          <Field label={f.label} error={errors[`runner_profile.${f.name}`] ?? ''}>
+            {#snippet children({ id, describedBy, invalid: bad })}
+              <Input
+                value={figures[f.key] > 0 ? String(figures[f.key]) : ''}
+                {id}
+                {describedBy}
+                invalid={bad}
+                inputmode="numeric"
+                placeholder={f.placeholder}
+                autocomplete="off"
+                oninput={(event) => {
+                  const n = Number((event.currentTarget as HTMLInputElement).value.trim());
+                  figures[f.key] = Number.isInteger(n) && n > 0 ? n : 0;
+                }}
+              />
+            {/snippet}
+          </Field>
+        {/each}
         <Field
           label="Largest folder (MB)"
           error={errors['runner_profile.tmpfs.max_mb'] ?? ''}
