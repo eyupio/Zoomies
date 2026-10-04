@@ -96,6 +96,8 @@ func ParseMode(s string) (Mode, error) {
 // probing: the script ran on this host moments ago, and re-deriving them here
 // could only produce a confusing disagreement.
 type Options struct {
+	// AfterHostSetup is production CLI reporting. Tests leave it nil.
+	AfterHostSetup   func(context.Context, bool, string) error
 	DetectedOS       string
 	DetectedArch     string
 	DetectedDistro   string
@@ -293,7 +295,13 @@ func (i *Installer) Run(ctx context.Context) error {
 		if i.opts.Port != 0 || i.opts.ExternalURL != "" {
 			return errors.New("installer: --port and --external-url configure a controller and cannot be used with agent mode")
 		}
-		return i.runAgent(ctx)
+		if err := i.runAgent(ctx); err != nil {
+			return err
+		}
+		if i.opts.AfterHostSetup != nil {
+			return i.opts.AfterHostSetup(ctx, true, filepath.Join(i.opts.stateDir(), "work"))
+		}
+		return nil
 	}
 
 	plan, err := i.resolvePlan(ctx, mode)
@@ -301,7 +309,13 @@ func (i *Installer) Run(ctx context.Context) error {
 		return err
 	}
 	if plan.Upgrade {
-		return i.runUpgrade(ctx, plan)
+		if err := i.runUpgrade(ctx, plan); err != nil {
+			return err
+		}
+		if i.opts.AfterHostSetup != nil {
+			return i.opts.AfterHostSetup(ctx, false, plan.WorkDir)
+		}
+		return nil
 	}
 	// A native install that ends in a compose file is two deployments that
 	// disagree: the key, database, App, administrator and first pool would be
@@ -319,7 +333,15 @@ func (i *Installer) Run(ctx context.Context) error {
 	if plan.Deployment.Containerised() {
 		install = i.runContainer
 	}
-	return i.reviewAndCarryOut(ctx, plan, i.stepReview, install)
+	return i.reviewAndCarryOut(ctx, plan, i.stepReview, func(ctx context.Context, p Plan) error {
+		if err := install(ctx, p); err != nil {
+			return err
+		}
+		if i.opts.AfterHostSetup != nil {
+			return i.opts.AfterHostSetup(ctx, true, p.WorkDir)
+		}
+		return nil
+	})
 }
 
 // reviewAndCarryOut is the part of Run in which order is the whole point:
@@ -358,6 +380,9 @@ func (i *Installer) stepReview(ctx context.Context, p Plan) (bool, error) {
 	}
 	i.ui.blank()
 	i.ui.note("writes")
+	if p.Deployment.Containerised() && p.runsRunners() && i.det.OS == "linux" && i.det.Init == "systemd" {
+		i.ui.field("read-only health", HostHealthUnitPath+" using the installed native binary")
+	}
 	for _, path := range p.Writes() {
 		i.ui.field("", path)
 	}

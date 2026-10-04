@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/hosttune"
 	"github.com/eyupio/zoomies/internal/installer"
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -130,7 +132,11 @@ func runAgentDaemon(ctx context.Context, e *env, args []string) error {
 
 	defer transport.Close()
 
+	health := hosttune.LocalOptions(cfg.Agent.WorkDir)
+	health.DockerHost = cfg.Agent.DockerHost
+	health.HostReportPath = filepath.Join(config.SharedDir(), "host-health", "report.json")
 	a, err := agent.New(agent.Options{
+		Doctor:             hosttune.NewMonitor(hosttune.New(health)),
 		Name:               cfg.Agent.Name,
 		WorkDir:            cfg.Agent.WorkDir,
 		Capacity:           cfg.Agent.Capacity,

@@ -9,6 +9,7 @@
 -->
 <script lang="ts">
   import { navigate } from '$lib/router';
+  import { healthSummary } from './health';
   import { CircleDashed, Gauge, Pencil, ServerCog, Trash2 } from '@lucide/svelte';
   import type { Host, Machine } from '$lib/api/types';
   import { formatMegabytes, formatNumber, onClockTick, toMillis } from '$lib/format';
@@ -80,6 +81,7 @@
   // controller: it is the side that knows its own version, and computing skew
   // here would give a different answer from the one the agent logs about
   // itself.
+  const health = $derived(healthSummary(host.doctor, now, host.healthy));
   const skew = $derived(host.version_skew ?? '');
   const skewLabel = $derived(
     skew === 'behind' ? 'Behind' : skew === 'ahead' ? 'Ahead' : skew ? 'Different build' : '',
@@ -277,9 +279,14 @@
 <article class="card {className}" aria-labelledby="host-{host.id}-name">
   <header>
     <div class="identity">
-      <h3 id="host-{host.id}-name" tabindex="-1">{host.name || host.id}</h3>
+      <h3 id="host-{host.id}-name" tabindex="-1">
+        <a href="/hosts/{host.id}">{host.name || host.id}</a>
+      </h3>
       <div class="badges">
         <Badge {status} size="sm" title={status.hint} />
+        <a href="/hosts/{host.id}" aria-label="Host health for {host.name || host.id}"
+          ><Badge label={health.label} tone={health.tone} size="sm" title={health.hint} /></a
+        >
         {#if host.incompatible}
           <Badge
             tone="danger"

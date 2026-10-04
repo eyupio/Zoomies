@@ -499,7 +499,22 @@ func DockerCommandLine(args []string) string {
 // here: the container does all of that on first start, and the operator
 // creates the first administrator in the browser. What this function owns is
 // the two files, bringing them up, and proving the result answers.
-func (i *Installer) runContainer(ctx context.Context, p Plan) error {
+func (i *Installer) runContainer(ctx context.Context, p Plan) (retErr error) {
+	if i.opts.AfterHostSetup != nil && p.runsRunners() && i.det.OS == "linux" && i.det.Init == "systemd" {
+		defer func() {
+			if retErr != nil {
+				return
+			}
+			work := p.WorkDir
+			if mount, err := runCommand(ctx, "docker", "volume", "inspect", "--format", "{{.Mountpoint}}", VolumeName); err == nil && filepath.IsAbs(strings.TrimSpace(mount)) {
+				work = filepath.Join(strings.TrimSpace(mount), "work")
+			}
+			if err := installHostHealth(ctx, i.opts.binaryPath(), work, p.DockerHost, runCommand); err != nil {
+				i.ui.warn("Native host health service was not installed: " + err.Error())
+			}
+		}()
+	}
+
 	_, rerun := ReadDeploymentRecord(p.ConfigDir)
 
 	i.ui.step("Writing the deployment into " + p.DeployDir)

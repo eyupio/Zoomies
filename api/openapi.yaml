@@ -8028,9 +8028,35 @@ components:
             a containerised agent whose container does not mount it from the host, which keeps
             no tool cache there. Empty when nothing is. See host.shared_folder_unmounted.
 
+    HostDoctorResult:
+      type: object
+      required: [id, title, tier, status, current, recommended, rationale, actionable]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        tier: { type: string, enum: [safe, aggressive, dedicated] }
+        status: { type: string, enum: [ok, warn, skip, error] }
+        current: { type: string }
+        recommended: { type: string }
+        rationale: { type: string }
+        reason: { type: string }
+        actionable: { type: boolean }
+        optional: { type: boolean }
+    HostDoctor:
+      type: object
+      required: [checked_at, os, distro, container, results, reboot_pending]
+      properties:
+        work_dir: { type: string, description: Host filesystem path inspected for runner disk headroom. }
+        checked_at: { type: string, format: date-time }
+        os: { type: string }
+        distro: { type: string }
+        container: { type: boolean, description: True when only the container's view could be inspected. }
+        results: { type: array, maxItems: 64, items: { $ref: "#/components/schemas/HostDoctorResult" } }
+        reboot_pending: { type: boolean }
     Host:
       type: object
       properties:
+        doctor: { $ref: "#/components/schemas/HostDoctor" }
         usage: { $ref: "#/components/schemas/HostUsage" }
         usage_fresh: { type: boolean, description: Usage is less than 90 seconds old. Unknown or stale readings retain reservation-based placement. }
         admission_reason: { type: string, description: Why current host pressure is holding new runner starts. Empty when no pressure hold applies. }
@@ -8901,6 +8927,7 @@ components:
     AgentHeartbeatRequest:
       type: object
       properties:
+        doctor: { $ref: "#/components/schemas/HostDoctor" }
         usage: { $ref: "#/components/schemas/HostUsage" }
         protocol_version: { type: integer }
         capacity: { type: integer, description: The agent's configured value, sent for the log. The controller does not write it. }

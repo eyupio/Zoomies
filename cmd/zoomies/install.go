@@ -20,6 +20,8 @@ func runInit(ctx context.Context, e *env, args []string) error {
 	fs := newFlagSet(e, "zoomies init [flags]",
 		"Set this host up: how it runs, backend, listener, GitHub App and the first administrator.")
 
+	tune := fs.Bool("tune", false, "explicitly approve recommended safe tuning after a fresh install")
+	noTune := fs.Bool("no-tune", false, "do not offer or apply tuning")
 	mode := fs.String("mode", "", "single (a controller with an embedded agent), controller, or agent; empty asks")
 	deployment := fs.String("deployment", "", "native (the binary under systemd or launchd), compose (a docker-compose.yml and a populated .env) or docker (one container); empty asks, offering only what this host can run")
 	controllerURL := fs.String("controller", "", "for --mode agent: the controller to join")
@@ -58,6 +60,9 @@ func runInit(ctx context.Context, e *env, args []string) error {
 		return err
 	}
 
+	if *tune && *noTune {
+		return usagef("init", "--tune and --no-tune cannot be combined")
+	}
 	// Printing the example is not setup; it is the thing an operator does
 	// before setup, and it must not touch the host.
 	if *printAnswers {
@@ -77,7 +82,14 @@ func runInit(ctx context.Context, e *env, args []string) error {
 	// stream of JSON in the middle of it would be unreadable.
 	log := logging.Setup(logging.Options{Level: "warn", Format: "text"})
 
+	interactive := false
+	if f, ok := e.in.(*os.File); ok {
+		interactive = term.IsTerminal(int(f.Fd())) && !*nonInteractive && *answers == ""
+	}
 	inst, err := installer.New(installer.Options{
+		AfterHostSetup: func(ctx context.Context, fresh bool, work string) error {
+			return afterHostSetup(ctx, e, fresh, *tune, *noTune, interactive, work)
+		},
 		DetectedOS:       *detectedOS,
 		DetectedArch:     *detectedArch,
 		DetectedDistro:   *detectedDistro,
@@ -207,6 +219,7 @@ func runUpgradeNamed(ctx context.Context, e *env, args []string, name string) er
 		interactive = !*nonInteractive
 	}
 	return installer.Upgrade(ctx, installer.UpgradeOptions{
+		Doctor:    func(ctx context.Context, cfg *config.Config) { upgradeDoctor(ctx, e, cfg) },
 		ConfigDir: *configDir, BinaryPath: *binary, DockerHost: *dockerHost, Runtime: *runtime, Image: *image,
 		Mode: parsed, Check: *check, Out: e.out,
 		In: e.in, Interactive: interactive, NonInteractive: *nonInteractive, AssumeYes: *yes,

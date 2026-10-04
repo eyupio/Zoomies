@@ -36,6 +36,7 @@ import (
 	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/github"
+	"github.com/eyupio/zoomies/internal/hosttune"
 	"github.com/eyupio/zoomies/internal/provider"
 	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
@@ -52,6 +53,7 @@ const SeedEnvVar = "ZOOMIES_SEED_DEMO"
 // forgets the event bus should get a working controller rather than a nil
 // dereference three loops later.
 type Options struct {
+	Doctor *hosttune.Monitor
 	// Store is the only writer of persistent state.
 	Store *store.Store
 	// Config is the validated configuration; the controller reads the
@@ -102,6 +104,7 @@ type Options struct {
 
 // Controller owns the control plane's moving parts and their lifecycles.
 type Controller struct {
+	doctor          *hosttune.Monitor
 	aiContextChecks chan struct{}
 	// actionsTokens verifies the OIDC tokens Zoomies-only uploads carry.
 	actionsTokens *github.ActionsTokenVerifier
@@ -412,6 +415,7 @@ func New(opts Options) (*Controller, error) {
 		authsvc:                 authsvc,
 		bus:                     bus,
 		factory:                 factory,
+		doctor:                  opts.Doctor,
 		backends:                opts.Backends,
 		log:                     log,
 		clock:                   clock,
