@@ -230,6 +230,13 @@ func (s *Server) exportPools(r *http.Request) (poolsExport, error) {
 		return doc, err
 	}
 	for _, p := range pools {
+		// A pool the controller keeps is worked out from the hosts it has, which
+		// are not the destination's, so exporting it would hand the other instance
+		// a pool of somebody's own that the controller there then finds in its way.
+		// The destination makes its own from its own hosts.
+		if p.FromHosts() {
+			continue
+		}
 		doc.Pools = append(doc.Pools, documentPool(p, targets[p.InstallationID]))
 	}
 	return doc, nil
@@ -528,6 +535,13 @@ func (s *Server) planPool(r *http.Request, name string, entry map[string]any,
 	existing, err := s.ctrl.Store().GetPoolByName(ctx, name)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return refuse("the pool of that name here could not be read: " + err.Error())
+	}
+	// A pool the controller keeps is worked out from the hosts it has, and an
+	// import that edited one would be undone by its next pass or, worse, would
+	// change a figure the pool's page says is not typed. Its name is the one the
+	// controller would use, so a document made by hand can reach it by accident.
+	if existing != nil && existing.FromHosts() {
+		return refuse(fmt.Sprintf("%s is a pool the controller keeps from your hosts, so it is not imported over; leave it out of the document, or rename the pool in the file to make one of your own", existing.Name))
 	}
 	var candidate *store.Pool
 	var errs []fieldError

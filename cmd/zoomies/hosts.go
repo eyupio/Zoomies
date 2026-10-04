@@ -101,7 +101,7 @@ func hostsList(ctx context.Context, e *env, args []string) error {
 			p.bar(used, 10),
 			dash(strings.Join(h.Backends, ",")),
 			dash(hostPlatform(h)),
-			dash(hostSize(h)),
+			dash(hostSizeWithClass(h)),
 			p.relTime(h.LastHeartbeat),
 		})
 	}
@@ -111,6 +111,17 @@ func hostsList(ctx context.Context, e *env, args []string) error {
 	// they give, which is what the capacity column no longer tells.
 	for _, h := range out.Items {
 		describeRunnerSizes(p, h)
+	}
+	// The tags an operator has put on a host, and a host that counts towards no
+	// automatic pool: the two things a pool's host selector and a pool the
+	// controller keeps are answered by, and neither is anywhere in the table.
+	for _, h := range out.Items {
+		if tags := describeTags(h); tags != "" {
+			p.note("%s tags: %s", h.Name, tags)
+		}
+		if h.AutoPool != nil && !h.AutoPool.Counted && h.AutoPool.Reason != "" {
+			p.note("%s counts towards no automatic pool. %s", h.Name, h.AutoPool.Reason)
+		}
 	}
 	// A throttled host's row says how many slots it has been stepped down to
 	// and not why; the controller's own sentence says why, and what ends it.

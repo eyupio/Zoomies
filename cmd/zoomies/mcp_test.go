@@ -186,6 +186,8 @@ func fleetAPI(t *testing.T) (*httptest.Server, *[]string) {
 		case "POST /api/v1/jobs/job_1/rerun":
 			w.WriteHeader(http.StatusAccepted)
 			_, _ = w.Write([]byte(`{"fault_domain":"runner"}`))
+		case "GET /api/v1/label-advice":
+			_, _ = w.Write([]byte(`{"items":[{"repo":"acme/widgets","job_name":"e2e","kind":"too_small","fix":"write zoomies-large in runs-on"}],"total":1,"counts":{"too_small":1}}`))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = w.Write([]byte(`{"error":{"code":"not_found","message":"no such thing"}}`))
@@ -244,7 +246,7 @@ func TestMCPOffersActionsOnlyWhenAskedTo(t *testing.T) {
 
 	readOnly := startMCP(t, "--url", srv.URL, "--token", "zoo_viewer")
 	names := readOnly.toolNames()
-	for _, want := range []string{"fleet_status", "list_problems", "list_jobs", "get_job", "get_runner_log", "list_runners", "list_pools", "list_hosts"} {
+	for _, want := range []string{"fleet_status", "list_problems", "list_jobs", "get_job", "get_runner_log", "list_runners", "list_pools", "list_hosts", "label_advice"} {
 		if !containsString(names, want) {
 			t.Errorf("read-only tools must include %s, got %v", want, names)
 		}
@@ -283,6 +285,32 @@ func TestMCPActionsStillNeedTheTokensRole(t *testing.T) {
 	}
 	if !containsString(*seen, "POST /api/v1/jobs/job_1/rerun") {
 		t.Errorf("the rerun must be the API's own route, got %v", *seen)
+	}
+}
+
+// The advice is a read of the fleet like any other, and an agent asks for it by
+// kind and page the way it asks for jobs.
+func TestMCPLabelAdviceIsAReadOfTheAPIsOwnRoute(t *testing.T) {
+	srv, seen := fleetAPI(t)
+	s := startMCP(t, "--url", srv.URL, "--token", "zoo_viewer")
+
+	r := s.callTool("label_advice", map[string]any{"kind": "too_small", "limit": 5, "offset": 10})
+	if r.IsError || !strings.Contains(text(r), "write zoomies-large in runs-on") {
+		t.Fatalf("label_advice failed: %s", text(r))
+	}
+	var route string
+	for _, got := range *seen {
+		if strings.Contains(got, "/label-advice") {
+			route = got
+		}
+	}
+	for _, want := range []string{"GET /api/v1/label-advice?", "kind=too_small", "limit=5", "offset=10"} {
+		if !strings.Contains(route, want) {
+			t.Errorf("the request %q does not carry %q", route, want)
+		}
+	}
+	if bad := s.callTool("label_advice", map[string]any{"kind": "nonsense", "repo": "x"}); !bad.IsError {
+		t.Errorf("an argument the tool does not take must be refused, got %+v", bad)
 	}
 }
 
