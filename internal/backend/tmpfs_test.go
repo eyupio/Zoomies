@@ -316,3 +316,27 @@ func TestInMemoryFoldersOverrideTheNoexecDefaultOfATmpfs(t *testing.T) {
 		t.Errorf("the runner's folders keep the runtime's nosuid and nodev: %q", tmpfsOptions)
 	}
 }
+
+// Auto is decided where the runner's real limit is known: on a runner too small
+// the folder is simply not mounted, which is what makes it safe to leave on for
+// a pool whose hosts differ.
+func TestAnAutomaticFolderIsNotMountedOnARunnerTooSmallForIt(t *testing.T) {
+	spec := Spec{Tmpfs: store.TmpfsConfig{Work: store.TmpfsMount{Enabled: true, Auto: true}, Tmp: store.TmpfsMount{Enabled: true, Auto: true}}}
+	if got := tmpfsMounts(spec, 2048, false); got != nil {
+		t.Errorf("a 2 GB runner was given %v, want disk", got)
+	}
+	got := tmpfsMounts(spec, 32768, false)
+	if got[RunnerWorkMount] != "size=4096m,rw,exec,nosuid,nodev,mode=1777" || got[RunnerTmpMount] != "size=1024m,rw,exec,nosuid,nodev,mode=1777" {
+		t.Errorf("a 32 GB runner was given %v", got)
+	}
+	// The host's own standard replaces the default an untyped folder is asked for.
+	spec.TmpfsHost = store.HostTmpfs{WorkMB: 8192}
+	if got := tmpfsMounts(spec, 65536, false); got[RunnerWorkMount] != "size=8192m,rw,exec,nosuid,nodev,mode=1777" {
+		t.Errorf("a host standard of 8 GB gave %v", got)
+	}
+	// An older controller sends only the ceiling, and it still applies.
+	old := Spec{Tmpfs: spec.Tmpfs, TmpfsMaxMB: 2560}
+	if got := tmpfsMounts(old, 65536, false); got[RunnerWorkMount] != "size=2560m,rw,exec,nosuid,nodev,mode=1777" {
+		t.Errorf("a ceiling from an older controller gave %v", got)
+	}
+}

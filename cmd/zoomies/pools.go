@@ -260,11 +260,16 @@ func poolTmpfsLabel(pool poolItem) string {
 		if !m.mount.Enabled {
 			continue
 		}
+		how := "sized from the memory limit"
 		if m.mount.SizeMB > 0 {
-			parts = append(parts, fmt.Sprintf("%s (%d MB)", m.name, m.mount.SizeMB))
-		} else {
-			parts = append(parts, m.name+" (sized from the memory limit)")
+			how = fmt.Sprintf("%d MB", m.mount.SizeMB)
 		}
+		if m.mount.Auto {
+			// Said beside the size, because "in memory" is not what an automatic
+			// folder promises: on a runner too small for it, it is on disk.
+			how += ", auto: on disk where a runner is too small"
+		}
+		parts = append(parts, fmt.Sprintf("%s (%s)", m.name, how))
 	}
 	if len(parts) == 0 {
 		return "no"
@@ -371,6 +376,7 @@ type poolSpec struct {
 	tmpfsTmpSize      *int64
 	tmpfsDocker       *bool
 	tmpfsDockerSize   *int64
+	tmpfsAuto         *bool
 }
 
 // registerPoolFlags declares them, with the API's own defaults so that a
@@ -427,6 +433,7 @@ func registerPoolFlags(fs *flagSet) *poolSpec {
 	spec.tmpfsTmp = fs.Bool("tmpfs-tmp", false, "keep /tmp in memory as well; off unless asked for, because some jobs leave gigabytes there")
 	spec.tmpfsTmpSize = fs.Int64("tmpfs-tmp-size", 0, "the /tmp folder's ceiling in MiB (at least 64); 0 sizes it from the memory limit, at most 1024")
 	spec.tmpfsDocker = fs.Bool("tmpfs-docker", false, "keep the Docker-in-Docker sidecar's image store in memory; needs --docker-mode dind; an image bigger than the store does not pull, and it is charged to the sidecar's memory limit")
+	spec.tmpfsAuto = fs.Bool("tmpfs-auto", false, "let each runner decide where the in-memory folders live: in memory where the runner has room for one to be useful (2 GB for _work, 1 GB for /tmp, 4 GB for the image store), on disk where it has not; --tmpfs-auto=false makes them always in memory")
 	spec.tmpfsDockerSize = fs.Int64("tmpfs-docker-size", 0, "the image store's ceiling in MiB (at least 64); 0 sizes it from the sidecar's memory limit, at most 8192 and half of it")
 	return spec
 }
@@ -572,7 +579,10 @@ func (spec *poolSpec) body(fs *flagSet, onlyChanged bool) map[string]any {
 	// as it stands rather than switching them off.
 	if spec.tmpfsChanged(fs) {
 		mount := func(current poolTmpfsMount, toggle string, on *bool, sizeFlag string, size *int64) map[string]any {
-			enabled, mb := current.Enabled, current.SizeMB
+			enabled, mb, auto := current.Enabled, current.SizeMB, current.Auto
+			if fs.changed("tmpfs-auto") {
+				auto = *spec.tmpfsAuto
+			}
 			if fs.changed(toggle) {
 				enabled = *on
 			}
@@ -582,6 +592,9 @@ func (spec *poolSpec) body(fs *flagSet, onlyChanged bool) map[string]any {
 			out := map[string]any{"enabled": enabled}
 			if mb > 0 {
 				out["size_mb"] = mb
+			}
+			if enabled && auto {
+				out["auto"] = true
 			}
 			return out
 		}
@@ -598,7 +611,7 @@ func (spec *poolSpec) body(fs *flagSet, onlyChanged bool) map[string]any {
 func (spec *poolSpec) tmpfsChanged(fs *flagSet) bool {
 	return fs.changed("tmpfs-work") || fs.changed("tmpfs-work-size") ||
 		fs.changed("tmpfs-tmp") || fs.changed("tmpfs-tmp-size") ||
-		fs.changed("tmpfs-docker") || fs.changed("tmpfs-docker-size")
+		fs.changed("tmpfs-docker") || fs.changed("tmpfs-docker-size") || fs.changed("tmpfs-auto")
 }
 
 // resources is the size this invocation means, with anything not typed taken
@@ -686,6 +699,9 @@ func poolsCreate(ctx context.Context, e *env, args []string) error {
 	}
 	if fs.changed("tmpfs-tmp-size") && !*spec.tmpfsTmp {
 		return usagef("pools create", "--tmpfs-tmp-size needs --tmpfs-tmp, which is what puts /tmp in memory")
+	}
+	if fs.changed("tmpfs-auto") && *spec.tmpfsAuto && !*spec.tmpfsWork && !*spec.tmpfsTmp && !*spec.tmpfsDocker {
+		return usagef("pools create", "--tmpfs-auto decides where the in-memory folders live, so name one with --tmpfs-work, --tmpfs-tmp or --tmpfs-docker")
 	}
 	if fs.changed("tmpfs-docker-size") && !*spec.tmpfsDocker {
 		return usagef("pools create", "--tmpfs-docker-size needs --tmpfs-docker, which is what puts the image store in memory")

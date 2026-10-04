@@ -675,3 +675,44 @@ func TestPoolsGetShowsTheImageStoreWhenItIsInMemory(t *testing.T) {
 		t.Errorf("pools get must show the image store and its size:\n%s", out)
 	}
 }
+
+// Auto is a property of the folders that are on, said once for them all: an edit
+// that only names --tmpfs-auto keeps each folder's size and which are on, marks
+// the enabled ones automatic and leaves the disabled ones alone.
+func TestPoolsEditTmpfsAutoMarksOnlyTheFoldersThatAreOn(t *testing.T) {
+	var sent map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case http.MethodGet:
+			_, _ = w.Write([]byte(`{"id":"pool_1","name":"zoomies-4vcpu","resources":{},"sizing":"automatic",
+				"tmpfs":{"work":{"enabled":true,"size_mb":6144},"tmp":{"enabled":false}}}`))
+		case http.MethodPatch:
+			if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
+				t.Errorf("decoding the PATCH body: %v", err)
+			}
+			_, _ = w.Write([]byte(`{"id":"pool_1","name":"zoomies-4vcpu","enabled":true}`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	runCLI(t, "pools", "edit", "pool_1", "--tmpfs-auto", "--url", srv.URL)
+
+	tmpfs, _ := sent["tmpfs"].(map[string]any)
+	work, _ := tmpfs["work"].(map[string]any)
+	tmp, _ := tmpfs["tmp"].(map[string]any)
+	if work["enabled"] != true || work["auto"] != true || work["size_mb"] != 6144.0 {
+		t.Errorf("the work folder should stay on, keep its size and become automatic, got %v", work)
+	}
+	if tmp["enabled"] != false || tmp["auto"] != nil {
+		t.Errorf("a folder that is off must not be marked automatic, got %v", tmp)
+	}
+
+	// --tmpfs-auto=false hands the folders back to always-in-memory.
+	runCLI(t, "pools", "edit", "pool_1", "--tmpfs-auto=false", "--url", srv.URL)
+	tmpfs, _ = sent["tmpfs"].(map[string]any)
+	work, _ = tmpfs["work"].(map[string]any)
+	if work["auto"] != nil {
+		t.Errorf("--tmpfs-auto=false should clear auto, got %v", work)
+	}
+}

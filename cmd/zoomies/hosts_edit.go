@@ -11,7 +11,7 @@ import (
 
 // profileFlags are the flags that edit a host's runner profile, in the order
 // the help lists them.
-var profileFlags = []string{"min-cpus", "min-memory-mb", "standard-cpus", "standard-memory-mb", "burst-max-cpus", "tmpfs-off", "tmpfs-max-mb"}
+var profileFlags = []string{"min-cpus", "min-memory-mb", "standard-cpus", "standard-memory-mb", "burst-max-cpus", "tmpfs-off", "tmpfs-max-mb", "tmpfs-work-mb", "tmpfs-tmp-mb", "tmpfs-docker-mb"}
 
 // hostsEdit is `zoomies hosts edit`: the host's capacity, its reserve and how
 // big a runner is on it, which is the host's half of what the API's PATCH takes.
@@ -36,7 +36,10 @@ func hostsEdit(ctx context.Context, e *env, args []string) error {
 	standardCPUs := fs.Float64("standard-cpus", 0, "the CPU one runner is given here for a pool that takes its size from the host; 0 follows runners.default_cpus")
 	standardMemory := fs.Int64("standard-memory-mb", 0, "the memory one runner is given here, in MB; 0 follows runners.default_memory_mb")
 	burstMax := fs.Float64("burst-max-cpus", 0, "the most CPU one runner here may use, lent CPU included; 0 sets no host ceiling")
-	tmpfsOff := fs.Bool("tmpfs-off", false, "keep pools' in-memory folders off this host, whatever a pool asks for; --tmpfs-off=false lets them back")
+	tmpfsOff := fs.Bool("tmpfs-off", false, "fall back to disk on this host: keep pools' in-memory folders off it, whatever a pool asks for. A tactical fix for a machine that cannot spare the memory today, and the pool is told for as long as it is on; --tmpfs-off=false lets them back")
+	tmpfsWork := fs.Int64("tmpfs-work-mb", 0, "the size the _work folder is asked for on this host when a pool leaves it to size itself, in MB (at least 64); 0 is the default of 4096")
+	tmpfsTmp := fs.Int64("tmpfs-tmp-mb", 0, "the same for /tmp, in MB (at least 64); 0 is the default of 1024")
+	tmpfsDocker := fs.Int64("tmpfs-docker-mb", 0, "the same for the Docker-in-Docker image store, in MB (at least 64); 0 is the default of 8192")
 	tmpfsMax := fs.Int64("tmpfs-max-mb", 0, "the most any one in-memory folder may be on this host, in MB (at least 64); 0 sets no host ceiling")
 	clearProfile := fs.Bool("clear-profile", false, "remove the host's runner profile, so it follows the fleet's settings again")
 	tags, untags := tagValue{}, &listValue{}
@@ -127,6 +130,15 @@ func hostsEdit(ctx context.Context, e *env, args []string) error {
 		}
 		if fs.changed("tmpfs-max-mb") {
 			profile.Tmpfs.MaxMB = *tmpfsMax
+		}
+		if fs.changed("tmpfs-work-mb") {
+			profile.Tmpfs.WorkMB = *tmpfsWork
+		}
+		if fs.changed("tmpfs-tmp-mb") {
+			profile.Tmpfs.TmpMB = *tmpfsTmp
+		}
+		if fs.changed("tmpfs-docker-mb") {
+			profile.Tmpfs.DaemonMB = *tmpfsDocker
 		}
 		body["runner_profile"] = profile
 	}

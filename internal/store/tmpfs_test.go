@@ -274,3 +274,43 @@ func TestADaemonShareDividesASlotUnevenlyAndEvenByDefault(t *testing.T) {
 
 func r0(s Resources) Resources { r, _ := s.SplitWithDaemon(); return r }
 func d0(s Resources) Resources { _, d := s.SplitWithDaemon(); return d }
+
+// An automatic folder is in memory where the runner has room for it to be
+// worth having, and on disk where it has not; the one furthest below its floor
+// goes first, because giving it up leaves the other more.
+func TestAnAutomaticFolderGoesToDiskWhereTheRunnerIsTooSmallForIt(t *testing.T) {
+	auto := TmpfsConfig{Work: TmpfsMount{Enabled: true, Auto: true}, Tmp: TmpfsMount{Enabled: true, Auto: true}}
+	for _, tc := range []struct {
+		name          string
+		cfg           TmpfsConfig
+		capMB         int64
+		host          HostTmpfs
+		work, tmp     int64
+		wantWorkAtMin bool
+	}{
+		{"a 2 GB runner has no room for either", auto, 2048, HostTmpfs{}, 0, 0, false},
+		{"a roomy runner takes both at their defaults", auto, 32768, HostTmpfs{}, 4096, 1024, false},
+		{"/tmp gives way first and the work folder takes the room", auto, 5120, HostTmpfs{}, 2560, 0, true},
+		{"a host's bigger standard is asked for, and fitted", TmpfsConfig{Work: TmpfsMount{Enabled: true, Auto: true}}, 65536, HostTmpfs{WorkMB: 16384}, 16384, 0, false},
+		{"a host ceiling under the floor puts the folder on disk", TmpfsConfig{Work: TmpfsMount{Enabled: true, Auto: true}}, 65536, HostTmpfs{MaxMB: 1024}, 0, 0, false},
+		{"a folder that is not automatic is never dropped", TmpfsConfig{Work: TmpfsMount{Enabled: true}, Tmp: TmpfsMount{Enabled: true}}, 2048, HostTmpfs{}, 819, 204, false},
+		{"a typed size lowers the floor to itself", TmpfsConfig{Work: TmpfsMount{Enabled: true, Auto: true, SizeMB: 1024}}, 4096, HostTmpfs{}, 1024, 0, false},
+	} {
+		work, tmp := tc.cfg.PlaceRunner(tc.capMB, tc.host)
+		if work != tc.work || tmp != tc.tmp {
+			t.Errorf("%s: placed %d and %d MB, want %d and %d", tc.name, work, tmp, tc.work, tc.tmp)
+		}
+	}
+
+	d := TmpfsConfig{Daemon: TmpfsMount{Enabled: true, Auto: true}}
+	if got := d.PlaceDaemon(3072, HostTmpfs{}); got != 0 {
+		t.Errorf("a 3 GB daemon was given %d MB of image store, want disk", got)
+	}
+	if got := d.PlaceDaemon(16384, HostTmpfs{}); got != 8192 {
+		t.Errorf("a 16 GB daemon was given %d MB of image store, want 8192", got)
+	}
+	manual := TmpfsConfig{Daemon: TmpfsMount{Enabled: true}}
+	if got := manual.PlaceDaemon(3072, HostTmpfs{}); got != 1536 {
+		t.Errorf("a manual store on a 3 GB daemon was given %d MB, want 1536", got)
+	}
+}

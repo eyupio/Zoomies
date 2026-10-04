@@ -589,8 +589,8 @@ orders of magnitude, and the difference in a real build is whatever share of it
 was waiting. Measure one workflow before and after rather than trusting a
 benchmark.
 
-![The Size step of the pool editor with the work folder kept in memory. It names what the folder costs and offers a memory limit of 10 GB that leaves the job the room it has now.](screenshots/pool-size-memory-dark.webp#only-dark){ .zoomies-shot }
-![The Size step of the pool editor with the work folder kept in memory. It names what the folder costs and offers a memory limit of 10 GB that leaves the job the room it has now.](screenshots/pool-size-memory-light.webp#only-light){ .zoomies-shot }
+![The Size step of the pool editor with the work folder kept in memory and Placement set to Auto, the recommended choice: a runner too small for the folder keeps it on disk instead of failing jobs.](screenshots/pool-size-memory-dark.webp#only-dark){ .zoomies-shot }
+![The Size step of the pool editor with the work folder kept in memory and Placement set to Auto, the recommended choice: a runner too small for the folder keeps it on disk instead of failing jobs.](screenshots/pool-size-memory-light.webp#only-light){ .zoomies-shot }
 
 It is **off for every pool** until somebody turns it on, because of what it
 costs. A tmpfs is charged to the runner's own memory limit, so the room a folder
@@ -603,6 +603,7 @@ always passed.
 tmpfs:
   work:
     enabled: true
+    auto: true        # each runner decides; see "Auto" below
     size_mb: 0        # 0 sizes it from the memory limit
   tmp:
     enabled: false    # /tmp, as well; its own choice
@@ -617,7 +618,27 @@ tmpfs:
 | `work` | The runner's `_work` folder. The one worth having, and the one the pool editor offers first. |
 | `tmp` | `/tmp`. Off unless asked for: some toolchains put their heaviest traffic there, and some jobs leave gigabytes behind. |
 | `daemon` | The Docker-in-Docker sidecar's image store, `/var/lib/docker` in the daemon's container: where every image a job pulls and every layer it builds is written. Needs `docker_mode: dind`. Its own choice, because it is the one folder that can fail a job that used to pass — an image bigger than the store does not pull. |
+| `auto` | Let each runner decide whether the folder is in memory: yes where it has room for it to be useful, on disk where it has not. The recommended setting, and what the pool editor starts a pool with. Without it an enabled folder is always in memory. |
 | `size_mb` | The folder's ceiling, at least 64. `0` fits it to the memory limit: 4096 MB for the work folder, 1024 MB for `/tmp` and 8192 MB for the image store, shrunk so the work folder and `/tmp` together take no more than half of the runner's limit, and the image store no more than half of the daemon's. |
+
+**Auto.** A pool is one setting for every host it lands on, and the hosts
+differ: the same pool has 31 GB machines with five slots and 128 GB machines
+with plenty to spare. With `auto` on, each runner decides at creation, from the
+memory limit it is really given and the host it is on: a folder is in memory
+only if it would come out at least as large as its floor — 2 GB for the work
+folder, 1 GB for `/tmp`, 4 GB for the image store, or the size you typed if that
+is smaller — and on disk otherwise. When two folders compete for the room, the
+one furthest below its floor goes to disk first, which leaves the other more. The
+floors are not a measurement of your jobs: they are the least a folder is worth
+having, because below them a checkout, a build or an image pull fills it and
+fails with `no space left on device`, which names neither the mount nor the
+setting, while saving little disk traffic. A folder that is not `auto` is never
+put on disk; it is always in memory, as small as the limit demands.
+
+Auto never silently changes what a pool is. Where it kept a folder on disk,
+`pool.tmpfs_auto_on_disk` names the hosts and what their runners have, as
+information, and says what would put the folder in memory there: bigger runners
+on that host, or smaller folders.
 
 **The memory limit.** Zoomies never raises it for you, because it is also what
 the scheduler charges the host for and changing it changes how many runners fit.
@@ -698,19 +719,33 @@ spare and machines without, and only the host's owner knows which is which. So a
 host's [runner profile](#runner-profiles-how-big-a-runner-is-on-one-host) can
 say:
 
-- `tmpfs.disabled` — keep every in-memory folder off this machine, whatever a
-  pool asks for. Its runners use disk, as they did before the setting existed.
+- `tmpfs.work_mb`, `tmp_mb` and `daemon_mb` — the size each folder is asked for
+  on this machine when a pool leaves it to size itself, in place of the built-in
+  4096, 1024 and 8192 MB. The folder-sized counterpart of a host's standard
+  runner size: a machine with 256 GB can offer a work folder far larger than the
+  default, and one with 16 GB less. They are what is asked for, so the fit to the
+  runner's limit, the auto floors and `max_mb` all still apply; a size a pool
+  typed is the pool's and is not replaced. At least 64 MB each.
+- `tmpfs.disabled` — **fall back to disk on this machine**, whatever a pool asks
+  for. Its runners use disk, as they did before the setting existed. This is a
+  tactical fix and not a policy: it is for a machine that cannot spare the memory
+  today, and the pool is told for as long as it is on (`pool.tmpfs_host_off`), so
+  it is not forgotten. The lasting answers are the per-host sizes above and a
+  pool's Auto placement, which keep memory where it is useful without anybody
+  switching a machine off.
 - `tmpfs.max_mb` — the most any one folder may be on this machine. It is applied
   after a pool's size is fitted to the runner's limit, so it lowers a size
   however the size was arrived at, typed or fitted, and it never raises one. It
   cannot be combined with `disabled`, because a host that keeps the folders off
-  has nothing to cap, and it is at least 64 MB.
+  has nothing to cap or size, and it is at least 64 MB.
 
-![The Runner sizes dialog for a host, scrolled to In-memory folders, where its owner can keep pools' folders off the machine or cap how large any one may be.](screenshots/host-runner-sizes-dark.webp#only-dark){ .zoomies-shot }
-![The Runner sizes dialog for a host, scrolled to In-memory folders, where its owner can keep pools' folders off the machine or cap how large any one may be.](screenshots/host-runner-sizes-light.webp#only-light){ .zoomies-shot }
+![The Runner sizes dialog for a host, scrolled to In-memory folders, where its owner sets the size each folder is asked for on the machine and a ceiling, or falls back to disk as a temporary fix.](screenshots/host-runner-sizes-dark.webp#only-dark){ .zoomies-shot }
+![The Runner sizes dialog for a host, scrolled to In-memory folders, where its owner sets the size each folder is asked for on the machine and a ceiling, or falls back to disk as a temporary fix.](screenshots/host-runner-sizes-light.webp#only-light){ .zoomies-shot }
 
 Set them under **Runner sizes** on the host's card, with
-`zoomies hosts edit <host> --tmpfs-off` or `--tmpfs-max-mb 2048`, or with
+`zoomies hosts edit <host> --tmpfs-work-mb 16384` (also `--tmpfs-tmp-mb`,
+`--tmpfs-docker-mb` and `--tmpfs-max-mb`), `--tmpfs-off` for the tactical
+fallback, or with
 `runner_profile.tmpfs` on `PATCH /api/v1/hosts/{id}`. A host that says nothing
 changes nothing. The host is read when a runner is created, not when the pass
 begins, so an edit made while GitHub is being asked for the runner's registration
@@ -724,6 +759,25 @@ nothing on the pool would otherwise say which one.
 An agent too old to mount the folders starts the runner on disk, as with the
 setting off. `pool.tmpfs_unsupported` names those hosts where the pool is
 saved, with the same fix as elastic CPU's: upgrade the agent.
+
+**A shared in-memory area, for an emergency.** Where a folder will not fit in a
+runner and on-disk is too slow, the tempting answer is one large area in memory
+that all of a host's runners share, in place of a tmpfs of each runner's own.
+Zoomies does not build one, because it would not do what it appears to. Shared
+memory is charged to the memory cgroup of the process that touches each page, so
+a directory on a host's `/dev/shm` that a runner writes to is counted against
+*that runner's* limit exactly as its own tmpfs is: it lifts the size ceiling and
+nothing else, and a runner that fills it past its limit is killed all the same.
+It also outlives the runner unless something removes it, and a size ceiling
+shared by every runner on the host is a limit that one job can spend for the rest.
+
+What is possible today, for one host and on purpose, is the existing
+`agent.work_dir` setting: point it at a directory on a tmpfs the operator
+mounts with a size of their choosing, and every runner's work folder is a
+subdirectory there, removed with the runner. That is host-wide, hand-sized and
+subject to the memory-cgroup rule above, which is why it is an operator's
+decision on a machine they have looked at and not something Zoomies offers as a
+fallback.
 
 ### Sizing a machine from the other side
 

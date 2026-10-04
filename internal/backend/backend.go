@@ -234,7 +234,11 @@ type Spec struct {
 	// the folder is fitted to the runner's limit. Zero is none. It is separate
 	// from Tmpfs because it can only be applied here: a pool left to size itself
 	// is fitted to a limit the controller does not resolve, and the agent does.
-	TmpfsMaxMB int64            `json:"tmpfs_max_mb,omitempty"`
+	TmpfsMaxMB int64 `json:"tmpfs_max_mb,omitempty"`
+	// TmpfsHost is the host's whole say over in-memory folders -- its standard
+	// folder sizes as well as its ceiling -- which the agent places a runner's
+	// folders from. TmpfsMaxMB stays beside it for an agent older than the field.
+	TmpfsHost  store.HostTmpfs  `json:"tmpfs_host,omitzero"`
 	Repository string           `json:"repository,omitempty"`
 	DockerMode store.DockerMode `json:"docker_mode"`
 	// RunAsRoot keeps the container's default user instead of dropping to the

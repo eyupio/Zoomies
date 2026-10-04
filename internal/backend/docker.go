@@ -135,10 +135,7 @@ const tmpfsOptions = "rw,exec,nosuid,nodev,mode=1777"
 // binds from a host directory is left to that bind, because two mounts at one
 // path is an error the daemon reports only when the container is created.
 func tmpfsMounts(spec Spec, capMB int64, workBound bool) map[string]string {
-	work, tmp := spec.Tmpfs.Sizes(capMB)
-	// The host's ceiling is the last word, applied after the fit: a pool's size,
-	// typed or fitted, can be lowered by the machine and never raised by it.
-	work, tmp = store.Cap(work, spec.TmpfsMaxMB), store.Cap(tmp, spec.TmpfsMaxMB)
+	work, tmp := spec.Tmpfs.PlaceRunner(capMB, hostTmpfs(spec))
 	out := map[string]string{}
 	if work > 0 && !workBound {
 		out[RunnerWorkMount] = fmt.Sprintf("size=%dm,%s", work, tmpfsOptions)
@@ -150,6 +147,17 @@ func tmpfsMounts(spec Spec, capMB int64, workBound bool) map[string]string {
 		return nil
 	}
 	return out
+}
+
+// hostTmpfs is the host's say over in-memory folders as the spec carries it. The
+// ceiling alone travels in an older controller's spec, so it is read from there
+// when the whole policy is absent.
+func hostTmpfs(spec Spec) store.HostTmpfs {
+	h := spec.TmpfsHost
+	if h.MaxMB == 0 {
+		h.MaxMB = spec.TmpfsMaxMB
+	}
+	return h
 }
 
 // DaemonStoreMount is the docker-in-docker sidecar's image store, which a pool
@@ -170,7 +178,7 @@ const daemonTmpfsOptions = "rw,exec,suid,dev,mode=0710"
 // store stays on disk. It is sized from the daemon's own memory limit, since
 // that is the cgroup the tmpfs is charged to.
 func daemonTmpfsMounts(spec Spec, capMB int64) map[string]string {
-	size := store.Cap(spec.Tmpfs.DaemonSize(capMB), spec.TmpfsMaxMB)
+	size := spec.Tmpfs.PlaceDaemon(capMB, hostTmpfs(spec))
 	if size <= 0 {
 		return nil
 	}

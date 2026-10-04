@@ -408,7 +408,9 @@ test("a host can cap pools' in-memory folders or keep them off, and the card say
   // card, with no pool involved -- the policy is a fact about the machine.
   await goto(page, '/hosts', 'Hosts');
   const dialog = await openDialog(page);
-  const off = dialog.getByRole('checkbox', { name: 'Keep in-memory folders off this machine' });
+  const off = dialog.getByRole('checkbox', {
+    name: 'Fall back to disk on this machine (temporary)',
+  });
   const ceiling = dialog.getByRole('textbox', { name: 'Largest folder (MB)' });
   await expect(off).not.toBeChecked();
 
@@ -423,14 +425,38 @@ test("a host can cap pools' in-memory folders or keep them off, and the card say
   await expect(card(page).getByTestId('host-runner-sizes')).toContainText('Up to 2 GB each');
   expect((await readHost(page)).runner_profile?.tmpfs).toEqual({ max_mb: 2048 });
 
+  // The sizes a folder is asked for here, in place of the defaults: held to the
+  // floor where typed, saved with the ceiling, and said on the card.
+  const sizes = await openDialog(page);
+  const work = sizes.getByRole('textbox', { name: 'Work folder size (MB)' });
+  await work.fill('10');
+  await expect(sizes.getByText(/below 64 MB/).first()).toBeVisible();
+  await expect(sizes.getByRole('button', { name: 'Save sizes' })).toBeDisabled();
+  await work.fill('16384');
+  await sizes.getByRole('textbox', { name: 'Docker image store size (MB)' }).fill('32768');
+  await sizes.getByRole('button', { name: 'Save sizes' }).click();
+  await expect(sizes).toBeHidden();
+  await expect(card(page).getByTestId('host-runner-sizes')).toContainText('Work 16 GB');
+  expect((await readHost(page)).runner_profile?.tmpfs).toEqual({
+    max_mb: 2048,
+    work_mb: 16384,
+    daemon_mb: 32768,
+  });
+
   // Keeping the folders off supersedes a ceiling: there is nothing to cap, so the
   // field goes away rather than leaving a number that means nothing.
   const again = await openDialog(page);
-  await again.getByRole('checkbox', { name: 'Keep in-memory folders off this machine' }).check();
+  await again
+    .getByRole('checkbox', { name: 'Fall back to disk on this machine (temporary)' })
+    .check();
   await expect(again.getByRole('textbox', { name: 'Largest folder (MB)' })).toHaveCount(0);
   await again.getByRole('button', { name: 'Save sizes' }).click();
   await expect(again).toBeHidden();
-  await expect(card(page).getByTestId('host-runner-sizes')).toContainText('Kept off');
+  await expect(card(page).getByTestId('host-runner-sizes')).toContainText(
+    'Falling back to disk (temporary)',
+  );
+  // The sizes are not sent for a host that falls back to disk: there is no folder
+  // to size, and the API refuses the pair.
   expect((await readHost(page)).runner_profile?.tmpfs).toEqual({ disabled: true });
 
   // And it can be handed back, which leaves a host that says nothing.

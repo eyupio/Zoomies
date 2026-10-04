@@ -5106,6 +5106,11 @@ export interface components {
             /** @default false */
             enabled: boolean;
             /**
+             * @description Let each runner decide: the folder is in memory where the runner has room for it to be useful -- at least 2048 MB for the work folder, 1024 MB for /tmp, 4096 MB for the image store, or the size typed if that is smaller -- and on disk where it has not. Without it, an enabled folder is always in memory, fitted as small as the limit demands. Needs `enabled`. Where it kept a folder on disk the pool says so (`pool.tmpfs_auto_on_disk`).
+             * @default false
+             */
+            auto: boolean;
+            /**
              * Format: int64
              * @description The folder's ceiling in MB, at least 64. Zero sizes it from the runner's memory limit: the default (4096 MB for the work folder, 1024 MB for /tmp), shrunk so the folders together take no more than half of that limit.
              */
@@ -6648,13 +6653,28 @@ export interface components {
         };
         /** @description A host's policy for the in-memory folders pools may ask for. Some machines have memory to spare for them and some do not, and a pool is one setting for every host it lands on, so the host's owner has the last word. */
         HostTmpfs: {
-            /** @description Keep every in-memory folder off this host, whatever a pool asks for. Its runners use disk, as they did before the setting existed. */
+            /** @description Fall back to disk on this host: every in-memory folder is kept off it, whatever a pool asks for, and its runners use disk as they did before the setting existed. A tactical fix, for a machine that cannot spare the memory today, and not a policy: the pool is told (`pool.tmpfs_host_off`) for as long as it is on, so it is not forgotten. The lasting answers are automatic folders and per-host sizes. */
             disabled?: boolean;
             /**
              * Format: int64
              * @description The most any one in-memory folder may be on this host, in MB (at least 64), applied after a pool's size is fitted to the runner's limit. A pool's size can lower it and never raise it. Zero is no host ceiling; it cannot be combined with `disabled`.
              */
             max_mb?: number;
+            /**
+             * Format: int64
+             * @description The size the work folder is asked for on this host when a pool leaves it to size itself, in MB (at least 64), in place of the built-in 4096. A machine with a great deal of memory can offer more, and one with little less. It is still fitted to the runner's limit and lowered to `max_mb`; a size a pool typed is not replaced. Zero is the default. Cannot be combined with `disabled`.
+             */
+            work_mb?: number;
+            /**
+             * Format: int64
+             * @description The same for /tmp (built-in 1024).
+             */
+            tmp_mb?: number;
+            /**
+             * Format: int64
+             * @description The same for the Docker-in-Docker sidecar's image store (built-in 8192).
+             */
+            daemon_mb?: number;
         };
         /** @description One tier of a host's effective profile -- the figure in force on each field and whose it is. */
         EffectiveSize: {
