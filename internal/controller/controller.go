@@ -289,8 +289,14 @@ type Controller struct {
 	placementVersion atomic.Uint64
 	// loans is what elastic CPU remembers about each busy runner's loan
 	// between heartbeats -- see decideLoan.
-	loansMu      sync.Mutex
-	loans        map[string]loanEntry
+	loansMu sync.Mutex
+	loans   map[string]loanEntry
+	// pairs is what each docker-in-docker pool's runners have recently used of
+	// the two halves of their slot -- see pairWindow. Memory only, on purpose:
+	// it is evidence for advice, and forgetting it on a restart costs the advice
+	// a few hours of waiting, never a decision.
+	pairMu       sync.Mutex
+	pairs        map[string][]pairSample
 	leaseRenewed atomic.Pointer[time.Time]
 	// privateFault is the private-connection listener's state, set by the API
 	// server that owns it; see SetPrivateConnectionFault.

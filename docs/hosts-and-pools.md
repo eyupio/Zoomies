@@ -648,6 +648,12 @@ pool is sized.
   pool, which the pool's host list says. It divides only a share the host chose;
   a typed size goes to both containers in full whatever it says.
 
+  You don't have to guess the number. The agent reports what each container of
+  a pair used, and when one has been squeezed against its own limit while the
+  other idled — across enough jobs on several runners — `pool.daemon_share_suggested`
+  names the pool and a share to try. It informs and never changes the pool; it
+  applies only to host-sized pools, and clears itself once you change the share.
+
 **When to turn it on.** Zoomies tells you. `pool.tmpfs_suggested` is raised for
 a pool when, on one host, all three are true: the pool ran jobs there in the
 last six hours, the host has been waiting on its disk for at least ten minutes,

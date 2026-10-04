@@ -107,6 +107,27 @@ type Stats struct {
 	// half busy. Zero for a single container, and from an agent that predates
 	// it, which a controller reads as "judge the sum", as it always did.
 	BusiestHalfPercent float64 `json:"busiest_half_percent,omitempty"`
+	// Halves is, for a docker-in-docker pair, what each container used on its
+	// own. The sums above cannot say which half a limit is binding on, and that
+	// is what the controller needs to judge how the pair's slot is divided
+	// (daemon_share_percent). Nil for a single container, and from an agent that
+	// predates it, which a controller reads as "nothing to judge by".
+	Halves *PairHalves `json:"halves,omitempty"`
+}
+
+// PairHalves is the two containers of a docker-in-docker runner, sampled apart.
+type PairHalves struct {
+	Runner HalfUse `json:"runner"`
+	Daemon HalfUse `json:"daemon"`
+}
+
+// HalfUse is one container's use at a sample, beside the limits it was created
+// with. A limit of zero means the container had none to be judged against.
+type HalfUse struct {
+	CPUs        float64 `json:"cpus"`
+	CPULimit    float64 `json:"cpu_limit,omitempty"`
+	MemoryBytes int64   `json:"memory_bytes"`
+	MemoryLimit int64   `json:"memory_limit,omitempty"`
 }
 
 // Info describes a backend's capabilities on this particular host. The agent
