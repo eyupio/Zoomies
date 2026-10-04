@@ -12,7 +12,7 @@ test.use(browserOverride);
 const STYLES = [
   {
     style: 'off',
-    boosted: 'Boost active',
+    boosted: 'Zoomies',
     lifecycle: 'Busy',
     boost: 'Maximum boost',
     throttled: 'Throttled',

@@ -80,8 +80,8 @@ test('turning the kennel vocabulary off gives every state a plain label, lifecyc
   assert.equal(runnerStatus('idle', false).label, 'Idle');
   for (const state of ['busy', 'idle'] as const) {
     for (const [cpu, label] of [
-      ['maximum_zoomies', 'Boost active'],
-      ['zoomies', 'Boost active'],
+      ['maximum_zoomies', 'Zoomies'],
+      ['zoomies', 'Extra'],
       ['throttled', 'Throttled'],
     ] as const) {
       const status = runnerDisplayStatus({ state, cpu_resource: { state: cpu } }, false);
@@ -125,11 +125,14 @@ test('every runner state has an icon of its own', () => {
   assert.equal(runnerStatus('busy', false).icon.name, 'Activity');
 });
 
-test('the two boosts and the throttle are told apart by icon when their labels are not', () => {
-  // Both boosts say "Boost active" in the grid with the vocabulary off, so
-  // the icon is all that separates extra from maximum at a glance.
-  const icon = (cpu: string) =>
-    runnerDisplayStatus({ state: 'busy', cpu_resource: { state: cpu } }, false).icon.name;
-  const icons = [icon('maximum_zoomies'), icon('zoomies'), icon('throttled')];
+test('the two boosts and the throttle are told apart by label and by icon', () => {
+  // Both boosts said "Boost active" in the grid with the vocabulary off, and
+  // the icon alone did not tell an operator which was extra and which maximum.
+  const shown = (cpu: string) =>
+    runnerDisplayStatus({ state: 'busy', cpu_resource: { state: cpu } }, false);
+  const states = [shown('maximum_zoomies'), shown('zoomies'), shown('throttled')];
+  const labels = states.map((status) => status.label);
+  const icons = states.map((status) => status.icon.name);
+  assert.equal(new Set(labels).size, 3, labels.join(', '));
   assert.equal(new Set(icons).size, 3, icons.join(', '));
 });

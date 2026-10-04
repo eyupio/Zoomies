@@ -31,16 +31,22 @@ const activityQuirky: Record<string, Activity> = {
   },
 };
 
-/** The same three states, said plainly, for when the kennel vocabulary is off. */
+/**
+ * The same three states, said plainly, for when the kennel vocabulary is off.
+ *
+ * The two boosts each get a word of their own. They both said "Boost active"
+ * once, and an operator scanning the grid could not tell an extra boost from
+ * a maximum one without learning which icon was which.
+ */
 const activityStandard: Record<string, Activity> = {
   maximum_zoomies: {
-    label: 'Boost active',
+    label: 'Zoomies',
     title: 'Maximum boost',
     detail: 'A major CPU boost is active. This runner is borrowing spare host capacity.',
     tone: 'busy',
   },
   zoomies: {
-    label: 'Boost active',
+    label: 'Extra',
     title: 'Extra boost',
     detail: 'Extra CPU is available to this runner while its host has room to spare.',
     tone: 'busy',
