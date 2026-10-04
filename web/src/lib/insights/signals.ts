@@ -1,4 +1,5 @@
 import type { FleetSample, Host, Pool, Stats } from '../api/types';
+import { slotsOf } from '../hosts/slots';
 import { seriesLine, type Series, type SeriesLine, type SeriesPoint } from './plot';
 
 export function finite(value: number | undefined): number | null {
@@ -50,7 +51,7 @@ export function poolSignals(pools: readonly Pool[], stats: Stats | null) {
 
 /** Slot headroom is not a promise that a particular runner fits. */
 export function hostSignals(host: Host) {
-  const capacity = finite(host.capacity);
+  const capacity = finite(slotsOf(host));
   const used = finite(host.active_runners);
   const free =
     finite(host.free) ?? (capacity !== null && used !== null ? Math.max(0, capacity - used) : null);

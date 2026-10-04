@@ -614,6 +614,7 @@ the validator says so with `limits.loopback`.
 | `scheduler.default_runner_limits` | `ZOOMIES_DEFAULT_RUNNER_LIMITS` | at once | Default runner limits — Give a runner whose pool sets no CPU or memory limit one slot's share of its host as a real limit. Off, a host's worth of them can each take every core. |
 | `scheduler.drain_timeout` | `ZOOMIES_DRAIN_TIMEOUT` | at once | Drain timeout — Fail a runner that has been draining this long with no job left on it. A runner still finishing a job is never touched by it. |
 | `scheduler.host_throttling` | `ZOOMIES_HOST_THROTTLING` | at once | Throttle hosts under pressure — Let the controller throttle a host its measurements say is overwhelmed, and step it back up after a stretch of calm. |
+| `scheduler.host_order` | `ZOOMIES_HOST_ORDER` | at once | Host placement order — Which host a runner prefers when several can take it. `headroom` (default) picks the one with the most CPU and memory left afterwards, which spreads work. `largest_standard` picks the one whose runner of the pool is biggest, which suits a mixed fleet sized by runner profile. `best_fit` picks the one with the least left, filling one host before starting the next. It only ever chooses among hosts that already fit, so it moves where runners go and never whether they start. |
 | `scheduler.history_sizing` | `ZOOMIES_HISTORY_SIZING` | at once | Job-history placement — `shadow` (default) records where it would place differently, `on` places each runner only on a host with room for what the jobs waiting on its pool used on their recent runs (the ninetieth percentile of their peaks, memory with a fifth more) and sizes it up to that where the pool leaves its size to the host, `off` ignores history. See [Sizing from job history](hosts-and-pools.md#sizing-from-job-history). |
 | `scheduler.placement_mode` | `ZOOMIES_PLACEMENT_MODE` | at once | Host placement — `headroom` (default), `shadow` to compare startup-history placement, or `readiness` to enable it. See [rollout and evidence](development/stability-performance.md#placement-rollout). |
 | `scheduler.interval` | `ZOOMIES_SCHEDULER_INTERVAL` | at once | Scheduler interval — How often the scheduler runs a pass even with nothing to react to. |
@@ -1541,6 +1542,16 @@ fixed size. They are **not** what a pool with no size becomes: such a pool is
 given one slot's share of whichever host each runner lands on, which is the
 sizing most fleets want and what a new pool does.
 
+They are also the size of a runner on a host that names none, for a pool that
+takes its size from its hosts (`size_from_profile`): that pool is given the
+standard size of each host's [runner
+profile](hosts-and-pools.md#runner-profiles-how-big-a-runner-is-on-one-host), and
+these two stand in for every host whose profile leaves the field out. The
+controller names the hosts where that is happening
+(`pool.profile_default`), because a fleet that meant different sizes on
+different machines and got the same one on all of them has not got what it asked
+for.
+
 The distinction matters because the two behave differently as a fleet grows. A
 share follows the machine — 3.8 cores on a 16-core box with four slots, 7.6 on
 a 32-core one — so one pool is sized correctly on every host it reaches. A
@@ -1587,6 +1598,13 @@ minimum, the runner takes what that host can spare instead, never less than the
 minimum; without one, an automatic pool still waits for a whole share, and the
 pool's page says so and names the minimum as the fix. A docker-in-docker slot is
 never cut below what a runner and its daemon need between them.
+
+A host can have a minimum of its own in its [runner
+profile](hosts-and-pools.md#runner-profiles-how-big-a-runner-is-on-one-host), and
+the larger of the two applies to each field on that host: the host's figure is a
+floor under the pool's, and this setting is only what a pool and a host that say
+nothing follow. A host never lowers a minimum, and never raises one past a size a
+pool states — that pool is not used on the host at all.
 
 The minimum is the least a runner is given, never the most. Where a host's slot
 share is larger, an automatic runner gets the whole share. Where the share is

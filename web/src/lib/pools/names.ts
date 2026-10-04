@@ -115,11 +115,12 @@ export interface NameShape {
   backend: BackendKind;
   /**
    * How the pool decides its runners' size. A pool that leaves it to the host
-   * has no size to be named for: its runners are 3.8 cores here and 7.6 on the
-   * next machine to join, so `4vcpu` in the name would be a promise it stopped
-   * keeping the day the fleet grew.
+   * -- by a share of the machine, or by the standard size the host's own
+   * profile names -- has no size to be named for: its runners are 3.8 cores
+   * here and 7.6 on the next machine to join, so `4vcpu` in the name would be a
+   * promise it stopped keeping the day the fleet grew.
    */
-  sizing: 'automatic' | 'fixed';
+  sizing: 'automatic' | 'fixed' | 'profile';
   cpus: string;
   memory_mb: string;
   platform_os: string;
@@ -173,7 +174,7 @@ export function shape(
   // A pool that leaves the size to its host says nothing at all: the figure
   // the sliders happen to be holding is not this pool's, and a name built from
   // it would advertise a size the pool does not have on any machine.
-  if (draft.sizing !== 'automatic') {
+  if (draft.sizing === 'fixed') {
     const cpus = Math.ceil(Number(draft.cpus));
     if (Number.isFinite(cpus) && cpus > 0 && cpus !== defaultCPUs(fleetDefault)) {
       parts.push(`${cpus}vcpu`);

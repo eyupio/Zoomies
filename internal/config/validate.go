@@ -306,6 +306,9 @@ func (c *Config) Validate() Findings {
 	if mode := c.Scheduler.HistorySizing; mode != "" && mode != "off" && mode != "shadow" && mode != "on" {
 		add(Finding{Code: "scheduler.history_sizing", Severity: SeverityError, Setting: "scheduler.history_sizing", Title: "unknown history sizing mode", Fix: "choose off, shadow or on."})
 	}
+	if order := c.Scheduler.HostOrder; order != "" && order != "headroom" && order != "largest_standard" && order != "best_fit" {
+		add(Finding{Code: "scheduler.host_order", Severity: SeverityError, Setting: "scheduler.host_order", Title: "unknown host placement order", Fix: "choose headroom, largest_standard or best_fit."})
+	}
 	if mode := c.Scheduler.PlacementMode; mode != "" && mode != "headroom" && mode != "shadow" && mode != "readiness" {
 		add(Finding{Code: "scheduler.placement_mode", Severity: SeverityError, Setting: "scheduler.placement_mode", Title: "unknown host placement policy", Fix: "choose headroom, shadow or readiness."})
 	}

@@ -602,3 +602,32 @@ test('a job recorded before releases were stamped says so instead of showing a b
     'Not recorded',
   );
 });
+
+/*
+ * A job records the size of the runner that took it, copied when it took it, so
+ * "it ran out of memory" can be read against what the runner was given rather
+ * than against what the pool says today. The drawer says the figures and why
+ * the runner was that size; a job from before sizes were recorded has none to
+ * show, and shows no row rather than a row of blanks.
+ */
+test('the drawer says what size of runner the job ran on, and why', async ({ page }) => {
+  await goto(page, '/jobs?failed=true', 'Jobs');
+  const lost = dataRows(jobs(page)).filter({ hasText: 'Runner lost' }).first();
+  await expect(lost).toBeVisible();
+  await lost.click();
+  await expect(page.getByRole('dialog').getByTestId('job-granted-size')).toContainText(
+    /[34] CPU · 8\.0 GB, (the host's default share|the standard size set for its host)/,
+  );
+});
+
+test('a job from before sizes were recorded shows no size rather than a blank one', async ({
+  page,
+}) => {
+  await goto(page, '/jobs?state=completed&sort=queued_at&order=asc', 'Jobs');
+  const first = dataRows(jobs(page)).first();
+  await expect(first).toBeVisible();
+  await first.click();
+  const drawer = page.getByRole('dialog');
+  await expect(drawer.getByTestId('job-controller-version')).toBeVisible();
+  await expect(drawer.getByTestId('job-granted-size')).toHaveCount(0);
+});

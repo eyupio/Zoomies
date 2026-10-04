@@ -136,6 +136,7 @@ type poolInput struct {
 	Env                    *map[string]string    `json:"env"`
 	RunAsRoot              *bool                 `json:"run_as_root"`
 	NoDefaultLabels        *bool                 `json:"no_default_labels"`
+	SizeFromProfile        *bool                 `json:"size_from_profile"`
 	Enabled                *bool                 `json:"enabled"`
 }
 
@@ -411,6 +412,9 @@ func (in *poolInput) apply(p *store.Pool) []fieldError {
 	}
 	if in.NoDefaultLabels != nil {
 		p.NoDefaultLabels = *in.NoDefaultLabels
+	}
+	if in.SizeFromProfile != nil {
+		p.SizeFromProfile = *in.SizeFromProfile
 	}
 	if in.Enabled != nil {
 		p.Enabled = *in.Enabled
@@ -713,6 +717,12 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 		add("cpu_burst.max_cpus", "a burst ceiling cannot be negative; use 0 to let the host set the ceiling")
 	} else if p.CPUBurst.MaxCPUs > 0 && p.CPUBurst.MaxCPUs < store.MinRunnerCPUs {
 		add("cpu_burst.max_cpus", "a burst ceiling below a quarter of a core cannot run the runner itself")
+	}
+	// A pool takes its size from the host or states one, never both: the figure
+	// it states would be the whole answer and the host's would never be read,
+	// which is a setting that looks like it does something and does not.
+	if p.SizeFromProfile && !p.Automatic() {
+		add("size_from_profile", "a pool that takes its size from its host cannot also state one; clear the CPU and memory limits, or turn off size_from_profile and keep the figures")
 	}
 	if p.CPUBurst.Observes() && !p.Automatic() {
 		add("cpu_burst.mode", "CPU elasticity currently requires automatic sizing, because the host share is its guaranteed base; clear the fixed CPU and memory size or turn elasticity off")

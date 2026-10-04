@@ -1085,6 +1085,19 @@ func (c *Controller) seedJobs(ctx context.Context, now time.Time, rng *rand.Rand
 		if err != nil {
 			return fmt.Errorf("seeding job %d: %w", i, err)
 		}
+		// The size of the runner that took the job, as a controller that
+		// records it does: the jobs the stamped releases ran, half of them on
+		// a share of their host and half on a standard size an operator named,
+		// so the job drawer has both sentences to show.
+		if j.Matched && j.ControllerVersion != "" {
+			cpus, source := 4.0, store.AllocationFromHost
+			if i%2 == 1 {
+				cpus, source = 3, store.AllocationFromProfile
+			}
+			if _, err := c.st.StampJobGranted(ctx, saved.ID, cpus, 8192, source); err != nil {
+				return fmt.Errorf("seeding job %d's granted size: %w", i, err)
+			}
+		}
 		if err := c.seedJobTimeline(ctx, saved, change); err != nil {
 			return err
 		}

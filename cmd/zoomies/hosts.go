@@ -14,6 +14,7 @@ import (
 func runHosts(ctx context.Context, e *env, args []string) error {
 	return runGroup(ctx, e, "hosts", "Agents, their capacity, and enrolment.", []*subcommand{
 		{"list", "", "Every host, with health and free capacity", hostsList},
+		{"edit", "<host-id>", "Change its capacity, reserve or runner sizes", hostsEdit},
 		{"cordon", "<host-id>", "Keep its runners, accept no new ones", hostsCordon},
 		{"drain", "<host-id>", "Cordon it, then drain every runner on it", hostsDrain},
 		{"uncordon", "<host-id>", "Let it accept new runners again", hostsUncordon},
@@ -66,9 +67,18 @@ func hostsList(ctx context.Context, e *env, args []string) error {
 		// leaves it rather than what the operator configured: a throttled
 		// host shown as 2/8 reads as a host with six slots free, and the
 		// scheduler will refuse all six.
+		//
+		// A host with a standard runner size takes what its machine holds of
+		// it, which is not the capacity beside it; the profile is what says
+		// there is a standard, so a controller too old to send slots is read
+		// as it always was.
+		base := h.Capacity
+		if h.RunnerProfile != nil {
+			base = h.Slots
+		}
 		slots := h.EffectiveCapacity
 		if !hostThrottled(h) {
-			slots = h.Capacity
+			slots = base
 		}
 		used := 0.0
 		if slots > 0 {
@@ -76,7 +86,7 @@ func hostsList(ctx context.Context, e *env, args []string) error {
 		}
 		runners := fmt.Sprintf("%d/%d", h.ActiveRunners, slots)
 		if hostThrottled(h) {
-			runners += fmt.Sprintf(" (of %d)", h.Capacity)
+			runners += fmt.Sprintf(" (of %d)", base)
 			// The throttle is the state worth a word only on a host that
 			// is otherwise fine: unreachable and cordoned each say more.
 			if h.Healthy && !h.Cordoned {
@@ -97,6 +107,11 @@ func hostsList(ctx context.Context, e *env, args []string) error {
 	}
 	p.table([]string{"name", "id", "state", "runners", "used", "backends", "platform", "size", "last seen"}, rows)
 
+	// A host with its own runner sizes says what they are and how many slots
+	// they give, which is what the capacity column no longer tells.
+	for _, h := range out.Items {
+		describeRunnerSizes(p, h)
+	}
 	// A throttled host's row says how many slots it has been stepped down to
 	// and not why; the controller's own sentence says why, and what ends it.
 	for _, h := range out.Items {

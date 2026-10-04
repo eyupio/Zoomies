@@ -55,7 +55,7 @@ func (hs *hostSet) pending(h *store.Host, pools []*store.Pool, runners map[strin
 }
 
 func (hs *hostSet) score(h *store.Host, p *store.Pool) float64 {
-	if h.Capacity <= 0 {
+	if h.Slots() <= 0 {
 		return -1
 	}
 	want, left, alloc := Reserve(p, h), hs.left[h.ID], hs.alloc[h.ID]
@@ -77,7 +77,7 @@ func (hs *hostSet) score(h *store.Host, p *store.Pool) float64 {
 	}
 	// Preserve the old greatest-free-slots choice when there are no resource
 	// specifications. Missing telemetry must not make an existing fleet stop.
-	return float64(hs.free[h.ID]-1) / float64(h.Capacity)
+	return float64(hs.free[h.ID]-1) / float64(h.Slots())
 }
 
 func (hs *hostSet) prefer(h, best *store.Host, p *store.Pool) bool {
@@ -92,6 +92,15 @@ func (hs *hostSet) prefer(h, best *store.Host, p *store.Pool) bool {
 		}
 	}
 	a, b := hs.alloc[h.ID], hs.alloc[best.ID]
+	measured := (a.CPUsKnown || a.MemoryKnown) && (b.CPUsKnown || b.MemoryKnown)
+	switch hs.order {
+	case HostOrderLargestStandard:
+		if c := compareStandard(Reserve(p, h), Reserve(p, best)); c != 0 {
+			return c > 0
+		}
+	case HostOrderBestFit:
+		return hs.tighter(h, best, p, measured)
+	}
 	if !a.CPUsKnown && !a.MemoryKnown && !b.CPUsKnown && !b.MemoryKnown {
 		return hs.free[h.ID] > hs.free[best.ID]
 	}

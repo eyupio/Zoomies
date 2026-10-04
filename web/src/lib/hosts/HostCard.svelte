@@ -10,10 +10,12 @@
 <script lang="ts">
   import { navigate } from '$lib/router';
   import { healthSummary } from './health';
-  import { CircleDashed, Gauge, Pencil, ServerCog, Trash2 } from '@lucide/svelte';
+  import { slotsOf } from './slots';
+  import { CircleDashed, Gauge, Pencil, Ruler, ServerCog, Trash2 } from '@lucide/svelte';
   import type { Host, Machine } from '$lib/api/types';
   import { formatMegabytes, formatNumber, onClockTick, toMillis } from '$lib/format';
   import { hostStatus, throttled } from '$lib/status';
+  import { cpuLabel, memoryLabel } from '$lib/pools/sizing';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
@@ -38,6 +40,8 @@
     /** Lift the throttle the controller has this host on. */
     onthrottle: (host: Host) => void;
     oncapacity: (host: Host) => void;
+    /** Set how big a runner is on this host. */
+    onsizes: (host: Host) => void;
     onedit: (host: Host) => void;
     ondelete: (host: Host) => void;
     class?: string;
@@ -51,6 +55,7 @@
     oncordon,
     onthrottle,
     oncapacity,
+    onsizes,
     onedit,
     ondelete,
     class: className = '',
@@ -93,14 +98,103 @@
         ? 'This agent is an earlier release than the controller. It is placing work as normal; upgrade it when convenient.'
         : 'This agent is a build the controller cannot order against its own. Both are running; check which is which before reporting a bug.',
   );
+  // What a runner on this host is held to, with whose each figure is. Shown
+  // only for a host that has been given a profile: an unprofiled host follows
+  // the fleet in everything, which is what the card has always implied, and a
+  // block repeating the fleet's defaults on every card would bury the hosts
+  // that differ.
+  const profiled = $derived(host.runner_profile !== undefined && host.runner_profile !== null);
+  const profile = $derived(host.effective_profile);
+  // The standard this host itself was given, in words: the figure its slots are
+  // counted from. The fleet's default stands in for a field the host leaves
+  // out, but it does not set slots, so it is not part of this sentence.
+  const ownStandard = $derived.by(() => {
+    const std = host.runner_profile?.standard;
+    return [
+      (std?.cpus ?? 0) > 0 ? cpuLabel(std?.cpus ?? 0) : '',
+      (std?.memory_mb ?? 0) > 0 ? memoryLabel(std?.memory_mb ?? 0) : '',
+    ]
+      .filter(Boolean)
+      .join(' and ');
+  });
+  const whose = (source: string | undefined) => (source === 'host' ? 'this host' : 'the fleet');
+  /** One tier of the block: its words and whose they are, or null where nobody has said. */
+  function figure(
+    cpus: number | undefined,
+    cpusSource: string | undefined,
+    memoryMb: number | undefined,
+    memorySource: string | undefined,
+  ): { text: string; source: string } | null {
+    const hasCpus = (cpus ?? 0) > 0;
+    const hasMemory = (memoryMb ?? 0) > 0;
+    if (!hasCpus && !hasMemory) return null;
+    const text = [hasCpus ? cpuLabel(cpus ?? 0) : '', hasMemory ? memoryLabel(memoryMb ?? 0) : '']
+      .filter(Boolean)
+      .join(' and ');
+    // One tag where the tier has one owner, and a clause for each where it has
+    // two: "3 cores from this host, 4 GB from the fleet" tells an operator
+    // which of the two to go and change.
+    if (hasCpus && hasMemory && cpusSource !== memorySource)
+      return {
+        text,
+        source: `${cpuLabel(cpus ?? 0)} from ${whose(cpusSource)}, ${memoryLabel(memoryMb ?? 0)} from ${whose(memorySource)}`,
+      };
+    const owner = hasCpus ? cpusSource : memorySource;
+    return { text, source: owner === 'host' ? 'set on this host' : "the fleet's setting" };
+  }
+  const sizeRows = $derived.by(() => {
+    if (!profiled || !profile) return [];
+    const rows: { label: string; text: string; source: string }[] = [];
+    const std = figure(
+      profile.standard?.cpus,
+      profile.standard?.cpus_source,
+      profile.standard?.memory_mb,
+      profile.standard?.memory_mb_source,
+    );
+    if (std) rows.push({ label: 'Standard', ...std });
+    const min = figure(
+      profile.minimum?.cpus,
+      profile.minimum?.cpus_source,
+      profile.minimum?.memory_mb,
+      profile.minimum?.memory_mb_source,
+    );
+    if (min) rows.push({ label: 'Minimum', ...min });
+    if ((profile.standard?.burst_max_cpus ?? 0) > 0)
+      rows.push({
+        label: 'Boost ceiling',
+        text: cpuLabel(profile.standard?.burst_max_cpus ?? 0),
+        source: 'set on this host',
+      });
+    return rows;
+  });
+
   // The host's own count, not one derived from the cached runner list: the cache
   // holds a page of runners, so counting it would undercount a busy host.
   const active = $derived(host.active_runners ?? 0);
-  const capacity = $derived(host.capacity ?? 0);
-  // What the host takes right now: its capacity stepped down by the throttle,
-  // and its capacity when there is none. Free is measured against it by the
+  // The slots the host takes before any throttle. For a host with a standard
+  // runner size that is what its machine holds of it, which is why this is not
+  // the capacity: the capacity is the operator's ceiling, and a card that
+  // counted against it would say seven free on a host that takes three.
+  const capacity = $derived(slotsOf(host));
+  // What the host takes right now: its slots stepped down by the throttle,
+  // and its slots when there is none. Free is measured against it by the
   // controller, so the card never promises a slot the next pass would refuse.
   const effective = $derived(isThrottled ? (host.effective_capacity ?? capacity) : capacity);
+  // Why the slots are the number they are, where a standard size made them so.
+  // Said only when the operator could do something about it: raising a capacity
+  // that is the limit, or resizing a host whose machine is.
+  const slotsNote = $derived.by(() => {
+    switch (host.slots_limited_by) {
+      case 'cpu':
+        return `its cores limit it, at ${ownStandard} a runner`;
+      case 'memory':
+        return `its memory limits it, at ${ownStandard} a runner`;
+      case 'capacity':
+        return `capped by its capacity of ${formatNumber(host.capacity ?? 0)}, below what its machine holds at ${ownStandard} a runner`;
+      default:
+        return '';
+    }
+  });
   const free = $derived(host.free ?? Math.max(0, effective - active));
   const labels = $derived(Object.entries(host.labels ?? {}));
   // What this machine is, in the terms a pool asks in. The controller renders
@@ -250,6 +344,13 @@
       icon: Gauge,
       disabled: !canOperate,
       onSelect: () => oncapacity(host),
+    },
+    {
+      id: 'sizes',
+      label: 'Set runner sizes',
+      icon: Ruler,
+      disabled: !canOperate,
+      onSelect: () => onsizes(host),
     },
     {
       id: 'edit',
@@ -495,6 +596,7 @@
         {:else}
           <strong>{formatNumber(active)}</strong> of {formatNumber(capacity)} slots in use
           <span class="muted">· {formatNumber(free)} free</span>
+          {#if slotsNote}<span class="muted" data-testid="host-slots-note">· {slotsNote}</span>{/if}
         {/if}
       </p>
       {#if canOperate}
@@ -517,6 +619,28 @@
           />
         {/each}
       </div>
+    </section>
+  {/if}
+
+  {#if sizeRows.length > 0}
+    <section class="block" aria-label="Runner sizes on {host.name || host.id}">
+      <div class="block-head">
+        <h4>Runner sizes</h4>
+        {#if canOperate}
+          <Button size="sm" variant="ghost" icon={Ruler} onclick={() => onsizes(host)}>Edit</Button>
+        {/if}
+      </div>
+      <dl class="sizes" data-testid="host-runner-sizes">
+        {#each sizeRows as row (row.label)}
+          <div>
+            <dt>{row.label}</dt>
+            <dd class="tabular">
+              {row.text}
+              <span class="muted">· {row.source}</span>
+            </dd>
+          </div>
+        {/each}
+      </dl>
     </section>
   {/if}
 
@@ -761,6 +885,28 @@
     display: flex;
     flex-direction: column;
     gap: var(--z-space-2);
+  }
+  .sizes {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-1);
+    margin: 0;
+  }
+  .sizes > div {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--z-space-2);
+  }
+  .sizes dt {
+    min-width: 7rem;
+    font-size: var(--z-text-xs);
+    color: var(--z-text-muted);
+  }
+  .sizes dd {
+    margin: 0;
+    font-size: var(--z-text-xs);
+    color: var(--z-text);
   }
   .labels {
     display: flex;

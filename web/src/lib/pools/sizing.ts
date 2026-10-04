@@ -179,6 +179,8 @@ export function limitPhrase(limitedBy: string | undefined): string {
       return 'its disk runs out first';
     case 'slots':
       return 'held there by its slot count';
+    case 'profile':
+      return 'its runner profile keeps this pool off it';
     default:
       return '';
   }

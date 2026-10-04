@@ -264,6 +264,8 @@ var publicSentences = map[string]string{
 	"pool.github_rate_limited":                      "GitHub is limiting how fast the fleet can register runners, so jobs may wait longer.",
 	"pool.host_overcommitted":                       "Runners are sized to more than their machines have, so jobs may run slower.",
 	"pool.max_above_room":                           "The fleet is allowed more runners than its machines have room for.",
+	"pool.no_eligible_host":                         "A pool has no host that can run it, because the hosts' runner profiles keep it off them.",
+	"pool.profile_default":                          "A pool sized by its host is running at the fleet's default size on a host that names none.",
 	"pool.no_capacity":                              "No machine has room for some jobs right now, so they wait until one frees up or a machine is added.",
 	"pool.provision_timeout_short":                  "Runners are given less time to start than they usually need, so some may be retried.",
 	"pool.repository_scale_up_deferred":             "Starting runners for some repositories is held back until GitHub allows it.",

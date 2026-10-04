@@ -28,7 +28,7 @@ func hostStrandingRefusal(host string, stranded []controller.Stranding) string {
 	if len(stranded) == 1 {
 		s := stranded[0]
 		return fmt.Sprintf("saving %s as described would leave pool %s with nowhere to run: %s, "+
-			"and no other host in this fleet could run it. Lower what %s holds back, change what %s asks for, "+
+			"and no other host in this fleet could run it. Lower what %s holds back or the size of its runners, change what %s asks for, "+
 			"or %s.", host, s.Pool, s.Reason, host, s.Pool, strandingConfirm)
 	}
 	parts := make([]string, 0, len(stranded))
@@ -38,7 +38,7 @@ func hostStrandingRefusal(host string, stranded []controller.Stranding) string {
 		names = append(names, s.Pool)
 	}
 	return fmt.Sprintf("saving %s as described would leave %d pools with nowhere to run, and no other host in this "+
-		"fleet could run them: %s. Lower what %s holds back, change what %s ask for, or %s.",
+		"fleet could run them: %s. Lower what %s holds back or the size of its runners, change what %s ask for, or %s.",
 		host, len(stranded), strings.Join(parts, "; "), host, strings.Join(names, " and "), strandingConfirm)
 }
 

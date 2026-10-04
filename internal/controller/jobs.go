@@ -377,6 +377,7 @@ func (c *Controller) recordJobChange(ctx context.Context, j *store.Job, change s
 		return
 	}
 	c.stampJobVersions(ctx, j, runner)
+	c.stampJobGranted(ctx, j, runner)
 	c.observeScheduling(ctx, j, change, runner)
 	at := c.Now()
 	add := func(kind store.JobEventKind, message string) {

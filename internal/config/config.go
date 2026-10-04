@@ -621,6 +621,12 @@ type Agent struct {
 type Scheduler struct {
 	// PlacementMode keeps readiness-based host selection opt-in until measured.
 	PlacementMode string `yaml:"placement_mode"`
+	// HostOrder is the order placement prefers hosts that can all take a
+	// runner in: headroom, largest_standard or best_fit. It only chooses among
+	// hosts that already fit, so it moves where runners go and never whether
+	// they start. Headroom is every fleet's behaviour before the setting
+	// existed, and the default.
+	HostOrder string `yaml:"host_order"`
 	// HistorySizing is off, shadow or on: whether a runner is placed on a host
 	// with room for, and sized to, what the jobs waiting on its pool are known
 	// to need from their recent runs. Shadow, the default, works it out and
@@ -982,6 +988,7 @@ func Default() *Config {
 			DefaultRunnerLimits:     true,
 			RegistrationConcurrency: 1,
 			PlacementMode:           "headroom",
+			HostOrder:               "headroom",
 			HistorySizing:           "shadow",
 			HostThrottling:          true,
 			AutoRerunLimit:          1,

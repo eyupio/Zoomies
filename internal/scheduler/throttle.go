@@ -180,6 +180,38 @@ func hostCalm(h *store.Host) bool {
 	return true
 }
 
+// ThrottleFloorFactor is the least CPU factor a throttle may apply on a host
+// whose profile sets a minimum runner size: the factor that leaves the smallest
+// limited container on the host exactly that minimum. It is zero where there is
+// no minimum or nothing limited to protect, and never above one -- a container
+// already under the minimum cannot be helped by a factor, so the CPU part of
+// the throttle simply stands down while it runs and the slot part of it goes
+// on.
+//
+// The factor is the host's and one number reaches every runner on it, so the
+// smallest container sets it and the larger ones are throttled a little less
+// than the ladder alone would have. That is the safe direction: a throttle
+// exists to stop a host being overwhelmed, and the minimum exists to stop a
+// runner being too small to be of use, and a runner throttled below the size
+// its host says is the least it may have is the second failure bought with the
+// first.
+//
+// containerCPUs are the CPU quotas each limited container of the host's live
+// runners was created with; a zero is a container with no quota, which there is
+// nothing to scale.
+func ThrottleFloorFactor(minimumCPUs float64, containerCPUs []float64) float64 {
+	if minimumCPUs <= 0 {
+		return 0
+	}
+	factor := 0.0
+	for _, cpus := range containerCPUs {
+		if cpus > 0 {
+			factor = max(factor, minimumCPUs/cpus)
+		}
+	}
+	return min(factor, 1)
+}
+
 // ThrottleReason is the throttle as one sentence for the Hosts page and the
 // problems drawer: what it took, why, what it is doing to the jobs already
 // running, and how it ends. Empty when the host is not throttled.
@@ -194,11 +226,18 @@ func ThrottleReason(h *store.Host) string {
 		return ""
 	}
 	slots := fmt.Sprintf("throttled to %d of %d slots (step %d of %d) after sustained pressure: %s",
-		h.EffectiveCapacity(), h.Capacity, t.Level, store.MaxThrottleLevel, t.Reason)
+		h.EffectiveCapacity(), h.Slots(), t.Level, store.MaxThrottleLevel, t.Reason)
 	jobs := "running jobs continue"
 	if limited := h.ActiveRunners - h.UnlimitedRunners; limited > 0 && hostCanThrottleContainers(h) {
 		jobs = fmt.Sprintf("running jobs continue, the %s with a CPU limit at %d%% of it",
 			plural(limited, "runner"), int(t.CPUFactor()*100))
+		if floor := h.RunnerProfile.Minimum.CPUs; floor > 0 {
+			// Said here because the percentage above is the ladder's, and the
+			// host's own minimum is what can make it less -- an operator who
+			// sees a runner at more than that percentage should find why on
+			// the same line.
+			jobs += fmt.Sprintf(", but never below this host's minimum of %s CPU a runner", formatCPUs(floor))
+		}
 	}
 	return fmt.Sprintf("%s; %s, and the throttle lifts one step after %s of calm",
 		slots, jobs, formatDuration(ThrottleRecovery))
