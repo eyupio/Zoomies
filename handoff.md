@@ -378,3 +378,33 @@ Validation:
 - mkdocs `--strict` passed.
 
 Next concrete action: the live assistant pilot, now including a `context_publish` round trip. Then the live phase-5 upload and GHES. No further phase is planned beyond 6.
+
+The local `-race` run of all of `internal/store` takes about 22 minutes in this environment. It passed with `-timeout 25m`. The 10-minute default timeout is not a hang.
+
+## GitHub Enterprise Server checkpoint — 4 October 2026
+
+Decision (owner): **artifact v3 on GHES**. A GHES variant of the managed workflow keeps the two-job privilege separation. Zoomies-only uploads trust the server's own OIDC issuer. Docs mark it unpiloted.
+
+- **`internal/aicontext/workflow.go`.** `SetupWorkflow` no longer refuses non-github.com hosts. `*.ghe.com` is still refused, with its own message: GHE.com has a different issuer and an untried layout.
+  - For any other host, `enterpriseServerWorkflow` rewrites the github.com template:
+    - `runs-on: [self-hosted, linux]`;
+    - `checkout` and `setup-node` at v4.4.0, with `package-manager-cache` dropped;
+    - `upload-artifact` v3.2.2 and `download-artifact` v3.1.0;
+    - all pinned by commit SHA, taken from `git ls-remote` of the lightweight tags.
+  - The github.com output is byte-identical to before, which a test pins.
+- **`internal/github/actions_oidc.go`.**
+  - `ActionsIssuerFor(host)`: github.com gives `token.actions.githubusercontent.com`; otherwise `https://HOST/_services/token`.
+  - `UnverifiedActionsIssuer(raw)` reads the issuer for routing only.
+  - `ActionsKeysError{Host}` satisfies `errors.Is(ErrActionsKeysUnavailable)`. The 503 now names the host to allow.
+- **Controller.**
+  - `actionsVerifiers` keeps one verifier per issuer.
+  - `verifyUploadToken` accepts a claimed issuer only if it equals `issuerFor(host)` for github.com or a host from `store.AIContextUploadHosts`, the distinct hosts of enabled Zoomies-only repositories. So a token cannot make the controller fetch arbitrary JWKS. The matched host is used for `FindAIContextUploadTarget`.
+  - `SetActionsIssuerFor` is the test hook; `SetActionsIssuer` wraps it for github.com.
+- **Tests.**
+  - aicontext: GHES template for Both and Zoomies-only, the github.com template unchanged, GHE.com refused.
+  - github: issuer per host, unverified-issuer parsing, the key error names its host.
+  - store: upload hosts.
+  - API: GHES upload end to end against the server's own fake issuer; a github.com token with the same repository ID gets 404; an unknown issuer, or a GHES host with no repository, gets 401 and nothing is fetched. The 503 test now signs with the unreachable issuer.
+- **Docs.** `ai-context.md` gains an "Enterprise Server" section (artifacts v3, bundled actions and actions-sync, self-hosted runners, issuer reachability, unpiloted). The prerequisites and troubleshooting are updated. "Not yet" is now GHE.com.
+
+Still open: a real GHES pilot (setup PR, Both run, Zoomies-only upload), GHE.com, and the live assistant pilot and phase-5 upload on github.com.

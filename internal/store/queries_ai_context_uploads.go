@@ -7,6 +7,27 @@ import (
 	"time"
 )
 
+// AIContextUploadHosts are the GitHub hosts with at least one enabled
+// Zoomies-only repository: the only hosts whose Actions tokens an upload may
+// be checked against.
+func (s *Store) AIContextUploadHosts(ctx context.Context) ([]string, error) {
+	rows, err := s.read.QueryContext(ctx, `SELECT DISTINCT github_host FROM ai_context_repositories
+		WHERE json_extract(config_json,'$.destination')='zoomies' AND COALESCE(json_extract(config_json,'$.disabled'),0)=0 ORDER BY github_host`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var hosts []string
+	for rows.Next() {
+		var host string
+		if err := rows.Scan(&host); err != nil {
+			return nil, err
+		}
+		hosts = append(hosts, host)
+	}
+	return hosts, rows.Err()
+}
+
 // FindAIContextUploadTarget returns the one Zoomies-only repository with this
 // GitHub host and numeric repository ID. An upload names its repository only
 // through the token's claims, so anything other than exactly one match --

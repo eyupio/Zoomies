@@ -148,8 +148,10 @@ they are scoped. An agent cannot enable repositories on its owner's behalf.
 
 ## Before you start
 
-* **GitHub.com.** The managed workflow is for GitHub.com today. GitHub
-  Enterprise Server needs a different artifact workflow, which is not built yet.
+* **GitHub.com or GitHub Enterprise Server.** On Enterprise Server the
+  workflow is shaped for it — see [Enterprise Server](#enterprise-server).
+  GHE.com, GitHub's data-residency cloud, is not supported yet: setup refuses
+  rather than open a pull request whose workflow would only fail once merged.
 * **A connected installation** with **Contents: read**, so Zoomies can find
   your repositories and read them back. To open setup pull requests it also
   needs **Contents**, **Workflows** and **Pull requests: write** — the same
@@ -373,7 +375,8 @@ controller* means the token was minted for another address: run
 a newer push won, which is expected; the newer run uploads. A failure to reach
 the controller at all means GitHub's runners cannot reach your https address. *Could not fetch GitHub's Actions signing keys* (HTTP 503) is the other
 direction: the controller cannot reach `token.actions.githubusercontent.com`, so
-allow outbound https to it and re-run the workflow.
+allow outbound https to it and re-run the workflow. On Enterprise Server the
+host to allow is the server itself, and the message names it.
 
 **Verification failed after the workflow succeeded.** Somebody edited
 `.github/workflows/zoomies-ai-context.yml` or `zoomies-ai-context.config.json`
@@ -442,9 +445,43 @@ conflicting part, then retry.
 Binary files are skipped. Sizes are bytes, not tokens: the reply budget keeps
 replies small, but it is not a tokenizer count.
 
+## Enterprise Server
+
+On GitHub Enterprise Server the setup pull request carries a workflow made for
+it, and nothing else about setting up or using AI Context changes. Three
+things differ, each because GitHub.com's workflow could not run there:
+
+* **Artifacts v3.** Enterprise Server does not run the artifact actions v4 and
+  later that GitHub.com's workflow uses to hand the context from the job that
+  generates it to the job that publishes or uploads it. Its workflow uses v3
+  instead, so the generator still runs in a job that cannot write to the
+  repository.
+* **The actions Enterprise Server bundles.** `actions/checkout` and
+  `actions/setup-node` are pinned to v4.4.0, artifacts to `upload-artifact`
+  v3.2.2 and `download-artifact` v3.1.0, each by commit. If your server's
+  bundled copies are older and GitHub Connect is off, an administrator syncs
+  those releases with
+  [actions-sync](https://docs.github.com/en/enterprise-server/admin/managing-github-actions-for-your-enterprise/managing-access-to-actions-from-githubcom/manually-syncing-actions-from-githubcom).
+* **Self-hosted runners.** Enterprise Server has no GitHub-hosted runners, so
+  the jobs ask for `[self-hosted, linux]` — any Linux pool of Zoomies' own will
+  do. The runner needs Python 3 and network access to download Node.js, which
+  the Zoomies runner image has.
+
+For *Zoomies only*, the token comes from the server that ran the workflow,
+not from GitHub.com: Zoomies checks it against
+`https://<your server>/_services/token`, so the controller must be able to
+reach your server over https. It only ever fetches keys from GitHub.com's
+issuer or from an Enterprise Server one of its Zoomies-only repositories lives
+on, whatever a token says it came from.
+
+The Enterprise Server workflow has not yet been run on a real server. If it
+fails there, the run's log and **Verification** on the AI Context page say
+where.
+
 ## Not yet
 
-* **GitHub Enterprise Server.**
+* **GHE.com.** Its repositories are refused until its own token issuer has been
+  tried.
 * **Owners chosen from GitHub itself.** Today an administrator makes someone an
   owner. Deriving it from a person's own GitHub permissions needs a GitHub
   identity link, which is planned.

@@ -166,11 +166,62 @@ func TestGeneratorProducesAValidCommitPinnedSnapshotWithRealRepomix(t *testing.T
 	}
 }
 
-func TestManagedWorkflowRefusesUnsupportedEnterpriseArtifacts(t *testing.T) {
+func TestEnterpriseServerGetsAWorkflowItCanRun(t *testing.T) {
+	// Artifact actions v4 and later fail on Enterprise Server, and it has no
+	// GitHub-hosted runners: a GitHub.com workflow merged there would never
+	// produce context, and only say so after the setup PR was merged.
+	for _, destination := range []Destination{Both, Zoomies} {
+		key, config := setupInputs()
+		key.GitHubHost = "github.example.org"
+		config.Destination = destination
+		if destination == Zoomies {
+			config.UploadURL = "https://zoomies.example.org" + UploadPath
+		}
+		workflow, err := SetupWorkflow(key, config)
+		if err != nil {
+			t.Fatal(destination, err)
+		}
+		for _, absent := range []string{"ubuntu-latest", "upload-artifact@043fb46", "download-artifact@634f93c", "checkout@3d3c42e", "setup-node@8207627", "package-manager-cache"} {
+			if strings.Contains(workflow, absent) {
+				t.Errorf("%s: Enterprise Server workflow still has %q", destination, absent)
+			}
+		}
+		for _, present := range []string{"runs-on: [self-hosted, linux]", "actions/upload-artifact@c6a366c94c3e0affe28c06c8df20a878f24da3cf # v3.2.2", "actions/download-artifact@a9bc5e6ef2cb54c177f32aa5726adaa15e7e2d59 # v3.1.0", "actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0", "actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0"} {
+			if !strings.Contains(workflow, present) {
+				t.Errorf("%s: Enterprise Server workflow lacks %q", destination, present)
+			}
+		}
+		var parsed map[string]any
+		if err := yaml.Unmarshal([]byte(workflow), &parsed); err != nil {
+			t.Fatal(destination, err)
+		}
+		// The generator still runs where it cannot write: only the last job
+		// holds contents: write or id-token: write.
+		generate := parsed["jobs"].(map[string]any)["generate"].(map[string]any)
+		if perms := generate["permissions"].(map[string]any); len(perms) != 1 || perms["contents"] != "read" {
+			t.Errorf("%s: generate job permissions = %v", destination, perms)
+		}
+	}
+}
+
+func TestGitHubComWorkflowIsUnchangedByEnterpriseSupport(t *testing.T) {
+	// A workflow already merged on GitHub.com is recognised byte for byte;
+	// Enterprise Server support must not move a single byte of it.
 	key, config := setupInputs()
-	key.GitHubHost = "github.example.org"
-	if _, err := SetupWorkflow(key, config); err == nil {
-		t.Fatal("GHES received an unsupported artifact workflow")
+	workflow, err := SetupWorkflow(key, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if enterpriseServerWorkflow(workflow) == workflow || !strings.Contains(workflow, "runs-on: ubuntu-latest") {
+		t.Fatal("GitHub.com workflow was rewritten for Enterprise Server")
+	}
+}
+
+func TestGHEComIsRefusedRatherThanGuessed(t *testing.T) {
+	key, config := setupInputs()
+	key.GitHubHost = "acme.ghe.com"
+	if _, err := SetupWorkflow(key, config); err == nil || !strings.Contains(err.Error(), "GHE.com") {
+		t.Fatal("GHE.com received a workflow", err)
 	}
 }
 

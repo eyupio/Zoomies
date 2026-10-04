@@ -35,7 +35,7 @@ func (s *Server) handleAIContextUpload(w http.ResponseWriter, r *http.Request) {
 	// The token first: nobody without one gets the controller to buffer a body.
 	if err := s.ctrl.CheckAIContextUploadToken(r.Context(), raw, audience); err != nil {
 		if errors.Is(err, github.ErrActionsKeysUnavailable) {
-			actionsKeysUnavailable(w)
+			actionsKeysUnavailable(w, err)
 			return
 		}
 		if errors.Is(err, github.ErrActionsToken) {
@@ -60,7 +60,7 @@ func (s *Server) handleAIContextUpload(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case err == nil:
 	case errors.Is(err, github.ErrActionsKeysUnavailable):
-		actionsKeysUnavailable(w)
+		actionsKeysUnavailable(w, err)
 		return
 	case errors.Is(err, github.ErrActionsToken):
 		unauthorized(w, "the GitHub Actions OIDC token is not valid for this controller: check that the workflow requests it for this upload address and that it has not expired")
@@ -89,9 +89,14 @@ func (s *Server) handleAIContextUpload(w http.ResponseWriter, r *http.Request) {
 
 // actionsKeysUnavailable is a 503 rather than a 401: the token was not judged,
 // and the run's log should send the operator to this controller's network.
-func actionsKeysUnavailable(w http.ResponseWriter) {
+func actionsKeysUnavailable(w http.ResponseWriter, err error) {
+	host := "token.actions.githubusercontent.com"
+	var keys *github.ActionsKeysError
+	if errors.As(err, &keys) {
+		host = keys.Host
+	}
 	writeError(w, http.StatusServiceUnavailable, errorEnvelope{Error: errorBody{
 		Code:    codeInternal,
-		Message: "this controller could not fetch GitHub's Actions signing keys from token.actions.githubusercontent.com, so the upload's token could not be checked; allow outbound https to that host and re-run the workflow",
+		Message: "this controller could not fetch GitHub's Actions signing keys from " + host + ", so the upload's token could not be checked; allow outbound https to that host and re-run the workflow",
 	}})
 }

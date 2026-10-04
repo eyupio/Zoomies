@@ -103,8 +103,9 @@ type Options struct {
 // Controller owns the control plane's moving parts and their lifecycles.
 type Controller struct {
 	aiContextChecks chan struct{}
-	// actionsTokens verifies the OIDC tokens Zoomies-only uploads carry.
-	actionsTokens *github.ActionsTokenVerifier
+	// actionsTokens verifies the OIDC tokens Zoomies-only uploads carry, with
+	// one verifier per issuer: GitHub.com's, and each Enterprise Server's own.
+	actionsTokens actionsVerifiers
 	// sso is what the API last said about single sign-on, for the problems
 	// list; see sso.go.
 	sso ssoBox
@@ -403,7 +404,7 @@ func New(opts Options) (*Controller, error) {
 
 	c := &Controller{
 		aiContextChecks:         make(chan struct{}, 1),
-		actionsTokens:           github.NewActionsTokenVerifier(github.ActionsIssuer),
+		actionsTokens:           actionsVerifiers{issuerFor: github.ActionsIssuerFor},
 		st:                      opts.Store,
 		lease:                   opts.Lease,
 		live:                    config.NewLive(opts.Config),

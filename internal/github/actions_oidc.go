@@ -2,8 +2,11 @@ package github
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +17,39 @@ import (
 // ActionsIssuer is the issuer of GitHub.com's Actions OIDC tokens. A token from
 // any other issuer is not a statement GitHub made about a workflow run.
 const ActionsIssuer = "https://token.actions.githubusercontent.com"
+
+// ActionsIssuerFor is the issuer of Actions OIDC tokens for workflows on
+// host. GitHub.com's come from one shared issuer; an Enterprise Server signs
+// its own, under /_services/token on the instance itself, so a GHES token is
+// only ever checked against the keys of the server that ran the workflow.
+func ActionsIssuerFor(host string) string {
+	if host == "github.com" {
+		return ActionsIssuer
+	}
+	return "https://" + host + "/_services/token"
+}
+
+// UnverifiedActionsIssuer reads a token's iss claim without checking anything.
+// It is for routing only -- choosing which issuer's keys to verify against --
+// and a caller must accept the answer only if it names an issuer it already
+// trusts, so a token cannot make the controller fetch keys from anywhere.
+func UnverifiedActionsIssuer(raw string) (string, error) {
+	parts := strings.Split(raw, ".")
+	if len(parts) != 3 || len(raw) > 16<<10 {
+		return "", fmt.Errorf("%w: it is not a JWT", ErrActionsToken)
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", fmt.Errorf("%w: its payload is not base64url", ErrActionsToken)
+	}
+	var claims struct {
+		Issuer string `json:"iss"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil || claims.Issuer == "" {
+		return "", fmt.Errorf("%w: it names no issuer", ErrActionsToken)
+	}
+	return strings.TrimRight(claims.Issuer, "/"), nil
+}
 
 // ActionsClaims are the parts of an Actions OIDC token Zoomies decides on. Each
 // is something GitHub asserts about the run, not something the workflow chose:
@@ -54,6 +90,20 @@ func NewActionsTokenVerifier(issuer string) *ActionsTokenVerifier {
 // operator to the controller's network, not to the workflow.
 var ErrActionsKeysUnavailable = errors.New("GitHub's Actions signing keys could not be fetched")
 
+// ActionsKeysError is ErrActionsKeysUnavailable with the host the keys live
+// on, which is the host an operator has to let the controller reach: GitHub's
+// shared issuer for GitHub.com, the server itself for Enterprise Server.
+type ActionsKeysError struct {
+	Host string
+	Err  error
+}
+
+func (e *ActionsKeysError) Error() string {
+	return fmt.Sprintf("%v from %s: %v", ErrActionsKeysUnavailable, e.Host, e.Err)
+}
+
+func (e *ActionsKeysError) Is(target error) bool { return target == ErrActionsKeysUnavailable }
+
 // fetchRecordingKeys notes whether the key set failed to fetch, which the
 // verifier would otherwise flatten into a signature error: go-oidc formats the
 // key set's error with %v, so its type does not survive. The prefix it checks is
@@ -88,7 +138,11 @@ func (v *ActionsTokenVerifier) Verify(ctx context.Context, raw, audience string)
 	token, err := verifier.Verify(ctx, raw)
 	if err != nil {
 		if keys.fetched != nil {
-			return nil, fmt.Errorf("%w: %v", ErrActionsKeysUnavailable, keys.fetched)
+			host := v.issuer
+			if u, err := url.Parse(v.issuer); err == nil && u.Host != "" {
+				host = u.Host
+			}
+			return nil, &ActionsKeysError{Host: host, Err: keys.fetched}
 		}
 		return nil, fmt.Errorf("%w: %v", ErrActionsToken, err)
 	}

@@ -2,6 +2,7 @@ package github
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -47,5 +48,41 @@ func TestAnUnreachableIssuerIsNotABadToken(t *testing.T) {
 	_, err := verifier.Verify(t.Context(), token, "https://zoomies.example.com/api/v1/ai-context/uploads")
 	if !errors.Is(err, ErrActionsKeysUnavailable) || errors.Is(err, ErrActionsToken) {
 		t.Fatalf("Verify against an unreachable issuer = %v; want ErrActionsKeysUnavailable alone", err)
+	}
+	// The operator is told which host to let the controller reach.
+	var keys *ActionsKeysError
+	if !errors.As(err, &keys) || keys.Host != "127.0.0.1:1" {
+		t.Fatalf("the error does not name the issuer's host: %v", err)
+	}
+}
+
+func TestEachGitHubHostHasItsOwnActionsIssuer(t *testing.T) {
+	// An Enterprise Server signs its own tokens; trusting GitHub.com's issuer
+	// for it, or the reverse, would let one vouch for the other's runs.
+	for host, want := range map[string]string{
+		"github.com":       "https://token.actions.githubusercontent.com",
+		"ghes.example.org": "https://ghes.example.org/_services/token",
+	} {
+		if got := ActionsIssuerFor(host); got != want {
+			t.Errorf("ActionsIssuerFor(%q) = %q, want %q", host, got, want)
+		}
+	}
+}
+
+func TestATokensIssuerIsReadOnlyFromAWellFormedToken(t *testing.T) {
+	issuer := NewFakeActionsIssuer(t)
+	got, err := UnverifiedActionsIssuer(issuer.Sign(t, map[string]any{"iss": "https://ghes.example.org/_services/token/"}))
+	if err != nil || got != "https://ghes.example.org/_services/token" {
+		t.Fatalf("issuer = %q, %v", got, err)
+	}
+	for name, raw := range map[string]string{
+		"not a JWT":   "token",
+		"bad payload": "a.!!!.c",
+		"no issuer":   "e30.e30.sig",
+		"oversized":   strings.Repeat("a", 17<<10) + ".e30.sig",
+	} {
+		if _, err := UnverifiedActionsIssuer(raw); !errors.Is(err, ErrActionsToken) {
+			t.Errorf("%s: %v", name, err)
+		}
 	}
 }
