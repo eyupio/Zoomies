@@ -80,9 +80,14 @@ func UploadURLFor(externalURL string) string {
 	return base + UploadPath
 }
 
+// DefaultConfig excludes credential paths and dependencies, then the bulky
+// artefacts that most often tip a text file over the generator's 1 MiB limit.
+// That limit is a refusal, not a skip, so an unlisted minified bundle, diagram
+// export or backup fails the whole run until somebody amends the exclusions.
 func DefaultConfig(branch string) Config {
 	return Config{SourceBranch: branch, Destination: Both, KeepSnapshots: 3,
-		Exclude: []string{"**/.env*", "**/node_modules/**", "**/.git/**", "**/dist/**", "**/vendor/**", "**/*.pem", "**/*.key", "**/*.db", ".zoomies/**"}}
+		Exclude: []string{"**/.env*", "**/node_modules/**", "**/.git/**", "**/dist/**", "**/vendor/**", "**/*.pem", "**/*.key", "**/*.db", ".zoomies/**",
+			"**/*.min.js", "**/*.min.css", "**/*.map", "**/*.drawio", "**/*.log", "**/*.bak"}}
 }
 
 func ValidBranch(s string) bool {

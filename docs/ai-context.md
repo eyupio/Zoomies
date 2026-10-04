@@ -320,8 +320,9 @@ written to GitHub until the last one:
 4. **Context** — the source branch (the repository's default branch),
    exclusions, and how many verified snapshots Zoomies keeps. The default
    exclusions leave out `.env` files, keys, certificates, databases,
-   `node_modules`, `vendor` and build output. Credential paths are excluded
-   whatever you write here.
+   `node_modules`, `vendor`, build output, and the bulky files that most often
+   break generation: minified bundles, source maps, diagram exports, logs and
+   backups. Credential paths are excluded whatever you write here.
 5. **Access** — the source readers. Nobody is preselected.
 6. **Review** — what will be saved, and every path setup will touch.
 
@@ -566,7 +567,18 @@ the same repository can be opened.
 **The workflow failed in *Generate bounded source context*.** The run's log names
 the reason. The usual ones are a repository over the limits below, or a text file
 over 1 MiB that is not excluded. Add an exclusion with **Amend**, merge, and the
-next push regenerates.
+next push regenerates. Generation refuses rather than skipping, so that a pack
+is never quietly incomplete: one oversized text file stops the whole run. To
+find it, list the tracked files over 1 MiB that are not binary, for example
+`git ls-files -z | xargs -0 -I{} sh -c 'test $(wc -c < "{}") -gt 1048576 && grep -Iq . "{}" && echo "{}"'`.
+Binary files such as PDFs and archives are skipped automatically.
+
+**A formatter fails on the managed files.** The workflow, the generator's
+`package.json` and the marked sections in `README.md` and `CLAUDE.md` are written
+by Zoomies and rewritten by every **Reinstall / repair**, so reformatting them
+by hand only lasts until the next one. Add the workflow and
+`.github/zoomies-ai-context/package.json` to your formatter's ignore file
+(`.prettierignore` for Prettier) rather than reformatting them.
 
 **The *upload* job failed.** Its log quotes Zoomies' reason. *Not valid for this
 controller* means the token was minted for another address: run
