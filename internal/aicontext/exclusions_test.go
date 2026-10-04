@@ -21,3 +21,26 @@ func TestContextExclusionsApplyToNestedAndRootFilesBeforeAdmission(t *testing.T)
 		}
 	}
 }
+
+// A text file over 1 MiB makes generation refuse the whole run, so the defaults
+// must cover the artefacts that usually cause it rather than leave every
+// operator to find them from a failed workflow.
+func TestDefaultExclusionsCoverBulkyArtefactsAndKeepCredentialPaths(t *testing.T) {
+	cfg := DefaultConfig("main")
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{
+		"assets/mermaid.min.js", "static/app.min.css", "web/app.js.map", "README.drawio",
+		"logs/run.log", "console.bak", ".env", "keys/server.pem", "vendor/x/y.go",
+	} {
+		if err := cfg.CheckSourceFiles([]File{{Path: path}}); err == nil {
+			t.Errorf("%s should be excluded by default", path)
+		}
+	}
+	for _, path := range []string{"main.go", "web/app.js", "docs/readme.md", "log.go", "backup.go"} {
+		if err := cfg.CheckSourceFiles([]File{{Path: path}}); err != nil {
+			t.Errorf("%s should not be excluded by default: %v", path, err)
+		}
+	}
+}
