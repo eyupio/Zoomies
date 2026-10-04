@@ -9,12 +9,14 @@
   typed last -- the number that mattered was chosen before anything on screen
   could say what it would buy.
 
-  There are two answers, and the first one is the usual one. A pool that names
-  no size is given one slot's share of whichever host each runner lands on --
-  charged against that host and applied as a real cgroup limit, so the books
-  and the cgroups agree -- which is correct on every machine in an unequal
-  fleet without anybody typing a number. A fixed size is for the pool whose
-  jobs need a particular amount of machine wherever they run.
+  There are three answers, and the first one is the usual one. A pool that
+  names no size is given one slot's share of whichever host each runner lands
+  on -- charged against that host and applied as a real cgroup limit, so the
+  books and the cgroups agree -- which is correct on every machine in an
+  unequal fleet without anybody typing a number. A pool can instead take the
+  size each host names for itself, for a fleet where the operator, not the slot
+  count, knows how big a runner should be on each machine. A fixed size is for
+  the pool whose jobs need a particular amount of machine wherever they run.
 
   What is not an answer is "no limit at all". A runner with no limit takes
   every core on the machine it lands on while the fleet charges it one slot's
@@ -31,6 +33,7 @@
   import { CircleCheck, Sparkles, TriangleAlert } from '@lucide/svelte';
   import type { PoolRoom as PoolRoomShape, Resources, Result } from '$lib/api/types';
   import { formatMegabytes, pluralise } from '$lib/format';
+  import { fleet } from '$lib/state/fleet.svelte';
   import { prefs } from '$lib/state/prefs.svelte';
   import Button from '$lib/components/Button.svelte';
   import Checkbox from '$lib/components/Checkbox.svelte';
@@ -120,13 +123,17 @@
    * use the minimum.
    */
   const automaticSize = $derived(draft.sizing === 'automatic');
+  const profileSize = $derived(draft.sizing === 'profile');
+  /* The host decides, by its slot share or by its own standard: neither has a
+     figure on the pool for a minimum to sit under. */
+  const hostSized = $derived(draft.sizing !== 'fixed');
   const minCpus = $derived(Number(draft.min_cpus) || 0);
   const minMemoryMb = $derived(Number(draft.min_memory_mb) || 0);
   const minCpuNotches = $derived(
-    withValue([0, ...CPU_NOTCHES.filter((n) => automaticSize || n <= cpus)], minCpus),
+    withValue([0, ...CPU_NOTCHES.filter((n) => hostSized || n <= cpus)], minCpus),
   );
   const minMemoryNotches = $derived(
-    withValue([0, ...MEMORY_NOTCHES.filter((n) => automaticSize || n <= memoryMb)], minMemoryMb),
+    withValue([0, ...MEMORY_NOTCHES.filter((n) => hostSized || n <= memoryMb)], minMemoryMb),
   );
   /* The boost ceiling's notches start at nothing, which leaves it to the host. */
   const burstNotches = $derived(withValue([0, ...CPU_NOTCHES], Number(draft.cpu_burst_max) || 0));
@@ -206,6 +213,24 @@
     return `${plain} Today that is ${range} per runner across ${pluralise(hosts.length, 'host')}.`;
   });
 
+  /*
+    The third answer, said in one line beside the choice. How many hosts have
+    given themselves a standard size is read from the fleet's own hosts rather
+    than from the room, because the room is counted for whichever answer is
+    chosen now and says nothing about this one until it is.
+  */
+  const sizedHosts = $derived(
+    fleet.hosts.filter(
+      (h) =>
+        (h.runner_profile?.standard?.cpus ?? 0) > 0 ||
+        (h.runner_profile?.standard?.memory_mb ?? 0) > 0,
+    ).length,
+  );
+  const fleetStandard = $derived(`${cpuLabel(defaultCpus)} and ${memoryLabel(defaultMemoryMb)}`);
+  const profileDescription = $derived(
+    `Each runner is given the standard size set on the host it lands on, so a large host and a small one can give the same pool different sizes. A host that sets none gives the fleet\u2019s default, ${fleetStandard}.`,
+  );
+
   /* -- the cache ------------------------------------------------------------ */
 
   const cacheLimitGb = $derived(cacheGb(Number(draft.cache_size_limit) || 0));
@@ -257,9 +282,11 @@
     <Field
       label="Minimum CPU"
       error={errors['resources.min_cpus']}
-      hint={automaticSize
-        ? 'The least a runner is given. A slot share smaller than this is raised to it, and a host with less than a whole share left may start a runner on what it has, down to this. Empty follows the fleet default, if one is set.'
-        : 'Where no host has room for the CPU above, a runner may be given less, down to this. Empty follows the fleet default, if one is set.'}
+      hint={profileSize
+        ? 'The least a runner of this pool is given. A host whose standard size is below it is not used for this pool at all, and the reason is listed under the hosts. Empty follows the fleet default, if one is set.'
+        : automaticSize
+          ? 'The least a runner is given. A slot share smaller than this is raised to it, and a host with less than a whole share left may start a runner on what it has, down to this. Empty follows the fleet default, if one is set.'
+          : 'Where no host has room for the CPU above, a runner may be given less, down to this. Empty follows the fleet default, if one is set.'}
     >
       {#snippet children({ id, describedBy, invalid })}
         <QuantityField
@@ -283,9 +310,11 @@
     <Field
       label="Minimum memory"
       error={errors['resources.min_memory_mb']}
-      hint={automaticSize
-        ? 'The least a runner is given. A slot share smaller than this is raised to it, and a host with less than a whole share left may start a runner on what it has, down to this. Empty follows the fleet default, if one is set.'
-        : 'Where no host has room for the memory above, a runner may be given less, down to this. Empty follows the fleet default, if one is set.'}
+      hint={profileSize
+        ? 'The least a runner of this pool is given. A host whose standard size is below it is not used for this pool at all, and the reason is listed under the hosts. Empty follows the fleet default, if one is set.'
+        : automaticSize
+          ? 'The least a runner is given. A slot share smaller than this is raised to it, and a host with less than a whole share left may start a runner on what it has, down to this. Empty follows the fleet default, if one is set.'
+          : 'Where no host has room for the memory above, a runner may be given less, down to this. Empty follows the fleet default, if one is set.'}
     >
       {#snippet children({ id, describedBy, invalid })}
         <QuantityField
@@ -308,7 +337,16 @@
     </Field>
   </div>
   {#if minCpus > 0 || minMemoryMb > 0}
-    {#if automaticSize}
+    {#if profileSize}
+      <p class="echo">
+        A runner is given its host's standard size, and never less than
+        {#if minCpus > 0}<strong>{cpuLabel(minCpus)}</strong
+          >{/if}{#if minCpus > 0 && minMemoryMb > 0}
+          and
+        {/if}{#if minMemoryMb > 0}<strong>{memoryLabel(minMemoryMb)}</strong>{/if}. A host whose
+        standard is smaller than that is not given this pool's runners.
+      </p>
+    {:else if automaticSize}
       <p class="echo">
         A runner is given a whole slot's share of its host wherever one is left, or the minimum
         where that is more, and a host whose share is smaller holds fewer runners. Where no whole
@@ -349,6 +387,11 @@
         description: automaticDescription,
       },
       {
+        value: 'profile',
+        label: 'The size each host sets',
+        description: profileDescription,
+      },
+      {
         value: 'fixed',
         label: 'A fixed size on every host',
         description:
@@ -361,33 +404,54 @@
     }}
   />
 
-  {#if draft.sizing === 'automatic'}
-    <div class="shares">
-      {#if !room || (room.hosts ?? []).length === 0}
-        <p class="shares-empty">
-          The share is worked out per host, once a host has reported what machine it is.
-        </p>
-      {:else}
-        <p class="shares-title">What each host would give one runner</p>
-        <ul>
-          {#each room.hosts ?? [] as host (host.host_id)}
-            <li>
-              <span class="shares-host">{host.host}</span>
-              <span class="shares-value"
-                >{cpuLabel(host.charge_cpus ?? 0)} and {memoryLabel(
-                  host.charge_memory_mb ?? 0,
-                )}</span
-              >
-              <span class="shares-room">{pluralise(host.room ?? 0, 'runner')}</span>
-            </li>
-          {/each}
-        </ul>
-        <p class="shares-note">
-          Straight from the controller, so it is the figure a runner is actually created with. It
-          moves on its own when a host is resized or its slot count changes.
-        </p>
-      {/if}
-    </div>
+  {#if hostSized}
+    {#if profileSize}
+      <div class="shares" data-testid="profile-sizing">
+        {#if sizedHosts === 0}
+          <p class="shares-title">No host has set a standard size yet</p>
+          <p class="shares-note">
+            Until one does, every runner of this pool is the fleet's default, {fleetStandard}. Set a
+            host's size from <a href="/hosts">Hosts</a>, under “Set runner sizes” on its card.
+          </p>
+        {:else}
+          <p class="shares-title">
+            {sizedHosts} of {pluralise(fleet.hosts.length, 'host')}
+            {sizedHosts === 1 ? 'has' : 'have'} set a standard size
+          </p>
+          <p class="shares-note">
+            The rows under the hosts say what a runner is on each one, and whose figure that is.
+            Change a host's size from <a href="/hosts">Hosts</a>.
+          </p>
+        {/if}
+      </div>
+    {:else}
+      <div class="shares">
+        {#if !room || (room.hosts ?? []).length === 0}
+          <p class="shares-empty">
+            The share is worked out per host, once a host has reported what machine it is.
+          </p>
+        {:else}
+          <p class="shares-title">What each host would give one runner</p>
+          <ul>
+            {#each room.hosts ?? [] as host (host.host_id)}
+              <li>
+                <span class="shares-host">{host.host}</span>
+                <span class="shares-value"
+                  >{cpuLabel(host.charge_cpus ?? 0)} and {memoryLabel(
+                    host.charge_memory_mb ?? 0,
+                  )}</span
+                >
+                <span class="shares-room">{pluralise(host.room ?? 0, 'runner')}</span>
+              </li>
+            {/each}
+          </ul>
+          <p class="shares-note">
+            Straight from the controller, so it is the figure a runner is actually created with. It
+            moves on its own when a host is resized or its slot count changes.
+          </p>
+        {/if}
+      </div>
+    {/if}
 
     {@render minimum()}
 
@@ -418,7 +482,7 @@
       <Field
         label="Boost ceiling"
         error={errors['cpu_burst.max_cpus']}
-        hint="Maximum CPU for one runner, such as 4 or 1.5. Leave empty to use whatever the host can safely lend."
+        hint="Maximum CPU for one runner, such as 4 or 1.5. Leave empty to use whatever the host can safely lend. A host's own ceiling, set with its runner sizes, can lower this and never raise it."
       >
         {#snippet children({ id, describedBy, invalid })}
           <QuantityField
@@ -580,7 +644,13 @@
     runner needs to be a runner -- and that is exactly as worth knowing.
   -->
   <PoolFit {verdict} {validating} />
-  <PoolRoom {room} {cpus} {memoryMb} {validating} />
+  <PoolRoom
+    {room}
+    cpus={profileSize ? 0 : cpus}
+    memoryMb={profileSize ? 0 : memoryMb}
+    profile={profileSize}
+    {validating}
+  />
 </fieldset>
 
 {#if containerBackend}

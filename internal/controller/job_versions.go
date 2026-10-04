@@ -62,3 +62,80 @@ func (c *Controller) stampJobVersions(ctx context.Context, j *store.Job, runner 
 	j.ControllerVersion, j.ControllerChannel = stamped.ControllerVersion, stamped.ControllerChannel
 	j.AgentVersion, j.HostID = stamped.AgentVersion, stamped.HostID
 }
+
+// stampJobGranted records the size of the runner a job ran on, once, so the job
+// can say how big its machine was after the runner row is gone and a size can
+// be compared across jobs: what was granted, and where that figure came from.
+//
+// It is read from the runner row, which is the only record of what a runner
+// was created with -- recomputing it from the pool and the host would answer
+// with today's profile rather than the one the job ran under. It runs from
+// recordJobChange beside stampJobVersions for the same reason, and the store
+// writes it only while it is still empty, so calling it on every change is
+// safe; the checks here only keep it from reading when there is nothing to add.
+//
+// A runner created with no limits, or one from before allocations were
+// recorded, has no source and so nothing to stamp: the job stays "not
+// recorded" rather than claiming a size nobody applied.
+//
+// j is updated in place, because the callers publish it next and the event
+// frame is the job's GET shape.
+func (c *Controller) stampJobGranted(ctx context.Context, j *store.Job, runner *store.Runner) {
+	if j == nil || j.RunnerID == "" || j.GrantedSource != "" || IsDemoID(j.InstallationID) {
+		return
+	}
+	if runner == nil || runner.ID != j.RunnerID {
+		r, err := c.st.GetRunner(ctx, j.RunnerID)
+		if err != nil {
+			return
+		}
+		runner = r
+	}
+	if runner.AllocationSource == "" || (runner.AllocatedCPUs <= 0 && runner.AllocatedMemoryMB <= 0) {
+		return
+	}
+	var pool *store.Pool
+	if p, err := c.st.GetPool(ctx, runner.PoolID); err == nil {
+		pool = p
+	}
+	cpus, memoryMB := grantedSize(pool, runner)
+	stamped, err := c.st.StampJobGranted(ctx, j.ID, cpus, memoryMB, runner.AllocationSource)
+	if err != nil {
+		// Not worth failing the delivery over: the next change to the job
+		// tries again.
+		c.log.Warn("could not stamp a job with the size it was granted", "job", j.ID, "error", err)
+		return
+	}
+	j.GrantedCPUs, j.GrantedMemoryMB, j.GrantedSource = stamped.GrantedCPUs, stamped.GrantedMemoryMB, stamped.GrantedSource
+}
+
+// grantedSize is the guaranteed size of the machine a runner gave its job: what
+// its row says it was created with, and for a docker-in-docker runner with
+// limits somebody typed, twice that, because the daemon is given the same
+// figure as the runner and the job's work is in both. A size taken from the
+// host -- a share or a profile's standard -- is already the whole slot, split
+// between the pair, so it is not doubled. CPU lent to the runner later is not
+// part of it: this is the guarantee, which is what two jobs can be compared by.
+func grantedSize(p *store.Pool, r *store.Runner) (cpus float64, memoryMB int64) {
+	cpus, memoryMB = r.AllocatedCPUs, r.AllocatedMemoryMB
+	if p == nil || p.DockerMode != store.DockerDinD {
+		return cpus, memoryMB
+	}
+	if typedAllocation(r, p.Resources.CPUs > 0) {
+		cpus *= 2
+	}
+	if typedAllocation(r, p.Resources.MemoryMB > 0) {
+		memoryMB *= 2
+	}
+	return cpus, memoryMB
+}
+
+// typedAllocation reports whether one field of a runner's allocation is a figure
+// somebody typed, which a docker-in-docker pair gives to each of its containers,
+// rather than one slot's worth the pair splits. A reduced or history runner
+// keeps the nature of the pool's field: it is smaller or larger than the typed
+// size, and still typed.
+func typedAllocation(r *store.Runner, fieldTyped bool) bool {
+	return r.AllocationSource == store.AllocationFromPool ||
+		((r.AllocationSource == store.AllocationReduced || r.AllocationSource == store.AllocationHistory) && fieldTyped)
+}

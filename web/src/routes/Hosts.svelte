@@ -41,6 +41,8 @@
   import Skeleton from '$lib/components/Skeleton.svelte';
   import HostCard from '$lib/hosts/HostCard.svelte';
   import HostCapacityDialog from '$lib/hosts/HostCapacityDialog.svelte';
+  import HostRunnerSizesDialog from '$lib/hosts/HostRunnerSizesDialog.svelte';
+  import { slotsOf } from '$lib/hosts/slots';
   import HostDeleteDialog from '$lib/hosts/HostDeleteDialog.svelte';
   import HostLabelsDialog from '$lib/hosts/HostLabelsDialog.svelte';
   import JoinTokenList from '$lib/hosts/JoinTokenList.svelte';
@@ -53,7 +55,9 @@
     [...fleet.hosts].sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')),
   );
   const healthy = $derived(hosts.filter((h) => h.healthy === true).length);
-  const capacity = $derived(hosts.reduce((sum, h) => sum + (h.capacity ?? 0), 0));
+  // The slots hosts take, which is what the machines hold of a standard size
+  // where one is set, not the sum of the operators' ceilings.
+  const capacity = $derived(hosts.reduce((sum, h) => sum + slotsOf(h), 0));
   const inUse = $derived(hosts.reduce((sum, h) => sum + (h.active_runners ?? 0), 0));
 
   /* -- the machines behind the hosts -------------------------------------------
@@ -174,6 +178,8 @@
   let editOpen = $state(false);
   let sizing = $state<Host | null>(null);
   let sizeOpen = $state(false);
+  let profiling = $state<Host | null>(null);
+  let profileOpen = $state(false);
   let deleting = $state<Host | null>(null);
   let deleteOpen = $state(false);
 
@@ -220,7 +226,7 @@
     const name = host.name || host.id;
     const result = await fleet.optimistic(
       host.id,
-      { throttle: undefined, throttle_reason: '', effective_capacity: host.capacity },
+      { throttle: undefined, throttle_reason: '', effective_capacity: slotsOf(host) },
       () => clearHostThrottle(host.id ?? ''),
       `The throttle on ${name} was not lifted`,
     );
@@ -239,6 +245,11 @@
   function size(host: Host): void {
     sizing = host;
     sizeOpen = true;
+  }
+
+  function sizes(host: Host): void {
+    profiling = host;
+    profileOpen = true;
   }
 
   function remove(host: Host): void {
@@ -338,9 +349,7 @@
         {
           label: 'Hosts at slot capacity',
           value: String(
-            hosts.filter(
-              (h) => (h.capacity ?? 0) > 0 && (h.active_runners ?? 0) >= (h.capacity ?? 0),
-            ).length,
+            hosts.filter((h) => slotsOf(h) > 0 && (h.active_runners ?? 0) >= slotsOf(h)).length,
           ),
           detail: 'Resource limits can restrict placement sooner',
         },
@@ -377,6 +386,7 @@
           oncordon={(target, next) => void cordon(target, next)}
           onthrottle={(target) => void liftThrottle(target)}
           oncapacity={size}
+          onsizes={sizes}
           onedit={edit}
           ondelete={remove}
         />
@@ -417,6 +427,11 @@
 </div>
 
 <HostCapacityDialog bind:open={sizeOpen} host={sizing} onclose={() => (sizing = null)} />
+<HostRunnerSizesDialog
+  bind:open={profileOpen}
+  host={profiling}
+  onclose={() => (profiling = null)}
+/>
 
 <HostLabelsDialog bind:open={editOpen} host={editing} onclose={() => (editing = null)} />
 <HostDeleteDialog bind:open={deleteOpen} host={deleting} onclose={() => (deleting = null)} />

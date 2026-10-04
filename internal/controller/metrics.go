@@ -523,7 +523,7 @@ func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
 			healthy++
 		}
 		if h.Healthy(now) && !h.Cordoned {
-			capacity += h.Capacity
+			capacity += h.Slots()
 			effective += h.EffectiveCapacity()
 			// The same hosts as the capacity it is divided by; see Stats.
 			used += h.ActiveRunners

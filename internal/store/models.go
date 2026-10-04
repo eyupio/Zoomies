@@ -766,6 +766,31 @@ type Pool struct {
 	// Tmpfs keeps the runner's work folder and /tmp in memory. Off unless an
 	// operator opts in, because it spends the pool's memory limit on disk speed.
 	Tmpfs TmpfsConfig `json:"tmpfs"`
+	// SizeFromProfile leaves the size of this pool's runners to the host they
+	// land on, as that host's runner profile says it: the standard size the
+	// operator gave the host, or the fleet's default where the host says
+	// nothing. It is automatic sizing with the host's own answer in place of
+	// one slot's share, which is why it excludes typed CPUs and memory -- a
+	// pool that has already said how big its runners are has nothing left to
+	// take from the host -- and why it is stored: the two read the same from
+	// Resources, and only this says which was meant.
+	SizeFromProfile bool `json:"size_from_profile,omitempty"`
+	// FleetStandard is the fleet's default runner size -- runners.default_cpus
+	// and runners.default_memory_mb -- as the controller's sizing copy of a
+	// pool that takes its size from the host carries it, for a host whose
+	// profile names no standard of its own. It is never stored and never
+	// serialised, and zero on every pool read from the database: the scheduler
+	// is pure and cannot see the fleet's settings, so the controller hands
+	// them over on the copy it already makes of a pool for the minimum
+	// (controller.sizingPool). A pool without it falls back to a slot's share,
+	// which is what such a pool was sized by before profiles existed.
+	FleetStandard RunnerSize `json:"-"`
+	// FleetMinimum is the part of this pool's minimum that came from the
+	// fleet's runners.minimum_* rather than from the pool: the figure the
+	// controller's sizing copy filled in, and zero on a field the pool set
+	// itself. It exists so an explanation can say whose minimum a host fell
+	// short of, and is never stored or serialised.
+	FleetMinimum RunnerSize `json:"-"`
 	// HostSelector matches Host.Labels; empty means "any host".
 	// RunnerSettings is what this pool overrides of the fleet's own runner
 	// timings. Every field is nil on a pool that follows the fleet, which is
@@ -942,6 +967,12 @@ type Host struct {
 	ReserveMemoryMB int64  `json:"reserve_memory_mb,omitempty"`
 	ReserveDiskMB   int64  `json:"reserve_disk_mb,omitempty"`
 	Version         string `json:"version"`
+	// RunnerProfile is the operator's answer to how big a runner is on this
+	// host: a minimum, a standard size, and a burst ceiling. It is theirs
+	// alone, written through PatchHost and by no heartbeat, and the zero value
+	// -- every host until somebody sets one -- changes nothing about how the
+	// host is sized.
+	RunnerProfile RunnerProfile `json:"runner_profile,omitzero"`
 	// Features is what the agent says it can do beyond running a backend,
 	// re-read from every heartbeat. An agent that advertises "elastic-cpu"
 	// can move a live runner's CPU quota; one that does not keeps every runner
@@ -1058,10 +1089,51 @@ func (h *Host) Available(now time.Time) bool {
 // exactly like a cordon, and an operator reading "0 slots" would go looking
 // for who cordoned it.
 func (h *Host) EffectiveCapacity() int {
-	if h.Capacity <= 0 || !h.Throttle.Active() {
+	slots := h.Slots()
+	if slots <= 0 || !h.Throttle.Active() {
+		return slots
+	}
+	return max(1, int(math.Floor(float64(slots)*h.Throttle.Factor())))
+}
+
+// slotEpsilon absorbs the rounding of CPU that does not divide evenly: 11.4
+// allocatable CPUs hold three runners of 3.8, and the float answer must not
+// come out a hair under three.
+const slotEpsilon = 1e-6
+
+// Slots is how many runners this host takes, before any throttle: its capacity,
+// or -- where the operator has given it a standard runner size -- as many of
+// that size as its allocatable machine holds, never more than the capacity.
+//
+// The capacity is the operator's ceiling and the profile is what the machine
+// can carry, so the smaller of the two is the count; a host whose capacity is
+// below what its standard would give says so on the Hosts page rather than
+// quietly running fewer runners than its size allows. Without a standard, or
+// where the agent has not measured the machine, the capacity alone stands --
+// exactly as it did before profiles -- and a capacity of zero still takes
+// nothing, whatever the standard says: it is how an operator pauses a host,
+// and a size must never un-pause one.
+//
+// A standard too large for the machine to hold even once gives zero, and the
+// host takes nothing of the pools that size from it. That is a standard that
+// cannot be run, not a host that was paused, and is reported as the first.
+func (h *Host) Slots() int {
+	std := h.RunnerProfile.Standard
+	if h.Capacity <= 0 || !std.Sized() {
 		return h.Capacity
 	}
-	return max(1, int(math.Floor(float64(h.Capacity)*h.Throttle.Factor())))
+	alloc := h.Allocatable()
+	slots, bound := h.Capacity, false
+	if std.CPUs > 0 && alloc.CPUsKnown {
+		slots, bound = min(slots, int((alloc.CPUs+slotEpsilon)/std.CPUs)), true
+	}
+	if std.MemoryMB > 0 && alloc.MemoryKnown {
+		slots, bound = min(slots, int(alloc.MemoryMB/std.MemoryMB)), true
+	}
+	if !bound {
+		return h.Capacity
+	}
+	return max(slots, 0)
 }
 
 // The selector keys every host answers for without an operator typing
@@ -1121,6 +1193,14 @@ const (
 	// runs (scheduler.history_sizing=on). Like a reduced runner, the figures
 	// on the row are what it was given and what its host is charged.
 	AllocationHistory = "history"
+	// AllocationFromProfile means the pool leaves its size to the host and the
+	// runner was given that host's standard size: the operator's runner
+	// profile, or the fleet's default where the host's says nothing.
+	//
+	// It is what the runner row and the API say. An agent is sent "host"
+	// instead: one that predates this value reads a source it does not know as
+	// a size somebody typed, and would double a docker-in-docker pair's limits.
+	AllocationFromProfile = "profile"
 )
 
 // Runner is one runner instance: a row that the controller creates in
@@ -1348,6 +1428,16 @@ type Job struct {
 	// it, for its memory limit while this job ran. A killed job's peak is the
 	// limit it hit rather than what it needed, which the profile allows for.
 	OOMKilled bool `json:"oom_killed,omitempty"`
+	// GrantedCPUs, GrantedMemoryMB and GrantedSource are the size of the runner
+	// that took the job -- its guaranteed share, not CPU lent to it later --
+	// and where that size came from (the Allocation* constants). They are
+	// copied from the runner once, by StampJobGranted, so a job can say how big
+	// the machine it ran on was after the runner row is gone. Zero and empty
+	// are "not recorded": a job from before migration 0071, or one on a runner
+	// created with no limits.
+	GrantedCPUs     float64 `json:"granted_cpus,omitempty"`
+	GrantedMemoryMB int64   `json:"granted_memory_mb,omitempty"`
+	GrantedSource   string  `json:"granted_source,omitempty"`
 }
 
 // JobStep is one step of a workflow job as GitHub reported it.

@@ -80,11 +80,27 @@ type HostView struct {
 	// ImagePullFailed is the last start or prewarm here that could not make
 	// its pool's image ready, naming the registry, absent when there is none.
 	ImagePullFailed *store.ImagePullIncident `json:"image_pull_failed,omitempty"`
-	// EffectiveCapacity is the slots the host takes right now: Capacity
-	// stepped down by the throttle, and Capacity itself when there is none.
-	// Free is measured against it, so a throttled host's card does not
-	// promise slots the next pass will refuse.
+	// EffectiveCapacity is the slots the host takes right now: Slots stepped
+	// down by the throttle, and Slots itself when there is none. Free is
+	// measured against it, so a throttled host's card does not promise slots
+	// the next pass will refuse.
 	EffectiveCapacity int `json:"effective_capacity"`
+	// Slots is how many runners the host takes before any throttle: its
+	// capacity, or -- where the operator has given it a standard runner size --
+	// what its machine holds of that size, up to the capacity. SlotsLimitedBy
+	// says what sets it where there is a standard: "cpu" or "memory" when the
+	// machine does, "capacity" when the operator's number is below what the
+	// machine holds, and nothing when the two agree or there is no standard.
+	Slots          int    `json:"slots"`
+	SlotsLimitedBy string `json:"slots_limited_by,omitempty"`
+	// RunnerProfile is what the operator has said about how big a runner is on
+	// this host, as they said it; absent when they have said nothing, which is
+	// every host until somebody does. EffectiveProfile is what is in force,
+	// with the fleet's settings standing in for every field the host leaves out
+	// and each figure's source, which is what the form shows beside the fields
+	// it lets an operator edit.
+	RunnerProfile    *store.RunnerProfile `json:"runner_profile,omitempty"`
+	EffectiveProfile EffectiveProfileView `json:"effective_profile"`
 	// UnlimitedRunners is how many of the live runners here were created
 	// with no CPU quota -- a pool with none and defaults off, a process pool,
 	// a daemon that cannot apply one, or a row from before allocations were
@@ -217,6 +233,7 @@ func (c *Controller) HostView(h *store.Host) HostView {
 		ActiveRunners:      h.ActiveRunners,
 		Free:               h.Free(),
 		EffectiveCapacity:  h.EffectiveCapacity(),
+		EffectiveProfile:   EffectiveProfile(h, c.cfg().Runners),
 		UnlimitedRunners:   h.UnlimitedRunners,
 		ThrottleReason:     scheduler.ThrottleReason(h),
 		Backends:           emptySlice(h.Backends),
@@ -258,6 +275,11 @@ func (c *Controller) HostView(h *store.Host) HostView {
 	if h.Throttle.Active() {
 		throttle := h.Throttle
 		out.Throttle = &throttle
+	}
+	out.Slots, out.SlotsLimitedBy = hostSlots(h)
+	if h.RunnerProfile.Set() {
+		profile := h.RunnerProfile
+		out.RunnerProfile = &profile
 	}
 	if inc := h.Incidents.Runtime; inc != nil {
 		runtime := *inc
@@ -396,6 +418,17 @@ type JobView struct {
 	PeakCPUs     float64 `json:"peak_cpus,omitempty"`
 	PeakMemoryMB int64   `json:"peak_memory_mb,omitempty"`
 	OOMKilled    bool    `json:"oom_killed,omitempty"`
+	// GrantedCPUs and GrantedMemoryMB are the guaranteed size of the machine
+	// the job ran on -- for a docker-in-docker runner, the runner and its daemon
+	// together -- and GrantedSource says where that size came from: the pool,
+	// the host's slot share, a host's runner profile, a reduced size on a host
+	// short of room, or job history. They are copied from the runner when it
+	// takes the job and never rewritten, and absent on a job from before they
+	// were recorded and on a runner created with no limits. CPU lent to the
+	// runner later is not part of them.
+	GrantedCPUs     float64 `json:"granted_cpus,omitempty"`
+	GrantedMemoryMB int64   `json:"granted_memory_mb,omitempty"`
+	GrantedSource   string  `json:"granted_source,omitempty"`
 }
 
 // JobSummaryView is a job without its steps: what GET /jobs returns under
@@ -501,6 +534,9 @@ func NewJobView(j *store.Job, poolName string) JobView {
 		ControllerChannel: j.ControllerChannel,
 		AgentVersion:      j.AgentVersion,
 		HostID:            j.HostID,
+		GrantedCPUs:       j.GrantedCPUs,
+		GrantedMemoryMB:   j.GrantedMemoryMB,
+		GrantedSource:     j.GrantedSource,
 		PeakCPUs:          j.PeakCPUs,
 		PeakMemoryMB:      j.PeakMemoryMB,
 		OOMKilled:         j.OOMKilled,
@@ -817,7 +853,7 @@ func cpuResourceView(r *store.Runner, p *store.Pool, h *store.Host) *CPUResource
 	if len(r.ResourceSample) > 0 && json.Unmarshal(r.ResourceSample, &sample) == nil && sample.CPUAllocationFactor > 0 {
 		factor = sample.CPUAllocationFactor
 	}
-	ceiling := p.CPUBurst.MaxCPUs
+	ceiling := scheduler.BurstLimit(p, h)
 	if ceiling <= 0 && h != nil {
 		ceiling = h.Allocatable().CPUs
 	}
@@ -927,12 +963,22 @@ type PoolView struct {
 	DockerMode             store.DockerMode     `json:"docker_mode"`
 	Resources              store.Resources      `json:"resources"`
 	CPUBurst               store.CPUBurstPolicy `json:"cpu_burst"`
+	// SizeFromProfile is the stored choice that this pool takes its runners'
+	// size from the host they land on, as that host's runner profile says it.
+	// It excludes typed CPU and memory, and it is what makes Sizing "profile".
+	// FleetStandard is what such a pool's runner is on a host whose profile
+	// names no standard: the fleet's default size, carried here so the pool's
+	// own page can say so without the browser knowing the fleet's settings.
+	SizeFromProfile bool            `json:"size_from_profile"`
+	FleetStandard   *RunnerSizeView `json:"fleet_standard,omitempty"`
 	// Sizing is how this pool decides what one runner gets: "automatic", one
-	// slot's share of whichever host it lands on, or "fixed", the figures in
-	// Resources. It is derived from Resources rather than stored beside it,
-	// so the two can never disagree -- but it is rendered, because a browser
-	// reading "no CPU limit" has no way to tell "the host decides" from
-	// "nobody has set one", and those used to be the same thing.
+	// slot's share of whichever host it lands on, "elastic", the same share
+	// with spare CPU lent to it, "profile", the size each host's runner profile
+	// names, or "fixed", the figures in Resources. It is derived from Resources
+	// and SizeFromProfile rather than stored beside them, so they can never
+	// disagree -- but it is rendered, because a browser reading "no CPU limit"
+	// has no way to tell "the host decides" from "nobody has set one", and
+	// those used to be the same thing.
 	Sizing string `json:"sizing"`
 	// EffectiveMinimum is the minimum the fleet holds this pool's runners to:
 	// Resources' own minimum where the pool set one, and the fleet's
@@ -1035,6 +1081,13 @@ type PoolMinimumView struct {
 	MemoryMB          int64   `json:"memory_mb"`
 	CPUsInherited     bool    `json:"cpus_inherited"`
 	MemoryMBInherited bool    `json:"memory_mb_inherited"`
+	// CPUsSource and MemoryMBSource say the same as the two booleans in the
+	// words every other figure's source uses: "pool" where the pool set it,
+	// "global" where it follows the fleet's runners.minimum_*, and nothing
+	// where nobody did. A host's own minimum is applied on top, per host, and
+	// is shown on the host's row (PoolHostSizing), not here.
+	CPUsSource     string `json:"cpus_source,omitempty"`
+	MemoryMBSource string `json:"memory_mb_source,omitempty"`
 }
 
 func (v *PoolRenderer) minimum(p *store.Pool) PoolMinimumView {
@@ -1043,11 +1096,24 @@ func (v *PoolRenderer) minimum(p *store.Pool) PoolMinimumView {
 		fleet = v.cfg.Runners
 	}
 	cpus, memoryMB := EffectiveMinimum(p.Resources, fleet)
-	return PoolMinimumView{
+	out := PoolMinimumView{
 		CPUs: cpus, MemoryMB: memoryMB,
 		CPUsInherited:     cpus != p.Resources.MinCPUs,
 		MemoryMBInherited: memoryMB != p.Resources.MinMemoryMB,
 	}
+	switch {
+	case p.Resources.MinCPUs > 0:
+		out.CPUsSource = scheduler.SourcePool
+	case cpus > 0:
+		out.CPUsSource = scheduler.SourceGlobal
+	}
+	switch {
+	case p.Resources.MinMemoryMB > 0:
+		out.MemoryMBSource = scheduler.SourcePool
+	case memoryMB > 0:
+		out.MemoryMBSource = scheduler.SourceGlobal
+	}
+	return out
 }
 
 // View renders one pool.
@@ -1057,6 +1123,11 @@ func (v *PoolRenderer) View(p *store.Pool) PoolView {
 	target := ""
 	if inst != nil {
 		target = inst.Target
+	}
+	var fleetStandard *RunnerSizeView
+	if p.SizeFromProfile && v.cfg != nil {
+		cpus, memoryMB := v.cfg.Runners.DefaultRunnerSize()
+		fleetStandard = &RunnerSizeView{CPUs: cpus, MemoryMB: memoryMB}
 	}
 	return PoolView{
 		ID:                     p.ID,
@@ -1081,6 +1152,8 @@ func (v *PoolRenderer) View(p *store.Pool) PoolView {
 		DockerMode:             p.DockerMode,
 		Resources:              p.Resources,
 		CPUBurst:               p.CPUBurst,
+		SizeFromProfile:        p.SizeFromProfile,
+		FleetStandard:          fleetStandard,
 		Sizing:                 PoolSizing(p),
 		EffectiveMinimum:       v.minimum(p),
 		RunnerSettings:         p.RunnerSettings,
@@ -1152,10 +1225,19 @@ const (
 	SizingElastic = "elastic"
 	// SizingFixed is the figures on the pool, the same on every host.
 	SizingFixed = "fixed"
+	// SizingProfile is the size each host's runner profile names: one pool whose
+	// runners are as big as the machine they land on was said to be, and the
+	// fleet's default where a host says nothing. It is automatic sizing with the
+	// host's own answer in place of a slot's share.
+	SizingProfile = "profile"
 )
 
-// PoolSizing says which of the two a pool is doing.
+// PoolSizing says which of the ways a pool decides its runners' size it is
+// using.
 func PoolSizing(p *store.Pool) string {
+	if p.SizeFromProfile {
+		return SizingProfile
+	}
 	if p.Automatic() && p.CPUBurst.Enforces() {
 		return SizingElastic
 	}

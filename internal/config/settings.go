@@ -560,6 +560,11 @@ var registry = buildRegistry([]Setting{
 		Summary: "Headroom preserves resource-based placement. Shadow compares startup history and queued starts without changing placement. Readiness opts into the measured policy; all capacity and pressure checks still apply.",
 	},
 	{
+		Key: "scheduler.host_order", Label: "Host placement order", Env: "ZOOMIES_HOST_ORDER", Kind: KindEnum, Scope: ScopeInstance, Live: true,
+		Choices: []string{"headroom", "largest_standard", "best_fit"},
+		Summary: "Which host a runner prefers when several can take it. Headroom picks the host with the most CPU and memory left afterwards, which spreads work. Largest standard picks the host whose runner of this pool is biggest, which suits a mixed fleet sized by runner profile. Best fit picks the host with the least left, filling one before starting the next. Only hosts that already fit are ever compared.",
+	},
+	{
 		Key: "scheduler.history_sizing", Label: "Size from job history", Env: "ZOOMIES_HISTORY_SIZING", Kind: KindEnum, Scope: ScopeInstance, Live: true,
 		Choices: []string{"off", "shadow", "on"},
 		Summary: "Place a runner only on a host with room for what the jobs waiting on its pool used on their recent runs, and size it up to that where the pool leaves its size to the host. Shadow works it out and records where it would have placed differently without changing anything; off ignores job history. GitHub picks which waiting job a runner takes, so the runner is placed for the largest of them.",

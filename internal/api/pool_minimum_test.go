@@ -34,7 +34,7 @@ func TestAPoolReportsTheFleetMinimumItInheritsAndKeepsItsOwn(t *testing.T) {
 	if got.Resources.MinCPUs != 0 || got.Resources.MinMemoryMB != 4096 {
 		t.Errorf("resources = %+v, want the pool's own figures: no CPU minimum, 4096 MB", got.Resources)
 	}
-	want := controller.PoolMinimumView{CPUs: 1, MemoryMB: 4096, CPUsInherited: true}
+	want := controller.PoolMinimumView{CPUs: 1, MemoryMB: 4096, CPUsInherited: true, CPUsSource: "global", MemoryMBSource: "pool"}
 	if got.EffectiveMinimum != want {
 		t.Errorf("effective_minimum = %+v, want %+v", got.EffectiveMinimum, want)
 	}

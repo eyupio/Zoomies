@@ -187,6 +187,14 @@ func poolsGet(ctx context.Context, e *env, args []string) error {
 // poolSizing says what one runner of this pool is given, in the wizard's own
 // words, because "cpus 0" reads as unlimited and it is the opposite.
 func poolSizing(pool poolItem) string {
+	if pool.Sizing == "profile" || pool.SizeFromProfile {
+		out := "profile: the standard size each host sets"
+		if std := pool.FleetStandard; std.CPUs > 0 || std.MemoryMB > 0 {
+			out += fmt.Sprintf(", or the fleet's default of %s CPUs and %d MB where a host sets none",
+				strconv.FormatFloat(std.CPUs, 'f', -1, 64), std.MemoryMB)
+		}
+		return out
+	}
 	if pool.Sizing == "fixed" || pool.Resources.CPUs > 0 || pool.Resources.MemoryMB > 0 {
 		var parts []string
 		if pool.Resources.CPUs > 0 {
@@ -284,6 +292,7 @@ type poolSpec struct {
 	memoryMB     *int64
 	diskGB       *int64
 	pidsLimit    *int64
+	sizeFromHost *bool
 	// current is the size the pool has now, so that an edit touching one part
 	// of it carries the rest forward rather than clearing it. Zero on a
 	// create, where there is nothing to carry.
@@ -349,6 +358,7 @@ func registerPoolFlags(fs *flagSet) *poolSpec {
 	fs.Var(spec.envVars, "env", "environment variables for every job in this pool, e.g. HTTP_PROXY=...")
 	spec.cpus = fs.Float64("cpus", 0, "CPU limit per runner; 0 leaves the size to the host, which gives each runner one slot's share of its machine")
 	spec.memoryMB = fs.Int64("memory-mb", 0, "memory limit per runner, in MiB; 0 leaves the size to the host")
+	spec.sizeFromHost = fs.Bool("size-from-host", false, "take each runner's size from the host it lands on, as that host's runner sizes say (see zoomies hosts edit); a pool does this or states a size, so it cannot be combined with --cpus or --memory-mb")
 	spec.diskGB = fs.Int64("disk-gb", 0, "disk limit per runner, in GiB")
 	spec.pidsLimit = fs.Int64("pids-limit", 0, "the container's pids cgroup limit (0 is no limit)")
 	spec.os = fs.String("os", "", "the distribution these runners need: ubuntu, debian, fedora or rocky. It picks the runner image and restricts placement to hosts that match")
@@ -398,6 +408,10 @@ func (spec *poolSpec) body(fs *flagSet, onlyChanged bool) map[string]any {
 	put("run-as-root", "run_as_root", *spec.runAsRoot)
 	put("no-default-labels", "no_default_labels", *spec.noDefault)
 	put("enabled", "enabled", *spec.enabled)
+	// Sent whichever way it is, because a PATCH reads an absent key as "leave it
+	// alone": `--size-from-host=false` is how an edit hands a pool back to the
+	// share of its host, and has to reach the controller to do it.
+	put("size-from-host", "size_from_profile", *spec.sizeFromHost)
 	if !onlyChanged || fs.changed("cache") || fs.changed("cache-scope") || fs.changed("cache-size") ||
 		fs.changed("cache-source") || fs.changed("cache-repository") {
 		body["cache"] = map[string]any{
@@ -474,7 +488,17 @@ func (spec *poolSpec) body(fs *flagSet, onlyChanged bool) map[string]any {
 	// and `resourcesFrom` is where the caller supplies what the pool has now.
 	// An edit that touches none of it sends no `resources` at all, and the
 	// pool keeps whatever it had.
-	if fs.changed("cpus") || fs.changed("memory-mb") || fs.changed("disk-gb") || fs.changed("pids-limit") {
+	switch {
+	case fs.changed("size-from-host") && *spec.sizeFromHost:
+		// A pool takes its size from the host or states one, never both, so
+		// moving to the host's clears the stated figures in the same request.
+		// Disk and the process limit are independent of the choice, and carry
+		// forward like they do for any other edit.
+		res := spec.resources(fs)
+		delete(res, "cpus")
+		delete(res, "memory_mb")
+		body["resources"] = res
+	case fs.changed("cpus") || fs.changed("memory-mb") || fs.changed("disk-gb") || fs.changed("pids-limit"):
 		body["resources"] = spec.resources(fs)
 	}
 	// The elastic CPU policy is one object for the same reason the size is,
@@ -564,6 +588,17 @@ func (spec *poolSpec) resources(fs *flagSet) map[string]any {
 	return out
 }
 
+// checkSizeChoice refuses the two ways of saying how big a runner is, together.
+// The API refuses them too, but a flag that cannot be honoured is better turned
+// down before a request is made than reported as a field error after one.
+func (spec *poolSpec) checkSizeChoice(fs *flagSet, command string) error {
+	if fs.changed("size-from-host") && *spec.sizeFromHost &&
+		((fs.changed("cpus") && *spec.cpus > 0) || (fs.changed("memory-mb") && *spec.memoryMB > 0)) {
+		return usagef(command, "--size-from-host cannot be combined with --cpus or --memory-mb: a pool takes its size from the host or states one")
+	}
+	return nil
+}
+
 func poolsCreate(ctx context.Context, e *env, args []string) error {
 	fs := newFlagSet(e, "zoomies pools create --name <name> --labels <labels> --installation <id>",
 		"Create a pool. The server validates exactly as the UI's wizard does.")
@@ -575,6 +610,8 @@ func poolsCreate(ctx context.Context, e *env, args []string) error {
 			"--installation ins_k3f9qz2m --cpus 4 --os ubuntu --os-version 24.04 --max 8",
 		"zoomies pools create --name zoomies-8vcpu-debian-12-arm64 --labels zoomies-8vcpu-debian-12-arm64 "+
 			"--installation ins_k3f9qz2m --cpus 8 --os debian --os-version 12 --arch arm64 --dry-run",
+		"zoomies pools create --name zoomies-ubuntu-2404 --labels zoomies-ubuntu-2404 "+
+			"--installation ins_k3f9qz2m --size-from-host --max 12",
 	)
 	if err := fs.parse(args); err != nil {
 		return err
@@ -593,6 +630,9 @@ func poolsCreate(ctx context.Context, e *env, args []string) error {
 	}
 	if fs.changed("tmpfs-tmp-size") && !*spec.tmpfsTmp {
 		return usagef("pools create", "--tmpfs-tmp-size needs --tmpfs-tmp, which is what puts /tmp in memory")
+	}
+	if err := spec.checkSizeChoice(fs, "pools create"); err != nil {
+		return err
 	}
 	if err := fs.noMoreArgs(); err != nil {
 		return err
@@ -705,6 +745,7 @@ func poolsEdit(ctx context.Context, e *env, args []string) error {
 	cf := registerClientFlags(fs, true)
 	spec := registerPoolFlags(fs)
 	fs.example("zoomies pools edit pool_k3f9qz2m --max 12",
+		"zoomies pools edit pool_k3f9qz2m --size-from-host",
 		"zoomies pools edit pool_k3f9qz2m --cpu-burst automatic --cpu-burst-max 6",
 		"zoomies pools edit pool_k3f9qz2m --tmpfs-work --memory-mb 12288",
 		"zoomies pools edit pool_k3f9qz2m --os ubuntu --os-version 24.04",
@@ -714,6 +755,9 @@ func poolsEdit(ctx context.Context, e *env, args []string) error {
 	}
 	id, err := fs.oneArg("a pool ID")
 	if err != nil {
+		return err
+	}
+	if err := spec.checkSizeChoice(fs, "pools edit"); err != nil {
 		return err
 	}
 	client, err := cf.client()
@@ -729,6 +773,7 @@ func poolsEdit(ctx context.Context, e *env, args []string) error {
 	// leaves out -- so the pool as it stands is read first. It is read only
 	// when it is needed, so an edit that changes a label costs no extra call.
 	if fs.changed("cpus") || fs.changed("memory-mb") || fs.changed("disk-gb") || fs.changed("pids-limit") ||
+		fs.changed("size-from-host") ||
 		fs.changed("cpu-burst") || fs.changed("cpu-burst-max") || fs.changed("cpu-burst-size-builds") ||
 		spec.tmpfsChanged(fs) {
 		var existing poolItem

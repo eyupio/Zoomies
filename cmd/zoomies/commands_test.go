@@ -387,6 +387,125 @@ func TestPoolsCreateRefusesACeilingWithoutAMode(t *testing.T) {
 	}
 }
 
+// patchServer answers a pool's GET with `existing` and records the body of the
+// PATCH or POST that follows, which is what these tests are about.
+func patchServer(t *testing.T, existing string, sent *map[string]any) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(existing))
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(sent); err != nil {
+			t.Errorf("decoding the %s body: %v", r.Method, err)
+		}
+		_, _ = w.Write([]byte(`{"id":"pool_1","name":"zoomies-p","enabled":true}`))
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// A pool that takes its size from the host sends the choice and states no
+// size: the API refuses both together, and a create that carried the sliders'
+// figures along would be refused for a thing the operator never typed.
+func TestPoolsCreateCanTakeItsSizeFromTheHost(t *testing.T) {
+	var sent map[string]any
+	srv := patchServer(t, `{}`, &sent)
+
+	runCLI(t, "pools", "create", "--name", "p", "--labels", "p", "--installation", "ins_1",
+		"--size-from-host", "--url", srv.URL)
+
+	if sent["size_from_profile"] != true {
+		t.Errorf("the create must say the pool takes its size from the host: %v", sent)
+	}
+	if res, _ := sent["resources"].(map[string]any); res["cpus"] != nil || res["memory_mb"] != nil {
+		t.Errorf("a pool that takes its size from the host states none: %v", sent["resources"])
+	}
+}
+
+// Moving a pool from a stated size to the host's clears the figures in the same
+// request, because the two are refused together. Disk is independent of the
+// choice, so the edit carries it forward rather than quietly dropping a limit
+// the operator set.
+func TestPoolsEditMovingToTheHostClearsTheStatedSizeAndKeepsTheDisk(t *testing.T) {
+	var sent map[string]any
+	srv := patchServer(t, `{"id":"pool_1","name":"zoomies-p","sizing":"fixed",
+		"resources":{"cpus":4,"memory_mb":8192,"disk_gb":40}}`, &sent)
+
+	runCLI(t, "pools", "edit", "pool_1", "--size-from-host", "--url", srv.URL)
+
+	if sent["size_from_profile"] != true {
+		t.Errorf("the PATCH must carry the choice: %v", sent)
+	}
+	res, ok := sent["resources"].(map[string]any)
+	if !ok {
+		t.Fatalf("the PATCH must send the size it clears, got %v", sent)
+	}
+	if _, has := res["cpus"]; has {
+		t.Errorf("the stated CPU must be cleared: %v", res)
+	}
+	if _, has := res["memory_mb"]; has {
+		t.Errorf("the stated memory must be cleared: %v", res)
+	}
+	if res["disk_gb"] != 40.0 {
+		t.Errorf("the disk limit is independent of the choice and must be kept: %v", res)
+	}
+}
+
+// A PATCH reads an absent key as "leave it alone", so handing a pool back to the
+// share of its host has to send false -- and must not touch the size.
+func TestPoolsEditHandsAPoolBackToTheShareOfItsHost(t *testing.T) {
+	var sent map[string]any
+	srv := patchServer(t, `{"id":"pool_1","name":"zoomies-p","sizing":"profile","size_from_profile":true,"resources":{}}`, &sent)
+
+	runCLI(t, "pools", "edit", "pool_1", "--size-from-host=false", "--url", srv.URL)
+
+	if v, ok := sent["size_from_profile"]; !ok || v != false {
+		t.Errorf("the PATCH must say false, not leave the key out: %v", sent)
+	}
+	if _, ok := sent["resources"]; ok {
+		t.Errorf("handing a pool back to its host's share touches no stated size: %v", sent)
+	}
+}
+
+func TestPoolsRefuseASizeFromTheHostAndAStatedSizeTogether(t *testing.T) {
+	for _, args := range [][]string{
+		{"pools", "create", "--name", "p", "--labels", "p", "--installation", "ins_1", "--size-from-host", "--cpus", "4"},
+		{"pools", "edit", "pool_1", "--size-from-host", "--memory-mb", "4096"},
+	} {
+		e, _, errOut := newTestEnv(t)
+		code := dispatch(context.Background(), e, append(args, "--url", "http://127.0.0.1:1"))
+		if code != exitUsage {
+			t.Fatalf("%v: exit code = %d, want %d", args, code, exitUsage)
+		}
+		if !strings.Contains(errOut.String(), "--size-from-host") || !strings.Contains(errOut.String(), "--cpus or --memory-mb") {
+			t.Errorf("%v: the refusal must name both flags:\n%s", args, errOut.String())
+		}
+	}
+}
+
+// `pools get` has to say where a profile pool's size comes from, and what stands
+// in for a host that sets none: "automatic" would send an operator to the slot
+// share, which is not what this pool does.
+func TestPoolsGetSaysAPoolTakesItsSizeFromItsHosts(t *testing.T) {
+	srv := jsonRoutes(t, map[string]string{
+		"/api/v1/pools/pool_1": `{"id":"pool_1","name":"zoomies-p","backend":"docker","resources":{},
+			"sizing":"profile","size_from_profile":true,"fleet_standard":{"cpus":2,"memory_mb":4096},
+			"cpu_burst":{"mode":"off"},"counts":{}}`,
+	})
+
+	out, _ := runCLI(t, "pools", "get", "pool_1", "--url", srv.URL)
+
+	if !strings.Contains(out, "profile: the standard size each host sets") ||
+		!strings.Contains(out, "the fleet's default of 2 CPUs and 4096 MB where a host sets none") {
+		t.Errorf("pools get must say where the size comes from and what stands in:\n%s", out)
+	}
+	if strings.Contains(out, "one slot's share") {
+		t.Errorf("a profile pool is not sized by a slot's share:\n%s", out)
+	}
+}
+
 // The in-memory folders are one object, like the size: an edit that types only
 // a size for /tmp has to carry the work folder's mode forward from the pool as
 // it stands, or "make /tmp bigger" would quietly put _work back on disk.

@@ -280,6 +280,7 @@
       'run_as_root',
     ],
     size: [
+      'size_from_profile',
       'resources.cpus',
       'resources.memory_mb',
       'resources.disk_gb',
@@ -396,6 +397,7 @@
     docker_mode: 'Docker in jobs',
     run_as_root: 'Run as root',
     priority: 'Priority',
+    size_from_profile: 'Size from the host',
     'resources.cpus': 'CPU per runner',
     'resources.memory_mb': 'Memory per runner',
     'resources.disk_gb': 'Disk per runner',

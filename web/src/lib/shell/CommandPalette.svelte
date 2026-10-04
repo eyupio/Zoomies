@@ -39,6 +39,7 @@
   import { theme } from '../state/theme.svelte';
   import { toasts } from '../state/toasts.svelte';
   import { pluralise } from '../format';
+  import { slotsOf } from '../hosts/slots';
   import { runnerStatus } from '../status';
   import EmptyState from '../components/EmptyState.svelte';
   import Logo from '../components/Logo.svelte';
@@ -288,7 +289,7 @@
         group: 'Host',
         label: host.name ?? id,
         keywords: `${id} ${host.address ?? ''}`,
-        detail: host.cordoned ? 'cordoned' : `${host.active_runners ?? 0} of ${host.capacity ?? 0}`,
+        detail: host.cordoned ? 'cordoned' : `${host.active_runners ?? 0} of ${slotsOf(host)}`,
         icon: HardDrive,
         run: () => router.navigate('/hosts'),
       });

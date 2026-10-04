@@ -49,6 +49,12 @@ import (
 // instead -- see MinimumSlot -- because a share smaller than the least the
 // operator said a runner may have is a runner set up to be killed.
 //
+// A pool that takes its size from the host is given that host's standard size
+// where an automatic pool is given the share -- the profile's, or the fleet's
+// default where the host's names none -- and its source is "profile", so the
+// runner's row says where the size came from. The host's minimum applies first
+// (sizedOn), the same as to every other sum here.
+//
 // With defaults off the pool's limits are the whole answer, which is what
 // every fleet had before this existed.
 func Allocation(p *store.Pool, h *store.Host, defaults bool) (store.Resources, string) {
@@ -60,10 +66,12 @@ func Allocation(p *store.Pool, h *store.Host, defaults bool) (store.Resources, s
 	if !defaults || h == nil || p.Backend == store.BackendProcess {
 		return res, source
 	}
+	p = sizedOn(p, h)
 	info, _ := h.BackendInfo.Find(p.Backend)
 	limits := hostLimits(h, p.Backend)
 	alloc := h.Allocatable()
-	def := HostShare(h)
+	def := slotSize(p, h)
+	standardCPUs, standardMemoryMB := StandardSize(p, h)
 	// A share under the pool's minimum is raised to it, which is what Reserve
 	// charges: the minimum is the least a runner is given, never the most.
 	floor := MinimumSlot(p)
@@ -79,13 +87,24 @@ func Allocation(p *store.Pool, h *store.Host, defaults bool) (store.Resources, s
 			def.CPUs = float64(info.CPUs)
 		}
 		res.CPUs = def.CPUs
-		source = store.AllocationFromHost
+		source = hostSource(standardCPUs > 0, source)
 	}
 	if res.MemoryMB <= 0 && alloc.MemoryKnown && limits.Memory && def.MemoryMB > 0 {
 		res.MemoryMB = def.MemoryMB
-		source = store.AllocationFromHost
+		source = hostSource(standardMemoryMB > 0, source)
 	}
 	return res, source
+}
+
+// hostSource is the source of a field the host decided: "profile" where its
+// runner profile (or the fleet's default standing in for it) named the figure,
+// and "host" where it is a slot's share. A runner that has any field from the
+// profile is a profile runner, whatever the other field was.
+func hostSource(fromProfile bool, current string) string {
+	if fromProfile || current == store.AllocationFromProfile {
+		return store.AllocationFromProfile
+	}
+	return store.AllocationFromHost
 }
 
 // HostShare is one slot's share of a host: the CPU and memory a runner of a
@@ -102,10 +121,10 @@ func HostShare(h *store.Host) store.Resources {
 	alloc := h.Allocatable()
 	var out store.Resources
 	if alloc.CPUsKnown {
-		out.CPUs = shareCPUs(alloc.CPUs, h.Capacity)
+		out.CPUs = shareCPUs(alloc.CPUs, h.Slots())
 	}
 	if alloc.MemoryKnown {
-		out.MemoryMB = int64(share(float64(alloc.MemoryMB), h.Capacity))
+		out.MemoryMB = int64(share(float64(alloc.MemoryMB), h.Slots()))
 	}
 	return out
 }

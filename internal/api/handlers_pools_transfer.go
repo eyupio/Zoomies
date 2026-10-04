@@ -90,6 +90,11 @@ type poolDocument struct {
 	// registers with its own labels only, imported without this, would start
 	// answering to self-hosted and linux again on the other instance.
 	NoDefaultLabels bool `json:"no_default_labels"`
+	// SizeFromProfile travels with the sizes it replaces: a pool that takes its
+	// runners' size from each host, imported without this, would be sized by a
+	// slot's share of the host instead, which is a different size on every
+	// machine the other instance has.
+	SizeFromProfile bool `json:"size_from_profile"`
 }
 
 type poolDocumentTimings struct {
@@ -149,6 +154,7 @@ func documentPool(p *store.Pool, installation string) poolDocument {
 		RunAsRoot:       p.RunAsRoot,
 		Enabled:         p.Enabled,
 		NoDefaultLabels: p.NoDefaultLabels,
+		SizeFromProfile: p.SizeFromProfile,
 	}
 }
 

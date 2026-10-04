@@ -282,11 +282,11 @@ drains its runners first unless you pass `--force`.
 
 ### How big a runner is, and how many there are
 
-A pool sizes its runners in one of two ways, and there is no third: **“no limit
-at all” is not reachable**, because a runner with no cgroup limit takes every
-core on the machine it lands on while the fleet charges it one slot's share —
-the host reads as half committed, its daemon stops answering, and the creates
-queued behind it time out on a machine every page calls busy.
+A pool sizes its runners in one of three ways, and there is no fourth: **“no
+limit at all” is not reachable**, because a runner with no cgroup limit takes
+every core on the machine it lands on while the fleet charges it one slot's
+share — the host reads as half committed, its daemon stops answering, and the
+creates queued behind it time out on a machine every page calls busy.
 
 **One share of each host** is what a pool with no `cpus` and no `memory_mb`
 means, and it is what a new pool does. The scheduler charges each runner one
@@ -302,6 +302,16 @@ That share is handed out by `scheduler.default_runner_limits`, which is on by
 default. With it off, a pool that names no size is charged the share and given
 nothing, which is the one shape where “automatic” and “unlimited” are the same
 thing — so the controller says so (`pool.size_unlimited`).
+
+**The size each host sets** is the third answer, for a fleet whose machines
+differ and where the operator, not a slot count, knows how big a runner should
+be on each of them. The pool carries `size_from_profile` instead of a size, and
+each runner is given the standard size of the [runner
+profile](#runner-profiles-how-big-a-runner-is-on-one-host) of the host it lands
+on — or the fleet's default, `runners.default_cpus` and
+`runners.default_memory_mb`, where a host names none. It is the same pool on
+every host and a different runner on each, and it is the one answer where a
+host's own figures decide what a runner is.
 
 **A fixed size** is the two figures on the pool, applied on every host. It is
 for a pool whose jobs need a particular amount of machine wherever they run,
@@ -354,6 +364,159 @@ against the free disk on the smallest host the pool reaches
 one runner and the next, so a limit above the free space is not a limit at all:
 the disk fills first, and a host at or below its disk reserve takes no runner
 of any pool.
+
+### Runner profiles: how big a runner is on one host
+
+A fleet of identical machines needs nothing beyond the share above. A fleet with
+a twelve-core machine beside two four-core ones does: the size that suits the
+large host is too much for the small ones, and the share is only as good as the
+capacity somebody typed for each. A **runner profile** is what an operator says
+about one host instead — how big a runner is there, and the least it may be —
+and the scheduler places by it.
+
+A profile has two tiers, every field is optional, and a field left out follows
+the fleet's own setting. A host that has never been given one behaves exactly as
+it did before profiles existed: nothing changes on any host until somebody
+writes one.
+
+| Field | What it says | Left out, it follows |
+| --- | --- | --- |
+| `minimum.cpus`, `minimum.memory_mb` | The least a runner is given on this host. | `runners.minimum_cpus` and `runners.minimum_memory_mb` |
+| `standard.cpus`, `standard.memory_mb` | The size of one runner here, for a pool that takes its size from the host. It is also what decides how many runners the host takes. | `runners.default_cpus` and `runners.default_memory_mb` |
+| `standard.burst_max_cpus` | The most CPU one runner here may use, its own share and any CPU lent to it together. | no ceiling of the host's |
+
+A profile is set from the host's menu on **Hosts** (*Set runner sizes*), with
+`zoomies hosts edit`, or with `runner_profile` on `PATCH /api/v1/hosts/{id}`,
+which replaces the whole profile — `{}` clears it. The dialog shows what each
+empty field follows, says how many runners the figures give the host before
+anything is saved, and refuses a figure the machine could never hold.
+
+**Slots follow the standard.** A host with a standard size takes as many runners
+of it as its allocatable machine holds — the machine less its reserve, divided
+by the standard on each of CPU and memory, the smaller count winning — and never
+more than its capacity. Capacity becomes the operator's ceiling on that count
+rather than the count itself: a host that holds three runners and has a capacity
+of eight takes three, and one that holds eight with a capacity of two takes two.
+The host's card says which of the two it is (`slots_limited_by` on the API is
+`cpu`, `memory` or `capacity`). A capacity of zero still takes nothing, because
+that is how a host is paused and a size must never un-pause one, and a host that
+has not reported its machine is counted by its capacity alone until it does.
+Pools sized by a share divide the machine by these slots too, so a share on the
+host above is 3.8 cores, not the 1.4 its capacity of eight would have given.
+
+**A floor and a ceiling meet the pool's.** What a runner is given on a host is
+worked out from both sides, and neither side's explicit figure is changed by the
+other:
+
+* The **floor** is the larger of the pool's minimum — its own, or the fleet's
+  where it follows it — and the host's.
+* The **ceiling** is the smaller of the pool's `cpu_burst.max_cpus` and the
+  host's `burst_max_cpus`. An unset side does not count, so a pool with a ceiling
+  and a host with none keeps the pool's. Whoever owns the machine has the last
+  word on how much of it one job may take, so the host's can lower the pool's
+  and never raise it.
+* A **pool that states a size** — `cpus` and `memory_mb` — is never given more
+  than it states. A host whose minimum is above that size is not used for the
+  pool at all, and says so, rather than building a bigger runner than the pool
+  asked for.
+* A **pool that takes its size from the host** is never given less than its own
+  floor. A host whose standard is below that floor is not used for the pool.
+* A **pool sized by a share** is in neither case: its runner is the share, and
+  a floor above the share raises it, as a minimum always has.
+
+A host left out is named with the limit that did it, in the same words on the
+pool's page, in the pool wizard's count and in the refusal of a host edit that
+would cause it: *its standard runner is 1.5 CPU, below this pool's minimum of
+3 CPU -- give the host a standard runner of at least that, or lower the
+minimum*. A host edit that would leave a pool with nowhere to run is refused
+like any other ([neither half is edited alone](#neither-half-is-edited-alone)),
+and a pool that no host's profile lets run is raised as
+`pool.no_eligible_host`, because the pool looks healthy and starts nothing.
+
+**A throttle does not go below the minimum.** When host pressure steps a host's
+runners down, a host with a minimum stops the CPU part of the step where the
+smallest limited runner on it reaches that minimum, and the slot part of the
+step goes on. A throttle exists to stop a host being overwhelmed and a minimum
+to stop a runner being too small to be of use; a runner throttled below the size
+its host says is the least it may have is the second failure bought with the
+first. The larger runners on the host are throttled a little less than the ladder
+alone would have done, which is the safe direction.
+
+**Which host a runner prefers** is `scheduler.host_order`. `headroom`, the
+default, picks the host with the most CPU and memory left afterwards, which
+spreads work and is what the fleet has always done. `largest_standard` picks the
+host where this pool's runner is biggest, which suits a fleet sized by profile:
+a job that can use three cores goes to the host that gives it three before the
+one that gives it one and a half. `best_fit` picks the one with the least left,
+filling one host before starting the next. The setting only ever chooses among
+hosts that already fit, so it moves where runners go and never whether they
+start.
+
+#### A mixed fleet
+
+One 12-CPU, 32 GB machine and two 4-CPU, 16 GB ones. After the reserve the large
+host has 11.4 CPUs and about 30 GB to place runners on, and each small one 3.5
+CPUs and about 15 GB. The operator gives each a profile:
+
+```sh
+zoomies hosts edit hst_big    --standard-cpus 3   --standard-memory-mb 8192 --min-cpus 2
+zoomies hosts edit hst_small1 --standard-cpus 1.5 --standard-memory-mb 4096
+zoomies hosts edit hst_small2 --standard-cpus 1.5 --standard-memory-mb 4096
+```
+
+The large host holds three runners of 3 CPU and 8 GB — 11.4 CPUs is three
+threes, and 30 GB is three eights — and its cores run out first. Each small host
+holds two runners of 1.5 CPU and 4 GB: 3.5 CPUs is two of them with half a core
+over. That is seven slots between the three machines, where a capacity of eight
+on each would have promised twenty-four. Three pools then use them:
+
+| Pool | How its runner is sized | `big` | each `small` | Room |
+| --- | --- | --- | --- | --- |
+| `zoomies-ci` | the host's standard, no minimum | 3 CPU · 8 GB, three runners | 1.5 CPU · 4 GB, two runners | 7 |
+| `zoomies-build`, minimum 3 CPU | the host's standard | 3 CPU · 8 GB, three runners | kept off: its standard of 1.5 CPU is below the pool's minimum of 3 CPU | 3 |
+| `zoomies-lint`, states 1 CPU and 2 GB | stated by the pool | kept off: the host's minimum of 2 CPU is above the 1 CPU it states | 1 CPU · 2 GB, two runners | 4 |
+
+`zoomies-ci` is the same pool on all three machines and a different runner on
+each. `zoomies-build` needs a runner of at least 3 CPU, so only the large host
+can run it, and the small ones are named as excluded rather than left to look
+like a quiet fleet. `zoomies-lint` states a small size and the large host's
+minimum would have made it bigger, so the large host is kept for work that needs
+it and the lint jobs go to the small ones — which is what the host's minimum is
+for. Creating the first pool and the third is:
+
+```sh
+zoomies pools create --name zoomies-ci --labels zoomies-ci \
+  --installation ins_k3f9qz2m --size-from-host --max 7
+zoomies pools create --name zoomies-lint --labels zoomies-lint \
+  --installation ins_k3f9qz2m --cpus 1 --memory-mb 2048 --max 4
+```
+
+#### Seeing it
+
+Every figure says whose it is — the pool's, the host's or the fleet's — so an
+operator told a runner is 3 CPU knows which setting to change to move it:
+
+* A host's card lists its runner sizes with where each came from, and says what
+  its slots are limited by when a standard made them so.
+* A pool's page has a **Size on each host** panel — for operators, and only
+  where a size is somebody's choice per host: a pool that takes its size from its
+  hosts, or a fleet where some host has a profile. The pool wizard's size step
+  shows the same count while a pool is being made: what a runner is on each host,
+  the floor and ceiling the host puts on it, and each host that is kept off with
+  the reason.
+* A job records the CPU and memory of the runner that took it, and where that
+  size came from (`granted_cpus`, `granted_memory_mb` and `granted_source` on the
+  API), when it took it. Moving a profile later does not rewrite what an earlier
+  job ran on, which is what makes "it ran out of memory" answerable against what
+  the runner was given. `zoomies jobs stats --group-by size` compares jobs by it.
+* `zoomies hosts list` and `zoomies hosts edit` say what a host's profile is and
+  what slots it gives, and `zoomies pools get` says where a pool's size comes
+  from.
+
+A host's profile is applied by the controller when it creates a runner and is
+sent to the agent as the size the runner was given, so no agent needs
+upgrading, and a runner already running keeps the size it was created with: a
+profile changed today moves the runners created after it.
 
 ### Runner settings a pool can override
 
@@ -868,7 +1031,9 @@ daemon stops answering. With `scheduler.default_runner_limits` on — the defaul
 — a runner whose pool leaves `cpus` or `memory_mb` unset is created with **one
 slot's share of the host's allocatable** on that field as a real cgroup limit:
 exactly what it was charged, and nothing the pool did not already pay for. The
-share is the allocatable figure divided by the capacity. An 8-CPU, 16 GB host
+share is the allocatable figure divided by the host's slots — its capacity, or
+fewer where a [runner profile](#runner-profiles-how-big-a-runner-is-on-one-host)
+gives it a standard size. An 8-CPU, 16 GB host
 with capacity 4 keeps half a core and 512 MB for itself and gives each runner
 1.87 CPUs and 3968 MB; the CPU share is floored to the hundredth the pool form
 takes limits in, rather than rounded, because three runners rounded up from

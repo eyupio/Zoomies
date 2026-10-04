@@ -226,13 +226,14 @@ func elasticBase(p *store.Pool, h *store.Host, r *store.Runner) float64 {
 }
 
 // elasticCeiling is the most one runner of p may be lent up to on h: the
-// pool's own ceiling, the host's allocatable CPU, and the daemon's core count,
-// whichever is least. The last is the one easily forgotten: a Docker Desktop
+// pool's own ceiling and the host's (scheduler.BurstLimit, the smaller of the
+// two), the host's allocatable CPU, and the daemon's core count, whichever is
+// least. The last is the one easily forgotten: a Docker Desktop
 // or VM daemon is smaller than the machine the agent measured, and refuses a
 // quota above its own cores outright ("range of CPUs is from 0.01 to N"), so a
 // boost past it would be no boost at all and a warning on every heartbeat.
 func elasticCeiling(p *store.Pool, h *store.Host, allocatable float64) float64 {
-	ceiling := p.CPUBurst.MaxCPUs
+	ceiling := scheduler.BurstLimit(p, h)
 	if ceiling <= 0 || ceiling > allocatable {
 		ceiling = allocatable
 	}

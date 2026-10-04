@@ -251,6 +251,13 @@ A ceiling cannot take a runner below its guarantee. A pool edited to a ceiling
 under a running runner's share keeps that runner at its guarantee, and the
 runner page shows the guarantee as the ceiling rather than the smaller figure.
 
+A host can set a ceiling of its own, `burst_max_cpus` in its [runner
+profile](hosts-and-pools.md#runner-profiles-how-big-a-runner-is-on-one-host),
+for a machine whose owner wants a limit on how much of it one job may take
+whatever the pool says. Where both are set the smaller applies, so the host's
+ceiling can lower a pool's and never raise it, and where only one is set that one
+does. The pool's per-host table shows whose ceiling is in force on each host.
+
 ## Turning it on
 
 === "The pool wizard"
@@ -492,8 +499,11 @@ the only one that moves while a job runs:
 1. The **host's reserve** — the daemon's floor and the operator's `reserve_cpus`
    — is held back first. [What a runner
    reserves](hosts-and-pools.md#what-a-runner-reserves).
-2. The **guarantee** is one slot's share of what is left, or the pool's fixed
-   `cpus`. [Default allocations](hosts-and-pools.md#default-allocations).
+2. The **guarantee** is one slot's share of what is left, the standard size of
+   the host's [runner
+   profile](hosts-and-pools.md#runner-profiles-how-big-a-runner-is-on-one-host)
+   for a pool that takes its size from the host, or the pool's fixed `cpus`.
+   [Default allocations](hosts-and-pools.md#default-allocations).
 3. The **throttle** reduces every limited runner when the host is overwhelmed,
    and outranks everything below it. [Current usage and automatic
    holds](hosts-and-pools.md#current-usage-and-automatic-holds).

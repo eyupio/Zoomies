@@ -82,9 +82,15 @@ type hostUpdateRequest struct {
 	ReserveCPUs     *int   `json:"reserve_cpus"`
 	ReserveMemoryMB *int64 `json:"reserve_memory_mb"`
 	ReserveDiskMB   *int64 `json:"reserve_disk_mb"`
+	// RunnerProfile replaces the host's whole runner profile. Leave it out to
+	// change nothing; send an empty object, {}, to clear it so the host follows
+	// the fleet's settings again. A field left out of a profile that is sent
+	// follows the fleet's setting too -- it is the whole profile that is
+	// replaced, not the fields that were mentioned.
+	RunnerProfile *store.RunnerProfile `json:"runner_profile"`
 }
 
-// handleUpdateHost changes a host's capacity, labels or reserve.
+// handleUpdateHost changes a host's capacity, labels, reserve or runner profile.
 func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 	id := chiURLParam(r, "id")
 	h, err := s.ctrl.Store().GetHost(r.Context(), id)
@@ -154,6 +160,9 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 			fields = append(fields, fieldError{"reserve_disk_mb", fmt.Sprintf("this host's work directory has %d MB of disk; a reserve of %d would leave nothing to place on", h.DiskTotalMB, *req.ReserveDiskMB)})
 		}
 	}
+	if req.RunnerProfile != nil {
+		fields = append(fields, validateRunnerProfile(h, *req.RunnerProfile)...)
+	}
 	if len(fields) > 0 {
 		unprocessable(w, "this host cannot be changed as described", fields)
 		return
@@ -182,6 +191,9 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 		if req.Labels != nil {
 			proposed.Labels = store.StringMap(*req.Labels)
 		}
+		if req.RunnerProfile != nil {
+			proposed.RunnerProfile = *req.RunnerProfile
+		}
 		stranded, serr := s.ctrl.HostStrandings(r.Context(), &proposed)
 		if serr != nil {
 			s.internal(w, r, "checking which pools this change would leave with nowhere to run", serr)
@@ -197,6 +209,7 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 	changes := store.HostChanges{
 		Capacity: req.Capacity, ReserveCPUs: req.ReserveCPUs,
 		ReserveMemoryMB: req.ReserveMemoryMB, ReserveDiskMB: req.ReserveDiskMB,
+		RunnerProfile: req.RunnerProfile,
 	}
 	if req.Labels != nil {
 		labels := store.StringMap(*req.Labels)
@@ -212,9 +225,10 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A change to the capacity or the reserve is the operator answering the
-	// pressure that throttled the host -- fewer slots, or more of the machine
-	// kept back -- so the rung it was on is lifted with it. Left standing, the
+	// A change to the capacity, the reserve or the runner profile is the
+	// operator answering the pressure that throttled the host -- fewer slots,
+	// more of the machine kept back, or runners of another size -- so the rung
+	// it was on is lifted with it. Left standing, the
 	// new figures would only take effect once the old episode had spent five
 	// minutes calm, and the card would show a throttle nothing explains. A
 	// label change says nothing about the machine and lifts nothing, and
@@ -225,7 +239,8 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 	// host and a log line, not a 500 that reads as "nothing was saved".
 	cleared := false
 	resized := before.Capacity != h.Capacity || before.ReserveCPUs != h.ReserveCPUs ||
-		before.ReserveMemoryMB != h.ReserveMemoryMB || before.ReserveDiskMB != h.ReserveDiskMB
+		before.ReserveMemoryMB != h.ReserveMemoryMB || before.ReserveDiskMB != h.ReserveDiskMB ||
+		before.RunnerProfile != h.RunnerProfile
 	if h.Throttle.Active() && resized {
 		if lifted, err := s.ctrl.ClearHostThrottle(r.Context(), id); err != nil {
 			s.logger(r).Warn("a host's capacity or reserve changed but its throttle could not be lifted; the next heartbeat decides it again",

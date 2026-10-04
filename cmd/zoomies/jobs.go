@@ -518,7 +518,7 @@ func jobsStats(ctx context.Context, e *env, args []string) error {
 			"were never stamped with a release are the group \"unknown\".")
 	cf := registerClientFlags(fs, true)
 	groupBy, repos, workflows, jobNames := &listValue{}, &listValue{}, &listValue{}, &exactList{}
-	fs.Var(groupBy, "group-by", "controller_version, day, host, pool or job_name; at most two (repeatable)")
+	fs.Var(groupBy, "group-by", "controller_version, day, host, pool, job_name or size; at most two (repeatable)")
 	fs.Var(repos, "repo", "only this repository, e.g. acme/widgets (repeatable)")
 	fs.Var(workflows, "workflow", "only this workflow (repeatable)")
 	fs.Var(jobNames, "job-name", "only jobs with exactly this name (repeatable)")

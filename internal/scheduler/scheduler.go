@@ -71,6 +71,11 @@ type Snapshot struct {
 	// here. An empty mode is off.
 	JobHistory    map[store.JobUsageKey][]store.JobPeak
 	HistorySizing string
+	// HostOrder is scheduler.host_order: the order placement prefers hosts that
+	// can all take a runner in -- see HostOrderHeadroom and the constants
+	// beside it. An empty value is headroom, which is what every fleet had
+	// before the setting existed.
+	HostOrder string
 }
 
 const (
@@ -354,6 +359,7 @@ func Decide(s Snapshot) Plan {
 		historySizing:      s.HistorySizing,
 	}
 	t.hosts.readiness, t.hosts.preferReadiness = s.Readiness, s.PreferReadiness
+	t.hosts.order = s.HostOrder
 	if t.budget <= 0 {
 		// An unset cap must not stall the fleet; host capacity still bounds us.
 		t.budget = math.MaxInt
@@ -1208,6 +1214,8 @@ type hostSet struct {
 	promisedMemory map[string]int64
 	ours           map[string]bool
 	now            time.Time
+	// order is scheduler.host_order; see Snapshot.HostOrder.
+	order string
 	// need is set while a runner is being placed for a known requirement
 	// under scheduler.history_sizing=on: a host that cannot hold it is not
 	// eligible, and the runner is sized up to it where its pool allows.
@@ -1615,7 +1623,7 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 			noEligibleHost: true,
 		}
 	}
-	var unhealthy, cordoned, incompatible, backend, platform, selector, tooSmall, full int
+	var unhealthy, cordoned, incompatible, backend, platform, selector, profile, tooSmall, full int
 	var shortCPU, shortMemory, lowDisk, held, warming, throttled, committed int
 	var detail string
 	for _, h := range hs.hosts {
@@ -1641,6 +1649,14 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 			platform++
 		case !HostSelects(h, p):
 			selector++
+		case ExcludedBySize(h, p) != nil:
+			// What the host's runner profile and the pool's size say about each
+			// other, which no amount of waiting changes -- so it is asked before
+			// the weather, and counted in neither of the flags that mean wait.
+			profile++
+			if detail == "" {
+				detail = h.Name + ": " + ExcludedBySize(h, p).Reason
+			}
 		case HostAdmissionReason(h, hs.now) != "":
 			held++
 			if detail == "" {
@@ -1648,7 +1664,7 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 			}
 		case hostUnderCPUPressure(h, hs.now) && hs.warming[h.ID] > 0:
 			warming++
-		case h.Throttle.Active() && hs.free[h.ID] <= 0 && h.ActiveRunners < h.Capacity:
+		case h.Throttle.Active() && hs.free[h.ID] <= 0 && h.ActiveRunners < h.Slots():
 			// Slots the operator configured and the throttle has taken back.
 			// It is its own count because "at capacity" would send an
 			// operator to raise a capacity that is not the problem: the host
@@ -1712,6 +1728,7 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 	add(backend, "without the "+string(p.Backend)+" backend")
 	add(platform, "not "+p.Platform.Describe())
 	add(selector, "not matching the pool's host selector")
+	add(profile, "excluded by their runner profile")
 	add(tooSmall, "too small for this pool's limits")
 	add(shortMemory, "short of memory")
 	add(shortCPU, "short of CPU")
@@ -1780,6 +1797,10 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 		// runner that exits leaves its caches behind on purpose, so telling an
 		// operator to wait here is telling them to wait for nothing.
 		b.fix = "free space on those hosts' work directories, lower the pool's disk request, or add a host"
+	case profile > 0 && profile+unhealthy+cordoned == len(hs.hosts):
+		// Both halves are things an operator wrote, so both are named: either
+		// can be changed, and which one is right is theirs to say.
+		b.fix = "change those hosts' minimum or standard runner size, or this pool's size or minimum, or add a host whose profile suits it"
 	case tooSmall > 0 && tooSmall+unhealthy+cordoned == len(hs.hosts):
 		b.fix = "lower this pool's CPU or memory limits, or add a host large enough to run one"
 	case shortMemory+shortCPU > 0 && shortMemory+shortCPU+unhealthy+cordoned == len(hs.hosts):

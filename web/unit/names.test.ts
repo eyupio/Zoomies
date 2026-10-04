@@ -27,6 +27,20 @@ test('a pool sized by its host is named for the machine, not for a share of one'
   assert.equal(automatic, 'zoomies-ubuntu-2404');
 });
 
+// The same holds when the answer is the standard size each host names for
+// itself: it is different on every machine, and the sliders' position is just
+// as little the pool's. Naming it for the sliders would be the mistake the
+// automatic pool is protected from, made by a third answer.
+test('a pool that takes its size from each host is named for the machine too', () => {
+  const profile = poolName(
+    'spaniel',
+    shape({ sizing: 'profile', cpus: '4', memory_mb: '8192' }),
+    [],
+    [],
+  );
+  assert.equal(profile, 'zoomies-ubuntu-2404');
+});
+
 // A size somebody chose is part of what a workflow author is choosing between,
 // so a fixed pool says it.
 test('a pool with a size of its own says so', () => {

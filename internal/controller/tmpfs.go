@@ -107,12 +107,16 @@ func cacheInMemoryWarning(p *store.Pool) (Problem, bool) {
 // that it can ignores the setting and starts the runner on disk: a safe
 // outcome, and an invisible one, for the same reason heldByOldAgents gives for
 // elastic CPU. The warning is where the pool is saved, with the hosts named.
-func heldWithoutTmpfs(p *store.Pool, room PoolRoom) (Problem, bool) {
+//
+// Only the hosts the pool can be placed on count: one its runner profile keeps
+// the pool off is listed in the room with no room, and is not a host the pool
+// will ever land on, so naming it would be a warning about nothing.
+func heldWithoutTmpfs(p *store.Pool, hosts []PoolHostRoom) (Problem, bool) {
 	if !p.Tmpfs.Any() {
 		return Problem{}, false
 	}
 	var names []string
-	for _, h := range room.Hosts {
+	for _, h := range hosts {
 		if !h.Tmpfs {
 			names = append(names, h.Host)
 		}
@@ -128,7 +132,7 @@ func heldWithoutTmpfs(p *store.Pool, room PoolRoom) (Problem, bool) {
 		Code:     "pool.tmpfs_unsupported",
 		Severity: config.SeverityWarning,
 		Title: fmt.Sprintf("pool %s: %d of its %s %s an agent that cannot keep folders in memory",
-			p.Name, len(names), plural(len(room.Hosts), "host"), runs),
+			p.Name, len(names), plural(len(hosts), "host"), runs),
 		Detail: "the agent on a host mounts the in-memory folders, and these agents are too old to say they can: " +
 			strings.Join(names, ", ") + ". A runner placed there starts with its folders on disk, exactly as with the setting off, " +
 			"and nothing on the pool says which of its runners that happened to.",

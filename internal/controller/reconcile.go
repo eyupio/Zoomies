@@ -192,6 +192,7 @@ func (c *Controller) snapshot(ctx context.Context) (scheduler.Snapshot, error) {
 	}
 	return scheduler.Snapshot{
 		JobHistory: history, HistorySizing: mode,
+		HostOrder: c.cfg().Scheduler.HostOrder,
 		Readiness: readiness, PreferReadiness: c.cfg().Scheduler.PlacementMode == "readiness",
 		LastProvisioned:    lastProvisioned,
 		Now:                now,
@@ -529,7 +530,7 @@ func (c *Controller) finishCreateRunner(ctx context.Context, inst *store.Install
 		// limit gets one slot's share of the host, and the agent applies
 		// whatever this says without knowing the difference.
 		Resources:       resources,
-		ResourcesSource: source,
+		ResourcesSource: wireSource(source),
 		Cache:           pool.Cache,
 		Tmpfs:           pool.Tmpfs,
 		// An organisation installation's target is the organisation, which is
@@ -607,6 +608,20 @@ func (c *Controller) finishCreateRunner(ctx context.Context, inst *store.Install
 		c.log.Debug("runner moved on before its detached credential mint finished; skipped duplicate create",
 			"runner", current.ID, "state", current.State)
 	}
+}
+
+// wireSource is the allocation source an agent is sent. The runner's row and
+// the API say "profile" where a host's runner profile decided the size, but an
+// agent that predates the value reads a source it does not know as a size
+// somebody typed, and would hand a docker-in-docker pair's daemon the whole
+// figure on top of the runner's -- twice what the host was charged. What an
+// agent does with a size is the same for both, one slot split between the
+// pair, so it is told "host", which every agent that exists understands.
+func wireSource(source string) string {
+	if source == store.AllocationFromProfile {
+		return store.AllocationFromHost
+	}
+	return source
 }
 
 // mintCredentials asks GitHub for whatever this pool's runners register with.

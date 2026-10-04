@@ -279,25 +279,36 @@ func TestACacheKeptInMemoryNeedsASizeLimit(t *testing.T) {
 }
 
 // An agent too old to mount the folders starts the runner on disk, which is
-// safe and invisible; the pool is told where it is saved.
+// safe and invisible; the pool is told where it is saved. Only hosts the pool
+// can be placed on count: one its runner profile keeps it off is listed with no
+// room, and naming it would be a warning about a machine it never lands on.
 func TestAPoolOnAnAgentThatCannotMountInMemoryFoldersIsWarned(t *testing.T) {
 	pool := &store.Pool{Name: "zoomies-ci", Tmpfs: store.TmpfsConfig{Work: store.TmpfsMount{Enabled: true}}}
-	room := PoolRoom{Hosts: []PoolHostRoom{
+	hosts := []PoolHostRoom{
 		{Host: "new", Tmpfs: true},
 		{Host: "old", Tmpfs: false},
-	}}
-	w, ok := heldWithoutTmpfs(pool, room)
+	}
+	w, ok := heldWithoutTmpfs(pool, hosts)
 	if !ok || !strings.Contains(w.Detail, "old") || strings.Contains(w.Detail, "new,") {
 		t.Fatalf("warning = %+v, ok = %v; want only the old host named", w, ok)
 	}
 	if w.Code != "pool.tmpfs_unsupported" || w.TargetKind != "pool" {
 		t.Errorf("warning = %+v", w)
 	}
-	if _, ok := heldWithoutTmpfs(&store.Pool{Name: "zoomies-ci"}, room); ok {
+	if _, ok := heldWithoutTmpfs(&store.Pool{Name: "zoomies-ci"}, hosts); ok {
 		t.Error("a pool with nothing in memory was warned about its hosts")
 	}
-	if _, ok := heldWithoutTmpfs(pool, PoolRoom{Hosts: []PoolHostRoom{{Host: "new", Tmpfs: true}}}); ok {
+	if _, ok := heldWithoutTmpfs(pool, []PoolHostRoom{{Host: "new", Tmpfs: true}}); ok {
 		t.Error("a pool whose hosts all support it was warned")
+	}
+	// The room hands the warning only the placeable hosts, so an excluded old
+	// agent is never named.
+	room := PoolRoom{Hosts: []PoolHostRoom{
+		{Host: "new", Tmpfs: true},
+		{Host: "excluded-old", Tmpfs: false, ExcludedBy: ExcludedProfile},
+	}}
+	if _, ok := heldWithoutTmpfs(pool, room.Placeable()); ok {
+		t.Error("a host the pool is kept off was named as one it would land on")
 	}
 }
 

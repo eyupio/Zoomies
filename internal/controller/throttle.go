@@ -185,8 +185,52 @@ func (c *Controller) clearThrottle(ctx context.Context, h *store.Host, audit boo
 // always sent, level 0 and factor 1 included: an agent that was told to run
 // its runners at half their quota has to be told when to stop, and "no field"
 // from a controller too old to send one already means "no throttle".
-func throttleDirective(h *store.Host) *agent.ThrottleDirective {
-	return &agent.ThrottleDirective{Level: h.Throttle.Level, CPUFactor: h.Throttle.CPUFactor()}
+//
+// The CPU factor is the ladder's, raised where the host's profile sets a
+// minimum runner size so that no runner is throttled below it (see
+// scheduler.ThrottleFloorFactor). That is decided here and not on the agent:
+// the agent already scales each runner by whatever one factor it is sent, so a
+// controller-side floor needs no new field, no feature flag and no protocol
+// bump, and an agent that has never heard of profiles obeys it unchanged.
+func (c *Controller) throttleDirective(ctx context.Context, h *store.Host) *agent.ThrottleDirective {
+	factor := h.Throttle.CPUFactor()
+	if floor := h.RunnerProfile.Minimum.CPUs; floor > 0 && factor < 1 {
+		factor = max(factor, scheduler.ThrottleFloorFactor(floor, c.limitedContainerCPUs(ctx, h)))
+	}
+	return &agent.ThrottleDirective{Level: h.Throttle.Level, CPUFactor: factor}
+}
+
+// limitedContainerCPUs is the CPU quota each limited container on h was created
+// with: one per runner, or two for a docker-in-docker pair -- a typed figure is
+// given to both halves, a share is split between them. A runner created with no
+// limit has nothing to scale and is left out. A read that fails answers with
+// nothing, which leaves the ladder's own factor standing: a throttle that
+// cannot find its floor is still a throttle.
+func (c *Controller) limitedContainerCPUs(ctx context.Context, h *store.Host) []float64 {
+	runners, err := c.st.ListRunnersForHost(ctx, h.ID)
+	if err != nil {
+		c.log.Warn("could not read a host's runners to find its throttle floor", "host", h.ID, "error", err)
+		return nil
+	}
+	pools := map[string]*store.Pool{}
+	var out []float64
+	for _, r := range runners {
+		if !r.State.Live() || r.AllocatedCPUs <= 0 {
+			continue
+		}
+		p, seen := pools[r.PoolID]
+		if !seen {
+			p, _ = c.st.GetPool(ctx, r.PoolID)
+			pools[r.PoolID] = p
+		}
+		perHalf := r.AllocatedCPUs
+		if p != nil && p.DockerMode == store.DockerDinD && !typedAllocation(r, p.Resources.CPUs > 0) {
+			// One slot split between the runner and its daemon.
+			perHalf /= 2
+		}
+		out = append(out, perHalf)
+	}
+	return out
 }
 
 // sameThrottle reports whether two rungs are the same row: the ladder returns

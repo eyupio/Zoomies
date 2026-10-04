@@ -121,6 +121,7 @@
       room={verdict.room ?? null}
       cpus={body.resources?.cpus ?? 0}
       memoryMb={body.resources?.memory_mb ?? 0}
+      profile={body.size_from_profile === true}
       maxRunners={body.max_runners ?? 0}
       {validating}
     />

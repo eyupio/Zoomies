@@ -83,8 +83,13 @@ What runners to make, and how many.
 `--name`, `--installation`, `--labels`, `--backend` (`docker`), `--image`,
 `--min` (`0`), `--max` (`4`), `--idle-timeout` (`5m`), `--ephemeral` (`true`),
 `--docker-mode` (`none`), `--run-as-root` (`false`), `--host-selector`, the
-resource limits `--cpus`, `--memory-mb`, `--disk-gb`, and the [elastic
-CPU](elastic-cpu.md) policy, `--cpu-burst` (`off`, `observe` or `automatic`)
+resource limits `--cpus`, `--memory-mb`, `--disk-gb`, `--size-from-host` to take
+each runner's size from the host it lands on instead (a pool does that or states
+a size, so it cannot be combined with `--cpus` or `--memory-mb`; moving an
+existing pool to it clears the stated figures in the same request, and
+`--size-from-host=false` hands it back to a slot's share of each host — see
+[runner profiles](hosts-and-pools.md#runner-profiles-how-big-a-runner-is-on-one-host)),
+and the [elastic CPU](elastic-cpu.md) policy, `--cpu-burst` (`off`, `observe` or `automatic`)
 with `--cpu-burst-max` as its ceiling in cores; on a create the ceiling needs
 the mode beside it. Both are read live, so an edit reaches runners already
 running. `--cpu-burst-size-builds` (`true`) starts an `automatic` pool's runners
@@ -187,7 +192,8 @@ run it again, that is your call to make.
 
 | Command | What it does |
 | --- | --- |
-| `hosts list` | The hosts that have joined. |
+| `hosts list` | The hosts that have joined. A host with runner sizes of its own gets a line under the table saying what they are, whose they are, and how many slots they give. |
+| `hosts edit <host-id>` | Change a host's capacity (`--capacity`), its reserve (`--reserve-cpus`, `--reserve-memory-mb`, `--reserve-disk-mb`) or how big a runner is on it: `--standard-cpus` and `--standard-memory-mb` for the size one runner is given, `--min-cpus` and `--min-memory-mb` for the least, `--burst-max-cpus` for the most CPU one may use, lent CPU included. Zero follows the fleet's own setting again, and `--clear-profile` removes the whole profile. Anything you do not name is left alone, including the rest of a profile you changed one figure of. An edit that would leave a pool with nowhere to run is refused unless `--confirm`. See [runner profiles](hosts-and-pools.md#runner-profiles-how-big-a-runner-is-on-one-host). |
 | `hosts cordon <host-id>` | Stop scheduling new runners onto it. What it already has keeps running. |
 | `hosts uncordon <host-id>` | Let it accept runners again. |
 | `hosts drain <host-id> [--yes]` | Cordon it, then drain every runner on it, so it empties as its jobs finish. The order matters: draining an uncordoned host means the scheduler puts fresh runners on it while the old ones are still going. Each runner gets five minutes to finish what it is on; a longer job is stopped, which is what makes the host actually empty. A runner that is busy is only drained with `--yes`; without it that runner is refused and the host stays cordoned. |

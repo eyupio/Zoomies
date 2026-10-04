@@ -29,21 +29,39 @@ func EffectiveMinimum(r store.Resources, fleet config.Runners) (cpus float64, me
 }
 
 // sizingPool returns p as the fleet sizes it: a copy with the inherited
-// minimum filled in, or p itself when nothing is inherited. It is for the
-// callers that decide or report on a runner's size -- scheduling, room, fit,
-// problems -- and never for one that stores, exports or renders the pool's own
-// settings: a copy written back would turn "the fleet's figure" into a figure
-// of the pool's own, and the fleet setting would stop moving it.
+// minimum filled in, and -- for a pool that takes its size from the host --
+// the fleet's default runner size laid beside it for a host whose profile names
+// none. It is p itself when nothing is inherited. It is for the callers that
+// decide or report on a runner's size -- scheduling, room, fit, problems -- and
+// never for one that stores, exports or renders the pool's own settings: a copy
+// written back would turn "the fleet's figure" into a figure of the pool's own,
+// and the fleet setting would stop moving it.
+//
+// The copy also remembers which minimum was the fleet's (Pool.FleetMinimum),
+// so that a host left out of a pool for being under it can say whose figure it
+// was under.
 func sizingPool(p *store.Pool, fleet config.Runners) *store.Pool {
 	if p == nil {
 		return nil
 	}
 	cpus, memoryMB := EffectiveMinimum(p.Resources, fleet)
-	if cpus == p.Resources.MinCPUs && memoryMB == p.Resources.MinMemoryMB {
+	var standard, inherited store.RunnerSize
+	if p.SizeFromProfile {
+		standard.CPUs, standard.MemoryMB = fleet.DefaultRunnerSize()
+	}
+	if p.Resources.MinCPUs <= 0 && cpus > 0 {
+		inherited.CPUs = cpus
+	}
+	if p.Resources.MinMemoryMB <= 0 && memoryMB > 0 {
+		inherited.MemoryMB = memoryMB
+	}
+	if cpus == p.Resources.MinCPUs && memoryMB == p.Resources.MinMemoryMB &&
+		standard == p.FleetStandard && inherited == p.FleetMinimum {
 		return p
 	}
 	cp := *p
 	cp.Resources.MinCPUs, cp.Resources.MinMemoryMB = cpus, memoryMB
+	cp.FleetStandard, cp.FleetMinimum = standard, inherited
 	return &cp
 }
 

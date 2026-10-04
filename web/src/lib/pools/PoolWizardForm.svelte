@@ -60,14 +60,17 @@
      * charges each runner one slot's share of the host it lands on and gives
      * it exactly that share as a real cgroup limit, so a fleet of unequal
      * machines is sized correctly on every one of them without anybody typing
-     * a number. `fixed` is the two figures below, the same on every host.
+     * a number. `profile` is the same absence with one more answer given: each
+     * runner is the standard size of the host's own runner profile, and the
+     * pool carries `size_from_profile` to say so. `fixed` is the two figures
+     * below, the same on every host.
      *
-     * It is wizard state rather than a pool field because the pool has no such
-     * field: emptiness is the answer. Holding the choice separately is what
-     * keeps the sliders' last position while an operator looks at automatic
-     * and changes their mind back.
+     * It is wizard state rather than a pool field because `automatic` and
+     * `fixed` are told apart by emptiness, and holding the choice separately is
+     * what keeps the sliders' last position while an operator looks at the
+     * other answers and changes their mind back.
      */
-    sizing: 'automatic' | 'fixed';
+    sizing: 'automatic' | 'fixed' | 'profile';
     cpu_burst_mode: 'off' | 'observe' | 'automatic';
     cpu_burst_max: string;
     cpu_burst_size_builds: boolean;
@@ -205,7 +208,8 @@
       // The server says which of the two this pool is doing rather than the
       // browser inferring it from two absent numbers, because "no CPU limit"
       // alone cannot tell "the host decides" from "nobody set one".
-      sizing: pool.sizing === 'fixed' ? 'fixed' : 'automatic',
+      sizing:
+        pool.sizing === 'fixed' ? 'fixed' : pool.sizing === 'profile' ? 'profile' : 'automatic',
       cpu_burst_mode: pool.cpu_burst?.mode ?? 'off',
       cpu_burst_max: fromNumber(pool.cpu_burst?.max_cpus),
       cpu_burst_size_builds: pool.cpu_burst?.size_for_ceiling ?? true,
@@ -246,7 +250,7 @@
    */
   export function poolIsTuned(draft: PoolDraft): boolean {
     return (
-      draft.sizing === 'fixed' ||
+      draft.sizing !== 'automatic' ||
       draft.cpu_burst_mode === 'automatic' ||
       draft.restrict_hosts ||
       Object.keys(draft.host_selector).length > 0 ||
@@ -328,6 +332,11 @@
     if (pids !== undefined) resources.pids_limit = pids;
 
     const body: PoolCreate = {
+      // Always sent, true or false, because a PATCH reads an absent key as
+      // "leave it alone": a pool moved back from the host's profile to a share
+      // or a stated size would otherwise keep taking its size from the host
+      // while the toast says it was saved.
+      size_from_profile: draft.sizing === 'profile',
       name: brandedName(draft.name),
       installation_id: draft.installation_id,
       labels: draft.labels.map((label) => label.trim()).filter(Boolean),
@@ -497,7 +506,7 @@
     )
       errors['resources.min_memory_mb'] = 'A runner needs at least 512 MB.';
     if (
-      draft.sizing === 'automatic' &&
+      draft.sizing !== 'fixed' &&
       (draft.backend === 'docker' || draft.backend === 'podman') &&
       draft.cpu_burst_max.trim() !== ''
     ) {
@@ -1154,7 +1163,7 @@
         />
       {/if}
 
-      {#if draft.sizing === 'automatic' && (draft.backend === 'docker' || draft.backend === 'podman')}
+      {#if draft.sizing !== 'fixed' && (draft.backend === 'docker' || draft.backend === 'podman')}
         <PoolStartupStability
           warnings={verdict?.warnings ?? []}
           onfixed={() => stabilityRevision++}

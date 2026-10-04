@@ -68,6 +68,11 @@ type poolItem struct {
 	// each given one slot's share of the machine they land on.
 	Resources poolResources `json:"resources"`
 	Sizing    string        `json:"sizing"`
+	// SizeFromProfile is a pool that takes each runner's size from the host it
+	// lands on, as that host's runner profile says; FleetStandard is the size a
+	// runner is on a host whose profile names none.
+	SizeFromProfile bool          `json:"size_from_profile"`
+	FleetStandard   poolResources `json:"fleet_standard"`
 	// CPUBurst is the pool's elastic CPU policy: whether a busy runner may be
 	// lent the host's spare CPU above its guaranteed share.
 	CPUBurst poolCPUBurst `json:"cpu_burst"`
@@ -294,6 +299,36 @@ type hostItem struct {
 	Healthy           bool              `json:"healthy"`
 	LastHeartbeat     time.Time         `json:"last_heartbeat"`
 	CreatedAt         time.Time         `json:"created_at"`
+
+	// Slots is what the host takes before any throttle -- its capacity, or what
+	// its machine holds of its standard runner size -- and SlotsLimitedBy says
+	// what sets it. RunnerProfile is what the operator wrote, nil when nothing,
+	// and EffectiveProfile what is in force with the fleet's figures standing in
+	// for the rest. A controller older than the fields sends none of them.
+	Slots            int            `json:"slots"`
+	SlotsLimitedBy   string         `json:"slots_limited_by"`
+	RunnerProfile    *runnerProfile `json:"runner_profile"`
+	EffectiveProfile struct {
+		Standard struct {
+			CPUs           float64 `json:"cpus"`
+			MemoryMB       int64   `json:"memory_mb"`
+			CPUsSource     string  `json:"cpus_source"`
+			MemoryMBSource string  `json:"memory_mb_source"`
+		} `json:"standard"`
+	} `json:"effective_profile"`
+}
+
+// runnerProfile is a host's runner profile as the API writes and reads it.
+type runnerProfile struct {
+	Minimum struct {
+		CPUs     float64 `json:"cpus,omitempty"`
+		MemoryMB int64   `json:"memory_mb,omitempty"`
+	} `json:"minimum"`
+	Standard struct {
+		CPUs         float64 `json:"cpus,omitempty"`
+		MemoryMB     int64   `json:"memory_mb,omitempty"`
+		BurstMaxCPUs float64 `json:"burst_max_cpus,omitempty"`
+	} `json:"standard"`
 }
 
 type joinTokenItem struct {
