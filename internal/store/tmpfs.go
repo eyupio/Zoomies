@@ -24,6 +24,16 @@ const (
 	// every layer it builds -- is larger than a checkout, and a pull that does not
 	// fit fails the job rather than slowing it.
 	DefaultTmpfsDaemonMB int64 = 8192
+	// AutoMinWorkMB, AutoMinTmpMB and AutoMinDaemonMB are the least an automatic
+	// folder is worth. An auto folder that would be fitted below its floor is kept
+	// on disk instead: a checkout, a build's temporary files or an image pull
+	// that does not fit fails with "no space left on device", which names neither
+	// the mount nor the setting, and a folder that small saves little disk traffic
+	// anyway. A size an operator typed lowers the floor to itself, because they
+	// asked for exactly that much.
+	AutoMinWorkMB   int64 = 2048
+	AutoMinTmpMB    int64 = 1024
+	AutoMinDaemonMB int64 = 4096
 	// MinTmpfsMB is the least a tmpfs may be. Below it a checkout fails in a way
 	// that reads as a broken runner rather than a small mount.
 	MinTmpfsMB int64 = 64
@@ -36,6 +46,12 @@ type TmpfsMount struct {
 	// (TmpfsConfig.Sizes), which is what a pool that has not thought about it
 	// wants: a size that fits whatever machine share the runner was given.
 	SizeMB int64 `json:"size_mb,omitempty"`
+	// Auto lets each runner decide: the folder is in memory where the runner has
+	// room for it to be useful (see the AutoMin* floors) and on disk where it has
+	// not. Without it an enabled folder is always in memory, fitted as small as
+	// the limit demands, which is the choice for an operator who knows better than
+	// the arithmetic. Meaningless unless Enabled.
+	Auto bool `json:"auto,omitempty"`
 }
 
 // TmpfsConfig says which of a runner's folders are kept in memory. The zero
@@ -124,6 +140,12 @@ func (c TmpfsConfig) RecommendedMemoryMB(capMB int64) int64 {
 // store filling to its ceiling while the build also wants memory is the
 // out-of-memory this setting must not cause by itself.
 func (c TmpfsConfig) DaemonSize(capMB int64) int64 {
+	return c.daemonSize(capMB, DefaultTmpfsDaemonMB)
+}
+
+// daemonSize is DaemonSize with the size an untyped store is asked for, which a
+// host's own standard replaces.
+func (c TmpfsConfig) daemonSize(capMB, def int64) int64 {
 	switch {
 	case !c.Daemon.Enabled:
 		return 0
@@ -134,9 +156,9 @@ func (c TmpfsConfig) DaemonSize(capMB int64) int64 {
 	case c.Daemon.SizeMB > 0:
 		return c.Daemon.SizeMB
 	case capMB <= 0:
-		return DefaultTmpfsDaemonMB
+		return def
 	default:
-		return min(DefaultTmpfsDaemonMB, max(capMB/2, MinTmpfsMB))
+		return min(def, max(capMB/2, MinTmpfsMB))
 	}
 }
 
@@ -149,6 +171,12 @@ func (c TmpfsConfig) DaemonSize(capMB int64) int64 {
 // wants memory is the OOM this feature must not cause on its own. With no limit
 // there is nothing to fit to, and the defaults apply.
 func (c TmpfsConfig) Sizes(capMB int64) (workMB, tmpMB int64) {
+	return c.sizes(capMB, DefaultTmpfsWorkMB, DefaultTmpfsTmpMB)
+}
+
+// sizes is Sizes with the sizes untyped folders are asked for, which a host's
+// own standards replace.
+func (c TmpfsConfig) sizes(capMB, defWork, defTmp int64) (workMB, tmpMB int64) {
 	var explicit, auto int64
 	want := func(m TmpfsMount, def int64) (size int64, isAuto bool) {
 		switch {
@@ -162,8 +190,8 @@ func (c TmpfsConfig) Sizes(capMB int64) (workMB, tmpMB int64) {
 			return def, true
 		}
 	}
-	workMB, workAuto := want(c.Work, DefaultTmpfsWorkMB)
-	tmpMB, tmpAuto := want(c.Tmp, DefaultTmpfsTmpMB)
+	workMB, workAuto := want(c.Work, defWork)
+	tmpMB, tmpAuto := want(c.Tmp, defTmp)
 	if capMB <= 0 {
 		return workMB, tmpMB
 	}
@@ -190,10 +218,10 @@ func (c TmpfsConfig) Sizes(capMB int64) (workMB, tmpMB int64) {
 	}
 	fit := func(def int64) int64 { return max(room*def/auto, MinTmpfsMB) }
 	if workAuto {
-		workMB = fit(DefaultTmpfsWorkMB)
+		workMB = fit(defWork)
 	}
 	if tmpAuto {
-		tmpMB = fit(DefaultTmpfsTmpMB)
+		tmpMB = fit(defTmp)
 	}
 	return workMB, tmpMB
 }
@@ -217,6 +245,16 @@ type HostTmpfs struct {
 	// ceiling. A pool's size can lower it and never raise it, so a machine's
 	// owner has the last word on how much of it a folder may take.
 	MaxMB int64 `json:"max_mb,omitempty"`
+	// WorkMB, TmpMB and DaemonMB are the sizes a folder is asked for on this
+	// host when the pool leaves it to size itself, in place of the built-in
+	// defaults: the folder-sized counterpart of a host's standard runner size. A
+	// machine with 256 GB of memory can offer a work folder far larger than the
+	// default, and one with 16 GB less. They are what is asked for, so the fit to
+	// the runner's limit and MaxMB still apply; a size the pool typed is the
+	// pool's and is not replaced. Zero is the default.
+	WorkMB   int64 `json:"work_mb,omitempty"`
+	TmpMB    int64 `json:"tmp_mb,omitempty"`
+	DaemonMB int64 `json:"daemon_mb,omitempty"`
 }
 
 // Apply is the configuration a runner on this host is created with, and the
@@ -238,6 +276,75 @@ func Cap(sizeMB, maxMB int64) int64 {
 	return sizeMB
 }
 
+// pick is the host's standard where it has one, the built-in default otherwise.
+func pick(standard, def int64) int64 {
+	if standard > 0 {
+		return standard
+	}
+	return def
+}
+
+// floorFor is the least an automatic folder is worth: its floor, or a typed
+// size when that is smaller, since an operator who typed 1 GB asked for 1 GB.
+func floorFor(m TmpfsMount, floor int64) int64 {
+	if m.SizeMB > 0 {
+		return min(floor, m.SizeMB)
+	}
+	return floor
+}
+
+// PlaceRunner is what the runner's work folder and /tmp are given on a runner
+// whose memory limit is capMB, on a host with policy h: zero for a folder that
+// stays on disk. It is the one answer the agent mounts from and the controller
+// warns from, so what an operator is told is what a runner is given.
+//
+// The folders are fitted to the limit (Sizes) from the host's standards,
+// lowered to the host's ceiling, and then each automatic folder that came out
+// below its floor is put on disk -- the one furthest below first, since giving
+// that one up frees room for the other -- and the rest refitted, until what is
+// left is worth having. A folder that is not automatic is never dropped.
+func (c TmpfsConfig) PlaceRunner(capMB int64, h HostTmpfs) (workMB, tmpMB int64) {
+	cc := c
+	defWork, defTmp := pick(h.WorkMB, DefaultTmpfsWorkMB), pick(h.TmpMB, DefaultTmpfsTmpMB)
+	for range 3 {
+		workMB, tmpMB = cc.sizes(capMB, defWork, defTmp)
+		workMB, tmpMB = Cap(workMB, h.MaxMB), Cap(tmpMB, h.MaxMB)
+		// How far each automatic folder is from being worth having, as a part of
+		// its floor; the worst below one goes.
+		worst, ratio := "", 1.0
+		if cc.Work.Enabled && cc.Work.Auto {
+			if r := float64(workMB) / float64(floorFor(cc.Work, AutoMinWorkMB)); r < ratio {
+				worst, ratio = "work", r
+			}
+		}
+		if cc.Tmp.Enabled && cc.Tmp.Auto {
+			if r := float64(tmpMB) / float64(floorFor(cc.Tmp, AutoMinTmpMB)); r < ratio {
+				worst, ratio = "tmp", r
+			}
+		}
+		switch worst {
+		case "work":
+			cc.Work.Enabled = false
+		case "tmp":
+			cc.Tmp.Enabled = false
+		default:
+			return workMB, tmpMB
+		}
+	}
+	workMB, tmpMB = cc.sizes(capMB, defWork, defTmp)
+	return Cap(workMB, h.MaxMB), Cap(tmpMB, h.MaxMB)
+}
+
+// PlaceDaemon is PlaceRunner for the sidecar's image store, on a daemon whose
+// memory limit is capMB. Zero is on disk.
+func (c TmpfsConfig) PlaceDaemon(capMB int64, h HostTmpfs) int64 {
+	size := Cap(c.daemonSize(capMB, pick(h.DaemonMB, DefaultTmpfsDaemonMB)), h.MaxMB)
+	if c.Daemon.Enabled && c.Daemon.Auto && size < floorFor(c.Daemon, AutoMinDaemonMB) {
+		return 0
+	}
+	return size
+}
+
 // Validate checks the configuration against the pool's memory limit (zero is
 // none). It refuses what cannot work rather than what is merely unwise: sizes
 // below the floor, and sizes that together take the whole limit, because a
@@ -256,6 +363,9 @@ func (c TmpfsConfig) Validate(capMB int64) (field, problem string) {
 		name := "tmpfs." + m.name + ".size_mb"
 		if m.mount.SizeMB < 0 {
 			return name, "a size cannot be negative; use 0 to size it from the memory limit"
+		}
+		if m.mount.Auto && !m.mount.Enabled {
+			return "tmpfs." + m.name + ".auto", "auto decides where an in-memory folder lives, so the folder has to be turned on for it to mean anything"
 		}
 		if !m.mount.Enabled {
 			continue

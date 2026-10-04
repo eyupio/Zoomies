@@ -68,6 +68,10 @@ type PoolHostRoom struct {
 	// is a decision of the host's owner and not a fault, but is not something the
 	// pool's own page can show unless somebody says it.
 	TmpfsOff bool `json:"tmpfs_off,omitempty"`
+	// TmpfsPolicy is this host's whole say over in-memory folders (its standard
+	// sizes and ceiling), which the warnings place a pool's folders from. It is
+	// not part of the answer an editor shows, so it is not sent.
+	TmpfsPolicy store.HostTmpfs `json:"-"`
 	// Sizing is how a runner of this pool is sized here -- its standard, its
 	// floor and its CPU ceiling, each with where it came from -- and Excluded
 	// is the sentence, with ExcludedBy its code, where the host's runner profile
@@ -201,6 +205,7 @@ func poolHostRoom(h *store.Host, p *store.Pool) PoolHostRoom {
 		ElasticCPU:     h.Supports(agent.FeatureElasticCPU),
 		Tmpfs:          hostSupportsTmpfs(h),
 		TmpfsOff:       h.RunnerProfile.Tmpfs.Disabled,
+		TmpfsPolicy:    h.RunnerProfile.Tmpfs,
 	}
 }
 
@@ -275,6 +280,10 @@ func PoolRoomWarnings(p *store.Pool, room PoolRoom) []Problem {
 	}
 
 	if w, ok := hostSizedTmpfsWarning(p, placeable); ok {
+		out = append(out, w)
+	}
+
+	if w, ok := autoKeptOnDisk(p, placeable); ok {
 		out = append(out, w)
 	}
 

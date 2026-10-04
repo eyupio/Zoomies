@@ -1191,6 +1191,9 @@ test('a container pool can keep its work folder in memory, and is told what that
   await memory.fill('6g');
   await memory.press('Enter');
 
+  // Auto is the default and keeps a folder on disk where a runner is too small, so
+  // there is nothing to propose; the proposal is for a pool that insists.
+  await page.getByRole('radio', { name: 'Always in memory' }).check();
   const work = page.getByRole('checkbox', { name: 'Keep the work folder in memory' });
   const tmp = page.getByRole('checkbox', { name: 'Keep /tmp in memory as well' });
   // Off by default, both of them: nothing changes for a pool until somebody asks.
@@ -1246,6 +1249,7 @@ test('a Docker-in-Docker pool can keep the sidecar image store in memory, and on
   await memory.fill('6g');
   await memory.press('Enter');
 
+  await page.getByRole('radio', { name: 'Always in memory' }).check();
   const store = page.getByRole('checkbox', { name: 'Keep the Docker image store in memory' });
   await expect(store).not.toBeChecked();
   await expect(page.getByRole('textbox', { name: 'Image store size (MB)' })).toHaveCount(0);
@@ -1264,6 +1268,36 @@ test('a Docker-in-Docker pool can keep the sidecar image store in memory, and on
   await size.fill('8');
   await size.blur();
   await expect(page.getByRole('alert').filter({ hasText: /at least 64/ })).toBeVisible();
+});
+
+test('in-memory folders are Auto by default, and Auto says it keeps a folder on disk where a runner is too small', async ({
+  page,
+}) => {
+  // Auto is the recommended answer: it is what a pool that turns a folder on
+  // starts with, and it removes the proposal to raise the limit, because a folder
+  // that does not fit is simply not in memory.
+  await goto(page, '/pools/new', 'Create a pool');
+  await toAdvanced(page);
+  await nameField(page).fill('e2e-tmpfs-auto');
+  await next(page).click();
+  await addLabel(page, 'tmpfs-auto');
+  await next(page).click();
+  await next(page).click();
+  await next(page).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Size' })).toBeVisible();
+  await page.getByRole('radio', { name: 'A fixed size on every host' }).check();
+  const memory = page.getByRole('textbox', { name: 'Memory per runner', exact: true });
+  await memory.fill('6g');
+  await memory.press('Enter');
+
+  await expect(page.getByRole('radio', { name: /^Auto/ })).toBeChecked();
+  await page.getByRole('checkbox', { name: 'Keep the work folder in memory' }).check();
+  await page.getByRole('checkbox', { name: 'Keep /tmp in memory as well' }).check();
+  // No "raise the limit" callout under Auto, where the same folders under Always
+  // would raise one.
+  await expect(page.getByText('Raise the memory limit to')).toHaveCount(0);
+  await page.getByRole('radio', { name: 'Always in memory' }).check();
+  await expect(page.getByText('Raise the memory limit to')).toBeVisible();
 });
 
 test('a Docker-in-Docker pool sized by its host can give the sidecar a larger share of the slot', async ({

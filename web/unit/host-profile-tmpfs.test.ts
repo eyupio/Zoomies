@@ -50,3 +50,26 @@ test('a ceiling below the floor is refused where it is typed, and only while it 
   // Moot on a host that keeps the folders off.
   assert.deepEqual(profileErrors({ ...NO_FIGURES, tmpfsOff: true, tmpfsMaxMb: 32 }, machine), {});
 });
+
+// A host's standard folder sizes are the folder-sized counterpart of its standard
+// runner size: part of the profile the API replaces whole, so they round-trip
+// with the rest, are not sent for a host that falls back to disk, and are held to
+// the same floor as a ceiling.
+test("a host's standard folder sizes round-trip and are not sent where the folders are off", () => {
+  const profile = { tmpfs: { work_mb: 16384, tmp_mb: 2048, daemon_mb: 32768, max_mb: 20000 } };
+  const figures = figuresOf(profile);
+  assert.equal(figures.tmpfsWorkMb, 16384);
+  assert.equal(figures.tmpfsDaemonMb, 32768);
+  assert.deepEqual(profileBody(figures), profile);
+  assert.deepEqual(profileBody({ ...figures, tmpfsOff: true }), { tmpfs: { disabled: true } });
+  assert.equal(isUnset({ ...NO_FIGURES, tmpfsWorkMb: 4096 }), false);
+  assert.equal(sameFigures(NO_FIGURES, { ...NO_FIGURES, tmpfsTmpMb: 512 }), false);
+});
+
+test('a standard folder size below the floor is refused where it is typed', () => {
+  const errors = profileErrors({ ...NO_FIGURES, tmpfsWorkMb: 10, tmpfsDaemonMb: 20 }, machine);
+  assert.match(errors['runner_profile.tmpfs.work_mb'] ?? '', /below 64 MB/);
+  assert.match(errors['runner_profile.tmpfs.daemon_mb'] ?? '', /below 64 MB/);
+  assert.equal(errors['runner_profile.tmpfs.tmp_mb'], undefined);
+  assert.deepEqual(profileErrors({ ...NO_FIGURES, tmpfsTmpMb: 64 }, machine), {});
+});

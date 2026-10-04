@@ -168,14 +168,28 @@
     // The host's say over pools' in-memory folders, shown only where it has said
     // something: a machine that is silent follows each pool's own setting.
     const tmpfs = host.runner_profile?.tmpfs;
-    if (tmpfs?.disabled)
-      rows.push({ label: 'In-memory folders', text: 'Kept off', source: 'set on this host' });
-    else if ((tmpfs?.max_mb ?? 0) > 0)
+    if (tmpfs?.disabled) {
       rows.push({
         label: 'In-memory folders',
-        text: `Up to ${memoryLabel(tmpfs?.max_mb ?? 0)} each`,
+        text: 'Falling back to disk (temporary)',
         source: 'set on this host',
       });
+    } else {
+      // Standard folder sizes and a ceiling, each said only where it is set, in
+      // one row: what a pool's folders are asked for on this machine.
+      const parts: string[] = [];
+      if ((tmpfs?.work_mb ?? 0) > 0) parts.push(`work ${memoryLabel(tmpfs?.work_mb ?? 0)}`);
+      if ((tmpfs?.tmp_mb ?? 0) > 0) parts.push(`/tmp ${memoryLabel(tmpfs?.tmp_mb ?? 0)}`);
+      if ((tmpfs?.daemon_mb ?? 0) > 0)
+        parts.push(`image store ${memoryLabel(tmpfs?.daemon_mb ?? 0)}`);
+      if ((tmpfs?.max_mb ?? 0) > 0) parts.push(`up to ${memoryLabel(tmpfs?.max_mb ?? 0)} each`);
+      if (parts.length > 0)
+        rows.push({
+          label: 'In-memory folders',
+          text: parts.join(', ').replace(/^./, (c) => c.toUpperCase()),
+          source: 'set on this host',
+        });
+    }
     return rows;
   });
 

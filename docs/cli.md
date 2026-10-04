@@ -106,6 +106,8 @@ naming one carries the others forward as they stand. `--tmpfs-docker` and
 needs `--docker-mode dind`. See [keeping the work folder
 in memory](hosts-and-pools.md#keeping-the-work-folder-in-memory).
 
+`--tmpfs-auto` lets each runner decide whether the folders that are on are in memory (where it has room for one to be useful) or on disk, and is the recommended setting; `--tmpfs-auto=false` makes them always in memory.
+
 `--daemon-share <percent>` sets how much of a host-sized slot a Docker-in-Docker
 pool's daemon is given, 10 to 90, with the runner keeping the rest; `0` is the
 even split.
@@ -199,7 +201,7 @@ run it again, that is your call to make.
 | Command | What it does |
 | --- | --- |
 | `hosts list` | The hosts that have joined. A host with runner sizes of its own gets a line under the table saying what they are, whose they are, and how many slots they give. |
-| `hosts edit <host-id>` | Change a host's capacity (`--capacity`), its reserve (`--reserve-cpus`, `--reserve-memory-mb`, `--reserve-disk-mb`) or how big a runner is on it: `--standard-cpus` and `--standard-memory-mb` for the size one runner is given, `--min-cpus` and `--min-memory-mb` for the least, `--burst-max-cpus` for the most CPU one may use, lent CPU included. `--tmpfs-off` keeps pools' [in-memory folders](hosts-and-pools.md#keeping-the-work-folder-in-memory) off the host (`--tmpfs-off=false` lets them back) and `--tmpfs-max-mb` caps any one of them. Zero follows the fleet's own setting again, and `--clear-profile` removes the whole profile. Anything you do not name is left alone, including the rest of a profile you changed one figure of. An edit that would leave a pool with nowhere to run is refused unless `--confirm`. See [runner profiles](hosts-and-pools.md#runner-profiles-how-big-a-runner-is-on-one-host). |
+| `hosts edit <host-id>` | Change a host's capacity (`--capacity`), its reserve (`--reserve-cpus`, `--reserve-memory-mb`, `--reserve-disk-mb`) or how big a runner is on it: `--standard-cpus` and `--standard-memory-mb` for the size one runner is given, `--min-cpus` and `--min-memory-mb` for the least, `--burst-max-cpus` for the most CPU one may use, lent CPU included. `--tmpfs-work-mb`, `--tmpfs-tmp-mb` and `--tmpfs-docker-mb` set the size each of a pool's [in-memory folders](hosts-and-pools.md#keeping-the-work-folder-in-memory) is asked for on the host, `--tmpfs-max-mb` caps any one of them, and `--tmpfs-off` is the tactical fallback that keeps them all off the host (`--tmpfs-off=false` lets them back). Zero follows the fleet's own setting again, and `--clear-profile` removes the whole profile. Anything you do not name is left alone, including the rest of a profile you changed one figure of. An edit that would leave a pool with nowhere to run is refused unless `--confirm`. See [runner profiles](hosts-and-pools.md#runner-profiles-how-big-a-runner-is-on-one-host). |
 | `hosts cordon <host-id>` | Stop scheduling new runners onto it. What it already has keeps running. |
 | `hosts uncordon <host-id>` | Let it accept runners again. |
 | `hosts drain <host-id> [--yes]` | Cordon it, then drain every runner on it, so it empties as its jobs finish. The order matters: draining an uncordoned host means the scheduler puts fresh runners on it while the old ones are still going. Each runner gets five minutes to finish what it is on; a longer job is stopped, which is what makes the host actually empty. A runner that is busy is only drained with `--yes`; without it that runner is refused and the host stays cordoned. |

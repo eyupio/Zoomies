@@ -127,6 +127,11 @@ func TestARunnerProfileTheHostCannotHonourIsRefused(t *testing.T) {
 		{"a negative folder ceiling", map[string]any{"tmpfs": map[string]any{"max_mb": -1}}, "runner_profile.tmpfs.max_mb", "cannot be negative"},
 		{"a folder ceiling below the floor", map[string]any{"tmpfs": map[string]any{"max_mb": 32}}, "runner_profile.tmpfs.max_mb", "below 64 MB"},
 		{"folders off and capped together", map[string]any{"tmpfs": map[string]any{"disabled": true, "max_mb": 1024}}, "runner_profile.tmpfs.max_mb", "no folder to put a ceiling on"},
+		// The sizes a folder is asked for here: the same floor, and nothing to size
+		// on a host that falls back to disk.
+		{"a negative folder size", map[string]any{"tmpfs": map[string]any{"work_mb": -1}}, "runner_profile.tmpfs.work_mb", "cannot be negative"},
+		{"a folder size below the floor", map[string]any{"tmpfs": map[string]any{"daemon_mb": 20}}, "runner_profile.tmpfs.daemon_mb", "below 64 MB"},
+		{"a folder size on a host that falls back to disk", map[string]any{"tmpfs": map[string]any{"disabled": true, "tmp_mb": 2048}}, "runner_profile.tmpfs.tmp_mb", "no folder to size"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			resp := patch(measured, tc.profile)

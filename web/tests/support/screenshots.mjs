@@ -274,8 +274,11 @@ const SHOTS = [
       const memory = page.getByRole('textbox', { name: 'Memory per runner', exact: true });
       await memory.fill('6g');
       await memory.press('Enter');
+      // Auto is the default placement and is what the shot shows: on a 6 GB runner
+      // the work folder would come out too small to be useful, so it stays on disk
+      // there rather than failing jobs, and the editor says so.
       await page.getByRole('checkbox', { name: 'Keep the work folder in memory' }).check();
-      await page.getByText('Raise the memory limit to').waitFor();
+      await page.getByRole('radio', { name: /^Auto/ }).waitFor();
       await page
         .getByText('Scratch space in memory')
         .evaluate((el) => el.scrollIntoView({ block: 'start' }));
@@ -284,7 +287,7 @@ const SHOTS = [
   {
     // The host's runner sizes, scrolled to the in-memory folders: the host's
     // owner has the last word on what a pool may ask of the machine. Nothing is
-    // saved; a ceiling is typed so the section is shown in use.
+    // saved; a work folder size and a ceiling are typed so the section is shown in use.
     name: 'host-runner-sizes',
     path: '/hosts',
     heading: 'Hosts',
@@ -296,7 +299,8 @@ const SHOTS = [
       await page.getByRole('menuitem', { name: 'Set runner sizes' }).click();
       const dialog = page.getByRole('dialog', { name: 'Runner sizes on demo-builder-1' });
       await dialog.waitFor();
-      await dialog.getByRole('textbox', { name: 'Largest folder (MB)' }).fill('2048');
+      await dialog.getByRole('textbox', { name: 'Work folder size (MB)' }).fill('16384');
+      await dialog.getByRole('textbox', { name: 'Largest folder (MB)' }).fill('20000');
       await dialog
         .getByText('In-memory folders')
         .first()

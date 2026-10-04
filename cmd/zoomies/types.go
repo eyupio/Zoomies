@@ -91,6 +91,7 @@ type poolTmpfs struct {
 
 type poolTmpfsMount struct {
 	Enabled bool  `json:"enabled"`
+	Auto    bool  `json:"auto,omitempty"`
 	SizeMB  int64 `json:"size_mb,omitempty"`
 }
 
@@ -338,6 +339,9 @@ type runnerProfile struct {
 	Tmpfs struct {
 		Disabled bool  `json:"disabled,omitempty"`
 		MaxMB    int64 `json:"max_mb,omitempty"`
+		WorkMB   int64 `json:"work_mb,omitempty"`
+		TmpMB    int64 `json:"tmp_mb,omitempty"`
+		DaemonMB int64 `json:"daemon_mb,omitempty"`
 	} `json:"tmpfs"`
 }
 

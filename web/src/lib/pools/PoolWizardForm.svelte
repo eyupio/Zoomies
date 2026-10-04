@@ -103,6 +103,13 @@
      * runner's memory limit: the size here is room taken out of it. A size left
      * empty is fitted to the limit by the controller.
      */
+    /**
+     * Whether each in-memory folder is placed per runner (in memory where it has
+     * room to be useful, on disk where it has not) rather than always in memory.
+     * It is the recommended answer, so it is what a pool starts with; a pool saved
+     * with a folder that was always in memory keeps that.
+     */
+    tmpfs_auto: boolean;
     tmpfs_work: boolean;
     tmpfs_work_size: string;
     tmpfs_tmp: boolean;
@@ -171,6 +178,7 @@
       cache_size_limit: '',
       cache_source: '',
       cache_repository: '',
+      tmpfs_auto: true,
       tmpfs_work: false,
       tmpfs_work_size: '',
       tmpfs_tmp: false,
@@ -237,6 +245,10 @@
       cache_size_limit: fromNumber(pool.cache?.size_limit),
       cache_source: pool.cache?.source ?? '',
       cache_repository: pool.cache?.repository ?? '',
+      tmpfs_auto: (['work', 'tmp', 'daemon'] as const).every((k) => {
+        const m = pool.tmpfs?.[k];
+        return !m?.enabled || m.auto === true;
+      }),
       tmpfs_work: pool.tmpfs?.work?.enabled === true,
       tmpfs_work_size: fromNumber(pool.tmpfs?.work?.size_mb),
       tmpfs_tmp: pool.tmpfs?.tmp?.enabled === true,
@@ -401,16 +413,19 @@
       tmpfs: {
         work: {
           enabled: elasticBackend && draft.tmpfs_work,
+          auto: elasticBackend && draft.tmpfs_work && draft.tmpfs_auto,
           size_mb: elasticBackend && draft.tmpfs_work ? (toInteger(draft.tmpfs_work_size) ?? 0) : 0,
         },
         tmp: {
           enabled: elasticBackend && draft.tmpfs_tmp,
+          auto: elasticBackend && draft.tmpfs_tmp && draft.tmpfs_auto,
           size_mb: elasticBackend && draft.tmpfs_tmp ? (toInteger(draft.tmpfs_tmp_size) ?? 0) : 0,
         },
         // The image store is the sidecar's, so only a Docker-in-Docker pool on the
         // Docker backend has one; anything else would be refused by the server.
         daemon: {
           enabled: hasSidecar && draft.tmpfs_daemon,
+          auto: hasSidecar && draft.tmpfs_daemon && draft.tmpfs_auto,
           size_mb: hasSidecar && draft.tmpfs_daemon ? (toInteger(draft.tmpfs_daemon_size) ?? 0) : 0,
         },
       },

@@ -554,10 +554,11 @@ func (c *Controller) finishCreateRunner(ctx context.Context, inst *store.Install
 	if pool.Tmpfs.Any() {
 		if host, err := c.st.GetHost(ctx, a.HostID); err == nil {
 			spec.Tmpfs, spec.TmpfsMaxMB = host.RunnerProfile.Tmpfs.Apply(pool.Tmpfs)
+			spec.TmpfsHost = host.RunnerProfile.Tmpfs
 		} else {
 			c.log.Warn("could not read the host to apply its in-memory folder policy; creating the runner with its folders on disk",
 				"pool", pool.Name, "host", a.HostID, "error", err)
-			spec.Tmpfs, spec.TmpfsMaxMB = store.TmpfsConfig{}, 0
+			spec.Tmpfs, spec.TmpfsMaxMB, spec.TmpfsHost = store.TmpfsConfig{}, 0, store.HostTmpfs{}
 		}
 	}
 

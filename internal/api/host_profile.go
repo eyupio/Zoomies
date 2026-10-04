@@ -59,6 +59,22 @@ func validateRunnerProfile(h *store.Host, p store.RunnerProfile) []fieldError {
 	case p.Tmpfs.Disabled && p.Tmpfs.MaxMB > 0:
 		add("tmpfs.max_mb", "this host keeps in-memory folders off, so there is no folder to put a ceiling on; clear one of the two")
 	}
+	// The sizes a folder is asked for here, in place of the built-in defaults.
+	// Each is held to the same floor as a ceiling, and none means anything on a
+	// host that keeps the folders off.
+	for _, f := range []struct {
+		name string
+		mb   int64
+	}{{"tmpfs.work_mb", p.Tmpfs.WorkMB}, {"tmpfs.tmp_mb", p.Tmpfs.TmpMB}, {"tmpfs.daemon_mb", p.Tmpfs.DaemonMB}} {
+		switch {
+		case f.mb < 0:
+			add(f.name, "a size cannot be negative; leave it at 0 to use the default")
+		case f.mb > 0 && f.mb < store.MinTmpfsMB:
+			add(f.name, fmt.Sprintf("a folder below %d MB is not one a checkout fits in; leave it at 0 to use the default", store.MinTmpfsMB))
+		case f.mb > 0 && p.Tmpfs.Disabled:
+			add(f.name, "this host keeps in-memory folders off, so there is no folder to size; clear one of the two")
+		}
+	}
 
 	// A minimum above the standard is a floor above the size it floors, which
 	// the pool form refuses in the same words.

@@ -264,6 +264,9 @@
     <div class="pair">
       <dt>In memory</dt>
       <dd>
+        {#if pool.tmpfs?.work?.auto || pool.tmpfs?.tmp?.auto || pool.tmpfs?.daemon?.auto}
+          <span> Auto: on disk where a runner is too small for a folder to be useful. </span>
+        {/if}
         {#if pool.tmpfs?.work?.enabled}
           <span>
             Work folder, {pool.tmpfs.work.size_mb
