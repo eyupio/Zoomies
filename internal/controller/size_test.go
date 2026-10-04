@@ -902,12 +902,15 @@ func TestTheSizeRoutingLoopPutsTheQueueThroughTheNewModeWhenTheSettingChanges(t 
 	})
 
 	h.c.UpdateConfig(func(cfg *config.Config) { cfg.Scheduler.SizeRouting = scheduler.SizeOn })
-	eventually(t, 5*time.Second, "the job already waiting to be routed", func() bool {
-		return h.jobByGitHubID(8301).RoutedClass == store.SizeMedium
+	// The loop writes the job's route and then, in a statement of its own, the
+	// pool that claims it now, so the route appearing is not the end of its pass.
+	// Waiting for the route alone and then reading the claim raced the second
+	// write, and failed on a runner slow enough to show it.
+	medium := f.pools[store.SizeMedium].ID
+	eventually(t, 5*time.Second, "the job already waiting to be routed and claimed for its class", func() bool {
+		got := h.jobByGitHubID(8301)
+		return got.RoutedClass == store.SizeMedium && got.PoolID == medium
 	})
-	if got := h.jobByGitHubID(8301); got.PoolID != f.pools[store.SizeMedium].ID {
-		t.Fatalf("the job is claimed by %q; want the medium pool", got.PoolID)
-	}
 }
 
 // The problems list asks for the count of label advice after every pass, and it
