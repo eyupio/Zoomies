@@ -150,8 +150,9 @@
   <details class="context-explainer">
     <summary>How token savings work</summary>
     <p>
-      Enable a repository, review and merge its setup PR, then connect your assistant. It can discover
-      files, search for relevant code and request selected source within a reply budget.
+      Enable a repository, review and merge its setup PR, then copy its AI instructions into your
+      conversation. With MCP, assistants can search and read within a reply budget. With GitHub
+      access, they can use the generated repository pack directly.
     </p>
     <p>
       For example, retrieving 5,000 tokens of context instead of loading a 100,000-token repository
@@ -167,8 +168,24 @@
       >Read the AI Context guide</a
     >
   </details>
+  <details class="context-explainer">
+    <summary>Use repository context without MCP</summary>
+    <p>
+      Choose Repository or Repository and Zoomies. GitHub Actions keeps a JSON source pack on the
+      zoomies-ai-context branch. Copy the repository's AI instructions into a conversation to tell
+      your assistant to check the manifest and use that pack before browsing source files.
+    </p>
+    <p>
+      Your assistant needs GitHub access or a downloaded pack it can read. Private repositories need
+      authorised GitHub access. MCP is optional; Zoomies-only output has no repository pack.
+    </p>
+    <a href={AI_CONTEXT_URL + '#use-without-mcp'} target="_blank" rel="noopener noreferrer"
+      >Read the repository context guide</a
+    >
+  </details>
   <p class="access-note">
-    Source access is an explicit choice for each person and connection.
+    GitHub permissions control direct repository access. Through Zoomies, source access is an
+    explicit choice for each person and connection.
     <a href="/settings/connections">Manage connection access</a>
   </p>
 </section>
@@ -351,18 +368,19 @@
             {/if}
           </div>
         {:else}<Button size="sm" href="/settings/connections">Choose connection access</Button>{/if}
+        {#if item.instructions}
+          <div class="actions assistant-prompt">
+            <CopyButton value={item.instructions} label="Copy AI instructions" showLabel />
+          </div>
+        {/if}
         <details class="assistant-guidance">
           <summary>AI instructions and README badge</summary>
           <p>
-            Copy these instructions into any AI prompt. Check that generation and verification have
-            completed before relying on context.
+            Paste the copied instructions into your AI conversation. Repository output works through
+            GitHub access without MCP; Zoomies-only output needs a connected assistant. The
+            instructions explain which route is available and how to check freshness.
           </p>
           <div class="actions">
-            {#if item.instructions}<CopyButton
-                value={item.instructions}
-                label="Copy AI instructions"
-                showLabel
-              />{/if}
             {#if item.badge_markdown}<CopyButton
                 value={item.badge_markdown}
                 label="Copy badge Markdown"
@@ -446,6 +464,9 @@
   }
   .owners summary {
     cursor: pointer;
+  }
+  .assistant-prompt {
+    margin-top: var(--z-space-4);
   }
   .assistant-guidance {
     margin-top: var(--z-space-4);
