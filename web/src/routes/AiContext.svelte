@@ -570,6 +570,13 @@
     gap: var(--z-space-3);
     flex-wrap: wrap;
   }
+  /* Right-aligned buttons that wrap leave each row ragged on the left and
+     the first one floating; on a phone they read as a list from the edge. */
+  @media (max-width: 768px) {
+    .actions {
+      justify-content: flex-start;
+    }
+  }
   .paging {
     margin-top: var(--z-space-5);
   }
