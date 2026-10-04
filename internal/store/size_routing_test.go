@@ -869,6 +869,52 @@ func TestACPUThrottleSampleIsKeptAgainstTheRunningJobAndOnlyRises(t *testing.T) 
 	}
 }
 
+// The counters are the runner's own, for as long as its container has lived. On a
+// runner that is not ephemeral the second job would be charged with everything
+// the first was held back in, and be moved up a class for throttling it never had,
+// or have its own diluted by the periods that went before; so it is given none,
+// which is what a job on an agent that sends none has.
+func TestAJobThatIsNotItsRunnersFirstIsGivenNoThrottleCounters(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	_, pool, host := seedPool(t, s)
+	runner := &Runner{PoolID: pool.ID, HostID: host.ID, Name: "persistent-1", Ephemeral: false}
+	if err := s.CreateRunner(ctx, runner); err != nil {
+		t.Fatal(err)
+	}
+
+	first := usageJob(t, s, 1, "build", pool.ID, runner.ID, JobInProgress, versionsEpoch)
+	if err := s.RecordJobThrottle(ctx, runner.ID, 1000, 300); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetJob(ctx, first.ID); got.CPUPeriods != 1000 || got.CPUThrottledPeriods != 300 {
+		t.Fatalf("the runner's first job has %d/%d; a runner that has run nothing else describes it whole", got.CPUThrottledPeriods, got.CPUPeriods)
+	}
+
+	// The first job ends and the runner, still alive, has handled one.
+	if _, err := s.exec(ctx, `UPDATE jobs SET state='completed' WHERE id=?`, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.exec(ctx, `UPDATE runners SET jobs_handled = 1 WHERE id=?`, runner.ID); err != nil {
+		t.Fatal(err)
+	}
+	second := usageJob(t, s, 2, "build", pool.ID, runner.ID, JobInProgress, versionsEpoch.Add(time.Hour))
+	// The counters now include the first job: 400 more periods, 10 of them throttled.
+	if err := s.RecordJobThrottle(ctx, runner.ID, 1400, 310); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.GetJob(ctx, second.ID)
+	if got.CPUPeriods != 0 || got.CPUThrottledPeriods != 0 {
+		t.Fatalf("the second job on a runner was charged %d/%d, which is the first job's as well as its own", got.CPUThrottledPeriods, got.CPUPeriods)
+	}
+	if _, ok := got.Throttled(); ok {
+		t.Fatal("a job given no counters has a throttle share")
+	}
+	if got, _ := s.GetJob(ctx, first.ID); got.CPUPeriods != 1000 || got.CPUThrottledPeriods != 300 {
+		t.Fatalf("the first job's counters were changed to %d/%d by a later sample", got.CPUThrottledPeriods, got.CPUPeriods)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // A job's class between runs
 // ---------------------------------------------------------------------------

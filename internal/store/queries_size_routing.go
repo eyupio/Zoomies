@@ -466,16 +466,27 @@ func (s *Store) StampJobRan(ctx context.Context, jobID string, class SizeClass) 
 // RecordJobThrottle raises the CPU throttling counters of the job in progress
 // on a runner to one sample of that runner's.
 //
-// The counters are cumulative for the runner's life, so MAX is the right merge:
-// a late or repeated sample cannot lower them, and a job is on one runner for
-// the whole of its run. Like RecordJobUsage it touches only a job GitHub says
-// is in progress, which is what keeps it on the queued-and-in-progress index.
+// The counters are the runner's own, cumulative for as long as its container has
+// lived, so they describe a job only while the runner has run no other. On one
+// that has -- a runner that is not ephemeral, which takes jobs one after another --
+// a later job would be charged with everything the earlier ones were held back in,
+// and so be moved up a class for throttling it never had, or have its own diluted
+// by the periods that went before. A job on such a runner is given no counters,
+// which is what a job on an agent that sends none has: no CPU evidence, so
+// nothing to move it either way. A runner this store has no row for is taken as
+// fresh, which is how a sample from before the row was written is read.
+//
+// Within a runner's first job MAX is the right merge: a late or repeated sample
+// cannot lower the counters, and a job is on one runner for the whole of its run.
+// Like RecordJobUsage it touches only a job GitHub says is in progress, which is
+// what keeps it on the queued-and-in-progress index.
 func (s *Store) RecordJobThrottle(ctx context.Context, runnerID string, periods, throttledPeriods int64) error {
 	if runnerID == "" || periods <= 0 {
 		return nil
 	}
 	_, err := s.exec(ctx, `UPDATE jobs SET cpu_periods = MAX(cpu_periods, ?1), cpu_throttled_periods = MAX(cpu_throttled_periods, ?2)
-		WHERE state = 'in_progress' AND runner_id = ?3`, periods, max(throttledPeriods, 0), runnerID)
+		WHERE state = 'in_progress' AND runner_id = ?3
+		AND NOT EXISTS (SELECT 1 FROM runners WHERE id = ?3 AND jobs_handled > 0)`, periods, max(throttledPeriods, 0), runnerID)
 	return err
 }
 

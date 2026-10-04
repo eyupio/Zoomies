@@ -225,7 +225,11 @@ organisation sends.
    are read from up to 2,000 of the job's runs, so a job that runs more than about
    285 times a day cannot show a week of them and keeps its class until it is pinned.
    Only an agent that reports the counters gives the CPU evidence; a job on an older
-   agent is classed on memory alone.
+   agent is classed on memory alone. The counters are a runner's for as long as its
+   container lives, so only the first job a runner takes is given them: on a pool
+   that is not ephemeral, whose runners take one job after another, each job after
+   the first has no CPU evidence and is classed on memory alone, rather than being
+   charged with the throttling of the jobs before it.
 4. **The default class**, `medium` (`scheduler.size_default_class`), for a job
    nothing is known about. It is the size of the fleet's own default runner, so a
    job with no history gets the runner it had before there were classes.

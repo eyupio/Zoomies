@@ -1557,7 +1557,10 @@ type Job struct {
 	// CPUPeriods and CPUThrottledPeriods are how many CPU enforcement periods
 	// the job's runner had, and in how many it was held back by its quota, at
 	// the last sample taken while the job ran. Their ratio is how much of the
-	// time the job wanted more CPU than it had; zero is "never sampled".
+	// time the job wanted more CPU than it had; zero is "never sampled". They
+	// are the runner's lifetime counters, so a job is given them only if it is
+	// the first the runner has run: a later job on a runner that is not
+	// ephemeral has none, rather than the earlier jobs' as well as its own.
 	CPUPeriods          int64 `json:"cpu_periods,omitempty"`
 	CPUThrottledPeriods int64 `json:"cpu_throttled_periods,omitempty"`
 }

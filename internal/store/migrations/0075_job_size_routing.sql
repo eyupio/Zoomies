@@ -24,7 +24,10 @@
 -- enforcement periods and how many of them it was throttled in, the last
 -- sample taken while the job ran. The agents already send them for elastic CPU;
 -- keeping them against the job is what lets a job that is held back by its
--- quota be told from one that is simply busy. Zero is "never sampled".
+-- quota be told from one that is simply busy. Zero is "never sampled", which is
+-- also what a job has that was not the first on its runner: the counters are the
+-- runner's for as long as its container lives, so only a runner's first job is
+-- the one they describe.
 ALTER TABLE jobs ADD COLUMN size_class TEXT NOT NULL DEFAULT '';
 ALTER TABLE jobs ADD COLUMN size_reason TEXT NOT NULL DEFAULT '';
 ALTER TABLE jobs ADD COLUMN size_basis TEXT NOT NULL DEFAULT '';
