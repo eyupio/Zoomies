@@ -27,6 +27,10 @@ export const QUICKSTART_URL = `${SITE_URL}/quickstart/`;
 export const CONFIGURATION_URL = `${SITE_URL}/configuration/`;
 export const API_SURFACE_URL = `${SITE_URL}/api-surface/`;
 export const SECURITY_URL = `${SITE_URL}/security/`;
+/** How repository context is prepared and read by assistants. */
+export const AI_CONTEXT_URL = `${SITE_URL}/ai-context/`;
+/** The codebase packing tool used by AI Context generation. */
+export const REPOMIX_URL = 'https://repomix.com';
 /** Where every figure of the installation report is defined. */
 export const INSTALLATION_REPORT_URL = `${SITE_URL}/metrics/#per-installation-report`;
 /** What an enrolled agent owns on its host, linked from the enrolment command. */
