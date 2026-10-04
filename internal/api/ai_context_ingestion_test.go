@@ -203,3 +203,56 @@ func TestRegeneratingContextRunsTheReviewedWorkflowOnly(t *testing.T) {
 		t.Fatalf("freshness: %+v %v", fresh, err)
 	}
 }
+
+func TestSyncingContextStartsTheWorkflowOnlyWhenItIsBehindAndAfterTheGrace(t *testing.T) {
+	h, inst, _ := migrationHarness(t)
+	discovery, err := h.ctrl.DiscoverAIContext(h.ctx, inst.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected := discovery.Repositories[0]
+	draft := store.AIContextRepository{Key: aicontext.RepositoryKey{GitHubHost: "github.com", InstallationID: inst.ID, RepositoryID: selected.ID}, FullName: selected.FullName, Config: aicontext.DefaultConfig(selected.DefaultBranch)}
+	if err := h.st.CreateAIContextRepository(h.ctx, &draft); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := h.ctrl.PreviewAIContextSetup(h.ctx, draft.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err = h.ctrl.CreateAIContextSetupPR(h.ctx, draft.ID, controller.AIContextSetupApproval{Revision: plan.Revision, PlanHash: plan.PlanHash})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatches := func() int { return h.gh.ContextDispatches(draft.FullName) }
+
+	// Until the setup is reviewed there is nothing to run.
+	_ = h.ctrl.SyncAIContext(h.ctx, draft.ID, 0)
+	if dispatches() != 0 {
+		t.Fatalf("workflow started before the setup was merged: %d", dispatches())
+	}
+
+	if !h.gh.MergeContextPull(draft.FullName, plan.Setup.PRNumber) {
+		t.Fatal("merge failed")
+	}
+	// The push-triggered run gets its grace before the controller steps in.
+	_ = h.ctrl.SyncAIContext(h.ctx, draft.ID, time.Hour)
+	if dispatches() != 0 {
+		t.Fatalf("workflow started inside the grace period: %d", dispatches())
+	}
+
+	// Past the grace, a repository with nothing published for the current
+	// commit gets one run, and a second pass does not pile another on top.
+	_ = h.ctrl.SyncAIContext(h.ctx, draft.ID, 0)
+	_ = h.ctrl.SyncAIContext(h.ctx, draft.ID, 0)
+	if dispatches() != 1 {
+		t.Fatalf("dispatches: %d, want 1", dispatches())
+	}
+
+	// A failure a run cannot fix is left alone: an edited workflow would only
+	// fail again, and must not be started.
+	h.gh.AddFile(draft.FullName, aicontext.WorkflowPath, "unreviewed workflow")
+	_ = h.ctrl.SyncAIContext(h.ctx, draft.ID, 0)
+	if dispatches() != 1 {
+		t.Fatalf("workflow started after the setup drifted: %d", dispatches())
+	}
+}

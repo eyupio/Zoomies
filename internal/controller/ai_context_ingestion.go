@@ -95,7 +95,7 @@ func (c *Controller) aiContextLoop(ctx context.Context) {
 			if err == nil {
 				for _, id := range ids {
 					checkCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
-					_ = c.RefreshAIContext(checkCtx, id)
+					_ = c.SyncAIContext(checkCtx, id, aiContextRunGrace)
 					cancel()
 					if ctx.Err() != nil {
 						return
@@ -335,4 +335,77 @@ func (c *Controller) RegenerateAIContext(ctx context.Context, id string) error {
 		return err
 	}
 	return nil
+}
+
+// How long the controller gives a push-triggered run to publish before it starts
+// one itself, how many times it will do that for one commit, and how far apart.
+// The grace covers a normal run (the workflow's own timeout is fifteen minutes
+// for generation); the cap stops a workflow that fails every time from being
+// started for ever.
+const (
+	aiContextRunGrace    = 10 * time.Minute
+	aiContextRunAttempts = 2
+	aiContextRunSpacing  = 30 * time.Minute
+)
+
+type aiContextRun struct {
+	commit    string
+	since     time.Time
+	attempts  int
+	lastStart time.Time
+}
+
+// aiContextNeedsRun is whether a failed verification is the kind a workflow run
+// fixes: nothing published yet, or what is published is for another commit. A
+// lost permission, a drifted workflow or a broken publication is not, and
+// starting the workflow would only repeat the failure.
+func aiContextNeedsRun(err error) bool {
+	return errors.Is(err, github.ErrContextMismatch) || errors.Is(err, github.ErrNotFound) || errors.Is(err, errAIContextAwaitingUpload)
+}
+
+// SyncAIContext verifies a repository and, when the only thing wrong is that
+// the published context is behind the trusted branch, starts the managed
+// workflow itself once the push-triggered run has had grace to finish. The
+// workflow already runs on every push, so this is the safety net under it: a
+// push GitHub did not deliver, a run that was cancelled by a later one, or a
+// run that failed all leave the same stale card, and this is what clears it
+// without anybody pressing a button.
+//
+// It never acts on a verification that failed for any other reason, and it
+// starts a given commit's workflow at most aiContextRunAttempts times.
+func (c *Controller) SyncAIContext(ctx context.Context, id string, grace time.Duration) error {
+	verifyErr := c.RefreshAIContext(ctx, id)
+	if verifyErr == nil {
+		c.aiContextRunsMu.Lock()
+		delete(c.aiContextRuns, id)
+		c.aiContextRunsMu.Unlock()
+		return nil
+	}
+	if !aiContextNeedsRun(verifyErr) {
+		return verifyErr
+	}
+	f, err := c.st.GetAIContextFreshness(ctx, id)
+	if err != nil || f.State != "stale" || f.DesiredCommit == "" {
+		return verifyErr
+	}
+	now := c.Now()
+	c.aiContextRunsMu.Lock()
+	run := c.aiContextRuns[id]
+	if run == nil || run.commit != f.DesiredCommit {
+		run = &aiContextRun{commit: f.DesiredCommit, since: now}
+		c.aiContextRuns[id] = run
+	}
+	due := now.Sub(run.since) >= grace && run.attempts < aiContextRunAttempts && (run.attempts == 0 || now.Sub(run.lastStart) >= aiContextRunSpacing)
+	if due {
+		run.attempts++
+		run.lastStart = now
+	}
+	c.aiContextRunsMu.Unlock()
+	if !due {
+		return verifyErr
+	}
+	if err := c.RegenerateAIContext(ctx, id); err != nil {
+		c.log.Warn("could not start the AI Context workflow", "repository", id, "error", err)
+	}
+	return verifyErr
 }
