@@ -624,3 +624,12 @@ closes availability and returns no source. Search and overview use top-level
 `next_offset`; each truncated pack/read excerpt has its own `next_offset`.
 MCP wraps these routes as `context_overview`, `context_read`, `context_search`
 and `context_pack`, with a separate 32,000-byte encoded tool-result ceiling.
+
+## Host OS health
+
+`GET /api/v1/hosts` and `GET /api/v1/hosts/{id}` include an optional `doctor`
+report, supplied by the authenticated agent heartbeat. It carries the check
+time, OS, distribution, report scope, reboot flag and bounded check results.
+`host.updated` events use the same shape, so badges and details refresh live.
+Older agents omit the report; the UI shows health unavailable. These routes
+provide observations only, with no OS tuning endpoint.

@@ -706,3 +706,10 @@ The RC1 migrations retain older cleanup timestamps as estimates. Confirmed
 cleanup needs both host and GitHub observations, so an older row may show
 “Awaiting confirmation” alongside its earlier estimate. Upgrade the agents as
 well as the controller to receive autonomous host-cleanup confirmations.
+
+## Host health after an upgrade
+
+Upgrades run read-only doctor checks and point to `zoomies tune` when new
+warnings appear. They never apply OS tuning, including with `--yes`. Container
+deployments are offered a native read-only health service through the existing
+layout review; approval is required to add it. See [Host health and tuning](host-health.md).

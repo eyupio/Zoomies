@@ -405,8 +405,9 @@ a page the product does not have. Design system in
 
 ## The CLI
 
-The CLI and the UI are both clients of the same REST API. Nothing is reachable
-from one that is not reachable from the other.
+Fleet commands and the UI share the same REST API. Local host OS checks and
+tuning use the installed native binary: health is visible in the UI, while
+changes require explicit consent in the CLI.
 
 ```sh
 zoomies status                       # the Overview, in a terminal
@@ -418,6 +419,10 @@ zoomies runners drain run_k3f9qz2m
 zoomies runners logs run_k3f9qz2m --follow
 zoomies jobs list --repo acme/widgets --since 24h
 zoomies hosts join-token create --ttl 15m
+zoomies doctor                       # readable OS health summary
+sudo zoomies doctor --interactive    # review and approve individual fixes
+sudo zoomies tune --dry-run           # exact proposed changes
+sudo zoomies tune --revert            # restore recorded host settings
 zoomies audit tail
 ```
 
@@ -425,6 +430,10 @@ zoomies audit tail
 export ZOOMIES_URL=https://zoomies.example.com
 export ZOOMIES_TOKEN=zoo_...
 ```
+
+Host health is collected by the native agent, or by a read-only native health
+service for container deployments, and updates the host badges automatically.
+Upgrades never apply tuning. See [Host health and tuning](docs/host-health.md).
 
 A coding agent gets the same fleet over the Model Context Protocol, either
 straight from the controller at `/mcp` with a token or through `zoomies mcp`

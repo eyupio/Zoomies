@@ -453,6 +453,8 @@ Options:
   --config-dir <dir>    Existing configuration directory (for a custom install).
   --image <ref>         With --upgrade: replacement for a custom container image.
   --no-init             Install the binary only; do not run `zoomies init`.
+  --tune             approve recommended safe OS tuning after a fresh install
+  --no-tune          skip the safe tuning offer; upgrades never tune
   --yes, -y             Do not ask before installing. Implied by
                         --non-interactive and --answers.
   --allow-unverified    Install even when the download's SHA-256 cannot be

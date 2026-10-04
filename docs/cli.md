@@ -409,6 +409,8 @@ act is an agent a pull request can try to steer.
 | `zoomies config set <key> <value>` | Store one setting in the fleet's database — the same thing the settings page does, for when the settings page is the thing that is broken. |
 | `zoomies config unset <key>` | Forget a stored setting, so the configuration file or the built-in default decides it again. |
 | `zoomies config import-env [file]` | Store every setting an environment file sets — standard input when no file is given — in one write, and name the variables that cannot live in the database. The installer runs it in a one-off container to put a controller's settings in its database; see [Settings that were in `.env`](upgrading.md#settings-that-were-in-env). |
+| `zoomies doctor [--json] [--tier safe\|aggressive\|dedicated] [--host <id>]` | Read host OS health, summary and recommendations. Exit 0/1/2 for no warnings/warnings/errors. `--interactive` offers explicitly approved local fixes; `--watch --report-file PATH` runs the native read-only reporter. See [Host health and tuning](host-health.md). |
+| `zoomies tune [--dry-run] [--yes] [--tier safe\|aggressive] [--dedicated] [--only ids] [--skip ids] [--revert] [--force]` | Review and apply local OS tuning, or restore recorded previous values. Safe and per-item confirmation by default. Dedicated hosts require explicit confirmation. No reboot and no Docker restart while jobs can run. |
 | `zoomies healthcheck --url <url>` | Probe a controller's `/healthz`. Exit 0 when it answers. This is what the container image's `HEALTHCHECK` runs. |
 | `zoomies version` | The version this binary was built from. `--short` or `--json`. |
 
