@@ -1342,6 +1342,61 @@ turns it off.
 
 Depends on nothing. Size M.
 
+### ZF-226: placement from job history
+
+**Classification: extension; M; proposed and delivered 3 October.** A
+runner is sized for the average job, so one heavy job on a small host was
+killed for memory and retried onto the same host.
+
+**Done:** each job's peak CPU and memory is recorded; placement and sizing
+use the heaviest job waiting in a pool, and a host too small for it is held
+off with the reason stated. `scheduler.history_sizing` is `off`, `shadow` or
+`on` and starts in `shadow`. The job page, `job_stats` and the MCP tools
+show peak usage, and a job killed for running out of memory raises
+`jobs.oom_killed`. `job_stats` can group by controller version.
+
+**Accepted because:** the scheduler stays pure and its decisions are table
+tests; shadow mode records what `on` would have done and changes nothing.
+
+Depends on ZF-220. Size M.
+
+### ZF-227: AI Context
+
+**Classification: new; L; in progress from 29 September.** Let an assistant
+connected over MCP read a repository's source, within consent the
+repository's owner gave, so an assistant spends fewer tokens finding its way.
+
+**Done:** the foundations; the consent wizard and per-repository consent;
+setup pull requests with verification against the trusted branch; retrieval
+(`context_overview`, `context_read`, `context_search`, `context_pack`);
+repair, amend and remove; reinstall; repository-only, owners and OIDC
+uploads; token-savings and discoverability documentation.
+
+**In flight:** assistant-written notes behind a separate `context.publish`
+consent, GitHub Enterprise Server and a 503 naming the key host (#586);
+failure reasons that name the fix and a resync with the trusted branch
+(#591).
+
+Depends on ZF-228. Size L.
+
+### ZF-228: connecting an assistant and owning your tokens
+
+**Classification: extension; M; proposed and delivered 27 to 30 September.**
+Pasting a token into an assistant was the only way in.
+
+**Done:** the controller is its own OAuth 2.1 authorisation server for
+`/mcp`, so an assistant is added by address and signs in through the browser;
+a client-metadata fetch refuses private ranges; rotating a secret asks for
+confirmation; two-step sign-in is honoured. Owner decisions taken: the
+single sign-on button text, hiding the password form while single sign-on
+works, and discovery retried in the background; `security.mcp_oauth` on a
+public address needs `server.external_url`; a client that registers again
+gets its registration back, at 100 an hour; a password change and "sign out
+other sessions" end the connections; every user manages their own tokens,
+capped at their role (`tokens.own`); spent tokens can be deleted.
+
+Depends on ZF-225. Size M.
+
 ## 9. Kept for the day somebody asks
 
 Nothing here is authorised by planning alone. Each starts when a fleet
@@ -1454,6 +1509,12 @@ remaining dependency. Do not invent live runs, elapsed observation, benchmark
 results or user feedback; do not wait for them either.
 
 ## 13. Change record
+
+* **4 October 2026 — Version 3.4:** the record caught up with the week.
+  ZF-226 (placement from job history), ZF-227 (AI Context) and ZF-228
+  (connecting an assistant, and owning your tokens) added to section 8; the
+  first two are delivered and in flight respectively, as `roadmap/progress.md`
+  says. No earlier package changed.
 
 * **27 September 2026 — Version 3.3:** ZF-225 proposed and delivered in
   one pull request: optional two-step sign-in (TOTP) for local password
