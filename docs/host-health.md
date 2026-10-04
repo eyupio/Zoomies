@@ -149,14 +149,14 @@ networking, firewall or journald service is disabled.
 
 | Check ID | Unit or file | Guard |
 | --- | --- | --- |
-| `service.snapd` | `snapd.service` | Only core snaps installed; verified dependencies |
+| `service.snapd` | `snapd.service`, `snapd.socket`, `snapd.seeded.service`, `snapd.apparmor.service`, `snapd.autoimport.service` | Only core snaps installed; verified dependencies |
 | `service.ModemManager` | `ModemManager.service` | Verified dependencies |
-| `service.multipathd` | `multipathd.service` | Verified dependencies |
+| `service.multipathd` | `multipathd.service`, `multipathd.socket` | Verified dependencies |
 | `service.apport` | `apport.service` | Verified dependencies |
-| `service.motd-news` | `motd-news.service` | Verified dependencies |
+| `service.motd-news` | `motd-news.service`, `motd-news.timer` | Verified dependencies |
 | `service.udisks2` | `udisks2.service` | Verified dependencies |
 | `service.fwupd` | `fwupd.service` | Confirmed VM only, plus verified dependencies |
-| `service.cloud-init` | `cloud-init.service` | Cloud-init completed, plus verified dependencies |
+| `service.cloud-init` | `cloud-init.service`, `cloud-init-local.service`, `cloud-config.service`, `cloud-final.service` | Cloud-init completed, plus verified dependencies |
 | `service.apt-daily` | `apt-daily.timer` | Implemented security-update maintenance window required |
 | `service.apt-daily-upgrade` | `apt-daily-upgrade.timer` | Same requirement |
 | `journal.size` | `/etc/systemd/journald.conf.d/90-zoomies.conf`, `SystemMaxUse=1G` | Existing managed policy blocks changes; journald is not restarted |
