@@ -65,7 +65,7 @@ func (s *Store) ApplyAutoPool(ctx context.Context, from, to *Pool) (bool, error)
 
 // JobClass is the class a job is in now, kept between runs. It is state
 // rather than something worked out again on every read because moving a job
-// down has to be slower than moving it up: see migration 0073.
+// down has to be slower than moving it up: see migration 0074.
 type JobClass struct {
 	Repo     string    `json:"repo"`
 	Workflow string    `json:"workflow"`

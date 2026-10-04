@@ -13,14 +13,17 @@ import (
 )
 
 type AIContextRepository struct {
-	Freshness  *AIContextFreshness     `json:"freshness,omitempty"`
-	SetupState string                  `json:"setup_state,omitempty"`
-	SetupPRURL string                  `json:"setup_pr_url,omitempty"`
-	ID         string                  `json:"id"`
-	Key        aicontext.RepositoryKey `json:"repository"`
-	FullName   string                  `json:"full_name"`
-	Config     aicontext.Config        `json:"config"`
-	Revision   int64                   `json:"revision"`
+	Freshness  *AIContextFreshness `json:"freshness,omitempty"`
+	SetupState string              `json:"setup_state,omitempty"`
+	SetupPRURL string              `json:"setup_pr_url,omitempty"`
+	// WorkflowOutdated is true while the installed workflow is exactly one an
+	// earlier release wrote: still trusted, but due a repair to pick up fixes.
+	WorkflowOutdated bool                    `json:"workflow_outdated"`
+	ID               string                  `json:"id"`
+	Key              aicontext.RepositoryKey `json:"repository"`
+	FullName         string                  `json:"full_name"`
+	Config           aicontext.Config        `json:"config"`
+	Revision         int64                   `json:"revision"`
 	// Available is a verified repository-access state, not whether a snapshot
 	// exists. Access removal closes this gate before retained blobs are read.
 	Available bool      `json:"available"`
@@ -41,14 +44,14 @@ func (r AIContextRepository) MarshalJSON() ([]byte, error) {
 
 const aiContextColumns = `id, installation_id, github_host, repository_id, full_name, config_json, revision, available, created_at, updated_at`
 
-const aiContextReadColumns = aiContextColumns + `, COALESCE((SELECT state FROM ai_context_setups WHERE repository_id=ai_context_repositories.id),''), COALESCE((SELECT pr_url FROM ai_context_setups WHERE repository_id=ai_context_repositories.id),''), COALESCE((SELECT json_object('state',state,'desired_commit',desired_commit,'published_commit',published_commit,'snapshot_id',digest,'checked_at',checked_at,'failure',failure) FROM ai_context_freshness WHERE repository_id=ai_context_repositories.id),'null')`
+const aiContextReadColumns = aiContextColumns + `, COALESCE((SELECT state FROM ai_context_setups WHERE repository_id=ai_context_repositories.id),''), COALESCE((SELECT pr_url FROM ai_context_setups WHERE repository_id=ai_context_repositories.id),''), COALESCE((SELECT json_object('state',state,'desired_commit',desired_commit,'published_commit',published_commit,'snapshot_id',digest,'checked_at',checked_at,'failure',failure) FROM ai_context_freshness WHERE repository_id=ai_context_repositories.id),'null'), workflow_outdated`
 
 func scanAIContext(sc interface{ Scan(...any) error }) (*AIContextRepository, error) {
 	var r AIContextRepository
 	var config, freshness string
-	var available int
+	var available, outdated int
 	var created, updated int64
-	err := sc.Scan(&r.ID, &r.Key.InstallationID, &r.Key.GitHubHost, &r.Key.RepositoryID, &r.FullName, &config, &r.Revision, &available, &created, &updated, &r.SetupState, &r.SetupPRURL, &freshness)
+	err := sc.Scan(&r.ID, &r.Key.InstallationID, &r.Key.GitHubHost, &r.Key.RepositoryID, &r.FullName, &config, &r.Revision, &available, &created, &updated, &r.SetupState, &r.SetupPRURL, &freshness, &outdated)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +72,7 @@ func scanAIContext(sc interface{ Scan(...any) error }) (*AIContextRepository, er
 		}
 		r.Freshness = &AIContextFreshness{State: stored.State, DesiredCommit: stored.DesiredCommit, PublishedCommit: stored.PublishedCommit, Digest: stored.Digest, CheckedAt: at(stored.CheckedAt), Failure: stored.Failure}
 	}
-	r.Available, r.CreatedAt, r.UpdatedAt = available == 1, at(created), at(updated)
+	r.Available, r.WorkflowOutdated, r.CreatedAt, r.UpdatedAt = available == 1, outdated == 1, at(created), at(updated)
 	return &r, nil
 }
 
@@ -98,6 +101,18 @@ func (s *Store) CreateAIContextRepository(ctx context.Context, r *AIContextRepos
 	}
 	r.Revision, r.Available, r.CreatedAt, r.UpdatedAt = 1, false, now, now
 	return nil
+}
+
+// SetAIContextWorkflowOutdated records what the last verification found. It
+// leaves revision and updated_at alone: this is an observation about GitHub, not
+// an edit, and bumping the revision would reject a wizard write in progress.
+func (s *Store) SetAIContextWorkflowOutdated(ctx context.Context, id string, outdated bool) error {
+	v := 0
+	if outdated {
+		v = 1
+	}
+	_, err := s.exec(ctx, `UPDATE ai_context_repositories SET workflow_outdated=? WHERE id=? AND workflow_outdated<>?`, v, id, v)
+	return wrapWrite(err)
 }
 
 func (s *Store) GetAIContextRepository(ctx context.Context, id string) (*AIContextRepository, error) {

@@ -1536,7 +1536,7 @@ type Job struct {
 	// it, SizeReason the sentence for why, and SizeBasis how it got there (the
 	// SizeBasis* constants). They are stamped once, by StampJobClass, so a job
 	// can say what it was taken to need after the history that decided it has
-	// moved on. Empty is "not classified": a job from before migration 0074,
+	// moved on. Empty is "not classified": a job from before migration 0075,
 	// or any job while size routing is off.
 	SizeClass  SizeClass `json:"size_class,omitempty"`
 	SizeReason string    `json:"size_reason,omitempty"`
