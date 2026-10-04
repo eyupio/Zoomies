@@ -140,8 +140,12 @@ none of it.
 
 `zoomies upgrade --check` checks the existing deployment without modifying it.
 `zoomies update` is its shorter alias and accepts the same flags. Both commands
-apply an already installed binary; use the shell command above when the binary
-itself also needs downloading.
+fetch the newest release (or the rolling `dev` build, for a host running one),
+verify its checksum, replace the installed binary and carry on in the new one,
+so a host upgraded this way gets the new release's checks and prompts too. They
+never downgrade, and a download that cannot be verified is not installed.
+`--version v1.4.0` pins a tag and `--no-download` applies the binary already
+on disk.
 
 The parts of that worth knowing before you do it are what happens to work in
 flight, how far the pieces may drift apart, and the one direction you cannot
