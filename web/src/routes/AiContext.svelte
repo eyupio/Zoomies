@@ -10,6 +10,7 @@
   import { router } from '$lib/router';
   import { session } from '$lib/state/session.svelte';
   import { formatAbsolute } from '$lib/format';
+  import { AI_CONTEXT_URL, REPOMIX_URL } from '$lib/links';
   import { aiContextStatus } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
@@ -113,7 +114,7 @@
 
 <PageHeader
   title="AI Context"
-  subtitle="Prepare repositories for AI coding assistants. Source access is an explicit choice for each person and connection."
+  subtitle="Spend fewer tokens loading your code. Give AI assistants the relevant source, ready after every push."
   onrefresh={() => {
     reload += 1;
   }}
@@ -122,6 +123,56 @@
       >Enable repositories</Button
     >{/if}
 </PageHeader>
+
+<section class="context-benefits" aria-label="AI Context benefits">
+  <div class="benefit-grid">
+    <div>
+      <h2>Less token overhead</h2>
+      <p>
+        Assistants search and read relevant excerpts instead of loading a whole repository, leaving
+        more room for the task.
+      </p>
+    </div>
+    <div>
+      <h2>Fresh, verified source</h2>
+      <p>
+        A GitHub workflow regenerates context after each source push. Zoomies checks it against Git
+        and pins every reply to a commit.
+      </p>
+    </div>
+    <div>
+      <h2>Powered by Repomix</h2>
+      <p>
+        <a href={REPOMIX_URL} target="_blank" rel="noopener noreferrer">Repomix</a> packages and scans
+        eligible source. Zoomies manages setup, updates and access for your assistants.
+      </p>
+    </div>
+  </div>
+  <details class="context-explainer">
+    <summary>How token savings work</summary>
+    <p>
+      Enable a repository, review and merge its setup PR, then connect your assistant. It can discover
+      files, search for relevant code and request selected source within a reply budget.
+    </p>
+    <p>
+      For example, retrieving 5,000 tokens of context instead of loading a 100,000-token repository
+      pack means 95% less repository context input. This is an illustrative example; actual savings
+      depend on the task and model, and Zoomies does not currently measure token savings.
+    </p>
+    <p>
+      The managed Repomix workflow preserves original source with code compression disabled. Savings
+      come from exclusions and selective retrieval. Loading the entire snapshot still uses the full
+      pack.
+    </p>
+    <a href={AI_CONTEXT_URL + '#how-it-reduces-token-usage'} target="_blank" rel="noopener noreferrer"
+      >Read the AI Context guide</a
+    >
+  </details>
+  <p class="access-note">
+    Source access is an explicit choice for each person and connection.
+    <a href="/settings/connections">Manage connection access</a>
+  </p>
+</section>
 
 {#if isAdmin && installations.length > 0}
   <details class="owners">
@@ -348,6 +399,50 @@
 {/if}
 
 <style>
+  .context-benefits {
+    margin-bottom: var(--z-space-5);
+    padding: var(--z-space-5);
+    background: var(--z-surface);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-md);
+    overflow-wrap: anywhere;
+  }
+  .benefit-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+    gap: var(--z-space-5);
+  }
+  .benefit-grid > div {
+    min-width: 0;
+  }
+  .context-benefits p {
+    margin: var(--z-space-2) 0 0;
+    color: var(--z-text-muted);
+    font-size: var(--z-text-sm);
+    line-height: var(--z-leading-sm);
+  }
+  .context-benefits a {
+    color: var(--z-accent);
+    text-decoration: underline;
+    text-underline-offset: var(--z-underline-offset);
+  }
+  .context-explainer {
+    margin-top: var(--z-space-4);
+    padding-top: var(--z-space-4);
+    border-top: var(--z-border-width) solid var(--z-border);
+    font-size: var(--z-text-sm);
+  }
+  .context-explainer summary {
+    cursor: pointer;
+    font-weight: var(--z-weight-medium);
+  }
+  .context-explainer > a {
+    display: inline-block;
+    margin-top: var(--z-space-3);
+  }
+  .context-benefits .access-note {
+    margin-top: var(--z-space-4);
+  }
   .owners {
     margin-bottom: var(--z-space-4);
   }

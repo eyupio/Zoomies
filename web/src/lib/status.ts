@@ -223,9 +223,9 @@ export function runnerStatuses(quirky = true): StatusMeta[] {
  * else said "Maximum boost".
  *
  * The plain icons are a set: the two boosts rise and the throttle falls, so
- * which way a runner's CPU went is readable before the label is. Both boosts
- * say "Boost active" in the Runners grid, and the icon is what tells them
- * apart there.
+ * which way a runner's CPU went is readable before the label is. The Runners
+ * grid says "Extra" and "Zoomies" for the two boosts, so the icon backs the
+ * word up rather than being the only thing that tells them apart.
  */
 export function cpuResourceStatus(
   state: string | undefined,
