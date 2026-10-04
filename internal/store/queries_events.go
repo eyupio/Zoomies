@@ -23,7 +23,8 @@ const jobInsertCols = `id, github_job_id, github_run_id, repo, workflow, job_nam
 	started_at, completed_at, matched, eligible_at, head_branch, head_sha, run_attempt, run_number, steps, runner_fault, fault_kind, provisioning, provision_now, cancel_requested_at,
 	controller_version, controller_channel, agent_version, host_id`
 
-const jobCols = jobInsertCols + `, peak_cpus, peak_memory_mb, oom_killed`
+const jobCols = jobInsertCols + `, peak_cpus, peak_memory_mb, oom_killed,
+	granted_cpus, granted_memory_mb, granted_source`
 
 func scanJob(sc interface{ Scan(...any) error }) (*Job, error) {
 	var j Job
@@ -36,7 +37,8 @@ func scanJob(sc interface{ Scan(...any) error }) (*Job, error) {
 		&j.RunnerName, &j.HTMLURL, &queued, &started, &completed, &matched, &eligible,
 		&j.HeadBranch, &j.HeadSHA, &j.RunAttempt, &j.RunNumber, &j.Steps, &j.RunnerFault, &j.FaultKind, &j.Provisioning, &j.ProvisionNow,
 		&cancelRequested, &controllerVersion, &controllerChannel, &agentVersion, &hostID,
-		&j.PeakCPUs, &j.PeakMemoryMB, &oomKilled)
+		&j.PeakCPUs, &j.PeakMemoryMB, &oomKilled,
+		&j.GrantedCPUs, &j.GrantedMemoryMB, &j.GrantedSource)
 	if err != nil {
 		return nil, err
 	}
@@ -238,6 +240,33 @@ func (s *Store) StampJobVersions(ctx context.Context, jobID string, v JobVersion
 			host_id            = COALESCE(host_id,            NULLIF(?4, ''))
 			WHERE id = ?5`, v.ControllerVersion, v.ControllerChannel, v.AgentVersion, v.HostID, jobID); err != nil {
 			return err
+		}
+		j, err := scanJob(tx.QueryRowContext(ctx, `SELECT `+jobCols+` FROM jobs WHERE id = ?`, jobID))
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("job %s: %w", jobID, ErrNotFound)
+		}
+		out = j
+		return err
+	})
+	return out, err
+}
+
+// StampJobGranted records the size of the runner that took a job, and returns
+// the job as it now is.
+//
+// It is written once. The statement only fills a job whose granted_source is
+// still empty, so two observers of the same assignment -- a webhook and the
+// poller -- leave the first one's figures, and a runner later resized, or the
+// same job re-run, cannot rewrite what this run was given. A source of "" is
+// nothing to record and writes nothing: the job is returned as it is.
+func (s *Store) StampJobGranted(ctx context.Context, jobID string, cpus float64, memoryMB int64, source string) (*Job, error) {
+	var out *Job
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		if source != "" {
+			if _, err := tx.ExecContext(ctx, `UPDATE jobs SET granted_cpus = ?1, granted_memory_mb = ?2,
+				granted_source = ?3 WHERE id = ?4 AND granted_source = ''`, cpus, memoryMB, source, jobID); err != nil {
+				return err
+			}
 		}
 		j, err := scanJob(tx.QueryRowContext(ctx, `SELECT `+jobCols+` FROM jobs WHERE id = ?`, jobID))
 		if errors.Is(err, sql.ErrNoRows) {
