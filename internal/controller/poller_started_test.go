@@ -147,7 +147,10 @@ func TestAStaleRunningSnapshotDoesNotReopenAFinishedJob(t *testing.T) {
 }
 
 // A runner is on one job. A snapshot naming it for a second -- a name reused,
-// a listing out of step -- must not take it off the job it has.
+// a listing out of step -- must not take it off the job it has. The refusal is
+// the store's (StartRunnerJob keeps the job a busy runner has), so this pins
+// that ingestStartedJob leaves it in charge rather than testing a guard of its
+// own.
 func TestASweepDoesNotMoveABusyRunnerToAnotherJob(t *testing.T) {
 	h := newHarness(t)
 	inst, pool, host := h.fleet()
@@ -239,5 +242,35 @@ func TestAJobFoundRunningIsCompletedAndItsRunnerReleased(t *testing.T) {
 	}
 	if !h.hasTaskOfKind(host.ID, agent.TaskRemoveRunner) {
 		t.Fatal("nothing was asked to remove the finished runner's workload")
+	}
+}
+
+// A snapshot can name a runner this controller has already finished with: the
+// job ended and the runner was removed between the listing and the ingest, and
+// the job was never recorded as started. The job row is written -- GitHub did
+// say it was running -- but the runner must stay where it is, since a removed
+// runner brought back to busy would be counted as capacity that is not there,
+// and the row has to end like any other once the known-job check reaches it.
+func TestASweepDoesNotBringARemovedRunnerBackForAJobItNeverSawStart(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	gone := h.runnerRow(pool, host, store.RunnerRemoved)
+	running := h.startedBetweenSweeps("build", gone)
+
+	h.c.pollOnce(h.ctx)
+
+	if got := h.runnerByID(t, gone.ID); got.State != store.RunnerRemoved || got.CurrentJobID != "" {
+		t.Fatalf("runner = %s on job %q, want it left removed and unlinked", got.State, got.CurrentJobID)
+	}
+
+	h.gh.CompleteJob(running.ID, "success")
+	h.advance(3 * time.Minute)
+	h.c.pollOnce(h.ctx)
+
+	if job := h.polledJob(running.ID); job.State != store.JobCompleted || job.Conclusion != "success" {
+		t.Fatalf("job = %s (%q), want the known-job check to have completed it", job.State, job.Conclusion)
+	}
+	if got := h.runnerByID(t, gone.ID); got.State != store.RunnerRemoved {
+		t.Fatalf("runner = %s after the job completed, want it still removed", got.State)
 	}
 }
