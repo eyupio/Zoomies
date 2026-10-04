@@ -16,6 +16,7 @@ on:
       - "go.sum"
       - ".github/workflows/govulncheck.yml"
   pull_request:
+    types: [opened, synchronize, reopened, closed]
     paths:
       - "**.go"
       - "go.mod"
@@ -34,12 +35,20 @@ on:
 permissions:
   contents: read
 
+# A pull request's scan is replaced by a newer push and dropped when the pull
+# request is closed or merged. Main's runs and the weekly one are never
+# cancelled: a scan that was cut short reports nothing. ci.yml says why.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   GO_VERSION: "1.27.1"
 
 jobs:
   govulncheck:
     name: govulncheck
+    if: github.event.action != 'closed'
     # Fork code never reaches the self-hosted fleet. A manual dispatch can use
     # GitHub-hosted capacity if the Zoomies pool is unavailable.
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}

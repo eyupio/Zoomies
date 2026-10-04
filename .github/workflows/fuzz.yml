@@ -12,6 +12,7 @@ on:
       - "go.sum"
       - ".github/workflows/fuzz.yml"
   pull_request:
+    types: [opened, synchronize, reopened, closed]
     paths:
       - "internal/cryptox/**"
       - "go.mod"
@@ -24,8 +25,17 @@ on:
 permissions:
   contents: read
 
+# A pull request's fuzzing is replaced by a newer push and dropped when the
+# pull request is closed or merged, rather than left to spend a fleet slot on a
+# result nobody will read. Main's runs and the weekly one, which fuzzes for
+# longer, are never cancelled. ci.yml says why.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   fuzz:
+    if: github.event.action != 'closed'
     runs-on: zoomies-linux-x64
     timeout-minutes: 30
     strategy:
