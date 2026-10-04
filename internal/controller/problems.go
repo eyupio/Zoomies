@@ -371,6 +371,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	gather("host versions", c.hostSkewProblems)
 	gather("host resources", c.hostResourceProblems)
 	gather("in-memory folders", c.tmpfsAdviceProblems)
+	gather("in-memory folders by host", c.tmpfsHostProblems)
 	gather("runner profiles", c.runnerProfileProblems)
 	gather("host incidents", c.hostIncidentProblems)
 	out = append(out, c.fenceProblems()...)

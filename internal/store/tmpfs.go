@@ -127,6 +127,10 @@ func (c TmpfsConfig) DaemonSize(capMB int64) int64 {
 	switch {
 	case !c.Daemon.Enabled:
 		return 0
+	case c.Daemon.SizeMB > 0 && capMB > 0 && c.Daemon.SizeMB >= capMB:
+		// The same reduction Sizes makes: a typed size the daemon's real limit cannot
+		// hold would OOM-kill it as the store filled.
+		return max(capMB/2, MinTmpfsMB)
 	case c.Daemon.SizeMB > 0:
 		return c.Daemon.SizeMB
 	case capMB <= 0:
@@ -160,7 +164,24 @@ func (c TmpfsConfig) Sizes(capMB int64) (workMB, tmpMB int64) {
 	}
 	workMB, workAuto := want(c.Work, DefaultTmpfsWorkMB)
 	tmpMB, tmpAuto := want(c.Tmp, DefaultTmpfsTmpMB)
-	if capMB <= 0 || auto == 0 {
+	if capMB <= 0 {
+		return workMB, tmpMB
+	}
+	if auto == 0 {
+		// Typed sizes were validated against the pool's stored limit, but the limit
+		// a runner is really given can be smaller: an automatic pool takes its host's
+		// share, and a fixed one is reduced on a small machine. Folders that together
+		// reach that limit would OOM-kill the runner the moment a job filled them, so
+		// they are scaled into half of it, in proportion, as auto sizes are.
+		if explicit >= capMB {
+			shrink := func(size int64) int64 {
+				if size == 0 {
+					return 0
+				}
+				return max(capMB/2*size/explicit, MinTmpfsMB)
+			}
+			return shrink(workMB), shrink(tmpMB)
+		}
 		return workMB, tmpMB
 	}
 	room := capMB/2 - explicit

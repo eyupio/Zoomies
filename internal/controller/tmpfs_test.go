@@ -515,3 +515,22 @@ func TestTheAdviceRespectsAHostsOwnPolicy(t *testing.T) {
 		})
 	}
 }
+
+// A pool made or edited without a dry run must still be told that some of its
+// hosts keep it on disk: the standing problems carry the sentence, not only the
+// validation response.
+func TestAnInMemoryPoolOnAnOldAgentIsWarnedInTheProblemsList(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	pool.Tmpfs = store.TmpfsConfig{Work: store.TmpfsMount{Enabled: true}}
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	host.Features = nil
+	if err := h.st.UpdateHost(h.ctx, host); err != nil {
+		t.Fatal(err)
+	}
+	if p := h.problemOrNil("pool.tmpfs_unsupported"); p == nil {
+		t.Fatal("no pool.tmpfs_unsupported problem for a host whose agent cannot mount the folders")
+	}
+}

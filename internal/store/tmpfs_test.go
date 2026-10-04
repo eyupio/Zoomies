@@ -232,3 +232,21 @@ func TestAHostsInMemoryPolicyIsStoredWithItsRunnerProfile(t *testing.T) {
 		t.Fatalf("profile = %+v, want %+v", got.RunnerProfile, profile)
 	}
 }
+
+// A typed size is checked against the pool's stored limit, but the runner may be
+// given less (a host's share, or a reduced fixed size); folders that reach the
+// real limit would OOM-kill the runner as they filled.
+func TestTypedTmpfsSizesAreScaledIntoARunnerLimitSmallerThanTheyAssume(t *testing.T) {
+	c := TmpfsConfig{Work: TmpfsMount{Enabled: true, SizeMB: 4096}, Tmp: TmpfsMount{Enabled: true, SizeMB: 1024}}
+	work, tmp := c.Sizes(1024)
+	if work+tmp > 512 || work <= tmp {
+		t.Fatalf("sizes %d and %d should fit in half of 1024 MB, work larger", work, tmp)
+	}
+	if work, tmp := c.Sizes(16384); work != 4096 || tmp != 1024 {
+		t.Fatalf("a roomy limit must leave typed sizes alone, got %d and %d", work, tmp)
+	}
+	d := TmpfsConfig{Daemon: TmpfsMount{Enabled: true, SizeMB: 8192}}
+	if got := d.DaemonSize(2048); got != 1024 {
+		t.Fatalf("daemon size = %d, want 1024", got)
+	}
+}

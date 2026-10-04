@@ -330,3 +330,31 @@ func (c *Controller) tmpfsAdviceProblems(ctx context.Context, out *[]Problem) er
 	}
 	return nil
 }
+
+// tmpfsHostProblems says, for as long as it is true, which hosts a pool that
+// keeps folders in memory is not in memory on. The same two sentences come back
+// from a dry run, but a pool created or edited without one -- the normal CLI
+// path -- would otherwise claim memory while some runners quietly use disk.
+func (c *Controller) tmpfsHostProblems(ctx context.Context, out *[]Problem) error {
+	pools, err := c.st.ListPools(ctx)
+	if err != nil {
+		return fmt.Errorf("listing pools: %w", err)
+	}
+	for _, p := range pools {
+		if !p.Enabled || !p.Tmpfs.Any() {
+			continue
+		}
+		room, err := c.PoolRoom(ctx, p)
+		if err != nil {
+			return fmt.Errorf("counting the room pool %s has: %w", p.Name, err)
+		}
+		placeable := room.Placeable()
+		if w, ok := heldWithoutTmpfs(p, placeable); ok {
+			*out = append(*out, w)
+		}
+		if w, ok := keptOnDiskByHost(p, placeable); ok {
+			*out = append(*out, w)
+		}
+	}
+	return nil
+}
