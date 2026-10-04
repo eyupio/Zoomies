@@ -43,11 +43,6 @@ curl -fsSL https://zoomies.sh/install.sh | sh
 
 </div>
 
-The project's own CI runs on Zoomies: every job except the arm64 and Windows
-legs, in containers the Docker backend started.
-[What is and is not qualified](#what-is-qualified).
-{ .zoomies-proof }
-
 ![The Overview: the activity matrix across the top, then four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and a feed of the fleet's recent events](screenshots/overview-dark.webp#only-dark){ .zoomies-shot }
 ![The Overview: the activity matrix across the top, then four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and a feed of the fleet's recent events](screenshots/overview-light.webp#only-light){ .zoomies-shot }
 
