@@ -1342,10 +1342,15 @@ upgrade_with() {
 upgrade_run() {
     upgrade_run_binary="$1"
     shift
+    # This script has just installed the binary it is about to run, so there is
+    # nothing for the upgrade to go and fetch -- and a pinned --version must not
+    # be "updated" to the newest. It is an environment variable because a release
+    # that predates a flag would refuse to start on it, and it goes through env
+    # because sudo resets the environment.
     if [ -n "$ELEVATE" ] && [ "$OS" = linux ]; then
-        run_privileged "$upgrade_run_binary" "$@"
+        run_privileged env ZOOMIES_NO_SELF_UPDATE=1 "$upgrade_run_binary" "$@"
     else
-        "$upgrade_run_binary" "$@"
+        env ZOOMIES_NO_SELF_UPDATE=1 "$upgrade_run_binary" "$@"
     fi
 }
 

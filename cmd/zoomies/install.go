@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/installer"
 	"github.com/eyupio/zoomies/internal/logging"
+	"github.com/eyupio/zoomies/internal/version"
 	"golang.org/x/term"
 )
 
@@ -198,6 +201,8 @@ func runUpgradeNamed(ctx context.Context, e *env, args []string, name string) er
 	image := fs.String("image", "", "replacement image for a custom container deployment")
 	mode := fs.String("mode", "", "agent, controller or single; refuses a different existing deployment")
 	check := fs.Bool("check", false, "check the deployment without changing or restarting anything")
+	wantVersion := fs.String("version", "", "with the download: a tag such as v1.4.0, or dev, instead of the newest release")
+	noDownload := fs.Bool("no-download", false, "apply the binary that is already installed; do not look for a newer one")
 	yes := fs.Bool("yes", false, "add what this release expects and the deployment lacks -- a folder, a mount, a missing Compose file -- without asking")
 	nonInteractive := fs.Bool("non-interactive", false, "never ask; report what this release expects and the deployment lacks, and leave it as it is unless --yes is given too")
 	fs.example("curl -fsSL https://zoomies.sh/install.sh | sh -s -- --upgrade", "zoomies "+name+" --check --mode agent", "zoomies "+name+" --yes")
@@ -211,6 +216,11 @@ func runUpgradeNamed(ctx context.Context, e *env, args []string, name string) er
 	if err != nil {
 		return err
 	}
+	if !*check && !*noDownload && os.Getenv(installer.SelfUpdateEnv) == "" {
+		if err := selfUpdate(ctx, e, *binary, *wantVersion); err != nil {
+			return err
+		}
+	}
 	// install.sh piped into sh has the script itself on stdin, so a prompt
 	// there would read the next line of shell as its answer. Ask only when
 	// stdin is somebody at a terminal.
@@ -219,9 +229,49 @@ func runUpgradeNamed(ctx context.Context, e *env, args []string, name string) er
 		interactive = !*nonInteractive
 	}
 	return installer.Upgrade(ctx, installer.UpgradeOptions{
-		Doctor:    func(ctx context.Context, cfg *config.Config) { upgradeDoctor(ctx, e, cfg) },
+		Doctor: func(ctx context.Context, cfg *config.Config) {
+			upgradeDoctor(ctx, e, cfg, interactive && !*yes)
+		},
 		ConfigDir: *configDir, BinaryPath: *binary, DockerHost: *dockerHost, Runtime: *runtime, Image: *image,
 		Mode: parsed, Check: *check, Out: e.out,
 		In: e.in, Interactive: interactive, NonInteractive: *nonInteractive, AssumeYes: *yes,
 	})
+}
+
+// selfUpdate brings the installed binary up to date and, if it changed,
+// restarts this command inside the new one. Upgrade used to apply whatever was
+// already on disk, so a host that ran `zoomies upgrade` rather than install.sh
+// kept the old build -- and with it the old upgrade, doctor and tune.
+//
+// Failing to find or fetch a newer release is a warning, not a failure: nothing
+// has been replaced, and an offline host can still apply the binary it has.
+func selfUpdate(ctx context.Context, e *env, binary, wantVersion string) error {
+	if binary == "" {
+		binary, _ = os.Executable()
+	}
+	if abs, err := filepath.Abs(binary); err == nil {
+		binary = abs
+	}
+	ui := installer.PaletteFor(e.out)
+	ui.Doing(e.out, "Checking for a newer Zoomies")
+	res, err := installer.SelfUpdate(ctx, installer.SelfUpdateOptions{
+		BinaryPath: binary, Version: wantVersion, Current: version.Version, Out: e.out,
+	})
+	if err != nil {
+		ui.Warn(e.out, "Could not update the binary, so the installed one will be used: %v", err)
+		return nil
+	}
+	if !res.Updated {
+		if res.Tag != "" {
+			ui.Done(e.out, "Already on the latest build %s", ui.Dim("("+res.Tag+")"))
+		}
+		return nil
+	}
+	ui.Done(e.out, "Downloaded %s, checksum verified; continuing with it", res.Tag)
+	fmt.Fprintln(e.out)
+	env := append(os.Environ(), installer.SelfUpdateEnv+"=1")
+	if err := reexecBinary(binary, processArgs(), env); err != nil {
+		return fmt.Errorf("the binary was updated to %s but could not be started: %w; run `zoomies upgrade` again", res.Tag, err)
+	}
+	return nil
 }

@@ -207,6 +207,33 @@ func LegacySetupWorkflow(key RepositoryKey, config Config) (string, error) {
 	return w, nil
 }
 
+// PreviousSetupWorkflow is the template before the generator named oversized
+// files. Installed workflows are verified byte for byte, so a template change
+// that left them unrecognised would close the access gate of every enabled
+// repository until somebody ran a repair.
+func PreviousSetupWorkflow(key RepositoryKey, config Config) (string, error) {
+	w, err := SetupWorkflow(key, config)
+	if err != nil {
+		return "", err
+	}
+	current, _ := setupTemplates.ReadFile("templates/generate.py")
+	previous, _ := setupTemplates.ReadFile("templates/previous_generate.py")
+	return strings.Replace(w, indentScript(string(current)), indentScript(string(previous)), 1), nil
+}
+
+// IsOlderSetupWorkflow reports whether content is exactly a workflow an earlier
+// Zoomies release wrote for this repository and configuration. Such a workflow
+// is still owned and still safe; it is merely due a repair. Anything else is
+// somebody's edit.
+func IsOlderSetupWorkflow(key RepositoryKey, config Config, content string) bool {
+	for _, older := range []func(RepositoryKey, Config) (string, error){PreviousSetupWorkflow, LegacySetupWorkflow} {
+		if w, err := older(key, config); err == nil && w == content {
+			return true
+		}
+	}
+	return false
+}
+
 // PlanManagedSetup adds executable workflow/toolchain files only when they are
 // absent or byte-for-byte owned. User edits never become silent upgrades.
 func PlanManagedSetup(key RepositoryKey, name string, config Config, files []SetupFile) ([]SetupChange, error) {
