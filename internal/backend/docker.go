@@ -120,10 +120,15 @@ const RunnerTmpMount = "/tmp"
 // pool -- and a uid named here is read in the mount's user namespace, which a
 // rootless Podman shifts, so a number that is right for Docker is a folder the
 // runner cannot write under Podman. The sticky bit is /tmp's own convention and
-// costs a single-user container nothing. noexec is deliberately absent: builds
-// run what they compile from the work folder and from /tmp, and a mount that
-// refuses to execute them is a job that fails with an error naming neither.
-const tmpfsOptions = "rw,nosuid,nodev,mode=1777"
+// costs a single-user container nothing.
+//
+// exec is spelled out because leaving noexec out does nothing: Docker and Podman
+// both start every tmpfs from noexec,nosuid,nodev and merge what is given over
+// it, so a mount that does not say exec is a noexec mount. Builds run what they
+// compile from the work folder and from /tmp -- go test executes its test binary
+// from there -- and a mount that refuses fails the job with "permission denied"
+// on a file the job itself just wrote.
+const tmpfsOptions = "rw,exec,nosuid,nodev,mode=1777"
 
 // tmpfsMounts is the HostConfig.Tmpfs map for a runner whose memory limit is
 // capMB, nil when nothing is kept in memory. A work folder the spec already
@@ -151,12 +156,15 @@ func tmpfsMounts(spec Spec, capMB int64, workBound bool) map[string]string {
 // may keep in memory. It is a folder of the sidecar's container, not the runner's.
 const DaemonStoreMount = "/var/lib/docker"
 
-// daemonTmpfsOptions are the options of the image store's tmpfs. They are fewer
+// daemonTmpfsOptions are the options of the image store's tmpfs. They allow more
 // than the runner's on purpose: the nested daemon creates device nodes and keeps
 // setuid binaries inside image layers, and a mount that refuses either is a
 // build that fails inside the job with an error about the image, not the mount.
-// Root-only, as the folder is on disk, because only the daemon opens it.
-const daemonTmpfsOptions = "rw,mode=0710"
+// Every one is spelled out -- exec, suid, dev -- because Docker and Podman start
+// a tmpfs from noexec,nosuid,nodev and merge what they are given over it, so
+// merely not naming them leaves them refused. Root-only, as the folder is on
+// disk, because only the daemon opens it.
+const daemonTmpfsOptions = "rw,exec,suid,dev,mode=0710"
 
 // daemonTmpfsMounts is the sidecar's HostConfig.Tmpfs map, nil when its image
 // store stays on disk. It is sized from the daemon's own memory limit, since
