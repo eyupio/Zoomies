@@ -622,7 +622,9 @@ no separate Tailcat binary. It has no browser dependency or shell-budget cost.
 
 AI Context verification runs outside the fleet reconciliation lock. A separate
 bounded loop checks explicitly submitted setup proposals; administrators can
-also recheck existing output. Before admission, the controller verifies setup
+also recheck existing output, or ask GitHub to run the managed workflow when it
+has not caught up (a request that admits nothing: the result still arrives
+through verification). Before admission, the controller verifies setup
 merge, current installation access, repository identity, the trusted default
 branch and exact managed operational files. GitHub reads pin immutable source
 and output commits. A valid publication must have the complete managed output

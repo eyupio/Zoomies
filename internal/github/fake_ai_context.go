@@ -106,6 +106,37 @@ func (f *FakeGitHub) registerContextGitRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /repos/{owner}/{repo}/git/commits", f.contextCreateCommit)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls", f.contextListPulls)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls/{number}", f.contextGetPull)
+	mux.HandleFunc("POST /repos/{owner}/{repo}/actions/workflows/{file}/dispatches", f.contextDispatch)
+}
+
+// contextDispatch answers a manual workflow run. Like the other Actions writes
+// it needs the Actions write permission, and it answers 204 as GitHub does.
+func (f *FakeGitHub) contextDispatch(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.permissions["actions"] != "write" {
+		writeError(w, http.StatusForbidden, "Resource not accessible by integration")
+		return
+	}
+	if f.contextDispatches == nil {
+		f.contextDispatches = map[string]int{}
+	}
+	f.contextDispatches[fullName(r)+"/"+r.PathValue("file")]++
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ContextDispatches is how many times the fake has been asked to run a
+// repository's managed workflow by hand.
+func (f *FakeGitHub) ContextDispatches(repo string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for k, v := range f.contextDispatches {
+		if strings.HasPrefix(k, repo+"/") {
+			n += v
+		}
+	}
+	return n
 }
 
 func (f *FakeGitHub) contextGitRead(w http.ResponseWriter, r *http.Request) {

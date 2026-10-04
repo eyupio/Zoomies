@@ -106,6 +106,12 @@ type Options struct {
 type Controller struct {
 	doctor          *hosttune.Monitor
 	aiContextChecks chan struct{}
+	// aiContextRuns remembers, per repository, which commit the controller has
+	// been waiting on the managed workflow for and how often it has started it.
+	// It lives in memory on purpose: forgetting it on a restart costs at most one
+	// extra run, where remembering it would cost a migration.
+	aiContextRunsMu sync.Mutex
+	aiContextRuns   map[string]*aiContextRun
 	// actionsTokens verifies the OIDC tokens Zoomies-only uploads carry.
 	actionsTokens *github.ActionsTokenVerifier
 	// sso is what the API last said about single sign-on, for the problems
@@ -406,6 +412,7 @@ func New(opts Options) (*Controller, error) {
 
 	c := &Controller{
 		aiContextChecks:         make(chan struct{}, 1),
+		aiContextRuns:           map[string]*aiContextRun{},
 		actionsTokens:           github.NewActionsTokenVerifier(github.ActionsIssuer),
 		st:                      opts.Store,
 		lease:                   opts.Lease,

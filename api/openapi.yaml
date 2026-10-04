@@ -283,6 +283,25 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+  /ai-context/repositories/{id}/regenerate:
+    post:
+      tags: [AI Context]
+      summary: Run the managed context workflow now
+      description: Requires context.configure (admin) or ownership of the repository's installation (context.manage). Verifies the reviewed setup is still intact, then asks GitHub to run the Zoomies AI Context workflow on the trusted branch. It needs the App's Actions write permission. It starts a run and nothing more -- the generated context is admitted by verification (a recheck, or the background check), so this cannot open source access itself.
+      operationId: regenerateAIContext
+      x-zoomies-role: viewer
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "202":
+          description: GitHub accepted the request to run the workflow; the repository's current verification state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIContextRepository" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
   /ai-context/repositories/{id}/setup:
     parameters:
       - $ref: "#/components/parameters/PathID"

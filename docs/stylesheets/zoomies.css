@@ -1028,14 +1028,15 @@ input,
    auto-fit layout above counts four columns from 1366px up and laid the grid
    out 4 / 4 / 1, leaving one card alone on the last row beside three empty
    cells; asking for three says what the content is. Below this width the cards
-   stack or pair, and the card that would be left on its own takes the row. */
+   stack or pair, and the card that would be left on its own takes the row --
+   the last one when the count is odd, however many cards the grid holds. */
 @media screen and (min-width: 48em) {
   .zoomies-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
-@media screen and (min-width: 40.625em) and (max-width: 47.9375em) {
-  .zoomies-grid > div:nth-last-child(2) {
+@media screen and (max-width: 47.9375em) {
+  .zoomies-grid > div:last-child:nth-child(odd) {
     grid-column: 1 / -1;
   }
 }

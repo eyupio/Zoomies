@@ -398,6 +398,34 @@ func (s *Server) handleRecheckAIContext(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, out)
 }
 
+// Regenerate asks GitHub to run the managed workflow. It starts a run and
+// reports that it did; the new context is admitted by the verification a
+// recheck or the background loop performs, never by this request.
+func (s *Server) handleRegenerateAIContext(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if _, ok := s.contextRepositoryAccess(w, r, id); !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	defer cancel()
+	if err := s.ctrl.RegenerateAIContext(ctx, id); err != nil {
+		var refusal *controller.AIContextRefusal
+		if errors.As(err, &refusal) {
+			conflict(w, refusal.Message)
+			return
+		}
+		s.fail(w, r, "starting the AI Context workflow", err)
+		return
+	}
+	out, err := s.ctrl.Store().GetAIContextRepository(r.Context(), id)
+	if err != nil {
+		s.fail(w, r, "reading context verification", err)
+		return
+	}
+	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "context.regenerate", "ai_context", id, nil)
+	writeJSON(w, http.StatusAccepted, out)
+}
+
 func (s *Server) handleAIContextMaintenance(w http.ResponseWriter, r *http.Request) {
 	var req controller.AIContextMaintenanceRequest
 	if !decode(w, r, &req) {
