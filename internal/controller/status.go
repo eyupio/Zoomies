@@ -278,6 +278,7 @@ var publicSentences = map[string]string{
 	"pool.size_unlimited":                           "Some runners have no size limit, so one job can slow the others on its machine.",
 	"pool.tmpfs_host_off":                           "Some machines keep runners' working files on disk by choice, so runners placed there are not sped up.",
 	"pool.tmpfs_memory_tight":                       "Some runners could run out of memory because the working space they keep in memory takes much of their limit.",
+	"pool.daemon_share_suggested":                   "A pool's two build containers are divided unevenly against the work, so one is short of room while the other idles.",
 	"pool.tmpfs_suggested":                          "Jobs on some runners are slow and their machines have spare memory, so keeping working files in memory could speed them up.",
 	"pool.tmpfs_unsupported":                        "Some machines cannot keep runners' working files in memory, so those runners use disk as before.",
 	"provider.bootstrap_failed":                     "A newly rented machine failed to join the fleet.",

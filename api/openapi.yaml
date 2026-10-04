@@ -9419,6 +9419,19 @@ components:
         memory_limit: { type: integer, format: int64 }
         cpu_allocation_factor: { type: number, format: double, description: One is the guaranteed creation quota; above one is elastic CPU and below one is host-pressure throttling. }
         busiest_half_percent: { type: number, format: double, description: For a docker-in-docker pair, how much of its own creation quota the busier container is using, in percent. Absent for a single container. }
+        halves:
+          type: object
+          description: For a docker-in-docker pair, what each container used on its own, beside the limits it was created with. Absent for a single container and from an agent that predates it. The controller judges how the pair's slot is divided from it (`pool.daemon_share_suggested`).
+          properties:
+            runner: { $ref: '#/components/schemas/WorkloadHalfUse' }
+            daemon: { $ref: '#/components/schemas/WorkloadHalfUse' }
+    WorkloadHalfUse:
+      type: object
+      properties:
+        cpus: { type: number, format: double, description: Cores in use at the sample. }
+        cpu_limit: { type: number, format: double, description: The CPU quota the container was created with, in cores. Absent when it had none. }
+        memory_bytes: { type: integer, format: int64 }
+        memory_limit: { type: integer, format: int64, description: Absent when the container had no limit. }
     AgentTaskKind:
       type: string
       enum: [create_runner, stop_runner, remove_runner, stream_logs, cancel_logs, prewarm_image, fill_tool_cache]

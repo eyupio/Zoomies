@@ -7322,6 +7322,30 @@ export interface components {
              * @description For a docker-in-docker pair
              */
             busiest_half_percent?: number;
+            /** @description For a docker-in-docker pair, what each container used on its own, beside the limits it was created with. Absent for a single container and from an agent that predates it. The controller judges how the pair's slot is divided from it (`pool.daemon_share_suggested`). */
+            halves?: {
+                runner?: components["schemas"]["WorkloadHalfUse"];
+                daemon?: components["schemas"]["WorkloadHalfUse"];
+            };
+        };
+        WorkloadHalfUse: {
+            /**
+             * Format: double
+             * @description Cores in use at the sample.
+             */
+            cpus?: number;
+            /**
+             * Format: double
+             * @description The CPU quota the container was created with
+             */
+            cpu_limit?: number;
+            /** Format: int64 */
+            memory_bytes?: number;
+            /**
+             * Format: int64
+             * @description Absent when the container had no limit.
+             */
+            memory_limit?: number;
         };
         /** @enum {string} */
         AgentTaskKind: "create_runner" | "stop_runner" | "remove_runner" | "stream_logs" | "cancel_logs" | "prewarm_image" | "fill_tool_cache";

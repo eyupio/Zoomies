@@ -1566,6 +1566,8 @@ func (b *DockerBackend) Stats(ctx context.Context, h Handle) (Stats, error) {
 		return Stats{}, err
 	}
 	busiest := halfPercent(out.CPUPercent, insp.Config.Labels)
+	runnerHalf := halfUse(out, insp.Config.Labels)
+	var daemonHalf *HalfUse
 	for _, sidecar := range sidecars {
 		sample, err := b.api.ContainerStats(ctx, sidecar.ID)
 		if errors.Is(err, ErrNotFound) {
@@ -1575,10 +1577,28 @@ func (b *DockerBackend) Stats(ctx context.Context, h Handle) (Stats, error) {
 			return Stats{}, err
 		}
 		busiest = max(busiest, halfPercent(sample.CPUPercent, sidecar.Labels))
+		half := halfUse(Stats(sample), sidecar.Labels)
+		daemonHalf = &half
 		out = addStats(out, Stats(sample))
 	}
 	out.BusiestHalfPercent = busiest
+	if daemonHalf != nil {
+		out.Halves = &PairHalves{Runner: runnerHalf, Daemon: *daemonHalf}
+	}
 	return out, nil
+}
+
+// halfUse is one container's sample beside the limits its create stamped. The
+// CPU limit is the creation quota, not whatever a loan has made it since: the
+// question the controller asks is how the slot was divided, and a loan is
+// borrowed from outside it.
+func halfUse(s Stats, labels map[string]string) HalfUse {
+	res := resourcesFromLabels(labels)
+	limit := res.MemoryMB * (1 << 20)
+	if limit == 0 {
+		limit = s.MemoryLimit
+	}
+	return HalfUse{CPUs: s.CPUPercent / 100, CPULimit: res.CPUs, MemoryBytes: s.MemoryBytes, MemoryLimit: limit}
 }
 
 // halfPercent is a container's CPU use as a share of the quota it was created

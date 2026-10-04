@@ -187,6 +187,7 @@ var problemAudience = map[string]Audience{
 	"pool.tmpfs_host_off":                           AudienceFleet,
 	"pool.tmpfs_memory_tight":                       AudienceFleet,
 	"pool.tmpfs_suggested":                          AudienceFleet,
+	"pool.daemon_share_suggested":                   AudienceFleet,
 	"pool.tmpfs_unsupported":                        AudienceFleet,
 	"provider.bootstrap_failed":                     AudienceFleet,
 	"provider.contract_unsupported":                 AudienceFleet,
@@ -372,6 +373,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	gather("host resources", c.hostResourceProblems)
 	gather("in-memory folders", c.tmpfsAdviceProblems)
 	gather("in-memory folders by host", c.tmpfsHostProblems)
+	gather("sidecar share", c.daemonShareAdviceProblems)
 	gather("runner profiles", c.runnerProfileProblems)
 	gather("host incidents", c.hostIncidentProblems)
 	out = append(out, c.fenceProblems()...)
