@@ -250,6 +250,14 @@ func Open(ctx context.Context, opts Options) (*Store, error) {
 		}
 		return s, nil
 	}
+	if memory {
+		if restored, err := s.restoreMemoryTemplate(ctx); err != nil {
+			s.Close()
+			return nil, err
+		} else if restored {
+			return s, nil
+		}
+	}
 	// Before migrating, not during: migrate holds the write lock and so does
 	// Backup, and unlocking around the copy to get past that would be a
 	// deadlock waiting for the first caller who does not read the comment.
@@ -260,6 +268,9 @@ func Open(ctx context.Context, opts Options) (*Store, error) {
 	if err := s.migrate(ctx); err != nil {
 		s.Close()
 		return nil, err
+	}
+	if memory {
+		s.captureMemoryTemplate(ctx)
 	}
 	return s, nil
 }
