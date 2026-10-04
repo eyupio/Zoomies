@@ -207,18 +207,36 @@ func LegacySetupWorkflow(key RepositoryKey, config Config) (string, error) {
 	return w, nil
 }
 
-// PreviousSetupWorkflow is the template before the generator named oversized
-// files. Installed workflows are verified byte for byte, so a template change
-// that left them unrecognised would close the access gate of every enabled
-// repository until somebody ran a repair.
-func PreviousSetupWorkflow(key RepositoryKey, config Config) (string, error) {
+// olderGenerations are the generator and publisher scripts earlier releases put
+// in installed workflows, newest first. Installed workflows are verified byte
+// for byte, so a template change that left them unrecognised would close the
+// access gate of every enabled repository until somebody ran a repair. Add the
+// scripts being replaced here, in the same change that replaces them; the
+// initial template is handled by LegacySetupWorkflow.
+var olderGenerations = []struct{ generate, publish string }{
+	// Named oversized files, but refused the run when there was one.
+	{"templates/named_generate.py", "templates/older_publish.py"},
+	// Said only that "a source file exceeds the context size limit".
+	{"templates/previous_generate.py", "templates/older_publish.py"},
+}
+
+func olderSetupWorkflow(key RepositoryKey, config Config, generation int) (string, error) {
 	w, err := SetupWorkflow(key, config)
 	if err != nil {
 		return "", err
 	}
-	current, _ := setupTemplates.ReadFile("templates/generate.py")
-	previous, _ := setupTemplates.ReadFile("templates/previous_generate.py")
-	return strings.Replace(w, indentScript(string(current)), indentScript(string(previous)), 1), nil
+	g := olderGenerations[generation]
+	for _, swap := range [][2]string{{"templates/generate.py", g.generate}, {"templates/publish.py", g.publish}} {
+		current, _ := setupTemplates.ReadFile(swap[0])
+		older, _ := setupTemplates.ReadFile(swap[1])
+		w = strings.Replace(w, indentScript(string(current)), indentScript(string(older)), 1)
+	}
+	return w, nil
+}
+
+// PreviousSetupWorkflow is the template immediately before the current one.
+func PreviousSetupWorkflow(key RepositoryKey, config Config) (string, error) {
+	return olderSetupWorkflow(key, config, 0)
 }
 
 // IsOlderSetupWorkflow reports whether content is exactly a workflow an earlier
@@ -226,10 +244,13 @@ func PreviousSetupWorkflow(key RepositoryKey, config Config) (string, error) {
 // is still owned and still safe; it is merely due a repair. Anything else is
 // somebody's edit.
 func IsOlderSetupWorkflow(key RepositoryKey, config Config, content string) bool {
-	for _, older := range []func(RepositoryKey, Config) (string, error){PreviousSetupWorkflow, LegacySetupWorkflow} {
-		if w, err := older(key, config); err == nil && w == content {
+	for i := range olderGenerations {
+		if w, err := olderSetupWorkflow(key, config, i); err == nil && w == content {
 			return true
 		}
+	}
+	if w, err := LegacySetupWorkflow(key, config); err == nil && w == content {
+		return true
 	}
 	return false
 }

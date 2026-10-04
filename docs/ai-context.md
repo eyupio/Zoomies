@@ -484,9 +484,9 @@ it reads with four read-only tools:
 
 | Tool | What it does |
 | --- | --- |
-| `context_overview` | Without a repository, lists the repositories this connection may read. With one, pages through its files: path, size and hash. |
+| `context_overview` | Without a repository, lists the repositories this connection may read. With one, pages through its files: path, size and line count, plus any file that is [listed but not carried](#files-that-are-listed-but-not-carried). |
 | `context_search` | A literal, case-insensitive search, optionally under a path prefix. Returns up to twelve matches with line numbers. |
-| `context_read` | One file, or part of a long one, from a byte offset. |
+| `context_read` | One file, or part of a long one, from a byte offset. For a file that is listed but not carried, the reason and size instead of text. |
 | `context_pack` | Up to six chosen files in one reply, sharing one budget. |
 
 Every reply names the **commit** and **snapshot** it came from. A long file is
@@ -565,22 +565,21 @@ the same repository can be opened.
 ## Troubleshooting
 
 **The workflow failed in *Generate bounded source context*.** The run's log names
-the reason. The usual ones are a repository over the limits below, or a text file
-over 1 MiB that is not excluded. For the second, the log lists every such file
-with its size, largest first, for example
-`2 text files over the 1.0 MiB limit; add an exclusion for each: docs/huge.txt (3.0 MiB), assets/big.js (1.5 MiB)`.
-Add an exclusion for each with **Amend**, merge, and the next push regenerates.
-Generation refuses rather than skipping, so that a pack is never quietly
-incomplete: one oversized text file stops the whole run. The log never quotes file
-content. Binary files such as PDFs and archives are skipped automatically.
+the reason. A file that is too large, over a limit, or withheld by the secret scan
+no longer fails the run: see [files that are listed but not carried](#files-that-are-listed-but-not-carried).
+What still refuses is anything that would make the pack wrong rather than
+incomplete: a managed configuration somebody edited (**Reinstall / repair**
+fixes it), Repomix altering source it was given, a repository where nothing
+eligible remains, and more than 5,000 omitted files, which means the exclusions
+need work.
 
 A workflow written by an earlier Zoomies release keeps working: Zoomies recognises
 it as out of date rather than edited, and **Reinstall / repair** moves it to the
-current generator, which is the one that names the files. A repository still on
-the older workflow only sees the shorter message, `A source file exceeds the
-context size limit; add an exclusion`. In that case list the tracked text files
-over 1 MiB yourself, for example
-`git ls-files -z | xargs -0 -I{} sh -c 'test $(wc -c < "{}") -gt 1048576 && grep -Iq . "{}" && echo "{}"'`.
+current generator. Until then it behaves as it did, so a text file over 1 MiB
+stops that run with `A source file exceeds the context size limit; add an
+exclusion`, or with the file named if the workflow is one release behind, and a
+file the secret scan withholds fails it with `Repomix omitted or changed source`.
+Repair it and neither failure happens again; or exclude the files with **Amend**.
 
 **A formatter fails on the managed files.** The workflow, the generator's
 `package.json` and the marked sections in `README.md` and `CLAUDE.md` are written
@@ -644,6 +643,41 @@ conflicting part, then retry.
 
 [Security](security.md) has the rest of the controller's model.
 
+## Files that are listed but not carried
+
+A snapshot never pretends to be complete. When a text file cannot be carried, the
+generator lists it instead of failing the run, with its size and one of three
+reasons:
+
+| Reason | Meaning |
+| --- | --- |
+| `too_large` | A text file over 1 MiB. |
+| `over_budget` | Dropped, largest first, so the rest fit the 5,000-file, 24 MiB and 32 MiB encoded limits. One huge generated file should not cost a repository its hundreds of small ones. The same commit always loses the same files. |
+| `flagged` | Withheld by Repomix's secret scan, which can flag a deliberate test fixture such as a URL with a made-up password. The file is neither published nor passed off as absent. |
+
+Binary files are not listed: they were never source.
+
+What an assistant sees:
+
+* `context_overview` includes the file in its path-sorted list with an `omitted`
+  reason and the size in Git, so paging through the files cannot miss it.
+* `context_read` of that path returns no text, the reason and the size, so the
+  assistant knows to read the source another way.
+* Every reply, searches included, carries `omitted_total` whenever it is not
+  zero. A search that found nothing in an incomplete snapshot is not a statement
+  about the files it never saw.
+
+What an operator sees: the workflow run carries a warning annotation and one log
+line per file, with paths, sizes and reasons and never content. To drop a file
+from the list, exclude it with **Amend**. To carry it, make it smaller or split
+it. Nothing else is needed: the run is green and the context is usable.
+
+Omitted entries are held to the same standard as carried files. Zoomies checks
+that each names a regular file of exactly that size in the trusted commit, that
+its path is not excluded or a credential path, and that its reason fits its size,
+so a workflow cannot list files that are not there or hide a file behind an
+invented reason.
+
 ## Limits
 
 | | Limit |
@@ -662,7 +696,7 @@ conflicting part, then retry.
 | One note's body | 128 KiB of UTF-8 Markdown |
 | One note's title | 200 characters, one line |
 
-Binary files are skipped. Sizes are bytes, not tokens: the reply budget keeps
+Binary files are skipped. A text file or a total over these limits is listed as omitted rather than failing the run. Sizes are bytes, not tokens: the reply budget keeps
 replies small, but it is not a tokenizer count.
 
 ## Enterprise Server

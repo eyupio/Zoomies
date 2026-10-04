@@ -622,6 +622,11 @@ Every reply carries `commit` and `snapshot`. Continuation offsets require the
 returned `commit`; a different current commit returns 409. Verification failure
 closes availability and returns no source. Search and overview use top-level
 `next_offset`; each truncated pack/read excerpt has its own `next_offset`.
+A file the snapshot lists but does not carry appears in the overview with an
+`omitted` reason (`too_large`, `over_budget` or `flagged`) and its size in Git; a
+read of it returns that reason, its `bytes` and empty `text`; and every page,
+searches included, carries `omitted_total` when it is not zero. See
+[files that are listed but not carried](ai-context.md#files-that-are-listed-but-not-carried).
 MCP wraps these routes as `context_overview`, `context_read`, `context_search`
 and `context_pack`, with a separate 32,000-byte encoded tool-result ceiling.
 

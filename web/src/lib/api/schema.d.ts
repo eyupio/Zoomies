@@ -3714,17 +3714,32 @@ export interface components {
             commit: string;
             snapshot: string;
             total?: number;
+            /** @description How many files the snapshot lists but does not carry. Present on every page, searches included, whenever it is not zero; results from such a snapshot say nothing about those files. */
+            omitted_total?: number;
             next_offset?: number;
             files?: {
                 path: string;
+                /** @description The file's size; for an omitted file */
                 bytes: number;
                 lines: number;
+                /**
+                 * @description Set when the file exists in the source but its content is not in the snapshot. too_large is over the 1 MiB per-file limit, over_budget was dropped (largest first) to fit the file-count and size limits, flagged was withheld by the generator's secret scan.
+                 * @enum {string}
+                 */
+                omitted?: "too_large" | "over_budget" | "flagged";
             }[];
             excerpts?: {
                 path: string;
                 text: string;
                 offset: number;
                 next_offset: number | null;
+                /**
+                 * @description Set instead of text when the file is listed but not carried. Read it from the source if it is needed.
+                 * @enum {string}
+                 */
+                omitted?: "too_large" | "over_budget" | "flagged";
+                /** @description The omitted file's size in Git. */
+                bytes?: number;
             }[];
             matches?: {
                 path: string;

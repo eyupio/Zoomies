@@ -100,3 +100,53 @@ func TestRepairUpgradesAPreviousWorkflowInsteadOfRefusingIt(t *testing.T) {
 		t.Fatal("repair did not move the workflow to the current generator")
 	}
 }
+
+// Every generation of script a release has shipped must stay recognised, in both
+// hosting flavours and for the Zoomies-only workflow, which has no publish job.
+func TestEveryOlderWorkflowGenerationStaysRecognisedAndDistinct(t *testing.T) {
+	for name, edit := range map[string]func(*RepositoryKey, *Config){
+		"github.com": func(*RepositoryKey, *Config) {},
+		"enterprise": func(k *RepositoryKey, _ *Config) { k.GitHubHost = "github.example.org" },
+		"zoomies-only": func(_ *RepositoryKey, c *Config) {
+			c.Destination, c.UploadURL = Zoomies, "https://zoomies.example.org"+UploadPath
+		},
+		"a custom branch":  func(_ *RepositoryKey, c *Config) { c.SourceBranch = "release/1.x" },
+		"custom exclusion": func(_ *RepositoryKey, c *Config) { c.Exclude = append(c.Exclude, "docs/**") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			key, config := setupInputs()
+			edit(&key, &config)
+			current, err := SetupWorkflow(key, config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			seen := map[string]string{"current": current}
+			for i := range olderGenerations {
+				older, err := olderSetupWorkflow(key, config, i)
+				if err != nil {
+					t.Fatal(err)
+				}
+				label := olderGenerations[i].generate
+				for other, w := range seen {
+					if w == older {
+						t.Errorf("%s is identical to %s: nothing to recognise", label, other)
+					}
+				}
+				seen[label] = older
+				if !IsOlderSetupWorkflow(key, config, older) {
+					t.Errorf("%s was not recognised", label)
+				}
+			}
+			legacy, err := LegacySetupWorkflow(key, config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if legacy != current && !IsOlderSetupWorkflow(key, config, legacy) {
+				t.Error("the initial template stopped being recognised")
+			}
+			if IsOlderSetupWorkflow(key, config, current) {
+				t.Error("the current workflow must not count as older")
+			}
+		})
+	}
+}

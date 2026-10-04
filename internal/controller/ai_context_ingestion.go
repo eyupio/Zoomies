@@ -239,7 +239,7 @@ func (c *Controller) verifyAIContext(ctx context.Context, id string) (*aicontext
 			err = fmt.Errorf("%w: %v", github.ErrContextMismatch, err)
 		}
 		if err == nil {
-			err = r.Config.CheckSourceFiles(publication.Snapshot.Files)
+			err = r.Config.CheckSnapshotFiles(publication.Snapshot)
 		}
 		if err == nil && publication.Snapshot.Manifest.Generator != "repomix@1.18.1" {
 			err = errAIContextGenerator

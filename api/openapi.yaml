@@ -5557,6 +5557,9 @@ components:
         commit: { type: string }
         snapshot: { type: string }
         total: { type: integer }
+        omitted_total:
+          type: integer
+          description: How many files the snapshot lists but does not carry. Present on every page, searches included, whenever it is not zero; results from such a snapshot say nothing about those files.
         next_offset: { type: integer }
         files:
           type: array
@@ -5565,8 +5568,12 @@ components:
             required: [path, bytes, lines]
             properties:
               path: { type: string }
-              bytes: { type: integer }
+              bytes: { type: integer, description: The file's size; for an omitted file, its size in Git. }
               lines: { type: integer }
+              omitted:
+                type: string
+                enum: [too_large, over_budget, flagged]
+                description: Set when the file exists in the source but its content is not in the snapshot. too_large is over the 1 MiB per-file limit, over_budget was dropped (largest first) to fit the file-count and size limits, flagged was withheld by the generator's secret scan.
         excerpts:
           type: array
           items:
@@ -5577,6 +5584,11 @@ components:
               text: { type: string }
               offset: { type: integer }
               next_offset: { type: integer, nullable: true }
+              omitted:
+                type: string
+                enum: [too_large, over_budget, flagged]
+                description: Set instead of text when the file is listed but not carried. Read it from the source if it is needed.
+              bytes: { type: integer, description: The omitted file's size in Git. }
         matches:
           type: array
           items:

@@ -7,14 +7,16 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
-	"text/tabwriter"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/hosttune"
 	"github.com/eyupio/zoomies/internal/installer"
+	"golang.org/x/term"
 )
 
 // doctorExit preserves doctor's documented 0/1/2 report outcome without
@@ -132,7 +134,9 @@ func runDoctor(ctx context.Context, e *env, args []string) error {
 	if err != nil {
 		return err
 	}
-	if *interactive {
+	// A bare `zoomies doctor` at a terminal offers the fixes it can make;
+	// --interactive goes straight to tune, which still asks about each one.
+	if *host == "" && !*js && (*interactive || offerTune(e, r)) {
 		a := []string{"--config", *cfg}
 		if t == hosttune.Dedicated {
 			a = append(a, "--dedicated")
@@ -146,6 +150,7 @@ func runDoctor(ctx context.Context, e *env, args []string) error {
 		if err != nil {
 			return err
 		}
+		fmt.Fprintln(e.out)
 		r = engine.Run(ctx, t)
 		printDoctor(e.out, r, false)
 	}
@@ -153,6 +158,23 @@ func runDoctor(ctx context.Context, e *env, args []string) error {
 		return doctorExit(r.ExitCode())
 	}
 	return nil
+}
+
+// offerTune asks whether to review the fixes tune can make. It asks only when a
+// person is there to answer and there is something to fix; a script or a cron
+// job running doctor must never block on a prompt or change the host.
+func offerTune(e *env, r hosttune.Report) bool {
+	f, ok := e.in.(*os.File)
+	if !ok || !term.IsTerminal(int(f.Fd())) || !isTerminal(e.out) {
+		return false
+	}
+	n := actionableCount(r)
+	if n == 0 {
+		return false
+	}
+	ui := installer.PaletteFor(e.out)
+	fmt.Fprintln(e.out)
+	return strings.EqualFold(askLine(e.in, e.out, ui.Bold(fmt.Sprintf("Apply %d safe fix(es) with tune? [y/N] ", n))), "y")
 }
 func filterDoctor(rs []hosttune.Result, t hosttune.Tier) []hosttune.Result {
 	out := []hosttune.Result{}
@@ -168,35 +190,137 @@ func filterDoctor(rs []hosttune.Result, t hosttune.Tier) []hosttune.Result {
 	return out
 }
 func printDoctor(w io.Writer, r hosttune.Report, remote bool) {
+	ui := installer.PaletteFor(w)
 	warnings, errs, skipped := r.Counts()
-	fmt.Fprintf(w, "Host health: %d warning(s), %d error(s), %d skipped check(s)\n", warnings, errs, skipped)
-	fmt.Fprintf(w, "%s · %s · checked %s\n", r.OS, r.Distro, r.CheckedAt.Format(time.RFC3339))
+	ui.Title(w, "Host health", fmt.Sprintf("%s · %s · checked %s", r.OS, r.Distro, r.CheckedAt.Format(time.RFC3339)))
+	summary := fmt.Sprintf("%d warning(s), %d error(s), %d skipped check(s)", warnings, errs, skipped)
+	switch {
+	case errs > 0:
+		ui.Fail(w, "%s", summary)
+	case warnings > 0:
+		ui.Warn(w, "%s", summary)
+	default:
+		ui.Done(w, "%s", summary)
+	}
 	if r.RebootPending {
-		fmt.Fprintln(w, "Reboot pending. Drain this host before a planned reboot; Zoomies will not reboot it.")
+		ui.Hint(w, "Reboot pending. Drain this host before a planned reboot; Zoomies will not reboot it.")
 	}
 	if remote {
-		fmt.Fprintln(w, "Latest agent report; tuning must be run locally on that host.")
+		ui.Hint(w, "Latest agent report; tuning must be run locally on that host.")
 	}
 	if time.Since(r.CheckedAt) > 10*time.Minute {
-		fmt.Fprintln(w, "This report is older than 10 minutes; it may no longer describe the host.")
+		ui.Hint(w, "This report is older than 10 minutes; it may no longer describe the host.")
 	}
-	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "STATUS\tCHECK (ID)\tCURRENT\tRECOMMENDED\tWHY / DETAILS")
-	for _, x := range r.Results {
-		detail := x.Rationale
-		if x.Reason != "" {
-			detail += " " + x.Reason
+	// Findings come first and in full, because they are what the reader came
+	// for; checks that pass are one line each so they do not bury them.
+	section := func(label string, keep func(hosttune.Status) bool, detail bool) {
+		var rows []hosttune.Result
+		for _, x := range r.Results {
+			if keep(x.Status) {
+				rows = append(rows, x)
+			}
 		}
-		fmt.Fprintf(tw, "%s\t%s (%s)\t%s\t%s\t%s\n", strings.ToUpper(string(x.Status)), plainCell(x.Title), x.ID, plainCell(x.Current), plainCell(x.Recommended), plainCell(detail))
+		if len(rows) == 0 {
+			return
+		}
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, ui.Bold(fmt.Sprintf("%s (%d)", label, len(rows))))
+		for _, x := range rows {
+			printCheck(w, ui, x, detail)
+		}
 	}
-	_ = tw.Flush()
+	section("Needs attention", func(s hosttune.Status) bool { return s == hosttune.Warn || s == hosttune.Error }, true)
+	section("Skipped", func(s hosttune.Status) bool { return s == hosttune.Skip }, true)
+	section("Passing", func(s hosttune.Status) bool {
+		return s != hosttune.Warn && s != hosttune.Error && s != hosttune.Skip
+	}, false)
 	if warnings > 0 {
-		fmt.Fprintln(w, "\nReview safe fixes with: sudo zoomies tune (or zoomies doctor --interactive).")
+		fmt.Fprintln(w)
+		ui.Hint(w, "Fix safely: sudo zoomies tune")
+		ui.Hint(w, "or: sudo zoomies doctor --interactive")
 	}
 	if skipped > 0 {
-		fmt.Fprintln(w, "Skipped checks explain which host access or platform support is missing.")
+		ui.Hint(w, "Skipped checks explain which host access or platform support is missing.")
 	}
 }
+
+// printCheck is one check: its status and name, then (for findings) what it
+// found, what would be better, and why it matters, each on a labelled line so a
+// long rationale wraps under its own label rather than across a table.
+func printCheck(w io.Writer, ui installer.Palette, x hosttune.Result, detail bool) {
+	title := fmt.Sprintf("%s  %s", ui.Bold(plainCell(x.Title)), ui.Dim("("+x.ID+")"))
+	switch x.Status {
+	case hosttune.Error:
+		ui.Fail(w, "%s", title)
+	case hosttune.Warn:
+		if x.Actionable && !x.Optional {
+			title += "  " + ui.Green("[fixable]")
+		}
+		ui.Warn(w, "%s", title)
+	case hosttune.Skip:
+		ui.Doing(w, "%s", title)
+	default:
+		ui.Done(w, "%s  %s", title, ui.Dim(plainCell(x.Current)))
+		return
+	}
+	if !detail {
+		return
+	}
+	// Wrapped to the terminal with a hanging indent: a phone is 40 columns or
+	// fewer, and an unwrapped line there is cut mid-word or scrolls sideways.
+	width := termWidth(w) - 5
+	field := func(label, text string) {
+		if text = strings.TrimSpace(plainCell(text)); text == "" {
+			return
+		}
+		for i, line := range wrapText(label+": "+text, width) {
+			if i > 0 {
+				line = "  " + line
+			}
+			fmt.Fprintf(w, "     %s\n", line)
+		}
+	}
+	field("current", x.Current)
+	field("better", x.Recommended)
+	field("why", x.Rationale)
+	field("detail", x.Reason)
+}
+
+// termWidth is the columns available, from the terminal itself or $COLUMNS,
+// never below 30 so wrapping stays sane and never above 100 so it stays readable.
+func termWidth(w io.Writer) int {
+	n := 80
+	if f, ok := w.(*os.File); ok {
+		if c, _, err := term.GetSize(int(f.Fd())); err == nil && c > 0 {
+			n = c
+		}
+	} else if c, err := strconv.Atoi(os.Getenv("COLUMNS")); err == nil && c > 0 {
+		n = c
+	}
+	return min(max(n, 30), 100)
+}
+
+// wrapText breaks s at spaces to fit width; a word longer than the width gets a line to itself.
+func wrapText(s string, width int) []string {
+	var lines []string
+	cur := ""
+	for _, word := range strings.Fields(s) {
+		if cur != "" && len(cur)+1+len(word) > width {
+			lines = append(lines, cur)
+			cur = word
+			continue
+		}
+		if cur != "" {
+			cur += " "
+		}
+		cur += word
+	}
+	if cur != "" {
+		lines = append(lines, cur)
+	}
+	return lines
+}
+
 func plainCell(s string) string {
 	return strings.Map(func(r rune) rune {
 		if r < 32 || r == 127 {
