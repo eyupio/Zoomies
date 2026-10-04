@@ -132,6 +132,7 @@ type poolInput struct {
 	CPUBurst               *store.CPUBurstPolicy `json:"cpu_burst"`
 	RunnerSettings         *runnerSettingsIn     `json:"runner_settings"`
 	Cache                  *store.CacheConfig    `json:"cache"`
+	Tmpfs                  *store.TmpfsConfig    `json:"tmpfs"`
 	HostSelector           *map[string]string    `json:"host_selector"`
 	Env                    *map[string]string    `json:"env"`
 	RunAsRoot              *bool                 `json:"run_as_root"`
@@ -399,6 +400,9 @@ func (in *poolInput) apply(p *store.Pool) []fieldError {
 	if in.Cache != nil {
 		p.Cache = *in.Cache
 		p.Cache.Source = strings.TrimSpace(p.Cache.Source)
+	}
+	if in.Tmpfs != nil {
+		p.Tmpfs = *in.Tmpfs
 	}
 	if in.HostSelector != nil {
 		p.HostSelector = store.StringMap(*in.HostSelector)
@@ -729,6 +733,21 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 		add("runner_settings.docker_wait", fmt.Sprintf(
 			"the runner image refuses a wait longer than %s and starts no runner at all; keep it to %s or less, or clear it to follow the fleet",
 			config.MaxDockerWait, config.MaxDockerWait))
+	}
+	// In-memory folders are a mount on a container; a process runner has no
+	// container to mount them on, and its work folder is a directory the agent
+	// makes, which an operator can already put on a tmpfs by pointing
+	// agent.work_dir at one.
+	if p.Tmpfs.Any() {
+		if p.Backend == store.BackendProcess {
+			add("tmpfs.work.enabled", "in-memory folders are mounted into a container, so they need the Docker or Podman backend; for a process runner point agent.work_dir at a tmpfs on the host instead")
+		}
+		// A pool with no limit is sized from its host's share when a runner is
+		// created, and the folders are fitted to whatever that turns out to be;
+		// only a limit typed here can be checked against sizes typed here.
+		if field, msg := p.Tmpfs.Validate(p.Resources.MemoryMB); field != "" {
+			add(field, msg)
+		}
 	}
 	// The tool cache is kept beside the pool cache and shared with the same
 	// runners, so it needs the cache to be on to have a scope at all; and it

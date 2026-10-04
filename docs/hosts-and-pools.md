@@ -406,6 +406,83 @@ The fleet's own defaults are held in the right order by a test and by
 `pool.provision_timeout_short`, which the wizard also says while the number is
 being chosen.
 
+### Keeping the work folder in memory
+
+A runner's work folder — the checkout, build output, the runner's own temporary
+files — normally lives on its container's writable layer, which is on the host's
+Docker data root. On a host with slow disks and memory to spare that layer is
+where every checkout, install and build waits. A pool can keep the folder in
+memory instead: a tmpfs mounted over `_work`, gone when the runner is. How much
+that is worth depends on how much of a job is spent writing files, and on how
+slow the disk is; on a saturated disk the difference in raw write speed is
+orders of magnitude, and the difference in a real build is whatever share of it
+was waiting. Measure one workflow before and after rather than trusting a
+benchmark.
+
+It is **off for every pool** until somebody turns it on, because of what it
+costs. A tmpfs is charged to the runner's own memory limit, so the room a folder
+may fill comes *out of* the limit the pool was sized with for the job; it is not
+added to it. A pool that turns the setting on without raising its limit leaves
+the job less memory than it had, which shows up later as a kill in a build that
+always passed.
+
+```yaml
+tmpfs:
+  work:
+    enabled: true
+    size_mb: 0        # 0 sizes it from the memory limit
+  tmp:
+    enabled: false    # /tmp, as well; its own choice
+    size_mb: 0
+```
+
+| Setting | What it does |
+| --- | --- |
+| `work` | The runner's `_work` folder. The one worth having, and the one the pool editor offers first. |
+| `tmp` | `/tmp`. Off unless asked for: some toolchains put their heaviest traffic there, and some jobs leave gigabytes behind. |
+| `size_mb` | The folder's ceiling, at least 64. `0` fits it to the memory limit: 4096 MB for the work folder and 1024 MB for `/tmp`, shrunk so the two together take no more than half of the limit. |
+
+**The memory limit.** Zoomies never raises it for you, because it is also what
+the scheduler charges the host for and changing it changes how many runners fit.
+It proposes instead. The pool editor offers the limit that leaves the job the
+room it has now — the current one plus what the folders may fill — as soon as the
+folders take more than half of it, and `pool.tmpfs_memory_tight` says the same in
+the problems list and in the dry run. Sizes you type that add up to the whole
+limit or more are refused; a pool with no limit of its own is sized from its
+host's share, and folders left to size themselves are fitted into half of
+whatever that turns out to be.
+
+**When to turn it on.** Zoomies tells you. `pool.tmpfs_suggested` is raised for
+a pool when, on one host, all three are true: the pool ran jobs there in the
+last six hours, the host has been waiting on its disk for at least ten minutes,
+and it has free memory beyond its own reserve for a work folder. It stays for as
+long as that holds, rather than appearing once, and clears itself when the
+setting is on, the disk calms or the memory is spent. It is information and
+never a warning: nothing is failing, only slower than it needs to be. To see
+what a host is doing, `iostat -x 5` shows `%util` and `await` for its disk, and
+a before-and-after run of one real workflow tells you more than any figure.
+
+**What it does not cover.**
+
+- *Docker-in-docker.* The sidecar's image store is its own container's layer.
+  The work folder in memory does not speed `docker build` or `docker pull`
+  inside a job. The folder is sized from the runner's half of the pair.
+- *Jobs that mount the work folder into another container.* A step that runs
+  `docker run -v $PWD:...` against the host's Docker names a path that daemon
+  resolves on the host, where the tmpfs is not.
+- *The shared cache.* A tmpfs belongs to one container, so a cache in one would
+  start cold for every runner, which is no cache at all. To keep the cache in
+  memory, see [Keeping the cache in memory](persistent-caches.md#keeping-the-cache-in-memory).
+- *The process backend.* It has no container to mount on, and the setting is
+  refused there. Point `agent.work_dir` at a tmpfs on the host instead.
+- *Tool downloads.* A pool with no tool cache has `setup-python`, `setup-node`
+  and the rest unpack into `_work/_tool`, which is in memory and counts against
+  the folder's size.
+
+An agent too old to mount the folders starts the runner on disk, as with the
+setting off. `pool.tmpfs_unsupported` names those hosts where the pool is
+saved, with the same fix as elastic CPU's: upgrade the agent.
+
 ### Sizing a machine from the other side
 
 The same figures size a machine from the other side. The recommended capacity
@@ -516,7 +593,14 @@ so the same snapshot always produces the same plan.
 Linux agents sample whole-host CPU occupancy, `MemAvailable` and the one-minute
 load average on their normal heartbeats, including work outside Zoomies. CPU
 uses counter differences, so the first sample reports memory and load only; I/O
-wait counts as occupied. Available memory includes reclaimable cache. The load
+wait counts as occupied. The same counters give I/O wait on its own — the share of
+time the machine sat idle with something waiting on disk — because a build
+stalled on a saturated disk reads as a machine hard at work, and that is the one
+figure that tells the two apart. It is judged the way CPU is: it starts a clock
+at 20% and holds it until it falls below 10%, and a host that has been there for
+ten minutes is called *disk-bound*, which is what
+[keeping the work folder in memory](#keeping-the-work-folder-in-memory) is
+suggested on. Available memory includes reclaimable cache. The load
 average is there because CPU occupancy pins at 100% and then stops saying
 anything: load keeps counting what is queued behind the cores, so it is what
 says a host has been pushed *past* them rather than merely to them. Sampling

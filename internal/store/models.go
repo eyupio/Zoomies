@@ -763,6 +763,9 @@ type Pool struct {
 	Resources         Resources      `json:"resources"`
 	CPUBurst          CPUBurstPolicy `json:"cpu_burst"`
 	Cache             CacheConfig    `json:"cache"`
+	// Tmpfs keeps the runner's work folder and /tmp in memory. Off unless an
+	// operator opts in, because it spends the pool's memory limit on disk speed.
+	Tmpfs TmpfsConfig `json:"tmpfs"`
 	// HostSelector matches Host.Labels; empty means "any host".
 	// RunnerSettings is what this pool overrides of the fleet's own runner
 	// timings. Every field is nil on a pool that follows the fleet, which is

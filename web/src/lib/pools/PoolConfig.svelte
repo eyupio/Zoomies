@@ -243,6 +243,28 @@
     </div>
   {/if}
 
+  {#if pool.tmpfs?.work?.enabled || pool.tmpfs?.tmp?.enabled}
+    <div class="pair">
+      <dt>In memory</dt>
+      <dd>
+        {#if pool.tmpfs?.work?.enabled}
+          <span>
+            Work folder, {pool.tmpfs.work.size_mb
+              ? `up to ${formatMegabytes(pool.tmpfs.work.size_mb)}`
+              : 'sized from the memory limit'}
+          </span>
+        {/if}
+        {#if pool.tmpfs?.tmp?.enabled}
+          <span>
+            <code>/tmp</code>, {pool.tmpfs.tmp.size_mb
+              ? `up to ${formatMegabytes(pool.tmpfs.tmp.size_mb)}`
+              : 'sized from the memory limit'}
+          </span>
+        {/if}
+      </dd>
+    </div>
+  {/if}
+
   {#if pool.cache?.enabled}
     <div class="pair">
       <dt>Cache</dt>

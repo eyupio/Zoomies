@@ -176,6 +176,7 @@ func poolsGet(ctx context.Context, e *env, args []string) error {
 		{"host selector", dash(kvValue(pool.HostSelector).String())},
 		{"sizing", poolSizing(pool)},
 		{"elastic CPU", poolCPUBurstLabel(pool)},
+		{"in memory", poolTmpfsLabel(pool)},
 		{"created", p.relTime(pool.CreatedAt)},
 		{"updated", p.relTime(pool.UpdatedAt)},
 	})
@@ -197,6 +198,30 @@ func poolSizing(pool poolItem) string {
 		return "fixed: " + strings.Join(parts, ", ") + " on every host"
 	}
 	return "automatic: one slot's share of each host"
+}
+
+// poolTmpfsLabel says which of the runner's folders the pool keeps in memory,
+// with the ceiling beside each, because "on" alone does not say how much memory
+// the pool is spending.
+func poolTmpfsLabel(pool poolItem) string {
+	var parts []string
+	for _, m := range []struct {
+		name  string
+		mount poolTmpfsMount
+	}{{"_work", pool.Tmpfs.Work}, {"/tmp", pool.Tmpfs.Tmp}} {
+		if !m.mount.Enabled {
+			continue
+		}
+		if m.mount.SizeMB > 0 {
+			parts = append(parts, fmt.Sprintf("%s (%d MB)", m.name, m.mount.SizeMB))
+		} else {
+			parts = append(parts, m.name+" (sized from the memory limit)")
+		}
+	}
+	if len(parts) == 0 {
+		return "no"
+	}
+	return strings.Join(parts, ", ")
 }
 
 // poolCPUBurstLabel renders the elastic CPU policy the way the pool wizard
@@ -266,6 +291,9 @@ type poolSpec struct {
 	// currentBurst is the elastic CPU policy the pool has now, kept for the
 	// same reason: a ceiling typed alone must not switch the mode off.
 	currentBurst poolCPUBurst
+	// currentTmpfs is the pool's in-memory folders as they stand, for the same
+	// reason: a size typed for one folder must not switch the other off.
+	currentTmpfs poolTmpfs
 	os           *string
 	osVersion    *string
 	arch         *string
@@ -286,6 +314,10 @@ type poolSpec struct {
 	cpuBurst          *string
 	cpuBurstMax       *float64
 	sizeBuilds        *bool
+	tmpfsWork         *bool
+	tmpfsWorkSize     *int64
+	tmpfsTmp          *bool
+	tmpfsTmpSize      *int64
 }
 
 // registerPoolFlags declares them, with the API's own defaults so that a
@@ -335,6 +367,10 @@ func registerPoolFlags(fs *flagSet) *poolSpec {
 	spec.cpuBurst = fs.String("cpu-burst", "", "elastic CPU: off, observe (measure without moving a quota) or automatic (lend spare host CPU to busy runners); needs automatic sizing on docker or podman")
 	spec.sizeBuilds = fs.Bool("cpu-burst-size-builds", true, "with --cpu-burst automatic, start runners with CARGO_BUILD_JOBS, DOTNET_PROCESSOR_COUNT and the JVM's processor count set to the ceiling, so a build has workers for CPU lent after it started")
 	spec.cpuBurstMax = fs.Float64("cpu-burst-max", 0, "the most CPU one runner may be lent up to, in cores; 0 is the host's allocatable CPU")
+	spec.tmpfsWork = fs.Bool("tmpfs-work", false, "keep the runner's _work folder in memory instead of on the host's disk; the folder is charged to the runner's memory limit; needs docker or podman")
+	spec.tmpfsWorkSize = fs.Int64("tmpfs-work-size", 0, "the _work folder's ceiling in MiB (at least 64); 0 sizes it from the memory limit, at most 4096 and half the limit")
+	spec.tmpfsTmp = fs.Bool("tmpfs-tmp", false, "keep /tmp in memory as well; off unless asked for, because some jobs leave gigabytes there")
+	spec.tmpfsTmpSize = fs.Int64("tmpfs-tmp-size", 0, "the /tmp folder's ceiling in MiB (at least 64); 0 sizes it from the memory limit, at most 1024")
 	return spec
 }
 
@@ -460,7 +496,36 @@ func (spec *poolSpec) body(fs *flagSet, onlyChanged bool) map[string]any {
 		}
 		body["cpu_burst"] = burst
 	}
+	// The in-memory folders are one object, so an edit that types only a size
+	// carries the other folder, and the mode of this one, forward from the pool
+	// as it stands rather than switching them off.
+	if spec.tmpfsChanged(fs) {
+		mount := func(current poolTmpfsMount, toggle string, on *bool, sizeFlag string, size *int64) map[string]any {
+			enabled, mb := current.Enabled, current.SizeMB
+			if fs.changed(toggle) {
+				enabled = *on
+			}
+			if fs.changed(sizeFlag) {
+				mb = *size
+			}
+			out := map[string]any{"enabled": enabled}
+			if mb > 0 {
+				out["size_mb"] = mb
+			}
+			return out
+		}
+		body["tmpfs"] = map[string]any{
+			"work": mount(spec.currentTmpfs.Work, "tmpfs-work", spec.tmpfsWork, "tmpfs-work-size", spec.tmpfsWorkSize),
+			"tmp":  mount(spec.currentTmpfs.Tmp, "tmpfs-tmp", spec.tmpfsTmp, "tmpfs-tmp-size", spec.tmpfsTmpSize),
+		}
+	}
 	return body
+}
+
+// tmpfsChanged is whether any in-memory folder flag was typed.
+func (spec *poolSpec) tmpfsChanged(fs *flagSet) bool {
+	return fs.changed("tmpfs-work") || fs.changed("tmpfs-work-size") ||
+		fs.changed("tmpfs-tmp") || fs.changed("tmpfs-tmp-size")
 }
 
 // resources is the size this invocation means, with anything not typed taken
@@ -519,6 +584,15 @@ func poolsCreate(ctx context.Context, e *env, args []string) error {
 	// the policy is absent -- so a create that names one has to name the other.
 	if fs.changed("cpu-burst-max") && !fs.changed("cpu-burst") {
 		return usagef("pools create", "--cpu-burst-max needs --cpu-burst to say which mode the ceiling applies to: observe or automatic")
+	}
+	// A size alone would be sent for a folder that is off, which the API reads
+	// as nothing to size; saying so here is kinder than a pool that quietly
+	// keeps its folder on disk.
+	if fs.changed("tmpfs-work-size") && !*spec.tmpfsWork {
+		return usagef("pools create", "--tmpfs-work-size needs --tmpfs-work, which is what puts the _work folder in memory")
+	}
+	if fs.changed("tmpfs-tmp-size") && !*spec.tmpfsTmp {
+		return usagef("pools create", "--tmpfs-tmp-size needs --tmpfs-tmp, which is what puts /tmp in memory")
 	}
 	if err := fs.noMoreArgs(); err != nil {
 		return err
@@ -632,6 +706,7 @@ func poolsEdit(ctx context.Context, e *env, args []string) error {
 	spec := registerPoolFlags(fs)
 	fs.example("zoomies pools edit pool_k3f9qz2m --max 12",
 		"zoomies pools edit pool_k3f9qz2m --cpu-burst automatic --cpu-burst-max 6",
+		"zoomies pools edit pool_k3f9qz2m --tmpfs-work --memory-mb 12288",
 		"zoomies pools edit pool_k3f9qz2m --os ubuntu --os-version 24.04",
 		"zoomies pools edit pool_k3f9qz2m --labels zoomies-4vcpu-ubuntu-2404,gpu")
 	if err := fs.parse(args); err != nil {
@@ -654,13 +729,15 @@ func poolsEdit(ctx context.Context, e *env, args []string) error {
 	// leaves out -- so the pool as it stands is read first. It is read only
 	// when it is needed, so an edit that changes a label costs no extra call.
 	if fs.changed("cpus") || fs.changed("memory-mb") || fs.changed("disk-gb") || fs.changed("pids-limit") ||
-		fs.changed("cpu-burst") || fs.changed("cpu-burst-max") || fs.changed("cpu-burst-size-builds") {
+		fs.changed("cpu-burst") || fs.changed("cpu-burst-max") || fs.changed("cpu-burst-size-builds") ||
+		spec.tmpfsChanged(fs) {
 		var existing poolItem
 		if _, err := client.get(ctx, "/pools/"+url.PathEscape(id), nil, &existing); err != nil {
-			return fmt.Errorf("reading the pool as it stands, which an edit to part of its size or elastic CPU policy has to keep: %w", err)
+			return fmt.Errorf("reading the pool as it stands, which an edit to part of its size, elastic CPU policy or in-memory folders has to keep: %w", err)
 		}
 		spec.current = existing.Resources
 		spec.currentBurst = existing.CPUBurst
+		spec.currentTmpfs = existing.Tmpfs
 	}
 
 	body := spec.body(fs, true)

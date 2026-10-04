@@ -85,3 +85,49 @@ func TestMissingAndInvalidUsageNeverBecomeIdleReadings(t *testing.T) {
 		t.Fatal("a measured full host was treated as unmeasured")
 	}
 }
+
+// I/O wait is read from the same counters as CPU, and is only a figure beside a
+// CPU delta: the two are shares of the same interval.
+func TestUsageMeasuresIOWaitFromTheSameDeltasAsCPU(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "proc"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	write := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(root, "proc", name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("meminfo", "MemTotal: 8388608 kB\nMemFree: 1024 kB\nMemAvailable: 4194304 kB\n")
+	// user nice system idle iowait: 100 ticks in all, none of them waiting.
+	write("stat", "cpu 50 0 0 50 0 0 0 0 0 0\ncpu0 0\ncpu1 0\n")
+	s := UsageSampler{root: root}
+	if first := s.Sample(2, 8192); first.IOWaitPercent != nil {
+		t.Fatalf("the first sample has no delta to take a share of: %v", *first.IOWaitPercent)
+	}
+	// 100 more ticks, 40 of them waiting on disk.
+	write("stat", "cpu 80 0 0 80 40 0 0 0 0 0\ncpu0 0\ncpu1 0\n")
+	u := s.Sample(2, 8192)
+	if u.IOWaitPercent == nil || *u.IOWaitPercent != 40 {
+		t.Fatalf("io wait = %v, want 40%% of the interval", u.IOWaitPercent)
+	}
+	// iowait is part of what CPUPercent calls busy: 100 - idle share (30/140).
+	if u.CPUPercent == nil {
+		t.Fatal("no CPU figure beside the I/O wait")
+	}
+
+	// A kernel whose cpu line stops before iowait reports nothing, not zero.
+	write("stat", "cpu 90 0 0 90\ncpu0 0\ncpu1 0\n")
+	if u := s.Sample(2, 8192); u.IOWaitPercent != nil {
+		t.Fatalf("a line with no iowait counter reported %v", *u.IOWaitPercent)
+	}
+
+	// A counter that goes backwards is a different machine than last time.
+	write("stat", "cpu 200 0 0 200 80 0 0 0 0 0\ncpu0 0\ncpu1 0\n")
+	_ = s.Sample(2, 8192)
+	write("stat", "cpu 300 0 0 300 10 0 0 0 0 0\ncpu0 0\ncpu1 0\n")
+	if u := s.Sample(2, 8192); u.IOWaitPercent != nil {
+		t.Fatalf("a counter that went backwards reported %v", *u.IOWaitPercent)
+	}
+}

@@ -30,6 +30,12 @@ const FeatureElasticCPU = "elastic-cpu"
 // safe but would read on the controller as a fill that failed on every host.
 const FeatureToolCacheFill = "tool-cache-fill"
 
+// FeatureTmpfs is advertised by an agent whose container backends mount a
+// pool's RAM-backed work folder and /tmp. An older agent ignores the field it
+// does not know and starts the runner on disk, which is safe and invisible: the
+// pool says tmpfs, the job is as slow as it was, and nothing says why.
+const FeatureTmpfs = "tmpfs"
+
 // JoinRequest redeems a short-lived join token and enrols a new host.
 type JoinRequest struct {
 	Connection      string `json:"-"`

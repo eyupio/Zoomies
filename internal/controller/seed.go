@@ -309,7 +309,7 @@ func (c *Controller) seedHosts(ctx context.Context, now time.Time) ([]*store.Hos
 			// This build's agent advertises it, so a demo host on this build
 			// does too; a fleet of hosts that could not lend CPU would carry a
 			// badge on every card saying so.
-			Features:      store.StringSlice{agent.FeatureElasticCPU},
+			Features:      store.StringSlice{agent.FeatureElasticCPU, agent.FeatureTmpfs},
 			Cordoned:      s.cordoned,
 			LastHeartbeat: now.Add(-s.silentFor),
 		}

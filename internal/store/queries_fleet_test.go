@@ -201,6 +201,39 @@ func TestUpdatePoolBrandsTheNameAndNormalisesLabels(t *testing.T) {
 	}
 }
 
+// A pool that has never heard of tmpfs must read back as nothing in memory, and
+// one that opted in must read back exactly what it chose: the settings are a
+// JSON column, so a field dropped from the round trip would turn the feature
+// off, or change a size, without anybody having touched the pool.
+func TestAPoolKeepsItsTmpfsSettings(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	_, pool, _ := seedPool(t, s)
+
+	got, err := s.GetPool(ctx, pool.ID)
+	if err != nil {
+		t.Fatalf("GetPool: %v", err)
+	}
+	if got.Tmpfs.Any() {
+		t.Fatalf("a new pool keeps %+v in memory, want nothing", got.Tmpfs)
+	}
+
+	pool.Tmpfs = TmpfsConfig{
+		Work: TmpfsMount{Enabled: true, SizeMB: 6144},
+		Tmp:  TmpfsMount{Enabled: true},
+	}
+	if err := s.UpdatePool(ctx, pool); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+	got, err = s.GetPool(ctx, pool.ID)
+	if err != nil {
+		t.Fatalf("GetPool: %v", err)
+	}
+	if got.Tmpfs != pool.Tmpfs {
+		t.Fatalf("tmpfs = %+v, want %+v", got.Tmpfs, pool.Tmpfs)
+	}
+}
+
 // A prewarm row is per pool and per host, and a second report from the same
 // host is the same row moving on -- not a second row that would make the UI
 // show one host twice.

@@ -60,6 +60,9 @@ type PoolHostRoom struct {
 	// one placed elsewhere is held at its share, and nothing but this says so
 	// while the pool is still being edited.
 	ElasticCPU bool `json:"elastic_cpu"`
+	// Tmpfs is whether this host's agent mounts a pool's in-memory folders. A
+	// pool that asks for them is honoured only where it is true.
+	Tmpfs bool `json:"tmpfs"`
 }
 
 // Overcommitted reports whether this host promises more slots than the machine
@@ -158,6 +161,7 @@ func poolHostRoom(h *store.Host, p *store.Pool) PoolHostRoom {
 		MemoryKnown:    alloc.MemoryKnown,
 		DiskKnown:      alloc.DiskKnown,
 		ElasticCPU:     h.Supports(agent.FeatureElasticCPU),
+		Tmpfs:          hostSupportsTmpfs(h),
 	}
 }
 
@@ -219,6 +223,10 @@ func PoolRoomWarnings(p *store.Pool, room PoolRoom) []Problem {
 	}
 
 	if w, ok := heldByOldAgents(p, room); ok {
+		out = append(out, w)
+	}
+
+	if w, ok := heldWithoutTmpfs(p, room); ok {
 		out = append(out, w)
 	}
 

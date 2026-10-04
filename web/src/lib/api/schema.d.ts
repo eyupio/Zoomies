@@ -4577,6 +4577,8 @@ export interface components {
             disk_known?: boolean;
             /** @description Whether this host's agent can move a live runner's CPU quota. An elastic pool is honoured only where it is true; a runner of one placed elsewhere is held at its share. */
             elastic_cpu?: boolean;
+            /** @description Whether this host's agent mounts a pool's in-memory folders. A pool that asks for them is honoured only where it is true; a runner of one placed elsewhere starts on disk. */
+            tmpfs?: boolean;
         };
         /** @description How many runners of a pool the hosts that can run it have room for, counted on an empty fleet. What is running right now changes with every job; the question a size and a maximum are chosen against is how big the machines are, in runners of this pool. */
         PoolRoom: {
@@ -4902,6 +4904,7 @@ export interface components {
             };
             runner_settings?: components["schemas"]["RunnerSettings"];
             cache?: components["schemas"]["CacheConfig"];
+            tmpfs?: components["schemas"]["TmpfsConfig"];
             host_selector?: {
                 [key: string]: string;
             };
@@ -4958,6 +4961,23 @@ export interface components {
              */
             tools: boolean;
         };
+        /** @description One runner folder kept in memory. */
+        TmpfsMount: {
+            /** @default false */
+            enabled: boolean;
+            /**
+             * Format: int64
+             * @description The folder's ceiling in MB, at least 64. Zero sizes it from the runner's memory limit: the default (4096 MB for the work folder, 1024 MB for /tmp), shrunk so the folders together take no more than half of that limit.
+             */
+            size_mb?: number;
+        };
+        /** @description Which of a runner's folders are kept in memory (tmpfs) instead of on the host's disk. Opt-in, and off for every pool until somebody turns it on. A tmpfs is charged to the runner's memory limit, so what it may fill comes out of the limit rather than being added to it; a pool that turns it on is warned (`pool.tmpfs_memory_tight`) with the limit that would leave the job the room it has now. Needs the Docker or Podman backend. Docker-in-docker's own image store is not covered, and neither is the shared pool cache, which cannot be a per-runner tmpfs because every runner would start with it cold: to keep that in memory, point its source at a directory the host mounts in memory and give it a size limit. */
+        TmpfsConfig: {
+            /** @description The runner's `_work` folder -- the checkout, build output and the runner's own temporary files. The one worth having. */
+            work?: components["schemas"]["TmpfsMount"];
+            /** @description `/tmp`. Separate because some toolchains put their heaviest traffic there and some jobs leave gigabytes in it. */
+            tmp?: components["schemas"]["TmpfsMount"];
+        };
         PoolsExport: {
             export_version: number;
             /** Format: date-time */
@@ -4999,6 +5019,7 @@ export interface components {
                 docker_wait?: string | null;
             };
             cache: components["schemas"]["CacheConfig"];
+            tmpfs?: components["schemas"]["TmpfsConfig"];
             host_selector: {
                 [key: string]: string;
             };
@@ -5087,6 +5108,7 @@ export interface components {
             cpu_burst: components["schemas"]["CPUBurstPolicy"];
             runner_settings?: components["schemas"]["RunnerSettings"];
             cache?: components["schemas"]["CacheConfig"];
+            tmpfs?: components["schemas"]["TmpfsConfig"];
             host_selector?: {
                 [key: string]: string;
             };
@@ -5129,6 +5151,7 @@ export interface components {
             cpu_burst?: components["schemas"]["CPUBurstPolicy"];
             runner_settings?: components["schemas"]["RunnerSettings"];
             cache?: components["schemas"]["CacheConfig"];
+            tmpfs?: components["schemas"]["TmpfsConfig"];
             host_selector?: {
                 [key: string]: string;
             };
@@ -6013,6 +6036,13 @@ export interface components {
             cpu_held?: boolean;
             /** @description The part of cpu_percent runners were using out of CPU elastic CPU lent them. The admission hold and the throttle judge CPU without it. Owned by the controller. */
             lent_cpu_percent?: number;
+            /** @description The share of CPU time the machine spent idle with something waiting on disk between samples. cpu_percent counts that time as busy; this is what tells a host stalled on its disk from one hard at work. Absent when unmeasured. */
+            io_wait_percent?: number;
+            /**
+             * Format: date-time
+             * @description When I/O wait rose to 20% and has not fallen below 10% since. A host that has been there for ten minutes is called disk-bound
+             */
+            io_wait_high_since?: string;
             /** @description The kernel's one-minute load average for the whole machine, as the agent read it from /proc/loadavg. Absent when unmeasured. Judged against the host's CPU count: a load of at least twice the CPUs is what steps the throttle up, because a runnable queue that deep is a machine that has stopped keeping up even when the CPU figure saturates at 100. */
             load_average_1m?: number;
         };
@@ -7184,6 +7214,7 @@ export interface components {
             ephemeral?: boolean;
             resources?: components["schemas"]["Resources"];
             cache?: components["schemas"]["CacheConfig"];
+            tmpfs?: components["schemas"]["TmpfsConfig"];
             repository?: string;
             docker_mode?: components["schemas"]["DockerMode"];
             run_as_root?: boolean;

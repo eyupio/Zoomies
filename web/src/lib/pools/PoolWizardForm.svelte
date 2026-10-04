@@ -10,6 +10,7 @@
     RunnerGroup,
   } from '$lib/api/types';
   import { parseGoDuration } from '$lib/format';
+  import { MIN_TMPFS_MB } from './sizing';
   import {
     backendOffers,
     backendUnavailable,
@@ -92,6 +93,16 @@
     cache_size_limit: string;
     cache_source: string;
     cache_repository: string;
+    /**
+     * Folders kept in memory instead of on the host's disk. Off for every pool
+     * until somebody chooses otherwise, because a tmpfs is charged to the
+     * runner's memory limit: the size here is room taken out of it. A size left
+     * empty is fitted to the limit by the controller.
+     */
+    tmpfs_work: boolean;
+    tmpfs_work_size: string;
+    tmpfs_tmp: boolean;
+    tmpfs_tmp_size: string;
     /** Carried through untouched: the wizard does not edit it, and must not lose it. */
     pids_limit: string;
     host_selector: Record<string, string>;
@@ -152,6 +163,10 @@
       cache_size_limit: '',
       cache_source: '',
       cache_repository: '',
+      tmpfs_work: false,
+      tmpfs_work_size: '',
+      tmpfs_tmp: false,
+      tmpfs_tmp_size: '',
       pids_limit: '',
       host_selector: {},
       restrict_hosts: false,
@@ -210,6 +225,10 @@
       cache_size_limit: fromNumber(pool.cache?.size_limit),
       cache_source: pool.cache?.source ?? '',
       cache_repository: pool.cache?.repository ?? '',
+      tmpfs_work: pool.tmpfs?.work?.enabled === true,
+      tmpfs_work_size: fromNumber(pool.tmpfs?.work?.size_mb),
+      tmpfs_tmp: pool.tmpfs?.tmp?.enabled === true,
+      tmpfs_tmp_size: fromNumber(pool.tmpfs?.tmp?.size_mb),
       pids_limit: fromNumber(resources.pids_limit),
       host_selector: { ...(pool.host_selector ?? {}) },
       restrict_hosts: Object.keys(pool.host_selector ?? {}).length > 0,
@@ -235,6 +254,8 @@
       draft.docker_mode === 'host-socket' ||
       draft.run_as_root ||
       draft.cache_enabled ||
+      draft.tmpfs_work ||
+      draft.tmpfs_tmp ||
       draft.image.trim() !== '' ||
       draft.runner_version.trim() !== '' ||
       draft.platform_os.trim() !== '' ||
@@ -339,6 +360,20 @@
         size_limit: toInteger(draft.cache_size_limit) ?? 0,
         source: draft.cache_source.trim(),
         repository: draft.cache_scope === 'repository' ? draft.cache_repository.trim() : '',
+      },
+      // Only a container runner has a folder to mount over; a process runner
+      // would be refused, so its draft sends both off whatever the toggles say.
+      // A size is sent only for a folder that is on, and an empty one means "fit
+      // it to the memory limit", which is how the API reads a zero.
+      tmpfs: {
+        work: {
+          enabled: elasticBackend && draft.tmpfs_work,
+          size_mb: elasticBackend && draft.tmpfs_work ? (toInteger(draft.tmpfs_work_size) ?? 0) : 0,
+        },
+        tmp: {
+          enabled: elasticBackend && draft.tmpfs_tmp,
+          size_mb: elasticBackend && draft.tmpfs_tmp ? (toInteger(draft.tmpfs_tmp_size) ?? 0) : 0,
+        },
       },
     };
     // The draft holds plain strings because that is what a <select> gives
@@ -485,6 +520,28 @@
     )
       errors['cache.size_limit'] =
         'A size limit is kept by evicting from a directory on the host, so the cache source has to be an absolute host path. There is nothing to measure inside a named volume.';
+
+    // The server's own rules for the folders, said beside the control. A tmpfs
+    // is charged to the runner's memory limit, so typed sizes that take the
+    // whole of a typed limit leave a job nothing to run in.
+    let typedTmpfs = 0;
+    for (const [on, raw, key] of [
+      [draft.tmpfs_work, draft.tmpfs_work_size, 'tmpfs.work.size_mb'],
+      [draft.tmpfs_tmp, draft.tmpfs_tmp_size, 'tmpfs.tmp.size_mb'],
+    ] as const) {
+      if (!on || raw.trim() === '') continue;
+      const mb = toInteger(raw);
+      if (mb === undefined || mb < MIN_TMPFS_MB)
+        errors[key] =
+          `Use a whole number of megabytes, at least ${MIN_TMPFS_MB}, or leave it empty to size it from the memory limit.`;
+      else typedTmpfs += mb;
+    }
+    if (draft.sizing === 'fixed' && typedTmpfs > 0) {
+      const memory = toInteger(draft.memory_mb);
+      if (memory !== undefined && memory > 0 && typedTmpfs >= memory)
+        errors['tmpfs.work.size_mb'] ||=
+          `These folders may take ${typedTmpfs} MB and the memory limit is ${memory} MB. They are charged to that limit, so raise it to at least ${memory + typedTmpfs} MB or shrink them.`;
+    }
 
     if (draft.docker_mode === 'host-socket' && !socketConfirmed)
       errors['docker_mode'] =

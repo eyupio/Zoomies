@@ -232,19 +232,19 @@ const poolCols = `id, name, installation_id, labels, runner_group, backend, os, 
 	arch, image, pull_policy, runner_version, min_runners, max_runners, priority,
 	idle_timeout_ms, ephemeral, docker_mode, resources, cache, host_selector, env,
 	run_as_root, enabled, created_at, updated_at, repository_scale_up_limit,
-	cost_per_runner_hour, runner_settings, cpu_burst, no_default_labels`
+	cost_per_runner_hour, runner_settings, cpu_burst, no_default_labels, tmpfs`
 
 func scanPool(sc interface{ Scan(...any) error }) (*Pool, error) {
 	var p Pool
 	var idle, created, updated int64
 	var ephemeral, runAsRoot, enabled, noDefaultLabels int
-	var resources, cache, runnerSettings, cpuBurst string
+	var resources, cache, runnerSettings, cpuBurst, tmpfs string
 	err := sc.Scan(&p.ID, &p.Name, &p.InstallationID, &p.Labels, &p.RunnerGroup, &p.Backend,
 		&p.Platform.OS, &p.Platform.OSVersion, &p.Platform.Arch,
 		&p.Image, &p.PullPolicy, &p.RunnerVersion, &p.MinRunners, &p.MaxRunners, &p.Priority,
 		&idle, &ephemeral, &p.DockerMode, &resources, &cache, &p.HostSelector, &p.Env,
 		&runAsRoot, &enabled, &created, &updated, &p.RepositoryScaleUpLimit, &p.CostPerRunnerHour,
-		&runnerSettings, &cpuBurst, &noDefaultLabels)
+		&runnerSettings, &cpuBurst, &noDefaultLabels, &tmpfs)
 	if err != nil {
 		return nil, err
 	}
@@ -263,6 +263,9 @@ func scanPool(sc interface{ Scan(...any) error }) (*Pool, error) {
 	}
 	if err := unmarshalJSON(cpuBurst, &p.CPUBurst); err != nil {
 		return nil, fmt.Errorf("pool %s: decoding CPU burst policy: %w", p.ID, err)
+	}
+	if err := unmarshalJSON(tmpfs, &p.Tmpfs); err != nil {
+		return nil, fmt.Errorf("pool %s: decoding tmpfs settings: %w", p.ID, err)
 	}
 	return &p, nil
 }
@@ -296,22 +299,22 @@ func (s *Store) poolInsert(p *Pool) (string, []any, error) {
 	if p.PullPolicy == "" {
 		p.PullPolicy = PullIfNotPresent
 	}
-	res, cache, settings, burst, err := poolJSON(p)
+	res, cache, settings, burst, tmpfs, err := poolJSON(p)
 	if err != nil {
 		return "", nil, err
 	}
-	return `INSERT INTO pools (` + poolCols + `) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, []any{
+	return `INSERT INTO pools (` + poolCols + `) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, []any{
 		p.ID, p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend),
 		p.Platform.OS, p.Platform.OSVersion, p.Platform.Arch, p.Image,
 		string(p.PullPolicy),
 		p.RunnerVersion, p.MinRunners, p.MaxRunners, p.Priority, p.IdleTimeout.Duration().Milliseconds(),
 		boolInt(p.Ephemeral), string(p.DockerMode), res, cache, p.HostSelector, p.Env,
 		boolInt(p.RunAsRoot), boolInt(p.Enabled), ms(p.CreatedAt), ms(p.UpdatedAt),
-		p.RepositoryScaleUpLimit, p.CostPerRunnerHour, settings, burst, boolInt(p.NoDefaultLabels)}, nil
+		p.RepositoryScaleUpLimit, p.CostPerRunnerHour, settings, burst, boolInt(p.NoDefaultLabels), tmpfs}, nil
 }
 
-// poolJSON encodes the four columns a pool keeps as JSON documents.
-func poolJSON(p *Pool) (res, cache, settings, burst string, err error) {
+// poolJSON encodes the five columns a pool keeps as JSON documents.
+func poolJSON(p *Pool) (res, cache, settings, burst, tmpfs string, err error) {
 	if res, err = marshalJSON(p.Resources); err != nil {
 		return
 	}
@@ -321,7 +324,10 @@ func poolJSON(p *Pool) (res, cache, settings, burst string, err error) {
 	if settings, err = marshalJSON(p.RunnerSettings); err != nil {
 		return
 	}
-	burst, err = marshalJSON(p.CPUBurst)
+	if burst, err = marshalJSON(p.CPUBurst); err != nil {
+		return
+	}
+	tmpfs, err = marshalJSON(p.Tmpfs)
 	return
 }
 
@@ -401,7 +407,7 @@ func (s *Store) poolUpdate(p *Pool) (string, []any, error) {
 	if p.PullPolicy == "" {
 		p.PullPolicy = PullIfNotPresent
 	}
-	res, cache, settings, burst, err := poolJSON(p)
+	res, cache, settings, burst, tmpfs, err := poolJSON(p)
 	if err != nil {
 		return "", nil, err
 	}
@@ -416,14 +422,14 @@ func (s *Store) poolUpdate(p *Pool) (string, []any, error) {
 		p.RunnerVersion, p.MinRunners, p.MaxRunners, p.Priority, p.IdleTimeout.Duration().Milliseconds(),
 		boolInt(p.Ephemeral), string(p.DockerMode), res, cache, p.HostSelector, p.Env,
 		boolInt(p.RunAsRoot), boolInt(p.Enabled), ms(p.UpdatedAt), p.RepositoryScaleUpLimit,
-		p.CostPerRunnerHour, settings, burst, boolInt(p.NoDefaultLabels), p.ID,
+		p.CostPerRunnerHour, settings, burst, boolInt(p.NoDefaultLabels), tmpfs, p.ID,
 	}
 	query := `UPDATE pools SET name=?, installation_id=?, labels=?, runner_group=?,
 		backend=?, os=?, os_version=?, arch=?, image=?, pull_policy=?, runner_version=?,
 		min_runners=?, max_runners=?, priority=?, idle_timeout_ms=?, ephemeral=?,
 		docker_mode=?, resources=?, cache=?, host_selector=?, env=?, run_as_root=?,
 		enabled=?, updated_at=?, repository_scale_up_limit=?, cost_per_runner_hour=?,
-		runner_settings=?, cpu_burst=?, no_default_labels=? WHERE id=?`
+		runner_settings=?, cpu_burst=?, no_default_labels=?, tmpfs=? WHERE id=?`
 	return query, args, nil
 }
 

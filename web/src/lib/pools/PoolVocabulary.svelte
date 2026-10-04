@@ -239,7 +239,7 @@
     size: {
       id: 'size',
       title: 'Size',
-      description: 'How much machine one runner gets, and its cache.',
+      description: 'How much machine one runner gets, its scratch space and its cache.',
     },
     scaling: {
       id: 'scaling',
@@ -289,6 +289,10 @@
       'cache.size_limit',
       'cache.source',
       'cache.repository',
+      'tmpfs.work.enabled',
+      'tmpfs.work.size_mb',
+      'tmpfs.tmp.enabled',
+      'tmpfs.tmp.size_mb',
     ],
     scaling: [
       'min_runners',
@@ -401,6 +405,10 @@
     'cache.size_limit': 'Cache size limit',
     'cache.source': 'Cache host path',
     'cache.repository': 'Cache repository',
+    'tmpfs.work.enabled': 'Work folder in memory',
+    'tmpfs.work.size_mb': 'Work folder size',
+    'tmpfs.tmp.enabled': '/tmp in memory',
+    'tmpfs.tmp.size_mb': '/tmp size',
     host_selector: 'Hosts',
     env: 'Environment',
     'runner_settings.provision_timeout': 'Provision timeout',

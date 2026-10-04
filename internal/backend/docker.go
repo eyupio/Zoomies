@@ -109,6 +109,41 @@ const (
 // inside the container.
 const RunnerWorkMount = "/home/runner/_work"
 
+// RunnerTmpMount is the folder a pool may keep in memory beside the work folder.
+const RunnerTmpMount = "/tmp"
+
+// tmpfsOptions are what every RAM-backed folder is mounted with, on Docker and
+// Podman alike.
+//
+// mode=1777 and no uid or gid, on purpose: the folder has to be writable by
+// whichever account the runner is -- the image's own, or root for a RunAsRoot
+// pool -- and a uid named here is read in the mount's user namespace, which a
+// rootless Podman shifts, so a number that is right for Docker is a folder the
+// runner cannot write under Podman. The sticky bit is /tmp's own convention and
+// costs a single-user container nothing. noexec is deliberately absent: builds
+// run what they compile from the work folder and from /tmp, and a mount that
+// refuses to execute them is a job that fails with an error naming neither.
+const tmpfsOptions = "rw,nosuid,nodev,mode=1777"
+
+// tmpfsMounts is the HostConfig.Tmpfs map for a runner whose memory limit is
+// capMB, nil when nothing is kept in memory. A work folder the spec already
+// binds from a host directory is left to that bind, because two mounts at one
+// path is an error the daemon reports only when the container is created.
+func tmpfsMounts(spec Spec, capMB int64, workBound bool) map[string]string {
+	work, tmp := spec.Tmpfs.Sizes(capMB)
+	out := map[string]string{}
+	if work > 0 && !workBound {
+		out[RunnerWorkMount] = fmt.Sprintf("size=%dm,%s", work, tmpfsOptions)
+	}
+	if tmp > 0 {
+		out[RunnerTmpMount] = fmt.Sprintf("size=%dm,%s", tmp, tmpfsOptions)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // RunnerToolCacheMount is where a pool's tool cache is mounted in a runner, and
 // what AGENT_TOOLSDIRECTORY is pointed at when the pool keeps one. It is not
 // the image's own /opt/hostedtoolcache: mounting over that would hide the
@@ -565,6 +600,10 @@ func buildRunnerConfig(spec Spec, fl flavor, o containerOptions) ContainerCreate
 		limit := res.PidsLimit
 		hc.PidsLimit = &limit
 	}
+	// Sized from the runner's own limit, which for docker-in-docker is its half
+	// of the pair: the tmpfs is charged to this container's cgroup, not the
+	// sidecar's, so the pair's total would promise room the runner does not have.
+	hc.Tmpfs = tmpfsMounts(spec, res.MemoryMB, o.WorkDirMount != "")
 
 	if o.HostSocket != "" {
 		// No relabel suffix here. ":z" relabels the *source*, and the source

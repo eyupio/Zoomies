@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   CACHE_NOTCHES,
   CPU_NOTCHES,
+  DEFAULT_TMPFS_TMP_MB,
+  DEFAULT_TMPFS_WORK_MB,
   MEMORY_NOTCHES,
   cacheBytes,
   cacheGb,
@@ -10,6 +12,9 @@ import {
   cpuLabel,
   gbLabel,
   memoryLabel,
+  recommendedMemoryMb,
+  tmpfsIsTight,
+  tmpfsReserveMb,
   nearest,
   roomOn,
   sizeLabel,
@@ -73,4 +78,40 @@ test('the room is what both figures allow, and never negative', () => {
   // A machine that has measured nothing constrains nothing, and the caller
   // falls back to the host's slots.
   assert.equal(roomOn({ cpus: 0, memoryMb: 0 }, { cpus: 2, memoryMb: 4096 }), 0);
+});
+
+// The same arithmetic as store.TmpfsConfig.ReserveMB and RecommendedMemoryMB:
+// the editor's proposal and the controller's warning must name one number.
+test('the in-memory folders reserve what was typed, or the default for one left to size itself', () => {
+  const off = { enabled: false, sizeMb: undefined };
+  assert.equal(tmpfsReserveMb(off, off), 0);
+  assert.equal(tmpfsReserveMb({ enabled: true, sizeMb: undefined }, off), DEFAULT_TMPFS_WORK_MB);
+  assert.equal(
+    tmpfsReserveMb({ enabled: true, sizeMb: 6000 }, { enabled: true, sizeMb: undefined }),
+    6000 + DEFAULT_TMPFS_TMP_MB,
+  );
+  // A size on a folder that is off is the form remembering, not a cost.
+  assert.equal(tmpfsReserveMb({ enabled: false, sizeMb: 9999 }, off), 0);
+});
+
+test('the proposed memory limit is the current one plus what the folders may fill', () => {
+  const work = { enabled: true, sizeMb: undefined };
+  const off = { enabled: false, sizeMb: undefined };
+  assert.equal(recommendedMemoryMb(8192, work, off), 8192 + DEFAULT_TMPFS_WORK_MB);
+  // Nothing to raise where the host picks the size, or where nothing is in memory.
+  assert.equal(recommendedMemoryMb(0, work, off), 0);
+  assert.equal(recommendedMemoryMb(8192, off, off), 0);
+});
+
+// The proposal must end when it is taken. At the line the folders are fitted
+// into half the limit and are no problem; past it they are shrunk or, if typed,
+// a way to be killed for memory -- the same line pool.tmpfs_memory_tight draws.
+test('the folders are only worth a word when they take more than half the limit', () => {
+  assert.equal(tmpfsIsTight(8192, 4096), false);
+  assert.equal(tmpfsIsTight(8192, 4097), true);
+  assert.equal(tmpfsIsTight(6144, 4096), true);
+  // Accepting the proposal ends it.
+  assert.equal(tmpfsIsTight(6144 + 4096, 4096), false);
+  // No limit typed means the host picks the size, so there is nothing to raise.
+  assert.equal(tmpfsIsTight(0, 4096), false);
 });

@@ -71,6 +71,20 @@ type poolItem struct {
 	// CPUBurst is the pool's elastic CPU policy: whether a busy runner may be
 	// lent the host's spare CPU above its guaranteed share.
 	CPUBurst poolCPUBurst `json:"cpu_burst"`
+	// Tmpfs is which of the runner's folders the pool keeps in memory.
+	Tmpfs poolTmpfs `json:"tmpfs"`
+}
+
+// poolTmpfs mirrors the API's TmpfsConfig. Every field is zero on a pool that
+// has never heard of it, which keeps both folders on disk.
+type poolTmpfs struct {
+	Work poolTmpfsMount `json:"work"`
+	Tmp  poolTmpfsMount `json:"tmp"`
+}
+
+type poolTmpfsMount struct {
+	Enabled bool  `json:"enabled"`
+	SizeMB  int64 `json:"size_mb,omitempty"`
 }
 
 // poolCPUBurst mirrors the API's CPUBurstPolicy. An empty mode is off, which

@@ -185,6 +185,24 @@ func TestPoolValidationNamesTheField(t *testing.T) {
 			b["backend"] = "process"
 			b["cache"] = map[string]any{"enabled": true, "scope": "pool", "tools": true}
 		}, "cache.tools", "container runners"},
+		// In-memory folders are a mount on a container, and a tmpfs is charged
+		// to the runner's memory limit: a size that cannot work is refused where
+		// it is typed, naming the folder, rather than becoming a runner that is
+		// killed for want of memory on its first job.
+		{"in-memory folders on a process runner", func(b map[string]any) {
+			b["backend"] = "process"
+			b["tmpfs"] = map[string]any{"work": map[string]any{"enabled": true}}
+		}, "tmpfs.work.enabled", "Docker or Podman"},
+		{"an in-memory folder below the floor", func(b map[string]any) {
+			b["tmpfs"] = map[string]any{"work": map[string]any{"enabled": true, "size_mb": 8}}
+		}, "tmpfs.work.size_mb", "at least 64 MB"},
+		{"a negative in-memory size", func(b map[string]any) {
+			b["tmpfs"] = map[string]any{"tmp": map[string]any{"enabled": true, "size_mb": -5}}
+		}, "tmpfs.tmp.size_mb", "negative"},
+		{"folders that take the whole memory limit", func(b map[string]any) {
+			b["resources"] = map[string]any{"cpus": 2, "memory_mb": 4096}
+			b["tmpfs"] = map[string]any{"work": map[string]any{"enabled": true, "size_mb": 4096}}
+		}, "tmpfs.work.size_mb", "to at least 8192 MB"},
 	}
 
 	for _, tc := range cases {
@@ -1516,4 +1534,113 @@ func TestAPoolThatAlreadyStoresAReservedVariableCanStillBeEdited(t *testing.T) {
 		mustStatus(t, http.StatusUnprocessableEntity, "changing the reserved key's value")
 	patch(map[string]any{"env": map[string]string{"HTTP_PROXY": "http://proxy:3128"}}).
 		mustStatus(t, http.StatusOK, "removing the reserved key")
+}
+
+// The in-memory folders are a pool setting like any other: stored, returned in
+// the pool's view, replaced whole by an edit, and off for a pool that never
+// mentions them -- which is every pool there was before the setting existed.
+func TestAPoolKeepsItsInMemoryFolders(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	type view struct {
+		ID    string            `json:"id"`
+		Tmpfs store.TmpfsConfig `json:"tmpfs"`
+	}
+
+	plain := h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: cookie, body: poolBody(inst.ID)})
+	plain.mustStatus(t, http.StatusCreated, "create without the setting")
+	var off view
+	plain.into(t, &off)
+	if off.Tmpfs.Any() {
+		t.Fatalf("a pool that never mentioned the folders keeps %+v in memory, want nothing", off.Tmpfs)
+	}
+
+	body := poolBody(inst.ID)
+	body["name"] = "tmpfs-pool"
+	body["labels"] = []string{"tmpfs-pool"}
+	body["tmpfs"] = map[string]any{"work": map[string]any{"enabled": true, "size_mb": 6144}}
+	res := h.do(request{method: http.MethodPost, path: "/api/v1/pools", cookie: cookie, body: body})
+	res.mustStatus(t, http.StatusCreated, "create")
+	var got view
+	res.into(t, &got)
+	want := store.TmpfsConfig{Work: store.TmpfsMount{Enabled: true, SizeMB: 6144}}
+	if got.Tmpfs != want {
+		t.Fatalf("tmpfs = %+v, want %+v", got.Tmpfs, want)
+	}
+	stored, err := h.st.GetPool(h.ctx, got.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Tmpfs != want {
+		t.Errorf("stored tmpfs = %+v, want %+v", stored.Tmpfs, want)
+	}
+
+	// An edit that names nothing about the folders leaves them alone.
+	same := h.do(request{method: http.MethodPatch, path: "/api/v1/pools/" + got.ID, cookie: cookie,
+		body: map[string]any{"max_runners": 7}})
+	same.mustStatus(t, http.StatusOK, "patch another field")
+	stored, _ = h.st.GetPool(h.ctx, got.ID)
+	if stored.Tmpfs != want {
+		t.Errorf("an unrelated edit changed the folders to %+v", stored.Tmpfs)
+	}
+
+	// Naming them replaces the whole group, which is how /tmp is switched on
+	// and the work folder's size left to the memory limit in one request.
+	edit := h.do(request{method: http.MethodPatch, path: "/api/v1/pools/" + got.ID, cookie: cookie,
+		body: map[string]any{"tmpfs": map[string]any{
+			"work": map[string]any{"enabled": true},
+			"tmp":  map[string]any{"enabled": true, "size_mb": 512},
+		}}})
+	edit.mustStatus(t, http.StatusOK, "patch the folders")
+	stored, _ = h.st.GetPool(h.ctx, got.ID)
+	wantAfter := store.TmpfsConfig{
+		Work: store.TmpfsMount{Enabled: true},
+		Tmp:  store.TmpfsMount{Enabled: true, SizeMB: 512},
+	}
+	if stored.Tmpfs != wantAfter {
+		t.Errorf("stored tmpfs = %+v, want %+v", stored.Tmpfs, wantAfter)
+	}
+}
+
+// The dry run says what a pool's folders cost before anything is created: the
+// limit that leaves the job its room when the folders take most of the one it
+// has, and nothing when they do not.
+func TestThePoolDryRunProposesAMemoryLimitForInMemoryFolders(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	u, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(u)
+
+	verdict := func(memoryMB int) validatePoolResponse {
+		t.Helper()
+		body := poolBody(inst.ID)
+		body["resources"] = map[string]any{"cpus": 2, "memory_mb": memoryMB}
+		body["tmpfs"] = map[string]any{"work": map[string]any{"enabled": true}}
+		res := h.do(request{method: http.MethodPost, path: "/api/v1/pools/validate", cookie: cookie, body: body})
+		res.mustStatus(t, http.StatusOK, "validate")
+		var v validatePoolResponse
+		res.into(t, &v)
+		return v
+	}
+	find := func(v validatePoolResponse, code string) *controller.Problem {
+		for i := range v.Warnings {
+			if v.Warnings[i].Code == code {
+				return &v.Warnings[i]
+			}
+		}
+		return nil
+	}
+
+	// 6 GB with a 4 GB folder: it takes most of the limit, so the fix proposes 10 GB.
+	tight := find(verdict(6144), "pool.tmpfs_memory_tight")
+	if tight == nil || !strings.Contains(tight.Fix, "10 GB") {
+		t.Fatalf("a 6 GB pool with a 4 GB folder was not proposed 10 GB: %+v", tight)
+	}
+	// 16 GB is room enough: nothing to say.
+	if w := find(verdict(16384), "pool.tmpfs_memory_tight"); w != nil {
+		t.Errorf("a 16 GB pool was warned: %+v", *w)
+	}
 }

@@ -183,3 +183,60 @@ export function limitPhrase(limitedBy: string | undefined): string {
       return '';
   }
 }
+
+/**
+ * The folders a pool may keep in memory, and what they cost.
+ *
+ * A tmpfs is charged to the runner's own memory limit, so what a folder may
+ * fill comes out of the limit the pool was sized with for the job rather than
+ * being added to it. These mirror the controller's arithmetic
+ * (store.TmpfsConfig) so the editor can propose the limit that leaves the job
+ * the room it has now, before the server's answer lands; the server's own
+ * warning, pool.tmpfs_memory_tight, is the authority and says the same number.
+ */
+export const MIN_TMPFS_MB = 64;
+/** What a folder with no size of its own is given on a runner with room. */
+export const DEFAULT_TMPFS_WORK_MB = 4096;
+export const DEFAULT_TMPFS_TMP_MB = 1024;
+
+export interface TmpfsFolder {
+  enabled: boolean;
+  /** The typed size in MB; undefined or zero lets the memory limit pick it. */
+  sizeMb: number | undefined;
+}
+
+/**
+ * The memory the enabled folders may take: what was typed, or the default for
+ * one left to size itself. This is what a limit sized for the job alone should
+ * be raised by.
+ */
+export function tmpfsReserveMb(work: TmpfsFolder, tmp: TmpfsFolder): number {
+  const one = (f: TmpfsFolder, fallback: number) =>
+    !f.enabled ? 0 : f.sizeMb && f.sizeMb > 0 ? f.sizeMb : fallback;
+  return one(work, DEFAULT_TMPFS_WORK_MB) + one(tmp, DEFAULT_TMPFS_TMP_MB);
+}
+
+/**
+ * The limit that leaves the job the room the current one gives it, with the
+ * folders on top. Zero when there is nothing to propose: no limit to raise
+ * (the host's share is sized from the machine), or nothing in memory.
+ */
+export function recommendedMemoryMb(limitMb: number, work: TmpfsFolder, tmp: TmpfsFolder): number {
+  const reserve = tmpfsReserveMb(work, tmp);
+  return limitMb > 0 && reserve > 0 ? limitMb + reserve : 0;
+}
+
+/**
+ * Whether the folders take enough of the limit to be worth a word: more than
+ * half of it, the line the controller's pool.tmpfs_memory_tight draws too.
+ *
+ * Without it the proposal would follow the limit upward -- accept 12 GB and the
+ * folders are proposed on top of that -- when what an operator needs is one
+ * answer, and silence once the job has its room. Folders left to size
+ * themselves are fitted into half the limit, so at the line they are not a
+ * problem; past it they are either shrunk or, if typed, a job that fills them
+ * is killed for want of memory.
+ */
+export function tmpfsIsTight(limitMb: number, reserveMb: number): boolean {
+  return limitMb > 0 && reserveMb * 2 > limitMb;
+}

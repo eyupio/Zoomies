@@ -1171,6 +1171,54 @@ test('a container pool can keep its tool cache with its cache', async ({ page })
   await expect(tools).toBeChecked();
 });
 
+test('a container pool can keep its work folder in memory, and is told what that costs', async ({
+  page,
+}) => {
+  // Scratch space in memory is opt-in because a tmpfs is charged to the runner's
+  // memory limit. The editor says so where the choice is made, with the limit
+  // that leaves the job the room it has now, and offers to set it.
+  await goto(page, '/pools/new', 'Create a pool');
+  await toAdvanced(page);
+  await nameField(page).fill('e2e-tmpfs');
+  await next(page).click();
+  await addLabel(page, 'tmpfs');
+  await next(page).click();
+  await next(page).click();
+  await next(page).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Size' })).toBeVisible();
+  await page.getByRole('radio', { name: 'A fixed size on every host' }).check();
+  const memory = page.getByRole('textbox', { name: 'Memory per runner', exact: true });
+  await memory.fill('6g');
+  await memory.press('Enter');
+
+  const work = page.getByRole('checkbox', { name: 'Keep the work folder in memory' });
+  const tmp = page.getByRole('checkbox', { name: 'Keep /tmp in memory as well' });
+  // Off by default, both of them: nothing changes for a pool until somebody asks.
+  await expect(work).not.toBeChecked();
+  await expect(tmp).not.toBeChecked();
+  await expect(page.getByText('Raise the memory limit to')).toHaveCount(0);
+
+  // The work folder is the one the editor offers; /tmp is its own choice.
+  await work.check();
+  await expect(tmp).not.toBeChecked();
+  await expect(page.getByRole('textbox', { name: 'Work folder size (MB)' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: '/tmp size (MB)' })).toHaveCount(0);
+
+  // 6 GB for the job and 4 GB for the folder: the folder takes most of it, so
+  // the editor proposes 10 GB and the button applies it. Accepting ends the
+  // proposal -- it must not follow the limit upward.
+  await expect(page.getByText('Raise the memory limit to 10 GB')).toBeVisible();
+  await page.getByRole('button', { name: 'Set the limit to 10 GB' }).click();
+  await expect(memory).toHaveValue('10 GB');
+  await expect(page.getByText('Raise the memory limit to')).toHaveCount(0);
+
+  // A size below the floor is refused where it is typed.
+  const size = page.getByRole('textbox', { name: 'Work folder size (MB)' });
+  await size.fill('8');
+  await size.blur();
+  await expect(page.getByRole('alert').filter({ hasText: /at least 64/ })).toBeVisible();
+});
+
 test('a fixed size can carry a minimum for hosts a little short of it', async ({ page }) => {
   // A standard a host cannot quite meet used to leave the job queued. The
   // minimum is the size the pool will still accept, and the step says what

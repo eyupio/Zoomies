@@ -200,8 +200,14 @@ type Spec struct {
 	// controller that predates it, which a backend reads as the pool's.
 	ResourcesSource string            `json:"resources_source,omitempty"`
 	Cache           store.CacheConfig `json:"cache"`
-	Repository      string            `json:"repository,omitempty"`
-	DockerMode      store.DockerMode  `json:"docker_mode"`
+	// Tmpfs keeps the runner's work folder and /tmp in memory. A container
+	// backend mounts them; an agent that predates the field ignores it and the
+	// runner simply uses disk, which is why the controller warns about a pool
+	// placed on such a host (agent.FeatureTmpfs, pool.tmpfs_unsupported) rather
+	// than leaving a job as slow as before with nothing saying why.
+	Tmpfs      store.TmpfsConfig `json:"tmpfs,omitzero"`
+	Repository string            `json:"repository,omitempty"`
+	DockerMode store.DockerMode  `json:"docker_mode"`
 	// RunAsRoot keeps the container's default user instead of dropping to the
 	// unprivileged "runner" account.
 	RunAsRoot bool `json:"run_as_root"`

@@ -91,6 +91,14 @@ running. `--cpu-burst-size-builds` (`true`) starts an `automatic` pool's runners
 with Cargo, .NET and the JVM sized for that ceiling; it applies from the next
 runner started.
 
+`--tmpfs-work` keeps the runner's `_work` folder in memory instead of on the
+host's disk, and `--tmpfs-tmp` does the same for `/tmp`; `--tmpfs-work-size` and
+`--tmpfs-tmp-size` set each folder's ceiling in MiB, and `0` fits it to the
+memory limit. Both are off unless typed, the folders are charged to the runner's
+memory limit, and a size on a create needs the folder it is for. On an edit,
+naming one carries the other forward as it stands. See [keeping the work folder
+in memory](hosts-and-pools.md#keeping-the-work-folder-in-memory).
+
 On `edit`, only the flags you actually type are sent — the defaults above are
 not applied to a partial update, so editing a pool's image cannot silently reset
 its ceiling.
