@@ -40,7 +40,7 @@ func TestTheWorkFolderIsMountedInMemoryOnDockerAndPodman(t *testing.T) {
 	spec := tmpfsSpec(store.TmpfsConfig{Work: store.TmpfsMount{Enabled: true, SizeMB: 2048}})
 	for _, fl := range []flavor{dockerFlavor(), podmanFlavor()} {
 		got := buildRunnerConfig(spec, fl, containerOptions{Now: time.Now()}).HostConfig.Tmpfs
-		want := map[string]string{RunnerWorkMount: "size=2048m,rw,nosuid,nodev,mode=1777"}
+		want := map[string]string{RunnerWorkMount: "size=2048m,rw,exec,nosuid,nodev,mode=1777"}
 		if len(got) != 1 || got[RunnerWorkMount] != want[RunnerWorkMount] {
 			t.Errorf("%s: tmpfs = %v, want %v", fl.kind, got, want)
 		}
@@ -63,7 +63,7 @@ func TestTmpIsMountedOnlyWhenAskedFor(t *testing.T) {
 		Work: store.TmpfsMount{Enabled: true, SizeMB: 1024},
 		Tmp:  store.TmpfsMount{Enabled: true, SizeMB: 512},
 	}), dockerFlavor(), containerOptions{Now: time.Now()}).HostConfig.Tmpfs
-	if both[RunnerTmpMount] != "size=512m,rw,nosuid,nodev,mode=1777" || both[RunnerWorkMount] == "" {
+	if both[RunnerTmpMount] != "size=512m,rw,exec,nosuid,nodev,mode=1777" || both[RunnerWorkMount] == "" {
 		t.Errorf("tmpfs = %v, want both folders", both)
 	}
 
@@ -82,9 +82,9 @@ func TestAnAutomaticTmpfsIsFittedToTheRunnersMemoryLimit(t *testing.T) {
 		memoryMB int64
 		want     string
 	}{
-		{"a small limit shrinks it to half", 4096, "size=2048m,rw,nosuid,nodev,mode=1777"},
-		{"a roomy limit takes the default", 32768, "size=4096m,rw,nosuid,nodev,mode=1777"},
-		{"no limit takes the default", 0, "size=4096m,rw,nosuid,nodev,mode=1777"},
+		{"a small limit shrinks it to half", 4096, "size=2048m,rw,exec,nosuid,nodev,mode=1777"},
+		{"a roomy limit takes the default", 32768, "size=4096m,rw,exec,nosuid,nodev,mode=1777"},
+		{"no limit takes the default", 0, "size=4096m,rw,exec,nosuid,nodev,mode=1777"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -108,7 +108,7 @@ func TestADinDRunnersTmpfsIsFittedToItsHalfOfTheLimit(t *testing.T) {
 	spec.Resources = store.Resources{CPUs: 4, MemoryMB: 4096}
 	cfg := buildRunnerConfig(spec, dockerFlavor(), containerOptions{Now: time.Now()})
 	// The runner holds 2048 MB, so half of it is 1024.
-	if got, want := cfg.HostConfig.Tmpfs[RunnerWorkMount], "size=1024m,rw,nosuid,nodev,mode=1777"; got != want {
+	if got, want := cfg.HostConfig.Tmpfs[RunnerWorkMount], "size=1024m,rw,exec,nosuid,nodev,mode=1777"; got != want {
 		t.Errorf("tmpfs = %q, want %q", got, want)
 	}
 }
@@ -167,7 +167,7 @@ func TestTheSidecarsImageStoreIsMountedInMemoryAndTheRunnersIsNot(t *testing.T) 
 	spec := dindTmpfsSpec(store.TmpfsConfig{Daemon: store.TmpfsMount{Enabled: true, SizeMB: 6144}})
 	spec.Resources = store.Resources{CPUs: 4, MemoryMB: 16384}
 	side := buildDinDConfig(spec, dockerFlavor(), containerOptions{Now: time.Now(), DinDImage: DefaultDinDImage})
-	if got, want := side.HostConfig.Tmpfs[DaemonStoreMount], "size=6144m,rw,mode=0710"; got != want {
+	if got, want := side.HostConfig.Tmpfs[DaemonStoreMount], "size=6144m,rw,exec,suid,dev,mode=0710"; got != want {
 		t.Errorf("sidecar tmpfs = %q, want %q", got, want)
 	}
 	run := buildRunnerConfig(spec, dockerFlavor(), containerOptions{Now: time.Now()})
@@ -203,14 +203,14 @@ func TestTheImageStoreIsFittedToTheDaemonsOwnHalf(t *testing.T) {
 	side := buildDinDConfig(auto, dockerFlavor(), containerOptions{Now: time.Now(), DinDImage: DefaultDinDImage})
 	// The daemon takes the remainder of an odd split: 6001 - 3000 = 3001, and the
 	// store is half of what the daemon has, 1500.
-	if got, want := side.HostConfig.Tmpfs[DaemonStoreMount], "size=1500m,rw,mode=0710"; got != want {
+	if got, want := side.HostConfig.Tmpfs[DaemonStoreMount], "size=1500m,rw,exec,suid,dev,mode=0710"; got != want {
 		t.Errorf("automatic pool: sidecar tmpfs = %q, want %q", got, want)
 	}
 
 	typed := dindTmpfsSpec(store.TmpfsConfig{Daemon: store.TmpfsMount{Enabled: true}})
 	typed.Resources = store.Resources{CPUs: 4, MemoryMB: 32768}
 	side = buildDinDConfig(typed, dockerFlavor(), containerOptions{Now: time.Now(), DinDImage: DefaultDinDImage})
-	if got, want := side.HostConfig.Tmpfs[DaemonStoreMount], "size=8192m,rw,mode=0710"; got != want {
+	if got, want := side.HostConfig.Tmpfs[DaemonStoreMount], "size=8192m,rw,exec,suid,dev,mode=0710"; got != want {
 		t.Errorf("typed pool: sidecar tmpfs = %q, want %q", got, want)
 	}
 }
@@ -229,21 +229,21 @@ func TestAHostCeilingLowersEveryInMemoryFolderAndNeverRaisesOne(t *testing.T) {
 
 	run := buildRunnerConfig(spec, dockerFlavor(), containerOptions{Now: time.Now()})
 	// The fitted default is 4096 and is lowered; the typed 512 is under the ceiling.
-	if got, want := run.HostConfig.Tmpfs[RunnerWorkMount], "size=2048m,rw,nosuid,nodev,mode=1777"; got != want {
+	if got, want := run.HostConfig.Tmpfs[RunnerWorkMount], "size=2048m,rw,exec,nosuid,nodev,mode=1777"; got != want {
 		t.Errorf("work = %q, want %q", got, want)
 	}
-	if got, want := run.HostConfig.Tmpfs[RunnerTmpMount], "size=512m,rw,nosuid,nodev,mode=1777"; got != want {
+	if got, want := run.HostConfig.Tmpfs[RunnerTmpMount], "size=512m,rw,exec,nosuid,nodev,mode=1777"; got != want {
 		t.Errorf("tmp = %q, want %q", got, want)
 	}
 	side := buildDinDConfig(spec, dockerFlavor(), containerOptions{Now: time.Now(), DinDImage: DefaultDinDImage})
-	if got, want := side.HostConfig.Tmpfs[DaemonStoreMount], "size=2048m,rw,mode=0710"; got != want {
+	if got, want := side.HostConfig.Tmpfs[DaemonStoreMount], "size=2048m,rw,exec,suid,dev,mode=0710"; got != want {
 		t.Errorf("image store = %q, want %q", got, want)
 	}
 
 	// With no ceiling nothing is lowered.
 	spec.TmpfsMaxMB = 0
 	run = buildRunnerConfig(spec, dockerFlavor(), containerOptions{Now: time.Now()})
-	if got, want := run.HostConfig.Tmpfs[RunnerWorkMount], "size=4096m,rw,nosuid,nodev,mode=1777"; got != want {
+	if got, want := run.HostConfig.Tmpfs[RunnerWorkMount], "size=4096m,rw,exec,nosuid,nodev,mode=1777"; got != want {
 		t.Errorf("without a ceiling, work = %q, want %q", got, want)
 	}
 }
@@ -285,5 +285,34 @@ func TestPairLimitsFollowThePoolsDaemonShare(t *testing.T) {
 	r, d = pairLimits(spec)
 	if r.MemoryMB != 10000 || d.MemoryMB != 10000 {
 		t.Fatalf("typed pair = %d / %d MB; a typed limit goes to both in full", r.MemoryMB, d.MemoryMB)
+	}
+}
+
+// Docker and Podman start every tmpfs from noexec,nosuid,nodev and merge the
+// options they are given over that, so a mount that merely omits noexec is
+// still noexec. Pools that turned the folders on found every `go test` dying
+// with "permission denied" on a binary it had just built in /tmp. Each option
+// that has to override a default is asserted by name.
+func TestInMemoryFoldersOverrideTheNoexecDefaultOfATmpfs(t *testing.T) {
+	has := func(opts, want string) bool {
+		for _, o := range strings.Split(opts, ",") {
+			if o == want {
+				return true
+			}
+		}
+		return false
+	}
+	for _, opts := range []string{tmpfsOptions, daemonTmpfsOptions} {
+		if !has(opts, "exec") || has(opts, "noexec") {
+			t.Errorf("options %q must say exec, or the runtime mounts the folder noexec", opts)
+		}
+	}
+	for _, want := range []string{"suid", "dev"} {
+		if !has(daemonTmpfsOptions, want) {
+			t.Errorf("the image store's options %q must say %s: the nested daemon keeps setuid files and device nodes in image layers", daemonTmpfsOptions, want)
+		}
+	}
+	if !has(tmpfsOptions, "nosuid") || !has(tmpfsOptions, "nodev") {
+		t.Errorf("the runner's folders keep the runtime's nosuid and nodev: %q", tmpfsOptions)
 	}
 }

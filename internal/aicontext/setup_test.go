@@ -71,7 +71,7 @@ func TestPreviousAssistantGuidanceUpgradesWithoutOverwritingCustomEdits(t *testi
 			prefix := "# My guidance" + newline + "Keep this." + newline + newline
 			suffix := newline + "Keep this too." + newline
 			old := previousAssistantInstructions(key, "owner/repo", config)
-			block := managedStart + newline + strings.ReplaceAll(old, "\n", newline) + newline + managedEnd
+			block := tightManagedBlock(old, newline)
 			files := []SetupFile{
 				{Path: "AGENTS.md", SHA: strings.Repeat("a", 40), Content: prefix + block + suffix},
 				{Path: "CLAUDE.md", SHA: strings.Repeat("a", 40), Content: prefix + block + suffix},
@@ -86,7 +86,7 @@ func TestPreviousAssistantGuidanceUpgradesWithoutOverwritingCustomEdits(t *testi
 				saved = append(saved, SetupFile{Path: change.Path, SHA: strings.Repeat("b", 40), Content: change.Content})
 				if change.Path == "AGENTS.md" || change.Path == "CLAUDE.md" {
 					upgraded++
-					want := prefix + managedStart + newline + strings.ReplaceAll(AssistantInstructions(key, "owner/repo", config), "\n", newline) + newline + managedEnd + suffix
+					want := prefix + managedBlock(AssistantInstructions(key, "owner/repo", config), newline) + suffix
 					if change.Content != want || change.PreviousSHA != files[0].SHA {
 						t.Fatal("upgrade lost user text, line endings or original blob identity")
 					}
@@ -223,5 +223,73 @@ func TestSetupUsesEnterpriseBadgeAndDoesNotCreateAMissingReadme(t *testing.T) {
 	config.Destination = Zoomies
 	if _, err = PlanSetupFiles(key, "owner/repo", config, nil); err == nil {
 		t.Fatal("Zoomies-only setup must remain unavailable")
+	}
+}
+
+// Prettier puts a blank line between top-level Markdown blocks, so a managed
+// section with the markers jammed against the text, or with extra blank lines
+// before it, fails the format check of any repository that runs one.
+func TestSetupWritesFormatterCleanMarkdown(t *testing.T) {
+	key, config := setupInputs()
+	cases := map[string]string{
+		"trailing newline": "# Guide\n\nText.\n",
+		"no newline":       "# Guide\n\nText.",
+		"blank lines":      "# Guide\n\nText.\n\n\n",
+		"empty":            "",
+	}
+	for name, original := range cases {
+		files := []SetupFile{{Path: "CLAUDE.md", SHA: strings.Repeat("a", 40), Content: original}}
+		if original == "" {
+			files[0].SHA = ""
+		}
+		changes, err := PlanSetupFiles(key, "owner/repo", config, files)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, change := range changes {
+			if change.Path != "CLAUDE.md" {
+				continue
+			}
+			got := change.Content
+			if strings.Contains(got, managedStart+"\n##") || strings.Contains(got, ".\n"+managedEnd) {
+				t.Fatalf("%s: markers touch the text", name)
+			}
+			if strings.Contains(got, "\n\n\n") && !strings.Contains(original, "\n\n\n") {
+				t.Fatalf("%s: setup added more than one blank line", name)
+			}
+			if !strings.HasSuffix(got, managedEnd+"\n") {
+				t.Fatalf("%s: missing final newline", name)
+			}
+		}
+	}
+}
+
+func TestBadgeSectionIsFormatterCleanAfterATitle(t *testing.T) {
+	key, config := setupInputs()
+	for _, original := range []string{"# Project\n\nText.\n", "# Project\nText.\n", "# Project\n"} {
+		changes, err := PlanSetupFiles(key, "owner/repo", config, []SetupFile{{Path: "README.md", SHA: strings.Repeat("a", 40), Content: original}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, change := range changes {
+			if change.Path == "README.md" && (strings.Contains(change.Content, "\n\n\n") || strings.Contains(change.Content, managedStart+"\n[")) {
+				t.Fatalf("badge section is not formatter-clean for %q:\n%s", original, change.Content)
+			}
+		}
+	}
+}
+
+func TestEarlierTightMarkersUpgradeToFormatterCleanOnes(t *testing.T) {
+	key, config := setupInputs()
+	body := AssistantInstructions(key, "owner/repo", config)
+	files := []SetupFile{{Path: "CLAUDE.md", SHA: strings.Repeat("a", 40), Content: "# X\n\n" + tightManagedBlock(body, "\n") + "\n"}}
+	changes, err := PlanSetupFiles(key, "owner/repo", config, files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, change := range changes {
+		if change.Path == "CLAUDE.md" && change.Content != "# X\n\n"+managedBlock(body, "\n")+"\n" {
+			t.Fatal("tight markers were not upgraded")
+		}
 	}
 }
