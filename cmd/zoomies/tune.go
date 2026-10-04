@@ -2,9 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"github.com/eyupio/zoomies/internal/hosttune"
+	"os"
 	"os/user"
+	"path/filepath"
+
+	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/hosttune"
 )
 
 func runTune(ctx context.Context, e *env, args []string) error {
@@ -36,8 +41,29 @@ func runTune(ctx context.Context, e *env, args []string) error {
 	actor := "root"
 	if u, err := user.Current(); err == nil {
 		actor = u.Username
+		if id := os.Getenv("SUDO_UID"); id != "" {
+			if caller, err := user.LookupId(id); err == nil {
+				actor = caller.Username + " (sudo as " + u.Username + ")"
+			}
+		}
 	}
 	fmt.Fprintln(e.out, "No reboot is performed. Running jobs always prevent a Docker restart.")
 	err = engine.Tune(ctx, hosttune.TuneOptions{Tier: t, Dedicated: *dedicated, DryRun: *dry, Yes: *yes, Only: hosttune.IDs(*only), Skip: hosttune.IDs(*skip), Revert: *revert, Force: *force, In: e.in, Out: e.out, Actor: actor})
+	if err == nil && !*dry {
+		r := engine.Run(ctx, hosttune.Dedicated)
+		if _, statErr := engine.System.Stat(engine.WorkDir); statErr == nil {
+			if b, encodeErr := json.Marshal(r); encodeErr == nil {
+				_ = engine.System.WriteFile(filepath.Join(engine.WorkDir, hosttune.ReportFile), b, 0640)
+			}
+		}
+		path := filepath.Join(config.SharedDir(), "host-health", "report.json")
+		if _, statErr := engine.System.Stat(path); statErr == nil {
+			if b, encodeErr := json.Marshal(r); encodeErr == nil {
+				if writeErr := engine.System.WriteFile(path, append(b, '\n'), 0644); writeErr != nil {
+					fmt.Fprintln(e.err, "Health report will refresh at the next daemon check:", writeErr)
+				}
+			}
+		}
+	}
 	return err
 }

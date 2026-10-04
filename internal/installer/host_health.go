@@ -24,11 +24,39 @@ func RenderHostHealthService(binary, work, dockerHost string) string {
 	return "[Unit]\nDescription=Zoomies read-only host health reports\nAfter=docker.service\n\n[Service]\nType=simple\nExecStart=" + args + "\nRestart=on-failure\nRestartSec=10s\nUser=root\nNoNewPrivileges=yes\nProtectSystem=strict\nProtectHome=read-only\nProtectKernelTunables=yes\nProtectKernelModules=yes\nProtectControlGroups=yes\nReadWritePaths=" + SharedHostDir + "/host-health\nUMask=0022\n\n[Install]\nWantedBy=multi-user.target\n"
 }
 func installHostHealth(ctx context.Context, binary, work, dockerHost string, run commandRunner) error {
-	dir := filepath.Dir(HostHealthReport)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	base, err := os.OpenRoot(SharedHostDir)
+	if err != nil {
 		return err
 	}
-	if err := os.Chmod(dir, 0755); err != nil {
+	defer base.Close()
+	if err = base.Mkdir("host-health", 0755); err != nil && !os.IsExist(err) {
+		return err
+	}
+	info, err := base.Lstat("host-health")
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("host-health must be a real directory")
+	}
+	expected := info
+	dir, err := base.OpenRoot("host-health")
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	info, err = dir.Stat(".")
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(expected, info) {
+		return fmt.Errorf("host-health directory changed while opening it")
+	}
+	uid, _, ok := fileOwner(info)
+	if !ok || uid != 0 {
+		return fmt.Errorf("host-health must be root-owned")
+	}
+	if err = dir.Chmod(".", 0755); err != nil {
 		return err
 	}
 	body := RenderHostHealthService(binary, work, dockerHost)
@@ -41,11 +69,11 @@ func installHostHealth(ctx context.Context, binary, work, dockerHost string, run
 	if _, err := run(ctx, "systemctl", "daemon-reload"); err != nil {
 		return err
 	}
-	_, err := run(ctx, "systemctl", "enable", "--now", HostHealthUnit)
+	_, err = run(ctx, "systemctl", "enable", "--now", HostHealthUnit)
 	return err
 }
 func (p *upgradePlan) hostHealthChanges(ctx context.Context, s deploymentSettings) []layoutChange {
-	if !p.record.Deployment.Containerised() || !s.runsRunners(p.record.Mode) {
+	if p.opts.Doctor == nil || !p.record.Deployment.Containerised() || !s.runsRunners(p.record.Mode) {
 		return nil
 	}
 	if _, err := os.Stat("/run/systemd/system"); err != nil {

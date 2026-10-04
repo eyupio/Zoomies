@@ -1751,7 +1751,7 @@ if [ "$DO_UPGRADE" -eq 1 ]; then
     field "then" "upgrade the existing service and images, keeping its configuration and credentials"
     field "jobs" "existing runner containers stay running; reporting resumes after the restart"
 elif [ "$RUN_INIT" -eq 0 ]; then
-    field "then" "nothing -- --no-init was given, so setup is yours to run"
+    field "then" "report host health; --no-init leaves setup for you to run later"
 elif [ -n "$MODE" ]; then
     field "then" "run \`zoomies init\` to set this host up as $MODE"
 else
@@ -1812,6 +1812,19 @@ if [ "$RUN_INIT" -eq 0 ]; then
         ok "Binary upgraded. Nothing else on this host was touched."
     else
         ok "Binary installed. Run \`zoomies init\` when you are ready to set it up."
+    fi
+    "$PREFIX/zoomies" doctor || note "Doctor reported warnings or checks needing more host access."
+    note "Aggressive and dedicated-host tuning are available separately with zoomies tune."
+    apply_safe=0
+    if [ "$TUNE_MODE" = tune ]; then
+        apply_safe=1
+    elif [ -z "$TUNE_MODE" ] && [ "$NON_INTERACTIVE" -eq 0 ] && have_tty; then
+        printf 'Apply recommended safe tuning? [y/N] '
+        read -r reply < /dev/tty || reply=""
+        case "$reply" in y|Y|yes|Yes) apply_safe=1 ;; esac
+    fi
+    if [ "$apply_safe" -eq 1 ]; then
+        run_privileged "$PREFIX/zoomies" tune --tier safe --yes
     fi
     exit 0
 fi

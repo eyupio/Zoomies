@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -34,6 +35,14 @@ func localDoctor(path string) (*hosttune.Engine, error) {
 	}
 	o := hosttune.LocalOptions(cfg.Agent.WorkDir)
 	o.DockerHost = cfg.Agent.DockerHost
+	if path == "" {
+		if b, err := o.System.ReadFile(filepath.Join(config.SharedDir(), "host-health", "report.json")); err == nil {
+			var r hosttune.Report
+			if json.Unmarshal(b, &r) == nil && r.WorkDir != "" && !r.Container {
+				o.WorkDir = r.WorkDir
+			}
+		}
+	}
 	return hosttune.New(o), nil
 }
 func runDoctor(ctx context.Context, e *env, args []string) error {
@@ -105,6 +114,12 @@ func runDoctor(ctx context.Context, e *env, args []string) error {
 		engine, err := localDoctor(*cfg)
 		if err != nil {
 			return err
+		}
+		if *work != "" {
+			engine.WorkDir = *work
+		}
+		if *dockerHost != "" {
+			engine.DockerHost = *dockerHost
 		}
 		r = engine.Run(ctx, t)
 	}
@@ -245,6 +260,12 @@ func afterHostSetup(ctx context.Context, e *env, fresh, tune, noTune, interactiv
 func upgradeDoctor(ctx context.Context, e *env, cfg *config.Config) {
 	options := hosttune.LocalOptions(cfg.Agent.WorkDir)
 	options.DockerHost = cfg.Agent.DockerHost
+	if b, err := options.System.ReadFile(filepath.Join(config.SharedDir(), "host-health", "report.json")); err == nil {
+		var r hosttune.Report
+		if json.Unmarshal(b, &r) == nil && r.WorkDir != "" && !r.Container {
+			options.WorkDir = r.WorkDir
+		}
+	}
 	engine := hosttune.New(options)
 	before, _ := hosttune.ReadReport(engine.System, engine.WorkDir)
 	r := engine.Run(ctx, hosttune.Safe)

@@ -109,6 +109,9 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) error {
 	}
 	p.settleSettings(ctx)
 	if opts.Check {
+		if opts.Doctor != nil {
+			opts.Doctor(ctx, p.settings(ctx).cfg)
+		}
 		fmt.Fprintln(opts.Out, "The existing deployment can be upgraded without running setup again.")
 		return nil
 	}
