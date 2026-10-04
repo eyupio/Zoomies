@@ -642,6 +642,10 @@ func minimumCharged(p *store.Pool, field string) string {
 // it everywhere else.
 func FormatCPUs(v float64) string { return formatCPUs(v) }
 
+// FormatMB is formatMB for the sentences outside this package that quote a
+// size, for the reason FormatCPUs exists.
+func FormatMB(mb int64) string { return formatMB(mb) }
+
 // formatCPUs writes a CPU count the way the pool form takes one: whole where
 // it is whole, and a share where the host's capacity did not divide evenly.
 // Two decimals is where a share stops being worth reading -- the rounding this
