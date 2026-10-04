@@ -132,6 +132,7 @@ type poolInput struct {
 	CPUBurst               *store.CPUBurstPolicy `json:"cpu_burst"`
 	RunnerSettings         *runnerSettingsIn     `json:"runner_settings"`
 	Cache                  *store.CacheConfig    `json:"cache"`
+	Tmpfs                  *store.TmpfsConfig    `json:"tmpfs"`
 	HostSelector           *map[string]string    `json:"host_selector"`
 	Env                    *map[string]string    `json:"env"`
 	RunAsRoot              *bool                 `json:"run_as_root"`
@@ -400,6 +401,9 @@ func (in *poolInput) apply(p *store.Pool) []fieldError {
 	if in.Cache != nil {
 		p.Cache = *in.Cache
 		p.Cache.Source = strings.TrimSpace(p.Cache.Source)
+	}
+	if in.Tmpfs != nil {
+		p.Tmpfs = *in.Tmpfs
 	}
 	if in.HostSelector != nil {
 		p.HostSelector = store.StringMap(*in.HostSelector)
@@ -704,6 +708,14 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 	case p.Resources.MinMemoryMB > 0 && p.Resources.MinMemoryMB < store.MinRunnerMemoryMB:
 		add("resources.min_memory_mb", "a runner needs at least 512 MB, however short its host is; below that the runner binary is killed before it takes a job")
 	}
+	if share := p.Resources.DaemonSharePercent; share != 0 {
+		switch {
+		case p.DockerMode != store.DockerDinD:
+			add("resources.daemon_share_percent", "the daemon's share only means something for a pool with docker_mode dind, which is the one that runs a daemon beside the runner")
+		case share < store.MinDaemonSharePercent || share > store.MaxDaemonSharePercent:
+			add("resources.daemon_share_percent", fmt.Sprintf("the daemon's share must be between %d and %d percent, or 0 for an even split; a container given less than a tenth of the slot is no limit in effect", store.MinDaemonSharePercent, store.MaxDaemonSharePercent))
+		}
+	}
 	if p.Resources.DiskGB < 0 {
 		add("resources.disk_gb", "a disk limit cannot be negative; use 0 for no limit")
 	}
@@ -739,6 +751,26 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 		add("runner_settings.docker_wait", fmt.Sprintf(
 			"the runner image refuses a wait longer than %s and starts no runner at all; keep it to %s or less, or clear it to follow the fleet",
 			config.MaxDockerWait, config.MaxDockerWait))
+	}
+	// In-memory folders are a mount on a container; a process runner has no
+	// container to mount them on, and its work folder is a directory the agent
+	// makes, which an operator can already put on a tmpfs by pointing
+	// agent.work_dir at one.
+	if p.Tmpfs.Any() {
+		if p.Backend == store.BackendProcess {
+			add("tmpfs.work.enabled", "in-memory folders are mounted into a container, so they need the Docker or Podman backend; for a process runner point agent.work_dir at a tmpfs on the host instead")
+		}
+		// The image store is the docker-in-docker sidecar's, so a pool with no
+		// sidecar has no container to mount it on.
+		if p.Tmpfs.Daemon.Enabled && p.DockerMode != store.DockerDinD {
+			add("tmpfs.daemon.enabled", "the image store is the Docker-in-Docker sidecar's, so it needs docker_mode dind; this pool has no sidecar to keep it in memory")
+		}
+		// A pool with no limit is sized from its host's share when a runner is
+		// created, and the folders are fitted to whatever that turns out to be;
+		// only a limit typed here can be checked against sizes typed here.
+		if field, msg := p.Tmpfs.Validate(p.Resources.MemoryMB); field != "" {
+			add(field, msg)
+		}
 	}
 	// The tool cache is kept beside the pool cache and shared with the same
 	// runners, so it needs the cache to be on to have a scope at all; and it

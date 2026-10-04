@@ -78,6 +78,7 @@ type poolDocument struct {
 	// fleet on a pool that overrides it rather than leaving it alone.
 	RunnerSettings poolDocumentTimings `json:"runner_settings"`
 	Cache          store.CacheConfig   `json:"cache"`
+	Tmpfs          store.TmpfsConfig   `json:"tmpfs"`
 	HostSelector   map[string]string   `json:"host_selector"`
 	// EnvKeys names the variables the pool injects. Their values stay behind:
 	// a pool's environment is where a registry password ends up, and a file
@@ -147,6 +148,7 @@ func documentPool(p *store.Pool, installation string) poolDocument {
 			DockerWait:        durationText(p.RunnerSettings.DockerWait),
 		},
 		Cache:           p.Cache,
+		Tmpfs:           p.Tmpfs,
 		HostSelector:    emptyMap(p.HostSelector),
 		EnvKeys:         envKeys,
 		RunAsRoot:       p.RunAsRoot,

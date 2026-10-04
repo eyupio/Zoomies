@@ -48,6 +48,18 @@ func validateRunnerProfile(h *store.Host, p store.RunnerProfile) []fieldError {
 	memoryField("standard.memory_mb", p.Standard.MemoryMB, "a standard size")
 	cpuField("standard.burst_max_cpus", p.Standard.BurstMaxCPUs, "a burst ceiling")
 
+	// The in-memory folders' policy. A folder smaller than the floor is not a
+	// folder a checkout fits in, and a host that keeps them off has nothing to cap,
+	// so saying both is a contradiction rather than a belt and braces.
+	switch {
+	case p.Tmpfs.MaxMB < 0:
+		add("tmpfs.max_mb", "a ceiling cannot be negative; leave it at 0 to set no host ceiling")
+	case p.Tmpfs.MaxMB > 0 && p.Tmpfs.MaxMB < store.MinTmpfsMB:
+		add("tmpfs.max_mb", fmt.Sprintf("a ceiling below %d MB leaves no folder a checkout fits in; leave it at 0, or keep the folders off here instead", store.MinTmpfsMB))
+	case p.Tmpfs.Disabled && p.Tmpfs.MaxMB > 0:
+		add("tmpfs.max_mb", "this host keeps in-memory folders off, so there is no folder to put a ceiling on; clear one of the two")
+	}
+
 	// A minimum above the standard is a floor above the size it floors, which
 	// the pool form refuses in the same words.
 	if p.Minimum.CPUs > 0 && p.Standard.CPUs > 0 && p.Minimum.CPUs > p.Standard.CPUs {

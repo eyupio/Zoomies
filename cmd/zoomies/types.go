@@ -76,6 +76,22 @@ type poolItem struct {
 	// CPUBurst is the pool's elastic CPU policy: whether a busy runner may be
 	// lent the host's spare CPU above its guaranteed share.
 	CPUBurst poolCPUBurst `json:"cpu_burst"`
+	// Tmpfs is which of the runner's folders the pool keeps in memory.
+	Tmpfs poolTmpfs `json:"tmpfs"`
+}
+
+// poolTmpfs mirrors the API's TmpfsConfig. Every field is zero on a pool that
+// has never heard of it, which keeps both folders on disk.
+type poolTmpfs struct {
+	Work poolTmpfsMount `json:"work"`
+	Tmp  poolTmpfsMount `json:"tmp"`
+	// Daemon is the Docker-in-Docker sidecar's image store.
+	Daemon poolTmpfsMount `json:"daemon"`
+}
+
+type poolTmpfsMount struct {
+	Enabled bool  `json:"enabled"`
+	SizeMB  int64 `json:"size_mb,omitempty"`
 }
 
 // poolCPUBurst mirrors the API's CPUBurstPolicy. An empty mode is off, which
@@ -94,6 +110,9 @@ type poolResources struct {
 	MemoryMB  int64   `json:"memory_mb"`
 	DiskGB    int64   `json:"disk_gb"`
 	PidsLimit int64   `json:"pids_limit"`
+	// DaemonSharePercent is how much of a host-sized slot a Docker-in-Docker pool
+	// gives its daemon; zero is the even split.
+	DaemonSharePercent int `json:"daemon_share_percent"`
 }
 
 // platformItem is the machine a pool needs, or the machine a host is.
@@ -315,6 +334,11 @@ type runnerProfile struct {
 		MemoryMB     int64   `json:"memory_mb,omitempty"`
 		BurstMaxCPUs float64 `json:"burst_max_cpus,omitempty"`
 	} `json:"standard"`
+	// Tmpfs is the host's say over pools' in-memory folders.
+	Tmpfs struct {
+		Disabled bool  `json:"disabled,omitempty"`
+		MaxMB    int64 `json:"max_mb,omitempty"`
+	} `json:"tmpfs"`
 }
 
 type joinTokenItem struct {

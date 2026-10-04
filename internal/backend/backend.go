@@ -198,10 +198,24 @@ type Spec struct {
 	// because the difference decides what a runner killed for exceeding its
 	// memory limit should tell the operator to change. Empty from a
 	// controller that predates it, which a backend reads as the pool's.
-	ResourcesSource string            `json:"resources_source,omitempty"`
-	Cache           store.CacheConfig `json:"cache"`
-	Repository      string            `json:"repository,omitempty"`
-	DockerMode      store.DockerMode  `json:"docker_mode"`
+	ResourcesSource string `json:"resources_source,omitempty"`
+	// DaemonSharePercent is the part of a host-sized slot the docker-in-docker
+	// daemon is given; zero is the even split. See store.Resources.
+	DaemonSharePercent int               `json:"daemon_share_percent,omitempty"`
+	Cache              store.CacheConfig `json:"cache"`
+	// Tmpfs keeps the runner's work folder and /tmp in memory. A container
+	// backend mounts them; an agent that predates the field ignores it and the
+	// runner simply uses disk, which is why the controller warns about a pool
+	// placed on such a host (agent.FeatureTmpfs, pool.tmpfs_unsupported) rather
+	// than leaving a job as slow as before with nothing saying why.
+	Tmpfs store.TmpfsConfig `json:"tmpfs,omitzero"`
+	// TmpfsMaxMB is the host's ceiling on any one in-memory folder, applied after
+	// the folder is fitted to the runner's limit. Zero is none. It is separate
+	// from Tmpfs because it can only be applied here: a pool left to size itself
+	// is fitted to a limit the controller does not resolve, and the agent does.
+	TmpfsMaxMB int64            `json:"tmpfs_max_mb,omitempty"`
+	Repository string           `json:"repository,omitempty"`
+	DockerMode store.DockerMode `json:"docker_mode"`
 	// RunAsRoot keeps the container's default user instead of dropping to the
 	// unprivileged "runner" account.
 	RunAsRoot bool `json:"run_as_root"`

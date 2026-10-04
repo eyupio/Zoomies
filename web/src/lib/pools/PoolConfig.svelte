@@ -226,7 +226,10 @@
         charges its host — so this pool is sized correctly on every host, and follows one that is
         resized.{#if dind}
           Its runner and its Docker daemon share that slot, so a slot here is one runner like
-          anywhere else.{/if}
+          anywhere else.{#if resources.daemon_share_percent}
+            The daemon is given {resources.daemon_share_percent}% of it and the runner
+            {100 - resources.daemon_share_percent}%.{:else}
+            They split it evenly.{/if}{/if}
       {:else}
         A runner is charged this against its host, wherever it lands.{#if dind}
           Twice over: the build runs in a Docker daemon beside it, which is given the same limits.{/if}
@@ -253,6 +256,35 @@
       <dd class="note">
         Everything else about a runner's life follows this fleet's own settings, and keeps following
         them when they change.
+      </dd>
+    </div>
+  {/if}
+
+  {#if pool.tmpfs?.work?.enabled || pool.tmpfs?.tmp?.enabled || pool.tmpfs?.daemon?.enabled}
+    <div class="pair">
+      <dt>In memory</dt>
+      <dd>
+        {#if pool.tmpfs?.work?.enabled}
+          <span>
+            Work folder, {pool.tmpfs.work.size_mb
+              ? `up to ${formatMegabytes(pool.tmpfs.work.size_mb)}`
+              : 'sized from the memory limit'}
+          </span>
+        {/if}
+        {#if pool.tmpfs?.tmp?.enabled}
+          <span>
+            <code>/tmp</code>, {pool.tmpfs.tmp.size_mb
+              ? `up to ${formatMegabytes(pool.tmpfs.tmp.size_mb)}`
+              : 'sized from the memory limit'}
+          </span>
+        {/if}
+        {#if pool.tmpfs?.daemon?.enabled}
+          <span>
+            Docker image store, {pool.tmpfs.daemon.size_mb
+              ? `up to ${formatMegabytes(pool.tmpfs.daemon.size_mb)}`
+              : 'sized from the daemon’s memory limit'}
+          </span>
+        {/if}
       </dd>
     </div>
   {/if}

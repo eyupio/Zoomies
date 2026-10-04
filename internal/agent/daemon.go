@@ -560,7 +560,7 @@ func (a *Agent) Join(ctx context.Context, joinToken string) error {
 		DiskTotalMB:     total,
 		DiskFreeMB:      free,
 		Version:         version.Version,
-		Features:        []string{FeatureElasticCPU, FeatureToolCacheFill},
+		Features:        []string{FeatureElasticCPU, FeatureToolCacheFill, FeatureTmpfs},
 		Labels:          a.opts.Labels,
 		Backends:        infos,
 		// A host that has joined before proves it is itself with the token it
@@ -799,7 +799,7 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 		Doctor:          a.opts.Doctor.Latest(ctx),
 		Usage:           a.hostUsage(infos, cpus, memoryMB),
 		ProtocolVersion: ProtocolVersion,
-		Features:        []string{FeatureElasticCPU, FeatureToolCacheFill},
+		Features:        []string{FeatureElasticCPU, FeatureToolCacheFill, FeatureTmpfs},
 		Capacity:        a.opts.Capacity,
 		Version:         version.Version,
 		CPUs:            cpus,
@@ -1510,7 +1510,7 @@ func (a *Agent) handleCreate(ctx context.Context, task Task, release func()) {
 	if (kind == store.BackendDocker || kind == store.BackendPodman) && spec.DockerMode == store.DockerDinD && spec.ResourcesSource == store.AllocationFromHost {
 		// Match the per-container labels used after adoption. Keeping the
 		// whole slot here doubled both quotas when a throttle was restored.
-		resources, _ = resources.SplitWithDaemon()
+		resources, _ = resources.SplitWithDaemonShare(spec.DaemonSharePercent)
 	}
 	handle = created.Handle
 	a.mu.Lock()

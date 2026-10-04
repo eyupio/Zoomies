@@ -183,3 +183,58 @@ func TestARefusedHostEditShowsTheRefusal(t *testing.T) {
 		t.Errorf("the refusal is not shown:\n%s", errOut)
 	}
 }
+
+// The in-memory policy is part of the profile the API replaces whole, so naming
+// it has to carry the sizes forward, and naming a size has to carry the policy.
+func TestTheInMemoryPolicyIsEditedWithoutLosingTheRestOfTheProfile(t *testing.T) {
+	const withPolicy = `{"id":"hst_a","name":"big","capacity":8,"slots":3,
+		"runner_profile":{"standard":{"cpus":3,"memory_mb":8192},"tmpfs":{"max_mb":2048}},
+		"effective_profile":{"standard":{"cpus":3,"memory_mb":8192,"cpus_source":"host","memory_mb_source":"host"}}}`
+	cases := []struct {
+		name         string
+		args         []string
+		wantDisabled bool
+		wantMax      float64
+	}{
+		{"a ceiling alone keeps the sizes", []string{"--tmpfs-max-mb", "1024"}, false, 1024},
+		{"off keeps the sizes", []string{"--tmpfs-off"}, true, 2048},
+		{"a size keeps the policy", []string{"--standard-cpus", "4"}, false, 2048},
+		{"a zero ceiling hands it back to the pools", []string{"--tmpfs-max-mb", "0"}, false, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var patched map[string]any
+			var query string
+			srv := hostServer(t, withPolicy, &patched, &query, http.StatusOK, withPolicy)
+			defer srv.Close()
+
+			e, _, errOut := newTestEnv(t)
+			args := append([]string{"hosts", "edit", "hst_a"}, tc.args...)
+			args = append(args, "--url", srv.URL)
+			if code := dispatch(context.Background(), e, args); code != exitOK {
+				t.Fatalf("exit code = %d\n%s", code, errOut)
+			}
+			profile, _ := patched["runner_profile"].(map[string]any)
+			tmpfs, _ := profile["tmpfs"].(map[string]any)
+			standard, _ := profile["standard"].(map[string]any)
+			disabled, _ := tmpfs["disabled"].(bool)
+			max, _ := tmpfs["max_mb"].(float64)
+			if disabled != tc.wantDisabled || max != tc.wantMax {
+				t.Errorf("tmpfs = %v, want disabled %v max %v", tmpfs, tc.wantDisabled, tc.wantMax)
+			}
+			if standard["memory_mb"] != 8192.0 {
+				t.Errorf("the sizes were not carried forward: %v", profile)
+			}
+		})
+	}
+}
+
+// Clearing the profile clears the policy with it, so naming both is a
+// contradiction the CLI refuses before sending anything.
+func TestClearingTheProfileCannotBeCombinedWithTheInMemoryPolicy(t *testing.T) {
+	e, _, errOut := newTestEnv(t)
+	code := dispatch(context.Background(), e, []string{"hosts", "edit", "hst_a", "--clear-profile", "--tmpfs-off", "--url", "http://127.0.0.1:1"})
+	if code != exitUsage || !strings.Contains(errOut.String(), "--tmpfs-off") {
+		t.Fatalf("exit code = %d, want a usage error naming --tmpfs-off:\n%s", code, errOut)
+	}
+}

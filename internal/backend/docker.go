@@ -109,6 +109,66 @@ const (
 // inside the container.
 const RunnerWorkMount = "/home/runner/_work"
 
+// RunnerTmpMount is the folder a pool may keep in memory beside the work folder.
+const RunnerTmpMount = "/tmp"
+
+// tmpfsOptions are what every RAM-backed folder is mounted with, on Docker and
+// Podman alike.
+//
+// mode=1777 and no uid or gid, on purpose: the folder has to be writable by
+// whichever account the runner is -- the image's own, or root for a RunAsRoot
+// pool -- and a uid named here is read in the mount's user namespace, which a
+// rootless Podman shifts, so a number that is right for Docker is a folder the
+// runner cannot write under Podman. The sticky bit is /tmp's own convention and
+// costs a single-user container nothing. noexec is deliberately absent: builds
+// run what they compile from the work folder and from /tmp, and a mount that
+// refuses to execute them is a job that fails with an error naming neither.
+const tmpfsOptions = "rw,nosuid,nodev,mode=1777"
+
+// tmpfsMounts is the HostConfig.Tmpfs map for a runner whose memory limit is
+// capMB, nil when nothing is kept in memory. A work folder the spec already
+// binds from a host directory is left to that bind, because two mounts at one
+// path is an error the daemon reports only when the container is created.
+func tmpfsMounts(spec Spec, capMB int64, workBound bool) map[string]string {
+	work, tmp := spec.Tmpfs.Sizes(capMB)
+	// The host's ceiling is the last word, applied after the fit: a pool's size,
+	// typed or fitted, can be lowered by the machine and never raised by it.
+	work, tmp = store.Cap(work, spec.TmpfsMaxMB), store.Cap(tmp, spec.TmpfsMaxMB)
+	out := map[string]string{}
+	if work > 0 && !workBound {
+		out[RunnerWorkMount] = fmt.Sprintf("size=%dm,%s", work, tmpfsOptions)
+	}
+	if tmp > 0 {
+		out[RunnerTmpMount] = fmt.Sprintf("size=%dm,%s", tmp, tmpfsOptions)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// DaemonStoreMount is the docker-in-docker sidecar's image store, which a pool
+// may keep in memory. It is a folder of the sidecar's container, not the runner's.
+const DaemonStoreMount = "/var/lib/docker"
+
+// daemonTmpfsOptions are the options of the image store's tmpfs. They are fewer
+// than the runner's on purpose: the nested daemon creates device nodes and keeps
+// setuid binaries inside image layers, and a mount that refuses either is a
+// build that fails inside the job with an error about the image, not the mount.
+// Root-only, as the folder is on disk, because only the daemon opens it.
+const daemonTmpfsOptions = "rw,mode=0710"
+
+// daemonTmpfsMounts is the sidecar's HostConfig.Tmpfs map, nil when its image
+// store stays on disk. It is sized from the daemon's own memory limit, since
+// that is the cgroup the tmpfs is charged to.
+func daemonTmpfsMounts(spec Spec, capMB int64) map[string]string {
+	size := store.Cap(spec.Tmpfs.DaemonSize(capMB), spec.TmpfsMaxMB)
+	if size <= 0 {
+		return nil
+	}
+	return map[string]string{DaemonStoreMount: fmt.Sprintf("size=%dm,%s", size, daemonTmpfsOptions)}
+}
+
 // RunnerToolCacheMount is where a pool's tool cache is mounted in a runner, and
 // what AGENT_TOOLSDIRECTORY is pointed at when the pool keeps one. It is not
 // the image's own /opt/hostedtoolcache: mounting over that would hide the
@@ -487,7 +547,7 @@ func pairLimits(spec Spec) (runner, daemon store.Resources) {
 	if spec.ResourcesSource != store.AllocationFromHost {
 		return spec.Resources, spec.Resources
 	}
-	return spec.Resources.SplitWithDaemon()
+	return spec.Resources.SplitWithDaemonShare(spec.DaemonSharePercent)
 }
 
 func buildRunnerConfig(spec Spec, fl flavor, o containerOptions) ContainerCreateRequest {
@@ -565,6 +625,10 @@ func buildRunnerConfig(spec Spec, fl flavor, o containerOptions) ContainerCreate
 		limit := res.PidsLimit
 		hc.PidsLimit = &limit
 	}
+	// Sized from the runner's own limit, which for docker-in-docker is its half
+	// of the pair: the tmpfs is charged to this container's cgroup, not the
+	// sidecar's, so the pair's total would promise room the runner does not have.
+	hc.Tmpfs = tmpfsMounts(spec, res.MemoryMB, o.WorkDirMount != "")
 
 	if o.HostSocket != "" {
 		// No relabel suffix here. ":z" relabels the *source*, and the source
@@ -723,6 +787,11 @@ func buildDinDConfig(spec Spec, fl flavor, o containerOptions) ContainerCreateRe
 		limit := res.PidsLimit
 		hc.PidsLimit = &limit
 	}
+	// Every image a dind job pulls and every layer it builds is written here, so
+	// on a host with slow disks this is the traffic the work folder in memory does
+	// not reach. It is charged to this container, which is why it is sized from
+	// the daemon's half of the pair, or its full typed limit, and not the runner's.
+	hc.Tmpfs = daemonTmpfsMounts(spec, res.MemoryMB)
 	// The sidecar pulls every image a dind job uses, so behind a proxy that
 	// re-signs TLS it needs the CA as much as the runner does. dockerd is Go,
 	// and Go adds every file in the SSL_CERT_DIR directories to the system

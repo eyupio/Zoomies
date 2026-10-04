@@ -10,6 +10,7 @@
     RunnerGroup,
   } from '$lib/api/types';
   import { parseGoDuration } from '$lib/format';
+  import { MIN_TMPFS_MB } from './sizing';
   import {
     backendOffers,
     backendUnavailable,
@@ -78,6 +79,7 @@
     /** The least a runner may be given where no host has room for the size above; empty is none. */
     min_cpus: string;
     min_memory_mb: string;
+    daemon_share: string;
     disk_gb: string;
     /**
      * The fleet timings this pool overrides. Empty is "follow the fleet",
@@ -95,6 +97,19 @@
     cache_size_limit: string;
     cache_source: string;
     cache_repository: string;
+    /**
+     * Folders kept in memory instead of on the host's disk. Off for every pool
+     * until somebody chooses otherwise, because a tmpfs is charged to the
+     * runner's memory limit: the size here is room taken out of it. A size left
+     * empty is fitted to the limit by the controller.
+     */
+    tmpfs_work: boolean;
+    tmpfs_work_size: string;
+    tmpfs_tmp: boolean;
+    tmpfs_tmp_size: string;
+    /** The Docker-in-Docker sidecar's image store; only a dind pool has one. */
+    tmpfs_daemon: boolean;
+    tmpfs_daemon_size: string;
     /** Carried through untouched: the wizard does not edit it, and must not lose it. */
     pids_limit: string;
     host_selector: Record<string, string>;
@@ -143,6 +158,7 @@
       memory_mb: '',
       min_cpus: '',
       min_memory_mb: '',
+      daemon_share: '',
       disk_gb: '',
       provision_timeout: '',
       drain_timeout: '',
@@ -155,6 +171,12 @@
       cache_size_limit: '',
       cache_source: '',
       cache_repository: '',
+      tmpfs_work: false,
+      tmpfs_work_size: '',
+      tmpfs_tmp: false,
+      tmpfs_tmp_size: '',
+      tmpfs_daemon: false,
+      tmpfs_daemon_size: '',
       pids_limit: '',
       host_selector: {},
       restrict_hosts: false,
@@ -202,6 +224,7 @@
       memory_mb: fromNumber(resources.memory_mb),
       min_cpus: fromNumber(resources.min_cpus),
       min_memory_mb: fromNumber(resources.min_memory_mb),
+      daemon_share: fromNumber(resources.daemon_share_percent),
       disk_gb: fromNumber(resources.disk_gb),
       provision_timeout: pool.runner_settings?.provision_timeout ?? '',
       drain_timeout: pool.runner_settings?.drain_timeout ?? '',
@@ -214,6 +237,12 @@
       cache_size_limit: fromNumber(pool.cache?.size_limit),
       cache_source: pool.cache?.source ?? '',
       cache_repository: pool.cache?.repository ?? '',
+      tmpfs_work: pool.tmpfs?.work?.enabled === true,
+      tmpfs_work_size: fromNumber(pool.tmpfs?.work?.size_mb),
+      tmpfs_tmp: pool.tmpfs?.tmp?.enabled === true,
+      tmpfs_tmp_size: fromNumber(pool.tmpfs?.tmp?.size_mb),
+      tmpfs_daemon: pool.tmpfs?.daemon?.enabled === true,
+      tmpfs_daemon_size: fromNumber(pool.tmpfs?.daemon?.size_mb),
       pids_limit: fromNumber(resources.pids_limit),
       host_selector: { ...(pool.host_selector ?? {}) },
       restrict_hosts: Object.keys(pool.host_selector ?? {}).length > 0,
@@ -239,6 +268,9 @@
       draft.docker_mode === 'host-socket' ||
       draft.run_as_root ||
       draft.cache_enabled ||
+      draft.tmpfs_work ||
+      draft.tmpfs_tmp ||
+      draft.tmpfs_daemon ||
       draft.image.trim() !== '' ||
       draft.runner_version.trim() !== '' ||
       draft.platform_os.trim() !== '' ||
@@ -284,6 +316,7 @@
     const resources: Resources = {};
     const fixed = draft.sizing === 'fixed';
     const elasticBackend = draft.backend === 'docker' || draft.backend === 'podman';
+    const hasSidecar = draft.backend === 'docker' && draft.docker_mode === 'dind';
     const cpus = toNumber(draft.cpus);
     const memory = toInteger(draft.memory_mb);
     const disk = toInteger(draft.disk_gb);
@@ -304,6 +337,18 @@
     const minMemory = toInteger(draft.min_memory_mb);
     if (minCpus !== undefined && minCpus > 0) resources.min_cpus = minCpus;
     if (minMemory !== undefined && minMemory > 0) resources.min_memory_mb = minMemory;
+    // How a host-sized slot is divided between the runner and its Docker
+    // sidecar. It means nothing for a fixed size (both containers get the whole
+    // figure), so it is not sent there, and empty is the even split.
+    const daemonShare = toInteger(draft.daemon_share);
+    if (
+      draft.backend === 'docker' &&
+      draft.docker_mode === 'dind' &&
+      !fixed &&
+      daemonShare !== undefined &&
+      daemonShare > 0
+    )
+      resources.daemon_share_percent = daemonShare;
     // Disk and the pids limit are independent of the choice: neither has a
     // share to be given, so a pool may cap its cache's disk and still leave
     // its size to the host.
@@ -348,6 +393,26 @@
         size_limit: toInteger(draft.cache_size_limit) ?? 0,
         source: draft.cache_source.trim(),
         repository: draft.cache_scope === 'repository' ? draft.cache_repository.trim() : '',
+      },
+      // Only a container runner has a folder to mount over; a process runner
+      // would be refused, so its draft sends both off whatever the toggles say.
+      // A size is sent only for a folder that is on, and an empty one means "fit
+      // it to the memory limit", which is how the API reads a zero.
+      tmpfs: {
+        work: {
+          enabled: elasticBackend && draft.tmpfs_work,
+          size_mb: elasticBackend && draft.tmpfs_work ? (toInteger(draft.tmpfs_work_size) ?? 0) : 0,
+        },
+        tmp: {
+          enabled: elasticBackend && draft.tmpfs_tmp,
+          size_mb: elasticBackend && draft.tmpfs_tmp ? (toInteger(draft.tmpfs_tmp_size) ?? 0) : 0,
+        },
+        // The image store is the sidecar's, so only a Docker-in-Docker pool on the
+        // Docker backend has one; anything else would be refused by the server.
+        daemon: {
+          enabled: hasSidecar && draft.tmpfs_daemon,
+          size_mb: hasSidecar && draft.tmpfs_daemon ? (toInteger(draft.tmpfs_daemon_size) ?? 0) : 0,
+        },
       },
     };
     // The draft holds plain strings because that is what a <select> gives
@@ -452,6 +517,10 @@
         errors['resources.min_memory_mb'] =
           'The minimum has to be at or below the standard memory.';
     }
+    const daemonSharePct = toInteger(draft.daemon_share);
+    if (daemonSharePct !== undefined && (daemonSharePct < 10 || daemonSharePct > 90))
+      errors['resources.daemon_share_percent'] =
+        'Give the sidecar between 10 and 90 percent, or leave it empty for an even split.';
     // Under either kind of size a minimum is held to what any runner needs:
     // it is sent for an automatic pool too, so the floor applies there.
     const minCpusFloor = toNumber(draft.min_cpus);
@@ -494,6 +563,36 @@
     )
       errors['cache.size_limit'] =
         'A size limit is kept by evicting from a directory on the host, so the cache source has to be an absolute host path. There is nothing to measure inside a named volume.';
+
+    // The server's own rules for the folders, said beside the control. A tmpfs
+    // is charged to the runner's memory limit, so typed sizes that take the
+    // whole of a typed limit leave a job nothing to run in.
+    // The runner's folders add up against the runner's limit; the image store is
+    // charged to the daemon's container and is held to its own.
+    let typedTmpfs = 0;
+    let typedDaemon = 0;
+    for (const [on, raw, key] of [
+      [draft.tmpfs_work, draft.tmpfs_work_size, 'tmpfs.work.size_mb'],
+      [draft.tmpfs_tmp, draft.tmpfs_tmp_size, 'tmpfs.tmp.size_mb'],
+      [draft.tmpfs_daemon, draft.tmpfs_daemon_size, 'tmpfs.daemon.size_mb'],
+    ] as const) {
+      if (!on || raw.trim() === '') continue;
+      const mb = toInteger(raw);
+      if (mb === undefined || mb < MIN_TMPFS_MB)
+        errors[key] =
+          `Use a whole number of megabytes, at least ${MIN_TMPFS_MB}, or leave it empty to size it from the memory limit.`;
+      else if (key === 'tmpfs.daemon.size_mb') typedDaemon += mb;
+      else typedTmpfs += mb;
+    }
+    if (draft.sizing === 'fixed') {
+      const memory = toInteger(draft.memory_mb);
+      if (memory !== undefined && memory > 0 && typedTmpfs >= memory && typedTmpfs > 0)
+        errors['tmpfs.work.size_mb'] ||=
+          `These folders may take ${typedTmpfs} MB and the memory limit is ${memory} MB. They are charged to that limit, so raise it to at least ${memory + typedTmpfs} MB or shrink them.`;
+      if (memory !== undefined && memory > 0 && typedDaemon >= memory && typedDaemon > 0)
+        errors['tmpfs.daemon.size_mb'] ||=
+          `The image store may take ${typedDaemon} MB and the memory limit is ${memory} MB. The daemon's tmpfs is charged to that limit, so raise it to at least ${memory + typedDaemon} MB or shrink the store.`;
+    }
 
     if (draft.docker_mode === 'host-socket' && !socketConfirmed)
       errors['docker_mode'] =

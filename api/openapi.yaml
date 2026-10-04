@@ -6464,6 +6464,19 @@ components:
             `memory_mb` when that is set, and is held to the same 512 MB floor. On a pool, zero
             follows the fleet's `runners.minimum_memory_mb`, read live; `effective_minimum` is
             the minimum in force.
+        daemon_share_percent:
+          type: integer
+          minimum: 0
+          maximum: 90
+          examples: [70]
+          description: >-
+            For a `docker_mode: dind` pool whose size comes from the host: the percentage of one
+            slot given to the Docker daemon, which does the building; the runner keeps the rest.
+            Zero is the even split every pool had before this was settable. Between 10 and 90
+            otherwise. It divides only a share the host chose -- a typed `cpus` or `memory_mb` is
+            given to both containers in full -- and the host is charged one slot either way. A
+            slot too small to give the thinner half what a runner needs is refused rather than
+            divided.
 
     CPUBurstPolicy:
       type: object
@@ -6579,6 +6592,16 @@ components:
           description: >-
             Whether this host's agent can move a live runner's CPU quota. An elastic pool is
             honoured only where it is true; a runner of one placed elsewhere is held at its share.
+        tmpfs:
+          type: boolean
+          description: >-
+            Whether this host's agent mounts a pool's in-memory folders. A pool that asks for
+            them is honoured only where it is true; a runner of one placed elsewhere starts on disk.
+        tmpfs_off:
+          type: boolean
+          description: >-
+            Whether this host's operator turned in-memory folders off in its runner profile. A pool
+            that asks for them is not given them here. Absent where they are allowed.
         sizing: { $ref: "#/components/schemas/PoolHostSizing" }
         excluded:
           type: string
@@ -6948,6 +6971,7 @@ components:
             memory_mb_source: { type: string, enum: [pool, global], description: Whose `memory_mb` is, as `cpus_source` is for CPU. }
         runner_settings: { $ref: "#/components/schemas/RunnerSettings" }
         cache: { $ref: "#/components/schemas/CacheConfig" }
+        tmpfs: { $ref: "#/components/schemas/TmpfsConfig" }
         host_selector: { type: object, additionalProperties: { type: string } }
         env:
           type: object
@@ -7022,6 +7046,51 @@ components:
             as the cache above. Needs `enabled`, and a container backend. A job
             that can write to it can replace a tool the next job runs.
 
+    TmpfsMount:
+      type: object
+      description: One runner folder kept in memory.
+      required: [enabled]
+      properties:
+        enabled: { type: boolean, default: false }
+        size_mb:
+          type: integer
+          format: int64
+          minimum: 0
+          description: >-
+            The folder's ceiling in MB, at least 64. Zero sizes it from the runner's memory limit:
+            the default (4096 MB for the work folder, 1024 MB for /tmp), shrunk so the folders
+            together take no more than half of that limit.
+
+    TmpfsConfig:
+      type: object
+      description: >-
+        Which of a runner's folders are kept in memory (tmpfs) instead of on the host's disk.
+        Opt-in, and off for every pool until somebody turns it on. A tmpfs is charged to the
+        runner's memory limit, so what it may fill comes out of the limit rather than being
+        added to it; a pool that turns it on is warned (`pool.tmpfs_memory_tight`) with the
+        limit that would leave the job the room it has now. Needs the Docker or Podman backend.
+        The shared pool cache is not covered: it cannot be a per-runner tmpfs because every runner
+        would start with it cold. To keep that in memory, point its source at a directory the
+        host mounts in memory and give it a size limit.
+      properties:
+        work:
+          allOf:
+            - $ref: "#/components/schemas/TmpfsMount"
+          description: The runner's `_work` folder -- the checkout, build output and the runner's own temporary files. The one worth having.
+        tmp:
+          allOf:
+            - $ref: "#/components/schemas/TmpfsMount"
+          description: "`/tmp`. Separate because some toolchains put their heaviest traffic there and some jobs leave gigabytes in it."
+        daemon:
+          allOf:
+            - $ref: "#/components/schemas/TmpfsMount"
+          description: >-
+            The Docker-in-Docker sidecar's image store, `/var/lib/docker` in the daemon's container: where every
+            image a job pulls and every layer it builds is written. Needs `docker_mode: dind`. It is charged to
+            the daemon's own memory limit -- its half of one slot's share for a pool sized by its host, the full
+            typed limit otherwise -- and is a choice of its own because an image bigger than the mount does not
+            pull. Left to size itself it is 8192 MB, fitted into half the daemon's limit.
+
     PoolsExport:
       type: object
       required: [export_version, exported_at, version, pools]
@@ -7066,6 +7135,7 @@ components:
             scale_up_delay: { type: string, nullable: true }
             docker_wait: { type: string, nullable: true }
         cache: { $ref: "#/components/schemas/CacheConfig" }
+        tmpfs: { $ref: "#/components/schemas/TmpfsConfig" }
         host_selector: { type: object, additionalProperties: { type: string } }
         env_keys:
           type: array
@@ -7161,6 +7231,7 @@ components:
         cpu_burst: { allOf: [{ $ref: "#/components/schemas/CPUBurstPolicy" }], default: { mode: observe, max_cpus: 0 } }
         runner_settings: { $ref: "#/components/schemas/RunnerSettings" }
         cache: { $ref: "#/components/schemas/CacheConfig" }
+        tmpfs: { $ref: "#/components/schemas/TmpfsConfig" }
         host_selector: { type: object, additionalProperties: { type: string } }
         env: { type: object, additionalProperties: { type: string } }
         run_as_root: { type: boolean, default: false }
@@ -7204,6 +7275,7 @@ components:
         cpu_burst: { $ref: "#/components/schemas/CPUBurstPolicy" }
         runner_settings: { $ref: "#/components/schemas/RunnerSettings" }
         cache: { $ref: "#/components/schemas/CacheConfig" }
+        tmpfs: { $ref: "#/components/schemas/TmpfsConfig" }
         host_selector: { type: object, additionalProperties: { type: string } }
         env: { type: object, additionalProperties: { type: string } }
         run_as_root: { type: boolean }
@@ -8144,6 +8216,8 @@ components:
         cpu_high_since: { type: string, format: date-time, description: Beginning of sustained CPU pressure, owned by the controller. }
         cpu_held: { type: boolean, description: Admission held after sustained CPU pressure. Running jobs continue. Owned by the controller. }
         lent_cpu_percent: { type: number, minimum: 0, maximum: 100, description: The part of cpu_percent runners were using out of CPU elastic CPU lent them. The admission hold and the throttle judge CPU without it. Owned by the controller. }
+        io_wait_percent: { type: number, minimum: 0, maximum: 100, description: The share of CPU time the machine spent idle with something waiting on disk between samples. cpu_percent counts that time as busy; this is what tells a host stalled on its disk from one hard at work. Absent when unmeasured. }
+        io_wait_high_since: { type: string, format: date-time, description: When I/O wait rose to 20% and has not fallen below 10% since. A host that has been there for ten minutes is called disk-bound, which is what a pool's advice to keep its scratch folders in memory rests on. Owned by the controller. }
         load_average_1m:
           type: number
           minimum: 0
@@ -8328,6 +8402,32 @@ components:
           description: >-
             The size of one runner here for a pool that takes its size from the host. A pool
             whose own minimum is above it is not placed here.
+        tmpfs:
+          allOf: [{ $ref: "#/components/schemas/HostTmpfs" }]
+          description: >-
+            The host's say over pools' in-memory folders: whether it keeps them off, and the
+            most any one of them may be here. Absent leaves each pool's own setting as it stands.
+
+    HostTmpfs:
+      type: object
+      description: >-
+        A host's policy for the in-memory folders pools may ask for. Some machines have memory
+        to spare for them and some do not, and a pool is one setting for every host it lands on,
+        so the host's owner has the last word.
+      properties:
+        disabled:
+          type: boolean
+          description: >-
+            Keep every in-memory folder off this host, whatever a pool asks for. Its runners use
+            disk, as they did before the setting existed.
+        max_mb:
+          type: integer
+          format: int64
+          minimum: 0
+          description: >-
+            The most any one in-memory folder may be on this host, in MB (at least 64), applied
+            after a pool's size is fitted to the runner's limit. A pool's size can lower it and
+            never raise it. Zero is no host ceiling; it cannot be combined with `disabled`.
 
     EffectiveSize:
       type: object
@@ -9378,6 +9478,7 @@ components:
         ephemeral: { type: boolean }
         resources: { $ref: "#/components/schemas/Resources" }
         cache: { $ref: "#/components/schemas/CacheConfig" }
+        tmpfs: { $ref: "#/components/schemas/TmpfsConfig" }
         repository: { type: string }
         docker_mode: { $ref: "#/components/schemas/DockerMode" }
         run_as_root: { type: boolean }

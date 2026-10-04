@@ -121,6 +121,12 @@ func TestARunnerProfileTheHostCannotHonourIsRefused(t *testing.T) {
 		{"a standard larger than the machine", map[string]any{"standard": map[string]any{"cpus": 20}}, "runner_profile.standard.cpus", "could never run a single runner here"},
 		{"a memory standard larger than the machine", map[string]any{"standard": map[string]any{"memory_mb": 65536}}, "runner_profile.standard.memory_mb", "could never run a single runner here"},
 		{"a minimum larger than the machine", map[string]any{"minimum": map[string]any{"cpus": 12}}, "runner_profile.minimum.cpus", "more than it can give a runner"},
+		// The host's say over in-memory folders: a ceiling below the floor leaves no
+		// folder a checkout fits in, and a host that keeps them off has nothing to
+		// cap, so saying both is a contradiction rather than caution.
+		{"a negative folder ceiling", map[string]any{"tmpfs": map[string]any{"max_mb": -1}}, "runner_profile.tmpfs.max_mb", "cannot be negative"},
+		{"a folder ceiling below the floor", map[string]any{"tmpfs": map[string]any{"max_mb": 32}}, "runner_profile.tmpfs.max_mb", "below 64 MB"},
+		{"folders off and capped together", map[string]any{"tmpfs": map[string]any{"disabled": true, "max_mb": 1024}}, "runner_profile.tmpfs.max_mb", "no folder to put a ceiling on"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			resp := patch(measured, tc.profile)
@@ -373,5 +379,48 @@ func TestJobStatsGroupBySizeAndTheSizeFilterOpensARow(t *testing.T) {
 	var unlisted struct{ Total int }
 	if err := json.Unmarshal(unknown.body, &unlisted); err != nil || unlisted.Total != 1 {
 		t.Fatalf("size=unknown listed %d jobs (%v), want the one never recorded", unlisted.Total, err)
+	}
+}
+
+// A host's say over pools' in-memory folders is stored with its runner profile,
+// comes back in the host's view, and is left alone by an edit that names only a
+// capacity -- the policy is the operator's, and a heartbeat never writes it.
+func TestAnOperatorCanKeepInMemoryFoldersOffAHostOrCapThem(t *testing.T) {
+	h := newHarness(t)
+	host := h.measuredHost("tight")
+	operator, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(operator)
+	patch := func(body map[string]any) hostResponse {
+		t.Helper()
+		resp := h.do(request{method: http.MethodPatch, path: "/api/v1/hosts/" + host.ID, cookie: cookie, body: body})
+		resp.mustStatus(t, http.StatusOK, "patch")
+		var view hostResponse
+		resp.into(t, &view)
+		return view
+	}
+
+	view := patch(map[string]any{"runner_profile": map[string]any{"tmpfs": map[string]any{"max_mb": 2048}}})
+	if view.RunnerProfile == nil || view.RunnerProfile.Tmpfs != (store.HostTmpfs{MaxMB: 2048}) {
+		t.Fatalf("the response does not carry the ceiling: %+v", view.RunnerProfile)
+	}
+	if stored, _ := h.st.GetHost(h.ctx, host.ID); stored.RunnerProfile.Tmpfs.MaxMB != 2048 {
+		t.Fatalf("the stored host does not carry the ceiling: %+v", stored.RunnerProfile)
+	}
+
+	// A capacity alone leaves the policy where it was.
+	patch(map[string]any{"capacity": 3})
+	if stored, _ := h.st.GetHost(h.ctx, host.ID); stored.RunnerProfile.Tmpfs.MaxMB != 2048 {
+		t.Fatalf("an unrelated edit changed the policy: %+v", stored.RunnerProfile)
+	}
+
+	// Replacing the profile replaces the policy too, which is how it is turned
+	// off here and how it is handed back.
+	patch(map[string]any{"runner_profile": map[string]any{"tmpfs": map[string]any{"disabled": true}}})
+	if stored, _ := h.st.GetHost(h.ctx, host.ID); !stored.RunnerProfile.Tmpfs.Disabled || stored.RunnerProfile.Tmpfs.MaxMB != 0 {
+		t.Fatalf("the host did not keep the folders off: %+v", stored.RunnerProfile)
+	}
+	patch(map[string]any{"runner_profile": map[string]any{}})
+	if stored, _ := h.st.GetHost(h.ctx, host.ID); stored.RunnerProfile.Set() {
+		t.Fatalf("clearing the profile left a policy behind: %+v", stored.RunnerProfile)
 	}
 }

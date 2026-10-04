@@ -423,13 +423,13 @@ func ShareFloor(p *store.Pool) Reservation {
 	}
 	pair := 1.0
 	if p.DockerMode == store.DockerDinD {
-		pair = 2
+		pair = p.Resources.PairFactor()
 	}
 	if m := p.Resources.MinCPUs; m > 0 && p.Resources.CPUs <= 0 {
 		floor.CPUs = max(m, store.MinRunnerCPUs) * pair
 	}
 	if m := p.Resources.MinMemoryMB; m > 0 && p.Resources.MemoryMB <= 0 {
-		floor.MemoryMB = max(m, store.MinRunnerMemoryMB) * int64(pair)
+		floor.MemoryMB = int64(math.Ceil(float64(max(m, store.MinRunnerMemoryMB)) * pair))
 	}
 	return floor
 }
@@ -438,7 +438,8 @@ func ShareFloor(p *store.Pool) Reservation {
 // minimum for one runner, or a comfortable figure for each of a pair.
 func comfortFloor(p *store.Pool) Reservation {
 	if p != nil && p.DockerMode == store.DockerDinD && p.Automatic() {
-		return Reservation{CPUs: comfortableRunnerCPUs * 2, MemoryMB: comfortableRunnerMemoryMB * 2}
+		pair := p.Resources.PairFactor()
+		return Reservation{CPUs: comfortableRunnerCPUs * pair, MemoryMB: int64(math.Ceil(float64(comfortableRunnerMemoryMB) * pair))}
 	}
 	return Reservation{CPUs: store.MinRunnerCPUs, MemoryMB: store.MinRunnerMemoryMB}
 }

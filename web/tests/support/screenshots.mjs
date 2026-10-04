@@ -250,6 +250,60 @@ const SHOTS = [
     heading: 'Add a host',
   },
   {
+    // The Size step of the pool editor with the scratch space in memory turned
+    // on: the one place that says what the setting costs. It is a fixed size
+    // because only a typed limit can be compared with what the folder may take,
+    // and 6 GB with the default 4 GB work folder is the case where the editor has
+    // something to propose.
+    name: 'pool-size-memory',
+    path: '/pools/new',
+    heading: 'Create a pool',
+    async prepare(page) {
+      await page.getByRole('radio', { name: 'Advanced' }).check();
+      await page.getByRole('button', { name: 'Next' }).click();
+      await page.getByRole('textbox', { name: 'Pool name' }).fill('zoomies-6gb-ubuntu-2404');
+      await page.getByRole('button', { name: 'Next' }).click();
+      const labels = page.getByRole('textbox', { name: 'Labels' });
+      await labels.fill('zoomies-6gb-ubuntu-2404');
+      await page.keyboard.press('Enter');
+      for (let step = 0; step < 3; step++) {
+        await page.getByRole('button', { name: 'Next' }).click();
+      }
+      await page.getByRole('heading', { level: 2, name: 'Size' }).waitFor();
+      await page.getByRole('radio', { name: 'A fixed size on every host' }).check();
+      const memory = page.getByRole('textbox', { name: 'Memory per runner', exact: true });
+      await memory.fill('6g');
+      await memory.press('Enter');
+      await page.getByRole('checkbox', { name: 'Keep the work folder in memory' }).check();
+      await page.getByText('Raise the memory limit to').waitFor();
+      await page
+        .getByText('Scratch space in memory')
+        .evaluate((el) => el.scrollIntoView({ block: 'start' }));
+    },
+  },
+  {
+    // The host's runner sizes, scrolled to the in-memory folders: the host's
+    // owner has the last word on what a pool may ask of the machine. Nothing is
+    // saved; a ceiling is typed so the section is shown in use.
+    name: 'host-runner-sizes',
+    path: '/hosts',
+    heading: 'Hosts',
+    async prepare(page) {
+      await page
+        .getByRole('article', { name: 'demo-builder-1', exact: true })
+        .getByRole('button', { name: /Actions for/ })
+        .click();
+      await page.getByRole('menuitem', { name: 'Set runner sizes' }).click();
+      const dialog = page.getByRole('dialog', { name: 'Runner sizes on demo-builder-1' });
+      await dialog.waitFor();
+      await dialog.getByRole('textbox', { name: 'Largest folder (MB)' }).fill('2048');
+      await dialog
+        .getByText('In-memory folders')
+        .first()
+        .evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    },
+  },
+  {
     // The first step, which opens on what the driver needs you to have done
     // before the form is any use -- the token, the template, the block of
     // VMIDs, each with the commands that make it. Nothing is typed: a

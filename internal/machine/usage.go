@@ -22,6 +22,14 @@ type Usage struct {
 	// busy. Whole-machine, like the other two, so it is only reported where
 	// the CPU count is the machine's.
 	LoadAverage1 *float64
+	// IOWaitPercent is the share of CPU time the machine spent idle with
+	// something waiting on disk, between two samples. CPUPercent counts that
+	// time as busy, which is right for deciding whether a host has room and
+	// wrong for asking why a job is slow: a build waiting on a saturated disk
+	// reads as a machine hard at work. This is the figure that tells the two
+	// apart, and the reason a pool is told its scratch folders could live in
+	// memory.
+	IOWaitPercent *float64
 }
 
 // UsageSampler takes CPU deltas between heartbeats without sleeping or asking
@@ -30,6 +38,7 @@ type UsageSampler struct {
 	mu          sync.Mutex
 	root        string
 	total, idle uint64
+	iowait      uint64
 	cpus        int
 }
 
@@ -40,17 +49,25 @@ func (s *UsageSampler) Sample(cpus int, memoryMB int64) Usage {
 	stat, err := os.ReadFile(filepath.Join(s.root, "/proc/stat"))
 	if err == nil {
 		total, idle, count, ok := cpuTicks(string(stat))
+		iowait, ioOK := ioWaitTicks(string(stat))
 		if ok && count == cpus && count == s.cpus && total > s.total && idle >= s.idle && idle-s.idle <= total-s.total {
 			percent := 100 * (1 - float64(idle-s.idle)/float64(total-s.total))
 			out.CPUPercent = &percent
+			// Only beside a CPU figure: both are shares of the same interval,
+			// and a counter that went backwards is not the machine sampled
+			// last time.
+			if ioOK && iowait >= s.iowait && iowait-s.iowait <= total-s.total {
+				wait := 100 * float64(iowait-s.iowait) / float64(total-s.total)
+				out.IOWaitPercent = &wait
+			}
 		}
 		if ok && count == cpus {
-			s.total, s.idle, s.cpus = total, idle, count
+			s.total, s.idle, s.iowait, s.cpus = total, idle, iowait, count
 		} else {
-			s.total, s.idle, s.cpus = 0, 0, 0
+			s.total, s.idle, s.iowait, s.cpus = 0, 0, 0, 0
 		}
 	} else {
-		s.total, s.idle, s.cpus = 0, 0, 0
+		s.total, s.idle, s.iowait, s.cpus = 0, 0, 0, 0
 	}
 	mem, err := os.ReadFile(filepath.Join(s.root, "/proc/meminfo"))
 	if err == nil {
@@ -84,6 +101,22 @@ func loadAverage(raw string) (float64, bool) {
 		return 0, false
 	}
 	return v, true
+}
+
+// ioWaitTicks reads the iowait counter from the aggregate cpu line of
+// /proc/stat: the fifth number after the name, after user, nice, system and
+// idle. A kernel too old to report it has a shorter line, which is not
+// measured rather than zero.
+func ioWaitTicks(raw string) (uint64, bool) {
+	for _, line := range strings.Split(raw, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 6 || fields[0] != "cpu" {
+			continue
+		}
+		v, err := strconv.ParseUint(fields[5], 10, 64)
+		return v, err == nil
+	}
+	return 0, false
 }
 
 func cpuTicks(raw string) (total, idle uint64, cpus int, ok bool) {
