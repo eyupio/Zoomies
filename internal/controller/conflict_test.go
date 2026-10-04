@@ -67,6 +67,46 @@ func TestAReserveIsNotStrandingWhenAnotherHostStillFits(t *testing.T) {
 	}
 }
 
+// A pool the controller keeps has the hosts of its class and none else, so the
+// edit that moves its last host to another class -- a size tag -- is how the pool
+// is meant to lose it, and is not a conflict. The same edit is refused for a pool
+// an operator made that selects hosts the same way.
+func TestMovingTheLastHostOutOfAClassDoesNotStrandThePoolTheControllerKeepsForIt(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	h.autoPoolsOn("on")
+	host := h.mediumHost("build-1")
+	h.autoPass()
+	auto := h.poolNamed("zoomies-medium")
+	if !auto.FromHosts() || !auto.Enabled {
+		t.Fatalf("the pool is %+v; this test needs one the controller keeps, in use", auto)
+	}
+
+	proposed := *host
+	proposed.Labels = store.StringMap{store.LabelSize: string(store.SizeLarge)}
+	stranded, err := h.c.HostStrandings(h.ctx, &proposed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stranded) != 0 {
+		t.Fatalf("moving the host to another class was refused over the pool the controller keeps: %#v", stranded)
+	}
+
+	// An operator's pool that selects the same hosts is still guarded.
+	mine := h.pool(inst, "mine-medium")
+	mine.HostSelector = store.StringMap{store.LabelSize: string(store.SizeMedium)}
+	if err := h.st.UpdatePool(h.ctx, mine); err != nil {
+		t.Fatal(err)
+	}
+	stranded, err = h.c.HostStrandings(h.ctx, &proposed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stranded) != 1 || stranded[0].Pool != mine.Name {
+		t.Fatalf("stranded = %#v; want only the operator's pool", stranded)
+	}
+}
+
 // A pool that already had nowhere to run is not made worse by the next edit,
 // and refusing one would trap an operator halfway through fixing the fleet.
 func TestAPoolThatAlreadyHasNowhereToRunDoesNotRefuseAHostEdit(t *testing.T) {

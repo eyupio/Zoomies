@@ -101,6 +101,15 @@ type HostView struct {
 	// it lets an operator edit.
 	RunnerProfile    *store.RunnerProfile `json:"runner_profile,omitempty"`
 	EffectiveProfile EffectiveProfileView `json:"effective_profile"`
+	// Tags are what can be said about this host in the terms a pool's host
+	// selector asks in: the labels stored on it, and the automatic ones no label
+	// has taken the place of, each marked as which it is. SizeClass is the class
+	// the host is in and why, absent until one is worked out, and AutoPool the
+	// automatic pool the host counts towards or the reason it counts towards
+	// none, absent while automatic pools are off.
+	Tags      []scheduler.Tag    `json:"tags"`
+	SizeClass *HostSizeClassView `json:"size_class,omitempty"`
+	AutoPool  *HostAutoPoolView  `json:"auto_pool,omitempty"`
 	// UnlimitedRunners is how many of the live runners here were created
 	// with no CPU quota -- a pool with none and defaults off, a process pool,
 	// a daemon that cannot apply one, or a row from before allocations were
@@ -234,6 +243,9 @@ func (c *Controller) HostView(h *store.Host) HostView {
 		Free:               h.Free(),
 		EffectiveCapacity:  h.EffectiveCapacity(),
 		EffectiveProfile:   EffectiveProfile(h, c.cfg().Runners),
+		Tags:               emptySlice(scheduler.HostTags(h, c.tracksClasses())),
+		SizeClass:          c.hostSizeClassView(h),
+		AutoPool:           c.hostAutoPoolView(h),
 		UnlimitedRunners:   h.UnlimitedRunners,
 		ThrottleReason:     scheduler.ThrottleReason(h),
 		Backends:           emptySlice(h.Backends),
@@ -429,6 +441,24 @@ type JobView struct {
 	GrantedCPUs     float64 `json:"granted_cpus,omitempty"`
 	GrantedMemoryMB int64   `json:"granted_memory_mb,omitempty"`
 	GrantedSource   string  `json:"granted_source,omitempty"`
+	// SizeClass is the class the controller put the job in when it was queued,
+	// SizeBasis how it decided (explicit, pin, history or default), SizeReason
+	// why in a sentence that finishes "classed medium because", and SizeFloorMB
+	// the memory the job's runs show it needing. RoutedClass is where it is sent
+	// while it waits, which is its own class unless it was sent elsewhere, and
+	// RoutedNote says why when it was. RanClass is the class of the host that
+	// took it. All are absent on a job nobody classed, which is every job while
+	// size routing is off, and RoutedClass is absent while it is only watched.
+	SizeClass   store.SizeClass `json:"size_class,omitempty"`
+	SizeBasis   string          `json:"size_basis,omitempty"`
+	SizeReason  string          `json:"size_reason,omitempty"`
+	SizeFloorMB int64           `json:"size_floor_mb,omitempty"`
+	RoutedClass store.SizeClass `json:"routed_class,omitempty"`
+	RoutedNote  string          `json:"routed_note,omitempty"`
+	RanClass    store.SizeClass `json:"ran_class,omitempty"`
+	// ThrottledShare is the share of its CPU periods the job's runner was held
+	// back in by its CPU limit, null when the agent never sampled it.
+	ThrottledShare *float64 `json:"throttled_share"`
 }
 
 // JobSummaryView is a job without its steps: what GET /jobs returns under
@@ -466,6 +496,11 @@ type JobSummaryView struct {
 	// see which of them were heavy without opening each one.
 	PeakMemoryMB int64 `json:"peak_memory_mb,omitempty"`
 	OOMKilled    bool  `json:"oom_killed,omitempty"`
+	// SizeClass and RanClass are JobView's: the class the job was put in and the
+	// class of the host that took it, which is what a caller comparing jobs reads
+	// to see whether they went where they were classed.
+	SizeClass store.SizeClass `json:"size_class,omitempty"`
+	RanClass  store.SizeClass `json:"ran_class,omitempty"`
 }
 
 // NewJobSummaryView renders a job as its summary, given its pool's name.
@@ -478,6 +513,7 @@ func NewJobSummaryView(j *store.Job, poolName string) JobSummaryView {
 		Pool: poolName, Host: j.HostID, Runner: j.RunnerName,
 		ControllerVersion: j.ControllerVersion, ControllerChannel: j.ControllerChannel, AgentVersion: j.AgentVersion,
 		PeakMemoryMB: j.PeakMemoryMB, OOMKilled: j.OOMKilled,
+		SizeClass: j.SizeClass, RanClass: j.RanClass,
 	}
 }
 
@@ -540,7 +576,26 @@ func NewJobView(j *store.Job, poolName string) JobView {
 		PeakCPUs:          j.PeakCPUs,
 		PeakMemoryMB:      j.PeakMemoryMB,
 		OOMKilled:         j.OOMKilled,
+		SizeClass:         j.SizeClass,
+		SizeBasis:         j.SizeBasis,
+		SizeReason:        j.SizeReason,
+		SizeFloorMB:       j.SizeFloorMB,
+		RoutedClass:       j.RoutedClass,
+		RoutedNote:        j.RoutedNote,
+		RanClass:          j.RanClass,
+		ThrottledShare:    throttledShare(j),
 	}
+}
+
+// throttledShare is the share of its CPU periods a job's runner was held back
+// in, nil when the counters were never sampled: zero is an answer and "nobody
+// looked" is not.
+func throttledShare(j *store.Job) *float64 {
+	share, ok := j.Throttled()
+	if !ok {
+		return nil
+	}
+	return &share
 }
 
 // JobRenderer names pools without a query per job.
@@ -971,6 +1026,10 @@ type PoolView struct {
 	// own page can say so without the browser knowing the fleet's settings.
 	SizeFromProfile bool            `json:"size_from_profile"`
 	FleetStandard   *RunnerSizeView `json:"fleet_standard,omitempty"`
+	// Auto is present on a pool the controller keeps from the hosts it has: what
+	// an operator has asked of it, and what the hosts in it give. Its minimum and
+	// maximum above are worked out, not typed.
+	Auto *PoolAutoView `json:"auto,omitempty"`
 	// Sizing is how this pool decides what one runner gets: "automatic", one
 	// slot's share of whichever host it lands on, "elastic", the same share
 	// with spare CPU lent to it, "profile", the size each host's runner profile
@@ -1023,6 +1082,9 @@ type PoolRenderer struct {
 	// against: a pool that overrides a runner timing is only right or wrong
 	// relative to what the fleet would otherwise have done.
 	cfg *config.Config
+	// autoStatus is what the last pass of the automatic pool reconciler found,
+	// which is where a pool the controller keeps reads its hosts from.
+	autoStatus AutoPoolStatus
 }
 
 // PoolRenderer gathers the per-pool counts, installation targets and queue
@@ -1062,7 +1124,7 @@ func (c *Controller) PoolRenderer(ctx context.Context) (*PoolRenderer, error) {
 	}
 	cfg := c.cfg()
 	return &PoolRenderer{counts: counts, installations: installations, queued: queued,
-		blocked: blocked, defaultImage: cfg.GitHub.RunnerImage, cfg: cfg}, nil
+		blocked: blocked, defaultImage: cfg.GitHub.RunnerImage, cfg: cfg, autoStatus: c.AutoPoolStatus()}, nil
 }
 
 // image is the image this pool's runners will actually boot, resolved the same
@@ -1123,10 +1185,10 @@ func (v *PoolRenderer) View(p *store.Pool) PoolView {
 	if inst != nil {
 		target = inst.Target
 	}
-	var fleetStandard *RunnerSizeView
+	var standard *RunnerSizeView
 	if p.SizeFromProfile && v.cfg != nil {
-		cpus, memoryMB := v.cfg.Runners.DefaultRunnerSize()
-		fleetStandard = &RunnerSizeView{CPUs: cpus, MemoryMB: memoryMB}
+		cpus, memoryMB := fleetStandard(p, v.cfg.Runners)
+		standard = &RunnerSizeView{CPUs: cpus, MemoryMB: memoryMB}
 	}
 	return PoolView{
 		ID:                     p.ID,
@@ -1152,7 +1214,8 @@ func (v *PoolRenderer) View(p *store.Pool) PoolView {
 		Resources:              p.Resources,
 		CPUBurst:               p.CPUBurst,
 		SizeFromProfile:        p.SizeFromProfile,
-		FleetStandard:          fleetStandard,
+		FleetStandard:          standard,
+		Auto:                   v.auto(p),
 		Sizing:                 PoolSizing(p),
 		EffectiveMinimum:       v.minimum(p),
 		RunnerSettings:         p.RunnerSettings,

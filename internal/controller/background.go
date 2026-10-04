@@ -346,6 +346,10 @@ func (c *Controller) prune(ctx context.Context) {
 			return n, err
 		}},
 		{"usage capacity", r.Jobs, c.st.PruneUsageCapacity},
+		// The class kept for a job is worked out from its runs, and goes when
+		// they do: a job that comes back after that long starts in the default
+		// class, as one that has never run does.
+		{"job classes", r.Jobs, c.st.PruneJobClasses},
 	} {
 		// A zero or negative window means "keep everything", which is what an
 		// operator who cleared the setting meant.

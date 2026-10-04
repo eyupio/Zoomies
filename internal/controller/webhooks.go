@@ -13,7 +13,6 @@ import (
 	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/github"
-	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -349,7 +348,11 @@ func (c *Controller) applyWorkflowJob(ctx context.Context, e *github.WorkflowJob
 	if err != nil {
 		return fmt.Errorf("listing pools to match job %d: %w", e.JobID, err)
 	}
-	if p := scheduler.BestPool(pools, job); p != nil {
+	// The class comes first, because the claim below is made for it: a job sent
+	// to the large pool has to be claimed by the large pool at the door, or its
+	// row names one pool and the scheduler feeds another.
+	classing := c.sizeOnArrival(ctx, job, pools)
+	if p := c.bestPool(pools, job); p != nil {
 		job.PoolID = p.ID
 		job.Matched = true
 	}
@@ -366,6 +369,7 @@ func (c *Controller) applyWorkflowJob(ctx context.Context, e *github.WorkflowJob
 	if err != nil {
 		return fmt.Errorf("recording job %d: %w", e.JobID, err)
 	}
+	saved = c.stampSize(ctx, saved, classing)
 	if saved.RunNumber == 0 && saved.GitHubRunID > 0 {
 		if n, err := c.st.RunNumberForRun(ctx, saved.GitHubRunID); err == nil {
 			c.recordRunNumber(ctx, saved, n)

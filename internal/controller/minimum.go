@@ -28,6 +28,22 @@ func EffectiveMinimum(r store.Resources, fleet config.Runners) (cpus float64, me
 	return cpus, memoryMB
 }
 
+// fleetStandard is the size of one runner of a pool that takes its size from the
+// host, on a host whose profile names none: the fleet's default runner size, or,
+// for a pool the controller keeps for a size class, that class's runner, so that
+// a runner on a large host is a large runner and not the fleet's default one.
+// It is the one place the two are told apart, because the scheduler sizes by it
+// and the pages that say what a runner will be must say the same figure.
+func fleetStandard(p *store.Pool, fleet config.Runners) (cpus float64, memoryMB int64) {
+	cpus, memoryMB = fleet.DefaultRunnerSize()
+	if _, class, ok := store.ParseAutoKey(p.AutoKey); ok {
+		if c, m := fleet.ClassRunnerSize(string(class)); c > 0 || m > 0 {
+			cpus, memoryMB = c, m
+		}
+	}
+	return cpus, memoryMB
+}
+
 // sizingPool returns p as the fleet sizes it: a copy with the inherited
 // minimum filled in, and -- for a pool that takes its size from the host --
 // the fleet's default runner size laid beside it for a host whose profile names
@@ -47,7 +63,7 @@ func sizingPool(p *store.Pool, fleet config.Runners) *store.Pool {
 	cpus, memoryMB := EffectiveMinimum(p.Resources, fleet)
 	var standard, inherited store.RunnerSize
 	if p.SizeFromProfile {
-		standard.CPUs, standard.MemoryMB = fleet.DefaultRunnerSize()
+		standard.CPUs, standard.MemoryMB = fleetStandard(p, fleet)
 	}
 	if p.Resources.MinCPUs <= 0 && cpus > 0 {
 		inherited.CPUs = cpus

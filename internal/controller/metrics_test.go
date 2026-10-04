@@ -301,6 +301,12 @@ func TestNoMetricDeclaresAnUnboundedLabel(t *testing.T) {
 		// log line instead, because refusals are exactly where an unbounded
 		// label would do its damage.
 		"limit": true,
+		// "class" and "ran_class" are the three size classes, "basis" the four
+		// ways a job's class is decided, and "from" and "to" two of those
+		// classes. All are closed sets written in the source. What they must
+		// never become is the job, the workflow or the repository a class was
+		// worked out for, which is what the job's own page is for.
+		"class": true, "ran_class": true, "basis": true, "from": true, "to": true,
 	}
 
 	descs := make(chan *prometheus.Desc, 256)
