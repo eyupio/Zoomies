@@ -115,8 +115,10 @@ func TestGeneratorProducesAValidCommitPinnedSnapshotWithRealRepomix(t *testing.T
 	cfg, _ := json.Marshal(managedConfig{Manager: "zoomies-ai-context", TemplateVersion: 1, Config: config})
 	for p, c := range map[string]string{"main.go": "package main\n\nfunc main() { println(42) }\n", ".env": "SHOULD_NOT_APPEAR=1\n", "private.key": "excluded key\n", "zoomies-ai-context.config.json": string(cfg), "skip.go": "excluded\n",
 		// One file over the limit and one the real secret scan withholds: neither
-		// may fail the run, and neither may pass as absent.
-		"big.txt": strings.Repeat("a line of generated text\n", MaxFileBytes/20), "fixture_test.go": "package main\n\nvar origin = \"https://user:pass@example.com\"\n"} {
+		// may fail the run, and neither may pass as absent. The credential-bearing
+		// URL is assembled at run time: written out, it made this very file the one
+		// the real secret scan withheld, and the repository's own context run failed.
+		"big.txt": strings.Repeat("a line of generated text\n", MaxFileBytes/20), "fixture_test.go": "package main\n\nvar origin = \"https://user:" + "pass@example.com\"\n"} {
 		if err := os.WriteFile(filepath.Join(source, p), []byte(c), 0600); err != nil {
 			t.Fatal(err)
 		}
