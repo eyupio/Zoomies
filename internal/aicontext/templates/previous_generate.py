@@ -20,11 +20,6 @@ class GenerationRefusal(ValueError):
     pass
 
 
-class OversizedText(GenerationRefusal):
-    """A text file over MAX_FILE. Raised without the path so that source_blob
-    stays free of repository text; build() names the file."""
-
-
 def command(*args, **kwargs):
     return subprocess.check_output(args, stderr=subprocess.DEVNULL, **kwargs)
 
@@ -71,25 +66,8 @@ def source_blob(root, blob, size):
     except UnicodeDecodeError:
         return None
     if size > MAX_FILE:
-        raise OversizedText('A source file exceeds the context size limit; add an exclusion')
+        raise GenerationRefusal('A source file exceeds the context size limit; add an exclusion')
     return content, text
-
-
-def mib(size):
-    return '%.1f MiB' % (size / (1 << 20))
-
-
-def oversized_refusal(files):
-    # Name every file at once: the refusal stops the run, so reporting only the
-    # first would cost one pull request per file. Paths already passed
-    # safe_path; no file content is ever quoted.
-    files = sorted(files, key=lambda item: (-item[1], item[0]))
-    shown = ['%s (%s)' % (name, mib(size)) for name, size in files[:20]]
-    if len(files) > 20:
-        shown.append('and %d more' % (len(files) - 20))
-    return GenerationRefusal('%d text file%s over the %s limit; add an exclusion for %s: %s' % (
-        len(files), '' if len(files) == 1 else 's', mib(MAX_FILE),
-        'it' if len(files) == 1 else 'each', ', '.join(shown)))
 
 
 def build(root, output, cli, expected, identity, config_hash, source_commit):
@@ -102,7 +80,6 @@ def build(root, output, cli, expected, identity, config_hash, source_commit):
         raise GenerationRefusal('Managed configuration changed; review a setup repair')
     entries = command('git', '-C', str(root), 'ls-tree', '-rz', '--full-tree', source_commit).split(b'\0')
     originals = {}
-    oversized = []
     total = 0
     with tempfile.TemporaryDirectory(prefix='zoomies-context-') as tmp:
         stage = Path(tmp) / 'source'
@@ -118,24 +95,17 @@ def build(root, output, cli, expected, identity, config_hash, source_commit):
             if excluded(name, expected['exclude']):
                 continue
             size = int(command('git', '-C', str(root), 'cat-file', '-s', blob))
-            try:
-                source = source_blob(root, blob, size)
-            except OversizedText:
-                oversized.append((name, size))
-                continue
+            source = source_blob(root, blob, size)
             if source is None:
                 continue
             content, text = source
             total += len(content)
             if total > MAX_SOURCE or len(originals) >= MAX_FILES:
-                raise GenerationRefusal('Source context exceeds its limits (%s in %d files when it stopped; the limits are %s and %d files); add exclusions' % (
-                    mib(total), len(originals), mib(MAX_SOURCE), MAX_FILES))
+                raise GenerationRefusal('Source context exceeds its limits; add exclusions')
             originals[name] = text
             target = stage / name
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(content)
-        if oversized:
-            raise oversized_refusal(oversized)
         if not originals:
             raise GenerationRefusal('No eligible source files remain')
         repomix_config = Path(tmp) / 'repomix.json'

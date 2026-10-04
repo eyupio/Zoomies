@@ -92,6 +92,23 @@ func TestContextIngestionRequiresMergeAndClosesAccessOnDriftOrRevocation(t *test
 		t.Fatal("recovery", err)
 	}
 	check(true)
+	// A workflow an earlier release wrote is still ours: it is due a repair, not
+	// a closed gate. Otherwise a template change would cut off every repository.
+	older, err := aicontext.PreviousSetupWorkflow(draft.Key, draft.Config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.gh.AddFile(draft.FullName, aicontext.WorkflowPath, older)
+	// Committing the file moves the branch, so the stored snapshot is stale; what
+	// matters is that the reason is not "edited after review".
+	_ = h.ctrl.RefreshAIContext(h.ctx, draft.ID)
+	if got, err := h.st.GetAIContextFreshness(h.ctx, draft.ID); err != nil || strings.Contains(got.Failure, "edited after review") {
+		t.Fatalf("a workflow from the previous template was treated as an edit: %+v %v", got, err)
+	}
+	h.gh.AddFile(draft.FullName, aicontext.WorkflowPath, findSetupContent(t, plan, aicontext.WorkflowPath))
+	if err := h.ctrl.RefreshAIContext(h.ctx, draft.ID); err != nil {
+		t.Log("refresh after restoring the current workflow:", err)
+	}
 	h.gh.AddFile(draft.FullName, aicontext.WorkflowPath, "unreviewed workflow")
 	if err := h.ctrl.RefreshAIContext(h.ctx, draft.ID); err == nil {
 		t.Fatal("workflow drift admitted")

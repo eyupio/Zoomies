@@ -40,3 +40,63 @@ func TestMaintenancePreservesOutsideTextAndRefusesAmbiguousOwnership(t *testing.
 		}
 	}
 }
+
+// Installed workflows are verified byte for byte, so a template change must
+// leave the previous one recognised: otherwise every enabled repository closes
+// its access gate until somebody runs a repair.
+func TestPreviousWorkflowIsRecognisedAsOlderAndNotAsAnEdit(t *testing.T) {
+	key, config := setupInputs()
+	current, err := SetupWorkflow(key, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous, err := PreviousSetupWorkflow(key, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if previous == current {
+		t.Fatal("the previous template must differ from the current one, or there is nothing to recognise")
+	}
+	if !IsOlderSetupWorkflow(key, config, previous) {
+		t.Fatal("the previous template was not recognised")
+	}
+	if legacy, _ := LegacySetupWorkflow(key, config); !IsOlderSetupWorkflow(key, config, legacy) {
+		t.Fatal("the initial template stopped being recognised")
+	}
+	for name, content := range map[string]string{"current": current, "edited": previous + "# edited\n", "empty": ""} {
+		if IsOlderSetupWorkflow(key, config, content) {
+			t.Errorf("%s workflow was treated as an older template", name)
+		}
+	}
+}
+
+func TestRepairUpgradesAPreviousWorkflowInsteadOfRefusingIt(t *testing.T) {
+	key, config := setupInputs()
+	files, err := PlanManagedSetup(key, "owner/repo", config, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous, _ := PreviousSetupWorkflow(key, config)
+	installed := []SetupFile{}
+	for _, f := range files {
+		content := f.Content
+		if f.Path == WorkflowPath {
+			content = previous
+		}
+		installed = append(installed, SetupFile{Path: f.Path, SHA: strings.Repeat("b", 40), Mode: "100644", Content: content})
+	}
+	changes, err := PlanMaintenance(key, "owner/repo", config, config, installed, nil, false)
+	if err != nil {
+		t.Fatalf("an older Zoomies workflow was refused as unowned: %v", err)
+	}
+	current, _ := SetupWorkflow(key, config)
+	upgraded := false
+	for _, c := range changes {
+		if c.Path == WorkflowPath {
+			upgraded = c.Content == current
+		}
+	}
+	if !upgraded {
+		t.Fatal("repair did not move the workflow to the current generator")
+	}
+}
