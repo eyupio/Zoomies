@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/eyupio/zoomies/internal/agent"
+	"github.com/eyupio/zoomies/internal/backend"
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
@@ -603,5 +604,73 @@ func TestOnlyKnownHostOrdersPassValidation(t *testing.T) {
 	}
 	if !found {
 		t.Error("an unknown host order was accepted")
+	}
+}
+
+// A heartbeat carries what an agent measures about its machine and never
+// writes how big the operator wants a runner there to be, or a host could
+// resize its own runners by what it said about itself.
+func TestAHeartbeatNeverWritesTheOperatorsRunnerProfile(t *testing.T) {
+	h := newHarness(t)
+	tr, id := joinedHost(t, h, 500_000, 200_000)
+	host, err := h.st.GetHost(h.ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.profile(host, bigProfile)
+
+	if _, err := tr.Heartbeat(h.ctx, agent.HeartbeatRequest{
+		ProtocolVersion: agent.ProtocolVersion,
+		CPUs:            16,
+		MemoryMB:        65536,
+		DiskTotalMB:     500_000,
+		DiskFreeMB:      40_000,
+	}); err != nil {
+		t.Fatalf("Heartbeat: %v", err)
+	}
+	after, err := h.st.GetHost(h.ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.RunnerProfile != bigProfile {
+		t.Fatalf("a heartbeat replaced the operator's profile with %+v", after.RunnerProfile)
+	}
+	if after.CPUs != 16 {
+		t.Fatalf("the heartbeat's own observation was lost: %d CPUs", after.CPUs)
+	}
+}
+
+// A re-join replaces the row wholesale. The profile is the operator's, and it
+// costs more to lose than the reserve: a host that forgot its standard would be
+// sized by the fleet's default again with nothing to say why.
+func TestARejoinKeepsTheOperatorsRunnerProfile(t *testing.T) {
+	h := newHarness(t)
+	_, id := joinedHost(t, h, 500_000, 200_000)
+	host, err := h.st.GetHost(h.ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := store.RunnerProfile{
+		Minimum:  store.RunnerSize{CPUs: 1, MemoryMB: 2048},
+		Standard: store.RunnerStandard{CPUs: 3, MemoryMB: 8192, BurstMaxCPUs: 6},
+	}
+	h.profile(host, want)
+
+	again := h.c.EmbeddedTransport()
+	resp, err := again.Join(h.ctx, agent.JoinRequest{
+		ProtocolVersion: agent.ProtocolVersion,
+		Name:            "vm-1",
+		Capacity:        4,
+		Backends:        []backend.Info{{Kind: store.BackendDocker, Available: true}},
+	})
+	if err != nil {
+		t.Fatalf("re-Join: %v", err)
+	}
+	after, err := h.st.GetHost(h.ctx, resp.HostID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.RunnerProfile != want {
+		t.Fatalf("the profile after a re-join is %+v, want the operator's %+v", after.RunnerProfile, want)
 	}
 }

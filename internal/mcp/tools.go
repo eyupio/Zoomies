@@ -144,15 +144,15 @@ func tools() []*tool {
 		{
 			Name:  "job_stats",
 			Title: "Job statistics",
-			Description: "Completed jobs counted and timed, grouped by up to two of controller_version, day, host, pool and job_name: " +
+			Description: "Completed jobs counted and timed, grouped by up to two of controller_version, day, host, pool, job_name and size: " +
 				"count, succeeded, failed, cancelled, fleet failures by kind and their rate, p50 and p95 of duration, queue wait and startup, in milliseconds, " +
 				"and the peak CPU (cores) and memory (MB) any job in the group was measured using, with how many were killed for memory (oom_killed). " +
-				"group_by controller_version compares releases in one call. Cancelled and skipped jobs are left out of duration. " +
+				"group_by controller_version compares releases in one call, and group_by size compares jobs by the size of the runner they ran on, as \"3 CPU / 8 GB\". Cancelled and skipped jobs are left out of duration. " +
 				"Jobs without a stamped release are the group \"unknown\". Prefer this to paging through list_jobs for any question about a period.",
 			InputSchema: object(nil, map[string]any{
 				"since":    str("start of the window, included: a duration such as 30d or 24h ago, or an RFC 3339 timestamp (default 7d)"),
 				"until":    str("end of the window, not included, in the same forms (default now)"),
-				"group_by": stringList("what to group by, at most two", 2, "controller_version", "day", "host", "pool", "job_name"),
+				"group_by": stringList("what to group by, at most two", 2, "controller_version", "day", "host", "pool", "job_name", "size"),
 				"repo":     str("only this repository, as owner/name"),
 				"workflow": str("only this workflow"),
 				"job_name": str("only jobs with exactly this name"),

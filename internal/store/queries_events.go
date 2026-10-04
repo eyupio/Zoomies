@@ -480,6 +480,10 @@ type JobFilter struct {
 	// JobNames is an exact match on the job's name, unlike Search, which
 	// finds a substring of it, the repository, the workflow or the runner.
 	JobNames []string
+	// Sizes keeps the jobs whose runner was this size, written as the size
+	// group names it -- "3 CPU / 8 GB" -- with UnknownVersion matching the jobs
+	// no size was recorded for.
+	Sizes []string
 	// Hosted narrows by whether every label names somebody else's runners:
 	// true keeps only those, false keeps only jobs with a label that does not.
 	// Nil is both.
@@ -696,6 +700,7 @@ func jobWhere(f JobFilter) (string, []any) {
 	inClause("conclusion", f.Conclusions)
 	inClause("job_name", f.JobNames)
 	inClause("host_id", f.HostIDs)
+	inClause("("+sizeSQL+")", f.Sizes)
 	if len(f.ControllerVersions) > 0 {
 		var known []string
 		unknown := false

@@ -473,6 +473,7 @@ func parseJobFilter(w http.ResponseWriter, r *http.Request) (store.JobFilter, bo
 
 		ControllerVersions: queryList(r, "controller_version"),
 		HostIDs:            queryList(r, "host_id"),
+		Sizes:              queryList(r, "size"),
 		// Not split on commas, unlike the lists around it: a matrix job's
 		// name is "build (ubuntu-latest, 3.12)", and a filter that cut it in
 		// two would match nothing while looking like it was working.

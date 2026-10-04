@@ -2226,8 +2226,8 @@ paths:
                     description: The size the pool would run at on every host. Empty for a pool that leaves the size to its host, where the per-host share is in `room.hosts[].charge_cpus` and `charge_memory_mb` instead.
                   sizing:
                     type: string
-                    enum: [automatic, fixed]
-                    description: Which of the two this pool is doing, so a reader need not infer "the host decides" from an absent number.
+                    enum: [automatic, elastic, profile, fixed]
+                    description: Which way this pool decides what one runner gets, so a reader need not infer "the host decides" from an absent number.
                   room:
                     allOf: [{ $ref: "#/components/schemas/PoolRoom" }]
                     description: How many runners of this size the hosts it can land on have room for, host by host. It is what a maximum is worth comparing against.
@@ -2836,6 +2836,14 @@ paths:
           schema: { type: array, items: { type: string } }
           style: form
           explode: true
+        - name: size
+          in: query
+          description: >-
+            Only jobs whose runner was this size, as the `size` group of the job statistics
+            names it -- `3 CPU / 8 GB`. `unknown` matches the jobs no size was recorded for.
+          schema: { type: array, items: { type: string } }
+          style: form
+          explode: true
         - name: job_name
           in: query
           description: >-
@@ -2978,13 +2986,15 @@ paths:
           description: >-
             What to group by, at most two, each named once. `controller_version` groups
             releases in the order they were first seen, `day` is the UTC day the job was
-            queued, `host` and `pool` are IDs, and the values are what the listing's
-            `controller_version`, `host_id`, `pool_id` and `job_name` filters take back.
-            Leave out for one group covering the window.
+            queued, `host` and `pool` are IDs, `size` is the size of the runner the job ran
+            on as an operator would say it (`3 CPU / 8 GB`, or `unknown` for a job nothing
+            recorded one for), and the values are what the listing's `controller_version`,
+            `host_id`, `pool_id`, `job_name` and `size` filters take back. Leave out for one
+            group covering the window.
           schema:
             type: array
             maxItems: 2
-            items: { type: string, enum: [controller_version, day, host, pool, job_name] }
+            items: { type: string, enum: [controller_version, day, host, pool, job_name, size] }
           style: form
           explode: true
         - { name: repo, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
@@ -2992,6 +3002,7 @@ paths:
         - { name: pool_id, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
         - { name: host_id, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
         - { name: controller_version, in: query, schema: { type: array, items: { type: string } }, style: form, explode: true }
+        - { name: size, in: query, description: "Only jobs whose runner was this size, as `3 CPU / 8 GB`; `unknown` for none recorded.", schema: { type: array, items: { type: string } }, style: form, explode: true }
         - name: job_name
           in: query
           description: Only jobs with exactly this name. Commas are not separators.
@@ -3410,12 +3421,15 @@ paths:
     patch:
       operationId: updateHost
       tags: [hosts]
-      summary: Update a host's capacity, labels or reserve
+      summary: Update a host's capacity, labels, reserve or runner profile
       description: >-
-        Refused with 409 when the reserve or the labels described would leave a pool
-        that runs here today with no host in the fleet that could ever run it. The
-        message names the pool and the shortfall; confirm=true saves it anyway, which
-        is right when the pool is on its way out.
+        Refused with 409 when the reserve, the labels or the runner profile described
+        would leave a pool that runs here today with no host in the fleet that could
+        ever run it. The message names the pool and the limit -- a host minimum above a
+        size the pool states, or a host standard below the floor of a pool that takes
+        its size from the host; confirm=true saves it anyway, which is right when the
+        pool is on its way out. Changing the capacity, the reserve or the runner profile
+        lifts the host's throttle, as the operator answering the pressure that raised it.
       x-zoomies-role: operator
       parameters:
         - name: confirm
@@ -3440,6 +3454,17 @@ paths:
                 reserve_cpus: { type: integer, minimum: 0 }
                 reserve_memory_mb: { type: integer, format: int64, minimum: 0 }
                 reserve_disk_mb: { type: integer, format: int64, minimum: 0 }
+                runner_profile:
+                  allOf: [{ $ref: "#/components/schemas/RunnerProfile" }]
+                  description: >-
+                    How big a runner is on this host. It replaces the whole profile: leave it
+                    out to change nothing, send `{}` to clear it so the host follows the
+                    fleet's settings again, and a field left out of a profile that is sent
+                    follows the fleet too. A size below a quarter of a core or 512 MB, a
+                    minimum above the standard, a ceiling below it, or a size the machine
+                    could never give once its reserve is held back is refused with the field
+                    named; a host that has reported nothing about itself has nothing to
+                    compare against, so its profile is saved and used once it does.
       responses:
         "200":
           description: OK
@@ -5758,8 +5783,12 @@ components:
         host: { type: string, examples: [zoomies-12vcpu-31gb-debian-12] }
         code:
           type: string
-          description: Which placement rule turned this host down.
-          enum: [unavailable, backend, platform, size, reduced]
+          description: >-
+            Which placement rule turned this host down. `profile` is the host's runner
+            profile and the pool's size disagreeing: its minimum is above a size the pool
+            states, or its standard is below the floor of a pool that takes its size from
+            the host.
+          enum: [unavailable, backend, platform, size, profile, reduced]
         reason:
           type: string
           description: A sentence about the host with its name left out, so a caller can put the name where its own layout wants it.
@@ -6515,13 +6544,16 @@ components:
       properties:
         host_id: { type: string }
         host: { type: string }
-        slots: { type: integer, description: The host's runner capacity, less any throttle in force. }
+        slots: { type: integer, description: "The host's slots -- its capacity, or what its machine holds of its standard runner size up to the capacity -- less any throttle in force." }
         fits: { type: integer, description: How many runners of this pool the machine has room for, ignoring the slot count. A host whose slots outrun its machine reads as free capacity and refuses every create for it. }
         room: { type: integer, description: The smaller of the two, which is what the pool can actually expect here. }
         limited_by:
           type: string
-          enum: [slots, cpu, memory, disk]
-          description: What ran out first. Absent on a host that has measured nothing, where only its slots bind.
+          enum: [slots, cpu, memory, disk, profile]
+          description: >-
+            What ran out first. `profile` means the host's runner profile keeps the pool off
+            it altogether, and `excluded` says which limit. Absent on a host that has
+            measured nothing, where only its slots bind.
         charge_cpus: { type: number, format: double, description: What one runner of this pool costs here, which is twice what the pool says for a docker-in-docker pool -- the sidecar gets the same limits. }
         charge_memory_mb: { type: integer, format: int64 }
         cpus: { type: number, format: double, description: The machine less its reserve, which is what the charge is taken from. }
@@ -6535,6 +6567,36 @@ components:
           description: >-
             Whether this host's agent can move a live runner's CPU quota. An elastic pool is
             honoured only where it is true; a runner of one placed elsewhere is held at its share.
+        sizing: { $ref: "#/components/schemas/PoolHostSizing" }
+        excluded:
+          type: string
+          description: >-
+            Why the host's runner profile keeps this pool off it, as a sentence about the host
+            with its name left out. Absent where the host can run the pool.
+        excluded_by: { type: string, enum: [profile], description: The code of the rule behind `excluded`. }
+
+    PoolHostSizing:
+      type: object
+      description: >-
+        How one pool is sized on one host, with where each figure came from, so an
+        operator can see why a runner there is the size it is and what to change to move it.
+        A source is `pool`, `host` (the host's runner profile, or one slot's share of the
+        machine) or `global` (the fleet's `runners.*` setting); absent where nobody has said
+        and the figure is zero.
+      properties:
+        standard: { $ref: "#/components/schemas/RunnerSize" }
+        standard_cpus_source: { type: string, enum: [pool, host, global] }
+        standard_memory_mb_source: { type: string, enum: [pool, host, global] }
+        floor:
+          allOf: [{ $ref: "#/components/schemas/RunnerSize" }]
+          description: The least a runner is given there -- the larger of the pool's minimum (its own, or the fleet's where it follows it) and the host's.
+        floor_cpus_source: { type: string, enum: [pool, host, global] }
+        floor_memory_mb_source: { type: string, enum: [pool, host, global] }
+        ceiling_cpus:
+          type: number
+          format: double
+          description: The most CPU one runner may use there, its guarantee and a loan together, for a pool that lends CPU -- the smaller of the pool's ceiling and the host's. Absent is as much as the host's allocatable CPU.
+        ceiling_source: { type: string, enum: [pool, host] }
 
     PoolRoom:
       type: object
@@ -6830,14 +6892,29 @@ components:
         docker_mode: { $ref: "#/components/schemas/DockerMode" }
         resources: { $ref: "#/components/schemas/Resources" }
         cpu_burst: { $ref: "#/components/schemas/CPUBurstPolicy" }
+        size_from_profile:
+          type: boolean
+          description: >-
+            The pool takes its runners' size from the host each lands on, as that host's
+            runner profile says it: the standard size the operator gave the host, or the
+            fleet's default where the host names none. It excludes `resources.cpus` and
+            `memory_mb`, and it is what makes `sizing` `profile`.
+        fleet_standard:
+          allOf: [{ $ref: "#/components/schemas/RunnerSize" }]
+          readOnly: true
+          description: >-
+            For a pool with `size_from_profile`, the size a runner is on a host whose profile
+            names no standard: the fleet's default, `runners.default_cpus` and
+            `runners.default_memory_mb`. Absent on every other pool.
         sizing:
           type: string
-          enum: [automatic, elastic, fixed]
+          enum: [automatic, elastic, profile, fixed]
           description: >-
             How this pool decides what one runner gets. `automatic` is one
             slot's share of whichever host it lands on, which is what a pool
             with no `cpus` and no `memory_mb` means; `elastic` keeps that share
-            as its guarantee and may borrow unused CPU; `fixed` is the figures
+            as its guarantee and may borrow unused CPU; `profile` is the size
+            each host's runner profile names; `fixed` is the figures
             in `resources`, the same on every host.
         effective_minimum:
           type: object
@@ -6855,6 +6932,8 @@ components:
             memory_mb: { type: integer, format: int64, description: The minimum in MB; zero is none. }
             cpus_inherited: { type: boolean, description: Whether `cpus` is the fleet's figure rather than the pool's. }
             memory_mb_inherited: { type: boolean, description: Whether `memory_mb` is the fleet's figure rather than the pool's. }
+            cpus_source: { type: string, enum: [pool, global], description: "Whose `cpus` is: the pool's own, or the fleet's `runners.minimum_cpus`. Absent where nobody set one. A host's own minimum is applied on top, per host: see `PoolHostSizing`." }
+            memory_mb_source: { type: string, enum: [pool, global], description: Whose `memory_mb` is, as `cpus_source` is for CPU. }
         runner_settings: { $ref: "#/components/schemas/RunnerSettings" }
         cache: { $ref: "#/components/schemas/CacheConfig" }
         host_selector: { type: object, additionalProperties: { type: string } }
@@ -6983,6 +7062,7 @@ components:
         run_as_root: { type: boolean }
         enabled: { type: boolean }
         no_default_labels: { type: boolean, description: The pool registers its runners with its own labels only. }
+        size_from_profile: { type: boolean, description: The pool takes its runners' size from each host's runner profile. }
 
     PoolsImportRequest:
       type: object
@@ -7073,6 +7153,7 @@ components:
         env: { type: object, additionalProperties: { type: string } }
         run_as_root: { type: boolean, default: false }
         no_default_labels: { type: boolean, default: false, description: "Register runners with only the pool's own labels, without self-hosted, the operating system and the architecture (config.sh --no-default-labels). Only a non-ephemeral pool may set it: GitHub adds those labels to every just-in-time runner itself. A job asking for self-hosted no longer matches the pool unless the pool lists it." }
+        size_from_profile: { type: boolean, default: false, description: "Size each runner from the host it lands on, as that host's runner profile says. Refused together with `resources.cpus` or `memory_mb`: a pool states its size or takes it from the host, never both." }
         enabled: { type: boolean, default: true }
 
     # A PATCH body: every field is optional, and only the ones present are
@@ -7115,6 +7196,7 @@ components:
         env: { type: object, additionalProperties: { type: string } }
         run_as_root: { type: boolean }
         no_default_labels: { type: boolean, description: "Register runners with only the pool's own labels, without self-hosted, the operating system and the architecture (config.sh --no-default-labels). Only a non-ephemeral pool may set it: GitHub adds those labels to every just-in-time runner itself. A job asking for self-hosted no longer matches the pool unless the pool lists it." }
+        size_from_profile: { type: boolean, description: "Size each runner from the host it lands on, as that host's runner profile says. Refused together with `resources.cpus` or `memory_mb`: moving a pool from a stated size to one taken from the host clears them in the same request." }
         enabled: { type: boolean }
 
     # --- runners ----------------------------------------------------------
@@ -7185,10 +7267,12 @@ components:
           description: The memory limit this runner's workload was created with. Omitted when it has none.
         allocation_source:
           type: string
-          enum: [pool, host, reduced, history, ""]
+          enum: [pool, host, profile, reduced, history, ""]
           description: >-
             Where the allocation came from: `pool` for the pool's own limits, `host` for one
             slot's share of the host it landed on (the default when the pool sets none),
+            `profile` for the standard size of the host's runner profile -- or the fleet's
+            default where the host names none -- for a pool that takes its size from the host,
             `reduced` for a runner no host had room for at the pool's standard size, given what
             one could spare at or above the pool's minimum, and `history` for a runner sized up
             to what the jobs waiting on its pool are known to need from their recent runs
@@ -7774,6 +7858,20 @@ components:
             its memory limit. It is the fleet's failure rather than the workflow's, and the one
             `scheduler.history_sizing` corrects for: the next run of the job is placed for half
             as much memory again as this one's peak. Absent when false.
+        granted_cpus:
+          type: number
+          format: double
+          description: >-
+            The guaranteed CPU of the machine the job ran on -- for a docker-in-docker runner
+            with a typed size, the runner's and its daemon's together -- copied from the
+            runner when it took the job and never rewritten. CPU lent to the runner later is
+            not part of it. Absent on a job from before sizes were recorded, and on a runner
+            created with no limits.
+        granted_memory_mb: { type: integer, format: int64, description: The guaranteed memory of that machine, in MB, recorded the same way. }
+        granted_source:
+          type: string
+          enum: [pool, host, profile, reduced, history]
+          description: Where the granted size came from, as a runner's `allocation_source` says it.
         steps:
           type: array
           description: >-
@@ -8178,6 +8276,74 @@ components:
         container: { type: boolean, description: True when only the container's view could be inspected. }
         results: { type: array, maxItems: 64, items: { $ref: "#/components/schemas/HostDoctorResult" } }
         reboot_pending: { type: boolean }
+    RunnerSize:
+      type: object
+      properties:
+        cpus: { type: number, format: double, minimum: 0, description: "CPUs. Zero or absent follows the fleet's setting where one applies." }
+        memory_mb: { type: integer, format: int64, minimum: 0, description: "Memory in MB. Zero or absent follows the fleet's setting where one applies." }
+
+    RunnerStandard:
+      type: object
+      properties:
+        cpus: { type: number, format: double, minimum: 0, description: "The CPUs one runner is given here for a pool that takes its size from the host. Absent follows the fleet's `runners.default_cpus`." }
+        memory_mb: { type: integer, format: int64, minimum: 0, description: "The memory, in MB. Absent follows the fleet's `runners.default_memory_mb`." }
+        burst_max_cpus:
+          type: number
+          format: double
+          minimum: 0
+          description: >-
+            The most CPU one runner here may use, its guaranteed share and any CPU lent to it
+            together. A pool's own `cpu_burst.max_cpus` can lower it and never raise it.
+            Absent is no host ceiling.
+
+    RunnerProfile:
+      type: object
+      description: >-
+        An operator's answer, for one host, to "how big is a runner here?": a minimum below
+        which no runner is placed on the host, and a standard size with the most CPU a
+        runner may be lent. Every field is optional; one left out follows the fleet's
+        `runners.*` setting. Where a standard names a size, the host's slots are what its
+        allocatable machine holds of it, up to its capacity.
+      properties:
+        minimum:
+          allOf: [{ $ref: "#/components/schemas/RunnerSize" }]
+          description: >-
+            The least a runner is given on this host. The larger of this and the pool's own
+            minimum applies. A pool that states a size below it is not placed here at all,
+            because a pool that states its size is never given more than it states.
+        standard:
+          allOf: [{ $ref: "#/components/schemas/RunnerStandard" }]
+          description: >-
+            The size of one runner here for a pool that takes its size from the host. A pool
+            whose own minimum is above it is not placed here.
+
+    EffectiveSize:
+      type: object
+      description: One tier of a host's effective profile -- the figure in force on each field and whose it is.
+      properties:
+        cpus: { type: number, format: double }
+        memory_mb: { type: integer, format: int64 }
+        cpus_source: { type: string, enum: [host, global], description: "`host` where the host's profile sets it, `global` where the fleet's setting stands in. Absent where nobody has said and the figure is zero." }
+        memory_mb_source: { type: string, enum: [host, global] }
+
+    EffectiveStandard:
+      allOf:
+        - $ref: "#/components/schemas/EffectiveSize"
+        - type: object
+          properties:
+            burst_max_cpus: { type: number, format: double, description: The host's own ceiling. Absent is none. }
+            burst_max_cpus_source: { type: string, enum: [host] }
+
+    EffectiveProfile:
+      type: object
+      description: >-
+        What a runner on a host is held to. A host's minimum that follows the fleet is shown
+        as the fleet's, but a pool that sets a minimum of its own still wins over the fleet's
+        for the runners it places there: the host's own figure is a floor under the pool's.
+      properties:
+        minimum: { $ref: "#/components/schemas/EffectiveSize" }
+        standard: { $ref: "#/components/schemas/EffectiveStandard" }
+
     Host:
       type: object
       properties:
@@ -8215,9 +8381,29 @@ components:
         effective_capacity:
           type: integer
           description: >-
-            The slots this host takes right now: capacity stepped down by the throttle, and
-            capacity itself when there is none. `free` is measured against it, so a throttled
+            The slots this host takes right now: `slots` stepped down by the throttle, and
+            `slots` itself when there is none. `free` is measured against it, so a throttled
             host never advertises a slot the next pass would refuse.
+        slots:
+          type: integer
+          description: >-
+            How many runners this host takes before any throttle: its `capacity`, or -- where
+            its runner profile names a standard size -- what its allocatable machine holds of
+            that size, never more than `capacity`. A capacity of zero still takes nothing,
+            whatever the standard says.
+        slots_limited_by:
+          type: string
+          enum: [cpu, memory, capacity]
+          description: >-
+            What sets `slots` where the host has a standard size: `cpu` or `memory` when the
+            machine does, `capacity` when the operator's number is below what the machine
+            holds. Absent when the two agree, and when there is no standard.
+        runner_profile:
+          allOf: [{ $ref: "#/components/schemas/RunnerProfile" }]
+          description: What the operator has said about how big a runner is on this host, as they said it. Absent when they have said nothing, which is every host until somebody does.
+        effective_profile:
+          allOf: [{ $ref: "#/components/schemas/EffectiveProfile" }]
+          description: What a runner on this host is held to, with the fleet's settings standing in for every field the host leaves out, and where each figure came from.
         unlimited_runners:
           type: integer
           description: >-

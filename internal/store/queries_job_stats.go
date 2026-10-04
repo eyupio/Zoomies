@@ -16,21 +16,35 @@ const (
 	GroupByHost              = "host"
 	GroupByPool              = "pool"
 	GroupByJobName           = "job_name"
+	GroupBySize              = "size"
 )
 
 // JobStatsGroupKeys lists the accepted group_by values, in the order the
 // documentation names them.
-var JobStatsGroupKeys = []string{GroupByControllerVersion, GroupByDay, GroupByHost, GroupByPool, GroupByJobName}
+var JobStatsGroupKeys = []string{GroupByControllerVersion, GroupByDay, GroupByHost, GroupByPool, GroupByJobName, GroupBySize}
 
 // MaxJobStatsGroups caps the groups one answer carries. Grouping by job name
 // across a busy fleet can name thousands; an answer that large is not one a
 // person or a model reads, so the rest are dropped and the answer says so.
 const MaxJobStatsGroups = 500
 
-// groupExpr is the SQL that names a job's group for one key. The four that can
+// sizeSQL names the size of the runner a job ran on the way an operator would
+// say it -- "3 CPU / 8 GB" -- and "unknown" for a job nothing recorded one for:
+// one from before sizes were recorded, or on a runner created with no limits.
+// It is the group of the size key and the value of the size filter, so a row of
+// an answer can be opened as the listing it counted.
+const sizeSQL = `CASE WHEN granted_source = '' THEN '` + UnknownVersion + `' ELSE
+	CASE WHEN granted_cpus > 0 THEN printf('%g CPU', granted_cpus) ELSE 'no CPU limit' END || ' / ' ||
+	CASE WHEN granted_memory_mb <= 0 THEN 'no memory limit'
+		WHEN granted_memory_mb % 1024 = 0 THEN printf('%d GB', granted_memory_mb / 1024)
+		ELSE printf('%d MB', granted_memory_mb) END
+	END`
+
+// groupExpr is the SQL that names a job's group for one key. The five that can
 // be absent say "unknown" rather than leaving a NULL group, which most
 // clients would drop or render as nothing.
 var groupExpr = map[string]string{
+	GroupBySize:              sizeSQL,
 	GroupByControllerVersion: `COALESCE(controller_version, '` + UnknownVersion + `')`,
 	GroupByDay:               `strftime('%Y-%m-%d', queued_at / 1000, 'unixepoch')`,
 	GroupByHost:              `COALESCE(host_id, '` + UnknownVersion + `')`,

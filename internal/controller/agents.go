@@ -623,6 +623,12 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 		h.ReserveCPUs = existing.ReserveCPUs
 		h.ReserveMemoryMB = existing.ReserveMemoryMB
 		h.ReserveDiskMB = existing.ReserveDiskMB
+		// The runner profile is the operator's for the same reason, and costs
+		// more to lose than the reserve: a re-joined host that forgot its
+		// standard would be sized by the fleet's default again, with fewer or
+		// more slots than its operator chose, and every pool that takes its
+		// size from the host would change size with nothing to say why.
+		h.RunnerProfile = existing.RunnerProfile
 		// The throttle is deliberately not carried over. It was decided from
 		// measurements of a machine that has just been rebuilt or restarted,
 		// and a rebuilt machine starts on no rung: if the pressure is still
