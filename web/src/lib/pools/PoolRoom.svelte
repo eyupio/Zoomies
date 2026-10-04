@@ -25,13 +25,24 @@
   import { toasts } from '$lib/state/toasts.svelte';
   import Button from '$lib/components/Button.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
+  import { hostIsInvolved, hostSizingWords } from './hostSizing';
   import { cpuLabel, limitPhrase, sizeLabel } from './sizing';
 
   interface Props {
     room: PoolRoom | null;
-    /** What one runner asks for, so the panel can say what the room is of. */
+    /**
+     * What one runner asks for, so the panel can say what the room is of. Zero
+     * for a pool that leaves its size to the host, where each host's row says
+     * what a runner is there instead.
+     */
     cpus: number;
     memoryMb: number;
+    /**
+     * Whether the pool takes its size from each host's runner profile. Every
+     * row then says what a runner is on that host and whose figure it is,
+     * because the answer is different on each.
+     */
+    profile?: boolean;
     /** True while a fresh count is on its way, so a stale one can say so. */
     validating?: boolean;
     /** The pool's cap, when there is one to weigh the room against. */
@@ -45,6 +56,7 @@
     room,
     cpus,
     memoryMb,
+    profile = false,
     validating = false,
     maxRunners,
     onusemax,
@@ -57,7 +69,17 @@
   /* A host whose slots outrun its machine is the failure worth the amber: its
      free slots are counted on every page, and every create for one of them is
      refused for want of memory. */
-  const overcommitted = $derived(hosts.filter((h) => (h.slots ?? 0) > (h.fits ?? 0)));
+  /* A host the pool is kept off is listed so its row can say why, and takes
+     no part in the arithmetic: it is never asked for a runner of this pool,
+     so its slots are not promises about it. */
+  const overcommitted = $derived(
+    hosts.filter((h) => !h.excluded && (h.slots ?? 0) > (h.fits ?? 0)),
+  );
+  const placeable = $derived(hosts.filter((h) => !h.excluded));
+  /* "of 2 cores and 4 GB" where the pool has one size on every host, and
+     nothing where it does not: "of 0 cores and none" is what a pool that leaves
+     its size to the host used to say. */
+  const ofSize = $derived(cpus > 0 || memoryMb > 0 ? ` of ${sizeLabel(cpus, memoryMb)}` : '');
   const above = $derived(maxRunners !== undefined && total > 0 && maxRunners > total);
 
   /** Which host is being adjusted, so only its button spins. */
@@ -123,46 +145,67 @@
       </p>
       <p class="body">
         There is nothing to size against yet. Once a machine joins and matches this pool, this says
-        how many runners of {sizeLabel(cpus, memoryMb)} it can hold.
+        how many runners{ofSize} it can hold.
       </p>
     {:else}
       <p class="title">
         {#if total === 0}
           <TriangleAlert size={15} aria-hidden="true" />
-          No host has room for a runner this size
+          {placeable.length === 0 && profile
+            ? 'No host\u2019s runner profile lets this pool run'
+            : 'No host has room for a runner this size'}
         {:else if above || overcommitted.length > 0}
           <TriangleAlert size={15} aria-hidden="true" />
-          Room for {pluralise(total, 'runner')} of {sizeLabel(cpus, memoryMb)}
+          Room for {pluralise(total, 'runner')}{ofSize}
         {:else}
           <CircleCheck size={15} aria-hidden="true" />
-          Room for {pluralise(total, 'runner')} of {sizeLabel(cpus, memoryMb)}
+          Room for {pluralise(total, 'runner')}{ofSize}
         {/if}
       </p>
 
       <ul class="hosts">
         {#each hosts as host (host.host_id)}
-          <li class:short={(host.slots ?? 0) > (host.fits ?? 0)}>
+          {@const words = hostSizingWords(host.sizing)}
+          <li class:short={!host.excluded && (host.slots ?? 0) > (host.fits ?? 0)}>
             <span class="name">{host.host}</span>
-            <span class="count">
-              {pluralise(host.room ?? 0, 'runner')}
-              <span class="of">of {pluralise(host.slots ?? 0, 'slot')}</span>
-            </span>
-            <span class="why">
-              {machine(host)}{host.limited_by ? `, ${limitPhrase(host.limited_by)}` : ''}
-            </span>
-            <!-- Never offered at zero: a host with no room for one runner of
-                 this pool is a machine to give less to, not one to pause for
-                 every other pool as well. -->
-            {#if (host.slots ?? 0) > (host.fits ?? 0) && (host.fits ?? 0) > 0 && canOperate}
-              <Button
-                size="sm"
-                variant="secondary"
-                icon={Sparkles}
-                loading={adjusting === host.host_id}
-                onclick={() => void adjust(host)}
-              >
-                Set to {host.fits}
-              </Button>
+            {#if host.excluded}
+              <!-- Listed, with the reason, rather than dropped: "this host is
+                   left out, and this is the limit" is the row an operator came
+                   to read. -->
+              <span class="count">kept off</span>
+              <span class="why" data-testid="room-host-excluded">{host.excluded}</span>
+            {:else}
+              <span class="count">
+                {pluralise(host.room ?? 0, 'runner')}
+                <span class="of">of {pluralise(host.slots ?? 0, 'slot')}</span>
+              </span>
+              <span class="why">
+                {machine(host)}{host.limited_by ? `, ${limitPhrase(host.limited_by)}` : ''}
+              </span>
+              <!-- Never offered at zero: a host with no room for one runner of
+                   this pool is a machine to give less to, not one to pause for
+                   every other pool as well. -->
+              {#if (host.slots ?? 0) > (host.fits ?? 0) && (host.fits ?? 0) > 0 && canOperate}
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon={Sparkles}
+                  loading={adjusting === host.host_id}
+                  onclick={() => void adjust(host)}
+                >
+                  Set to {host.fits}
+                </Button>
+              {/if}
+              <!-- What a runner is on this host, and whose figure that is, for
+                   the hosts whose own settings are doing something to it. A
+                   fleet that has never set a profile sees nothing here. -->
+              {#if hostIsInvolved(host.sizing, profile) && words.standard}
+                <span class="sizing" data-testid="room-host-sizing">
+                  A runner is <strong>{words.standard}</strong>{words.floor
+                    ? `, never less than ${words.floor}`
+                    : ''}{words.ceiling ? `, and may use up to ${words.ceiling}` : ''}.
+                </span>
+              {/if}
             {/if}
           </li>
         {/each}
@@ -174,6 +217,12 @@
           the machine can back at this size. The extra slots are counted as free capacity on every page
           that shows them, and every create for one of them is refused for want of cores or memory — so
           jobs wait on runners nothing will make.
+        </p>
+      {:else if total === 0 && placeable.length === 0}
+        <p class="body">
+          Every matching host's runner profile keeps this pool off it, and the reason is on each row
+          above. Change the pool's size or minimum, or the host's runner sizes, so that the two
+          agree.
         </p>
       {:else if total === 0}
         <p class="body">
@@ -295,6 +344,17 @@
   .why {
     flex: 1 1 20ch;
     color: var(--z-text-muted);
+  }
+  /* A line of its own under the row: the sizes are a sentence, and fitting one
+     between a name and a count would make every row a different height. */
+  .sizing {
+    flex: 1 1 100%;
+    padding-left: var(--z-space-3);
+    color: var(--z-text-muted);
+  }
+  .sizing strong {
+    font-weight: var(--z-weight-medium);
+    color: var(--z-text);
   }
   .actions {
     display: flex;

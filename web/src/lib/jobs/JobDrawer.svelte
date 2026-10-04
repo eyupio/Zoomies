@@ -24,6 +24,7 @@
     UNMATCHED,
   } from '$lib/status';
   import type { Job } from '$lib/api/types';
+  import { allocationWords } from '$lib/runners/allocation';
   import { session } from '$lib/state/session.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
   import Badge from '$lib/components/Badge.svelte';
@@ -66,6 +67,10 @@
    * drawer with nothing said about it at all.
    */
   const held = $derived(job?.state === 'waiting');
+  // The size of the runner that took the job, and why it was that size.
+  const grantedSize = $derived(
+    allocationWords(job?.granted_cpus, job?.granted_memory_mb, job?.granted_source),
+  );
   /**
    * Anything still waiting on something, whichever kind of waiting it is. One
    * panel answers all of them now, because the controller's explanation makes
@@ -281,6 +286,15 @@
             {formatDuration(job.duration_ms)}
           {/if}
         </dd>
+
+        {#if grantedSize}
+          <!-- What the runner that took this job was given, copied when it took
+               it and never rewritten: the pool and the host may have changed
+               since, and "it ran out of memory" is a different question
+               depending on which size it ran at. -->
+          <dt>Runner size</dt>
+          <dd class="tabular" data-testid="job-granted-size">{grantedSize}</dd>
+        {/if}
 
         {#if job.peak_cpus || job.peak_memory_mb || job.oom_killed}
           <dt>Peak usage</dt>

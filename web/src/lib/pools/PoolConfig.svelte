@@ -32,6 +32,11 @@
   // it from two absent numbers -- "no CPU limit" alone cannot tell "the host
   // decides" from "nobody set one", and those used to be the same thing.
   const automatic = $derived((pool.sizing ?? (hasSize ? 'fixed' : 'automatic')) !== 'fixed');
+  // A pool can leave its size to the host in two ways: by the share the host's
+  // slot count gives, or by the standard size the host names for itself. The
+  // second says where the answer is, and what stands in where a host says none.
+  const fromProfile = $derived(pool.sizing === 'profile' || pool.size_from_profile === true);
+  const fleetStandard = $derived(pool.fleet_standard);
   /* The minimum in force, not the one stored: a pool that set none follows the
      fleet's runners.minimum_* live, and saying so is the only way an operator
      learns that editing the fleet setting will move this pool. */
@@ -170,7 +175,9 @@
   <div class="pair">
     <dt>Size per runner</dt>
     <dd class="tabular">
-      {#if automatic}
+      {#if fromProfile}
+        <span>The size each host sets</span>
+      {:else if automatic}
         <span>One share of each host</span>
       {:else}
         {#if resources.cpus !== undefined}<span>{formatNumber(resources.cpus)} CPU</span>{/if}
@@ -207,7 +214,14 @@
   <div class="pair">
     <dt class="sr-only">Note</dt>
     <dd class="note">
-      {#if automatic}
+      {#if fromProfile}
+        Each runner is given the standard size of the host it lands on, as that host's runner sizes
+        say.{#if fleetStandard && ((fleetStandard.cpus ?? 0) > 0 || (fleetStandard.memory_mb ?? 0) > 0)}
+          A host that sets none gives the fleet's default, {formatNumber(fleetStandard.cpus ?? 0)} CPU
+          and {formatMegabytes(fleetStandard.memory_mb ?? 0)}.{/if}{#if dind}
+          Its runner and its Docker daemon share that size, so a slot here is one runner like
+          anywhere else.{/if}
+      {:else if automatic}
         Each runner is given one slot's share of the machine it lands on — the same share the fleet
         charges its host — so this pool is sized correctly on every host, and follows one that is
         resized.{#if dind}

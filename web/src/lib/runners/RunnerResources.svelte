@@ -16,6 +16,7 @@
   import type { BackendKind, HostThrottle, Resources } from '$lib/api/types';
   import { formatBytes, formatMegabytes, formatNumber, formatPercent, ratio } from '$lib/format';
   import { throttleCpuPercent, throttled, MAX_THROTTLE_LEVEL } from '$lib/status';
+  import { allocationWords } from './allocation';
 
   interface Props {
     /** Percentage of one core, as the agent reports it. 200 means two cores. */
@@ -60,23 +61,7 @@
   const hasMemory = $derived(memoryBytes !== undefined && memoryBytes !== null);
 
   /** "1.87 CPU · 3.9 GB, the host's default share": what it got, and why that figure. */
-  const allocation = $derived.by(() => {
-    const parts: string[] = [];
-    if ((allocatedCpus ?? 0) > 0) parts.push(`${formatNumber(allocatedCpus)} CPU`);
-    if ((allocatedMemoryMb ?? 0) > 0) parts.push(formatMegabytes(allocatedMemoryMb));
-    if (parts.length === 0) return '';
-    const source =
-      allocationSource === 'host'
-        ? "the host's default share"
-        : allocationSource === 'pool'
-          ? 'from the pool'
-          : allocationSource === 'reduced'
-            ? 'reduced: no host had room for the pool\u2019s standard size'
-            : allocationSource === 'history'
-              ? 'sized for what the jobs waiting are known to need'
-              : '';
-    return source ? `${parts.join(' · ')}, ${source}` : parts.join(' · ');
-  });
+  const allocation = $derived(allocationWords(allocatedCpus, allocatedMemoryMb, allocationSource));
 
   const isThrottled = $derived(throttled(hostThrottle));
   // Whether the throttle reaches this runner. The agent lowers only a quota it

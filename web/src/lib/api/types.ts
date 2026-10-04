@@ -116,6 +116,8 @@ export type Platform = Schemas['Platform'];
 export type PoolPlatform = Schemas['PoolPlatform'];
 export type PoolRoom = Schemas['PoolRoom'];
 export type PoolHostRoom = Schemas['PoolHostRoom'];
+/** How one pool is sized on one host, each figure with whose it is. */
+export type PoolHostSizing = Schemas['PoolHostSizing'];
 export type Pool = Schemas['Pool'];
 export type PoolCreate = Schemas['PoolCreate'];
 export type PoolUpdate = Schemas['PoolUpdate'];
@@ -136,6 +138,10 @@ export type Host = Schemas['Host'];
 export type HostSample = Schemas['HostSample'];
 export type HostThrottle = Schemas['HostThrottle'];
 export type HostExclusion = Schemas['HostExclusion'];
+/** What an operator has said about how big a runner is on one host. */
+export type RunnerProfile = Schemas['RunnerProfile'];
+/** What a runner on a host is held to, with the fleet's settings standing in and where each figure came from. */
+export type EffectiveProfile = Schemas['EffectiveProfile'];
 export type JoinToken = Schemas['JoinToken'];
 export type Provider = Schemas['Provider'];
 export type ProviderInput = Schemas['ProviderInput'];

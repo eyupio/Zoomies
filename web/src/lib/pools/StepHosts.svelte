@@ -43,8 +43,12 @@
     room for three runners, not after the pool exists.
   */
   const room = $derived(verdict?.room ?? null);
-  const cpus = $derived(Number(draft.cpus) || 0);
-  const memoryMb = $derived(Number(draft.memory_mb) || 0);
+  // A pool that takes its size from each host has none of its own to count
+  // runners of: the sliders are holding a position nobody chose, and each row
+  // of the room says what a runner is on that host instead.
+  const profile = $derived(draft.sizing === 'profile');
+  const cpus = $derived(profile ? 0 : Number(draft.cpus) || 0);
+  const memoryMb = $derived(profile ? 0 : Number(draft.memory_mb) || 0);
 
   function change(next: Record<string, string>): void {
     draft.host_selector = next;
@@ -88,8 +92,8 @@
   {#if shortfall}
     <PoolFit {verdict} {validating} />
   {/if}
-  {#if cpus > 0 && memoryMb > 0}
-    <PoolRoom {room} {cpus} {memoryMb} {validating} />
+  {#if profile || (cpus > 0 && memoryMb > 0)}
+    <PoolRoom {room} {cpus} {memoryMb} {profile} {validating} />
   {/if}
 {/if}
 

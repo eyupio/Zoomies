@@ -33,7 +33,7 @@
   import Input from '$lib/components/Input.svelte';
   import Slider from '$lib/components/Slider.svelte';
   import QuantityField from '$lib/components/QuantityField.svelte';
-  import { withValue } from '$lib/pools/sizing';
+  import { cpuLabel, memoryLabel as sizeMemoryLabel, withValue } from '$lib/pools/sizing';
   import { Sparkles, TriangleAlert } from '@lucide/svelte';
   import {
     capacityCeiling,
@@ -118,6 +118,22 @@
   const recMb = $derived(recommendedReserveMemoryMb(shape.memoryMb));
   const recDiskMb = $derived(recommendedReserveDiskMb(diskTotalMb));
   const recCapacity = $derived(recommendedCapacity(shape, reserveCores, reserveMb, ask));
+
+  /* -- the standard size ----------------------------------------------------------
+     A host that has been given a standard runner size takes as many runners of
+     it as its machine holds, and the capacity below is only a ceiling on that.
+     An operator who moves the slider without knowing it would be editing a
+     number that is not the one binding, so the dialog says what is. */
+  const standard = $derived(host?.runner_profile?.standard);
+  const hasStandard = $derived((standard?.cpus ?? 0) > 0 || (standard?.memory_mb ?? 0) > 0);
+  const standardText = $derived(
+    [
+      (standard?.cpus ?? 0) > 0 ? cpuLabel(standard?.cpus ?? 0) : '',
+      (standard?.memory_mb ?? 0) > 0 ? sizeMemoryLabel(standard?.memory_mb ?? 0) : '',
+    ]
+      .filter(Boolean)
+      .join(' and '),
+  );
 
   /* -- capacity ---------------------------------------------------------------- */
 
@@ -352,6 +368,13 @@
         </div>
       {/snippet}
     </Field>
+    {#if hasStandard}
+      <p class="note" data-testid="capacity-standard-note">
+        This host has a standard runner size of {standardText}, so it takes as many runners as its
+        machine holds of that size — {pluralise(host?.slots ?? 0, 'runner')} now — and this figure is
+        only the most it may take. Change the size under “Set runner sizes” on its card.
+      </p>
+    {/if}
     {#if aboveCapacity}
       <div class="callout" role="status">
         <TriangleAlert size={16} aria-hidden="true" />

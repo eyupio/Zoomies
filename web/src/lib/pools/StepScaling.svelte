@@ -45,8 +45,11 @@
   const timeout = $derived(parseGoDuration(draft.idle_timeout));
   const timeoutText = $derived(timeout === null ? '' : formatGoDuration(draft.idle_timeout));
 
-  const cpus = $derived(Number(draft.cpus) || 0);
-  const memoryMb = $derived(Number(draft.memory_mb) || 0);
+  // As on the hosts step: a pool that takes its size from each host has none
+  // of its own to count runners of.
+  const profile = $derived(draft.sizing === 'profile');
+  const cpus = $derived(profile ? 0 : Number(draft.cpus) || 0);
+  const memoryMb = $derived(profile ? 0 : Number(draft.memory_mb) || 0);
   const room = $derived<PoolRoomShape | null>(verdict?.room ?? null);
   const roomTotal = $derived(room?.runners ?? 0);
   const maximum = $derived(Number(draft.max_runners) || 0);
@@ -92,7 +95,7 @@
     error={errors['max_runners']}
     hint="The backstop. However many jobs GitHub queues, this pool will never create more runners than this — which is what stops one misconfigured workflow filling every host you have."
     notice={following && roomTotal > 0
-      ? `Following the fleet: ${pluralise(roomTotal, 'runner')} of ${sizeLabel(cpus, memoryMb)} fit on the hosts this pool reaches. Type your own and it stops following.`
+      ? `Following the fleet: ${pluralise(roomTotal, 'runner')}${profile ? '' : ` of ${sizeLabel(cpus, memoryMb)}`} fit on the hosts this pool reaches. Type your own and it stops following.`
       : undefined}
   >
     {#snippet children({ id, describedBy, invalid })}
@@ -119,6 +122,7 @@
   {room}
   {cpus}
   {memoryMb}
+  {profile}
   {validating}
   maxRunners={maximum}
   onusemax={(value) => setMax(value)}

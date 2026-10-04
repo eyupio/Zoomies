@@ -35,6 +35,7 @@
   import UtilisationBar from '$lib/components/UtilisationBar.svelte';
   import PoolBackendSwitch from '$lib/pools/PoolBackendSwitch.svelte';
   import PoolConfig from '$lib/pools/PoolConfig.svelte';
+  import PoolHostSizes from '$lib/pools/PoolHostSizes.svelte';
   import PoolJobs from '$lib/pools/PoolJobs.svelte';
   import PoolRunnerLimitsDialog from '$lib/pools/PoolRunnerLimitsDialog.svelte';
   import PoolRunners from '$lib/pools/PoolRunners.svelte';
@@ -91,6 +92,15 @@
   );
   const runners = $derived(fleet.runnersInPool(id));
   const counts = $derived(pool?.counts ?? {});
+  // Only where a runner's size is somebody's choice per host: a pool that takes
+  // its size from each host, or a fleet where some host has been given a size or
+  // a minimum. A fleet that has set none sees the page it always has.
+  const showHostSizes = $derived(
+    canOperate &&
+      pool !== null &&
+      pool !== undefined &&
+      (pool.size_from_profile === true || fleet.hosts.some((h) => h.runner_profile !== undefined)),
+  );
 
   $effect(() => {
     if (pool?.name) router.setTitle(pool.name);
@@ -382,6 +392,17 @@
         </div>
         <PoolConfig {pool} />
       </section>
+
+      {#if showHostSizes}
+        <section class="panel" aria-labelledby="host-sizes-heading">
+          <div class="panel-head">
+            <h2 id="host-sizes-heading">Size on each host</h2>
+          </div>
+          <div class="panel-body">
+            <PoolHostSizes {pool} />
+          </div>
+        </section>
+      {/if}
     </div>
   </div>
 {/if}
