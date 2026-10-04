@@ -125,6 +125,25 @@ func TestPoolsEnableConfirmsByName(t *testing.T) {
 	}
 }
 
+// Enabling says what the pool is, not what was asked of it. A pool the controller
+// keeps is put back in use by the controller, from its hosts, and resuming one
+// that has none leaves it out of use.
+func TestPoolsEnableSaysWhenAPoolTheControllerKeepsIsStillOutOfUse(t *testing.T) {
+	srv := jsonRoutes(t, map[string]string{
+		"/api/v1/pools/pool_1/enable": `{"id":"pool_1","name":"zoomies-large","enabled":false,"auto":{"key":"amd64/large","paused":false,"hosts":[],"slots":0}}`,
+		"/api/v1/pools/pool_2/enable": `{"id":"pool_2","name":"mine","enabled":false}`,
+	})
+
+	out, _ := runCLI(t, "pools", "enable", "pool_1", "--url", srv.URL)
+	if strings.Contains(out, "is enabled") || !strings.Contains(out, "no longer paused") || !strings.Contains(out, "until a host counts towards it") {
+		t.Errorf("a resumed pool with no hosts must not be called enabled:\n%s", out)
+	}
+	out, _ = runCLI(t, "pools", "enable", "pool_2", "--url", srv.URL)
+	if strings.Contains(out, "is enabled") || !strings.Contains(out, "still not enabled") {
+		t.Errorf("a pool that is not enabled after enabling it must say so:\n%s", out)
+	}
+}
+
 // Prewarming is per host, and the per-host outcome is the point: one host
 // failing to pull is exactly what this command exists to surface.
 func TestPoolsPrewarmReportsEachHost(t *testing.T) {

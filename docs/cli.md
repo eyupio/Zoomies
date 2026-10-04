@@ -116,6 +116,17 @@ On `edit`, only the flags you actually type are sent — the defaults above are
 not applied to a partial update, so editing a pool's image cannot silently reset
 its ceiling.
 
+A pool the [controller keeps for each size of host](auto-pools.md) is marked in
+`pools get`, which says which hosts count towards it and what you have asked of
+it, and `pools list` says whether it is out of use because you paused it or
+because no host of its kind counts. On such a pool `edit` takes `--warm` (runners
+to keep ready) and `--cap` (the most runners to allow, `0` for no cap) and
+`--idle-timeout`; `pools disable` and `pools enable` are its pause, and `pools
+enable` says what the pool is afterwards: resuming a pool whose hosts are gone
+leaves it out of use, and the message says so. Any other flag is refused with the
+reason, because the pool's minimum, maximum, labels and size are worked out from its
+hosts and not typed, and the rest are set up one way for every such pool.
+
 ### `zoomies runners`
 
 The runners that exist right now.
@@ -163,6 +174,25 @@ cannot repeat or hide a row, which `--offset` cannot promise. `--output json`
 returns every job with its steps; `--include-steps=false` returns one short
 summary per job, small enough to read a hundred of.
 
+### Size classes
+
+With [size routing](auto-pools.md) on or being watched, `jobs get` says how a job
+was classed and why, where it was sent, and which class of host took it, and
+`jobs advice` lists the workflows whose `runs-on` could say something better,
+the costliest first, each with what to write instead (`--kind too_small`,
+`unguaranteed` or `too_large` narrows it). `zoomies size-pins` puts a job, or a
+whole repository, in a class by hand, which reaches the jobs already waiting as
+well as the ones that arrive; `zoomies auto-pools` says what the controller keeps
+for each size of host and why a host is in none.
+
+| Command | What it does |
+| --- | --- |
+| `jobs advice [--kind <kind>]` | What to change in the `runs-on` of jobs whose measured runs call for something other than what they ask for. |
+| `size-pins list` | Every pin. |
+| `size-pins set <owner/repo> --class <small\|medium\|large> [--workflow <w> --job <j>]` | Pin a repository, or one job in it, to a class. |
+| `size-pins delete <owner/repo> [--workflow <w> --job <j>]` | Take a pin away; the jobs it covered go back to the class their runs say. |
+| `auto-pools` | The two switches, what each class is, the pools the controller keeps and their hosts, the hosts that count towards none, and what it could not do. |
+
 ### Comparing releases
 
 Every job a pool claims is stamped once with the controller version that
@@ -200,8 +230,8 @@ run it again, that is your call to make.
 
 | Command | What it does |
 | --- | --- |
-| `hosts list` | The hosts that have joined. A host with runner sizes of its own gets a line under the table saying what they are, whose they are, and how many slots they give. |
-| `hosts edit <host-id>` | Change a host's capacity (`--capacity`), its reserve (`--reserve-cpus`, `--reserve-memory-mb`, `--reserve-disk-mb`) or how big a runner is on it: `--standard-cpus` and `--standard-memory-mb` for the size one runner is given, `--min-cpus` and `--min-memory-mb` for the least, `--burst-max-cpus` for the most CPU one may use, lent CPU included. `--tmpfs-work-mb`, `--tmpfs-tmp-mb` and `--tmpfs-docker-mb` set the size each of a pool's [in-memory folders](hosts-and-pools.md#keeping-the-work-folder-in-memory) is asked for on the host, `--tmpfs-max-mb` caps any one of them, and `--tmpfs-off` is the tactical fallback that keeps them all off the host (`--tmpfs-off=false` lets them back). Zero follows the fleet's own setting again, and `--clear-profile` removes the whole profile. Anything you do not name is left alone, including the rest of a profile you changed one figure of. An edit that would leave a pool with nowhere to run is refused unless `--confirm`. See [runner profiles](hosts-and-pools.md#runner-profiles-how-big-a-runner-is-on-one-host). |
+| `hosts list` | The hosts that have joined. A host with runner sizes of its own gets a line under the table saying what they are, whose they are, and how many slots they give. The size column says which [size class](auto-pools.md) a host is in once the controller works classes out, a line under the table lists the tags you have put on a host, and a host that counts towards no automatic pool says why. |
+| `hosts edit <host-id>` | Change a host's capacity (`--capacity`), its reserve (`--reserve-cpus`, `--reserve-memory-mb`, `--reserve-disk-mb`) or how big a runner is on it: `--standard-cpus` and `--standard-memory-mb` for the size one runner is given, `--min-cpus` and `--min-memory-mb` for the least, `--burst-max-cpus` for the most CPU one may use, lent CPU included. `--tmpfs-work-mb`, `--tmpfs-tmp-mb` and `--tmpfs-docker-mb` set the size each of a pool's [in-memory folders](hosts-and-pools.md#keeping-the-work-folder-in-memory) is asked for on the host, `--tmpfs-max-mb` caps any one of them, and `--tmpfs-off` is the tactical fallback that keeps them all off the host (`--tmpfs-off=false` lets them back). Zero follows the fleet's own setting again, and `--clear-profile` removes the whole profile. `--tag key=value` puts a tag on the host and `--untag key` takes one off, each repeatable, and a bare `--tag gpu` is `gpu=true`; a flag is one tag and is not split on commas, so `--tag rack=b4,b5` is a rack called `b4,b5`. The tags you do not name are kept, and the ones the controller derives from the machine are never written. `--untag` takes a name and not a value, and says so when the host has no such tag of its own, or when it is one the controller works out, rather than succeeding and changing nothing. Anything you do not name is left alone, including the rest of a profile you changed one figure of. An edit that would leave a pool with nowhere to run is refused unless `--confirm`. See [runner profiles](hosts-and-pools.md#runner-profiles-how-big-a-runner-is-on-one-host). |
 | `hosts cordon <host-id>` | Stop scheduling new runners onto it. What it already has keeps running. |
 | `hosts uncordon <host-id>` | Let it accept runners again. |
 | `hosts drain <host-id> [--yes]` | Cordon it, then drain every runner on it, so it empties as its jobs finish. The order matters: draining an uncordoned host means the scheduler puts fresh runners on it while the old ones are still going. Each runner gets five minutes to finish what it is on; a longer job is stopped, which is what makes the host actually empty. A runner that is busy is only drained with `--yes`; without it that runner is refused and the host stays cordoned. |
@@ -356,7 +386,8 @@ again.
 | `job_stats` | Completed jobs counted and timed over a window, grouped by up to two of `controller_version`, `day`, `host`, `pool` and `job_name`. `GET /jobs/stats`. |
 | `get_job` | One job, its timeline and the controller's explanation, as one document. |
 | `get_runner_log` | The last lines of a runner's output, while the runner still exists. It asks the controller for just the end, holds what it returns to 256 KiB, and says so when it had to shorten it or could only read the start of a very long log. |
-| `list_runners`, `list_pools`, `list_hosts` | The fleet's resources as their `GET` routes return them. |
+| `list_runners`, `list_pools`, `list_hosts` | The fleet's resources as their `GET` routes return them, with a host's tags and size class and a pool's automatic settings where the controller works them out. |
+| `label_advice` | What to change in the `runs-on` of workflows whose measured runs call for something other than what they ask for, with what to write instead. `GET /label-advice`. |
 | `rerun_job` | Only with `--allow-actions`. `POST /jobs/{id}/rerun`; needs `operator`. |
 | `drain_runner` | Only with `--allow-actions`. `POST /runners/{id}/drain`, never with `confirm`, so a busy runner is refused rather than having its job stopped; needs `operator`. |
 

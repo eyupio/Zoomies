@@ -248,6 +248,16 @@ type PoolPlan struct {
 	// is written from it, so it names the jobs the pool is scaling for rather
 	// than every job on the queue.
 	eligible int
+	// supply is the runners already there for a queued job to take: idle, or
+	// still starting. A busy runner is not, and a draining one never will be.
+	supply int
+	// Unserved is how many of the queued jobs that drove Desired have no runner
+	// idle, starting or created for them this pass: the pool is at its maximum,
+	// or no host has room. A pool held back by a start failure or a rate limit
+	// counts too, because for the job waiting it is the same thing. It is what
+	// tells a job waiting for room in its class from one whose runner is simply
+	// on its way.
+	Unserved int `json:"unserved,omitempty"`
 	// Reason is the sentence shown in the UI, e.g.
 	// "scaled linux-x64 2 -> 4: 3 jobs queued > 30s". It is empty when the
 	// pool's size did not change.
@@ -383,6 +393,10 @@ func Decide(s Snapshot) Plan {
 		}
 	}
 	t.allocate(pools, plan.Pools, s.Runners, demand)
+	for i := range plan.Pools {
+		pp := &plan.Pools[i]
+		pp.Unserved = max(0, pp.eligible-pp.supply-creates(pp.Actions))
+	}
 	// Finish cleanup before starting replacements, then preserve the exact
 	// allocation order when registration admission admits only part of a plan.
 	for _, pp := range plan.Pools {
@@ -476,6 +490,7 @@ func (t *tick) decidePool(p *store.Pool, runners []*store.Runner, queued []*stor
 		}
 	}
 	plan.Current = live
+	plan.supply = live - busy - draining
 
 	if !p.Enabled {
 		t.disable(p, &plan, remaining, live)

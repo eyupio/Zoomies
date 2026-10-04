@@ -292,8 +292,13 @@ func noEligibleHostProblem(hosts []*store.Host, p *store.Pool) (Problem, bool) {
 // hosts whose profiles name no standard size: they run it at the fleet's
 // default, which is the same figure on a four-core box and a sixty-four-core
 // one, and the pool did not ask for a figure that is the same everywhere.
+//
+// A pool the controller keeps for a size class is not one of these: it asked for
+// that class's runner, which is the figure that differs by the size of the host
+// because the host's class does, and a host that names no standard of its own is
+// exactly what it was made for.
 func profileDefaultProblem(hosts []*store.Host, p *store.Pool, fleet config.Runners) (Problem, bool) {
-	if !p.SizeFromProfile {
+	if !p.SizeFromProfile || p.FromHosts() {
 		return Problem{}, false
 	}
 	var names []string

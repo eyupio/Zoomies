@@ -213,6 +213,12 @@ second when a job needs something the first cannot give it:
   tier takes the rest, and the higher pool's scaling reason says it was
   deferred for fairness across priorities.
 
+A fleet of mixed machines can also leave pool-making to the controller: with
+[`scheduler.auto_pools`](configuration.md) on it keeps one pool for each
+architecture and size class among the hosts it has, sized by those hosts, and
+never touches a pool you made. See
+[Size classes and automatic pools](auto-pools.md).
+
 ### Two ways to make one
 
 The wizard asks first how much of the pool you want to decide, because the two

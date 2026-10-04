@@ -142,6 +142,29 @@ export type HostExclusion = Schemas['HostExclusion'];
 export type RunnerProfile = Schemas['RunnerProfile'];
 /** What a runner on a host is held to, with the fleet's settings standing in and where each figure came from. */
 export type EffectiveProfile = Schemas['EffectiveProfile'];
+/** A size of host, and of the runner a job is put on. */
+export type SizeClass = Schemas['SizeClass'];
+/** One tag on a host: an operator's label, or one the controller derives from the machine. */
+export type HostTag = Schemas['HostTag'];
+/** Which class a host is in, why, and a move it is being held before making. */
+export type HostSizeClass = Schemas['HostSizeClass'];
+/** Whether a host's slots count towards an automatic pool, and if not why. */
+export type HostAutoPool = Schemas['HostAutoPool'];
+/** What an automatic pool is, and the operator's three settings on it. */
+export type PoolAuto = Schemas['PoolAuto'];
+export type PoolAutoUpdate = Schemas['PoolAutoUpdate'];
+/** What the controller is keeping, would keep, and could not. */
+export type AutoPools = Schemas['AutoPools'];
+export type AutoPoolSummary = Schemas['AutoPoolSummary'];
+export type AutoPoolFinding = Schemas['AutoPoolFinding'];
+export type AutoPoolSkip = Schemas['AutoPoolSkip'];
+export type AutoPoolPending = Schemas['AutoPoolPending'];
+export type SizeClassLimits = Schemas['SizeClassLimits'];
+/** An operator's pin of a job, or a whole repository, to a class. */
+export type SizePin = Schemas['SizePin'];
+export type SizePinRequest = Schemas['SizePinRequest'];
+/** A job that would be better off naming its size, and what to write. */
+export type LabelAdvice = Schemas['LabelAdvice'];
 export type JoinToken = Schemas['JoinToken'];
 export type Provider = Schemas['Provider'];
 export type ProviderInput = Schemas['ProviderInput'];

@@ -15,6 +15,7 @@ func runJobs(ctx context.Context, e *env, args []string) error {
 		{"list", "", "Recent jobs, with filters", jobsList},
 		{"stats", "", "Counts and percentiles over a period, grouped by release, day, host, pool or job", jobsStats},
 		{"get", "<job-id>", "One job in full", jobsGet},
+		{"advice", "", "What a workflow's runs-on could say better, from what its jobs used", jobsAdvice},
 		{"rerun", "<job-id>", "Ask GitHub to run this run's failed jobs again", jobsRerun},
 	}, args)
 }
@@ -303,6 +304,7 @@ func jobsGet(ctx context.Context, e *env, args []string) error {
 	if j.HTMLURL != "" {
 		rows = append(rows, [2]string{"on github", j.HTMLURL})
 	}
+	rows = append(rows, sizeRows(j)...)
 	p.keyValues(rows)
 
 	// Why the job is where it is, from the controller rather than worked out

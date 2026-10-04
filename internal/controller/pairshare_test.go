@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/eyupio/zoomies/internal/backend"
+	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -116,5 +117,31 @@ func TestASqueezedSidecarShowsUpAsAStandingProblemUntilTheShareMoves(t *testing.
 	h.c.observePair(typed, backend.Stats{SampledAt: &now, Halves: &backend.PairHalves{}})
 	if len(h.c.pairs["other"]) != 0 {
 		t.Error("a sample from a typed-limit runner was recorded")
+	}
+}
+
+// A pool the controller keeps divides its slot evenly and refuses an edit of
+// the division, so advice to change it would be advice to do what the pool does
+// not allow.
+func TestAPoolTheControllerKeepsIsNotAdvisedOnHowItDividesItsSlot(t *testing.T) {
+	h := newHarness(t)
+	h.installation()
+	h.autoPoolsOn("on")
+	h.c.UpdateConfig(func(cfg *config.Config) { cfg.Scheduler.AutoPoolsDockerMode = "dind" })
+	h.mediumHost("build-1")
+	h.autoPass()
+	pool := h.poolNamed("zoomies-medium")
+	if pool.DockerMode != store.DockerDinD || !pool.FromHosts() {
+		t.Fatalf("the pool is %+v; this test needs a Docker-in-Docker pool the controller keeps", pool)
+	}
+	now := h.c.Now()
+	for i, s := range pairWindowOf(100, 5,
+		backend.HalfUse{CPUs: 0.1, MemoryBytes: gib / 4},
+		backend.HalfUse{CPUs: 1.9, MemoryBytes: 3*gib + gib/2}) {
+		r := &store.Runner{ID: fmt.Sprintf("run-%d", i%5), PoolID: pool.ID, AllocationSource: store.AllocationFromHost}
+		h.c.observePair(r, backend.Stats{SampledAt: &now, Halves: &s.halves})
+	}
+	if p := h.problemOrNil("pool.daemon_share_suggested"); p != nil {
+		t.Fatalf("a pool the controller keeps was advised to change a setting it has not got: %+v", p)
 	}
 }

@@ -3,7 +3,9 @@
 
   Editing opens the same wizard the pool was created with, in place, with `?edit=1`
   in the URL so the browser's Back button leaves the form exactly as an operator
-  expects it to.
+  expects it to. A pool the controller keeps has no wizard to open -- its labels,
+  size and limits follow its hosts -- so the same request opens the three
+  settings it leaves to an operator instead.
 -->
 <script lang="ts">
   import RunnerInsights from '$lib/insights/RunnerInsights.svelte';
@@ -12,13 +14,14 @@
     deletePool,
     disablePool,
     enablePool,
+    getAutoPools,
     getPool,
     listJobs,
     listScalingEvents,
     prewarmPool,
   } from '$lib/api/client';
   import { events } from '$lib/api/sse';
-  import type { BackendKind, Job, Pool, Problem, ScalingEvent } from '$lib/api/types';
+  import type { AutoPools, BackendKind, Job, Pool, Problem, ScalingEvent } from '$lib/api/types';
   import { formatNumber, pluralise } from '$lib/format';
   import { router } from '$lib/router';
   import { poolStatus } from '$lib/status';
@@ -33,6 +36,8 @@
   import PageHeader from '$lib/components/PageHeader.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import UtilisationBar from '$lib/components/UtilisationBar.svelte';
+  import PoolAutoDialog from '$lib/pools/PoolAutoDialog.svelte';
+  import PoolAutoSummary from '$lib/pools/PoolAutoSummary.svelte';
   import PoolBackendSwitch from '$lib/pools/PoolBackendSwitch.svelte';
   import PoolConfig from '$lib/pools/PoolConfig.svelte';
   import PoolHostSizes from '$lib/pools/PoolHostSizes.svelte';
@@ -45,13 +50,13 @@
   import TestJob from '$lib/pools/TestJob.svelte';
   import PoolWizardForm from '$lib/pools/PoolWizardForm.svelte';
   import { backendLabel } from '$lib/pools/PoolVocabulary.svelte';
+  import { isAutomatic } from '$lib/pools/auto';
   import { deletionConsequences } from '$lib/pools/consequences';
 
   const JOB_LIMIT = 10;
   const SCALING_LIMIT = 20;
 
   const id = $derived(router.params['id'] ?? '');
-  const editing = $derived(router.param('edit') === '1');
   const canOperate = $derived(session.can('operator'));
 
   /* -- the pool ------------------------------------------------------------- */
@@ -86,6 +91,9 @@
   // The cache is live over SSE, so prefer it and fall back to our own fetch --
   // which is what a deep link into a cold tab actually hits.
   const pool = $derived(fleet.pool(id) ?? fetched);
+  // A pool the controller keeps has no wizard: see the note at the top.
+  const automatic = $derived(isAutomatic(pool));
+  const editing = $derived(router.param('edit') === '1' && !automatic);
   /** Migrate reads installation_id, so it opens already scoped to this pool's App. */
   const migrateHref = $derived(
     pool?.installation_id ? `/migrate?installation_id=${pool.installation_id}` : '/migrate',
@@ -104,6 +112,36 @@
 
   $effect(() => {
     if (pool?.name) router.setTitle(pool.name);
+  });
+
+  /* -- what the controller says about the pools it keeps ---------------------- */
+
+  // Read only for a pool the controller keeps, and only for what it says about
+  // the classes and whether the pool may be deleted. A failed read leaves the
+  // page without those two things, which it manages without.
+  let autoStatus = $state<AutoPools | null>(null);
+  $effect(() => {
+    if (!automatic) {
+      autoStatus = null;
+      return;
+    }
+    const controller = new AbortController();
+    void getAutoPools(controller.signal)
+      .then((result) => (autoStatus = result))
+      .catch(() => undefined);
+    return () => controller.abort();
+  });
+  // Not while the controller is keeping the pool, because it would make it again,
+  // which the server refuses too. One it is not keeping is a leftover.
+  const deleteBlocked = $derived(automatic && pool?.auto?.kept === true);
+  let autoOpen = $state(false);
+  // `?edit=1` is how a link says "edit this pool", and a pool the controller keeps
+  // answers it with its settings. The query is cleared so Back does not reopen it.
+  $effect(() => {
+    if (automatic && canOperate && router.param('edit') === '1') {
+      autoOpen = true;
+      router.setQuery({ edit: null }, { replace: true });
+    }
   });
 
   /* -- recent jobs ----------------------------------------------------------- */
@@ -199,11 +237,24 @@
   function setEnabled(enabled: boolean): void {
     if (!pool?.id) return;
     const poolId = pool.id;
+    // For a pool the controller keeps, enabling and disabling are resuming and
+    // pausing: the controller decides on its own whether the hosts leave it in
+    // use, and the operator decides whether it may be.
+    const patch =
+      pool.auto !== undefined
+        ? { auto: { ...pool.auto, paused: !enabled }, ...(enabled ? {} : { enabled: false }) }
+        : { enabled };
     void fleet.optimistic(
       poolId,
-      { enabled },
+      patch,
       () => (enabled ? enablePool(poolId) : disablePool(poolId)),
-      enabled ? 'That pool was not enabled' : 'That pool was not disabled',
+      automatic
+        ? enabled
+          ? 'That pool was not resumed'
+          : 'That pool was not paused'
+        : enabled
+          ? 'That pool was not enabled'
+          : 'That pool was not disabled',
     );
   }
 
@@ -255,7 +306,8 @@
   }
 
   function startEditing(): void {
-    router.setQuery({ edit: '1' }, { replace: false });
+    if (automatic) autoOpen = true;
+    else router.setQuery({ edit: '1' }, { replace: false });
   }
 
   function stopEditing(): void {
@@ -273,6 +325,9 @@
     {#if pool}
       <Badge status={poolStatus(pool)} size="sm" />
       <Badge tone="neutral" size="sm" dot={false} label={backendLabel(pool.backend)} />
+      {#if pool.auto}
+        <Badge tone="accent" size="sm" dot={false} label="Automatic" title={pool.auto.summary} />
+      {/if}
       {#if pool.installation_target}
         <span class="target">{pool.installation_target}</span>
       {/if}
@@ -284,15 +339,33 @@
   {/snippet}
 
   {#if pool && canOperate && !editing}
-    <Button icon={Gauge} onclick={() => (limitsOpen = true)}>Runner limits</Button>
+    {#if !automatic}
+      <Button icon={Gauge} onclick={() => (limitsOpen = true)}>Runner limits</Button>
+    {/if}
     <Button icon={Download} onclick={prewarm}>Prewarm image</Button>
-    {#if pool.enabled === false}
+    {#if automatic}
+      {#if pool.auto?.paused}
+        <Button icon={Power} onclick={() => setEnabled(true)}>Resume</Button>
+      {:else}
+        <Button icon={PowerOff} onclick={() => setEnabled(false)}>Pause</Button>
+      {/if}
+    {:else if pool.enabled === false}
       <Button icon={Power} onclick={() => setEnabled(true)}>Enable</Button>
     {:else}
       <Button icon={PowerOff} onclick={() => setEnabled(false)}>Disable</Button>
     {/if}
-    <Button variant="primary" icon={Pencil} onclick={startEditing}>Edit</Button>
-    <Button variant="danger" icon={Trash2} onclick={askDelete}>Delete</Button>
+    <Button variant="primary" icon={Pencil} onclick={startEditing}>
+      {automatic ? 'Settings' : 'Edit'}
+    </Button>
+    <Button
+      variant="danger"
+      icon={Trash2}
+      disabled={deleteBlocked}
+      title={deleteBlocked
+        ? 'The controller would make this pool again. Pause it to take it out of use, or set scheduler.auto_pools to shadow or off first.'
+        : undefined}
+      onclick={askDelete}>Delete</Button
+    >
   {/if}
 </PageHeader>
 
@@ -358,6 +431,15 @@
     </div>
 
     <div class="side">
+      {#if automatic}
+        <section class="panel" aria-labelledby="auto-heading">
+          <div class="panel-head">
+            <h2 id="auto-heading">Automatic pool</h2>
+          </div>
+          <PoolAutoSummary {pool} status={autoStatus} />
+        </section>
+      {/if}
+
       <!--
         The last mile, and it used to be missing. RunsOnPreview appeared only on
         step two of the wizard and vanished the moment the pool existed -- so an
@@ -387,7 +469,9 @@
         <div class="panel-head">
           <h2 id="config-heading">Configuration</h2>
           {#if canOperate}
-            <button type="button" class="panel-link" onclick={startEditing}>Edit</button>
+            <button type="button" class="panel-link" onclick={startEditing}>
+              {automatic ? 'Settings' : 'Edit'}
+            </button>
           {/if}
         </div>
         <PoolConfig {pool} />
@@ -408,6 +492,7 @@
 {/if}
 
 <PoolRunnerLimitsDialog bind:open={limitsOpen} pool={pool ?? null} />
+<PoolAutoDialog bind:open={autoOpen} pool={pool ?? null} />
 
 <!--
   A pool with nowhere to run carries the backends its hosts do offer, so the

@@ -74,7 +74,12 @@ func (c *Controller) HostStrandings(ctx context.Context, proposed *store.Host) (
 		// A disabled pool creates no runners, so nothing is waiting on it and
 		// there is nothing to refuse an edit over. It is checked again on its
 		// own account when it is enabled.
-		if !p.Enabled {
+		//
+		// A pool the controller keeps has the hosts of its class and no others,
+		// so moving a host out of the class is how the pool is meant to lose it:
+		// the controller puts the pool out of use and keeps it. Refusing the
+		// edit would make the one way to change a host's class a conflict.
+		if !p.Enabled || p.FromHosts() {
 			continue
 		}
 		if !anyHostCouldRun(hosts, p) || anyHostCouldRun(after, p) {

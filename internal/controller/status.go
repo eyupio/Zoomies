@@ -237,6 +237,7 @@ func PublicSentence(code string) string {
 var publicSentences = map[string]string{
 	"controller.problems_partial": "The controller could not check everything, so this status may be incomplete.",
 
+	"host.auto_pool_skipped":                        "A machine is in none of the pools the fleet keeps for its size, so it takes no work from them.",
 	"host.cordoned_with_work":                       "A machine is being taken out of service once its current jobs finish.",
 	"host.duplicate_agent":                          "Two machines are claiming to be the same one, so jobs may not be placed on it.",
 	"host.image_pull_failed":                        "A machine cannot download the runner image, so jobs that need it may wait.",
@@ -252,9 +253,11 @@ var publicSentences = map[string]string{
 	"installation.unhealthy":                        "The fleet has lost a permission it needs on GitHub, so jobs from some repositories cannot start.",
 	"jobs.oom_killed":                               "A job ran out of memory on its machine, so it failed through no fault of its own.",
 	"jobs.runner_lost":                              "A runner stopped while running a job, so that job may fail or need a re-run.",
+	"jobs.label_advice":                             "Some workflows ask for a machine size their jobs do not need, or need more than they ask for.",
 	"jobs.unmatched":                                "Some jobs ask for runner labels this fleet does not offer, so they will wait until the workflow or the fleet changes.",
 	"poller.paused":                                 "The controller has stopped asking GitHub for queued jobs, so a missed notification is not caught.",
 	"poller.stale":                                  "The controller has not heard from GitHub recently, so new jobs may be noticed late.",
+	"pool.auto_blocked":                             "A pool the fleet should keep for a size of machine could not be made, so jobs for that size wait.",
 	"pool.cache_above_disk":                         "A runner cache is set larger than the disk it lives on.",
 	"pool.cache_memory_unbounded":                   "A runner cache kept in memory has no size limit, so it could use all of a machine's memory.",
 	"pool.cache_shared":                             "A runner cache is shared more widely than usual.",

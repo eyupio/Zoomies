@@ -237,6 +237,17 @@ func (s *Server) apiRoutes() chi.Router {
 			r.With(s.require(auth.ActionPoolsWrite)).Post("/{id}/prewarm", s.handlePrewarmPool)
 		})
 
+		// Size classes: what the controller keeps for each size of host, what an
+		// operator has put in a class by hand, and what a workflow's runs-on could
+		// say better. The first two are pool matters and the last a job one.
+		r.With(s.require(auth.ActionPoolsRead)).Get("/auto-pools", s.handleAutoPools)
+		r.Route("/size-pins", func(r chi.Router) {
+			r.With(s.require(auth.ActionPoolsRead)).Get("/", s.handleListSizePins)
+			r.With(s.require(auth.ActionPoolsWrite)).Put("/", s.handleSetSizePin)
+			r.With(s.require(auth.ActionPoolsWrite)).Delete("/", s.handleDeleteSizePin)
+		})
+		r.With(s.require(auth.ActionJobsRead)).Get("/label-advice", s.handleLabelAdvice)
+
 		// What each pool's jobs install, read from their workflows, and the
 		// scan that reads it. The scan spends GitHub quota and is started by
 		// whoever may change pools; reading its result is a pool read.

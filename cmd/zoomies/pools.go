@@ -105,6 +105,14 @@ func poolsList(ctx context.Context, e *env, args []string) error {
 		if !item.Enabled {
 			enabled = p.paint(colourDim, "no")
 		}
+		// A pool the controller keeps is out of use for one of two reasons, and
+		// they are different things to do something about.
+		if a := item.Auto; a != nil && !item.Enabled {
+			enabled = p.paint(colourDim, "paused")
+			if !a.Paused {
+				enabled = p.paint(colourDim, "no hosts")
+			}
+		}
 		rows = append(rows, []string{
 			item.Name,
 			item.ID,
@@ -151,7 +159,7 @@ func poolsGet(ctx context.Context, e *env, args []string) error {
 		return p.emit(raw)
 	}
 
-	p.keyValues([][2]string{
+	rows := [][2]string{
 		{"name", pool.Name},
 		{"id", pool.ID},
 		{"enabled", p.yesNo(pool.Enabled, false)},
@@ -179,9 +187,33 @@ func poolsGet(ctx context.Context, e *env, args []string) error {
 		{"in memory", poolTmpfsLabel(pool)},
 		{"created", p.relTime(pool.CreatedAt)},
 		{"updated", p.relTime(pool.UpdatedAt)},
-	})
+	}
+	if a := pool.Auto; a != nil {
+		rows = append(rows,
+			[2]string{"kept by the controller", plain(a.Summary)},
+			[2]string{"asked of it", autoAsk(a)})
+	}
+	p.keyValues(rows)
 	printProblems(p, pool.Warnings, "This pool has settings that weaken the defaults:")
 	return nil
+}
+
+// autoAsk says what an operator has asked of a pool the controller keeps.
+func autoAsk(a *poolAuto) string {
+	var parts []string
+	if a.Warm > 0 {
+		parts = append(parts, fmt.Sprintf("%s kept warm", plural(a.Warm, "runner")))
+	}
+	if a.Cap > 0 {
+		parts = append(parts, fmt.Sprintf("at most %s", plural(a.Cap, "runner")))
+	}
+	if a.Paused {
+		parts = append(parts, "paused")
+	}
+	if len(parts) == 0 {
+		return "nothing"
+	}
+	return strings.Join(parts, ", ")
 }
 
 // poolSizing says what one runner of this pool is given, in the wizard's own
@@ -787,7 +819,10 @@ func poolsEdit(ctx context.Context, e *env, args []string) error {
 		"Change the settings you name. Anything you do not name is left alone.")
 	cf := registerClientFlags(fs, true)
 	spec := registerPoolFlags(fs)
+	warm := fs.Int("warm", 0, "on a pool the controller keeps: runners to keep ready (0 for none)")
+	capRunners := fs.Int("cap", 0, "on a pool the controller keeps: the most runners to allow, however many slots its hosts give (0 for no cap)")
 	fs.example("zoomies pools edit pool_k3f9qz2m --max 12",
+		"zoomies pools edit pool_k3f9qz2m --warm 2 --cap 6   # a pool the controller keeps",
 		"zoomies pools edit pool_k3f9qz2m --size-from-host",
 		"zoomies pools edit pool_k3f9qz2m --cpu-burst automatic --cpu-burst-max 6",
 		"zoomies pools edit pool_k3f9qz2m --tmpfs-work --memory-mb 12288",
@@ -829,6 +864,16 @@ func poolsEdit(ctx context.Context, e *env, args []string) error {
 	}
 
 	body := spec.body(fs, true)
+	if fs.changed("warm") || fs.changed("cap") {
+		auto := map[string]any{}
+		if fs.changed("warm") {
+			auto["warm"] = *warm
+		}
+		if fs.changed("cap") {
+			auto["cap"] = *capRunners
+		}
+		body["auto"] = auto
+	}
 	if len(body) == 0 {
 		return usagef("pools edit", "nothing to change; name at least one setting, for example --max 8")
 	}
@@ -907,9 +952,17 @@ func poolsToggle(ctx context.Context, e *env, args []string, verb string) error 
 	if _, err := client.post(ctx, "/pools/"+url.PathEscape(id)+"/"+verb, nil, nil, &pool); err != nil {
 		return err
 	}
-	if verb == "enable" {
+	// What the response says, not what was asked: a pool the controller keeps is
+	// put back in use by the controller, from its hosts, and resuming it where it
+	// has none leaves it out of use.
+	switch {
+	case verb == "enable" && pool.Enabled:
 		fmt.Fprintf(e.out, "Pool %s is enabled.\n", pool.Name)
-	} else {
+	case verb == "enable" && pool.Auto != nil && !pool.Auto.Paused:
+		fmt.Fprintf(e.out, "Pool %s is no longer paused, and stays out of use until a host counts towards it: the controller works that out from its hosts.\n", pool.Name)
+	case verb == "enable":
+		fmt.Fprintf(e.out, "Pool %s is still not enabled.\n", pool.Name)
+	default:
 		fmt.Fprintf(e.out, "Pool %s is disabled; its runners will drain as they become idle.\n", pool.Name)
 	}
 	return nil

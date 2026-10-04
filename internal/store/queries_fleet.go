@@ -232,24 +232,27 @@ const poolCols = `id, name, installation_id, labels, runner_group, backend, os, 
 	arch, image, pull_policy, runner_version, min_runners, max_runners, priority,
 	idle_timeout_ms, ephemeral, docker_mode, resources, cache, host_selector, env,
 	run_as_root, enabled, created_at, updated_at, repository_scale_up_limit,
-	cost_per_runner_hour, runner_settings, cpu_burst, no_default_labels, size_from_profile, tmpfs`
+	cost_per_runner_hour, runner_settings, cpu_burst, no_default_labels, size_from_profile, tmpfs,
+	auto_key, auto_min, auto_cap, auto_paused`
 
 func scanPool(sc interface{ Scan(...any) error }) (*Pool, error) {
 	var p Pool
 	var idle, created, updated int64
-	var ephemeral, runAsRoot, enabled, noDefaultLabels, sizeFromProfile int
+	var ephemeral, runAsRoot, enabled, noDefaultLabels, sizeFromProfile, autoPaused int
 	var resources, cache, runnerSettings, cpuBurst, tmpfs string
 	err := sc.Scan(&p.ID, &p.Name, &p.InstallationID, &p.Labels, &p.RunnerGroup, &p.Backend,
 		&p.Platform.OS, &p.Platform.OSVersion, &p.Platform.Arch,
 		&p.Image, &p.PullPolicy, &p.RunnerVersion, &p.MinRunners, &p.MaxRunners, &p.Priority,
 		&idle, &ephemeral, &p.DockerMode, &resources, &cache, &p.HostSelector, &p.Env,
 		&runAsRoot, &enabled, &created, &updated, &p.RepositoryScaleUpLimit, &p.CostPerRunnerHour,
-		&runnerSettings, &cpuBurst, &noDefaultLabels, &sizeFromProfile, &tmpfs)
+		&runnerSettings, &cpuBurst, &noDefaultLabels, &sizeFromProfile, &tmpfs,
+		&p.AutoKey, &p.AutoMin, &p.AutoCap, &autoPaused)
 	if err != nil {
 		return nil, err
 	}
 	p.NoDefaultLabels = noDefaultLabels == 1
 	p.SizeFromProfile = sizeFromProfile == 1
+	p.AutoPaused = autoPaused == 1
 	p.IdleTimeout = Duration(time.Duration(idle) * time.Millisecond)
 	p.Ephemeral, p.RunAsRoot, p.Enabled = ephemeral == 1, runAsRoot == 1, enabled == 1
 	p.CreatedAt, p.UpdatedAt = at(created), at(updated)
@@ -304,7 +307,7 @@ func (s *Store) poolInsert(p *Pool) (string, []any, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	return `INSERT INTO pools (` + poolCols + `) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, []any{
+	return `INSERT INTO pools (` + poolCols + `) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, []any{
 		p.ID, p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend),
 		p.Platform.OS, p.Platform.OSVersion, p.Platform.Arch, p.Image,
 		string(p.PullPolicy),
@@ -312,7 +315,7 @@ func (s *Store) poolInsert(p *Pool) (string, []any, error) {
 		boolInt(p.Ephemeral), string(p.DockerMode), res, cache, p.HostSelector, p.Env,
 		boolInt(p.RunAsRoot), boolInt(p.Enabled), ms(p.CreatedAt), ms(p.UpdatedAt),
 		p.RepositoryScaleUpLimit, p.CostPerRunnerHour, settings, burst, boolInt(p.NoDefaultLabels),
-		boolInt(p.SizeFromProfile), tmpfs}, nil
+		boolInt(p.SizeFromProfile), tmpfs, p.AutoKey, p.AutoMin, p.AutoCap, boolInt(p.AutoPaused)}, nil
 }
 
 // poolJSON encodes the five columns a pool keeps as JSON documents.
@@ -424,14 +427,16 @@ func (s *Store) poolUpdate(p *Pool) (string, []any, error) {
 		p.RunnerVersion, p.MinRunners, p.MaxRunners, p.Priority, p.IdleTimeout.Duration().Milliseconds(),
 		boolInt(p.Ephemeral), string(p.DockerMode), res, cache, p.HostSelector, p.Env,
 		boolInt(p.RunAsRoot), boolInt(p.Enabled), ms(p.UpdatedAt), p.RepositoryScaleUpLimit,
-		p.CostPerRunnerHour, settings, burst, boolInt(p.NoDefaultLabels), boolInt(p.SizeFromProfile), tmpfs, p.ID,
+		p.CostPerRunnerHour, settings, burst, boolInt(p.NoDefaultLabels), boolInt(p.SizeFromProfile), tmpfs,
+		p.AutoMin, p.AutoCap, boolInt(p.AutoPaused), p.ID,
 	}
 	query := `UPDATE pools SET name=?, installation_id=?, labels=?, runner_group=?,
 		backend=?, os=?, os_version=?, arch=?, image=?, pull_policy=?, runner_version=?,
 		min_runners=?, max_runners=?, priority=?, idle_timeout_ms=?, ephemeral=?,
 		docker_mode=?, resources=?, cache=?, host_selector=?, env=?, run_as_root=?,
 		enabled=?, updated_at=?, repository_scale_up_limit=?, cost_per_runner_hour=?,
-		runner_settings=?, cpu_burst=?, no_default_labels=?, size_from_profile=?, tmpfs=? WHERE id=?`
+		runner_settings=?, cpu_burst=?, no_default_labels=?, size_from_profile=?, tmpfs=?,
+		auto_min=?, auto_cap=?, auto_paused=? WHERE id=?`
 	return query, args, nil
 }
 
@@ -614,7 +619,7 @@ const hostCols = `id, name, address, embedded, capacity, backends, backend_info,
 	agent_session_alternations, agent_session_alt_at,
 	disk_total_mb, disk_free_mb, reserve_cpus, reserve_memory_mb, reserve_disk_mb,
 	protocol_version, incompatible, connection, usage, throttle, features, incidents, doctor,
-	runner_profile`
+	runner_profile, size_class`
 
 func scanHost(sc interface{ Scan(...any) error }) (*Host, error) {
 	var h Host
@@ -626,7 +631,7 @@ func scanHost(sc interface{ Scan(...any) error }) (*Host, error) {
 		&h.MemoryMB, &h.Version, &cordoned, &h.TokenHash, &heartbeat, &created,
 		&h.AgentSessionID, &h.AgentSessionPrev, &h.AgentSessionAlternations, &altAt,
 		&h.DiskTotalMB, &h.DiskFreeMB, &h.ReserveCPUs, &h.ReserveMemoryMB, &h.ReserveDiskMB,
-		&h.ProtocolVersion, &incompatible, &h.Connection, &h.Usage, &h.Throttle, &h.Features, &h.Incidents, &h.Doctor, &h.RunnerProfile)
+		&h.ProtocolVersion, &incompatible, &h.Connection, &h.Usage, &h.Throttle, &h.Features, &h.Incidents, &h.Doctor, &h.RunnerProfile, &h.SizeClass)
 	if err != nil {
 		return nil, err
 	}
@@ -649,13 +654,13 @@ func (s *Store) CreateHost(ctx context.Context, h *Host) error {
 		h.LastHeartbeat = h.CreatedAt
 	}
 	_, err := s.exec(ctx, `INSERT INTO hosts (`+hostCols+`)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		h.ID, h.Name, h.Address, boolInt(h.Embedded), h.Capacity, h.Backends, h.BackendInfo,
 		h.Labels, h.OS, h.Distro, h.OSVersion, h.Arch, h.CPUs, h.MemoryMB, h.Version,
 		boolInt(h.Cordoned), h.TokenHash, ms(h.LastHeartbeat), ms(h.CreatedAt),
 		h.AgentSessionID, h.AgentSessionPrev, h.AgentSessionAlternations, msp(h.AgentSessionAltAt),
 		h.DiskTotalMB, h.DiskFreeMB, h.ReserveCPUs, h.ReserveMemoryMB, h.ReserveDiskMB,
-		h.ProtocolVersion, boolInt(h.Incompatible), h.Connection, h.Usage, h.Throttle, h.Features, h.Incidents, h.Doctor, h.RunnerProfile)
+		h.ProtocolVersion, boolInt(h.Incompatible), h.Connection, h.Usage, h.Throttle, h.Features, h.Incidents, h.Doctor, h.RunnerProfile, h.SizeClass)
 	return wrapWrite(err)
 }
 

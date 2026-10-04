@@ -123,6 +123,9 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
+		if f := s.sizeTagField(*req.Labels); f != nil {
+			fields = append(fields, *f)
+		}
 	}
 	// A reserve larger than the machine is refused rather than clamped: it
 	// leaves nothing placeable, and an operator who typed megabytes where they
@@ -517,6 +520,24 @@ func (s *Server) handleListJoinTokens(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, newList(out))
 }
 
+// sizeTagField is the refusal for a size tag that is not one of the three
+// classes exactly, or nil for labels that have none.
+//
+// While the controller works out size classes, the size tag is how an operator
+// says which one a host is in, and one that is not a class would leave the host
+// in none. It is said when it is written, on a host or on the join token that
+// will put it there, rather than found later as a host that has quietly dropped
+// out of every automatic pool. The three words are asked for as written because
+// a pool's host selector compares a label exactly. With both switches off the
+// key is an ordinary label and is not looked at.
+func (s *Server) sizeTagField(labels map[string]string) *fieldError {
+	v, ok := labels[store.LabelSize]
+	if !ok || !s.ctrl.TracksClasses() || store.SizeClass(v).Valid() {
+		return nil
+	}
+	return &fieldError{"labels", fmt.Sprintf("the size tag is a size class while the controller works classes out: write small, medium or large exactly, not %q, or remove the tag to let it be worked out from the machine", v)}
+}
+
 type createJoinTokenRequest struct {
 	TTL      string            `json:"ttl"`
 	Capacity int               `json:"capacity"`
@@ -558,6 +579,9 @@ func (s *Server) handleCreateJoinToken(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Capacity < 0 {
 		fields = append(fields, fieldError{"capacity", "capacity cannot be negative; leave it at 0 to let the agent decide from the host's CPU count"})
+	}
+	if f := s.sizeTagField(req.Labels); f != nil {
+		fields = append(fields, *f)
 	}
 	if req.Connection != "" && req.Connection != "direct" && req.Connection != "tailcat" {
 		fields = append(fields, fieldError{"connection", "choose direct or tailcat"})

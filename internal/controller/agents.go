@@ -629,6 +629,34 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 		// more slots than its operator chose, and every pool that takes its
 		// size from the host would change size with nothing to say why.
 		h.RunnerProfile = existing.RunnerProfile
+		// The labels an operator added are theirs as well, and the comment above
+		// has been saying so while the row lost every one: the join builds a host
+		// from what the agent declares and what the token pins, and neither knows
+		// about a PATCH. A label the row has and the join does not name is carried
+		// over, which is how a size tag or a rack survives a rebuilt machine.
+		//
+		// A key the agent declares, or the token pins, is not: the agent's
+		// configuration is how it says what it is now, and carrying the stored
+		// value over it would make an edit of that configuration do nothing for as
+		// long as the row lived. So the order of authority is the token's, then the
+		// agent's declaration, then what is stored. The price is on two sides: an
+		// operator's edit of a label the agent also declares is put back at a
+		// re-join, which is what "declares" means, and a label that was dropped
+		// from the agent's configuration stays until it is removed with
+		// `zoomies hosts edit --untag`, because nothing says it was the agent's.
+		for k, v := range existing.Labels {
+			if _, declared := req.Labels[k]; declared {
+				continue
+			}
+			if _, pinned := tokenLabels[k]; !pinned {
+				h.Labels[k] = v
+			}
+		}
+		// The size class is the controller's, held back while a host's
+		// measurements wobble. A rebuilt machine keeps the class it was in rather
+		// than starting the reading again, so the pool it is in does not move
+		// for the minutes it takes the first heartbeats to arrive.
+		h.SizeClass = existing.SizeClass
 		// The throttle is deliberately not carried over. It was decided from
 		// measurements of a machine that has just been rebuilt or restarted,
 		// and a rebuilt machine starts on no rung: if the pressure is still
@@ -668,8 +696,9 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 	c.log.Info("a host joined", "host", h.ID, "name", h.Name, "capacity", h.Capacity,
 		"backends", strings.Join(h.Backends, ","), "embedded", h.Embedded)
 
-	// A new host changes where runners can be placed.
+	// A new host changes where runners can be placed, and which pools exist.
 	c.Nudge()
+	c.KickAutoPools()
 
 	return &agent.JoinResponse{
 		HostID:            h.ID,
@@ -1411,6 +1440,14 @@ func (c *Controller) applyReports(ctx context.Context, hostID string, reports []
 				// the report.
 				if err := c.st.RecordJobUsage(ctx, r.ID, rep.Stats.CPUPercent/100, rep.Stats.MemoryBytes/(1<<20)); err != nil {
 					c.log.Debug("could not record a job's usage", "runner", r.ID, "error", err)
+				}
+				// How often the runner was held back by its CPU quota, which is
+				// what tells a job that wants more CPU from one that is merely
+				// busy. An agent that sends no counters leaves the job as it was.
+				if t := rep.Stats.CPUThrottling; t != nil && c.sizeMode() != scheduler.SizeOff {
+					if err := c.st.RecordJobThrottle(ctx, r.ID, int64(t.Periods), int64(t.ThrottledPeriods)); err != nil {
+						c.log.Debug("could not record a job's CPU throttling", "runner", r.ID, "error", err)
+					}
 				}
 			}
 		}

@@ -444,8 +444,12 @@ test('an empty feed says when it is the operator’s own choices that emptied it
 
   const feed = page.getByRole('region', { name: 'Recent events', exact: true });
   await expect(feed).toContainText('Nothing in the kinds you are watching');
+  // Every kind, counted from the page rather than written down: how many a
+  // release ships is not what this is about.
   await expect(feed).toContainText(
-    /\d+ events? (is|are) not shown, because 12 kinds of event are switched off for this browser/,
+    new RegExp(
+      `\\d+ events? (is|are) not shown, because ${count} kinds of event are switched off for this browser`,
+    ),
   );
   await expect(feed).not.toContainText('Nothing has happened yet');
 });

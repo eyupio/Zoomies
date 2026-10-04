@@ -378,6 +378,27 @@ export const disablePool = (id: string) =>
 export const prewarmPool = (id: string) =>
   api.post<Result<'prewarmPool'>>(`/pools/${enc(id)}/prewarm`, {});
 
+/* -- size classes and automatic pools --------------------------------------- */
+
+/**
+ * What the controller keeps, would keep, and could not: the two switches, the
+ * pools, the hosts left out and why, and where each class begins and ends.
+ */
+export const getAutoPools = (signal?: AbortSignal) =>
+  api.get<Result<'getAutoPools'>>('/auto-pools', { signal });
+
+export const listSizePins = (signal?: AbortSignal) =>
+  api.get<Result<'listSizePins'>>('/size-pins', { signal });
+
+export const setSizePin = (body: Body<'setSizePin'>) =>
+  api.put<Result<'setSizePin'>>('/size-pins', { body });
+
+export const deleteSizePin = (query: Query<'deleteSizePin'>) =>
+  api.del<Result<'deleteSizePin'>>('/size-pins', { query });
+
+export const listLabelAdvice = (query?: Query<'listLabelAdvice'>, signal?: AbortSignal) =>
+  api.get<Result<'listLabelAdvice'>>('/label-advice', { query, signal });
+
 /* -- runners -------------------------------------------------------------- */
 
 export const listRunners = (query?: Query<'listRunners'>, signal?: AbortSignal) =>

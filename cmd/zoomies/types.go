@@ -78,6 +78,23 @@ type poolItem struct {
 	CPUBurst poolCPUBurst `json:"cpu_burst"`
 	// Tmpfs is which of the runner's folders the pool keeps in memory.
 	Tmpfs poolTmpfs `json:"tmpfs"`
+	// Auto is present on a pool the controller keeps from the hosts it has.
+	Auto *poolAuto `json:"auto"`
+}
+
+// poolAuto is what is particular to a pool the controller keeps: what the
+// operator asked of it, and what its hosts give it.
+type poolAuto struct {
+	Key     string   `json:"key"`
+	Arch    string   `json:"arch"`
+	Class   string   `json:"class"`
+	Warm    int      `json:"warm"`
+	Cap     int      `json:"cap"`
+	Paused  bool     `json:"paused"`
+	Kept    bool     `json:"kept"`
+	Hosts   []string `json:"hosts"`
+	Slots   int      `json:"slots"`
+	Summary string   `json:"summary"`
 }
 
 // poolTmpfs mirrors the API's TmpfsConfig. Every field is zero on a pool that
@@ -235,6 +252,96 @@ type jobItem struct {
 	ControllerChannel string `json:"controller_channel"`
 	AgentVersion      string `json:"agent_version"`
 	HostID            string `json:"host_id"`
+
+	// How the controller classed the job, where it sent it and which class of
+	// host took it; all empty on a job nobody classed.
+	SizeClass      string   `json:"size_class"`
+	SizeBasis      string   `json:"size_basis"`
+	SizeReason     string   `json:"size_reason"`
+	RoutedClass    string   `json:"routed_class"`
+	RoutedNote     string   `json:"routed_note"`
+	RanClass       string   `json:"ran_class"`
+	ThrottledShare *float64 `json:"throttled_share"`
+}
+
+// sizePinItem is an operator's pin of a job, or a repository, to a size class.
+type sizePinItem struct {
+	Repo      string    `json:"repo"`
+	Workflow  string    `json:"workflow"`
+	JobName   string    `json:"job_name"`
+	Class     string    `json:"class"`
+	CreatedBy string    `json:"created_by"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// sanitise makes what an operator typed safe to print. A pin's workflow and job
+// are copied from a workflow file, whose author may not be the person at the
+// terminal.
+func (p *sizePinItem) sanitise() {
+	p.Repo, p.Workflow, p.JobName, p.CreatedBy = plain(p.Repo), plain(p.Workflow), plain(p.JobName), plain(p.CreatedBy)
+}
+
+// sanitise makes every field a workflow author controls safe to print, where the
+// response is decoded: a job's name and its workflow's are theirs, and so are the
+// labels it asked for, which the message and the fix quote.
+func (a *labelAdviceItem) sanitise() {
+	a.Repo, a.Workflow, a.JobName = plain(a.Repo), plain(a.Workflow), plain(a.JobName)
+	for i, l := range a.Labels {
+		a.Labels[i] = plain(l)
+	}
+	a.Message, a.Fix = plain(a.Message), plain(a.Fix)
+}
+
+// labelAdviceItem is one thing to change in one job's runs-on.
+type labelAdviceItem struct {
+	Repo     string   `json:"repo"`
+	Workflow string   `json:"workflow"`
+	JobName  string   `json:"job_name"`
+	Kind     string   `json:"kind"`
+	Asked    string   `json:"asked"`
+	Class    string   `json:"class"`
+	Runs     int      `json:"runs"`
+	Labels   []string `json:"labels"`
+	Message  string   `json:"message"`
+	Fix      string   `json:"fix"`
+}
+
+// autoPoolsItem is GET /auto-pools: the state of size routing and of the pools
+// the controller keeps.
+type autoPoolsItem struct {
+	SizeRouting  string `json:"size_routing"`
+	AutoPools    string `json:"auto_pools"`
+	Installation string `json:"installation"`
+	Problem      string `json:"problem"`
+	Pools        []struct {
+		Key    string   `json:"key"`
+		Name   string   `json:"name"`
+		PoolID string   `json:"pool_id"`
+		Hosts  []string `json:"hosts"`
+		Slots  int      `json:"slots"`
+	} `json:"pools"`
+	Findings []struct {
+		Message string `json:"message"`
+		Fix     string `json:"fix"`
+	} `json:"findings"`
+	Skipped []struct {
+		Host    string `json:"host"`
+		Message string `json:"message"`
+	} `json:"skipped"`
+	Pending []struct {
+		Kind  string `json:"kind"`
+		Pool  string `json:"pool"`
+		Cause string `json:"cause"`
+	} `json:"pending"`
+	Classes []struct {
+		Class           string  `json:"class"`
+		Label           string  `json:"label"`
+		HostMaxCPUs     float64 `json:"host_max_cpus"`
+		HostMaxMemoryMB int64   `json:"host_max_memory_mb"`
+		RunnerCPUs      float64 `json:"runner_cpus"`
+		RunnerMemoryMB  int64   `json:"runner_memory_mb"`
+	} `json:"classes"`
+	DefaultClass string `json:"default_class"`
 }
 
 type jobStep struct {
@@ -311,9 +418,16 @@ type hostItem struct {
 	// what sets it. RunnerProfile is what the operator wrote, nil when nothing,
 	// and EffectiveProfile what is in force with the fleet's figures standing in
 	// for the rest. A controller older than the fields sends none of them.
-	Slots            int            `json:"slots"`
-	SlotsLimitedBy   string         `json:"slots_limited_by"`
-	RunnerProfile    *runnerProfile `json:"runner_profile"`
+	Slots          int            `json:"slots"`
+	SlotsLimitedBy string         `json:"slots_limited_by"`
+	RunnerProfile  *runnerProfile `json:"runner_profile"`
+	// Tags, SizeClass and AutoPool are what the host says about its place in the
+	// size classes: its tags with which are the controller's, the class it is in
+	// and why, and the automatic pool it counts towards or the reason it counts
+	// towards none. A controller older than the fields sends none of them.
+	Tags             []hostTag      `json:"tags"`
+	SizeClass        *hostSizeClass `json:"size_class"`
+	AutoPool         *hostAutoPool  `json:"auto_pool"`
 	EffectiveProfile struct {
 		Standard struct {
 			CPUs           float64 `json:"cpus"`
@@ -322,6 +436,31 @@ type hostItem struct {
 			MemoryMBSource string  `json:"memory_mb_source"`
 		} `json:"standard"`
 	} `json:"effective_profile"`
+}
+
+// hostTag is one thing a pool's host selector can ask of a host. Source is
+// "operator" for a label stored on it and "automatic" for one the controller
+// derives from the machine.
+type hostTag struct {
+	Key       string `json:"key"`
+	Value     string `json:"value"`
+	Source    string `json:"source"`
+	Overrides string `json:"overrides"`
+}
+
+type hostSizeClass struct {
+	Class    string `json:"class"`
+	Source   string `json:"source"`
+	Measured string `json:"measured"`
+	Pending  string `json:"pending"`
+	Reason   string `json:"reason"`
+}
+
+type hostAutoPool struct {
+	Counted    bool   `json:"counted"`
+	Pool       string `json:"pool"`
+	Reason     string `json:"reason"`
+	ReasonCode string `json:"reason_code"`
 }
 
 // runnerProfile is a host's runner profile as the API writes and reads it.

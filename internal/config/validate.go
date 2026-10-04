@@ -306,6 +306,7 @@ func (c *Config) Validate() Findings {
 	if mode := c.Scheduler.HistorySizing; mode != "" && mode != "off" && mode != "shadow" && mode != "on" {
 		add(Finding{Code: "scheduler.history_sizing", Severity: SeverityError, Setting: "scheduler.history_sizing", Title: "unknown history sizing mode", Fix: "choose off, shadow or on."})
 	}
+	c.validateSizeRouting(add)
 	if order := c.Scheduler.HostOrder; order != "" && order != "headroom" && order != "largest_standard" && order != "best_fit" {
 		add(Finding{Code: "scheduler.host_order", Severity: SeverityError, Setting: "scheduler.host_order", Title: "unknown host placement order", Fix: "choose headroom, largest_standard or best_fit."})
 	}
@@ -1653,4 +1654,64 @@ func (c *Config) mcpOAuthFindings(add func(Finding)) {
 		Fix: "nothing to change. In Claude, add a custom connector with the URL " + where + "; in Claude Code, run " +
 			"`claude mcp add --transport http zoomies " + where + "`. People see and revoke their connections under Settings, MCP connections.",
 	})
+}
+
+// validateSizeRouting checks the settings of size routing and automatic pools.
+//
+// Every figure here is read by pure functions that cannot say what is wrong
+// with one, and a bad one fails quietly: a medium limit below the small one
+// makes the middle class empty, and a runner in a larger class that is smaller
+// than a lower one makes a job's class depend on which way it is read. So each
+// is refused with the setting that has to change.
+func (c *Config) validateSizeRouting(add func(Finding)) {
+	s := c.Scheduler
+	invalid := func(mode string) bool { return mode != "" && mode != "off" && mode != "shadow" && mode != "on" }
+	if invalid(s.SizeRouting) {
+		add(Finding{Code: "scheduler.size_routing", Severity: SeverityError, Setting: "scheduler.size_routing", Title: "unknown size routing mode", Fix: "choose off, shadow or on."})
+	}
+	if invalid(s.AutoPools) {
+		add(Finding{Code: "scheduler.auto_pools", Severity: SeverityError, Setting: "scheduler.auto_pools", Title: "unknown automatic pools mode", Fix: "choose off, shadow or on."})
+	}
+	if m := s.AutoPoolsDockerMode; m != "" && m != "none" && m != "dind" {
+		add(Finding{Code: "scheduler.auto_pools_docker_mode", Severity: SeverityError, Setting: "scheduler.auto_pools_docker_mode",
+			Title: "unknown docker mode for automatic pools", Detail: "A pool the controller makes is not one anybody reviewed the exposure of, so the host's own Docker socket is not offered to it.",
+			Fix: "choose none or dind."})
+	}
+	if k := s.SizeDefaultClass; k != "" && k != "small" && k != "medium" && k != "large" {
+		add(Finding{Code: "scheduler.size_default_class", Severity: SeverityError, Setting: "scheduler.size_default_class", Title: "unknown size class", Fix: "choose small, medium or large."})
+	}
+	if s.SizeSmallMaxCPUs <= 0 || s.SizeSmallMaxMemoryMB <= 0 ||
+		s.SizeMediumMaxCPUs < s.SizeSmallMaxCPUs || s.SizeMediumMaxMemoryMB < s.SizeSmallMaxMemoryMB {
+		add(Finding{Code: "scheduler.size_class_limits", Severity: SeverityError, Setting: "scheduler.size_small_max_cpus",
+			Title:  "the size class limits leave a class empty or are not positive",
+			Detail: "A host is small up to the small limits, medium up to the medium ones and large above, so each medium limit must be at least the small one, and every limit above zero.",
+			Fix:    "set scheduler.size_small_max_* and scheduler.size_medium_max_* so that small is no larger than medium; the defaults are 4 CPUs and 16 GB, and 12 CPUs and 48 GB."})
+	}
+	r := c.Runners
+	small := [2]float64{r.SmallCPUs, float64(r.SmallMemoryMB)}
+	medium := [2]float64{r.MediumCPUs, float64(r.MediumMemoryMB)}
+	large := [2]float64{r.LargeCPUs, float64(r.LargeMemoryMB)}
+	ordered := small[0] > 0 && small[1] > 0 && medium[0] >= small[0] && medium[1] >= small[1] && large[0] >= medium[0] && large[1] >= medium[1]
+	if !ordered {
+		add(Finding{Code: "runners.class_sizes", Severity: SeverityError, Setting: "runners.small_cpus",
+			Title:  "the runner sizes of the size classes are not positive and growing",
+			Detail: "A job is classed as the smallest runner that holds it, so a larger class with a smaller runner would never be chosen, and one with none could hold nothing.",
+			Fix:    "set runners.small_*, runners.medium_* and runners.large_* so that small is no larger than medium and medium no larger than large; the defaults are 1 CPU and 2 GB, 2 and 4 GB, and 4 and 8 GB."})
+	}
+	if g := s.AutoPoolsHostGrace; g <= RunnersLostAfter {
+		add(Finding{Code: "scheduler.auto_pools_host_grace", Severity: SeverityError, Setting: "scheduler.auto_pools_host_grace",
+			Title:  "the grace before a silent host stops counting is not longer than the fleet's own",
+			Detail: "After five minutes of silence the fleet gives a host's runners up. A grace inside that would have a pool shrink while the host's jobs are still being counted live, which is the reshuffle it exists to prevent.",
+			Fix:    "set scheduler.auto_pools_host_grace above 5m; the default is 10m."})
+	}
+	if s.SizeClassHold < 0 || s.SizeFallbackWait < 0 {
+		add(Finding{Code: "scheduler.size_wait_negative", Severity: SeverityError, Setting: "scheduler.size_class_hold",
+			Title: "a size routing wait is negative", Fix: "set scheduler.size_class_hold and scheduler.size_fallback_wait to a duration, or 0 for none."})
+	}
+	if s.SizeRouting == "on" && (s.AutoPools == "" || s.AutoPools == "off") {
+		add(Finding{Code: "scheduler.size_routing_without_pools", Severity: SeverityInfo, Setting: "scheduler.auto_pools",
+			Title:  "size routing is on and automatic pools are off",
+			Detail: "Jobs are classed, but no pool is kept for a class, so a job is only ever answered by a pool you made that carries its size label.",
+			Fix:    "turn scheduler.auto_pools on, or label your own pools zoomies-small, zoomies-medium and zoomies-large."})
+	}
 }

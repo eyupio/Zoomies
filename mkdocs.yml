@@ -162,6 +162,7 @@ nav:
   - Running the fleet from the web UI:
       - The UI, page by page: ui.md
       - Hosts and pools: hosts-and-pools.md
+      - Size classes and automatic pools: auto-pools.md
       - Persistent caches: persistent-caches.md
       - Elastic CPU zoomies: elastic-cpu.md
       - Private hosts with Tailcat: private-hosts.md

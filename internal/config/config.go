@@ -632,6 +632,57 @@ type Scheduler struct {
 	// to need from their recent runs. Shadow, the default, works it out and
 	// records where it would have differed without changing placement.
 	HistorySizing string `yaml:"history_sizing"`
+	// SizeRouting is off, shadow or on: whether jobs are classed small, medium
+	// or large from what their runs used, and sent to a pool for that class.
+	// Shadow works the class out and records it, and where the job ran, without
+	// sending anything anywhere, so an operator reads the misroute rate of their
+	// own fleet before relying on it. Off is every fleet until somebody says
+	// otherwise, and with it off no job is classed and no host is given a class
+	// on this setting's account.
+	SizeRouting string `yaml:"size_routing"`
+	// AutoPools is off, shadow or on: whether the controller makes and keeps a
+	// pool for each architecture and size class among the hosts it has, and
+	// sizes each one by the hosts in it. Shadow says what it would do and does
+	// none of it; it still works out each host's class, so the Hosts page shows
+	// the tags. Off leaves pools exactly as the operator made them.
+	AutoPools string `yaml:"auto_pools"`
+	// AutoPoolsInstallation is the GitHub App installation the automatic pools
+	// belong to, by the target it manages. Empty is the only installation, which
+	// is the answer for a fleet that has one; with several it has to be said,
+	// because a pool belongs to exactly one and the controller will not guess
+	// whose runners a host's capacity is for.
+	AutoPoolsInstallation string `yaml:"auto_pools_installation"`
+	// AutoPoolsDockerMode is the docker mode runners in automatic pools are made
+	// with: none, dind or host-socket. None is the safe answer and the default;
+	// a fleet whose jobs build images chooses dind, once, here, rather than on
+	// every pool the controller makes.
+	AutoPoolsDockerMode string `yaml:"auto_pools_docker_mode"`
+	// AutoPoolsHostGrace is how long a host may go without a heartbeat and still
+	// count towards its pool's maximum. It is longer than the time after which
+	// the fleet gives a silent host's runners up, so a brief network drop does
+	// not reshuffle the pools; a host silent for longer than this stops counting
+	// until it is heard from again.
+	AutoPoolsHostGrace time.Duration `yaml:"auto_pools_host_grace"`
+	// SizeClassHold is how long a host's measurements must name a different
+	// class before the host moves to it. A host that measures one side of a
+	// threshold and then the other never moves at all.
+	SizeClassHold time.Duration `yaml:"size_class_hold"`
+	// SizeDefaultClass is the class of a job nothing is known about. The middle
+	// class is the fleet's own default runner size, so a job that has never run
+	// gets the runner it would have had before there were classes.
+	SizeDefaultClass string `yaml:"size_default_class"`
+	// SizeFallbackWait is how long a job waits for room in its class before
+	// another is allowed to take it. A class with no pool at all is not waited
+	// on.
+	SizeFallbackWait time.Duration `yaml:"size_fallback_wait"`
+	// SizeSmallMaxCPUs and SizeSmallMaxMemoryMB are the most a small host has
+	// allocatable, after its reserve, and SizeMediumMax* the most a medium one
+	// has: a host is in the lower of the classes its CPU and its memory each
+	// name, and anything above the medium limits is large.
+	SizeSmallMaxCPUs      float64 `yaml:"size_small_max_cpus"`
+	SizeSmallMaxMemoryMB  int64   `yaml:"size_small_max_memory_mb"`
+	SizeMediumMaxCPUs     float64 `yaml:"size_medium_max_cpus"`
+	SizeMediumMaxMemoryMB int64   `yaml:"size_medium_max_memory_mb"`
 	// Interval is how often the reconcile loop runs even without an event.
 	Interval time.Duration `yaml:"interval"`
 	// ScaleUpDelay makes the scheduler wait before reacting to a queued job,
@@ -813,6 +864,34 @@ type Runners struct {
 	// they existed, so an upgrade changes nothing.
 	MinimumCPUs     float64 `yaml:"minimum_cpus"`
 	MinimumMemoryMB int64   `yaml:"minimum_memory_mb"`
+	// SmallCPUs, SmallMemoryMB and the same for medium and large are the size of
+	// one runner in each size class, for a host whose runner profile says nothing
+	// of its own. They are what a runner in an automatic pool is given there, and
+	// what a job is measured against when it is classed -- a job is as big as the
+	// smallest runner that holds it. They are chosen to tile the hosts in each
+	// class, and the medium one is DefaultRunnerSize, so a job nothing is known
+	// about gets the runner it would have had before there were classes.
+	SmallCPUs      float64 `yaml:"small_cpus"`
+	SmallMemoryMB  int64   `yaml:"small_memory_mb"`
+	MediumCPUs     float64 `yaml:"medium_cpus"`
+	MediumMemoryMB int64   `yaml:"medium_memory_mb"`
+	LargeCPUs      float64 `yaml:"large_cpus"`
+	LargeMemoryMB  int64   `yaml:"large_memory_mb"`
+}
+
+// ClassRunnerSize is the size of one runner in a size class -- small, medium or
+// large -- and zero for anything else, including a class nobody has set a size
+// for.
+func (r Runners) ClassRunnerSize(class string) (cpus float64, memoryMB int64) {
+	switch class {
+	case "small":
+		return r.SmallCPUs, r.SmallMemoryMB
+	case "medium":
+		return r.MediumCPUs, r.MediumMemoryMB
+	case "large":
+		return r.LargeCPUs, r.LargeMemoryMB
+	}
+	return 0, 0
 }
 
 // The size a runner gets where nothing else says: two cores and four
@@ -992,6 +1071,19 @@ func Default() *Config {
 			HistorySizing:           "shadow",
 			HostThrottling:          true,
 			AutoRerunLimit:          1,
+			// Everything about size classes is off until an operator turns it
+			// on, and the figures below are what it does when they do. They are
+			// held equal to scheduler.DefaultSizeConfig by a test in the
+			// controller, which sees both.
+			SizeRouting:         "off",
+			AutoPools:           "off",
+			AutoPoolsDockerMode: "none",
+			AutoPoolsHostGrace:  10 * time.Minute,
+			SizeClassHold:       10 * time.Minute,
+			SizeDefaultClass:    "medium",
+			SizeFallbackWait:    2 * time.Minute,
+			SizeSmallMaxCPUs:    4, SizeSmallMaxMemoryMB: 16 * 1024,
+			SizeMediumMaxCPUs: 12, SizeMediumMaxMemoryMB: 48 * 1024,
 		},
 		Log:     Log{Level: "info", Format: "json"},
 		Metrics: Metrics{Enabled: true, Path: "/metrics"},
@@ -1021,6 +1113,11 @@ func Default() *Config {
 			DockerWait:      3 * time.Minute,
 			DefaultCPUs:     DefaultRunnerCPUs,
 			DefaultMemoryMB: DefaultRunnerMemoryMB,
+			// The size classes' runners, held equal to scheduler.DefaultSizeConfig
+			// by a test in the controller, which sees both.
+			SmallCPUs: 1, SmallMemoryMB: 2 * 1024,
+			MediumCPUs: 2, MediumMemoryMB: 4 * 1024,
+			LargeCPUs: 4, LargeMemoryMB: 8 * 1024,
 		},
 		// Daily: releases are not frequent, and a controller that asks once a
 		// day still tells you within a working day of one being published.

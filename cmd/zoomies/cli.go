@@ -345,6 +345,10 @@ func (c *apiClient) post(ctx context.Context, path string, q url.Values, body, o
 	return c.do(ctx, http.MethodPost, path, q, body, out)
 }
 
+func (c *apiClient) put(ctx context.Context, path string, q url.Values, body, out any) ([]byte, error) {
+	return c.do(ctx, http.MethodPut, path, q, body, out)
+}
+
 func (c *apiClient) patch(ctx context.Context, path string, q url.Values, body, out any) ([]byte, error) {
 	return c.do(ctx, http.MethodPatch, path, q, body, out)
 }

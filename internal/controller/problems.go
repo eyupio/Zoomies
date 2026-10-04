@@ -146,6 +146,7 @@ var problemAudience = map[string]Audience{
 	// machines it rents and the App it runs on. An operator who uses the
 	// fleet is the person who can act on every one of these.
 	"host.cordoned_with_work":                       AudienceFleet,
+	"host.auto_pool_skipped":                        AudienceFleet,
 	"host.duplicate_agent":                          AudienceFleet,
 	"host.image_pull_failed":                        AudienceFleet,
 	"host.limits_unenforceable":                     AudienceFleet,
@@ -160,9 +161,11 @@ var problemAudience = map[string]Audience{
 	"installation.unhealthy":                        AudienceFleet,
 	"jobs.oom_killed":                               AudienceFleet,
 	"jobs.runner_lost":                              AudienceFleet,
+	"jobs.label_advice":                             AudienceFleet,
 	"jobs.unmatched":                                AudienceFleet,
 	"poller.paused":                                 AudienceFleet,
 	"poller.stale":                                  AudienceFleet,
+	"pool.auto_blocked":                             AudienceFleet,
 	"pool.cache_above_disk":                         AudienceFleet,
 	"pool.cache_memory_unbounded":                   AudienceFleet,
 	"pool.cache_shared":                             AudienceFleet,
@@ -376,6 +379,8 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	gather("in-memory folders by host", c.tmpfsHostProblems)
 	gather("sidecar share", c.daemonShareAdviceProblems)
 	gather("runner profiles", c.runnerProfileProblems)
+	gather("automatic pools", c.autoPoolProblems)
+	gather("label advice", c.labelAdviceProblems)
 	gather("host incidents", c.hostIncidentProblems)
 	out = append(out, c.fenceProblems()...)
 	out = append(out, c.ssoProblems()...)
@@ -1794,6 +1799,17 @@ func (c *Controller) jobProblems(ctx context.Context, out *[]Problem) error {
 		tail = fmt.Sprintf(" %s.", capitalise(reason))
 		fix = "point the workflow at a pool on the installation covering that repository, or add a pool there; a pool only ever runs work in its own GitHub target."
 	}
+	// A job that asks for a size class by name is the one case where the label
+	// is this fleet's own, so "if another provider serves those labels" is the
+	// wrong thing to say about it: it is asking for something automatic pools
+	// make, and the question is why no pool carries it.
+	// Not where the scheduler has said why: a pool that carries the label exists,
+	// on another installation, and that is what to fix.
+	if class, ok := scheduler.RequestedClass(example.Labels); ok && unmatched[0].Reason == "" {
+		why, remedy := c.namedClassWhy(class)
+		tail = fmt.Sprintf(" It asks for %s by name and no enabled pool carries that label: %s. A job that names its class is never moved to another.", class.Label(), why)
+		fix = remedy
+	}
 	*out = append(*out, Problem{
 		Code:     "jobs.unmatched",
 		Severity: config.SeverityWarning,
@@ -1814,6 +1830,23 @@ func capitalise(s string) string {
 		return s
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// namedClassWhy says why nothing answers a job that asks for a size class by
+// name, and what to do about it. The class label is this fleet's own, so "if
+// another provider serves those labels" is the wrong thing to say about it: it
+// is asking for something automatic pools make, and the question is why no pool
+// carries it.
+func (c *Controller) namedClassWhy(class store.SizeClass) (why, fix string) {
+	why = "automatic pools are off, so the only pools that carry it are ones you made"
+	switch c.autoMode() {
+	case scheduler.SizeOn:
+		why = fmt.Sprintf("there is no enabled pool for the %s class, which means no %s host is enrolled that counts (a host that is cordoned, silent or paused does not), or you paused that pool", class, class)
+	case scheduler.SizeShadow:
+		why = "automatic pools are only being watched, so none has been made"
+	}
+	fix = fmt.Sprintf("enrol a %s host or enable scheduler.auto_pools, or take %s out of the workflow's runs-on to let the job go to the class its history says.", class, class.Label())
+	return why, fix
 }
 
 // duplicateAgentWindow is how long after the last alternation the duplicate is
