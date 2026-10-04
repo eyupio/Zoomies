@@ -444,18 +444,18 @@
                 separate choice.
               </p>
               <div class="assistant-setup">
-                <h4>Connect your assistant</h4>
+                <h4>Use AI Context with your assistant</h4>
                 <p>
-                  Claude Code reads CLAUDE.md in your checkout. For any assistant with GitHub
-                  access, copy these instructions into the conversation; repository access does not
-                  automatically load them.
+                  Copy these instructions into your AI conversation. For repository output, they
+                  tell an assistant with GitHub access to use the generated pack first, without MCP.
+                  Claude Code can also read the managed guidance in CLAUDE.md.
                 </p>
                 <CopyButton value={aiInstructions(result)} label="Copy AI instructions" showLabel />
-                {#if result.draft?.config.destination !== 'repository'}
+                {#if destination !== 'repository'}
                   <p>
-                    Context also lives in Zoomies after verification. Connect your assistant to
-                    Zoomies and choose this repository under Settings → MCP connections → Source
-                    access.
+                    For the Zoomies route, connect your assistant and choose this repository under
+                    Settings → MCP connections → Source access. Repository and Zoomies output also
+                    supports direct GitHub access without MCP.
                   </p>
                   <Button size="sm" href="/settings/connections">Manage MCP connections</Button>
                 {:else}
@@ -649,14 +649,14 @@
               disabled: setupFrozen,
               label: 'Repository and Zoomies',
               description:
-                'Publish repository context and make it available through Zoomies after verified ingestion.',
+                'Use the generated repository pack without MCP, or connect an assistant for verified search and reads through Zoomies.',
             },
             {
               value: 'repository',
               disabled: setupFrozen,
               label: 'Repository',
               description:
-                'Keep generated context on a dedicated repository branch and as an Actions artifact.',
+                'Use the generated JSON pack with existing GitHub access and copied AI instructions. No MCP connection required.',
             },
             {
               value: 'zoomies',
@@ -668,6 +668,10 @@
             },
           ]}
         />
+        <p class="muted">
+          GitHub permissions control direct access to repository packs. Copy AI instructions after
+          setup to tell your assistant where to find the pack and to use it first.
+        </p>
         <p class="muted">
           Repository and Zoomies, and Zoomies only, keep a verified source copy in Zoomies. Explicit
           reader membership and connection consent control access to that copy.
