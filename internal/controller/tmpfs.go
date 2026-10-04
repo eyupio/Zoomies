@@ -355,6 +355,95 @@ func (c *Controller) tmpfsHostProblems(ctx context.Context, out *[]Problem) erro
 		if w, ok := keptOnDiskByHost(p, placeable); ok {
 			*out = append(*out, w)
 		}
+		if w, ok := hostSizedTmpfsWarning(p, placeable); ok {
+			*out = append(*out, w)
+		}
 	}
 	return nil
+}
+
+// hostSizedTmpfsWarning is tmpfsMemoryWarning for a pool whose runners are sized
+// by their host. Such a pool stores no memory limit, so the warning above has
+// nothing to judge and says nothing -- on exactly the pools whose runners get a
+// small limit, because a slot is a share of a machine and, for a
+// docker-in-docker pair, the runner has only its part of that share.
+//
+// The limit is worked out per host, as the scheduler gives it: one runner's
+// charge, divided between the runner and its daemon by the pool's share. The
+// folders are fitted to that exactly as the agent fits them, and the hosts they
+// come out too small on are named. The proposal is a slot at which they fit
+// unreduced, which is a runner profile's standard size to raise (or a share to
+// move), never a number written into the pool: the pool does not store one.
+func hostSizedTmpfsWarning(p *store.Pool, hosts []PoolHostRoom) (Problem, bool) {
+	if p == nil || !p.Tmpfs.Any() || p.Resources.MemoryMB > 0 {
+		return Problem{}, false
+	}
+	dind := p.DockerMode == store.DockerDinD
+	askRunner, askDaemon := p.Tmpfs.ReserveMB(), int64(0)
+	if dind {
+		askDaemon = p.Tmpfs.DaemonReserveMB()
+	}
+	// The slot at which an ask fits unreduced is the one that leaves it half
+	// the container's part, which is how far the agent fits a folder into one.
+	share := int64(p.Resources.DaemonPercent())
+	var cut []string
+	var worst int64
+	var needSlot int64
+	severity := config.SeverityInfo
+	for _, h := range hosts {
+		if h.ChargeMemoryMB <= 0 || !h.Tmpfs || h.TmpfsOff {
+			continue
+		}
+		runnerLimit, daemonLimit := h.ChargeMemoryMB, int64(0)
+		if dind {
+			r, d := store.Resources{MemoryMB: h.ChargeMemoryMB}.SplitWithDaemonShare(int(share))
+			runnerLimit, daemonLimit = r.MemoryMB, d.MemoryMB
+		}
+		work, tmp := p.Tmpfs.Sizes(runnerLimit)
+		gotRunner := work + tmp
+		gotDaemon := int64(0)
+		if dind {
+			gotDaemon = p.Tmpfs.DaemonSize(daemonLimit)
+		}
+		if gotRunner >= askRunner && gotDaemon >= askDaemon {
+			continue
+		}
+		line := fmt.Sprintf("%s (a runner has %s", h.Host, formatRoomMB(runnerLimit))
+		if askRunner > 0 {
+			line += fmt.Sprintf(", so its folders are %s of the %s asked for", formatRoomMB(gotRunner), formatRoomMB(askRunner))
+		}
+		if dind && askDaemon > 0 {
+			line += fmt.Sprintf(" and its Docker image store %s of %s", formatRoomMB(gotDaemon), formatRoomMB(askDaemon))
+		}
+		cut = append(cut, line+")")
+		// A folder that came out under half of what was asked is one the jobs
+		// notice: a checkout or a build that fills it fails with "no space left
+		// on device", which names neither the mount nor the setting.
+		if askRunner > 0 && gotRunner*2 < askRunner || askDaemon > 0 && gotDaemon*2 < askDaemon {
+			severity = config.SeverityWarning
+		}
+		slot := 2 * askRunner
+		if dind {
+			slot = max(slot*100/max(100-share, 1), 2*askDaemon*100/max(share, 1))
+		}
+		worst = max(worst, h.ChargeMemoryMB)
+		needSlot = max(needSlot, slot)
+	}
+	if len(cut) == 0 {
+		return Problem{}, false
+	}
+	sort.Strings(cut)
+	return Problem{
+		Code:     "pool.tmpfs_memory_tight",
+		Severity: severity,
+		Title:    fmt.Sprintf("pool %s: its in-memory folders were fitted to small runners on %s", p.Name, plural(len(cut), "host")),
+		Detail: "a tmpfs is charged to the memory limit of the container it is in, and this pool's runners are sized by their host, so the limit is a share of the machine -- " +
+			"for a docker-in-docker runner only its part of that share. Folders left to size themselves are fitted into half of it, and these came out smaller than asked for: " +
+			strings.Join(cut, "; ") + ". A job that fills a folder fails with \"no space left on device\".",
+		Fix: fmt.Sprintf("give these hosts runners of about %s or more (Runner sizes on each host, or fewer slots), "+
+			"move the daemon's share toward the container that needs the room, or turn off the folders that do not fit (zoomies pools edit %s --tmpfs-tmp=false). "+
+			"The largest runner here is charged %s now.", formatRoomMB(needSlot), p.Name, formatRoomMB(worst)),
+		TargetKind: "pool",
+		TargetID:   p.ID,
+	}, true
 }

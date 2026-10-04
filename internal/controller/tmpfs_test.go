@@ -534,3 +534,65 @@ func TestAnInMemoryPoolOnAnOldAgentIsWarnedInTheProblemsList(t *testing.T) {
 		t.Fatal("no pool.tmpfs_unsupported problem for a host whose agent cannot mount the folders")
 	}
 }
+
+// A pool whose runners are sized by their host stores no memory limit, so the
+// typed-limit warning had nothing to judge and was silent on exactly the pools
+// that get small runners. A 5 GB slot with 60% to the daemon leaves the runner
+// 2 GB, half of which the folders may take: /tmp came out near 200 MB and every
+// Go build died with "no space left on device".
+func TestAHostSizedPoolWhoseFoldersAreFittedToSmallRunnersIsWarned(t *testing.T) {
+	pool := &store.Pool{Name: "zoomies-ci", DockerMode: store.DockerDinD,
+		Resources: store.Resources{DaemonSharePercent: 60},
+		Tmpfs: store.TmpfsConfig{
+			Work: store.TmpfsMount{Enabled: true}, Tmp: store.TmpfsMount{Enabled: true}, Daemon: store.TmpfsMount{Enabled: true},
+		}}
+	small := PoolHostRoom{Host: "twelve-core", Tmpfs: true, ChargeMemoryMB: 5120}
+	w, ok := hostSizedTmpfsWarning(pool, []PoolHostRoom{small})
+	if !ok || w.Code != "pool.tmpfs_memory_tight" || w.Severity != config.SeverityWarning {
+		t.Fatalf("warning = %+v, ok = %v; want a warning on the small slot", w, ok)
+	}
+	for _, want := range []string{"twelve-core", "2 GB", "no space left on device"} {
+		if !strings.Contains(w.Detail, want) {
+			t.Errorf("detail %q does not say %q", w.Detail, want)
+		}
+	}
+	if !strings.Contains(w.Fix, "--tmpfs-tmp=false") || !strings.Contains(w.Fix, "zoomies-ci") {
+		t.Errorf("fix %q names no way out", w.Fix)
+	}
+
+	roomy := PoolHostRoom{Host: "big", Tmpfs: true, ChargeMemoryMB: 65536}
+	if _, ok := hostSizedTmpfsWarning(pool, []PoolHostRoom{roomy}); ok {
+		t.Error("a runner with room for the folders unreduced was warned")
+	}
+	// A host that keeps the folders off, or whose agent cannot mount them, is
+	// said elsewhere in its own words, and a slot there is not a size they get.
+	off := small
+	off.TmpfsOff = true
+	old := small
+	old.Tmpfs = false
+	if _, ok := hostSizedTmpfsWarning(pool, []PoolHostRoom{off, old}); ok {
+		t.Error("hosts that do not mount the folders were judged")
+	}
+	// A typed limit is the other warning's: this one is for what the host decides.
+	typed := *pool
+	typed.Resources.MemoryMB = 4096
+	if _, ok := hostSizedTmpfsWarning(&typed, []PoolHostRoom{small}); ok {
+		t.Error("a pool with its own memory limit was judged by its hosts")
+	}
+	if _, ok := hostSizedTmpfsWarning(&store.Pool{Name: "p"}, []PoolHostRoom{small}); ok {
+		t.Error("a pool with nothing in memory was warned")
+	}
+}
+
+// With no sidecar the runner has the whole slot, so the same slot that starves a
+// pair is enough here: the folders are fitted, not cut to a fraction.
+func TestAHostSizedPoolWithoutASidecarGetsTheWholeSlot(t *testing.T) {
+	pool := &store.Pool{Name: "plain", Tmpfs: store.TmpfsConfig{Work: store.TmpfsMount{Enabled: true}}}
+	if _, ok := hostSizedTmpfsWarning(pool, []PoolHostRoom{{Host: "h", Tmpfs: true, ChargeMemoryMB: 16384}}); ok {
+		t.Error("a 16 GB runner with a default work folder was warned")
+	}
+	w, ok := hostSizedTmpfsWarning(pool, []PoolHostRoom{{Host: "h", Tmpfs: true, ChargeMemoryMB: 4096}})
+	if !ok || w.Severity != config.SeverityInfo {
+		t.Fatalf("warning = %+v, ok = %v; a 4 GB runner fits half of 4 GB, which is small but not under half of the ask", w, ok)
+	}
+}
