@@ -274,6 +274,10 @@ func PoolRoomWarnings(p *store.Pool, room PoolRoom) []Problem {
 		out = append(out, w)
 	}
 
+	if w, ok := hostSizedTmpfsWarning(p, placeable); ok {
+		out = append(out, w)
+	}
+
 	if p.Cache.Enabled && p.Cache.SizeLimit > 0 && room.DiskKnown {
 		limitMB := p.Cache.SizeLimit / (1024 * 1024)
 		if limitMB > room.SmallestDiskMB {
