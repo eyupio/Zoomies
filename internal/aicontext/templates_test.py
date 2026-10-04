@@ -42,6 +42,44 @@ class SourceClassificationTests(unittest.TestCase):
         with self.assertRaisesRegex(generator.GenerationRefusal, '^A source file exceeds the context size limit; add an exclusion$'):
             self.read(b'private source\n' * generator.MAX_FILE)
 
+    def commit(self, files):
+        expected = {'exclude': ['**/vendor/**'], 'source_branch': 'main'}
+        files = dict(files, **{'zoomies-ai-context.config.json': json.dumps(expected).encode()})
+        for name, content in files.items():
+            target = self.root / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content)
+        git = ['git', '-C', str(self.root), '-c', 'user.name=t', '-c', 'user.email=t@example.com']
+        subprocess.run(git + ['add', '-A'], check=True)
+        subprocess.run(git + ['commit', '-qm', 'x'], check=True)
+        return expected, subprocess.check_output(git + ['rev-parse', 'HEAD']).decode().strip()
+
+    def build(self, files):
+        expected, commit = self.commit(files)
+        return generator.build(self.root, self.root / 'out', Path('/nonexistent'), expected, {}, 'h', commit)
+
+    def test_every_oversized_file_is_named_with_its_size_and_no_content(self):
+        big = b'private source\n' * (generator.MAX_FILE // 10)
+        huge = b'private source\n' * (generator.MAX_FILE // 5)
+        with self.assertRaises(generator.GenerationRefusal) as raised:
+            self.build({'main.go': b'package main\n', 'assets/big.js': big, 'docs/huge.txt': huge, 'vendor/x.go': huge})
+        message = str(raised.exception)
+        self.assertIn('2 text files over the 1.0 MiB limit; add an exclusion for each: ', message)
+        # Largest first, so the worst offender is at the front of a long list.
+        self.assertLess(message.index('docs/huge.txt (3.0 MiB)'), message.index('assets/big.js (1.5 MiB)'))
+        self.assertNotIn('main.go', message)
+        self.assertNotIn('vendor/x.go', message)
+        self.assertNotIn('private source', message)
+
+    def test_one_oversized_file_reads_in_the_singular(self):
+        with self.assertRaisesRegex(generator.GenerationRefusal, r'^1 text file over the 1\.0 MiB limit; add an exclusion for it: only\.txt \(2\.0 MiB\)$'):
+            self.build({'only.txt': b'x' * (2 << 20)})
+
+    def test_a_long_list_of_oversized_files_is_capped(self):
+        files = {'f%02d.txt' % i: b'x' * ((1 << 20) + 1 + i) for i in range(23)}
+        with self.assertRaisesRegex(generator.GenerationRefusal, r'and 3 more$'):
+            self.build(files)
+
     def test_valid_utf8_source_preserves_exact_bytes_and_limit(self):
         content = b'a' * (generator.MAX_FILE - 2) + 'é'.encode()
         self.assertEqual(self.read(content), (content, content.decode()))

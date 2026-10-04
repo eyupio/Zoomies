@@ -21,7 +21,6 @@ func PlanMaintenance(key RepositoryKey, name string, previous Config, config Con
 	for _, f := range known {
 		canonical[f.Path] = f.Content
 	}
-	legacy, _ := LegacySetupWorkflow(key, previous)
 	actual := map[string]SetupFile{}
 	var documents []SetupFile
 	var changes []SetupChange
@@ -38,7 +37,7 @@ func PlanMaintenance(key RepositoryKey, name string, previous Config, config Con
 		}
 		switch {
 		case f.Path == WorkflowPath || f.Path == ConfigPath || f.Path == GeneratorPackagePath || f.Path == GeneratorLockPath:
-			if f.SHA != "" && !owned[f.Path] && f.Content != canonical[f.Path] && !(f.Path == WorkflowPath && f.Content == legacy) {
+			if f.SHA != "" && !owned[f.Path] && f.Content != canonical[f.Path] && !(f.Path == WorkflowPath && IsOlderSetupWorkflow(key, previous, f.Content)) {
 				return nil, fmt.Errorf("%s has no recognised Zoomies ownership", f.Path)
 			}
 			if remove && f.SHA != "" {

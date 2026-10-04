@@ -566,12 +566,21 @@ the same repository can be opened.
 
 **The workflow failed in *Generate bounded source context*.** The run's log names
 the reason. The usual ones are a repository over the limits below, or a text file
-over 1 MiB that is not excluded. Add an exclusion with **Amend**, merge, and the
-next push regenerates. Generation refuses rather than skipping, so that a pack
-is never quietly incomplete: one oversized text file stops the whole run. To
-find it, list the tracked files over 1 MiB that are not binary, for example
+over 1 MiB that is not excluded. For the second, the log lists every such file
+with its size, largest first, for example
+`2 text files over the 1.0 MiB limit; add an exclusion for each: docs/huge.txt (3.0 MiB), assets/big.js (1.5 MiB)`.
+Add an exclusion for each with **Amend**, merge, and the next push regenerates.
+Generation refuses rather than skipping, so that a pack is never quietly
+incomplete: one oversized text file stops the whole run. The log never quotes file
+content. Binary files such as PDFs and archives are skipped automatically.
+
+A workflow written by an earlier Zoomies release keeps working: Zoomies recognises
+it as out of date rather than edited, and **Reinstall / repair** moves it to the
+current generator, which is the one that names the files. A repository still on
+the older workflow only sees the shorter message, `A source file exceeds the
+context size limit; add an exclusion`. In that case list the tracked text files
+over 1 MiB yourself, for example
 `git ls-files -z | xargs -0 -I{} sh -c 'test $(wc -c < "{}") -gt 1048576 && grep -Iq . "{}" && echo "{}"'`.
-Binary files such as PDFs and archives are skipped automatically.
 
 **A formatter fails on the managed files.** The workflow, the generator's
 `package.json` and the marked sections in `README.md` and `CLAUDE.md` are written
