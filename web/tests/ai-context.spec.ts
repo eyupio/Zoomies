@@ -512,3 +512,76 @@ test('a reader sees assistant notes marked AI-written and never rendered as HTML
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: 'test-results/ai-context-notes-mobile.png', fullPage: true });
 });
+
+test('a slow note never appears under the title of the one read after it', async ({ page }) => {
+  await page.route('**/api/v1/ai-context/repositories?*', (route) =>
+    route.fulfill({
+      json: {
+        items: [
+          {
+            id: 'aic_reader',
+            full_name: 'acme/context',
+            repository: {
+              github_host: 'github.com',
+              installation_id: 'installation',
+              repository_id: 42,
+            },
+            config: { source_branch: 'main', destination: 'both', exclude: [], keep_snapshots: 3 },
+            revision: 1,
+            available: true,
+            setup_state: 'complete',
+            created_at: '2026-10-03T10:00:00Z',
+            updated_at: '2026-10-03T10:00:00Z',
+          },
+        ],
+        total: 1,
+        limit: 50,
+        offset: 0,
+      },
+    }),
+  );
+  const note = (slug: string, title: string) => ({
+    id: `aia_${slug}`,
+    repository_id: 'aic_reader',
+    slug,
+    version: 1,
+    kind: 'report',
+    title,
+    source_commit: 'a'.repeat(40),
+    author_name: 'Ada',
+    via_kind: 'user',
+    created_at: '2026-10-03T10:00:00Z',
+  });
+  await page.route('**/api/v1/ai-context/source/aic_reader/notes?*', (route) =>
+    route.fulfill({
+      json: {
+        items: [note('slow', 'Slow review'), note('fast', 'Fast plan')],
+        total: 2,
+        limit: 100,
+        offset: 0,
+      },
+    }),
+  );
+  let releaseSlow = () => {};
+  const slowHeld = new Promise<void>((resolve) => (releaseSlow = resolve));
+  await page.route('**/api/v1/ai-context/source/aic_reader/notes/slow', async (route) => {
+    await slowHeld;
+    await route
+      .fulfill({ json: { ...note('slow', 'Slow review'), body: 'SLOW BODY' } })
+      .catch(() => {});
+  });
+  await page.route('**/api/v1/ai-context/source/aic_reader/notes/fast', (route) =>
+    route.fulfill({ json: { ...note('fast', 'Fast plan'), body: 'FAST BODY' } }),
+  );
+  await goto(page, '/ai-context', 'AI Context');
+  await page.getByText('Assistant notes', { exact: true }).click();
+  const read = page.getByRole('button', { name: 'Read' });
+  await read.first().click();
+  await read.last().click();
+  await expect(page.getByLabel('Fast plan, as written')).toHaveText('FAST BODY');
+  releaseSlow();
+  // Give the held reply every chance to land before checking it did not.
+  await page.waitForTimeout(500);
+  await expect(page.getByText('SLOW BODY')).toHaveCount(0);
+  await expect(page.getByLabel('Fast plan, as written')).toHaveText('FAST BODY');
+});

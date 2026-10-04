@@ -45,19 +45,28 @@
     return () => controller.abort();
   });
 
+  let readController: AbortController | null = null;
+
   async function read(slug: string): Promise<void> {
+    // A slower reply for the note read before must never land under this
+    // one's title, so each read cancels the last and checks it is still wanted.
+    readController?.abort();
+    readController = null;
     if (readingSlug === slug && reading) {
       reading = null;
       readingSlug = null;
       return;
     }
+    const controller = new AbortController();
+    readController = controller;
     readingSlug = slug;
     reading = null;
     readFailure = null;
     try {
-      reading = await getAIContextNote(repositoryId, slug);
+      const note = await getAIContextNote(repositoryId, slug, controller.signal);
+      if (!controller.signal.aborted && readingSlug === slug) reading = note;
     } catch (cause) {
-      readFailure = cause;
+      if (!controller.signal.aborted && readingSlug === slug) readFailure = cause;
     }
   }
 
