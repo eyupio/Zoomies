@@ -56,7 +56,7 @@ memory, so they are always current and never drift.
 | `zoomies_runners` | gauge | `pool`, `state` | Runners by pool and state. The main shape-of-the-fleet series. |
 | `zoomies_jobs_queued` | gauge | `pool` | Jobs waiting for a runner, under the pool that claimed them. This is the backlog worth alerting on. Work an operator removed from the queue is not waiting for anything and is not counted, nor is a job whose workflow run has been cancelled — from the moment GitHub accepts the cancellation rather than when it reports the job over. Paused work is still waiting and is still counted. |
 | `zoomies_hosts` | gauge | `state` | Agent hosts, by `healthy`, `unhealthy` or `cordoned`. |
-| `zoomies_host_capacity` | gauge | — | Configured runner slots across healthy, uncordoned hosts: what their operators set. |
+| `zoomies_host_capacity` | gauge | — | Runner slots across healthy, uncordoned hosts: what their operators set, or — on a host given a standard runner size — what its machine holds of that size, up to the capacity set. |
 | `zoomies_host_effective_capacity` | gauge | — | The same slots as the hosts' throttles leave them. Equal to the previous while no host is throttled; the gap between the two is the throttle. |
 | `zoomies_host_capacity_used` | gauge | — | Slots occupied on healthy, uncordoned hosts — the same hosts the two capacity figures count, so dividing by the effective figure gives utilisation. Runners still finishing on a cordoned or silent host are not in it; `zoomies_runners` counts every live runner. |
 | `zoomies_host_cpu_usage_percent` | gauge | `host` | Recent whole-host CPU occupied, including I/O wait. Missing when stale or unmeasured. |

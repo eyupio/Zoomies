@@ -1542,6 +1542,16 @@ fixed size. They are **not** what a pool with no size becomes: such a pool is
 given one slot's share of whichever host each runner lands on, which is the
 sizing most fleets want and what a new pool does.
 
+They are also the size of a runner on a host that names none, for a pool that
+takes its size from its hosts (`size_from_profile`): that pool is given the
+standard size of each host's [runner
+profile](hosts-and-pools.md#runner-profiles-how-big-a-runner-is-on-one-host), and
+these two stand in for every host whose profile leaves the field out. The
+controller names the hosts where that is happening
+(`pool.profile_default`), because a fleet that meant different sizes on
+different machines and got the same one on all of them has not got what it asked
+for.
+
 The distinction matters because the two behave differently as a fleet grows. A
 share follows the machine — 3.8 cores on a 16-core box with four slots, 7.6 on
 a 32-core one — so one pool is sized correctly on every host it reaches. A
@@ -1588,6 +1598,13 @@ minimum, the runner takes what that host can spare instead, never less than the
 minimum; without one, an automatic pool still waits for a whole share, and the
 pool's page says so and names the minimum as the fix. A docker-in-docker slot is
 never cut below what a runner and its daemon need between them.
+
+A host can have a minimum of its own in its [runner
+profile](hosts-and-pools.md#runner-profiles-how-big-a-runner-is-on-one-host), and
+the larger of the two applies to each field on that host: the host's figure is a
+floor under the pool's, and this setting is only what a pool and a host that say
+nothing follow. A host never lowers a minimum, and never raises one past a size a
+pool states — that pool is not used on the host at all.
 
 The minimum is the least a runner is given, never the most. Where a host's slot
 share is larger, an automatic runner gets the whole share. Where the share is
