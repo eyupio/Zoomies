@@ -194,7 +194,7 @@ func ThrottleReason(h *store.Host) string {
 		return ""
 	}
 	slots := fmt.Sprintf("throttled to %d of %d slots (step %d of %d) after sustained pressure: %s",
-		h.EffectiveCapacity(), h.Capacity, t.Level, store.MaxThrottleLevel, t.Reason)
+		h.EffectiveCapacity(), h.Slots(), t.Level, store.MaxThrottleLevel, t.Reason)
 	jobs := "running jobs continue"
 	if limited := h.ActiveRunners - h.UnlimitedRunners; limited > 0 && hostCanThrottleContainers(h) {
 		jobs = fmt.Sprintf("running jobs continue, the %s with a CPU limit at %d%% of it",

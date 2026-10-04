@@ -68,6 +68,13 @@ const (
 // into slots, and there the pair splits one slot between them -- see
 // store.Resources.SplitWithDaemon -- so it is charged one.
 //
+// A pool that takes its size from the host (SizeFromProfile) has the host's
+// standard size where an automatic pool has the share: the profile's, or the
+// fleet's default where the host's names none, and one slot's worth to split
+// between a docker-in-docker pair exactly as the share is. The host's minimum
+// is applied first (sizedOn), so every figure below follows the larger of the
+// pool's minimum and the host's.
+//
 // Both halves of that have to stay true together. Charging one share while
 // giving each container a whole one is the bug this once had: a host read as
 // half committed while its containers' quotas added up to every core it had,
@@ -79,6 +86,7 @@ const (
 // overcommit warning whose advice -- fewer slots -- makes it worse every time
 // it is taken, down to one slot holding nothing at all.
 func Reserve(p *store.Pool, h *store.Host) Reservation {
+	p = sizedOn(p, h)
 	alloc := h.Allocatable()
 	res := Reservation{
 		CPUs:     p.Resources.CPUs,
@@ -90,11 +98,20 @@ func Reserve(p *store.Pool, h *store.Host) Reservation {
 	// runner is given it and charged it, and the host holds fewer runners
 	// than its slots rather than none -- see MinimumSlot.
 	floor := MinimumSlot(p)
+	standardCPUs, standardMemoryMB := StandardSize(p, h)
 	if cpuFromHost {
-		res.CPUs = max(share(alloc.CPUs, h.Capacity), floor.CPUs)
+		slot := share(alloc.CPUs, h.Slots())
+		if standardCPUs > 0 {
+			slot = standardCPUs
+		}
+		res.CPUs = max(slot, floor.CPUs)
 	}
 	if memoryFromHost {
-		res.MemoryMB = max(int64(share(float64(alloc.MemoryMB), h.Capacity)), floor.MemoryMB)
+		slot := int64(share(float64(alloc.MemoryMB), h.Slots()))
+		if standardMemoryMB > 0 {
+			slot = standardMemoryMB
+		}
+		res.MemoryMB = max(slot, floor.MemoryMB)
 	}
 	if p.DockerMode == store.DockerDinD {
 		// Only what the operator typed doubles. A share is one slot, and the
@@ -156,6 +173,7 @@ func fieldFactor(p *store.Pool, typed bool) float64 {
 // what it takes to split between a runner and its daemon (ShareFloor), which
 // is the same line ShareTooSmall holds a whole slot to.
 func MinimumReserve(p *store.Pool, h *store.Host) Reservation {
+	p = sizedOn(p, h)
 	res := Reserve(p, h)
 	if !p.Resources.Reducible() {
 		return res
@@ -196,6 +214,7 @@ func MinimumReserve(p *store.Pool, h *store.Host) Reservation {
 // or what is left of it -- because the runner is created at exactly what it
 // is charged: a reduced runner's row is the only record of its size.
 func ReducedSize(p *store.Pool, h *store.Host, left Reservation, known store.HostAllocation) (Reservation, store.Resources, bool) {
+	p = sizedOn(p, h)
 	floor := MinimumReserve(p, h)
 	if !p.Resources.Reducible() || !fits(left, floor, known) {
 		return Reservation{}, store.Resources{}, false
@@ -271,6 +290,10 @@ func Reserved(h *store.Host, pools []*store.Pool, runners map[string][]*store.Ru
 // Room left on the host is separate, and is the scheduler's own accounting
 // during a pass -- the same split HostCanRun already makes for slots.
 func HostFits(h *store.Host, p *store.Pool) bool {
+	if ExcludedBySize(h, p) != nil {
+		return false
+	}
+	p = sizedOn(p, h)
 	if ShareTooSmall(h, p) != "" {
 		return false
 	}
@@ -314,8 +337,9 @@ func ShareTooSmall(h *store.Host, p *store.Pool) string {
 	if h == nil || p == nil || !p.Automatic() {
 		return ""
 	}
+	p = sizedOn(p, h)
 	alloc := h.Allocatable()
-	share := HostShare(h)
+	share := slotSize(p, h)
 	// A docker-in-docker runner is two containers sharing one slot, so the
 	// slot has to carry two runners' worth of floor rather than one. Refusing
 	// the host here is what keeps the split honest: a slot that cannot be
@@ -457,8 +481,15 @@ func HostReduction(h *store.Host, p *store.Pool) string {
 	if h == nil || p == nil || !HostFits(h, p) {
 		return ""
 	}
+	p = sizedOn(p, h)
 	alloc := h.Allocatable()
 	if p.Automatic() {
+		// A pool that takes its size from the host is given the size the host
+		// names, which is what its operator chose for the machine: there is
+		// no thinner-than-usual share to apologise for.
+		if p.SizeFromProfile {
+			return ""
+		}
 		share := HostShare(h)
 		comfort := comfortFloor(p)
 		per := ""
@@ -473,10 +504,10 @@ func HostReduction(h *store.Host, p *store.Pool) string {
 		switch {
 		case alloc.MemoryKnown && given.MemoryMB > share.MemoryMB:
 			return fmt.Sprintf("its slot share is %s of memory, less than this pool's minimum, so its runners there are given %s%s and it holds fewer of them than its %s",
-				formatMB(share.MemoryMB), formatMB(given.MemoryMB), per, plural(h.Capacity, "slot"))
+				formatMB(share.MemoryMB), formatMB(given.MemoryMB), per, plural(h.Slots(), "slot"))
 		case alloc.CPUsKnown && given.CPUs > share.CPUs+cpuEpsilon:
 			return fmt.Sprintf("its slot share is %s CPU, less than this pool's minimum, so its runners there are given %s CPU%s and it holds fewer of them than its %s",
-				formatCPUs(share.CPUs), formatCPUs(given.CPUs), per, plural(h.Capacity, "slot"))
+				formatCPUs(share.CPUs), formatCPUs(given.CPUs), per, plural(h.Slots(), "slot"))
 		case alloc.MemoryKnown && share.MemoryMB < comfort.MemoryMB:
 			return fmt.Sprintf("its slot share is %s of memory%s, less than the %s this pool's runners get room to work in on a larger machine; they run there at that share, above this pool's minimum",
 				formatMB(share.MemoryMB), per, formatMB(comfort.MemoryMB))
@@ -507,25 +538,46 @@ func HostReduction(h *store.Host, p *store.Pool) string {
 // a 12-CPU machine refuses it, and an operator reading the pool's own "8 CPU"
 // against a "12 vCPU" host card has no way to see why.
 func HostShortfall(h *store.Host, p *store.Pool) string {
+	// The host's own profile first: it is a limit two things an operator wrote
+	// disagree about, and the sentence has to name both rather than send them
+	// to lower a limit that was never the problem.
+	if ex := ExcludedBySize(h, p); ex != nil {
+		return ex.Reason
+	}
+	p = sizedOn(p, h)
 	// The share first, because it is a different fix from every case below:
 	// nothing about the pool is wrong, and sending an operator to lower a
 	// limit it does not set would send them to the wrong screen.
 	if field := ShareTooSmall(h, p); field != "" {
-		share := HostShare(h)
+		share := slotSize(p, h)
 		need := ShareFloor(p)
 		dind := p.DockerMode == store.DockerDinD
 		pair := ""
 		if dind {
 			pair = ", because this pool's runners share their slot with a Docker daemon"
 		}
+		if p.SizeFromProfile {
+			// The size is the host's standard, not a share of its slots, so
+			// there is no slot count to change: the standard is.
+			standard := "the fleet's default of "
+			if h.RunnerProfile.Standard.Sized() {
+				standard = "its standard runner of "
+			}
+			if field == "cpu" {
+				return fmt.Sprintf("%s%s CPU is below the %s a runner needs to keep up with its own job%s -- raise the host's standard runner size",
+					standard, formatCPUs(share.CPUs), formatCPUs(need.CPUs), pair)
+			}
+			return fmt.Sprintf("%s%s is below the %s a runner needs before it is killed before taking a job%s -- raise the host's standard runner size",
+				standard, formatMB(share.MemoryMB), formatMB(need.MemoryMB), pair)
+		}
 		switch field {
 		case "cpu":
 			return fmt.Sprintf("it is set to %s, which divides its %s allocatable CPU into shares of %s each, and a runner needs at least %s to keep up with its own job%s",
-				plural(h.Capacity, "slot"), formatCPUs(h.Allocatable().CPUs),
+				plural(h.Slots(), "slot"), formatCPUs(h.Allocatable().CPUs),
 				formatCPUs(share.CPUs), formatCPUs(need.CPUs), pair)
 		default:
 			return fmt.Sprintf("it is set to %s, which divides its %s of allocatable memory into shares of %s each, and a runner is killed before it takes a job below %s%s",
-				plural(h.Capacity, "slot"), formatMB(h.Allocatable().MemoryMB),
+				plural(h.Slots(), "slot"), formatMB(h.Allocatable().MemoryMB),
 				formatMB(share.MemoryMB), formatMB(need.MemoryMB), pair)
 		}
 	}
@@ -628,8 +680,10 @@ func formatMB(mb int64) string {
 // slots outrun its machine is the overload this function exists to show. Both
 // are returned, so a caller can say which is binding.
 type HostRoom struct {
-	// Slots is what the operator set, less any active throttle: the ceiling
-	// the scheduler would honour whatever the machine could take.
+	// Slots is what the operator set -- or, where the host has a standard
+	// runner size, what its machine holds of that, up to the capacity -- less
+	// any active throttle: the ceiling the scheduler would honour whatever
+	// else the machine could take.
 	Slots int
 	// Fits is how many runners of this size the machine itself has room for,
 	// ignoring the slot count. It is zero on a host too small for one.
@@ -638,7 +692,9 @@ type HostRoom struct {
 	// expect from this host.
 	Room int
 	// LimitedBy names what ran out: "slots", "cpu", "memory", "disk", or ""
-	// where the host has measured nothing and only its slots bind.
+	// where the host has measured nothing and only its slots bind. It is
+	// "profile" where the host's runner profile keeps the pool off it
+	// altogether (ExcludedBySize).
 	LimitedBy string
 }
 
@@ -648,6 +704,14 @@ type HostRoom struct {
 // against, and it does not change every time a job starts.
 func HostRoomFor(h *store.Host, p *store.Pool) HostRoom {
 	out := HostRoom{Slots: h.EffectiveCapacity()}
+	// A host whose runner profile keeps the pool off it holds none of it, and
+	// says so before any arithmetic, which would otherwise count runners of a
+	// size this pool will never be given there.
+	if ExcludedBySize(h, p) != nil {
+		out.Fits, out.Room, out.LimitedBy = 0, 0, "profile"
+		return out
+	}
+	p = sizedOn(p, h)
 	// A host cut into shares too small to run a runner holds none of this
 	// pool, whatever its slot count says. Reporting the slot count here would
 	// promise room the pass refuses.
