@@ -94,6 +94,12 @@ export const ROUTES: readonly RouteDef[] = [
     load: () => import('../routes/AddHost.svelte'),
   },
   {
+    name: 'host',
+    path: '/hosts/:id',
+    title: 'Host health',
+    load: () => import('../routes/HostDetail.svelte'),
+  },
+  {
     name: 'providers',
     path: '/providers',
     title: 'Providers',

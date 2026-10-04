@@ -51,9 +51,10 @@ func (p *upgradePlan) layoutChanges(ctx context.Context) ([]layoutChange, error)
 	}
 	switch p.record.Deployment {
 	case DeploymentCompose:
-		return p.composeLayoutChanges(s)
+		changes, err := p.composeLayoutChanges(s)
+		return append(changes, p.hostHealthChanges(ctx, s)...), err
 	case DeploymentDocker:
-		return p.dockerLayoutChanges(s), nil
+		return append(p.dockerLayoutChanges(s), p.hostHealthChanges(ctx, s)...), nil
 	default:
 		return p.nativeLayoutChanges(s), nil
 	}

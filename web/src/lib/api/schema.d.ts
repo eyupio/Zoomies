@@ -6088,7 +6088,34 @@ export interface components {
             /** @description What is wrong with the host's shared folder, the one runners' caches are bound from: a containerised agent whose container does not mount it from the host, which keeps no tool cache there. Empty when nothing is. See host.shared_folder_unmounted. */
             shared_folder?: string;
         };
+        HostDoctorResult: {
+            id: string;
+            title: string;
+            /** @enum {string} */
+            tier: "safe" | "aggressive" | "dedicated";
+            /** @enum {string} */
+            status: "ok" | "warn" | "skip" | "error";
+            current: string;
+            recommended: string;
+            rationale: string;
+            reason?: string;
+            actionable: boolean;
+            optional?: boolean;
+        };
+        HostDoctor: {
+            /** @description Host filesystem path inspected for runner disk headroom. */
+            work_dir?: string;
+            /** Format: date-time */
+            checked_at: string;
+            os: string;
+            distro: string;
+            /** @description True when only the container's view could be inspected. */
+            container: boolean;
+            results: components["schemas"]["HostDoctorResult"][];
+            reboot_pending: boolean;
+        };
         Host: {
+            doctor?: components["schemas"]["HostDoctor"];
             usage?: components["schemas"]["HostUsage"];
             /** @description Usage is less than 90 seconds old. Unknown or stale readings retain reservation-based placement. */
             usage_fresh?: boolean;
@@ -6914,6 +6941,7 @@ export interface components {
             heartbeat_interval?: components["schemas"]["Duration"];
         };
         AgentHeartbeatRequest: {
+            doctor?: components["schemas"]["HostDoctor"];
             usage?: components["schemas"]["HostUsage"];
             protocol_version?: number;
             /** @description The agent's configured value */

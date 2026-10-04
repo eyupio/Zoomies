@@ -255,7 +255,7 @@ func Uninstall(ctx context.Context, opts UninstallOptions) error {
 			}
 		}
 	}
-	for _, unit := range []string{UnitController, UnitAgent} {
+	for _, unit := range []string{UnitController, UnitAgent, "zoomies-host-health"} {
 		if !exists(SystemdUnitPath(unit)) {
 			continue
 		}
@@ -295,7 +295,7 @@ func Uninstall(ctx context.Context, opts UninstallOptions) error {
 	}
 
 	// --- Unit files -------------------------------------------------------
-	for _, unit := range []string{UnitController, UnitAgent} {
+	for _, unit := range []string{UnitController, UnitAgent, "zoomies-host-health"} {
 		path := SystemdUnitPath(unit)
 		if !exists(path) {
 			continue

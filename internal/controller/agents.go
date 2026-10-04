@@ -707,6 +707,18 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 
 	now := c.Now()
 	wasHealthy := h.Healthy(now)
+	if req.Doctor != nil {
+		if err := validateDoctor(req.Doctor, now); err != nil {
+			return nil, err
+		}
+		if h.Doctor.Report == nil || req.Doctor.CheckedAt.After(h.Doctor.CheckedAt) {
+			if err := c.st.SetHostDoctor(ctx, hostID, req.Doctor); err != nil {
+				return nil, err
+			}
+			h.Doctor = store.HostDoctor{Report: req.Doctor}
+			c.publishHost(h)
+		}
+	}
 
 	// The protocol, on every beat rather than only at join. An agent that
 	// joined before a protocol bump kept polling and receiving tasks it could
@@ -1930,6 +1942,7 @@ func (c *Controller) StartEmbeddedAgent(ctx context.Context, cfg *config.Config)
 
 	tr := c.EmbeddedTransport()
 	a, err := agent.New(agent.Options{
+		Doctor:             c.doctor,
 		Name:               cfg.Agent.Name,
 		WorkDir:            cfg.Agent.WorkDir,
 		Capacity:           cfg.Agent.Capacity,

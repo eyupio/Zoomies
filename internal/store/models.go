@@ -877,9 +877,10 @@ func (p *Pool) Dangerous() []string {
 
 // Host is an agent process and the machine it runs on.
 type Host struct {
-	Connection string `json:"connection"`
-	ID         string `json:"id"`
-	Name       string `json:"name"`
+	Doctor     HostDoctor `json:"doctor,omitempty"`
+	Connection string     `json:"connection"`
+	ID         string     `json:"id"`
+	Name       string     `json:"name"`
 	// Address is how the host reported itself; the controller never dials it.
 	// Agents always connect outbound to the controller.
 	Address string `json:"address,omitempty"`

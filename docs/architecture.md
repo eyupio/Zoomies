@@ -240,9 +240,13 @@ age, so these values must not be read as proof of freshness.
 ### When webhooks cannot reach you
 
 If `github.poll_fallback` is on (the default), a poller lists queued jobs on an
-interval and feeds the same code path. The UI's problems drawer says
-plainly when the controller is running on polling alone, because a fleet that
-silently stopped receiving webhooks looks exactly like a quiet fleet.
+interval and feeds the same code path. It records jobs it first finds already
+running on one of the fleet's own runners too, because an idle runner takes a
+job within seconds — far inside the interval — and without a webhook nothing
+else would tell the controller that runner had gone busy. The UI's problems
+drawer says plainly when the controller is running on polling alone, because a
+fleet that silently stopped receiving webhooks looks exactly like a quiet
+fleet.
 
 Both of the poller's decisions are made per installation, and that is
 load-bearing on a controller serving more than one. It skips an installation
