@@ -349,6 +349,26 @@
       {/snippet}
     </Field>
   </div>
+  {#if hasSidecar && draft.sizing !== 'fixed'}
+    <Field
+      label="Docker sidecar's share (%)"
+      error={errors['resources.daemon_share_percent']}
+      hint="A runner and its sidecar split one slot. Builds, image pulls and container tests run in the sidecar, so give it more if the runner container is mostly idle. Empty is an even split (50%); the runner keeps the rest. A host too small to give the smaller half a workable size is not used."
+    >
+      {#snippet children({ id, describedBy, invalid })}
+        <Input
+          bind:value={draft.daemon_share}
+          {id}
+          {describedBy}
+          {invalid}
+          inputmode="numeric"
+          placeholder="50 (even split)"
+          autocomplete="off"
+          onblur={() => touch('resources.daemon_share_percent')}
+        />
+      {/snippet}
+    </Field>
+  {/if}
   {#if minCpus > 0 || minMemoryMb > 0}
     {#if profileSize}
       <p class="echo">

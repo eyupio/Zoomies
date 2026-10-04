@@ -226,7 +226,10 @@
         charges its host — so this pool is sized correctly on every host, and follows one that is
         resized.{#if dind}
           Its runner and its Docker daemon share that slot, so a slot here is one runner like
-          anywhere else.{/if}
+          anywhere else.{#if resources.daemon_share_percent}
+            The daemon is given {resources.daemon_share_percent}% of it and the runner
+            {100 - resources.daemon_share_percent}%.{:else}
+            They split it evenly.{/if}{/if}
       {:else}
         A runner is charged this against its host, wherever it lands.{#if dind}
           Twice over: the build runs in a Docker daemon beside it, which is given the same limits.{/if}

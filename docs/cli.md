@@ -106,6 +106,10 @@ naming one carries the others forward as they stand. `--tmpfs-docker` and
 needs `--docker-mode dind`. See [keeping the work folder
 in memory](hosts-and-pools.md#keeping-the-work-folder-in-memory).
 
+`--daemon-share <percent>` sets how much of a host-sized slot a Docker-in-Docker
+pool's daemon is given, 10 to 90, with the runner keeping the rest; `0` is the
+even split.
+
 On `edit`, only the flags you actually type are sent — the defaults above are
 not applied to a partial update, so editing a pool's image cannot silently reset
 its ceiling.

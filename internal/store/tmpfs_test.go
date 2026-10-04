@@ -250,3 +250,27 @@ func TestTypedTmpfsSizesAreScaledIntoARunnerLimitSmallerThanTheyAssume(t *testin
 		t.Fatalf("daemon size = %d, want 1024", got)
 	}
 }
+
+func TestADaemonShareDividesASlotUnevenlyAndEvenByDefault(t *testing.T) {
+	slot := Resources{CPUs: 10, MemoryMB: 10000}
+	r, d := slot.SplitWithDaemon()
+	if r.CPUs != 5 || d.CPUs != 5 || r.MemoryMB != 5000 || d.MemoryMB != 5000 {
+		t.Fatalf("default split = %+v / %+v, want even", r, d)
+	}
+	r, d = slot.SplitWithDaemonShare(70)
+	if d.CPUs != 7 || r.CPUs != 3 || d.MemoryMB != 7000 || r.MemoryMB != 3000 {
+		t.Fatalf("70%% split = %+v / %+v", r, d)
+	}
+	if r2, d2 := slot.SplitWithDaemonShare(5); r2 != r0(slot) || d2 != d0(slot) {
+		t.Fatalf("a share out of range must fall back to even, got %+v / %+v", r2, d2)
+	}
+	if got := (Resources{DaemonSharePercent: 80}).PairFactor(); got != 5 {
+		t.Fatalf("PairFactor(80) = %v, want 5", got)
+	}
+	if got := (Resources{}).PairFactor(); got != 2 {
+		t.Fatalf("PairFactor() = %v, want 2", got)
+	}
+}
+
+func r0(s Resources) Resources { r, _ := s.SplitWithDaemon(); return r }
+func d0(s Resources) Resources { _, d := s.SplitWithDaemon(); return d }

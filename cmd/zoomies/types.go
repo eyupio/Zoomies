@@ -110,6 +110,9 @@ type poolResources struct {
 	MemoryMB  int64   `json:"memory_mb"`
 	DiskGB    int64   `json:"disk_gb"`
 	PidsLimit int64   `json:"pids_limit"`
+	// DaemonSharePercent is how much of a host-sized slot a Docker-in-Docker pool
+	// gives its daemon; zero is the even split.
+	DaemonSharePercent int `json:"daemon_share_percent"`
 }
 
 // platformItem is the machine a pool needs, or the machine a host is.

@@ -1266,6 +1266,37 @@ test('a Docker-in-Docker pool can keep the sidecar image store in memory, and on
   await expect(page.getByRole('alert').filter({ hasText: /at least 64/ })).toBeVisible();
 });
 
+test('a Docker-in-Docker pool sized by its host can give the sidecar a larger share of the slot', async ({
+  page,
+}) => {
+  // The build runs in the sidecar, so an even split can starve the container
+  // doing the work. The share is offered only where it means something: a host
+  // share to divide, and a daemon to give it to.
+  await goto(page, '/pools/new', 'Create a pool');
+  await toAdvanced(page);
+  await nameField(page).fill('e2e-daemon-share');
+  await next(page).click();
+  await addLabel(page, 'daemon-share');
+  await next(page).click();
+  await next(page).click();
+  await page.getByRole('radio', { name: 'Docker in Docker' }).check();
+  await next(page).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Size' })).toBeVisible();
+
+  const share = page.getByRole('textbox', { name: "Docker sidecar's share (%)" });
+  await expect(share).toBeVisible();
+  await share.fill('95');
+  await share.blur();
+  await expect(page.getByRole('alert').filter({ hasText: /between 10 and 90/ })).toBeVisible();
+  await share.fill('70');
+  await share.blur();
+  await expect(page.getByRole('alert').filter({ hasText: /between 10 and 90/ })).toHaveCount(0);
+
+  // A fixed size gives both containers the whole figure, so there is no share.
+  await page.getByRole('radio', { name: 'A fixed size on every host' }).check();
+  await expect(share).toHaveCount(0);
+});
+
 test('a fixed size can carry a minimum for hosts a little short of it', async ({ page }) => {
   // A standard a host cannot quite meet used to leave the job queued. The
   // minimum is the size the pool will still accept, and the step says what

@@ -6464,6 +6464,19 @@ components:
             `memory_mb` when that is set, and is held to the same 512 MB floor. On a pool, zero
             follows the fleet's `runners.minimum_memory_mb`, read live; `effective_minimum` is
             the minimum in force.
+        daemon_share_percent:
+          type: integer
+          minimum: 0
+          maximum: 90
+          examples: [70]
+          description: >-
+            For a `docker_mode: dind` pool whose size comes from the host: the percentage of one
+            slot given to the Docker daemon, which does the building; the runner keeps the rest.
+            Zero is the even split every pool had before this was settable. Between 10 and 90
+            otherwise. It divides only a share the host chose -- a typed `cpus` or `memory_mb` is
+            given to both containers in full -- and the host is charged one slot either way. A
+            slot too small to give the thinner half what a runner needs is refused rather than
+            divided.
 
     CPUBurstPolicy:
       type: object

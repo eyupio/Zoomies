@@ -79,6 +79,7 @@
     /** The least a runner may be given where no host has room for the size above; empty is none. */
     min_cpus: string;
     min_memory_mb: string;
+    daemon_share: string;
     disk_gb: string;
     /**
      * The fleet timings this pool overrides. Empty is "follow the fleet",
@@ -157,6 +158,7 @@
       memory_mb: '',
       min_cpus: '',
       min_memory_mb: '',
+      daemon_share: '',
       disk_gb: '',
       provision_timeout: '',
       drain_timeout: '',
@@ -222,6 +224,7 @@
       memory_mb: fromNumber(resources.memory_mb),
       min_cpus: fromNumber(resources.min_cpus),
       min_memory_mb: fromNumber(resources.min_memory_mb),
+      daemon_share: fromNumber(resources.daemon_share_percent),
       disk_gb: fromNumber(resources.disk_gb),
       provision_timeout: pool.runner_settings?.provision_timeout ?? '',
       drain_timeout: pool.runner_settings?.drain_timeout ?? '',
@@ -334,6 +337,18 @@
     const minMemory = toInteger(draft.min_memory_mb);
     if (minCpus !== undefined && minCpus > 0) resources.min_cpus = minCpus;
     if (minMemory !== undefined && minMemory > 0) resources.min_memory_mb = minMemory;
+    // How a host-sized slot is divided between the runner and its Docker
+    // sidecar. It means nothing for a fixed size (both containers get the whole
+    // figure), so it is not sent there, and empty is the even split.
+    const daemonShare = toInteger(draft.daemon_share);
+    if (
+      draft.backend === 'docker' &&
+      draft.docker_mode === 'dind' &&
+      !fixed &&
+      daemonShare !== undefined &&
+      daemonShare > 0
+    )
+      resources.daemon_share_percent = daemonShare;
     // Disk and the pids limit are independent of the choice: neither has a
     // share to be given, so a pool may cap its cache's disk and still leave
     // its size to the host.
@@ -502,6 +517,10 @@
         errors['resources.min_memory_mb'] =
           'The minimum has to be at or below the standard memory.';
     }
+    const daemonSharePct = toInteger(draft.daemon_share);
+    if (daemonSharePct !== undefined && (daemonSharePct < 10 || daemonSharePct > 90))
+      errors['resources.daemon_share_percent'] =
+        'Give the sidecar between 10 and 90 percent, or leave it empty for an even split.';
     // Under either kind of size a minimum is held to what any runner needs:
     // it is sent for an automatic pool too, so the floor applies there.
     const minCpusFloor = toNumber(draft.min_cpus);

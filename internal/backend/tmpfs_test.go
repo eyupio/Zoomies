@@ -272,3 +272,18 @@ func TestTheHostCeilingTravelsInTheSpecAndIsOmittedWhenNone(t *testing.T) {
 		t.Errorf("ceiling = %d after the round trip, want 1024", back.TmpfsMaxMB)
 	}
 }
+
+// A pool that gives its daemon most of a host-sized slot gets it in the real
+// limits, and a typed limit is untouched by the share.
+func TestPairLimitsFollowThePoolsDaemonShare(t *testing.T) {
+	spec := Spec{Resources: store.Resources{CPUs: 10, MemoryMB: 10000}, ResourcesSource: store.AllocationFromHost, DaemonSharePercent: 75}
+	r, d := pairLimits(spec)
+	if d.MemoryMB != 7500 || r.MemoryMB != 2500 {
+		t.Fatalf("host-sized pair = runner %d MB, daemon %d MB; want 2500 and 7500", r.MemoryMB, d.MemoryMB)
+	}
+	spec.ResourcesSource = ""
+	r, d = pairLimits(spec)
+	if r.MemoryMB != 10000 || d.MemoryMB != 10000 {
+		t.Fatalf("typed pair = %d / %d MB; a typed limit goes to both in full", r.MemoryMB, d.MemoryMB)
+	}
+}

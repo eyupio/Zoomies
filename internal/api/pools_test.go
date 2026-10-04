@@ -210,6 +210,14 @@ func TestPoolValidationNamesTheField(t *testing.T) {
 			b["resources"] = map[string]any{"cpus": 2, "memory_mb": 8192}
 			b["tmpfs"] = map[string]any{"daemon": map[string]any{"enabled": true, "size_mb": 8192}}
 		}, "tmpfs.daemon.size_mb", "to at least 16384 MB"},
+		{"a daemon share on a pool with no daemon", func(b map[string]any) {
+			b["docker_mode"] = "none"
+			b["resources"] = map[string]any{"daemon_share_percent": 70}
+		}, "resources.daemon_share_percent", "docker_mode dind"},
+		{"a daemon share that leaves the runner nothing", func(b map[string]any) {
+			b["docker_mode"] = "dind"
+			b["resources"] = map[string]any{"daemon_share_percent": 97}
+		}, "resources.daemon_share_percent", "between 10 and 90"},
 		{"folders that take the whole memory limit", func(b map[string]any) {
 			b["resources"] = map[string]any{"cpus": 2, "memory_mb": 4096}
 			b["tmpfs"] = map[string]any{"work": map[string]any{"enabled": true, "size_mb": 4096}}

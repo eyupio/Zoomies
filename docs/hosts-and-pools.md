@@ -639,8 +639,14 @@ pool is sized.
   not four because half of them brought a daemon. The host is charged once. The
   split is an accounting rule, not a measurement of where a build's memory goes —
   the memory a Docker-in-Docker job reports is the two containers added together.
-  If the daemon is where your jobs spend memory and disk, give the pool a typed
-  size, which gives it all of the limit.
+  If the daemon is where your jobs spend memory and disk, set the pool's
+  **Docker sidecar's share** (Size step of the pool editor, or
+  `--daemon-share`): the percentage of the slot the daemon is given, from 10 to
+  90, with the runner keeping the rest. Seventy gives the daemon 70% of the
+  slot's CPU and memory. The host is still charged one slot, and a host whose
+  slot is too small to give the thinner half a workable size is not used for the
+  pool, which the pool's host list says. It divides only a share the host chose;
+  a typed size goes to both containers in full whatever it says.
 
 **When to turn it on.** Zoomies tells you. `pool.tmpfs_suggested` is raised for
 a pool when, on one host, all three are true: the pool ran jobs there in the

@@ -198,8 +198,11 @@ type Spec struct {
 	// because the difference decides what a runner killed for exceeding its
 	// memory limit should tell the operator to change. Empty from a
 	// controller that predates it, which a backend reads as the pool's.
-	ResourcesSource string            `json:"resources_source,omitempty"`
-	Cache           store.CacheConfig `json:"cache"`
+	ResourcesSource string `json:"resources_source,omitempty"`
+	// DaemonSharePercent is the part of a host-sized slot the docker-in-docker
+	// daemon is given; zero is the even split. See store.Resources.
+	DaemonSharePercent int               `json:"daemon_share_percent,omitempty"`
+	Cache              store.CacheConfig `json:"cache"`
 	// Tmpfs keeps the runner's work folder and /tmp in memory. A container
 	// backend mounts them; an agent that predates the field ignores it and the
 	// runner simply uses disk, which is why the controller warns about a pool

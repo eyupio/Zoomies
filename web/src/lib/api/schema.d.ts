@@ -4504,6 +4504,11 @@ export interface components {
              * @example 3072
              */
             min_memory_mb?: number;
+            /**
+             * @description For a `docker_mode: dind` pool whose size comes from the host: the percentage of one slot given to the Docker daemon, which does the building; the runner keeps the rest. Zero is the even split every pool had before this was settable. Between 10 and 90 otherwise. It divides only a share the host chose -- a typed `cpus` or `memory_mb` is given to both containers in full -- and the host is charged one slot either way. A slot too small to give the thinner half what a runner needs is refused rather than divided.
+             * @example 70
+             */
+            daemon_share_percent?: number;
         };
         /** @description Whether an automatically-sized Docker or Podman pool only observes, or may use, CPU left over after every live runner's guaranteed host share and one imminent start have been protected. Memory never changes while a job runs. Existing pools default to off; new pools default to observe. */
         CPUBurstPolicy: {
