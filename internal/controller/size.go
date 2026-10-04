@@ -289,10 +289,39 @@ func (c *Controller) ReclassifyQueuedJobs(ctx context.Context, repo, workflow, j
 	// A pin is what the label advice leaves a job alone for, whichever way it
 	// changed.
 	c.forgetLabelAdvice()
-	mode := c.sizeMode()
-	if mode == scheduler.SizeOff {
+	if c.sizeMode() == scheduler.SizeOff {
 		return 0, nil
 	}
+	return c.reclassifyWaiting(ctx, func(j *store.Job) bool {
+		return strings.EqualFold(j.Repo, repo) &&
+			(workflow == "" || j.Workflow == workflow) && (jobName == "" || j.JobName == jobName)
+	})
+}
+
+// ReclassifyWaitingJobs does it for every job waiting for a runner, which is what
+// a change to scheduler.size_routing has to do. The switch is read as each job
+// arrives, so without this a job that was already waiting when routing was turned
+// on would have no route for as long as it waited and be placed as it always was,
+// and one that was waiting when routing was turned off would go on saying it had
+// been sent to a class. It returns how many jobs changed.
+func (c *Controller) ReclassifyWaitingJobs(ctx context.Context) (int, error) {
+	c.forgetLabelAdvice()
+	return c.reclassifyWaiting(ctx, func(*store.Job) bool { return true })
+}
+
+// reclassifyWaiting works out again, as it would be if it arrived now, the class
+// of each job waiting for a runner that want selects.
+//
+// A job is touched only if a pool of this fleet answers it, as when it arrived: a
+// pin for a repository must not stamp a class on its jobs for GitHub's own
+// runners, and a change of mode would otherwise do that to every one in the
+// queue. With routing off there is no class to send a job to, so what is done is
+// to take back the route it had. The scheduler already ignores one while routing
+// is not on; this is so that the row, and the pool the Jobs page lists the job
+// under, say what the scheduler does. The job keeps its class, which is a record
+// of what it was taken to need and not an instruction.
+func (c *Controller) reclassifyWaiting(ctx context.Context, want func(*store.Job) bool) (int, error) {
+	mode := c.sizeMode()
 	queued, err := c.st.ListQueuedJobs(ctx)
 	if err != nil {
 		return 0, err
@@ -309,6 +338,24 @@ func (c *Controller) ReclassifyQueuedJobs(ctx context.Context, repo, workflow, j
 		return 0, err
 	}
 	cfg := c.sizeConfig()
+	// A queue is mostly the same few jobs over and over -- a matrix, a busy
+	// repository -- so each pin and each kept class is read once.
+	type key struct{ repo, workflow, job string }
+	pins, kept := map[key]*store.SizePin{}, map[key]*store.JobClass{}
+	classOf := func(j *store.Job) scheduler.Classification {
+		k := key{j.Repo, j.Workflow, j.JobName}
+		pin, ok := pins[k]
+		if !ok {
+			pin = c.sizePinFor(ctx, j.Repo, j.Workflow, j.JobName)
+			pins[k] = pin
+		}
+		class, ok := kept[k]
+		if !ok {
+			class = c.keptClass(ctx, j.Repo, j.Workflow, j.JobName)
+			kept[k] = class
+		}
+		return cfg.AtQueue(j.Labels, pin, class)
+	}
 	changed := 0
 	// The pools of the classes the jobs were put in have demand they did not have,
 	// whether or not the loop got to the end of the queue.
@@ -318,14 +365,19 @@ func (c *Controller) ReclassifyQueuedJobs(ctx context.Context, repo, workflow, j
 		}
 	}()
 	for _, j := range queued {
-		if (j.State != store.JobQueued && j.State != store.JobWaiting) || !strings.EqualFold(j.Repo, repo) ||
-			(workflow != "" && j.Workflow != workflow) || (jobName != "" && j.JobName != jobName) {
+		if (j.State != store.JobQueued && j.State != store.JobWaiting) || !want(j) || c.bestPool(pools, j) == nil {
 			continue
 		}
-		cl := cfg.AtQueue(j.Labels, c.sizePinFor(ctx, j.Repo, j.Workflow, j.JobName), c.keptClass(ctx, j.Repo, j.Workflow, j.JobName))
-		moved, err := c.st.SetQueuedJobClass(ctx, j.ID, store.JobClassing{
-			Class: cl.Class, Reason: cl.Reason, Basis: cl.Basis, FloorMB: cl.FloorMB, Route: mode == scheduler.SizeOn,
-		})
+		var moved bool
+		var err error
+		if mode == scheduler.SizeOff {
+			moved, err = c.st.ClearJobRoute(ctx, j.ID)
+		} else {
+			cl := classOf(j)
+			moved, err = c.st.SetQueuedJobClass(ctx, j.ID, store.JobClassing{
+				Class: cl.Class, Reason: cl.Reason, Basis: cl.Basis, FloorMB: cl.FloorMB, Route: mode == scheduler.SizeOn,
+			})
+		}
 		if err != nil {
 			return changed, err
 		}
@@ -335,11 +387,38 @@ func (c *Controller) ReclassifyQueuedJobs(ctx context.Context, repo, workflow, j
 		changed++
 		if updated, err := c.st.GetJob(ctx, j.ID); err == nil {
 			updated = c.reclaim(ctx, pools, updated)
-			c.appendJobEvent(ctx, updated, store.JobEventSized, c.sizeMessage(updated))
+			msg := "size routing was turned off, so the job is no longer sent to the pool of a class and is placed by its labels alone"
+			if mode != scheduler.SizeOff {
+				msg = c.sizeMessage(updated)
+			}
+			c.appendJobEvent(ctx, updated, store.JobEventSized, msg)
 			c.publishJob(ctx, updated)
 		}
 	}
 	return changed, nil
+}
+
+// sizeModeLoop puts the jobs already waiting through the classification again
+// whenever scheduler.size_routing changes. It is a loop of its own, woken by
+// UpdateConfig, because a queue can be long and the request that changed the
+// setting should not wait for every job in it to be read; a wake that arrives
+// while it works costs one more run, which starts from the mode as it then is.
+func (c *Controller) sizeModeLoop(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-c.sizeModeChanged:
+		}
+		n, err := c.ReclassifyWaitingJobs(ctx)
+		switch {
+		case err != nil && ctx.Err() == nil:
+			c.log.Warn("could not put every job already waiting through size routing again; changing scheduler.size_routing again will try once more",
+				"mode", c.sizeMode(), "changed", n, "error", err)
+		case err == nil:
+			c.log.Info("jobs already waiting were put through size routing again", "mode", c.sizeMode(), "changed", n)
+		}
+	}
 }
 
 // reclaim points a job whose route has just changed at the pool that claims it

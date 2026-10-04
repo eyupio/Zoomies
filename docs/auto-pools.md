@@ -43,7 +43,12 @@ than the one it was put in — then set `scheduler.auto_pools` to `on`, and
 no pool kept for a class, so jobs are only answered by a pool of yours that carries
 the class label, and the validator says so.
 
-Neither switch moves a runner that is already running.
+Neither switch moves a runner that is already running. Changing
+`scheduler.size_routing` does put the jobs already waiting through the new mode, a
+moment after the change: turning it on gives a job that was queued earlier the class
+and the route it would have had, and turning it off, or back to `shadow`, takes the
+route off the jobs that had one. A job keeps its class either way, and its timeline
+says what happened.
 
 ## Host classes and tags
 

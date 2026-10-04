@@ -216,6 +216,11 @@ type Controller struct {
 	pollSettingsChanged     chan struct{}
 	recoverySettingsChanged chan struct{}
 	machineSettingsChanged  chan struct{}
+	// sizeModeChanged wakes the loop that puts the jobs already waiting through
+	// size routing again. Unlike the three above it is sent only when
+	// scheduler.size_routing itself changed, and it has a loop of its own for
+	// the same reason they do.
+	sizeModeChanged chan struct{}
 
 	// pollingOnly records that no webhook has ever arrived, which the Overview
 	// says out loud because a fleet scaling on the poller looks healthy until
@@ -452,6 +457,7 @@ func New(opts Options) (*Controller, error) {
 		pollSettingsChanged:     make(chan struct{}, 1),
 		recoverySettingsChanged: make(chan struct{}, 1),
 		machineSettingsChanged:  make(chan struct{}, 1),
+		sizeModeChanged:         make(chan struct{}, 1),
 		restart:                 make(chan struct{}),
 		backups:                 backupState{ship: make(chan struct{}, 1)},
 		hostHealthy:             map[string]bool{},
@@ -541,6 +547,7 @@ func (c *Controller) Start(ctx context.Context) error {
 	// which the pass only reads, and has to keep up with hosts coming and going
 	// while a pass is holding reconcileMu for as long as GitHub takes to answer.
 	c.spawn("auto-pools", loopCtx, c.autoPoolLoop)
+	c.spawn("size-mode", loopCtx, c.sizeModeLoop)
 	c.spawn("reap", loopCtx, c.reapLoop)
 	c.spawn("poller", loopCtx, c.pollLoop)
 	c.spawn("job-recovery", loopCtx, c.jobRecoveryLoop)
@@ -790,6 +797,16 @@ func (c *Controller) UpdateConfig(fn func(*config.Config)) *config.Config {
 	// The scheduler tunables change what the next pass decides, and a new
 	// interval takes effect once a pass has run and reset the timer.
 	c.Nudge()
+	// The jobs already waiting were classed under the old mode, or not at all,
+	// and the mode is only read as a job arrives: they are put through it again
+	// so that turning routing on reaches the queue and turning it off leaves no
+	// job saying it was sent somewhere.
+	if modeOf(before.Scheduler.SizeRouting) != modeOf(after.Scheduler.SizeRouting) {
+		select {
+		case c.sizeModeChanged <- struct{}{}:
+		default:
+		}
+	}
 	// The pools the controller keeps follow the same settings -- the switch, the
 	// installation, the docker mode, the grace a host is given -- and a pool's
 	// page says whether the controller is keeping it from the last pass, so a

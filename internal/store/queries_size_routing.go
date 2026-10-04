@@ -396,6 +396,25 @@ func (s *Store) SetJobRouted(ctx context.Context, jobID string, from, class Size
 	return n > 0, err
 }
 
+// ClearJobRoute takes back the class a waiting job was sent to, and the sentence
+// that said why, and reports whether the row changed. The class the job was given
+// stays: it is what the job was taken to need, and stays true when nobody is
+// sending it anywhere.
+//
+// It is for turning size routing off. The scheduler ignores a route while routing
+// is not on, but the row is what the Jobs page and the API read, and a job that
+// went on saying it had been sent to a class would be saying something that is no
+// longer being done.
+func (s *Store) ClearJobRoute(ctx context.Context, jobID string) (bool, error) {
+	res, err := s.exec(ctx, `UPDATE jobs SET routed_class='', routed_note=''
+		WHERE id=? AND state IN ('queued', 'waiting') AND (routed_class != '' OR routed_note != '')`, jobID)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
 // SetJobClaim points a job that is still waiting at the pool that now claims it,
 // "" for none, and reports whether the row changed.
 //

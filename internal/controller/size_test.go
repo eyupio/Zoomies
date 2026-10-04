@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -731,6 +732,181 @@ func TestAPinReachesAJobHeldForAReviewAndItIsQueuedByIt(t *testing.T) {
 	approved := h.jobByGitHubID(7911)
 	if approved.State != store.JobQueued || approved.SizeClass != store.SizeLarge || approved.PoolID != f.pools[store.SizeLarge].ID {
 		t.Fatalf("the approved job is %+v; want it queued, large and claimed by the large pool", approved)
+	}
+}
+
+// A pin for a repository reaches the jobs the fleet's pools answer and no others:
+// the repository's jobs for GitHub's own runners are not this fleet's work, and a
+// class stamped on one would put a badge, a timeline line and a count in the
+// metric on a decision nobody was making about it.
+func TestAPinDoesNotClassAJobNoPoolOfTheFleetAnswers(t *testing.T) {
+	h := newHarness(t)
+	h.classFleet(scheduler.SizeOn)
+	h.deliverJob(jobEvent{Action: "queued", JobID: 7921, Name: "build", Workflow: "CI", Labels: []string{"ubuntu-latest"}})
+	if err := h.st.SetSizePin(h.ctx, &store.SizePin{Repo: "acme/widgets", Class: store.SizeLarge}); err != nil {
+		t.Fatal(err)
+	}
+	n, err := h.c.ReclassifyQueuedJobs(h.ctx, "acme/widgets", "", "")
+	if err != nil || n != 0 {
+		t.Fatalf("ReclassifyQueuedJobs = %d, %v; a job for GitHub's runners is not the fleet's to class", n, err)
+	}
+	if got := h.jobByGitHubID(7921); got.SizeClass != "" || got.SizeBasis != "" || got.RoutedClass != "" {
+		t.Fatalf("a job no pool answers was classed: %+v", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The switch itself
+// ---------------------------------------------------------------------------
+
+// The mode is read as a job arrives, so a job that was already waiting when
+// routing was turned on would otherwise have no route for as long as it waited:
+// it would sit in the pool its labels sort to first, and routing would reach only
+// the jobs that came after the switch.
+func TestTurningSizeRoutingOnSendsTheJobsAlreadyWaitingToTheirClass(t *testing.T) {
+	for _, from := range []string{scheduler.SizeOff, scheduler.SizeShadow} {
+		t.Run(from, func(t *testing.T) {
+			h := newHarness(t)
+			f := h.classFleet(from)
+			h.deliverJob(jobEvent{Action: "queued", JobID: 8001, Name: "build", Workflow: "CI", Labels: baseLabels})
+			h.deliverJob(jobEvent{Action: "waiting", JobID: 8002, Name: "deploy", Workflow: "Release", Labels: baseLabels})
+			h.deliverJob(jobEvent{Action: "queued", JobID: 8003, Name: "hosted", Workflow: "CI", Labels: []string{"ubuntu-latest"}})
+			if was := h.jobByGitHubID(8001); was.RoutedClass != "" || was.PoolID == f.pools[store.SizeMedium].ID {
+				t.Fatalf("before the switch the job is %+v; it should have no route and not be in the medium pool already", was)
+			}
+
+			h.c.UpdateConfig(func(cfg *config.Config) { cfg.Scheduler.SizeRouting = scheduler.SizeOn })
+			n, err := h.c.ReclassifyWaitingJobs(h.ctx)
+			if err != nil || n != 2 {
+				t.Fatalf("ReclassifyWaitingJobs = %d, %v; want the queued job and the held one", n, err)
+			}
+			queued, held := h.jobByGitHubID(8001), h.jobByGitHubID(8002)
+			if queued.SizeClass != store.SizeMedium || queued.RoutedClass != store.SizeMedium || queued.PoolID != f.pools[store.SizeMedium].ID {
+				t.Fatalf("the queued job is %+v; want it medium, routed to medium and claimed by the medium pool", queued)
+			}
+			if held.State != store.JobWaiting || held.SizeClass != store.SizeMedium || held.RoutedClass != store.SizeMedium {
+				t.Fatalf("the held job is %+v; want it still waiting, medium and routed to medium", held)
+			}
+			entries := sizedEntries(h.timeline(queued.ID))
+			if last := entries[len(entries)-1]; !strings.Contains(last, "classed medium because") || strings.Contains(last, "only watching") {
+				t.Fatalf("the timeline says %v; its last line should say the job was classed and sent on", entries)
+			}
+			if hosted := h.jobByGitHubID(8003); hosted.SizeClass != "" || hosted.RoutedClass != "" {
+				t.Fatalf("a job for GitHub's runners was classed by the switch: %+v", hosted)
+			}
+			if n, err := h.c.ReclassifyWaitingJobs(h.ctx); err != nil || n != 0 {
+				t.Fatalf("a second ReclassifyWaitingJobs = %d, %v; the queue is already in the mode", n, err)
+			}
+		})
+	}
+}
+
+// The scheduler ignores a route while routing is not on, but the row is what the
+// Jobs page and the API read, and a job that went on saying it had been sent to a
+// class would be saying something that is no longer being done. It keeps its
+// class, which is what it was taken to need, and is claimed as it was before.
+func TestTurningSizeRoutingDownTakesTheRouteOffTheJobsAlreadyWaiting(t *testing.T) {
+	for _, tc := range []struct{ to, line string }{
+		{scheduler.SizeShadow, "only watching"},
+		{scheduler.SizeOff, "size routing was turned off"},
+	} {
+		t.Run(tc.to, func(t *testing.T) {
+			h := newHarness(t)
+			f := h.classFleet(scheduler.SizeOn)
+			h.deliverJob(jobEvent{Action: "queued", JobID: 8101, Name: "build", Workflow: "CI", Labels: baseLabels})
+			if was := h.jobByGitHubID(8101); was.RoutedClass != store.SizeMedium || was.PoolID != f.pools[store.SizeMedium].ID {
+				t.Fatalf("before the switch the job is %+v; want it routed to medium", was)
+			}
+
+			h.c.UpdateConfig(func(cfg *config.Config) { cfg.Scheduler.SizeRouting = tc.to })
+			if n, err := h.c.ReclassifyWaitingJobs(h.ctx); err != nil || n != 1 {
+				t.Fatalf("ReclassifyWaitingJobs = %d, %v; want the one job", n, err)
+			}
+			got := h.jobByGitHubID(8101)
+			if got.RoutedClass != "" || got.RoutedNote != "" {
+				t.Fatalf("the job still says it was sent to %q (%q)", got.RoutedClass, got.RoutedNote)
+			}
+			if got.SizeClass != store.SizeMedium || got.SizeBasis == "" {
+				t.Fatalf("the job lost its class: %+v", got)
+			}
+			pools, _ := h.st.ListPools(h.ctx)
+			if want := scheduler.BestPool(pools, &store.Job{Labels: got.Labels, InstallationID: got.InstallationID}); want == nil || got.PoolID != want.ID {
+				t.Fatalf("the job is claimed by %q; it should be the pool it would have had without routing (%v)", got.PoolID, want)
+			}
+			entries := sizedEntries(h.timeline(got.ID))
+			if last := entries[len(entries)-1]; !strings.Contains(last, tc.line) {
+				t.Fatalf("the timeline says %v; its last line should say %q", entries, tc.line)
+			}
+			if n, err := h.c.ReclassifyWaitingJobs(h.ctx); err != nil || n != 0 {
+				t.Fatalf("a second ReclassifyWaitingJobs = %d, %v; the queue is already in the mode", n, err)
+			}
+		})
+	}
+}
+
+// The wake is for the switch and only for it: every other setting passes through
+// UpdateConfig too, and a value this build does not know reads as off, which is
+// what it already was.
+func TestOnlyAChangeOfSizeRoutingWakesTheLoopThatReclassesTheQueue(t *testing.T) {
+	h := newHarness(t)
+	woken := func() bool {
+		select {
+		case <-h.c.sizeModeChanged:
+			return true
+		default:
+			return false
+		}
+	}
+	set := func(mode string) {
+		h.c.UpdateConfig(func(cfg *config.Config) { cfg.Scheduler.SizeRouting = mode })
+	}
+	woken() // Whatever building the harness did.
+
+	h.c.UpdateConfig(func(cfg *config.Config) { cfg.Scheduler.SizeFallbackWait = 3 * time.Minute })
+	set(scheduler.SizeOff)
+	set("no such mode")
+	if woken() {
+		t.Fatal("the loop was woken though the mode did not change")
+	}
+	set(scheduler.SizeShadow)
+	if !woken() {
+		t.Fatal("the loop was not woken when routing went from off to watched")
+	}
+	set(scheduler.SizeOn)
+	set(scheduler.SizeOff)
+	if !woken() {
+		t.Fatal("the loop was not woken when routing was turned on and off again")
+	}
+	if woken() {
+		t.Fatal("two changes left two wakes; a wake is a flag, and the loop reads the mode as it then is")
+	}
+}
+
+// Changing the setting is a request, and it must not wait for every job in a long
+// queue to be read: the loop does it afterwards, and the job has its route by the
+// time the loop has gone round.
+func TestTheSizeRoutingLoopPutsTheQueueThroughTheNewModeWhenTheSettingChanges(t *testing.T) {
+	h := newHarness(t)
+	f := h.classFleet(scheduler.SizeOff)
+	h.deliverJob(jobEvent{Action: "queued", JobID: 8301, Name: "build", Workflow: "CI", Labels: baseLabels})
+
+	ctx, cancel := context.WithCancel(h.ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		h.c.sizeModeLoop(ctx)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
+
+	h.c.UpdateConfig(func(cfg *config.Config) { cfg.Scheduler.SizeRouting = scheduler.SizeOn })
+	eventually(t, 5*time.Second, "the job already waiting to be routed", func() bool {
+		return h.jobByGitHubID(8301).RoutedClass == store.SizeMedium
+	})
+	if got := h.jobByGitHubID(8301); got.PoolID != f.pools[store.SizeMedium].ID {
+		t.Fatalf("the job is claimed by %q; want the medium pool", got.PoolID)
 	}
 }
 

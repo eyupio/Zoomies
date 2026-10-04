@@ -698,6 +698,59 @@ func TestOnlyAJobStillWaitingIsMovedToAnotherClass(t *testing.T) {
 	}
 }
 
+// Turning routing off takes back where a waiting job was sent, and nothing else
+// about it: the class is what it was taken to need, and a job that is running was
+// routed, which is history.
+func TestTakingBackARouteLeavesTheClassAndOnlyTouchesAJobStillWaiting(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	waiting := queuedJob(t, s, 1)
+	if _, _, err := s.StampJobClass(ctx, waiting.ID, JobClassing{Class: SizeSmall, Reason: "the default", Basis: SizeBasisDefault, Route: true}); err != nil {
+		t.Fatal(err)
+	}
+	if moved, err := s.SetJobRouted(ctx, waiting.ID, SizeSmall, SizeLarge, "no small host had room for 2m"); err != nil || !moved {
+		t.Fatalf("SetJobRouted = %v, %v", moved, err)
+	}
+
+	cleared, err := s.ClearJobRoute(ctx, waiting.ID)
+	if err != nil || !cleared {
+		t.Fatalf("ClearJobRoute = %v, %v; want the route taken back", cleared, err)
+	}
+	got, _ := s.GetJob(ctx, waiting.ID)
+	if got.RoutedClass != "" || got.RoutedNote != "" {
+		t.Fatalf("the job is still routed: %+v", got)
+	}
+	if got.SizeClass != SizeSmall || got.SizeBasis != SizeBasisDefault || got.SizeReason != "the default" {
+		t.Fatalf("taking back the route changed what the job was classed as: %+v", got)
+	}
+	if again, _ := s.ClearJobRoute(ctx, waiting.ID); again {
+		t.Fatal("clearing a route that was already clear was reported as a change")
+	}
+
+	held := seedJob(t, s, 2, JobWaiting, "")
+	if _, _, err := s.StampJobClass(ctx, held.ID, JobClassing{Class: SizeMedium, Reason: "the default", Basis: SizeBasisDefault, Route: true}); err != nil {
+		t.Fatal(err)
+	}
+	if cleared, _ := s.ClearJobRoute(ctx, held.ID); !cleared {
+		t.Fatal("a job held for approval kept its route")
+	}
+
+	// A job that was routed while it waited and has since been taken by a runner.
+	running := queuedJob(t, s, 3)
+	if _, _, err := s.StampJobClass(ctx, running.ID, JobClassing{Class: SizeSmall, Reason: "the default", Basis: SizeBasisDefault, Route: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.exec(ctx, `UPDATE jobs SET state='in_progress' WHERE id=?`, running.ID); err != nil {
+		t.Fatal(err)
+	}
+	if cleared, _ := s.ClearJobRoute(ctx, running.ID); cleared {
+		t.Fatal("a job that is running had its route taken back")
+	}
+	if got, _ := s.GetJob(ctx, running.ID); got.RoutedClass != SizeSmall {
+		t.Fatalf("a running job's route was changed to %q", got.RoutedClass)
+	}
+}
+
 // A pin made while a job waits for an approver is what it should be queued by
 // when the approval comes. It was classed when it arrived, and a pin that did not
 // reach it would leave it in the class it had before the pin until somebody

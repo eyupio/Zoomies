@@ -596,7 +596,7 @@ var registry = buildRegistry([]Setting{
 	{
 		Key: "scheduler.size_routing", Label: "Route jobs by size class", Env: "ZOOMIES_SIZE_ROUTING", Kind: KindEnum, Scope: ScopeInstance, Live: true,
 		Choices: []string{"off", "shadow", "on"},
-		Summary: "Class each job small, medium or large from what its recent runs used, and send it to the pool for that class, so light jobs land on small hosts and heavy ones on large hosts. A workflow that writes zoomies-large in runs-on is always honoured and never moved; a job that writes only zoomies is routed best effort, because GitHub, not Zoomies, decides which waiting job a runner takes. Shadow records each job's class and where it ran, and sends nothing anywhere; off classes nothing.",
+		Summary: "Class each job small, medium or large from what its recent runs used, and send it to the pool for that class, so light jobs land on small hosts and heavy ones on large hosts. A workflow that writes zoomies-large in runs-on is always honoured and never moved; a job that writes only zoomies is routed best effort, because GitHub, not Zoomies, decides which waiting job a runner takes. Shadow records each job's class and where it ran, and sends nothing anywhere; off classes nothing. Changing it puts the jobs already waiting through the new mode.",
 	},
 	{
 		Key: "scheduler.auto_pools", Label: "Automatic pools", Env: "ZOOMIES_AUTO_POOLS", Kind: KindEnum, Scope: ScopeInstance, Live: true,
