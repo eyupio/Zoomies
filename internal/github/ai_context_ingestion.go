@@ -7,7 +7,10 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
+	"path"
 	"strings"
 
 	"github.com/eyupio/zoomies/internal/aicontext"
@@ -20,6 +23,21 @@ type ContextIngestionClient interface {
 	ContextSetupMerged(context.Context, string, int, string) (bool, error)
 	VerifyContextSnapshot(ctx context.Context, repo, branch, commit string, snapshot *aicontext.Snapshot) error
 }
+
+// ErrContextMismatch is a published snapshot that no longer describes the
+// trusted branch: the branch moved on, or the snapshot was made for another
+// commit. It is the ordinary state between a push and the workflow finishing,
+// so a caller can tell it apart from a publication that is genuinely broken.
+var ErrContextMismatch = errors.New("github: published context does not match the trusted branch")
+
+// ContextWorkflowDispatcher starts the managed workflow by hand. It is a
+// separate interface because it is the one AI Context call that writes to
+// GitHub Actions, and so needs the Actions write permission the rest of this
+// file never asks for.
+type ContextWorkflowDispatcher interface {
+	DispatchContextWorkflow(ctx context.Context, repo, branch string) error
+}
+
 type ContextPublication struct {
 	Source       *ContextSetupSource
 	OutputCommit string
@@ -46,6 +64,26 @@ func (c *appClient) ContextSetupStatus(ctx context.Context, repo string, number 
 		return "merged", nil
 	}
 	return pr.GetState(), nil
+}
+
+// DispatchContextWorkflow runs the managed workflow on the trusted branch. The
+// caller has already checked that the workflow on that branch is the reviewed
+// one; dispatching an edited file would run whatever it says.
+func (c *appClient) DispatchContextWorkflow(ctx context.Context, repo, branch string) error {
+	owner, name, err := splitRepo(repo)
+	if err != nil {
+		return err
+	}
+	_, resp, err := c.asInstallation.Actions.CreateWorkflowDispatchEventByFileName(ctx, owner, name, path.Base(aicontext.WorkflowPath), gh.CreateWorkflowDispatchEventRequest{Ref: branch})
+	// GitHub answers 204, and 200 once it returns run details; either is a start.
+	if err == nil || (resp != nil && (resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusOK)) {
+		return nil
+	}
+	e := classify(resp, err)
+	if errors.Is(e, ErrForbidden) {
+		return fmt.Errorf("github: run context workflow: %w; check the App installation on %s: it needs \"Actions\" (actions) read and write, and changed permissions must be accepted on the installation", e, c.target)
+	}
+	return errorf("run context workflow", e)
 }
 
 func (c *appClient) ContextSetupMerged(ctx context.Context, repo string, number int, branch string) (bool, error) {
@@ -155,7 +193,7 @@ func (c *appClient) verifyContextSnapshot(ctx context.Context, owner, name, bran
 	for _, file := range snapshot.Files {
 		e := entries[file.Path]
 		if e == nil || e.GetType() != "blob" || (e.GetMode() != "100644" && e.GetMode() != "100755") || e.GetSHA() != contextGitBlobSHA(file.Content) {
-			return fmt.Errorf("context content does not match regular files in the trusted commit")
+			return fmt.Errorf("%w: context content does not match regular files in the trusted commit", ErrContextMismatch)
 		}
 	}
 	latest, resp, err := c.asInstallation.Git.GetRef(ctx, owner, name, "heads/"+branch)
@@ -163,7 +201,7 @@ func (c *appClient) verifyContextSnapshot(ctx context.Context, owner, name, bran
 		return c.fail("recheck trusted context branch", resp, err)
 	}
 	if latest.GetObject().GetSHA() != commit {
-		return fmt.Errorf("context source changed during validation; retry its latest generation")
+		return fmt.Errorf("%w: context source changed during validation; retry its latest generation", ErrContextMismatch)
 	}
 	return nil
 }

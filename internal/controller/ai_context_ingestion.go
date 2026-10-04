@@ -16,6 +16,70 @@ var errAIContextAwaitingMerge = errors.New("merge the reviewed setup PR before g
 
 var errAIContextAwaitingUpload = errors.New("the workflow has not uploaded context for the current commit yet")
 
+// The refusals below are the ways trustedAIContext can say no for a reason the
+// operator can act on. Each is a sentinel so the card can name the fix; the
+// error text itself never reaches it, because a GitHub error can carry
+// repository content.
+var (
+	errAIContextRemoved       = errors.New("AI Context has been removed; reinstall it to resume source access")
+	errAIContextNoContents    = errors.New("restore GitHub Contents read permission")
+	errAIContextIdentity      = errors.New("repository identity or trusted branch changed")
+	errAIContextManagedDrifts = errors.New("managed workflow or configuration changed; review a repair before ingestion")
+)
+
+// aiContextAccessFailure turns a failed setup or access check into the state and
+// the sentence the repository card shows. "Could not be verified" is true of all
+// of these and useful for none: an operator facing a closed gate needs to know
+// whether to fix a permission, repair the setup or simply wait.
+func aiContextAccessFailure(err error) (state, reason string) {
+	switch {
+	case errors.Is(err, errAIContextAwaitingMerge):
+		return "awaiting_merge", "Merge the reviewed setup PR before generating context."
+	case errors.Is(err, errAIContextRemoved):
+		return "unavailable", "AI Context was removed for this repository. Reinstall it to resume source access."
+	case errors.Is(err, errAIContextNoContents):
+		return "unavailable", "The GitHub App has lost Contents read permission. Restore it on the installation."
+	case errors.Is(err, errAIContextIdentity):
+		return "unavailable", "The repository was renamed, archived or had its default branch changed. Use Reinstall / repair to review the setup again."
+	case errors.Is(err, errAIContextManagedDrifts):
+		return "unavailable", "The managed workflow or configuration was edited after review. Use Reinstall / repair to restore it."
+	case errors.Is(err, store.ErrNotFound):
+		return "unavailable", "No reviewed setup is recorded for this repository. Open the setup and submit it."
+	case errors.Is(err, github.ErrRateLimited):
+		return "unavailable", "GitHub's rate limit was reached. Zoomies checks again on its next pass."
+	case errors.Is(err, github.ErrForbidden):
+		return "unavailable", "GitHub refused access to the repository. Check the App installation still includes it and has Contents read permission."
+	case errors.Is(err, github.ErrNotFound):
+		return "unavailable", "GitHub could not find the repository or its setup PR. Check it still exists and the App installation includes it."
+	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
+		return "unavailable", "GitHub did not answer in time. Zoomies checks again on its next pass."
+	}
+	return "unavailable", "Repository setup or GitHub access could not be verified."
+}
+
+// aiContextPublicationFailure explains why the generated context was not
+// admitted. The commonest cause is not a fault at all -- the branch moved and
+// the workflow has not caught up -- and the card should say so.
+func aiContextPublicationFailure(err error, branch string, transient bool) string {
+	var reason string
+	switch {
+	case errors.Is(err, github.ErrContextMismatch):
+		reason = "The published context is for an older commit of " + branch + ". It refreshes when the workflow finishes; use Regenerate to run it now."
+	case errors.Is(err, github.ErrNotFound):
+		reason = "No generated context was found. Run the Zoomies AI Context workflow, or use Regenerate."
+	case errors.Is(err, errAIContextGenerator):
+		reason = "The published context came from a different generator than the setup pins. Use Reinstall / repair to restore the workflow."
+	default:
+		reason = "The generated context failed verification. Check the latest Zoomies AI Context workflow run in the repository."
+	}
+	if transient {
+		return reason + " Repository-only output keeps no copy."
+	}
+	return reason + " The previous snapshot is retained."
+}
+
+var errAIContextGenerator = errors.New("context generator identity does not match its managed workflow")
+
 // Context verification has its own bounded loop so a repository pack cannot
 // hold the fleet's scheduling lock. Polling also recovers missed push events.
 func (c *Controller) aiContextLoop(ctx context.Context) {
@@ -48,7 +112,7 @@ func (c *Controller) aiContextLoop(ctx context.Context) {
 }
 func (c *Controller) trustedAIContext(ctx context.Context, r *store.AIContextRepository) (github.ContextIngestionClient, *github.ContextSetupSource, error) {
 	if r.Config.Disabled {
-		return nil, nil, fmt.Errorf("AI Context has been removed; reinstall it to resume source access")
+		return nil, nil, errAIContextRemoved
 	}
 	setup, err := c.st.GetAIContextSetup(ctx, r.ID)
 	if err != nil {
@@ -66,7 +130,7 @@ func (c *Controller) trustedAIContext(ctx context.Context, r *store.AIContextRep
 		return nil, nil, err
 	}
 	if !info.CanReadContents() {
-		return nil, nil, fmt.Errorf("restore GitHub Contents read permission")
+		return nil, nil, errAIContextNoContents
 	}
 	ingestion, ok := client.(github.ContextIngestionClient)
 	if !ok {
@@ -88,7 +152,7 @@ func (c *Controller) trustedAIContext(ctx context.Context, r *store.AIContextRep
 		return nil, nil, err
 	}
 	if source.Repository.ID != r.Key.RepositoryID || source.Repository.FullName != r.FullName || source.Repository.Archived || source.Repository.DefaultBranch != r.Config.SourceBranch {
-		return nil, nil, fmt.Errorf("repository identity or trusted branch changed")
+		return nil, nil, errAIContextIdentity
 	}
 	desired, err := aicontext.PlanManagedSetup(r.Key, r.FullName, r.Config, nil)
 	if err != nil {
@@ -108,7 +172,7 @@ func (c *Controller) trustedAIContext(ctx context.Context, r *store.AIContextRep
 						continue
 					}
 				}
-				return nil, nil, fmt.Errorf("managed workflow or configuration changed; review a repair before ingestion")
+				return nil, nil, errAIContextManagedDrifts
 			}
 		}
 	}
@@ -139,10 +203,7 @@ func (c *Controller) verifyAIContext(ctx context.Context, id string) (*aicontext
 	// network failures. Source never falls back to an unverified retained pack.
 	client, source, err := c.trustedAIContext(ctx, r)
 	if err != nil {
-		state, reason := "unavailable", "Repository setup or GitHub access could not be verified."
-		if errors.Is(err, errAIContextAwaitingMerge) {
-			state, reason = "awaiting_merge", "Merge the reviewed setup PR before generating context."
-		}
+		state, reason := aiContextAccessFailure(err)
 		_ = c.failAIContextCheck(ctx, id, state, "", reason)
 		return nil, "", err
 	}
@@ -177,11 +238,14 @@ func (c *Controller) verifyAIContext(ctx context.Context, id string) (*aicontext
 	var digest string
 	if err == nil {
 		err = publication.Snapshot.Match(r.Key, r.Config.SourceBranch, source.Commit, hash)
+		if err != nil && publication.Snapshot.Validate() == nil {
+			err = fmt.Errorf("%w: %v", github.ErrContextMismatch, err)
+		}
 		if err == nil {
 			err = r.Config.CheckSourceFiles(publication.Snapshot.Files)
 		}
 		if err == nil && publication.Snapshot.Manifest.Generator != "repomix@1.18.1" {
-			err = fmt.Errorf("context generator identity does not match its managed workflow")
+			err = errAIContextGenerator
 		}
 	}
 	if err == nil {
@@ -196,11 +260,7 @@ func (c *Controller) verifyAIContext(ctx context.Context, id string) (*aicontext
 		}
 	}
 	if err != nil {
-		reason := "Current generation could not be verified. The previous snapshot is retained."
-		if transient {
-			reason = "Current generation could not be verified. Repository-only output keeps no copy."
-		}
-		_ = c.failAIContextCheck(ctx, id, "stale", source.Commit, reason)
+		_ = c.failAIContextCheck(ctx, id, "stale", source.Commit, aiContextPublicationFailure(err, r.Config.SourceBranch, transient))
 		return nil, "", err
 	}
 	if transient {
@@ -231,4 +291,48 @@ func (c *Controller) failAIContextCheck(ctx context.Context, id, state, desired,
 	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	return c.st.FailAIContextCheck(cleanup, id, state, desired, reason)
+}
+
+// AIContextRefusal is a regeneration Zoomies declined for a reason the
+// operator can fix. The message is written to be shown as it is.
+type AIContextRefusal struct{ Message string }
+
+func (e *AIContextRefusal) Error() string { return e.Message }
+
+// RegenerateAIContext runs the managed workflow on the trusted branch, for the
+// repository whose context has gone stale and will not catch up on its own --
+// the push that should have started it was missed, or the run failed. It asks
+// GitHub to start the workflow and nothing else: the result arrives the way any
+// other generation does, through verification, so a regeneration can neither
+// open the source gate nor write a snapshot itself.
+//
+// trustedAIContext runs first because dispatching runs the workflow file as it
+// is on the branch today; that is only safe while it is still the reviewed one.
+func (c *Controller) RegenerateAIContext(ctx context.Context, id string) error {
+	r, err := c.st.GetAIContextRepository(ctx, id)
+	if err != nil {
+		return err
+	}
+	client, _, err := c.trustedAIContext(ctx, r)
+	if err != nil {
+		if errors.Is(err, errAIContextAwaitingMerge) || errors.Is(err, errAIContextRemoved) || errors.Is(err, errAIContextManagedDrifts) || errors.Is(err, errAIContextIdentity) || errors.Is(err, errAIContextNoContents) {
+			_, reason := aiContextAccessFailure(err)
+			return &AIContextRefusal{Message: reason}
+		}
+		return err
+	}
+	dispatcher, ok := client.(github.ContextWorkflowDispatcher)
+	if !ok {
+		return &AIContextRefusal{Message: "This GitHub client cannot start the context workflow."}
+	}
+	if err := dispatcher.DispatchContextWorkflow(ctx, r.FullName, r.Config.SourceBranch); err != nil {
+		if errors.Is(err, github.ErrForbidden) {
+			return &AIContextRefusal{Message: "GitHub refused to start the workflow. Grant the App \"Actions\" read and write permission and accept it on the installation, or run the Zoomies AI Context workflow from the repository's Actions tab."}
+		}
+		if errors.Is(err, github.ErrNotFound) || errors.Is(err, github.ErrInvalid) {
+			return &AIContextRefusal{Message: "GitHub could not start the Zoomies AI Context workflow on " + r.Config.SourceBranch + ". Use Reinstall / repair to restore it."}
+		}
+		return err
+	}
+	return nil
 }

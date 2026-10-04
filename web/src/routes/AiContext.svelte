@@ -5,9 +5,11 @@
     listReadableAIContext,
     listContextInstallations,
     recheckAIContext,
+    regenerateAIContext,
   } from '$lib/api/client';
   import type { AIContextRepository } from '$lib/api/types';
   import { router } from '$lib/router';
+  import { toasts } from '$lib/state/toasts.svelte';
   import { session } from '$lib/state/session.svelte';
   import { formatAbsolute } from '$lib/format';
   import { aiContextStatus } from '$lib/status';
@@ -58,6 +60,27 @@
       checkFailure = { id, cause };
     } finally {
       checking = null;
+    }
+  }
+
+  // Regenerating asks GitHub to run the workflow; it does not verify anything, so
+  // the card keeps showing the old state until the next recheck says otherwise.
+  let regenerating = $state<string | null>(null);
+
+  async function regenerate(id: string) {
+    regenerating = id;
+    checkFailure = null;
+    try {
+      const started = await regenerateAIContext(id);
+      items = items.map((item) => (item.id === id ? started : item));
+      toasts.success(
+        'Workflow started',
+        'Recheck context once the run finishes; it usually takes a few minutes.',
+      );
+    } catch (cause) {
+      checkFailure = { id, cause };
+    } finally {
+      regenerating = null;
     }
   }
 
@@ -269,15 +292,21 @@
           {/if}
           {#if checkFailure?.id === item.id}<ErrorState
               error={checkFailure.cause}
-              title="Verification could not finish"
+              title="That could not finish"
               onretry={() => recheck(item.id)}
             />{/if}
           <div class="actions">
             {#if item.setup_state === 'awaiting_merge'}<Button
                 size="sm"
                 loading={checking === item.id}
-                disabled={checking !== null}
+                disabled={checking !== null || regenerating !== null}
                 onclick={() => recheck(item.id)}>Recheck context</Button
+              >{/if}
+            {#if item.setup_state === 'awaiting_merge' && item.freshness && item.freshness.state !== 'awaiting_merge'}<Button
+                size="sm"
+                loading={regenerating === item.id}
+                disabled={regenerating !== null || checking !== null}
+                onclick={() => regenerate(item.id)}>Regenerate</Button
               >{/if}
             {#if item.setup_pr_url}<Button size="sm" newTab href={item.setup_pr_url}
                 >Open setup PR</Button

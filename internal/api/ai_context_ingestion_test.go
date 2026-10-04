@@ -97,6 +97,10 @@ func TestContextIngestionRequiresMergeAndClosesAccessOnDriftOrRevocation(t *test
 		t.Fatal("workflow drift admitted")
 	}
 	check(false)
+	// The card says what to do about it, not merely that verification failed.
+	if drift, err := h.st.GetAIContextFreshness(h.ctx, draft.ID); err != nil || !strings.Contains(drift.Failure, "edited after review") {
+		t.Fatalf("drift reason: %+v %v", drift, err)
+	}
 	h.gh.AddFile(draft.FullName, aicontext.WorkflowPath, findSetupContent(t, plan, aicontext.WorkflowPath))
 	h.gh.AddFile(draft.FullName, "src/main.go", "package newer\n")
 	if err := h.ctrl.RefreshAIContext(h.ctx, draft.ID); err == nil {
@@ -106,6 +110,10 @@ func TestContextIngestionRequiresMergeAndClosesAccessOnDriftOrRevocation(t *test
 	fresh, err := h.st.GetAIContextFreshness(h.ctx, draft.ID)
 	if err != nil || fresh.State != "stale" || fresh.Digest != digest || fresh.DesiredCommit == snapshot.Manifest.SourceCommit {
 		t.Fatalf("stale status: %+v %v", fresh, err)
+	}
+	// A branch that moved on is the ordinary stale case, and is named as such.
+	if !strings.Contains(fresh.Failure, "older commit") || !strings.Contains(fresh.Failure, "Regenerate") {
+		t.Fatalf("stale reason does not say the branch moved on: %q", fresh.Failure)
 	}
 	if _, err := h.st.GetAIContextSnapshot(h.ctx, draft.ID, digest); err != nil {
 		t.Fatal("failure deleted the last valid snapshot", err)
@@ -127,4 +135,71 @@ func findSetupContent(t *testing.T, plan *controller.AIContextSetupPreview, path
 	}
 	t.Fatal("missing setup file", path)
 	return ""
+}
+
+func TestRegeneratingContextRunsTheReviewedWorkflowOnly(t *testing.T) {
+	h, inst, _ := migrationHarness(t)
+	_, admin := h.user("regenerate-admin", store.RoleAdmin)
+	discovery, err := h.ctrl.DiscoverAIContext(h.ctx, inst.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selected := discovery.Repositories[0]
+	draft := store.AIContextRepository{Key: aicontext.RepositoryKey{GitHubHost: "github.com", InstallationID: inst.ID, RepositoryID: selected.ID}, FullName: selected.FullName, Config: aicontext.DefaultConfig(selected.DefaultBranch)}
+	if err := h.st.CreateAIContextRepository(h.ctx, &draft); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := h.ctrl.PreviewAIContextSetup(h.ctx, draft.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err = h.ctrl.CreateAIContextSetupPR(h.ctx, draft.ID, controller.AIContextSetupApproval{Revision: plan.Revision, PlanHash: plan.PlanHash})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/v1/ai-context/repositories/" + draft.ID + "/regenerate"
+
+	// Nothing is reviewed until the setup PR is merged, so there is no workflow
+	// to trust and nothing to run.
+	h.do(request{method: http.MethodPost, path: path, cookie: admin}).mustStatus(t, http.StatusConflict, "regenerating before the setup is merged")
+	if n := h.gh.ContextDispatches(draft.FullName); n != 0 {
+		t.Fatalf("workflow dispatched before the setup was reviewed: %d", n)
+	}
+
+	if !h.gh.MergeContextPull(draft.FullName, plan.Setup.PRNumber) {
+		t.Fatal("merge failed")
+	}
+	response := h.do(request{method: http.MethodPost, path: path, cookie: admin})
+	response.mustStatus(t, http.StatusAccepted, "regenerating a merged setup")
+	if n := h.gh.ContextDispatches(draft.FullName); n != 1 {
+		t.Fatalf("dispatches: %d", n)
+	}
+
+	// An edited workflow is not what was reviewed; running it would run
+	// whatever it now says.
+	h.gh.AddFile(draft.FullName, aicontext.WorkflowPath, "unreviewed workflow")
+	h.do(request{method: http.MethodPost, path: path, cookie: admin}).mustStatus(t, http.StatusConflict, "regenerating an edited workflow")
+	h.gh.AddFile(draft.FullName, aicontext.WorkflowPath, findSetupContent(t, plan, aicontext.WorkflowPath))
+	if n := h.gh.ContextDispatches(draft.FullName); n != 1 {
+		t.Fatalf("an edited workflow was dispatched: %d", n)
+	}
+
+	// Without Actions write the request is refused with the permission to grant.
+	h.gh.SetPermissions(map[string]string{"metadata": "read", "contents": "write", "workflows": "write", "actions": "read"})
+	denied := h.do(request{method: http.MethodPost, path: path, cookie: admin})
+	denied.mustStatus(t, http.StatusConflict, "regenerating without Actions write")
+	if !strings.Contains(denied.errorMessage(t), "Actions") {
+		t.Fatalf("refusal does not name the permission: %s", denied.errorMessage(t))
+	}
+
+	// Nothing has been generated yet, and the card says to run the workflow
+	// rather than "could not be verified".
+	h.gh.SetPermissions(map[string]string{"metadata": "read", "contents": "write", "workflows": "write", "actions": "write"})
+	if err := h.ctrl.RefreshAIContext(h.ctx, draft.ID); err == nil {
+		t.Fatal("context admitted with nothing generated")
+	}
+	fresh, err := h.st.GetAIContextFreshness(h.ctx, draft.ID)
+	if err != nil || fresh.State != "stale" || !strings.Contains(fresh.Failure, "Regenerate") {
+		t.Fatalf("freshness: %+v %v", fresh, err)
+	}
 }
