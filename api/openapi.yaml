@@ -8046,6 +8046,7 @@ components:
       type: object
       required: [checked_at, os, distro, container, results, reboot_pending]
       properties:
+        work_dir: { type: string, description: Host filesystem path inspected for runner disk headroom. }
         checked_at: { type: string, format: date-time }
         os: { type: string }
         distro: { type: string }

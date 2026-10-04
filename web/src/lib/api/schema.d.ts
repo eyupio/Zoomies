@@ -6083,6 +6083,8 @@ export interface components {
             optional?: boolean;
         };
         HostDoctor: {
+            /** @description Host filesystem path inspected for runner disk headroom. */
+            work_dir?: string;
             /** Format: date-time */
             checked_at: string;
             os: string;

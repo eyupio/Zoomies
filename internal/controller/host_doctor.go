@@ -2,8 +2,9 @@ package controller
 
 import (
 	"fmt"
-	"github.com/eyupio/zoomies/internal/hosttune"
 	"time"
+
+	"github.com/eyupio/zoomies/internal/hosttune"
 )
 
 func validateDoctor(r *hosttune.Report, now time.Time) error {

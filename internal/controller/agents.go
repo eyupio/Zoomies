@@ -711,7 +711,7 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 		if err := validateDoctor(req.Doctor, now); err != nil {
 			return nil, err
 		}
-		if h.Doctor.Report == nil || !h.Doctor.CheckedAt.Equal(req.Doctor.CheckedAt) {
+		if h.Doctor.Report == nil || req.Doctor.CheckedAt.After(h.Doctor.CheckedAt) {
 			if err := c.st.SetHostDoctor(ctx, hostID, req.Doctor); err != nil {
 				return nil, err
 			}
