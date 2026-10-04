@@ -84,3 +84,40 @@ func TestEveryDedicatedCheckHasAnIsolatedDetectionPath(t *testing.T) {
 		})
 	}
 }
+
+func TestDedicatedCompanionSocketIsRecordedAndGuarded(t *testing.T) {
+	e, f := fixture()
+	for _, u := range []string{"multipathd.service", "multipathd.socket"} {
+		f.commands["systemctl show "+u+" --property=LoadState --property=UnitFileState --property=ActiveState"] = "LoadState=loaded\nUnitFileState=enabled\nActiveState=active"
+		f.commands["systemctl list-dependencies --reverse --all --plain --no-pager "+u] = u
+	}
+	c, err := e.Plan(context.Background(), Result{ID: "service.multipathd", Recommended: "disabled and masked"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Units) != 2 {
+		t.Fatal("companion state missing")
+	}
+	c.Phase = "applied"
+	if e.verifyRevert(context.Background(), c) == nil {
+		t.Fatal("later unit edits were ignored")
+	}
+	for _, u := range c.Units {
+		f.commands["systemctl show "+u.Name+" --property=LoadState --property=UnitFileState --property=ActiveState"] = "LoadState=loaded\nUnitFileState=masked\nActiveState=inactive"
+	}
+	if err := e.verifyRevert(context.Background(), c); err != nil {
+		t.Fatal(err)
+	}
+	f.commands["systemctl list-dependencies --reverse --all --plain --no-pager multipathd.socket"] = "multipathd.socket\nbackup.service"
+	if reason := familyGuard(context.Background(), e, "multipathd.service"); !strings.Contains(reason, "backup.service") {
+		t.Fatal("socket dependent not guarded")
+	}
+}
+func TestCompletedCloudInitAcceptsCompactJSON(t *testing.T) {
+	e, f := fixture()
+	f.commands["cloud-init status --format json"] = `{"status":"done"}`
+	f.commands["systemctl list-dependencies --reverse --all --plain --no-pager cloud-init.service"] = "cloud-init.service"
+	if reason := unitGuard(context.Background(), e, "cloud-init.service"); reason != "" {
+		t.Fatal(reason)
+	}
+}

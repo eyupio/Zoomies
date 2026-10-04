@@ -2,6 +2,7 @@ package hosttune
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -23,6 +24,40 @@ func dedicatedChecks() []Check {
 }
 func unitID(u string) string {
 	return "service." + strings.TrimSuffix(strings.TrimSuffix(u, ".service"), ".timer")
+}
+func unitFamily(u string) []string {
+	switch u {
+	case "snapd.service":
+		return []string{u, "snapd.socket", "snapd.seeded.service", "snapd.apparmor.service", "snapd.autoimport.service"}
+	case "multipathd.service":
+		return []string{u, "multipathd.socket"}
+	case "motd-news.service":
+		return []string{u, "motd-news.timer"}
+	case "cloud-init.service":
+		return []string{u, "cloud-init-local.service", "cloud-config.service", "cloud-final.service"}
+	}
+	return []string{u}
+}
+func familyGuard(ctx context.Context, e *Engine, u string) string {
+	for _, member := range unitFamily(u) {
+		enabled, active, err := unitState(ctx, e, member)
+		if err != nil {
+			if member == u {
+				return err.Error()
+			}
+			continue
+		}
+		if enabled != "enabled" && enabled != "disabled" && enabled != "static" && enabled != "masked" {
+			return "unit state cannot be restored safely: " + member + " " + enabled
+		}
+		if active != "active" && active != "inactive" {
+			return "unit is not settled: " + member + " " + active
+		}
+		if reason := unitGuard(ctx, e, member); reason != "" {
+			return reason
+		}
+	}
+	return ""
 }
 func allowedUnit(u string) bool {
 	for _, a := range dedicatedUnits {
@@ -86,7 +121,10 @@ func unitGuard(ctx context.Context, e *Engine, u string) string {
 	}
 	if u == "cloud-init.service" {
 		v, err := command(ctx, e, "cloud-init", "status", "--format", "json")
-		if err != nil || !strings.Contains(v, `"status": "done"`) {
+		var status struct {
+			Status string `json:"status"`
+		}
+		if err != nil || json.Unmarshal([]byte(v), &status) != nil || status.Status != "done" {
 			return "cloud-init has not been confirmed complete"
 		}
 	}
@@ -116,36 +154,59 @@ func unitCheck(u string) Check {
 			return Result{Status: Skip, Reason: err.Error()}
 		}
 		r := Result{Status: Warn, Current: enabled + ", " + active, Recommended: "disabled and masked"}
-		if strings.HasPrefix(enabled, "masked") && active != "active" {
+		allMasked := true
+		for _, member := range unitFamily(u) {
+			en, ac, er := unitState(ctx, e, member)
+			if er == nil && (en != "masked" || ac != "inactive") {
+				allMasked = false
+			}
+		}
+		if allMasked && strings.HasPrefix(enabled, "masked") && active != "active" {
 			r.Status = OK
 			return r
 		}
-		if enabled != "enabled" && enabled != "disabled" && enabled != "static" {
+		if enabled != "enabled" && enabled != "disabled" && enabled != "static" && enabled != "masked" {
 			r.Status = Skip
 			r.Reason = "unit state cannot be restored safely: " + enabled
 			return r
 		}
-		if reason := unitGuard(ctx, e, u); reason != "" {
+		if reason := familyGuard(ctx, e, u); reason != "" {
 			r.Status = Skip
+			if strings.HasPrefix(u, "apt-daily") {
+				r.Status = Warn
+			}
 			r.Reason = reason
 		}
 		return r
 	}, Plan: func(ctx context.Context, e *Engine, r Result) (Change, error) {
-		if reason := unitGuard(ctx, e, u); reason != "" {
+		if reason := familyGuard(ctx, e, u); reason != "" {
 			return Change{}, fmt.Errorf("%s", reason)
 		}
-		enabled, active, err := unitState(ctx, e, u)
-		if err != nil {
-			return Change{}, err
+
+		c := Change{ID: r.ID, Previous: r.Current, New: "disabled and masked"}
+		for _, member := range unitFamily(u) {
+			enabled, active, err := unitState(ctx, e, member)
+			if err != nil {
+				if member == u {
+					return Change{}, err
+				}
+				continue
+			}
+			if enabled == "masked" && active == "inactive" {
+				continue
+			}
+			c.Units = append(c.Units, UnitChange{Name: member, BeforeEnabled: enabled, BeforeActive: active, AfterEnabled: "masked", AfterActive: "inactive"})
+			if active == "active" {
+				c.Operations = append(c.Operations, Operation{Do: []string{"systemctl", "stop", member}, Undo: []string{"systemctl", "start", member}})
+			}
+			if enabled == "enabled" {
+				c.Operations = append(c.Operations, Operation{Do: []string{"systemctl", "disable", member}, Undo: []string{"systemctl", "enable", member}})
+			}
+			if enabled != "masked" {
+				c.Operations = append(c.Operations, Operation{Do: []string{"systemctl", "mask", member}, Undo: []string{"systemctl", "unmask", member}})
+			}
 		}
-		undoDisable := []string{}
-		if enabled == "enabled" {
-			undoDisable = []string{"systemctl", "enable", u}
-		}
-		c := Change{ID: r.ID, Previous: enabled + ", " + active, New: "disabled and masked", Operations: []Operation{{Do: []string{"systemctl", "disable", u}, Undo: undoDisable}, {Do: []string{"systemctl", "mask", u}, Undo: []string{"systemctl", "unmask", u}}}}
-		if active == "active" {
-			c.Operations = append([]Operation{{Do: []string{"systemctl", "stop", u}, Undo: []string{"systemctl", "start", u}}}, c.Operations...)
-		}
+
 		return c, nil
 	}}
 }

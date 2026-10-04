@@ -55,8 +55,25 @@ func baseChecks() []Check {
 			if v == "tmpfs" {
 				s = OK
 			}
-			return Result{Status: s, Current: v, Recommended: "tmpfs only after reviewing RAM and workload", Reason: "advice only; mounting over active temporary files is unsafe"}
-		}},
+			r := Result{Status: s, Current: v, Recommended: "tmpfs with a 25% RAM cap, at the next planned boot"}
+			if s == Warn {
+				unit, err := command(ctx, e, "systemctl", "show", "tmp.mount", "--property=LoadState", "--value")
+				if err != nil || unit != "loaded" {
+					r.Reason = "advice only: no existing tmp.mount unit; configure a memory-backed /tmp manually after reviewing RAM"
+				} else if managedUnitPolicy(ctx, e, "tmp.mount", "What", "Type", "Options") {
+					r.Reason = "temporary directory mount policy is managed elsewhere"
+				}
+				b, _ := read(e, "/etc/fstab")
+				for _, line := range strings.Split(b, "\n") {
+					f := strings.Fields(line)
+					if len(f) > 1 && !strings.HasPrefix(f[0], "#") && f[1] == "/tmp" {
+						r.Reason = "temporary directory mount policy is already managed in /etc/fstab"
+					}
+				}
+
+			}
+			return r
+		}, Plan: planTmpfs},
 	}
 	return checks
 }
@@ -90,7 +107,7 @@ func sysctl(id, title, key string, want int64, t Tier, why string) Check {
 			return Change{}, err
 		}
 		after := setAssignment(string(before.Data), key, r.Recommended)
-		return Change{ID: id, Files: []FileChange{{Path: sysctlFile, Before: before, After: []byte(after), Mode: 0644}}, Operations: []Operation{{Do: []string{"sysctl", "-w", key + "=" + r.Recommended}, Undo: []string{"sysctl", "-w", key + "=" + r.Current}}}, Previous: r.Current, New: r.Recommended}, nil
+		return Change{ID: id, Files: []FileChange{{Path: sysctlFile, Before: before, After: []byte(after), Mode: snapshotMode(before)}}, Operations: []Operation{{Do: []string{"sysctl", "-w", key + "=" + r.Recommended}, Undo: []string{"sysctl", "-w", key + "=" + r.Current}}}, Previous: r.Current, New: r.Recommended}, nil
 	}}
 }
 func managedSysctl(e *Engine, key string) string {
@@ -200,6 +217,36 @@ func managedDropins(ctx context.Context, e *Engine, u string) bool {
 	}
 	return false
 }
+
+// Existing drop-ins and management markers belong to their administrator.
+func managedUnitPolicy(ctx context.Context, e *Engine, u string, keys ...string) bool {
+	paths, err := command(ctx, e, "systemctl", "show", u, "--property=DropInPaths", "--value")
+	if err != nil {
+		return true
+	}
+	fragment, err := command(ctx, e, "systemctl", "show", u, "--property=FragmentPath", "--value")
+	if err != nil {
+		return true
+	}
+	if b, err := read(e, fragment); err == nil && managed(b) {
+		return true
+	}
+	for _, p := range strings.Fields(paths) {
+		b, err := read(e, p)
+		if err != nil || managed(b) {
+			return true
+		}
+		if strings.HasSuffix(p, "/90-zoomies.conf") {
+			continue
+		}
+		for _, k := range keys {
+			if assigns(b, k) {
+				return true
+			}
+		}
+	}
+	return false
+}
 func planServiceLimit(ctx context.Context, e *Engine, r Result) (Change, error) {
 	u, _, err := service(ctx, e)
 	if err != nil {
@@ -222,6 +269,14 @@ func detectLogs(ctx context.Context, e *Engine) Result {
 	v, err := dockerInfo(ctx, e, "{{.LoggingDriver}}")
 	if err != nil {
 		return Result{Status: Skip, Reason: "Docker information is unavailable: " + v}
+	}
+	if security, err := dockerInfo(ctx, e, "{{json .SecurityOptions}}"); err != nil {
+		return Result{Status: Skip, Reason: "cannot establish whether the Docker daemon is rootless"}
+	} else if strings.Contains(security, "rootless") {
+		return Result{Status: Skip, Reason: "rootless Docker uses the owning user's daemon configuration"}
+	}
+	if e.DockerHost != "" && e.DockerHost != "unix:///var/run/docker.sock" {
+		return Result{Status: Skip, Reason: "custom Docker socket; local /etc/docker/daemon.json may not control it"}
 	}
 	if v != "json-file" {
 		return Result{Status: Skip, Current: v, Recommended: r.Recommended, Reason: "another logging driver is configured; leave its policy unchanged"}
@@ -295,7 +350,7 @@ func planLogs(ctx context.Context, e *Engine, r Result) (Change, error) {
 	if err != nil {
 		return Change{}, err
 	}
-	return Change{ID: r.ID, Previous: r.Current, New: r.Recommended, Files: []FileChange{{Path: p, Before: s, After: b, Mode: 0644}}, DockerRestart: true, Notice: "Docker must restart to load this policy; it applies to newly created containers."}, nil
+	return Change{ID: r.ID, Previous: r.Current, New: r.Recommended, Files: []FileChange{{Path: p, Before: s, After: b, Mode: snapshotMode(s)}}, DockerRestart: true, Notice: "Docker must restart to load this policy; it applies to newly created containers."}, nil
 }
 func mountCheck(docker bool) func(context.Context, *Engine) Result {
 	return func(ctx context.Context, e *Engine) Result {
@@ -389,20 +444,27 @@ func detectGovernor(ctx context.Context, e *Engine) Result {
 		}
 	}
 	r.Current = strings.Join(vs, ", ")
+	if r.Status == Warn {
+		v, err := command(ctx, e, "systemctl", "show", "cpupower.service", "--property=LoadState", "--value")
+		if err != nil || v != "loaded" {
+			r.Reason = "persistent tuning needs the distribution's cpupower.service; install its CPU frequency tools first"
+		} else if managedUnitPolicy(ctx, e, "cpupower.service", "ExecStart", "Environment") {
+			r.Reason = "CPU governor service policy is managed elsewhere"
+		}
+
+	}
 	return r
 }
 func planGovernor(ctx context.Context, e *Engine, r Result) (Change, error) {
 	// A systemd service drop-in persists the choice; runtime writes and their
 	// individual previous values are journalled separately.
 	c := Change{ID: r.ID, Previous: r.Current, New: "performance"}
-	var commands []string
 	for _, p := range governorPaths(e) {
 		v, err := read(e, p)
 		if err != nil {
 			return c, err
 		}
 		c.Operations = append(c.Operations, Operation{Path: p, Value: "performance", Previous: v})
-		commands = append(commands, "ExecStart=/usr/bin/tee "+p)
 	}
 	// cpupower is distribution supplied; do not invent a shell script or assume
 	// it is installed. Its existing service provides the persistence point.
@@ -416,6 +478,34 @@ func planGovernor(ctx context.Context, e *Engine, r Result) (Change, error) {
 	}
 	c.Files = []FileChange{f}
 	c.Operations = append(c.Operations, Operation{Do: []string{"systemctl", "daemon-reload"}, Undo: []string{"systemctl", "daemon-reload"}})
-	c.Notice = "Enable the existing cpupower service if you want this policy restored at boot."
+	enabled, err := command(ctx, e, "systemctl", "show", "cpupower.service", "--property=UnitFileState", "--value")
+	if err != nil {
+		return c, err
+	}
+	if enabled == "disabled" {
+		c.Operations = append(c.Operations, Operation{Do: []string{"systemctl", "enable", "cpupower.service"}, Undo: []string{"systemctl", "disable", "cpupower.service"}})
+	} else if enabled != "enabled" {
+		return c, fmt.Errorf("cpupower service state cannot be restored safely: %s", enabled)
+	}
+	c.Notice = "The existing cpupower service restores the governor at boot; previous service enablement and each CPU policy are recorded."
+	return c, nil
+}
+
+func planTmpfs(ctx context.Context, e *Engine, r Result) (Change, error) {
+	unit, err := command(ctx, e, "systemctl", "show", "tmp.mount", "--property=UnitFileState", "--value")
+	if err != nil {
+		return Change{}, err
+	}
+	if unit != "enabled" && unit != "disabled" {
+		return Change{}, fmt.Errorf("tmp.mount enablement cannot be restored safely: %s", unit)
+	}
+	f, err := fileChange(e, "/etc/systemd/system/tmp.mount.d/90-zoomies.conf", "[Mount]\nWhat=tmpfs\nType=tmpfs\nOptions=mode=1777,size=25%\n")
+	if err != nil {
+		return Change{}, err
+	}
+	c := Change{ID: r.ID, Previous: r.Current, New: r.Recommended, Files: []FileChange{f}, Operations: []Operation{{Do: []string{"systemctl", "daemon-reload"}, Undo: []string{"systemctl", "daemon-reload"}}}, Notice: "No active /tmp files are hidden or moved. The mount is enabled only for the next planned boot; drain before rebooting. Revert restores the drop-in and enablement; if it has since booted, drain and reboot again to change the live mount."}
+	if unit == "disabled" {
+		c.Operations = append(c.Operations, Operation{Do: []string{"systemctl", "enable", "tmp.mount"}, Undo: []string{"systemctl", "disable", "tmp.mount"}})
+	}
 	return c, nil
 }

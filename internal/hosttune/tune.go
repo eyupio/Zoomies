@@ -52,6 +52,9 @@ func (e *Engine) Tune(ctx context.Context, o TuneOptions) error {
 		return fmt.Errorf("root is required; review with doctor, then run sudo zoomies tune")
 	}
 	for id := range o.Only {
+		if c, ok := e.Check(id); ok && !o.Revert && ((c.Tier == Dedicated && !o.Dedicated) || (c.Tier == Aggressive && o.Tier == Safe && !o.Dedicated)) {
+			return fmt.Errorf("%s requires --tier aggressive or --dedicated as appropriate", id)
+		}
 		if _, ok := e.Check(id); !ok {
 			return fmt.Errorf("unknown check ID %q", id)
 		}
@@ -156,11 +159,7 @@ func (e *Engine) Tune(ctx context.Context, o TuneOptions) error {
 		if err != nil {
 			return err
 		}
-		for _, c := range s.Changes {
-			if c.DockerRestart && c.Phase == "applied" {
-				restart = true
-			}
-		}
+		restart = s.DockerRestartPending
 	}
 	if restart && !o.DryRun {
 		fmt.Fprintln(o.Out, "Docker needs a restart. New log settings apply to newly created containers.")
@@ -201,5 +200,18 @@ func (e *Engine) RestartDocker(ctx context.Context) error {
 		return fmt.Errorf("containers are running; restart is refused even with --force")
 	}
 	_, err = command(ctx, e, "systemctl", "restart", "docker.service")
-	return err
+	if err != nil {
+		return err
+	}
+	unlock, err := e.System.Lock(StateDir + "/lock")
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	s, err := e.LoadState()
+	if err != nil {
+		return err
+	}
+	s.DockerRestartPending = false
+	return e.saveState(s)
 }

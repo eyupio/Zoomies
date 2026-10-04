@@ -16,6 +16,8 @@ type Snapshot struct {
 	Exists bool        `json:"exists"`
 	Data   []byte      `json:"data,omitempty"`
 	Mode   fs.FileMode `json:"mode"`
+	UID    int         `json:"uid"`
+	GID    int         `json:"gid"`
 }
 type FileChange struct {
 	Path   string      `json:"path"`
@@ -30,7 +32,15 @@ type Operation struct {
 	Value    string   `json:"value,omitempty"`
 	Previous string   `json:"previous,omitempty"`
 }
+type UnitChange struct {
+	Name          string `json:"name"`
+	BeforeEnabled string `json:"before_enabled"`
+	BeforeActive  string `json:"before_active"`
+	AfterEnabled  string `json:"after_enabled"`
+	AfterActive   string `json:"after_active"`
+}
 type Change struct {
+	Units         []UnitChange `json:"units,omitempty"`
 	ID            string       `json:"id"`
 	Previous      string       `json:"previous"`
 	New           string       `json:"new"`
@@ -43,8 +53,9 @@ type Change struct {
 	Phase         string       `json:"phase"`
 }
 type State struct {
-	Version int      `json:"version"`
-	Changes []Change `json:"changes"`
+	DockerRestartPending bool     `json:"docker_restart_pending"`
+	Version              int      `json:"version"`
+	Changes              []Change `json:"changes"`
 }
 
 func snapshot(e *Engine, p string) (Snapshot, error) {
@@ -59,14 +70,25 @@ func snapshot(e *Engine, p string) (Snapshot, error) {
 		return Snapshot{}, fmt.Errorf("refusing non-regular file %s", p)
 	}
 	b, err := e.System.ReadFile(p)
-	return Snapshot{Exists: true, Data: b, Mode: i.Mode().Perm()}, err
+	uid, gid := fileOwner(i)
+	return Snapshot{Exists: true, Data: b, Mode: i.Mode().Perm(), UID: uid, GID: gid}, err
+}
+func snapshotMode(s Snapshot) fs.FileMode {
+	if s.Exists {
+		return s.Mode
+	}
+	return 0644
 }
 func fileChange(e *Engine, p, s string) (FileChange, error) {
 	b, err := snapshot(e, p)
 	if managed(string(b.Data)) {
 		return FileChange{}, fmt.Errorf("%s is managed elsewhere", p)
 	}
-	return FileChange{Path: p, Before: b, After: []byte(s), Mode: 0644}, err
+	mode := fs.FileMode(0644)
+	if b.Exists {
+		mode = b.Mode
+	}
+	return FileChange{Path: p, Before: b, After: []byte(s), Mode: mode}, err
 }
 func (e *Engine) LoadState() (State, error) {
 	s := State{Version: 1, Changes: []Change{}}
@@ -137,6 +159,64 @@ func (c Change) Preview() string {
 	}
 	return b.String()
 }
+func (e *Engine) verifyRevert(ctx context.Context, c Change) error {
+	for _, u := range c.Units {
+		en, ac, err := unitState(ctx, e, u.Name)
+		if err != nil {
+			return err
+		}
+		allowedEnabled := en == u.AfterEnabled || (c.Phase == "pending" && (en == u.BeforeEnabled || en == "disabled"))
+		allowedActive := ac == u.AfterActive || (c.Phase == "pending" && ac == u.BeforeActive)
+		if !allowedEnabled || !allowedActive {
+			return fmt.Errorf("%s was changed outside Zoomies; refusing to overwrite it", u.Name)
+		}
+	}
+
+	for _, op := range c.Operations {
+		p, after, before := op.Path, op.Value, op.Previous
+		if len(op.Do) >= 3 && op.Do[0] == "sysctl" {
+			key, val, _ := strings.Cut(op.Do[2], "=")
+			p = "/proc/sys/" + strings.ReplaceAll(key, ".", "/")
+			after = val
+			_, before, _ = strings.Cut(op.Undo[2], "=")
+		}
+		if p != "" {
+			v, err := read(e, p)
+			if err != nil {
+				return err
+			}
+			if v != after && !(c.Phase == "pending" && v == before) {
+				return fmt.Errorf("%s was changed outside Zoomies; refusing to overwrite it", p)
+			}
+		}
+		if len(op.Undo) > 2 && op.Undo[0] == "apt-get" {
+			running, err := command(ctx, e, "uname", "-r")
+			if err != nil {
+				return err
+			}
+			for _, pkg := range op.Undo[4:] {
+				if strings.Contains(pkg, running) {
+					return fmt.Errorf("the installed HWE kernel is running; boot the previous kernel before reverting")
+				}
+			}
+			plan, err := command(ctx, e, "apt-get", append([]string{"--simulate", "remove", "--"}, op.Undo[4:]...)...)
+			if err != nil {
+				return fmt.Errorf("cannot verify package reversal")
+			}
+			allowed := map[string]bool{}
+			for _, pkg := range op.Undo[4:] {
+				allowed[pkg] = true
+			}
+			for _, l := range strings.Split(plan, "\n") {
+				f := strings.Fields(l)
+				if len(f) > 1 && ((f[0] == "Remv" && !allowed[f[1]]) || f[0] == "Inst") {
+					return fmt.Errorf("package reversal would change an unrelated package: %s", f[1])
+				}
+			}
+		}
+	}
+	return nil
+}
 func (e *Engine) execute(ctx context.Context, o Operation, undo bool) error {
 	if o.Path != "" {
 		v := o.Value
@@ -187,13 +267,16 @@ func (e *Engine) Apply(ctx context.Context, c Change, actor string) error {
 		if err != nil {
 			return err
 		}
-		if now.Exists != f.Before.Exists || !bytes.Equal(now.Data, f.Before.Data) {
+		if now.Exists != f.Before.Exists || !bytes.Equal(now.Data, f.Before.Data) || (now.Exists && (now.Mode != f.Before.Mode || now.UID != f.Before.UID || now.GID != f.Before.GID)) {
 			return fmt.Errorf("%s changed after preview; run tune again", f.Path)
 		}
 	}
 	c.At = e.Now().UTC()
 	c.Actor = actor
 	c.Phase = "pending"
+	if c.DockerRestart {
+		s.DockerRestartPending = true
+	}
 	s.Changes = append(s.Changes, c)
 	if err = e.saveState(s); err != nil {
 		return err
@@ -235,6 +318,7 @@ func (e *Engine) Revert(ctx context.Context, only, skip map[string]bool, dry boo
 		return nil, err
 	}
 	var out []Change
+	virtual := map[string]Snapshot{}
 	// Shared drop-ins must unwind in reverse order; a selective revert of an
 	// earlier edit is refused if a later live edit touched the same file.
 	for i := len(s.Changes) - 1; i >= 0; i-- {
@@ -254,15 +338,27 @@ func (e *Engine) Revert(ctx context.Context, only, skip map[string]bool, dry boo
 				}
 			}
 			now, err := snapshot(e, f.Path)
+			if dry {
+				if v, ok := virtual[f.Path]; ok {
+					now = v
+					err = nil
+				}
+			}
 			if err != nil {
 				return out, err
 			}
-			if !bytes.Equal(now.Data, f.After) && !(now.Exists == f.Before.Exists && bytes.Equal(now.Data, f.Before.Data)) {
+			if (!bytes.Equal(now.Data, f.After) && !(now.Exists == f.Before.Exists && bytes.Equal(now.Data, f.Before.Data))) || (now.Exists && f.Before.Exists && (now.UID != f.Before.UID || now.GID != f.Before.GID || now.Mode != f.Mode)) {
 				return out, fmt.Errorf("%s was changed outside Zoomies; refusing to overwrite it", f.Path)
 			}
 		}
+		if err = e.verifyRevert(ctx, c); err != nil {
+			return out, err
+		}
 		out = append(out, c)
 		if dry {
+			for _, f := range c.Files {
+				virtual[f.Path] = f.Before
+			}
 			s.Changes[i].Phase = "reverted"
 			continue
 		}
@@ -285,6 +381,9 @@ func (e *Engine) Revert(ctx context.Context, only, skip map[string]bool, dry boo
 			}
 		}
 		s.Changes[i].Phase = "reverted"
+		if c.DockerRestart {
+			s.DockerRestartPending = true
+		}
 		if err = e.saveState(s); err != nil {
 			return out, err
 		}

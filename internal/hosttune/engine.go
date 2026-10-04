@@ -4,6 +4,7 @@ package hosttune
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -70,6 +71,23 @@ func (LocalSystem) Run(ctx context.Context, n string, a ...string) (string, erro
 // WriteValue writes a kernel virtual file directly; atomic renames cannot be
 // used on procfs or sysfs. It is never used for persistent configuration.
 func (LocalSystem) WriteValue(p, v string) error { return os.WriteFile(p, []byte(v+"\n"), 0644) }
+func fileOwner(info fs.FileInfo) (int, int) {
+	if info == nil {
+		return -1, -1
+	}
+	v := reflect.ValueOf(info.Sys())
+	if v.Kind() == reflect.Pointer {
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return -1, -1
+	}
+	u, g := v.FieldByName("Uid"), v.FieldByName("Gid")
+	if u.IsValid() && g.IsValid() {
+		return int(u.Uint()), int(g.Uint())
+	}
+	return -1, -1
+}
 func preserveOwner(f *os.File, info fs.FileInfo) error {
 	if info == nil {
 		return nil
@@ -91,6 +109,16 @@ func (LocalSystem) Lock(p string) (func(), error) {
 	if err := os.MkdirAll(filepath.Dir(p), 0700); err != nil {
 		return nil, err
 	}
+	info, err := os.Lstat(filepath.Dir(p))
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() || info.Mode().Perm() != 0700 {
+		return nil, fmt.Errorf("tuning state directory must be a real directory with mode 0700")
+	}
+	if uid, _ := fileOwner(info); uid != 0 {
+		return nil, fmt.Errorf("tuning state directory must be owned by root")
+	}
 	f, err := os.OpenFile(p, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
 		return nil, fmt.Errorf("tuning is locked at %s; check for another tune process before removing a stale lock: %w", p, err)
@@ -99,6 +127,9 @@ func (LocalSystem) Lock(p string) (func(), error) {
 	return func() { _ = os.Remove(p) }, nil
 }
 func (LocalSystem) WriteFile(p string, b []byte, m fs.FileMode) error {
+	if p == "/var/lib/zoomies/shared/host-health/report.json" {
+		return writeHostReport(b)
+	}
 	if i, e := os.Lstat(p); e == nil && !i.Mode().IsRegular() {
 		return fmt.Errorf("refusing non-regular file %s", p)
 	}
@@ -174,6 +205,7 @@ type Report struct {
 	CheckedAt     time.Time `json:"checked_at"`
 	OS            string    `json:"os"`
 	Distro        string    `json:"distro"`
+	WorkDir       string    `json:"work_dir,omitempty"`
 	Container     bool      `json:"container"`
 	Results       []Result  `json:"results"`
 	RebootPending bool      `json:"reboot_pending"`
@@ -261,7 +293,7 @@ func (e *Engine) Supported() bool {
 	return e.OS == "linux" && ((e.Distro == "ubuntu" && e.Version == "24.04") || (e.Distro == "debian" && strings.Split(e.Version, ".")[0] == "13"))
 }
 func (e *Engine) Run(ctx context.Context, t Tier) Report {
-	r := Report{CheckedAt: e.Now().UTC(), OS: e.OS, Distro: e.Distro + " " + e.Version, Container: e.Container, Results: []Result{}}
+	r := Report{CheckedAt: e.Now().UTC(), OS: e.OS, Distro: e.Distro + " " + e.Version, WorkDir: e.WorkDir, Container: e.Container, Results: []Result{}}
 	if e.OS != "linux" {
 		r.Results = append(r.Results, Result{ID: "environment", Title: "Operating system", Tier: Safe, Status: Skip, Current: e.OS, Recommended: "Linux", Rationale: "Host tuning requires Linux.", Reason: "unsupported operating system"})
 		return r
@@ -317,4 +349,56 @@ func unavailable(err error) Result {
 func number(s string) int64 { n, _ := strconv.ParseInt(strings.TrimSpace(s), 10, 64); return n }
 func command(ctx context.Context, e *Engine, n string, a ...string) (string, error) {
 	return e.System.Run(ctx, n, a...)
+}
+
+// The shared parent belongs to the container account. Hold a directory handle
+// and refuse an untrusted subdirectory so it cannot redirect a root reporter
+// into an OS configuration file by replacing a path with a symlink.
+func writeHostReport(b []byte) error {
+	base, err := os.OpenRoot("/var/lib/zoomies/shared")
+	if err != nil {
+		return err
+	}
+	defer base.Close()
+	expected, err := base.Lstat("host-health")
+	if err != nil {
+		return err
+	}
+	if !expected.IsDir() {
+		return fmt.Errorf("host-health must be a real directory")
+	}
+	root, err := base.OpenRoot("host-health")
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	info, err := root.Stat(".")
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(expected, info) {
+		return fmt.Errorf("host-health directory changed while opening it")
+	}
+	uid, _ := fileOwner(info)
+	if uid != 0 || info.Mode().Perm()&0022 != 0 {
+		return fmt.Errorf("host-health directory must be root-owned and not group/world-writable")
+	}
+	name := ".report-" + rand.Text()
+	f, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+	if err != nil {
+		return err
+	}
+	defer root.Remove(name)
+	_, err = f.Write(b)
+	if err == nil {
+		err = f.Sync()
+	}
+	ce := f.Close()
+	if err == nil {
+		err = ce
+	}
+	if err != nil {
+		return err
+	}
+	return root.Rename(name, "report.json")
 }

@@ -28,10 +28,15 @@ func (m *Monitor) Latest(ctx context.Context) *Report {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if !m.Engine.Container {
+		if r, err := ReadReport(m.Engine.System, m.Engine.WorkDir); err == nil && !r.Container && r.CheckedAt.Before(m.Engine.Now().Add(time.Minute)) && (m.latest == nil || r.CheckedAt.After(m.latest.CheckedAt)) {
+			m.latest = r
+		}
+	}
 	if m.Engine.Container && m.Engine.HostReportPath != "" {
 		if b, err := m.Engine.System.ReadFile(m.Engine.HostReportPath); err == nil {
 			var r Report
-			if json.Unmarshal(b, &r) == nil && !r.Container && !r.CheckedAt.IsZero() && m.Engine.Now().Sub(r.CheckedAt) < 3*time.Minute && len(r.Results) <= 64 {
+			if json.Unmarshal(b, &r) == nil && !r.Container && !r.CheckedAt.IsZero() && m.Engine.Now().Sub(r.CheckedAt) < 3*time.Minute && r.CheckedAt.Before(m.Engine.Now().Add(time.Minute)) && len(r.Results) <= 64 {
 				m.latest = &r
 				return m.latest
 			}

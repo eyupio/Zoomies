@@ -204,3 +204,38 @@ func TestReportExitCodes(t *testing.T) {
 		}
 	}
 }
+
+func TestSharedDropInDryRevertMatchesRealRevertAndPreservesMode(t *testing.T) {
+	e, f := fixture()
+	f.put(sysctlFile, "# original\n")
+	f.files[strings.TrimPrefix(sysctlFile, "/")].Mode = 0600
+	f.put("/proc/sys/fs/inotify/max_user_watches", "1024")
+	f.put("/proc/sys/fs/inotify/max_user_instances", "128")
+	for _, r := range []Result{{ID: "inotify.watches", Recommended: "524288"}, {ID: "inotify.instances", Recommended: "1024"}} {
+		c, err := e.Plan(context.Background(), r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.Files[0].Mode != 0600 {
+			t.Fatal("file permissions changed")
+		}
+		if err := e.Apply(context.Background(), c, "test"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writes := f.writes
+	changes, err := e.Revert(context.Background(), nil, nil, true)
+	if err != nil || len(changes) != 2 {
+		t.Fatalf("dry revert: %v %v", changes, err)
+	}
+	if f.writes != writes {
+		t.Fatal("dry revert wrote files")
+	}
+	if _, err = e.Revert(context.Background(), nil, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := f.ReadFile(sysctlFile)
+	if string(b) != "# original\n" {
+		t.Fatal("original not restored")
+	}
+}
