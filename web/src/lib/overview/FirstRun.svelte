@@ -140,8 +140,13 @@
    * `installations === null` means the count has not landed yet: rendering the
    * panel then would flash "Connect GitHub" at an operator who connected it
    * months ago, so it waits.
+   *
+   * It waits for the fleet's own counters for the same reason. Until they
+   * arrive "no jobs yet" is unknown rather than true: shown in that gap the
+   * checklist counted as seen, and a fleet with a day of finished jobs was
+   * then congratulated on its first one when the counters landed.
    */
-  const show = $derived(!dismissed && installations !== null && !hasJobs);
+  const show = $derived(!dismissed && installations !== null && fleet.stats !== null && !hasJobs);
 
   const WORDS = ['No', 'One step', 'Two steps', 'Three steps', 'Four steps'];
   const remaining = $derived(
