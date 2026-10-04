@@ -215,8 +215,12 @@ At the end of a fresh installation doctor runs, then interactive setup asks:
 safe changes; `--no-tune` suppresses the offer. Unattended setup and `--yes`
 alone never imply tuning. Aggressive and dedicated tiers are mentioned only.
 
-`zoomies update`, `zoomies upgrade` and `install.sh --upgrade` run doctor only.
-**They never apply tuning**, including with `--yes`. New warnings print a line
-pointing to `zoomies tune`. Existing container deployments are offered the
+`zoomies update`, `zoomies upgrade` and `install.sh --upgrade` finish with a
+short health summary: only the checks that need attention, one line each, with
+`[fixable]` against those `zoomies tune` can change. At a terminal it then offers
+`[t]` to review and apply the safe fixes one at a time, `[d]` for the full
+doctor report, or Enter to finish. **They never apply tuning on their own**,
+including with `--yes` or without a terminal; tuning only runs when you choose
+`[t]`. Unattended, the summary ends with the commands to run later. Existing container deployments are offered the
 read-only native health service through the normal, consent-based upgrade
 layout review. The service is reporting, not host tuning.

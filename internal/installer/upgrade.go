@@ -122,7 +122,9 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) error {
 	// on an upgrade that moved the service and migrated its database.
 	beforeRunning := p.runningImageID(ctx)
 	serving := p.serveCheck(ctx)
-	fmt.Fprintln(opts.Out, "Keeping this host's configuration, credentials, identity and data.")
+	ui := PaletteFor(opts.Out)
+	ui.Title(opts.Out, "Zoomies upgrade", p.describe())
+	ui.Hint(opts.Out, "Configuration, credentials and data stay as they are.")
 	if err := p.pullRunnerImages(ctx); err != nil {
 		return err
 	}
@@ -152,11 +154,36 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) error {
 		afterImage := p.localImageID(ctx)
 		reportImage(opts.Out, p.image, beforeImage, afterImage, beforeRunning, p.runningImageID(ctx))
 	}
+	// The verdict comes before the health report so it is not scrolled away by
+	// it, and the report comes last because it may stop to ask what to do next.
+	ui.Done(opts.Out, "%s", ui.Bold("Upgrade complete."))
 	if opts.Doctor != nil {
+		fmt.Fprintln(opts.Out)
+		ui.Rule(opts.Out, "Host health")
 		opts.Doctor(ctx, p.settings(ctx).cfg)
 	}
-	fmt.Fprintln(opts.Out, "Upgrade complete. Check the Hosts page for the agent's next heartbeat.")
 	return nil
+}
+
+// describe names what is being upgraded in the words an operator would use.
+func (p *upgradePlan) describe() string {
+	switch {
+	case p.record.Deployment == DeploymentCompose:
+		return "the Compose deployment"
+	case p.record.Deployment == DeploymentDocker:
+		return "the Docker deployment"
+	case p.unit != "":
+		return shortUnit(p.unit)
+	}
+	return "this host"
+}
+
+// shortUnit drops the launchd domain prefix, which means nothing to a reader.
+func shortUnit(unit string) string {
+	if i := strings.LastIndex(unit, "/"); i >= 0 {
+		return unit[i+1:]
+	}
+	return unit
 }
 
 // settleLayout says what this release expects that the deployment lacks, and
@@ -495,12 +522,19 @@ func (p *upgradePlan) pullRunnerImages(ctx context.Context) error {
 		return fmt.Errorf("read cached runner images: %w", err)
 	}
 	seen := map[string]bool{}
+	var stock []string
 	for _, image := range strings.Fields(images) {
 		if !strings.HasPrefix(image, "ghcr.io/eyupio/zoomies-runner") || strings.HasSuffix(image, ":<none>") || seen[image] {
 			continue
 		}
 		seen[image] = true
-		fmt.Fprintln(p.opts.Out, "Refreshing "+image+" for future jobs; existing runners keep their image.")
+		stock = append(stock, image)
+	}
+	if len(stock) == 0 {
+		return nil
+	}
+	PaletteFor(p.opts.Out).Doing(p.opts.Out, "Refreshing %d runner image(s) for future jobs; running runners keep theirs", len(stock))
+	for _, image := range stock {
 		if _, err := p.docker(ctx, "pull", image); err != nil {
 			return fmt.Errorf("pull %s; the deployment has not been restarted: %w", image, err)
 		}

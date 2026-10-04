@@ -14,6 +14,7 @@ import (
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/hosttune"
+	"github.com/eyupio/zoomies/internal/installer"
 )
 
 // doctorExit preserves doctor's documented 0/1/2 report outcome without
@@ -257,7 +258,17 @@ func afterHostSetup(ctx context.Context, e *env, fresh, tune, noTune, interactiv
 	}
 	return nil
 }
-func upgradeDoctor(ctx context.Context, e *env, cfg *config.Config) {
+
+// briefRows is how many findings the post-upgrade summary lists before it says
+// how many more there are; the full report is one keystroke away.
+const briefRows = 6
+
+// upgradeDoctor is the host-health step at the end of an upgrade. It says in a
+// few lines whether the host needs attention and, when somebody is there to
+// answer, offers the two things they can do about it. Upgrade never tunes on
+// its own, including with --yes: tuning changes the OS, which an approval to
+// upgrade the software does not cover, so it only ever runs from the menu.
+func upgradeDoctor(ctx context.Context, e *env, cfg *config.Config, interactive bool) {
 	options := hosttune.LocalOptions(cfg.Agent.WorkDir)
 	options.DockerHost = cfg.Agent.DockerHost
 	if b, err := options.System.ReadFile(filepath.Join(config.SharedDir(), "host-health", "report.json")); err == nil {
@@ -269,8 +280,125 @@ func upgradeDoctor(ctx context.Context, e *env, cfg *config.Config) {
 	engine := hosttune.New(options)
 	before, _ := hosttune.ReadReport(engine.System, engine.WorkDir)
 	r := engine.Run(ctx, hosttune.Safe)
-	printDoctor(e.out, r, false)
-	if hosttune.NewWarnings(before, r) > 0 {
-		fmt.Fprintln(e.out, "New host health warnings; review them with zoomies tune.")
+	printDoctorBrief(e.out, r, hosttune.NewWarnings(before, r))
+	warnings, errs, _ := r.Counts()
+	if warnings+errs == 0 {
+		return
 	}
+	ui := installer.PaletteFor(e.out)
+	if !interactive {
+		ui.Hint(e.out, "Full report: zoomies doctor    Safe fixes: sudo zoomies tune")
+		return
+	}
+	for {
+		fixable := actionableCount(r)
+		fmt.Fprintln(e.out)
+		if fixable > 0 {
+			fmt.Fprintf(e.out, "  %s  review and apply %d safe fix(es), one at a time, with a way back\n", ui.Accent("[t]"), fixable)
+		}
+		fmt.Fprintf(e.out, "  %s  show the full doctor report\n", ui.Accent("[d]"))
+		fmt.Fprintf(e.out, "  %s  finish\n", ui.Accent("[Enter]"))
+		switch strings.ToLower(askLine(e.in, e.out, ui.Bold("What next? "))) {
+		case "d":
+			fmt.Fprintln(e.out)
+			printDoctor(e.out, r, false)
+		case "t":
+			if fixable == 0 {
+				continue
+			}
+			if err := runTune(ctx, e, nil); err != nil {
+				fmt.Fprintln(e.err, "Tuning stopped:", err)
+			}
+			r = engine.Run(ctx, hosttune.Safe)
+			fmt.Fprintln(e.out)
+			printDoctorBrief(e.out, r, 0)
+			if w, n, _ := r.Counts(); w+n == 0 {
+				return
+			}
+		default:
+			return
+		}
+	}
+}
+
+func actionableCount(r hosttune.Report) (n int) {
+	for _, x := range r.Results {
+		if x.Actionable && !x.Optional {
+			n++
+		}
+	}
+	return n
+}
+
+// printDoctorBrief is the report as a person skims it: one line when all is
+// well, and otherwise only the checks that are not, each on a single line with
+// what to change. The table printDoctor prints is for reading on purpose.
+func printDoctorBrief(w io.Writer, r hosttune.Report, fresh int) {
+	ui := installer.PaletteFor(w)
+	warnings, errs, skipped := r.Counts()
+	skippedNote := func() {
+		if skipped > 0 {
+			ui.Hint(w, "%d check(s) could not run here; zoomies doctor says why.", skipped)
+		}
+	}
+	if warnings+errs == 0 {
+		ui.Done(w, "All checks pass")
+		skippedNote()
+		return
+	}
+	head := fmt.Sprintf("%d to look at", warnings+errs)
+	if fresh > 0 {
+		head += fmt.Sprintf(", %d new since the last report", fresh)
+	}
+	if errs > 0 {
+		ui.Fail(w, "%s", head)
+	} else {
+		ui.Warn(w, "%s", head)
+	}
+	shown := 0
+	for _, x := range r.Results {
+		if x.Status != hosttune.Warn && x.Status != hosttune.Error {
+			continue
+		}
+		if shown == briefRows {
+			fmt.Fprintf(w, "     %s\n", ui.Dim(fmt.Sprintf("...and %d more", warnings+errs-shown)))
+			break
+		}
+		shown++
+		line := fmt.Sprintf("     %s  %s", ui.Bold(plainCell(x.Title)), ui.Dim(plainCell(x.Current)))
+		if x.Recommended != "" {
+			line += ui.Dim(" -> ") + plainCell(x.Recommended)
+		}
+		if x.Actionable && !x.Optional {
+			line += "  " + ui.Green("[fixable]")
+		}
+		fmt.Fprintln(w, line)
+	}
+	if r.RebootPending {
+		ui.Hint(w, "A reboot is pending. Drain this host first; Zoomies will not reboot it.")
+	}
+	skippedNote()
+}
+
+// askLine reads one line a byte at a time, so nothing beyond it is consumed:
+// the tune that may follow reads the same input, and a buffered reader here
+// would swallow its first answer. End of input is an empty answer.
+func askLine(in io.Reader, out io.Writer, prompt string) string {
+	fmt.Fprint(out, prompt)
+	var line []byte
+	buf := make([]byte, 1)
+	for {
+		n, err := in.Read(buf)
+		if n == 1 {
+			if buf[0] == '\n' {
+				break
+			}
+			line = append(line, buf[0])
+		}
+		if err != nil {
+			fmt.Fprintln(out)
+			break
+		}
+	}
+	return strings.TrimSpace(string(line))
 }

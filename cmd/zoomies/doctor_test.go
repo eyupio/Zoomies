@@ -36,3 +36,22 @@ func TestDoctorTiersKeepKernelChecks(t *testing.T) {
 		t.Fatal("incorrect tier filtering")
 	}
 }
+
+func TestTheBriefReportListsOnlyWhatNeedsAttentionAndSaysWhatTuneCanFix(t *testing.T) {
+	r := hosttune.Report{Results: []hosttune.Result{
+		{Title: "File watches", Status: hosttune.OK, Current: "1"},
+		{Title: "Docker log rotation", Status: hosttune.Warn, Current: "json-file", Recommended: "max-size 10m", Actionable: true},
+		{Title: "Docker root filesystem", Status: hosttune.Warn, Current: "ext4", Recommended: "noatime"},
+	}}
+	var b strings.Builder
+	printDoctorBrief(&b, r, 1)
+	out := b.String()
+	for _, want := range []string{"2 to look at", "1 new", "Docker log rotation", "[fixable]", "Docker root filesystem"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "File watches") || strings.Count(out, "[fixable]") != 1 || strings.Contains(out, "\x1b") {
+		t.Errorf("unexpected content:\n%s", out)
+	}
+}
