@@ -34,6 +34,10 @@ func (s *Server) handleAIContextUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	// The token first: nobody without one gets the controller to buffer a body.
 	if err := s.ctrl.CheckAIContextUploadToken(r.Context(), raw, audience); err != nil {
+		if errors.Is(err, github.ErrActionsKeysUnavailable) {
+			actionsKeysUnavailable(w)
+			return
+		}
 		if errors.Is(err, github.ErrActionsToken) {
 			unauthorized(w, "the GitHub Actions OIDC token is not valid for this controller: check that the workflow requests it for this upload address and that it has not expired")
 			return
@@ -55,6 +59,9 @@ func (s *Server) handleAIContextUpload(w http.ResponseWriter, r *http.Request) {
 	out, err := s.ctrl.IngestAIContextUpload(ctx, raw, audience, body)
 	switch {
 	case err == nil:
+	case errors.Is(err, github.ErrActionsKeysUnavailable):
+		actionsKeysUnavailable(w)
+		return
 	case errors.Is(err, github.ErrActionsToken):
 		unauthorized(w, "the GitHub Actions OIDC token is not valid for this controller: check that the workflow requests it for this upload address and that it has not expired")
 		return
@@ -78,4 +85,13 @@ func (s *Server) handleAIContextUpload(w http.ResponseWriter, r *http.Request) {
 	s.auth.Auditor().Act(r.Context(), &auth.Identity{Kind: auth.KindSystem, Name: "github-actions"}, "context.upload", "ai_context", out.ID,
 		map[string]any{"commit": commit, "snapshot_id": snapshot})
 	writeJSON(w, http.StatusAccepted, map[string]any{"repository_id": out.ID, "commit": commit, "snapshot_id": snapshot})
+}
+
+// actionsKeysUnavailable is a 503 rather than a 401: the token was not judged,
+// and the run's log should send the operator to this controller's network.
+func actionsKeysUnavailable(w http.ResponseWriter) {
+	writeError(w, http.StatusServiceUnavailable, errorEnvelope{Error: errorBody{
+		Code:    codeInternal,
+		Message: "this controller could not fetch GitHub's Actions signing keys from token.actions.githubusercontent.com, so the upload's token could not be checked; allow outbound https to that host and re-run the workflow",
+	}})
 }

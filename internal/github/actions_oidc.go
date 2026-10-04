@@ -48,6 +48,29 @@ func NewActionsTokenVerifier(issuer string) *ActionsTokenVerifier {
 	return &ActionsTokenVerifier{issuer: strings.TrimRight(issuer, "/")}
 }
 
+// ErrActionsKeysUnavailable is a token that could not be checked because
+// GitHub's signing keys could not be fetched. It says nothing about the token,
+// so it must not read as a refusal of it: the workflow's log should send the
+// operator to the controller's network, not to the workflow.
+var ErrActionsKeysUnavailable = errors.New("GitHub's Actions signing keys could not be fetched")
+
+// fetchRecordingKeys notes whether the key set failed to fetch, which the
+// verifier would otherwise flatten into a signature error: go-oidc formats the
+// key set's error with %v, so its type does not survive. The prefix it checks is
+// go-oidc's own, and TestAnUnreachableIssuerIsNotABadToken pins it.
+type fetchRecordingKeys struct {
+	inner   oidc.KeySet
+	fetched error
+}
+
+func (k *fetchRecordingKeys) VerifySignature(ctx context.Context, jwt string) ([]byte, error) {
+	payload, err := k.inner.VerifySignature(ctx, jwt)
+	if err != nil && strings.HasPrefix(err.Error(), "fetching keys") {
+		k.fetched = err
+	}
+	return payload, err
+}
+
 // ErrActionsToken is returned for any token that is not a valid, current
 // Actions token for this audience. The cause is wrapped for the log only.
 var ErrActionsToken = errors.New("the upload's GitHub Actions OIDC token is not valid for this controller")
@@ -60,9 +83,13 @@ func (v *ActionsTokenVerifier) Verify(ctx context.Context, raw, audience string)
 		// Its own context: the key set outlives the request that created it.
 		v.keys = oidc.NewRemoteKeySet(context.WithoutCancel(ctx), v.issuer+"/.well-known/jwks")
 	})
-	verifier := oidc.NewVerifier(v.issuer, v.keys, &oidc.Config{ClientID: audience, SupportedSigningAlgs: []string{oidc.RS256}})
+	keys := &fetchRecordingKeys{inner: v.keys}
+	verifier := oidc.NewVerifier(v.issuer, keys, &oidc.Config{ClientID: audience, SupportedSigningAlgs: []string{oidc.RS256}})
 	token, err := verifier.Verify(ctx, raw)
 	if err != nil {
+		if keys.fetched != nil {
+			return nil, fmt.Errorf("%w: %v", ErrActionsKeysUnavailable, keys.fetched)
+		}
 		return nil, fmt.Errorf("%w: %v", ErrActionsToken, err)
 	}
 	var claims ActionsClaims

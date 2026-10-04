@@ -475,6 +475,11 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
+        "503":
+          description: GitHub's Actions signing keys could not be fetched, so the token was not checked; the controller needs outbound https to token.actions.githubusercontent.com
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
         "413":
           description: The snapshot is larger than 32 MiB
           content:

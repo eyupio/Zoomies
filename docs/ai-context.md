@@ -336,7 +336,9 @@ next push regenerates.
 controller* means the token was minted for another address: run
 **Reinstall / repair** after changing `server.external_url`. *Superseded* means
 a newer push won, which is expected; the newer run uploads. A failure to reach
-the controller at all means GitHub's runners cannot reach your https address.
+the controller at all means GitHub's runners cannot reach your https address. *Could not fetch GitHub's Actions signing keys* (HTTP 503) is the other
+direction: the controller cannot reach `token.actions.githubusercontent.com`, so
+allow outbound https to it and re-run the workflow.
 
 **Verification failed after the workflow succeeded.** Somebody edited
 `.github/workflows/zoomies-ai-context.yml` or `zoomies-ai-context.config.json`

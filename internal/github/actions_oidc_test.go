@@ -36,3 +36,16 @@ func TestActionsTokensAreBoundToTheirIssuerAudienceAndLifetime(t *testing.T) {
 		t.Errorf("a token signed with someone else's key was accepted: %v", err)
 	}
 }
+
+// A controller that cannot reach GitHub's key endpoint has not seen a bad
+// token; it has not been able to look. Reporting it as one would send the
+// operator to the workflow instead of the controller's network.
+func TestAnUnreachableIssuerIsNotABadToken(t *testing.T) {
+	issuer := NewFakeActionsIssuer(t)
+	token := issuer.Sign(t, map[string]any{"aud": "https://zoomies.example.com/api/v1/ai-context/uploads", "iss": "http://127.0.0.1:1"})
+	verifier := NewActionsTokenVerifier("http://127.0.0.1:1")
+	_, err := verifier.Verify(t.Context(), token, "https://zoomies.example.com/api/v1/ai-context/uploads")
+	if !errors.Is(err, ErrActionsKeysUnavailable) || errors.Is(err, ErrActionsToken) {
+		t.Fatalf("Verify against an unreachable issuer = %v; want ErrActionsKeysUnavailable alone", err)
+	}
+}

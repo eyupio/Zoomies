@@ -156,3 +156,15 @@ func TestUploadsFromAnythingButTheManagedWorkflowOnItsTrustedBranchAreRefused(t 
 		t.Fatal("a refused upload became readable source")
 	}
 }
+
+// A controller that cannot reach GitHub's signing keys says so as a 503 with
+// the host to allow, not a 401 that would send the operator to the workflow.
+func TestAnUploadTheControllerCannotCheckIsUnavailableNotUnauthorised(t *testing.T) {
+	f := zoomiesOnlyFixture(t)
+	f.h.ctrl.SetActionsIssuer("http://127.0.0.1:1")
+	r := f.upload(f.claims(), f.snapshot)
+	r.mustStatus(t, http.StatusServiceUnavailable, "an upload whose token could not be checked")
+	if !strings.Contains(string(r.body), "token.actions.githubusercontent.com") {
+		t.Fatalf("the refusal does not name the host to allow: %s", r.body)
+	}
+}

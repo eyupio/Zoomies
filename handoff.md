@@ -314,3 +314,23 @@ Limits and next steps:
 - If the JWKS fetch fails (network), the upload gets a 401, which reads like a bad token. It should become a distinct 503.
 - Uploads are verified only for `github.com` (GHES still unsupported).
 - After that: the live assistant pilot, and phase 6 (assistant-written artifacts).
+
+## Since the Zoomies-only checkpoint — 4 October 2026
+
+PR #584 (repository-only retrieval, installation owners, user docs, Zoomies-only uploads) and #585 are merged.
+
+Also merged, outside AI Context:
+- **#584 — `zoomies upgrade` mounts size-limited cache folders.** For Compose and `docker run`, it now offers to mount each size-limited pool cache folder at its own path. These are folders outside the shared folder and not already under a same-path bind. Without the mount, the containerised agent cannot measure them, so the limit was silently never enforced. The wizard now suggests `/var/lib/zoomies/shared/cache/pools`.
+- **#585 — Overview setup checklist.** It now waits for `fleet.stats` before deciding the fleet has no jobs. A fleet with jobs was being congratulated on its "first job".
+
+This checkpoint: when the controller cannot fetch GitHub's Actions signing keys, an upload now gets a **503** naming `token.actions.githubusercontent.com`, not a 401 that blames the workflow. go-oidc formats key-set errors with `%v`, so `fetchRecordingKeys` wraps the key set to record a fetch failure. `TestAnUnreachableIssuerIsNotABadToken` pins go-oidc's `fetching keys` prefix. The API test, the OpenAPI 503 response, the generated clients and a troubleshooting line in `docs/ai-context.md` are updated.
+
+Validation:
+- `-race` passed on `internal/github` and on the API upload/AI Context tests.
+- The contract/spec tests and `internal/docs` passed; staticcheck is clean; mkdocs `--strict` passed.
+
+Still open:
+1. **Live phase-5 acceptance:** a real GitHub Actions upload to an https controller. It needs a deployed controller, which this environment cannot reach.
+2. **Live assistant pilot:** Claude reading a verified repository over `/mcp`.
+3. **GHES** for managed workflows and uploads.
+4. **Phase 6, assistant-written artifacts.** The plan gives one line: a separate publish permission, versioned reports/plans, safe rendering and MCP reference tools, with attribution and the source/AI distinction enforced. It needs design decisions before implementation: what an artifact is, who may publish, where it lives, and how it is rendered and retained.
