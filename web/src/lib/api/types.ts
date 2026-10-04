@@ -297,6 +297,7 @@ export type EventKind = keyof EventPayloads;
 
 export type AIContextRepository = Schemas['AIContextRepository'];
 export type AIContextConfig = AIContextRepository['config'];
+export type AIContextNote = Schemas['AIContextNote'];
 export type AIContextDiscovery = Result<'discoverAIContext'>;
 
 export type AIContextSetupPreview = Schemas['AIContextSetupPreview'];

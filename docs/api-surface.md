@@ -624,3 +624,18 @@ closes availability and returns no source. Search and overview use top-level
 `next_offset`; each truncated pack/read excerpt has its own `next_offset`.
 MCP wraps these routes as `context_overview`, `context_read`, `context_search`
 and `context_pack`, with a separate 32,000-byte encoded tool-result ceiling.
+
+### Assistant notes
+
+`GET /ai-context/source/{id}/notes` lists the latest version of each note
+without bodies (`limit` 1–100, `offset`); `GET /ai-context/source/{id}/notes/{slug}`
+returns one with its body, the latest unless `version` names another. Both need
+`context.read` and the same membership and connection consent as source reads.
+`POST /ai-context/source/{id}/notes` takes `slug`, `kind`, `title` and `body`,
+needs `context.publish`, and returns the stored version with 201. A user, or an
+owned token with the `context:publish` scope, publishes as any reader can; an MCP connection also needs publish
+consent, sent as `publish_repository_ids` on
+`PUT /auth/mcp-connections/{id}/repositories` (a subset of `repository_ids`;
+leaving it out keeps the current choice). A note that breaks a rule is a 422
+naming the rule; a repository whose context is not verified, or already has 100
+notes, is a 409. MCP wraps these as `context_notes` and `context_publish`.

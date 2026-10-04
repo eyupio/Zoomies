@@ -50,7 +50,7 @@ func TestSourceAccessRequiresMembershipBeyondFleetRolesAndTokenScopes(t *testing
 func TestAnAgentCannotGrantItselfSourceConsent(t *testing.T) {
 	s, _, _ := newService(t)
 	for _, actor := range []*Identity{nil, {Kind: KindToken, UserID: "owner", Role: store.RoleAdmin}, {Kind: KindConnection, UserID: "owner", Role: store.RoleOperator}} {
-		if err := s.SetContextConnectionRepositories(t.Context(), actor, "grant", []string{"repository"}); err == nil {
+		if err := s.SetContextConnectionRepositories(t.Context(), actor, "grant", []string{"repository"}, nil); err == nil {
 			t.Fatal("agent widened its own consent")
 		}
 	}

@@ -442,3 +442,71 @@ test('an administrator makes someone an installation owner without granting sour
     if (createdInstallation) await request.delete(`/api/v1/installations/${createdInstallation}`);
   }
 });
+
+test('a reader sees assistant notes marked AI-written and never rendered as HTML', async ({
+  page,
+}) => {
+  const hostile =
+    '# Plan\n\n<img src=x onerror="window.__noted=1"><script>window.__noted=2</script>';
+  // An administrator who is also one of the repository's readers: the
+  // configured card offers notes once the context is verified.
+  await page.route('**/api/v1/ai-context/repositories?*', (route) =>
+    route.fulfill({
+      json: {
+        items: [
+          {
+            id: 'aic_reader',
+            full_name: 'acme/context',
+            repository: {
+              github_host: 'github.com',
+              installation_id: 'installation',
+              repository_id: 42,
+            },
+            config: { source_branch: 'main', destination: 'both', exclude: [], keep_snapshots: 3 },
+            revision: 1,
+            available: true,
+            setup_state: 'complete',
+            created_at: '2026-10-03T10:00:00Z',
+            updated_at: '2026-10-03T10:00:00Z',
+          },
+        ],
+        total: 1,
+        limit: 50,
+        offset: 0,
+      },
+    }),
+  );
+  const note = {
+    id: 'aia_1',
+    repository_id: 'aic_reader',
+    slug: 'upgrade-plan',
+    version: 2,
+    kind: 'plan',
+    title: 'Upgrade plan',
+    source_commit: 'a'.repeat(40),
+    author_name: 'Ada',
+    via_kind: 'connection',
+    via_name: 'Claude',
+    created_at: '2026-10-03T10:00:00Z',
+  };
+  await page.route('**/api/v1/ai-context/source/aic_reader/notes?*', (route) =>
+    route.fulfill({ json: { items: [{ ...note, versions: 2 }], total: 1, limit: 100, offset: 0 } }),
+  );
+  await page.route('**/api/v1/ai-context/source/aic_reader/notes/upgrade-plan', (route) =>
+    route.fulfill({ json: { ...note, body: hostile } }),
+  );
+  await goto(page, '/ai-context', 'AI Context');
+  await page.getByText('Assistant notes', { exact: true }).click();
+  await expect(page.getByText('AI-written', { exact: true })).toBeVisible();
+  await expect(page.getByText(/Version 2 by Ada\s+via Claude/)).toBeVisible();
+  await page.getByRole('button', { name: 'Read' }).click();
+  const body = page.getByLabel('Upgrade plan, as written');
+  await expect(body).toHaveText(hostile);
+  expect(await body.locator('img, script').count()).toBe(0);
+  expect(await page.evaluate(() => (window as unknown as { __noted?: number }).__noted)).toBe(
+    undefined,
+  );
+  await page.setViewportSize({ width: 375, height: 812 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/ai-context-notes-mobile.png', fullPage: true });
+});

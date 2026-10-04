@@ -15,6 +15,7 @@
   let { open = $bindable(false), connection }: Props = $props();
   let items = $state<{ id: string; full_name: string }[]>([]);
   let selected = $state<string[]>([]);
+  let publishing = $state<string[]>([]);
   let total = $state(0);
   let offset = $state(0);
   let loading = $state(false);
@@ -43,6 +44,7 @@
         total = result.total;
         if (initialisedFor !== id) {
           selected = result.selected_repository_ids;
+          publishing = result.publish_repository_ids;
           initialisedFor = id;
         }
       })
@@ -58,6 +60,12 @@
 
   function choose(id: string, checked: boolean): void {
     selected = checked ? [...selected, id] : selected.filter((value) => value !== id);
+    // Publishing is a narrower grant inside reading, never without it.
+    if (!checked) publishing = publishing.filter((value) => value !== id);
+  }
+
+  function allowPublish(id: string, checked: boolean): void {
+    publishing = checked ? [...publishing, id] : publishing.filter((value) => value !== id);
   }
 
   async function save(): Promise<void> {
@@ -65,7 +73,7 @@
     if (!id || saving || loading || failure) return;
     saving = true;
     try {
-      await putOwnMCPContextSelection(id, selected);
+      await putOwnMCPContextSelection(id, selected, publishing);
       toasts.success(
         'Source access saved',
         `${connection?.client_name ?? 'This connection'} can read only the repositories you chose.`,
@@ -113,7 +121,10 @@
         size="sm"
         variant="ghost"
         disabled={selected.length === 0 || saving}
-        onclick={() => (selected = [])}>Remove all</Button
+        onclick={() => {
+          selected = [];
+          publishing = [];
+        }}>Remove all</Button
       >
     </div>
     <div class="choices">
@@ -124,6 +135,17 @@
           disabled={saving || (selected.length >= 100 && !selected.includes(item.id))}
           onchange={(checked) => choose(item.id, checked)}
         />
+        {#if selected.includes(item.id)}
+          <Checkbox
+            class="publish"
+            label="May publish notes"
+            ariaLabel="May publish notes to {item.full_name}"
+            description="Reports and plans it writes about this repository, marked AI-written and visible to its readers."
+            checked={publishing.includes(item.id)}
+            disabled={saving}
+            onchange={(checked) => allowPublish(item.id, checked)}
+          />
+        {/if}
       {/each}
     </div>
     {#if total > 50}
@@ -161,6 +183,9 @@
     display: grid;
     gap: var(--z-space-4);
     overflow-wrap: anywhere;
+  }
+  .choices :global(.publish) {
+    margin-left: var(--z-space-6);
   }
   .selection-summary,
   .pages {

@@ -333,4 +333,48 @@ Still open:
 1. **Live phase-5 acceptance:** a real GitHub Actions upload to an https controller. It needs a deployed controller, which this environment cannot reach.
 2. **Live assistant pilot:** Claude reading a verified repository over `/mcp`.
 3. **GHES** for managed workflows and uploads.
-4. **Phase 6, assistant-written artifacts.** The plan gives one line: a separate publish permission, versioned reports/plans, safe rendering and MCP reference tools, with attribution and the source/AI distinction enforced. It needs design decisions before implementation: what an artifact is, who may publish, where it lives, and how it is rendered and retained.
+4. ~~Phase 6, assistant-written artifacts~~ — see the next checkpoint.
+
+## Phase 6 checkpoint: assistant notes — 4 October 2026
+
+Decision (owner): **Markdown notes per repository.** An assistant publishes versioned Markdown reports, plans or notes about a verified repository over MCP. Publishing needs a separate permission. Notes live in SQLite, are attributed and marked AI-written, are readable by the repository's readers, and are shown as escaped text.
+
+- **Store.** Migration `0068_ai_context_artifacts.sql` adds:
+  - `ai_context_artifacts`, keyed by (repository, slug, version);
+  - `publish` on `ai_context_connection_repositories`.
+
+  `queries_ai_context_artifacts.go` publishes, lists the latest version per slug and gets one version. It enforces:
+  - the slug pattern and the three kinds;
+  - a one-line title of at most 200 characters, and a body of at most 128 KiB of UTF-8;
+  - verified repositories only;
+  - 100 slugs per repository, keeping the newest 20 versions.
+
+  Each note records the repository's last verified commit. `ReplaceAIContextConnectionAccess` takes a `publish` subset: nil keeps it, empty clears it. Removing a repository's AI Context deletes its notes. The new sentinel is `ErrInvalidArtifact`.
+- **Auth.** The new action is `context.publish` (viewer-level coarse gate, in the `ownershipChecked` exemption). `ContextPublishAccess`:
+  - users and owned tokens need membership;
+  - connections also need publish consent.
+
+  Publish consent must be a subset of read consent, otherwise the result is `ErrInvalidInput` → 422.
+- **API.** Routes:
+  - `GET /ai-context/source/{id}/notes`;
+  - `GET .../notes/{slug}?version=`;
+  - `POST .../notes`, which returns 201, writes a `context.publish` audit entry, and records via kind/name.
+
+  The connection selection `PUT` accepts `publish_repository_ids`. The OpenAPI spec and generated clients are updated.
+- **MCP.** `context_notes` (read-only) and `context_publish` (action, via a new `BodyCaller`). `TestMCPOverHTTPOffersActionsAsFarAsTheTokensRoleReaches` now uses each tool's own minimum role.
+- **UI.**
+  - Source access has a nested **May publish notes** tick per selected repository.
+  - `NotesPanel.svelte` shows **Assistant notes** on reader cards and verified admin cards: AI-written badge, kind, version, author, via, commit, and the body in a `<pre>`.
+- **Docs.**
+  - `ai-context.md`: an "Assistant notes" section, plus rows in the role table and limits.
+  - `connect-claude.md`: the two tools.
+  - `api-surface.md`: the routes.
+
+Validation:
+- `-race` passed on store/auth/API/MCP: notes, connection consent, removal, migration, contract/route table, MCP offer.
+- `cmd/zoomies` MCP tests passed; staticcheck is clean.
+- svelte-check: 0 errors.
+- Playwright `ai-context` + `mcp-oauth` passed (10), including a hostile body that renders as text and the publish-consent round trip.
+- mkdocs `--strict` passed.
+
+Next concrete action: the live assistant pilot, now including a `context_publish` round trip. Then the live phase-5 upload and GHES. No further phase is planned beyond 6.

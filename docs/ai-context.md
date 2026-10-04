@@ -134,6 +134,8 @@ use **Reinstall / repair** so the workflow uploads to the new address.
 | Choose source readers | Anyone | Only themselves | | |
 | Read a repository's source | If also a reader | If also a reader | ✓ | |
 | Give an MCP connection a repository | Their own connections | Their own connections | Their own connections | |
+| Read a repository's assistant notes | If also a reader | If also a reader | ✓ | |
+| Let a connection publish notes | Their own connections | Their own connections | Their own connections | |
 
 **An installation owner** is somebody an administrator has trusted with one
 GitHub installation. They see only that installation and its repositories. They
@@ -275,8 +277,8 @@ their old repositories back — you choose again.
 
 ## Use it
 
-Ask the assistant about your code in the ordinary way. Behind that, it uses four
-read-only tools:
+Ask the assistant about your code in the ordinary way. Behind that, it reads
+with four read-only tools:
 
 | Tool | What it does |
 | --- | --- |
@@ -295,6 +297,39 @@ not fill the assistant's context window with a whole repository.
 The details of each tool are in [Connect Claude](connect-claude.md#verified-repository-source).
 The same reads are available over REST for scripts; see the
 [API reference](api-surface.md).
+
+### Assistant notes
+
+An assistant can also write something down. A **note** is a Markdown report,
+plan or note about one repository — a review's findings, an upgrade plan, a map
+of a part of the code — that the assistant publishes with `context_publish` and
+that every reader of that repository can then read, in the assistant or under
+**Assistant notes** on the repository's card in AI Context.
+
+Writing is a separate permission from reading. In **Source access**, a
+connection's repository gets a second tick, **May publish notes**, which is off
+until you turn it on and which you can only turn on for a repository the
+connection may read. A connection that may read but not publish is refused, and
+told where its owner can change that.
+
+| Tool | What it does |
+| --- | --- |
+| `context_notes` | Without a slug, lists the repository's notes, newest first. With one, reads that note — its latest version, or an earlier one by number. |
+| `context_publish` | Publishes a note under a slug. Publishing the same slug again adds a version; the earlier ones are kept. |
+
+Every note is marked **AI-written** and carries who it is from: the person the
+connection belongs to, the client it came through, and the commit the
+repository's verified context was at when it was written, so a reader can tell
+a plan written against last month's code from one written today. Publishing is
+also in the audit log, under the person.
+
+A note's body is shown as plain text, never rendered as HTML: it is what a model
+wrote after reading code anyone with a pull request can change, so nothing in it
+can run, link or restyle the page. Read a note as an assistant's opinion, not a
+reviewed document.
+
+Notes belong to the repository's context. Removing AI Context from a repository
+deletes its notes along with its source.
 
 ## Keep it running
 
@@ -399,6 +434,10 @@ conflicting part, then retry.
 | Source readers per repository | 200 |
 | Owners per installation | 50 |
 | One reply to an assistant | 8,000 bytes by default, 24,000 at most |
+| Notes per repository | 100 |
+| Versions kept of one note | 20, the oldest dropped first |
+| One note's body | 128 KiB of UTF-8 Markdown |
+| One note's title | 200 characters, one line |
 
 Binary files are skipped. Sizes are bytes, not tokens: the reply budget keeps
 replies small, but it is not a tokenizer count.

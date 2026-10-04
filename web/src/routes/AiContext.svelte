@@ -19,6 +19,7 @@
   import Field from '$lib/components/Field.svelte';
   import Input from '$lib/components/Input.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
+  import NotesPanel from '$lib/aicontext/NotesPanel.svelte';
   import OwnersDialog from '$lib/aicontext/OwnersDialog.svelte';
   import Select from '$lib/components/Select.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
@@ -300,6 +301,7 @@
             {/if}
           </div>
         {:else}<Button size="sm" href="/settings/connections">Choose connection access</Button>{/if}
+        {#if !('config' in item) || item.available}<NotesPanel repositoryId={item.id} />{/if}
         <details class="assistant-guidance">
           <summary>AI instructions and README badge</summary>
           <p>

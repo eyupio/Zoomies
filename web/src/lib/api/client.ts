@@ -888,9 +888,23 @@ export const getOwnMCPContextSelection = (id: string, offset = 0, signal?: Abort
     { signal },
   );
 
-export const putOwnMCPContextSelection = (id: string, repositoryIds: string[]) =>
+export const putOwnMCPContextSelection = (
+  id: string,
+  repositoryIds: string[],
+  publishRepositoryIds?: string[],
+) =>
   api.put(`/auth/mcp-connections/${enc(id)}/repositories`, {
-    body: { repository_ids: repositoryIds },
+    body: { repository_ids: repositoryIds, publish_repository_ids: publishRepositoryIds },
+  });
+
+export const listAIContextNotes = (id: string, signal?: AbortSignal) =>
+  api.get<Result<'listAIContextNotes'>>(`/ai-context/source/${enc(id)}/notes?limit=100`, {
+    signal,
+  });
+
+export const getAIContextNote = (id: string, slug: string, signal?: AbortSignal) =>
+  api.get<Result<'getAIContextNote'>>(`/ai-context/source/${enc(id)}/notes/${enc(slug)}`, {
+    signal,
   });
 
 export const listContextInstallations = (signal?: AbortSignal) =>

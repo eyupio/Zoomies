@@ -71,10 +71,12 @@ var ownCredentials = map[Action]bool{ActionTokensOwn: true}
 
 // ownershipChecked are write actions a viewer holds only as the coarse gate:
 // every handler behind them also requires the caller to own what they change
-// (context.manage: an installation an administrator delegated), so the role
+// (context.manage: an installation an administrator delegated; context.publish:
+// membership of the repository and, for a connection, its owner's consent to
+// write there), so the role
 // alone reaches nothing. Adding to this list is a security decision; the route
 // walk in internal/api shows which handlers carry the second check.
-var ownershipChecked = map[Action]bool{ActionContextManage: true}
+var ownershipChecked = map[Action]bool{ActionContextManage: true, ActionContextPublish: true}
 
 // TestRoleAuthority walks the full action list for every role. A viewer must
 // not be able to perform any write action -- that single assertion is what

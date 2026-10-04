@@ -78,7 +78,7 @@ func TestContextStartsUnavailableAndExistingConnectionsHaveNoSourceAccess(t *tes
 	if allowed, err := s.AIContextConnectionAccess(t.Context(), r.ID, g.ID, u.ID); err != nil || allowed {
 		t.Fatalf("existing MCP connection gained access: %v %v", allowed, err)
 	}
-	if err := s.ReplaceAIContextConnectionAccess(t.Context(), g.ID, u.ID, []string{r.ID}); err != nil {
+	if err := s.ReplaceAIContextConnectionAccess(t.Context(), g.ID, u.ID, []string{r.ID}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if allowed, err := s.AIContextConnectionAccess(t.Context(), r.ID, g.ID, u.ID); err != nil || !allowed {
@@ -91,7 +91,7 @@ func TestMembershipRemovalRevokesConsentEvenIfThePersonIsAddedBack(t *testing.T)
 	r, u, g := contextFixture(t, s)
 	s.SetAIContextAvailable(t.Context(), r.ID, true)
 	s.ReplaceAIContextMembers(t.Context(), r.ID, []string{u.ID})
-	s.ReplaceAIContextConnectionAccess(t.Context(), g.ID, u.ID, []string{r.ID})
+	s.ReplaceAIContextConnectionAccess(t.Context(), g.ID, u.ID, []string{r.ID}, nil)
 	if err := s.ReplaceAIContextMembers(t.Context(), r.ID, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -110,11 +110,11 @@ func TestLiveRevocationAndRepositoryIsolationApplyToCachedIdentities(t *testing.
 			r, u, g := contextFixture(t, s)
 			s.SetAIContextAvailable(t.Context(), r.ID, true)
 			s.ReplaceAIContextMembers(t.Context(), r.ID, []string{u.ID})
-			s.ReplaceAIContextConnectionAccess(t.Context(), g.ID, u.ID, []string{r.ID})
+			s.ReplaceAIContextConnectionAccess(t.Context(), g.ID, u.ID, []string{r.ID}, nil)
 			if allowed, err := s.AIContextConnectionAccess(t.Context(), "other", g.ID, u.ID); err != nil || allowed {
 				t.Fatal("cross-repository access")
 			}
-			if err := s.ReplaceAIContextConnectionAccess(t.Context(), g.ID, "another-user", nil); !errors.Is(err, ErrNotFound) {
+			if err := s.ReplaceAIContextConnectionAccess(t.Context(), g.ID, "another-user", nil, nil); !errors.Is(err, ErrNotFound) {
 				t.Fatalf("another person modified grant: %v", err)
 			}
 			switch what {
@@ -140,11 +140,11 @@ func TestFailedMembershipAndConsentUpdatesPreservePreviousSelections(t *testing.
 	r, u, g := contextFixture(t, s)
 	s.SetAIContextAvailable(t.Context(), r.ID, true)
 	s.ReplaceAIContextMembers(t.Context(), r.ID, []string{u.ID})
-	s.ReplaceAIContextConnectionAccess(t.Context(), g.ID, u.ID, []string{r.ID})
+	s.ReplaceAIContextConnectionAccess(t.Context(), g.ID, u.ID, []string{r.ID}, nil)
 	if err := s.ReplaceAIContextMembers(t.Context(), r.ID, []string{"missing"}); err == nil {
 		t.Fatal("missing member accepted")
 	}
-	if err := s.ReplaceAIContextConnectionAccess(t.Context(), g.ID, u.ID, []string{r.ID, "missing"}); !errors.Is(err, ErrNotFound) {
+	if err := s.ReplaceAIContextConnectionAccess(t.Context(), g.ID, u.ID, []string{r.ID, "missing"}, nil); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing repository accepted: %v", err)
 	}
 	if allowed, err := s.AIContextConnectionAccess(t.Context(), r.ID, g.ID, u.ID); err != nil || !allowed {
@@ -251,7 +251,7 @@ func TestConnectionSourceChoicesHideUnsharedAndUnavailableRepositories(t *testin
 	second := makeRepo(43, "acme/z-last", true, true)
 	makeRepo(44, "acme/private-unshared", true, false)
 	makeRepo(45, "acme/pending", false, true)
-	if err := s.ReplaceAIContextConnectionAccess(t.Context(), g.ID, u.ID, []string{r.ID, second.ID}); err != nil {
+	if err := s.ReplaceAIContextConnectionAccess(t.Context(), g.ID, u.ID, []string{r.ID, second.ID}, nil); err != nil {
 		t.Fatal(err)
 	}
 	choices, err := s.AIContextConnectionChoices(t.Context(), g.ID, u.ID, 1, 0)
@@ -331,7 +331,7 @@ func TestContextDiscoveryShowsOnlyTheConnectionsLiveConsent(t *testing.T) {
 		}
 	}
 	check(0)
-	if err := s.ReplaceAIContextConnectionAccess(t.Context(), g.ID, u.ID, []string{r.ID}); err != nil {
+	if err := s.ReplaceAIContextConnectionAccess(t.Context(), g.ID, u.ID, []string{r.ID}, nil); err != nil {
 		t.Fatal(err)
 	}
 	check(1)

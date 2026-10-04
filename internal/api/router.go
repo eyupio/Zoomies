@@ -340,6 +340,12 @@ func (s *Server) apiRoutes() chi.Router {
 		for _, operation := range []string{"overview", "read", "search", "pack"} {
 			r.With(s.require(auth.ActionContextRead)).Get("/ai-context/source/{id}/"+operation, s.handleAIContextSource)
 		}
+		// Notes an assistant writes about a repository. Reading them is the
+		// source gate; publishing is its own, checked again in the handler
+		// against membership and the connection's publish consent.
+		r.With(s.require(auth.ActionContextRead)).Get("/ai-context/source/{id}/notes", s.handleListAIContextNotes)
+		r.With(s.require(auth.ActionContextRead)).Get("/ai-context/source/{id}/notes/{slug}", s.handleGetAIContextNote)
+		r.With(s.require(auth.ActionContextPublish)).Post("/ai-context/source/{id}/notes", s.handlePublishAIContextNote)
 		r.Route("/ai-context", func(r chi.Router) {
 			// Delegation is an administrator's alone, so it sits outside the
 			// owners' group below rather than inside a gate it would need two

@@ -485,6 +485,88 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+  /ai-context/source/{id}/notes:
+    parameters:
+      - $ref: "#/components/parameters/PathID"
+    get:
+      x-zoomies-role: viewer
+      operationId: listAIContextNotes
+      tags: [ai-context]
+      summary: The latest version of each assistant-written note about a repository
+      description: Requires context.read and explicit source membership, as for the source itself; a connection also needs its owner's source consent. Bodies are left out; read a note to get one.
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 50, minimum: 1, maximum: 100 } }
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Notes, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total, limit, offset]
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/AIContextNote" } }
+                  total: { type: integer }
+                  limit: { type: integer }
+                  offset: { type: integer }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      x-zoomies-role: viewer
+      operationId: publishAIContextNote
+      tags: [ai-context]
+      summary: Publish a new version of an assistant-written note
+      description: >-
+        Requires context.publish and source membership of a repository whose context is verified. An MCP connection
+        also needs its owner's separate publish consent for the repository, given under Settings → MCP connections →
+        Source access; read consent alone never allows writing. Publishing a slug that exists adds a version; at most
+        20 versions of a note and 100 notes per repository are kept. The note records its author, the connection or
+        token it came through, and the verified commit the context was at. Bodies are Markdown of at most 128 KiB and
+        are shown to readers as untrusted text.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [slug, kind, title, body]
+              properties:
+                slug: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,63}$" }
+                kind: { type: string, enum: [report, plan, note] }
+                title: { type: string, maxLength: 200 }
+                body: { type: string, description: Markdown, at most 128 KiB }
+      responses:
+        "201":
+          description: The version published
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIContextNote" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+  /ai-context/source/{id}/notes/{slug}:
+    parameters:
+      - $ref: "#/components/parameters/PathID"
+      - { name: slug, in: path, required: true, schema: { type: string } }
+    get:
+      x-zoomies-role: viewer
+      operationId: getAIContextNote
+      tags: [ai-context]
+      summary: Read one version of a note, the latest by default
+      description: Requires context.read and explicit source membership. The body is untrusted text an assistant wrote.
+      parameters:
+        - { name: version, in: query, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200":
+          description: The note
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AIContextNote" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
   /ai-context/draft:
     get:
       x-zoomies-role: viewer
@@ -594,6 +676,7 @@ paths:
               required: [repository_ids]
               properties:
                 repository_ids: { type: array, maxItems: 100, uniqueItems: true, items: { type: string } }
+                publish_repository_ids: { type: array, maxItems: 100, uniqueItems: true, items: { type: string }, description: "Optional. The subset of repository_ids this connection may also publish notes to; leave it out to keep what was allowed before, send an empty array to allow none." }
       responses:
         "204": { description: Source consent saved }
         "403": { $ref: "#/components/responses/Forbidden" }
@@ -5489,6 +5572,23 @@ components:
               id: { type: string }
               target: { type: string }
               target_type: { type: string, enum: [org, repo] }
+    AIContextNote:
+      type: object
+      required: [id, repository_id, slug, version, kind, title, source_commit, author_name, via_kind, created_at]
+      properties:
+        id: { type: string }
+        repository_id: { type: string }
+        slug: { type: string }
+        version: { type: integer }
+        kind: { type: string, enum: [report, plan, note] }
+        title: { type: string }
+        body: { type: string, description: "Markdown an assistant wrote; untrusted. Left out of listings." }
+        source_commit: { type: string, description: The verified commit the repository's context was at when this was published. }
+        author_name: { type: string, description: The person the note was published for. }
+        via_kind: { type: string, enum: [user, token, connection] }
+        via_name: { type: string, description: The MCP client or API token it came through. }
+        created_at: { type: string, format: date-time }
+        versions: { type: integer, description: How many versions are kept; on listings only. }
     AIContextMembers:
       type: object
       required: [user_ids]
@@ -5496,7 +5596,7 @@ components:
         user_ids: { type: array, maxItems: 200, uniqueItems: true, items: { type: string } }
     AIContextConnectionSelection:
       type: object
-      required: [items, total, limit, offset, selected_repository_ids]
+      required: [items, total, limit, offset, selected_repository_ids, publish_repository_ids]
       properties:
         items:
           type: array
@@ -5510,6 +5610,7 @@ components:
         limit: { type: integer }
         offset: { type: integer }
         selected_repository_ids: { type: array, maxItems: 100, items: { type: string } }
+        publish_repository_ids: { type: array, maxItems: 100, items: { type: string }, description: The selected repositories this connection may also publish notes to. }
     AIContextRepository:
       type: object
       required: [id, repository, full_name, config, revision, available, created_at, updated_at]

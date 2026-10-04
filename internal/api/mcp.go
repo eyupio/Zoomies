@@ -23,8 +23,9 @@ import (
 // each call on its own route -- this only keeps the list an agent chooses from
 // honest.
 var mcpToolActions = map[string]auth.Action{
-	"rerun_job":    auth.ActionJobsRerun,
-	"drain_runner": auth.ActionRunnersDrain,
+	"rerun_job":       auth.ActionJobsRerun,
+	"drain_runner":    auth.ActionRunnersDrain,
+	"context_publish": auth.ActionContextPublish,
 }
 
 // mcpResponseLimit bounds what one tool call reads back from a route. It is
@@ -131,21 +132,25 @@ type inProcessAPI struct {
 }
 
 func (a inProcessAPI) Call(ctx context.Context, method, path string, q url.Values) ([]byte, error) {
-	return a.do(ctx, method, path, q, "application/json")
+	return a.do(ctx, method, path, q, "application/json", nil)
+}
+
+func (a inProcessAPI) CallBody(ctx context.Context, method, path string, q url.Values, body []byte) ([]byte, error) {
+	return a.do(ctx, method, path, q, "application/json", body)
 }
 
 func (a inProcessAPI) Stream(ctx context.Context, path, accept string) (io.ReadCloser, error) {
 	// A log download ends when the relay goes quiet, so reading it whole is
 	// what the stdio server's client does too; there is no connection here to
 	// hold open for it.
-	body, err := a.do(ctx, http.MethodGet, path, nil, accept)
+	body, err := a.do(ctx, http.MethodGet, path, nil, accept, nil)
 	if err != nil {
 		return nil, err
 	}
 	return io.NopCloser(bytes.NewReader(body)), nil
 }
 
-func (a inProcessAPI) do(ctx context.Context, method, path string, q url.Values, accept string) ([]byte, error) {
+func (a inProcessAPI) do(ctx context.Context, method, path string, q url.Values, accept string, body []byte) ([]byte, error) {
 	target := "/api/v1" + path
 	if len(q) > 0 {
 		target += "?" + q.Encode()
@@ -154,9 +159,16 @@ func (a inProcessAPI) do(ctx context.Context, method, path string, q url.Values,
 	// router's own state for that request; left there, the router would take
 	// this for the rest of that dispatch rather than a request of its own.
 	ctx = context.WithValue(ctx, chi.RouteCtxKey, (*chi.Context)(nil))
-	req, err := http.NewRequestWithContext(ctx, method, target, nil)
+	var reader io.Reader
+	if body != nil {
+		reader = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, target, reader)
 	if err != nil {
 		return nil, err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
 	}
 	// The address and the proxy headers go along so that the client address
 	// the audit trail records is the agent's, resolved through the same
