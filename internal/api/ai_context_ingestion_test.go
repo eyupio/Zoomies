@@ -105,10 +105,21 @@ func TestContextIngestionRequiresMergeAndClosesAccessOnDriftOrRevocation(t *test
 	if got, err := h.st.GetAIContextFreshness(h.ctx, draft.ID); err != nil || strings.Contains(got.Failure, "edited after review") {
 		t.Fatalf("a workflow from the previous template was treated as an edit: %+v %v", got, err)
 	}
+	// The page is told, so it can offer the repair; the flag is set by the check
+	// above rather than discovered when somebody opens the page.
+	outdated := func(want bool) {
+		t.Helper()
+		got, err := h.st.GetAIContextRepository(h.ctx, draft.ID)
+		if err != nil || got.WorkflowOutdated != want {
+			t.Fatalf("workflow_outdated = %v, want %v (%v)", got != nil && got.WorkflowOutdated, want, err)
+		}
+	}
+	outdated(true)
 	h.gh.AddFile(draft.FullName, aicontext.WorkflowPath, findSetupContent(t, plan, aicontext.WorkflowPath))
 	if err := h.ctrl.RefreshAIContext(h.ctx, draft.ID); err != nil {
 		t.Log("refresh after restoring the current workflow:", err)
 	}
+	outdated(false)
 	h.gh.AddFile(draft.FullName, aicontext.WorkflowPath, "unreviewed workflow")
 	if err := h.ctrl.RefreshAIContext(h.ctx, draft.ID); err == nil {
 		t.Fatal("workflow drift admitted")

@@ -348,3 +348,24 @@ func TestContextDiscoveryShowsOnlyTheConnectionsLiveConsent(t *testing.T) {
 	}
 	check(0)
 }
+
+// The flag is an observation about GitHub, not an edit: moving it must not
+// reject a wizard write that read the revision a moment earlier.
+func TestWorkflowOutdatedIsRecordedWithoutMovingTheRevision(t *testing.T) {
+	s := newTestStore(t)
+	r, _, _ := contextFixture(t, s)
+	ctx := t.Context()
+	got, err := s.GetAIContextRepository(ctx, r.ID)
+	if err != nil || got.WorkflowOutdated {
+		t.Fatalf("a new repository starts current: %+v %v", got, err)
+	}
+	for _, want := range []bool{true, true, false} {
+		if err := s.SetAIContextWorkflowOutdated(ctx, r.ID, want); err != nil {
+			t.Fatal(err)
+		}
+		got, err = s.GetAIContextRepository(ctx, r.ID)
+		if err != nil || got.WorkflowOutdated != want || got.Revision != r.Revision {
+			t.Fatalf("after setting %v: outdated=%v revision=%d (was %d) %v", want, got.WorkflowOutdated, got.Revision, r.Revision, err)
+		}
+	}
+}
