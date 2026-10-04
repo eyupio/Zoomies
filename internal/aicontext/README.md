@@ -10,7 +10,16 @@ source branch, commit and configuration hash against trusted ingestion inputs;
 byte hashes alone do not establish publication authority.
 
 `Decode` bounds encoded JSON and verifies file paths, text sizes and content
-hashes. Generator secret scanning is still required: credential-path exclusions
+hashes.
+A snapshot may also list files it does not carry (`omitted`: `too_large`,
+`over_budget` or `flagged`) instead of the generator refusing the whole run. Such
+an entry has a path, a size in Git and a reason, and is held to the same standard
+as carried content: `Validate` checks the path and that the reason fits the size,
+`CheckSnapshotFiles` repeats the exclusions, and ingestion checks the trusted
+tree for a regular file of exactly that size. Readers see the omission in the
+overview, in a read of that path and in `omitted_total` on every page, so a
+partial context never reads as a complete one. A snapshot with nothing omitted
+encodes exactly as before. Generator secret scanning is still required: credential-path exclusions
 are defence in depth, not proof that source contains no secrets.
 
 `DiskStorage` owns private, digest-addressed blobs through `os.Root`. Writes

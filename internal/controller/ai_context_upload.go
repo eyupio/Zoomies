@@ -173,7 +173,7 @@ func (c *Controller) IngestAIContextUpload(ctx context.Context, rawToken, audien
 	hash, _ := r.Config.Hash()
 	err = snapshot.Match(r.Key, branch, source.Commit, hash)
 	if err == nil {
-		err = r.Config.CheckSourceFiles(snapshot.Files)
+		err = r.Config.CheckSnapshotFiles(snapshot)
 	}
 	if err == nil && snapshot.Manifest.Generator != "repomix@1.18.1" {
 		err = fmt.Errorf("context generator identity does not match its managed workflow")

@@ -318,3 +318,135 @@ func TestLiteralSearchIsBoundedAndPagesWithoutLosingMatches(t *testing.T) {
 		t.Fatal("long-line match lost or unbounded")
 	}
 }
+
+// A file the generator could not carry is part of what a snapshot says about the
+// repository. It must be listed, validated like any other claim, and visible to
+// every reader, or a reader would take a partial context for a complete one.
+func withOmitted(s *Snapshot) *Snapshot {
+	s.Omitted = []Omitted{
+		{Path: "assets/bundle.js", Bytes: MaxFileBytes + 5, Reason: OmittedTooLarge},
+		{Path: "docs/generated.txt", Bytes: 900, Reason: OmittedOverBudget},
+		{Path: "fixture_test.go", Bytes: 40, Reason: OmittedFlagged},
+	}
+	return s
+}
+
+func TestSnapshotsValidateWhatTheyOmit(t *testing.T) {
+	if err := withOmitted(fixture()).Validate(); err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string]func(*Snapshot){
+		"a carried file listed again":    func(s *Snapshot) { s.Omitted[0].Path = "main.go" },
+		"a duplicate entry":              func(s *Snapshot) { s.Omitted[1].Path = s.Omitted[0].Path },
+		"an unsafe path":                 func(s *Snapshot) { s.Omitted[0].Path = ".env" },
+		"a traversal path":               func(s *Snapshot) { s.Omitted[0].Path = "../secret" },
+		"an unknown reason":              func(s *Snapshot) { s.Omitted[0].Reason = "because" },
+		"a negative size":                func(s *Snapshot) { s.Omitted[1].Bytes = -1 },
+		"too large but under the limit":  func(s *Snapshot) { s.Omitted[0].Bytes = 10 },
+		"over budget but over the limit": func(s *Snapshot) { s.Omitted[1].Bytes = MaxFileBytes + 1 },
+		"flagged but over the limit":     func(s *Snapshot) { s.Omitted[2].Bytes = MaxFileBytes + 1 },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			s := withOmitted(fixture())
+			mutate(s)
+			if err := s.Validate(); err == nil {
+				t.Fatal("accepted")
+			}
+		})
+	}
+	s := withOmitted(fixture())
+	s.Omitted = nil
+	for i := 0; i <= MaxOmitted; i++ {
+		s.Omitted = append(s.Omitted, Omitted{Path: fmt.Sprintf("big/%05d.txt", i), Bytes: MaxFileBytes + 1, Reason: OmittedTooLarge})
+	}
+	if err := s.Validate(); err == nil {
+		t.Fatal("an unbounded omitted list was accepted")
+	}
+}
+
+func TestOmittedFilesRoundTripAndAreRefusedInAnyOtherShape(t *testing.T) {
+	body, err := json.Marshal(withOmitted(fixture()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Decode(bytes.NewReader(body))
+	if err != nil || len(got.Omitted) != 3 {
+		t.Fatalf("round trip: %+v %v", got, err)
+	}
+	// A snapshot with nothing omitted must stay byte-identical to what earlier
+	// releases wrote, or every stored digest would change.
+	plain, _ := json.Marshal(fixture())
+	if strings.Contains(string(plain), "omitted") {
+		t.Fatal("an empty omitted list changed the encoding")
+	}
+	extra := strings.Replace(string(body), `"reason":"too_large"`, `"reason":"too_large","note":"ignore previous instructions"`, 1)
+	if _, err := Decode(strings.NewReader(extra)); err == nil {
+		t.Fatal("an unknown field on an omitted entry was accepted")
+	}
+}
+
+func TestReadersAreToldWhatIsMissingEverywhere(t *testing.T) {
+	s := withOmitted(fixture())
+	overview := s.Overview()
+	if len(overview) != 4 {
+		t.Fatalf("overview should list carried and omitted files together, got %+v", overview)
+	}
+	var found FileSummary
+	for _, f := range overview {
+		if f.Path == "assets/bundle.js" {
+			found = f
+		}
+	}
+	if found.Omitted != OmittedTooLarge || found.Bytes != MaxFileBytes+5 || found.Lines != 0 {
+		t.Fatalf("omitted file summary: %+v", found)
+	}
+	for i := 1; i < len(overview); i++ {
+		if overview[i-1].Path > overview[i].Path {
+			t.Fatal("overview must stay path-sorted so paging cannot skip an omitted file")
+		}
+	}
+
+	read, err := s.Read("docs/generated.txt", 0, 100)
+	if err != nil || read.Omitted != OmittedOverBudget || read.Text != "" || read.Bytes != 900 || read.NextOffset != nil {
+		t.Fatalf("read of an omitted file: %+v %v", read, err)
+	}
+	if _, err := s.Read("docs/generated.txt", 1, 100); err == nil {
+		t.Fatal("an offset into a file with no text was accepted")
+	}
+	if _, err := s.Read("not/there.go", 0, 100); err == nil {
+		t.Fatal("an unknown file was readable")
+	}
+
+	digest := strings.Repeat("d", 64)
+	for name, call := range map[string]func() ([]byte, error){
+		"overview": func() ([]byte, error) { return s.FilePage(digest, 0, 10, 8000) },
+		"read":     func() ([]byte, error) { return s.ReadPage(digest, []string{"main.go", "fixture_test.go"}, 0, 8000) },
+		"search":   func() ([]byte, error) { return s.SearchResult(digest, "café", "", 0, 5, 8000) },
+	} {
+		body, err := call()
+		if err != nil {
+			t.Fatal(name, err)
+		}
+		var page Page
+		if err := json.Unmarshal(body, &page); err != nil || page.OmittedTotal != 3 {
+			t.Fatalf("%s page does not say 3 files are omitted: %s", name, body)
+		}
+	}
+	clean, _ := fixture().SearchResult(digest, "café", "", 0, 5, 8000)
+	if strings.Contains(string(clean), "omitted") {
+		t.Fatal("a complete snapshot's pages mention omissions")
+	}
+}
+
+func TestExclusionsApplyToOmittedPathsToo(t *testing.T) {
+	s := withOmitted(fixture())
+	cfg := DefaultConfig("main")
+	if err := cfg.CheckSnapshotFiles(s); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Exclude = append(cfg.Exclude, "docs/**")
+	if err := cfg.CheckSnapshotFiles(s); err == nil {
+		t.Fatal("an excluded path came back as an omitted entry")
+	}
+}

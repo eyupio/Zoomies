@@ -25,7 +25,10 @@ type uploadFixture struct {
 	cookie   string
 }
 
-const uploadBase = "https://zoomies.example.com"
+const (
+	uploadBase    = "https://zoomies.example.com"
+	uploadBigFile = "assets/bundle.js"
+)
 
 // zoomiesOnlyFixture sets a repository up for Zoomies-only output the way an
 // owner would -- draft, reviewed setup PR, merge -- and builds the snapshot
@@ -81,6 +84,8 @@ func zoomiesOnlyFixtureOn(t *testing.T, host string) *uploadFixture {
 		t.Fatal("merge failed")
 	}
 	h.gh.AddFile(draft.FullName, "src/main.go", "package widgets\n")
+	// A file no snapshot can carry, for the tests of what an upload may omit.
+	h.gh.AddFile(draft.FullName, uploadBigFile, strings.Repeat("a", aicontext.MaxFileBytes+7))
 	client, err := h.ctrl.ClientFor(h.ctx, inst.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -225,5 +230,88 @@ func TestATokenFromAnIssuerZoomiesDoesNotKnowIsNeverFetched(t *testing.T) {
 	f.upload(claims, f.snapshot).mustStatus(t, http.StatusUnauthorized, "a token from an Enterprise Server with no repository here")
 	if fetched {
 		t.Fatal("the controller fetched keys from an issuer the token named")
+	}
+}
+
+// omittingSnapshot is the fixture's snapshot with the oversized file listed
+// rather than carried, as the generator now writes it.
+func (f *uploadFixture) omittingSnapshot(t *testing.T, edit func(*aicontext.Omitted)) []byte {
+	t.Helper()
+	var snapshot aicontext.Snapshot
+	if err := json.Unmarshal(f.snapshot, &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	snapshot.Omitted = []aicontext.Omitted{{Path: uploadBigFile, Bytes: aicontext.MaxFileBytes + 7, Reason: aicontext.OmittedTooLarge}}
+	if edit != nil {
+		edit(&snapshot.Omitted[0])
+	}
+	body, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return body
+}
+
+func TestAnUploadThatOmitsAFileTellsEveryReaderWhatIsMissing(t *testing.T) {
+	f := zoomiesOnlyFixture(t)
+	f.upload(f.claims(), f.omittingSnapshot(t, nil)).mustStatus(t, http.StatusAccepted, "an upload that lists an oversized file")
+	source := "/api/v1/ai-context/source/" + f.repo.ID
+
+	r := f.h.do(request{method: http.MethodGet, path: source + "/overview", cookie: f.cookie})
+	r.mustStatus(t, http.StatusOK, "the overview")
+	var overview struct {
+		Total        int `json:"total"`
+		OmittedTotal int `json:"omitted_total"`
+		Files        []struct {
+			Path    string `json:"path"`
+			Bytes   int    `json:"bytes"`
+			Omitted string `json:"omitted"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal(r.body, &overview); err != nil {
+		t.Fatal(err)
+	}
+	listed := false
+	for _, file := range overview.Files {
+		if file.Path == uploadBigFile {
+			listed = file.Omitted == aicontext.OmittedTooLarge && file.Bytes == aicontext.MaxFileBytes+7
+		}
+	}
+	if !listed || overview.OmittedTotal != 1 || overview.Total != 2 {
+		t.Fatalf("the overview does not show the omitted file: %s", r.body)
+	}
+
+	r = f.h.do(request{method: http.MethodGet, path: source + "/read?path=" + uploadBigFile, cookie: f.cookie})
+	r.mustStatus(t, http.StatusOK, "reading an omitted file")
+	if !strings.Contains(string(r.body), `"omitted":"too_large"`) || !strings.Contains(string(r.body), `"text":""`) || strings.Contains(string(r.body), "aaaa") {
+		t.Fatalf("a read of an omitted file should say why there is no text: %s", r.body)
+	}
+
+	r = f.h.do(request{method: http.MethodGet, path: source + "/search?query=widgets", cookie: f.cookie})
+	r.mustStatus(t, http.StatusOK, "a search")
+	if !strings.Contains(string(r.body), `"omitted_total":1`) {
+		t.Fatalf("a search does not say the context is incomplete: %s", r.body)
+	}
+}
+
+func TestAnUploadCannotListFilesTheTrustedCommitDoesNotHave(t *testing.T) {
+	f := zoomiesOnlyFixture(t)
+	for name, edit := range map[string]func(*aicontext.Omitted){
+		"a file that is not in the commit":        func(o *aicontext.Omitted) { o.Path = "assets/never-existed.js" },
+		"a size that is not the file's size":      func(o *aicontext.Omitted) { o.Bytes = aicontext.MaxFileBytes + 99 },
+		"a carried file claimed to be omitted":    func(o *aicontext.Omitted) { o.Path, o.Bytes = "src/main.go", 16 },
+		"a file under the limit labelled as such": func(o *aicontext.Omitted) { o.Bytes = 10 },
+	} {
+		f.upload(f.claims(), f.omittingSnapshot(t, edit)).mustNotSucceed(t, name)
+	}
+	if r := f.h.do(request{method: http.MethodGet, path: "/api/v1/ai-context/source/" + f.repo.ID + "/overview", cookie: f.cookie}); r.status == http.StatusOK {
+		t.Fatal("a refused upload became readable context")
+	}
+}
+
+func (r *response) mustNotSucceed(t *testing.T, what string) {
+	t.Helper()
+	if r.status >= 200 && r.status < 300 {
+		t.Fatalf("%s was accepted (status %d): %s", what, r.status, truncate(r.body))
 	}
 }
