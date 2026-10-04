@@ -1,6 +1,6 @@
 ---
 icon: material/book-open-page-variant-outline
-description: Reduce AI input token usage with relevant repository excerpts. Zoomies automates Repomix generation, verifies source against Git, and gives assistants fresh context through MCP.
+description: Reduce AI input token usage with relevant repository excerpts. Zoomies automates Repomix generation, verifies source against Git, and lets assistants use fresh context through GitHub access or MCP.
 ---
 
 # AI Context
@@ -10,9 +10,10 @@ description: Reduce AI input token usage with relevant repository excerpts. Zoom
 AI Context gives coding assistants the source they need for a task without
 loading the whole repository into every conversation. Zoomies automates
 [Repomix](https://repomix.com) generation, keeps context tied to the current
-source commit, and lets Claude, ChatGPT and other
-[Model Context Protocol](https://modelcontextprotocol.io) clients search and
-read relevant excerpts.
+source commit, and lets assistants use the generated repository pack through
+their existing GitHub access. No MCP connection is required for that route.
+Claude, ChatGPT and other [Model Context Protocol](https://modelcontextprotocol.io)
+clients can also connect to Zoomies for bounded search and source reads.
 
 <div class="zoomies-grid" markdown>
 
@@ -46,6 +47,7 @@ person and assistant connection.
 </div>
 
 [Set up AI Context :material-arrow-right:](#set-it-up){ .md-button .md-button--primary }
+[Use without MCP](#use-without-mcp){ .md-button }
 [See how token savings work](#how-it-reduces-token-usage){ .md-button }
 
 ## How it reduces token usage
@@ -192,8 +194,9 @@ sequenceDiagram
     Z-->>AI: Bounded excerpts pinned to one commit
 ```
 
-Three things have to be true before an assistant reads a single line, and each
-is a separate decision:
+For reads **through Zoomies**, three things have to be true, and each is a
+separate decision. Direct reads of the generated branch use GitHub permissions
+instead; see [Use without MCP](#use-without-mcp).
 
 1. **The repository is set up.** Its setup pull request was merged, the
    generating workflow succeeded, and Zoomies verified the output.
@@ -284,7 +287,7 @@ they are scoped. An agent cannot enable repositories on its owner's behalf.
   Actions workflow.
 * **A README in Markdown**, if you want the badge. A repository without one is
   left alone.
-* For assistants, **OAuth for MCP**: the controller reached over https with
+* For assistants using the **Zoomies MCP route**, **OAuth for MCP**: the controller reached over https with
   `server.external_url` set. See [Connect Claude](connect-claude.md#before-you-start).
 * For *Zoomies only*, the same https address, reachable from GitHub's runners.
   The wizard offers the option only when it is set.
@@ -385,7 +388,9 @@ anyone. An installation owner can add or remove only themselves.
 
 ### 6. Connect an assistant
 
-Each reader does this for themselves:
+For repository output, copy **AI instructions** and follow
+[Use without MCP](#use-without-mcp). The steps below are for the Zoomies MCP
+route; each source reader does them for themselves:
 
 1. Connect the assistant to Zoomies as in [Connect Claude](connect-claude.md).
    Any MCP client with OAuth works the same way.
@@ -400,10 +405,81 @@ A connection starts with no repositories, and choosing them is never automatic.
 If you are removed as a reader and added back later, your connections do not get
 their old repositories back — you choose again.
 
+## Use without MCP
+
+Choose **Repository** or **Repository and Zoomies** in the setup wizard.
+After the setup PR is merged, GitHub Actions publishes the source pack to
+`zoomies-ai-context` and updates it after every push to the configured source
+branch. The pack is hosted in your own repository.
+
+1. On **AI Context**, choose **Copy AI instructions** for the repository.
+2. Paste them into your AI conversation or project instructions. The prompt
+   includes direct links to `manifest.json` and `snapshot.json` and tells the
+   assistant to use the prepared context before browsing individual source files.
+3. The assistant checks the manifest's `source_commit` against the revision
+   you want investigated, pins its reads to one generated-branch commit, and
+   uses the relevant `files` entries from the JSON snapshot.
+
+For example, give an assistant with GitHub access this prompt, followed by
+the copied instructions:
+
+> Use this repository's Zoomies AI Context as your first source reference.
+> Check its source commit and use the relevant files in the generated pack
+> before browsing individual source files. Investigate runner registration
+> retries and explain the implementation you inspected.
+
+The generated `AGENTS.md` and `CLAUDE.md` sections provide the same guidance
+to agents that load them automatically. Other assistants need the copied
+prompt; access to GitHub does not automatically load project instructions.
+
+### What the assistant reads
+
+| File on the generated branch | Purpose |
+| --- | --- |
+| `.zoomies/ai-context/manifest.json` | Identifies the source commit, generator and snapshot digest. Read this first. |
+| `.zoomies/ai-context/snapshot.json` | Contains original source in `files` entries, each with `path`, `content` and `sha256`. |
+| `.zoomies/ai-context/NOTICE.md` | Identifies the generated output as managed by Zoomies and generated with Repomix. |
+
+This is the existing JSON pack. Unlike manually downloading a Repomix Markdown
+or XML export after each change, you can reuse the repository links and let
+Actions refresh the context. There is no separate generation pipeline to set up.
+
+**GitHub permissions control this route.** Public packs need a tool that can read
+the repository or download URL; private packs need authorised GitHub access.
+Zoomies source-reader membership and MCP connection consent apply only to reads
+through Zoomies. Downloading a pack and attaching it to your assistant also
+works if that assistant supports files; check freshness before each new task.
+
+If the assistant works in a local checkout, it can fetch the generated branch
+without switching away from the source branch:
+
+```sh
+git fetch origin zoomies-ai-context
+git show origin/zoomies-ai-context:.zoomies/ai-context/manifest.json
+```
+
+The snapshot is at the same path with `snapshot.json`. Read both from the same
+generated-branch commit and extract relevant file entries locally when possible.
+Fetching or processing the pack locally does not require putting its entire
+contents into the model's context window.
+
+**Tool and context limits still apply.** Some assistants cannot fetch large JSON
+files, access private repositories or process a pack locally. If the pack is
+missing, stale, inaccessible, too large or excludes a needed file, the copied
+instructions tell the assistant to explain the reason before falling back to
+individual source files at the requested revision. Loading the whole pack into
+a conversation consumes its full input tokens; selective retrieval savings
+are not automatic without MCP.
+
+**Zoomies only** publishes no repository pack. Use **Amend** to select an output
+that includes the repository, then merge the setup PR. For existing setups,
+**Reinstall / repair** proposes the updated managed prompt sections; the
+existing generated JSON format and workflow remain the same.
+
 ## Use it
 
-Ask the assistant about your code in the ordinary way. Behind that, it reads
-with four read-only tools:
+With the **Zoomies MCP route**, ask the assistant about your code in the ordinary way. Behind that,
+it reads with four read-only tools:
 
 | Tool | What it does |
 | --- | --- |

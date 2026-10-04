@@ -28,6 +28,85 @@ func TestAssistantInstructionsDescribeTheSelectedDestinationAndConnection(t *tes
 	}
 }
 
+func TestRepositoryInstructionsPreferPreparedContextWithoutRequiringMCP(t *testing.T) {
+	key, config := setupInputs()
+	for _, destination := range []Destination{Repository, Both} {
+		config.Destination = destination
+		body := AssistantInstructions(key, "owner/repo", config)
+		for _, required := range []string{
+			"Use repository context first — no MCP required",
+			"first source reference before browsing individual source files",
+			"https://github.com/owner/repo/blob/zoomies-ai-context/.zoomies/ai-context/manifest.json",
+			"https://github.com/owner/repo/blob/zoomies-ai-context/.zoomies/ai-context/snapshot.json",
+			"source_commit", "same generated-branch commit", "too large for your tools",
+			"say why before falling back", "JSON source pack", "not automatic without MCP",
+		} {
+			if !strings.Contains(body, required) {
+				t.Fatalf("%s instructions missing %q", destination, required)
+			}
+		}
+		if destination == Both && strings.Index(body, "Use repository context first") > strings.Index(body, "Read through Zoomies MCP") {
+			t.Fatal("repository guidance must come before the optional MCP route")
+		}
+	}
+	config.Destination = Zoomies
+	body := AssistantInstructions(key, "owner/repo", config)
+	if strings.Contains(body, "/blob/zoomies-ai-context/") || strings.Contains(body, "Use repository context first") {
+		t.Fatal("Zoomies-only guidance invents a repository pack")
+	}
+	if !strings.Contains(body, "publishes no repository context branch") {
+		t.Fatal("Zoomies-only guidance must explain how to enable repository output")
+	}
+}
+
+func TestPreviousAssistantGuidanceUpgradesWithoutOverwritingCustomEdits(t *testing.T) {
+	key, config := setupInputs()
+	for _, destination := range []Destination{Repository, Both, Zoomies} {
+		config.Destination = destination
+		config.UploadURL = ""
+		if destination == Zoomies {
+			config.UploadURL = "https://zoomies.example.com/api/v1/ai-context/uploads"
+		}
+		for _, newline := range []string{"\n", "\r\n"} {
+			prefix := "# My guidance" + newline + "Keep this." + newline + newline
+			suffix := newline + "Keep this too." + newline
+			old := previousAssistantInstructions(key, "owner/repo", config)
+			block := managedStart + newline + strings.ReplaceAll(old, "\n", newline) + newline + managedEnd
+			files := []SetupFile{
+				{Path: "AGENTS.md", SHA: strings.Repeat("a", 40), Content: prefix + block + suffix},
+				{Path: "CLAUDE.md", SHA: strings.Repeat("a", 40), Content: prefix + block + suffix},
+			}
+			changes, err := PlanSetupFiles(key, "owner/repo", config, files)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var saved []SetupFile
+			upgraded := 0
+			for _, change := range changes {
+				saved = append(saved, SetupFile{Path: change.Path, SHA: strings.Repeat("b", 40), Content: change.Content})
+				if change.Path == "AGENTS.md" || change.Path == "CLAUDE.md" {
+					upgraded++
+					want := prefix + managedStart + newline + strings.ReplaceAll(AssistantInstructions(key, "owner/repo", config), "\n", newline) + newline + managedEnd + suffix
+					if change.Content != want || change.PreviousSHA != files[0].SHA {
+						t.Fatal("upgrade lost user text, line endings or original blob identity")
+					}
+				}
+			}
+			if upgraded != 2 {
+				t.Fatal("both managed guidance files must be upgraded")
+			}
+			retry, err := PlanSetupFiles(key, "owner/repo", config, saved)
+			if err != nil || len(retry) != 0 {
+				t.Fatalf("upgraded instructions are not idempotent: %v", err)
+			}
+			files[0].Content = prefix + strings.Replace(block, "Repomix generates context", "Custom instruction", 1) + suffix
+			if _, err := PlanSetupFiles(key, "owner/repo", config, files); err == nil {
+				t.Fatal("custom edits to previous managed instructions were overwritten")
+			}
+		}
+	}
+}
+
 func TestSetupAlwaysAddsTheReadmeBadgeAndPreservesExistingText(t *testing.T) {
 	key, config := setupInputs()
 	include := false

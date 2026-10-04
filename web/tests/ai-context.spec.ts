@@ -150,7 +150,9 @@ test('setup saves resumable drafts, retries only failures and never enables sour
     await expect(page.getByRole('link', { name: /Open setup PR/ })).toHaveCount(1);
     await page.getByRole('button', { name: 'Create setup PRs', exact: true }).click();
     await expect(page.getByRole('link', { name: /Open setup PR/ })).toHaveCount(2);
-    await expect(page.getByRole('heading', { name: 'Connect your assistant' })).toHaveCount(2);
+    await expect(
+      page.getByRole('heading', { name: 'Use AI Context with your assistant' }),
+    ).toHaveCount(2);
     await expect(page.getByRole('button', { name: 'Copy AI instructions' })).toHaveCount(2);
     await expect(
       page.getByRole('link', { name: 'Manage MCP connections' }).first(),
