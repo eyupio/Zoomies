@@ -692,6 +692,18 @@ type problemItem struct {
 	TargetKind string    `json:"target_kind"`
 	TargetID   string    `json:"target_id"`
 	Since      time.Time `json:"since"`
+	// Remedy is the change the controller proposes for it, when it has priced one.
+	Remedy *problemRemedy `json:"remedy"`
+}
+
+// problemRemedy is a change a problem proposes; see `zoomies problems apply`.
+type problemRemedy struct {
+	ID       string          `json:"id"`
+	Label    string          `json:"label"`
+	Effect   string          `json:"effect"`
+	Kind     string          `json:"kind"`
+	TargetID string          `json:"target_id"`
+	Body     json.RawMessage `json:"body"`
 }
 
 type problemsResponse struct {

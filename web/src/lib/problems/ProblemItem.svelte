@@ -13,7 +13,7 @@
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import RemedyText from '$lib/components/RemedyText.svelte';
   import StatusDot from '$lib/components/StatusDot.svelte';
-  import ApplyDaemonShare from './ApplyDaemonShare.svelte';
+  import ApplyRemedy from './ApplyRemedy.svelte';
 
   interface Props {
     problem: Problem;
@@ -167,8 +167,8 @@
         <span><RemedyText text={problem.fix} /></span>
       </p>
     {/if}
-    {#if problem.daemon_share}
-      <p class="apply"><ApplyDaemonShare {problem} /></p>
+    {#if problem.remedy}
+      <p class="apply"><ApplyRemedy {problem} /></p>
     {/if}
     <!--
       Which layer is setting the value, when that is not the one the fix above

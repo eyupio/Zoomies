@@ -1479,6 +1479,44 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/Problem" }
 
+  /problems/apply:
+    post:
+      operationId: applyRemedy
+      tags: [overview]
+      summary: Apply the change a problem proposes
+      description: |
+        Some problems carry a `remedy`: a change the controller has worked out and
+        priced against the fleet, as the update that makes it. This applies one.
+
+        The request names the suggestion, never the change. The problems are worked
+        out again now and only a remedy among them is applied, so a stale page, a
+        replayed request or a forged one cannot make a change the controller does not
+        currently propose. Send `remedy_id` to apply exactly what was on screen; a
+        409 says the proposal has since changed.
+
+        The update runs as the caller through the same code as `PATCH /pools/{id}` or
+        `PATCH /hosts/{id}`, so it needs that route's role (the answer says which is
+        missing), it is refused for what that route refuses -- including a change that
+        would leave a pool with no host that could run it, which is never overridden
+        here -- and it writes that route's audit row, plus a `problem.remedy_applied`
+        row saying which suggestion asked.
+      x-zoomies-role: operator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ApplyRemedyRequest" }
+      responses:
+        "200":
+          description: Applied
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApplyRemedyResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
   /scaling-events:
     get:
       operationId: listScalingEvents
@@ -5988,6 +6026,62 @@ components:
         changed from the file or from this API, and one stored in the database is not
         changed by editing the file.
 
+    Remedy:
+      type: object
+      description: >-
+        A change a problem proposes, as the update that makes it, with what the
+        controller priced it at. Apply it with `POST /problems/apply`; the `body` is
+        informational, since the controller applies what it currently proposes and
+        not what a client sends.
+      required: [id, label, kind, target_id, body]
+      properties:
+        id:
+          type: string
+          description: >-
+            Names this exact change. Send it back so an apply is for what was shown;
+            a different proposal has a different ID.
+          examples: [rem_3f9a2c71b0de]
+        label: { type: string, description: The button, in a few words., examples: [Give the sidecar 20% of the CPU] }
+        effect:
+          type: string
+          description: What it was priced at, said before it is applied.
+          examples: [the pool's hosts keep room for all 6 runners]
+        kind:
+          type: string
+          enum: [pool.update, host.update]
+          description: Which update this is, and so which role may apply it.
+        target_id: { type: string, description: The pool or host it changes. }
+        body:
+          type: object
+          additionalProperties: true
+          description: The request of that update.
+    ApplyRemedyRequest:
+      type: object
+      required: [code, target_id]
+      additionalProperties: false
+      properties:
+        code: { type: string, examples: [pool.daemon_share_suggested] }
+        target_id: { type: string, examples: [pool_k3f9qz2m] }
+        remedy_id:
+          type: string
+          description: The remedy's `id` from the problem that was shown. Optional.
+    ApplyRemedyResponse:
+      type: object
+      required: [applied, remedy, result]
+      properties:
+        applied: { type: boolean }
+        remedy:
+          type: object
+          required: [id, label, kind, target_id]
+          properties:
+            id: { type: string }
+            label: { type: string }
+            kind: { type: string, enum: [pool.update, host.update] }
+            target_id: { type: string }
+        result:
+          type: object
+          additionalProperties: true
+          description: What the pool's or host's own update answered, as `PATCH` returns it.
     Problem:
       type: object
       required: [code, severity, title, audience]
@@ -6042,6 +6136,8 @@ components:
             can put the change one click away.
           items: { $ref: "#/components/schemas/BackendKind" }
           examples: [[podman]]
+        remedy:
+          $ref: "#/components/schemas/Remedy"
         daemon_share:
           type: object
           description: >-

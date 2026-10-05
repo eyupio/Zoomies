@@ -48,6 +48,13 @@ const (
 )
 const ActionUsageRead Action = "usage.read"
 
+// ActionProblemsApply is making the change a problem proposes. It is its own
+// action, and an operator's, because it changes the fleet; and it is only the first
+// of two checks: the change is a pool's or a host's update, and it needs that
+// update's action as well, so a token narrowed to one resource cannot be used to
+// change another by naming a problem about it.
+const ActionProblemsApply Action = "problems.apply"
+
 // Host actions.
 const (
 	ActionHostsRead   Action = "hosts.read"
@@ -204,6 +211,8 @@ var actionRoles = map[Action]store.Role{
 	// the same bar cancelling one clears.
 	ActionJobsRerun: store.RoleOperator,
 	ActionUsageRead: store.RoleViewer,
+	// Operator: it makes a change, as the pool and host updates it stands in for do.
+	ActionProblemsApply: store.RoleOperator,
 
 	ActionHostsRead:   store.RoleViewer,
 	ActionHostsWrite:  store.RoleOperator,

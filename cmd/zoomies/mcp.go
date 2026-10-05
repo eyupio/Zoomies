@@ -31,7 +31,7 @@ func runMCP(ctx context.Context, e *env, args []string) error {
 			"CLI, so a viewer token is enough and is what to give it. Without --allow-actions\n"+
 			"it offers read-only tools and nothing else.")
 	cf := registerClientFlags(fs, false)
-	allowActions := fs.Bool("allow-actions", false, "also offer rerun_job, drain_runner, update_pool and update_host; the token's role must permit them too")
+	allowActions := fs.Bool("allow-actions", false, "also offer rerun_job, drain_runner, update_pool, update_host and apply_remedy; the token's role must permit them too")
 	fs.example(
 		"zoomies mcp --url https://zoomies.example.com",
 		"claude mcp add zoomies -e ZOOMIES_URL=https://zoomies.example.com -e ZOOMIES_TOKEN=zoo_... -- zoomies mcp",
