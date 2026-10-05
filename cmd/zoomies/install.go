@@ -34,6 +34,7 @@ func runInit(ctx context.Context, e *env, args []string) error {
 	port := fs.Int("port", 0, "host port for the controller; 0 asks interactively or uses the detected default")
 	answers := fs.String("answers", "", "a YAML answer file for unattended setup; implies --non-interactive")
 	nonInteractive := fs.Bool("non-interactive", false, "never prompt; a missing answer is an error naming the key")
+	noAnimation := fs.Bool("no-animation", false, "skip the short branded terminal splash")
 	assumeYes := fs.Bool("yes", false, "accept the confirmations that are not destructive")
 	printAnswers := fs.Bool("print-answers", false, "write an annotated example answer file to stdout and exit")
 
@@ -121,6 +122,11 @@ func runInit(ctx context.Context, e *env, args []string) error {
 	if err != nil {
 		return err
 	}
+	if !*noAnimation && !*nonInteractive && *answers == "" {
+		if err := installer.Splash(ctx, e.out, "Install"); err != nil {
+			return err
+		}
+	}
 	return inst.Run(ctx)
 }
 
@@ -204,6 +210,7 @@ func runUpgradeNamed(ctx context.Context, e *env, args []string, name string) er
 	noDownload := fs.Bool("no-download", false, "apply the binary that is already installed; do not look for a newer one")
 	yes := fs.Bool("yes", false, "approve deployment additions and settings migration; never OS tuning")
 	nonInteractive := fs.Bool("non-interactive", false, "never prompt; optional deployment changes require --yes")
+	noAnimation := fs.Bool("no-animation", false, "skip the short branded terminal splash")
 	fs.example("sudo zoomies upgrade", "zoomies upgrade --check", "sudo zoomies upgrade --yes", "sudo zoomies upgrade --mode agent --version v1.4.0")
 	if err := fs.parse(args); err != nil {
 		return err
@@ -230,6 +237,11 @@ func runUpgradeNamed(ctx context.Context, e *env, args []string, name string) er
 	}
 	ui := installer.PaletteFor(e.out)
 	if os.Getenv("ZOOMIES_UPGRADE_STARTED") == "" {
+		if !*noAnimation && !*nonInteractive && !*check {
+			if err := installer.Splash(ctx, e.out, "Upgrade"); err != nil {
+				return err
+			}
+		}
 		title := "Zoomies upgrade"
 		if *check {
 			title = "Zoomies upgrade preview"

@@ -244,6 +244,7 @@ func runAgentJoin(ctx context.Context, e *env, args []string) error {
 func runAgentInstall(ctx context.Context, e *env, args []string) error {
 	fs := newFlagSet(e, "zoomies agent install",
 		"Install the agent service without joining anything, on a machine about to become a provider's template. The unit is left disabled; the controller enables it inside each clone.")
+	noAnimation := fs.Bool("no-animation", false, "skip the short branded terminal splash")
 	serviceUser := fs.String("service-user", "", "the account the agent service runs as")
 	configDir := fs.String("config-dir", "", "where to write the agent's configuration (default: "+config.ConfigDir()+")")
 	stateDir := fs.String("state-dir", "", "where the agent keeps its credentials and scratch space (default: "+config.StateDir()+")")
@@ -257,6 +258,11 @@ func runAgentInstall(ctx context.Context, e *env, args []string) error {
 	}
 	if err := fs.noMoreArgs(); err != nil {
 		return err
+	}
+	if !*noAnimation {
+		if err := installer.Splash(ctx, e.out, "Install"); err != nil {
+			return err
+		}
 	}
 	return installer.PrepareAgent(ctx, installer.PrepareOptions{
 		ConfigDir:   *configDir,
