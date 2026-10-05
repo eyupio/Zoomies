@@ -234,9 +234,9 @@ func TestAStrandingRefusalToASuggestionDoesNotTellItToSendConfirm(t *testing.T) 
 	if got := strandingEnding(req); got != strandingConfirm {
 		t.Errorf("an ordinary edit ends %q", got)
 	}
-	req = req.WithContext(forRemedy(req.Context()))
+	req = req.WithContext(noConfirm(req.Context()))
 	ending := strandingEnding(req)
-	if strings.Contains(ending, "confirm") || !strings.Contains(ending, "yourself") {
+	if strings.Contains(ending, "confirm") || !strings.Contains(ending, "a person") {
 		t.Errorf("a suggestion's refusal ends %q; it must say to make the change by hand", ending)
 	}
 	msg := poolStrandingRefusal(controller.Stranding{Pool: "builders", Host: "big", Reason: "needs 10 GB"}, ending)

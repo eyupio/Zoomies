@@ -40,6 +40,8 @@ Everything under *Your fleet* below takes the same connection flags:
 
 The listing commands add `--limit` (50), `--offset`, `--sort` and `--order`.
 
+The CLI never follows a redirect. Go would turn a `PATCH` or `POST` into a `GET` on a `301`, `302` or `303` and drop its body, so a controller behind a proxy that forces `https` answered `pools edit` with the pool as it was and the command reported a change that was never sent — and the credential would have followed the `Location`. A redirect is an error that says where it pointed; use that address as `--url`.
+
 Where the URL and token come from is, in order: the flags, then `ZOOMIES_URL` and
 `ZOOMIES_TOKEN`, then `~/.config/zoomies/cli.yaml` (`url`, `token`, and optionally
 `ca_file` and `insecure`; `ZOOMIES_CLI_CONFIG` points at another file). With none

@@ -288,10 +288,7 @@ func (c *Controller) minimumHeldByJob(ctx context.Context, p *store.Pool, fleet 
 	if after.Runners <= before.Runners {
 		return nil, nil
 	}
-	name := holder.Keys[store.GroupByJobName]
-	if len(name) > 80 {
-		name = name[:80] + "..."
-	}
+	name := workflowText(holder.Keys[store.GroupByJobName])
 	return &Problem{
 		Code:     "pool.minimum_held_by_job",
 		Severity: config.SeverityInfo,

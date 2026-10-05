@@ -115,3 +115,29 @@ func TestPlainKeepsOrdinaryNamesAndReplacesWhatCouldMoveTheCursor(t *testing.T) 
 		}
 	}
 }
+
+// A problem can quote a job's name and its labels, which a workflow author wrote,
+// and `zoomies status` is what an operator reads in the middle of an incident.
+func TestStatusPrintsHostileNamesInProblemsWithoutControlCharacters(t *testing.T) {
+	srv := jsonRoutes(t, map[string]string{
+		"/api/v1/meta":  `{"version":"1.0.0 (abc1234)","bootstrap_required":false}`,
+		"/api/v1/stats": `{"window":"1h0m0s","runners":{},"hosts":{},"pools":[]}`,
+		"/api/v1/problems": `{"ok":false,"items":[{"code":"jobs.unmatched","severity":"warning",
+			"title":"a job is waiting for a runner that matches ` + shortHostileJSON + `",
+			"detail":"The job ` + hostileJSON + ` asked for [` + hostileJSON + `].","fix":"` + hostileJSON + `"}]}`,
+		"/api/v1/scaling-events": `{"items":[]}`,
+	})
+	out, _ := runCLI(t, "status", "--url", srv.URL)
+	for _, line := range strings.Split(out, "\n") {
+		for _, r := range line {
+			if unicode.IsControl(r) || r == '\u202e' {
+				t.Fatalf("status printed the control character %U:\n%q", r, line)
+			}
+		}
+	}
+	// A header block, a pools-free summary, the count line and the one problem's three
+	// lines: a newline in a name must not add a row of its own.
+	if strings.Contains(out, "fake  success") && strings.Contains(out, "\nfake") {
+		t.Errorf("a newline in a name forged a row:\n%q", out)
+	}
+}

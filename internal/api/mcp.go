@@ -179,6 +179,9 @@ func (a inProcessAPI) do(ctx context.Context, method, path string, q url.Values,
 	// router's own state for that request; left there, the router would take
 	// this for the rest of that dispatch rather than a request of its own.
 	ctx = context.WithValue(ctx, chi.RouteCtxKey, (*chi.Context)(nil))
+	// The tools never send confirm=true, so a refusal that says to send it again with
+	// it is advice an agent cannot follow, and one that loops it.
+	ctx = noConfirm(ctx)
 	var reader io.Reader
 	if body != nil {
 		reader = bytes.NewReader(body)

@@ -706,6 +706,24 @@ type problemRemedy struct {
 	Body     json.RawMessage `json:"body"`
 }
 
+// sanitise makes a problem safe to print where the response is decoded. Most of a
+// problem is the controller's own words, but a few -- jobs that matched nothing, a
+// runner that was lost, a job killed for memory -- quote the name and the labels a
+// workflow author wrote, and `zoomies status` is what an operator reads in the middle
+// of an incident on exactly those.
+func (p *problemItem) sanitise() {
+	p.Setting, p.Title, p.Detail, p.Fix = plain(p.Setting), plain(p.Title), plain(p.Detail), plain(p.Fix)
+	if p.Remedy != nil {
+		p.Remedy.Label, p.Remedy.Effect = plain(p.Remedy.Label), plain(p.Remedy.Effect)
+	}
+}
+
+func (r *problemsResponse) sanitise() {
+	for i := range r.Items {
+		r.Items[i].sanitise()
+	}
+}
+
 type problemsResponse struct {
 	OK    bool          `json:"ok"`
 	Items []problemItem `json:"items"`

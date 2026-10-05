@@ -25,22 +25,22 @@ import (
 
 const strandingConfirm = "send it again with confirm=true to save it anyway"
 
-// strandingByHand is what the same refusal says to a suggestion being applied. The
-// apply route never sends confirm, so the sentence above would send its caller to a
-// flag it cannot set; a suggestion is not applied past this check, and the person
-// who means it makes the change themselves.
-const strandingByHand = "make the change yourself if you mean it, because a suggestion is never applied past this check"
+// strandingByHand is what the same refusal says to a caller that never sends confirm: a
+// suggestion being applied, and an agent's MCP tools. The sentence above would send them
+// to a flag they cannot set. The check is not overridden for them, and a person who means
+// the change makes it in the UI.
+const strandingByHand = "have a person make the change in the UI if they mean it, because this caller never overrides the check"
 
-type remedyApplyKey struct{}
+type noConfirmKey struct{}
 
-// forRemedy marks a request as the update a suggestion is being applied through.
-func forRemedy(ctx context.Context) context.Context {
-	return context.WithValue(ctx, remedyApplyKey{}, true)
+// noConfirm marks a request as one whose caller can never send confirm.
+func noConfirm(ctx context.Context) context.Context {
+	return context.WithValue(ctx, noConfirmKey{}, true)
 }
 
 // strandingEnding is how a stranding refusal ends for this request.
 func strandingEnding(r *http.Request) string {
-	if r.Context().Value(remedyApplyKey{}) != nil {
+	if r.Context().Value(noConfirmKey{}) != nil {
 		return strandingByHand
 	}
 	return strandingConfirm

@@ -108,7 +108,7 @@ func (s *Server) handleApplyRemedy(w http.ResponseWriter, r *http.Request) {
 
 	// The update's own request: the proposed body, no query -- so nothing the
 	// caller sent can switch on confirm -- and a response of its own to read.
-	req := r.Clone(forRemedy(r.Context()))
+	req := r.Clone(noConfirm(r.Context()))
 	req.URL.RawQuery = ""
 	req.Body = io.NopCloser(bytes.NewReader(found.Body))
 	req.Header.Set("Content-Type", "application/json")

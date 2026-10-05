@@ -55,6 +55,7 @@ func runStatus(ctx context.Context, e *env, args []string) error {
 	if err != nil {
 		return err
 	}
+	problems.sanitise()
 
 	scalingQuery := url.Values{}
 	scalingQuery.Set("limit", fmt.Sprint(max(*scalingLimit, 1)))

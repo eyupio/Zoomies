@@ -130,3 +130,20 @@ func TestApplyRemedySendsTheProblemAndNeverTheChange(t *testing.T) {
 		t.Error("a call with no remedy id must be refused")
 	}
 }
+
+// A tool that overwrites a pool's or host's settings is not additive, and a client that
+// auto-approves non-destructive tools would run it unprompted.
+func TestToolsThatOverwriteTheFleetAreMarkedDestructive(t *testing.T) {
+	want := map[string]bool{"apply_remedy": true, "update_pool": true, "update_host": true, "drain_runner": true}
+	for _, tl := range tools() {
+		if want[tl.Name] {
+			if !tl.Annotations.Destructive {
+				t.Errorf("%s changes the fleet and is not marked destructive", tl.Name)
+			}
+			delete(want, tl.Name)
+		}
+	}
+	for name := range want {
+		t.Errorf("%s is not among the tools", name)
+	}
+}
