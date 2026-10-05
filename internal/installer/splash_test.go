@@ -17,20 +17,20 @@ func TestUpgradeSplashLeavesRedirectedOutputUntouched(t *testing.T) {
 	}
 }
 
-func TestPawTrailPlaysOnceAndClearsItsLine(t *testing.T) {
+func TestDogSprintPlaysOnceAndClearsItsLines(t *testing.T) {
 	var out strings.Builder
 	if err := animateUpgradeSplash(context.Background(), &out, Palette{On: true}, 0); err != nil {
 		t.Fatal(err)
 	}
 	text := out.String()
-	if strings.Count(text, "zoomies") != 8 || strings.Count(text, "🐾") != 8 {
+	if strings.Count(text, "zoomies") != 21 || strings.Count(text, "🐕") != 21 {
 		t.Fatalf("unexpected frames: %q", text)
 	}
-	if !strings.HasSuffix(text, "\r\x1b[2K") {
+	if !strings.HasSuffix(text, splashClear) {
 		t.Fatal("splash leaves a partial frame on screen")
 	}
-	if strings.Contains(text, "\n") || strings.Contains(text, "?25") {
-		t.Fatal("splash must stay on one line without hiding the cursor")
+	if strings.Contains(text, "?25") {
+		t.Fatal("splash must not hide the cursor")
 	}
 }
 
@@ -48,7 +48,7 @@ func TestInterruptedSplashClearsTheLineAndStopsImmediately(t *testing.T) {
 	if err := animateUpgradeSplash(ctx, out, Palette{On: true}, 0); !errors.Is(err, context.Canceled) {
 		t.Fatalf("error=%v", err)
 	}
-	if !strings.HasSuffix(out.String(), "\r\x1b[2K") {
+	if !strings.HasSuffix(out.String(), splashClear) {
 		t.Fatal("interrupted frame was not cleared")
 	}
 }

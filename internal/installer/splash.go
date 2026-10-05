@@ -11,7 +11,7 @@ import (
 	"golang.org/x/term"
 )
 
-// UpgradeSplash is a short paw trail beside the Zoomies wordmark. It finishes
+// UpgradeSplash is a short dog sprint beneath the Zoomies wordmark. It finishes
 // before deployment output or prompts begin, so it cannot erase a finding or
 // consume an answer. Redirected output never receives animation controls.
 func UpgradeSplash(ctx context.Context, out io.Writer) error {
@@ -24,7 +24,7 @@ func UpgradeSplash(ctx context.Context, out io.Writer) error {
 			return nil
 		}
 	}
-	return animateUpgradeSplash(ctx, out, ui, 70*time.Millisecond)
+	return animateUpgradeSplash(ctx, out, ui, 45*time.Millisecond)
 }
 
 func splashAllowed(ui Palette) bool {
@@ -38,11 +38,23 @@ func animateUpgradeSplash(ctx context.Context, out io.Writer, ui Palette, interv
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	// No hidden cursor or alternate screen: even an interrupted splash leaves
-	// the terminal ready for the ordinary upgrade report.
-	defer fmt.Fprint(out, "\r\x1b[2K")
-	for step := range 8 {
-		if _, err := fmt.Fprintf(out, "\r\x1b[2K  %s  %s%s", ui.Accent("zoomies"), ui.Dim(strings.Repeat("· ", step)), "🐾"); err != nil {
+	// Reserve three lines and redraw only those lines. No hidden cursor or
+	// alternate screen; cleanup returns to the start before reports begin.
+	if _, err := fmt.Fprint(out, "\n\n"); err != nil {
+		return err
+	}
+	defer fmt.Fprint(out, splashClear)
+	for step := range 21 {
+		position := 20 - step
+		// The dog spots a squirrel and sprints left. Only the most
+		// recent three footprints remain, giving the trail a short tail.
+		trail := strings.Repeat("· ", min(step, 3))
+		caption := "Squirrel! …upgrade first."
+		if step >= 14 {
+			caption = "Good dog. Let's upgrade."
+		}
+		if _, err := fmt.Fprintf(out, "\r\x1b[2A\x1b[2K  %s  %s\n\r\x1b[2K  🐿  %s🐕%s\n\r\x1b[2K  %s",
+			ui.Accent("zoomies"), ui.Dim("/ upgrade"), strings.Repeat(" ", position), ui.Dim(trail), ui.Dim(caption)); err != nil {
 			return err
 		}
 		if err := ctx.Err(); err != nil {
@@ -58,3 +70,7 @@ func animateUpgradeSplash(ctx context.Context, out io.Writer, ui Palette, interv
 	}
 	return nil
 }
+
+// Clear from the caption back through the track and heading, leaving the
+// cursor at the start of the original line, without touching earlier output.
+const splashClear = "\r\x1b[2K\x1b[1A\r\x1b[2K\x1b[1A\r\x1b[2K"
