@@ -928,6 +928,12 @@
     flex-wrap: wrap;
     gap: var(--z-space-2);
   }
+  /* The health badge is wrapped in a link. As a plain block, the link lays its
+     badge out on a text line, so the line's strut pushed it below its
+     siblings; a flex container has no line box to do that. */
+  .badges > a {
+    display: flex;
+  }
   .meta {
     display: flex;
     flex-wrap: wrap;
