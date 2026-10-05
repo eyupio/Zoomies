@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
+	"strings"
+	"time"
 )
 
 // The sizing tools: the handful of pool and host settings that decide how many
@@ -13,7 +16,11 @@ import (
 // operator is told to make by a problem's fix or by `zoomies doctor`, and they
 // are the ones an agent that can read the fleet can usefully make.
 //
-// They are deliberately not a general "edit a pool". Each takes named fields and
+// They are deliberately not a general "edit a pool". A pool's scale (its minimum
+// and maximum runners), its idle timeout, where its folders live and its two
+// burst valves are tunable here because they are the knobs an operator turns to
+// follow a problem's fix. Switching a pool off, its image, labels, environment
+// and run-as-root stay with a person at the UI or CLI. Each tool takes named fields and
 // nothing else, and every other setting of the pool or host is carried forward
 // untouched, because the API replaces `resources`, `cpu_burst` and a host's
 // `runner_profile` whole and a tool that sent only what it was asked to change
@@ -25,6 +32,11 @@ import (
 // change that would leave a pool with no host that could run it, and these tools
 // never pass confirm=true to override that, so an agent cannot talk its way past
 // the one guard that tells an operator they are about to switch a pool off.
+
+var (
+	tmpfsPlacements = []string{"auto", "memory", "disk"}
+	burstModes      = []string{"off", "observe", "automatic"}
+)
 
 func configTools() []*tool {
 	return []*tool{
@@ -49,8 +61,9 @@ func configTools() []*tool {
 		{
 			Name:  "update_pool",
 			Title: "Change a pool's sizing",
-			Description: "Change a pool's smallest runner, its Docker sidecar's share of a slot, or its CPU burst ceiling, leaving every " +
-				"other setting as it is. It applies to runners created after the change; running ones finish as they are. The controller " +
+			Description: "Change a pool's scale (minimum and maximum runners, idle timeout, repository scale-up limit), its smallest runner, " +
+				"its Docker sidecar's share of a slot, where its work, /tmp and image-store folders live (auto, memory or disk), or its CPU " +
+				"and memory burst valves, leaving every other setting as it is. It applies to runners created after the change; running ones finish as they are. The controller " +
 				"refuses a change that would leave the pool with no host that could run it. Read the pool first (list_pools) and make one " +
 				"change at a time: the smallest runner is per container, so a Docker-in-Docker pool needs it twice over, scaled by the " +
 				"sidecar's share, and lowering a share raises what each slot is charged. Zero for a minimum means 'follow the fleet's'.",
@@ -61,6 +74,16 @@ func configTools() []*tool {
 				"daemon_cpu_share_percent":    integer("the Docker sidecar's share of a slot's CPU, 10 to 90", 10, 90),
 				"daemon_memory_share_percent": integer("the Docker sidecar's share of a slot's memory, 10 to 90", 10, 90),
 				"cpu_burst_max_cpus":          map[string]any{"type": "number", "minimum": 0, "description": "the most CPU one runner may be lent up to, in cores; 0 is the host's whole allocatable CPU"},
+				"min_runners":                 integer("runners kept warm when no job is queued; 0 starts them on demand, which is what makes the first job wait", 0, 1024),
+				"max_runners":                 integer("the most runners the pool holds at once", 1, 1024),
+				"idle_timeout":                str("how long an idle runner of a non-ephemeral pool lives, as a Go duration such as 5m"),
+				"repository_scale_up_limit":   integer("the most runners created for one repository's queue at a time; 0 sets no limit. Best-effort, not a concurrency cap", 0, 1024),
+				"tmpfs_work":                  enum("where the runner's _work folder lives: auto lets each runner decide by its size, memory always keeps it in memory, disk keeps it on the host's disk", tmpfsPlacements...),
+				"tmpfs_tmp":                   enum("where /tmp lives: auto, memory or disk", tmpfsPlacements...),
+				"tmpfs_daemon":                enum("where a Docker-in-Docker sidecar's image store lives: auto, memory or disk", tmpfsPlacements...),
+				"cpu_burst_mode":              enum("the CPU valve: off, observe (decide and record, change nothing) or automatic", burstModes...),
+				"memory_burst_mode":           enum("the memory valve: off, observe or automatic", burstModes...),
+				"memory_burst_spill_mb":       integer("the swap a container may be allowed beyond its memory limit as a last resort, in MiB; 0 is none", 0, 16<<20),
 			}),
 			Annotations: annotations{Idempotent: true},
 			action:      true,
@@ -117,6 +140,16 @@ func updatePool(ctx context.Context, c API, raw json.RawMessage) ([]Content, err
 		DaemonCPUShare    *int     `json:"daemon_cpu_share_percent"`
 		DaemonMemoryShare *int     `json:"daemon_memory_share_percent"`
 		CPUBurstMax       *float64 `json:"cpu_burst_max_cpus"`
+		MinRunners        *int     `json:"min_runners"`
+		MaxRunners        *int     `json:"max_runners"`
+		IdleTimeout       *string  `json:"idle_timeout"`
+		ScaleUpLimit      *int     `json:"repository_scale_up_limit"`
+		TmpfsWork         *string  `json:"tmpfs_work"`
+		TmpfsTmp          *string  `json:"tmpfs_tmp"`
+		TmpfsDaemon       *string  `json:"tmpfs_daemon"`
+		CPUBurstMode      *string  `json:"cpu_burst_mode"`
+		MemoryBurstMode   *string  `json:"memory_burst_mode"`
+		MemoryBurstSpill  *int64   `json:"memory_burst_spill_mb"`
 	}
 	if err := decodeArgs(raw, &a); err != nil {
 		return nil, err
@@ -124,8 +157,31 @@ func updatePool(ctx context.Context, c API, raw json.RawMessage) ([]Content, err
 	if err := requireID("pool_id", a.PoolID); err != nil {
 		return nil, err
 	}
-	if a.MinCPUs == nil && a.MinMemoryMB == nil && a.DaemonCPUShare == nil && a.DaemonMemoryShare == nil && a.CPUBurstMax == nil {
+	sizing := a.MinCPUs != nil || a.MinMemoryMB != nil || a.DaemonCPUShare != nil || a.DaemonMemoryShare != nil || a.CPUBurstMax != nil
+	scale := a.MinRunners != nil || a.MaxRunners != nil || a.IdleTimeout != nil || a.ScaleUpLimit != nil
+	placement := a.TmpfsWork != nil || a.TmpfsTmp != nil || a.TmpfsDaemon != nil
+	valves := a.CPUBurstMode != nil || a.MemoryBurstMode != nil || a.MemoryBurstSpill != nil
+	if !sizing && !scale && !placement && !valves {
 		return nil, fmt.Errorf("name at least one setting to change")
+	}
+	for name, v := range map[string]struct {
+		got  *string
+		want []string
+	}{
+		"tmpfs_work": {a.TmpfsWork, tmpfsPlacements}, "tmpfs_tmp": {a.TmpfsTmp, tmpfsPlacements}, "tmpfs_daemon": {a.TmpfsDaemon, tmpfsPlacements},
+		"cpu_burst_mode": {a.CPUBurstMode, burstModes}, "memory_burst_mode": {a.MemoryBurstMode, burstModes},
+	} {
+		if v.got != nil && !slices.Contains(v.want, *v.got) {
+			return nil, fmt.Errorf("%s is %q: use one of %s", name, *v.got, strings.Join(v.want, ", "))
+		}
+	}
+	if a.IdleTimeout != nil {
+		if d, err := time.ParseDuration(*a.IdleTimeout); err != nil || d <= 0 {
+			return nil, fmt.Errorf("idle_timeout is %q: give a positive Go duration such as 5m", *a.IdleTimeout)
+		}
+	}
+	if a.MinRunners != nil && a.MaxRunners != nil && *a.MinRunners > *a.MaxRunners {
+		return nil, fmt.Errorf("min_runners %d is above max_runners %d", *a.MinRunners, *a.MaxRunners)
 	}
 	if err := atLeastOrZero("min_cpus", a.MinCPUs, 0.25); err != nil {
 		return nil, err
@@ -176,15 +232,65 @@ func updatePool(ctx context.Context, c API, raw json.RawMessage) ([]Content, err
 	if a.MinCPUs != nil || a.MinMemoryMB != nil || a.DaemonCPUShare != nil || a.DaemonMemoryShare != nil {
 		body["resources"] = resources
 	}
-	if a.CPUBurstMax != nil {
+	if a.CPUBurstMax != nil || a.CPUBurstMode != nil {
 		burst := copyMap(current["cpu_burst"])
-		changes["cpu_burst_max_cpus"] = change{Before: burst["max_cpus"], After: orFleet(*a.CPUBurstMax)}
-		if *a.CPUBurstMax == 0 {
-			delete(burst, "max_cpus")
-		} else {
-			burst["max_cpus"] = *a.CPUBurstMax
+		if a.CPUBurstMax != nil {
+			changes["cpu_burst_max_cpus"] = change{Before: burst["max_cpus"], After: orFleet(*a.CPUBurstMax)}
+			if *a.CPUBurstMax == 0 {
+				delete(burst, "max_cpus")
+			} else {
+				burst["max_cpus"] = *a.CPUBurstMax
+			}
+		}
+		if a.CPUBurstMode != nil {
+			changes["cpu_burst_mode"] = change{Before: burst["mode"], After: *a.CPUBurstMode}
+			burst["mode"] = *a.CPUBurstMode
 		}
 		body["cpu_burst"] = burst
+	}
+	if a.MemoryBurstMode != nil || a.MemoryBurstSpill != nil {
+		burst := copyMap(current["memory_burst"])
+		if a.MemoryBurstMode != nil {
+			changes["memory_burst_mode"] = change{Before: burst["mode"], After: *a.MemoryBurstMode}
+			burst["mode"] = *a.MemoryBurstMode
+		}
+		if a.MemoryBurstSpill != nil {
+			changes["memory_burst_spill_mb"] = change{Before: burst["spill_mb"], After: *a.MemoryBurstSpill}
+			burst["spill_mb"] = *a.MemoryBurstSpill
+		}
+		body["memory_burst"] = burst
+	}
+	if a.MinRunners != nil {
+		changes["min_runners"] = change{Before: current["min_runners"], After: *a.MinRunners}
+		body["min_runners"] = *a.MinRunners
+	}
+	if a.MaxRunners != nil {
+		changes["max_runners"] = change{Before: current["max_runners"], After: *a.MaxRunners}
+		body["max_runners"] = *a.MaxRunners
+	}
+	if a.IdleTimeout != nil {
+		changes["idle_timeout"] = change{Before: current["idle_timeout"], After: *a.IdleTimeout}
+		body["idle_timeout"] = *a.IdleTimeout
+	}
+	if a.ScaleUpLimit != nil {
+		changes["repository_scale_up_limit"] = change{Before: current["repository_scale_up_limit"], After: *a.ScaleUpLimit}
+		body["repository_scale_up_limit"] = *a.ScaleUpLimit
+	}
+	if placement {
+		// The folders are replaced whole, so each is read as it stands and only
+		// the ones named change; a size the pool typed is kept.
+		tmpfs := copyMap(current["tmpfs"])
+		for field, place := range map[string]*string{"work": a.TmpfsWork, "tmp": a.TmpfsTmp, "daemon": a.TmpfsDaemon} {
+			if place == nil {
+				continue
+			}
+			mount := copyMap(tmpfs[field])
+			changes["tmpfs_"+field] = change{Before: placementOf(mount), After: *place}
+			mount["enabled"] = *place != "disk"
+			mount["auto"] = *place == "auto"
+			tmpfs[field] = mount
+		}
+		body["tmpfs"] = tmpfs
 	}
 	return send(ctx, bc, path, body, sizingReply{
 		ID:      a.PoolID,
@@ -334,6 +440,17 @@ func readObject(ctx context.Context, c API, path, kind, id, lister string) (map[
 		return nil, fmt.Errorf("the %s came back unreadable: %w", kind, err)
 	}
 	return out, nil
+}
+
+// placementOf names a folder's placement the way the tool takes it.
+func placementOf(mount map[string]any) string {
+	switch {
+	case mount["enabled"] != true:
+		return "disk"
+	case mount["auto"] == true:
+		return "auto"
+	}
+	return "memory"
 }
 
 func copyMap(v any) map[string]any {

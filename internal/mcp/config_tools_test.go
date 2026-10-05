@@ -125,3 +125,63 @@ func TestApplyRemedySendsTheProblemAndNeverTheChange(t *testing.T) {
 		t.Error("a call with no problem code must be refused")
 	}
 }
+
+// Scale, folder placement and the two valves are changed in the settings named
+// and nowhere else: a folder's typed size and the valve's other fields survive,
+// because a tool that rebuilt them would silently clear what an operator set.
+func TestUpdatePoolChangesScalePlacementAndValvesWithoutClearingTheRest(t *testing.T) {
+	r := &recorder{object: `{"name":"p","min_runners":0,"max_runners":8,"idle_timeout":"5m0s",` +
+		`"tmpfs":{"work":{"enabled":true,"auto":true,"size_mb":3072},"tmp":{"enabled":true,"auto":true},"daemon":{"enabled":false}},` +
+		`"cpu_burst":{"mode":"observe","max_cpus":6},"memory_burst":{"mode":"automatic","spill_mb":2048,"max_memory_mb":9000}}`}
+	args := `{"pool_id":"pool_1","min_runners":2,"max_runners":10,"idle_timeout":"10m","tmpfs_work":"memory","tmpfs_tmp":"disk",` +
+		`"cpu_burst_mode":"automatic","memory_burst_mode":"observe"}`
+	if _, err := call(t, "update_pool", r, args); err != nil {
+		t.Fatal(err)
+	}
+	var sent struct {
+		MinRunners  int                       `json:"min_runners"`
+		MaxRunners  int                       `json:"max_runners"`
+		IdleTimeout string                    `json:"idle_timeout"`
+		Tmpfs       map[string]map[string]any `json:"tmpfs"`
+		CPUBurst    map[string]any            `json:"cpu_burst"`
+		MemoryBurst map[string]any            `json:"memory_burst"`
+	}
+	if err := json.Unmarshal([]byte(r.sent[0]), &sent); err != nil {
+		t.Fatal(err)
+	}
+	if sent.MinRunners != 2 || sent.MaxRunners != 10 || sent.IdleTimeout != "10m" {
+		t.Errorf("scale = %d/%d/%s", sent.MinRunners, sent.MaxRunners, sent.IdleTimeout)
+	}
+	if w := sent.Tmpfs["work"]; w["enabled"] != true || w["auto"] != false || w["size_mb"] != 3072.0 {
+		t.Errorf("work folder must be always in memory and keep its typed size: %v", w)
+	}
+	if tmp := sent.Tmpfs["tmp"]; tmp["enabled"] != false || tmp["auto"] != false {
+		t.Errorf("tmp must be on disk: %v", tmp)
+	}
+	if d := sent.Tmpfs["daemon"]; d["enabled"] != false {
+		t.Errorf("a folder that was not named must be carried forward: %v", d)
+	}
+	if sent.CPUBurst["mode"] != "automatic" || sent.CPUBurst["max_cpus"] != 6.0 {
+		t.Errorf("cpu valve: %v", sent.CPUBurst)
+	}
+	if sent.MemoryBurst["mode"] != "observe" || sent.MemoryBurst["spill_mb"] != 2048.0 || sent.MemoryBurst["max_memory_mb"] != 9000.0 {
+		t.Errorf("memory valve must keep its other fields: %v", sent.MemoryBurst)
+	}
+}
+
+func TestUpdatePoolRefusesAScaleThatCannotBeRight(t *testing.T) {
+	r := &recorder{object: `{}`}
+	for _, tc := range []struct{ args, want string }{
+		{`{"pool_id":"pool_1","min_runners":5,"max_runners":2}`, "above max_runners"},
+		{`{"pool_id":"pool_1","idle_timeout":"soon"}`, "Go duration"},
+		{`{"pool_id":"pool_1","tmpfs_work":"ram"}`, "use one of auto, memory, disk"},
+		{`{"pool_id":"pool_1","enabled":false}`, "input schema"},
+	} {
+		if _, err := call(t, "update_pool", r, tc.args); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: error = %v, want %q", tc.args, err, tc.want)
+		}
+	}
+	if len(r.sent) != 0 {
+		t.Errorf("a refused call sent %v", r.sent)
+	}
+}
