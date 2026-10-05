@@ -795,17 +795,27 @@ func removalUnderWay(err error, sent bool) bool {
 // UpdateConfig is the body of POST /containers/{id}/update. Only the fields
 // set are changed: the daemon treats a zero as "leave it alone", which is what
 // lets a CPU quota move on a live container without touching its memory limit.
+//
+// Memory and MemorySwap are sent together, and only ever upwards. The daemon
+// refuses a memory limit above the swap limit already set, so raising one
+// without the other is a request that fails; and lowering either under a live
+// process is refused or kills the process, which is why the one caller
+// (DockerBackend.RaiseMemory) compares with what the container holds first.
 type UpdateConfig struct {
-	NanoCPUs int64 `json:"NanoCpus,omitempty"`
+	NanoCPUs   int64 `json:"NanoCpus,omitempty"`
+	Memory     int64 `json:"Memory,omitempty"`
+	MemorySwap int64 `json:"MemorySwap,omitempty"`
 }
 
 // ContainerUpdate changes a running container's resource limits in place.
 //
 // It is how a throttle reaches a job that is already running: a CPU quota can
 // be lowered and raised again without stopping anything, which is the one
-// lever a host has left once every runner on it is busy. Memory is deliberately
-// not here -- lowering a live container's memory limit below what it is using
-// is refused by the daemon or kills the process, and neither is a throttle.
+// lever a host has left once every runner on it is busy. It is also how the
+// memory valve lends a runner more memory, in the one direction that is safe:
+// up. A throttle never touches memory -- lowering a live container's memory
+// limit below what it is using is refused by the daemon or kills the process,
+// and neither is a throttle.
 func (c *APIClient) ContainerUpdate(ctx context.Context, id string, cfg UpdateConfig) error {
 	return c.do(ctx, http.MethodPost, "/containers/"+id+"/update", nil, cfg, nil)
 }
@@ -900,6 +910,23 @@ func (c *APIClient) ContainerLogs(ctx context.Context, id string, opts LogQuery)
 // samples a moment apart, which is the only way it can report a CPU percentage.
 func (c *APIClient) ContainerStats(ctx context.Context, id string) (StatsSample, error) {
 	q := url.Values{"stream": {"false"}}
+	var raw statsJSON
+	if err := c.do(ctx, http.MethodGet, "/containers/"+id+"/stats", q, nil, &raw); err != nil {
+		return StatsSample{}, err
+	}
+	return raw.sample(), nil
+}
+
+// ContainerMemory takes one memory reading without waiting for a CPU interval.
+//
+// ContainerStats collects two samples a moment apart so the daemon can report a
+// CPU percentage, which is a second the memory guard cannot spend on a runner
+// that is close to its limit. A one-shot sample is the daemon's current
+// counters and nothing more, so its CPU figures are meaningless and are not
+// read; a daemon too old to know the flag ignores it and answers as it would
+// have, a second later.
+func (c *APIClient) ContainerMemory(ctx context.Context, id string) (StatsSample, error) {
+	q := url.Values{"stream": {"false"}, "one-shot": {"true"}}
 	var raw statsJSON
 	if err := c.do(ctx, http.MethodGet, "/containers/"+id+"/stats", q, nil, &raw); err != nil {
 		return StatsSample{}, err

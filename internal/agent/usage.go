@@ -1,20 +1,15 @@
 package agent
 
 import (
-	"strings"
-
 	"github.com/eyupio/zoomies/internal/backend"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
 func (a *Agent) hostUsage(infos []backend.Info, cpus int, memoryMB int64) *store.HostUsage {
-	for _, info := range infos {
-		if info.Available && info.Kind != store.BackendProcess &&
-			!strings.HasPrefix(info.Endpoint, "unix://") && !strings.HasPrefix(info.Endpoint, "/") {
-			// A remote daemon's load cannot be measured through this process's
-			// procfs, even if the two machines happen to be the same size.
-			return nil
-		}
+	if remoteDaemon(infos) {
+		// A remote daemon's load cannot be measured through this process's
+		// procfs, even if the two machines happen to be the same size.
+		return nil
 	}
 	sample := a.opts.SampleUsage
 	if sample == nil {
