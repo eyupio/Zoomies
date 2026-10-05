@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -284,6 +285,54 @@ func TestAQuietRunnerIsLookedAtLessOftenThanAHotOne(t *testing.T) {
 	}
 }
 
+// A raise leaves a runner with a wide margin, so a few looks later it reads
+// cold, but what needed the raise has not stopped. Left to the quiet interval a
+// build climbing at thirty megabytes a second is a hundred and fifty late to its
+// next look, which a real daemon showed: the runner was raised once and killed
+// at the new limit before the guard looked again.
+func TestARunnerThatIsClimbingIsLookedAtEverySecondWhateverShareOfItsLimitItUses(t *testing.T) {
+	v := newValveAgent(t)
+	c := v.be.runner("wl-a", 256, 256, 200)
+	v.run("run_a", "wl-a")
+	v.tell(8192, 2048, auto("run_a", 256, 1024))
+
+	v.tick() // 200 of 256: raised to 384
+	if limit, _ := v.be.limitOf(c); limit != 384 {
+		t.Fatalf("limit = %d MB, want 384", limit)
+	}
+
+	// 60% and then 69% of the new limit: under the share that makes a runner
+	// hot, and each a thirty-megabyte climb that would reach the limit in a few
+	// seconds.
+	for i, usage := range []int64{232, 264} {
+		v.be.use(c, usage)
+		before := v.be.readings
+		v.tick()
+		if got := v.be.readings - before; got != 1 {
+			t.Fatalf("tick %d: %d readings, want the climbing runner looked at every second", i+2, got)
+		}
+	}
+	if limit, _ := v.be.limitOf(c); limit != 384 {
+		t.Fatalf("limit = %d MB, want it still inside its margin at 384", limit)
+	}
+
+	// Past its margin again, and raised again; then it stops, and is left to the
+	// quiet interval like any other.
+	v.be.use(c, 296)
+	v.tick()
+	if limit, _ := v.be.limitOf(c); limit != 512 {
+		t.Fatalf("limit = %d MB, want 512", limit)
+	}
+	v.tick() // flat: looked at once more, and found not to be climbing
+	before := v.be.readings
+	for range 3 {
+		v.tick()
+	}
+	if got := v.be.readings - before; got != 0 {
+		t.Fatalf("%d readings of a runner that stopped climbing, want none until the quiet interval is up", got)
+	}
+}
+
 // Observe mode is the evidence an operator reads before letting the valve move
 // anything: what it would have lent, and nothing actually changes.
 func TestAnObservingValveRecordsWhatItWouldHaveLentAndChangesNothing(t *testing.T) {
@@ -308,6 +357,9 @@ func TestAnObservingValveRecordsWhatItWouldHaveLentAndChangesNothing(t *testing.
 	}
 	if got.Code != string(MemoryRaised) {
 		t.Fatalf("code = %q, want the decision it would have made", got.Code)
+	}
+	if !strings.HasPrefix(got.Reason, "would have raised the limit") {
+		t.Fatalf("reason = %q, want it worded as what would have been done", got.Reason)
 	}
 }
 

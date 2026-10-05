@@ -3,6 +3,7 @@ package agent
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 // roomy is a container with everything the guard could ask for: a host with
@@ -230,6 +231,29 @@ func TestAPartialRaiseAndSwapCanComeTogether(t *testing.T) {
 	}
 }
 
+// An observing valve changes nothing, and the reason it gives is the one the
+// Runners page puts beside "would have lent": a sentence that said a limit was
+// raised would contradict the card it sits on.
+func TestAnObservedDecisionIsWordedAsWhatWouldHaveBeenDone(t *testing.T) {
+	in := roomy()
+	in.UsageMB = 4000
+	in.CeilingMB = 4200
+	in.SpillMB, in.SwapFreeMB, in.SwapKnown = 1024, 8192, true
+	in.Observing = true
+	got := GuardMemory(in)
+	if got.LimitMB != 4200 || got.SwapMB != 1024 || got.Code != MemorySpilled {
+		t.Fatalf("decision = %+v, want the same decision an acting valve makes", got)
+	}
+	for _, want := range []string{"would have raised the limit from 4096 to 4200", "would have allowed 1024 MB of swap"} {
+		if !strings.Contains(got.Reason, want) {
+			t.Fatalf("reason = %q, want it to say %q", got.Reason, want)
+		}
+	}
+	if strings.Contains(got.Reason, " raised the limit") && !strings.Contains(got.Reason, "would have raised") {
+		t.Fatalf("reason = %q, an observing valve raised nothing", got.Reason)
+	}
+}
+
 func TestWhatAContainerIsKeptAtAndWhenItIsWatchedClosely(t *testing.T) {
 	for _, tc := range []struct {
 		usage, want int64
@@ -240,5 +264,35 @@ func TestWhatAContainerIsKeptAtAndWhenItIsWatchedClosely(t *testing.T) {
 	}
 	if !MemoryHot(2900, 4096) || MemoryHot(2800, 4096) || MemoryHot(100, 0) {
 		t.Fatal("hot is 70% of the limit, and nothing without one")
+	}
+}
+
+// Share of the limit says how tight a runner is, not how fast it is going. A
+// runner that has just been raised reads cold, and a build still climbing at
+// thirty megabytes a second is a hundred and fifty late to a quiet look five
+// seconds on, so the pace is read too.
+func TestARunnerThatWouldReachItsLimitBeforeTheNextQuietLookIsClimbing(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		prev, usage, limit int64
+		since              time.Duration
+		climbing           bool
+	}{
+		{"a build climbing at thirty a second under a wide margin", 114, 146, 256, time.Second, true},
+		{"the same climb with a limit that is far away", 114, 146, 4096, time.Second, false},
+		{"a slow creep is not a climb", 100, 106, 256, time.Second, false},
+		{"use that fell is not a climb", 200, 150, 256, time.Second, false},
+		{"use that did not move is not a climb", 150, 150, 256, time.Second, false},
+		{"a first look has nothing to measure against", 0, 150, 256, time.Second, false},
+		{"two looks no time apart say nothing", 100, 140, 256, 0, false},
+		{"a climb over a long gap is read at its pace, which is slow", 100, 130, 256, 30 * time.Second, false},
+		{"a runner already past its limit is as close as it gets", 200, 260, 256, time.Second, true},
+		{"a container with no limit has nothing to reach", 100, 400, 0, time.Second, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := MemoryClimbing(tc.prev, tc.usage, tc.limit, tc.since); got != tc.climbing {
+				t.Fatalf("MemoryClimbing(%d, %d, %d, %v) = %v, want %v", tc.prev, tc.usage, tc.limit, tc.since, got, tc.climbing)
+			}
+		})
 	}
 }

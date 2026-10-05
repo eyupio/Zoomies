@@ -38,6 +38,10 @@ const (
 	// memoryLookTimeout bounds the calls to the daemon for one runner. A daemon
 	// that does not answer must cost one look, not the loop.
 	memoryLookTimeout = 3 * time.Second
+	// memoryClimbHorizon is how soon a climbing runner must be able to reach its
+	// limit, at the pace it has been going, to be looked at every second: two
+	// quiet intervals, so that it is never left to the first of them.
+	memoryClimbHorizon = 2 * memoryIdleLook
 	// memoryNearShare is how much of a limit a runner must have used to have
 	// "come near" it, for the count an operator reads before trusting the valve.
 	memoryNearShare = 0.90
@@ -49,6 +53,10 @@ const (
 // holds, and what an observing agent pretends it holds.
 type valveContainer struct {
 	backend.MemoryContainer
+	// UsageMB is what the container was using at the latest look and PrevUsageMB
+	// at the one before: the pace between them is how a runner that is climbing
+	// is told from one that is merely tight.
+	UsageMB, PrevUsageMB int64
 	// VirtualLimitMB and VirtualSwapMB are the limit and swap this container
 	// would have if the agent were allowed to act. They start equal to the real
 	// ones and move only in observe mode, so that what an observing agent decides
@@ -243,6 +251,9 @@ type memoryJob struct {
 	// not looked for a while.
 	known    []valveContainer
 	rediscov bool
+	// lastLook is when the runner was last looked at, so that a climb can be
+	// measured over the time it took.
+	lastLook time.Time
 }
 
 // memoryLook is what one look found: the runner's containers as the daemon
@@ -294,6 +305,7 @@ func (a *Agent) dueMemoryLooks(now time.Time) []memoryJob {
 			runnerID: id, kind: t.kind, handle: t.handle, rule: rule,
 			known:    slices.Clone(v.containers),
 			rediscov: len(v.containers) == 0 || now.Sub(v.discoveredAt) >= memoryRediscover,
+			lastLook: v.lastLook,
 		})
 	}
 	return out
@@ -366,6 +378,7 @@ func (a *Agent) lookAtMemory(ctx context.Context, job memoryJob, now time.Time) 
 			for _, old := range job.known {
 				if old.ID == c.ID {
 					vc.VirtualLimitMB, vc.VirtualSwapMB = max(old.VirtualLimitMB, c.LimitMB), max(old.VirtualSwapMB, c.SwapMB)
+					vc.UsageMB = old.UsageMB
 				}
 			}
 			containers = append(containers, vc)
@@ -381,6 +394,7 @@ func (a *Agent) lookAtMemory(ctx context.Context, job memoryJob, now time.Time) 
 			continue
 		}
 		look.usageMB[c.ID] = reading.UsageBytes >> 20
+		c.PrevUsageMB, c.UsageMB = c.UsageMB, look.usageMB[c.ID]
 		// The limit is what the daemon says it is: a limit somebody else changed
 		// is read back, not fought.
 		if limit := reading.LimitBytes >> 20; limit > 0 && limit != c.LimitMB {
@@ -446,7 +460,7 @@ func (a *Agent) decideMemory(ctx context.Context, look memoryLook, rules memoryR
 		if float64(usage) >= memoryNearShare*float64(c.LimitMB) {
 			near = true
 		}
-		if MemoryHot(usage, limit) {
+		if MemoryHot(usage, limit) || MemoryClimbing(c.PrevUsageMB, usage, limit, now.Sub(look.lastLook)) {
 			hot = true
 		}
 
@@ -464,6 +478,7 @@ func (a *Agent) decideMemory(ctx context.Context, look memoryLook, rules memoryR
 			PoolMB:      a.memoryPoolMB(rules, observing),
 			AvailableMB: host.AvailableMB, FloorMB: rules.floorMB, AvailableKnown: measured,
 			SpillMB: rule.SpillMB, SwapFreeMB: host.SwapFreeMB, SwapKnown: measured,
+			Observing: observing,
 		}
 		d := GuardMemory(in)
 		if d.Code != MemoryHealthy {

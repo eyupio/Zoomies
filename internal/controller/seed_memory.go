@@ -42,7 +42,7 @@ func (c *Controller) seedMemory(ctx context.Context, now time.Time, pools []*sto
 		4: {backend.MemoryValveSample{Mode: "automatic", Code: string(agent.MemoryAtCeiling), Raises: 4, LentBytes: 2048 * mb, NearLimit: true,
 			Reason: "it holds 6144 MB, the most this runner may have"}, 6000},
 		5: {backend.MemoryValveSample{Mode: "observe", Code: string(agent.MemoryRaised), NearLimit: true, WouldLendBytes: 1024 * mb,
-			Reason: "raised the limit from 8192 to 9216 MB: it was using 7400 MB"}, 7400},
+			Reason: "would have raised the limit from 8192 to 9216 MB: it was using 7400 MB"}, 7400},
 		8: {backend.MemoryValveSample{Mode: "automatic", Code: string(agent.MemoryRaised), Raises: 1, LentBytes: 512 * mb,
 			Reason: "raised the limit from 4096 to 4608 MB: it was using 3500 MB"}, 4000},
 	}

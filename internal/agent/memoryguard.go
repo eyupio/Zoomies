@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 )
 
 // The memory valve's guard is the one decision the agent makes for itself.
@@ -95,6 +96,10 @@ type MemoryGuardInput struct {
 	// swap could not be read.
 	SpillMB, SwapFreeMB int64
 	SwapKnown           bool
+	// Observing says the decision is to be recorded and not made, so that its
+	// reason is worded as what would have been done. A card that says nothing
+	// was changed cannot also say a limit was raised.
+	Observing bool
 }
 
 // MemoryGuardDecision is what the guard would do. LimitMB and SwapMB are what
@@ -127,6 +132,27 @@ func MemoryWanted(usageMB int64) int64 {
 // watched closely.
 func MemoryHot(usageMB, limitMB int64) bool {
 	return limitMB > 0 && float64(usageMB) >= MemoryHotShare*float64(limitMB)
+}
+
+// MemoryClimbing reports whether a container is gaining memory fast enough to
+// reach its limit before a quiet runner would next be looked at.
+//
+// Share of the limit alone is not enough to decide how closely to watch. A raise
+// leaves a runner with a wide margin and so reading cold, and the build that
+// needed the raise has not stopped: at thirty megabytes a second a quiet look
+// every five seconds is a hundred and fifty megabytes late. So the pace since
+// the last look is read too, and a runner that would be at its limit within two
+// quiet intervals at that pace is watched every second until it stops.
+//
+// Nothing is concluded from a first look, from use that fell, or from two looks
+// no time apart.
+func MemoryClimbing(prevMB, usageMB, limitMB int64, since time.Duration) bool {
+	rise := usageMB - prevMB
+	if prevMB <= 0 || rise <= 0 || limitMB <= 0 || since <= 0 {
+		return false
+	}
+	perSecond := float64(rise) / since.Seconds()
+	return float64(max(limitMB-usageMB, 0))/perSecond < memoryClimbHorizon.Seconds()
 }
 
 // GuardMemory decides whether to raise one container's limit.
@@ -171,12 +197,16 @@ func GuardMemory(in MemoryGuardInput) MemoryGuardDecision {
 	case spare <= 0:
 		blocked, because = MemoryHostFloor, fmt.Sprintf("the host has %d MB free and keeps %d MB back", in.AvailableMB, in.FloorMB)
 	}
+	raised, allowed := "raised", "allowed"
+	if in.Observing {
+		raised, allowed = "would have raised", "would have allowed"
+	}
 	var said []string
 	if blocked == "" {
 		give := max(want-in.LimitMB, MemoryMinimumRaiseMB)
 		give = min(give, room, in.PoolMB, spare)
 		out.LimitMB, out.Code = in.LimitMB+give, MemoryRaised
-		said = append(said, fmt.Sprintf("raised the limit from %d to %d MB: it was using %d MB", in.LimitMB, out.LimitMB, in.UsageMB))
+		said = append(said, fmt.Sprintf("%s the limit from %d to %d MB: it was using %d MB", raised, in.LimitMB, out.LimitMB, in.UsageMB))
 		if out.LimitMB >= want {
 			out.Reason = said[0]
 			return out
@@ -209,7 +239,7 @@ func GuardMemory(in MemoryGuardInput) MemoryGuardDecision {
 			said = append(said, "swap is allowed but the host has none free")
 		case allowance > in.SwapMB:
 			out.SwapMB, out.Code = allowance, MemorySpilled
-			said = append(said, fmt.Sprintf("allowed %d MB of swap beyond its %d MB limit", allowance, out.LimitMB))
+			said = append(said, fmt.Sprintf("%s %d MB of swap beyond its %d MB limit", allowed, allowance, out.LimitMB))
 		}
 	}
 	out.Reason = strings.Join(said, "; ")
