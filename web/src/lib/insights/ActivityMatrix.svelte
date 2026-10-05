@@ -1245,6 +1245,13 @@
     grid-row: 1;
     white-space: nowrap;
   }
+  /* A month that starts in the newest column has a column's width to be named
+     in, and its name is wider than that: ending the label at the column's edge
+     keeps it from overflowing the frame, which would grow a scrollbar for the
+     want of a few pixels. */
+  .labels span:last-child {
+    justify-self: end;
+  }
   .grid {
     row-gap: var(--gap);
   }
