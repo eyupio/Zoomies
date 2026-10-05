@@ -1,4 +1,4 @@
-<!-- Fast path for scaling a pool without walking through its configuration wizard. -->
+<!-- Fast path for scaling a pool without opening its whole editor. -->
 <script lang="ts">
   import { untrack } from 'svelte';
   import { ApiError, updatePool } from '$lib/api/client';

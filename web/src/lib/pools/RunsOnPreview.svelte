@@ -2,7 +2,7 @@
   The workflow snippet these labels produce.
 
   Pool labels only mean something in relation to a `runs-on:` line, so the
-  wizard shows that line as it is typed rather than describing it.
+  editor shows that line as it is typed rather than describing it.
 
   It shows the shortest correct form. One branded label is enough to reach a
   pool -- `runs-on: zoomies-linux-x64` -- and it is what a workflow should

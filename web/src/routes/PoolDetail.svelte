@@ -1,9 +1,9 @@
 <!--
   One pool: what it is set to, what it is running, and why it last changed size.
 
-  Editing opens the same wizard the pool was created with, in place, with `?edit=1`
+  Editing opens the same editor the pool was created with, in place, with `?edit=1`
   in the URL so the browser's Back button leaves the form exactly as an operator
-  expects it to. A pool the controller keeps has no wizard to open -- its labels,
+  expects it to. A pool the controller keeps has no editor to open -- its labels,
   size and limits follow its hosts -- so the same request opens the three
   settings it leaves to an operator instead.
 -->
@@ -48,7 +48,7 @@
   import PoolWarnings from '$lib/pools/PoolWarnings.svelte';
   import RunsOnPreview from '$lib/pools/RunsOnPreview.svelte';
   import TestJob from '$lib/pools/TestJob.svelte';
-  import PoolWizardForm from '$lib/pools/PoolWizardForm.svelte';
+  import PoolEditor from '$lib/pools/PoolEditor.svelte';
   import { backendLabel } from '$lib/pools/vocabulary';
   import { isAutomatic } from '$lib/pools/auto';
   import { deletionConsequences } from '$lib/pools/consequences';
@@ -91,7 +91,7 @@
   // The cache is live over SSE, so prefer it and fall back to our own fetch --
   // which is what a deep link into a cold tab actually hits.
   const pool = $derived(fleet.pool(id) ?? fetched);
-  // A pool the controller keeps has no wizard: see the note at the top.
+  // A pool the controller keeps has no editor: see the note at the top.
   const automatic = $derived(isAutomatic(pool));
   const editing = $derived(router.param('edit') === '1' && !automatic);
   /** Migrate reads installation_id, so it opens already scoped to this pool's App. */
@@ -378,7 +378,7 @@
   </div>
 {:else if editing}
   {#key pool.id}
-    <PoolWizardForm {pool} oncancel={stopEditing} ondone={stopEditing} />
+    <PoolEditor {pool} oncancel={stopEditing} ondone={stopEditing} />
   {/key}
 {:else}
   <RunnerInsights poolId={pool.id ?? ''} compact />
@@ -496,7 +496,7 @@
 
 <!--
   A pool with nowhere to run carries the backends its hosts do offer, so the
-  change the fix asks for is one click rather than a trip through the wizard.
+  change the fix asks for is one click rather than a trip through the editor.
 -->
 {#snippet warningAction(warning: Problem)}
   {#if pool && canOperate && warning.code === 'pool.no_capacity' && (warning.alternatives?.length ?? 0) > 0}

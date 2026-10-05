@@ -1,6 +1,5 @@
 <!--
-  Step three: what a runner is made of, how it is run, and how much Docker a job
-  gets.
+  What a runner is made of, how it is run, and how much Docker a job gets.
 
   The operating system is first because it is the answer with the widest blast
   radius: it picks the image every runner boots and it keeps them off hosts
@@ -8,15 +7,18 @@
   served from the images Zoomies actually publishes, and a pool that names one
   we do not publish is a pool that validates and then never starts a runner.
 
-  Architecture is not asked here. The Hosts step already asks, and the image
+  Architecture is not asked here. The hosts section already asks, and the image
   reference does not change with it: every variant is published as a manifest
   covering both, so a host pulls its own.
 
-  The two dangerous answers in the whole wizard also live here, so both are
+  The two dangerous answers on the whole page also live here, so both are
   spelled out in the consequence rather than in a footnote, and the host-socket
-  option cannot be left selected without a deliberate confirmation.
+  option cannot be left selected without a deliberate confirmation. An image of
+  your own and a pinned runner version are the least-used controls and are
+  kept behind a disclosure of their own.
 -->
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { ServerOff, ShieldAlert } from '@lucide/svelte';
   import type { BackendKind, DockerMode, Host, PoolPlatform } from '$lib/api/types';
   import { pluralise } from '$lib/format';
@@ -26,6 +28,7 @@
   import Field from '$lib/components/Field.svelte';
   import Input from '$lib/components/Input.svelte';
   import RadioGroup from '$lib/components/RadioGroup.svelte';
+  import PoolMore from './PoolMore.svelte';
   import Select from '$lib/components/Select.svelte';
   import {
     BACKENDS,
@@ -46,7 +49,7 @@
     hostsKnown: boolean;
     /** The operating systems a runner image is published for. */
     platforms: readonly PoolPlatform[];
-    /** Every connected host, so the step can say how many match the platform. */
+    /** Every connected host, so the section can say how many match the platform. */
     hosts: readonly Host[];
     /** True when the pool is kept to some of the fleet, so the counts are of those. */
     restricted?: boolean;
@@ -100,8 +103,8 @@
 
   const dindHosts = $derived(offer(draft.backend)?.dindHosts ?? 0);
 
-  // Why this pool could not run as chosen, in the same sentence that stops the
-  // wizard advancing, plus the backends it could move to.
+  // Why this pool could not run as chosen, in the same sentence that stops it
+  // being saved, plus the backends it could move to.
   const unavailable = $derived(backendUnavailable(draft.backend, offers, hostsKnown, restricted));
   const runnable = $derived(
     offers.filter((entry) => entry.kind !== draft.backend && entry.hosts > 0),
@@ -118,6 +121,17 @@
   );
 
   const usesImage = $derived(draft.backend !== 'process');
+
+  // Open already when something in it is in use, or refused: a setting that
+  // is on should never be hidden behind a closed row.
+  let moreOpen = $state(
+    untrack(
+      () =>
+        draft.image.trim() !== '' ||
+        draft.runner_version.trim() !== '' ||
+        Boolean(errors['image'] || errors['runner_version']),
+    ),
+  );
 
   /* -- platform ----------------------------------------------------------- */
 
@@ -147,7 +161,7 @@
    * none of them will never start a runner, and finding that out here is far
    * better than finding it out from an empty Runners page.
    *
-   * Architecture is not counted here: the Hosts step asks for it, and the
+   * Architecture is not counted here: the Hosts section asks for it, and the
    * image reference does not change with it -- every variant is published as a
    * manifest covering both, so the host pulls its own.
    */
@@ -176,9 +190,9 @@
   // client. The stock runner image carries none on purpose, so a pool that
   // asks for a daemon while on a tag this build publishes is switched to the
   // stock image's Docker variant -- the same image plus a client, under the
-  // same tag -- as it is saved. Say so on the step that decides it, so the
-  // image the pool's page shows afterwards is not a surprise; the review step
-  // shows the image the server answers with, which covers an empty field as
+  // same tag -- as it is saved. Say so in the section that decides it, so the
+  // image the pool's page shows afterwards is not a surprise; the pool written
+  // out at the foot of the page shows the image the server answers with, which covers an empty field as
   // well.
   //
   // What is not switched is said too, each for its own reason. A digest names
@@ -192,7 +206,7 @@
   // line.
   //
   // Only the shape is decided here. Which tags this build publishes is the
-  // server's answer, and the review step shows it.
+  // server's answer, and the pool written out at the foot of the page shows it.
   const DOCKER_IMAGE = 'ghcr.io/eyupio/zoomies-runner-docker';
   const STOCK_TAGGED = /^ghcr\.io\/eyupio\/zoomies-runner(:[^@]+)?$/;
   const STOCK_DIGEST = /^ghcr\.io\/eyupio\/zoomies-runner(:[^@]+)?@/;
@@ -207,7 +221,7 @@
       return `A digest names one exact image, and this one has no Docker client. Pin a digest of ${DOCKER_IMAGE} instead.`;
     }
     if (STOCK_TAGGED.test(image)) {
-      return `The stock runner image has no Docker client, so this pool runs ${DOCKER_IMAGE}${tag} instead where that tag exists for it. The review step shows the image it kept.`;
+      return `The stock runner image has no Docker client, so this pool runs ${DOCKER_IMAGE}${tag} instead where that tag exists for it. The pool written out at the foot of the page shows the image it kept.`;
     }
     if (LOOKALIKE_IMAGE.test(image)) {
       return 'This looks like the stock runner image, which has no Docker client, and it is not one Zoomies switches for you. Jobs that run docker fail on it even with a daemon attached, unless docker is installed in it.';
@@ -272,7 +286,7 @@
 {#if unavailable}
   <!--
     A pool no host can run is the failure that looks like health: it is enabled,
-    its labels match, and it never makes a runner. The wizard will not create
+    its labels match, and it never makes a runner. The editor will not create
     one while the fleet has something else to offer, so this says what is wrong
     and changes it in one click rather than leaving the operator to guess.
   -->
@@ -291,47 +305,6 @@
     </div>
   </div>
 {/if}
-
-{#if usesImage}
-  <Field
-    label="Image"
-    error={errors['image']}
-    hint="Override the image the operating system above selects. Leave it empty unless you build your own."
-    notice={imageNotice}
-  >
-    {#snippet children({ id, describedBy, invalid })}
-      <Input
-        bind:value={draft.image}
-        {id}
-        {describedBy}
-        {invalid}
-        mono
-        placeholder={chosen?.image ?? 'ghcr.io/eyupio/zoomies-runner:latest'}
-        autocomplete="off"
-        onblur={() => touch('image')}
-      />
-    {/snippet}
-  </Field>
-{/if}
-
-<Field
-  label="Runner version"
-  error={errors['runner_version']}
-  hint="Pin the GitHub Actions runner version, or leave it empty to track the latest."
->
-  {#snippet children({ id, describedBy, invalid })}
-    <Input
-      bind:value={draft.runner_version}
-      {id}
-      {describedBy}
-      {invalid}
-      mono
-      placeholder="latest"
-      autocomplete="off"
-      onblur={() => touch('runner_version')}
-    />
-  {/snippet}
-</Field>
 
 <div class="docker">
   <RadioGroup
@@ -376,6 +349,55 @@
   description="Convenient for installing packages mid-job, and it means a compromised job owns the whole runner. Leave it off unless a workflow genuinely needs it."
   onchange={() => touch('run_as_root')}
 />
+
+<PoolMore
+  title="Your own image, or a pinned runner version"
+  note={draft.image.trim() !== '' || draft.runner_version.trim() !== ''
+    ? 'in use'
+    : 'the defaults follow the platform and the latest runner'}
+  bind:open={moreOpen}
+>
+  {#if usesImage}
+    <Field
+      label="Image"
+      error={errors['image']}
+      hint="Override the image the operating system above selects. Leave it empty unless you build your own."
+      notice={imageNotice}
+    >
+      {#snippet children({ id, describedBy, invalid })}
+        <Input
+          bind:value={draft.image}
+          {id}
+          {describedBy}
+          {invalid}
+          mono
+          placeholder={chosen?.image ?? 'ghcr.io/eyupio/zoomies-runner:latest'}
+          autocomplete="off"
+          onblur={() => touch('image')}
+        />
+      {/snippet}
+    </Field>
+  {/if}
+
+  <Field
+    label="Runner version"
+    error={errors['runner_version']}
+    hint="Pin the GitHub Actions runner version, or leave it empty to track the latest."
+  >
+    {#snippet children({ id, describedBy, invalid })}
+      <Input
+        bind:value={draft.runner_version}
+        {id}
+        {describedBy}
+        {invalid}
+        mono
+        placeholder="latest"
+        autocomplete="off"
+        onblur={() => touch('runner_version')}
+      />
+    {/snippet}
+  </Field>
+</PoolMore>
 
 <style>
   .platform-note {

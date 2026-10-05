@@ -3,7 +3,7 @@
 
   Deliberately a definition list and not a disabled form: an operator reading a
   pool at 2am is answering "what is this thing set to", and a grid of greyed-out
-  inputs answers that far worse than plain text does. Changing it is the wizard's
+  inputs answers that far worse than plain text does. Changing it is the editor's
   job, one deliberate click away.
 -->
 <script lang="ts">

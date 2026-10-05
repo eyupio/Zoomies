@@ -1,13 +1,13 @@
 /**
- * The words the pool pages share: backend and Docker-mode names, the wizard's
- * steps, and the human label for every field the API can reject.
+ * The words the pool pages share: backend and Docker-mode names, and the human
+ * label for every field the API can reject.
  *
- * This file has no markup on purpose. The wizard, the pools grid and the pool
+ * This file has no markup on purpose. The editor, the pools grid and the pool
  * detail page all need the same vocabulary, and an operator who reads "Host
- * socket" in a table and then "host-socket" in a wizard has to work out that
+ * socket" in a table and then "host-socket" in the editor has to work out that
  * they are the same thing. Keeping the strings here means they cannot drift --
- * and it keeps the wizard's steps importable without the steps importing the
- * wizard back.
+ * and it keeps the editor's sections importable without the sections importing
+ * the editor back.
  */
 import type { BackendKind, DockerMode, Host, Platform } from '$lib/api/types';
 import { pluralise } from '$lib/format';
@@ -146,7 +146,7 @@ export function backendOffers(hosts: readonly Host[]): BackendOffer[] {
  * Why this backend cannot be chosen, or "" when it can.
  *
  * A pool whose backend no host offers never makes a runner and looks perfectly
- * healthy doing it, so the wizard refuses to create one while the fleet has
+ * healthy doing it, so the editor refuses to create one while the fleet has
  * something else to offer. The escape hatch is deliberate: when nothing is
  * connected, or nothing is offering anything, there is no better answer to
  * insist on and the pool is allowed through with a warning -- which is how the
@@ -178,204 +178,6 @@ export function backendUnavailable(
     ? `, widen which hosts this pool may use, or make ${backendLabel(backend)} work on one of them first.`
     : `, or make ${backendLabel(backend)} work on a host first.`;
   return `${nobody}, so this pool would never start a runner.${because} Choose ${alternatives}${fix}`;
-}
-
-/* -- the creation wizard ------------------------------------------------- */
-
-export interface WizardStepDef {
-  id: string;
-  title: string;
-  description: string;
-}
-
-/**
- * The two ways a pool is made.
- *
- * `simple` is the pool most fleets want and could not previously ask for:
- * named, labelled, and then left alone -- its runners are sized by whichever
- * host each one lands on, it may use any host that can run it, and every
- * timing follows the fleet. Nothing on that path is a number an operator has
- * to have an opinion about, because every one of them has a right answer the
- * controller already knows.
- *
- * `advanced` is the same pool with the opinions put back: a fixed size, a
- * host selector, a backend and platform chosen by hand, and the runner
- * timings this pool disagrees with the fleet about.
- *
- * It is a fork rather than a page of collapsed sections because the two
- * audiences want different things from the same screen. Someone adding their
- * first pool wants to be finished; someone tuning a Windows pool's provision
- * timeout wants every control in front of them, and neither is served by
- * making the other's path longer.
- */
-export type WizardMode = 'simple' | 'advanced';
-
-/** Every step the wizard has, by id. The order is in the two lists below. */
-const STEP_DEFS: Readonly<Record<StepId, WizardStepDef>> = {
-  mode: {
-    id: 'mode',
-    title: 'Setup',
-    description: 'How much of this pool you want to decide.',
-  },
-  target: {
-    id: 'target',
-    title: 'Target',
-    description: 'Which GitHub installation these runners register with.',
-  },
-  labels: {
-    id: 'labels',
-    title: 'Labels',
-    description: 'What a workflow writes in runs-on to reach this pool.',
-  },
-  hosts: { id: 'hosts', title: 'Hosts', description: 'Which machines these runners land on.' },
-  backend: {
-    id: 'backend',
-    title: 'Backend',
-    description: 'What a runner is made of, and how it is run on a host.',
-  },
-  // Size before count, because a maximum means nothing until it is known
-  // what one runner costs on the machines it will land on.
-  size: {
-    id: 'size',
-    title: 'Size',
-    description: 'How much machine one runner gets, its scratch space and its cache.',
-  },
-  scaling: {
-    id: 'scaling',
-    title: 'Scaling',
-    description: 'How many runners, and for how long.',
-  },
-  runners: {
-    id: 'runners',
-    title: 'Runners',
-    description: 'The timings this pool disagrees with the fleet about.',
-  },
-  // Only the simple path walks this one. The advanced path asks the same
-  // question on its backend step, beside the image and the host socket the
-  // simple path does not offer.
-  docker: {
-    id: 'docker',
-    title: 'Docker',
-    description: 'Whether jobs here build container images.',
-  },
-  review: { id: 'review', title: 'Review', description: 'What the controller makes of it.' },
-};
-
-/** Which fields live on which step, so a server error can point at the right one. */
-const STEP_FIELDS_BY_ID: Readonly<Record<StepId, readonly string[]>> = {
-  mode: [],
-  docker: ['docker_mode'],
-  target: ['name', 'installation_id', 'runner_group'],
-  labels: ['labels'],
-  hosts: ['host_selector'],
-  backend: [
-    'backend',
-    'platform.os',
-    'platform.os_version',
-    'platform.arch',
-    'image',
-    'runner_version',
-    'docker_mode',
-    'run_as_root',
-  ],
-  size: [
-    'size_from_profile',
-    'resources.cpus',
-    'resources.memory_mb',
-    'resources.disk_gb',
-    'resources.pids_limit',
-    'cache.enabled',
-    'cache.scope',
-    'cache.size_limit',
-    'cache.source',
-    'cache.repository',
-    'tmpfs.work.enabled',
-    'tmpfs.work.size_mb',
-    'tmpfs.tmp.enabled',
-    'tmpfs.tmp.size_mb',
-    'tmpfs.daemon.enabled',
-    'tmpfs.daemon.size_mb',
-  ],
-  scaling: [
-    'min_runners',
-    'max_runners',
-    'priority',
-    'idle_timeout',
-    'ephemeral',
-    'no_default_labels',
-  ],
-  runners: [
-    'runner_settings.provision_timeout',
-    'runner_settings.drain_timeout',
-    'runner_settings.max_runner_lifetime',
-    'runner_settings.scale_up_delay',
-    'runner_settings.docker_wait',
-  ],
-  review: [],
-};
-
-export type StepId =
-  | 'mode'
-  | 'target'
-  | 'labels'
-  | 'docker'
-  | 'hosts'
-  | 'backend'
-  | 'size'
-  | 'scaling'
-  | 'runners'
-  | 'review';
-
-// The simple path asks four things, and the fourth is the one an operator
-// cannot discover anywhere else: a pool whose jobs build images needs a
-// daemon, and nothing in a name or a label says so. Leaving it to the
-// advanced path meant the only way to build an image was to know that
-// "advanced" was where Docker lived.
-const SIMPLE_STEP_IDS: readonly StepId[] = ['mode', 'target', 'labels', 'docker', 'review'];
-const ADVANCED_STEP_IDS: readonly StepId[] = [
-  'mode',
-  'target',
-  'labels',
-  'hosts',
-  'backend',
-  'size',
-  'scaling',
-  'runners',
-  'review',
-];
-
-/*
- * The fork is a creation question, so an edit does not walk it.
- *
- * An operator opening a pool they already have is there to change one
- * setting, and "how much of this pool do you want to decide" is not a
- * question about that -- the pool has already answered it, and the wizard
- * reads the answer off the pool to pick which path to open. Nothing is lost
- * in either direction: on the advanced path the size step still offers the
- * host's share, the hosts step the whole fleet, and the runner timings can
- * still be cleared; on the simple path every step offers the advanced one.
- * That second half matters more than it looks, because a plain pool is
- * exactly the pool whose elastic CPU, host selector or fixed size has never
- * been set, and the fork's absence must not be what keeps it that way.
- */
-function stepIds(mode: WizardMode, editing: boolean): readonly StepId[] {
-  const ids = mode === 'simple' ? SIMPLE_STEP_IDS : ADVANCED_STEP_IDS;
-  return editing ? ids.filter((id) => id !== 'mode') : ids;
-}
-
-/** The steps this mode walks, in order. */
-export function wizardSteps(mode: WizardMode, editing = false): readonly WizardStepDef[] {
-  return stepIds(mode, editing).map((id) => STEP_DEFS[id]);
-}
-
-/** The fields each of this mode's steps owns, indexed the same way. */
-export function stepFields(mode: WizardMode, editing = false): readonly (readonly string[])[] {
-  return stepIds(mode, editing).map((id) => STEP_FIELDS_BY_ID[id]);
-}
-
-/** Where a step sits on this path, or -1 when the path does not walk it. */
-export function stepIndex(id: StepId, mode: WizardMode, editing = false): number {
-  return stepIds(mode, editing).indexOf(id);
 }
 
 /** Human labels for the API's field names, used when the server rejects a field. */
@@ -422,15 +224,3 @@ export const FIELD_LABELS: Readonly<Record<string, string>> = {
   'runner_settings.scale_up_delay': 'Scale-up delay',
   'runner_settings.docker_wait': 'Docker wait',
 };
-
-/**
- * The step a field lives on in this mode, or the review step when we do not
- * recognise it -- which is also where a field belonging to a step the simple
- * path does not walk lands, because the review step is the one screen that
- * shows every error at once.
- */
-export function stepForField(field: string, mode: WizardMode, editing = false): number {
-  const fields = stepFields(mode, editing);
-  const index = fields.findIndex((owned) => owned.includes(field));
-  return index === -1 ? fields.length - 1 : index;
-}

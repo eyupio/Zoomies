@@ -1,14 +1,14 @@
 <!--
   Creating a pool.
 
-  The wizard itself lives in $lib/pools so that editing an existing pool, on the
-  pool's own page, is the same steps rather than a second form that drifts
-  away from this one.
+  The editor itself lives in $lib/pools so that editing an existing pool, on the
+  pool's own page, is the same page rather than a second form that drifts away
+  from this one.
 
   A pool belongs to a GitHub App installation, so with none there is nothing to
-  fill in. The wizard used to find that out on its second step, after a click
-  through the first and a read of its explainer; this says it before anything
-  is asked, with the button that fixes it.
+  fill in. The wizard this replaced found that out on its second step, after a
+  click through the first and a read of its explainer; this says it before
+  anything is asked, with the button that fixes it.
 -->
 <script lang="ts">
   import { Plug } from '@lucide/svelte';
@@ -21,7 +21,7 @@
   import ErrorState from '$lib/components/ErrorState.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
-  import PoolWizardForm from '$lib/pools/PoolWizardForm.svelte';
+  import PoolEditor from '$lib/pools/PoolEditor.svelte';
 
   const canOperate = $derived(session.can('operator'));
   const canAdmin = $derived(session.can('admin'));
@@ -57,7 +57,7 @@
 <PageHeader
   title="Create a pool"
   breadcrumb={[{ label: 'Pools', href: '/pools' }, { label: 'Create a pool' }]}
-  subtitle="Who the runners register with, what labels they answer to and, if you want to decide them, which hosts they land on, how they run, how much machine each one gets and how many there are. The last step shows what the controller makes of it."
+  subtitle="A pool is a group of runners that workflows reach by label. Name it, label it and create it: everything else already has an answer that suits most pools, and each can be changed here first."
 />
 
 {#if canOperate}
@@ -76,7 +76,7 @@
       {/if}
     </EmptyState>
   {:else}
-    <PoolWizardForm oncancel={cancel} ondone={done} />
+    <PoolEditor oncancel={cancel} ondone={done} />
   {/if}
 {:else}
   <ErrorState

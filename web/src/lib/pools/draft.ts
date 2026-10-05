@@ -22,7 +22,7 @@ import { backendUnavailable } from './vocabulary';
 import type { BackendOffer } from './vocabulary';
 
 /**
- * What the wizard is editing.
+ * What the editor is editing.
  *
  * Numbers are held as strings because that is what a text input gives back,
  * and because "" and "0" are different answers -- one is "not filled in yet",
@@ -65,7 +65,7 @@ export interface PoolDraft {
    * pool carries `size_from_profile` to say so. `fixed` is the two figures
    * below, the same on every host.
    *
-   * It is wizard state rather than a pool field because `automatic` and
+   * It is editor state rather than a pool field because `automatic` and
    * `fixed` are told apart by emptiness, and holding the choice separately is
    * what keeps the sliders' last position while an operator looks at the
    * other answers and changes their mind back.
@@ -117,15 +117,15 @@ export interface PoolDraft {
   /** The Docker-in-Docker sidecar's image store; only a dind pool has one. */
   tmpfs_daemon: boolean;
   tmpfs_daemon_size: string;
-  /** Carried through untouched: the wizard does not edit it, and must not lose it. */
+  /** Carried through untouched: the editor does not edit it, and must not lose it. */
   pids_limit: string;
   host_selector: Record<string, string>;
   /**
-   * The wizard's own state, not the pool's: whether the operator chose to
+   * The editor's own state, not the pool's: whether the operator chose to
    * keep this pool to some hosts. The selector cannot answer it, because
    * "only hosts that match" with no rule typed yet is an empty map exactly
    * like "any host" -- and reading the choice back off the selector is how
-   * a half-made rule reset itself on the way to the next step and back.
+   * a half-made rule reset itself when the section was shut and opened again.
    */
   restrict_hosts: boolean;
   env: Record<string, string>;
@@ -468,7 +468,7 @@ export function toPoolBody(draft: PoolDraft, options: { complete?: boolean } = {
 const NAME_SHAPE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 /**
- * The rules the wizard can check without asking the server. The server checks
+ * The rules the editor can check without asking the server. The server checks
  * the same things and more; these exist so the operator finds out while they
  * are still typing rather than at the end.
  */
@@ -521,7 +521,7 @@ export function draftErrors(
         'A fixed size needs a memory limit. Move the slider to choose one.';
     else if (memory < 512) errors['resources.memory_mb'] = 'A runner needs at least 512 MB.';
     // The same rule the server keeps, said where the sliders are rather
-    // than on the review step: a minimum sits under a stated standard.
+    // than at the foot of the page: a minimum sits under a stated standard.
     const minCpus = toNumber(draft.min_cpus);
     if (minCpus !== undefined && cpus !== undefined && minCpus > cpus)
       errors['resources.min_cpus'] = 'The minimum has to be at or below the standard CPU.';

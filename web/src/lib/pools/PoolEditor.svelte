@@ -1,14 +1,25 @@
 <!--
-  Pool creation and pool editing, in the same steps.
+  Creating a pool and editing one, on one page.
 
-  The draft is one object held here, so going back never loses what was typed;
-  the steps are presentation only. Client-side rules run continuously and gate
-  the Next button; the server's own verdict is asked for on the review step,
-  before anything is created, because "the pool exists but no host can run it"
-  is a much worse place to find out.
+  It used to be a wizard: eight steps to create, four to edit, a fork before
+  them, and a row of step markers that could not be pressed. A pool is a
+  document of settings, not a procedure, and what a first pool needs is three
+  of them. So this is one page, the same for both, made of sections that are
+  each a decision -- who the pool is for, which hosts, what a runner is, how big,
+  how many, what makes it faster -- and each says its current answer on its own
+  row without being opened. A new pool opens on the first and leaves the rest
+  at their defaults; an existing one opens on none, and any section is one tap
+  away from any other.
+
+  The draft is one object held here, so closing a section never loses what was
+  typed in it; the sections are presentation only. Client-side rules run
+  continuously and the sticky bar says how many are being broken. The server's
+  own verdict is asked for as the draft changes, not only at the end, because
+  "the pool exists but no host can run it" is a much worse place to find out and
+  every section edits something its count depends on.
 -->
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import {
     ApiError,
     createPool,
@@ -29,35 +40,28 @@
     RunnerGroup,
   } from '$lib/api/types';
   import { BRAND_LABEL, brandedLabel } from '$lib/brand';
-  import { nicknamedPoolName, poolName, spinWord } from './names';
-  import {
-    draftErrors,
-    draftFromPool,
-    emptyDraft,
-    poolIsTuned,
-    toInteger,
-    toPoolBody,
-  } from './draft';
-  import type { PoolDraft } from './draft';
-  import { backendOffers, stepFields, stepIndex, wizardSteps, stepForField } from './vocabulary';
-  import type { WizardMode } from './vocabulary';
   import { fleet } from '$lib/state/fleet.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
-  import Button from '$lib/components/Button.svelte';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
-  import Wizard from '$lib/components/Wizard.svelte';
-  import StepTarget from './StepTarget.svelte';
-  import StepLabels from './StepLabels.svelte';
-  import StepHosts from './StepHosts.svelte';
+  import { nicknamedPoolName, poolName, spinWord } from './names';
+  import { draftErrors, draftFromPool, emptyDraft, toInteger, toPoolBody } from './draft';
+  import type { PoolDraft } from './draft';
   import { hostMatchesSelector } from './hostSelector';
-  import StepBackend from './StepBackend.svelte';
-  import StepDocker from './StepDocker.svelte';
-  import StepSize from './StepSize.svelte';
-  import StepScaling from './StepScaling.svelte';
-  import StepMode from './StepMode.svelte';
-  import StepRunners from './StepRunners.svelte';
-  import StepReview from './StepReview.svelte';
-  import PoolStartupStability from './PoolStartupStability.svelte';
+  import { SECTIONS, editedSections, sectionForField, sectionHead } from './sections';
+  import type { SectionId } from './sections';
+  import { summarise } from './summaries';
+  import { statusLine } from './verdict';
+  import { backendOffers } from './vocabulary';
+  import BasicsSection from './BasicsSection.svelte';
+  import HostsSection from './HostsSection.svelte';
+  import PoolActionBar from './PoolActionBar.svelte';
+  import PoolCheck from './PoolCheck.svelte';
+  import PoolRail from './PoolRail.svelte';
+  import PoolSection from './PoolSection.svelte';
+  import RunnerSection from './RunnerSection.svelte';
+  import ScalingSection from './ScalingSection.svelte';
+  import SizeSection from './SizeSection.svelte';
+  import SpeedSection from './SpeedSection.svelte';
 
   interface Props {
     /** The pool being edited. Leave it out to create a new one. */
@@ -74,22 +78,29 @@
   // Captured once on purpose: the routes remount this form with a {#key} when
   // they start editing a different pool, so a live reference would be wrong.
   let draft = $state<PoolDraft>(untrack(() => (pool ? draftFromPool(pool) : emptyDraft())));
-  /*
-    Which of the two paths the wizard is walking.
+  // Where the editor started, so an edit can say which sections it has changed
+  // and Save can say there is nothing to save.
+  const initial: PoolDraft = untrack(() => $state.snapshot(draft) as PoolDraft);
 
-    A new pool starts on the simple one, because that is the pool most fleets
-    want and the one every default already describes. Editing opens on the
-    advanced path whenever the pool has anything the simple path cannot show --
-    a fixed size, a host selector, a runner override, a platform or an image --
-    so that opening a tuned pool never hides the settings it was tuned with,
-    and never quietly saves them away.
+  /*
+    Which sections are open.
+
+    A new pool opens on the first and leaves the rest shut: they all have an
+    answer already, and the row says what it is. An existing pool opens on none,
+    because an operator who came to change one setting is better served by seven
+    lines they can read than by a form they have to scroll. A link to one of
+    them -- `#size` -- opens it, see `onMount` below.
   */
-  let mode = $state<WizardMode>(
-    untrack(() => (pool && poolIsTuned(draft) ? 'advanced' : 'simple')),
-  );
-  const steps = $derived(wizardSteps(mode, editing));
-  const fieldsByStep = $derived(stepFields(mode, editing));
-  let current = $state(0);
+  let opened = $state<Record<SectionId, boolean>>({
+    basics: untrack(() => pool === undefined),
+    hosts: false,
+    runner: false,
+    size: false,
+    scaling: false,
+    speed: false,
+  });
+  const allOpen = $derived(SECTIONS.every((section) => opened[section.id]));
+
   let touched = $state<Record<string, boolean>>({});
   let serverErrors = $state<Record<string, string>>({});
   let socketConfirmed = $state(untrack(() => pool?.docker_mode === 'host-socket'));
@@ -97,10 +108,10 @@
   /*
     Auto-naming, on creation only.
 
-    `autoName` is the last name the wizard produced. While the field still
-    holds it the name is the wizard's to keep current -- so choosing Podman on
-    the backend step renames the pool -- and the moment an operator types over
-    it the wizard stops touching it, because a field that rewrites itself under
+    `autoName` is the last name the editor produced. While the field still
+    holds it the name is the editor's to keep current -- so choosing Podman in
+    the runner section renames the pool -- and the moment an operator types over
+    it the editor stops touching it, because a field that rewrites itself under
     someone's cursor is worse than no help at all. Editing an existing pool
     never generates anything: its name is already in workflows.
 
@@ -113,7 +124,6 @@
   let autoName = $state('');
   let autoLabel = $state<string | null>('');
   let submitting = $state(false);
-  let panel = $state<HTMLDivElement | null>(null);
 
   let installations = $state<Installation[]>([]);
   let installationsLoading = $state(true);
@@ -126,16 +136,16 @@
   let groupsError = $state<unknown>(null);
 
   /**
-   * The fleet's own default size, and the maximum the wizard worked out from
+   * The fleet's own default size, and the maximum the editor worked out from
    * the room the hosts have for it.
    *
    * `autoMax` is the same idea as `autoName` above: while the field still
-   * holds what the wizard put there, the wizard keeps it current, so choosing
+   * holds what the editor put there, the editor keeps it current, so choosing
    * bigger runners or fewer hosts lowers the cap in front of the operator. The
    * moment they type their own it stops following, because a number that
    * rewrites itself under somebody's cursor is worse than no help at all.
    * Editing an existing pool never follows: that cap is in force right now,
-   * and the Scaling step offers the fleet's figure rather than taking it.
+   * and the scaling section offers the fleet's figure rather than taking it.
    */
   let defaults = $state<Resources | null>(null);
   let fleetDefaults = $state<Result<'getPoolDefaults'>['runner_settings'] | null>(null);
@@ -150,44 +160,90 @@
   let stabilityRevision = $state(0);
   let validateError = $state<unknown>(null);
 
-  const reviewStep = $derived(steps.length - 1);
-  // -1 on the simple path, which walks no hosts step. Everything that reads it
-  // compares with `>=`, so "there is no such step" reads as "we are past it" --
-  // which is what the simple path means: it restricts nothing, so the
-  // placement question is answered and behind us from the start.
-  const hostsStep = $derived(steps.findIndex((step) => step.id === 'hosts'));
-  // The backend step counts over the hosts this pool is allowed to land on, not
-  // the whole fleet: "offered by 3 hosts" is a lie if two of them are the amd64
-  // boxes an arm64 pool will never touch. Placement is chosen first for exactly
-  // this reason.
+  // The backend section counts over the hosts this pool is allowed to land on,
+  // not the whole fleet: "offered by 3 hosts" is a lie if two of them are the
+  // amd64 boxes an arm64 pool will never touch. Placement comes first on the
+  // page for exactly this reason.
   const selectedHosts = $derived(
     fleet.hosts.filter((host) => hostMatchesSelector(host, draft.host_selector)),
   );
   const restrictedToHosts = $derived(Object.keys(draft.host_selector).length > 0);
   const offers = $derived(backendOffers(selectedHosts));
+  const dindHosts = $derived(offers.find((offer) => offer.kind === draft.backend)?.dindHosts ?? 0);
   const clientErrors = $derived(draftErrors(draft, socketConfirmed, offers, fleet.loaded));
   const body = $derived(toPoolBody(draft));
 
-  /** Client rules show once a field has been left; server rules show at once. */
+  /**
+   * What is shown beside the controls. Client rules show once a field has been
+   * left; the controller's own refusals of a field show once it has been left
+   * too, and server rules from a failed save show at once. A refusal of a field
+   * nobody has touched is on the controller's panel instead, so it is never
+   * both.
+   */
   const errors = $derived.by(() => {
     const out: Record<string, string> = { ...serverErrors };
+    for (const issue of verdict?.errors ?? []) {
+      if (touched[issue.field] && out[issue.field] === undefined) out[issue.field] = issue.message;
+    }
     for (const [field, message] of Object.entries(clientErrors)) {
       if (touched[field]) out[field] = message;
     }
     return out;
   });
 
-  const blocking = $derived.by(() => {
-    const fields =
-      current === reviewStep ? Object.keys(clientErrors) : (fieldsByStep[current] ?? []);
-    return fields
-      .map((field) => clientErrors[field])
-      .filter((message): message is string => Boolean(message));
+  /** How many of what is shown belong to each section, for the rows and the rail. */
+  const problems = $derived.by(() => {
+    const out: Record<SectionId, number> = {
+      basics: 0,
+      hosts: 0,
+      runner: 0,
+      size: 0,
+      scaling: 0,
+      speed: 0,
+    };
+    for (const field of Object.keys(errors)) {
+      const section = sectionForField(field);
+      if (section) out[section] += 1;
+    }
+    return out;
   });
-  const canAdvance = $derived(blocking.length === 0 && !submitting);
+
+  const edited = $derived(editing ? editedSections(draft, initial) : new Set<SectionId>());
+  const dirty = $derived(!editing || edited.size > 0);
 
   const installationLabel = $derived(
     installations.find((entry) => entry.id === draft.installation_id)?.target ?? '',
+  );
+  const summaries = $derived(
+    summarise(draft, {
+      installation: installationLabel,
+      hostsTotal: fleet.loaded ? fleet.hosts.length : null,
+      hostsMatching: fleet.loaded ? selectedHosts.length : null,
+    }),
+  );
+  const railItems = $derived(
+    SECTIONS.map((section) => ({
+      id: section.id,
+      title: section.title,
+      problems: problems[section.id],
+      edited: edited.has(section.id),
+    })),
+  );
+
+  // The controller's refusals the browser has not already put beside a control.
+  const refusals = $derived(
+    (verdict?.errors ?? []).filter((issue) => clientErrors[issue.field] === undefined),
+  );
+  const status = $derived(
+    statusLine({
+      blockers: Object.keys(clientErrors).length,
+      refusals: refusals.length,
+      editing,
+      dirty,
+      unreachable: validateError !== null,
+      verdict,
+      fleetKnown: fleet.loaded,
+    }),
   );
 
   function touch(field: string): void {
@@ -199,41 +255,78 @@
     }
   }
 
-  function touchStep(step: number): void {
-    const fields = fieldsByStep[step] ?? [];
-    if (fields.length === 0) return;
+  /* -- moving about the page ----------------------------------------------------- */
+
+  /**
+   * Open a section, bring it into view and put the cursor where it is needed.
+   *
+   * What is wrong comes first -- the first control the browser has marked
+   * invalid -- and the section's own heading is the fallback, so a keyboard or a
+   * screen reader always arrives somewhere. The address gains `#size`, as a
+   * replacement rather than an entry: the section is a place on this page, and
+   * the back button should leave it.
+   */
+  async function jump(id: SectionId): Promise<void> {
+    opened[id] = true;
+    await tick();
+    const section = document.getElementById(`pool-${id}`);
+    if (!section) return;
+    const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    section.scrollIntoView({ behavior: calm ? 'auto' : 'smooth', block: 'start' });
+    const target =
+      section.querySelector<HTMLElement>('[aria-invalid="true"]') ??
+      section.querySelector<HTMLElement>('button[aria-expanded]');
+    target?.focus({ preventScroll: true });
+    history.replaceState(history.state, '', `${location.pathname}${location.search}#${id}`);
+  }
+
+  function toggleAll(): void {
+    const next = !allOpen;
+    for (const section of SECTIONS) opened[section.id] = next;
+  }
+
+  onMount(() => {
+    // A link to a section opens it: `?edit=1#size`.
+    function followHash(): void {
+      const wanted = location.hash.replace(/^#(pool-)?/, '');
+      const found = SECTIONS.find((section) => section.id === wanted);
+      if (found) void jump(found.id);
+    }
+    followHash();
+    addEventListener('hashchange', followHash);
+    return () => removeEventListener('hashchange', followHash);
+  });
+
+  /**
+   * The topmost section with something wrong in it, whichever way it was found:
+   * a rule of the browser's, a refusal from the controller, or one from a save.
+   */
+  function firstProblem(): SectionId | null {
+    const fields = [
+      ...Object.keys(clientErrors),
+      ...(verdict?.errors ?? []).map((issue) => issue.field),
+      ...Object.keys(serverErrors),
+    ];
+    for (const section of SECTIONS) {
+      if (fields.some((field) => section.fields.includes(field))) return section.id;
+    }
+    return null;
+  }
+
+  /** Show everything that is wrong, and take the cursor to the first of it. */
+  function reveal(): void {
     const next = { ...touched };
-    for (const field of fields) next[field] = true;
+    for (const field of Object.keys(clientErrors)) next[field] = true;
     touched = next;
-  }
-
-  function goTo(step: number): void {
-    current = Math.min(Math.max(step, 0), reviewStep);
-  }
-
-  /*
-    The simple path's way to the settings it leaves to the fleet.
-
-    An edit skips the fork, and a pool with nothing the simple path cannot
-    show opens on that path: target, labels, docker, review. That is the right
-    opening for a pool somebody came to relabel, and a dead end for the one
-    they came to make elastic -- the plain automatic pool is exactly the pool
-    elastic CPU is for, and the fork it never walks was the only way to the
-    size step that offers it. So a simple edit offers the advanced path from
-    every step, and taking it lands on the first step the simple path skipped.
-    The draft is one object and the steps only ways of looking at it, so
-    nothing typed so far is lost on the way.
-  */
-  function showEverySetting(): void {
-    mode = 'advanced';
-    goTo(stepIndex('hosts', 'advanced', editing));
+    const where = firstProblem();
+    if (where) void jump(where);
   }
 
   /* -- what the fleet and GitHub can offer --------------------------------- */
 
   /*
     Where a fixed size opens. It is a fleet setting, so the sliders cannot have
-    a figure of their own: a wizard showing two cores while the fleet says
+    a figure of their own: an editor showing two cores while the fleet says
     eight would be describing a pool it is not about to create.
 
     It is the fleet's *suggestion* rather than what a pool becomes -- a pool
@@ -247,7 +340,7 @@
       .then((response) => {
         const resources = response.suggested_resources ?? response.resources ?? {};
         defaults = resources;
-        // The fleet's own timings, so the overrides step can say what each
+        // The fleet's own timings, so the timings row can say what each
         // setting is being overridden *from*. An input whose placeholder reads
         // "20m0s, the fleet's" is one an operator can leave alone with
         // confidence; an empty box beside the word "timeout" is one they feel
@@ -285,7 +378,7 @@
     untrack(() => {
       if (autoMax === null) return;
       if (draft.max_runners !== autoMax) {
-        // Typed over: the wizard is done with this field.
+        // Typed over: the editor is done with this field.
         autoMax = null;
         return;
       }
@@ -318,7 +411,7 @@
         const items = response.items ?? [];
         installations = items;
         // One installation is the common case; choosing it for the operator is
-        // the difference between a wizard and a form.
+        // the difference between an editor and a form.
         const only = items[0];
         if (draft.installation_id === '' && items.length === 1 && only?.id) {
           draft.installation_id = only.id;
@@ -433,11 +526,10 @@
   /* -- the server's verdict, before anything is created --------------------- */
 
   $effect(() => {
-    // From the placement step on, not only at the end. Every step after it
-    // edits something the controller's count depends on -- which hosts, which
+    // As the draft changes, and from the first render: every section edits
+    // something the controller's count depends on -- which hosts, which
     // backend, how big a runner is -- so the answer belongs beside the setting
     // that changes it, while there is still a reason to change it.
-    if (current < hostsStep) return;
     void stabilityRevision;
     const payload = body;
     const controller = new AbortController();
@@ -462,26 +554,14 @@
     };
   });
 
-  /* -- focus follows the step ----------------------------------------------- */
-
-  let lastStep = -1;
-  $effect(() => {
-    const step = current;
-    if (step === lastStep) return;
-    const moved = lastStep !== -1;
-    lastStep = step;
-    // Not on the first render: the shell has just put focus on the page
-    // heading, and taking it away again would undo that.
-    if (moved) untrack(() => panel)?.focus();
-  });
-
   /* -- submitting ------------------------------------------------------------ */
 
   function applyFieldErrors(cause: ApiError): void {
     const fields = cause.fieldErrors();
     serverErrors = fields;
     const first = Object.keys(fields)[0];
-    if (first !== undefined) goTo(stepForField(first, mode, editing));
+    const where = first === undefined ? null : sectionForField(first);
+    if (where) void jump(where);
   }
 
   /**
@@ -494,14 +574,10 @@
 
   async function finish(confirm = false): Promise<void> {
     if (submitting) return;
-    touchStep(current);
-    const outstanding = Object.keys(clientErrors);
-    if (outstanding.length > 0) {
-      // Show every one of them inline, then land on the first offending step.
-      const next = { ...touched };
-      for (const field of outstanding) next[field] = true;
-      touched = next;
-      goTo(stepForField(outstanding[0] ?? 'name', mode, editing));
+    // Pressed while something is wrong: say what, and go there. The button is
+    // never disabled for this, because a disabled button cannot explain itself.
+    if (Object.keys(clientErrors).length > 0) {
+      reveal();
       return;
     }
     submitting = true;
@@ -536,114 +612,158 @@
   }
 </script>
 
-<Wizard
-  class={className}
-  {steps}
-  bind:current
-  {canAdvance}
-  busy={submitting}
-  finishLabel={editing ? 'Save changes' : 'Create pool'}
-  cancelLabel="Cancel"
-  onnext={() => touchStep(current)}
-  onback={() => touchStep(current)}
-  onfinish={() => void finish()}
-  {oncancel}
->
-  {#snippet children(step)}
-    <div class="step" bind:this={panel} tabindex="-1" role="group" aria-label={step.title}>
-      {#if step.id === 'mode'}
-        <StepMode bind:mode hosts={fleet.hosts} hostsKnown={fleet.loaded} />
-      {:else if step.id === 'target'}
-        <StepTarget
-          {draft}
-          {errors}
-          {touch}
-          {installations}
-          loading={installationsLoading}
-          error={installationsError}
-          onretry={() => (installationsAttempt += 1)}
-          {groups}
-          {groupsLoading}
-          {groupsError}
-          onspin={editing ? undefined : spin}
-        />
-      {:else if step.id === 'labels'}
-        <StepLabels {draft} {errors} {touch} />
-      {:else if step.id === 'docker'}
-        <StepDocker {draft} {touch} />
-      {:else if step.id === 'hosts'}
-        <StepHosts
-          {draft}
-          {touch}
-          hosts={fleet.hosts}
-          hostsKnown={fleet.loaded}
-          {verdict}
-          {validating}
-        />
-      {:else if step.id === 'backend'}
-        <StepBackend
-          {draft}
-          {errors}
-          {touch}
-          {offers}
-          {platforms}
-          hosts={fleet.hosts}
-          hostsKnown={fleet.loaded}
-          restricted={restrictedToHosts}
-          bind:socketConfirmed
-        />
-      {:else if step.id === 'size'}
-        <StepSize {draft} {errors} {touch} {defaults} {verdict} {validating} />
-      {:else if step.id === 'scaling'}
-        <StepScaling {draft} {errors} {touch} {verdict} {validating} following={followingMax} />
-      {:else if step.id === 'runners'}
-        <StepRunners {draft} {errors} {touch} {fleetDefaults} />
-      {:else}
-        <StepReview
-          {draft}
-          {body}
-          {editing}
-          {installationLabel}
-          {mode}
-          {verdict}
-          {validating}
-          error={validateError}
-          ongoto={goTo}
-        />
-      {/if}
+<div class="editor {className}">
+  <PoolRail items={railItems} onjump={(id) => void jump(id)} />
 
-      {#if draft.sizing !== 'fixed' && (draft.backend === 'docker' || draft.backend === 'podman')}
-        <PoolStartupStability
-          warnings={verdict?.warnings ?? []}
-          onfixed={() => stabilityRevision++}
-        />
-      {/if}
+  <div class="main">
+    {#if editing}
+      <div class="listing">
+        <p class="eyebrow">Settings</p>
+        <button type="button" class="expand" onclick={toggleAll}>
+          {allOpen ? 'Collapse all' : 'Expand all'}
+        </button>
+      </div>
+    {/if}
 
-      {#if editing && mode === 'simple'}
-        <div class="more">
-          <p>
-            Hosts, backend, size, scaling and the runner timings follow the fleet, and elastic CPU
-            with them. Nothing typed here is lost on the way to them.
-          </p>
-          <Button size="sm" onclick={showEverySetting}>Show every setting</Button>
+    <PoolSection
+      {...sectionHead('basics')}
+      summary={summaries.basics}
+      bind:open={opened.basics}
+      problems={problems.basics}
+      edited={edited.has('basics')}
+    >
+      <BasicsSection
+        {draft}
+        {errors}
+        {touch}
+        {editing}
+        {installations}
+        loading={installationsLoading}
+        error={installationsError}
+        onretry={() => (installationsAttempt += 1)}
+        {groups}
+        {groupsLoading}
+        {groupsError}
+        onspin={editing ? undefined : spin}
+        hostsKnown={fleet.loaded}
+        {dindHosts}
+        onopen={(id) => void jump(id)}
+      />
+    </PoolSection>
+
+    {#if !editing}
+      <div class="listing">
+        <div>
+          <p class="eyebrow">Fine-tune (optional)</p>
+          <p class="sub">Each of these already has an answer that suits most pools.</p>
         </div>
-      {/if}
+        <button type="button" class="expand" onclick={toggleAll}>
+          {allOpen ? 'Collapse all' : 'Expand all'}
+        </button>
+      </div>
+    {/if}
 
-      {#if blocking.length > 0}
-        <div class="blocking">
-          <p class="blocking-title">
-            {steps[current + 1] ? 'Before the next step' : 'Before this pool can be saved'}
-          </p>
-          <ul>
-            {#each blocking as message, index (index)}
-              <li>{message}</li>
-            {/each}
-          </ul>
-        </div>
-      {/if}
-    </div>
-  {/snippet}
-</Wizard>
+    <PoolSection
+      {...sectionHead('hosts')}
+      summary={summaries.hosts}
+      bind:open={opened.hosts}
+      problems={problems.hosts}
+      edited={edited.has('hosts')}
+    >
+      <HostsSection
+        {draft}
+        {touch}
+        hosts={fleet.hosts}
+        hostsKnown={fleet.loaded}
+        {verdict}
+        {validating}
+      />
+    </PoolSection>
+
+    <PoolSection
+      {...sectionHead('runner')}
+      summary={summaries.runner}
+      bind:open={opened.runner}
+      problems={problems.runner}
+      edited={edited.has('runner')}
+    >
+      <RunnerSection
+        {draft}
+        {errors}
+        {touch}
+        {offers}
+        {platforms}
+        hosts={fleet.hosts}
+        hostsKnown={fleet.loaded}
+        restricted={restrictedToHosts}
+        bind:socketConfirmed
+      />
+    </PoolSection>
+
+    <PoolSection
+      {...sectionHead('size')}
+      summary={summaries.size}
+      bind:open={opened.size}
+      problems={problems.size}
+      edited={edited.has('size')}
+    >
+      <SizeSection {draft} {errors} {touch} {defaults} {verdict} {validating} />
+    </PoolSection>
+
+    <PoolSection
+      {...sectionHead('scaling')}
+      summary={summaries.scaling}
+      bind:open={opened.scaling}
+      problems={problems.scaling}
+      edited={edited.has('scaling')}
+    >
+      <ScalingSection
+        {draft}
+        {errors}
+        {touch}
+        {verdict}
+        {validating}
+        following={followingMax}
+        {fleetDefaults}
+      />
+    </PoolSection>
+
+    <PoolSection
+      {...sectionHead('speed')}
+      summary={summaries.speed}
+      bind:open={opened.speed}
+      problems={problems.speed}
+      edited={edited.has('speed')}
+    >
+      <SpeedSection {draft} {errors} {touch} {verdict} />
+    </PoolSection>
+
+    <PoolCheck
+      {draft}
+      {body}
+      {editing}
+      {installationLabel}
+      {verdict}
+      {validating}
+      error={validateError}
+      covered={Object.keys(errors)}
+      onshow={(id) => void jump(id)}
+      onfixed={() => stabilityRevision++}
+    />
+
+    <PoolActionBar
+      tone={status.tone}
+      message={status.text}
+      actionLabel={status.action}
+      onaction={reveal}
+      submitLabel={editing ? 'Save changes' : 'Create pool'}
+      canSubmit={dirty}
+      busy={submitting}
+      onsubmit={() => void finish()}
+      {oncancel}
+    />
+  </div>
+</div>
 
 <ConfirmDialog
   bind:open={
@@ -669,55 +789,57 @@
 />
 
 <style>
-  .step {
+  .editor {
+    display: grid;
+    grid-template-columns: var(--z-settings-rail-width) minmax(0, 1fr);
+    gap: var(--z-space-6);
+    align-items: start;
+  }
+  .main {
     display: flex;
     flex-direction: column;
-    gap: var(--z-space-5);
+    gap: var(--z-space-3);
+    min-width: 0;
+    max-width: 56rem;
   }
-  /*
-    The step is focused programmatically when the wizard advances, so that a
-    screen reader lands on the new content. That is not a keyboard tab, so
-    :focus-visible is the right test: it draws no ring for the move the wizard
-    made, and still draws one if somebody tabs here themselves.
-  */
-  .step:focus:not(:focus-visible) {
-    outline: none;
-  }
-  .blocking {
-    padding: var(--z-space-3) var(--z-space-4);
-    border: var(--z-border-width) solid var(--z-border);
-    border-radius: var(--z-radius-md);
-    background: var(--z-surface-sunken);
-  }
-  .blocking-title {
-    margin: 0;
-    font-size: var(--z-text-xs);
-    font-weight: var(--z-weight-medium);
-    color: var(--z-text-muted);
-  }
-  .blocking ul {
-    margin: var(--z-space-1) 0 0;
-    padding-left: var(--z-space-5);
-    font-size: var(--z-text-base);
-    line-height: var(--z-leading-base);
-    color: var(--z-text-muted);
-  }
-  .more {
+  .listing {
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
+    align-items: flex-end;
     justify-content: space-between;
-    gap: var(--z-space-3);
-    padding: var(--z-space-3) var(--z-space-4);
-    border: var(--z-border-width) solid var(--z-border);
-    border-radius: var(--z-radius-md);
-    background: var(--z-surface-sunken);
+    gap: var(--z-space-2) var(--z-space-4);
+    margin-top: var(--z-space-3);
   }
-  .more p {
-    flex: 1 1 auto;
+  .eyebrow {
     margin: 0;
+    font-size: var(--z-text-xs);
+    font-weight: var(--z-weight-semibold);
+    letter-spacing: var(--z-tracking-wide);
+    text-transform: uppercase;
+    color: var(--z-text-muted);
+  }
+  .sub {
+    margin: var(--z-nudge-2) 0 0;
     font-size: var(--z-text-sm);
     line-height: var(--z-leading-sm);
     color: var(--z-text-muted);
+  }
+  .expand {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--z-accent);
+    font: inherit;
+    font-size: var(--z-text-sm);
+    cursor: pointer;
+    text-decoration: underline;
+  }
+
+  /* --z-bp-lg, written out: below it the rail is not drawn, and the sections
+     are the way about. */
+  @media (max-width: 1180px) {
+    .editor {
+      grid-template-columns: minmax(0, 1fr);
+    }
   }
 </style>

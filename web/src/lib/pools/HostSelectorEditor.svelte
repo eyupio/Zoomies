@@ -12,7 +12,7 @@
   the one pool setting whose mistake looks like health -- the pool is enabled,
   its labels are right, and it never places a runner -- so the answer to "which
   machines does this reach" is on screen while it is being typed rather than
-  two steps later.
+  a page later.
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
@@ -80,7 +80,8 @@
   // Matching and taking work are different questions, and a selector that picks
   // out only a cordoned host answers the first yes and the second no. Saying
   // just "1 host matches" here and then "no host can run this pool" on the
-  // review step reads as the wizard contradicting itself, so the gap is named
+  // controller's check at the foot of the page reads as the editor contradicting
+  // itself, so the gap is named
   // where the rule that caused it is being edited.
   const availableMatches = $derived(
     matching.filter((host) => host.healthy !== false && host.cordoned !== true),
