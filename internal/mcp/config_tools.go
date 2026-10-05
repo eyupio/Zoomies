@@ -29,6 +29,24 @@ import (
 func configTools() []*tool {
 	return []*tool{
 		{
+			Name:  "apply_remedy",
+			Title: "Apply the change a problem proposes",
+			Description: "Make the change the controller proposes for a problem, as list_problems shows it in the problem's `remedy`: " +
+				"a pool's or host's update the controller has already priced against the fleet, with what it costs in `effect`. " +
+				"Name the problem by its code and target, and pass the remedy's id so exactly what you read is what is applied; " +
+				"you never send the change itself. It runs as the pool's or host's own update, so it needs the role that update needs, " +
+				"it is refused when it would leave a pool with no host that could run it, and it applies to runners created after. " +
+				"A problem whose proposal has since changed or gone is refused, so read list_problems again.",
+			InputSchema: object([]string{"code", "target_id"}, map[string]any{
+				"code":      str("the problem's code, such as host.slots_below_capacity"),
+				"target_id": str("the pool or host the problem is about, as list_problems shows it"),
+				"remedy_id": str("the remedy's id from list_problems, so that what is applied is what you read"),
+			}),
+			Annotations: annotations{Idempotent: true},
+			action:      true,
+			call:        applyRemedy,
+		},
+		{
 			Name:  "update_pool",
 			Title: "Change a pool's sizing",
 			Description: "Change a pool's smallest runner, its Docker sidecar's share of a slot, or its CPU burst ceiling, leaving every " +
@@ -350,4 +368,40 @@ func atLeastOrZero(name string, v *float64, least float64) error {
 		return nil
 	}
 	return fmt.Errorf("%s is %g: use 0 to follow the fleet's, or at least %g", name, *v, least)
+}
+
+func applyRemedy(ctx context.Context, c API, raw json.RawMessage) ([]Content, error) {
+	var a struct {
+		Code     string `json:"code"`
+		TargetID string `json:"target_id"`
+		RemedyID string `json:"remedy_id"`
+	}
+	if err := decodeArgs(raw, &a); err != nil {
+		return nil, err
+	}
+	if err := requireID("code", a.Code); err != nil {
+		return nil, err
+	}
+	if err := requireID("target_id", a.TargetID); err != nil {
+		return nil, err
+	}
+	bc, ok := c.(BodyCaller)
+	if !ok {
+		return nil, fmt.Errorf("this transport cannot apply a change")
+	}
+	body := map[string]string{"code": a.Code, "target_id": a.TargetID}
+	if a.RemedyID != "" {
+		body["remedy_id"] = a.RemedyID
+	}
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	// The problem and never the change: the controller applies what it proposes now,
+	// as the caller, through the update's own checks, and never with confirm.
+	reply, err := bc.CallBody(ctx, http.MethodPost, "/problems/apply", nil, payload)
+	if err != nil {
+		return nil, err
+	}
+	return jsonContent(reply), nil
 }

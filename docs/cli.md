@@ -83,6 +83,27 @@ The Overview in a terminal: counts, pools, recent scaling and anything wrong.
 `--window` (`1h`) sets the period the rates cover, `--scaling` (`5`) how many
 recent decisions to print.
 
+### `zoomies problems`
+
+What the controller thinks is wrong, and — for the problems it has worked out a change
+for — the change.
+
+```sh
+zoomies problems list                        # everything wrong now
+zoomies problems list --proposals            # only what carries a proposed change, and its cost
+zoomies problems apply host.slots_below_capacity --dry-run
+zoomies problems apply pool.daemon_share_suggested --target pool_k3f9qz2m
+```
+
+A proposed change is a *remedy*: the pool's or host's own update, priced against the
+fleet before it was proposed, with what it keeps and gains in the `cost` column. `apply`
+names the problem and never the change, so only something the controller is proposing
+*now* is made. It runs as you, through the same update as `pools edit` and `hosts edit`,
+so it needs the `operator` role, it is refused when it would leave a pool with nowhere to
+run, and it is on the audit trail. `--dry-run` says what it would change and changes
+nothing; `--target` picks one when several pools or hosts have a proposal for the same
+problem. The web UI's button on the problem and the MCP's `apply_remedy` do the same thing.
+
 ### `zoomies pools`
 
 What runners to make, and how many.
@@ -430,6 +451,7 @@ again.
 | `rerun_job` | Only with `--allow-actions`. `POST /jobs/{id}/rerun`; needs `operator`. |
 | `drain_runner` | Only with `--allow-actions`. `POST /runners/{id}/drain`, never with `confirm`, so a busy runner is refused rather than having its job stopped; needs `operator`. |
 | `update_pool` | Only with `--allow-actions`. `PATCH /pools/{id}` for a pool's smallest runner (`min_cpus`, `min_memory_mb`), its Docker sidecar's shares (`daemon_cpu_share_percent`, `daemon_memory_share_percent`) and its CPU burst ceiling (`cpu_burst_max_cpus`). Every other setting of the pool is carried forward, because the API replaces `resources` and `cpu_burst` whole. Never with `confirm`, so a change that would leave the pool with no host that could run it is refused; needs `operator`. |
+| `apply_remedy` | Only with `--allow-actions`. `POST /problems/apply`: make the change a problem proposes, as `list_problems` shows it in the problem's `remedy`. You name the problem (`code`, `target_id`) and the proposal you read (`remedy_id`), never the change; the controller applies what it proposes now, as the pool's or host's own update, so it needs that update's role and is refused when it would leave a pool with nowhere to run; needs `operator`. |
 | `update_host` | Only with `--allow-actions`. `PATCH /hosts/{id}` for a host's capacity, reserve and runner sizes (`standard_cpus`, `standard_memory_mb`, `min_cpus`, `min_memory_mb`, `burst_max_cpus`), with the rest of its runner profile carried forward. A capacity of zero is refused: stopping a host taking runners is for a person to do by cordoning it; needs `operator`. |
 
 #### Straight to the controller
@@ -462,7 +484,7 @@ it is never committed:
 It takes a bearer token and nothing else — a browser session is refused — and
 every tool is the documented route called with that token, so the controller
 applies the token's role and scopes to each call exactly as it would to the
-CLI's. There is no `--allow-actions` here: `rerun_job`, `drain_runner`, `update_pool` and `update_host` are
+CLI's. There is no `--allow-actions` here: `rerun_job`, `drain_runner`, `update_pool`, `update_host` and `apply_remedy` are
 offered when the token's role reaches them and not otherwise, so a `viewer`
 token is a read-only agent. A client that signs in with OAuth, such as a custom
 connector on claude.ai, needs no token at all: see

@@ -358,8 +358,29 @@ func (c *Controller) daemonShareAdviceProblems(ctx context.Context, out *[]Probl
 				change.MemoryPercent = adv.Memory.Proposed
 			}
 		}
+		var remedy *Remedy
+		if change != nil {
+			// The request is the pool's own resources with only the proposed shares
+			// changed, because an update replaces them whole.
+			res := p.Resources
+			var words []string
+			if change.CPUPercent > 0 {
+				res.DaemonCPUSharePercent = change.CPUPercent
+				words = append(words, fmt.Sprintf("%d%% of the CPU", change.CPUPercent))
+			}
+			if change.MemoryPercent > 0 {
+				res.DaemonMemorySharePercent = change.MemoryPercent
+				words = append(words, fmt.Sprintf("%d%% of the memory", change.MemoryPercent))
+			}
+			effect := ""
+			if room.Runners > 0 {
+				effect = fmt.Sprintf("the pool's hosts keep room for all %s", plural(room.Runners, "runner"))
+			}
+			remedy = newRemedy(RemedyPoolUpdate, p.ID, "Give the sidecar "+strings.Join(words, " and "), effect, map[string]any{"resources": res})
+		}
 		*out = append(*out, Problem{
 			DaemonShare: change,
+			Remedy:      remedy,
 			Code:        "pool.daemon_share_suggested",
 			Severity:    config.SeverityInfo,
 			Title:       fmt.Sprintf("pool %s: %s", p.Name, strings.Join(titles, "; and ")),

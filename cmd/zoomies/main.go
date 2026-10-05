@@ -97,6 +97,7 @@ func commands() []*command {
 		{"status", groupFleet, "The Overview, in a terminal", runStatus},
 		{"pools", groupFleet, "What runners to make, and how many", runPools},
 		{"runners", groupFleet, "The runners that exist right now", runRunners},
+		{"problems", groupFleet, "What is wrong, and the changes the controller proposes for it", runProblems},
 		{"jobs", groupFleet, "Job history, queue waits and outcomes", runJobs},
 		{"size-pins", groupFleet, "Put a job, or a repository, in a size class by hand", runSizePins},
 		{"auto-pools", groupFleet, "What the controller keeps for each size of host", runAutoPools},

@@ -1236,6 +1236,15 @@ func (s *Server) handleUpdatePool(w http.ResponseWriter, r *http.Request) {
 		unprocessable(w, "this pool cannot be changed as described", []fieldError{{"auto", "this pool was made by somebody, not kept by the controller, so it has no warm count, cap or pause of that kind; use min_runners, max_runners and enabled"}})
 		return
 	}
+	s.applyPoolUpdate(w, r, id, existing, &in)
+}
+
+// applyPoolUpdate is the half of a pool's update that comes after its request has
+// been read: validate, refuse a change that strands the pool, save, audit and
+// publish. It is the whole of what changing a pool means, so a change that does not
+// arrive as a PATCH -- a remedy a problem proposed -- goes through it too, and not
+// round it.
+func (s *Server) applyPoolUpdate(w http.ResponseWriter, r *http.Request, id string, existing *store.Pool, in *poolInput) {
 	before := *existing
 	updated := *existing
 	errs := in.apply(&updated)

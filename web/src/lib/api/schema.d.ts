@@ -1124,6 +1124,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/problems/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apply the change a problem proposes
+         * @description Some problems carry a `remedy`: a change the controller has worked out and
+         *     priced against the fleet, as the update that makes it. This applies one.
+         *
+         *     The request names the suggestion, never the change. The problems are worked
+         *     out again now and only a remedy among them is applied, so a stale page, a
+         *     replayed request or a forged one cannot make a change the controller does not
+         *     currently propose. Send `remedy_id` to apply exactly what was on screen; a
+         *     409 says the proposal has since changed.
+         *
+         *     The update runs as the caller through the same code as `PATCH /pools/{id}` or
+         *     `PATCH /hosts/{id}`, so it needs that route's role (the answer says which is
+         *     missing), it is refused for what that route refuses -- including a change that
+         *     would leave a pool with no host that could run it, which is never overridden
+         *     here -- and it writes that route's audit row, plus a `problem.remedy_applied`
+         *     row saying which suggestion asked.
+         */
+        post: operations["applyRemedy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/scaling-events": {
         parameters: {
             query?: never;
@@ -4034,6 +4068,57 @@ export interface components {
          * @enum {string}
          */
         SettingSource: "default" | "file" | "database" | "environment";
+        /** @description A change a problem proposes, as the update that makes it, with what the controller priced it at. Apply it with `POST /problems/apply`; the `body` is informational, since the controller applies what it currently proposes and not what a client sends. */
+        Remedy: {
+            /**
+             * @description Names this exact change. Send it back so an apply is for what was shown; a different proposal has a different ID.
+             * @example rem_3f9a2c71b0de
+             */
+            id: string;
+            /**
+             * @description The button
+             * @example Give the sidecar 20% of the CPU
+             */
+            label: string;
+            /**
+             * @description What it was priced at, said before it is applied.
+             * @example the pool's hosts keep room for all 6 runners
+             */
+            effect?: string;
+            /**
+             * @description Which update this is, and so which role may apply it.
+             * @enum {string}
+             */
+            kind: "pool.update" | "host.update";
+            /** @description The pool or host it changes. */
+            target_id: string;
+            /** @description The request of that update. */
+            body: {
+                [key: string]: unknown;
+            };
+        };
+        ApplyRemedyRequest: {
+            /** @example pool.daemon_share_suggested */
+            code: string;
+            /** @example pool_k3f9qz2m */
+            target_id: string;
+            /** @description The remedy's `id` from the problem that was shown. Optional. */
+            remedy_id?: string;
+        };
+        ApplyRemedyResponse: {
+            applied: boolean;
+            remedy: {
+                id: string;
+                label: string;
+                /** @enum {string} */
+                kind: "pool.update" | "host.update";
+                target_id: string;
+            };
+            /** @description What the pool's or host's own update answered, as `PATCH` returns it. */
+            result: {
+                [key: string]: unknown;
+            };
+        };
         Problem: {
             /** @example bind.public_no_tls */
             code: string;
@@ -4070,6 +4155,7 @@ export interface components {
              *     ]
              */
             alternatives?: components["schemas"]["BackendKind"][];
+            remedy?: components["schemas"]["Remedy"];
             /** @description For `pool.daemon_share_suggested`: the sidecar shares it proposes, as a percentage of the slot, so the UI can apply them in one click with `PATCH /pools/{id}`. A resource left out is one with no advice, or advice that would cost the pool runners. */
             daemon_share?: {
                 /** @example 20 */
@@ -9996,6 +10082,34 @@ export interface operations {
                     };
                 };
             };
+        };
+    };
+    applyRemedy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyRemedyRequest"];
+            };
+        };
+        responses: {
+            /** @description Applied */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApplyRemedyResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
         };
     };
     listScalingEvents: {

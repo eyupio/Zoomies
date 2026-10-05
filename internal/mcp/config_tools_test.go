@@ -20,8 +20,8 @@ type recorder struct {
 func (r *recorder) Call(_ context.Context, _, _ string, _ url.Values) ([]byte, error) {
 	return []byte(r.object), nil
 }
-func (r *recorder) CallBody(_ context.Context, method, _ string, _ url.Values, body []byte) ([]byte, error) {
-	if method != http.MethodPatch {
+func (r *recorder) CallBody(_ context.Context, method, path string, _ url.Values, body []byte) ([]byte, error) {
+	if method != http.MethodPatch && !(method == http.MethodPost && path == "/problems/apply") {
 		return nil, refusal{http.StatusMethodNotAllowed}
 	}
 	r.sent = append(r.sent, string(body))
@@ -98,5 +98,30 @@ func TestSizingToolsAreActions(t *testing.T) {
 	}
 	if !got["update_pool"] || !got["update_host"] {
 		t.Errorf("update_pool and update_host change the fleet and must be action tools: %v", got)
+	}
+}
+
+// An agent names the problem and the proposal it read, never the change: the
+// controller applies what it proposes now, as the caller.
+func TestApplyRemedySendsTheProblemAndNeverTheChange(t *testing.T) {
+	r := &recorder{object: `{}`}
+	if _, err := call(t, "apply_remedy", r, `{"code":"host.slots_below_capacity","target_id":"host_1","remedy_id":"rem_aaa"}`); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.sent) != 1 {
+		t.Fatalf("sent %v", r.sent)
+	}
+	var got map[string]string
+	if err := json.Unmarshal([]byte(r.sent[0]), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["code"] != "host.slots_below_capacity" || got["target_id"] != "host_1" || got["remedy_id"] != "rem_aaa" || len(got) != 3 {
+		t.Errorf("sent %v; want the problem, its target and the proposal's id and nothing else", got)
+	}
+	if _, err := call(t, "apply_remedy", r, `{"code":"host.slots_below_capacity","target_id":"host_1","body":{}}`); err == nil {
+		t.Error("a call that tries to send its own change must be refused by the schema")
+	}
+	if _, err := call(t, "apply_remedy", r, `{"target_id":"host_1"}`); err == nil {
+		t.Error("a call with no problem code must be refused")
 	}
 }

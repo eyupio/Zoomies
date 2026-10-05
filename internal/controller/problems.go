@@ -59,6 +59,10 @@ type Problem struct {
 	// to parse "--daemon-cpu-share 20" out of a sentence would be one reworded
 	// sentence from applying the wrong figure.
 	DaemonShare *DaemonShareChange `json:"daemon_share,omitempty"`
+	// Remedy is the change the controller proposes, as the update that makes it:
+	// see remedy.go. Absent when the fix is a decision rather than a change, or
+	// when what would fix it has not been priced.
+	Remedy *Remedy `json:"remedy,omitempty"`
 	// Since is when the situation started, where that is knowable.
 	Since *time.Time `json:"since,omitempty"`
 	// Audience is whose problem this is. It is filled in by Problems() from
@@ -210,6 +214,9 @@ var problemAudience = map[string]Audience{
 	"pool.tmpfs_suggested":                          AudienceFleet,
 	"pool.tmpfs_auto_on_disk":                       AudienceFleet,
 	"pool.daemon_share_suggested":                   AudienceFleet,
+	"host.slots_below_capacity":                     AudienceFleet,
+	"pool.minimum_overcharges":                      AudienceFleet,
+	"host.work_concentrated":                        AudienceFleet,
 	"pool.tmpfs_unsupported":                        AudienceFleet,
 	"provider.bootstrap_failed":                     AudienceFleet,
 	"provider.contract_unsupported":                 AudienceFleet,
@@ -397,6 +404,9 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	gather("in-memory folders by host", c.tmpfsHostProblems)
 	gather("the memory valve", c.memoryValveProblems)
 	gather("sidecar share", c.daemonShareAdviceProblems)
+	gather("host capacity", c.hostCapacityAdviceProblems)
+	gather("pool minimums", c.poolMinimumAdviceProblems)
+	gather("host concentration", c.hostConcentrationProblems)
 	gather("runner profiles", c.runnerProfileProblems)
 	gather("automatic pools", c.autoPoolProblems)
 	gather("label advice", c.labelAdviceProblems)

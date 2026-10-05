@@ -369,6 +369,10 @@ export const getPoolDefaults = (signal?: AbortSignal) =>
 export const listPoolPlatforms = (signal?: AbortSignal) =>
   api.get<Result<'listPoolPlatforms'>>('/pools/platforms', { signal });
 
+/** The change a problem proposes, applied as the caller; see ApplyRemedy.svelte. */
+export const applyRemedy = (body: Body<'applyRemedy'>) =>
+  api.post<Result<'applyRemedy'>>('/problems/apply', { body });
+
 export const updatePool = (id: string, body: Body<'updatePool'>, query?: Query<'updatePool'>) =>
   api.patch<Result<'updatePool'>>(`/pools/${enc(id)}`, { body, query });
 
