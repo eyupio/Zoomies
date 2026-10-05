@@ -24,7 +24,7 @@ func UpgradeSplash(ctx context.Context, out io.Writer) error {
 			return nil
 		}
 	}
-	return animateUpgradeSplash(ctx, out, ui, 45*time.Millisecond)
+	return animateUpgradeSplash(ctx, out, ui, 100*time.Millisecond)
 }
 
 func splashAllowed(ui Palette) bool {
