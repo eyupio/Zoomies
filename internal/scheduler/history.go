@@ -93,8 +93,15 @@ func Profile(peaks []store.JobPeak) Requirement {
 		if p.CPUs > 0 {
 			cpus = append(cpus, p.CPUs)
 		}
-		if p.MemoryMB > 0 {
-			m := p.MemoryMB
+		// A run the kernel killed needed more than the limit it hit, and that limit is
+		// the one figure known to have been too little: the sampled peak can read under
+		// it, because a spike between two 30-second samples is not seen. Taken as the
+		// higher of the two, as the size classes already do.
+		m := p.MemoryMB
+		if p.OOMKilled {
+			m = max(m, p.GrantedMemoryMB)
+		}
+		if m > 0 {
 			if p.OOMKilled {
 				m = int64(math.Ceil(float64(m) * ProfileOOMGrowth))
 			}
@@ -113,6 +120,31 @@ func Profile(peaks []store.JobPeak) Requirement {
 	return out
 }
 
+// killedNeed is the memory the largest of a job's killed runs needed: the limit it
+// hit, or its sampled peak if that is higher, with the growth a kill implies and the
+// margin every requirement carries. Zero when no run was killed.
+//
+// The percentile ignores the heaviest tenth, which is exactly where a single kill sits
+// once a job has about ten runs, so the placement path takes the larger of the two: a
+// kill is not an outlier of the ordinary kind but a size known to have failed. The
+// size classes do not use it, because they decide for themselves which kills still
+// count -- one from before the class last moved is what moved it.
+func killedNeed(peaks []store.JobPeak) int64 {
+	var need int64
+	for _, p := range peaks {
+		if !p.OOMKilled {
+			continue
+		}
+		limit := max(p.MemoryMB, p.GrantedMemoryMB)
+		if limit <= 0 {
+			continue
+		}
+		m := math.Ceil(float64(limit) * ProfileOOMGrowth * ProfileMemoryMargin)
+		need = max(need, int64(math.Ceil(m/profileMemoryStep))*profileMemoryStep)
+	}
+	return need
+}
+
 // percentileIndex is the nearest-rank position of ProfilePercentile in n
 // sorted samples.
 func percentileIndex(n int) int {
@@ -123,10 +155,12 @@ func percentileIndex(n int) int {
 // requirementFor is one queued job's requirement on p: its profile, never
 // below the pool's minimum where it says anything at all.
 func (t *tick) requirementFor(p *store.Pool, j *store.Job) Requirement {
-	r := Profile(t.history[store.JobUsageKey{Repo: j.Repo, Workflow: j.Workflow, JobName: j.JobName, PoolID: p.ID}])
+	peaks := t.history[store.JobUsageKey{Repo: j.Repo, Workflow: j.Workflow, JobName: j.JobName, PoolID: p.ID}]
+	r := Profile(peaks)
 	if !r.Known() {
 		return Requirement{}
 	}
+	r.MemoryMB = max(r.MemoryMB, killedNeed(peaks))
 	if r.CPUs > 0 {
 		r.CPUs = max(r.CPUs, p.Resources.MinCPUs)
 	}

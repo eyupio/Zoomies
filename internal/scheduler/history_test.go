@@ -212,3 +212,54 @@ func TestAJobNoHostCanEverFitIsReportedAndDoesNotBlockThePool(t *testing.T) {
 		t.Fatalf("HistoryUnfit = %q", pp.HistoryUnfit)
 	}
 }
+
+// A run killed by a spike between two 30-second samples can read well under the
+// limit it hit, and the limit is the one figure known to have been too little. Of
+// twelve runs the single kill sits in the ignored tail of the percentile, so
+// placement must size from the kill, or the next run is sized below the size that
+// already failed it.
+func TestAKilledRunIsPlacedFromTheLimitItHitNotTheSampleThatMissedTheSpike(t *testing.T) {
+	var peaks []store.JobPeak
+	for range 11 {
+		peaks = append(peaks, store.JobPeak{MemoryMB: 2000})
+	}
+	peaks = append(peaks, store.JobPeak{MemoryMB: 2000, OOMKilled: true, GrantedMemoryMB: 4096})
+	// The profile alone is the 90th percentile and misses it, as the size classes
+	// expect: they count kills themselves.
+	if got := Profile(peaks); got.MemoryMB >= 4096 {
+		t.Fatalf("the profile asks for %d MB; the percentile is meant to ignore the tail", got.MemoryMB)
+	}
+	// 4096 * 1.5 * 1.2 = 7372.8, rounded up to the next 64 MB.
+	if got := killedNeed(peaks); got != 7424 {
+		t.Errorf("a run killed at 4096 MB needed %d MB, want 7424", got)
+	}
+	// A kill with no granted size on its row is sized from its peak.
+	if got := killedNeed([]store.JobPeak{{MemoryMB: 2000, OOMKilled: true}}); got != 3648 {
+		t.Errorf("a kill with no granted size needed %d MB, want 3648", got)
+	}
+	if got := killedNeed([]store.JobPeak{{MemoryMB: 9000}}); got != 0 {
+		t.Errorf("a run that was not killed implies a need of %d MB", got)
+	}
+}
+
+// Placement reads the same history, and a job killed once in twelve runs is held
+// off a host that has the memory it was killed at: with the kill in the ignored
+// tail of the percentile the small host would otherwise take it again.
+func TestHistorySizingHoldsAJobOffTheHostItWasKilledOn(t *testing.T) {
+	s, p := historyFleet(t, HistoryOn, 0)
+	job := s.Jobs[0]
+	key := store.JobUsageKey{Repo: job.Repo, Workflow: job.Workflow, JobName: job.JobName, PoolID: p.ID}
+	var peaks []store.JobPeak
+	for range 11 {
+		peaks = append(peaks, store.JobPeak{CPUs: 2, MemoryMB: 500})
+	}
+	// Killed at a 2 GB limit the sample put at 500 MB: the small host's 3 GB cannot
+	// hold 2 GB * 1.5 * 1.2.
+	peaks = append(peaks, store.JobPeak{CPUs: 2, MemoryMB: 500, OOMKilled: true, GrantedMemoryMB: 2048})
+	s.JobHistory = map[store.JobUsageKey][]store.JobPeak{key: peaks}
+	pp := only(t, Decide(s))
+	creates := actionsOf(pp.Actions, ActionCreate)
+	if len(creates) != 1 || creates[0].HostID != "b-big" {
+		t.Fatalf("creates = %+v (%s); want the job placed on the big host, away from the one that killed it", creates, pp.Reason)
+	}
+}
