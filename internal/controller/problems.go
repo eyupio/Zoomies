@@ -1877,13 +1877,24 @@ func workflowText(s string) string {
 		switch {
 		case r == '`':
 			r = '\''
-		case unicode.IsControl(r) || (r >= '\u202a' && r <= '\u202e') || (r >= '\u2066' && r <= '\u2069'):
+		case unicode.IsControl(r) || isBidiControl(r):
 			r = ' '
 		}
 		b.WriteRune(r)
 		runes++
 	}
 	return b.String()
+}
+
+// isBidiControl is every character that changes the direction text is shown in, or
+// where a line ends: the Arabic letter mark, the left-to-right and right-to-left marks,
+// the embeddings and overrides, the isolates, and the line and paragraph separators.
+// None is a control character to unicode.IsControl, and each can reorder what a
+// terminal or a browser shows of a name a workflow author wrote.
+func isBidiControl(r rune) bool {
+	return r == '\u061c' || r == '\u200e' || r == '\u200f' ||
+		(r >= '\u202a' && r <= '\u202e') || (r >= '\u2066' && r <= '\u2069') ||
+		r == '\u2028' || r == '\u2029'
 }
 
 // capitalise upper-cases the first letter of a sentence written to be joined

@@ -68,7 +68,7 @@ func runTune(ctx context.Context, e *env, args []string) error {
 	if *restartPending && (*revert || *dedicated || *force || *background || *only != "" || *skip != "") {
 		return usagef("tune", "--restart-pending only restarts Docker for a change already made; it cannot be combined with --revert, --dedicated, --force, --background, --only or --skip")
 	}
-	if (*force || *background || *restartPending) && !*dry && !*revert {
+	if (*force || *background || *restartPending) && !*dry {
 		// A maintenance restart takes a host out of service by stopping the Zoomies
 		// systemd units, and a container deployment has none: the controller is a
 		// container, which the wait counted as running work and --kill-running stopped and

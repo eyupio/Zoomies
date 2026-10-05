@@ -141,3 +141,16 @@ func TestStatusPrintsHostileNamesInProblemsWithoutControlCharacters(t *testing.T
 		t.Errorf("a newline in a name forged a row:\n%q", out)
 	}
 }
+
+// A bidirectional mark is not a control character, and each can reorder what a terminal
+// shows of a name a workflow author wrote.
+func TestPlainReplacesEveryBidirectionalMark(t *testing.T) {
+	for _, r := range []rune{'؜', '‎', '‏', '‪', '‮', '⁦', '⁩', ' ', ' '} {
+		if got := plain("a" + string(r) + "b"); strings.ContainsRune(got, r) {
+			t.Errorf("%U passed through plain: %q", r, got)
+		}
+	}
+	if got := plain("build ci"); got != "build ci" {
+		t.Errorf("an ordinary name changed: %q", got)
+	}
+}

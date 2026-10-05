@@ -159,7 +159,7 @@ func TestAMaintenanceRestartIsRefusedOnAHostThatRunsZoomiesInAContainer(t *testi
 	if err := os.WriteFile(installer.DeploymentRecordPath(dir), []byte(record), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, args := range [][]string{{"tune", "--force"}, {"tune", "--force", "--background"}, {"tune", "--restart-pending"}} {
+	for _, args := range [][]string{{"tune", "--force"}, {"tune", "--force", "--background"}, {"tune", "--restart-pending"}, {"tune", "--revert", "--force", "--yes", "--kill-running"}} {
 		e, _, errOut := newTestEnv(t)
 		t.Setenv("ZOOMIES_CONFIG_DIR", dir)
 		if code := dispatch(context.Background(), e, args); code == exitOK {
