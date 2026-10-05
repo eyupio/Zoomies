@@ -25,6 +25,10 @@ type valveBackend struct {
 	usageMB    map[string]int64
 	raises     []raisedLimit
 	raiseErr   error
+	// listErr and usageErr are the daemon failing to answer, as opposed to the
+	// container having gone.
+	listErr  error
+	usageErr map[string]error
 	// looks counts the calls made, so a test can see what a tick cost.
 	listings, readings int
 }
@@ -91,6 +95,9 @@ func (b *valveBackend) MemoryContainers(_ context.Context, h backend.Handle) ([]
 	b.vmu.Lock()
 	defer b.vmu.Unlock()
 	b.listings++
+	if b.listErr != nil {
+		return nil, b.listErr
+	}
 	cs, ok := b.containers[h]
 	if !ok {
 		return nil, backend.ErrNotFound
@@ -102,6 +109,9 @@ func (b *valveBackend) MemoryUsage(_ context.Context, container string) (backend
 	b.vmu.Lock()
 	defer b.vmu.Unlock()
 	b.readings++
+	if err := b.usageErr[container]; err != nil {
+		return backend.MemoryReading{}, err
+	}
 	usage, ok := b.usageMB[container]
 	if !ok {
 		return backend.MemoryReading{}, backend.ErrNotFound
@@ -688,5 +698,217 @@ func TestTheAgentSaysItCanLendMemoryOnlyWhereItCanCheckTheHost(t *testing.T) {
 		if !found {
 			t.Errorf("the feature %q was dropped", f)
 		}
+	}
+}
+
+// Which of two runners as pressed as each other a short pool serves is decided
+// by the order of their names, not by the order the goroutines that looked at
+// them happened to finish in.
+func TestRunnersAsPressedAsEachOtherAreServedInTheOrderOfTheirNames(t *testing.T) {
+	for i := range 40 {
+		v := newValveAgent(t)
+		a := v.be.runner("wl-a", 1000, 1000, 900)
+		b := v.be.runner("wl-b", 1000, 1000, 900)
+		v.run("run_a", "wl-a")
+		v.run("run_b", "wl-b")
+		// Each wants 900 plus a third, 1216 in whole steps: 216 more. The pool
+		// holds exactly that for one of them.
+		v.tell(216, 1024, auto("run_a", 1000, 4000), auto("run_b", 1000, 4000))
+		v.tick()
+		la, _ := v.be.limitOf(a)
+		lb, _ := v.be.limitOf(b)
+		if la <= 1000 || lb != 1000 {
+			t.Fatalf("round %d: run_a holds %d MB and run_b %d, want the first served and the second left short", i, la, lb)
+		}
+	}
+}
+
+// A runner whose job has ended is tracked until its workload is removed, but
+// its containers hold nothing, and the controller's capacity already treats what
+// it was lent as free.
+func TestAFinishedRunnersLoanIsNotCountedAgainstThePool(t *testing.T) {
+	v := newValveAgent(t)
+	a := v.be.runner("wl-a", 1000, 1000, 900)
+	v.run("run_a", "wl-a")
+	// The pool holds one raise and a little over: 300, where each runner wants 216.
+	v.tell(300, 1024, auto("run_a", 1000, 4000))
+	v.tick()
+	if limit, _ := v.be.limitOf(a); limit != 1216 {
+		t.Fatalf("limit = %d MB, want run_a raised first", limit)
+	}
+
+	v.Agent.mu.Lock()
+	v.Agent.runners["run_a"].terminal = true
+	v.Agent.mu.Unlock()
+	b := v.be.runner("wl-b", 1000, 1000, 900)
+	v.run("run_b", "wl-b")
+	v.tell(300, 1024, auto("run_b", 1000, 4000))
+	v.tick()
+	if limit, _ := v.be.limitOf(b); limit != 1216 {
+		t.Fatalf("run_b holds %d MB, want it raised in full to 1216 out of what run_a's finished job gave back", limit)
+	}
+}
+
+// The second container of a docker-in-docker pair is decided on what the first
+// left of the host's free memory, not on the reading the tick began with, or a
+// pair could be lent twice what the host has to spare.
+func TestAPairsSecondContainerIsDecidedOnWhatTheFirstLeft(t *testing.T) {
+	v := newValveAgent(t)
+	runner := v.be.runner("wl-a", 2048, 2048, 1900)
+	sidecar := v.be.sidecar("wl-a", 2048, 2048, 1900)
+	v.run("run_a", "wl-a")
+	// 2648 free above a floor of 2048 leaves 600 to lend; each container asks
+	// for 448.
+	v.setHost(&machine.Memory{TotalMB: 16384, AvailableMB: 2648, SwapTotalMB: 4096, SwapFreeMB: 4096})
+	v.tell(8192, 2048, auto("run_a", 4096, 8192))
+	v.tick()
+	lr, _ := v.be.limitOf(runner)
+	ls, _ := v.be.limitOf(sidecar)
+	if lent := (lr - 2048) + (ls - 2048); lent > 600 || lent < 600 {
+		t.Fatalf("the pair was lent %d MB (%d and %d), want exactly the 600 the host had to spare", lent, lr-2048, ls-2048)
+	}
+}
+
+// Looks that read nothing look exactly like looks of a healthy runner from the
+// outside, and an observing pool's evidence -- "it never came near a limit" --
+// would be empty rather than true. After a few in a row the runner says so.
+func TestARunnerWhoseMemoryCannotBeReadSaysSoAfterThreeLooks(t *testing.T) {
+	v := newValveAgent(t)
+	v.be.runner("wl-a", 4096, 4096, 500)
+	v.run("run_a", "wl-a")
+	v.tell(8192, 2048, auto("run_a", 4096, 6144))
+	v.be.vmu.Lock()
+	v.be.listErr = errors.New("the stats endpoint answered 403")
+	v.be.vmu.Unlock()
+
+	for range 2 {
+		v.tick()
+	}
+	if got := v.report("run_a"); got != nil && got.Code == string(MemoryFailed) {
+		t.Fatalf("report = %+v after two failed looks, want it still said to be healthy: one is a busy daemon", got)
+	}
+	v.tick()
+	got := v.report("run_a")
+	if got == nil || got.Code != string(MemoryFailed) || !strings.Contains(got.Reason, "could not be read") || !strings.Contains(got.Reason, "403") {
+		t.Fatalf("report = %+v after three failed looks, want failed with the reason", got)
+	}
+
+	v.be.vmu.Lock()
+	v.be.listErr = nil
+	v.be.vmu.Unlock()
+	v.tick()
+	if got := v.report("run_a"); got == nil || got.Code != string(MemoryHealthy) {
+		t.Fatalf("report = %+v once it can be read again, want healthy", got)
+	}
+}
+
+// One container of a pair that cannot be read this time is still there, and
+// what it was lent is still lent: dropped from the record, its loan would leave
+// the pool and its limit would leave the pair's ceiling until the next
+// rediscovery.
+func TestAContainerThatCannotBeReadIsCarriedAtItsLastFigures(t *testing.T) {
+	v := newValveAgent(t)
+	v.be.runner("wl-a", 2048, 2048, 1500)
+	sidecar := v.be.sidecar("wl-a", 2048, 2560, 1900)
+	v.run("run_a", "wl-a")
+	v.tell(8192, 2048, auto("run_a", 4096, 8192))
+	v.tick()
+	if got := v.report("run_a"); got == nil || got.LentBytes != 512*megabyte {
+		t.Fatalf("report = %+v, want the sidecar's 512 MB loan counted", got)
+	}
+
+	v.be.vmu.Lock()
+	v.be.usageErr = map[string]error{sidecar: errors.New("the daemon timed out")}
+	v.be.vmu.Unlock()
+	v.tick()
+	got := v.report("run_a")
+	if got == nil || got.LentBytes != 512*megabyte {
+		t.Fatalf("report = %+v after the sidecar could not be read, want its loan still counted", got)
+	}
+}
+
+// A job that has ended is reported by the reconcile pass as well as by the
+// heartbeat, and the controller replaces a runner's whole sample with the latest
+// report. A report that left the valve's word out would blank the runner's
+// memory facts until the next heartbeat put them back.
+func TestAReconcileReportOfALiveRunnerCarriesTheValvesWord(t *testing.T) {
+	a, _, be, _ := newAgent(t, 2)
+	a.polled.Store(true)
+	track(a, "run_a", "wl-a", true)
+	be.setWorkloads(running("wl-a", "run_a"))
+	a.applyMemoryDirective(&ElasticMemoryDirective{CapacityMB: 4096, FloorMB: 1024, Runners: []ElasticMemoryRunner{auto("run_a", 4096, 6144)}})
+
+	reports, err := a.ReconcileOnce(context.Background())
+	if err != nil {
+		t.Fatalf("ReconcileOnce: %v", err)
+	}
+	if len(reports) != 1 {
+		t.Fatalf("reports = %+v, want one", reports)
+	}
+	if got := reports[0].Stats.MemoryValve; got == nil || got.Mode != "automatic" {
+		t.Fatalf("the reconcile report said %+v of the valve, want what the heartbeat says", got)
+	}
+}
+
+// The reconcile pass reads a copy of each runner outside the lock, and the
+// heartbeat and the guard write the valve under it, so a copy that shared the
+// valve was a data race and, between a nil check and a read, a nil dereference
+// that would have taken the agent down. The race detector is what fails this.
+func TestAReportOfARemovedRunnerNeverReadsTheValveOutsideTheLock(t *testing.T) {
+	a, _, be, _ := newAgent(t, 2)
+	a.polled.Store(true)
+	tr := track(a, "run_a", "wl-a", true)
+	a.mu.Lock()
+	tr.hostRemoved = true
+	a.mu.Unlock()
+	be.setWorkloads()
+	rule := ElasticMemoryDirective{CapacityMB: 4096, FloorMB: 1024, Runners: []ElasticMemoryRunner{auto("run_a", 4096, 6144)}}
+	a.applyMemoryDirective(&rule)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := range 300 {
+			if i%2 == 0 {
+				a.applyMemoryDirective(nil)
+			} else {
+				a.applyMemoryDirective(&rule)
+			}
+		}
+	}()
+	for range 300 {
+		if _, err := a.ReconcileOnce(context.Background()); err != nil {
+			t.Fatalf("ReconcileOnce: %v", err)
+		}
+	}
+	<-done
+}
+
+// A daemon on another machine cannot be checked against this one's procfs, so
+// the valve is not offered for it.
+func TestARemoteDaemonIsNotOfferedTheValve(t *testing.T) {
+	if !machine.MemoryReadable() {
+		t.Skip("this host's memory cannot be read, so the valve is never offered here at all")
+	}
+	a, _, _, _ := newAgent(t, 2)
+	has := func() bool {
+		for _, f := range a.features() {
+			if f == FeatureElasticMemory {
+				return true
+			}
+		}
+		return false
+	}
+	a.mu.Lock()
+	a.backendInfo = []backend.Info{{Kind: store.BackendDocker, Available: true, Endpoint: "unix:///var/run/docker.sock"}}
+	a.mu.Unlock()
+	if !has() {
+		t.Fatal("a daemon on this machine was not offered the valve")
+	}
+	a.mu.Lock()
+	a.backendInfo = []backend.Info{{Kind: store.BackendDocker, Available: true, Endpoint: "tcp://10.0.0.5:2375"}}
+	a.mu.Unlock()
+	if has() {
+		t.Fatal("a daemon on another machine was offered the valve, though every decision for it would be \"unmeasured\"")
 	}
 }

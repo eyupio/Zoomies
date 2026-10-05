@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -47,6 +48,13 @@ const (
 	memoryNearShare = 0.90
 	// memoryWorkers bounds the looks made at once.
 	memoryWorkers = 4
+	// memoryFailedLooks is how many looks in a row may fail to read a runner's
+	// containers before the runner says so. One is a daemon that was busy; three
+	// are a daemon that will not answer, or a runtime whose stats this guard
+	// cannot read, and a runner reporting "healthy" over that is evidence of
+	// nothing -- least of all in observe mode, whose whole product is the claim
+	// that a pool never came near a limit.
+	memoryFailedLooks = 3
 )
 
 // valveContainer is one container of a watched runner: what the daemon says it
@@ -86,6 +94,10 @@ type memoryValve struct {
 	// one whose pool's jobs use the valve, whatever it did after.
 	nearLimit bool
 	raises    int
+	// lookFailures counts the looks in a row that could not read everything they
+	// looked at, and lastFailure is why.
+	lookFailures int
+	lastFailure  string
 	// warned keeps a failing update to one warning per reason per runner.
 	warned map[string]bool
 }
@@ -162,7 +174,17 @@ type memoryRules struct {
 // check a loan against, and a loan that cannot be checked is not made.
 func (a *Agent) features() []string {
 	out := []string{FeatureElasticCPU, FeatureToolCacheFill, FeatureTmpfs}
-	if a.opts.ReadMemory != nil || machine.MemoryReadable() {
+	if a.opts.ReadMemory != nil {
+		return append(out, FeatureElasticMemory)
+	}
+	// A daemon on another machine cannot be checked against this one's procfs,
+	// so every decision here would be "unmeasured": offering the valve there
+	// would have the controller send rules that can never be carried out and
+	// say nothing about it.
+	a.mu.Lock()
+	remote := remoteDaemon(a.backendInfo)
+	a.mu.Unlock()
+	if machine.MemoryReadable() && !remote {
 		out = append(out, FeatureElasticMemory)
 	}
 	return out
@@ -207,7 +229,8 @@ func (a *Agent) guardMemory(ctx context.Context) {
 	if len(jobs) == 0 {
 		return
 	}
-	looks := a.takeMemoryLooks(ctx, jobs, now)
+	looks, failed := a.takeMemoryLooks(ctx, jobs, now)
+	a.noteMemoryLookFailures(failed)
 	if len(looks) == 0 {
 		return
 	}
@@ -225,7 +248,10 @@ func (a *Agent) guardMemory(ctx context.Context) {
 		case px < py:
 			return 1
 		}
-		return 0
+		// Runners as pressed as each other are served in the order of their
+		// names, so that which of two a short pool leaves wanting does not depend
+		// on the order the goroutines that looked at them finished in.
+		return strings.Compare(x.runnerID, y.runnerID)
 	})
 	for _, look := range looks {
 		// The containers are stored before anything is decided about them, so
@@ -262,6 +288,16 @@ type memoryLook struct {
 	memoryJob
 	containers []valveContainer
 	usageMB    map[string]int64
+	// err is the first container the look could not read, kept in the record at
+	// the figures it last had rather than dropped from it.
+	err error
+}
+
+// memoryLookFailure is a look that read nothing, and why.
+type memoryLookFailure struct {
+	runnerID string
+	handle   backend.Handle
+	err      error
 }
 
 // pressure is how close the runner's most pressed container is to its limit, as
@@ -313,12 +349,13 @@ func (a *Agent) dueMemoryLooks(now time.Time) []memoryJob {
 
 // takeMemoryLooks reads the memory of every container of the due runners, a few
 // at a time. A runner whose look fails is left for the next tick.
-func (a *Agent) takeMemoryLooks(ctx context.Context, jobs []memoryJob, now time.Time) []memoryLook {
+func (a *Agent) takeMemoryLooks(ctx context.Context, jobs []memoryJob, now time.Time) ([]memoryLook, []memoryLookFailure) {
 	var (
-		mu    sync.Mutex
-		out   []memoryLook
-		wg    sync.WaitGroup
-		queue = make(chan memoryJob)
+		mu     sync.Mutex
+		out    []memoryLook
+		failed []memoryLookFailure
+		wg     sync.WaitGroup
+		queue  = make(chan memoryJob)
 	)
 	for range min(memoryWorkers, len(jobs)) {
 		wg.Add(1)
@@ -328,11 +365,15 @@ func (a *Agent) takeMemoryLooks(ctx context.Context, jobs []memoryJob, now time.
 				if ctx.Err() != nil {
 					continue
 				}
-				if look, ok := a.lookAtMemory(ctx, job, now); ok {
-					mu.Lock()
+				look, ok, err := a.lookAtMemory(ctx, job, now)
+				mu.Lock()
+				switch {
+				case ok:
 					out = append(out, look)
-					mu.Unlock()
+				case err != nil:
+					failed = append(failed, memoryLookFailure{runnerID: job.runnerID, handle: job.handle, err: err})
 				}
+				mu.Unlock()
 			}
 		}()
 	}
@@ -344,19 +385,21 @@ func (a *Agent) takeMemoryLooks(ctx context.Context, jobs []memoryJob, now time.
 	}
 	close(queue)
 	wg.Wait()
-	return out
+	return out, failed
 }
 
 // lookAtMemory finds a runner's containers, if they are not known, and reads
-// each one's memory.
-func (a *Agent) lookAtMemory(ctx context.Context, job memoryJob, now time.Time) (memoryLook, bool) {
+// each one's memory. The error is why a look that read nothing read nothing,
+// and is nil when there was simply nothing there to read: a runner that has
+// finished is an ordinary end of a job and not a failure.
+func (a *Agent) lookAtMemory(ctx context.Context, job memoryJob, now time.Time) (memoryLook, bool, error) {
 	b, err := a.opts.Backends.Get(job.kind)
 	if err != nil {
-		return memoryLook{}, false
+		return memoryLook{}, false, nil
 	}
 	u, ok := b.(backend.MemoryUpdater)
 	if !ok {
-		return memoryLook{}, false
+		return memoryLook{}, false, nil
 	}
 	lctx, cancel := context.WithTimeout(ctx, memoryLookTimeout)
 	defer cancel()
@@ -365,10 +408,11 @@ func (a *Agent) lookAtMemory(ctx context.Context, job memoryJob, now time.Time) 
 	if job.rediscov {
 		found, err := u.MemoryContainers(lctx, job.handle)
 		if err != nil {
-			if !errors.Is(err, backend.ErrNotFound) {
-				a.log.Debug("could not find a runner's containers for the memory valve", "runner", job.runnerID, "error", err)
+			if errors.Is(err, backend.ErrNotFound) {
+				return memoryLook{}, false, nil
 			}
-			return memoryLook{}, false
+			a.log.Debug("could not find a runner's containers for the memory valve", "runner", job.runnerID, "error", err)
+			return memoryLook{}, false, fmt.Errorf("finding its containers: %w", err)
 		}
 		containers = make([]valveContainer, 0, len(found))
 		for _, c := range found {
@@ -388,9 +432,20 @@ func (a *Agent) lookAtMemory(ctx context.Context, job memoryJob, now time.Time) 
 	for _, c := range containers {
 		reading, err := u.MemoryUsage(lctx, c.ID)
 		if err != nil {
-			if !errors.Is(err, backend.ErrNotFound) {
-				a.log.Debug("could not read a container's memory for the memory valve", "runner", job.runnerID, "error", err)
+			if errors.Is(err, backend.ErrNotFound) {
+				continue
 			}
+			a.log.Debug("could not read a container's memory for the memory valve", "runner", job.runnerID, "error", err)
+			if look.err == nil {
+				look.err = fmt.Errorf("reading the memory of container %s: %w", shortContainer(c.ID), err)
+			}
+			// A container that cannot be read this time is still there, and what it
+			// was lent is still lent: dropping it from the record would take its
+			// loan out of the pool and its limit out of the pair's ceiling until
+			// the next rediscovery. It is carried at the figures it last had.
+			c.PrevUsageMB = c.UsageMB
+			look.usageMB[c.ID] = c.UsageMB
+			look.containers = append(look.containers, c)
 			continue
 		}
 		look.usageMB[c.ID] = reading.UsageBytes >> 20
@@ -404,10 +459,54 @@ func (a *Agent) lookAtMemory(ctx context.Context, job memoryJob, now time.Time) 
 		look.containers = append(look.containers, c)
 	}
 	if len(look.containers) == 0 {
-		return memoryLook{}, false
+		return memoryLook{}, false, nil
 	}
 	look.rediscov = job.rediscov
-	return look, true
+	return look, true, nil
+}
+
+// noteMemoryLookFailures counts the looks that read nothing against the runners
+// they were of, and has a runner say so once it has gone unread for
+// memoryFailedLooks looks in a row. A look that read some of a runner is
+// counted by finishMemoryLook.
+func (a *Agent) noteMemoryLookFailures(failed []memoryLookFailure) {
+	for _, f := range failed {
+		if a.countMemoryLookFailure(f.runnerID, f.handle, f.err) {
+			a.log.Warn("could not read a runner's memory, so the memory valve is blind to it; it will be tried again",
+				"runner", f.runnerID, "error", f.err)
+		}
+	}
+}
+
+// countMemoryLookFailure adds one failed look to a runner's count and reports
+// whether the warning for it is due: the first time the runner has gone unread
+// for this reason.
+func (a *Agent) countMemoryLookFailure(runnerID string, handle backend.Handle, err error) (warn bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	t := a.runners[runnerID]
+	if t == nil || t.valve == nil || t.handle != handle {
+		return false
+	}
+	v := t.valve
+	v.lookFailures++
+	v.lastFailure = err.Error()
+	if v.lookFailures < memoryFailedLooks {
+		return false
+	}
+	v.code, v.reason = MemoryFailed, unreadableReason(v.lastFailure)
+	if v.warned == nil {
+		v.warned = map[string]bool{}
+	}
+	first := !v.warned[v.lastFailure]
+	v.warned[v.lastFailure] = true
+	return first
+}
+
+// unreadableReason is the sentence a runner gives when its containers cannot be
+// read.
+func unreadableReason(why string) string {
+	return "its memory could not be read from the container runtime, so the valve cannot protect it: " + why
 }
 
 // hostMemory is the host's free memory and swap as it is now, and whether it
@@ -501,6 +600,11 @@ func (a *Agent) decideMemory(ctx context.Context, look memoryLook, rules memoryR
 			continue
 		}
 		taken += d.LimitMB - c.LimitMB
+		if measured {
+			// The second container of a pair is decided on what the first left,
+			// not on the reading the tick began with. host is this call's own copy.
+			host.AvailableMB = max(host.AvailableMB-(d.LimitMB-c.LimitMB), 0)
+		}
 		c.LimitMB, c.SwapMB = d.LimitMB, d.SwapMB
 		a.setReal(look.runnerID, c.ID, d)
 	}
@@ -517,7 +621,11 @@ func (a *Agent) memoryPoolMB(rules memoryRules, observing bool) int64 {
 	defer a.mu.Unlock()
 	var lent int64
 	for _, t := range a.runners {
-		if t.valve == nil {
+		// A runner whose job has ended is tracked until its workload is removed,
+		// and its containers hold no memory: the controller's capacity counts
+		// only live runners, so counting its loan here would refuse the next
+		// runner memory the host has.
+		if t.valve == nil || t.terminal || t.hostRemoved {
 			continue
 		}
 		real, _ := t.valve.lentMB()
@@ -655,6 +763,17 @@ func (a *Agent) finishMemoryLook(look memoryLook, code MemoryValveCode, reason s
 	v.code = code
 	if reason != "" {
 		v.reason = reason
+	}
+	if look.err == nil {
+		v.lookFailures, v.lastFailure = 0, ""
+		return
+	}
+	// Some of what was looked at could not be read. It is carried, and counted;
+	// a decision that says something is kept over saying it is unreadable.
+	v.lookFailures++
+	v.lastFailure = look.err.Error()
+	if v.lookFailures >= memoryFailedLooks && code == MemoryHealthy {
+		v.code, v.reason = MemoryFailed, unreadableReason(v.lastFailure)
 	}
 }
 

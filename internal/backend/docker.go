@@ -357,6 +357,15 @@ var _ Backend = (*DockerBackend)(nil)
 // inherits the implementation by embedding.
 var _ ResourceUpdater = (*DockerBackend)(nil)
 
+// The memory valve finds what it may call by asking the agent's backend whether
+// it is one of these, and an agent that finds it is not says nothing: a method
+// that drifted out of step would turn the valve off without an error. Podman
+// inherits the implementation by embedding, so it is asserted too.
+var (
+	_ MemoryUpdater = (*DockerBackend)(nil)
+	_ MemoryUpdater = (*PodmanBackend)(nil)
+)
+
 // NewDocker builds a Docker backend. It does not contact the daemon: a host
 // where Docker is not running must still be able to start an agent and report
 // the backend as unavailable, which is what Probe is for.

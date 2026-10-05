@@ -356,6 +356,12 @@ type tracked struct {
 	// valve is the memory valve's record of this runner, nil until the
 	// controller has a rule for it.
 	valve *memoryValve
+	// valveSample is what the valve said of this runner when the copy was made,
+	// and is set only on the copies snapshot and trackedRunners hand out. A copy
+	// shares the valve itself, which the guard loop and the heartbeat write under
+	// the lock, so a report built from a copy outside it must not read the valve:
+	// it reads this instead.
+	valveSample *backend.MemoryValveSample
 }
 
 func (t *tracked) report() RunnerReport {
@@ -365,7 +371,10 @@ func (t *tracked) report() RunnerReport {
 		factor = *t.appliedCPUFactor
 	}
 	stats.CPUAllocationFactor = factor
-	stats.MemoryValve = t.valve.sample()
+	stats.MemoryValve = t.valveSample
+	if t.valve != nil {
+		stats.MemoryValve = t.valve.sample()
+	}
 	return RunnerReport{
 		RunnerID:    t.runnerID,
 		HostRemoved: t.hostRemoved,
