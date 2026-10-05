@@ -434,7 +434,7 @@ test('every text control is at least 16px, so tapping one does not zoom the page
   // so a field a pixel under the line jumps a 360px page to roughly 410px of
   // effective width and runs the card off both edges, once per tap. Three
   // controls were written outside the primitives and missed it entirely: the
-  // page-size select, the date range, and the pool wizard's label field.
+  // page-size select, the date range, and the pool editor's label field.
   const PAGES = [
     { path: '/runners', heading: 'Runners' },
     { path: '/workflows', heading: 'Workflows' },
@@ -447,6 +447,9 @@ test('every text control is at least 16px, so tapping one does not zoom the page
   for (const { path, heading } of PAGES) {
     await goto(page, path, heading);
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    // The pool editor shows the first section's controls and shuts the rest;
+    // the rule is about every field it has, so open them all.
+    if (path === '/pools/new') await page.getByRole('button', { name: 'Expand all' }).click();
 
     const small = await page.evaluate(() =>
       Array.from(document.querySelectorAll('input, select, textarea'))
@@ -462,6 +465,61 @@ test('every text control is at least 16px, so tapping one does not zoom the page
     );
     expect(small, `${path}: every text control is 16px or more on a phone`).toEqual([]);
   }
+});
+
+/*
+ * The pool editor is the widest form in the product -- six sections, two
+ * dozen sliders, selectors and paths -- and the one an operator is most likely
+ * to use on a phone to change a single figure. It is checked section by
+ * section, in the states that widen it, because a form that is fine as it opens
+ * can still run off the screen once a Docker daemon, a memory folder and a long
+ * image reference are in it: an image reference is one long word, and the first
+ * run of this check found exactly that.
+ */
+test('the pool editor never scrolls sideways, in any section or state', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 780 });
+  const section = (id: string) =>
+    page.locator(`#pool-${id}`).getByRole('heading', { level: 2 }).getByRole('button');
+
+  await goto(page, '/pools/new', 'Create a pool');
+  await expectNoSidewaysScroll(page, 'the editor as it opens');
+  for (const id of ['hosts', 'runner', 'size', 'scaling', 'speed']) {
+    await section(id).click();
+    await expectNoSidewaysScroll(page, `the ${id} section`);
+  }
+
+  // The states that add controls.
+  await page.getByRole('radio', { name: /Yes, give each runner a Docker daemon/ }).check();
+  await page.getByRole('radio', { name: 'A fixed size on every host' }).check();
+  await expectNoSidewaysScroll(page, 'a fixed size with a daemon');
+  await page.getByRole('radio', { name: 'One share of each host' }).check();
+  await page.getByRole('radio', { name: 'Automatic boost' }).check();
+  await expectNoSidewaysScroll(page, 'elastic CPU on automatic');
+  await page.getByRole('checkbox', { name: 'Keep the work folder in memory' }).check();
+  await page.getByRole('checkbox', { name: 'Keep the Docker image store in memory' }).check();
+  await expectNoSidewaysScroll(page, 'folders kept in memory');
+  await page.getByRole('checkbox', { name: 'Keep a cache between runners' }).check();
+  await page.getByLabel('Isolation scope').selectOption('repository');
+  await expectNoSidewaysScroll(page, 'a cache per repository');
+
+  // One long word, in the field that takes one, and in the written-out pool.
+  await page.locator('summary', { hasText: 'Your own image' }).click();
+  await page
+    .getByRole('textbox', { name: 'Image', exact: true })
+    .fill('registry.example.invalid/some/very/long/image/name/that/goes/on/and/on:and-on-latest');
+  await expectNoSidewaysScroll(page, 'a long image reference');
+  await page.getByText('Every setting, as it will be created').click();
+  await expectNoSidewaysScroll(page, 'the pool written out with that image');
+
+  // An existing pool, with every section open.
+  const pools = (await page.request.get('/api/v1/pools').then((r) => r.json())) as {
+    items: { id: string; name: string }[];
+  };
+  const pool = pools.items.find((p) => p.name === FIXTURE.linuxPool)!;
+  await goto(page, `/pools/${pool.id}?edit=1`, FIXTURE.linuxPool);
+  await expectNoSidewaysScroll(page, 'an existing pool as it opens');
+  await page.getByRole('button', { name: 'Expand all' }).click();
+  await expectNoSidewaysScroll(page, 'an existing pool with every section open');
 });
 
 /*
@@ -673,13 +731,12 @@ test('a name nobody chose wraps rather than taking the page or Close off the scr
     await route.fulfill({ response, json: body });
   });
 
-  // The pool wizard names every host that would match, in a badge each. The
-  // hosts step is the advanced path's, so the fork is answered on the way.
+  // The pool editor names every host that would match, in a badge each, in the
+  // hosts section.
   await goto(page, '/pools/new', 'Create a pool');
-  await page.getByRole('radio', { name: 'Advanced' }).check();
-  for (let step = 0; step < 3; step++) await page.getByRole('button', { name: 'Next' }).click();
+  await page.locator('#pool-hosts').getByRole('heading', { level: 2 }).getByRole('button').click();
   await expect(page.getByText(hostile).first()).toBeVisible();
-  await expectNoSidewaysScroll(page, 'the pool wizard naming a long host');
+  await expectNoSidewaysScroll(page, 'the pool editor naming a long host');
 
   // The job drawer is titled with the job's name.
   await goto(page, '/jobs', 'Jobs');
