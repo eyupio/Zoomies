@@ -23,7 +23,7 @@ func TestDogSprintPlaysOnceAndClearsItsLines(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := out.String()
-	if strings.Count(text, "zoomies") != 21 || strings.Count(text, "🐕") != 21 {
+	if strings.Count(text, "zoomies") != 20 || strings.Count(text, "/ upgrade") != 20 {
 		t.Fatalf("unexpected frames: %q", text)
 	}
 	if !strings.HasSuffix(text, splashClear) {
@@ -70,5 +70,20 @@ func TestSplashRespectsTerminalAndMotionPreferences(t *testing.T) {
 	t.Setenv("ZOOMIES_NO_ANIMATION", "1")
 	if splashAllowed(Palette{On: true}) {
 		t.Fatal("motion preference ignored")
+	}
+}
+
+func TestDogFramesStayInsideReservedTerminalArea(t *testing.T) {
+	for step := range 20 {
+		frame := splashFrame(step, Palette{})
+		lines := strings.Split(strings.ReplaceAll(frame, "\x1b[2K", ""), "\n\r")
+		if len(lines) != splashLines {
+			t.Fatalf("frame %d: %d rows", step, len(lines))
+		}
+		for _, line := range lines {
+			if len(line) >= 32 {
+				t.Fatalf("frame %d would wrap: %q", step, line)
+			}
+		}
 	}
 }

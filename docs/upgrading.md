@@ -21,8 +21,8 @@ upgrade both when they share the installed binary. An active native host-health
 reporter using that binary is restarted too. Use `--mode controller` or
 `--mode agent` to select one service explicitly.
 
-At a colour-capable terminal, a brief dog-and-squirrel chase with a fading trail runs
-beneath the Zoomies wordmark before the stages begin. It plays once, including when the command
+At a colour-capable terminal, a brief ASCII dog animation runs beneath the
+Zoomies wordmark, with a running gait, wagging tail and a closing wink before the stages begin. It plays once, including when the command
 continues in a downloaded binary. Use `--no-animation` or set
 `ZOOMIES_NO_ANIMATION=1` to skip it. `NO_COLOR`, `TERM=dumb`, `--check`,
 `--non-interactive` and redirected output also skip the animation.
