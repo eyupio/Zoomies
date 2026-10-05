@@ -466,19 +466,26 @@ func heldWithoutMemoryValve(p *store.Pool, hosts []PoolHostRoom) (Problem, bool)
 	if len(names) == 1 {
 		runs = "runs"
 	}
-	what := "lend memory"
+	// A pool set to lend that is quietly lending nothing is a warning: the operator
+	// asked for something that is not happening. A pool that is only observing is
+	// a note. Observe is what a new container pool starts on, so a warning here
+	// would turn a fleet with one Windows or macOS agent in it "degraded" the day a
+	// pool was made, over a thing that agent can never do and nobody asked for.
+	severity, what := config.SeverityWarning, "lend memory"
 	if !p.MemoryBurst.Enforces() {
-		what = "watch memory for it"
+		severity, what = config.SeverityInfo, "watch memory for it"
 	}
 	return Problem{
 		Code:     "pool.elastic_memory_unsupported",
-		Severity: config.SeverityWarning,
+		Severity: severity,
 		Title: fmt.Sprintf("pool %s: %d of its %s %s an agent that cannot %s",
 			p.Name, len(names), plural(len(hosts), "host"), runs, what),
-		Detail: "the memory valve raises a live runner's limit through the agent on its host, and these agents are too old to say they can: " +
+		Detail: "the memory valve raises a live runner's limit through the agent on its host, and these agents do not say they can -- " +
+			"an agent older than the valve, or one on a machine whose memory it cannot read, which is anything but Linux: " +
 			strings.Join(names, ", ") + ". A runner placed there keeps the memory it was created with, exactly as with the valve off, " +
 			"and nothing on the pool says which of its runners that happened to.",
-		Fix:        "upgrade the agent on those hosts -- the command is on each host's card under Hosts -- or keep this pool off them.",
+		Fix: "upgrade the agent on a Linux host -- the command is on each host's card under Hosts -- " +
+			"or keep this pool off the hosts that cannot, with its host selector.",
 		TargetKind: "pool",
 		TargetID:   p.ID,
 	}, true

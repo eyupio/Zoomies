@@ -42,6 +42,30 @@ func TestPoolsEditCanTurnTheMemoryValveOffAndOn(t *testing.T) {
 	}
 }
 
+// Swap is the valve's last resort and the API refuses it while the valve is off,
+// so turning the valve off has to let go of the allowance with it: asking an
+// operator for a second flag to say what the first implies is a 422 for nothing.
+func TestPoolsEditTurnsTheMemoryValveOffWithoutNamingTheSwapItHad(t *testing.T) {
+	const pool = `{"id":"pool_1","name":"zoomies-p","memory_burst":{"mode":"automatic","max_memory_mb":6144,"spill_mb":2048}}`
+
+	var sent map[string]any
+	srv := patchServer(t, pool, &sent)
+	runCLI(t, "pools", "edit", "pool_1", "--memory-burst", "off", "--url", srv.URL)
+	burst, _ := sent["memory_burst"].(map[string]any)
+	if burst["mode"] != "off" || burst["spill_mb"] != 0.0 || burst["max_memory_mb"] != 6144.0 {
+		t.Errorf("turning the valve off must drop the swap and keep the ceiling, got %v", sent["memory_burst"])
+	}
+
+	// Moving between the two modes that use it keeps it.
+	sent = nil
+	srv = patchServer(t, pool, &sent)
+	runCLI(t, "pools", "edit", "pool_1", "--memory-burst", "observe", "--url", srv.URL)
+	burst, _ = sent["memory_burst"].(map[string]any)
+	if burst["mode"] != "observe" || burst["spill_mb"] != 2048.0 {
+		t.Errorf("moving to observe must keep the swap, got %v", sent["memory_burst"])
+	}
+}
+
 // A ceiling or an allowance of swap typed on a create without a mode would be
 // sent with an empty mode, which the API reads as off: the figures would bind
 // nothing and the pool would miss the observe default it would otherwise get.

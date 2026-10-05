@@ -20,25 +20,55 @@ func hostWithMemoryCeiling(memoryMB, ceiling int64) *store.Host {
 
 // A ceiling is where the owner of the machine and the owner of the pool meet,
 // and the host's word is the last: a pool asking for more than the host will
-// give simply gets what it will.
-func TestTheSmallerOfThePoolsAndTheHostsMemoryCeilingWins(t *testing.T) {
+// give simply gets what it will. It is a cap, so it lowers whatever the pool
+// asked for -- a ceiling it named or the default half as much again -- and never
+// raises it.
+func TestTheHostsMemoryCeilingOnlyEverLowersThePoolsAndNeverRaisesIt(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		pool, host int64
 		want       int64
 	}{
-		{"neither says", 0, 0, 0},
+		{"neither says: half as much again", 0, 0, 6144},
 		{"only the pool says", 12288, 0, 12288},
-		{"only the host says", 0, 8192, 8192},
-		{"the host is lower", 12288, 8192, 8192},
-		{"the pool is lower", 6144, 8192, 6144},
+		{"only a host that caps higher than the default leaves the default", 0, 8192, 6144},
+		{"only a host that caps lower than the default lowers it", 0, 5000, 5000},
+		{"the host is lower than the pool", 12288, 8192, 8192},
+		{"the pool is lower than the host", 6144, 8192, 6144},
+		{"a host cap under the guarantee is read as lend nothing", 0, 2048, 4096},
 	} {
-		if got := MemoryBurstLimit(memoryPool(tc.pool), hostWithMemoryCeiling(32*1024, tc.host)); got != tc.want {
-			t.Errorf("%s: limit = %d, want %d", tc.name, got, tc.want)
+		if got := MemoryCeiling(memoryPool(tc.pool), hostWithMemoryCeiling(32*1024, tc.host), 4096); got != tc.want {
+			t.Errorf("%s: ceiling = %d, want %d", tc.name, got, tc.want)
 		}
 	}
-	if got := MemoryBurstLimit(nil, nil); got != 0 {
-		t.Errorf("no pool and no host: limit = %d, want 0", got)
+}
+
+// What a runner was launched with is on its row, and a pool or host edited
+// since must not move it.
+func TestAGuaranteeIsReadFromTheRunnerNotFromThePoolAsItIsNow(t *testing.T) {
+	typedPair := &store.Pool{DockerMode: store.DockerDinD, Resources: store.Resources{MemoryMB: 4096}}
+	automaticPair := &store.Pool{DockerMode: store.DockerDinD}
+	typed := &store.Pool{Resources: store.Resources{MemoryMB: 4096}}
+	for _, tc := range []struct {
+		name   string
+		pool   *store.Pool
+		runner *store.Runner
+		want   int64
+		ok     bool
+	}{
+		{"a typed size is what the one container was given", typed, &store.Runner{AllocatedMemoryMB: 4096, AllocationSource: store.AllocationFromPool}, 4096, true},
+		{"a typed pair holds it twice", typedPair, &store.Runner{AllocatedMemoryMB: 4096, AllocationSource: store.AllocationFromPool}, 8192, true},
+		{"a slot taken from the host is one slot the pair shares", automaticPair, &store.Runner{AllocatedMemoryMB: 7782, AllocationSource: store.AllocationFromHost}, 7782, true},
+		{"so is a slot taken from the host's profile", automaticPair, &store.Runner{AllocatedMemoryMB: 7782, AllocationSource: store.AllocationFromProfile}, 7782, true},
+		{"a reduced typed pair is still twice what each was given", typedPair, &store.Runner{AllocatedMemoryMB: 3000, AllocationSource: store.AllocationReduced}, 6000, true},
+		{"a reduced slot is still one", automaticPair, &store.Runner{AllocatedMemoryMB: 3000, AllocationSource: store.AllocationReduced}, 3000, true},
+		{"a runner with no recorded size has none", typed, &store.Runner{}, 0, false},
+		{"no pool, no answer", nil, &store.Runner{AllocatedMemoryMB: 4096}, 0, false},
+	} {
+		got, ok := LaunchedMemoryMB(tc.pool, tc.runner)
+		if got != tc.want || ok != tc.ok {
+			t.Errorf("%s: %d, %v; want %d, %v", tc.name, got, ok, tc.want, tc.ok)
+		}
 	}
 }
 

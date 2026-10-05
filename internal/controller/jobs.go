@@ -590,7 +590,8 @@ func (c *Controller) noteOOMKilled(ctx context.Context, r *store.Runner, message
 		message = "the kernel killed a process in it for its memory limit"
 	}
 	sentence := fmt.Sprintf("runner %s was killed for memory on host %s: %s", r.Name, r.HostID, message)
-	sentence += memoryValveEpilogue(r)
+	pool, _ := c.st.GetPool(ctx, r.PoolID)
+	sentence += memoryValveEpilogue(pool, r)
 	j, marked, err := c.st.MarkJobOOMKilled(ctx, r.ID, sentence)
 	if err != nil {
 		c.log.Warn("could not record an out-of-memory kill on its job", "runner", r.ID, "error", err)

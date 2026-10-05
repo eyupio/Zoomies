@@ -64,6 +64,18 @@ type MemoryResourceView struct {
 	Raises    int  `json:"raises,omitempty"`
 }
 
+// valveOutcome is a decision code as a metric label. The code is an agent's word,
+// and a label is a series for every value it takes, so a value that is not one
+// of the codes the agent defines is "unknown" rather than a series of its own.
+func valveOutcome(code string) string {
+	switch agent.MemoryValveCode(code) {
+	case agent.MemoryHealthy, agent.MemoryRaised, agent.MemorySpilled, agent.MemoryAtCeiling, agent.MemoryPoolEmpty,
+		agent.MemoryHostFloor, agent.MemoryUnmeasured, agent.MemoryUnsupported, agent.MemoryFailed:
+		return code
+	}
+	return "unknown"
+}
+
 // blockedCodes are the decisions that say the valve could not give a runner
 // what it wanted.
 func blockedCode(code string) bool {
@@ -95,7 +107,13 @@ func memoryResourceView(r *store.Runner, p *store.Pool, h *store.Host) *MemoryRe
 		return nil
 	}
 
-	guaranteed := scheduler.RunnerGuarantee(p, h, r).MemoryMB
+	// What it was launched with, from its row: the pool's current charge for a
+	// runner is not that once the pool or the host has been edited, and is not
+	// computable at all from the raw pool a runner's view is rendered with.
+	guaranteed, ok := scheduler.LaunchedMemoryMB(p, r)
+	if !ok {
+		return nil
+	}
 	out := &MemoryResourceView{
 		State: MemoryWatching, Mode: string(p.MemoryBurst.Mode),
 		GuaranteedMB: guaranteed, LentMB: lent, CurrentMB: guaranteed + lent,

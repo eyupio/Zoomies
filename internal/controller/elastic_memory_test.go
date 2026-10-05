@@ -463,29 +463,180 @@ func TestAKillSaysWhatTheMemoryValveHadDoneForTheRunner(t *testing.T) {
 		raw, _ := json.Marshal(backend.Stats{MemoryValve: &v})
 		return raw
 	}
+	pool := &store.Pool{Resources: store.Resources{MemoryMB: 4096}}
 	runner := func(lentMB int64, v *backend.MemoryValveSample) *store.Runner {
-		r := &store.Runner{AllocatedMemoryMB: 4096, LentMemoryMB: lentMB}
+		r := &store.Runner{AllocatedMemoryMB: 4096, AllocationSource: store.AllocationFromPool, LentMemoryMB: lentMB}
 		if v != nil {
 			r.ResourceSample = sample(*v)
 		}
 		return r
 	}
 
-	if got := memoryValveEpilogue(runner(0, nil)); got != "" {
+	if got := memoryValveEpilogue(pool, runner(0, nil)); got != "" {
 		t.Fatalf("epilogue = %q for a runner the valve had nothing to do with, want none", got)
 	}
-	got := memoryValveEpilogue(runner(1536, &backend.MemoryValveSample{Mode: "automatic", Code: "at_ceiling", Reason: "it holds 6144 MB, the most this runner may have"}))
+	got := memoryValveEpilogue(pool, runner(1536, &backend.MemoryValveSample{Mode: "automatic", Code: "at_ceiling", Reason: "it holds 6144 MB, the most this runner may have"}))
 	for _, want := range []string{"lent it 1.5 GB", "on top of its 4 GB", "held 5.5 GB", "the most this runner may have"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("epilogue = %q, want it to say %q", got, want)
 		}
 	}
-	got = memoryValveEpilogue(runner(0, &backend.MemoryValveSample{Mode: "automatic", Code: "pool_empty", Reason: "the host has no spare memory left to lend"}))
+	got = memoryValveEpilogue(pool, runner(0, &backend.MemoryValveSample{Mode: "automatic", Code: "pool_empty", Reason: "the host has no spare memory left to lend"}))
 	if !strings.Contains(got, "lent it nothing: the host has no spare memory left to lend") {
 		t.Errorf("epilogue = %q, want the reason it could not lend", got)
 	}
-	got = memoryValveEpilogue(runner(0, &backend.MemoryValveSample{Mode: "observe", Code: "raised", WouldLendBytes: 2048 * mb}))
+	got = memoryValveEpilogue(pool, runner(0, &backend.MemoryValveSample{Mode: "observe", Code: "raised", WouldLendBytes: 2048 * mb}))
 	if !strings.Contains(got, "only observing") || !strings.Contains(got, "up to 2 GB more") {
 		t.Errorf("epilogue = %q, want an observing pool told what it would have done", got)
+	}
+
+	// A docker-in-docker pair with a typed size holds that size in each of its two
+	// containers, and the loan is the pair's: the sentence adds them up as the
+	// agent does, not from the one figure on the row.
+	pair := &store.Pool{DockerMode: store.DockerDinD, Resources: store.Resources{MemoryMB: 4096}}
+	got = memoryValveEpilogue(pair, runner(1024, nil))
+	for _, want := range []string{"lent it 1 GB", "on top of its 8 GB", "held 9 GB"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("epilogue = %q for a typed docker-in-docker pair, want it to say %q", got, want)
+		}
+	}
+}
+
+// What a runner was launched with is on its row, and that is the guarantee its
+// rule, its capacity and its view are worked out from. The pool as it is now
+// says what a runner of it would cost; it is not what this one holds once the
+// pool or the host has been edited, and the raw pool a view is rendered with
+// cannot say it at all.
+func TestAGuaranteeIsWhatTheRunnerWasLaunchedWithAndNotWhatItsPoolWouldChargeNow(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	h.valvePool(pool, store.MemoryBurstAutomatic, 0)
+	// A pool that leaves its size to its hosts, and a runner that was given one
+	// slot of 7782 MB when it started.
+	pool.Resources = store.Resources{}
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	r := h.valveRunner(pool, host, store.RunnerBusy)
+	r.AllocatedMemoryMB, r.AllocationSource = 7782, store.AllocationFromHost
+	if err := h.st.UpdateRunner(h.ctx, r); err != nil {
+		t.Fatal(err)
+	}
+
+	got := memoryBeat(h, host)
+	rule, ok := ruleFor(got, r.ID)
+	if !ok || rule.GuaranteeMB != 7782 || rule.CeilingMB != 11673 {
+		t.Fatalf("rule = %+v, %v; want guaranteed 7782 and a ceiling of half as much again, 11673", rule, ok)
+	}
+	host, _ = h.st.GetHost(h.ctx, host.ID)
+	if want := host.MemoryMB - (host.MemoryReserve() + host.MemoryMB/20) - 7782; got.CapacityMB != want {
+		t.Fatalf("capacity = %d, want %d: the host's books carry what the runner holds", got.CapacityMB, want)
+	}
+
+	// The view is rendered from the raw pool, with no fleet standard to size it by.
+	row, _ := h.st.GetRunner(h.ctx, r.ID)
+	raw, _ := h.st.GetPool(h.ctx, pool.ID)
+	view := memoryResourceView(row, raw, host)
+	if view == nil || view.GuaranteedMB != 7782 || view.CurrentMB != 7782 || view.CeilingMB != 11673 {
+		t.Fatalf("view = %+v, want it to say it was created with 7782 MB", view)
+	}
+}
+
+// An observing pool's runners draw on a pool their own virtual loans drain, so a
+// runner that "would have been refused" is evidence about the pool, not a host
+// that ran out of memory to lend and a runner that "was not given it" -- nothing
+// was ever lent. The decision is still counted, which is where the evidence is.
+func TestAnObservingPoolThatWouldHaveBeenRefusedDoesNotMakeTheHostAProblem(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	h.valvePool(pool, store.MemoryBurstObserve, 0)
+	r := h.valveRunner(pool, host, store.RunnerBusy)
+
+	memoryBeat(h, host, valveReport(r, h.c.Now(), backend.MemoryValveSample{Mode: "observe", Code: "pool_empty", Reason: "the host has no spare memory left to lend"}))
+	if got := problemsWith(t, h, "host.memory_pool_exhausted"); len(got) != 0 {
+		t.Fatalf("problems = %+v for a runner that was only ever observed, want none", got)
+	}
+	labels := map[string]string{"pool": pool.Name, "mode": "observe", "outcome": "pool_empty"}
+	if n, _ := gatherValue(t, h.c, "zoomies_elastic_memory_decisions_total", labels); n != 1 {
+		t.Fatalf("pool_empty decisions = %v, want the evidence counted", n)
+	}
+}
+
+// A refusal is held for its window so that an operator can open the problem, and
+// the runner that met it is usually an ephemeral one that has finished and gone
+// by the host's next heartbeat -- which must not be what clears it.
+func TestARefusalIsHeldForItsWholeWindowAfterTheRunnerThatMetItIsGone(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	h.valvePool(pool, store.MemoryBurstAutomatic, 0)
+	r := h.valveRunner(pool, host, store.RunnerBusy)
+
+	memoryBeat(h, host, valveReport(r, h.c.Now(), backend.MemoryValveSample{Mode: "automatic", Code: "pool_empty", Reason: "the host has no spare memory left to lend"}))
+	if got := problemsWith(t, h, "host.memory_pool_exhausted"); len(got) != 1 {
+		t.Fatalf("problems = %+v, want the refusal raised", got)
+	}
+
+	r.State = store.RunnerRemoved
+	if err := h.st.UpdateRunner(h.ctx, r); err != nil {
+		t.Fatal(err)
+	}
+	h.advance(30 * time.Second)
+	memoryBeat(h, host) // the next heartbeat: no live runner, nothing for the valve to do
+	if got := problemsWith(t, h, "host.memory_pool_exhausted"); len(got) != 1 {
+		t.Fatalf("problems = %+v thirty seconds on, want the refusal still held", got)
+	}
+	if s := h.c.memoryState(host.ID); !s.At.IsZero() {
+		t.Fatalf("state = %+v, want the plan forgotten and only the refusal kept", s)
+	}
+
+	h.advance(memoryBlockedFor)
+	memoryBeat(h, host)
+	if got := problemsWith(t, h, "host.memory_pool_exhausted"); len(got) != 0 {
+		t.Fatalf("problems = %+v after the window, want it cleared", got)
+	}
+}
+
+// What a host last worked out stands for the hosts there are and are heard from:
+// a deleted host, or one that has gone silent, must not keep its last pool in the
+// metrics for ever.
+func TestAHostThatIsGoneTakesItsMemoryPoolOutOfTheMetrics(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	h.valvePool(pool, store.MemoryBurstAutomatic, 0)
+	h.valveRunner(pool, host, store.RunnerBusy)
+	memoryBeat(h, host)
+	if _, ok := gatherValue(t, h.c, "zoomies_host_memory_pool_bytes", map[string]string{"host": host.ID}); !ok {
+		t.Fatal("a host with a pool to lend reports none")
+	}
+
+	// Silent, its figures are a heartbeat old at best and are not reported.
+	h.advance(10 * time.Minute)
+	if v, ok := gatherValue(t, h.c, "zoomies_host_memory_pool_bytes", map[string]string{"host": host.ID}); ok {
+		t.Fatalf("a host that has gone silent still reports a pool of %v bytes", v)
+	}
+
+	if err := h.c.DeleteHost(h.ctx, host.ID); err != nil {
+		t.Fatal(err)
+	}
+	if v, ok := gatherValue(t, h.c, "zoomies_host_memory_pool_bytes", map[string]string{"host": host.ID}); ok {
+		t.Fatalf("a deleted host still reports a pool of %v bytes", v)
+	}
+	if s := h.c.memoryState(host.ID); !s.At.IsZero() || len(s.CeilingAt) != 0 {
+		t.Fatalf("a deleted host kept state %+v", s)
+	}
+}
+
+// A label is a series for every value it takes, and the outcome is an agent's
+// word: one that is not a code the agent defines is "unknown".
+func TestADecisionCodeFromAnAgentIsAMetricLabelOnlyIfItIsOneWeDefine(t *testing.T) {
+	for _, code := range []string{"healthy", "raised", "spilled", "at_ceiling", "pool_empty", "host_floor", "unmeasured", "unsupported", "failed"} {
+		if got := valveOutcome(code); got != code {
+			t.Errorf("valveOutcome(%q) = %q, want it kept", code, got)
+		}
+	}
+	for _, code := range []string{"", "RAISED", "raised ", "rm -rf /", strings.Repeat("x", 500)} {
+		if got := valveOutcome(code); got != "unknown" {
+			t.Errorf("valveOutcome(%q) = %q, want unknown", code, got)
+		}
 	}
 }

@@ -663,6 +663,12 @@ func (spec *poolSpec) body(fs *flagSet, onlyChanged bool) map[string]any {
 		}
 		if fs.changed("memory-burst-spill") {
 			spill = *spec.memoryBurstSpill
+		} else if mode == "" || mode == "off" {
+			// Swap is the valve's last resort and the API refuses it while the valve
+			// is off, so turning the valve off lets go of the allowance with it
+			// rather than asking for a second flag to say what the first implies.
+			// Naming the swap as well is still sent, and still refused in words.
+			spill = 0
 		}
 		body["memory_burst"] = map[string]any{"mode": mode, "max_memory_mb": ceiling, "spill_mb": spill}
 	}

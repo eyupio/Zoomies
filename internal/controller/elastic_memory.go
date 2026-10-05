@@ -94,9 +94,41 @@ func (c *Controller) mutateMemoryState(hostID string, f func(*memoryHostState)) 
 	f(s)
 }
 
-// forgetMemoryState drops a host that has nothing left for the valve to do, so
-// the state of a host whose pools have turned it off does not stand for ever.
-func (c *Controller) forgetMemoryState(hostID string) {
+// forgetMemoryState drops what a host's last plan worked out once it has nothing
+// left for the valve to do, so the state of a host whose pools have turned it off
+// does not stand for ever -- but keeps a refusal until it has aged out.
+//
+// The hold exists so that a problem an operator can only act on is still on the
+// list when they open it. A runner that was refused memory is usually an
+// ephemeral one: it finishes, is removed, and the host has no live runner at its
+// next heartbeat, which is exactly when this is called. Dropping the refusal
+// with the plan would have the problem clear thirty seconds after it was raised.
+func (c *Controller) forgetMemoryState(hostID string, now time.Time) {
+	c.memoryMu.Lock()
+	defer c.memoryMu.Unlock()
+	s := c.memoryHosts[hostID]
+	if s == nil {
+		return
+	}
+	for poolID, at := range s.CeilingAt {
+		if now.Sub(at) >= memoryBlockedFor {
+			delete(s.CeilingAt, poolID)
+		}
+	}
+	short := !s.ShortAt.IsZero() && now.Sub(s.ShortAt) < memoryBlockedFor
+	if !short && len(s.CeilingAt) == 0 {
+		delete(c.memoryHosts, hostID)
+		return
+	}
+	kept := memoryHostState{CeilingAt: s.CeilingAt}
+	if short {
+		kept.ShortAt, kept.ShortCode = s.ShortAt, s.ShortCode
+	}
+	*s = kept
+}
+
+// dropMemoryState forgets a host that has gone, refusals and all.
+func (c *Controller) dropMemoryState(hostID string) {
 	c.memoryMu.Lock()
 	defer c.memoryMu.Unlock()
 	delete(c.memoryHosts, hostID)
@@ -139,7 +171,7 @@ func (c *Controller) elasticMemoryDirective(ctx context.Context, h *store.Host, 
 		return nil
 	}
 	if !slices.ContainsFunc(runners, func(r *store.Runner) bool { return r != nil && r.State.Live() }) {
-		c.forgetMemoryState(h.ID)
+		c.forgetMemoryState(h.ID, now)
 		return nil
 	}
 	pools, err := c.st.ListPools(ctx)
@@ -174,7 +206,14 @@ func (c *Controller) elasticMemoryDirective(ctx context.Context, h *store.Host, 
 		if r.State == store.RunnerProvisioning || r.State == store.RunnerRegistering {
 			starting[p.ID]++
 		}
+		// What the runner was launched with, not what its pool would charge for
+		// one now: a pool or host edited while it lives changes the second and
+		// not the first, and it is the first that is at risk and that a loan is
+		// on top of.
 		guarantee := scheduler.RunnerGuarantee(p, h, r).MemoryMB
+		if launched, ok := scheduler.LaunchedMemoryMB(p, r); ok {
+			guarantee = launched
+		}
 		lent := r.LentMemoryMB
 		if rep, ok := reports[r.ID]; ok {
 			if v := valveSample(rep); v != nil {
@@ -204,7 +243,7 @@ func (c *Controller) elasticMemoryDirective(ctx context.Context, h *store.Host, 
 		}
 	}
 	if len(rules) == 0 {
-		c.forgetMemoryState(h.ID)
+		c.forgetMemoryState(h.ID, now)
 		return nil
 	}
 
@@ -256,12 +295,18 @@ func (c *Controller) observeMemoryReports(ctx context.Context, h *store.Host, ru
 		case !supported:
 			outcome = "unsupported_agent"
 		case ok && valveSample(rep) != nil:
-			outcome = valveSample(rep).Code
+			outcome = valveOutcome(valveSample(rep).Code)
 		}
 		c.metrics.elasticMemoryDecisions.WithLabelValues(p.Name, mode, outcome).Inc()
 		switch agent.MemoryValveCode(outcome) {
 		case agent.MemoryPoolEmpty, agent.MemoryHostFloor:
-			c.mutateMemoryState(h.ID, func(s *memoryHostState) { s.ShortAt, s.ShortCode = now, agent.MemoryValveCode(outcome) })
+			// Only a pool that lends has refused anything. An observing pool's
+			// runners draw on a pool its own virtual loans drain, and "it would have
+			// been refused" is evidence on the runner and in the decision counts, not
+			// a host that ran out of memory and a runner that "was not given it".
+			if p.MemoryBurst.Enforces() {
+				c.mutateMemoryState(h.ID, func(s *memoryHostState) { s.ShortAt, s.ShortCode = now, agent.MemoryValveCode(outcome) })
+			}
 		case agent.MemoryAtCeiling:
 			c.mutateMemoryState(h.ID, func(s *memoryHostState) { s.CeilingAt[p.ID] = now })
 		}
@@ -320,7 +365,9 @@ func (c *Controller) noteMemoryValve(ctx context.Context, r *store.Runner, rep a
 		}
 		if prev.MemoryValve == nil || !prev.MemoryValve.NearLimit {
 			if p, err := c.st.GetPool(ctx, r.PoolID); err == nil {
-				c.metrics.elasticMemoryNearLimit.WithLabelValues(p.Name, v.Mode).Inc()
+				// The mode is the pool's, which the controller knows, and not the
+				// agent's word for it: a label is a series for every value it takes.
+				c.metrics.elasticMemoryNearLimit.WithLabelValues(p.Name, string(p.MemoryBurst.Mode)).Inc()
 			}
 		}
 	}
@@ -350,7 +397,11 @@ func (c *Controller) memoryValveProblems(ctx context.Context, out *[]Problem) er
 		if !p.Enabled || !p.MemoryBurst.Observes() {
 			continue
 		}
-		room, err := c.PoolRoom(ctx, p)
+		// poolRoom and not PoolRoom: all that is wanted is which hosts can carry
+		// the valve out, and the whole answer also works out the folder plan and
+		// the sidecar presets, which is several reads of the hosts for each pool
+		// on every pass of the problems.
+		room, err := c.poolRoom(ctx, p)
 		if err != nil {
 			return fmt.Errorf("counting the room pool %s has: %w", p.Name, err)
 		}
@@ -429,7 +480,7 @@ func (c *Controller) memoryValveProblems(ctx context.Context, out *[]Problem) er
 //
 // It is empty for a runner the valve had nothing to do with, so a pool that does
 // not use it reads exactly as before.
-func memoryValveEpilogue(r *store.Runner) string {
+func memoryValveEpilogue(p *store.Pool, r *store.Runner) string {
 	var sample backend.Stats
 	if len(r.ResourceSample) > 0 {
 		_ = json.Unmarshal(r.ResourceSample, &sample)
@@ -441,8 +492,14 @@ func memoryValveEpilogue(r *store.Runner) string {
 	}
 	switch {
 	case lent > 0:
+		// All of what it was created with, which for a typed docker-in-docker pair
+		// is both containers' and not the one figure on the row.
+		created := r.AllocatedMemoryMB
+		if launched, ok := scheduler.LaunchedMemoryMB(p, r); ok {
+			created = launched
+		}
 		out := fmt.Sprintf(" The memory valve had lent it %s on top of its %s, so it held %s when it was killed",
-			humanMB(lent), humanMB(r.AllocatedMemoryMB), humanMB(r.AllocatedMemoryMB+lent))
+			humanMB(lent), humanMB(created), humanMB(created+lent))
 		if v != nil && blockedCode(v.Code) && v.Reason != "" {
 			out += " -- " + v.Reason
 		}

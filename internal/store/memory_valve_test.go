@@ -110,11 +110,21 @@ func TestARunnersLentMemorySurvivesAWholeRowUpdate(t *testing.T) {
 		t.Fatalf("lent memory after a stale whole-row update = %d, want 1536", got.LentMemoryMB)
 	}
 
-	if err := s.SetRunnerLentMemory(ctx, r.ID, -5); err != nil {
+	// A smaller figure is an older report overtaken by a newer one, and is not
+	// written; nor is a nonsense one.
+	for _, older := range []int64{1000, 0, -5} {
+		if err := s.SetRunnerLentMemory(ctx, r.ID, older); err != nil {
+			t.Fatal(err)
+		}
+		if got, _ = s.GetRunner(ctx, r.ID); got.LentMemoryMB != 1536 {
+			t.Fatalf("after writing %d the loan is %d, want it left at 1536: a loan is never taken back", older, got.LentMemoryMB)
+		}
+	}
+	if err := s.SetRunnerLentMemory(ctx, r.ID, 2048); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ = s.GetRunner(ctx, r.ID); got.LentMemoryMB != 0 {
-		t.Fatalf("a negative figure was stored as %d, want 0", got.LentMemoryMB)
+	if got, _ = s.GetRunner(ctx, r.ID); got.LentMemoryMB != 2048 {
+		t.Fatalf("a larger figure was not written: %d", got.LentMemoryMB)
 	}
 }
 

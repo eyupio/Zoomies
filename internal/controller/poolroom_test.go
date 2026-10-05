@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -76,9 +77,21 @@ func TestAMemoryValvePoolOnAnAgentThatCannotLendIsToldSo(t *testing.T) {
 	}
 
 	pool.MemoryBurst.Mode = store.MemoryBurstObserve
-	if w := warned(PoolRoomWarnings(pool, room), "pool.elastic_memory_unsupported"); w == nil || !strings.Contains(w.Title, "watch memory") {
-		t.Errorf("an observing pool was not told its agent observes nothing: %+v", w)
+	w = warned(PoolRoomWarnings(pool, room), "pool.elastic_memory_unsupported")
+	if w == nil || !strings.Contains(w.Title, "watch memory") {
+		t.Fatalf("an observing pool was not told its agent observes nothing: %+v", w)
 	}
+	// A note, not a warning: observe is where a new container pool starts, and a
+	// warning would make a fleet with one Windows or macOS agent in it "degraded"
+	// the day a pool was made, over a thing that agent can never do.
+	if w.Severity != config.SeverityInfo {
+		t.Errorf("severity = %v for a pool that only observes, want info", w.Severity)
+	}
+	pool.MemoryBurst.Mode = store.MemoryBurstAutomatic
+	if w := warned(PoolRoomWarnings(pool, room), "pool.elastic_memory_unsupported"); w == nil || w.Severity != config.SeverityWarning {
+		t.Errorf("a pool that is meant to lend and cannot was not a warning: %+v", w)
+	}
+	pool.MemoryBurst.Mode = store.MemoryBurstObserve
 
 	pool.MemoryBurst = store.MemoryBurstPolicy{}
 	if w := warned(PoolRoomWarnings(pool, room), "pool.elastic_memory_unsupported"); w != nil {

@@ -1,8 +1,6 @@
 package scheduler
 
 import (
-	"slices"
-
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -20,40 +18,44 @@ const DefaultMemoryCeilingFactor = 1.5
 // the machine with exactly as much room as it has just been measured to need.
 const MemoryPoolSafetyShare = 0.05
 
-// MemoryBurstLimit is the most memory one runner of p may hold on h -- its
-// guarantee and whatever it is lent together -- where either side has said: the
-// smaller of the pool's ceiling and the host's. An unset side does not count,
-// so a pool with a ceiling and a host with none keeps the pool's, and neither
-// set is zero, which callers read as "the default ceiling".
+// LaunchedMemoryMB is the memory a runner's containers were created with, summed
+// over them, read from its row: what the host actually put at risk when the
+// runner started, and so the figure a loan is a loan on top of.
 //
-// The host's ceiling can only lower the pool's, never raise it, for the reason
-// BurstLimit gives for CPU: whoever owns the machine has the last word on how
-// much of it one job may take.
-func MemoryBurstLimit(p *store.Pool, h *store.Host) int64 {
-	var pool, host int64
-	if p != nil {
-		pool = p.MemoryBurst.MaxMemoryMB
+// The pool's current size is not that figure. A pool or a host edited while the
+// runner lives -- a capacity changed, a standard resized -- changes what
+// Reserve says a runner of that pool costs, and a valve that took its guarantee
+// from there would read a runner holding 7782 MB as guaranteed 3891, give it a
+// ceiling it is already above, and call a refusal a policy. The row is the one
+// place the size it was launched at is written down. It is false for a runner
+// with none, which is every runner of a backend that sets no limit.
+//
+// A docker-in-docker runner's typed size is per container, so the pair holds
+// twice it; a size taken from the host is one slot the pair splits, so it holds
+// it once. That is the distinction Reserve draws, read from how the runner was
+// sized rather than from how the pool is sized now.
+func LaunchedMemoryMB(p *store.Pool, r *store.Runner) (int64, bool) {
+	if p == nil || r == nil || r.AllocatedMemoryMB <= 0 {
+		return 0, false
 	}
-	if h != nil {
-		host = h.RunnerProfile.Standard.BurstMaxMemoryMB
+	mb := r.AllocatedMemoryMB
+	if p.DockerMode == store.DockerDinD && (r.AllocationSource == store.AllocationFromPool ||
+		((r.AllocationSource == store.AllocationReduced || r.AllocationSource == store.AllocationHistory) && p.Resources.MemoryMB > 0)) {
+		mb *= 2
 	}
-	switch {
-	case pool > 0 && host > 0:
-		return min(pool, host)
-	case pool > 0:
-		return pool
-	default:
-		return host
-	}
+	return mb, true
 }
 
 // MemoryCeiling is the most one runner of p may hold on h, given what it was
-// guaranteed. It is the ceiling an operator named (MemoryBurstLimit) or, where
-// none was, DefaultMemoryCeilingFactor times the guarantee; never below the
-// guarantee, because a ceiling lower than what a runner already has would be a
-// request to take memory back, which nothing here can do; and never more than
-// the memory of the host, or of the daemon the runner runs on where that is the
-// smaller machine.
+// guaranteed. It is the ceiling the pool named or, where it named none,
+// DefaultMemoryCeilingFactor times the guarantee; the host's own ceiling then
+// lowers that and never raises it, for the reason CPU's does -- whoever owns the
+// machine has the last word on how much of it one job may take, and a host that
+// caps its runners at 32 GB has not asked for a pool that left the figure alone
+// to be given 32 GB. It is never below the guarantee, because a ceiling lower
+// than what a runner already has would be a request to take memory back, which
+// nothing here can do; and never more than the memory of the host, or of the
+// daemon the runner runs on where that is the smaller machine.
 //
 // That last is the one easily forgotten, as it is for CPU: a Docker Desktop or
 // VM daemon is smaller than the machine the agent measured, and refuses a limit
@@ -64,11 +66,13 @@ func MemoryCeiling(p *store.Pool, h *store.Host, guaranteeMB int64) int64 {
 		return 0
 	}
 	ceiling := int64(float64(guaranteeMB) * DefaultMemoryCeilingFactor)
-	if limit := MemoryBurstLimit(p, h); limit > 0 {
-		ceiling = limit
+	if p != nil && p.MemoryBurst.MaxMemoryMB > 0 {
+		ceiling = p.MemoryBurst.MaxMemoryMB
 	}
-	ceiling = max(ceiling, guaranteeMB)
 	if h != nil {
+		if capMB := h.RunnerProfile.Standard.BurstMaxMemoryMB; capMB > 0 {
+			ceiling = min(ceiling, capMB)
+		}
 		if h.MemoryMB > 0 {
 			ceiling = min(ceiling, h.MemoryMB)
 		}
@@ -172,17 +176,9 @@ const (
 // is left of the machine beyond that, above its floor, is the capacity.
 func PlanMemoryPool(in MemoryPoolInput) MemoryPool {
 	out := MemoryPool{StartReserveMB: max(in.StartReserveMB, 0)}
-	ordered := slices.Clone(in.Workloads)
-	slices.SortFunc(ordered, func(a, b MemoryWorkload) int {
-		switch {
-		case a.ID < b.ID:
-			return -1
-		case a.ID > b.ID:
-			return 1
-		}
-		return 0
-	})
-	for _, w := range ordered {
+	// The ledger is sums and one maximum, so the order the runners come in changes
+	// nothing and nothing is sorted.
+	for _, w := range in.Workloads {
 		out.LentMB += max(w.LentMB, 0)
 		if w.Idle {
 			out.IdleReserveMB = max(out.IdleReserveMB, max(w.GuaranteeMB, 0))

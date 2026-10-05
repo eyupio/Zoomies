@@ -1842,8 +1842,14 @@ func (s *Store) SetRunnerResourceSample(ctx context.Context, id string, cpu floa
 // rather than a part of UpdateRunner's whole-row write, because the figure only
 // ever goes up and a stale read written back would hand a runner's loan to the
 // next placement as room.
+//
+// It only ever raises the figure, in the statement and not in the caller: two
+// reports of one runner are handled at the same moment -- the heartbeat's and the
+// reconcile pass's -- and each compares what it carries with a row it read a
+// moment before. The older figure written after the newer would otherwise win,
+// and the ledger would undercharge the runner until the next report.
 func (s *Store) SetRunnerLentMemory(ctx context.Context, id string, lentMB int64) error {
-	_, err := s.exec(ctx, `UPDATE runners SET lent_memory_mb=? WHERE id=?`, max(lentMB, 0), id)
+	_, err := s.exec(ctx, `UPDATE runners SET lent_memory_mb=? WHERE id=? AND lent_memory_mb<?`, lentMB, id, lentMB)
 	return err
 }
 

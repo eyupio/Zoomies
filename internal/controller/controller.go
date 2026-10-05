@@ -1081,6 +1081,7 @@ func (c *Controller) DeleteHostForgettingMachine(ctx context.Context, id, machin
 		return err
 	}
 	c.queues.forget(id)
+	c.dropMemoryState(id)
 	c.publishRunnersDeleted(runners)
 	if machineID != "" {
 		c.PublishMachineDeleted(machineID)

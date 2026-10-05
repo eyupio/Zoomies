@@ -520,9 +520,16 @@ func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
 		gauge(descGitHubPaused, v, inst.ID)
 	}
 
-	for hostID, s := range f.c.memoryStates() {
-		gauge(descHostMemoryPool, float64(s.Pool.PoolMB)*(1<<20), hostID)
-		gauge(descHostMemoryLent, float64(s.Pool.LentMB)*(1<<20), hostID)
+	// By the hosts there are, and the ones that are heard from: the figures are
+	// a heartbeat old at best, and a host that was deleted or has fallen silent
+	// would otherwise stand at the last pool it had for ever.
+	for _, h := range hosts {
+		s := f.c.memoryState(h.ID)
+		if s.At.IsZero() || !h.Healthy(now) {
+			continue
+		}
+		gauge(descHostMemoryPool, float64(s.Pool.PoolMB)*(1<<20), h.ID)
+		gauge(descHostMemoryLent, float64(s.Pool.LentMB)*(1<<20), h.ID)
 	}
 
 	var healthy, unhealthy, cordoned, capacity, effective, used int
