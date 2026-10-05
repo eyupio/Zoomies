@@ -248,6 +248,10 @@ test('opening a runner shows its detail page and its state timeline', async ({ p
   await expect(timeline).toContainText('Busy');
   // And the way back to the list is a breadcrumb, not the browser's button.
   await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('Runners');
+  // The header says when it was made as words, not as "createdjust now": Svelte
+  // trims whitespace at the end of a block, so the space after the prefix has to
+  // be written rather than left to a line break.
+  await expect(page.locator('time', { hasText: /^created \S/ })).toBeVisible();
 });
 
 test('the keyboard alone moves through the rows and opens one', async ({ page }) => {
