@@ -1837,6 +1837,7 @@ func (b *DockerBackend) List(ctx context.Context) ([]Workload, error) {
 		}
 		out = append(out, b.workloadFrom(ctx, s, false))
 	}
+	b.attributeSidecarKills(ctx, out, sidecars)
 
 	for _, s := range sidecars {
 		// Two ways to find the runner, because leaving a live pool without its
@@ -1851,6 +1852,65 @@ func (b *DockerBackend) List(ctx context.Context) ([]Workload, error) {
 		out = append(out, b.workloadFrom(ctx, s, true))
 	}
 	return out, nil
+}
+
+// attributeSidecarKills carries a docker-in-docker sidecar's out-of-memory kill
+// onto the runner it belongs to.
+//
+// A pool in docker_mode dind runs its builds in the sidecar, under the
+// sidecar's own memory limit, so a build killed for memory is killed there and
+// the runner container -- the only one whose flag anybody read -- finishes its
+// job and exits cleanly. The kill went unrecorded: the job read as the
+// workflow's own failure, nothing fed the memory that job is known to need, and
+// no problem said a daemon half was short of room.
+//
+// The sidecar is looked at only once its runner has stopped, and only where the
+// runner's own flag did not already say, so a running fleet costs no extra
+// request. The flag the daemon keeps is the answer however long ago in the job
+// the kill happened.
+func (b *DockerBackend) attributeSidecarKills(ctx context.Context, runners []Workload, sidecars []ContainerSummary) {
+	if len(sidecars) == 0 {
+		return
+	}
+	byRunner := make(map[string]ContainerSummary, len(sidecars))
+	for _, s := range sidecars {
+		if n := s.Labels[LabelDinDFor]; n != "" {
+			byRunner[n] = s
+		}
+	}
+	for i := range runners {
+		w := &runners[i]
+		stopped := w.Status.Phase == PhaseExited || w.Status.Phase == PhaseFailed
+		if w.Sidecar || w.Status.OOMKilled || !stopped {
+			continue
+		}
+		sidecar, ok := byRunner[w.Name]
+		if !ok {
+			continue
+		}
+		insp, err := b.api.ContainerInspect(ctx, sidecar.ID)
+		if err != nil || insp.State == nil || !insp.State.OOMKilled {
+			continue
+		}
+		w.Status.OOMKilled = true
+		w.Status.SidecarOOMKilled = true
+		// A clean exit with a kill behind it is a failure, as it is when the
+		// runner's own flag says so.
+		w.Status.Phase = PhaseFailed
+		w.Status.Message = sidecarOOMMessage(insp)
+	}
+}
+
+// sidecarOOMMessage tells the operator what to change after a build was killed
+// in the sidecar. Its limit is its half of the pair, so what moves it is the
+// slot or the division of it -- not a pool field nobody set.
+func sidecarOOMMessage(insp *ContainerInspect) string {
+	if insp.Config != nil && insp.Config.Labels[LabelLimitsFrom] == store.AllocationFromHost {
+		return "the Docker sidecar was killed for exceeding its memory limit, which was its half of the host's share for the runner; " +
+			"give the sidecar a larger share of the slot (Docker sidecar's share in the pool editor), raise the pool's minimum memory, " +
+			"or set memory_mb on the pool so each container has a limit of its own"
+	}
+	return "the Docker sidecar was killed for exceeding its memory limit; raise the pool's memory_mb"
 }
 
 // workloadFrom renders one container summary as a Workload.

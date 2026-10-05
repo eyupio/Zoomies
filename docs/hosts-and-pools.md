@@ -1286,7 +1286,11 @@ While a job runs, the agent's usage samples — the same ones elastic CPU is
 decided on — raise the job's **peak CPU** and **peak memory**, and a runner
 the kernel killed for memory (the container's `OOMKilled`, or exit 137 from
 the runner or one of its steps) marks the job **OOM-killed**, a fault of the
-fleet's rather than the workflow's. Both show on the job's page, in
+fleet's rather than the workflow's. In a Docker-in-Docker pool the builds run
+in the sidecar, under a limit of its own, so a kill there leaves a runner that
+finishes its job cleanly; the sidecar's own `OOMKilled` is read once the runner
+has stopped, and the job's explanation says it was the sidecar that was short of
+room. Both show on the job's page, in
 `GET /api/v1/jobs/{id}`, in `job_stats` and in the MCP tools.
 
 A job's **requirement** is the ninetieth percentile of the peaks of its last

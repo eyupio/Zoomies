@@ -80,6 +80,10 @@ type Status struct {
 	// workload for its memory limit. It can be true with any exit code: a
 	// step killed under a runner that lived on exits the container cleanly.
 	OOMKilled bool `json:"oom_killed,omitempty"`
+	// SidecarOOMKilled says the kill was in the pool's Docker-in-Docker
+	// sidecar, where its builds run under a limit of their own, and not in the
+	// runner container. OOMKilled is true either way: what to change is not.
+	SidecarOOMKilled bool `json:"sidecar_oom_killed,omitempty"`
 }
 
 // Stats is a best-effort resource sample. Backends that cannot measure a field
