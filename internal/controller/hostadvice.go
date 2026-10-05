@@ -140,6 +140,13 @@ func (c *Controller) hostCapacityAdviceProblems(ctx context.Context, out *[]Prob
 		}
 
 		remedy, why := c.priceHostSize(h, reaching, next, limits)
+		if remedy != nil {
+			if blocked, berr := c.hostSizeKillsJobs(ctx, reaching, std, next); berr != nil {
+				return berr
+			} else if blocked != "" {
+				remedy, why = nil, blocked
+			}
+		}
 		detail := fmt.Sprintf("it is set to %s, and its machine has %s CPU and %s to place runners on, but one runner here is %s CPU and %s, which holds %s. "+
 			"Typical jobs waited %s or more for a runner in the last %s: pools %s.",
 			plural(h.Capacity, "slot"), scheduler.FormatCPUs(alloc.CPUs), scheduler.FormatMB(alloc.MemoryMB),
@@ -165,6 +172,47 @@ func (c *Controller) hostCapacityAdviceProblems(ctx context.Context, out *[]Prob
 		})
 	}
 	return nil
+}
+
+// hostSizeKillsJobs says why a smaller runner on a host would put the jobs of a pool that
+// takes its size from the host at risk, or "" when the evidence says it would not.
+//
+// Pricing counts runners, and a smaller runner holds more of them -- which is no use to a
+// job that needed the memory. Memory is a limit a job is killed at, so what a week of a pool's
+// jobs used, with the headroom every floor here carries, has to fit in the new size; a pool
+// that has had a job killed for memory is not one to give less. CPU is not asked: a build's
+// CPU peak is a burst, and the slot is not sized by it.
+func (c *Controller) hostSizeKillsJobs(ctx context.Context, reaching []*store.Pool, std, next store.RunnerStandard) (string, error) {
+	if next.MemoryMB <= 0 || next.MemoryMB >= std.MemoryMB {
+		return "", nil
+	}
+	names := map[string]string{}
+	var ids []string
+	for _, p := range reaching {
+		if p.SizeFromProfile {
+			ids = append(ids, p.ID)
+			names[p.ID] = p.Name
+		}
+	}
+	if len(ids) == 0 {
+		return "", nil
+	}
+	since := c.Now().Add(-minimumEvidenceWindow)
+	stats, err := c.st.JobStats(ctx, store.JobFilter{Since: &since, PoolIDs: ids}, []string{store.GroupByPool})
+	if err != nil {
+		return "", fmt.Errorf("reading what jobs used: %w", err)
+	}
+	for _, g := range stats.Groups {
+		name := names[g.Keys[store.GroupByPool]]
+		if g.OOMKilled > 0 {
+			return fmt.Sprintf("pool %s had a job killed for memory in the last %s, and a smaller runner would give it less", name, minimumEvidenceWindow), nil
+		}
+		if g.PeakMemoryMB != nil && float64(*g.PeakMemoryMB)*minimumHeadroom > float64(next.MemoryMB) {
+			return fmt.Sprintf("jobs in pool %s used up to %s in the last %s, which a runner of %s would not hold with room to spare",
+				name, scheduler.FormatMB(*g.PeakMemoryMB), minimumEvidenceWindow, scheduler.FormatMB(next.MemoryMB)), nil
+		}
+	}
+	return "", nil
 }
 
 // priceHostSize prices giving a host the runner size next: every pool that

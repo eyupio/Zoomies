@@ -436,3 +436,37 @@ func TestASidecarPinnedAtThePoolsMinimumIsNotOfferedAShareThatOnlyShrinksTheRunn
 		t.Errorf("the notice must say what sets the thin half and what raises it:\n%s\n%s", p.Detail, p.Fix)
 	}
 }
+
+// A memory limit is one a job is killed at. The runner beside a squeezed sidecar used
+// 1 GiB in 116 samples of 120 and 3.5 GiB in four, so its 95th percentile said it could
+// be given almost nothing and one click proposed 80% to the sidecar: a runner of 1.6 GiB
+// against a 3.5 GiB peak, killed the next time its heavy phase ran. Memory is sized from
+// the most each half used.
+func TestAMemoryShareIsNeverProposedThatShrinksTheRunnerBelowItsOwnPeak(t *testing.T) {
+	h := newHarness(t)
+	pool := h.pool(h.installation(), "builders")
+	pool.DockerMode = store.DockerDinD
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	h.measuredHost("big", 16, 65536, 4, enforcesEverything)
+	now := h.c.Now()
+	for i := 0; i < 120; i++ {
+		runnerUse := gib
+		if i%30 == 0 {
+			runnerUse = 3*gib + gib/2
+		}
+		halves := backend.PairHalves{
+			Runner: backend.HalfUse{MemoryLimit: 4 * gib, MemoryBytes: runnerUse},
+			Daemon: backend.HalfUse{MemoryLimit: 4 * gib, MemoryBytes: 3*gib + gib*6/10},
+		}
+		r := &store.Runner{ID: fmt.Sprintf("run-%d", i%5), PoolID: pool.ID, AllocationSource: store.AllocationFromHost}
+		sampled := now.Add(time.Duration(i) * 30 * time.Second)
+		h.c.observePair(r, backend.Stats{SampledAt: &sampled, Halves: &halves})
+	}
+	if p := h.problemOrNil("pool.daemon_share_suggested"); p != nil {
+		if p.DaemonShare != nil && p.DaemonShare.MemoryPercent > 55 {
+			t.Errorf("a share of %d%% was proposed that leaves the runner under its 3.5 GiB peak: %+v", p.DaemonShare.MemoryPercent, p)
+		}
+	}
+}

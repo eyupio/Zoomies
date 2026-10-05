@@ -559,10 +559,11 @@ func TestPoolMinimumAdviceCountsJobsThatWereMeasuredNotJobsThatCompleted(t *test
 // addMeasuredJob is one completed, measured job of a given name on the pool.
 func addMeasuredJob(t *testing.T, h *harness, pool *store.Pool, n int, name string, peakMB int64) {
 	t.Helper()
-	host, err := h.st.GetHostByName(h.ctx, "box-1")
-	if err != nil {
-		t.Fatal(err)
+	hosts, err := h.st.ListHosts(h.ctx)
+	if err != nil || len(hosts) == 0 {
+		t.Fatalf("hosts = %d, %v", len(hosts), err)
 	}
+	host := hosts[0]
 	runner := &store.Runner{PoolID: pool.ID, HostID: host.ID, Name: fmt.Sprintf("x%d", n), State: store.RunnerBusy}
 	if err := h.st.CreateRunner(h.ctx, runner); err != nil {
 		t.Fatal(err)
@@ -658,5 +659,39 @@ func TestStandingAdviceReadsTheSameWhileTheEvidenceGrows(t *testing.T) {
 			}
 			return second.Detail
 		}())
+	}
+}
+
+// Pricing counts runners, and a smaller runner holds more of them, which is no use to a
+// job that needed the memory. The host's runner size is never proposed smaller than what
+// a week of the pool's jobs used, with the headroom every floor here carries.
+func TestAHostSizeIsNotProposedThatTheJobsOfAPoolThatTakesItWouldNotFitIn(t *testing.T) {
+	// A runner here is 16 GB on a 32 GB host set to three slots; the size that gives it
+	// its slots is about 10 GB.
+	big := func(p *store.RunnerProfile) { p.Standard = store.RunnerStandard{CPUs: 2, MemoryMB: 16384} }
+
+	h, host, pool := capacityFleet(t, big)
+	waiting(h, pool)
+	for i := 0; i < 5; i++ {
+		addMeasuredJob(t, h, pool, i, "build", 12000)
+	}
+	p := h.problemOrNil("host.slots_below_capacity")
+	if p == nil {
+		t.Fatalf("the squeeze is real and the host should still be told (slots %d of %d)", host.Slots(), host.Capacity)
+	}
+	if p.Remedy != nil {
+		t.Errorf("a size was proposed that the pool's 12 GB jobs would not fit in: %+v", p.Remedy)
+	}
+	if !strings.Contains(p.Detail, "used up to") {
+		t.Errorf("what stands in the way must be said: %s", p.Detail)
+	}
+
+	h, _, pool = capacityFleet(t, big)
+	waiting(h, pool)
+	for i := 0; i < 5; i++ {
+		addMeasuredJob(t, h, pool, i, "build", 3000)
+	}
+	if p := h.problemOrNil("host.slots_below_capacity"); p == nil || p.Remedy == nil {
+		t.Errorf("jobs that fit in the smaller runner must not hold the advice back: %+v", p)
 	}
 }

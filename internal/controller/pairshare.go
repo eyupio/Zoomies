@@ -291,18 +291,27 @@ func judgePair(window []pairSample) (pairAdvice, bool) {
 func judgeResource(name string, current int, rUse, dUse, rUsed, dUsed []float64, slot float64) *resourceAdvice {
 	rHot, dHot := pairPercentile(slices.Clone(rUse), 0.95), pairPercentile(slices.Clone(dUse), 0.95)
 	adv := &resourceAdvice{Resource: name, Current: current}
+	// What a container is sized to hold. CPU is a burst the elastic valve lends for, so
+	// its 95th percentile will do. Memory is a limit a job is killed at: a half that
+	// held its 95th percentile and was given less than its peak -- 3.5 GiB in four
+	// samples of a hundred and twenty -- is killed the next time the heavy phase runs,
+	// and one click would have done it.
+	q := 0.95
+	if name == "memory" {
+		q = 1
+	}
 	switch {
 	case dHot >= pairHot && rHot <= pairIdle:
 		adv.DaemonHot, adv.HotPercent, adv.IdlePercent = true, dHot*100, rHot*100
-		adv.HotUse, adv.OtherUse = pairPercentile(slices.Clone(dUsed), 0.95), pairPercentile(slices.Clone(rUsed), 0.95)
+		adv.HotUse, adv.OtherUse = pairPercentile(slices.Clone(dUsed), 0.95), pairPercentile(slices.Clone(rUsed), q)
 	case rHot >= pairHot && dHot <= pairIdle:
 		adv.HotPercent, adv.IdlePercent = rHot*100, dHot*100
-		adv.HotUse, adv.OtherUse = pairPercentile(slices.Clone(rUsed), 0.95), pairPercentile(slices.Clone(dUsed), 0.95)
+		adv.HotUse, adv.OtherUse = pairPercentile(slices.Clone(rUsed), 0.95), pairPercentile(slices.Clone(dUsed), q)
 	default:
 		return nil
 	}
 	need := func(used []float64) float64 {
-		return max(pairPercentile(slices.Clone(used), 0.95)/slot*pairHeadroom, 0.05)
+		return max(pairPercentile(slices.Clone(used), q)/slot*pairHeadroom, 0.05)
 	}
 	d, r := need(dUsed), need(rUsed)
 	proposed := int(math.Round(100*d/(d+r)/5) * 5)
