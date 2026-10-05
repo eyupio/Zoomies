@@ -724,13 +724,20 @@ configuration setting the validator flagged — worst first,
 each entry saying what is true, why it matters and what to change, with a link
 to the pool, host, runner or installation it is about.
 
-Every entry can be **dismissed**, which is a per-operator preference in
-`localStorage` and never fleet state: `GET /api/v1/problems`, `zoomies status`
-and any alerting rule still see everything. Two rules stop a dismissal from
-hiding a real fault:
+Every entry can be **dismissed** or **snoozed** for 15 minutes, an hour, four
+hours or a day — for that one problem, or for every problem of its kind. A
+decision is the operator's own, kept on their account in the database
+(`problem_dismissals`, via `GET`/`PATCH /api/v1/auth/problem-dismissals`) so it
+holds on another browser, another device and a second tab, and is never fleet
+state: `GET /api/v1/problems`, `zoomies status` and any alerting rule still see
+everything. An identity with no account behind it, such as an auth-disabled
+instance, keeps them in `localStorage` instead. Three rules stop a dismissal
+from hiding a real fault:
 
-* it is forgotten the moment the controller stops reporting that problem, so
-  the same fault happening again is news again; and
+* a plain dismissal is forgotten the moment the controller stops reporting that
+  problem, so the same fault happening again is news again;
+* a snooze is not: it ends when its own clock does, so a problem that clears for
+  one pass and comes back inside the window stays put away; and
 * it only covers the severity it was made at, so a warning that becomes an
   error comes back.
 

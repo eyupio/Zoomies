@@ -247,6 +247,12 @@ export const getOwnPreferences = (signal?: AbortSignal) =>
 export const replaceOwnPreferences = (body: Body<'replaceOwnPreferences'>) =>
   api.put<Result<'replaceOwnPreferences'>>('/auth/preferences', { body });
 
+export const getProblemDismissals = (signal?: AbortSignal) =>
+  api.get<Result<'getProblemDismissals'>>('/auth/problem-dismissals', { signal });
+
+export const patchProblemDismissals = (body: Body<'patchProblemDismissals'>) =>
+  api.patch<Result<'patchProblemDismissals'>>('/auth/problem-dismissals', { body });
+
 /**
  * Sign in. A 200 is the identity; a 202 is a sign-in still waiting for its
  * second step, whose state is in a cookie this page cannot read.

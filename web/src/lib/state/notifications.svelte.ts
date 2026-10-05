@@ -2,7 +2,7 @@
  * What the fleet wants a person to know, and what that person has already read.
  *
  * The controller reports problems; it has no opinion about whether an operator
- * has seen them. That opinion lives here, per browser, because the two useful
+ * has seen them. That opinion lives here, per account, because the two useful
  * answers are different for every operator: "I know about the privileged pool,
  * I chose it" is a settled decision, while an unhealthy host is news. Without
  * somewhere to put the first kind, a panel that is never clear stops being
@@ -10,35 +10,53 @@
  *
  * Three rules keep a dismissal from becoming a way to hide a real fault:
  *
- *  * A dismissal is forgotten the moment the controller stops reporting the
- *    problem, so the same fault happening again is news again.
+ *  * A plain dismissal is forgotten the moment the controller stops reporting
+ *    the problem, so the same fault happening again is news again.
  *  * A dismissal only covers the severity it was made at. A warning that
  *    becomes an error comes back, because it is not the thing that was read.
  *  * A snooze is a dismissal with an expiry the operator picks -- 15 minutes,
  *    an hour, a day -- rather than "until resolved". It returns to the active
- *    list on its own once the clock passes that time, with no further click.
- *    A snooze can cover the one problem or every problem of its kind, so a
- *    planned outage that makes every pool short of capacity is put away once
- *    -- including a pool that runs short after the snooze was made.
+ *    list on its own once the clock passes that time, with no further click,
+ *    and not before: a problem that clears for a pass and comes back inside
+ *    the window is still snoozed. A snooze can cover the one problem or every
+ *    problem of its kind, so a planned outage that makes every pool short of
+ *    capacity is put away once -- including a pool that runs short after the
+ *    snooze was made.
  *
- * Dismissals are per-operator preference, not fleet state, so they are stored
- * beside the other preferences rather than on the server. Nothing here changes
- * what `GET /api/v1/problems`, `zoomies status` or an alerting rule sees.
+ * Dismissals are the operator's own reading of the fleet, not fleet state, so
+ * nothing here changes what `GET /api/v1/problems`, `zoomies status` or an
+ * alerting rule sees. They are kept on the account, in the database, so a
+ * snooze made on a laptop holds on a phone and survives cleared site data and
+ * a second tab. The browser keeps a copy as well: it is what shows instantly
+ * on load, and it is the whole store for an identity with no account behind it
+ * (an auth-disabled instance), which is how every browser kept them before.
  */
-import type { Problem, Severity } from '../api/types';
+import { getProblemDismissals, patchProblemDismissals } from '../api/client';
+import type { Problem, ProblemDismissal, Severity } from '../api/types';
 import { onClockTick } from '../format';
+import {
+  carriedOver,
+  covers,
+  fromServer,
+  rank,
+  severityOf as severity,
+  SEVERITY_ORDER,
+  spentKeys,
+  toServer,
+  type Dismissals,
+} from '../problems/dismissals';
 import { problemKey, problemTypeKey } from '../problems/identity';
 import { fleet } from './fleet.svelte';
 import { storage } from './prefs.svelte';
 
 // One definition of "the same fault", shared with the Overview's feed, which
 // reports a problem the first time it is raised.
-export { problemKey };
+export { problemKey, SEVERITY_ORDER };
 
 const DISMISSED_KEY = 'zoomies.problems.dismissed';
-
-/** Worst first. The panel, the badge and the summary all read this order. */
-export const SEVERITY_ORDER: readonly Severity[] = ['error', 'warning', 'info'];
+// Which account the local copy was last reconciled with. A copy that belongs to
+// somebody else is never uploaded into this account.
+const ACCOUNT_KEY = 'zoomies.problems.dismissed.account';
 
 /** What one of each is called in a sentence an operator reads. */
 export const SEVERITY_NOUN: Record<Severity, string> = {
@@ -46,15 +64,6 @@ export const SEVERITY_NOUN: Record<Severity, string> = {
   warning: 'warning',
   info: 'note',
 };
-
-function severity(problem: Problem): Severity {
-  return problem.severity ?? 'info';
-}
-
-function rank(value: Severity): number {
-  const i = SEVERITY_ORDER.indexOf(value);
-  return i < 0 ? SEVERITY_ORDER.length : i;
-}
 
 export interface SnoozeOption {
   id: string;
@@ -71,18 +80,6 @@ export const SNOOZE_OPTIONS: readonly SnoozeOption[] = [
   { id: '4h', label: '4 hours', ms: 4 * 60 * 60_000 },
   { id: '24h', label: '24 hours', ms: 24 * 60 * 60_000 },
 ];
-
-interface Dismissal {
-  /** The severity that was read. Anything worse comes back. */
-  severity: Severity;
-  /** When it was dismissed, so the drawer can say how old the decision is. */
-  at: string;
-  /** Set on a snooze: the moment it expires and the problem becomes active
-   * again on its own. Absent on a plain "dismiss until resolved". */
-  until?: string;
-}
-
-type Dismissals = Record<string, Dismissal>;
 
 function load(): Dismissals {
   const raw = storage.get(DISMISSED_KEY);
@@ -109,21 +106,112 @@ class Notifications {
   // reads, so a snooze expiring costs nothing beyond the timer already
   // running for "4m ago" elsewhere on screen.
   #now = $state(Date.now());
+  // Whether decisions are also kept on the account. False until a sync has
+  // found an account to keep them on, and for good on an identity with none.
+  #remote = false;
+  #account: string | null = null;
+  // Writes to the server go one at a time, in the order they were made, so a
+  // restore can never overtake the dismissal it undoes.
+  #queue: Promise<void> = Promise.resolve();
+  #syncedAt = 0;
+  // Counts local decisions, so a read of the account that started before one
+  // can be told from one that did not.
+  #revision = 0;
 
   constructor() {
-    // A dismissal outlives nothing. Once the controller stops reporting a
-    // problem the decision to ignore it is spent, so the fault recurring is
-    // reported again rather than being silently swallowed by a click somebody
-    // made last week. A snooze is spent the moment its clock runs out, for
-    // the same reason. Sweeping here -- rather than at dismissal time -- is
-    // what makes both true without any bookkeeping at the call sites.
+    // A dismissal outlives nothing it was not meant to. Once the controller
+    // stops reporting a problem a plain dismissal is spent, so the fault
+    // recurring is reported again rather than being silently swallowed by a
+    // click somebody made last week; a snooze is spent when its own clock runs
+    // out. Sweeping here -- rather than at dismissal time -- is what makes both
+    // true without any bookkeeping at the call sites.
     $effect.root(() => {
       $effect(() => onClockTick((now) => (this.#now = now)));
       $effect(() => {
         if (!fleet.loaded) return;
         this.#sweep(fleet.problems, this.#now);
       });
+      // A decision made in another tab or on another device reaches this one
+      // when it is looked at again, rather than waiting for a reload.
+      $effect(() => {
+        if (typeof document === 'undefined') return;
+        const onVisible = () => {
+          if (document.visibilityState === 'visible' && this.#account !== null) {
+            void this.syncAccount(this.#account);
+          }
+        };
+        document.addEventListener('visibilitychange', onVisible);
+        return () => document.removeEventListener('visibilitychange', onVisible);
+      });
     });
+  }
+
+  /**
+   * Bring this account's dismissals into the browser after sign-in, and again
+   * whenever the page becomes visible. The server's list is the truth: a
+   * decision undone on another device is undone here.
+   *
+   * The first account to sign in on a browser that has dismissals from before
+   * they were kept on the server takes them with it, so an upgrade does not
+   * bring back everything an operator had put away. A browser last used by a
+   * different account hands nothing over.
+   */
+  async syncAccount(userID: string): Promise<void> {
+    // Remembered before anything can fail, so a first sync that hits an
+    // unreachable controller is retried the next time the page is looked at
+    // instead of leaving this tab on browser-only dismissals until a reload.
+    this.#account = userID;
+    const previous = storage.get(ACCOUNT_KEY);
+    if (previous !== null && previous !== userID) {
+      // What is in memory was read by somebody else; it must not stay on screen
+      // for an account that never made those decisions, even if the controller
+      // cannot be reached to say what this one did.
+      this.#dismissals = {};
+      this.#persist();
+    }
+    // Not more often than a tab can plausibly change hands: switching between
+    // two windows should not be a request each time.
+    if (this.#remote && Date.now() - this.#syncedAt < 5_000) return;
+    try {
+      // A decision made while the read is in flight would be overwritten by
+      // an answer that predates it, so a read that was overtaken is thrown away
+      // and taken again. Three tries is generous: a person makes decisions far
+      // slower than a request returns, and the visibility handler is the retry.
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const revision = this.#revision;
+        await this.#queue;
+        const now = Date.now();
+        let view = await getProblemDismissals();
+        if (!view.stored) {
+          this.#remote = false;
+          return;
+        }
+        let remote = fromServer(view.items, now);
+        const carry =
+          storage.get(ACCOUNT_KEY) === null ? carriedOver(this.#dismissals, remote, now) : [];
+        if (carry.length > 0) {
+          view = await patchProblemDismissals({ set: carry });
+          remote = fromServer(view.items, now);
+        }
+        this.#remote = true;
+        if (this.#revision !== revision) continue;
+        this.#dismissals = remote;
+        this.#persist();
+        storage.set(ACCOUNT_KEY, userID);
+        this.#syncedAt = Date.now();
+        this.#closeIfClear();
+        return;
+      }
+    } catch {
+      // The browser's copy stands, exactly as it did before dismissals were
+      // kept on the server: an unreachable controller must not make the drawer
+      // forget what it was told.
+    }
+  }
+
+  disconnectAccount(): void {
+    this.#remote = false;
+    this.#account = null;
   }
 
   /* -- reads -------------------------------------------------------------- */
@@ -221,55 +309,29 @@ class Notifications {
   /* -- writes -------------------------------------------------------------- */
 
   dismiss(problem: Problem): void {
-    this.#dismissals = {
-      ...this.#dismissals,
-      [problemKey(problem)]: { severity: severity(problem), at: new Date().toISOString() },
-    };
-    this.#persist();
-    this.#closeIfClear();
+    const key = problemKey(problem);
+    this.#apply({ [key]: { severity: severity(problem), at: new Date().toISOString() } }, []);
   }
 
   /** Put this one away for a fixed while rather than until it resolves. */
   snooze(problem: Problem, ms: number): void {
-    const now = new Date();
-    this.#dismissals = {
-      ...this.#dismissals,
-      [problemKey(problem)]: {
-        severity: severity(problem),
-        at: now.toISOString(),
-        until: new Date(now.getTime() + ms).toISOString(),
-      },
-    };
-    this.#persist();
-    this.#closeIfClear();
+    this.#apply({ [problemKey(problem)]: this.#snoozed(problem, ms) }, []);
   }
 
   /** Put every problem of this one's kind away for a fixed while, including
    * any raised after the snooze was made. */
   snoozeType(problem: Problem, ms: number): void {
-    const now = new Date();
-    this.#dismissals = {
-      ...this.#dismissals,
-      [problemTypeKey(problem)]: {
-        severity: severity(problem),
-        at: now.toISOString(),
-        until: new Date(now.getTime() + ms).toISOString(),
-      },
-    };
-    this.#persist();
-    this.#closeIfClear();
+    this.#apply({ [problemTypeKey(problem)]: this.#snoozed(problem, ms) }, []);
   }
 
   /** Put away everything currently listed. The drawer's one bulk action. */
   dismissAll(): void {
-    const next = { ...this.#dismissals };
     const at = new Date().toISOString();
+    const set: Dismissals = {};
     for (const problem of this.active) {
-      next[problemKey(problem)] = { severity: severity(problem), at };
+      set[problemKey(problem)] = { severity: severity(problem), at };
     }
-    this.#dismissals = next;
-    this.#persist();
-    this.#closeIfClear();
+    this.#apply(set, []);
   }
 
   /** Bring a problem back, lifting whichever decision was holding it: its
@@ -280,15 +342,11 @@ class Notifications {
       (key) => key in this.#dismissals,
     );
     if (keys.length === 0) return;
-    const next = { ...this.#dismissals };
-    for (const key of keys) delete next[key];
-    this.#dismissals = next;
-    this.#persist();
+    this.#apply({}, keys);
   }
 
   restoreAll(): void {
-    this.#dismissals = {};
-    this.#persist();
+    this.#apply({}, Object.keys(this.#dismissals));
   }
 
   /* -- internals ------------------------------------------------------------ */
@@ -303,7 +361,7 @@ class Notifications {
 
   /** The live dismissal covering a problem -- its own, or a snooze of its
    * kind -- or undefined when neither does. */
-  #covering(problem: Problem): Dismissal | undefined {
+  #covering(problem: Problem): Dismissals[string] | undefined {
     for (const key of [problemKey(problem), problemTypeKey(problem)]) {
       const record = this.#dismissals[key];
       if (this.#live(record, problem)) return record;
@@ -311,28 +369,55 @@ class Notifications {
     return undefined;
   }
 
-  #live(record: Dismissal | undefined, problem: Problem): record is Dismissal {
-    if (!record) return false;
-    if (record.until !== undefined && new Date(record.until).getTime() <= this.#now) return false;
-    // A warning that has since become an error was never read as an error.
-    return rank(severity(problem)) >= rank(record.severity);
+  #snoozed(problem: Problem, ms: number): Dismissals[string] {
+    const now = new Date();
+    return {
+      severity: severity(problem),
+      at: now.toISOString(),
+      until: new Date(now.getTime() + ms).toISOString(),
+    };
   }
 
-  /** Drops a dismissal once the problem it covered stops being reported, or
-   * once its snooze has run out -- the two ways a dismissal is spent. */
+  #live(record: Dismissals[string] | undefined, problem: Problem): record is Dismissals[string] {
+    return covers(record, problem, this.#now);
+  }
+
+  /** Drops what has been spent: a plain dismissal whose problem is no longer
+   * reported, and a snooze whose clock has run out. See `spentKeys` for why a
+   * snooze is not dropped with its problem. */
   #sweep(problems: readonly Problem[], now: number): void {
-    const live = new Set([...problems.map(problemKey), ...problems.map(problemTypeKey)]);
+    const reported = new Set([...problems.map(problemKey), ...problems.map(problemTypeKey)]);
+    const spent = spentKeys(this.#dismissals, reported, now);
+    if (spent.length > 0) this.#apply({}, spent);
+  }
+
+  /** The one place a decision changes: in memory and in the browser at once,
+   * so the drawer answers instantly, and on the account behind them. */
+  #apply(set: Dismissals, remove: string[]): void {
+    this.#revision++;
     const next = { ...this.#dismissals };
-    let changed = false;
-    for (const [key, record] of Object.entries(next)) {
-      const expired = record.until !== undefined && new Date(record.until).getTime() <= now;
-      if (live.has(key) && !expired) continue;
-      delete next[key];
-      changed = true;
-    }
-    if (!changed) return;
+    for (const key of remove) delete next[key];
+    Object.assign(next, set);
     this.#dismissals = next;
     this.#persist();
+    this.#push(
+      Object.entries(set).map(([key, record]) => toServer(key, record)),
+      remove,
+    );
+    this.#closeIfClear();
+  }
+
+  #push(set: ProblemDismissal[], remove: string[]): void {
+    if (!this.#remote || (set.length === 0 && remove.length === 0)) return;
+    this.#queue = this.#queue
+      .then(() => patchProblemDismissals({ set, remove }))
+      .then(
+        () => undefined,
+        () => {
+          // The browser's copy stands until the next sync; a dismissal should
+          // never turn into an error toast.
+        },
+      );
   }
 
   #persist(): void {

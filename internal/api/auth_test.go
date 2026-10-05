@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -103,6 +104,101 @@ func TestTablePreferencesFollowTheSignedInAccount(t *testing.T) {
 	if layouts, ok := other.json(t)["table_layouts"].(map[string]any); ok && len(layouts) != 0 {
 		t.Fatalf("bob inherited alice's table layouts: %v", layouts)
 	}
+}
+
+// A snooze made in one browser has to hold in the next. The decision belongs to
+// the account, so a second session for the same person sees it and a different
+// person does not.
+func TestProblemDismissalsFollowTheSignedInAccount(t *testing.T) {
+	h := newHarness(t)
+	alice, aliceCookie := h.user("alice", store.RoleViewer)
+	_, bobCookie := h.user("bob", store.RoleViewer)
+	aliceElsewhere := h.session(alice)
+
+	until := time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339)
+	patch := h.do(request{method: http.MethodPatch, path: "/api/v1/auth/problem-dismissals", cookie: aliceCookie,
+		body: map[string]any{"set": []map[string]any{
+			{"key": "type:pool.no_capacity", "severity": "warning", "until": until},
+		}}})
+	patch.mustStatus(t, http.StatusOK, "snooze a kind of problem")
+
+	for name, cookie := range map[string]string{"the same browser": aliceCookie, "another browser": aliceElsewhere} {
+		got := h.do(request{method: http.MethodGet, path: "/api/v1/auth/problem-dismissals", cookie: cookie})
+		got.mustStatus(t, http.StatusOK, "read dismissals from "+name)
+		body := got.json(t)
+		items, _ := body["items"].([]any)
+		if body["stored"] != true || len(items) != 1 {
+			t.Fatalf("%s sees %v, want the one snooze", name, body)
+		}
+	}
+
+	other := h.do(request{method: http.MethodGet, path: "/api/v1/auth/problem-dismissals", cookie: bobCookie})
+	other.mustStatus(t, http.StatusOK, "read another account's dismissals")
+	if items, _ := other.json(t)["items"].([]any); len(items) != 0 {
+		t.Fatalf("bob inherited alice's dismissals: %v", items)
+	}
+
+	restore := h.do(request{method: http.MethodPatch, path: "/api/v1/auth/problem-dismissals", cookie: aliceCookie,
+		body: map[string]any{"remove": []string{"type:pool.no_capacity"}}})
+	restore.mustStatus(t, http.StatusOK, "restore it")
+	if items, _ := restore.json(t)["items"].([]any); len(items) != 0 {
+		t.Fatalf("the restored problem is still held: %v", items)
+	}
+}
+
+func TestProblemDismissalsRefuseAnUnknownSeverity(t *testing.T) {
+	h := newHarness(t)
+	_, cookie := h.user("alice", store.RoleViewer)
+	bad := h.do(request{method: http.MethodPatch, path: "/api/v1/auth/problem-dismissals", cookie: cookie,
+		body: map[string]any{"set": []map[string]any{{"key": "a", "severity": "catastrophe"}}}})
+	bad.mustStatus(t, http.StatusUnprocessableEntity, "save a dismissal with an invented severity")
+}
+
+// An account can only keep so many dismissals, and padding a request with
+// removals of keys it never held must not buy extra room.
+func TestProblemDismissalsAreCappedOnWhatIsLeftHeld(t *testing.T) {
+	h := newHarness(t)
+	_, cookie := h.user("alice", store.RoleViewer)
+	batch := func(prefix string, n int) []map[string]any {
+		out := make([]map[string]any, n)
+		for i := range out {
+			out[i] = map[string]any{"key": fmt.Sprintf("%s%d", prefix, i), "severity": "info"}
+		}
+		return out
+	}
+	full := h.do(request{method: http.MethodPatch, path: "/api/v1/auth/problem-dismissals", cookie: cookie,
+		body: map[string]any{"set": batch("a", 1000)}})
+	full.mustStatus(t, http.StatusOK, "fill the account to its limit")
+
+	phantom := make([]string, 1000)
+	for i := range phantom {
+		phantom[i] = fmt.Sprintf("never-held-%d", i)
+	}
+	over := h.do(request{method: http.MethodPatch, path: "/api/v1/auth/problem-dismissals", cookie: cookie,
+		body: map[string]any{"set": batch("b", 1000), "remove": phantom}})
+	over.mustStatus(t, http.StatusUnprocessableEntity, "pad a request with removals that free nothing")
+
+	got := h.do(request{method: http.MethodGet, path: "/api/v1/auth/problem-dismissals", cookie: cookie})
+	if items, _ := got.json(t)["items"].([]any); len(items) != 1000 {
+		t.Fatalf("a refused request changed the account: %d held, want 1000", len(items))
+	}
+}
+
+// The synthesised identity of an auth-disabled instance has no users row, so a
+// write would hit the foreign key. It must be told there is no account, which
+// is how the UI knows to keep the decision in the browser instead.
+func TestDisableAuthHasNoAccountForProblemDismissals(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) { c.Security.DisableAuth = true })
+
+	got := h.do(request{method: http.MethodGet, path: "/api/v1/auth/problem-dismissals"})
+	got.mustStatus(t, http.StatusOK, "read dismissals with auth disabled")
+	if got.json(t)["stored"] != false {
+		t.Fatalf("auth-disabled session claims dismissals can be stored: %v", got.json(t))
+	}
+
+	patch := h.do(request{method: http.MethodPatch, path: "/api/v1/auth/problem-dismissals",
+		body: map[string]any{"remove": []string{"a"}}})
+	patch.mustStatus(t, http.StatusForbidden, "save dismissals with auth disabled")
 }
 
 // TestLoginIsIndistinguishable checks the one property a login endpoint has to

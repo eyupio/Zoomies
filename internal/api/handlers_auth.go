@@ -387,6 +387,120 @@ func (s *Server) handlePutPreferences(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, preferences)
 }
 
+// maxProblemDismissals bounds what one account can keep. A dismissal is a row
+// per problem or per kind of problem, so a fleet that raises more distinct
+// problems than this has bigger things to read than a drawer.
+const maxProblemDismissals = 1000
+
+type problemDismissal struct {
+	Key      string     `json:"key"`
+	Severity string     `json:"severity"`
+	At       *time.Time `json:"at,omitempty"`
+	Until    *time.Time `json:"until,omitempty"`
+}
+
+type problemDismissalsView struct {
+	// Stored says whether this identity has an account to keep them on. An API
+	// token or an auth-disabled session does not, and its client keeps the
+	// decisions in the browser instead -- as every client did before this.
+	Stored bool               `json:"stored"`
+	Items  []problemDismissal `json:"items"`
+}
+
+type problemDismissalsPatch struct {
+	Set    []problemDismissal `json:"set,omitempty"`
+	Remove []string           `json:"remove,omitempty"`
+}
+
+func accountID(r *http.Request) (string, bool) {
+	id := Identity(r.Context())
+	if id.Kind != auth.KindUser || !store.HasPrefix(id.ID, store.PrefixUser) {
+		return "", false
+	}
+	return id.ID, true
+}
+
+func (s *Server) problemDismissals(w http.ResponseWriter, r *http.Request, userID string) {
+	rows, err := s.ctrl.Store().ProblemDismissals(r.Context(), userID)
+	if err != nil {
+		s.internal(w, r, "reading problem dismissals", err)
+		return
+	}
+	view := problemDismissalsView{Stored: true, Items: make([]problemDismissal, 0, len(rows))}
+	for _, d := range rows {
+		dismissedAt := d.DismissedAt
+		view.Items = append(view.Items, problemDismissal{Key: d.Key, Severity: d.Severity, At: &dismissedAt, Until: d.Until})
+	}
+	writeJSON(w, http.StatusOK, view)
+}
+
+// handleGetProblemDismissals returns the problems this account has put away.
+// They are the account's own reading of the fleet rather than fleet state, so
+// nothing here changes what /problems reports or what an alerting rule sees.
+func (s *Server) handleGetProblemDismissals(w http.ResponseWriter, r *http.Request) {
+	userID, ok := accountID(r)
+	if !ok {
+		writeJSON(w, http.StatusOK, problemDismissalsView{Items: []problemDismissal{}})
+		return
+	}
+	s.problemDismissals(w, r, userID)
+}
+
+// handlePatchProblemDismissals applies a batch of additions and removals.
+// A patch rather than the whole-document replacement the table layouts use:
+// two tabs that each snooze a different problem must both survive, and a
+// replacement would let the one that saved last erase the other.
+func (s *Server) handlePatchProblemDismissals(w http.ResponseWriter, r *http.Request) {
+	userID, ok := accountID(r)
+	if !ok {
+		forbidden(w, "only a signed-in account can save dismissed problems")
+		return
+	}
+	var patch problemDismissalsPatch
+	if !decode(w, r, &patch) {
+		return
+	}
+	if len(patch.Set) > maxProblemDismissals || len(patch.Remove) > maxProblemDismissals {
+		unprocessable(w, "too many dismissed problems in one request", nil)
+		return
+	}
+	now := s.ctrl.Store().Now()
+	set := make([]store.ProblemDismissal, 0, len(patch.Set))
+	for _, d := range patch.Set {
+		if d.Key == "" || len(d.Key) > 300 {
+			unprocessable(w, "a dismissed problem needs a key of up to 300 characters", nil)
+			return
+		}
+		switch d.Severity {
+		case "error", "warning", "info":
+		default:
+			unprocessable(w, "a dismissed problem's severity must be error, warning or info", nil)
+			return
+		}
+		dismissedAt := now
+		if d.At != nil {
+			dismissedAt = *d.At
+		}
+		set = append(set, store.ProblemDismissal{Key: d.Key, Severity: d.Severity, DismissedAt: dismissedAt, Until: d.Until})
+	}
+	for _, key := range patch.Remove {
+		if key == "" || len(key) > 300 {
+			unprocessable(w, "a dismissed problem needs a key of up to 300 characters", nil)
+			return
+		}
+	}
+	err := s.ctrl.Store().ApplyProblemDismissals(r.Context(), userID, set, patch.Remove, maxProblemDismissals)
+	if errors.Is(err, store.ErrTooManyDismissals) {
+		unprocessable(w, "this account has dismissed more problems than can be kept; restore some first", nil)
+		return
+	}
+	if err != nil {
+		s.internal(w, r, "saving problem dismissals", err)
+		return
+	}
+	s.problemDismissals(w, r, userID)
+}
+
 type changePasswordRequest struct {
 	OldPassword string `json:"old_password"`
 	NewPassword string `json:"new_password"`
