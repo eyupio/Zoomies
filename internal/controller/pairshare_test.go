@@ -32,11 +32,13 @@ func TestASidecarSqueezedWhileTheRunnerIdlesIsOfferedALargerShare(t *testing.T) 
 		backend.HalfUse{CPUs: 0.1, MemoryBytes: gib / 4},
 		backend.HalfUse{CPUs: 1.9, MemoryBytes: 3*gib + gib/2})
 	adv, ok := judgePair(w)
-	if !ok || !adv.DaemonHot {
-		t.Fatalf("advice = %+v, ok = %v; want a squeezed daemon", adv, ok)
+	if !ok || adv.CPU == nil || adv.Memory == nil || !adv.CPU.DaemonHot || !adv.Memory.DaemonHot {
+		t.Fatalf("advice = %+v, ok = %v; want a daemon short of both CPU and memory", adv, ok)
 	}
-	if adv.Current != 50 || adv.Proposed < 70 || adv.Proposed > 90 || adv.Proposed%5 != 0 {
-		t.Errorf("proposed %d from %d; want a multiple of five between 70 and 90", adv.Proposed, adv.Current)
+	for _, r := range []*resourceAdvice{adv.CPU, adv.Memory} {
+		if r.Current != 50 || r.Proposed < 70 || r.Proposed > 90 || r.Proposed%5 != 0 {
+			t.Errorf("%s: proposed %d from %d; want a multiple of five between 70 and 90", r.Resource, r.Proposed, r.Current)
+		}
 	}
 }
 
@@ -45,8 +47,42 @@ func TestARunnerSqueezedWhileTheSidecarIdlesIsOfferedASmallerShare(t *testing.T)
 		backend.HalfUse{CPUs: 1.9, MemoryBytes: 3*gib + gib/2},
 		backend.HalfUse{CPUs: 0.1, MemoryBytes: gib / 4})
 	adv, ok := judgePair(w)
-	if !ok || adv.DaemonHot || adv.Proposed > 30 || adv.Proposed < store.MinDaemonSharePercent {
-		t.Fatalf("advice = %+v, ok = %v; want a smaller share for the sidecar", adv, ok)
+	if !ok || adv.CPU == nil || adv.Memory == nil {
+		t.Fatalf("advice = %+v, ok = %v; want advice for both resources", adv, ok)
+	}
+	for _, r := range []*resourceAdvice{adv.CPU, adv.Memory} {
+		if r.DaemonHot || r.Proposed > 30 || r.Proposed < store.MinDaemonSharePercent {
+			t.Errorf("%s: %+v; want a smaller share for the sidecar", r.Resource, r)
+		}
+	}
+}
+
+// CPU and memory are judged apart, which is the point of splitting them: a
+// daemon running a build flat out on CPU while the runner holds the memory is
+// told to take more CPU and give memory back, in one notice, with a flag for each.
+func TestCPUAndMemoryAreAdvisedOnTheirOwn(t *testing.T) {
+	// Daemon: CPU-bound, little memory. Runner: nearly idle on CPU, memory-heavy.
+	w := pairWindowOf(100, 5,
+		backend.HalfUse{CPUs: 0.1, MemoryBytes: 3*gib + gib/2},
+		backend.HalfUse{CPUs: 1.9, MemoryBytes: gib / 4})
+	adv, ok := judgePair(w)
+	if !ok || adv.CPU == nil || adv.Memory == nil {
+		t.Fatalf("advice = %+v, ok = %v; want both resources advised", adv, ok)
+	}
+	if !adv.CPU.DaemonHot || adv.CPU.Proposed < 70 {
+		t.Errorf("CPU: %+v; the daemon is short of CPU and should be offered more", adv.CPU)
+	}
+	if adv.Memory.DaemonHot || adv.Memory.Proposed > 30 {
+		t.Errorf("memory: %+v; the runner is short of memory and the daemon's share should come down", adv.Memory)
+	}
+
+	// Only the resource that is wrong is advised.
+	w = pairWindowOf(100, 5,
+		backend.HalfUse{CPUs: 0.1, MemoryBytes: gib},
+		backend.HalfUse{CPUs: 1.9, MemoryBytes: gib})
+	adv, ok = judgePair(w)
+	if !ok || adv.CPU == nil || adv.Memory != nil {
+		t.Fatalf("advice = %+v, ok = %v; want CPU alone", adv, ok)
 	}
 }
 
@@ -108,6 +144,7 @@ func TestASqueezedSidecarShowsUpAsAStandingProblemUntilTheShareMoves(t *testing.
 	if p == nil || p.TargetID != pool.ID {
 		t.Fatalf("problem = %+v; want one for the pool", p)
 	}
+	// Both resources want the same figure here, so it is one share and one flag.
 	if want := "zoomies pools edit " + pool.Name + " --daemon-share"; !strings.Contains(p.Fix, want) {
 		t.Errorf("fix %q does not carry the command %q", p.Fix, want)
 	}
@@ -117,6 +154,36 @@ func TestASqueezedSidecarShowsUpAsAStandingProblemUntilTheShareMoves(t *testing.
 	h.c.observePair(typed, backend.Stats{SampledAt: &now, Halves: &backend.PairHalves{}})
 	if len(h.c.pairs["other"]) != 0 {
 		t.Error("a sample from a typed-limit runner was recorded")
+	}
+}
+
+// When the two resources want different figures the notice says so, with a flag
+// for each: more CPU for a daemon that is building, less memory for one that is not.
+func TestAMixedSqueezeIsOneNoticeWithAFlagForEachResource(t *testing.T) {
+	h := newHarness(t)
+	_, pool, _ := h.fleet()
+	pool.DockerMode = store.DockerDinD
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	now := h.c.Now()
+	for i, s := range pairWindowOf(100, 5,
+		backend.HalfUse{CPUs: 0.1, MemoryBytes: 3*gib + gib/2},
+		backend.HalfUse{CPUs: 1.9, MemoryBytes: gib / 4}) {
+		r := &store.Runner{ID: fmt.Sprintf("run-%d", i%5), PoolID: pool.ID, AllocationSource: store.AllocationFromHost}
+		h.c.observePair(r, backend.Stats{SampledAt: &now, Halves: &s.halves})
+	}
+	p := h.problemOrNil("pool.daemon_share_suggested")
+	if p == nil {
+		t.Fatal("no pool.daemon_share_suggested problem")
+	}
+	for _, want := range []string{"--daemon-cpu-share", "--daemon-memory-share"} {
+		if !strings.Contains(p.Fix, want) {
+			t.Errorf("fix %q does not carry %s", p.Fix, want)
+		}
+	}
+	if strings.Contains(p.Fix, "--daemon-share ") {
+		t.Errorf("fix %q offers one share where the resources disagree", p.Fix)
 	}
 }
 

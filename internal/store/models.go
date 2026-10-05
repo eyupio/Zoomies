@@ -525,9 +525,18 @@ type Resources struct {
 	MinMemoryMB int64   `json:"min_memory_mb,omitempty"`
 	// DaemonSharePercent is the part of a host-sized slot a docker-in-docker pool
 	// gives its daemon; the runner keeps the rest. Zero is the even split. It
-	// divides only a share the host chose (SplitWithDaemon): a limit typed above is
-	// given to both containers in full whatever this says.
-	DaemonSharePercent int `json:"daemon_share_percent,omitempty"`
+	// divides only a share the host chose (SplitWithDaemonShares): a limit typed
+	// above is given to both containers in full whatever this says.
+	//
+	// It is one figure for both resources, which is what a pool that has not
+	// thought about it wants. The two below say it per resource, because the two
+	// are not used alike: a build is CPU in the daemon, while memory is held by
+	// whatever the runner keeps -- the checkout, the toolchain, an in-memory work
+	// folder, charged to the runner -- and by the daemon's image layers. Each
+	// overrides this for its own resource when set.
+	DaemonSharePercent       int `json:"daemon_share_percent,omitempty"`
+	DaemonCPUSharePercent    int `json:"daemon_cpu_share_percent,omitempty"`
+	DaemonMemorySharePercent int `json:"daemon_memory_share_percent,omitempty"`
 }
 
 const (
@@ -541,22 +550,40 @@ const (
 	MaxDaemonSharePercent = 90
 )
 
-// DaemonPercent is the daemon's share of a split slot, with zero read as even.
-func (r Resources) DaemonPercent() int {
-	if r.DaemonSharePercent <= 0 {
-		return DefaultDaemonSharePercent
+// daemonShare is a share with zero read as "not said": the specific figure, else
+// the general one, else even.
+func daemonShare(specific, general int) int {
+	switch {
+	case specific > 0:
+		return specific
+	case general > 0:
+		return general
 	}
-	return r.DaemonSharePercent
+	return DefaultDaemonSharePercent
 }
 
-// PairFactor is how many times the smaller half a slot must hold: two for an even
-// split, five when one container takes 80%. A slot's floor is each half's own
-// floor scaled by it, so uneven pairs are refused on a host too small for the
-// thinner half rather than starved there.
-func (r Resources) PairFactor() float64 {
-	d := r.DaemonPercent()
-	return 100 / float64(min(d, 100-d))
+// DaemonCPUPercent is the daemon's share of a split slot's CPU.
+func (r Resources) DaemonCPUPercent() int {
+	return daemonShare(r.DaemonCPUSharePercent, r.DaemonSharePercent)
 }
+
+// DaemonMemoryPercent is the daemon's share of a split slot's memory.
+func (r Resources) DaemonMemoryPercent() int {
+	return daemonShare(r.DaemonMemorySharePercent, r.DaemonSharePercent)
+}
+
+// pairFactor is how many times the smaller half a slot must hold at a share:
+// two for an even split, five when one container takes 80%.
+func pairFactor(daemonPercent int) float64 {
+	return 100 / float64(min(daemonPercent, 100-daemonPercent))
+}
+
+// CPUPairFactor and MemoryPairFactor are pairFactor for each resource. A slot's
+// floor is each half's own floor scaled by it, so an uneven pair is refused on a
+// host too small for the thinner half rather than starved there; the two
+// resources have their own, because they are split on their own.
+func (r Resources) CPUPairFactor() float64    { return pairFactor(r.DaemonCPUPercent()) }
+func (r Resources) MemoryPairFactor() float64 { return pairFactor(r.DaemonMemoryPercent()) }
 
 // Reducible reports whether a runner of these resources may be placed below
 // its standard size: some field has a minimum under its standard. A field the
@@ -636,30 +663,41 @@ func (p CPUBurstPolicy) Enforces() bool { return p.Mode == CPUBurstAutomatic }
 // Limits an operator typed are not split: those say what the job may have, the
 // daemon is given the same, and scheduler.Reserve charges the host for both.
 func (r Resources) SplitWithDaemon() (runner, daemon Resources) {
-	return r.SplitWithDaemonShare(DefaultDaemonSharePercent)
+	return r.SplitWithDaemonShares(DefaultDaemonSharePercent, DefaultDaemonSharePercent)
 }
 
-// SplitWithDaemonShare is SplitWithDaemon with the daemon taking percent of the
-// slot. The even split stays the default because the work is on both sides, but
-// a pool whose builds all run in the daemon can give it more. A percent outside
-// the permitted range is the even split, never a half with no room.
+// SplitWithDaemonShare is SplitWithDaemonShares with one share for both resources.
 func (r Resources) SplitWithDaemonShare(percent int) (runner, daemon Resources) {
-	if percent < MinDaemonSharePercent || percent > MaxDaemonSharePercent {
-		percent = DefaultDaemonSharePercent
+	return r.SplitWithDaemonShares(percent, percent)
+}
+
+// SplitWithDaemonShares is SplitWithDaemon with the daemon taking cpuPercent of
+// the slot's CPU and memoryPercent of its memory. The even split stays the
+// default because the work is on both sides, but a pool whose builds all run in
+// the daemon can give it more CPU while the runner keeps the memory its checkout
+// and scratch space need, or the other way round. A percent outside the
+// permitted range is the even split, never a half with no room.
+func (r Resources) SplitWithDaemonShares(cpuPercent, memoryPercent int) (runner, daemon Resources) {
+	clamp := func(p int) int {
+		if p < MinDaemonSharePercent || p > MaxDaemonSharePercent {
+			return DefaultDaemonSharePercent
+		}
+		return p
 	}
+	cpuPercent, memoryPercent = clamp(cpuPercent), clamp(memoryPercent)
 	runner, daemon = r, r
 	if r.CPUs > 0 {
-		daemon.CPUs = r.CPUs * float64(percent) / 100
+		daemon.CPUs = r.CPUs * float64(cpuPercent) / 100
 		runner.CPUs = r.CPUs - daemon.CPUs
-		if percent == DefaultDaemonSharePercent {
+		if cpuPercent == DefaultDaemonSharePercent {
 			runner.CPUs = r.CPUs / 2
 			daemon.CPUs = r.CPUs - runner.CPUs
 		}
 	}
 	if r.MemoryMB > 0 {
-		daemon.MemoryMB = r.MemoryMB * int64(percent) / 100
+		daemon.MemoryMB = r.MemoryMB * int64(memoryPercent) / 100
 		runner.MemoryMB = r.MemoryMB - daemon.MemoryMB
-		if percent == DefaultDaemonSharePercent {
+		if memoryPercent == DefaultDaemonSharePercent {
 			runner.MemoryMB = r.MemoryMB / 2
 			daemon.MemoryMB = r.MemoryMB - runner.MemoryMB
 		}
