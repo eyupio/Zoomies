@@ -109,14 +109,24 @@ type resourceAdvice struct {
 	Current, Proposed       int
 	DaemonHot               bool
 	HotPercent, IdlePercent float64
+	// HotUse and OtherUse are the 95th percentile use of the squeezed container and
+	// of the one beside it, in bytes for memory and cores for CPU: what a proposed
+	// share is checked against once it is turned into the limits it would give.
+	HotUse, OtherUse float64
 	// Held is set when no share worth proposing keeps every runner the pool's
-	// hosts hold now: the figure the use points at, and what it would leave.
+	// hosts hold now, or gives the squeezed container more where it counts: the
+	// figure the use points at, and what it would leave.
 	Held *shareCost
 }
 
 // shareCost is what a share the use points at would cost the pool on its hosts.
 type shareCost struct {
 	Wanted, Runners, RunnersNow int
+	// Pinned is set when the share is not what limits the squeezed container: the
+	// thinner half of a slot is held to the pool's smallest runner, so on a host
+	// where that decides the slot every share gives it the same, and the share
+	// would only take from the half beside it.
+	Pinned bool
 }
 
 // pairAdvice is what the window shows about how a slot is divided: a proposal
@@ -234,8 +244,10 @@ func judgeResource(name string, current int, rUse, dUse, rUsed, dUsed []float64,
 	switch {
 	case dHot >= pairHot && rHot <= pairIdle:
 		adv.DaemonHot, adv.HotPercent, adv.IdlePercent = true, dHot*100, rHot*100
+		adv.HotUse, adv.OtherUse = pairPercentile(slices.Clone(dUsed), 0.95), pairPercentile(slices.Clone(rUsed), 0.95)
 	case rHot >= pairHot && dHot <= pairIdle:
 		adv.HotPercent, adv.IdlePercent = rHot*100, dHot*100
+		adv.HotUse, adv.OtherUse = pairPercentile(slices.Clone(rUsed), 0.95), pairPercentile(slices.Clone(dUsed), 0.95)
 	default:
 		return nil
 	}
@@ -285,8 +297,14 @@ func (c *Controller) affordShare(ctx context.Context, p *store.Pool, now PoolRoo
 			return err
 		}
 		if room.Runners >= now.Runners {
-			r.Proposed = s
-			return nil
+			if shareHelps(now, room, r, s) {
+				r.Proposed = s
+				return nil
+			}
+			if cost == nil {
+				cost = &shareCost{Wanted: s, Runners: room.Runners, RunnersNow: now.Runners, Pinned: true}
+			}
+			continue
 		}
 		if cost == nil {
 			cost = &shareCost{Wanted: s, Runners: room.Runners, RunnersNow: now.Runners}
@@ -296,6 +314,56 @@ func (c *Controller) affordShare(ctx context.Context, p *store.Pool, now PoolRoo
 	// priced the proposal itself at least once and cost is set.
 	r.Held = cost
 	return nil
+}
+
+// shareHelps says whether a share, turned into the limits each container would
+// really be given on the pool's hosts, gives the squeezed container more somewhere
+// and leaves the other enough everywhere.
+//
+// The window judges a share as a part of one slot, but a slot is not fixed by the
+// share: where the pool has a smallest runner, the thinner half is held to it and
+// the slot grows to carry it. A daemon at 15% of a slot whose floor is its 1.5 GB
+// minimum is given 1.5 GB at any share of 50% or less, and a proposal to raise it
+// only took the memory from the runner -- which was then the half the detector
+// would call squeezed next, and the notice went quiet because both halves were.
+func shareHelps(now, candidate PoolRoom, r *resourceAdvice, share int) bool {
+	charge := func(e PoolHostRoom) float64 {
+		if r.Resource == "CPU" {
+			return e.ChargeCPUs
+		}
+		return float64(e.ChargeMemoryMB)
+	}
+	use := func(v float64) float64 {
+		if r.Resource == "CPU" {
+			return v
+		}
+		return v / (1 << 20)
+	}
+	hotFrac := func(daemonPercent int) float64 {
+		if r.DaemonHot {
+			return float64(daemonPercent) / 100
+		}
+		return 1 - float64(daemonPercent)/100
+	}
+	before := map[string]PoolHostRoom{}
+	for _, e := range now.Hosts {
+		before[e.HostID] = e
+	}
+	grew := false
+	for _, e := range candidate.Hosts {
+		was, ok := before[e.HostID]
+		if e.Room <= 0 || !ok || charge(e) <= 0 || charge(was) <= 0 {
+			continue
+		}
+		if charge(e)*hotFrac(share) > charge(was)*hotFrac(r.Current)*1.02 {
+			grew = true
+		}
+		otherFrac := 1 - hotFrac(share)
+		if charge(e)*otherFrac < use(r.OtherUse)*pairHeadroom {
+			return false
+		}
+	}
+	return grew
 }
 
 // daemonShareAdviceProblems is the standing advice on how a pool divides its
@@ -339,6 +407,7 @@ func (c *Controller) daemonShareAdviceProblems(ctx context.Context, out *[]Probl
 			return fmt.Errorf("pricing pool %s's sidecar share: %w", p.Name, err)
 		}
 		var lines, flags, held []string
+		pinned := false
 		titles := []string{}
 		for _, r := range []*resourceAdvice{adv.CPU, adv.Memory} {
 			if r == nil {
@@ -358,9 +427,15 @@ func (c *Controller) daemonShareAdviceProblems(ctx context.Context, out *[]Probl
 			if r.Held != nil {
 				// Said, not dropped: the squeeze is real, and an operator who is told
 				// nothing has no way to know the share was priced and found too dear.
-				lines = append(lines, line+fmt.Sprintf(", and the use points at about %d%%, but the thinner half is held to this pool's smallest runner and the slot grows to carry it, "+
-					"which would leave its hosts room for %s where they hold %d now",
-					r.Held.Wanted, plural(r.Held.Runners, "runner"), r.Held.RunnersNow))
+				if r.Held.Pinned {
+					lines = append(lines, line+fmt.Sprintf(", and the use points at about %d%%, but on these hosts the thinner half is held to this pool's smallest runner, "+
+						"so a different share would not give it more and would only take from the half beside it", r.Held.Wanted))
+					pinned = true
+				} else {
+					lines = append(lines, line+fmt.Sprintf(", and the use points at about %d%%, but the thinner half is held to this pool's smallest runner and the slot grows to carry it, "+
+						"which would leave its hosts room for %s where they hold %d now",
+						r.Held.Wanted, plural(r.Held.Runners, "runner"), r.Held.RunnersNow))
+				}
 				held = append(held, strings.ToLower(r.Resource))
 				continue
 			}
@@ -378,8 +453,13 @@ func (c *Controller) daemonShareAdviceProblems(ctx context.Context, out *[]Probl
 				"It applies to runners created after the change.", p.Name, strings.Join(flags, " ")))
 		}
 		if len(held) > 0 {
-			fix = append(fix, fmt.Sprintf("Leave the %s share where it is: moving it would cost runners. To give the squeezed container more room, lower the pool's smallest runner "+
-				"in the pool editor (Size step), which is what holds the thinner half up, or run the pool on larger machines.", strings.Join(held, " and ")))
+			if pinned {
+				fix = append(fix, fmt.Sprintf("Leave the %s share where it is: the thinner half is given the pool's smallest runner whatever the share. To give it more, raise the pool's smallest runner "+
+					"in the pool editor (Size step), which is what sets it, or run the pool on larger machines.", strings.Join(held, " and ")))
+			} else {
+				fix = append(fix, fmt.Sprintf("Leave the %s share where it is: moving it would cost runners. To give the squeezed container more room, lower the pool's smallest runner "+
+					"in the pool editor (Size step), which is what holds the thinner half up, or run the pool on larger machines.", strings.Join(held, " and ")))
+			}
 		}
 		var change *DaemonShareChange
 		if len(flags) > 0 {

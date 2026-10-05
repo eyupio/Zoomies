@@ -399,3 +399,40 @@ func TestTheSameSampleArrivingTwiceIsCountedOnce(t *testing.T) {
 		t.Errorf("%d samples kept from two readings", n)
 	}
 }
+
+// A pool whose smallest runner holds the thin half of its slot is the shape that
+// motivated all of this: a 15% sidecar with a 1.5 GB minimum is given 1.5 GB at any
+// share of 50% or less, so raising its share cannot give it more -- it only shrinks
+// the runner beside it, and the notice then goes quiet because both halves are
+// squeezed. The detector must say so and offer no share to apply.
+func TestASidecarPinnedAtThePoolsMinimumIsNotOfferedAShareThatOnlyShrinksTheRunner(t *testing.T) {
+	h := newHarness(t)
+	pool := h.pool(h.installation(), "builders")
+	pool.DockerMode = store.DockerDinD
+	pool.Resources.MinMemoryMB = 1536
+	pool.Resources.DaemonMemorySharePercent = 15
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	h.measuredHost("box", 16, 12288, 4, enforcesEverything)
+	now := h.c.Now()
+	for i := 0; i < 100; i++ {
+		halves := backend.PairHalves{
+			Runner: backend.HalfUse{MemoryLimit: 8704 << 20, MemoryBytes: 2000 << 20},
+			Daemon: backend.HalfUse{MemoryLimit: 1536 << 20, MemoryBytes: 1400 << 20},
+		}
+		r := &store.Runner{ID: fmt.Sprintf("run-%d", i%5), PoolID: pool.ID, AllocationSource: store.AllocationFromHost}
+		sampled := now.Add(time.Duration(i) * time.Second)
+		h.c.observePair(r, backend.Stats{SampledAt: &sampled, Halves: &halves})
+	}
+	p := h.problemOrNil("pool.daemon_share_suggested")
+	if p == nil {
+		t.Fatal("the squeeze is real and the pool should still be told")
+	}
+	if p.Remedy != nil || p.DaemonShare != nil {
+		t.Errorf("a share was offered that cannot give the daemon more: %+v %+v", p.Remedy, p.DaemonShare)
+	}
+	if !strings.Contains(p.Detail, "smallest runner") || !strings.Contains(p.Fix, "raise the pool's smallest runner") {
+		t.Errorf("the notice must say what sets the thin half and what raises it:\n%s\n%s", p.Detail, p.Fix)
+	}
+}
