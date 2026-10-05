@@ -21,19 +21,15 @@
   $effect(() => onClockTick((t) => (now = t)));
 
   const text = $derived(relativeTime(value, now));
+  // One string, with its space in it: a space written between two blocks of markup
+  // is trimmed away, and a `{' '}` to put it back is what the lint rightly calls
+  // noise. A prefix that already ends in a space is not given two.
+  const lead = $derived(prefix ? `${prefix.trimEnd()} ` : '');
   const title = $derived(formatTimestampTitle(value));
   const iso = $derived(typeof value === 'string' ? value : undefined);
 </script>
 
-<!--
-  The space after a prefix is written here and not left to the markup: Svelte
-  trims the whitespace at the end of a block, so a line break after the prefix
-  inside the `{#if}` was never a space, and "created" ran into "just now". A
-  prefix that ends in a space of its own (`since `) is not given two.
--->
-<time class="relative {className}" class:plain datetime={iso} {title}
-  >{#if prefix}{prefix.trimEnd()}{' '}{/if}{text}</time
->
+<time class="relative {className}" class:plain datetime={iso} {title}>{lead}{text}</time>
 
 <style>
   .relative {
