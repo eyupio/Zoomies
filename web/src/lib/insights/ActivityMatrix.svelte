@@ -872,8 +872,9 @@
           aria-hidden="true"
         >
           {#each layout.labels as label, c (c)}
-            {#if label}<span class:last={c === layout.labels.length - 1} style:grid-column={c + 2}
-                >{label}</span
+            {#if label}<span
+                class:last={interval === 'day' && c === layout.labels.length - 1}
+                style:grid-column={c + 2}>{label}</span
               >{/if}
           {/each}
         </div>
