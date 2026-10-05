@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"math"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -355,6 +356,15 @@ var _ Backend = (*DockerBackend)(nil)
 // A throttle reaches a running job through the update endpoint, and Podman
 // inherits the implementation by embedding.
 var _ ResourceUpdater = (*DockerBackend)(nil)
+
+// The memory valve finds what it may call by asking the agent's backend whether
+// it is one of these, and an agent that finds it is not says nothing: a method
+// that drifted out of step would turn the valve off without an error. Podman
+// inherits the implementation by embedding, so it is asserted too.
+var (
+	_ MemoryUpdater = (*DockerBackend)(nil)
+	_ MemoryUpdater = (*PodmanBackend)(nil)
+)
 
 // NewDocker builds a Docker backend. It does not contact the daemon: a host
 // where Docker is not running must still be able to start an agent and report
@@ -974,6 +984,156 @@ func (b *DockerBackend) UpdateResources(ctx context.Context, h Handle, res store
 	if runnerGains {
 		return b.updateCPUQuota(ctx, string(h), insp.HostConfig, runnerWant)
 	}
+	return nil
+}
+
+// swapUnlimited is the swap a container reads as holding when its swap limit is
+// -1, which is no limit. It is a figure rather than a flag so that every
+// comparison the guard makes with it comes out as "already allowed".
+const swapUnlimited = int64(1) << 40
+
+// MemoryContainers lists the containers whose memory counts as this runner's,
+// with what each was created with and holds now. A container with no memory
+// limit is left out: a pool that sets none has nothing for the valve to raise.
+func (b *DockerBackend) MemoryContainers(ctx context.Context, h Handle) ([]MemoryContainer, error) {
+	insp, err := b.api.ContainerInspect(ctx, string(h))
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("backend: inspecting container %s for its memory limits: %w", shortID(string(h)), err)
+	}
+	var out []MemoryContainer
+	if c, ok := memoryContainer(string(h), false, insp); ok {
+		out = append(out, c)
+	}
+	if insp.Config == nil || insp.Config.Labels[LabelDockerMode] != string(store.DockerDinD) {
+		return out, nil
+	}
+	name := insp.Config.Labels[LabelName]
+	if name == "" {
+		return out, nil
+	}
+	sidecars, err := b.api.ContainerList(ctx, map[string][]string{
+		"label": {LabelManaged + "=true", LabelDinDFor + "=" + name},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("backend: listing the docker-in-docker sidecar of %s: %w", name, err)
+	}
+	for _, s := range sidecars {
+		sinsp, err := b.api.ContainerInspect(ctx, s.ID)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				// Gone between the listing and the look: nothing of its to raise.
+				continue
+			}
+			return nil, fmt.Errorf("backend: inspecting the docker-in-docker sidecar of %s: %w", name, err)
+		}
+		if c, ok := memoryContainer(s.ID, true, sinsp); ok {
+			out = append(out, c)
+		}
+	}
+	return out, nil
+}
+
+// memoryContainer reads what one container was created with and holds now.
+func memoryContainer(id string, daemon bool, insp *ContainerInspect) (MemoryContainer, bool) {
+	if insp == nil || insp.HostConfig == nil || insp.HostConfig.Memory <= 0 {
+		return MemoryContainer{}, false
+	}
+	hc := insp.HostConfig
+	limit := hc.Memory / (1 << 20)
+	c := MemoryContainer{ID: id, Daemon: daemon, GuaranteeMB: limit, LimitMB: limit}
+	if insp.Config != nil {
+		if g := resourcesFromLabels(insp.Config.Labels).MemoryMB; g > 0 && g <= limit {
+			c.GuaranteeMB = g
+		}
+	}
+	switch {
+	case hc.MemorySwap < 0:
+		c.SwapMB = swapUnlimited
+	case hc.MemorySwap > hc.Memory:
+		c.SwapMB = (hc.MemorySwap - hc.Memory) / (1 << 20)
+	}
+	return c, true
+}
+
+// MemoryUsage reads one container's working set and limit now. See
+// APIClient.ContainerMemory for why it is not ContainerStats.
+func (b *DockerBackend) MemoryUsage(ctx context.Context, container string) (MemoryReading, error) {
+	s, err := b.api.ContainerMemory(ctx, container)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return MemoryReading{}, err
+		}
+		return MemoryReading{}, fmt.Errorf("backend: reading the memory of container %s: %w", shortID(container), err)
+	}
+	return MemoryReading{UsageBytes: s.MemoryBytes, LimitBytes: s.MemoryLimit, SampledAt: time.Now()}, nil
+}
+
+// RaiseMemory raises a live container's memory limit, and the swap it may use
+// beyond it, to the figures given. It never lowers either: a request that would
+// is refused (ErrMemoryLowering), and one that would change nothing is not
+// sent, so the guard can ask for what it wants on every look without a durable
+// record of what it last asked for.
+//
+// The limit and the swap are sent together as the daemon needs them -- it
+// refuses a limit above the swap limit already set -- and the swap is sent as
+// what the container may use in all, memory included, which is how the daemon
+// takes it. A container whose swap is unlimited stays so.
+//
+// A 404 from the update is read against the container: one that still answers
+// an inspect is a runtime with no update endpoint, which will refuse every
+// request the same way, and is told apart from a container that has finished
+// and gone, which is an ordinary end of a job.
+func (b *DockerBackend) RaiseMemory(ctx context.Context, container string, limitMB, swapMB int64) error {
+	if limitMB <= 0 {
+		return errors.New("backend: a memory limit to raise a container to is required")
+	}
+	insp, err := b.api.ContainerInspect(ctx, container)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return err
+		}
+		return fmt.Errorf("backend: inspecting container %s before raising its memory limit: %w", shortID(container), err)
+	}
+	hc := insp.HostConfig
+	if hc == nil || hc.Memory <= 0 {
+		// No limit to raise. Not an error: a pool that sets none is not one the
+		// valve is for, and the guard is never handed such a container.
+		return nil
+	}
+	wantMemory := limitMB * (1 << 20)
+	if wantMemory < hc.Memory {
+		return fmt.Errorf("%w: container %s holds %d MB and was asked for %d", ErrMemoryLowering, shortID(container), hc.Memory>>20, limitMB)
+	}
+	wantTotal := wantMemory + max(swapMB, 0)*(1<<20)
+	switch {
+	case hc.MemorySwap < 0:
+		wantTotal = -1
+	case wantTotal < hc.MemorySwap:
+		// Raising the memory limit while asking for less swap than the container
+		// already holds would lower the total it may use; the larger stands.
+		wantTotal = hc.MemorySwap
+	}
+	if wantMemory == hc.Memory && wantTotal == hc.MemorySwap {
+		return nil
+	}
+	err = b.api.ContainerUpdate(ctx, container, UpdateConfig{Memory: wantMemory, MemorySwap: wantTotal})
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			if _, ierr := b.api.ContainerInspect(ctx, container); ierr == nil {
+				return fmt.Errorf("%w (%s answered the update with a 404)", ErrMemoryUpdateUnsupported, b.fl.kind)
+			}
+			return err
+		}
+		if status := StatusCode(err); status == http.StatusMethodNotAllowed || status == http.StatusNotImplemented {
+			return fmt.Errorf("%w: %v", ErrMemoryUpdateUnsupported, err)
+		}
+		return fmt.Errorf("backend: raising the memory limit of container %s: %w", shortID(container), err)
+	}
+	b.log.Debug("raised a container's memory limit", "container", shortID(container),
+		"from_mb", hc.Memory>>20, "to_mb", limitMB, "swap_mb", swapMB)
 	return nil
 }
 

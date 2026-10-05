@@ -197,6 +197,11 @@ func (a *Agent) observe(ctx context.Context, b backend.Backend, r tracked, w bac
 		// delay noticing exits or returning lifecycle observations.
 		stats := r.stats
 		a.markRunning(r.runnerID, w, stats, now)
+		// The valve's word travels with every report of a live runner. The
+		// controller replaces a runner's whole sample with the latest report, so a
+		// report that left it out would blank the runner's memory facts until the
+		// next heartbeat put them back, and count a near-limit runner twice.
+		stats.MemoryValve = r.valveSample
 		// No lifecycle state is claimed for a live runner. Whether it is idle
 		// or busy is GitHub's answer, not the host's, and guessing here would
 		// fight the controller's state machine.
@@ -564,7 +569,7 @@ func (a *Agent) snapshot(runnerID string) (tracked, bool) {
 	if !ok {
 		return tracked{}, false
 	}
-	return *r, true
+	return r.copyForReport(), true
 }
 
 func (a *Agent) trackedRunners() []tracked {
@@ -572,9 +577,19 @@ func (a *Agent) trackedRunners() []tracked {
 	defer a.mu.Unlock()
 	out := make([]tracked, 0, len(a.runners))
 	for _, r := range a.runners {
-		out = append(out, *r)
+		out = append(out, r.copyForReport())
 	}
 	return out
+}
+
+// copyForReport is a copy of one runner that is safe to read after the lock is
+// let go: what the memory valve says of it is taken now, while the lock is
+// held, and the valve itself is not carried.
+func (t *tracked) copyForReport() tracked {
+	cp := *t
+	cp.valveSample = t.valve.sample()
+	cp.valve = nil
+	return cp
 }
 
 func (a *Agent) markRunning(runnerID string, w backend.Workload, stats backend.Stats, now time.Time) {

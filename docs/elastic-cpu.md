@@ -13,9 +13,10 @@ of the time that is the right size. But a host with eight cores and two busy
 runners is idling on more than half of itself, while each of those runners
 compiles inside a quota of under two cores. **Elastic CPU zoomies** lends that
 spare CPU to the runners that are actually using theirs, takes it back the
-moment anything else needs it, and never touches memory. A job that would have
-taken four minutes at its guarantee finishes in two, and the fleet's accounting
-does not change by a single slot.
+moment anything else needs it, and never touches memory — that is [elastic
+memory](elastic-memory.md), on terms of its own. A job that would have taken
+four minutes at its guarantee finishes in two, and the fleet's accounting does
+not change by a single slot.
 
 It is a pool setting, on by default in its measuring form for every new pool,
 and the runner page and the Overview feed say when it is happening in the
@@ -59,9 +60,11 @@ CPU carelessly is a scheduler that starves a job it never noticed.
   whether or not its pool is elastic. A boost is never applied to a throttled
   host, and a throttle can take a runner below its guarantee. **Leash tightened
   — host under pressure** is the runner page's word for it.
-* **Memory never moves while a job runs.** Lowering a live memory limit can
-  kill the job it was meant to help, and raising one changes nothing the job
-  can feel until it is too late. Elasticity is CPU only, by design.
+* **Memory is lent on different terms.** Lowering a live memory limit can kill
+  the job it was meant to help, so elastic CPU never touches memory and a
+  throttle never lowers it. [Elastic memory](elastic-memory.md) is the other
+  half: it only ever raises a limit, what it raises stays raised, and it has
+  its own choice on the pool.
 
 ## How a decision is made
 
@@ -271,8 +274,8 @@ does. The pool's per-host table shows whose ceiling is in force on each host.
     *Automatic boost*. **Boost ceiling** is `max_cpus`; leave it empty for the
     host ceiling. Choosing *Automatic boost* adds a line under the fields
     saying what you will see — busy runners sprint, quiet runners keep their
-    guarantee, memory stays fixed — so the decision is made with its
-    consequences in view.
+    guarantee, memory has a choice of its own below — so the decision is made
+    with its consequences in view.
 
     It also says whether the hosts will honour it. Choosing *Automatic boost*
     checks the agent on every host the pool can land on: either every one of
@@ -290,8 +293,8 @@ does. The pool's per-host table shows whose ceiling is in force on each host.
     two, not instantly: a runner is lent CPU only once a sample shows it
     demanding, and samples and heartbeats each come every 30 seconds by
     default, so allow up to a minute. Nothing is ever taken below the
-    guarantee, and memory is never touched, so a running job is slowed at
-    most back to the quota it started with.
+    guarantee, and elastic CPU never touches memory, so a running job is slowed
+    at most back to the quota it started with.
 
 === "The command line"
 

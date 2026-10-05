@@ -38,6 +38,12 @@ type EffectiveStandardView struct {
 	EffectiveSizeView
 	BurstMaxCPUs       float64 `json:"burst_max_cpus,omitempty"`
 	BurstMaxCPUsSource string  `json:"burst_max_cpus_source,omitempty"`
+	// BurstMaxMemoryMB is the most memory one runner here may hold, lent memory
+	// included, and BurstMaxMemoryMBSource whose it is. Absent where the host
+	// names none, which leaves a pool's own ceiling, or half as much again as a
+	// runner's guarantee.
+	BurstMaxMemoryMB       int64  `json:"burst_max_memory_mb,omitempty"`
+	BurstMaxMemoryMBSource string `json:"burst_max_memory_mb_source,omitempty"`
 }
 
 // EffectiveProfileView is what a runner on a host is held to, with the fleet's
@@ -79,6 +85,7 @@ func EffectiveProfile(h *store.Host, fleet config.Runners) EffectiveProfileView 
 	out.Standard.CPUs, out.Standard.CPUsSource = sourced(std.CPUs, defaultCPUs)
 	out.Standard.MemoryMB, out.Standard.MemoryMBSource = sourced(std.MemoryMB, defaultMemoryMB)
 	out.Standard.BurstMaxCPUs, out.Standard.BurstMaxCPUsSource = sourced(std.BurstMaxCPUs, 0)
+	out.Standard.BurstMaxMemoryMB, out.Standard.BurstMaxMemoryMBSource = sourced(std.BurstMaxMemoryMB, 0)
 	return out
 }
 
@@ -135,6 +142,13 @@ type PoolHostSizing struct {
 	// the host's. Zero is "as much as the host's allocatable CPU".
 	CeilingCPUs   float64 `json:"ceiling_cpus,omitempty"`
 	CeilingSource string  `json:"ceiling_source,omitempty"`
+	// CeilingMemoryMB is the same for the memory valve: the most memory one
+	// runner may hold there, its guarantee and what it is lent together, for a
+	// pool that has the valve on. CeilingMemorySource says whose figure it is --
+	// the pool's, the host's (the smaller of the two applies), or "default" for
+	// half as much again as the runner's guarantee.
+	CeilingMemoryMB     int64  `json:"ceiling_memory_mb,omitempty"`
+	CeilingMemorySource string `json:"ceiling_memory_source,omitempty"`
 }
 
 // poolHostSizing resolves one pool on one host. raw is the pool as stored and p
@@ -190,6 +204,20 @@ func poolHostSizing(raw, p *store.Pool, h *store.Host, fleet config.Runners) Poo
 			out.CeilingSource = scheduler.SourcePool
 		case host > 0:
 			out.CeilingSource = scheduler.SourceHost
+		}
+	}
+	if p.MemoryBurst.Observes() {
+		pool, host := p.MemoryBurst.MaxMemoryMB, hostStd.BurstMaxMemoryMB
+		out.CeilingMemoryMB = scheduler.MemoryCeiling(p, h, charge.MemoryMB)
+		switch {
+		case pool > 0 && host > 0 && host < pool:
+			out.CeilingMemorySource = scheduler.SourceHost
+		case pool > 0:
+			out.CeilingMemorySource = scheduler.SourcePool
+		case host > 0:
+			out.CeilingMemorySource = scheduler.SourceHost
+		default:
+			out.CeilingMemorySource = "default"
 		}
 	}
 	return out

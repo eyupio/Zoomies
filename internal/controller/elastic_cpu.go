@@ -170,7 +170,7 @@ func (c *Controller) elasticCPUTargets(ctx context.Context, h *store.Host, req a
 	// is, so the fleet-wide read of queued jobs it needs is skipped.
 	reserve := 0.0
 	if demanding {
-		reserve = c.elasticStartReserve(ctx, h, poolByID, starting)
+		reserve = c.elasticStartReserve(ctx, h, poolByID, starting).CPUs
 	}
 	targets := scheduler.ElasticCPUPlan(alloc.CPUs, reserve, applied)
 	would := targets
@@ -426,7 +426,9 @@ func (c *Controller) sweepLoans(host string, busy map[string]bool) {
 	}
 }
 
-// elasticStartReserve is the one share held back for a compatible queued job.
+// elasticStartReserve is the one share held back for a compatible queued job,
+// as the CPU and the memory it would be charged: the elastic CPU plan and the
+// memory valve's pool are taken out of what is left of a host after it.
 //
 // starting counts this host's runners of each pool that are already on their
 // way up. Each of those is charged its guarantee in the plan's ledger, and is
@@ -434,12 +436,17 @@ func (c *Controller) sweepLoans(host string, busy map[string]bool) {
 // share back for the same job shrank every boost by one share during every
 // start. Only a pool with more jobs queued than runners starting for it here
 // still needs room kept.
-func (c *Controller) elasticStartReserve(ctx context.Context, h *store.Host, pools map[string]*store.Pool, starting map[string]int) float64 {
+func (c *Controller) elasticStartReserve(ctx context.Context, h *store.Host, pools map[string]*store.Pool, starting map[string]int) scheduler.Reservation {
+	var reserve scheduler.Reservation
+	hold := func(p *store.Pool) {
+		charge := scheduler.Reserve(p, h)
+		reserve.CPUs = math.Max(reserve.CPUs, charge.CPUs)
+		reserve.MemoryMB = max(reserve.MemoryMB, charge.MemoryMB)
+	}
 	if intent := c.placement.Load(); intent != nil && intent.Version == c.placementVersion.Load() && c.Now().Sub(intent.At) >= 0 && c.Now().Sub(intent.At) < 30*time.Second {
-		reserve := 0.0
 		for id, n := range intent.Starts[h.ID] {
 			if p := pools[id]; p != nil && n > starting[id] && scheduler.HostCouldRun(h, p) {
-				reserve = math.Max(reserve, scheduler.Reserve(p, h).CPUs)
+				hold(p)
 			}
 		}
 		return reserve
@@ -447,19 +454,18 @@ func (c *Controller) elasticStartReserve(ctx context.Context, h *store.Host, poo
 
 	queued, err := c.st.ListQueuedJobs(ctx)
 	if err != nil {
-		return 0
+		return scheduler.Reservation{}
 	}
 	waiting := make(map[string]int)
 	for _, job := range queued {
 		waiting[job.PoolID]++
 	}
-	reserve := 0.0
 	for id, n := range waiting {
 		p := pools[id]
 		if p == nil || n <= starting[id] || !scheduler.HostCouldRun(h, p) {
 			continue
 		}
-		reserve = math.Max(reserve, scheduler.Reserve(p, h).CPUs)
+		hold(p)
 	}
 	return reserve
 }

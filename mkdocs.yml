@@ -165,6 +165,7 @@ nav:
       - Size classes and automatic pools: auto-pools.md
       - Persistent caches: persistent-caches.md
       - Elastic CPU zoomies: elastic-cpu.md
+      - Elastic memory: elastic-memory.md
       - Private hosts with Tailcat: private-hosts.md
       - Proxmox VE: proxmox.md
       - Migrating repositories: migration.md

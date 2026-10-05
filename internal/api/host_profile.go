@@ -47,6 +47,7 @@ func validateRunnerProfile(h *store.Host, p store.RunnerProfile) []fieldError {
 	cpuField("standard.cpus", p.Standard.CPUs, "a standard size")
 	memoryField("standard.memory_mb", p.Standard.MemoryMB, "a standard size")
 	cpuField("standard.burst_max_cpus", p.Standard.BurstMaxCPUs, "a burst ceiling")
+	memoryField("standard.burst_max_memory_mb", p.Standard.BurstMaxMemoryMB, "a memory ceiling")
 
 	// The in-memory folders' policy. A folder smaller than the floor is not a
 	// folder a checkout fits in, and a host that keeps them off has nothing to cap,
@@ -90,6 +91,13 @@ func validateRunnerProfile(h *store.Host, p store.RunnerProfile) []fieldError {
 	if p.Standard.BurstMaxCPUs > 0 && p.Standard.CPUs > 0 && p.Standard.BurstMaxCPUs < p.Standard.CPUs {
 		add("standard.burst_max_cpus", fmt.Sprintf("the burst ceiling (%s CPU) is below the standard size (%s CPU); it is the most a runner may use, its own share included, so it has to be at least the standard",
 			scheduler.FormatCPUs(p.Standard.BurstMaxCPUs), scheduler.FormatCPUs(p.Standard.CPUs)))
+	}
+
+	// The memory ceiling is the most a runner may hold, its guaranteed share
+	// included, so below the standard it would be a request to take memory back.
+	if p.Standard.BurstMaxMemoryMB > 0 && p.Standard.MemoryMB > 0 && p.Standard.BurstMaxMemoryMB < p.Standard.MemoryMB {
+		add("standard.burst_max_memory_mb", fmt.Sprintf("the memory ceiling (%d MB) is below the standard size (%d MB); it is the most a runner may hold, its own share included, so it has to be at least the standard",
+			p.Standard.BurstMaxMemoryMB, p.Standard.MemoryMB))
 	}
 
 	// What the machine can give. A standard or a minimum above all of it could

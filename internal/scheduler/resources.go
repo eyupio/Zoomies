@@ -128,16 +128,31 @@ func Reserve(p *store.Pool, h *store.Host) Reservation {
 	return res
 }
 
-// RunnerCharge is what one live runner is charged on its host: what its row
-// says it was given, where it was given less than its pool's standard size,
-// and the pool's own charge otherwise.
+// RunnerCharge is what one live runner is charged on its host: its guarantee
+// (RunnerGuarantee) and, on top of it, any memory the memory valve has lent it.
+//
+// The loan is charged because it cannot be taken back. A runner's limit only
+// ever goes up while it lives, so memory lent to it is memory the host no
+// longer has for the next one, and a ledger that forgot it would place new work
+// into room that is already in use.
+func RunnerCharge(p *store.Pool, h *store.Host, r *store.Runner) Reservation {
+	res := RunnerGuarantee(p, h, r)
+	if r != nil && r.LentMemoryMB > 0 {
+		res.MemoryMB += r.LentMemoryMB
+	}
+	return res
+}
+
+// RunnerGuarantee is what one live runner was promised: what its row says it
+// was given, where it was given less than its pool's standard size, and the
+// pool's own charge otherwise.
 //
 // The row is the only place a reduced runner's size is written down. Charging
 // it the standard instead would have the fleet believe a host it had filled
 // with reduced runners was over-committed, and refuse the next one it had room
 // for; charging the standard is right for every other runner, because that is
 // what it was given.
-func RunnerCharge(p *store.Pool, h *store.Host, r *store.Runner) Reservation {
+func RunnerGuarantee(p *store.Pool, h *store.Host, r *store.Runner) Reservation {
 	res := Reserve(p, h)
 	if r == nil || (r.AllocationSource != store.AllocationReduced && r.AllocationSource != store.AllocationHistory) {
 		return res

@@ -58,6 +58,7 @@ type metrics struct {
 	imagePrewarmDuration                                                                         *prometheus.HistogramVec
 	elasticCPUDecisions                                                                          *prometheus.CounterVec
 	elasticCPUFactor                                                                             *prometheus.HistogramVec
+	elasticMemoryDecisions, elasticMemoryNearLimit                                               *prometheus.CounterVec
 }
 
 // UnmatchedPool is the `pool` label for work no pool here claims.
@@ -284,6 +285,14 @@ func newMetrics(c *Controller) *metrics {
 			Help:    "Planned CPU target divided by the runner's guaranteed CPU, by pool and policy mode.",
 			Buckets: []float64{1, 1.25, 1.5, 2, 3, 4, 6, 8},
 		}, []string{"pool", "mode"}),
+		elasticMemoryDecisions: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zoomies_elastic_memory_decisions_total",
+			Help: "What the memory valve reported of each runner it watches, once per heartbeat, by pool, policy mode and outcome: healthy, raised, spilled, at_ceiling, pool_empty, host_floor, unmeasured, unsupported, failed, or unreported for a runner not heard from. Observe mode counts what the valve would have done.",
+		}, []string{"pool", "mode", "outcome"}),
+		elasticMemoryNearLimit: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zoomies_elastic_memory_near_limit_total",
+			Help: "Runners that came within a tenth of a memory limit, by pool and policy mode, counted once per runner: the evidence of whether a pool's jobs would use the valve at all.",
+		}, []string{"pool", "mode"}),
 	}
 	m.buildInfo.WithLabelValues(version.Version, version.Commit).Set(1)
 
@@ -294,6 +303,7 @@ func newMetrics(c *Controller) *metrics {
 		m.providerOperations, m.providerOperationSeconds,
 		m.imagePrewarms, m.imagePrewarmDuration, m.runtimeFailures, m.imagePullFailures,
 		m.elasticCPUDecisions, m.elasticCPUFactor,
+		m.elasticMemoryDecisions, m.elasticMemoryNearLimit,
 		m.startupWait, m.dindReady, m.queuedToCreate, m.createToContainer, m.containerToRegistered, m.registeredToReady, m.queuedToStarted,
 		m.schedulingLatency, m.cleanupDuration,
 		&fleetCollector{c: c},
@@ -367,6 +377,10 @@ var (
 		[]string{"installation"}, nil)
 	descHostCPUUsage = prometheus.NewDesc("zoomies_host_cpu_usage_percent",
 		"Recent whole-host CPU occupied, including I/O wait. Absent when stale or unmeasured.", []string{"host"}, nil)
+	descHostMemoryPool = prometheus.NewDesc("zoomies_host_memory_pool_bytes",
+		"Memory the host can still lend to runners of pools that have the memory valve on, which is what no guarantee needs and the host measured as free. Absent for a host with no such runner.", []string{"host"}, nil)
+	descHostMemoryLent = prometheus.NewDesc("zoomies_host_memory_lent_bytes",
+		"Memory the host's runners hold beyond what they were created with, lent by the memory valve. It is not taken back until the runner that holds it is gone. Absent for a host with no such runner.", []string{"host"}, nil)
 	descHostMemoryAvailable = prometheus.NewDesc("zoomies_host_memory_available_bytes",
 		"Recent whole-host memory available, including reclaimable cache. Absent when stale or unmeasured.", []string{"host"}, nil)
 	descHostAdmissionHeld = prometheus.NewDesc("zoomies_host_admission_held",
@@ -410,6 +424,8 @@ func (f *fleetCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- descReservedMemory
 	ch <- descHostCPUUsage
 	ch <- descHostMemoryAvailable
+	ch <- descHostMemoryPool
+	ch <- descHostMemoryLent
 	ch <- descHostAdmissionHeld
 	ch <- descHostUsageFresh
 	ch <- descProviderMachines
@@ -502,6 +518,18 @@ func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
 			v = 1
 		}
 		gauge(descGitHubPaused, v, inst.ID)
+	}
+
+	// By the hosts there are, and the ones that are heard from: the figures are
+	// a heartbeat old at best, and a host that was deleted or has fallen silent
+	// would otherwise stand at the last pool it had for ever.
+	for _, h := range hosts {
+		s := f.c.memoryState(h.ID)
+		if s.At.IsZero() || !h.Healthy(now) {
+			continue
+		}
+		gauge(descHostMemoryPool, float64(s.Pool.PoolMB)*(1<<20), h.ID)
+		gauge(descHostMemoryLent, float64(s.Pool.LentMB)*(1<<20), h.ID)
 	}
 
 	var healthy, unhealthy, cordoned, capacity, effective, used int

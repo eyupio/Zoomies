@@ -149,7 +149,11 @@ give a runner listed underneath, or a fixed size on every host. Under the shared
 size sit the two fields of [elastic CPU zoomies](elastic-cpu.md) — **Elastic
 CPU**, off, observe only or automatic boost, and **Boost ceiling** — so lending
 a busy runner the host's spare CPU is a choice made beside the guarantee it
-builds on. The controller's check at the foot of the page, and the bar that
+builds on. Under them is **Elastic memory**, a choice of three with a **Memory
+ceiling** and the **swap** it may fall back on: the valve that raises a running
+job's memory limit just before the kernel would kill it, offered whatever the
+size is decided by. [Elastic memory](elastic-memory.md) says what it promises
+and how it decides. The controller's check at the foot of the page, and the bar that
 follows you down it, give the controller's own verdict, asked as you type, so a
 pool that no host could run is refused with the reason before it is saved.
 
@@ -218,6 +222,16 @@ shown for any limited runner, elastic or not, because a job running at three
 quarters of its allocation is slow for a reason the runner itself cannot
 show. [Elastic CPU zoomies](elastic-cpu.md) says what each state means and
 how the decision is made.
+
+A runner the memory valve has something to say about wears a small pill in the
+**Memory** column, under its figure — **+1.5 GB** for memory it was lent,
+**Swap** where it may also use swap, **At ceiling** or **Host full** where it
+wanted more and was refused, and a dashed **~1.0 GB** where a pool that is only
+observing would have lent that much. A runner whose pool keeps folders in memory
+wears one more, with a folder icon for each folder that is, and what they come
+to. Hover, focus or tap a pill for its card; the runner's page repeats them
+beside its status and draws the cards open in a **Memory and folders** panel.
+[Elastic memory](elastic-memory.md#what-you-see) has the whole list.
 
 ![A busy runner's page: its current job, a timeline of its states, details and resource usage](screenshots/runner-dark.webp#only-dark){ .zoomies-shot }
 ![A busy runner's page: its current job, a timeline of its states, details and resource usage](screenshots/runner-light.webp#only-light){ .zoomies-shot }

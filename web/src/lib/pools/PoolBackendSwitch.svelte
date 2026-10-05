@@ -11,11 +11,12 @@
 <script lang="ts">
   import { ArrowLeftRight } from '@lucide/svelte';
   import { updatePool } from '$lib/api/client';
-  import type { BackendKind, Body, Pool } from '$lib/api/types';
+  import type { BackendKind, Pool } from '$lib/api/types';
   import { fleet } from '$lib/state/fleet.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
   import Button from '$lib/components/Button.svelte';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+  import { backendSwitch } from './backend-switch';
   import { backendLabel } from './vocabulary';
 
   interface Props {
@@ -29,12 +30,11 @@
   let chosen = $state<BackendKind | null>(null);
   let busy = $state(false);
 
-  // The process backend cannot give a job a Docker daemon, so a pool that had
-  // one loses it in the same change. Saying it here is the difference between
-  // an informed switch and a surprise.
-  const losesDocker = $derived(
-    chosen === 'process' && pool.docker_mode !== undefined && pool.docker_mode !== 'none',
-  );
+  // The process backend cannot give a job a Docker daemon or a container to
+  // measure, so a pool that had either loses it in the same change. Saying it
+  // here is the difference between an informed switch and a surprise, and the
+  // request carries exactly what is said.
+  const change = $derived(chosen ? backendSwitch(pool, chosen) : null);
 
   const consequences = $derived.by(() => {
     if (!chosen) return [];
@@ -47,20 +47,16 @@
         'Jobs will run as processes on the host rather than in a container, so a job can see and change the host filesystem.',
       );
     }
-    if (losesDocker) {
-      lines.push('Docker for jobs is switched off, because the process backend cannot provide it.');
-    }
+    lines.push(...(change?.switchedOff ?? []));
     return lines;
   });
 
   async function confirm(): Promise<boolean> {
     const backend = chosen;
     if (!backend || !pool.id) return false;
-    const body: Body<'updatePool'> = { backend };
-    if (backend === 'process') body.docker_mode = 'none';
     busy = true;
     try {
-      await updatePool(pool.id, body);
+      await updatePool(pool.id, backendSwitch(pool, backend).body);
       toasts.success(
         `${pool.name} now uses ${backendLabel(backend)}`,
         'The scheduler will place its next runner on a host that offers it.',

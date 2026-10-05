@@ -42,6 +42,7 @@
   import RadioGroup from '$lib/components/RadioGroup.svelte';
   import QuantityField from '$lib/components/QuantityField.svelte';
   import ElasticCpu from './ElasticCpu.svelte';
+  import ElasticMemory from './ElasticMemory.svelte';
   import PoolFit from './PoolFit.svelte';
   import PoolMore from './PoolMore.svelte';
   import PoolRoom from './PoolRoom.svelte';
@@ -532,9 +533,15 @@
   {/if}
 {:else}
   <p class="echo">
-    Elastic CPU is off for process runners because they have no live cgroup quota to measure or
-    move.
+    Elastic CPU and memory are off for process runners because they have no live container limits to
+    measure or move.
   </p>
+{/if}
+
+{#if containerBackend}
+  <!-- Memory needs only a limit to watch, so unlike CPU it is offered whatever
+       the size is decided by. -->
+  <ElasticMemory {draft} {errors} {touch} {room} />
 {/if}
 
 <style>

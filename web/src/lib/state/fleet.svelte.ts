@@ -41,6 +41,7 @@ import {
 } from '../api/client';
 import { events, type SseStatus } from '../api/sse';
 import type { Host, Pool, Problem, Resources, Runner, ScalingEvent, Stats } from '../api/types';
+import { shapeDiffers } from './fleet-shape';
 import { toasts } from './toasts.svelte';
 
 interface FleetData {
@@ -53,28 +54,6 @@ interface FleetData {
 
 function emptyData(): FleetData {
   return { version: 0, shape: 0, pools: new Map(), runners: new Map(), hosts: new Map() };
-}
-
-/**
- * The fields a frame may change without the fleet's shape having changed: the
- * live metrics an agent reports on every heartbeat.
- */
-const VOLATILE = new Set([
-  'cpu_percent',
-  'memory_bytes',
-  'last_heartbeat',
-  'resource_sample',
-  'usage',
-]);
-
-/** True when two rows differ in anything but a live metric. */
-function shapeDiffers(a: Record<string, unknown> | undefined, b: Record<string, unknown>): boolean {
-  if (!a) return true;
-  for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
-    if (VOLATILE.has(key)) continue;
-    if (JSON.stringify(a[key]) !== JSON.stringify(b[key])) return true;
-  }
-  return false;
 }
 
 /** How many scaling decisions the Overview keeps in memory. */

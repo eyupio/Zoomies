@@ -11,7 +11,12 @@
   import { formatBytes, formatGoDuration, formatMegabytes, formatNumber } from '$lib/format';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import PoolLabels from './PoolLabels.svelte';
-  import { backendLabel, dockerModeLabel, platformLabelOrAny } from './vocabulary';
+  import {
+    backendLabel,
+    dockerModeLabel,
+    memoryBurstLabel,
+    platformLabelOrAny,
+  } from './vocabulary';
 
   interface Props {
     pool: Pool;
@@ -90,6 +95,12 @@
             ? 'Observe only'
             : 'Off'}
       </dd>
+    </div>
+  {/if}
+  {#if pool.backend !== 'process'}
+    <div class="pair">
+      <dt>Elastic memory</dt>
+      <dd class="tabular">{memoryBurstLabel(pool.memory_burst)}</dd>
     </div>
   {/if}
 

@@ -847,6 +847,76 @@ test('an older remote agent offers a copyable upgrade command without a join tok
 });
 
 /*
+ * The memory a host may lend is the answer to "why was my job not given more?",
+ * and its ledger is behind the figure. A ledger that only hover reaches is one a
+ * keyboard and a finger cannot read, so the figure is a button: focus opens what
+ * hover does, and a tap leaves it open until the next tap elsewhere.
+ */
+test("a host's memory to lend opens its ledger from the keyboard and from a tap", async ({
+  page,
+  isMobile,
+}) => {
+  const pool = {
+    supported: true,
+    capacity_mb: 9000,
+    lent_mb: 1536,
+    pool_mb: 7464,
+    floor_mb: 2662,
+    committed_mb: 12288,
+    idle_reserve_mb: 4096,
+    start_reserve_mb: 0,
+    binding: 'ledger',
+    observing: 0,
+    enforcing: 3,
+    at: new Date().toISOString(),
+  };
+  await page.route(/\/api\/v1\/hosts(?:\?.*)?$/, async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    body.items = body.items.map((host: { name: string }) =>
+      host.name === 'demo-builder-1' ? { ...host, memory_pool: pool } : host,
+    );
+    await route.fulfill({ json: body });
+  });
+  // No stream, for the reason the upgrade test gives: a `host.updated` frame
+  // from the demo fleet's own heartbeat would replace the host this test wrote.
+  await page.route('**/api/v1/events*', (route) =>
+    route.fulfill({
+      status: 200,
+      headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-store' },
+      body: '',
+    }),
+  );
+  await goto(page, '/hosts', 'Hosts');
+  const card = page.getByRole('article', { name: 'demo-builder-1', exact: true });
+  const figure = card.getByTestId('host-memory-pool');
+  const ledger = page.locator('.host-pool-tip .bubble:popover-open');
+
+  // A button, so it is in the tab order, and its sentence is its description.
+  await expect(figure).toHaveJSProperty('tagName', 'BUTTON');
+  await expect(figure).toHaveAccessibleDescription(/this host may lend in all/);
+  await figure.scrollIntoViewIfNeeded();
+  await expect(ledger).toHaveCount(0);
+
+  await figure.focus();
+  await expect(figure).toBeFocused();
+  await expect(ledger).toBeVisible();
+  await expect(ledger).toContainText('Kept free for the host');
+  await expect(ledger).toContainText('Lent so far');
+  await expect(figure).toHaveAttribute('aria-expanded', 'true');
+  await page.keyboard.press('Escape');
+  await expect(ledger).toHaveCount(0);
+  await expect(figure).toHaveAttribute('aria-expanded', 'false');
+
+  // A tap, where there is no hover to do it: open, and still open once the
+  // finger is off it.
+  if (isMobile) await figure.tap();
+  else await figure.click();
+  await expect(ledger).toBeVisible();
+  await expect(ledger).toContainText('May be lent, by the ledger');
+});
+
+/*
  * The map's shortest windows are drawn finer than the controller's minute
  * samples, ten seconds to a point, so an operator watching a job land can
  * see each heartbeat rather than the last of every two. The history behind

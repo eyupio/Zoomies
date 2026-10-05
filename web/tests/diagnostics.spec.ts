@@ -72,7 +72,9 @@ test('a runner shows the allocation it was given and that its host is throttling
   // pointing at a pool field nobody set.
   await expect(usage).toContainText("1.87 CPU · 3.9 GB, the host's default share");
   await expect(usage).toContainText('of 1.87 allowed');
-  await expect(usage).toContainText('of 3.9 GB allowed');
+  // What it may use is what it holds now: the 3.9 GB it was created with and the
+  // 1.5 GB the memory valve has lent it since, which the line says in so many words.
+  await expect(usage).toContainText('of 5.4 GB allowed, 1.5 GB of it lent');
   // The sentence is decided from the runner's own recorded allocation and its
   // pool's backend, never from the pool's current limits: this one was created
   // with a share on a Docker pool, so the agent is lowering its quota and the

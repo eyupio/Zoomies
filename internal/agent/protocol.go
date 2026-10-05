@@ -25,6 +25,15 @@ const ProtocolVersion = 1
 // claiming a live quota moved when that agent could not understand the order.
 const FeatureElasticCPU = "elastic-cpu"
 
+// FeatureElasticMemory is advertised by an agent that can lend memory to a
+// runner while its job runs: it watches the runner's memory itself and raises
+// the limit of a live container, within the rules each heartbeat hands it. An
+// older agent ignores the rules, which is safe and invisible -- the pool says
+// automatic and the runner is killed at its limit all the same -- so the
+// controller asks for the capability before it claims a pool is being lent
+// anything.
+const FeatureElasticMemory = "elastic-memory"
+
 // FeatureToolCacheFill is advertised by an agent that understands
 // TaskFillToolCache. An older agent refuses a kind it does not know, which is
 // safe but would read on the controller as a fill that failed on every host.
@@ -201,6 +210,15 @@ type HeartbeatResponse struct {
 	// previous boost to its base, so a controller downgrade cannot strand a
 	// job at a stale quota. Older agents ignore this additive field.
 	ElasticCPU []ElasticCPUDirective `json:"elastic_cpu,omitempty"`
+	// ElasticMemory is the memory valve's rules for this host: how much it may
+	// lend in all, the floor it must leave free, and a ceiling for each runner
+	// that may be lent to. Unlike ElasticCPU it is not a plan to be carried out
+	// but limits to work within, because a memory limit that is raised cannot be
+	// taken back and the agent has to be able to act between two heartbeats.
+	// Absent means no runner here is lent anything, from a controller that has
+	// no pool with the valve on or one too old to know about it. Older agents
+	// ignore this additive field.
+	ElasticMemory *ElasticMemoryDirective `json:"elastic_memory,omitempty"`
 	// UnknownRunners names the runners this host reported that the controller
 	// has no live row for. They are the ones whose workloads may be removed.
 	//
@@ -223,6 +241,39 @@ type ElasticCPUDirective struct {
 	BaseCPUs   float64 `json:"base_cpus"`
 	TargetCPUs float64 `json:"target_cpus"`
 	Reason     string  `json:"reason,omitempty"`
+}
+
+// ElasticMemoryDirective is the rules the memory valve works within on one
+// host. The agent holds them between heartbeats and keeps working on the last it
+// was given if the controller goes quiet, so a controller restart cannot be the
+// thing that kills a job; what bounds it meanwhile is the capacity, which is
+// finite, and the host's own free memory, which the agent re-reads before every
+// raise.
+type ElasticMemoryDirective struct {
+	// CapacityMB is the most that may be lent on this host in total, what has
+	// been lent already included. The agent compares its own running total with
+	// it, so a loan it made since the controller last counted still comes out.
+	CapacityMB int64 `json:"capacity_mb"`
+	// FloorMB is the least free memory a loan may leave the host.
+	FloorMB int64 `json:"floor_mb"`
+	// Runners are the runners that may be lent to, or whose lending is to be
+	// observed. A runner not named here is not watched.
+	Runners []ElasticMemoryRunner `json:"runners,omitempty"`
+}
+
+// ElasticMemoryRunner is the rule for one runner.
+type ElasticMemoryRunner struct {
+	RunnerID string `json:"runner_id"`
+	// Mode is observe or automatic. An observing agent decides what it would do
+	// and records it; an automatic one does it.
+	Mode store.MemoryBurstMode `json:"mode"`
+	// GuaranteeMB is what the runner was created with, every container together,
+	// and CeilingMB the most those containers may hold between them.
+	GuaranteeMB int64 `json:"guarantee_mb"`
+	CeilingMB   int64 `json:"ceiling_mb"`
+	// SpillMB is the swap each container may be allowed beyond its limit, as the
+	// last resort. Zero is none.
+	SpillMB int64 `json:"spill_mb,omitempty"`
 }
 
 // ThrottleDirective is what a throttled host's agent is told to do about it.

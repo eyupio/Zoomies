@@ -556,14 +556,17 @@ func (c *Controller) finishCreateRunner(ctx context.Context, inst *store.Install
 	// it had before the setting existed, rather than the pool's word over a
 	// machine whose owner may have said no.
 	if pool.Tmpfs.Any() {
-		if host, err := c.st.GetHost(ctx, a.HostID); err == nil {
+		host, err := c.st.GetHost(ctx, a.HostID)
+		if err == nil {
 			spec.Tmpfs, spec.TmpfsMaxMB = host.RunnerProfile.Tmpfs.Apply(pool.Tmpfs)
 			spec.TmpfsHost = host.RunnerProfile.Tmpfs
 		} else {
 			c.log.Warn("could not read the host to apply its in-memory folder policy; creating the runner with its folders on disk",
 				"pool", pool.Name, "host", a.HostID, "error", err)
 			spec.Tmpfs, spec.TmpfsMaxMB, spec.TmpfsHost = store.TmpfsConfig{}, 0, store.HostTmpfs{}
+			host = nil
 		}
+		c.recordScratch(ctx, r, pool, host, spec)
 	}
 
 	// Credential minting is deliberately detached from the reconcile pass. In

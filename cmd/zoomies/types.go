@@ -76,6 +76,10 @@ type poolItem struct {
 	// CPUBurst is the pool's elastic CPU policy: whether a busy runner may be
 	// lent the host's spare CPU above its guaranteed share.
 	CPUBurst poolCPUBurst `json:"cpu_burst"`
+	// MemoryBurst is the pool's memory valve policy: whether a runner may be
+	// given more memory than it was created with, out of memory the host has not
+	// promised to any runner, while its job runs.
+	MemoryBurst poolMemoryBurst `json:"memory_burst"`
 	// Tmpfs is which of the runner's folders the pool keeps in memory.
 	Tmpfs poolTmpfs `json:"tmpfs"`
 	// Auto is present on a pool the controller keeps from the hosts it has.
@@ -119,6 +123,14 @@ type poolCPUBurst struct {
 	MaxCPUs float64 `json:"max_cpus"`
 	// SizeForCeiling is absent on a pool that has never said, which is on.
 	SizeForCeiling *bool `json:"size_for_ceiling,omitempty"`
+}
+
+// poolMemoryBurst mirrors the API's MemoryBurstPolicy. An empty mode is off,
+// which is what every pool created before the valve existed has.
+type poolMemoryBurst struct {
+	Mode        string `json:"mode"`
+	MaxMemoryMB int64  `json:"max_memory_mb,omitempty"`
+	SpillMB     int64  `json:"spill_mb,omitempty"`
 }
 
 // poolResources is the size a pool asks for per runner. Every field is zero on
@@ -475,6 +487,9 @@ type runnerProfile struct {
 		CPUs         float64 `json:"cpus,omitempty"`
 		MemoryMB     int64   `json:"memory_mb,omitempty"`
 		BurstMaxCPUs float64 `json:"burst_max_cpus,omitempty"`
+		// BurstMaxMemoryMB is the most memory one runner here may hold, lent
+		// memory included.
+		BurstMaxMemoryMB int64 `json:"burst_max_memory_mb,omitempty"`
 	} `json:"standard"`
 	// Tmpfs is the host's say over pools' in-memory folders.
 	Tmpfs struct {

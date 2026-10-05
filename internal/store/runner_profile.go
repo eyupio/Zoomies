@@ -53,6 +53,12 @@ type RunnerStandard struct {
 	// machine one job may take. Zero is "no host ceiling": the pool's ceiling,
 	// or the host's allocatable CPU when the pool has none either.
 	BurstMaxCPUs float64 `json:"burst_max_cpus,omitempty"`
+	// BurstMaxMemoryMB is the most memory one runner here may hold, guaranteed
+	// share and lent memory together. A pool's own memory_burst.max_memory_mb can
+	// lower it and never raise it, for the same reason as the CPU ceiling above.
+	// Zero is "no host ceiling": the pool's, or one and a half times the runner's
+	// guarantee when the pool has none either.
+	BurstMaxMemoryMB int64 `json:"burst_max_memory_mb,omitempty"`
 }
 
 // Set reports whether the operator has said anything about this host's

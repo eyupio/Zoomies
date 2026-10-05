@@ -31,6 +31,13 @@ export const MEMORY_NOTCHES: readonly number[] = [
 ];
 
 /**
+ * The swap notches, in megabytes, with zero for none. Swap is the memory valve's
+ * last resort: it turns a kill into a slowdown, and some operators would rather
+ * have the kill, so none is the answer a pool gives until somebody asks.
+ */
+export const SWAP_NOTCHES: readonly number[] = [0, 512, 1024, 2048, 4096, 8192, 16384];
+
+/**
  * The disk notches, in gigabytes, with zero for "no limit".
  *
  * Disk is the one runner limit that is genuinely optional: it is advisory on

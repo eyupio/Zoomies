@@ -163,6 +163,10 @@ type Options struct {
 	// SampleUsage replaces the local measurement for deterministic fixtures.
 	// Nil uses the non-blocking whole-host sampler.
 	SampleUsage func(int, int64) machine.Usage
+	// ReadMemory replaces the look at the host's free memory and swap that the
+	// memory valve takes before it lends anything, for the same reason. Nil
+	// reads the host's procfs.
+	ReadMemory func(totalMB int64) (machine.Memory, bool)
 }
 
 // Agent is the half of Zoomies that runs on a host with a container runtime. It
@@ -265,6 +269,13 @@ type Agent struct {
 	// missedBeats counts heartbeats in a row the controller did not answer;
 	// see expireBoosts.
 	missedBeats int
+	// memory is the memory valve's rules from the last heartbeat that carried
+	// any, and memoryUnsupported the container runtimes that refused to change a
+	// live limit, with the reason. Neither is expired by a missed heartbeat:
+	// a raised limit cannot be taken back, so the rules are worked within, not
+	// leased.
+	memory            memoryRules
+	memoryUnsupported map[store.BackendKind]string
 
 	// polled records that at least one task poll has completed since start.
 	// The reconciler will not delete anything until it has, so a controller
@@ -342,6 +353,15 @@ type tracked struct {
 	// exactly the host that is already overwhelmed, which is the one place
 	// Zoomies should be asking for less.
 	pendingCPUFactor *float64
+	// valve is the memory valve's record of this runner, nil until the
+	// controller has a rule for it.
+	valve *memoryValve
+	// valveSample is what the valve said of this runner when the copy was made,
+	// and is set only on the copies snapshot and trackedRunners hand out. A copy
+	// shares the valve itself, which the guard loop and the heartbeat write under
+	// the lock, so a report built from a copy outside it must not read the valve:
+	// it reads this instead.
+	valveSample *backend.MemoryValveSample
 }
 
 func (t *tracked) report() RunnerReport {
@@ -351,6 +371,10 @@ func (t *tracked) report() RunnerReport {
 		factor = *t.appliedCPUFactor
 	}
 	stats.CPUAllocationFactor = factor
+	stats.MemoryValve = t.valveSample
+	if t.valve != nil {
+		stats.MemoryValve = t.valve.sample()
+	}
 	return RunnerReport{
 		RunnerID:    t.runnerID,
 		HostRemoved: t.hostRemoved,
@@ -560,7 +584,7 @@ func (a *Agent) Join(ctx context.Context, joinToken string) error {
 		DiskTotalMB:     total,
 		DiskFreeMB:      free,
 		Version:         version.Version,
-		Features:        []string{FeatureElasticCPU, FeatureToolCacheFill, FeatureTmpfs},
+		Features:        a.features(),
 		Labels:          a.opts.Labels,
 		Backends:        infos,
 		// A host that has joined before proves it is itself with the token it
@@ -722,6 +746,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	run("watchdog", a.watchdogLoop)
 	run("native-logs", a.nativeLogLoop)
 	run("boost-expiry", a.boostExpiryLoop)
+	run("memory-guard", a.memoryGuardLoop)
 	if a.opts.DockerBuildCacheMB > 0 {
 		run("build-cache", a.buildCacheLoop)
 	}
@@ -799,7 +824,7 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 		Doctor:          a.opts.Doctor.Latest(ctx),
 		Usage:           a.hostUsage(infos, cpus, memoryMB),
 		ProtocolVersion: ProtocolVersion,
-		Features:        []string{FeatureElasticCPU, FeatureToolCacheFill, FeatureTmpfs},
+		Features:        a.features(),
 		Capacity:        a.opts.Capacity,
 		Version:         version.Version,
 		CPUs:            cpus,
@@ -877,6 +902,7 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 	// not hold the beat open past the interval.
 	if !resp.MutationsPaused {
 		a.applyResourceDirectives(hctx, resp.Throttle, resp.ElasticCPU)
+		a.applyMemoryDirective(resp.ElasticMemory)
 	}
 
 	if resp.ResyncRequested {

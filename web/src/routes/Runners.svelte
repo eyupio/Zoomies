@@ -45,6 +45,7 @@
   import Select from '$lib/components/Select.svelte';
   import Switch from '$lib/components/Switch.svelte';
   import RunnerConfirm from '$lib/runners/RunnerConfirm.svelte';
+  import RunnerMemoryBadges from '$lib/runners/RunnerMemoryBadges.svelte';
   import RunnerStatus from '$lib/runners/RunnerStatus.svelte';
   import { runnerDisplayStatus } from '$lib/runners/runner-status';
   import RunnerStateFilter from '$lib/runners/RunnerStateFilter.svelte';
@@ -349,8 +350,15 @@
         header: 'Memory',
         priority: 'wide',
         align: 'end',
-        width: '7rem',
+        // Room for the figure and two small badges. The grid reads a width as a
+        // share, so this is a little more of the frame, not a fixed measure.
+        width: '11rem',
+        // The cell holds interactive badges with cards of their own, so the grid's
+        // native title -- which would open over them -- is turned off by the wrap
+        // flag, and the cell keeps itself on one line.
+        wrap: true,
         value: (row) => (row.memory_bytes === undefined ? '--' : formatBytes(row.memory_bytes)),
+        cell: memoryCell,
       },
     ];
     if (canOperate) {
@@ -378,6 +386,17 @@
 {#snippet stateCell(runner: Runner)}
   <!-- One cache snapshot supplies both lifecycle and CPU allocation. -->
   <RunnerStatus runner={fleet.runner(runner.id) ?? runner} />
+{/snippet}
+
+{#snippet memoryCell(runner: Runner)}
+  <!-- The badges read the cache, so a loan or a swap allowance shows the moment
+       its event lands; the figure is the row's, like the CPU beside it. -->
+  <span class="memory-cell">
+    <span class="used">
+      {runner.memory_bytes === undefined ? '--' : formatBytes(runner.memory_bytes)}
+    </span>
+    <RunnerMemoryBadges runner={fleet.runner(runner.id) ?? runner} wrap />
+  </span>
 {/snippet}
 
 {#snippet nameCell(runner: Runner)}
@@ -641,5 +660,19 @@
   .row-actions {
     display: flex;
     justify-content: flex-end;
+  }
+  /* The figure stays flush right, so the column still lines up down the page, and
+     the badges sit under it where there is room for them: a row that has some is a
+     line taller, as a row with a job in it already is, and a row with none is as
+     it always was. */
+  .memory-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: var(--z-space-1);
+    min-width: 0;
+  }
+  .used {
+    font-variant-numeric: tabular-nums;
   }
 </style>

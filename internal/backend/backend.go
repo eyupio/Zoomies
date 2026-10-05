@@ -117,6 +117,40 @@ type Stats struct {
 	// (daemon_share_percent). Nil for a single container, and from an agent that
 	// predates it, which a controller reads as "nothing to judge by".
 	Halves *PairHalves `json:"halves,omitempty"`
+	// MemoryValve is the agent's word on what the memory valve has done for
+	// this runner, filled by the agent beside CPUAllocationFactor. Nil for a
+	// runner it is not watching: a pool with the valve off, a runner with no
+	// memory limit, an agent too old to have one.
+	MemoryValve *MemoryValveSample `json:"memory_valve,omitempty"`
+}
+
+// MemoryValveSample is what the memory valve has done for one runner, as its
+// agent saw it. The loan is read from the daemon and not remembered, so it is
+// the same after the agent has been restarted.
+type MemoryValveSample struct {
+	// Mode is what the controller told the agent to do: "observe" decides and
+	// records what it would have done, "automatic" does it.
+	Mode string `json:"mode"`
+	// Code is the guard's latest decision, a stable name (agent.MemoryValveCode),
+	// and Reason the sentence for the last decision that was not "healthy" --
+	// kept past the look that found the runner healthy again, because what was
+	// done for a runner is worth reading after it has stopped being needed.
+	Code   string `json:"code"`
+	Reason string `json:"reason,omitempty"`
+	// LentBytes is the memory the runner's containers hold beyond what they were
+	// created with, and SpillBytes the swap they may use beyond their limits.
+	LentBytes  int64 `json:"lent_bytes,omitempty"`
+	SpillBytes int64 `json:"spill_bytes,omitempty"`
+	// WouldLendBytes and WouldSpillBytes are the same two figures as an
+	// observing agent decided them: what it would hold if it were allowed to.
+	WouldLendBytes  int64 `json:"would_lend_bytes,omitempty"`
+	WouldSpillBytes int64 `json:"would_spill_bytes,omitempty"`
+	// NearLimit is whether the runner has come within a tenth of a limit at any
+	// point in its life: the count that tells an operator whether a pool's jobs
+	// would use the valve at all, before they let it move anything.
+	NearLimit bool `json:"near_limit,omitempty"`
+	// Raises is how many times a limit was raised.
+	Raises int `json:"raises,omitempty"`
 }
 
 // PairHalves is the two containers of a docker-in-docker runner, sampled apart.
@@ -391,6 +425,70 @@ type Workload struct {
 // throttle.
 type ResourceUpdater interface {
 	UpdateResources(ctx context.Context, h Handle, res store.Resources) error
+}
+
+// ErrMemoryLowering is what RaiseMemory answers a request to lower a live
+// container's memory limit with. Nothing in Zoomies asks for it: the limit of a
+// running container only ever goes up, because lowering one under a live
+// process is refused by the daemon or kills the process, so a caller that would
+// is a caller with a bug, and it is refused here rather than there.
+var ErrMemoryLowering = errors.New("backend: refusing to lower a live container's memory limit")
+
+// ErrMemoryUpdateUnsupported is a container runtime that exists and answers but
+// has no way to change a live container's memory limit -- a Podman too old to
+// have the update endpoint, say. It is not a failure to retry: the runtime will
+// refuse the same request as often as it is made.
+var ErrMemoryUpdateUnsupported = errors.New("backend: the container runtime cannot change a live container's memory limit")
+
+// MemoryUpdater is implemented by a backend that can read a runner's memory
+// cheaply and raise the limit of a live one: the container runtimes, where a
+// limit is a cgroup setting the daemon changes in place. It is what the agent's
+// memory guard works through.
+//
+// It is not ResourceUpdater, and the two are deliberately apart. A CPU quota
+// moves both ways and a throttle needs it to; a memory limit only goes up, so
+// this interface has a way to raise one and none to lower it.
+type MemoryUpdater interface {
+	// MemoryContainers lists the containers whose memory counts as this
+	// runner's: the runner and, for docker-in-docker, its sidecar. A container
+	// with no memory limit is not listed, because there is nothing to raise.
+	MemoryContainers(ctx context.Context, h Handle) ([]MemoryContainer, error)
+	// MemoryUsage reads one container's working set and limit as they are now,
+	// without waiting for a CPU interval: the guard looks every second at a
+	// runner that is close to its limit, and a reading that took one to make
+	// would be a look that was always a second old.
+	MemoryUsage(ctx context.Context, container string) (MemoryReading, error)
+	// RaiseMemory sets a container's memory limit, and the swap it may use
+	// beyond that. It refuses to lower either (ErrMemoryLowering) and does
+	// nothing when neither would change.
+	RaiseMemory(ctx context.Context, container string, limitMB, swapMB int64) error
+}
+
+// MemoryContainer is one container whose memory counts as a runner's.
+type MemoryContainer struct {
+	// ID is the container's own identifier, which the other two calls take.
+	ID string `json:"id"`
+	// Daemon is true for a docker-in-docker sidecar.
+	Daemon bool `json:"daemon,omitempty"`
+	// GuaranteeMB is the limit the container was created with, read from the
+	// label its create stamped, and what a loan is measured above. A container
+	// from a release that stamped none is taken to have been created with what
+	// it holds now, which reads as nothing lent.
+	GuaranteeMB int64 `json:"guarantee_mb"`
+	// LimitMB is its memory limit now, and SwapMB the swap it may use beyond
+	// that. Unlimited swap reads as a very large figure, which is what it is.
+	LimitMB int64 `json:"limit_mb"`
+	SwapMB  int64 `json:"swap_mb,omitempty"`
+}
+
+// MemoryReading is one container's memory at one look.
+type MemoryReading struct {
+	// UsageBytes is the working set -- the memory without the page cache the
+	// kernel gives back when asked -- and LimitBytes the limit it is measured
+	// against.
+	UsageBytes int64     `json:"usage_bytes"`
+	LimitBytes int64     `json:"limit_bytes"`
+	SampledAt  time.Time `json:"sampled_at"`
 }
 
 // LabelPrefix namespaces the container labels Zoomies writes.

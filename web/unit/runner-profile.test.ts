@@ -23,7 +23,7 @@ test('a stored profile reads back into the form, and an empty one is every figur
   assert.deepEqual(
     figuresOf({
       minimum: { cpus: 2, memory_mb: 4096 },
-      standard: { cpus: 3, memory_mb: 8192, burst_max_cpus: 6 },
+      standard: { cpus: 3, memory_mb: 8192, burst_max_cpus: 6, burst_max_memory_mb: 12288 },
     }),
     {
       minCpus: 2,
@@ -31,6 +31,7 @@ test('a stored profile reads back into the form, and an empty one is every figur
       standardCpus: 3,
       standardMemoryMb: 8192,
       burstMaxCpus: 6,
+      burstMaxMemoryMb: 12288,
       tmpfsOff: false,
       tmpfsMaxMb: 0,
       tmpfsWorkMb: 0,
@@ -57,6 +58,7 @@ test('the request carries only the figures that are set, and {} where none is', 
     standardCpus: 3,
     standardMemoryMb: 8192,
     burstMaxCpus: 6,
+    burstMaxMemoryMb: 12288,
     tmpfsOff: false,
     tmpfsMaxMb: 0,
     tmpfsWorkMb: 0,
@@ -66,8 +68,25 @@ test('the request carries only the figures that are set, and {} where none is', 
   assert.deepEqual(figuresOf(profileBody(full)), full);
   assert.ok(isUnset(NO_FIGURES));
   assert.ok(!isUnset({ ...NO_FIGURES, burstMaxCpus: 1 }));
+  assert.ok(
+    !isUnset({ ...NO_FIGURES, burstMaxMemoryMb: 4096 }),
+    'a memory ceiling alone is a profile',
+  );
   assert.ok(sameFigures(full, { ...full }));
   assert.ok(!sameFigures(full, { ...full, minCpus: 2 }));
+  assert.ok(!sameFigures(full, { ...full, burstMaxMemoryMb: 16384 }));
+});
+
+test('a memory ceiling is sent with the standard size, where the API keeps it', () => {
+  assert.deepEqual(profileBody({ ...NO_FIGURES, burstMaxMemoryMb: 16384 }), {
+    standard: { burst_max_memory_mb: 16384 },
+  });
+  assert.deepEqual(
+    profileBody({ ...NO_FIGURES, standardMemoryMb: 8192, burstMaxMemoryMb: 16384 }),
+    {
+      standard: { memory_mb: 8192, burst_max_memory_mb: 16384 },
+    },
+  );
 });
 
 test('a host takes as many runners of its standard size as its machine holds', () => {
@@ -184,6 +203,12 @@ test('a profile is held to the same floors as a pool', () => {
     'runner_profile.standard.memory_mb',
   ]);
   assert.deepEqual(profileErrors(NO_FIGURES, big), {});
+  assert.match(
+    profileErrors({ ...NO_FIGURES, burstMaxMemoryMb: 100 }, machineOf({}))[
+      'runner_profile.standard.burst_max_memory_mb'
+    ] ?? '',
+    /at least 512 MB/,
+  );
 });
 
 test('a minimum above the standard, and a ceiling below it, are refused where they are typed', () => {
@@ -197,6 +222,23 @@ test('a minimum above the standard, and a ceiling below it, are refused where th
   // Alone, neither has anything to be compared with.
   assert.deepEqual(profileErrors({ ...NO_FIGURES, minCpus: 4 }, machineOf({})), {});
   assert.deepEqual(profileErrors({ ...NO_FIGURES, burstMaxCpus: 1 }, machineOf({})), {});
+});
+
+test('a memory ceiling below the standard is refused: it would be a request to take memory back', () => {
+  const errors = profileErrors(
+    { ...NO_FIGURES, standardMemoryMb: 8192, burstMaxMemoryMb: 4096 },
+    machineOf({}),
+  );
+  assert.match(
+    errors['runner_profile.standard.burst_max_memory_mb'] ?? '',
+    /at least the standard, 8 GB/,
+  );
+  assert.deepEqual(
+    profileErrors({ ...NO_FIGURES, standardMemoryMb: 8192, burstMaxMemoryMb: 8192 }, machineOf({})),
+    {},
+    'at the standard is a ceiling with nothing to lend, which the server allows',
+  );
+  assert.deepEqual(profileErrors({ ...NO_FIGURES, burstMaxMemoryMb: 4096 }, machineOf({})), {});
 });
 
 test('a size the machine could never hold is refused only once the machine has said what it is', () => {

@@ -105,10 +105,21 @@ viewer built for a hundred thousand lines.
 
 ### Elastic CPU zoomies
 Every runner keeps its guaranteed share of its host, and a busy one is lent
-the CPU nobody else is using — with the next queued job's room held back, the
-host's reserve untouched, and memory never moved. A compile that would run in
-under two cores gets four, and gives them back the moment they are wanted.
+the CPU nobody else is using — with the next queued job's room held back and
+the host's reserve untouched. A compile that would run in under two cores gets
+four, and gives them back the moment they are wanted.
 [How it works](elastic-cpu.md).
+</div>
+
+<div markdown>
+:material-memory:{ .icon }
+
+### Elastic memory
+A job that is about to be killed for its memory limit is given more, out of
+memory no other runner on its host was promised — raised, never lowered, with
+swap as the last resort and the host's floor left alone. The kill that used to
+fail a build becomes a build that finished.
+[How it works](elastic-memory.md).
 </div>
 
 <div markdown>

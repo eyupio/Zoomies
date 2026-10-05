@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/auth"
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/controller"
@@ -517,6 +518,11 @@ func (h *harness) pool(inst *store.Installation, name string) *store.Pool {
 	return p
 }
 
+// host is an ordinary Linux host running a current agent, which is what a
+// pool's own defaults are written for: a new container pool watches memory, and
+// a fixture that did not say its agent could would make every correct pool in
+// these tests carry a warning about it. A test about an agent too old to lend
+// builds its own host and leaves the features off.
 func (h *harness) host(name string) *store.Host {
 	h.t.Helper()
 	host := &store.Host{
@@ -524,6 +530,7 @@ func (h *harness) host(name string) *store.Host {
 		Capacity:      4,
 		Backends:      store.StringSlice{"docker"},
 		Labels:        store.StringMap{},
+		Features:      store.StringSlice{agent.FeatureElasticCPU, agent.FeatureElasticMemory},
 		OS:            "linux",
 		Arch:          "amd64",
 		LastHeartbeat: time.Now(),

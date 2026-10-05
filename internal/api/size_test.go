@@ -356,7 +356,7 @@ func TestOnlyWhatIsAnOperatorsToChangeCanBeChangedOnAPoolTheControllerKeeps(t *t
 	}
 }
 
-// Every field a request can name is either one of the three that are an
+// Every field a request can name is either one of the four that are an
 // operator's or is refused by its own name, with a sentence that says something
 // true about it. A field added to the request later is refused until somebody
 // decides otherwise, and one that is not a pointer is neither a panic nor taken
@@ -617,7 +617,8 @@ func TestAnAutomaticPoolIsMadeWithTheDefaultsAPoolCreatedByHandWouldGet(t *testi
 
 	if made.Backend != want.Backend || made.PullPolicy != want.PullPolicy || made.IdleTimeout != want.IdleTimeout ||
 		made.Ephemeral != want.Ephemeral || made.DockerMode != want.DockerMode || made.Cache != want.Cache ||
-		made.CPUBurst != want.CPUBurst || made.SizeFromProfile != want.SizeFromProfile || made.Enabled != want.Enabled ||
+		made.CPUBurst != want.CPUBurst || made.MemoryBurst != want.MemoryBurst ||
+		made.SizeFromProfile != want.SizeFromProfile || made.Enabled != want.Enabled ||
 		made.Resources != want.Resources || made.Platform.Arch != want.Platform.Arch {
 		t.Fatalf("a pool made by hand with the same few settings differs from an automatic one:\n by hand: %+v\n automatic: %+v", made, want)
 	}

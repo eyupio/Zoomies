@@ -131,3 +131,51 @@ func TestUsageMeasuresIOWaitFromTheSameDeltasAsCPU(t *testing.T) {
 		t.Fatalf("a counter that went backwards reported %v", *u.IOWaitPercent)
 	}
 }
+
+// The memory valve looks at the host before it lends anything, and what it
+// needs from the look is free memory and free swap: the first decides whether a
+// loan can be made, the second whether swap can be offered instead.
+func TestAHostsMemoryNowIsReadWithItsSwap(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "proc"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	meminfo := "MemTotal: 8388608 kB\nMemFree: 1024 kB\nMemAvailable: 3145728 kB\nSwapTotal: 4194304 kB\nSwapFree: 2097152 kB\n"
+	if err := os.WriteFile(filepath.Join(root, "proc", "meminfo"), []byte(meminfo), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := UsageSampler{root: root}
+	got, ok := s.Memory(8192)
+	if !ok || got != (Memory{TotalMB: 8192, AvailableMB: 3072, SwapTotalMB: 4096, SwapFreeMB: 2048}) {
+		t.Fatalf("memory = %+v, %v; want 3072 MB available and 2048 of 4096 MB of swap free", got, ok)
+	}
+
+	// A host with no swap says so with zeroes, which is a measurement.
+	if err := os.WriteFile(filepath.Join(root, "proc", "meminfo"), []byte("MemTotal: 8388608 kB\nMemAvailable: 3145728 kB\nSwapTotal: 0 kB\nSwapFree: 0 kB\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := s.Memory(8192); !ok || got.SwapTotalMB != 0 || got.SwapFreeMB != 0 || got.AvailableMB != 3072 {
+		t.Fatalf("memory = %+v, %v; want free memory read and no swap", got, ok)
+	}
+}
+
+// The figures are a physical machine's. An agent in a smaller cgroup, or one
+// talking to a remote daemon, must not have them attributed to the machine its
+// runners share, or a loan would be made out of memory that is not theirs.
+func TestAnotherMachinesMemoryIsNotTakenForTheHosts(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "proc"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "proc", "meminfo"), []byte("MemTotal: 8388608 kB\nMemAvailable: 3145728 kB\nSwapTotal: 0 kB\nSwapFree: 0 kB\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := UsageSampler{root: root}
+	if got, ok := s.Memory(2048); ok {
+		t.Fatalf("memory = %+v for a smaller machine, want nothing", got)
+	}
+	// And a host with no procfs at all is not guessed at.
+	if _, ok := (&UsageSampler{root: t.TempDir()}).Memory(8192); ok {
+		t.Fatal("a host with no /proc/meminfo reported memory")
+	}
+}

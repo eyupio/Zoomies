@@ -172,6 +172,9 @@ var problemAudience = map[string]Audience{
 	"pool.dangerous":                                AudienceFleet,
 	"pool.docker_client_missing":                    AudienceFleet,
 	"pool.elastic_cpu_unsupported":                  AudienceFleet,
+	"pool.elastic_memory_unsupported":               AudienceFleet,
+	"pool.memory_ceiling_reached":                   AudienceFleet,
+	"host.memory_pool_exhausted":                    AudienceFleet,
 	"pool.github_rate_limited":                      AudienceFleet,
 	"pool.history_unfit":                            AudienceFleet,
 	"pool.host_overcommitted":                       AudienceFleet,
@@ -377,6 +380,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	gather("host resources", c.hostResourceProblems)
 	gather("in-memory folders", c.tmpfsAdviceProblems)
 	gather("in-memory folders by host", c.tmpfsHostProblems)
+	gather("the memory valve", c.memoryValveProblems)
 	gather("sidecar share", c.daemonShareAdviceProblems)
 	gather("runner profiles", c.runnerProfileProblems)
 	gather("automatic pools", c.autoPoolProblems)

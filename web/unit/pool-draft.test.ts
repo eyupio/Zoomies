@@ -183,6 +183,7 @@ test('a draft made from a pool and sent back says what the pool said', () => {
     runner_settings: { provision_timeout: '45m' },
     cache: { enabled: true, scope: 'pool', source: '/var/cache/zoomies' },
     cpu_burst: { mode: 'off' },
+    memory_burst: { mode: 'automatic', max_memory_mb: 24576, spill_mb: 2048 },
   } as Pool;
   const body = toPoolBody(draftFromPool(pool), { complete: true });
   assert.equal(body.name, 'zoomies-big');
@@ -197,6 +198,97 @@ test('a draft made from a pool and sent back says what the pool said', () => {
   assert.deepEqual(body.host_selector, { arch: 'amd64' });
   assert.equal(body.runner_settings?.provision_timeout, '45m');
   assert.equal(body.cache?.enabled, true);
+  assert.deepEqual(body.memory_burst, { mode: 'automatic', max_memory_mb: 24576, spill_mb: 2048 });
+});
+
+// The valve's figures mean something only while it is on, and the server refuses
+// swap on one that is off, so a draft that still holds a ceiling and an allowance
+// from when the valve was on must not send them.
+test('the memory valve sends its figures only while it is on, and only for a container runner', () => {
+  const on = valid({
+    memory_burst_mode: 'automatic',
+    memory_burst_max: '12288',
+    memory_burst_spill: '2048',
+  });
+  assert.deepEqual(toPoolBody(on).memory_burst, {
+    mode: 'automatic',
+    max_memory_mb: 12288,
+    spill_mb: 2048,
+  });
+  assert.deepEqual(toPoolBody({ ...on, memory_burst_mode: 'off' }).memory_burst, {
+    mode: 'off',
+    max_memory_mb: 0,
+    spill_mb: 0,
+  });
+  assert.deepEqual(toPoolBody({ ...on, backend: 'process' }).memory_burst, {
+    mode: 'off',
+    max_memory_mb: 0,
+    spill_mb: 0,
+  });
+  // A new pool watches, and says nothing else.
+  assert.deepEqual(toPoolBody(valid()).memory_burst, {
+    mode: 'observe',
+    max_memory_mb: 0,
+    spill_mb: 0,
+  });
+});
+
+test('a pool made before the valve existed opens with it off, and sends it off', () => {
+  const draft = draftFromPool({ id: 'pool_1', backend: 'docker' } as Pool);
+  assert.equal(draft.memory_burst_mode, 'off');
+  assert.equal(toPoolBody(draft).memory_burst?.mode, 'off');
+});
+
+test('the memory ceiling and the swap are refused where they are typed', () => {
+  const on = (over: Partial<PoolDraft>) => valid({ memory_burst_mode: 'automatic', ...over });
+  assert.match(
+    draftErrors(on({ memory_burst_max: '256' }), false)['memory_burst.max_memory_mb'] ?? '',
+    /at least 512 MB/,
+  );
+  assert.match(
+    draftErrors(on({ memory_burst_max: 'lots' }), false)['memory_burst.max_memory_mb'] ?? '',
+    /at least 512 MB/,
+  );
+  assert.equal(
+    draftErrors(on({ memory_burst_max: '' }), false)['memory_burst.max_memory_mb'],
+    undefined,
+    'empty is half as much again',
+  );
+  // A fixed size is what a runner starts with; a ceiling at or below it has
+  // nothing to lend, and a Docker-in-Docker pair starts with the limit twice.
+  const fixed = { sizing: 'fixed' as const, cpus: '2', memory_mb: '4096' };
+  assert.match(
+    draftErrors(on({ ...fixed, memory_burst_max: '4096' }), false)['memory_burst.max_memory_mb'] ??
+      '',
+    /nothing to lend/,
+  );
+  assert.equal(
+    draftErrors(on({ ...fixed, memory_burst_max: '6144' }), false)['memory_burst.max_memory_mb'],
+    undefined,
+  );
+  assert.match(
+    draftErrors(on({ ...fixed, docker_mode: 'dind', memory_burst_max: '8192' }), false)[
+      'memory_burst.max_memory_mb'
+    ] ?? '',
+    /8 GB/,
+  );
+  assert.ok(draftErrors(on({ memory_burst_spill: '-1' }), false)['memory_burst.spill_mb']);
+  assert.match(
+    draftErrors(on({ memory_burst_spill: '2000000' }), false)['memory_burst.spill_mb'] ?? '',
+    /terabyte/,
+  );
+  assert.equal(
+    draftErrors(on({ memory_burst_spill: '2048' }), false)['memory_burst.spill_mb'],
+    undefined,
+  );
+  // With the valve off, or on a runner that has none, the figures are not checked
+  // because they are not sent.
+  assert.equal(
+    draftErrors(valid({ memory_burst_mode: 'off', memory_burst_spill: '-1' }), false)[
+      'memory_burst.spill_mb'
+    ],
+    undefined,
+  );
 });
 
 // The new editor opens every section closed, so what flags a pool as having
@@ -208,6 +300,7 @@ test('a pool is tuned once anything the defaults would not have chosen is set', 
     { sizing: 'fixed' as const },
     { sizing: 'profile' as const },
     { cpu_burst_mode: 'automatic' as const },
+    { memory_burst_mode: 'automatic' as const },
     { restrict_hosts: true },
     { host_selector: { arch: 'arm64' } },
     { backend: 'podman' as const },

@@ -51,7 +51,17 @@ advertising `elastic-cpu`. Unsupported and older agents remain at their creation
 quota. The controller records what each agent advertises (`features` on the
 host), so a host's card and the pool editor say which hosts would honour an
 elastic pool before a runner lands there. Host-pressure reductions take
-precedence over boosts, and neither path moves memory on a live workload.
+precedence over boosts, and neither of those paths moves memory on a live
+workload.
+
+[Elastic memory](elastic-memory.md) raises a live container's memory limit
+through the same endpoint, sending the limit and the swap limit together, and
+needs an agent advertising `elastic-memory`: one on Linux, where the host's free
+memory can be read the way a loan has to be checked, and new enough to carry the
+valve's rules out. A runtime that refuses to change a limit that is already set
+is detected once and not asked again (`unsupported`), and that runner keeps what
+it was created with. The valve never lowers a limit, so the lowering paths above
+are unchanged.
 
 The Prometheus histograms `zoomies_runner_startup_queue_seconds` and
 `zoomies_runner_dind_ready_seconds` separate admission delay from sidecar creation

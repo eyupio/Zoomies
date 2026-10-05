@@ -122,6 +122,20 @@ const SHOTS = [
   { name: 'pool', path: `/pools/${FIXTURE.linuxPool}` },
   { name: 'runners', path: '/runners', heading: 'Runners' },
   {
+    // A runner that was lent memory, and the card its pill opens: the figures, the
+    // bar, and the sentence that says why. The pointer is left on the pill because
+    // the card is what the shot is of.
+    name: 'runners-memory',
+    path: '/runners',
+    heading: 'Runners',
+    async prepare(page) {
+      const pill = page.getByRole('button', { name: /Lent .* of memory/ }).first();
+      await pill.scrollIntoViewIfNeeded();
+      await pill.hover();
+      await page.locator('.memory-badge-tip .bubble:popover-open').waitFor();
+    },
+  },
+  {
     name: 'runner-history',
     path: '/runners',
     heading: 'Runners',
@@ -282,6 +296,34 @@ const SHOTS = [
       await page.getByRole('radio', { name: /^Auto/ }).waitFor();
       // The section's own scroll margin keeps its heading clear of the top bar.
       await page.locator('#pool-speed').evaluate((el) => el.scrollIntoView({ block: 'start' }));
+    },
+  },
+  {
+    // The Size section's memory valve, switched on with a ceiling and a little
+    // swap: the one place that says what the valve is allowed to do for a pool.
+    name: 'pool-elastic-memory',
+    path: '/pools/new',
+    heading: 'Create a pool',
+    device: { viewport: { width: DESKTOP.width, height: 1500 }, deviceScaleFactor: SCALE },
+    async prepare(page) {
+      const row = (id) =>
+        page.locator(`#pool-${id}`).getByRole('heading', { level: 2 }).getByRole('button');
+      await page.getByRole('textbox', { name: 'Pool name' }).fill('zoomies-6gb-ubuntu-2404');
+      await page.getByRole('textbox', { name: 'Pool name' }).blur();
+      await row('size').click();
+      await page.getByRole('radio', { name: 'A fixed size on every host' }).check();
+      const memory = page.getByRole('textbox', { name: 'Memory per runner', exact: true });
+      await memory.fill('6g');
+      await memory.press('Enter');
+      const valve = page.getByRole('group', { name: 'Elastic memory' });
+      await valve.getByRole('radio', { name: /^Lend memory/ }).check();
+      const ceiling = valve.getByRole('textbox', { name: 'Memory ceiling', exact: true });
+      await ceiling.fill('9g');
+      await ceiling.press('Enter');
+      const swap = valve.getByRole('textbox', { name: 'Swap as the last resort', exact: true });
+      await swap.fill('2g');
+      await swap.press('Enter');
+      await valve.evaluate((el) => el.scrollIntoView({ block: 'center' }));
     },
   },
   {

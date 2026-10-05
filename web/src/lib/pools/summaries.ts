@@ -98,10 +98,23 @@ function size(draft: PoolDraft): string {
   return join([
     base,
     floor.length > 0 && `never below ${floor.join(' and ')}`,
-    containers &&
-      draft.sizing !== 'fixed' &&
-      draft.cpu_burst_mode !== 'off' &&
-      `elastic CPU ${draft.cpu_burst_mode === 'automatic' ? 'boosting' : 'observing'}`,
+    containers && elastic(draft),
+  ]);
+}
+
+/**
+ * What the pool may borrow, in one phrase. CPU needs a size left to the host,
+ * because the host's share is its guaranteed base; memory needs only a limit to
+ * watch, so a pool with a fixed size still says it. Two valves on the same
+ * footing are one phrase rather than two.
+ */
+function elastic(draft: PoolDraft): string {
+  const cpu = draft.sizing === 'fixed' ? 'off' : draft.cpu_burst_mode;
+  const memory = draft.memory_burst_mode;
+  if (cpu === 'observe' && memory === 'observe') return 'elastic CPU and memory observing';
+  return join([
+    cpu !== 'off' && `elastic CPU ${cpu === 'automatic' ? 'boosting' : 'observing'}`,
+    memory !== 'off' && `elastic memory ${memory === 'automatic' ? 'lending' : 'observing'}`,
   ]);
 }
 

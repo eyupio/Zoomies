@@ -30,6 +30,9 @@
   import LogViewer from '$lib/logs/LogViewer.svelte';
   import RunnerConfirm from '$lib/runners/RunnerConfirm.svelte';
   import RunnerFacts from '$lib/runners/RunnerFacts.svelte';
+  import MemoryBadgeCard from '$lib/runners/MemoryBadgeCard.svelte';
+  import RunnerMemoryBadges from '$lib/runners/RunnerMemoryBadges.svelte';
+  import { memoryBadges } from '$lib/runners/memory-badges';
   import RunnerJob from '$lib/runners/RunnerJob.svelte';
   import Panel from '$lib/components/Panel.svelte';
   import RunnerResources from '$lib/runners/RunnerResources.svelte';
@@ -93,7 +96,12 @@
     const stop = [
       events.subscribe(['runner.created', 'runner.updated'], (row) => {
         if (row.id !== runnerId || !runner) return;
-        runner = { ...runner, ...row };
+        // A frame is the runner's whole view, and a view leaves out what a runner
+        // has none of: spreading it over the page's copy would keep a loan, or a
+        // list of folders, that the runner no longer has -- the card for a valve
+        // that was switched off would stay until the page was reloaded.
+        const { memory_resource: _memory, scratch: _scratch, ...kept } = runner;
+        runner = { ...kept, ...row };
       }),
       events.subscribe('runner.deleted', (payload) => {
         if (payload.id === runnerId) gone = true;
@@ -138,6 +146,9 @@
   const terminal = $derived(liveState === 'removed' || liveState === 'failed');
   const running = $derived(!runner?.finished_at);
   const failureMessage = $derived(liveState === 'failed' ? (runner?.message ?? '') : '');
+  // What the memory valve has done and which folders are in memory, as the same
+  // cards the badges open, so the page says what the tooltip says.
+  const memoryCards = $derived(runner ? memoryBadges(runner, { quiet: true }) : []);
 
   const logsReason = $derived.by(() => {
     if (liveState === 'removed') {
@@ -193,6 +204,10 @@
   {#snippet meta()}
     {#if runner}
       <RunnerStatus runner={fleet.runner(id) ?? runner} />
+      <!-- The page's own copy, which the runner's events are merged into: it is
+           the freshest there is on first load, where the cache may hold a row
+           from some time ago. -->
+      <RunnerMemoryBadges {runner} quiet />
       {#if runner.pool_name}
         <span class="crumb">
           in <a href="/pools/{runner.pool_id}">{runner.pool_name}</a>
@@ -356,8 +371,22 @@
           allocationSource={runner.allocation_source}
           hostThrottle={(fleet.host(runner.host_id) ?? runner.host)?.throttle}
           backend={(runner.pool ?? fleet.pool(runner.pool_id))?.backend}
+          lentMemoryMb={runner.memory_resource?.lent_mb}
         />
       </Panel>
+
+      {#if memoryCards.length > 0}
+        <Panel
+          title="Memory and folders"
+          description="What the memory valve has done for this runner, and which of its folders are kept in memory."
+        >
+          <div class="memory-cards" data-testid="memory-cards">
+            {#each memoryCards as badge (badge.key)}
+              <div class="memory-card"><MemoryBadgeCard {badge} /></div>
+            {/each}
+          </div>
+        </Panel>
+      {/if}
     </div>
   </div>
 
@@ -401,6 +430,15 @@
 />
 
 <style>
+  /* One card per thing there is to say, with a rule between them. */
+  .memory-cards {
+    display: grid;
+    gap: var(--z-space-4);
+  }
+  .memory-card + .memory-card {
+    padding-top: var(--z-space-4);
+    border-top: var(--z-border-width) solid var(--z-border);
+  }
   .stacked {
     align-items: flex-start;
   }

@@ -73,6 +73,9 @@ type poolDocument struct {
 	DockerMode             store.DockerMode     `json:"docker_mode"`
 	Resources              store.Resources      `json:"resources"`
 	CPUBurst               store.CPUBurstPolicy `json:"cpu_burst"`
+	// MemoryBurst is written like CPUBurst, and for the same reason: a pool
+	// that lends memory, imported without it, would be one that did not.
+	MemoryBurst store.MemoryBurstPolicy `json:"memory_burst"`
 	// RunnerSettings writes every override, with null for one the pool does
 	// not make, so that importing the document hands a setting back to the
 	// fleet on a pool that overrides it rather than leaving it alone.
@@ -140,6 +143,7 @@ func documentPool(p *store.Pool, installation string) poolDocument {
 		DockerMode:             p.DockerMode,
 		Resources:              p.Resources,
 		CPUBurst:               p.CPUBurst,
+		MemoryBurst:            p.MemoryBurst,
 		RunnerSettings: poolDocumentTimings{
 			ProvisionTimeout:  durationText(p.RunnerSettings.ProvisionTimeout),
 			DrainTimeout:      durationText(p.RunnerSettings.DrainTimeout),

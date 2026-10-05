@@ -978,6 +978,62 @@ test('editing an automatic pool offers elastic CPU in the size section', async (
   }
 });
 
+test('the size section offers the memory valve, starts it on observe, and saves what was chosen', async ({
+  page,
+}) => {
+  // A pool made without saying anything about memory watches, because watching
+  // changes nothing and a pool nobody asks is one nobody has evidence for. The
+  // valve is offered whatever the size is decided by: it needs only a limit to
+  // watch, unlike CPU, which needs a share of the host to be a boost above.
+  const name = `zoomies-e2e-valve-${Date.now()}`;
+  let poolId = '';
+  try {
+    const created = await page.request.post('/api/v1/pools', {
+      data: { name, installation_id: FIXTURE.installationId, labels: [name] },
+    });
+    expect(created.ok(), 'the plain pool was created').toBeTruthy();
+    const made = (await created.json()) as { id: string; memory_burst?: { mode?: string } };
+    poolId = made.id;
+    expect(made.memory_burst?.mode).toBe('observe');
+
+    await goto(page, `/pools/${poolId}?edit=1#size`, name);
+    const valve = page.getByRole('group', { name: 'Elastic memory' });
+    await expect(valve.getByRole('radio', { name: /^Observe only/ })).toBeChecked();
+    // The demo agents are this build's, so every one of them can lend.
+    await expect(
+      page.getByText('Every host this pool can land on runs an agent that can lend memory.'),
+    ).toBeVisible();
+
+    await valve.getByRole('radio', { name: /^Lend memory/ }).check();
+    const ceiling = valve.getByRole('textbox', { name: 'Memory ceiling', exact: true });
+    await ceiling.fill('12g');
+    await ceiling.press('Enter');
+    await expect(ceiling).toHaveValue('12 GB');
+    // Swap is the last resort, and is refused where it is a typo.
+    const swap = valve.getByRole('textbox', { name: 'Swap as the last resort', exact: true });
+    await swap.fill('2g');
+    await swap.press('Enter');
+    await expect(swap).toHaveValue('2 GB');
+
+    await expect(section(page, 'size')).toContainText('Edited');
+    await expect(section(page, 'size')).toContainText('elastic memory lending');
+    await saveButton(page).click();
+    await expect(saveButton(page)).toBeHidden();
+
+    const saved = (await page.request.get(`/api/v1/pools/${poolId}`).then((r) => r.json())) as {
+      memory_burst?: { mode?: string; max_memory_mb?: number; spill_mb?: number };
+    };
+    expect(saved.memory_burst).toEqual({ mode: 'automatic', max_memory_mb: 12288, spill_mb: 2048 });
+
+    // And the pool page says it in a line, the way the command line does.
+    await goto(page, `/pools/${poolId}`, name);
+    await expect(page.getByText('Elastic memory', { exact: true })).toBeVisible();
+    await expect(page.getByText(/Automatic, up to 12 GB per runner/)).toBeVisible();
+  } finally {
+    if (poolId) await page.request.delete(`/api/v1/pools/${poolId}?force=true`);
+  }
+});
+
 test('a ticked pool can be edited from the same bar that enables and disables it', async ({
   page,
 }) => {

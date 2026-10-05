@@ -37,7 +37,7 @@ func TestAnOperatorCanSetAHostsRunnerProfile(t *testing.T) {
 	set := h.do(request{method: http.MethodPatch, path: "/api/v1/hosts/" + host.ID, cookie: cookie,
 		body: map[string]any{"capacity": 8, "runner_profile": map[string]any{
 			"minimum":  map[string]any{"cpus": 1},
-			"standard": map[string]any{"cpus": 3, "memory_mb": 8192, "burst_max_cpus": 6},
+			"standard": map[string]any{"cpus": 3, "memory_mb": 8192, "burst_max_cpus": 6, "burst_max_memory_mb": 12288},
 		}}})
 	set.mustStatus(t, http.StatusOK, "set the runner profile")
 	var view hostResponse
@@ -51,6 +51,9 @@ func TestAnOperatorCanSetAHostsRunnerProfile(t *testing.T) {
 	}
 	if got := view.EffectiveProfile.Standard; got.CPUsSource != "host" || got.BurstMaxCPUs != 6 || got.BurstMaxCPUsSource != "host" {
 		t.Errorf("the effective standard does not say it came from the host: %+v", got)
+	}
+	if got := view.EffectiveProfile.Standard; got.BurstMaxMemoryMB != 12288 || got.BurstMaxMemoryMBSource != "host" {
+		t.Errorf("the effective memory ceiling does not say it came from the host: %+v", got)
 	}
 	if got := view.EffectiveProfile.Minimum; got.CPUs != 1 || got.CPUsSource != "host" {
 		t.Errorf("the effective minimum = %+v", got)
@@ -118,6 +121,11 @@ func TestARunnerProfileTheHostCannotHonourIsRefused(t *testing.T) {
 		{"a minimum above the standard", map[string]any{"minimum": map[string]any{"cpus": 4}, "standard": map[string]any{"cpus": 2}}, "runner_profile.minimum.cpus", "is above the standard size"},
 		{"a memory minimum above the standard", map[string]any{"minimum": map[string]any{"memory_mb": 8192}, "standard": map[string]any{"memory_mb": 4096}}, "runner_profile.minimum.memory_mb", "is above the standard size"},
 		{"a ceiling below the standard", map[string]any{"standard": map[string]any{"cpus": 4, "burst_max_cpus": 2}}, "runner_profile.standard.burst_max_cpus", "at least the standard"},
+		// The memory ceiling is the most a runner may hold, so under its own share it
+		// would ask for memory to be taken back, which the valve never does.
+		{"a memory ceiling below the standard", map[string]any{"standard": map[string]any{"memory_mb": 8192, "burst_max_memory_mb": 4096}}, "runner_profile.standard.burst_max_memory_mb", "at least the standard"},
+		{"a memory ceiling too small to run", map[string]any{"standard": map[string]any{"burst_max_memory_mb": 100}}, "runner_profile.standard.burst_max_memory_mb", "512 MB"},
+		{"a negative memory ceiling", map[string]any{"standard": map[string]any{"burst_max_memory_mb": -1}}, "runner_profile.standard.burst_max_memory_mb", "cannot be negative"},
 		{"a standard larger than the machine", map[string]any{"standard": map[string]any{"cpus": 20}}, "runner_profile.standard.cpus", "could never run a single runner here"},
 		{"a memory standard larger than the machine", map[string]any{"standard": map[string]any{"memory_mb": 65536}}, "runner_profile.standard.memory_mb", "could never run a single runner here"},
 		{"a minimum larger than the machine", map[string]any{"minimum": map[string]any{"cpus": 12}}, "runner_profile.minimum.cpus", "more than it can give a runner"},

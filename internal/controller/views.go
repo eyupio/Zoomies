@@ -198,7 +198,12 @@ type HostView struct {
 	// feature name means what.
 	Features   []string `json:"features"`
 	ElasticCPU bool     `json:"elastic_cpu"`
-	Cordoned   bool     `json:"cordoned"`
+	// ElasticMemory is the same answer for the memory valve: whether a runner
+	// placed here can be lent memory while it runs, and MemoryPool what the host
+	// can still lend, absent for a host with no runner the valve applies to.
+	ElasticMemory bool            `json:"elastic_memory"`
+	MemoryPool    *MemoryPoolView `json:"memory_pool,omitempty"`
+	Cordoned      bool            `json:"cordoned"`
 	// ProtocolVersion is the agent protocol this host reported, and
 	// Incompatible whether this controller can work with it. An incompatible
 	// host is excluded from placement exactly as a cordoned one is, so the
@@ -270,6 +275,8 @@ func (c *Controller) HostView(h *store.Host) HostView {
 		VersionChannel:     version.Channel(h.Version),
 		Features:           emptySlice(h.Features),
 		ElasticCPU:         h.Supports(agent.FeatureElasticCPU),
+		ElasticMemory:      h.Supports(agent.FeatureElasticMemory),
+		MemoryPool:         c.memoryPoolView(h),
 		Cordoned:           h.Cordoned,
 		ProtocolVersion:    h.ProtocolVersion,
 		Incompatible:       h.Incompatible,
@@ -739,7 +746,13 @@ type RunnerView struct {
 	AllocatedMemoryMB int64            `json:"allocated_memory_mb,omitempty"`
 	AllocationSource  string           `json:"allocation_source,omitempty"`
 	CPUResource       *CPUResourceView `json:"cpu_resource,omitempty"`
-	CreatedAt         time.Time        `json:"created_at"`
+	// MemoryResource is what the memory valve has done for this runner and
+	// Scratch which of its folders its pool keeps in memory. Both are absent
+	// where there is nothing to say, which is every runner of a pool that uses
+	// neither.
+	MemoryResource *MemoryResourceView `json:"memory_resource,omitempty"`
+	Scratch        *ScratchView        `json:"scratch,omitempty"`
+	CreatedAt      time.Time           `json:"created_at"`
 	// ContainerStartedAt and RegisteredAt are the two halves of coming up, and
 	// they are on the view because the gap between them is the whole diagnosis
 	// of a runner stuck in `registering`: a container that never started is a
@@ -864,6 +877,8 @@ func (v *RunnerRenderer) View(r *store.Runner) RunnerView {
 		AllocatedMemoryMB:     r.AllocatedMemoryMB,
 		AllocationSource:      r.AllocationSource,
 		CPUResource:           cpuResourceView(r, pool, host),
+		MemoryResource:        memoryResourceView(r, pool, host),
+		Scratch:               scratchView(r),
 		CreatedAt:             r.CreatedAt,
 		CreateTaskIssuedAt:    r.CreateTaskIssuedAt,
 		HostRemovedAt:         r.HostRemovedAt,
@@ -1018,6 +1033,8 @@ type PoolView struct {
 	DockerMode             store.DockerMode     `json:"docker_mode"`
 	Resources              store.Resources      `json:"resources"`
 	CPUBurst               store.CPUBurstPolicy `json:"cpu_burst"`
+	// MemoryBurst is the memory valve's policy for this pool.
+	MemoryBurst store.MemoryBurstPolicy `json:"memory_burst"`
 	// SizeFromProfile is the stored choice that this pool takes its runners'
 	// size from the host they land on, as that host's runner profile says it.
 	// It excludes typed CPU and memory, and it is what makes Sizing "profile".
@@ -1214,6 +1231,7 @@ func (v *PoolRenderer) View(p *store.Pool) PoolView {
 		DockerMode:             p.DockerMode,
 		Resources:              p.Resources,
 		CPUBurst:               p.CPUBurst,
+		MemoryBurst:            p.MemoryBurst,
 		SizeFromProfile:        p.SizeFromProfile,
 		FleetStandard:          standard,
 		Auto:                   v.auto(p),

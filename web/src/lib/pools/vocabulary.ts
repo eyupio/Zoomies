@@ -9,8 +9,9 @@
  * and it keeps the editor's sections importable without the sections importing
  * the editor back.
  */
-import type { BackendKind, DockerMode, Host, Platform } from '$lib/api/types';
+import type { BackendKind, DockerMode, Host, MemoryBurstPolicy, Platform } from '$lib/api/types';
 import { pluralise } from '$lib/format';
+import { memoryLabel } from './sizing';
 
 export interface Choice<T> {
   value: T;
@@ -224,3 +225,22 @@ export const FIELD_LABELS: Readonly<Record<string, string>> = {
   'runner_settings.scale_up_delay': 'Scale-up delay',
   'runner_settings.docker_wait': 'Docker wait',
 };
+
+/**
+ * What a pool's memory valve is set to, in a line: the mode, the most a runner
+ * may hold and the swap it may fall back on. The pool page and the CLI say it the
+ * same way, so an operator reading one finds the other.
+ */
+export function memoryBurstLabel(policy: MemoryBurstPolicy | undefined): string {
+  if (policy?.mode === 'observe') return 'Observe only';
+  if (policy?.mode !== 'automatic') return 'Off';
+  const ceiling =
+    (policy.max_memory_mb ?? 0) > 0
+      ? `up to ${memoryLabel(policy.max_memory_mb ?? 0)} per runner`
+      : 'up to half as much again as a runner starts with';
+  const swap =
+    (policy.spill_mb ?? 0) > 0
+      ? `, with up to ${memoryLabel(policy.spill_mb ?? 0)} of swap as the last resort`
+      : '';
+  return `Automatic, ${ceiling}${swap}`;
+}

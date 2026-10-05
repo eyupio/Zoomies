@@ -868,6 +868,7 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 	// Decide before applyReports replaces the previous per-runner sample: the
 	// delta in cgroup throttling is one of the demand signals.
 	elasticCPU := c.elasticCPUTargets(ctx, h, req, now)
+	elasticMemory := c.elasticMemoryDirective(ctx, h, req, now)
 
 	if len(req.Runners) > 0 {
 		if err := c.applyReports(ctx, hostID, req.Runners); err != nil {
@@ -900,6 +901,7 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 		UnknownRunners:     c.unknownRunners(ctx, hostID, req.Runners),
 		Throttle:           c.throttleDirective(ctx, h),
 		ElasticCPU:         elasticCPU,
+		ElasticMemory:      elasticMemory,
 	}, nil
 }
 
@@ -1427,11 +1429,15 @@ func (c *Controller) applyReports(ctx context.Context, hostID string, reports []
 				continue
 			}
 		}
-		cpuMoved := false
+		resourcesMoved := false
 		if rep.Stats.SampledAt != nil || rep.Stats.CPUPercent != 0 || rep.Stats.MemoryBytes != 0 {
 			sample, _ := json.Marshal(rep.Stats)
+			// Read against the sample it is about to replace, which is why it is
+			// before the write: the loan is written when it grows, and the view
+			// is repainted when anything it shows moved.
+			memoryMoved := c.noteMemoryValve(ctx, r, rep)
 			if err := c.st.SetRunnerResourceSample(ctx, r.ID, rep.Stats.CPUPercent, rep.Stats.MemoryBytes, sample); err == nil {
-				cpuMoved = allocationFactorMoved(r.ResourceSample, rep.Stats)
+				resourcesMoved = allocationFactorMoved(r.ResourceSample, rep.Stats) || memoryMoved
 			}
 			if r.State == store.RunnerBusy && rep.Stats.SampledAt != nil {
 				c.observePair(r, rep.Stats)
@@ -1473,12 +1479,13 @@ func (c *Controller) applyReports(ctx context.Context, hostID string, reports []
 			// more than it had.
 			c.noteOOMKilled(ctx, r, rep.Message)
 		}
-		if cpuMoved {
+		if resourcesMoved {
 			// A boost given, taken back or tightened by a throttle is the
-			// runner's cpu_resource changing, and the UI repaints a runner
-			// only from a runner.updated frame. Without this the Squirrel
-			// spotted status appeared on a reload and never live. The frame
-			// is the runner's GET shape, read after every write above.
+			// runner's cpu_resource changing, and memory lent or swap allowed
+			// is its memory_resource changing; the UI repaints a runner only
+			// from a runner.updated frame. Without this the Squirrel spotted
+			// status appeared on a reload and never live. The frame is the
+			// runner's GET shape, read after every write above.
 			c.publishRunnerByID(ctx, r.ID)
 		}
 		if rep.HostRemoved && !rep.Phase.Live() && (r.State.Terminal() || state.Terminal()) {

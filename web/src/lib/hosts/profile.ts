@@ -28,6 +28,11 @@ export interface ProfileFigures {
   standardMemoryMb: number;
   /** The most CPU one runner may use, its guaranteed share and any CPU lent to it together. */
   burstMaxCpus: number;
+  /**
+   * The most memory one runner may hold, its guaranteed share and anything the
+   * memory valve has lent it together, in MB. Zero is no ceiling of this host's.
+   */
+  burstMaxMemoryMb: number;
   /** Keep every in-memory folder off this host, whatever a pool asks for. */
   tmpfsOff: boolean;
   /** The most any one in-memory folder may be here, in MB; zero is no host ceiling. */
@@ -48,6 +53,7 @@ export const NO_FIGURES: Readonly<ProfileFigures> = {
   standardCpus: 0,
   standardMemoryMb: 0,
   burstMaxCpus: 0,
+  burstMaxMemoryMb: 0,
   tmpfsOff: false,
   tmpfsMaxMb: 0,
   tmpfsWorkMb: 0,
@@ -71,6 +77,7 @@ export function figuresOf(profile: RunnerProfile | null | undefined): ProfileFig
     standardCpus: profile?.standard?.cpus ?? 0,
     standardMemoryMb: profile?.standard?.memory_mb ?? 0,
     burstMaxCpus: profile?.standard?.burst_max_cpus ?? 0,
+    burstMaxMemoryMb: profile?.standard?.burst_max_memory_mb ?? 0,
     tmpfsOff: profile?.tmpfs?.disabled === true,
     tmpfsMaxMb: profile?.tmpfs?.max_mb ?? 0,
     tmpfsWorkMb: profile?.tmpfs?.work_mb ?? 0,
@@ -93,6 +100,7 @@ export function profileBody(f: ProfileFigures): RunnerProfile {
   if (f.standardCpus > 0) standard.cpus = f.standardCpus;
   if (f.standardMemoryMb > 0) standard.memory_mb = f.standardMemoryMb;
   if (f.burstMaxCpus > 0) standard.burst_max_cpus = f.burstMaxCpus;
+  if (f.burstMaxMemoryMb > 0) standard.burst_max_memory_mb = f.burstMaxMemoryMb;
   const tmpfs: NonNullable<RunnerProfile['tmpfs']> = {};
   if (f.tmpfsOff) tmpfs.disabled = true;
   // A ceiling on a host that keeps the folders off is a contradiction the API
@@ -119,6 +127,7 @@ export function isUnset(f: ProfileFigures): boolean {
     f.standardCpus <= 0 &&
     f.standardMemoryMb <= 0 &&
     f.burstMaxCpus <= 0 &&
+    f.burstMaxMemoryMb <= 0 &&
     !f.tmpfsOff &&
     f.tmpfsMaxMb <= 0 &&
     f.tmpfsWorkMb <= 0 &&
@@ -135,6 +144,7 @@ export function sameFigures(a: ProfileFigures, b: ProfileFigures): boolean {
     a.standardCpus === b.standardCpus &&
     a.standardMemoryMb === b.standardMemoryMb &&
     a.burstMaxCpus === b.burstMaxCpus &&
+    a.burstMaxMemoryMb === b.burstMaxMemoryMb &&
     a.tmpfsOff === b.tmpfsOff &&
     a.tmpfsMaxMb === b.tmpfsMaxMb &&
     a.tmpfsWorkMb === b.tmpfsWorkMb &&
@@ -186,6 +196,7 @@ export function profileErrors(f: ProfileFigures, machine: MachineShape): Record<
   cpuFloor('standard.cpus', f.standardCpus);
   memoryFloor('standard.memory_mb', f.standardMemoryMb);
   cpuFloor('standard.burst_max_cpus', f.burstMaxCpus);
+  memoryFloor('standard.burst_max_memory_mb', f.burstMaxMemoryMb);
 
   // A folder smaller than the floor is not one a checkout fits in. The ceiling
   // is moot on a host that keeps the folders off, so it is only held to the floor
@@ -233,6 +244,17 @@ export function profileErrors(f: ProfileFigures, machine: MachineShape): Record<
   )
     errors[key('standard.burst_max_cpus')] =
       `The ceiling is the most a runner may use, its own share included, so it has to be at least the standard, ${cpuLabel(f.standardCpus)}.`;
+
+  // The same for memory: the ceiling is the most a runner may hold, so under its
+  // own share it would be a request to take memory back, which nothing does.
+  if (
+    !errors[key('standard.burst_max_memory_mb')] &&
+    f.burstMaxMemoryMb > 0 &&
+    f.standardMemoryMb > 0 &&
+    f.burstMaxMemoryMb < f.standardMemoryMb
+  )
+    errors[key('standard.burst_max_memory_mb')] =
+      `The ceiling is the most a runner may hold, its own share included, so it has to be at least the standard, ${memoryLabel(f.standardMemoryMb)}.`;
 
   // What the machine can give. A figure above all of it could never run one
   // runner, which is the host refusing every pool.
