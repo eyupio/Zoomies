@@ -25,8 +25,9 @@ var profileFlags = []string{"min-cpus", "min-memory-mb", "standard-cpus", "stand
 // nobody asked for.
 func hostsEdit(ctx context.Context, e *env, args []string) error {
 	fs := newFlagSet(e, "zoomies hosts edit <host-id> [flags]",
-		"Change a host's capacity, reserve or runner profile. Anything you do not name is left alone.")
+		"Change a host's name, capacity, reserve or runner profile. Anything you do not name is left alone.")
 	cf := registerClientFlags(fs, true)
+	name := fs.String("name", "", "rename the host; it must not be another host's name")
 	capacity := fs.Int("capacity", 0, "the most runners the host takes; with a standard runner size, the ceiling on the slots its machine gives (0 stops it taking new runners)")
 	reserveCPUs := fs.Int("reserve-cpus", 0, "whole CPUs held back from placement for the machine's own sake")
 	reserveMemory := fs.Int64("reserve-memory-mb", 0, "memory held back from placement, in MB")
@@ -48,6 +49,7 @@ func hostsEdit(ctx context.Context, e *env, args []string) error {
 	fs.Var(untags, "untag", "take a tag off the host (repeatable)")
 	confirm := fs.Bool("confirm", false, "save even if it leaves a pool with nowhere to run")
 	fs.example(
+		"zoomies hosts edit hst_k3f9qz2m --name build-box",
 		"zoomies hosts edit hst_k3f9qz2m --standard-cpus 3 --standard-memory-mb 8192",
 		"zoomies hosts edit hst_k3f9qz2m --min-cpus 1 --standard-cpus 2 --burst-max-cpus 4",
 		"zoomies hosts edit hst_k3f9qz2m --burst-max-memory-mb 16384",
@@ -88,6 +90,9 @@ func hostsEdit(ctx context.Context, e *env, args []string) error {
 	}
 
 	body := map[string]any{}
+	if fs.changed("name") {
+		body["name"] = *name
+	}
 	if fs.changed("capacity") {
 		body["capacity"] = *capacity
 	}
@@ -180,7 +185,7 @@ func hostsEdit(ctx context.Context, e *env, args []string) error {
 		body["labels"] = labels
 	}
 	if len(body) == 0 {
-		return usagef("hosts edit", "nothing to change; name at least one setting, for example --standard-cpus 3")
+		return usagef("hosts edit", "nothing to change; name at least one setting, for example --name build-box or --standard-cpus 3")
 	}
 
 	q := url.Values{}

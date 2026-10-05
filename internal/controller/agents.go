@@ -8,6 +8,7 @@ import (
 	"io"
 	"maps"
 	"math"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -2071,6 +2072,10 @@ func (c *Controller) adoptEmbeddedCredentials(ctx context.Context, a *agent.Agen
 	return a.Join(ctx, plaintext)
 }
 
+// containerHostname is what Docker calls a container when nothing else does:
+// the first twelve hex digits of its ID.
+var containerHostname = regexp.MustCompile(`^[0-9a-f]{12}$`)
+
 // renameEmbeddedHost brings the host row's name in line with the agent's
 // configured one when the two have drifted apart.
 //
@@ -2081,9 +2086,13 @@ func (c *Controller) adoptEmbeddedCredentials(ctx context.Context, a *agent.Agen
 // re-joined; and it is only renamed when nothing else already answers to the
 // new name, since two hosts called the same thing would be worse than one
 // called 7096d9a9b798.
+//
+// Only a name Docker generated is replaced. Any other name may be one an
+// operator chose through PATCH /hosts/{id}, and putting the configured name
+// back at every restart would undo a rename each time the controller came up.
 func (c *Controller) renameEmbeddedHost(ctx context.Context, h *store.Host, name string) {
 	name = strings.TrimSpace(name)
-	if name == "" || h.Name == name {
+	if name == "" || h.Name == name || !containerHostname.MatchString(h.Name) {
 		return
 	}
 	if _, err := c.st.GetHostByName(ctx, name); !errors.Is(err, store.ErrNotFound) {

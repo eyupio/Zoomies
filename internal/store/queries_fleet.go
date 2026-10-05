@@ -790,6 +790,9 @@ func (s *Store) UpdateHost(ctx context.Context, h *Host) error {
 // HostChanges contains only the operator's editable fields. Nil leaves the
 // current value alone, including changes made since the caller read the host.
 type HostChanges struct {
+	// Name renames the host. The name is unique, so a clash comes back as
+	// ErrConflict rather than as two hosts answering to one name.
+	Name            *string
 	Capacity        *int
 	Labels          *StringMap
 	ReserveCPUs     *int
@@ -802,7 +805,7 @@ type HostChanges struct {
 }
 
 // PatchHost writes one edit without overwriting a concurrent cordon or
-// heartbeat. Capacity, labels, reserves and the runner profile succeed or fail
+// heartbeat. Name, capacity, labels, reserves and the runner profile succeed or fail
 // together.
 func (s *Store) PatchHost(ctx context.Context, id string, changes HostChanges) error {
 	var labels, profile any
@@ -812,11 +815,11 @@ func (s *Store) PatchHost(ctx context.Context, id string, changes HostChanges) e
 	if changes.RunnerProfile != nil {
 		profile = *changes.RunnerProfile
 	}
-	res, err := s.exec(ctx, `UPDATE hosts SET capacity=COALESCE(?,capacity),
+	res, err := s.exec(ctx, `UPDATE hosts SET name=COALESCE(?,name), capacity=COALESCE(?,capacity),
 		labels=COALESCE(?,labels), reserve_cpus=COALESCE(?,reserve_cpus),
 		reserve_memory_mb=COALESCE(?,reserve_memory_mb), reserve_disk_mb=COALESCE(?,reserve_disk_mb),
 		runner_profile=COALESCE(?,runner_profile)
-		WHERE id=?`, changes.Capacity, labels, changes.ReserveCPUs,
+		WHERE id=?`, changes.Name, changes.Capacity, labels, changes.ReserveCPUs,
 		changes.ReserveMemoryMB, changes.ReserveDiskMB, profile, id)
 	if err != nil {
 		return wrapWrite(err)

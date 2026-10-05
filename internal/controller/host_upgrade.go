@@ -26,7 +26,7 @@ func hostUpgrade(host *store.Host, controllerVersion string) (command, target, n
 		return "", "", fmt.Sprintf("The controller is %s, a local or unpublished build. Install the matching agent from that build; there is no published upgrade command.", controllerVersion)
 	}
 	quoted := "'" + strings.ReplaceAll(tag, "'", "'\"'\"'") + "'"
-	command = "curl -fsSL https://zoomies.sh/install.sh | sh -s -- --upgrade --mode agent --version " + quoted
+	command = "sudo zoomies upgrade --mode agent --version " + quoted
 	note = "Run this on the host. It keeps the existing configuration and credentials, refreshes stock runner images and restarts the agent."
 	if tag == "dev" {
 		note += " The dev channel moves with main, so it may contain a newer build than this controller."

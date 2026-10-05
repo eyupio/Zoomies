@@ -81,6 +81,7 @@ func (e *Engine) Tune(ctx context.Context, o TuneOptions) error {
 		}
 	}
 	restart := false
+	applied, declined, reviewed, advice := 0, 0, 0, 0
 	if o.Revert {
 		changes, err := e.Revert(ctx, o.Only, o.Skip, true)
 		if err != nil {
@@ -105,6 +106,7 @@ func (e *Engine) Tune(ctx context.Context, o TuneOptions) error {
 			restart = restart || c.DockerRestart
 		}
 		if o.DryRun {
+			fmt.Fprintf(o.Out, "\nPreview complete: %d recorded changes to restore. No changes made.\n", len(changes))
 			return nil
 		}
 		if !o.Yes && !ask("Restore these recorded changes? [y/N] ") {
@@ -113,6 +115,7 @@ func (e *Engine) Tune(ctx context.Context, o TuneOptions) error {
 		if _, err = e.Revert(ctx, o.Only, o.Skip, false); err != nil {
 			return err
 		}
+		applied = len(changes)
 	} else {
 		tier := o.Tier
 		if o.Dedicated {
@@ -127,30 +130,46 @@ func (e *Engine) Tune(ctx context.Context, o TuneOptions) error {
 				continue
 			}
 			if r.Optional && !o.Only[r.ID] {
-				fmt.Fprintf(o.Out, "%s is optional; select it explicitly with --only %s.\n", r.Title, r.ID)
+				advice++
 				continue
 			}
 			if !r.Actionable {
-				fmt.Fprintf(o.Out, "%s: %s %s\n", r.Title, r.Rationale, r.Reason)
+				advice++
 				continue
 			}
 			c, err := e.Plan(ctx, r)
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(o.Out, "\n%s (%s): %s -> %s\n%s\n", r.Title, r.ID, c.Previous, c.New, r.Rationale)
+			reviewed++
+			fmt.Fprintf(o.Out, "\n%d. %s (%s)\n   %s -> %s\n   %s\n", reviewed, r.Title, r.ID, c.Previous, c.New, r.Rationale)
 			fmt.Fprint(o.Out, c.Preview())
 			if o.DryRun {
 				continue
 			}
 			if !o.Yes && !ask("Apply this change? [y/N] ") {
+				declined++
+				fmt.Fprintln(o.Out, "Left unchanged.")
 				continue
 			}
 			if err = e.Apply(ctx, c, o.Actor); err != nil {
 				return fmt.Errorf("%s: %w; the recorded change can be recovered with --revert", r.ID, err)
 			}
 			restart = restart || c.DockerRestart
-			fmt.Fprintln(o.Out, "Recorded:", r.ID)
+			applied++
+			fmt.Fprintln(o.Out, "Applied; reversal recorded.")
+		}
+	}
+	summarise := func() {
+		if o.DryRun {
+			fmt.Fprintf(o.Out, "\nPreview complete: %d eligible changes. No changes made.\n", reviewed)
+		} else if o.Revert {
+			fmt.Fprintf(o.Out, "\nRestored %d recorded changes.\n", applied)
+		} else {
+			fmt.Fprintf(o.Out, "\nTuning complete: %d applied, %d left unchanged.\n", applied, declined)
+		}
+		if advice > 0 {
+			fmt.Fprintf(o.Out, "%d findings need manual review or explicit selection; see zoomies doctor --verbose.\n", advice)
 		}
 	}
 	// A re-run can finish a restart the operator previously deferred.
@@ -167,11 +186,13 @@ func (e *Engine) Tune(ctx context.Context, o TuneOptions) error {
 			if err := e.RestartDocker(ctx); err != nil {
 				fmt.Fprintln(o.Out, "Docker was not restarted:", err)
 				fmt.Fprintln(o.Out, "Drain the host, stop its Zoomies agent, and restart Docker during maintenance.")
+				summarise()
 				return nil
 			}
 			fmt.Fprintln(o.Out, "Docker restarted.")
 		}
 	}
+	summarise()
 	return nil
 }
 

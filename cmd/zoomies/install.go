@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -185,57 +186,73 @@ func runUpgrade(ctx context.Context, e *env, args []string) error {
 	return runUpgradeNamed(ctx, e, args, "upgrade")
 }
 
-// runUpdate is the operator-friendly spelling of upgrade. Keeping upgrade as
-// an alias preserves scripts and the install.sh handoff while making the command
-// people naturally try first do the same safe, record-aware work.
+// Older scripts keep working, but every update spelling uses one upgrade flow.
 func runUpdate(ctx context.Context, e *env, args []string) error {
 	return runUpgradeNamed(ctx, e, args, "update")
 }
 
 func runUpgradeNamed(ctx context.Context, e *env, args []string, name string) error {
-	fs := newFlagSet(e, "zoomies "+name+" [flags]", "Apply the installed binary and matching images to an existing deployment, keeping its configuration and credentials.")
-	configDir := fs.String("config-dir", "", "where the existing configuration and deployment record live")
+	fs := newFlagSet(e, "zoomies "+name+" [flags]", "Upgrade this host: binary, controller or agent, and cached runner images.")
+	configDir := fs.String("config-dir", "", "directory containing zoomies.yaml and deployment.json")
 	binary := fs.String("installed-binary", "", "the binary path used by the existing service")
 	dockerHost := fs.String("docker-host", "", "the existing container runtime endpoint")
-	runtime := fs.String("runtime", "docker", "docker or podman, as detected by install.sh")
+	runtime := fs.String("runtime", "", "docker or podman; empty uses the saved deployment")
 	image := fs.String("image", "", "replacement image for a custom container deployment")
-	mode := fs.String("mode", "", "agent, controller or single; refuses a different existing deployment")
+	mode := fs.String("mode", "", "select agent, controller or single; empty detects installed services")
 	check := fs.Bool("check", false, "check the deployment without changing or restarting anything")
-	wantVersion := fs.String("version", "", "with the download: a tag such as v1.4.0, or dev, instead of the newest release")
+	wantVersion := fs.String("version", "", "target a published tag such as v1.4.0, or dev")
 	noDownload := fs.Bool("no-download", false, "apply the binary that is already installed; do not look for a newer one")
-	yes := fs.Bool("yes", false, "add what this release expects and the deployment lacks -- a folder, a mount, a missing Compose file -- without asking")
-	nonInteractive := fs.Bool("non-interactive", false, "never ask; report what this release expects and the deployment lacks, and leave it as it is unless --yes is given too")
-	fs.example("curl -fsSL https://zoomies.sh/install.sh | sh -s -- --upgrade", "zoomies "+name+" --check --mode agent", "zoomies "+name+" --yes")
+	yes := fs.Bool("yes", false, "approve deployment additions and settings migration; never OS tuning")
+	nonInteractive := fs.Bool("non-interactive", false, "never prompt; optional deployment changes require --yes")
+	fs.example("sudo zoomies upgrade", "zoomies upgrade --check", "sudo zoomies upgrade --yes", "sudo zoomies upgrade --mode agent --version v1.4.0")
 	if err := fs.parse(args); err != nil {
 		return err
 	}
 	if err := fs.noMoreArgs(); err != nil {
 		return err
 	}
+	if *wantVersion != "" && *noDownload {
+		return usagef(name, "--version requires downloading; remove --no-download")
+	}
 	parsed, err := installer.ParseMode(*mode)
 	if err != nil {
 		return err
 	}
+	interactive := false
+	if f, ok := e.in.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
+		interactive = !*nonInteractive && isTerminal(e.out)
+	}
+	opts := installer.UpgradeOptions{
+		Doctor:    func(ctx context.Context, cfg *config.Config) { upgradeDoctor(ctx, e, cfg) },
+		ConfigDir: *configDir, BinaryPath: *binary, DockerHost: *dockerHost, Runtime: *runtime, Image: *image,
+		Mode: parsed, Check: *check, Out: e.out, Continuation: true,
+		In: e.in, Interactive: interactive, NonInteractive: !interactive, AssumeYes: *yes,
+	}
+	ui := installer.PaletteFor(e.out)
+	if os.Getenv("ZOOMIES_UPGRADE_STARTED") == "" {
+		title := "Zoomies upgrade"
+		if *check {
+			title = "Zoomies upgrade preview"
+		}
+		ui.Title(e.out, title, "this host")
+	}
 	if !*check && !*noDownload && os.Getenv(installer.SelfUpdateEnv) == "" {
+		// Validate the deployment before replacing the executable. An invalid
+		// record or service must leave the installed binary untouched.
+		preview := opts
+		preview.Check, preview.Out, preview.Doctor = true, io.Discard, nil
+		if err := installer.Upgrade(ctx, preview); err != nil {
+			return err
+		}
+		ui.Rule(e.out, "1/4 Binary")
 		if err := selfUpdate(ctx, e, *binary, *wantVersion); err != nil {
 			return err
 		}
+	} else if !*check && os.Getenv("ZOOMIES_UPGRADE_STARTED") == "" {
+		ui.Rule(e.out, "1/4 Binary")
+		ui.Done(e.out, "Using the installed binary")
 	}
-	// install.sh piped into sh has the script itself on stdin, so a prompt
-	// there would read the next line of shell as its answer. Ask only when
-	// stdin is somebody at a terminal.
-	interactive := false
-	if f, ok := e.in.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
-		interactive = !*nonInteractive
-	}
-	return installer.Upgrade(ctx, installer.UpgradeOptions{
-		Doctor: func(ctx context.Context, cfg *config.Config) {
-			upgradeDoctor(ctx, e, cfg, interactive && !*yes)
-		},
-		ConfigDir: *configDir, BinaryPath: *binary, DockerHost: *dockerHost, Runtime: *runtime, Image: *image,
-		Mode: parsed, Check: *check, Out: e.out,
-		In: e.in, Interactive: interactive, NonInteractive: *nonInteractive, AssumeYes: *yes,
-	})
+	return installer.Upgrade(ctx, opts)
 }
 
 // selfUpdate brings the installed binary up to date and, if it changed,
@@ -243,8 +260,8 @@ func runUpgradeNamed(ctx context.Context, e *env, args []string, name string) er
 // already on disk, so a host that ran `zoomies upgrade` rather than install.sh
 // kept the old build -- and with it the old upgrade, doctor and tune.
 //
-// Failing to find or fetch a newer release is a warning, not a failure: nothing
-// has been replaced, and an offline host can still apply the binary it has.
+// A failed download stops the upgrade; an offline host can explicitly use
+// --no-download rather than report a partial upgrade as successful.
 func selfUpdate(ctx context.Context, e *env, binary, wantVersion string) error {
 	if binary == "" {
 		binary, _ = os.Executable()
@@ -258,8 +275,7 @@ func selfUpdate(ctx context.Context, e *env, binary, wantVersion string) error {
 		BinaryPath: binary, Version: wantVersion, Current: version.Version, Out: e.out,
 	})
 	if err != nil {
-		ui.Warn(e.out, "Could not update the binary, so the installed one will be used: %v", err)
-		return nil
+		return fmt.Errorf("binary update failed: %w; retry, or use --no-download to apply the installed binary", err)
 	}
 	if !res.Updated {
 		if res.Tag != "" {
@@ -269,7 +285,7 @@ func selfUpdate(ctx context.Context, e *env, binary, wantVersion string) error {
 	}
 	ui.Done(e.out, "Downloaded %s, checksum verified; continuing with it", res.Tag)
 	fmt.Fprintln(e.out)
-	env := append(os.Environ(), installer.SelfUpdateEnv+"=1")
+	env := append(os.Environ(), installer.SelfUpdateEnv+"=1", "ZOOMIES_UPGRADE_STARTED=1")
 	if err := reexecBinary(binary, processArgs(), env); err != nil {
 		return fmt.Errorf("the binary was updated to %s but could not be started: %w; run `zoomies upgrade` again", res.Tag, err)
 	}

@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/eyupio/zoomies/internal/auth"
 	"github.com/eyupio/zoomies/internal/controller"
@@ -74,6 +76,10 @@ func (s *Server) handleGetHost(w http.ResponseWriter, r *http.Request) {
 }
 
 type hostUpdateRequest struct {
+	// Name is what the host is called in the UI, the CLI and a pool's
+	// reasons. It is the operator's to change: the agent's configured name only
+	// names the host when it first joins.
+	Name     *string            `json:"name"`
 	Capacity *int               `json:"capacity"`
 	Labels   *map[string]string `json:"labels"`
 	// The reserve: what this machine keeps for itself, in the units its own
@@ -90,7 +96,12 @@ type hostUpdateRequest struct {
 	RunnerProfile *store.RunnerProfile `json:"runner_profile"`
 }
 
-// handleUpdateHost changes a host's capacity, labels, reserve or runner profile.
+// maxHostNameLength bounds a rename. Generous: names such as
+// zoomies-12vcpu-31gb-debian-12-zoomies are common, and the limit is only there
+// so a pasted paragraph is refused rather than stored.
+const maxHostNameLength = 128
+
+// handleUpdateHost changes a host's name, capacity, labels, reserve or runner profile.
 func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 	id := chiURLParam(r, "id")
 	h, err := s.ctrl.Store().GetHost(r.Context(), id)
@@ -104,6 +115,22 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var fields []fieldError
+	if req.Name != nil {
+		name := strings.TrimSpace(*req.Name)
+		req.Name = &name
+		switch {
+		case name == "":
+			fields = append(fields, fieldError{"name", "a host needs a name; it is how it appears everywhere else"})
+		case utf8.RuneCountInString(name) > maxHostNameLength:
+			fields = append(fields, fieldError{"name", fmt.Sprintf("a host name is at most %d characters", maxHostNameLength)})
+		case strings.ContainsFunc(name, unicode.IsControl):
+			fields = append(fields, fieldError{"name", "a host name cannot contain control characters or line breaks"})
+		case name != h.Name:
+			if other, gerr := s.ctrl.Store().GetHostByName(r.Context(), name); gerr == nil && other.ID != h.ID {
+				fields = append(fields, fieldError{"name", fmt.Sprintf("another host is already called %q; pick a name that is not in use", name)})
+			}
+		}
+	}
 	if req.Capacity != nil {
 		switch {
 		case *req.Capacity < 0:
@@ -210,7 +237,7 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 
 	before := *h
 	changes := store.HostChanges{
-		Capacity: req.Capacity, ReserveCPUs: req.ReserveCPUs,
+		Name: req.Name, Capacity: req.Capacity, ReserveCPUs: req.ReserveCPUs,
 		ReserveMemoryMB: req.ReserveMemoryMB, ReserveDiskMB: req.ReserveDiskMB,
 		RunnerProfile: req.RunnerProfile,
 	}

@@ -6,18 +6,17 @@ description: Read host OS health reports, approve individual tuning changes, and
 
 # Host health checks and tuning
 
-`zoomies doctor` explains the host's current OS settings, warnings, skipped
-checks and recommended changes. It starts with a summary, then lists what needs
-attention (each with its current value, the better one and why), the skipped
-checks, and one line for each check that passes. The text wraps to your terminal
-width, so it reads on a phone. At a terminal, when `zoomies tune` can fix
-something, doctor asks `[y/N]` before it runs tune. Nothing is tuned unless you
-explicitly approve it. Ubuntu 24.04 and Debian 13 are the
-first supported tuning platforms. Other Linux distributions are report-only;
-non-Linux hosts report unsupported checks.
+`zoomies doctor` gives a short host-health summary and up to three findings
+that need attention. `--verbose` shows every check, its current value,
+recommendation and explanation. Both wrap to the terminal width. Doctor is
+read-only by default and finishes without a tuning prompt. Use `--interactive`
+to review eligible fixes individually, or run `sudo zoomies tune` separately.
+Ubuntu 24.04 and Debian 13 are the first supported tuning platforms. Other
+Linux distributions are report-only; non-Linux hosts report unsupported checks.
 
 ```sh
 zoomies doctor
+zoomies doctor --verbose
 zoomies doctor --json
 zoomies doctor --tier aggressive
 sudo zoomies doctor --interactive
@@ -219,12 +218,15 @@ At the end of a fresh installation doctor runs, then interactive setup asks:
 safe changes; `--no-tune` suppresses the offer. Unattended setup and `--yes`
 alone never imply tuning. Aggressive and dedicated tiers are mentioned only.
 
-`zoomies update`, `zoomies upgrade` and `install.sh --upgrade` finish with a
-short health summary: only the checks that need attention, one line each, with
-`[fixable]` against those `zoomies tune` can change. At a terminal it then offers
-`[t]` to review and apply the safe fixes one at a time, `[d]` for the full
-doctor report, or Enter to finish. **They never apply tuning on their own**,
-including with `--yes` or without a terminal; tuning only runs when you choose
-`[t]`. Unattended, the summary ends with the commands to run later. Existing container deployments are offered the
-read-only native health service through the normal, consent-based upgrade
-layout review. The service is reporting, not host tuning.
+`zoomies upgrade` finishes with one read-only health status and a command to
+review findings. It never opens a doctor/tune menu or applies tuning, including
+with `--yes`. `zoomies update` and `zoomies deployment update` use the same
+flow; `install.sh --upgrade` delegates to it. Existing container deployments
+are offered the read-only native health service through the normal,
+consent-based upgrade layout review. This service reports observations.
+
+Tune shows its selected tier, numbers the changes it presents, keeps exact
+file/command previews before each approval, and finishes with counts of
+applied and declined changes. `--dry-run` reports the eligible changes without
+writing anything. Advice-only and optional findings are available through
+`zoomies doctor --verbose` rather than repeated during every tuning review.

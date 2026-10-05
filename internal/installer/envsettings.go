@@ -109,7 +109,7 @@ func (p *upgradePlan) settleSettings(ctx context.Context) {
 		return
 	}
 	out := p.opts.Out
-	fmt.Fprintf(out, "This controller's container sets %s in its environment, which override its database and show as locked on the settings page:\n",
+	fmt.Fprintf(out, "%s are set in the container environment and locked on the Settings page:\n",
 		strconv.Itoa(len(moved))+" "+pluralise(len(moved), "setting"))
 	for _, m := range moved {
 		fmt.Fprintf(out, "  - %s (%s) = %s\n", m.env, m.setting.Key, m.shown())
@@ -118,7 +118,7 @@ func (p *upgradePlan) settleSettings(ctx context.Context) {
 	if p.record.Deployment == DeploymentCompose {
 		where += " and " + p.record.ComposeFile()
 	}
-	fmt.Fprintf(out, "Moving them stores each value in the database and comments it out of %s. The controller runs with the same values either way; the difference is that the settings page can change them.\n", where)
+	fmt.Fprintf(out, "Move these values into the database to unlock them.\nOriginal environment entries are commented out in %s.\n", where)
 
 	approved := false
 	switch {
