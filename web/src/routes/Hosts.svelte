@@ -157,7 +157,11 @@
     tokensLoading = true;
     void listJoinTokens(controller.signal)
       .then((result) => {
-        tokens = result.items ?? [];
+        // Only the tokens that could still enrol a host. Spent ones are kept by
+        // the controller as the record of how each host arrived, and expired
+        // ones wait for the next prune; listing either here buries the few
+        // that are worth revoking.
+        tokens = (result.items ?? []).filter((t) => !t.used_at && t.usable !== false);
         tokensError = null;
       })
       .catch((cause: unknown) => {
