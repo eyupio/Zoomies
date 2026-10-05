@@ -545,3 +545,35 @@ func TestAHostCutTooFineCannotBackAnAutomaticPool(t *testing.T) {
 		t.Error("a host that has measured nothing was refused")
 	}
 }
+
+// A runner is given its size once, and the host is charged for what it was given.
+// An operator who gives a host's runners less -- which is what a suggestion for a
+// host that holds fewer runners than its capacity proposes, made while work is
+// running -- must not see the runners already there charged the new, smaller size:
+// the host would look mostly free and the next pass would place work on top of
+// runners still holding the old, larger one.
+func TestARunnerIsNeverChargedLessThanItWasCreatedWith(t *testing.T) {
+	h := bigHost("big")
+	p := profilePool("builders", 0, 0)
+	r := &store.Runner{AllocationSource: store.AllocationFromProfile, AllocatedCPUs: 3, AllocatedMemoryMB: 8 * 1024}
+	if got := RunnerGuarantee(p, h, r); got.CPUs != 3 || got.MemoryMB != 8*1024 {
+		t.Fatalf("a runner at the standard is charged %+v", got)
+	}
+
+	h.RunnerProfile = store.RunnerProfile{Standard: store.RunnerStandard{CPUs: 1, MemoryMB: 2 * 1024}}
+	got := RunnerGuarantee(p, h, r)
+	if got.CPUs != 3 || got.MemoryMB != 8*1024 {
+		t.Errorf("after the standard was lowered the live runner is charged %+v, want what it was created with", got)
+	}
+
+	// A runner with no figures on its row has nothing to say and takes the standard.
+	if got := RunnerGuarantee(p, h, &store.Runner{AllocationSource: store.AllocationFromProfile}); got.CPUs != 1 || got.MemoryMB != 2*1024 {
+		t.Errorf("a row with no figures is charged %+v, want the standard", got)
+	}
+
+	// Raising the standard still raises the charge: the larger figure wins.
+	h.RunnerProfile = store.RunnerProfile{Standard: store.RunnerStandard{CPUs: 4, MemoryMB: 10 * 1024}}
+	if got := RunnerGuarantee(p, h, r); got.CPUs != 4 || got.MemoryMB != 10*1024 {
+		t.Errorf("after the standard was raised the runner is charged %+v, want the larger", got)
+	}
+}

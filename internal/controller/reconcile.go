@@ -532,7 +532,7 @@ func (c *Controller) finishCreateRunner(ctx context.Context, inst *store.Install
 		// limit gets one slot's share of the host, and the agent applies
 		// whatever this says without knowing the difference.
 		Resources:                resources,
-		ResourcesSource:          wireSource(source),
+		ResourcesSource:          wireSource(source, pool),
 		Cache:                    pool.Cache,
 		Tmpfs:                    pool.Tmpfs,
 		DaemonSharePercent:       pool.Resources.DaemonSharePercent,
@@ -640,8 +640,20 @@ func (c *Controller) finishCreateRunner(ctx context.Context, inst *store.Install
 // figure on top of the runner's -- twice what the host was charged. What an
 // agent does with a size is the same for both, one slot split between the
 // pair, so it is told "host", which every agent that exists understands.
-func wireSource(source string) string {
-	if source == store.AllocationFromProfile {
+//
+// A reduced or history size is the same thing for a pair whose pool types
+// nothing: the ledger charges it one slot and the figure is that slot, so it is
+// split too. Left as "reduced" the agent reads it as typed, and a runner placed on a
+// host with little to spare -- the only time a reduced size is chosen -- got the
+// whole of that little for each container, twice what it was charged. A pool that
+// types one or both figures keeps its source: a typed limit goes to both
+// containers in full, which is what such a pool asked for.
+func wireSource(source string, pool *store.Pool) string {
+	switch {
+	case source == store.AllocationFromProfile:
+		return store.AllocationFromHost
+	case (source == store.AllocationReduced || source == store.AllocationHistory) &&
+		pool.DockerMode == store.DockerDinD && pool.Resources.CPUs <= 0 && pool.Resources.MemoryMB <= 0:
 		return store.AllocationFromHost
 	}
 	return source
