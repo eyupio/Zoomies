@@ -401,6 +401,27 @@
           />
         {/snippet}
       </Field>
+      <Field
+        label="Memory ceiling"
+        error={errors['runner_profile.standard.burst_max_memory_mb'] ?? ''}
+        hint="The most memory one runner here may hold, its own share and any memory lent to it together. A pool's own ceiling can lower it and never raise it. Empty sets no ceiling of this host's."
+      >
+        {#snippet children({ id, describedBy, invalid: bad })}
+          <QuantityField
+            {id}
+            quantity="mb"
+            values={memoryNotches(figures.burstMaxMemoryMb)}
+            value={figures.burstMaxMemoryMb}
+            label="Memory ceiling per runner"
+            valuetext={(v) => (v === 0 ? 'no ceiling of this host’s' : memoryLabel(v))}
+            marks={[{ value: 0, label: 'none' }]}
+            empty={{ value: 0, placeholder: 'No ceiling' }}
+            {describedBy}
+            invalid={bad}
+            onchange={(v) => (figures.burstMaxMemoryMb = v ?? 0)}
+          />
+        {/snippet}
+      </Field>
     </fieldset>
 
     <fieldset class="group">

@@ -25,6 +25,7 @@
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import UtilisationBar from '$lib/components/UtilisationBar.svelte';
   import BackendList from './BackendList.svelte';
+  import HostMemoryPool from './HostMemoryPool.svelte';
   import ResourceBar from './ResourceBar.svelte';
 
   interface Props {
@@ -164,6 +165,12 @@
       rows.push({
         label: 'Boost ceiling',
         text: cpuLabel(profile.standard?.burst_max_cpus ?? 0),
+        source: 'set on this host',
+      });
+    if ((profile.standard?.burst_max_memory_mb ?? 0) > 0)
+      rows.push({
+        label: 'Memory ceiling',
+        text: memoryLabel(profile.standard?.burst_max_memory_mb ?? 0),
         source: 'set on this host',
       });
     // The host's say over pools' in-memory folders, shown only where it has said
@@ -670,6 +677,13 @@
           />
         {/each}
       </div>
+    </section>
+  {/if}
+
+  {#if host.memory_pool}
+    <section class="block" aria-label="Memory {host.name || host.id} can lend">
+      <h4>Memory to lend</h4>
+      <HostMemoryPool pool={host.memory_pool} totalMb={host.memory_mb ?? 0} />
     </section>
   {/if}
 

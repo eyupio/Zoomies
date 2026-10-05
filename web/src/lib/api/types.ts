@@ -122,6 +122,14 @@ export type Pool = Schemas['Pool'];
 export type PoolCreate = Schemas['PoolCreate'];
 export type PoolUpdate = Schemas['PoolUpdate'];
 export type Runner = Schemas['Runner'];
+/** What the memory valve has done for one runner: memory lent, swap allowed, or what an observing valve would do. */
+export type MemoryResourceState = Schemas['MemoryResourceState'];
+/** Which of a runner's folders were kept in memory when it was created, and what it was given of each. */
+export type RunnerScratch = Schemas['RunnerScratch'];
+export type ScratchFolder = Schemas['ScratchFolder'];
+/** What a host can still lend its runners' memory limits. */
+export type MemoryPool = Schemas['MemoryPool'];
+export type MemoryBurstPolicy = Schemas['MemoryBurstPolicy'];
 export type RunnerDetail = Schemas['RunnerDetail'];
 export type TimelineEntry = Schemas['TimelineEntry'];
 export type JobExplanation = Schemas['JobExplanation'];

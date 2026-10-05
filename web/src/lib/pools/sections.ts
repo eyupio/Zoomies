@@ -80,7 +80,7 @@ export const SECTIONS: readonly SectionDef[] = [
   {
     id: 'size',
     title: 'Size',
-    description: 'How much machine one runner gets, and whether it may borrow spare CPU.',
+    description: 'How much machine one runner gets, and whether it may borrow spare CPU or memory.',
     fields: [
       'size_from_profile',
       'resources.cpus',
@@ -93,6 +93,9 @@ export const SECTIONS: readonly SectionDef[] = [
       'cpu_burst.mode',
       'cpu_burst.max_cpus',
       'cpu_burst.size_for_ceiling',
+      'memory_burst.mode',
+      'memory_burst.max_memory_mb',
+      'memory_burst.spill_mb',
     ],
     keys: [
       'sizing',
@@ -106,6 +109,9 @@ export const SECTIONS: readonly SectionDef[] = [
       'cpu_burst_mode',
       'cpu_burst_max',
       'cpu_burst_size_builds',
+      'memory_burst_mode',
+      'memory_burst_max',
+      'memory_burst_spill',
     ],
   },
   {

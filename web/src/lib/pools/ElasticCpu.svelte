@@ -8,8 +8,9 @@
 
   It is a choice of three rather than a switch because the honest first step is
   to watch: "observe" measures which boosts would have been safe and applies
-  none, which is why a new pool starts there. Memory is not part of it -- a
-  limit that is lowered kills the process holding it, so memory stays fixed.
+  none, which is why a new pool starts there. Memory is not part of it, and has
+  a choice of its own below: a limit that is lowered kills the process holding
+  it, so memory is lent on different terms.
 
   The one thing on a host that elastic CPU needs, and the one the controller
   cannot supply itself, is an agent new enough to move a live quota; the hosts
@@ -51,7 +52,7 @@
   <legend>Elastic CPU</legend>
   <p class="hint">
     Lend spare CPU to a runner that is busy, and take it back the moment its owner needs it. Memory
-    stays fixed.
+    cannot be taken back, so it has a choice of its own, below.
   </p>
 
   <RadioGroup

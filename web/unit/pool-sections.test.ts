@@ -161,26 +161,48 @@ test('the runner says what it is made of, and only what was changed from the def
 test('the size says what one runner gets and whether it may borrow CPU', () => {
   assert.equal(
     summarise(draft()).size,
-    'One share of each host · elastic CPU observing',
-    'a new pool starts on observe',
+    'One share of each host · elastic CPU and memory observing',
+    'a new pool starts both valves on observe, and says it once',
   );
   assert.equal(
     summarise(draft({ cpu_burst_mode: 'automatic' })).size,
-    'One share of each host · elastic CPU boosting',
+    'One share of each host · elastic CPU boosting · elastic memory observing',
   );
   assert.equal(
-    summarise(draft({ cpu_burst_mode: 'off', sizing: 'profile' })).size,
+    summarise(draft({ cpu_burst_mode: 'off', memory_burst_mode: 'off', sizing: 'profile' })).size,
     'The size each host sets',
   );
   assert.equal(
-    summarise(draft({ sizing: 'fixed', cpus: '4', memory_mb: '8192', min_memory_mb: '4096' })).size,
+    summarise(
+      draft({
+        sizing: 'fixed',
+        cpus: '4',
+        memory_mb: '8192',
+        min_memory_mb: '4096',
+        memory_burst_mode: 'off',
+      }),
+    ).size,
     '4 cores and 8 GB on every host · never below 4 GB',
     'a fixed size cannot borrow, so it says nothing of elastic CPU',
   );
   assert.equal(
     summarise(draft({ backend: 'process', cpu_burst_mode: 'observe' })).size,
     'One share of each host',
-    'a process runner has no live quota to borrow against',
+    'a process runner has no live quota to borrow against, and no limit to raise',
+  );
+});
+
+test('a fixed size can still lend memory, which needs only a limit to watch', () => {
+  assert.equal(
+    summarise(
+      draft({
+        sizing: 'fixed',
+        cpus: '4',
+        memory_mb: '8192',
+        memory_burst_mode: 'automatic',
+      }),
+    ).size,
+    '4 cores and 8 GB on every host · elastic memory lending',
   );
 });
 

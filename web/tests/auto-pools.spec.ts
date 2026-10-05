@@ -627,8 +627,60 @@ test.describe('pools the controller keeps', () => {
     await dialog.getByRole('button', { name: 'Save settings' }).click();
     await expect(dialog).toBeHidden();
 
-    // Only the three things it leaves to an operator are sent.
+    // Only what was changed is sent, and the valve was not.
     expect(patched).toEqual({ idle_timeout: '15m', auto: { warm: 2, cap: 6 } });
+  });
+
+  test('the memory valve is the operator’s to change on a pool the controller keeps', async ({
+    page,
+  }) => {
+    // The pools most fleets run on are the ones the controller keeps, so without
+    // this the valve could never be turned on for them.
+    const pool = await realPool(page);
+    let patched: Record<string, unknown> | null = null;
+    const current = auto();
+    await keepPool(
+      page,
+      pool,
+      () => current,
+      async (body, route) => {
+        patched = body;
+        await route.fulfill({
+          json: {
+            ...pool,
+            auto: current,
+            memory_burst: body.memory_burst ?? { mode: 'off' },
+          },
+        });
+      },
+    );
+    await page.route('**/api/v1/auto-pools', (route) => route.fulfill({ json: status(pool.id) }));
+    await goto(page, `/pools/${pool.id}`, pool.name);
+
+    await page.getByRole('button', { name: 'Settings' }).first().click();
+    const dialog = page.getByRole('dialog', { name: `Settings for ${pool.name}` });
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText('the four things it leaves to you');
+    // The valve is a choice of three, and the page shows the one the pool is on:
+    // the demo fleet's first pool is set to watch.
+    await expect(dialog.getByRole('radio', { name: /^Observe only/ })).toBeChecked();
+    await dialog.getByRole('radio', { name: /^Lend memory/ }).check();
+    // Swap past a terabyte is a typo, and is said where it is typed.
+    const swap = dialog.getByRole('textbox', { name: 'Swap as the last resort', exact: true });
+    await swap.fill('2000000');
+    await swap.blur();
+    await expect(dialog).toContainText('more than a terabyte');
+    await expect(dialog.getByRole('button', { name: 'Save settings' })).toBeDisabled();
+    await swap.fill('2048');
+    await swap.blur();
+    await dialog.getByRole('textbox', { name: 'Memory ceiling', exact: true }).fill('12g');
+    await dialog.getByRole('textbox', { name: 'Memory ceiling', exact: true }).press('Enter');
+    await dialog.getByRole('button', { name: 'Save settings' }).click();
+    await expect(dialog).toBeHidden();
+
+    expect(patched).toMatchObject({
+      memory_burst: { mode: 'automatic', max_memory_mb: 12288, spill_mb: 2048 },
+    });
   });
 
   test('a link that says "edit this pool" opens the settings of a pool the controller keeps', async ({

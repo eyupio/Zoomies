@@ -17,7 +17,7 @@ import type {
 } from '$lib/api/types';
 import { brandedName } from '$lib/brand';
 import { parseGoDuration } from '$lib/format';
-import { MIN_TMPFS_MB } from './sizing';
+import { MIN_TMPFS_MB, memoryLabel } from './sizing';
 import { backendUnavailable } from './vocabulary';
 import type { BackendOffer } from './vocabulary';
 
@@ -74,6 +74,17 @@ export interface PoolDraft {
   cpu_burst_mode: 'off' | 'observe' | 'automatic';
   cpu_burst_max: string;
   cpu_burst_size_builds: boolean;
+  /**
+   * The memory valve: `off`, `observe` (decide what it would lend and record it,
+   * changing nothing) or `automatic` (raise a live runner's limit out of memory
+   * its host has not promised to anyone). A new pool starts on observe, for the
+   * reason elastic CPU does: the honest first step is to watch.
+   */
+  memory_burst_mode: 'off' | 'observe' | 'automatic';
+  /** The most one runner may hold, its own share and what it is lent together, in MB; empty is half as much again as it starts with. */
+  memory_burst_max: string;
+  /** The swap each container may use past its limit as the last resort, in MB; empty is none. */
+  memory_burst_spill: string;
   cpus: string;
   memory_mb: string;
   /** The least a runner may be given where no host has room for the size above; empty is none. */
@@ -161,6 +172,9 @@ export function emptyDraft(): PoolDraft {
     cpu_burst_mode: 'observe',
     cpu_burst_max: '',
     cpu_burst_size_builds: true,
+    memory_burst_mode: 'observe',
+    memory_burst_max: '',
+    memory_burst_spill: '',
     cpus: '',
     memory_mb: '',
     min_cpus: '',
@@ -227,6 +241,9 @@ export function draftFromPool(pool: Pool): PoolDraft {
     cpu_burst_mode: pool.cpu_burst?.mode ?? 'off',
     cpu_burst_max: fromNumber(pool.cpu_burst?.max_cpus),
     cpu_burst_size_builds: pool.cpu_burst?.size_for_ceiling ?? true,
+    memory_burst_mode: pool.memory_burst?.mode ?? 'off',
+    memory_burst_max: fromNumber(pool.memory_burst?.max_memory_mb || undefined),
+    memory_burst_spill: fromNumber(pool.memory_burst?.spill_mb || undefined),
     cpus: fromNumber(resources.cpus),
     memory_mb: fromNumber(resources.memory_mb),
     min_cpus: fromNumber(resources.min_cpus),
@@ -273,6 +290,7 @@ export function poolIsTuned(draft: PoolDraft): boolean {
   return (
     draft.sizing !== 'automatic' ||
     draft.cpu_burst_mode === 'automatic' ||
+    draft.memory_burst_mode === 'automatic' ||
     draft.restrict_hosts ||
     Object.keys(draft.host_selector).length > 0 ||
     draft.backend !== 'docker' ||
@@ -390,6 +408,20 @@ export function toPoolBody(draft: PoolDraft, options: { complete?: boolean } = {
       max_cpus: fixed || !elasticBackend ? 0 : (toNumber(draft.cpu_burst_max) ?? 0),
       size_for_ceiling: draft.cpu_burst_size_builds,
     },
+    // The valve is a container runtime's feature, and its figures mean something
+    // only while it is on: the server refuses swap on a valve that is off, so an
+    // off valve sends none, whatever the fields still hold.
+    memory_burst: {
+      mode: elasticBackend ? draft.memory_burst_mode : 'off',
+      max_memory_mb:
+        elasticBackend && draft.memory_burst_mode !== 'off'
+          ? (toInteger(draft.memory_burst_max) ?? 0)
+          : 0,
+      spill_mb:
+        elasticBackend && draft.memory_burst_mode !== 'off'
+          ? (toInteger(draft.memory_burst_spill) ?? 0)
+          : 0,
+    },
     run_as_root: draft.run_as_root,
     enabled: draft.enabled,
     cache: {
@@ -466,6 +498,55 @@ export function toPoolBody(draft: PoolDraft, options: { complete?: boolean } = {
 }
 
 const NAME_SHAPE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/** The part of a draft the memory valve's rules are about. */
+export type MemoryBurstFields = Pick<
+  PoolDraft,
+  | 'backend'
+  | 'sizing'
+  | 'memory_mb'
+  | 'docker_mode'
+  | 'memory_burst_mode'
+  | 'memory_burst_max'
+  | 'memory_burst_spill'
+>;
+
+/**
+ * The memory valve's figures, held to the server's own rules and said beside the
+ * control. Separate from the rest of a draft's errors because a pool the
+ * controller keeps edits only this, in a dialog with no draft behind it.
+ */
+export function memoryBurstErrors(draft: MemoryBurstFields): Record<string, string> {
+  const errors: Record<string, string> = {};
+  if (
+    (draft.backend === 'docker' || draft.backend === 'podman') &&
+    draft.memory_burst_mode !== 'off'
+  ) {
+    if (draft.memory_burst_max.trim() !== '') {
+      const ceiling = toInteger(draft.memory_burst_max);
+      // A docker-in-docker pair is two containers, each given the typed limit.
+      const started =
+        draft.sizing === 'fixed'
+          ? (toInteger(draft.memory_mb) ?? 0) * (draft.docker_mode === 'dind' ? 2 : 1)
+          : 0;
+      if (ceiling === undefined || ceiling < 512)
+        errors['memory_burst.max_memory_mb'] =
+          'Use at least 512 MB, or leave it empty for half as much again as a runner starts with.';
+      else if (started > 0 && ceiling <= started)
+        errors['memory_burst.max_memory_mb'] =
+          `A ceiling at or below what a runner starts with (${memoryLabel(started)}) leaves nothing to lend. Raise it, or leave it empty for half as much again.`;
+    }
+    if (draft.memory_burst_spill.trim() !== '') {
+      const spill = toInteger(draft.memory_burst_spill);
+      if (spill === undefined || spill < 0)
+        errors['memory_burst.spill_mb'] =
+          'Use a whole number of megabytes, or leave it empty to allow no swap.';
+      else if (spill > 1048576)
+        errors['memory_burst.spill_mb'] = 'That is more than a terabyte of swap, which is a typo.';
+    }
+  }
+  return errors;
+}
 
 /**
  * The rules the editor can check without asking the server. The server checks
@@ -561,6 +642,7 @@ export function draftErrors(
       errors['cpu_burst.max_cpus'] =
         'Use at least a quarter of a core, or leave it empty to use the host ceiling.';
   }
+  Object.assign(errors, memoryBurstErrors(draft));
   if (draft.disk_gb.trim() !== '') {
     const disk = toInteger(draft.disk_gb);
     if (disk === undefined || disk <= 0)
