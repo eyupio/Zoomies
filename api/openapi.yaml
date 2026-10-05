@@ -6633,11 +6633,32 @@ components:
           description: >-
             For a `docker_mode: dind` pool whose size comes from the host: the percentage of one
             slot given to the Docker daemon, which does the building; the runner keeps the rest.
-            Zero is the even split every pool had before this was settable. Between 10 and 90
-            otherwise. It divides only a share the host chose -- a typed `cpus` or `memory_mb` is
-            given to both containers in full -- and the host is charged one slot either way. A
-            slot too small to give the thinner half what a runner needs is refused rather than
-            divided.
+            One figure for CPU and memory alike; `daemon_cpu_share_percent` and
+            `daemon_memory_share_percent` override it for their own resource. Zero is the even
+            split every pool had before this was settable. Between 10 and 90 otherwise. It
+            divides only a share the host chose -- a typed `cpus` or `memory_mb` is given to both
+            containers in full -- and the host is charged one slot either way. A slot too small to
+            give the thinner half what a runner needs is raised to it, which costs runners, or
+            refused.
+        daemon_cpu_share_percent:
+          type: integer
+          minimum: 0
+          maximum: 90
+          examples: [70]
+          description: >-
+            The daemon's share of a slot's CPU, where it differs from `daemon_share_percent`. A
+            build is CPU in the daemon, so this is usually the one worth raising. Zero follows
+            `daemon_share_percent`, then the even split.
+        daemon_memory_share_percent:
+          type: integer
+          minimum: 0
+          maximum: 90
+          examples: [35]
+          description: >-
+            The daemon's share of a slot's memory, where it differs from `daemon_share_percent`.
+            The runner's memory holds the checkout, the toolchain and any in-memory work folder
+            (charged to the runner), so this is often the one worth lowering. Zero follows
+            `daemon_share_percent`, then the even split.
 
     CPUBurstPolicy:
       type: object
@@ -6810,6 +6831,92 @@ components:
         smallest_disk_mb: { type: integer, format: int64, description: The least free disk on any matching host, which is what a cache size limit has to live inside. }
         smallest_disk_host: { type: string }
         disk_known: { type: boolean }
+        tmpfs_plan:
+          $ref: "#/components/schemas/TmpfsPlan"
+        split_plan:
+          $ref: "#/components/schemas/SplitPlan"
+
+    SplitPlan:
+      type: object
+      description: >-
+        The ways of dividing a host-sized Docker-in-Docker pool's slot between the runner and
+        its daemon, priced on the pool's hosts. A skewed split raises a thin half to its
+        minimum and the slot grows with it, so the same preset keeps every runner on one fleet
+        and loses most of them on another; the preset to start from is one that costs nothing.
+        Absent for a pool with a typed size, which gives the daemon the whole limit.
+      properties:
+        options:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string, enum: [even, build, runner], description: "`even` is 50/50; `build` gives the daemon most of the CPU; `runner` gives the runner most of both." }
+              cpu_percent: { type: integer, description: The daemon's share of a slot's CPU under this preset. }
+              memory_percent: { type: integer, description: The daemon's share of a slot's memory under this preset. }
+              runners: { type: integer, description: How many runners the hosts could hold under it. }
+              loses: { type: boolean, description: True when that is fewer than under the pool's own division now. }
+        runners_now: { type: integer, description: The room under the pool's own division. }
+        recommended: { type: string, enum: [even, build, runner], description: The preset to start from -- one that suits a pool that builds images and loses no runner, else `even`. }
+
+    TmpfsPlan:
+      type: object
+      description: >-
+        What a pool's automatic in-memory folders come to on its hosts, and what would
+        change it. Present only for a pool that keeps a folder in memory with `auto`, the
+        setting that decides per host and so needs saying per host. It informs; every
+        change is the operator's. The same figures are in the `pool.tmpfs_auto_on_disk`
+        problem's fix.
+      properties:
+        hosts:
+          type: array
+          description: What a runner of the pool is given on each host that mounts the folders.
+          items:
+            type: object
+            properties:
+              host: { type: string }
+              runner_mb: { type: integer, format: int64, description: The memory limit a runner is given there. }
+              daemon_mb: { type: integer, format: int64, description: The sidecar's, for a Docker-in-Docker pool. }
+              folders:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name: { type: string, examples: [work folder] }
+                    ask_mb: { type: integer, format: int64, description: What the folder is asked for there. }
+                    mb: { type: integer, format: int64, description: What a runner is given; zero is disk. }
+                    auto: { type: boolean }
+        in_memory: { type: integer, description: How many folder placements across the hosts are in memory. }
+        total: { type: integer, description: How many folder placements there are. }
+        share:
+          type: object
+          description: >-
+            A daemon memory share (`resources.daemon_memory_share_percent`) that would put more folders in
+            memory without losing a runner. Absent when none does, which is usual: moving a
+            share raises what a thinner half is charged and costs runners.
+          properties:
+            percent: { type: integer }
+            in_memory: { type: integer, description: Folder placements in memory at this share. }
+            now: { type: integer, description: The same at the pool's. }
+            runners: { type: integer }
+            runners_now: { type: integer }
+        sizes:
+          type: array
+          description: Per host where the work folder is on disk, the runner size at which it would be in memory.
+          items:
+            type: object
+            properties:
+              host: { type: string }
+              memory_mb: { type: integer, format: int64, description: The runner memory, in half-gigabyte steps. }
+              slots: { type: integer, description: The slots the host would hold at that size. }
+              slots_now: { type: integer }
+              lever:
+                type: string
+                enum: [standard, capacity]
+                description: >-
+                  What changes the runner's size for this pool: `standard`, the host's standard
+                  runner size in its runner profile, for a pool that takes its size from its
+                  hosts; or `capacity`, the host's slot count, for a pool sized by a slot's share,
+                  where fewer slots are bigger ones.
 
     PoolPlatform:
       type: object
