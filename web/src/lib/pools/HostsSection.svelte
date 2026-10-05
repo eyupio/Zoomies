@@ -1,11 +1,12 @@
 <!--
-  Step three: which machines these runners land on.
+  Which machines these runners may land on.
 
-  Placement is its own question, before the backend rather than beside it: an
-  operator picks the machines and then decides how a runner is run on them, and
-  the backend step's "offered by N hosts" counts only mean something once it is
-  known which hosts are in play. Choosing a backend first and finding out
-  afterwards that no arm64 box offers it is the wrong order to learn it in.
+  Placement is its own section, ahead of the runner's: an operator picks the
+  machines and then decides how a runner is run on them, and the runner's
+  "offered by N hosts" counts only mean something once it is known which hosts
+  are in play. Choosing a backend first and finding out afterwards that no arm64
+  box offers it is the wrong order to learn it in, and on one page the order is
+  the order the sections are read in.
 -->
 <script lang="ts">
   import { ServerCog } from '@lucide/svelte';
@@ -14,7 +15,7 @@
   import HostSelectorEditor from './HostSelectorEditor.svelte';
   import PoolFit from './PoolFit.svelte';
   import PoolRoom from './PoolRoom.svelte';
-  import type { PoolDraft } from './PoolWizardForm.svelte';
+  import type { PoolDraft } from './draft';
 
   interface Props {
     draft: PoolDraft;
@@ -22,7 +23,7 @@
     hosts: readonly Host[];
     /** False until the fleet cache has landed, so we do not cry wolf. */
     hostsKnown: boolean;
-    /** The controller's own count, which knows the rules this step does not. */
+    /** The controller's own count, which knows the rules this section does not. */
     verdict: Result<'validatePool'> | null;
     validating: boolean;
   }
@@ -31,14 +32,14 @@
 
   // Only when it has something the selector's own count does not. The two agree
   // on a fleet where every matching host can take the work, and a second box
-  // saying so in different words is noise on the step where the selector is
+  // saying so in different words is noise in the section where the selector is
   // being typed.
   const shortfall = $derived((verdict?.excluded_hosts ?? []).length > 0);
 
   /*
     What the machines this pool now reaches can hold, at the size it is asking
     for. Choosing hosts and choosing how big a runner is are one decision taken
-    in two places, so the count is here as well as on the Size step: narrowing
+    in two places, so the count is here as well as in the Size section: narrowing
     a selector to the two small boxes is the moment to find out that it leaves
     room for three runners, not after the pool exists.
   */

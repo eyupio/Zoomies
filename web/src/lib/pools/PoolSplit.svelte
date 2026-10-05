@@ -21,7 +21,7 @@
   import Input from '$lib/components/Input.svelte';
   import RadioGroup from '$lib/components/RadioGroup.svelte';
   import { SPLIT_PRESETS, splitPreset } from './sizing';
-  import type { PoolDraft } from './PoolWizardForm.svelte';
+  import type { PoolDraft } from './draft';
 
   type Plan = NonNullable<Result<'validatePool'>['room']>['split_plan'];
 

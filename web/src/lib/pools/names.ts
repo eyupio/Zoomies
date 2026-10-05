@@ -1,16 +1,16 @@
 /**
  * The name a new pool arrives with, and the dice that roll another one.
  *
- * A blank name field is the first thing an operator meets in the wizard, and
+ * A blank name field is the first thing an operator meets in the pool editor, and
  * the name they invent to get past it -- "test", "pool1" -- is then in every
  * runner name, every audit line and every `runs-on` for the life of the fleet.
  * Renaming a pool later does not un-write the workflows that already point at
- * it. So the wizard fills one in instead.
+ * it. So the editor fills one in instead.
  *
  * The name it fills in is the pool's shape -- `zoomies-4vcpu-ubuntu-2404`, the
  * grammar in docs/naming.md -- because that is what a workflow author reading a
  * `runs-on` needs to know before they send a job to it, and because it is the
- * same name `zoomies init` suggests for a machine of that size. The wizard used
+ * same name `zoomies init` suggests for a machine of that size. The editor used
  * to lead with a kennel word instead, which left an operator who met both with
  * two conventions for one thing.
  *
@@ -107,8 +107,8 @@ export interface FleetSize {
 /**
  * The parts of a draft a name is made of.
  *
- * Structural rather than the wizard's own PoolDraft, so this module owes the
- * wizard nothing: a draft satisfies it by having the fields, and the naming
+ * Structural rather than the editor's own PoolDraft, so this module owes the
+ * editor nothing: a draft satisfies it by having the fields, and the naming
  * rules can be read without opening a component.
  */
 export interface NameShape {
@@ -234,7 +234,7 @@ function unanimous(values: readonly (string | undefined)[]): string {
  * The name for a pool of this draft, and the kennel word it falls back on.
  *
  * A pool is named for its shape, which is the same name `zoomies init` prints
- * for a machine of that size and platform -- so the wizard and the installer
+ * for a machine of that size and platform -- so the editor and the installer
  * stop offering an operator two conventions for the same thing.
  *
  * The kennel word earns its place where the shape cannot carry the name on its

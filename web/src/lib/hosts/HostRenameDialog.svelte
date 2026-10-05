@@ -85,7 +85,14 @@
   >
     <Field label="Name" hint="Unique across the fleet, at most 128 characters." {error}>
       {#snippet children({ id, describedBy, invalid })}
-        <Input bind:value={name} {id} {describedBy} {invalid} autocomplete="off" spellcheck={false} />
+        <Input
+          bind:value={name}
+          {id}
+          {describedBy}
+          {invalid}
+          autocomplete="off"
+          spellcheck={false}
+        />
       {/snippet}
     </Field>
   </form>

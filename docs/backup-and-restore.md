@@ -546,13 +546,13 @@ they are kept in version control beside the workflows that use them.
   environment is the one place a secret can hide, so the export names the
   variables and never carries their values; set those by hand afterwards.
 * **Import** reads that file back and matches pools by name. Each is planned
-  through the same checks the pool wizard and `PATCH` go through and shown
+  through the same checks the pool editor and `PATCH` go through and shown
   first: which pools would be created, which would change and in which
   settings — with the value now and the value incoming — which are already so,
   and which this instance refuses and why. An installation it does not have,
   a figure the pools API refuses, and an edit that would leave a pool with no
   host that could run it are all refusals; a new pool that no host can run yet
-  is created with a warning, as the wizard allows. Applying is one change or
+  is created with a warning, as the editor allows. Applying is one change or
   none: a refused pool has to be fixed in the document or skipped.
 
 As with the settings, what a document leaves out is left alone. A pool the

@@ -230,19 +230,21 @@ const SHOTS = [
   { name: 'audit', path: '/audit', heading: 'Audit' },
   // The section's rail beside the page that has a table on it.
   { name: 'settings', path: '/settings/users', heading: 'Users' },
-  // The two wizards. The docs discuss both at length and photographed
-  // neither, so the only way to know what "the labels step previews the
-  // runs-on line" looks like was to install Zoomies and find out.
+  // The pool editor and the provider wizard. The docs discuss both at length
+  // and photographed neither, so the only way to know what "the labels preview
+  // the runs-on line" looks like was to install Zoomies and find out.
   {
-    name: 'pool-wizard',
+    // The editor as a first pool meets it: the one section it needs, open --
+    // a name, the label workflows ask for, whether jobs build images -- and
+    // under it every other section as a row that already says its answer.
+    name: 'pool-editor',
     path: '/pools/new',
     heading: 'Create a pool',
-    async prepare(page) {
-      // The labels step, which is the one worth showing: it previews the
-      // runs-on line the labels produce.
-      await page.getByRole('button', { name: 'Next' }).click();
-      await page.getByRole('textbox', { name: 'Labels' }).waitFor();
-    },
+    // Tall enough for the whole page. At the usual 900 pixels the open section
+    // is cut off below its name and the bar lies across the last row, which is
+    // the opposite of what the shot is for: one section to read, five rows that
+    // already say their answer.
+    device: { viewport: { width: DESKTOP.width, height: 1750 }, deviceScaleFactor: SCALE },
   },
   {
     name: 'add-host',
@@ -250,65 +252,57 @@ const SHOTS = [
     heading: 'Add a host',
   },
   {
-    // The Size step of the pool editor with the scratch space in memory turned
-    // on: the one place that says what the setting costs. It is a fixed size
-    // because only a typed limit can be compared with what the folder may take,
-    // and 6 GB with the default 4 GB work folder is the case where the editor has
-    // something to propose.
+    // The Speed-ups section of the pool editor with the scratch space in memory
+    // turned on: the one place that says what the setting costs. It is a fixed
+    // size because only a typed limit can be compared with what the folder may
+    // take, and 6 GB with the default 4 GB work folder is the case where the
+    // editor has something to propose.
     name: 'pool-size-memory',
     path: '/pools/new',
     heading: 'Create a pool',
+    // Tall enough to show the section from its heading to the controller's
+    // note about what the setting cost, which is the sentence the shot is of.
+    device: { viewport: { width: DESKTOP.width, height: 1500 }, deviceScaleFactor: SCALE },
     async prepare(page) {
-      await page.getByRole('radio', { name: 'Advanced' }).check();
-      await page.getByRole('button', { name: 'Next' }).click();
+      const row = (id) =>
+        page.locator(`#pool-${id}`).getByRole('heading', { level: 2 }).getByRole('button');
+      // The label follows the name, so naming the pool is all it needs.
       await page.getByRole('textbox', { name: 'Pool name' }).fill('zoomies-6gb-ubuntu-2404');
-      await page.getByRole('button', { name: 'Next' }).click();
-      const labels = page.getByRole('textbox', { name: 'Labels' });
-      await labels.fill('zoomies-6gb-ubuntu-2404');
-      await page.keyboard.press('Enter');
-      for (let step = 0; step < 3; step++) {
-        await page.getByRole('button', { name: 'Next' }).click();
-      }
-      await page.getByRole('heading', { level: 2, name: 'Size' }).waitFor();
+      await page.getByRole('textbox', { name: 'Pool name' }).blur();
+      await row('size').click();
       await page.getByRole('radio', { name: 'A fixed size on every host' }).check();
       const memory = page.getByRole('textbox', { name: 'Memory per runner', exact: true });
       await memory.fill('6g');
       await memory.press('Enter');
+      await row('speed').click();
       // Auto is the default placement and is what the shot shows: on a 6 GB runner
       // the work folder would come out too small to be useful, so it stays on disk
       // there rather than failing jobs, and the editor says so.
       await page.getByRole('checkbox', { name: 'Keep the work folder in memory' }).check();
       await page.getByRole('radio', { name: /^Auto/ }).waitFor();
-      await page
-        .getByText('Scratch space in memory')
-        .evaluate((el) => el.scrollIntoView({ block: 'start' }));
+      // The section's own scroll margin keeps its heading clear of the top bar.
+      await page.locator('#pool-speed').evaluate((el) => el.scrollIntoView({ block: 'start' }));
     },
   },
   {
     // How a slot is divided between the runner and its Docker sidecar: CPU and
     // memory are two shares, the presets are priced on the fleet's hosts, and one is
-    // already chosen. Nothing is typed.
+    // already chosen. Nothing is typed beyond the pool's name.
     name: 'pool-size-split',
     path: '/pools/new',
     heading: 'Create a pool',
+    device: { viewport: { width: DESKTOP.width, height: 1500 }, deviceScaleFactor: SCALE },
     async prepare(page) {
-      await page.getByRole('radio', { name: 'Advanced' }).check();
-      await page.getByRole('button', { name: 'Next' }).click();
+      const row = (id) =>
+        page.locator(`#pool-${id}`).getByRole('heading', { level: 2 }).getByRole('button');
       await page.getByRole('textbox', { name: 'Pool name' }).fill('zoomies-dind-builds');
-      await page.getByRole('button', { name: 'Next' }).click();
-      const labels = page.getByRole('textbox', { name: 'Labels' });
-      await labels.fill('zoomies-dind-builds');
-      await page.keyboard.press('Enter');
-      for (let step = 0; step < 2; step++) {
-        await page.getByRole('button', { name: 'Next' }).click();
-      }
-      await page.getByRole('radio', { name: 'Docker in Docker' }).check();
-      await page.getByRole('button', { name: 'Next' }).click();
-      await page.getByRole('heading', { level: 2, name: 'Size' }).waitFor();
+      await page.getByRole('textbox', { name: 'Pool name' }).blur();
+      await page.getByRole('radio', { name: /Yes, give each runner a Docker daemon/ }).check();
+      await row('size').click();
       const split = page.getByTestId('pool-split');
       await split.waitFor();
       await split.getByRole('radio', { checked: true }).waitFor();
-      await split.evaluate((el) => el.scrollIntoView({ block: 'start' }));
+      await split.evaluate((el) => el.scrollIntoView({ block: 'center' }));
     },
   },
   {

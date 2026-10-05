@@ -190,7 +190,7 @@ cropped out of the wordmark artwork, whose own descriptor line is drawn for
 ### Names from the kennel
 
 The mark is a cocker spaniel, so the names the product invents come from one.
-The pool wizard opens with a name already filled in: the brand, a spaniel from
+The pool editor opens with a name already filled in: the brand, a spaniel from
 `web/src/lib/pools/names.ts`, and what the pool will actually run on --
 `zoomies-truffle-docker-linux`. The kennel half is what makes one pool tellable
 from another in a list; the infrastructure half is what an operator wants to
@@ -200,9 +200,9 @@ The `zoomies-` prefix is not decoration and is never dropped: in GitHub's own
 runner settings it is the only thing distinguishing our runners from anyone
 else's. So the name is offered and the prefix is not. The dice roll another
 name and a name typed over is left alone, but a name given without the brand
-gains it -- in the wizard's field as soon as it loses focus, and again in the
+gains it -- in the editor's field as soon as it loses focus, and again in the
 store, so that a pool created from the CLI, the API or an answer file is
-branded exactly as one created from the wizard is.
+branded exactly as one created from the editor is.
 
 ## Animated homepage logo
 

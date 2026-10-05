@@ -240,26 +240,23 @@ test('a minimum and a ceiling are kept with the standard, and each says whose it
   });
 });
 
-const next = (page: Page) => page.getByRole('button', { name: 'Next' });
-
-/** The wizard's size step, on the advanced path, for a pool of the given name. */
-async function toSizeStep(page: Page, name: string): Promise<void> {
+/** The editor's size section, open, for a pool of the given name. */
+async function toSizeSection(page: Page, name: string): Promise<void> {
   await goto(page, '/pools/new', 'Create a pool');
-  await page.getByRole('radio', { name: 'Advanced' }).check();
-  await next(page).click();
   await page.getByRole('textbox', { name: 'Pool name' }).fill(name);
-  await next(page).click();
   await page.getByRole('textbox', { name: 'Labels' }).fill(name);
   await page.keyboard.press('Enter');
-  for (let step = 0; step < 3; step++) await next(page).click();
-  await expect(page.getByRole('heading', { level: 2, name: 'Size' })).toBeVisible();
+  await page.locator('#pool-size').getByRole('heading', { level: 2 }).getByRole('button').click();
+  await expect(
+    page.locator('#pool-size').getByRole('radio', { name: 'One share of each host' }),
+  ).toBeVisible();
 }
 
 test('a pool can take its size from each host, and says what a runner is on every one', async ({
   page,
 }) => {
   await heartbeat(page);
-  await toSizeStep(page, 'e2e-from-host');
+  await toSizeSection(page, 'e2e-from-host');
 
   const validated: Record<string, unknown>[] = [];
   await page.route('**/api/v1/pools/validate*', async (route) => {
@@ -274,9 +271,11 @@ test('a pool can take its size from each host, and says what a runner is on ever
     /\d+ of \d+ hosts?\s+ha(s|ve) set a standard size/,
   );
   // A minimum and elastic CPU are offered as they are under a share: a pool
-  // that takes its size from its host can still be floored and lend CPU.
+  // that takes its size from its host can still be floored and lend CPU. The
+  // floor is behind a row of its own, and elastic CPU is a choice of three.
+  await page.locator('summary', { hasText: 'Smallest runner this pool will accept' }).click();
   await expect(page.getByRole('textbox', { name: 'Minimum CPU' })).toBeVisible();
-  await expect(page.getByRole('combobox', { name: 'Elastic CPU' })).toBeVisible();
+  await expect(page.getByRole('radio', { name: 'Automatic boost' })).toBeVisible();
 
   // The request names the choice and states no size: the two are refused
   // together, because the figure the pool stated would be the whole answer.

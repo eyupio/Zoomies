@@ -74,7 +74,7 @@ it from its siblings — `zoomies-4vcpu-ubuntu-2404-biscuit-a3f9qz2m`:
 | token | `a3f9qz2m` | Eight random characters, which is what makes the name unique. |
 
 The **kennel word** is one of thirty-two cocker spaniel names — the same list
-the pool wizard offers, because a fleet whose pools are named from one list and
+the pool editor offers, because a fleet whose pools are named from one list and
 whose runners are named from another reads as two products. It is there to be
 said out loud: "the biscuit one" is a thing two people on a call can both find.
 
@@ -85,7 +85,7 @@ a birthday — fine for something you say, useless for something a registration
 depends on.
 
 A pool that has no shape to report — no resources, no platform — lends its own
-name instead, so a wizard-created pool gets
+name instead, so a pool created in the UI gets
 `zoomies-biscuit-docker-linux-truffle-a3f9qz2m` rather than a runner called
 nothing in particular.
 
@@ -249,10 +249,10 @@ every pool answers to, and the kernel and architecture labels actions/runner
 advertises anyway. Declaring the last two is what makes the scheduler refuse an
 x64 job on an arm64 pool.
 
-The **Pools** page's wizard fills in the same name, following the answers as
+The **Pools** page's editor fills in the same name, following the answers as
 they are given: choose Debian 12 and it says `zoomies-debian-12`, ask for four
 CPUs and it says `zoomies-4vcpu-debian-12`. It used to lead with a kennel word
-instead, which left an operator who met both the wizard and `zoomies init` with
+instead, which left an operator who met both the pool editor and `zoomies init` with
 two conventions for one thing.
 
 A new pool opens at the fleet's default size (`runners.default_cpus`,

@@ -531,3 +531,58 @@ test('the page holds together at 200% zoom without scrolling sideways', async ({
   );
   expect(overflow, 'the document does not scroll sideways').toBeLessThanOrEqual(1);
 });
+
+/*
+ * The pool editor opens on one section and shuts the rest, so the audits above
+ * see a sixth of it. This opens every section and asks the same questions of
+ * all of them, and adds the one the sections themselves are made of: each row
+ * is a heading that holds a button, and the button says whether it is open and
+ * works from the keyboard.
+ */
+test('the pool editor, with every section open, names every control', async ({ page }) => {
+  test.slow();
+  await goto(page, '/pools/new', 'Create a pool');
+  await page.getByRole('button', { name: 'Expand all' }).click();
+
+  const ids = ['basics', 'hosts', 'runner', 'size', 'scaling', 'speed'] as const;
+  for (const id of ids) {
+    const row = page.locator(`#pool-${id}`).getByRole('heading', { level: 2 }).getByRole('button');
+    await expect(row, `${id}: the row says it is open`).toHaveAttribute('aria-expanded', 'true');
+  }
+
+  // One page heading, and the sections are the level below it.
+  await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
+
+  for (const role of [
+    'button',
+    'link',
+    'textbox',
+    'combobox',
+    'checkbox',
+    'radio',
+    'slider',
+    'spinbutton',
+  ] as const) {
+    await expect(
+      page.getByRole(role, { name: /^$/ }),
+      `the editor: every ${role} has an accessible name`,
+    ).toHaveCount(0);
+  }
+  // The one mistake that quietly reorders a page for keyboard users.
+  await expect(page.locator('[tabindex]:not([tabindex="0"]):not([tabindex="-1"])')).toHaveCount(0);
+});
+
+test('a pool editor section opens and shuts from the keyboard', async ({ page }) => {
+  await goto(page, '/pools/new', 'Create a pool');
+  const row = page.locator('#pool-size').getByRole('heading', { level: 2 }).getByRole('button');
+
+  await row.focus();
+  await expect(row).toHaveAttribute('aria-expanded', 'false');
+  await page.keyboard.press('Enter');
+  await expect(row).toHaveAttribute('aria-expanded', 'true');
+  // Opening it does not take the cursor away from the row it was pressed on.
+  await expect(row).toBeFocused();
+  await page.keyboard.press('Space');
+  await expect(row).toHaveAttribute('aria-expanded', 'false');
+  await expect(row).toBeFocused();
+});

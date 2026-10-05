@@ -139,23 +139,30 @@ safety away, so the trade is visible from the list.
 ![The Pools page: queue pressure and configured headroom above each pool's runner and configuration details](screenshots/pools-dark.webp#only-dark){ .zoomies-shot }
 ![The Pools page: queue pressure and configured headroom above each pool's runner and configuration details](screenshots/pools-light.webp#only-light){ .zoomies-shot }
 
-The wizard that creates one is five steps on its simple path and nine on its
-advanced path, which every step of the simple path offers, and the **Size** step is where
-the pool says how much machine one runner gets: *one share of each host*,
-with what every host in the fleet would give a runner listed underneath, or a
-fixed size on every host. Under the shared size sit the two fields of
-[elastic CPU zoomies](elastic-cpu.md) — **Elastic CPU**, off, observe only or
-automatic boost, and **Boost ceiling** — so lending a busy runner the host's
-spare CPU is a choice made beside the guarantee it builds on. The verdict at
-the foot of each step is the controller's own, asked as you type, so a pool
-that no host could run is refused with the reason before it is saved.
+The page that creates one is the pool editor. It is six sections — **Name and
+labels**, **Hosts**, **Runner**, **Size**, **Scaling** and **Speed-ups** — and
+each is a row that says its current answer without being opened, so a first pool
+is a name, a label and a press of **Create pool**, and every other setting is one
+tap away. The **Size** section is where the pool says how much machine one
+runner gets: *one share of each host*, with what every host in the fleet would
+give a runner listed underneath, or a fixed size on every host. Under the shared
+size sit the two fields of [elastic CPU zoomies](elastic-cpu.md) — **Elastic
+CPU**, off, observe only or automatic boost, and **Boost ceiling** — so lending
+a busy runner the host's spare CPU is a choice made beside the guarantee it
+builds on. The controller's check at the foot of the page, and the bar that
+follows you down it, give the controller's own verdict, asked as you type, so a
+pool that no host could run is refused with the reason before it is saved.
+
+![The pool editor as a first pool meets it: the name and labels section open with the runs-on line it produces, and under it a row each for hosts, runner, size, scaling and speed-ups, every one already saying its answer](screenshots/pool-editor-dark.webp#only-dark){ .zoomies-shot }
+![The pool editor as a first pool meets it: the name and labels section open with the runs-on line it produces, and under it a row each for hosts, runner, size, scaling and speed-ups, every one already saying its answer](screenshots/pool-editor-light.webp#only-light){ .zoomies-shot }
 
 A pool's own page shows its runners and recent jobs, the exact `runs-on:` line
 a workflow writes to land here, and its configuration with the warnings — if
-any — that the settings earn it. **Edit** reopens the same wizard on the same
-pool. A size typed there applies to the next runner it creates; the elastic
-CPU policy is read on every heartbeat, so that change reaches runners already
-running.
+any — that the settings earn it. **Edit** reopens the same editor on the same
+pool, with every section shut and saying its answer; the ones you change are
+marked **Edited**, and **Save changes** waits until there is something to save. A
+size typed there applies to the next runner it creates; the elastic CPU policy
+is read on every heartbeat, so that change reaches runners already running.
 
 ![A pool's page: its runners and their states, recent jobs, the runs-on line to copy, and its configuration](screenshots/pool-dark.webp#only-dark){ .zoomies-shot }
 ![A pool's page: its runners and their states, recent jobs, the runs-on line to copy, and its configuration](screenshots/pool-light.webp#only-light){ .zoomies-shot }
@@ -171,7 +178,7 @@ until something there needs you, and then it opens by itself. A pool the
 controller keeps is marked **Automatic** in the grid. Its page explains where its
 maximum comes from — the hosts that count and what they hold — and offers what an
 operator may change: **Settings** for the runners to keep ready, a cap and the
-idle timeout, and **Pause** and **Resume**. There is no wizard to reopen, because
+idle timeout, and **Pause** and **Resume**. There is no editor to reopen, because
 its labels and size follow its hosts; and **Delete** waits while the controller is
 keeping the pool, because it would make it again. A pool it is not keeping — the
 switch is only reporting or is off, or the pool belongs to an installation the pools

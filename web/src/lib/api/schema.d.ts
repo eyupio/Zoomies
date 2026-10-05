@@ -1546,7 +1546,7 @@ export interface paths {
         put?: never;
         /**
          * Read a pools export back, previewing first
-         * @description Every pool in the document is matched by name and planned through the checks a create or an edit makes, and reported as `create`, `change`, `unchanged` or `refused`, with the current and incoming value of every setting that would move and the reason for a refusal. An edit that would leave a pool with no host that could run it is refused, as a PATCH is; a new pool no host could run yet is created with a warning, as the wizard allows. A dry run reports and writes nothing. A real run refuses the whole document with 422 while any pool is refused, so an import is one change or none; `skip` names the pools to leave out. A pool the document does not name is left alone, and a setting a pool entry leaves out keeps its current value. New pools count against `limits.pools` together: a document that would leave the instance over it is refused with 409, dry run or not, and nothing is written.
+         * @description Every pool in the document is matched by name and planned through the checks a create or an edit makes, and reported as `create`, `change`, `unchanged` or `refused`, with the current and incoming value of every setting that would move and the reason for a refusal. An edit that would leave a pool with no host that could run it is refused, as a PATCH is; a new pool no host could run yet is created with a warning, as the pool editor allows. A dry run reports and writes nothing. A real run refuses the whole document with 422 while any pool is refused, so an import is one change or none; `skip` names the pools to leave out. A pool the document does not name is left alone, and a setting a pool entry leaves out keeps its current value. New pools count against `limits.pools` together: a document that would leave the instance over it is refused with 409, dry run or not, and nothing is written.
          */
         post: operations["importPools"];
         delete?: never;
@@ -1567,9 +1567,9 @@ export interface paths {
         /**
          * Dry-run a pool definition
          * @description Returns the field errors and the dangerous-setting warnings the pool
-         *     would produce, without creating anything. The creation wizard's review
-         *     step calls this, so the warnings an operator sees before confirming are
-         *     the same ones the server would raise afterwards.
+         *     would produce, without creating anything. The pool editor calls this
+         *     as the draft changes, so the warnings an operator sees before confirming
+         *     are the same ones the server would raise afterwards.
          */
         post: operations["validatePool"];
         delete?: never;
@@ -10371,7 +10371,7 @@ export interface operations {
                         warnings?: components["schemas"]["Problem"][];
                         /** @description How many hosts could actually run this pool. Zero is worth saying out loud before the pool is created. */
                         matching_hosts?: number;
-                        /** @description How many hosts this pool's host selector reaches, whatever became of them afterwards. The wizard's placement step counts by the selector alone, so this is the number it shows and matching_hosts is the number its review step shows. */
+                        /** @description How many hosts this pool's host selector reaches, whatever became of them afterwards. The pool editor's hosts section counts by the selector alone, so this is the number it shows there and matching_hosts is the number its check against the controller shows. */
                         selected_hosts?: number;
                         /** @description Every host the selector reaches that the fleet could not run this pool on, with the reason. It is what turns "2 hosts match" followed by "1 host can run this pool" from a contradiction into an explanation. */
                         excluded_hosts?: components["schemas"]["HostExclusion"][];
@@ -10379,7 +10379,7 @@ export interface operations {
                         reduced_hosts?: components["schemas"]["HostExclusion"][];
                         /** @description The image the pool would actually run, which for a pool that gives its jobs a daemon is the stock image's Docker variant rather than the image the request named. Empty for a pool that names no image, where nothing is stored — `effective_image` is the answer there. */
                         image?: string;
-                        /** @description The image a pool that names none would boot — the variant its platform picks, or the fleet's default, with the Docker swap applied. It is what the wizard's automatic path shows on its review step, where the pool being described has no image of its own. */
+                        /** @description The image a pool that names none would boot — the variant its platform picks, or the fleet's default, with the Docker swap applied. It is what the pool editor shows for the pool written out at the foot of the page, where the pool being described has no image of its own. */
                         effective_image?: string;
                         /** @description The size the pool would run at on every host. Empty for a pool that leaves the size to its host, where the per-host share is in `room.hosts[].charge_cpus` and `charge_memory_mb` instead. */
                         resources?: components["schemas"]["Resources"];
@@ -11656,10 +11656,7 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    /** @description What the host is called. Surrounding whitespace is trimmed; it must be
-                     *     non-empty, free of control characters and not used by another host
-                     *     (422 otherwise). An agent's configured name is read only when it first
-                     *     joins, so a heartbeat does not undo a rename. */
+                    /** @description What the host is called. Surrounding whitespace is trimmed; it must be non-empty, free of control characters and not used by another host (422 otherwise). An agent's configured name is read only when it first joins, so a heartbeat does not undo a rename. */
                     name?: string;
                     capacity?: number;
                     labels?: {

@@ -62,11 +62,7 @@
   import PoolLabels from '$lib/pools/PoolLabels.svelte';
   import PoolRunnerLimitsDialog from '$lib/pools/PoolRunnerLimitsDialog.svelte';
   import PoolRiskBadge from '$lib/pools/PoolRiskBadge.svelte';
-  import {
-    backendLabel,
-    dockerModeLabel,
-    platformLabelOrAny,
-  } from '$lib/pools/PoolVocabulary.svelte';
+  import { backendLabel, dockerModeLabel, platformLabelOrAny } from '$lib/pools/vocabulary';
   import { isAutomatic } from '$lib/pools/auto';
   import { deletionConsequences } from '$lib/pools/consequences';
   import Badge from '$lib/components/Badge.svelte';

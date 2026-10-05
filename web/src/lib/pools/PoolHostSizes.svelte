@@ -1,7 +1,7 @@
 <!--
   What this pool's runners are on each host, and the hosts it is kept off.
 
-  It is the count the wizard's size step shows, asked of the pool as it is
+  It is the count the pool editor's size section shows, asked of the pool as it is
   saved. A pool that takes its size from each host is a different size on every
   machine, and the pool's own page said nothing about it: an operator reading
   "the size each host sets" had to open every host to find what that was. The
@@ -18,7 +18,7 @@
   import ErrorState from '$lib/components/ErrorState.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import PoolRoom from './PoolRoom.svelte';
-  import { draftFromPool, toPoolBody } from './PoolWizardForm.svelte';
+  import { draftFromPool, toPoolBody } from './draft';
 
   interface Props {
     pool: Pool;

@@ -5,7 +5,7 @@
   long an idle runner lives. Everything else about the pool -- its labels, its
   size, its minimum and maximum -- follows the hosts it is kept for, so the
   controller would put it back on its next pass, and the API refuses to take
-  a change it would undo. Saying so here, instead of showing the wizard and
+  a change it would undo. Saying so here, instead of showing the editor and
   letting it be refused, is the whole of this dialog.
 -->
 <script lang="ts">

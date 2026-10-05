@@ -49,7 +49,7 @@ through existing lifecycle faults and sidecar failure messages.
 Live elastic CPU needs Docker or Podman's resource-update endpoint and an agent
 advertising `elastic-cpu`. Unsupported and older agents remain at their creation
 quota. The controller records what each agent advertises (`features` on the
-host), so a host's card and the pool wizard say which hosts would honour an
+host), so a host's card and the pool editor say which hosts would honour an
 elastic pool before a runner lands there. Host-pressure reductions take
 precedence over boosts, and neither path moves memory on a live workload.
 

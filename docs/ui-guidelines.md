@@ -789,7 +789,7 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 | `MetricTile` | number, label, delta, sparkline |
 | `LogViewer` | `lib/logs/`. xterm.js with search, follow/pause, wrap toggle, download, and a line counter |
 | `RunnerTimeline` | `lib/runners/`. One row per state with how long the runner stayed there, reconstructed from the four timestamps a runner row carries -- and it says so, rather than letting an operator read it as an audit trail |
-| `Wizard` | the pool creation flow: target → labels → backend → scaling → review; on a phone its footer stays pinned above the bottom bar |
+| `Wizard` | a flow of steps that is genuinely a sequence — the AI Context setup, the provider form, the migration; on a phone its footer stays pinned above the bottom bar. A pool is not one: see [the pool editor](#the-pool-editor) |
 
 ### The log viewer
 
@@ -876,8 +876,55 @@ yet passed through it.
 Validation rules come from the same source as the API's, generated into
 `web/src/lib/api/schema.d.ts` from the OpenAPI document. Errors appear inline on
 blur and again on submit; the first invalid field receives focus. Defaults are
-filled in from the host's detected capabilities, so pool creation is mostly
-pressing *Next*.
+filled in from the host's detected capabilities, so a first pool is a name and
+a press of *Create pool*.
+
+A form that is a document of settings rather than a procedure is one page of
+sections, not a wizard. A wizard asks the questions in an order; a pool's
+settings have no order the operator has to follow, only a short list that most
+pools need and a long one that few do, and a step list that cannot be pressed
+is a form's table of contents that does not work. The pool editor below is the
+pattern.
+
+### The pool editor
+
+Creating a pool and editing one are the same page, made of sections that are
+each a *decision* — who the pool is for, which hosts, what a runner is, how big,
+how many, what makes it faster — rather than a screen of the code that handles
+it.
+
+* **Every section is a row that says its answer.** A heading holding a
+  disclosure button, with the current answer in a line beneath it (`One share
+  of each host · elastic CPU observing`), so the whole pool reads down the page
+  without opening anything. The whole row is the target, and the summary is the
+  button's description rather than its name. A closed section is not mounted:
+  the draft is one object, so nothing typed is lost by closing it.
+* **A new pool opens on one section** and leaves the rest at their defaults,
+  under *Fine-tune (optional)*. **An existing pool opens on none**, because an
+  operator who came to change one setting is better served by six lines they
+  can read than by a form to scroll. A link to a section opens it: `#size`.
+* **The rows are the navigation.** From `--z-bp-lg` up a rail beside the page
+  lists the same sections, marks the ones that are edited or have something to
+  fix, and jumps — opening, scrolling to and focusing the section, and writing
+  `#size` into the address as a replacement rather than an entry. Below it there
+  is no rail: a second copy of the list above the form is one more thing to
+  scroll past on a phone.
+* **One sticky bar, and the button is never disabled for validation.** It says
+  what the controller makes of the pool so far, and on a phone says nothing
+  unless there is something to act on. Pressing *Create pool* while something is
+  wrong opens the first section with a problem and puts the cursor in it; a
+  disabled button cannot explain itself. It is disabled only for an edit that
+  has changed nothing.
+* **The exception is behind a row of its own.** A section is the answer to one
+  question, and the controls that refine it are in a native disclosure with a
+  line saying whether any are in use. One or two to a section, and open already
+  when one is — never a setting in use hidden behind a closed row.
+* **The form vocabulary is shared.** `.group`, `.hint`, `.echo`, `.pair`,
+  `.proposal` and `.callout` are laid out once, by the section that holds them, so
+  six bodies do not carry six copies of the same eight rules; a `.pair` stacks
+  at `--z-bp-md`, and anything that can be one long word (an image reference, a
+  path, a selector) wraps rather than widening the page. The phone suite checks
+  every section, and the states that widen one, at 360px.
 
 ### Destructive actions
 
@@ -959,7 +1006,7 @@ ranges:
   down, one heading per line, nothing dropped and nothing truncated — text
   controls step up to `--z-control-font-touch` so iOS does not zoom, and every
   control stays usable: the Playwright suite's mobile project runs the whole
-  suite at this width, drains and wizard included.
+  suite at this width, drains and the pool editor included.
 * `768–1180px` — **tablet.** The nav starts collapsed to icons unless the
   operator has chosen otherwise. That default is bounded at both ends, in
   `prefs.svelte.ts` and in the inline script in `index.html` that applies it

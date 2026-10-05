@@ -1,7 +1,11 @@
 <!--
-  A multi-step form. Used by pool creation: target, labels, backend, scaling,
-  review. The step list is a real list with `aria-current`, so where you are is
-  never only a colour.
+  A multi-step form, for a flow that is genuinely a sequence: the AI Context
+  setup, the provider form and the migration. The step list is a real list with
+  `aria-current`, so where you are is never only a colour.
+
+  A pool is not one. Its settings have no order an operator has to follow, so
+  the pool editor is one page of sections that can each be reached in a tap; see
+  "The pool editor" in docs/ui-guidelines.md.
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';

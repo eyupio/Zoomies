@@ -95,7 +95,7 @@ instead, in this order:
    manifest flow, with exactly the permissions Zoomies needs, and takes the
    private key and webhook secret directly.
 3. **The first pool.** Nothing creates one for you on this path, and nothing
-   runs until one exists. **Pools → Create a pool** opens the wizard with a name
+   runs until one exists. **Pools → Create a pool** opens the pool editor with a name
    and a label already filled in; [the quick start](quickstart.md#4-your-first-pool)
    walks the rest.
 

@@ -122,7 +122,7 @@ flowchart TB
   Wherever one of these sentences carries a command, the UI shows it as a
   command with a copy button rather than as prose to retype.
 
-  The wizard will not make this pool in the first place: choosing a backend no
+  The pool editor will not make this pool in the first place: choosing a backend no
   connected host offers stops it, says which backends they do offer and how many
   hosts each, and switches the pool to one of them in a click. It gives way only
   when there is nothing better to insist on -- no hosts yet, or no host offering

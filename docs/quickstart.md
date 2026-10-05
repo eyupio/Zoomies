@@ -210,7 +210,7 @@ same defaults:
 | **Labels** | `zoomies-linux-x64` — what your workflows put in `runs-on` — and `zoomies`, which every pool answers to |
 | **Platform** | What the host is: Ubuntu 24.04, amd64. It picks the runner image, and it keeps this pool off hosts running something else |
 | **Backend** | Docker (rootless if available) |
-| **Size per runner** | One share of each host — the machine divided by its slots, as a real limit. A pool made in the wizard also starts with **Elastic CPU** on *Observe only*; the installer's pool starts with it off |
+| **Size per runner** | One share of each host — the machine divided by its slots, as a real limit. A pool made in the pool editor also starts with **Elastic CPU** on *Observe only*; the installer's pool starts with it off |
 | **Min / max** | `0` / `4` — nothing idle when nothing is queued; the maximum starts at the room those hosts have and stops following once you type your own |
 | **Idle timeout** | `5m` |
 | **Ephemeral** | yes |
@@ -283,7 +283,7 @@ pool](configuration.md#the-labels-to-give-a-pool) says why they are branded, and
 what to write before anyone has decided which pool a repository belongs in.
 
 Every one of those rows is also a flag on `zoomies pools create`, and
-`--dry-run` gives the wizard's own verdict without creating anything:
+`--dry-run` gives the pool editor's own verdict without creating anything:
 
 ```sh
 zoomies pools create --name zoomies-linux-x64 --labels zoomies-linux-x64 \
@@ -312,7 +312,7 @@ This is the row to come back to. A pool sized by its host can *observe*: on ever
 heartbeat the controller works out how much of the host's spare CPU a busy runner
 could have been lent, with every other runner's guarantee and the next queued
 job's room held back, and publishes the answer to Prometheus without moving
-anything. A pool made in the wizard starts there; the installer's pool starts
+anything. A pool made in the pool editor starts there; the installer's pool starts
 with it off, and **Edit** on the pool's page turns it on. Switch it to *Automatic
 boost* once the numbers say there is room, and a job that was compiling inside
 two cores gets the rest of the machine until something else wants it.
@@ -334,14 +334,14 @@ one setting is enough: the pool is switched to a runner image with a Docker
 client as it is saved. [Jobs that build container
 images](configuration.md#jobs-that-build-container-images) says what it costs.
 
-### The names the wizard offers
+### The names the pool editor offers
 
-The wizard does not make you invent the first two rows. It opens with a name
+The pool editor does not make you invent the first two rows. It opens with a name
 already in the field — the brand and the shape of the pool, so
 `zoomies-ubuntu-2404`, or a name from the kennel before a host has connected —
 and a label derived from that name, so the pool is reachable by a workflow before
 you have typed anything. The dice beside the field roll another name; type over
-it and the wizard leaves the name and the label alone from then on. Every name it
+it and the editor leaves the name and the label alone from then on. Every name it
 offers starts with `zoomies-`, which is what tells you a runner in GitHub's own
 settings is one of yours.
 

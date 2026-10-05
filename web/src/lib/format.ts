@@ -200,6 +200,16 @@ export function toGoDuration(ms: number): string {
   return parts.join('') || '0s';
 }
 
+/**
+ * A Go duration in the shortest spelling a person would write: the API says
+ * "5m0s" and an operator says "5m". Anything that cannot be read is left as it
+ * was typed, so a half-typed value is never rewritten under the cursor.
+ */
+export function shortGoDuration(input: string | null | undefined): string {
+  const ms = parseGoDuration(input);
+  return ms === null ? (input ?? '').trim() : toGoDuration(ms);
+}
+
 /** A Go duration string, spelled out for a person: "5m" becomes "5m". */
 export function formatGoDuration(input: string | null | undefined): string {
   const ms = parseGoDuration(input);

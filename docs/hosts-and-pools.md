@@ -219,39 +219,50 @@ architecture and size class among the hosts it has, sized by those hosts, and
 never touches a pool you made. See
 [Size classes and automatic pools](auto-pools.md).
 
-### Two ways to make one
+### One page, six sections
 
-The wizard asks first how much of the pool you want to decide, because the two
-answers lead to genuinely different amounts of work.
+Creating a pool and editing one are the same page. It is made of six sections,
+each one a decision — **Name and labels**, **Hosts**, **Runner**, **Size**,
+**Scaling** and **Speed-ups** — and each is a row that says its current answer
+without being opened: *One share of each host · elastic CPU observing*, *0 to 10
+runners · idle 5m*. Opening a row shows the controls that change the answer, and
+any section is one tap from any other, so there is no order to follow and
+nothing to press Next through. A link to one opens it: `/pools/new#size`.
 
-**Automatic** is the pool most fleets want. Name it, label it, say whether its
-jobs build container images, and every other setting follows this fleet: each
-runner is given one slot's share of whichever host it lands on, any host that
-can run it may, the backend is Docker on the published image for the host's
-platform, and every timing follows the fleet's own — and keeps following it when
-you change one. Four questions, and nothing to revisit when the fleet grows.
+A new pool opens on the first, which is all most pools need. Name it, label it,
+say whether its jobs build container images, and create it. Every other setting
+follows this fleet: each runner is given one slot's share of whichever host it
+lands on, any host that can run it may, the backend is Docker on the published
+image for the host's platform, and every timing follows the fleet's own — and
+keeps following it when you change one. Nothing to revisit when the fleet grows.
 
 The Docker question is there because it is the one thing a fleet cannot work out
 for itself: nothing in a name, a label or a host says whether the jobs that will
 land here run `docker build`. Answering yes sets `docker_mode: dind`, which
 gives each runner a private daemon in a privileged container beside it — the
-step says so — and the runner image follows automatically, so there is nothing
+page says so — and the runner image follows automatically, so there is nothing
 to pin. Answering no is the default and costs nothing. The host Docker socket,
-which hands a job root on the host, stays on the advanced path where it is
-confirmed deliberately.
+which hands a job root on the host, is chosen in the **Runner** section, where
+it is confirmed deliberately.
 
-**Advanced** is the same pool with the opinions put back: a fixed size on every
-host, a host selector, a backend and platform chosen by hand, and the runner
-timings this pool disagrees with the fleet about. Every step opens on the answer
-the automatic path would have used, so you only change what you mean to.
+The other five sections are the same pool with the opinions put back: which
+hosts, a backend and platform chosen by hand, a fixed size on every host, the
+count and the runner timings this pool disagrees with the fleet about, and
+scratch space kept in memory and a cache. Each already holds the answer a new
+pool would have chosen, so you only change what you mean to, and what is
+rarely changed — the minimum size, the priority and the timings, an image of
+your own — is behind a row of its own inside the section.
 
-Neither is a lesser pool, and the choice is not permanent — a pool can be edited
-either way afterwards, and switching never loses what you have already typed.
-Editing a pool that has anything the simple path cannot show opens on the
-advanced one, so a tuned pool never hides the settings it was tuned with. Any
-other pool opens on the simple one, and every step of it offers the advanced
-path — so elastic CPU, a host selector or a fixed size is one click further
-along rather than out of reach.
+An existing pool opens on none of its sections, so that an operator who came to
+change one setting reads six lines rather than scrolling a form. A section you
+have changed is marked **Edited**, a section with something wrong in it says how
+many things, and **Save changes** waits until there is something to save. On a
+wide screen a rail beside the page lists the sections and jumps to one.
+
+A bar at the bottom says what the controller makes of the pool so far — *Room
+for 10 runners on 2 hosts*, or *No connected host can run this pool yet* — and
+**Create pool** is never disabled for a mistake: pressing it while something is
+wrong opens the first section with a problem and puts the cursor in it.
 
 The CLI takes the same fields, and omitting them is how you ask for the
 automatic answer:
@@ -266,9 +277,9 @@ zoomies pools create \
   --dry-run
 ```
 
-`--dry-run` validates exactly as the wizard's review step does — field errors and
-the dangerous-setting warnings the pool would produce — without creating
-anything. Drop the flag to create it for real. Every field is in
+`--dry-run` validates exactly as the editor's check against the controller does —
+field errors and the dangerous-setting warnings the pool would produce — without
+creating anything. Drop the flag to create it for real. Every field is in
 [Pool settings](configuration.md#pool-settings); the labels to choose are in
 [The labels to give a pool](configuration.md#the-labels-to-give-a-pool).
 
@@ -323,7 +334,7 @@ host's own figures decide what a runner is.
 for a pool whose jobs need a particular amount of machine wherever they run,
 and it is the right answer less often than it looks: a figure chosen for the
 first host fits four runners on the 64-core one that joins later, and the
-controller names that when it happens (`pool.size_strands_hosts`). The wizard's
+controller names that when it happens (`pool.size_strands_hosts`). The editor's
 sliders open on `runners.default_cpus` and `runners.default_memory_mb` — two
 cores and four gigabytes out of the box — so a fleet of small boxes or of
 compilers says so once rather than on every pool.
@@ -341,7 +352,7 @@ Disk and the process limit are independent of the choice. Neither has a share
 to be given — free disk is a measurement rather than a budget — so a pool may
 cap its cache's disk and still leave its size to the host.
 
-On the advanced path the size is a step of its own, between the hosts and the
+In the editor the size is a section of its own, after the hosts and before the
 count, because that is the order the decision is made in: these are the
 machines, this is what one runner costs on them, and therefore this is how many
 there can be. Beneath the choice the controller counts what the hosts this pool
@@ -432,7 +443,7 @@ other:
   a floor above the share raises it, as a minimum always has.
 
 A host left out is named with the limit that did it, in the same words on the
-pool's page, in the pool wizard's count and in the refusal of a host edit that
+pool's page, in the pool editor's count and in the refusal of a host edit that
 would cause it: *its standard runner is 1.5 CPU, below this pool's minimum of
 3 CPU -- give the host a standard runner of at least that, or lower the
 minimum*. A host edit that would leave a pool with nowhere to run is refused
@@ -507,8 +518,8 @@ operator told a runner is 3 CPU knows which setting to change to move it:
   its slots are limited by when a standard made them so.
 * A pool's page has a **Size on each host** panel — for operators, and only
   where a size is somebody's choice per host: a pool that takes its size from its
-  hosts, or a fleet where some host has a profile. The pool wizard's size step
-  shows the same count while a pool is being made: what a runner is on each host,
+  hosts, or a fleet where some host has a profile. The pool editor's size
+  section shows the same count while a pool is being made: what a runner is on each host,
   the floor and ceiling the host puts on it, and each host that is kept off with
   the reason.
 * A job records the CPU and memory of the runner that took it, and where that
@@ -573,7 +584,7 @@ provision timeout inside those two fails runners that are still coming up, and
 the replacement pulls the same image over the link that was slow to begin with.
 The fleet's own defaults are held in the right order by a test and by
 [the validator](configuration.md); a pool that overrides either half is held by
-`pool.provision_timeout_short`, which the wizard also says while the number is
+`pool.provision_timeout_short`, which the editor also says while the number is
 being chosen.
 
 ### Keeping the work folder in memory
@@ -589,8 +600,8 @@ orders of magnitude, and the difference in a real build is whatever share of it
 was waiting. Measure one workflow before and after rather than trusting a
 benchmark.
 
-![The Size step of the pool editor with the work folder kept in memory and Placement set to Auto, the recommended choice: a runner too small for the folder keeps it on disk instead of failing jobs.](screenshots/pool-size-memory-dark.webp#only-dark){ .zoomies-shot }
-![The Size step of the pool editor with the work folder kept in memory and Placement set to Auto, the recommended choice: a runner too small for the folder keeps it on disk instead of failing jobs.](screenshots/pool-size-memory-light.webp#only-light){ .zoomies-shot }
+![The Speed-ups section of the pool editor with the work folder kept in memory and Placement set to Auto, the recommended choice: a runner too small for the folder keeps it on disk instead of failing jobs.](screenshots/pool-size-memory-dark.webp#only-dark){ .zoomies-shot }
+![The Speed-ups section of the pool editor with the work folder kept in memory and Placement set to Auto, the recommended choice: a runner too small for the folder keeps it on disk instead of failing jobs.](screenshots/pool-size-memory-light.webp#only-light){ .zoomies-shot }
 
 It is **off for every pool** until somebody turns it on, because of what it
 costs. A tmpfs is charged to the runner's own memory limit, so the room a folder
@@ -635,8 +646,8 @@ fails with `no space left on device`, which names neither the mount nor the
 setting, while saving little disk traffic. A folder that is not `auto` is never
 put on disk; it is always in memory, as small as the limit demands.
 
-The pool editor shows the result while you are choosing: under the folders on the
-Size step, for every host the pool can run on, what a runner there has and what
+The pool editor shows the result while you are choosing: under the folders in the
+Speed section, for every host the pool can run on, what a runner there has and what
 each folder is given, in memory or on disk. Where something is on disk it says
 what would change that — the standard runner memory to set on a host (or, for a
 pool sized by a slot's share, the capacity to lower it to) and the slots the host
@@ -680,7 +691,7 @@ pool is sized.
   yours to set — see the next paragraph. It divides only a share the host chose;
   a typed size goes to both containers in full whatever it says.
 
-**Dividing a slot: CPU and memory apart.** The Size step of the pool editor has a
+**Dividing a slot: CPU and memory apart.** The Size section of the pool editor has a
 *Runner and Docker sidecar* choice for a Docker-in-Docker pool sized by its hosts.
 CPU and memory are two shares, not one, because the two are not used alike: an
 image build is CPU in the sidecar, so that is the share worth raising, while the
@@ -688,8 +699,8 @@ runner's memory holds the checkout, the toolchain and any in-memory work folder
 (all charged to the runner), so memory is often better left even or lowered. One
 number could not say "more CPU to the sidecar, and keep the memory".
 
-![The Size step of the pool editor for a Docker-in-Docker pool, with the Runner and Docker sidecar choice: Even, Image builds in the sidecar, Work in the runner and Custom, each with what it suits and what it costs on the fleet's hosts.](screenshots/pool-size-split-dark.webp#only-dark){ .zoomies-shot }
-![The Size step of the pool editor for a Docker-in-Docker pool, with the Runner and Docker sidecar choice: Even, Image builds in the sidecar, Work in the runner and Custom, each with what it suits and what it costs on the fleet's hosts.](screenshots/pool-size-split-light.webp#only-light){ .zoomies-shot }
+![The Size section of the pool editor for a Docker-in-Docker pool, with the Runner and Docker sidecar choice: Even, Image builds in the sidecar, Work in the runner and Custom, each with what it suits and what it costs on the fleet's hosts.](screenshots/pool-size-split-dark.webp#only-dark){ .zoomies-shot }
+![The Size section of the pool editor for a Docker-in-Docker pool, with the Runner and Docker sidecar choice: Even, Image builds in the sidecar, Work in the runner and Custom, each with what it suits and what it costs on the fleet's hosts.](screenshots/pool-size-split-light.webp#only-light){ .zoomies-shot }
 
 | Preset | Sidecar's CPU | Sidecar's memory | For |
 | --- | --- | --- | --- |
@@ -1106,7 +1117,7 @@ comfortable size is a judgement made for a pool nobody sized; `min_memory_mb`
 or `min_cpus` is the operator saying what each container may have at least, so
 a slot is held to twice the minimum instead — the runner and its daemon each
 get their share of it — and a host whose share clears that runs the pool at
-its share. The pool wizard counts such a host as running the pool and lists it
+its share. The pool editor counts such a host as running the pool and lists it
 as information, saying the runners there get less than on a larger machine;
 it is not a warning, because the minimum doing its job is the pool working as
 configured. The
@@ -1177,7 +1188,7 @@ So both edits are checked against the other half before they are saved. A
 change that would leave a pool with **no host in the fleet that could ever run
 it** is refused with a `409` naming the pool, the machine it no longer fits and
 by how much — `PATCH /hosts/{id}` for the host's side, `PATCH /pools/{id}` for
-the pool's, and the same sentence in the Adjust dialog and the pool wizard. The
+the pool's, and the same sentence in the Adjust dialog and the pool editor. The
 check is deliberately narrow. It asks only whether a pool that has somewhere to
 run would stop having one: a pool with another host to go to is not stranded, a
 pool that already fitted nowhere is not made worse, and a disabled pool has
@@ -1228,10 +1239,9 @@ ends. Memory never moves. New pools measure it by default and move no quota
 until you say so; the runner page says **Squirrel spotted — maximum zoomies**
 when it is happening.
 
-In the UI the setting is on the wizard's size step, which the advanced path
-walks; editing an automatic pool opens on the simple path and offers the
-advanced one from every step, so the pool elastic CPU is for is never the pool
-that cannot reach it. It has a page of its own: [Elastic CPU
+In the UI the setting is in the **Size** section of the pool editor, one tap from
+any other section, so the pool elastic CPU is for — the plain automatic one — is
+never the pool that cannot reach it. It has a page of its own: [Elastic CPU
 zoomies](elastic-cpu.md).
 
 A default is given only where it would bind. The host's own probe says what
@@ -1305,7 +1315,7 @@ a figure it typed**, because the backend gives the build's sidecar the same
 limits as the runner. A field left to the host is one slot's share that the pair
 splits between them, and is charged once:
 so a pool asking for 8 CPU needs a 16-CPU host, and a 12-CPU machine that
-matches its selector in every other way will never take one. The pool wizard
+matches its selector in every other way will never take one. The pool editor
 says so as the limits are typed: it names each host its selector reaches that
 could not run the pool, and what that host has against what a runner costs. Note also what a
 reservation is not: it is a promise the fleet accounts for, and what actually

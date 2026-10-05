@@ -2,7 +2,7 @@
   The second half of the fix for a pool no host can run.
 
   "Point this pool at a backend they already offer" is a five-click detour
-  through the edit wizard when the controller already knows which backends the
+  through the editor when the controller already knows which backends the
   hosts do offer. This is that change as one button, with the consequences of
   each backend stated before it is made -- moving to the process backend takes
   jobs out of a container altogether, which is never something to discover
@@ -16,7 +16,7 @@
   import { toasts } from '$lib/state/toasts.svelte';
   import Button from '$lib/components/Button.svelte';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
-  import { backendLabel } from './PoolVocabulary.svelte';
+  import { backendLabel } from './vocabulary';
 
   interface Props {
     pool: Pool;

@@ -170,8 +170,8 @@ a pool with [elastic CPU zoomies](elastic-cpu.md) switched on, a busy runner is
 lent the CPU the rest of the host is not using on top of that. The guarantee is
 never reduced by another runner, one queued job's worth of CPU is held back
 before anything is lent, and memory never changes while a job runs. A pool made
-in the wizard starts by measuring what it would lend and publishing that to
-Prometheus; switch it to *Automatic boost* on the pool's **Size** step once
+in the UI starts by measuring what it would lend and publishing that to
+Prometheus; switch it to *Automatic boost* in the pool's **Size** section once
 the numbers say the host has room. A pool whose jobs need the same size everywhere can
 type a fixed one instead.
 

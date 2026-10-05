@@ -1,13 +1,13 @@
 <!--
   What the fleet makes of this pool, in the controller's own words.
 
-  The placement step counts hosts by the host selector, because that is the
+  The hosts section counts hosts by the host selector, because that is the
   only rule it is editing and the only one it can answer on its own. The
   controller counts them by the whole placement rule -- selector, backend,
   platform, and whether one runner of this pool would fit on the machine at all
   -- so its number can be smaller, and used to become smaller silently: "every
-  connected host matches (2 hosts)" on one step and "1 connected host can run
-  this pool" two clicks later, with nothing on screen to say which host went or
+  connected host matches (2 hosts)" in one section and "1 connected host can run
+  this pool" in the next, with nothing on screen to say which host went or
   why. This is that missing sentence, and it is shown wherever a setting that
   can cause it is being edited rather than only at the end.
 -->
@@ -43,7 +43,7 @@
     verdict?.warnings?.find((w) => w.code === 'pool.no_matching_hosts'),
   );
   // A host held back by an operator is not this pool's doing, and colouring it
-  // as a warning would put an amber box on the wizard for as long as anything
+  // as a warning would put an amber box on the page for as long as anything
   // in the fleet is cordoned. The pool's own settings turning a host down is
   // the case worth catching the eye, because it is the one a different answer
   // on this screen would fix.
