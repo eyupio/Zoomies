@@ -2,7 +2,7 @@
   One host.
 
   A card rather than a table row: a host carries a set of facts that do not fit
-  a grid -- capacity, health, backend capabilities and labels -- and there are
+  a grid -- capacity, health, backend capabilities and tags -- and there are
   usually few enough hosts that density is not the constraint. Everything an
   operator would act on is here, and the state is carried by a shape and a word
   as well as by a colour.
@@ -16,6 +16,7 @@
   import { formatMegabytes, formatNumber, onClockTick, toMillis } from '$lib/format';
   import { hostStatus, throttled } from '$lib/status';
   import { cpuLabel, memoryLabel } from '$lib/pools/sizing';
+  import { autoPoolLine, classWord, hostTagRows, overrideNote, pendingMove } from './tags';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
@@ -221,7 +222,19 @@
     }
   });
   const free = $derived(host.free ?? Math.max(0, effective - active));
-  const labels = $derived(Object.entries(host.labels ?? {}));
+  // The tags the host carries: the operator's own, which the card's Edit button
+  // changes, and the ones the controller works out from the machine, which it
+  // lists so a pool's selector can be read against everything it will match on.
+  const tags = $derived(hostTagRows(host));
+  const ownTags = $derived(tags.filter((tag) => !tag.automatic));
+  const derivedTags = $derived(tags.filter((tag) => tag.automatic));
+  // The size class and what the controller says about how the host came by it.
+  // Absent while both size switches are off, which is when the card is the card
+  // it has always been.
+  const sizeClass = $derived(host.size_class);
+  const classOverride = $derived(overrideNote(sizeClass));
+  const classMove = $derived(pendingMove(sizeClass));
+  const poolLine = $derived(autoPoolLine(host.auto_pool));
   // What this machine is, in the terms a pool asks in. The controller renders
   // the sentence; the kernel and architecture are the fallback for an agent too
   // old to report a distribution.
@@ -379,7 +392,7 @@
     },
     {
       id: 'edit',
-      label: 'Edit labels',
+      label: 'Edit tags',
       icon: Pencil,
       disabled: !canOperate,
       onSelect: () => onedit(host),
@@ -439,6 +452,19 @@
             size="sm"
             dot={false}
             title="This agent has not reported the machine's CPUs, memory or disk, so this host is placed by its slot count alone. Upgrade the agent and the figures appear on its next heartbeat."
+          />
+        {/if}
+        {#if sizeClass}
+          <!-- Neutral, never a status colour: a class is what kind of machine
+               this is, not a state it is in. The controller's own sentence for
+               how it came by the class is in the block below and in the title,
+               because a tooltip alone is not there on a phone. -->
+          <Badge
+            tone="neutral"
+            label="{classWord(sizeClass.class)} class"
+            size="sm"
+            dot={false}
+            title={sizeClass.reason}
           />
         {/if}
         {#if cannotLendCPU}
@@ -669,26 +695,73 @@
     </section>
   {/if}
 
+  {#if sizeClass}
+    <section class="block" aria-label="Size class of {host.name || host.id}">
+      <h4>Size class</h4>
+      <p class="class-line" data-testid="host-size-class">
+        <strong>{classWord(sizeClass.class)}</strong>
+        <span class="muted">· {sizeClass.reason}</span>
+      </p>
+      {#if classOverride}
+        <p class="note" data-testid="host-size-override">{classOverride}</p>
+      {/if}
+      {#if classMove}
+        <!-- A move waiting out the hold, in the pending tone the throttle uses:
+             the fleet is attending to it and it clears itself. Saying when it
+             takes effect is what lets an operator tell a host that is about to
+             change pool from one that has merely been mentioned. -->
+        <p class="cordoned throttled" data-testid="host-size-pending">
+          Its measurements have said {classMove.to} since <RelativeTime
+            value={classMove.since}
+            plain
+          />. It moves there <RelativeTime value={classMove.until} plain /> if they keep saying so; its
+          running jobs are not touched.
+        </p>
+      {/if}
+      {#if poolLine}
+        <p class="note" data-testid="host-auto-pool">
+          {poolLine.text}
+          {#if poolLine.poolId}<a href="/pools/{poolLine.poolId}">Open the pool</a>{/if}
+        </p>
+      {/if}
+    </section>
+  {/if}
+
   <section class="block" aria-label="Backends on {host.name || host.id}">
     <h4>Backends</h4>
     <BackendList backends={host.backend_info} kinds={host.backends} />
   </section>
 
-  <section class="block" aria-label="Labels on {host.name || host.id}">
+  <section class="block" aria-label="Tags on {host.name || host.id}">
     <!-- Edited from here, as capacity is from the slot bar: the two settings
          a host has are each reached from the thing they describe. -->
     <div class="block-head">
-      <h4>Labels</h4>
+      <h4>Tags</h4>
       {#if canOperate}
         <Button size="sm" variant="ghost" icon={Pencil} onclick={() => onedit(host)}>Edit</Button>
       {/if}
     </div>
-    {#if labels.length === 0}
-      <p class="none">None. Pools that select hosts by label will not choose this one.</p>
+    {#if ownTags.length === 0}
+      <p class="none">None of your own. Pools that select hosts by tag will not choose this one.</p>
     {:else}
-      <ul class="labels">
-        {#each labels as [key, value] (key)}
-          <li class="mono">{key}={value}</li>
+      <ul class="labels" aria-label="Tags set on {host.name || host.id}">
+        {#each ownTags as tag (tag.key)}
+          <li class="mono" title={tag.hint || undefined}>{tag.text}</li>
+        {/each}
+      </ul>
+    {/if}
+    {#if derivedTags.length > 0}
+      <!-- Said once, as a caption, rather than on every tag: three "automatic"
+           words on three small chips is noise, and the outline alone would
+           be the only thing telling them apart. -->
+      <p class="caption" id="host-{host.id}-derived">Worked out by the controller, not stored</p>
+      <ul
+        class="labels derived"
+        aria-labelledby="host-{host.id}-derived"
+        data-testid="host-derived-tags"
+      >
+        {#each derivedTags as tag (tag.key)}
+          <li class="mono" title={tag.hint}>{tag.text}</li>
         {/each}
       </ul>
     {/if}
@@ -949,6 +1022,33 @@
     color: var(--z-text-muted);
     font-size: var(--z-text-2xs);
     line-height: var(--z-leading-2xs);
+  }
+  /* Worked out rather than stored: the same chip drawn as an outline, so the two
+     read as one list with two owners. The caption above says so in words, and
+     the dashed ring is left to the statuses that own it. */
+  .labels.derived li {
+    background: transparent;
+  }
+  .caption {
+    margin: 0;
+    font-size: var(--z-text-2xs);
+    line-height: var(--z-leading-2xs);
+    color: var(--z-text-subtle);
+  }
+  .class-line {
+    margin: 0;
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+    color: var(--z-text);
+  }
+  .class-line strong {
+    font-weight: var(--z-weight-semibold);
+  }
+  .note {
+    margin: 0;
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+    color: var(--z-text-muted);
   }
   .none {
     margin: 0;

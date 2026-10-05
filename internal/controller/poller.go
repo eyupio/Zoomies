@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/eyupio/zoomies/internal/github"
-	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -247,7 +246,8 @@ func (c *Controller) ingestQueuedJobs(ctx context.Context, polled *store.Install
 		if job.QueuedAt.IsZero() {
 			job.QueuedAt = c.Now()
 		}
-		if p := scheduler.BestPool(pools, job); p != nil {
+		classing := c.sizeOnArrival(ctx, job, pools)
+		if p := c.bestPool(pools, job); p != nil {
 			job.PoolID = p.ID
 			job.Matched = true
 		}
@@ -256,6 +256,7 @@ func (c *Controller) ingestQueuedJobs(ctx context.Context, polled *store.Install
 			c.log.Warn("could not record a polled job", "github_job_id", q.ID, "error", err)
 			continue
 		}
+		saved = c.stampSize(ctx, saved, classing)
 		c.recordJobChange(ctx, saved, change, sourcePoller, nil)
 		if saved.State == store.JobQueued {
 			changed++

@@ -125,6 +125,25 @@ func TestPoolsEnableConfirmsByName(t *testing.T) {
 	}
 }
 
+// Enabling says what the pool is, not what was asked of it. A pool the controller
+// keeps is put back in use by the controller, from its hosts, and resuming one
+// that has none leaves it out of use.
+func TestPoolsEnableSaysWhenAPoolTheControllerKeepsIsStillOutOfUse(t *testing.T) {
+	srv := jsonRoutes(t, map[string]string{
+		"/api/v1/pools/pool_1/enable": `{"id":"pool_1","name":"zoomies-large","enabled":false,"auto":{"key":"amd64/large","paused":false,"hosts":[],"slots":0}}`,
+		"/api/v1/pools/pool_2/enable": `{"id":"pool_2","name":"mine","enabled":false}`,
+	})
+
+	out, _ := runCLI(t, "pools", "enable", "pool_1", "--url", srv.URL)
+	if strings.Contains(out, "is enabled") || !strings.Contains(out, "no longer paused") || !strings.Contains(out, "until a host counts towards it") {
+		t.Errorf("a resumed pool with no hosts must not be called enabled:\n%s", out)
+	}
+	out, _ = runCLI(t, "pools", "enable", "pool_2", "--url", srv.URL)
+	if strings.Contains(out, "is enabled") || !strings.Contains(out, "still not enabled") {
+		t.Errorf("a pool that is not enabled after enabling it must say so:\n%s", out)
+	}
+}
+
 // Prewarming is per host, and the per-host outcome is the point: one host
 // failing to pull is exactly what this command exists to surface.
 func TestPoolsPrewarmReportsEachHost(t *testing.T) {
@@ -695,5 +714,49 @@ func TestPoolsEditTmpfsAutoMarksOnlyTheFoldersThatAreOn(t *testing.T) {
 	work, _ = tmpfs["work"].(map[string]any)
 	if work["auto"] != nil {
 		t.Errorf("--tmpfs-auto=false should clear auto, got %v", work)
+	}
+}
+
+// CPU and memory shares are edited on their own and carried forward on their
+// own: naming one must not clear the other, or "give the daemon more CPU" would
+// quietly put the memory split back to even.
+func TestPoolsEditCarriesTheOtherDaemonShareForward(t *testing.T) {
+	var sent map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case http.MethodGet:
+			_, _ = w.Write([]byte(`{"id":"pool_1","name":"zoomies-dind","docker_mode":"dind","sizing":"profile","size_from_profile":true,
+				"resources":{"daemon_share_percent":60,"daemon_memory_share_percent":35}}`))
+		case http.MethodPatch:
+			if err := json.NewDecoder(r.Body).Decode(&sent); err != nil {
+				t.Errorf("decoding the PATCH body: %v", err)
+			}
+			_, _ = w.Write([]byte(`{"id":"pool_1","name":"zoomies-dind","enabled":true}`))
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	runCLI(t, "pools", "edit", "pool_1", "--daemon-cpu-share", "75", "--url", srv.URL)
+
+	res, _ := sent["resources"].(map[string]any)
+	if res["daemon_cpu_share_percent"] != 75.0 || res["daemon_memory_share_percent"] != 35.0 || res["daemon_share_percent"] != 60.0 {
+		t.Errorf("resources = %v; want CPU 75 set, memory 35 and the general 60 carried forward", res)
+	}
+}
+
+func TestPoolShareLabelSaysWhatDiffers(t *testing.T) {
+	for _, tc := range []struct {
+		r    poolResources
+		want string
+	}{
+		{poolResources{}, ""},
+		{poolResources{DaemonSharePercent: 70}, "the Docker daemon takes 70% of a slot, the runner 30%"},
+		{poolResources{DaemonCPUSharePercent: 70, DaemonMemorySharePercent: 35}, "the Docker daemon takes 70% of the CPU and 35% of the memory"},
+		{poolResources{DaemonSharePercent: 60, DaemonCPUSharePercent: 80}, "the Docker daemon takes 80% of the CPU and 60% of the memory"},
+	} {
+		if got := poolShareLabel(tc.r); !strings.Contains(got, tc.want) || (tc.want == "" && got != "") {
+			t.Errorf("label(%+v) = %q, want %q", tc.r, got, tc.want)
+		}
 	}
 }

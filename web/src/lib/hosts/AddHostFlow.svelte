@@ -470,7 +470,7 @@
 
         <Field
           label="Labels"
-          hint="Given to the host when it enrols. Pools with a host selector place runners only on hosts carrying those labels."
+          hint="Given to the host when it enrols, where they become its tags. Pools with a host selector place runners only on hosts carrying those labels."
           error={errors.labels}
         >
           {#snippet children({ describedBy })}

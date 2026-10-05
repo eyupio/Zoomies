@@ -171,7 +171,7 @@ func bestPool(pools []*store.Pool, j *store.Job, targets map[string]string) (*st
 		if s < 0 {
 			continue
 		}
-		if best == nil || s > bestScore || (s == bestScore && lessPool(p, best)) {
+		if best == nil || s > bestScore || (s == bestScore && lessPoolFor(j, p, best)) {
 			best, bestScore = p, s
 		}
 	}
@@ -193,6 +193,50 @@ func installationName(id string, targets map[string]string) string {
 		return t
 	}
 	return id
+}
+
+// lessPoolFor is lessPool for a job that has been routed to a size class: of
+// two pools that fit it equally, the one in the class it is routed to comes
+// first, then a larger class and then a smaller one, nearest first, and among
+// the pools of one class the architecture that is the default.
+//
+// A pool an operator made has no class, and sits between the pool in the right
+// class and every other: where it fits a job exactly as well as the pools the
+// controller keeps, it was not made for a class and has no reason to lose to
+// one made for the wrong one. A job that has not been routed, which is every job
+// while size routing is off, is ordered exactly as it always was.
+func lessPoolFor(j *store.Job, a, b *store.Pool) bool {
+	if !j.RoutedClass.Valid() {
+		return lessPool(a, b)
+	}
+	if ra, rb := classPreference(j.RoutedClass, a), classPreference(j.RoutedClass, b); ra != rb {
+		return ra < rb
+	}
+	if aa, ab := a.FromHosts() && a.Platform.Arch != "amd64", b.FromHosts() && b.Platform.Arch != "amd64"; aa != ab {
+		return ab
+	}
+	return lessPool(a, b)
+}
+
+// classPreference ranks a pool for a job routed to want: 0 for the pool in that
+// class, 1 for a pool no class was made for, then the larger classes in order
+// and then the smaller ones.
+func classPreference(want store.SizeClass, p *store.Pool) int {
+	if !p.FromHosts() {
+		return 1
+	}
+	_, have, ok := store.ParseAutoKey(p.AutoKey)
+	if !ok {
+		return 1
+	}
+	switch d := have.Rank() - want.Rank(); {
+	case d == 0:
+		return 0
+	case d > 0:
+		return 1 + d
+	default:
+		return 10 - d
+	}
 }
 
 // lessPool is the total order used wherever two pools would otherwise tie.

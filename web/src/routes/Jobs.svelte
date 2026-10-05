@@ -71,6 +71,8 @@
   import JobFilters from '$lib/jobs/JobFilters.svelte';
   import JobLabels from '$lib/jobs/JobLabels.svelte';
   import JobViewFilter from '$lib/jobs/JobViewFilter.svelte';
+  import SizeAdvice from '$lib/jobs/SizeAdvice.svelte';
+  import { classCell } from '$lib/jobs/size';
   import UnmatchedNote from '$lib/jobs/UnmatchedNote.svelte';
   import { jobFilterState } from '$lib/jobs/filter-state.svelte';
   import LevelSwitch from '$lib/workflows/LevelSwitch.svelte';
@@ -129,8 +131,12 @@
    */
   async function refreshPage(): Promise<void> {
     liveKey += 1;
+    adviceKey += 1;
     await loadFacets(new AbortController().signal);
   }
+
+  /** Bumped by the refresh button so the size-label report reads again too. */
+  let adviceKey = $state(0);
 
   /** Labels worth offering in the filter: what the pools answer to, plus what this page asked for. */
   const labelOptions = $derived.by(() => {
@@ -287,6 +293,17 @@
       cell: poolCell,
     },
     {
+      // Which class of host the job was put in, and where it ran when that
+      // was another. Off by default: until size routing is on there is nothing
+      // in it, and a column of dashes is not a reason to move the ones people
+      // read.
+      id: 'class',
+      header: 'Size class',
+      priority: 'wide',
+      hiddenByDefault: true,
+      value: (job) => classCell(job) || '--',
+    },
+    {
       id: 'runner',
       header: 'Runner',
       priority: 'wide',
@@ -433,6 +450,7 @@
     others={filters.all}
   />
 </details>
+<SizeAdvice refresh={adviceKey} />
 <div class="content">
   <div class="toolbar">
     <JobViewFilter value={view} onchange={setView} />

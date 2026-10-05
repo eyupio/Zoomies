@@ -98,6 +98,8 @@ func commands() []*command {
 		{"pools", groupFleet, "What runners to make, and how many", runPools},
 		{"runners", groupFleet, "The runners that exist right now", runRunners},
 		{"jobs", groupFleet, "Job history, queue waits and outcomes", runJobs},
+		{"size-pins", groupFleet, "Put a job, or a repository, in a size class by hand", runSizePins},
+		{"auto-pools", groupFleet, "What the controller keeps for each size of host", runAutoPools},
 		{"hosts", groupFleet, "Agents, their capacity, and enrolment", runHosts},
 		{"providers", groupFleet, "Where machines are rented from, and the machines themselves", runProviders},
 		{"installations", groupFleet, "GitHub App installations", runInstallations},

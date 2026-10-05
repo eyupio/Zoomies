@@ -421,15 +421,15 @@ func ShareFloor(p *store.Pool) Reservation {
 	if p == nil || !p.Automatic() {
 		return floor
 	}
-	pair := 1.0
+	cpuPair, memPair := 1.0, 1.0
 	if p.DockerMode == store.DockerDinD {
-		pair = p.Resources.PairFactor()
+		cpuPair, memPair = p.Resources.CPUPairFactor(), p.Resources.MemoryPairFactor()
 	}
 	if m := p.Resources.MinCPUs; m > 0 && p.Resources.CPUs <= 0 {
-		floor.CPUs = max(m, store.MinRunnerCPUs) * pair
+		floor.CPUs = max(m, store.MinRunnerCPUs) * cpuPair
 	}
 	if m := p.Resources.MinMemoryMB; m > 0 && p.Resources.MemoryMB <= 0 {
-		floor.MemoryMB = int64(math.Ceil(float64(max(m, store.MinRunnerMemoryMB)) * pair))
+		floor.MemoryMB = int64(math.Ceil(float64(max(m, store.MinRunnerMemoryMB)) * memPair))
 	}
 	return floor
 }
@@ -438,8 +438,10 @@ func ShareFloor(p *store.Pool) Reservation {
 // minimum for one runner, or a comfortable figure for each of a pair.
 func comfortFloor(p *store.Pool) Reservation {
 	if p != nil && p.DockerMode == store.DockerDinD && p.Automatic() {
-		pair := p.Resources.PairFactor()
-		return Reservation{CPUs: comfortableRunnerCPUs * pair, MemoryMB: int64(math.Ceil(float64(comfortableRunnerMemoryMB) * pair))}
+		return Reservation{
+			CPUs:     comfortableRunnerCPUs * p.Resources.CPUPairFactor(),
+			MemoryMB: int64(math.Ceil(float64(comfortableRunnerMemoryMB) * p.Resources.MemoryPairFactor())),
+		}
 	}
 	return Reservation{CPUs: store.MinRunnerCPUs, MemoryMB: store.MinRunnerMemoryMB}
 }
@@ -642,6 +644,10 @@ func minimumCharged(p *store.Pool, field string) string {
 // figure an operator reads there is rendered by the one function that renders
 // it everywhere else.
 func FormatCPUs(v float64) string { return formatCPUs(v) }
+
+// FormatMB is formatMB for the sentences outside this package that quote a
+// size, for the reason FormatCPUs exists.
+func FormatMB(mb int64) string { return formatMB(mb) }
 
 // formatCPUs writes a CPU count the way the pool form takes one: whole where
 // it is whole, and a share where the host's capacity did not divide evenly.

@@ -2114,6 +2114,10 @@ paths:
         ever in it; `env_keys` names the variables to set by hand. `format=json`
         wraps the list with when it was taken and where from; `format=yaml` is
         the same list with those facts as a comment. Audited.
+
+        The pools the controller keeps from the hosts it has are left out: they
+        are worked out from this instance's hosts, and the instance the file is
+        imported on makes its own from its own.
       x-zoomies-role: viewer
       parameters:
         - { name: format, in: query, schema: { type: string, enum: [json, yaml], default: json } }
@@ -2255,6 +2259,16 @@ paths:
         fleet that could ever run it, while a host can run it as it stands. The
         message names the machine it no longer fits and by how much; confirm=true
         saves it anyway, which is right for a pool whose hosts have not joined yet.
+
+        A pool the controller keeps from the hosts it has (it carries `auto`) has
+        only `idle_timeout` and `auto` for an operator to change, and `enabled`,
+        which is read as the pause: `enabled: false` is `auto.paused: true`. Any
+        other field is refused with 422 and its name, because it is worked out
+        and not typed. A pass of the controller's reconciler is run before the
+        answer, so the change has taken effect in it -- for a pool the controller is
+        keeping. For one it is not (`auto.kept` is false), a pause or the end of one
+        still takes effect at once, but a cap or a warm count is stored and applies
+        when the controller keeps the pool.
       x-zoomies-role: operator
       parameters:
         - name: confirm
@@ -2286,6 +2300,14 @@ paths:
         the pool again once they have gone. A pool whose runners are idle is
         deleted in one call, because an idle runner is removed outright rather
         than drained.
+
+        A pool the controller keeps from the hosts it has is refused with 409
+        while the controller is keeping it -- `scheduler.auto_pools` is `on` and the
+        pool belongs to the installation automatic pools are kept for -- because it
+        would make the pool again on its next pass: pause it instead. A pool it is
+        not keeping, because the switch is `shadow` or `off` or the pool belongs to
+        another installation, is a leftover that nothing would make again, and is
+        deleted like any other. Whether the controller is keeping a pool is `auto.kept`.
       x-zoomies-role: operator
       parameters:
         - name: drain
@@ -2336,6 +2358,7 @@ paths:
       operationId: enablePool
       tags: [pools]
       summary: Enable a pool
+      description: For a pool the controller keeps, lifts the operator's pause; whether it is then in use is still the controller's to work out from its hosts. For one it is not keeping (`auto.kept` is false) it puts the pool back in use if it has room for a runner.
       x-zoomies-role: operator
       responses:
         "200":
@@ -2350,7 +2373,9 @@ paths:
       operationId: disablePool
       tags: [pools]
       summary: Disable a pool
-      description: Existing runners drain as they become idle; no new ones are created. Running jobs are not interrupted.
+      description: >-
+        Existing runners drain as they become idle; no new ones are created. Running jobs are not interrupted.
+        For a pool the controller keeps this is the operator's pause, which holds whatever its hosts do.
       x-zoomies-role: operator
       responses:
         "200":
@@ -2358,6 +2383,138 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Pool" }
+
+  # ==========================================================================
+  # Size classes
+  # ==========================================================================
+  /auto-pools:
+    get:
+      operationId: getAutoPools
+      tags: [pools]
+      summary: What the controller keeps for each size of host
+      description: >-
+        The state of size routing and of the pools the controller keeps from the hosts it has,
+        as of the last pass of the reconciler: the mode of each switch, the installation the
+        pools belong to, the pools and the hosts that count towards each, the hosts that count
+        towards none and why, what the controller could not do and what to change, and -- while
+        `scheduler.auto_pools` is `shadow` -- what it would have done. `classes` is what each
+        class is: how large a host in it is and how large a runner. Everything here is off by
+        default, and `size_routing` and `auto_pools` are `off` until an operator says otherwise.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AutoPools" }
+
+  /size-pins:
+    get:
+      operationId: listSizePins
+      tags: [pools]
+      summary: Jobs and repositories an operator has put in a size class
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/SizePin" }
+    put:
+      operationId: setSizePin
+      tags: [pools]
+      summary: Put a job, or every job in a repository, in a size class
+      description: >-
+        A pin is an operator's decision and takes the place of what a job's runs measured,
+        for the jobs that arrive and for the ones already waiting: the response says how many
+        of the latter changed class. A job's own `zoomies-large` in its `runs-on` still wins
+        over a pin, because the author's word is the stronger. Naming the workflow and the job
+        pins that job; naming neither pins the repository, and the job's pin wins over it.
+        Replaces an existing pin for the same job or repository.
+      x-zoomies-role: operator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SizePinRequest" }
+      responses:
+        "200":
+          description: The pin, and how many waiting jobs it moved.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SizePinResult" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+    delete:
+      operationId: deleteSizePin
+      tags: [pools]
+      summary: Take a size pin away
+      description: >-
+        The jobs it covered go back to the class their runs say, or the default class for
+        a job with no runs, including the ones already waiting.
+      x-zoomies-role: operator
+      parameters:
+        - { name: repo, in: query, required: true, schema: { type: string } }
+        - { name: workflow, in: query, description: "The workflow of the job's pin. Leave out, with `job_name`, for a repository's pin.", schema: { type: string } }
+        - { name: job_name, in: query, description: "The job of the job's pin. Leave out, with `workflow`, for a repository's pin.", schema: { type: string } }
+      responses:
+        "200":
+          description: How many waiting jobs changed class.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [reclassified]
+                properties:
+                  reclassified: { type: integer }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /label-advice:
+    get:
+      operationId: listLabelAdvice
+      tags: [jobs]
+      summary: Workflows whose runs-on could say something better
+      description: >-
+        What to change in a job's `runs-on`, worked out from the class its measured runs call
+        for and what its latest measured run asked for. A job that asks for a class by name and
+        needs a larger one (`too_small`) can only run on hosts too small for it; one that asks
+        for the base label and needs more than the default class (`unguaranteed`) is routed
+        there on a best-effort basis, which is not a promise; one that asks for more than it
+        uses (`too_large`) occupies a larger host than it needs. Only jobs with at least five
+        measured runs are advised on, and jobs an operator has pinned are left out. Empty while
+        `scheduler.size_routing` is `off`.
+      x-zoomies-role: viewer
+      parameters:
+        - name: kind
+          in: query
+          description: Only this kind of advice.
+          schema: { type: string, enum: [too_small, unguaranteed, too_large] }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: OK, the most costly advice first.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Page"
+                  - type: object
+                    required: [items, counts]
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: "#/components/schemas/LabelAdvice" }
+                      counts:
+                        type: object
+                        description: How many jobs there is each kind of advice for, whatever page or `kind` was asked for.
+                        additionalProperties: { type: integer }
 
   # ==========================================================================
   # Runners
@@ -3423,6 +3580,9 @@ paths:
       tags: [hosts]
       summary: Update a host's capacity, labels, reserve or runner profile
       description: >-
+        A `size` label is the host's size class while `scheduler.size_routing` or
+        `scheduler.auto_pools` is not `off`, and is refused with 422 unless it is
+        `small`, `medium` or `large`; with both off it is an ordinary label.
         Refused with 409 when the reserve, the labels or the runner profile described
         would leave a pool that runs here today with no host in the fleet that could
         ever run it. The message names the pool and the limit -- a host minimum above a
@@ -6473,11 +6633,32 @@ components:
           description: >-
             For a `docker_mode: dind` pool whose size comes from the host: the percentage of one
             slot given to the Docker daemon, which does the building; the runner keeps the rest.
-            Zero is the even split every pool had before this was settable. Between 10 and 90
-            otherwise. It divides only a share the host chose -- a typed `cpus` or `memory_mb` is
-            given to both containers in full -- and the host is charged one slot either way. A
-            slot too small to give the thinner half what a runner needs is refused rather than
-            divided.
+            One figure for CPU and memory alike; `daemon_cpu_share_percent` and
+            `daemon_memory_share_percent` override it for their own resource. Zero is the even
+            split every pool had before this was settable. Between 10 and 90 otherwise. It
+            divides only a share the host chose -- a typed `cpus` or `memory_mb` is given to both
+            containers in full -- and the host is charged one slot either way. A slot too small to
+            give the thinner half what a runner needs is raised to it, which costs runners, or
+            refused.
+        daemon_cpu_share_percent:
+          type: integer
+          minimum: 0
+          maximum: 90
+          examples: [70]
+          description: >-
+            The daemon's share of a slot's CPU, where it differs from `daemon_share_percent`. A
+            build is CPU in the daemon, so this is usually the one worth raising. Zero follows
+            `daemon_share_percent`, then the even split.
+        daemon_memory_share_percent:
+          type: integer
+          minimum: 0
+          maximum: 90
+          examples: [35]
+          description: >-
+            The daemon's share of a slot's memory, where it differs from `daemon_share_percent`.
+            The runner's memory holds the checkout, the toolchain and any in-memory work folder
+            (charged to the runner), so this is often the one worth lowering. Zero follows
+            `daemon_share_percent`, then the even split.
 
     CPUBurstPolicy:
       type: object
@@ -6650,6 +6831,92 @@ components:
         smallest_disk_mb: { type: integer, format: int64, description: The least free disk on any matching host, which is what a cache size limit has to live inside. }
         smallest_disk_host: { type: string }
         disk_known: { type: boolean }
+        tmpfs_plan:
+          $ref: "#/components/schemas/TmpfsPlan"
+        split_plan:
+          $ref: "#/components/schemas/SplitPlan"
+
+    SplitPlan:
+      type: object
+      description: >-
+        The ways of dividing a host-sized Docker-in-Docker pool's slot between the runner and
+        its daemon, priced on the pool's hosts. A skewed split raises a thin half to its
+        minimum and the slot grows with it, so the same preset keeps every runner on one fleet
+        and loses most of them on another; the preset to start from is one that costs nothing.
+        Absent for a pool with a typed size, which gives the daemon the whole limit.
+      properties:
+        options:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string, enum: [even, build, runner], description: "`even` is 50/50; `build` gives the daemon most of the CPU; `runner` gives the runner most of both." }
+              cpu_percent: { type: integer, description: The daemon's share of a slot's CPU under this preset. }
+              memory_percent: { type: integer, description: The daemon's share of a slot's memory under this preset. }
+              runners: { type: integer, description: How many runners the hosts could hold under it. }
+              loses: { type: boolean, description: True when that is fewer than under the pool's own division now. }
+        runners_now: { type: integer, description: The room under the pool's own division. }
+        recommended: { type: string, enum: [even, build, runner], description: The preset to start from -- one that suits a pool that builds images and loses no runner, else `even`. }
+
+    TmpfsPlan:
+      type: object
+      description: >-
+        What a pool's automatic in-memory folders come to on its hosts, and what would
+        change it. Present only for a pool that keeps a folder in memory with `auto`, the
+        setting that decides per host and so needs saying per host. It informs; every
+        change is the operator's. The same figures are in the `pool.tmpfs_auto_on_disk`
+        problem's fix.
+      properties:
+        hosts:
+          type: array
+          description: What a runner of the pool is given on each host that mounts the folders.
+          items:
+            type: object
+            properties:
+              host: { type: string }
+              runner_mb: { type: integer, format: int64, description: The memory limit a runner is given there. }
+              daemon_mb: { type: integer, format: int64, description: The sidecar's, for a Docker-in-Docker pool. }
+              folders:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name: { type: string, examples: [work folder] }
+                    ask_mb: { type: integer, format: int64, description: What the folder is asked for there. }
+                    mb: { type: integer, format: int64, description: What a runner is given; zero is disk. }
+                    auto: { type: boolean }
+        in_memory: { type: integer, description: How many folder placements across the hosts are in memory. }
+        total: { type: integer, description: How many folder placements there are. }
+        share:
+          type: object
+          description: >-
+            A daemon memory share (`resources.daemon_memory_share_percent`) that would put more folders in
+            memory without losing a runner. Absent when none does, which is usual: moving a
+            share raises what a thinner half is charged and costs runners.
+          properties:
+            percent: { type: integer }
+            in_memory: { type: integer, description: Folder placements in memory at this share. }
+            now: { type: integer, description: The same at the pool's. }
+            runners: { type: integer }
+            runners_now: { type: integer }
+        sizes:
+          type: array
+          description: Per host where the work folder is on disk, the runner size at which it would be in memory.
+          items:
+            type: object
+            properties:
+              host: { type: string }
+              memory_mb: { type: integer, format: int64, description: The runner memory, in half-gigabyte steps. }
+              slots: { type: integer, description: The slots the host would hold at that size. }
+              slots_now: { type: integer }
+              lever:
+                type: string
+                enum: [standard, capacity]
+                description: >-
+                  What changes the runner's size for this pool: `standard`, the host's standard
+                  runner size in its runner profile, for a pool that takes its size from its
+                  hosts; or `capacity`, the host's slot count, for a pool sized by a slot's share,
+                  where fewer slots are bigger ones.
 
     PoolPlatform:
       type: object
@@ -6942,6 +7209,14 @@ components:
             For a pool with `size_from_profile`, the size a runner is on a host whose profile
             names no standard: the fleet's default, `runners.default_cpus` and
             `runners.default_memory_mb`. Absent on every other pool.
+        auto:
+          allOf: [{ $ref: "#/components/schemas/PoolAuto" }]
+          readOnly: true
+          description: >-
+            Present on a pool the controller keeps from the hosts it has, with what an operator
+            has asked of it and what the hosts in it give. Its `min_runners` and `max_runners`
+            are worked out, not typed, and an edit may only change `idle_timeout` and `auto`.
+            Absent on a pool somebody made.
         sizing:
           type: string
           enum: [automatic, elastic, profile, fixed]
@@ -7291,6 +7566,12 @@ components:
         run_as_root: { type: boolean }
         no_default_labels: { type: boolean, description: "Register runners with only the pool's own labels, without self-hosted, the operating system and the architecture (config.sh --no-default-labels). Only a non-ephemeral pool may set it: GitHub adds those labels to every just-in-time runner itself. A job asking for self-hosted no longer matches the pool unless the pool lists it." }
         size_from_profile: { type: boolean, description: "Size each runner from the host it lands on, as that host's runner profile says. Refused together with `resources.cpus` or `memory_mb`: moving a pool from a stated size to one taken from the host clears them in the same request." }
+        auto:
+          allOf: [{ $ref: "#/components/schemas/PoolAutoUpdate" }]
+          description: >-
+            What an operator asks of a pool the controller keeps. Refused on a pool somebody made.
+            On a pool the controller keeps, `idle_timeout` and `auto` are the only fields that may
+            be changed, and any other is refused with its name.
         enabled: { type: boolean }
 
     # --- runners ----------------------------------------------------------
@@ -7966,6 +8247,51 @@ components:
           type: string
           enum: [pool, host, profile, reduced, history]
           description: Where the granted size came from, as a runner's `allocation_source` says it.
+        size_class:
+          allOf: [{ $ref: "#/components/schemas/SizeClass" }]
+          description: >-
+            The class the controller put the job in when it was queued, which says how big a
+            host it should be on. Absent on a job nobody classed, which is every job while
+            `scheduler.size_routing` is `off`.
+        size_basis:
+          type: string
+          enum: [explicit, pin, history, default]
+          description: >-
+            How `size_class` was decided, in the order of authority: `explicit` for a size
+            label in the job's own `runs-on`, `pin` for an operator's pin, `history` for what
+            its earlier runs used, `default` for a job nothing is known about.
+        size_reason:
+          type: string
+          description: >-
+            Why, in a sentence that finishes "classed medium because": the measurement, the
+            pin or the label. Written by the controller and worded for a person.
+        size_floor_mb:
+          type: integer
+          format: int64
+          description: The memory, in MB, the job's runs show it needing. Absent when its class did not come from its runs.
+        routed_class:
+          allOf: [{ $ref: "#/components/schemas/SizeClass" }]
+          description: >-
+            The class of pool the job is routed to while it waits. It is `size_class` unless
+            the job was sent elsewhere because its own class had no pool or no room, and it is
+            absent while size routing is only being watched: the class is recorded and the job
+            goes where it always did.
+        routed_note:
+          type: string
+          description: Why the job was sent to a class other than its own, as a sentence. Absent on a job that was not.
+        ran_class:
+          allOf: [{ $ref: "#/components/schemas/SizeClass" }]
+          description: >-
+            The class of the host whose runner took the job, stamped once when it did. Where it
+            differs from `size_class` the job ran somewhere other than where it was classed,
+            which for a job that only asked for the base label is GitHub choosing the runner
+            and not a fault.
+        throttled_share:
+          type: [number, "null"]
+          description: >-
+            The share of its CPU periods the job's runner was held back in by its CPU limit, from
+            0 to 1. It is what tells a job that wants more CPU from one that is merely busy, and
+            null when the agent never sampled it.
         steps:
           type: array
           description: >-
@@ -8006,6 +8332,218 @@ components:
         completed_at: { type: [string, "null"], format: date-time }
         queue_wait_ms: { type: integer, format: int64 }
         duration_ms: { type: integer, format: int64 }
+
+    SizeClass:
+      type: string
+      enum: [small, medium, large]
+      description: >-
+        A size of host, and of the runner a job is put on. A host is in the class its
+        allocatable CPU and memory name -- the lower of the two -- unless an operator's `size`
+        tag says otherwise, and a job is in the smallest class whose runner holds what its
+        runs used. What each class is is in `GET /auto-pools`.
+
+    HostTag:
+      type: object
+      required: [key, value, source]
+      properties:
+        key: { type: string }
+        value: { type: string }
+        source:
+          type: string
+          enum: [operator, automatic]
+          description: >-
+            `operator` for a label stored on the host, whether its join token pinned it, its
+            agent declared it or an operator edited it in -- the host does not tell those apart --
+            and `automatic` for one the controller derives from the machine and never stores:
+            `os`, `arch` and, while a size switch is not `off`, `size`.
+        overrides:
+          type: string
+          description: On an `operator` tag, the value the host would have had automatically, when the tag replaced it with a different one.
+
+    HostSizeClass:
+      type: object
+      required: [class, source, reason]
+      properties:
+        class:
+          allOf: [{ $ref: "#/components/schemas/SizeClass" }]
+          description: "The class in force: the operator's `size` tag where there is one, the class the host's measurements put it in otherwise."
+        source:
+          type: string
+          enum: [measured, tag]
+        measured:
+          allOf: [{ $ref: "#/components/schemas/SizeClass" }]
+          description: What the host's CPU and memory name right now, present only when it is not the class in force.
+        pending:
+          allOf: [{ $ref: "#/components/schemas/SizeClass" }]
+          description: >-
+            A different class the host's measurements have named without a break since
+            `pending_since`. A host moves only after `scheduler.size_class_hold`, so a machine
+            that measures either side of a limit does not hop between pools.
+        pending_since: { type: string, format: date-time }
+        pending_until: { type: string, format: date-time, description: "When the host moves, if its measurements keep naming `pending`." }
+        reason: { type: string, description: "What put the host in `class`, as a sentence." }
+
+    HostAutoPool:
+      type: object
+      required: [counted]
+      properties:
+        counted: { type: boolean, description: "True when the host's slots count towards an automatic pool's maximum." }
+        pool: { type: string, description: "The pool's name; under `shadow`, the pool that would be made." }
+        pool_id: { type: string, description: "Absent while the pool does not exist yet." }
+        reason: { type: string, description: "When `counted` is false, why, as a sentence." }
+        reason_code:
+          type: string
+          enum: [cordoned, incompatible, silent, unclassified, bad_size_label, unknown_architecture, no_backend]
+
+    PoolAuto:
+      type: object
+      required: [key, arch, class, warm, cap, paused, kept, hosts, slots, summary]
+      properties:
+        key: { type: string, description: "The architecture and class the pool is kept for, `amd64/medium`." }
+        arch: { type: string, enum: [amd64, arm64] }
+        class: { $ref: "#/components/schemas/SizeClass" }
+        warm: { type: integer, description: "Runners the operator asked to keep ready. The pool's minimum is this, or its maximum where that is lower. Zero is none." }
+        cap: { type: integer, description: "The most runners the operator allows, however many slots the hosts give. Zero is no cap." }
+        paused: { type: boolean, description: "The operator has taken the pool out of use. It stays out whatever its hosts do." }
+        kept: { type: boolean, description: "Whether the controller is keeping the pool now: `scheduler.auto_pools` is `on` and the pool belongs to the installation automatic pools are kept for. A pool that is not kept holds the limits it had, takes a pause at once, applies a cap or a warm count when it is kept again, and can be deleted without being made again." }
+        hosts:
+          type: array
+          items: { type: string }
+          description: The hosts that count towards the pool, as of the last pass of the reconciler.
+        slots: { type: integer, description: "The runners those hosts hold between them, before any cap." }
+        summary: { type: string, description: "What the pool is and where its maximum comes from, as a sentence." }
+
+    PoolAutoUpdate:
+      type: object
+      properties:
+        warm: { type: integer, minimum: 0 }
+        cap: { type: integer, minimum: 0 }
+        paused: { type: boolean }
+
+    AutoPoolSummary:
+      type: object
+      required: [key, name, hosts, slots]
+      properties:
+        key: { type: string }
+        name: { type: string }
+        pool_id: { type: string, description: "Absent while the pool does not exist yet." }
+        hosts: { type: array, items: { type: string } }
+        slots: { type: integer }
+
+    AutoPoolFinding:
+      type: object
+      description: Something the controller could not do, and what to change.
+      required: [code, subject, message, fix]
+      properties:
+        code: { type: string, enum: ["auto_pool.name_taken", "auto_pool.label_taken", "auto_pool.host_skipped"] }
+        subject: { type: string }
+        message: { type: string }
+        fix: { type: string }
+
+    AutoPoolSkip:
+      type: object
+      required: [host, host_id, reason, message]
+      properties:
+        host: { type: string }
+        host_id: { type: string }
+        reason: { type: string, enum: [cordoned, incompatible, silent, unclassified, bad_size_label, unknown_architecture, no_backend] }
+        message: { type: string, description: "What it means for the host, as a sentence." }
+
+    AutoPoolPending:
+      type: object
+      description: A change the controller would make and has not, because `scheduler.auto_pools` is `shadow`, or because it may not act.
+      required: [kind, key, pool, cause]
+      properties:
+        kind: { type: string, enum: [create, resize, enable, disable, reshape] }
+        key: { type: string }
+        pool: { type: string }
+        cause: { type: string }
+
+    SizeClassLimits:
+      type: object
+      required: [class, label, runner_cpus, runner_memory_mb]
+      properties:
+        class: { $ref: "#/components/schemas/SizeClass" }
+        label: { type: string, description: "The `runs-on` label that asks for the class by name, `zoomies-large`.", examples: [zoomies-large] }
+        host_max_cpus: { type: number, description: "The most allocatable CPUs a host in the class has. Absent for the largest class, which has no limit above." }
+        host_max_memory_mb: { type: integer, format: int64 }
+        runner_cpus: { type: number, description: "The CPUs of one runner in the class where a host's profile names none." }
+        runner_memory_mb: { type: integer, format: int64 }
+
+    AutoPools:
+      type: object
+      required: [size_routing, auto_pools, pools, findings, skipped, pending, classes, default_class]
+      properties:
+        size_routing: { type: string, enum: [off, shadow, on], description: "`scheduler.size_routing`." }
+        auto_pools: { type: string, enum: [off, shadow, on], description: "`scheduler.auto_pools`." }
+        installation: { type: string, description: "The organisation or repository whose installation the pools belong to. Absent while there is none." }
+        problem: { type: string, description: "Why there is no installation to keep pools for. Absent when there is." }
+        at: { type: [string, "null"], format: date-time, description: "When the last pass ran." }
+        pools:
+          type: array
+          items: { $ref: "#/components/schemas/AutoPoolSummary" }
+        findings:
+          type: array
+          items: { $ref: "#/components/schemas/AutoPoolFinding" }
+        skipped:
+          type: array
+          items: { $ref: "#/components/schemas/AutoPoolSkip" }
+        pending:
+          type: array
+          items: { $ref: "#/components/schemas/AutoPoolPending" }
+        classes:
+          type: array
+          items: { $ref: "#/components/schemas/SizeClassLimits" }
+        default_class: { $ref: "#/components/schemas/SizeClass" }
+        hold: { $ref: "#/components/schemas/Duration" }
+        fallback_wait: { $ref: "#/components/schemas/Duration" }
+        host_grace: { $ref: "#/components/schemas/Duration" }
+
+    SizePin:
+      type: object
+      required: [repo, class]
+      properties:
+        repo: { type: string, description: "As GitHub writes it, owner/name; compared without regard to case." }
+        workflow: { type: string, description: "Absent on a repository's pin." }
+        job_name: { type: string, description: "Absent on a repository's pin." }
+        class: { $ref: "#/components/schemas/SizeClass" }
+        created_by: { type: string }
+        created_at: { type: string, format: date-time }
+
+    SizePinRequest:
+      type: object
+      required: [repo, class]
+      properties:
+        repo: { type: string }
+        workflow: { type: string, description: "Name this and `job_name` to pin one job, or neither to pin the repository." }
+        job_name: { type: string }
+        class: { $ref: "#/components/schemas/SizeClass" }
+
+    SizePinResult:
+      type: object
+      required: [pin, reclassified]
+      properties:
+        pin: { $ref: "#/components/schemas/SizePin" }
+        reclassified: { type: integer, description: "How many jobs that were already waiting changed class." }
+
+    LabelAdvice:
+      type: object
+      required: [repo, workflow, job_name, kind, class, runs, labels, message, fix]
+      properties:
+        repo: { type: string }
+        workflow: { type: string }
+        job_name: { type: string }
+        kind: { type: string, enum: [too_small, unguaranteed, too_large] }
+        asked:
+          allOf: [{ $ref: "#/components/schemas/SizeClass" }]
+          description: The class the job names in its `runs-on`. Absent when it names none.
+        class:
+          allOf: [{ $ref: "#/components/schemas/SizeClass" }]
+          description: The class its measured runs call for.
+        runs: { type: integer, description: "How many measured runs the class was worked out from." }
+        labels: { type: array, items: { type: string }, description: "The `runs-on` of the job's latest measured run." }
+        message: { type: string, description: "What is wrong." }
+        fix: { type: string, description: "What to write instead." }
 
     WorkflowRun:
       type: object
@@ -8099,6 +8637,8 @@ components:
         agent_version: { type: string, description: The agent version the host reported when the job was assigned to it. }
         peak_memory_mb: { type: integer, format: int64, description: "The most memory, in MB, the job was measured using. Absent when never measured." }
         oom_killed: { type: boolean, description: True when the kernel killed the job's runner or one of its steps for memory. Absent when false. }
+        size_class: { allOf: [{ $ref: "#/components/schemas/SizeClass" }], description: The class the job was put in. Absent on a job nobody classed. }
+        ran_class: { allOf: [{ $ref: "#/components/schemas/SizeClass" }], description: The class of the host that took the job. Absent when none was recorded. }
 
     JobPercentiles:
       type: object
@@ -8549,6 +9089,25 @@ components:
         effective_profile:
           allOf: [{ $ref: "#/components/schemas/EffectiveProfile" }]
           description: What a runner on this host is held to, with the fleet's settings standing in for every field the host leaves out, and where each figure came from.
+        tags:
+          type: array
+          items: { $ref: "#/components/schemas/HostTag" }
+          description: >-
+            What can be said about this host in the terms a pool's `host_selector` asks in: the
+            labels stored on it, and the automatic ones no label has taken the place of. Always
+            present, and empty for a host with none. The `size` tag is listed only while
+            `scheduler.size_routing` or `scheduler.auto_pools` is not `off`.
+        size_class:
+          allOf: [{ $ref: "#/components/schemas/HostSizeClass" }]
+          description: >-
+            The size class this host is in, and why. Absent until the controller has worked one
+            out, which is never while both `scheduler.size_routing` and `scheduler.auto_pools`
+            are `off`.
+        auto_pool:
+          allOf: [{ $ref: "#/components/schemas/HostAutoPool" }]
+          description: >-
+            Which automatic pool this host counts towards, or why it counts towards none.
+            Absent while `scheduler.auto_pools` is `off`.
         unlimited_runners:
           type: integer
           description: >-

@@ -522,6 +522,30 @@ var registry = buildRegistry([]Setting{
 		Summary: "The fleet's minimum memory per runner, in megabytes: the least a runner may be given when no host has room for its standard size, fixed or automatic. An automatic pool's runner is never given less: a slot share below it is raised to it, and the host holds fewer runners. Every pool that sets no minimum of its own follows it, live; a pool's own minimum wins. 0 is none; anything set is held to 512.",
 	},
 	{
+		Key: "runners.small_cpus", Label: "Small runner, CPUs", Env: "ZOOMIES_RUNNER_SMALL_CPUS", Kind: KindFloat, Scope: ScopeInstance, Live: true,
+		Summary: "The CPUs of one runner in the small size class, for a host whose runner profile says nothing of its own. It is what an automatic pool's runner is given there, and what a job is measured against when it is classed: a job is as big as the smallest runner that holds it.",
+	},
+	{
+		Key: "runners.small_memory_mb", Label: "Small runner, memory", Env: "ZOOMIES_RUNNER_SMALL_MEMORY_MB", Kind: KindInt, Scope: ScopeInstance, Live: true,
+		Summary: "The memory, in megabytes, of one runner in the small size class.",
+	},
+	{
+		Key: "runners.medium_cpus", Label: "Medium runner, CPUs", Env: "ZOOMIES_RUNNER_MEDIUM_CPUS", Kind: KindFloat, Scope: ScopeInstance, Live: true,
+		Summary: "The CPUs of one runner in the medium size class. It starts at the size of the fleet's own default runner, which is where a job nothing is known about is placed.",
+	},
+	{
+		Key: "runners.medium_memory_mb", Label: "Medium runner, memory", Env: "ZOOMIES_RUNNER_MEDIUM_MEMORY_MB", Kind: KindInt, Scope: ScopeInstance, Live: true,
+		Summary: "The memory, in megabytes, of one runner in the medium size class.",
+	},
+	{
+		Key: "runners.large_cpus", Label: "Large runner, CPUs", Env: "ZOOMIES_RUNNER_LARGE_CPUS", Kind: KindFloat, Scope: ScopeInstance, Live: true,
+		Summary: "The CPUs of one runner in the large size class.",
+	},
+	{
+		Key: "runners.large_memory_mb", Label: "Large runner, memory", Env: "ZOOMIES_RUNNER_LARGE_MEMORY_MB", Kind: KindInt, Scope: ScopeInstance, Live: true,
+		Summary: "The memory, in megabytes, of one runner in the large size class.",
+	},
+	{
 		Key: "runners.env", Label: "Runner environment", Env: "ZOOMIES_RUNNER_ENV", Kind: KindLabels, Scope: ScopeInstance, Live: true,
 		Summary: "Key=value variables every runner starts with, such as a proxy or a package mirror. A pool's own env wins where the two name the same variable. Every job can read these, so a credential does not belong here: give it to the pool, or to the workflow as a GitHub secret.",
 	},
@@ -568,6 +592,59 @@ var registry = buildRegistry([]Setting{
 		Key: "scheduler.history_sizing", Label: "Size from job history", Env: "ZOOMIES_HISTORY_SIZING", Kind: KindEnum, Scope: ScopeInstance, Live: true,
 		Choices: []string{"off", "shadow", "on"},
 		Summary: "Place a runner only on a host with room for what the jobs waiting on its pool used on their recent runs, and size it up to that where the pool leaves its size to the host. Shadow works it out and records where it would have placed differently without changing anything; off ignores job history. GitHub picks which waiting job a runner takes, so the runner is placed for the largest of them.",
+	},
+	{
+		Key: "scheduler.size_routing", Label: "Route jobs by size class", Env: "ZOOMIES_SIZE_ROUTING", Kind: KindEnum, Scope: ScopeInstance, Live: true,
+		Choices: []string{"off", "shadow", "on"},
+		Summary: "Class each job small, medium or large from what its recent runs used, and send it to the pool for that class, so light jobs land on small hosts and heavy ones on large hosts. A workflow that writes zoomies-large in runs-on is always honoured and never moved; a job that writes only zoomies is routed best effort, because GitHub, not Zoomies, decides which waiting job a runner takes. Shadow records each job's class and where it ran, and sends nothing anywhere; off classes nothing. Changing it puts the jobs already waiting through the new mode.",
+	},
+	{
+		Key: "scheduler.auto_pools", Label: "Automatic pools", Env: "ZOOMIES_AUTO_POOLS", Kind: KindEnum, Scope: ScopeInstance, Live: true,
+		Choices: []string{"off", "shadow", "on"},
+		Summary: "Make and keep one pool for each architecture and size class among the hosts the fleet has, sized by the hosts in it: a host joining raises its pool's maximum by its slots, and one that is cordoned, silent beyond the grace or gone lowers it. A pool whose last host is gone is disabled and kept. Your own pools are never touched. Shadow says what it would do, and still gives each host its class; off leaves pools as you made them.",
+	},
+	{
+		Key: "scheduler.auto_pools_installation", Label: "Installation for automatic pools", Env: "ZOOMIES_AUTO_POOLS_INSTALLATION", Kind: KindString, Scope: ScopeInstance, Live: true,
+		Summary: "The GitHub App installation automatic pools belong to, by the organisation or repository it manages. Empty means the only installation; a fleet with several has to say which, because a pool belongs to exactly one.",
+	},
+	{
+		Key: "scheduler.auto_pools_docker_mode", Label: "Docker mode of automatic pools", Env: "ZOOMIES_AUTO_POOLS_DOCKER_MODE", Kind: KindEnum, Scope: ScopeInstance, Live: true,
+		Choices: []string{"none", "dind"},
+		Summary: "What runners in automatic pools can do with Docker: none gives jobs no daemon, dind gives each runner a private one, which a job that builds images needs. The host socket is not offered: a pool made by software should not hand a job the host.",
+	},
+	{
+		Key: "scheduler.auto_pools_host_grace", Label: "Grace before a silent host stops counting", Env: "ZOOMIES_AUTO_POOLS_HOST_GRACE", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Floor:   time.Minute,
+		Summary: "How long a host may go without a heartbeat and still count towards its pool's maximum. It has to be longer than the five minutes after which the fleet gives a silent host's runners up, so a brief network drop reshuffles nothing.",
+	},
+	{
+		Key: "scheduler.size_class_hold", Label: "Hold before a host changes class", Env: "ZOOMIES_SIZE_CLASS_HOLD", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Summary: "How long a host's measurements must name a different size class, without a break, before the host moves to it. A host sitting on a threshold, which measures one side and then the other, never moves. 0 moves it at once.",
+	},
+	{
+		Key: "scheduler.size_default_class", Label: "Class of a job with no history", Env: "ZOOMIES_SIZE_DEFAULT_CLASS", Kind: KindEnum, Scope: ScopeInstance, Live: true,
+		Choices: []string{"small", "medium", "large"},
+		Summary: "The class a job starts in before anything has been measured of it. Medium is the size of the fleet's own default runner, so a job that has never run gets what it would have had before there were classes and moves as its history says.",
+	},
+	{
+		Key: "scheduler.size_fallback_wait", Label: "Wait for room in a job's class", Env: "ZOOMIES_SIZE_FALLBACK_WAIT", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Summary: "How long a job waits for room in its own class before another may take it: a larger class first, and a smaller one only if its runners hold what the job is known to need. A class with no pool at all is not waited on, and a job that asked for a class by name is never moved.",
+	},
+	{
+		Key: "scheduler.size_small_max_cpus", Label: "Largest small host, CPUs", Env: "ZOOMIES_SIZE_SMALL_MAX_CPUS", Kind: KindFloat, Scope: ScopeInstance, Live: true,
+		Summary: "The most allocatable CPUs, after the reserve, a small host has. A host is in the lower of the classes its CPU and its memory each name, so a machine with plenty of cores and little memory is as small as its memory.",
+	},
+	{
+		Key: "scheduler.size_small_max_memory_mb", Label: "Largest small host, memory", Env: "ZOOMIES_SIZE_SMALL_MAX_MEMORY_MB", Kind: KindInt, Scope: ScopeInstance, Live: true,
+		Summary: "The most allocatable memory, in megabytes, a small host has.",
+	},
+	{
+		Key: "scheduler.size_medium_max_cpus", Label: "Largest medium host, CPUs", Env: "ZOOMIES_SIZE_MEDIUM_MAX_CPUS", Kind: KindFloat, Scope: ScopeInstance, Live: true,
+		Summary: "The most allocatable CPUs a medium host has. A host with more is large.",
+	},
+	{
+		Key: "scheduler.size_medium_max_memory_mb", Label: "Largest medium host, memory", Env: "ZOOMIES_SIZE_MEDIUM_MAX_MEMORY_MB", Kind: KindInt, Scope: ScopeInstance, Live: true,
+		Summary: "The most allocatable memory, in megabytes, a medium host has. A host with more is large.",
 	},
 	{
 		Key: "scheduler.registration_concurrency", Label: "Concurrent registrations per installation", Env: "ZOOMIES_REGISTRATION_CONCURRENCY", Kind: KindInt, Scope: ScopeInstance, Live: true,

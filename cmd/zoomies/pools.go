@@ -105,6 +105,14 @@ func poolsList(ctx context.Context, e *env, args []string) error {
 		if !item.Enabled {
 			enabled = p.paint(colourDim, "no")
 		}
+		// A pool the controller keeps is out of use for one of two reasons, and
+		// they are different things to do something about.
+		if a := item.Auto; a != nil && !item.Enabled {
+			enabled = p.paint(colourDim, "paused")
+			if !a.Paused {
+				enabled = p.paint(colourDim, "no hosts")
+			}
+		}
 		rows = append(rows, []string{
 			item.Name,
 			item.ID,
@@ -151,7 +159,7 @@ func poolsGet(ctx context.Context, e *env, args []string) error {
 		return p.emit(raw)
 	}
 
-	p.keyValues([][2]string{
+	rows := [][2]string{
 		{"name", pool.Name},
 		{"id", pool.ID},
 		{"enabled", p.yesNo(pool.Enabled, false)},
@@ -179,19 +187,72 @@ func poolsGet(ctx context.Context, e *env, args []string) error {
 		{"in memory", poolTmpfsLabel(pool)},
 		{"created", p.relTime(pool.CreatedAt)},
 		{"updated", p.relTime(pool.UpdatedAt)},
-	})
+	}
+	if a := pool.Auto; a != nil {
+		rows = append(rows,
+			[2]string{"kept by the controller", plain(a.Summary)},
+			[2]string{"asked of it", autoAsk(a)})
+	}
+	p.keyValues(rows)
 	printProblems(p, pool.Warnings, "This pool has settings that weaken the defaults:")
 	return nil
+}
+
+// autoAsk says what an operator has asked of a pool the controller keeps.
+func autoAsk(a *poolAuto) string {
+	var parts []string
+	if a.Warm > 0 {
+		parts = append(parts, fmt.Sprintf("%s kept warm", plural(a.Warm, "runner")))
+	}
+	if a.Cap > 0 {
+		parts = append(parts, fmt.Sprintf("at most %s", plural(a.Cap, "runner")))
+	}
+	if a.Paused {
+		parts = append(parts, "paused")
+	}
+	if len(parts) == 0 {
+		return "nothing"
+	}
+	return strings.Join(parts, ", ")
 }
 
 // poolSizing says what one runner of this pool is given, in the wizard's own
 // words, because "cpus 0" reads as unlimited and it is the opposite.
 func poolSizing(pool poolItem) string {
 	out := poolSizingBase(pool)
-	if share := pool.Resources.DaemonSharePercent; share > 0 && pool.Sizing != "fixed" {
-		out += fmt.Sprintf("; the Docker daemon takes %d%% of a slot, the runner %d%%", share, 100-share)
+	if pool.Sizing != "fixed" {
+		out += poolShareLabel(pool.Resources)
 	}
 	return out
+}
+
+// poolShareLabel says how a host-sized slot is divided between the runner and its
+// Docker daemon when the pool has said: one figure when CPU and memory share it,
+// both when they differ, and nothing for the even split every pool starts with.
+func poolShareLabel(r poolResources) string {
+	cpu, mem := firstPositive(r.DaemonCPUSharePercent, r.DaemonSharePercent), firstPositive(r.DaemonMemorySharePercent, r.DaemonSharePercent)
+	switch {
+	case cpu == 0 && mem == 0:
+		return ""
+	case cpu == mem:
+		return fmt.Sprintf("; the Docker daemon takes %d%% of a slot, the runner %d%%", cpu, 100-cpu)
+	}
+	describe := func(name string, p int) string {
+		if p == 0 {
+			p = 50
+		}
+		return fmt.Sprintf("%d%% of the %s", p, name)
+	}
+	return fmt.Sprintf("; the Docker daemon takes %s and %s", describe("CPU", cpu), describe("memory", mem))
+}
+
+func firstPositive(vals ...int) int {
+	for _, v := range vals {
+		if v > 0 {
+			return v
+		}
+	}
+	return 0
 }
 
 func poolSizingBase(pool poolItem) string {
@@ -311,7 +372,9 @@ type poolSpec struct {
 	// create, where there is nothing to carry.
 	current poolResources
 	// daemonShare is --daemon-share, the daemon's part of a split slot.
-	daemonShare *int
+	daemonShare       *int
+	daemonCPUShare    *int
+	daemonMemoryShare *int
 	// currentBurst is the elastic CPU policy the pool has now, kept for the
 	// same reason: a ceiling typed alone must not switch the mode off.
 	currentBurst poolCPUBurst
@@ -376,7 +439,9 @@ func registerPoolFlags(fs *flagSet) *poolSpec {
 	fs.Var(spec.envVars, "env", "environment variables for every job in this pool, e.g. HTTP_PROXY=...")
 	spec.cpus = fs.Float64("cpus", 0, "CPU limit per runner; 0 leaves the size to the host, which gives each runner one slot's share of its machine")
 	spec.memoryMB = fs.Int64("memory-mb", 0, "memory limit per runner, in MiB; 0 leaves the size to the host")
-	spec.daemonShare = fs.Int("daemon-share", 0, "for a --docker-mode dind pool sized by its host: the percentage of one slot given to the Docker daemon, 10 to 90; 0 is an even split")
+	spec.daemonShare = fs.Int("daemon-share", 0, "for a --docker-mode dind pool sized by its host: the percentage of one slot given to the Docker daemon, for CPU and memory alike, 10 to 90; 0 is an even split")
+	spec.daemonCPUShare = fs.Int("daemon-cpu-share", 0, "the daemon's share of a slot's CPU, 10 to 90, where it differs from --daemon-share; a build is CPU in the daemon, so this is usually the one to raise")
+	spec.daemonMemoryShare = fs.Int("daemon-memory-share", 0, "the daemon's share of a slot's memory, 10 to 90, where it differs from --daemon-share; the runner holds the checkout and any in-memory work folder, so this is often the one to lower")
 	spec.sizeFromHost = fs.Bool("size-from-host", false, "take each runner's size from the host it lands on, as that host's runner sizes say (see zoomies hosts edit); a pool does this or states a size, so it cannot be combined with --cpus or --memory-mb")
 	spec.diskGB = fs.Int64("disk-gb", 0, "disk limit per runner, in GiB")
 	spec.pidsLimit = fs.Int64("pids-limit", 0, "the container's pids cgroup limit (0 is no limit)")
@@ -520,7 +585,7 @@ func (spec *poolSpec) body(fs *flagSet, onlyChanged bool) map[string]any {
 		delete(res, "cpus")
 		delete(res, "memory_mb")
 		body["resources"] = res
-	case fs.changed("cpus") || fs.changed("memory-mb") || fs.changed("disk-gb") || fs.changed("pids-limit") || fs.changed("daemon-share"):
+	case fs.changed("cpus") || fs.changed("memory-mb") || fs.changed("disk-gb") || fs.changed("pids-limit") || fs.changed("daemon-share") || fs.changed("daemon-cpu-share") || fs.changed("daemon-memory-share"):
 		body["resources"] = spec.resources(fs)
 	}
 	// The elastic CPU policy is one object for the same reason the size is,
@@ -600,9 +665,15 @@ func (spec *poolSpec) resources(fs *flagSet) map[string]any {
 	if fs.changed("disk-gb") {
 		disk = *spec.diskGB
 	}
-	share := spec.current.DaemonSharePercent
+	share, cpuShare, memShare := spec.current.DaemonSharePercent, spec.current.DaemonCPUSharePercent, spec.current.DaemonMemorySharePercent
 	if fs.changed("daemon-share") {
 		share = *spec.daemonShare
+	}
+	if fs.changed("daemon-cpu-share") {
+		cpuShare = *spec.daemonCPUShare
+	}
+	if fs.changed("daemon-memory-share") {
+		memShare = *spec.daemonMemoryShare
 	}
 	if fs.changed("pids-limit") {
 		pids = *spec.pidsLimit
@@ -621,6 +692,12 @@ func (spec *poolSpec) resources(fs *flagSet) map[string]any {
 	}
 	if share > 0 {
 		out["daemon_share_percent"] = share
+	}
+	if cpuShare > 0 {
+		out["daemon_cpu_share_percent"] = cpuShare
+	}
+	if memShare > 0 {
+		out["daemon_memory_share_percent"] = memShare
 	}
 	return out
 }
@@ -787,7 +864,10 @@ func poolsEdit(ctx context.Context, e *env, args []string) error {
 		"Change the settings you name. Anything you do not name is left alone.")
 	cf := registerClientFlags(fs, true)
 	spec := registerPoolFlags(fs)
+	warm := fs.Int("warm", 0, "on a pool the controller keeps: runners to keep ready (0 for none)")
+	capRunners := fs.Int("cap", 0, "on a pool the controller keeps: the most runners to allow, however many slots its hosts give (0 for no cap)")
 	fs.example("zoomies pools edit pool_k3f9qz2m --max 12",
+		"zoomies pools edit pool_k3f9qz2m --warm 2 --cap 6   # a pool the controller keeps",
 		"zoomies pools edit pool_k3f9qz2m --size-from-host",
 		"zoomies pools edit pool_k3f9qz2m --cpu-burst automatic --cpu-burst-max 6",
 		"zoomies pools edit pool_k3f9qz2m --tmpfs-work --memory-mb 12288",
@@ -815,7 +895,7 @@ func poolsEdit(ctx context.Context, e *env, args []string) error {
 	// forward -- `resources` is one object, and a partial one clears what it
 	// leaves out -- so the pool as it stands is read first. It is read only
 	// when it is needed, so an edit that changes a label costs no extra call.
-	if fs.changed("cpus") || fs.changed("memory-mb") || fs.changed("disk-gb") || fs.changed("pids-limit") || fs.changed("daemon-share") ||
+	if fs.changed("cpus") || fs.changed("memory-mb") || fs.changed("disk-gb") || fs.changed("pids-limit") || fs.changed("daemon-share") || fs.changed("daemon-cpu-share") || fs.changed("daemon-memory-share") ||
 		fs.changed("size-from-host") ||
 		fs.changed("cpu-burst") || fs.changed("cpu-burst-max") || fs.changed("cpu-burst-size-builds") ||
 		spec.tmpfsChanged(fs) {
@@ -829,6 +909,16 @@ func poolsEdit(ctx context.Context, e *env, args []string) error {
 	}
 
 	body := spec.body(fs, true)
+	if fs.changed("warm") || fs.changed("cap") {
+		auto := map[string]any{}
+		if fs.changed("warm") {
+			auto["warm"] = *warm
+		}
+		if fs.changed("cap") {
+			auto["cap"] = *capRunners
+		}
+		body["auto"] = auto
+	}
 	if len(body) == 0 {
 		return usagef("pools edit", "nothing to change; name at least one setting, for example --max 8")
 	}
@@ -907,9 +997,17 @@ func poolsToggle(ctx context.Context, e *env, args []string, verb string) error 
 	if _, err := client.post(ctx, "/pools/"+url.PathEscape(id)+"/"+verb, nil, nil, &pool); err != nil {
 		return err
 	}
-	if verb == "enable" {
+	// What the response says, not what was asked: a pool the controller keeps is
+	// put back in use by the controller, from its hosts, and resuming it where it
+	// has none leaves it out of use.
+	switch {
+	case verb == "enable" && pool.Enabled:
 		fmt.Fprintf(e.out, "Pool %s is enabled.\n", pool.Name)
-	} else {
+	case verb == "enable" && pool.Auto != nil && !pool.Auto.Paused:
+		fmt.Fprintf(e.out, "Pool %s is no longer paused, and stays out of use until a host counts towards it: the controller works that out from its hosts.\n", pool.Name)
+	case verb == "enable":
+		fmt.Fprintf(e.out, "Pool %s is still not enabled.\n", pool.Name)
+	default:
 		fmt.Fprintf(e.out, "Pool %s is disabled; its runners will drain as they become idle.\n", pool.Name)
 	}
 	return nil

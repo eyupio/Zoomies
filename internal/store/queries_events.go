@@ -24,7 +24,9 @@ const jobInsertCols = `id, github_job_id, github_run_id, repo, workflow, job_nam
 	controller_version, controller_channel, agent_version, host_id`
 
 const jobCols = jobInsertCols + `, peak_cpus, peak_memory_mb, oom_killed,
-	granted_cpus, granted_memory_mb, granted_source`
+	granted_cpus, granted_memory_mb, granted_source,
+	size_class, size_reason, size_basis, size_floor_mb, routed_class, routed_note, ran_class,
+	cpu_periods, cpu_throttled_periods`
 
 func scanJob(sc interface{ Scan(...any) error }) (*Job, error) {
 	var j Job
@@ -38,7 +40,9 @@ func scanJob(sc interface{ Scan(...any) error }) (*Job, error) {
 		&j.HeadBranch, &j.HeadSHA, &j.RunAttempt, &j.RunNumber, &j.Steps, &j.RunnerFault, &j.FaultKind, &j.Provisioning, &j.ProvisionNow,
 		&cancelRequested, &controllerVersion, &controllerChannel, &agentVersion, &hostID,
 		&j.PeakCPUs, &j.PeakMemoryMB, &oomKilled,
-		&j.GrantedCPUs, &j.GrantedMemoryMB, &j.GrantedSource)
+		&j.GrantedCPUs, &j.GrantedMemoryMB, &j.GrantedSource,
+		&j.SizeClass, &j.SizeReason, &j.SizeBasis, &j.SizeFloorMB, &j.RoutedClass, &j.RoutedNote, &j.RanClass,
+		&j.CPUPeriods, &j.CPUThrottledPeriods)
 	if err != nil {
 		return nil, err
 	}
@@ -809,6 +813,28 @@ func jobWhere(f JobFilter) (string, []any) {
 func (s *Store) ListQueuedJobs(ctx context.Context) ([]*Job, error) {
 	rows, err := s.read.QueryContext(ctx, `SELECT `+jobCols+` FROM jobs
 		WHERE `+queuedJobSQL("jobs")+` ORDER BY queued_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Job
+	for rows.Next() {
+		j, err := scanJob(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, j)
+	}
+	return out, rows.Err()
+}
+
+// ListHeldJobs returns the jobs GitHub is holding for a deployment review,
+// oldest first. They are not demand -- nothing here can start one until it is
+// approved -- but each is classed as it arrives, and a pin has to reach it before
+// the approval does, not after.
+func (s *Store) ListHeldJobs(ctx context.Context) ([]*Job, error) {
+	rows, err := s.read.QueryContext(ctx, `SELECT `+jobCols+` FROM jobs
+		WHERE state = '`+string(JobWaiting)+`' AND provisioning != '`+ProvisioningDeleted+`' ORDER BY queued_at`)
 	if err != nil {
 		return nil, err
 	}

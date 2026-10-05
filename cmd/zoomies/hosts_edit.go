@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 )
 
 // profileFlags are the flags that edit a host's runner profile, in the order
@@ -41,6 +42,9 @@ func hostsEdit(ctx context.Context, e *env, args []string) error {
 	tmpfsDocker := fs.Int64("tmpfs-docker-mb", 0, "the same for the Docker-in-Docker image store, in MB (at least 64); 0 is the default of 8192")
 	tmpfsMax := fs.Int64("tmpfs-max-mb", 0, "the most any one in-memory folder may be on this host, in MB (at least 64); 0 sets no host ceiling")
 	clearProfile := fs.Bool("clear-profile", false, "remove the host's runner profile, so it follows the fleet's settings again")
+	tags, untags := tagValue{}, &listValue{}
+	fs.Var(tags, "tag", "put a tag on the host: key=value, or a bare key for key=true (repeatable); a pool's host selector asks for tags")
+	fs.Var(untags, "untag", "take a tag off the host (repeatable)")
 	confirm := fs.Bool("confirm", false, "save even if it leaves a pool with nowhere to run")
 	fs.example(
 		"zoomies hosts edit hst_k3f9qz2m --standard-cpus 3 --standard-memory-mb 8192",
@@ -49,6 +53,8 @@ func hostsEdit(ctx context.Context, e *env, args []string) error {
 		"zoomies hosts edit hst_k3f9qz2m --tmpfs-max-mb 2048",
 		"zoomies hosts edit hst_k3f9qz2m --tmpfs-off",
 		"zoomies hosts edit hst_k3f9qz2m --clear-profile",
+		"zoomies hosts edit hst_k3f9qz2m --tag rack=b4 --tag gpu",
+		"zoomies hosts edit hst_k3f9qz2m --tag size=large --untag rack",
 	)
 	if err := fs.parse(args); err != nil {
 		return err
@@ -56,6 +62,14 @@ func hostsEdit(ctx context.Context, e *env, args []string) error {
 	id, err := fs.oneArg("a host ID, as shown by `zoomies hosts list`")
 	if err != nil {
 		return err
+	}
+	for _, key := range *untags {
+		if strings.Contains(key, "=") {
+			return usagef("hosts edit", "--untag takes a tag's name, written without a value: --untag %s", strings.TrimSpace(strings.SplitN(key, "=", 2)[0]))
+		}
+		if _, both := tags[key]; both {
+			return usagef("hosts edit", "--tag and --untag both name %s; put it on or take it off, not both", key)
+		}
 	}
 	touchesProfile := slices.ContainsFunc(profileFlags, fs.changed)
 	if *clearProfile && touchesProfile {
@@ -128,6 +142,38 @@ func hostsEdit(ctx context.Context, e *env, args []string) error {
 		}
 		body["runner_profile"] = profile
 	}
+	if len(tags) > 0 || len(*untags) > 0 {
+		// The API replaces a host's labels whole, so a tag put on or taken off
+		// has to carry the others forward, which means reading the host as it
+		// stands. Only the stored labels are carried: the automatic tags are the
+		// machine's and are never written back.
+		var current hostItem
+		if _, err := client.get(ctx, "/hosts/"+url.PathEscape(id), nil, &current); err != nil {
+			return fmt.Errorf("reading the host as it stands, which an edit to its tags has to keep: %w", err)
+		}
+		labels := map[string]string{}
+		for k, v := range current.Labels {
+			labels[k] = v
+		}
+		for _, key := range *untags {
+			if _, stored := labels[key]; !stored {
+				// Said, because the request would otherwise succeed and change
+				// nothing, which reads as a tag taken off that is still there.
+				why := "it has no tag of that name"
+				for _, t := range current.Tags {
+					if t.Key == key && t.Source != "operator" {
+						why = "that one is worked out from the machine and is not stored, so there is nothing to take off"
+					}
+				}
+				return usagef("hosts edit", "cannot take off %s: %s", key, why)
+			}
+			delete(labels, key)
+		}
+		for k, v := range tags {
+			labels[k] = v
+		}
+		body["labels"] = labels
+	}
 	if len(body) == 0 {
 		return usagef("hosts edit", "nothing to change; name at least one setting, for example --standard-cpus 3")
 	}
@@ -146,6 +192,9 @@ func hostsEdit(ctx context.Context, e *env, args []string) error {
 	}
 	p.note("Updated host %s (%s).", host.Name, host.ID)
 	describeRunnerSizes(p, host)
+	if tags := describeTags(host); tags != "" {
+		p.note("  %s: tags %s", host.Name, tags)
+	}
 	return nil
 }
 

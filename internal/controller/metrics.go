@@ -30,6 +30,7 @@ type metrics struct {
 	jobsRunnerLost                                                                               *prometheus.CounterVec
 	jobReruns                                                                                    *prometheus.CounterVec
 	jobFailures                                                                                  *prometheus.CounterVec
+	jobsSized, jobsRan, jobsRerouted                                                             *prometheus.CounterVec
 	runnerStartFailures                                                                          *prometheus.CounterVec
 	queueWait                                                                                    prometheus.Histogram
 	jobDuration                                                                                  prometheus.Histogram
@@ -122,6 +123,24 @@ func newMetrics(c *Controller) *metrics {
 			Name: "zoomies_job_failures_total",
 			Help: "Job failures by whose they are and why. domain is fleet or workflow; fault is the category, and is empty for a workflow's own failure. Alert on the fleet domain -- a rise there is this deployment, not somebody's tests.",
 		}, []string{"pool", "domain", "fault"}),
+		// How size routing is doing, in three counters. The first says what the
+		// controller classed jobs as and how it decided; the second says where
+		// they ran, which is what an operator reads the rate of "classed
+		// medium, ran large" off to decide whether to turn routing on; the
+		// third says how often the wait for room ran out. None of them is
+		// emitted while size routing is off.
+		jobsSized: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zoomies_jobs_sized_total",
+			Help: "Jobs put in a size class when they were queued, by how the class was decided (explicit, pin, history or default), the class, and the size routing mode.",
+		}, []string{"basis", "class", "mode"}),
+		jobsRan: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zoomies_jobs_ran_by_class_total",
+			Help: "Classed jobs by the class they were put in and the class of the host that took them. Where the two differ the job ran somewhere other than where it was classed, which for a job that only asked for the base label is GitHub choosing a runner and not a fault.",
+		}, []string{"class", "ran_class", "mode"}),
+		jobsRerouted: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zoomies_jobs_rerouted_total",
+			Help: "Queued jobs sent to another size class because their own had no pool, or no room for as long as scheduler.size_fallback_wait.",
+		}, []string{"from", "to"}),
 		// Runner starts that failed, which reach no job at all: the job they
 		// were meant for stays queued. A pool climbing here with a queue that
 		// never moves is the fleet failing without a single failed job to show
@@ -269,7 +288,7 @@ func newMetrics(c *Controller) *metrics {
 	m.buildInfo.WithLabelValues(version.Version, version.Commit).Set(1)
 
 	m.reg.MustRegister(
-		m.jobsTotal, m.jobsRunnerLost, m.jobReruns, m.jobFailures, m.runnerStartFailures, m.queueWait, m.jobDuration, m.scalingEvents,
+		m.jobsTotal, m.jobsRunnerLost, m.jobReruns, m.jobFailures, m.jobsSized, m.jobsRan, m.jobsRerouted, m.runnerStartFailures, m.queueWait, m.jobDuration, m.scalingEvents,
 		m.registrationsDeferred,
 		m.webhookDeliveries, m.githubRequests, m.reconcileDuration, m.storeWriteWait, m.storeWriteHeld, m.reconcileErrors, m.cleanups, m.pollsShed, m.agentLimited, m.logRelayDropped, m.buildInfo,
 		m.providerOperations, m.providerOperationSeconds,

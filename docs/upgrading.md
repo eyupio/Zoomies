@@ -325,6 +325,33 @@ that divides it, rather than divided into a runner and a daemon with no limit.
 `host.overprovisioned` now counts a slot as a pair only for pools that typed
 their limits.
 
+## Size classes and automatic pools arrive off
+
+[Size routing and automatic pools](auto-pools.md) are two switches,
+`scheduler.size_routing` and `scheduler.auto_pools`, and both are `off` after an
+upgrade. Nothing is classed, no pool is made, no pool is changed, and every column
+the migrations add holds the value an existing row already had, so no host, pool or
+job is different until somebody sets one. No agent needs upgrading and the protocol
+version is unchanged: an agent that sends no CPU throttling counters only means its
+jobs are classed on memory alone.
+
+There is one change that is not behind a switch, and it is a repair. A host that
+joins again — a rebuilt machine, an agent restarted with its old credentials — now
+keeps the labels an operator added since it first joined, and the size class it
+held. Before, the join built the row from the token and the agent alone and quietly
+dropped every edit, which the comment on that code said it did not. The join
+token's labels still win, then what the agent declares now, then what was stored: a
+label the agent declares is the agent's, so an operator's edit of it is put back,
+and one the agent's configuration dropped stays until `zoomies hosts edit --untag`
+removes it.
+
+Two things in the UI are not behind a switch, because they cost nothing while the
+feature is off. A host's card and its dialog call the labels on it *tags*, and list
+beside them the ones the controller works out from the machine, `os` and `arch`;
+what a pool's host selector matches is unchanged. And the Overview's feed gains an
+**Automatic changes** kind, on by default and empty until a switch is set, which
+**Settings → Events** turns off.
+
 ## The usage ledger
 
 Migrations `0047_runner_sessions.sql` and `0048_usage_daily.sql` add two

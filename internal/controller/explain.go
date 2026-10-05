@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -138,6 +139,21 @@ func explainOOM(job *store.Job, out *JobExplanation) {
 	out.Fix = store.FaultOutOfMemory.Fix() + " With scheduler.history_sizing set to on, the next run of this job is placed on a host with room for what it needed."
 }
 
+// sizeSentence says how a job was classed and where it was sent, as part of an
+// explanation of why it is where it is.
+func sizeSentence(job *store.Job) string {
+	out := fmt.Sprintf("It is in the %s class because %s.", job.SizeClass, job.SizeReason)
+	switch {
+	case job.RoutedClass == "":
+		out += " Size routing is only watching, so nothing was sent anywhere on its account."
+	case job.RoutedNote != "":
+		out += fmt.Sprintf(" It was sent to the %s class: %s.", job.RoutedClass, job.RoutedNote)
+	case job.SizeBasis != store.SizeBasisExplicit:
+		out += fmt.Sprintf(" It is routed to the %s class on a best-effort basis: GitHub decides which waiting job a runner takes.", job.RoutedClass)
+	}
+	return out
+}
+
 // formatJobMB says a memory figure the way the rest of the explanation does.
 func formatJobMB(mb int64) string {
 	if mb >= 1024 {
@@ -226,15 +242,26 @@ func (c *Controller) explainQueued(ctx context.Context, job *store.Job, out *Job
 		out.Summary = "No pool in this fleet claims this job."
 		out.Detail = fmt.Sprintf("It asks for [%s], and no enabled pool advertises those labels for the installation covering %s.",
 			joinLabels(job.Labels), job.Repo)
+		reasoned := false
 		if plan != nil {
 			for _, u := range plan.Unmatched {
 				if u.Job != nil && u.Job.ID == job.ID && u.Reason != "" {
-					out.Detail = u.Reason
+					out.Detail, reasoned = u.Reason, true
 					break
 				}
 			}
 		}
 		out.Fix = "create or enable a pool advertising those labels, or change the workflow's runs-on. If another runner provider takes these jobs, nothing needs doing."
+		// The scheduler's own reason is the one that is true of this job -- a pool
+		// that carries the label does exist, on another installation -- and the
+		// sentence about a class nobody answers would say the opposite.
+		if class, ok := scheduler.RequestedClass(job.Labels); ok && !reasoned {
+			// The label is this fleet's own, and a job that names it is not
+			// waiting for another provider: it is waiting for a pool of a class.
+			why, remedy := c.namedClassWhy(class)
+			out.Detail = fmt.Sprintf("It asks for %s by name and no enabled pool carries that label: %s. A job that names its class is never moved to another.", class.Label(), why)
+			out.Fix = remedy
+		}
 		return
 	}
 
@@ -246,6 +273,14 @@ func (c *Controller) explainQueued(ctx context.Context, job *store.Job, out *Job
 	}
 	out.Summary = "A runner is on its way for this job."
 	out.Detail = "It is claimed by " + pool.Name + "."
+	// Where the controller put it by size, and why, where it did: the class is
+	// part of why this pool and not another claimed it. After every answer below,
+	// because each of them sets the detail.
+	defer func() {
+		if job.SizeBasis != "" {
+			out.Detail = strings.TrimSpace(out.Detail + " " + sizeSentence(job))
+		}
+	}()
 
 	// The scheduler's own sentence for this pool, which is the one thing the
 	// browser could never work out for itself: whether a runner can be placed

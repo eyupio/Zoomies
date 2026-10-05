@@ -525,9 +525,18 @@ type Resources struct {
 	MinMemoryMB int64   `json:"min_memory_mb,omitempty"`
 	// DaemonSharePercent is the part of a host-sized slot a docker-in-docker pool
 	// gives its daemon; the runner keeps the rest. Zero is the even split. It
-	// divides only a share the host chose (SplitWithDaemon): a limit typed above is
-	// given to both containers in full whatever this says.
-	DaemonSharePercent int `json:"daemon_share_percent,omitempty"`
+	// divides only a share the host chose (SplitWithDaemonShares): a limit typed
+	// above is given to both containers in full whatever this says.
+	//
+	// It is one figure for both resources, which is what a pool that has not
+	// thought about it wants. The two below say it per resource, because the two
+	// are not used alike: a build is CPU in the daemon, while memory is held by
+	// whatever the runner keeps -- the checkout, the toolchain, an in-memory work
+	// folder, charged to the runner -- and by the daemon's image layers. Each
+	// overrides this for its own resource when set.
+	DaemonSharePercent       int `json:"daemon_share_percent,omitempty"`
+	DaemonCPUSharePercent    int `json:"daemon_cpu_share_percent,omitempty"`
+	DaemonMemorySharePercent int `json:"daemon_memory_share_percent,omitempty"`
 }
 
 const (
@@ -541,22 +550,40 @@ const (
 	MaxDaemonSharePercent = 90
 )
 
-// DaemonPercent is the daemon's share of a split slot, with zero read as even.
-func (r Resources) DaemonPercent() int {
-	if r.DaemonSharePercent <= 0 {
-		return DefaultDaemonSharePercent
+// daemonShare is a share with zero read as "not said": the specific figure, else
+// the general one, else even.
+func daemonShare(specific, general int) int {
+	switch {
+	case specific > 0:
+		return specific
+	case general > 0:
+		return general
 	}
-	return r.DaemonSharePercent
+	return DefaultDaemonSharePercent
 }
 
-// PairFactor is how many times the smaller half a slot must hold: two for an even
-// split, five when one container takes 80%. A slot's floor is each half's own
-// floor scaled by it, so uneven pairs are refused on a host too small for the
-// thinner half rather than starved there.
-func (r Resources) PairFactor() float64 {
-	d := r.DaemonPercent()
-	return 100 / float64(min(d, 100-d))
+// DaemonCPUPercent is the daemon's share of a split slot's CPU.
+func (r Resources) DaemonCPUPercent() int {
+	return daemonShare(r.DaemonCPUSharePercent, r.DaemonSharePercent)
 }
+
+// DaemonMemoryPercent is the daemon's share of a split slot's memory.
+func (r Resources) DaemonMemoryPercent() int {
+	return daemonShare(r.DaemonMemorySharePercent, r.DaemonSharePercent)
+}
+
+// pairFactor is how many times the smaller half a slot must hold at a share:
+// two for an even split, five when one container takes 80%.
+func pairFactor(daemonPercent int) float64 {
+	return 100 / float64(min(daemonPercent, 100-daemonPercent))
+}
+
+// CPUPairFactor and MemoryPairFactor are pairFactor for each resource. A slot's
+// floor is each half's own floor scaled by it, so an uneven pair is refused on a
+// host too small for the thinner half rather than starved there; the two
+// resources have their own, because they are split on their own.
+func (r Resources) CPUPairFactor() float64    { return pairFactor(r.DaemonCPUPercent()) }
+func (r Resources) MemoryPairFactor() float64 { return pairFactor(r.DaemonMemoryPercent()) }
 
 // Reducible reports whether a runner of these resources may be placed below
 // its standard size: some field has a minimum under its standard. A field the
@@ -636,30 +663,41 @@ func (p CPUBurstPolicy) Enforces() bool { return p.Mode == CPUBurstAutomatic }
 // Limits an operator typed are not split: those say what the job may have, the
 // daemon is given the same, and scheduler.Reserve charges the host for both.
 func (r Resources) SplitWithDaemon() (runner, daemon Resources) {
-	return r.SplitWithDaemonShare(DefaultDaemonSharePercent)
+	return r.SplitWithDaemonShares(DefaultDaemonSharePercent, DefaultDaemonSharePercent)
 }
 
-// SplitWithDaemonShare is SplitWithDaemon with the daemon taking percent of the
-// slot. The even split stays the default because the work is on both sides, but
-// a pool whose builds all run in the daemon can give it more. A percent outside
-// the permitted range is the even split, never a half with no room.
+// SplitWithDaemonShare is SplitWithDaemonShares with one share for both resources.
 func (r Resources) SplitWithDaemonShare(percent int) (runner, daemon Resources) {
-	if percent < MinDaemonSharePercent || percent > MaxDaemonSharePercent {
-		percent = DefaultDaemonSharePercent
+	return r.SplitWithDaemonShares(percent, percent)
+}
+
+// SplitWithDaemonShares is SplitWithDaemon with the daemon taking cpuPercent of
+// the slot's CPU and memoryPercent of its memory. The even split stays the
+// default because the work is on both sides, but a pool whose builds all run in
+// the daemon can give it more CPU while the runner keeps the memory its checkout
+// and scratch space need, or the other way round. A percent outside the
+// permitted range is the even split, never a half with no room.
+func (r Resources) SplitWithDaemonShares(cpuPercent, memoryPercent int) (runner, daemon Resources) {
+	clamp := func(p int) int {
+		if p < MinDaemonSharePercent || p > MaxDaemonSharePercent {
+			return DefaultDaemonSharePercent
+		}
+		return p
 	}
+	cpuPercent, memoryPercent = clamp(cpuPercent), clamp(memoryPercent)
 	runner, daemon = r, r
 	if r.CPUs > 0 {
-		daemon.CPUs = r.CPUs * float64(percent) / 100
+		daemon.CPUs = r.CPUs * float64(cpuPercent) / 100
 		runner.CPUs = r.CPUs - daemon.CPUs
-		if percent == DefaultDaemonSharePercent {
+		if cpuPercent == DefaultDaemonSharePercent {
 			runner.CPUs = r.CPUs / 2
 			daemon.CPUs = r.CPUs - runner.CPUs
 		}
 	}
 	if r.MemoryMB > 0 {
-		daemon.MemoryMB = r.MemoryMB * int64(percent) / 100
+		daemon.MemoryMB = r.MemoryMB * int64(memoryPercent) / 100
 		runner.MemoryMB = r.MemoryMB - daemon.MemoryMB
-		if percent == DefaultDaemonSharePercent {
+		if memoryPercent == DefaultDaemonSharePercent {
 			runner.MemoryMB = r.MemoryMB / 2
 			daemon.MemoryMB = r.MemoryMB - runner.MemoryMB
 		}
@@ -822,6 +860,21 @@ type Pool struct {
 	// take from the host -- and why it is stored: the two read the same from
 	// Resources, and only this says which was meant.
 	SizeFromProfile bool `json:"size_from_profile,omitempty"`
+	// AutoKey marks a pool the controller made and keeps, and says which one:
+	// an architecture and a size class (AutoKeyFor). Empty on every pool an
+	// operator made, which is every pool that exists before automatic pools are
+	// turned on, and what lets the controller change the others never.
+	//
+	// For such a pool MinRunners, MaxRunners and Enabled are the controller's
+	// output -- worked out from the hosts in its class on every pass -- and
+	// what the operator asked for is kept beside them: AutoMin runners kept
+	// warm, at most AutoCap runners (0 for no cap), and AutoPaused to take the
+	// pool out of use. Without that the next pass would read what it wrote as
+	// what was wanted.
+	AutoKey    string `json:"auto_key,omitempty"`
+	AutoMin    int    `json:"auto_min,omitempty"`
+	AutoCap    int    `json:"auto_cap,omitempty"`
+	AutoPaused bool   `json:"auto_paused,omitempty"`
 	// FleetStandard is the fleet's default runner size -- runners.default_cpus
 	// and runners.default_memory_mb -- as the controller's sizing copy of a
 	// pool that takes its size from the host carries it, for a host whose
@@ -852,6 +905,29 @@ type Pool struct {
 	Enabled   bool      `json:"enabled"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// FromHosts reports whether the controller keeps this pool from the hosts it
+// finds, rather than an operator having made it. It is not Automatic, which is
+// about how a pool's runners are sized and is true of most pools an operator
+// made by hand.
+func (p *Pool) FromHosts() bool { return p.AutoKey != "" }
+
+// AutoKeyFor is the key of the pool kept for one architecture and size class.
+// The architecture is the grammar's own (amd64 or arm64), so a host that says
+// "x86_64" and one that says "amd64" are in the same pool.
+func AutoKeyFor(arch string, class SizeClass) string {
+	return naming.NormalizeArch(arch) + "/" + string(class)
+}
+
+// ParseAutoKey is AutoKeyFor read back, for a key that is one.
+func ParseAutoKey(key string) (arch string, class SizeClass, ok bool) {
+	a, c, found := strings.Cut(key, "/")
+	class, valid := ParseSizeClass(c)
+	if !found || naming.NormalizeArch(a) != a || a == "" || !valid {
+		return "", "", false
+	}
+	return a, class, true
 }
 
 // Spec is the pool in the naming grammar's terms: how much machine each of its
@@ -1020,6 +1096,13 @@ type Host struct {
 	// -- every host until somebody sets one -- changes nothing about how the
 	// host is sized.
 	RunnerProfile RunnerProfile `json:"runner_profile,omitzero"`
+	// SizeClass is the class the controller holds this host in, worked out
+	// from its allocatable CPU and memory while size routing or automatic
+	// pools are on, and empty otherwise. It is the controller's alone, written
+	// by SetHostSizeClass and by no heartbeat and no operator: an operator who
+	// wants a host in a class puts a size label on it, which wins without
+	// being written into this. EffectiveSizeClass says which one answers.
+	SizeClass HostSizeClass `json:"size_class,omitzero"`
 	// Features is what the agent says it can do beyond running a backend,
 	// re-read from every heartbeat. An agent that advertises "elastic-cpu"
 	// can move a live runner's CPU quota; one that does not keeps every runner
@@ -1208,6 +1291,8 @@ func (h *Host) SelectorValue(key string) string {
 		return h.OS
 	case LabelArch:
 		return h.Arch
+	case LabelSize:
+		return string(h.SizeClass.Class)
 	}
 	return ""
 }
@@ -1485,6 +1570,63 @@ type Job struct {
 	GrantedCPUs     float64 `json:"granted_cpus,omitempty"`
 	GrantedMemoryMB int64   `json:"granted_memory_mb,omitempty"`
 	GrantedSource   string  `json:"granted_source,omitempty"`
+	// SizeClass is the class the controller put this job in when it first saw
+	// it, SizeReason the sentence for why, and SizeBasis how it got there (the
+	// SizeBasis* constants). They are stamped once, by StampJobClass, so a job
+	// can say what it was taken to need after the history that decided it has
+	// moved on. Empty is "not classified": a job from before migration 0075,
+	// or any job while size routing is off.
+	SizeClass  SizeClass `json:"size_class,omitempty"`
+	SizeReason string    `json:"size_reason,omitempty"`
+	SizeBasis  string    `json:"size_basis,omitempty"`
+	// SizeFloorMB is the memory the job is known to need, from its history,
+	// and zero when the class did not come from there. A class smaller than the
+	// job's is only an acceptable fallback if its runners have at least this.
+	SizeFloorMB int64 `json:"size_floor_mb,omitempty"`
+	// RoutedClass is the class the job is sent to, which is SizeClass until
+	// the wait for room in it runs out and the job is allowed a larger one;
+	// RoutedNote then says so. RanClass is the class of the host that took it,
+	// stamped once when a runner does. A job whose RanClass differs from its
+	// SizeClass ran somewhere other than where it was classed, which is what
+	// the Jobs page calls a fallback, and what the label advice report counts.
+	RoutedClass SizeClass `json:"routed_class,omitempty"`
+	RoutedNote  string    `json:"routed_note,omitempty"`
+	RanClass    SizeClass `json:"ran_class,omitempty"`
+	// CPUPeriods and CPUThrottledPeriods are how many CPU enforcement periods
+	// the job's runner had, and in how many it was held back by its quota, at
+	// the last sample taken while the job ran. Their ratio is how much of the
+	// time the job wanted more CPU than it had; zero is "never sampled". They
+	// are the runner's lifetime counters, so a job is given them only if it is
+	// the first the runner has run: a later job on a runner that is not
+	// ephemeral has none, rather than the earlier jobs' as well as its own.
+	CPUPeriods          int64 `json:"cpu_periods,omitempty"`
+	CPUThrottledPeriods int64 `json:"cpu_throttled_periods,omitempty"`
+}
+
+// How a job's size class was decided.
+const (
+	// SizeBasisExplicit means the job asked for a class by name in its
+	// runs-on, which is the one path that is guaranteed: only a runner that
+	// carries the label can take the job.
+	SizeBasisExplicit = "explicit"
+	// SizeBasisPin means an operator said which class this job, or every job
+	// of its repository, belongs in.
+	SizeBasisPin = "pin"
+	// SizeBasisHistory means the class was worked out from how much CPU and
+	// memory recent runs of the job were measured using.
+	SizeBasisHistory = "history"
+	// SizeBasisDefault means the job has no usable history yet and was given
+	// the fleet's default class.
+	SizeBasisDefault = "default"
+)
+
+// Throttled is the share of its CPU periods the job's runner was held back
+// in, from 0 to 1, and false when it was never sampled.
+func (j *Job) Throttled() (float64, bool) {
+	if j.CPUPeriods <= 0 {
+		return 0, false
+	}
+	return min(1, float64(j.CPUThrottledPeriods)/float64(j.CPUPeriods)), true
 }
 
 // JobStep is one step of a workflow job as GitHub reported it.
@@ -1576,6 +1718,10 @@ const (
 	// its steps, for its memory limit. It may land after completed: a runner
 	// whose step was killed finishes the job and says so only as it exits.
 	JobEventOOMKilled JobEventKind = "oom_killed"
+	// JobEventSized: the controller put the job in a size class, or sent it to
+	// another one, with the sentence that says why. Only written while size
+	// routing is on or being watched.
+	JobEventSized JobEventKind = "sized"
 )
 
 // JobEvent is one entry in a job's timeline: what happened, who observed it,

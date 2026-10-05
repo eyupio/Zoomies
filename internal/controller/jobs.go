@@ -378,6 +378,7 @@ func (c *Controller) recordJobChange(ctx context.Context, j *store.Job, change s
 	}
 	c.stampJobVersions(ctx, j, runner)
 	c.stampJobGranted(ctx, j, runner)
+	c.stampJobRan(ctx, j, runner)
 	c.observeScheduling(ctx, j, change, runner)
 	at := c.Now()
 	add := func(kind store.JobEventKind, message string) {
@@ -408,6 +409,11 @@ func (c *Controller) recordJobChange(ctx context.Context, j *store.Job, change s
 		if j.State == store.JobQueued {
 			add(c.claimKind(j), c.claimMessage(ctx, j))
 		}
+		// How the controller classed it, where it did, is part of why a pool
+		// claims it and which one.
+		if j.SizeBasis != "" {
+			add(store.JobEventSized, c.sizeMessage(j))
+		}
 	} else if change.StateChanged && change.PreviousState == store.JobWaiting && j.State == store.JobQueued {
 		// The approval arrives as an ordinary queued delivery. This is when
 		// the queue wait starts, and when whether a pool claims it matters.
@@ -430,6 +436,9 @@ func (c *Controller) recordJobChange(ctx context.Context, j *store.Job, change s
 	if j.State == store.JobCompleted {
 		add(store.JobEventCompleted, completionMessage(j))
 		c.autoRerunFleetFailure(ctx, j)
+		// Another run of this job has now been measured, and what it says about
+		// the job's class is kept for the next time it is queued.
+		c.refreshJobClass(ctx, j)
 	}
 }
 
@@ -595,6 +604,8 @@ func (c *Controller) noteOOMKilled(ctx context.Context, r *store.Runner, message
 	}); err != nil {
 		c.log.Warn("could not record a job timeline entry", "job", j.ID, "kind", store.JobEventOOMKilled, "error", err)
 	}
+	// A kill is the one piece of evidence the class does not wait for.
+	c.refreshJobClass(ctx, j)
 	c.publishJob(ctx, j)
 }
 

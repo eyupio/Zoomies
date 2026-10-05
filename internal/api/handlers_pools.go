@@ -139,6 +139,18 @@ type poolInput struct {
 	NoDefaultLabels        *bool                 `json:"no_default_labels"`
 	SizeFromProfile        *bool                 `json:"size_from_profile"`
 	Enabled                *bool                 `json:"enabled"`
+	// Auto is what an operator asks of a pool the controller keeps, and is
+	// refused on any other.
+	Auto *autoPoolInput `json:"auto"`
+}
+
+// autoPoolInput is the operator's side of a pool the controller keeps: runners to
+// keep ready, the most runners to allow however many slots the hosts give, and a
+// pause. A warm count above the cap is held to it.
+type autoPoolInput struct {
+	Warm   *int  `json:"warm"`
+	Cap    *int  `json:"cap"`
+	Paused *bool `json:"paused"`
 }
 
 // optionalDuration is one duration field of a PATCH body, with the three
@@ -708,12 +720,23 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 	case p.Resources.MinMemoryMB > 0 && p.Resources.MinMemoryMB < store.MinRunnerMemoryMB:
 		add("resources.min_memory_mb", "a runner needs at least 512 MB, however short its host is; below that the runner binary is killed before it takes a job")
 	}
-	if share := p.Resources.DaemonSharePercent; share != 0 {
+	// The daemon's share of a slot: one figure for both resources, and one for each
+	// that overrides it. They mean something only where there is a daemon to give
+	// them to, and are held to a range that leaves neither container with nothing.
+	for _, f := range []struct {
+		field string
+		share int
+	}{
+		{"resources.daemon_share_percent", p.Resources.DaemonSharePercent},
+		{"resources.daemon_cpu_share_percent", p.Resources.DaemonCPUSharePercent},
+		{"resources.daemon_memory_share_percent", p.Resources.DaemonMemorySharePercent},
+	} {
 		switch {
+		case f.share == 0:
 		case p.DockerMode != store.DockerDinD:
-			add("resources.daemon_share_percent", "the daemon's share only means something for a pool with docker_mode dind, which is the one that runs a daemon beside the runner")
-		case share < store.MinDaemonSharePercent || share > store.MaxDaemonSharePercent:
-			add("resources.daemon_share_percent", fmt.Sprintf("the daemon's share must be between %d and %d percent, or 0 for an even split; a container given less than a tenth of the slot is no limit in effect", store.MinDaemonSharePercent, store.MaxDaemonSharePercent))
+			add(f.field, "the daemon's share only means something for a pool with docker_mode dind, which is the one that runs a daemon beside the runner")
+		case f.share < store.MinDaemonSharePercent || f.share > store.MaxDaemonSharePercent:
+			add(f.field, fmt.Sprintf("the daemon's share must be between %d and %d percent, or 0 for an even split; a container given less than a tenth of the slot is no limit in effect", store.MinDaemonSharePercent, store.MaxDaemonSharePercent))
 		}
 	}
 	if p.Resources.DiskGB < 0 {
@@ -894,6 +917,10 @@ func hasDistinctiveLabel(labels []string) bool {
 func (s *Server) handleCreatePool(w http.ResponseWriter, r *http.Request) {
 	var in poolInput
 	if !decode(w, r, &in) {
+		return
+	}
+	if in.Auto != nil {
+		unprocessable(w, "this pool cannot be created as described", []fieldError{{"auto", "automatic pools are made by the controller from the hosts it has, not created; turn on scheduler.auto_pools, or leave auto out to make a pool of your own"}})
 		return
 	}
 	p := s.defaultPool()
@@ -1182,6 +1209,14 @@ func (s *Server) handleUpdatePool(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
+	if existing.FromHosts() {
+		s.updateAutoPool(w, r, existing, &in)
+		return
+	}
+	if in.Auto != nil {
+		unprocessable(w, "this pool cannot be changed as described", []fieldError{{"auto", "this pool was made by somebody, not kept by the controller, so it has no warm count, cap or pause of that kind; use min_runners, max_runners and enabled"}})
+		return
+	}
 	before := *existing
 	updated := *existing
 	errs := in.apply(&updated)
@@ -1298,6 +1333,15 @@ func (s *Server) handleDeletePool(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, "reading the pool", err)
 		return
 	}
+	// The controller makes it again on its next pass, so deleting it only costs
+	// the pool's history. Left alone when it is not keeping this pool -- the switch
+	// is off or only watching, or the pool belongs to an installation the pools are
+	// no longer kept for -- because then it is a leftover and nothing will remake it.
+	if p.FromHosts() && s.ctrl.AutoPoolKept(p) {
+		conflict(w, fmt.Sprintf("%s is kept by the controller from your hosts, so deleting it would only have it made again on the next pass. "+
+			"Pause it to stop it taking work, or set scheduler.auto_pools to shadow or off to stop the controller keeping pools, and delete it then.", p.Name))
+		return
+	}
 	runners, err := s.ctrl.Store().ListRunnersForPool(r.Context(), id)
 	if err != nil {
 		s.internal(w, r, "listing the pool's runners", err)
@@ -1377,6 +1421,12 @@ func (s *Server) setPoolEnabled(w http.ResponseWriter, r *http.Request, enabled 
 	p, err := s.ctrl.Store().GetPool(r.Context(), id)
 	if err != nil {
 		s.fail(w, r, "reading the pool", err)
+		return
+	}
+	// Whether an automatic pool is in use is the controller's to work out from
+	// its hosts, so the switch is the operator's half of it: a pause.
+	if p.FromHosts() {
+		s.setAutoPoolPaused(w, r, p, !enabled)
 		return
 	}
 	if p.Enabled != enabled {

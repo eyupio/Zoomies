@@ -24,7 +24,7 @@
   const categories = $derived(feed.categories);
   const on = $derived(categories.filter((row) => row.on).length);
   /*
-    Under headings rather than in one list of twelve, and the headings are only
+    Under headings rather than in one long list, and the headings are only
     a way to read them: nothing branches on a group, and a category is what it
     reports, not where it is printed.
   */

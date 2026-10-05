@@ -25,6 +25,7 @@
   } from '$lib/status';
   import type { Job } from '$lib/api/types';
   import { allocationWords } from '$lib/runners/allocation';
+  import { jobSize } from './size';
   import { session } from '$lib/state/session.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
   import Badge from '$lib/components/Badge.svelte';
@@ -71,6 +72,10 @@
   const grantedSize = $derived(
     allocationWords(job?.granted_cpus, job?.granted_memory_mb, job?.granted_source),
   );
+  // Which class of host the job was put in, why, and where it ran. Null for a
+  // job nobody classed -- every job while size routing is off -- so the drawer
+  // of a fleet that has not turned it on is the one it always was.
+  const size = $derived(job ? jobSize(job) : null);
   /**
    * Anything still waiting on something, whichever kind of waiting it is. One
    * panel answers all of them now, because the controller's explanation makes
@@ -296,6 +301,45 @@
           <dd class="tabular" data-testid="job-granted-size">{grantedSize}</dd>
         {/if}
 
+        {#if size}
+          <!-- Three facts, kept apart because they are asked in this order: the
+               class it was put in and why, the pool it was sent to when that was
+               not its own class, and the class of the host that took it. The
+               sentences are the controller's; a job that ran somewhere other
+               than it was sent is explained, not blamed. -->
+          <dt>Size class</dt>
+          <dd data-testid="job-size-class">
+            <Badge tone="neutral" size="sm" dot={false} label={size.word} />
+            {#if size.basisWords}<span class="muted"> · {size.basisWords}</span>{/if}
+            {#if size.because}<span class="why">{size.because}</span>{/if}
+          </dd>
+
+          {#if size.fallback}
+            <dt>Sent to</dt>
+            <dd data-testid="job-size-fallback">
+              <Badge tone="neutral" size="sm" dot={false} label="Fallback" />
+              <span>the {size.fallback.to} pool, not its own class.</span>
+              {#if size.fallback.note}<span class="why">{size.fallback.note}</span>{/if}
+            </dd>
+          {/if}
+
+          {#if size.ran}
+            <dt>Ran on</dt>
+            <dd data-testid="job-size-ran">{size.ran.text}</dd>
+          {/if}
+
+          {#if size.throttledPercent !== null && size.throttledPercent > 0}
+            <dt>CPU held back</dt>
+            <dd class="tabular" data-testid="job-throttled">
+              {size.throttledPercent}%
+              <span class="muted"
+                >of its CPU periods were cut short by the limit its runner had. A job held back
+                often is one that wants a larger class.</span
+              >
+            </dd>
+          {/if}
+        {/if}
+
         {#if job.peak_cpus || job.peak_memory_mb || job.oom_killed}
           <dt>Peak usage</dt>
           <dd class="tabular" data-testid="job-peak-usage">
@@ -402,6 +446,16 @@
   }
   .muted {
     color: var(--z-text-subtle);
+  }
+  /* The controller's sentence about a decision, on its own line under the badge
+     that says what it decided, so a long one wraps under the answer and not
+     beside it. */
+  .why {
+    display: block;
+    margin-top: var(--z-space-1);
+    color: var(--z-text-muted);
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
   }
   a {
     color: var(--z-accent);

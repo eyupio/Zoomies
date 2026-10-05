@@ -702,11 +702,12 @@ test('a reserve that would leave nothing to place on is refused', async ({ page 
 
 /**
  * The two settings a host has, each reached from the thing it describes: the
- * resources from Adjust beside the slot bar, and the labels from the block
+ * resources from Adjust beside the slot bar, and the tags from the block
  * that lists them. Capacity was on both once, with two different ideas of a
  * good number, and only one of them knew what a runner in this fleet asks for.
+ * A tag is a label stored on the host, so what is sent is still `labels`.
  */
-test('the labels dialog edits labels and nothing else', async ({ page }) => {
+test('the tags dialog edits tags and nothing else', async ({ page }) => {
   await goto(page, '/hosts', 'Hosts');
   const card = page.getByRole('article', { name: 'demo-builder-1', exact: true });
   let patched: Record<string, unknown> | null = null;
@@ -720,8 +721,8 @@ test('the labels dialog edits labels and nothing else', async ({ page }) => {
   });
 
   await card.getByRole('button', { name: /Actions for/ }).click();
-  await page.getByRole('menuitem', { name: 'Edit labels' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Labels on demo-builder-1' });
+  await page.getByRole('menuitem', { name: 'Edit tags' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Tags on demo-builder-1' });
   await expect(dialog).toBeVisible();
   // No resource setting in here at all: that is Adjust's, and the dialog says so.
   await expect(dialog).toContainText('Capacity and the reserve are under Adjust');

@@ -171,6 +171,16 @@ type Controller struct {
 	// flag, not a queue. Fifty webhooks in a second leave one token behind and
 	// therefore cause one reconcile pass, not fifty.
 	nudges chan struct{}
+	// autoPools is the reconciler of the pools the controller keeps for the
+	// hosts it has; see autopools.go.
+	autoPools autoPoolState
+	// startedAt is when this process began listening to its hosts, which is what
+	// a host's silence is counted from if it is later than the host's last
+	// heartbeat: see scheduler.AutoPoolInput.Since.
+	startedAt time.Time
+	// adviceMemo is how much label advice there is, as the problems list last
+	// worked it out; see size_views.go.
+	adviceMemo adviceMemo
 	// reconcileMu makes a pass mutually exclusive with itself, so a timer tick
 	// landing on top of a nudge cannot double-create runners.
 	reconcileMu sync.Mutex
@@ -206,6 +216,11 @@ type Controller struct {
 	pollSettingsChanged     chan struct{}
 	recoverySettingsChanged chan struct{}
 	machineSettingsChanged  chan struct{}
+	// sizeModeChanged wakes the loop that puts the jobs already waiting through
+	// size routing again. Unlike the three above it is sent only when
+	// scheduler.size_routing itself changed, and it has a loop of its own for
+	// the same reason they do.
+	sizeModeChanged chan struct{}
 
 	// pollingOnly records that no webhook has ever arrived, which the Overview
 	// says out loud because a fleet scaling on the poller looks healthy until
@@ -437,9 +452,12 @@ func New(opts Options) (*Controller, error) {
 		providerHTTP:            opts.ProviderHTTPClient,
 		backupHTTP:              opts.BackupRemoteHTTPClient,
 		nudges:                  make(chan struct{}, 1),
+		autoPools:               newAutoPoolState(),
+		startedAt:               clock().UTC(),
 		pollSettingsChanged:     make(chan struct{}, 1),
 		recoverySettingsChanged: make(chan struct{}, 1),
 		machineSettingsChanged:  make(chan struct{}, 1),
+		sizeModeChanged:         make(chan struct{}, 1),
 		restart:                 make(chan struct{}),
 		backups:                 backupState{ship: make(chan struct{}, 1)},
 		hostHealthy:             map[string]bool{},
@@ -525,6 +543,11 @@ func (c *Controller) Start(ctx context.Context) error {
 	c.started = true
 
 	c.spawn("reconcile", loopCtx, c.reconcileLoop)
+	// Its own loop, apart from the scheduling pass: it changes pools and hosts,
+	// which the pass only reads, and has to keep up with hosts coming and going
+	// while a pass is holding reconcileMu for as long as GitHub takes to answer.
+	c.spawn("auto-pools", loopCtx, c.autoPoolLoop)
+	c.spawn("size-mode", loopCtx, c.sizeModeLoop)
 	c.spawn("reap", loopCtx, c.reapLoop)
 	c.spawn("poller", loopCtx, c.pollLoop)
 	c.spawn("job-recovery", loopCtx, c.jobRecoveryLoop)
@@ -774,6 +797,21 @@ func (c *Controller) UpdateConfig(fn func(*config.Config)) *config.Config {
 	// The scheduler tunables change what the next pass decides, and a new
 	// interval takes effect once a pass has run and reset the timer.
 	c.Nudge()
+	// The jobs already waiting were classed under the old mode, or not at all,
+	// and the mode is only read as a job arrives: they are put through it again
+	// so that turning routing on reaches the queue and turning it off leaves no
+	// job saying it was sent somewhere.
+	if modeOf(before.Scheduler.SizeRouting) != modeOf(after.Scheduler.SizeRouting) {
+		select {
+		case c.sizeModeChanged <- struct{}{}:
+		default:
+		}
+	}
+	// The pools the controller keeps follow the same settings -- the switch, the
+	// installation, the docker mode, the grace a host is given -- and a pool's
+	// page says whether the controller is keeping it from the last pass, so a
+	// change is worked out now and not at the next tick.
+	c.KickAutoPools()
 	return after
 }
 
@@ -927,6 +965,17 @@ func (c *Controller) publishInstallation(ctx context.Context, inst *store.Instal
 // who made the change is looking at the response, but every other open
 // dashboard learns about it from here.
 func (c *Controller) PublishPool(ctx context.Context, kind events.Kind, p *store.Pool) {
+	c.publishPool(ctx, kind, p)
+	// An operator editing a pool the controller keeps -- its cap, its pause --
+	// is something the next figures are derived from.
+	if p != nil && p.FromHosts() {
+		c.KickAutoPools()
+	}
+}
+
+// publishPool is PublishPool for the controller's own changes, which are not
+// a reason to run the reconciler again.
+func (c *Controller) publishPool(ctx context.Context, kind events.Kind, p *store.Pool) {
 	if p == nil || c.bus == nil {
 		return
 	}
@@ -1082,7 +1131,12 @@ func (c *Controller) PurgeInstallation(ctx context.Context, id string) error {
 
 // PublishHost announces a host an operator changed: its capacity, its labels,
 // or whether it is cordoned.
-func (c *Controller) PublishHost(h *store.Host) { c.publishHost(h) }
+func (c *Controller) PublishHost(h *store.Host) {
+	c.publishHost(h)
+	// A host's capacity, labels, profile and cordon are what the pools the
+	// controller keeps are worked out from.
+	c.KickAutoPools()
+}
 
 // PublishHostDeleted announces that a host is gone.
 func (c *Controller) PublishHostDeleted(id string) {
@@ -1090,6 +1144,7 @@ func (c *Controller) PublishHostDeleted(id string) {
 	delete(c.lastHosts, id)
 	c.derivedMu.Unlock()
 	c.publish(events.KindHostDeleted, "host:"+id, deletedPayload{ID: id})
+	c.KickAutoPools()
 }
 
 // PublishInstallation announces an installation an operator added or edited.
