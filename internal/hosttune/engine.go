@@ -57,8 +57,14 @@ func (LocalSystem) Stat(p string) (fs.FileInfo, error)      { return os.Lstat(p)
 func (LocalSystem) Remove(p string) error                   { return os.Remove(p) }
 func (LocalSystem) Run(ctx context.Context, n string, a ...string) (string, error) {
 	budget := 30 * time.Second
-	if n == "apt-get" {
+	switch {
+	case n == "apt-get":
 		budget = 20 * time.Minute
+	case n == "systemctl" && len(a) > 0 && (a[0] == "stop" || a[0] == "start" || a[0] == "restart"),
+		n == "docker" && len(a) > 0 && a[0] == "stop":
+		// A service or a daemon stopping waits on what it is running: Docker
+		// gives each container ten seconds before it kills it.
+		budget = 3 * time.Minute
 	}
 	cctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()

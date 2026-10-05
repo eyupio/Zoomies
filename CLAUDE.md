@@ -99,7 +99,10 @@ Keep GET host payloads, `host.updated`, OpenAPI and UI types consistent. Tests
 inject all host filesystem/command access; never modify the test machine.
 Tuning state lives separately in `/var/lib/zoomies-host-tune/state.json` and
 must survive uninstall. Never reboot, change CPU mitigations, or restart Docker
-while work can run. See `docs/host-health.md` for consent and reversal rules.
+while work can run; the one way to restart it on a busy host is `--force`, a
+maintenance restart that takes the host out of service and waits for its jobs
+first, and ends one only with `--kill-running`. See `docs/host-health.md` for
+consent and reversal rules.
 
 ## Dependencies
 

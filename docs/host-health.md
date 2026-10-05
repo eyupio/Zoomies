@@ -105,7 +105,43 @@ Service file limits take effect at the next service start. Docker log settings
 need a Docker restart and affect **newly created containers**, not existing
 ones. Zoomies asks before restarting Docker (or accepts your explicit `--yes`),
 and refuses when containers run or an active native agent could admit new work.
-Drain and stop the agent first. **`--force` never overrides that refusal.**
+Drain and stop the agent first, or let Zoomies do it with a maintenance restart.
+
+### Maintenance restart: `--force`
+
+On a host that is never quiet, a restart left pending is a restart that never
+happens. `--force` is you asking for the quiet moment to be made:
+
+```sh
+sudo zoomies tune --force                       # restart Docker for a pending change
+sudo zoomies doctor --interactive --force       # the same, after reviewing fixes
+sudo zoomies tune --force --wait 30m            # give running jobs longer to finish
+sudo zoomies tune --force --kill-running        # ...and stop whatever is left
+```
+
+It asks first (or accepts `--yes`), then:
+
+1. records which of `zoomies-agent.service` and `zoomies.service` are running, and
+   stops those, so nothing new starts;
+2. waits up to `--wait` (default 10 minutes) for every running container to finish —
+   the host's own and anyone else's, because a Docker restart ends them all;
+3. restarts Docker and waits for it to answer;
+4. starts the services it stopped, in the reverse order, and clears the pending restart.
+
+**It never ends a job on its own.** If containers are still running when `--wait` is
+over, the host is put back in service, nothing is restarted, the change stays pending,
+and the message says so. `--kill-running` is the separate, named permission to stop
+what is left and restart anyway; it lists the containers first, and their jobs fail.
+If the restart itself fails, the services are still started again — a host left out of
+service is worse than a restart that did not happen.
+
+On a host that runs the controller, `zoomies.service` is the control plane: it is
+stopped for the wait, so jobs queue rather than run until it is back. A service whose
+state cannot be read is a refusal before anything is stopped, as is a custom or
+rootless Docker endpoint, which is restarted by hand.
+
+`--force` never overrides the dependency or managed-configuration guards, and `upgrade`
+and `update` never use it: upgrades do not tune.
 
 ## Aggressive checks
 

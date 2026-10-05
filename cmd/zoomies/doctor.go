@@ -52,6 +52,9 @@ func runDoctor(ctx context.Context, e *env, args []string) error {
 	fs := newFlagSet(e, "zoomies doctor [--verbose] [--json] [--tier safe|aggressive|dedicated] [--host <id>]", "Check host OS settings and explain recommended changes. No host settings are changed.")
 	verbose := fs.Bool("verbose", false, "show all checks, values and explanations")
 	interactive := fs.Bool("interactive", false, "offer individual local fixes after showing the report")
+	force := fs.Bool("force", false, "with --interactive: where an approved fix needs Docker restarted, take this host out of service, wait for running jobs to finish, restart Docker and bring the host back (see zoomies tune --force)")
+	wait := fs.Duration("wait", hosttune.DefaultMaintenanceWait, "with --force, how long running jobs are given to finish")
+	killRunning := fs.Bool("kill-running", false, "with --force, stop containers still running when --wait is over, which ends their jobs")
 	js := fs.Bool("json", false, "print a machine-readable report")
 	tier := fs.String("tier", "safe", "safe, aggressive or dedicated; kernel checks appear in every tier")
 	watch := fs.Bool("watch", false, "continuously publish a read-only native host report every minute")
@@ -93,6 +96,12 @@ func runDoctor(ctx context.Context, e *env, args []string) error {
 			return fmt.Errorf("run the host health reporter using the native binary on the host")
 		}
 		return watchDoctor(ctx, e, engine, t, *reportFile)
+	}
+	if (*force || *killRunning || fs.changed("wait")) && !*interactive {
+		return usagef("doctor", "--force, --wait and --kill-running change the host, so they apply only with --interactive")
+	}
+	if (fs.changed("wait") || *killRunning) && !*force {
+		return usagef("doctor", "--wait and --kill-running only apply to a maintenance restart; add --force")
 	}
 	if *interactive && (*js || *host != "") {
 		return usagef("doctor", "--interactive requires a local, human-readable report")
@@ -157,6 +166,12 @@ func runDoctor(ctx context.Context, e *env, args []string) error {
 			a = append(a, "--dedicated")
 		} else {
 			a = append(a, "--tier", string(t))
+		}
+		if *force {
+			a = append(a, "--force", "--wait", wait.String())
+			if *killRunning {
+				a = append(a, "--kill-running")
+			}
 		}
 		if err = runTune(ctx, e, a); err != nil {
 			return err

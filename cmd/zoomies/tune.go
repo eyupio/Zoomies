@@ -22,7 +22,9 @@ func runTune(ctx context.Context, e *env, args []string) error {
 	only := fs.String("only", "", "comma-separated check IDs; optional changes must be selected explicitly")
 	skip := fs.String("skip", "", "comma-separated check IDs to leave unchanged")
 	revert := fs.Bool("revert", false, "restore recorded previous values and files")
-	force := fs.Bool("force", false, "does not override active-job, dependency or managed-configuration guards")
+	force := fs.Bool("force", false, "maintenance restart: where a change needs Docker restarted, stop this host's Zoomies services, wait for running jobs to finish (--wait), restart Docker, and start the services again. Never overrides dependency or managed-configuration guards")
+	wait := fs.Duration("wait", hosttune.DefaultMaintenanceWait, "with --force, how long running jobs are given to finish before the restart is given up")
+	killRunning := fs.Bool("kill-running", false, "with --force, stop containers still running when --wait is over and restart Docker anyway, which ends their jobs")
 	cfg := fs.String("config", "", "local Zoomies configuration file")
 	work := fs.String("work-dir", "", "host path to runner work directory")
 	dockerHost := fs.String("docker-host", "", "Docker socket on this host")
@@ -32,6 +34,9 @@ func runTune(ctx context.Context, e *env, args []string) error {
 	}
 	if err := fs.noMoreArgs(); err != nil {
 		return err
+	}
+	if (fs.changed("wait") || *killRunning) && !*force {
+		return usagef("tune", "--wait and --kill-running only apply to a maintenance restart; add --force")
 	}
 	t, err := tierValue(*tier)
 	if err != nil || t == hosttune.Dedicated {
@@ -69,7 +74,7 @@ func runTune(ctx context.Context, e *env, args []string) error {
 	}
 	ui.Title(e.out, "Host tuning", label+" -- "+action)
 	ui.Hint(e.out, "Every applied change has a reversal record: zoomies tune --revert")
-	err = engine.Tune(ctx, hosttune.TuneOptions{Tier: t, Dedicated: *dedicated, DryRun: *dry, Yes: *yes, Only: hosttune.IDs(*only), Skip: hosttune.IDs(*skip), Revert: *revert, Force: *force, In: e.in, Out: e.out, Actor: actor})
+	err = engine.Tune(ctx, hosttune.TuneOptions{Tier: t, Dedicated: *dedicated, DryRun: *dry, Yes: *yes, Only: hosttune.IDs(*only), Skip: hosttune.IDs(*skip), Revert: *revert, Force: *force, Wait: *wait, KillRunning: *killRunning, In: e.in, Out: e.out, Actor: actor})
 	if err == nil && !*dry {
 		r := engine.Run(ctx, hosttune.Dedicated)
 		if _, statErr := engine.System.Stat(engine.WorkDir); statErr == nil {
