@@ -190,6 +190,9 @@ func (c *Controller) SeedDemo(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if err := c.seedMemory(ctx, now, []*store.Pool{pool1, pool2}, hosts, runners); err != nil {
+		return err
+	}
 	if err := c.seedJobs(ctx, now, rng, []*store.Pool{pool1, pool2}, runners); err != nil {
 		return err
 	}
@@ -309,7 +312,7 @@ func (c *Controller) seedHosts(ctx context.Context, now time.Time) ([]*store.Hos
 			// This build's agent advertises it, so a demo host on this build
 			// does too; a fleet of hosts that could not lend CPU would carry a
 			// badge on every card saying so.
-			Features:      store.StringSlice{agent.FeatureElasticCPU, agent.FeatureTmpfs},
+			Features:      store.StringSlice{agent.FeatureElasticCPU, agent.FeatureElasticMemory, agent.FeatureTmpfs},
 			Cordoned:      s.cordoned,
 			LastHeartbeat: now.Add(-s.silentFor),
 		}
@@ -509,7 +512,18 @@ func (c *Controller) seedPools(ctx context.Context) (*store.Pool, *store.Pool, e
 		DockerMode:   store.DockerNone,
 		Resources:    store.Resources{CPUs: 2, MemoryMB: 4096},
 		HostSelector: store.StringMap{"arch": "amd64"},
-		Enabled:      true,
+		// The memory valve lending, with a little swap as the last resort, and
+		// the work folder and /tmp kept in memory: the two things a runner's row
+		// says about its memory, so the Runners page has both to show. The
+		// folders are typed and small beside the limit, because a pool whose
+		// folders may fill half of it carries a warning of its own and the demo
+		// is a fleet with nothing wrong that it did not mean to show.
+		MemoryBurst: store.MemoryBurstPolicy{Mode: store.MemoryBurstAutomatic, SpillMB: 2048},
+		Tmpfs: store.TmpfsConfig{
+			Work: store.TmpfsMount{Enabled: true, SizeMB: 1024},
+			Tmp:  store.TmpfsMount{Enabled: true, SizeMB: 512},
+		},
+		Enabled: true,
 	}
 	arm := &store.Pool{
 		ID:             demoPoolArmID,
@@ -537,7 +551,12 @@ func (c *Controller) seedPools(ctx context.Context) (*store.Pool, *store.Pool, e
 		// the host puts its pair in one slot and charges one.
 		Resources:    store.Resources{CPUs: 2, MemoryMB: 4096},
 		HostSelector: store.StringMap{"arch": "arm64"},
-		Enabled:      true,
+		// Observing, which is how a pool that has just been made starts: the
+		// valve decides and records what it would have lent and changes nothing,
+		// and the image store its builds write to is kept in memory.
+		MemoryBurst: store.MemoryBurstPolicy{Mode: store.MemoryBurstObserve},
+		Tmpfs:       store.TmpfsConfig{Daemon: store.TmpfsMount{Enabled: true, SizeMB: 1024}},
+		Enabled:     true,
 	}
 	if err := c.st.CreatePool(ctx, linux); err != nil {
 		return nil, nil, fmt.Errorf("seeding pool %s: %w", linux.Name, err)

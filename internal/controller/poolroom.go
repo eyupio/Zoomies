@@ -60,6 +60,9 @@ type PoolHostRoom struct {
 	// one placed elsewhere is held at its share, and nothing but this says so
 	// while the pool is still being edited.
 	ElasticCPU bool `json:"elastic_cpu"`
+	// ElasticMemory is the same for the memory valve: whether this host's agent
+	// carries out the rules that let a runner be lent memory while it runs.
+	ElasticMemory bool `json:"elastic_memory"`
 	// Tmpfs is whether this host's agent mounts a pool's in-memory folders. A
 	// pool that asks for them is honoured only where it is true.
 	Tmpfs bool `json:"tmpfs"`
@@ -203,6 +206,7 @@ func poolHostRoom(h *store.Host, p *store.Pool) PoolHostRoom {
 		MemoryKnown:    alloc.MemoryKnown,
 		DiskKnown:      alloc.DiskKnown,
 		ElasticCPU:     h.Supports(agent.FeatureElasticCPU),
+		ElasticMemory:  h.Supports(agent.FeatureElasticMemory),
 		Tmpfs:          hostSupportsTmpfs(h),
 		TmpfsOff:       h.RunnerProfile.Tmpfs.Disabled,
 		TmpfsPolicy:    h.RunnerProfile.Tmpfs,
@@ -268,6 +272,10 @@ func PoolRoomWarnings(p *store.Pool, room PoolRoom) []Problem {
 	}
 
 	if w, ok := heldByOldAgents(p, placeable); ok {
+		out = append(out, w)
+	}
+
+	if w, ok := heldWithoutMemoryValve(p, placeable); ok {
 		out = append(out, w)
 	}
 
@@ -403,6 +411,51 @@ func heldByOldAgents(p *store.Pool, hosts []PoolHostRoom) (Problem, bool) {
 			"and nothing on the pool says which of its runners that happened to.",
 		Fix: "upgrade the agent on those hosts -- the command is on each host's card under Hosts -- " +
 			"or keep this pool on observe, which needs nothing of the agent, until they are.",
+		TargetKind: "pool",
+		TargetID:   p.ID,
+	}, true
+}
+
+// heldWithoutMemoryValve names the hosts on which a pool with the memory valve
+// on is lent nothing, for the reason heldByOldAgents gives for CPU: the agent is
+// the only thing on the host that can raise a live runner's limit, and one too
+// old to say it can is sent no rules. The runner stays at the memory it was
+// created with, which is a safe outcome and an invisible one.
+//
+// Observe mode is named too, unlike for CPU. Observing is the agent's own
+// decision about its own runners, so an agent that does not carry the valve
+// observes nothing, and a pool whose operator is waiting on the evidence for a
+// month would be waiting on nothing.
+func heldWithoutMemoryValve(p *store.Pool, hosts []PoolHostRoom) (Problem, bool) {
+	if !p.MemoryBurst.Observes() {
+		return Problem{}, false
+	}
+	var names []string
+	for _, h := range hosts {
+		if !h.ElasticMemory {
+			names = append(names, h.Host)
+		}
+	}
+	if len(names) == 0 {
+		return Problem{}, false
+	}
+	runs := "run"
+	if len(names) == 1 {
+		runs = "runs"
+	}
+	what := "lend memory"
+	if !p.MemoryBurst.Enforces() {
+		what = "watch memory for it"
+	}
+	return Problem{
+		Code:     "pool.elastic_memory_unsupported",
+		Severity: config.SeverityWarning,
+		Title: fmt.Sprintf("pool %s: %d of its %s %s an agent that cannot %s",
+			p.Name, len(names), plural(len(hosts), "host"), runs, what),
+		Detail: "the memory valve raises a live runner's limit through the agent on its host, and these agents are too old to say they can: " +
+			strings.Join(names, ", ") + ". A runner placed there keeps the memory it was created with, exactly as with the valve off, " +
+			"and nothing on the pool says which of its runners that happened to.",
+		Fix:        "upgrade the agent on those hosts -- the command is on each host's card under Hosts -- or keep this pool off them.",
 		TargetKind: "pool",
 		TargetID:   p.ID,
 	}, true

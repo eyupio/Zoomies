@@ -306,6 +306,13 @@ type Controller struct {
 	// between heartbeats -- see decideLoan.
 	loansMu sync.Mutex
 	loans   map[string]loanEntry
+	// memoryHosts is what the memory valve last worked out for each host that
+	// has runners it applies to: its pool, its floor and when a runner on it was
+	// last refused memory. Memory only, for the same reason loans are: it is a
+	// fact about the last few heartbeats, and the next one that carries any
+	// rewrites it.
+	memoryMu    sync.Mutex
+	memoryHosts map[string]*memoryHostState
 	// pairs is what each docker-in-docker pool's runners have recently used of
 	// the two halves of their slot -- see pairWindow. Memory only, on purpose:
 	// it is evidence for advice, and forgetting it on a restart costs the advice
