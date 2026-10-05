@@ -664,6 +664,14 @@ test.describe('pools the controller keeps', () => {
     // The valve is a choice of three, and the page shows the one the pool is on:
     // the demo fleet's first pool is set to watch.
     await expect(dialog.getByRole('radio', { name: /^Observe only/ })).toBeChecked();
+    // The control is the pool editor's and takes its layout from whatever holds
+    // it. Without the dialog's own, the fieldset is a plain block whose children
+    // have nothing between them, its title has no rule above it, and its hints
+    // are body text.
+    const valve = dialog.getByRole('group', { name: 'Elastic memory' });
+    await expect(valve).toHaveCSS('display', 'flex');
+    await expect(valve.locator('legend')).toHaveCSS('border-top-width', '1px');
+    await expect(valve.locator('.hint').first()).toHaveCSS('font-size', '12px');
     await dialog.getByRole('radio', { name: /^Lend memory/ }).check();
     // Swap past a terabyte is a typo, and is said where it is typed.
     const swap = dialog.getByRole('textbox', { name: 'Swap as the last resort', exact: true });

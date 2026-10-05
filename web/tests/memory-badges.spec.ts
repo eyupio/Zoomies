@@ -162,6 +162,9 @@ test('a runner lent memory wears a pill with the figure, and its card says every
   const lentPill = pill(page, /Lent 1\.5 GB of memory: show details/);
   await expect(lentPill).toBeVisible();
   await expect(lentPill).toContainText('+1.5 GB');
+  // The name begins with the words on the pill, so a person who says what they
+  // can see ("click plus one point five gigabytes") reaches the button they mean.
+  await expect(lentPill).toHaveAccessibleName(/^\+1\.5 GB, Lent 1\.5 GB of memory: show details$/);
 
   await open(page, lentPill, isMobile);
   const tip = card(page);
@@ -190,7 +193,7 @@ test('a pill is for reading: opening it does not open the runner', async ({ page
   await giveRunners(page, [{ memory_resource: lent }]);
   await goto(page, '/runners', 'Runners');
   await waitForRows(grid(page, 'Runners'));
-  const lentPill = pill(page, /^Lent 1\.5 GB of memory/);
+  const lentPill = pill(page, /Lent 1\.5 GB of memory/);
   await lentPill.scrollIntoViewIfNeeded();
   if (isMobile) await lentPill.tap();
   else await lentPill.click();
@@ -203,7 +206,7 @@ test('the keyboard reaches the same card, and Escape puts it away', async ({ pag
   await giveRunners(page, [{ memory_resource: lent }]);
   await goto(page, '/runners', 'Runners');
   await waitForRows(grid(page, 'Runners'));
-  const lentPill = pill(page, /^Lent 1\.5 GB of memory/);
+  const lentPill = pill(page, /Lent 1\.5 GB of memory/);
   await lentPill.focus();
   await expect(card(page)).toBeVisible();
   await expect(card(page)).toContainText('Lent 1.5 GB of memory');
@@ -232,7 +235,7 @@ test('swap, a runner that wants more, and an observing valve are each told apart
   const loan = pill(page, /Lent 2\.0 GB of memory, and it wants more: show details/);
   await expect(loan).toBeVisible();
   await expect(loan).toHaveAttribute('data-wanting', 'true');
-  const swap = pill(page, /^May use 1\.0 GB of swap/);
+  const swap = pill(page, /May use 1\.0 GB of swap/);
   await expect(swap).toHaveText('Swap');
   await expect(swap).toHaveAttribute('data-tone', 'pending');
   await open(page, swap, isMobile);
@@ -241,7 +244,7 @@ test('swap, a runner that wants more, and an observing valve are each told apart
   await page.keyboard.press('Escape');
 
   // A runner the host had no memory for, which has no loan to be told apart by.
-  const hostFull = pill(page, /^Its host had no memory to lend/);
+  const hostFull = pill(page, /Its host had no memory to lend/);
   await expect(hostFull).toHaveText('Host full');
   await open(page, hostFull, isMobile);
   await expect(card(page)).toContainText('wants more');
@@ -249,7 +252,7 @@ test('swap, a runner that wants more, and an observing valve are each told apart
   await page.keyboard.press('Escape');
 
   // An observing pool's pill is dashed: it says what would have happened.
-  const watching = pill(page, /^Would have lent 1\.0 GB/);
+  const watching = pill(page, /Would have lent 1\.0 GB/);
   await expect(watching).toHaveText('~1.0 GB');
   await expect(watching).toHaveClass(/dashed/);
   await open(page, watching, isMobile);
@@ -309,7 +312,7 @@ test('a pool that asked for memory and gave this runner none says so, and a plai
   ]);
   await goto(page, '/runners', 'Runners');
   const rows = await waitForRows(grid(page, 'Runners'));
-  const onDisk = pill(page, /^Kept on disk, though its pool asked for memory/);
+  const onDisk = pill(page, /Kept on disk, though its pool asked for memory/);
   await expect(onDisk).toHaveText('On disk');
   await expect(onDisk).toHaveClass(/dashed/);
   // Every other row was handed nothing, and is drawn with nothing.
