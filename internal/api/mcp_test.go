@@ -304,3 +304,94 @@ func TestMCPJobStatsIsOneCallPerReleaseAndTakesDays(t *testing.T) {
 		}
 	}
 }
+
+// An agent that changes a pool's sizing goes through the pool's own route with
+// the caller's token, and the pool keeps everything it had: the API replaces
+// `resources` whole, so a tool that sent only the share would have cleared the
+// pool's smallest runner in the same call.
+func TestMCPUpdatePoolChangesTheNamedSettingAndKeepsTheRest(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "builders")
+	pool.DockerMode = store.DockerDinD
+	pool.Resources.MinCPUs, pool.Resources.MinMemoryMB = 1, 1536
+	pool.Resources.DaemonCPUSharePercent, pool.Resources.DaemonMemorySharePercent = 35, 15
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	operator := h.token("actor", store.RoleOperator)
+	viewer := h.token("reader", store.RoleViewer)
+
+	if r := h.mcpTool(viewer, "update_pool", map[string]any{"pool_id": pool.ID, "daemon_cpu_share_percent": 20}); !r.IsError || !strings.Contains(resultText(r), "operator") {
+		t.Errorf("a viewer asking to change a pool must be told which role is missing, got %s", resultText(r))
+	}
+
+	r := h.mcpTool(operator, "update_pool", map[string]any{"pool_id": pool.ID, "daemon_cpu_share_percent": 20})
+	if r.IsError {
+		t.Fatalf("update_pool failed: %s", resultText(r))
+	}
+	after, err := h.st.GetPool(h.ctx, pool.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := after.Resources
+	if res.DaemonCPUSharePercent != 20 {
+		t.Errorf("the share must have changed, is %d", res.DaemonCPUSharePercent)
+	}
+	if res.MinCPUs != 1 || res.MinMemoryMB != 1536 || res.DaemonMemorySharePercent != 15 {
+		t.Errorf("everything the call did not name must be kept: %+v", res)
+	}
+	if !strings.Contains(resultText(r), `"daemon_cpu_share_percent":{"before":35,"after":20}`) {
+		t.Errorf("the answer must say what changed, got %s", resultText(r))
+	}
+
+	// The smallest runner can be lowered on its own, and the shares survive it.
+	if r := h.mcpTool(operator, "update_pool", map[string]any{"pool_id": pool.ID, "min_cpus": 0.75, "min_memory_mb": 1024}); r.IsError {
+		t.Fatalf("lowering the minimum failed: %s", resultText(r))
+	}
+	after, _ = h.st.GetPool(h.ctx, pool.ID)
+	if after.Resources.MinCPUs != 0.75 || after.Resources.MinMemoryMB != 1024 || after.Resources.DaemonCPUSharePercent != 20 {
+		t.Errorf("the minimum must move and the shares stay: %+v", after.Resources)
+	}
+}
+
+func TestMCPUpdateHostChangesTheNamedSettingAndKeepsTheRest(t *testing.T) {
+	h := newHarness(t)
+	host := h.host("boogie")
+	host.CPUs, host.MemoryMB = 8, 32768
+	if err := h.st.UpdateHost(h.ctx, host); err != nil {
+		t.Fatal(err)
+	}
+	profile := store.RunnerProfile{
+		Minimum:  store.RunnerSize{CPUs: 1},
+		Standard: store.RunnerStandard{CPUs: 6},
+		Tmpfs:    store.HostTmpfs{MaxMB: 2048},
+	}
+	if err := h.st.PatchHost(h.ctx, host.ID, store.HostChanges{RunnerProfile: &profile}); err != nil {
+		t.Fatal(err)
+	}
+	operator := h.token("actor", store.RoleOperator)
+
+	r := h.mcpTool(operator, "update_host", map[string]any{"host_id": host.ID, "standard_cpus": 2.25, "reserve_cpus": 2})
+	if r.IsError {
+		t.Fatalf("update_host failed: %s", resultText(r))
+	}
+	after, err := h.st.GetHost(h.ctx, host.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.RunnerProfile.Standard.CPUs != 2.25 || after.ReserveCPUs != 2 {
+		t.Errorf("the named settings must change: standard %v reserve %d", after.RunnerProfile.Standard.CPUs, after.ReserveCPUs)
+	}
+	if after.RunnerProfile.Minimum.CPUs != 1 || after.RunnerProfile.Tmpfs.MaxMB != 2048 {
+		t.Errorf("the rest of the profile must be kept: %+v", after.RunnerProfile)
+	}
+
+	// Stopping a host taking runners is a person's decision, not an agent's.
+	if r := h.mcpTool(operator, "update_host", map[string]any{"host_id": host.ID, "capacity": 0}); !r.IsError {
+		t.Errorf("a capacity of zero must be refused, got %s", resultText(r))
+	}
+	if got, _ := h.st.GetHost(h.ctx, host.ID); got.Capacity != host.Capacity {
+		t.Errorf("a refused call must change nothing, capacity is %d", got.Capacity)
+	}
+}

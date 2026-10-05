@@ -25,6 +25,8 @@ import (
 var mcpToolActions = map[string]auth.Action{
 	"rerun_job":       auth.ActionJobsRerun,
 	"drain_runner":    auth.ActionRunnersDrain,
+	"update_pool":     auth.ActionPoolsWrite,
+	"update_host":     auth.ActionHostsWrite,
 	"context_publish": auth.ActionContextPublish,
 }
 
