@@ -140,6 +140,20 @@ stopped for the wait, so jobs queue rather than run until it is back. A service 
 state cannot be read is a refusal before anything is stopped, as is a custom or
 rootless Docker endpoint, which is restarted by hand.
 
+A host that runs Zoomies in a container (a `docker` or `compose` deployment) is refused
+too, with `--force`, `--background` and `--restart-pending` alike. The maintenance
+restart takes a host out of service by stopping systemd units, which a container
+deployment does not have: the controller's own container would be counted as running work
+and, with `--kill-running`, stopped and not started again. The message names the container
+and the three commands to do it by hand when the host is quiet: `docker stop`,
+`systemctl restart docker`, `docker start`.
+
+A stop that outlasts the command is not a stop that failed: the agent's unit allows 20
+minutes to finish what it admitted, so the command waits that long for it, and a unit
+that was being stopped when the command gave up is started again on the way out like any
+other. A closed terminal (`SIGHUP`) is treated as ctrl-C, so a dropped SSH session
+restores the host instead of leaving it out of service.
+
 ### In the background: `--force --background`
 
 Draining a host that is busy for hours is hours of queued jobs. `--background` takes the

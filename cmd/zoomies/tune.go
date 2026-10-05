@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/signal"
 	"os/user"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/config"
@@ -14,7 +16,19 @@ import (
 	"github.com/eyupio/zoomies/internal/installer"
 )
 
+// untilHangup ends a context when the terminal goes away. A dropped SSH session sends
+// SIGHUP, and Go's default for it is to exit without running a defer -- so a maintenance
+// restart that had stopped the agent and the controller was left holding them stopped,
+// and a lock behind. A hung-up terminal is treated as ctrl-C, which already unwinds
+// through the restore; a closed output pipe must not kill it either.
+func untilHangup(ctx context.Context) (context.Context, context.CancelFunc) {
+	signal.Ignore(syscall.SIGPIPE)
+	return signal.NotifyContext(ctx, syscall.SIGHUP)
+}
+
 func runTune(ctx context.Context, e *env, args []string) error {
+	ctx, stopHup := untilHangup(ctx)
+	defer stopHup()
 	fs := newFlagSet(e, "zoomies tune [flags]", "Review and apply host tuning with recorded reversals. Defaults to safe changes with per-item confirmation.")
 	tier := fs.String("tier", "safe", "safe or aggressive")
 	dedicated := fs.Bool("dedicated", false, "include dedicated-host checks; requires typed confirmation or --yes")
@@ -53,6 +67,18 @@ func runTune(ctx context.Context, e *env, args []string) error {
 	}
 	if *restartPending && (*revert || *dedicated || *force || *background || *only != "" || *skip != "") {
 		return usagef("tune", "--restart-pending only restarts Docker for a change already made; it cannot be combined with --revert, --dedicated, --force, --background, --only or --skip")
+	}
+	if (*force || *background || *restartPending) && !*dry && !*revert {
+		// A maintenance restart takes a host out of service by stopping the Zoomies
+		// systemd units, and a container deployment has none: the controller is a
+		// container, which the wait counted as running work and --kill-running stopped and
+		// never started again, and a pending restart could never find a quiet moment.
+		if rec, ok := installer.ReadDeploymentRecord(config.ConfigDir()); ok && rec.Deployment.Containerised() {
+			name := firstNonBlank(rec.Container, "the zoomies container")
+			return fmt.Errorf("this host runs Zoomies in a container (%s), and a maintenance restart takes a host out of service by stopping systemd units that it does not have; "+
+				"with --kill-running it would stop that container and not start it again. Restart Docker yourself when the host is quiet: stop the container (docker stop %s), "+
+				"restart Docker (systemctl restart docker), then start it again (docker start %s)", name, name, name)
+		}
 	}
 	t, err := tierValue(*tier)
 	if err != nil || t == hosttune.Dedicated {

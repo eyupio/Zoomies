@@ -233,7 +233,7 @@ func (e *Engine) Tune(ctx context.Context, o TuneOptions) error {
 		if o.Yes || ask("Restart Docker now, if this host is idle? [y/N] ") {
 			if err := e.RestartDocker(ctx); err != nil {
 				fmt.Fprintln(o.Out, "Docker was not restarted:", err)
-				fmt.Fprintln(o.Out, "Drain the host, stop its Zoomies agent, and restart Docker during maintenance.")
+				fmt.Fprintln(o.Out, "To do it without draining the host by hand: sudo zoomies tune --force --background. It keeps the host in service, waits for a moment with no containers running, and never stops a job.")
 				summarise()
 				return nil
 			}
