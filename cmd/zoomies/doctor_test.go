@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"github.com/eyupio/zoomies/internal/hosttune"
 	"strings"
 	"testing"
@@ -114,6 +115,34 @@ func TestDoctorBriefCapsAndWrapsFindings(t *testing.T) {
 	for _, line := range strings.Split(out.String(), "\n") {
 		if len(line) > 36 {
 			t.Fatalf("too wide: %q", line)
+		}
+	}
+}
+
+// A maintenance restart changes the host, so its flags mean nothing without the
+// thing they modify, and a typo that quietly did nothing would leave an operator
+// believing their host had been restarted.
+func TestMaintenanceFlagsNeedTheirParents(t *testing.T) {
+	for _, args := range [][]string{
+		{"tune", "--kill-running"},
+		{"tune", "--wait", "5m"},
+		{"doctor", "--force"},
+		{"doctor", "--interactive", "--kill-running"},
+		{"doctor", "--interactive", "--wait", "5m"},
+		{"tune", "--background"},
+		{"tune", "--give-up-after", "1h"},
+		{"tune", "--force", "--background", "--kill-running"},
+		{"tune", "--force", "--background", "--wait", "5m"},
+		{"tune", "--restart-pending", "--kill-running"},
+		{"tune", "--restart-pending", "--revert"},
+		{"tune", "--restart-pending", "--force"},
+		{"doctor", "--interactive", "--background"},
+		{"doctor", "--interactive", "--force", "--background", "--kill-running"},
+		{"doctor", "--interactive", "--give-up-after", "1h"},
+	} {
+		e, _, errOut := newTestEnv(t)
+		if code := dispatch(context.Background(), e, args); code != exitUsage {
+			t.Errorf("%v: exit code = %d, want %d (usage)\n%s", args, code, exitUsage, errOut.String())
 		}
 	}
 }

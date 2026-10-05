@@ -52,6 +52,11 @@ func runDoctor(ctx context.Context, e *env, args []string) error {
 	fs := newFlagSet(e, "zoomies doctor [--verbose] [--json] [--tier safe|aggressive|dedicated] [--host <id>]", "Check host OS settings and explain recommended changes. No host settings are changed.")
 	verbose := fs.Bool("verbose", false, "show all checks, values and explanations")
 	interactive := fs.Bool("interactive", false, "offer individual local fixes after showing the report")
+	force := fs.Bool("force", false, "with --interactive: where an approved fix needs Docker restarted, take this host out of service, wait for running jobs to finish, restart Docker and bring the host back (see zoomies tune --force)")
+	wait := fs.Duration("wait", hosttune.DefaultMaintenanceWait, "with --force, how long running jobs are given to finish")
+	killRunning := fs.Bool("kill-running", false, "with --force, stop containers still running when --wait is over, which ends their jobs")
+	background := fs.Bool("background", false, "with --force: start a background task that keeps the host in service and keeps trying until it is quiet, then restarts Docker (see zoomies tune --background)")
+	giveUp := fs.Duration("give-up-after", hosttune.DefaultGiveUp, "with --background, how long the task keeps looking for a quiet moment")
 	js := fs.Bool("json", false, "print a machine-readable report")
 	tier := fs.String("tier", "safe", "safe, aggressive or dedicated; kernel checks appear in every tier")
 	watch := fs.Bool("watch", false, "continuously publish a read-only native host report every minute")
@@ -93,6 +98,18 @@ func runDoctor(ctx context.Context, e *env, args []string) error {
 			return fmt.Errorf("run the host health reporter using the native binary on the host")
 		}
 		return watchDoctor(ctx, e, engine, t, *reportFile)
+	}
+	if (*force || *killRunning || *background || fs.changed("wait") || fs.changed("give-up-after")) && !*interactive {
+		return usagef("doctor", "--force, --wait, --kill-running, --background and --give-up-after change the host, so they apply only with --interactive")
+	}
+	if (fs.changed("wait") || *killRunning || *background) && !*force {
+		return usagef("doctor", "--wait, --kill-running and --background only apply to a maintenance restart; add --force")
+	}
+	if *background && (*killRunning || fs.changed("wait")) {
+		return usagef("doctor", "a background restart waits for a quiet host and never stops a job, so --kill-running and --wait do not apply to it")
+	}
+	if fs.changed("give-up-after") && !*background {
+		return usagef("doctor", "--give-up-after applies to --background")
 	}
 	if *interactive && (*js || *host != "") {
 		return usagef("doctor", "--interactive requires a local, human-readable report")
@@ -157,6 +174,18 @@ func runDoctor(ctx context.Context, e *env, args []string) error {
 			a = append(a, "--dedicated")
 		} else {
 			a = append(a, "--tier", string(t))
+		}
+		if *force {
+			a = append(a, "--force")
+			switch {
+			case *background:
+				a = append(a, "--background", "--give-up-after", giveUp.String())
+			default:
+				a = append(a, "--wait", wait.String())
+			}
+			if *killRunning {
+				a = append(a, "--kill-running")
+			}
 		}
 		if err = runTune(ctx, e, a); err != nil {
 			return err

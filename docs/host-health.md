@@ -105,7 +105,74 @@ Service file limits take effect at the next service start. Docker log settings
 need a Docker restart and affect **newly created containers**, not existing
 ones. Zoomies asks before restarting Docker (or accepts your explicit `--yes`),
 and refuses when containers run or an active native agent could admit new work.
-Drain and stop the agent first. **`--force` never overrides that refusal.**
+Drain and stop the agent first, or let Zoomies do it with a maintenance restart.
+
+### Maintenance restart: `--force`
+
+On a host that is never quiet, a restart left pending is a restart that never
+happens. `--force` is you asking for the quiet moment to be made:
+
+```sh
+sudo zoomies tune --force                       # restart Docker for a pending change
+sudo zoomies doctor --interactive --force       # the same, after reviewing fixes
+sudo zoomies tune --force --wait 30m            # give running jobs longer to finish
+sudo zoomies tune --force --kill-running        # ...and stop whatever is left
+```
+
+It asks first (or accepts `--yes`), then:
+
+1. records which of `zoomies-agent.service` and `zoomies.service` are running, and
+   stops those, so nothing new starts;
+2. waits up to `--wait` (default 10 minutes) for every running container to finish —
+   the host's own and anyone else's, because a Docker restart ends them all;
+3. restarts Docker and waits for it to answer;
+4. starts the services it stopped, in the reverse order, and clears the pending restart.
+
+**It never ends a job on its own.** If containers are still running when `--wait` is
+over, the host is put back in service, nothing is restarted, the change stays pending,
+and the message says so. `--kill-running` is the separate, named permission to stop
+what is left and restart anyway; it lists the containers first, and their jobs fail.
+If the restart itself fails, the services are still started again — a host left out of
+service is worse than a restart that did not happen.
+
+On a host that runs the controller, `zoomies.service` is the control plane: it is
+stopped for the wait, so jobs queue rather than run until it is back. A service whose
+state cannot be read is a refusal before anything is stopped, as is a custom or
+rootless Docker endpoint, which is restarted by hand.
+
+### In the background: `--force --background`
+
+Draining a host that is busy for hours is hours of queued jobs. `--background` takes the
+other approach: leave the host in service and keep looking for the gaps ephemeral
+runners leave between jobs.
+
+```sh
+sudo zoomies tune --force --background
+sudo zoomies doctor --interactive --force --background --give-up-after 12h
+```
+
+It applies the fixes you approve now, then hands the restart to a transient systemd unit,
+`zoomies-docker-restart.service`, so it outlives your terminal and the services it stops.
+The task checks every 30 seconds. While anything is running it does nothing at all. When
+the host is quiet it stops the Zoomies services, confirms nothing started in that moment,
+restarts Docker and starts them again. If a job did arrive in that moment, everything is
+put back and it carries on looking; nothing is ever stopped to make room, so there is no
+`--kill-running` here. It gives up after `--give-up-after` (default 24 hours) and the
+change stays pending for the next `tune` to try.
+
+```sh
+journalctl -u zoomies-docker-restart -f      # follow it
+systemctl stop zoomies-docker-restart        # cancel it
+```
+
+There is one task per host: asking again while it waits is refused. On a host without
+systemd, run `sudo zoomies tune --restart-pending` in a terminal multiplexer instead; it is
+the same loop in the foreground, and the only thing the background unit runs. It restarts
+Docker for a change already made and nothing else: it never reviews or applies a fix, so a
+task you started with approval cannot approve something nobody was asked about.
+
+`--force` never overrides the dependency or managed-configuration guards, and `upgrade`
+and `update` never use it: upgrades do not tune.
 
 ## Aggressive checks
 
