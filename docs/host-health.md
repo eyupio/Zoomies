@@ -11,8 +11,10 @@ that need attention. `--verbose` shows every check, its current value,
 recommendation and explanation. Both wrap to the terminal width. Doctor is
 read-only by default and finishes without a tuning prompt. Use `--interactive`
 to review eligible fixes individually, or run `sudo zoomies tune` separately.
-Ubuntu 24.04 and Debian 13 are the first supported tuning platforms. Other
-Linux distributions are report-only; non-Linux hosts report unsupported checks.
+Ubuntu 24.04, Ubuntu 26.04 and Debian 13 are the supported tuning platforms. Other
+Linux distributions are report-only; non-Linux hosts report unsupported checks. A
+refusal names the distribution and release the host reported, so you can tell an
+unsupported release from an unsupported distribution.
 
 ```sh
 zoomies doctor

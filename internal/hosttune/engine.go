@@ -289,8 +289,52 @@ func New(o Options) *Engine {
 	e.Checks = append(e.Checks, dedicatedChecks()...)
 	return e
 }
+
+// supportedPlatforms is where tuning is expected to do what it says: the
+// distributions whose sysctl layout, Docker daemon file and journal settings the
+// changes were written against. Anywhere else the checks still report, and
+// nothing is changed, because a fix that is right for one distribution is a guess
+// on another. Adding a release is one row here, plus a line in
+// docs/host-health.md; the kernel's HWE check has its own, narrower rule.
+var supportedPlatforms = []struct {
+	distro string
+	// version is matched against VERSION_ID exactly, or against its major part
+	// when major is set (Debian numbers its releases, and 13.1 is still 13).
+	version string
+	major   bool
+}{
+	{distro: "ubuntu", version: "24.04"},
+	{distro: "ubuntu", version: "26.04"},
+	{distro: "debian", version: "13", major: true},
+}
+
+// SupportedPlatforms names them in the order an operator would read them.
+func SupportedPlatforms() string {
+	names := make([]string, 0, len(supportedPlatforms))
+	for _, p := range supportedPlatforms {
+		names = append(names, strings.ToUpper(p.distro[:1])+p.distro[1:]+" "+p.version)
+	}
+	return strings.Join(names[:len(names)-1], ", ") + " or " + names[len(names)-1]
+}
+
+// Platform is this host as it names itself, which is what a refusal should say:
+// "linux ubuntu" does not tell an operator whether it is the release that is
+// unsupported or the whole distribution.
+func (e *Engine) Platform() string { return strings.TrimSpace(e.Distro + " " + e.Version) }
+
 func (e *Engine) Supported() bool {
-	return e.OS == "linux" && ((e.Distro == "ubuntu" && e.Version == "24.04") || (e.Distro == "debian" && strings.Split(e.Version, ".")[0] == "13"))
+	if e.OS != "linux" {
+		return false
+	}
+	for _, p := range supportedPlatforms {
+		if e.Distro != p.distro {
+			continue
+		}
+		if p.major && strings.Split(e.Version, ".")[0] == p.version || !p.major && e.Version == p.version {
+			return true
+		}
+	}
+	return false
 }
 func (e *Engine) Run(ctx context.Context, t Tier) Report {
 	r := Report{CheckedAt: e.Now().UTC(), OS: e.OS, Distro: e.Distro + " " + e.Version, WorkDir: e.WorkDir, Container: e.Container, Results: []Result{}}
@@ -299,7 +343,7 @@ func (e *Engine) Run(ctx context.Context, t Tier) Report {
 		return r
 	}
 	if !e.Supported() {
-		r.Results = append(r.Results, Result{ID: "environment", Title: "Distribution", Tier: Safe, Status: Warn, Current: r.Distro, Recommended: "Ubuntu 24.04 or Debian 13", Rationale: "Other distributions are report-only in this release."})
+		r.Results = append(r.Results, Result{ID: "environment", Title: "Distribution", Tier: Safe, Status: Warn, Current: r.Distro, Recommended: SupportedPlatforms(), Rationale: "Other distributions are report-only in this release."})
 	}
 	for _, c := range e.Checks {
 		if c.Tier == Dedicated && t != Dedicated {
