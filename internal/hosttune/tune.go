@@ -43,7 +43,7 @@ func (e *Engine) Tune(ctx context.Context, o TuneOptions) error {
 		o.Tier = Safe
 	}
 	if !e.Supported() {
-		return fmt.Errorf("tune supports Ubuntu 24.04 and Debian 13 on Linux; this host is %s %s", e.OS, e.Distro)
+		return fmt.Errorf("tune supports %s on Linux; this host is %s on %s, so it is report-only", SupportedPlatforms(), e.Platform(), e.OS)
 	}
 	if e.Container {
 		return fmt.Errorf("run tune on the outer host, not inside a container or LXC")

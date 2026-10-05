@@ -239,3 +239,56 @@ func TestSharedDropInDryRevertMatchesRealRevertAndPreservesMode(t *testing.T) {
 		t.Fatal("original not restored")
 	}
 }
+
+func platform(t *testing.T, osRelease string) *Engine {
+	t.Helper()
+	f := fake()
+	f.put("/etc/os-release", osRelease)
+	return New(Options{System: f, OS: "linux", UID: 0, Now: func() time.Time { return time.Unix(1234, 0) }, WorkDir: "/work"})
+}
+
+func TestTuningIsSupportedOnTheReleasesItWasWrittenFor(t *testing.T) {
+	for _, tc := range []struct {
+		osRelease string
+		want      bool
+	}{
+		{"ID=ubuntu\nVERSION_ID=24.04\n", true},
+		{"ID=ubuntu\nVERSION_ID=26.04\n", true},
+		{"ID=debian\nVERSION_ID=13\n", true},
+		{"ID=debian\nVERSION_ID=13.1\n", true},
+		{"ID=ubuntu\nVERSION_ID=22.04\n", false},
+		{"ID=ubuntu\nVERSION_ID=25.10\n", false},
+		{"ID=debian\nVERSION_ID=12\n", false},
+		{"ID=fedora\nVERSION_ID=42\n", false},
+	} {
+		if got := platform(t, tc.osRelease).Supported(); got != tc.want {
+			t.Errorf("Supported() for %q = %v, want %v", tc.osRelease, got, tc.want)
+		}
+	}
+	if got := SupportedPlatforms(); got != "Ubuntu 24.04, Ubuntu 26.04 or Debian 13" {
+		t.Errorf("SupportedPlatforms() = %q", got)
+	}
+}
+
+// A refusal has to say which part was unsupported. "this host is linux ubuntu"
+// sent an operator on Ubuntu 26.04 to wonder whether Ubuntu was supported at all.
+func TestARefusedHostIsNamedByDistributionAndRelease(t *testing.T) {
+	err := platform(t, "ID=ubuntu\nVERSION_ID=22.04\n").Tune(context.Background(), TuneOptions{})
+	if err == nil || !strings.Contains(err.Error(), "ubuntu 22.04") || !strings.Contains(err.Error(), "Ubuntu 26.04") {
+		t.Errorf("the refusal must name the release the host reported and the ones supported: %v", err)
+	}
+}
+
+// On a supported release nothing in the platform gate stops tune or tags the
+// report with the distribution warning.
+func TestASupportedReleaseIsNotToldItIsReportOnly(t *testing.T) {
+	e := platform(t, "ID=ubuntu\nVERSION_ID=26.04\n")
+	for _, r := range e.Run(context.Background(), Safe).Results {
+		if r.ID == "environment" {
+			t.Errorf("a supported release was told its distribution is unsupported: %+v", r)
+		}
+	}
+	if err := e.Tune(context.Background(), TuneOptions{}); err != nil && strings.Contains(err.Error(), "tune supports") {
+		t.Errorf("tune refused a supported release: %v", err)
+	}
+}

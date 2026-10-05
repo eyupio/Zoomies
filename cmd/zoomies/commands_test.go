@@ -472,6 +472,42 @@ func TestPoolsEditMovingToTheHostClearsTheStatedSizeAndKeepsTheDisk(t *testing.T
 	}
 }
 
+// The API replaces a pool's `resources` whole, so an edit of one share that left
+// the pool's smallest runner out of the request cleared it, and the pool quietly
+// followed the fleet's minimum. The command a sidecar-share notice tells an
+// operator to run was exactly such an edit.
+func TestPoolsEditOfAShareKeepsThePoolsSmallestRunner(t *testing.T) {
+	var sent map[string]any
+	srv := patchServer(t, `{"id":"pool_1","name":"zoomies-p","sizing":"profile","size_from_profile":true,
+		"resources":{"min_cpus":1,"min_memory_mb":1536,"daemon_cpu_share_percent":35,"daemon_memory_share_percent":15}}`, &sent)
+
+	runCLI(t, "pools", "edit", "pool_1", "--daemon-cpu-share", "20", "--url", srv.URL)
+
+	res, _ := sent["resources"].(map[string]any)
+	if res["min_cpus"] != 1.0 || res["min_memory_mb"] != 1536.0 {
+		t.Errorf("the pool's smallest runner must be carried forward: %v", res)
+	}
+	if res["daemon_cpu_share_percent"] != 20.0 || res["daemon_memory_share_percent"] != 15.0 {
+		t.Errorf("the typed share is set and the other kept: %v", res)
+	}
+}
+
+func TestPoolsEditSetsThePoolsSmallestRunnerAndKeepsTheShares(t *testing.T) {
+	var sent map[string]any
+	srv := patchServer(t, `{"id":"pool_1","name":"zoomies-p","sizing":"profile","size_from_profile":true,
+		"resources":{"min_cpus":1,"min_memory_mb":1536,"daemon_cpu_share_percent":35}}`, &sent)
+
+	runCLI(t, "pools", "edit", "pool_1", "--min-cpus", "0.75", "--min-memory-mb", "1024", "--url", srv.URL)
+
+	res, _ := sent["resources"].(map[string]any)
+	if res["min_cpus"] != 0.75 || res["min_memory_mb"] != 1024.0 {
+		t.Errorf("the typed minimum must be sent: %v", res)
+	}
+	if res["daemon_cpu_share_percent"] != 35.0 {
+		t.Errorf("the share the edit did not touch must be kept: %v", res)
+	}
+}
+
 // A PATCH reads an absent key as "leave it alone", so handing a pool back to the
 // share of its host has to send false -- and must not touch the size.
 func TestPoolsEditHandsAPoolBackToTheShareOfItsHost(t *testing.T) {

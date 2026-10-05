@@ -139,7 +139,7 @@ every tool call that changed or tried to change the fleet.
 
 The tools are the same ones [`zoomies mcp`](cli.md#zoomies-mcp) offers: reading
 jobs, runners, pools, hosts and logs, and — for an operator connection only —
-`rerun_job` and `drain_runner`. Each call is the documented API route, run as
+`rerun_job`, `drain_runner`, `update_pool` and `update_host` (a pool's smallest runner, sidecar shares and CPU burst ceiling, and a host's capacity and runner sizes). Each call is the documented API route, run as
 your connection, so it meets the same role check and writes the same audit row
 as the CLI would.
 

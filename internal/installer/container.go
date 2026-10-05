@@ -969,6 +969,7 @@ func (i *Installer) containerSetupToken(ctx context.Context, p Plan) (string, er
 // commands they will actually want next, and nothing else.
 func (i *Installer) containerSummary(p Plan, envPath string, reusedKey bool, setupToken string, setupTokenErr error) {
 	file := filepath.Join(p.DeployDir, ComposeFileName)
+	i.stepCLIConfig(p.ExternalURL, p.Bind, p.TLSMode)
 	i.ui.blank()
 	i.ui.step("Installation complete")
 	i.ui.ok("Zoomies is installed and the container deployment is running.")

@@ -40,6 +40,26 @@ Everything under *Your fleet* below takes the same connection flags:
 
 The listing commands add `--limit` (50), `--offset`, `--sort` and `--order`.
 
+Where the URL and token come from is, in order: the flags, then `ZOOMIES_URL` and
+`ZOOMIES_TOKEN`, then `~/.config/zoomies/cli.yaml` (`url`, `token`, and optionally
+`ca_file` and `insecure`; `ZOOMIES_CLI_CONFIG` points at another file). With none
+of those, a CLI on the machine that runs the controller falls back to the controller
+installed there, read from its `zoomies.yaml` (`/etc/zoomies/zoomies.yaml` as root), and
+says on stderr which address it chose. It reads that file and nothing else: the CLI's
+commands are pure API clients that open no database, so an address changed afterwards on
+the Settings page is not in it. Put `url` in `cli.yaml` to choose, or to follow the
+Settings page. It supplies an address only, never a token.
+
+On the machine that runs the controller you do not have to write that file.
+`zoomies init` creates it, with the controller's address and no token, and
+`zoomies upgrade` offers to when it is missing — it is listed with the other
+additions an upgrade asks approval for, and `--yes` accepts it. The file is private
+(`0600`), an address you already put there is never replaced, and a token is never
+written for you: create one in the UI under your account's API tokens, or with
+`zoomies tokens create --name this-host --role operator` once you have one, and add it
+as `token:`. It is the file of whichever account ran the command, so under `sudo` it is
+`root`'s.
+
 ## Running Zoomies
 
 | Command | What it does |
@@ -122,6 +142,14 @@ the rest; `0` is the even split. `--daemon-cpu-share` and `--daemon-memory-share
 it for one resource and override `--daemon-share` for it: a build is CPU in the
 daemon, so `--daemon-cpu-share 70 --daemon-memory-share 50` gives it the CPU while
 the runner keeps the memory. Naming one carries the other forward as it stands.
+
+`--min-cpus` and `--min-memory-mb` set the pool's smallest runner, per container: the
+least a runner is given on a host whose share is smaller, so the host holds fewer of
+them rather than none. A Docker-in-Docker pair needs it twice over, scaled by the
+daemon's share, so a thin share multiplies it (a 1-core minimum and a 35% CPU share
+charge every runner at least 2.9 CPUs). `0` follows the fleet's `runners.minimum_cpus` and
+`runners.minimum_memory_mb`. Editing any size flag carries the pool's minimum forward;
+it is never cleared by an edit that does not name it.
 
 On `edit`, only the flags you actually type are sent — the defaults above are
 not applied to a partial update, so editing a pool's image cannot silently reset
@@ -401,6 +429,8 @@ again.
 | `label_advice` | What to change in the `runs-on` of workflows whose measured runs call for something other than what they ask for, with what to write instead. `GET /label-advice`. |
 | `rerun_job` | Only with `--allow-actions`. `POST /jobs/{id}/rerun`; needs `operator`. |
 | `drain_runner` | Only with `--allow-actions`. `POST /runners/{id}/drain`, never with `confirm`, so a busy runner is refused rather than having its job stopped; needs `operator`. |
+| `update_pool` | Only with `--allow-actions`. `PATCH /pools/{id}` for a pool's smallest runner (`min_cpus`, `min_memory_mb`), its Docker sidecar's shares (`daemon_cpu_share_percent`, `daemon_memory_share_percent`) and its CPU burst ceiling (`cpu_burst_max_cpus`). Every other setting of the pool is carried forward, because the API replaces `resources` and `cpu_burst` whole. Never with `confirm`, so a change that would leave the pool with no host that could run it is refused; needs `operator`. |
+| `update_host` | Only with `--allow-actions`. `PATCH /hosts/{id}` for a host's capacity, reserve and runner sizes (`standard_cpus`, `standard_memory_mb`, `min_cpus`, `min_memory_mb`, `burst_max_cpus`), with the rest of its runner profile carried forward. A capacity of zero is refused: stopping a host taking runners is for a person to do by cordoning it; needs `operator`. |
 
 #### Straight to the controller
 
@@ -432,7 +462,7 @@ it is never committed:
 It takes a bearer token and nothing else — a browser session is refused — and
 every tool is the documented route called with that token, so the controller
 applies the token's role and scopes to each call exactly as it would to the
-CLI's. There is no `--allow-actions` here: `rerun_job` and `drain_runner` are
+CLI's. There is no `--allow-actions` here: `rerun_job`, `drain_runner`, `update_pool` and `update_host` are
 offered when the token's role reaches them and not otherwise, so a `viewer`
 token is a read-only agent. A client that signs in with OAuth, such as a custom
 connector on claude.ai, needs no token at all: see

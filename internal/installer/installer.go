@@ -2201,6 +2201,7 @@ func (i *Installer) runInstall(ctx context.Context, p Plan) error {
 	if mgr != nil && p.StartService {
 		i.stepHealth(ctx, p, mgr)
 	}
+	i.stepCLIConfig(p.ExternalURL, p.Bind, p.TLSMode)
 	i.stepSummary(p, freshKey)
 	return nil
 }
@@ -2265,6 +2266,7 @@ func (i *Installer) runUpgrade(ctx context.Context, p Plan) error {
 		}
 		i.stepHealth(ctx, p, mgr)
 	}
+	i.stepCLIConfig(p.ExternalURL, p.Bind, p.TLSMode)
 	i.ui.blank()
 	i.ui.step("Done")
 	i.ui.note("upgraded in place; " + p.ConfigFile + " and " + p.DBPath + " were not touched.")

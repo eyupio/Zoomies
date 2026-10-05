@@ -140,6 +140,11 @@ type poolResources struct {
 	MemoryMB  int64   `json:"memory_mb"`
 	DiskGB    int64   `json:"disk_gb"`
 	PidsLimit int64   `json:"pids_limit"`
+	// MinCPUs and MinMemoryMB are the pool's smallest runner. They are carried
+	// because the API replaces `resources` whole: an edit that left them out
+	// would clear them, and the pool would quietly follow the fleet's minimum.
+	MinCPUs     float64 `json:"min_cpus"`
+	MinMemoryMB int64   `json:"min_memory_mb"`
 	// DaemonSharePercent is how much of a host-sized slot a Docker-in-Docker pool
 	// gives its daemon; zero is the even split.
 	DaemonSharePercent       int `json:"daemon_share_percent"`
