@@ -489,14 +489,12 @@ func (s *Server) handlePatchProblemDismissals(w http.ResponseWriter, r *http.Req
 			return
 		}
 	}
-	if held, err := s.ctrl.Store().CountProblemDismissals(r.Context(), userID); err != nil {
-		s.internal(w, r, "saving problem dismissals", err)
-		return
-	} else if held+len(set) > maxProblemDismissals+len(patch.Remove) {
+	err := s.ctrl.Store().ApplyProblemDismissals(r.Context(), userID, set, patch.Remove, maxProblemDismissals)
+	if errors.Is(err, store.ErrTooManyDismissals) {
 		unprocessable(w, "this account has dismissed more problems than can be kept; restore some first", nil)
 		return
 	}
-	if err := s.ctrl.Store().ApplyProblemDismissals(r.Context(), userID, set, patch.Remove); err != nil {
+	if err != nil {
 		s.internal(w, r, "saving problem dismissals", err)
 		return
 	}

@@ -3,8 +3,14 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"time"
 )
+
+// ErrTooManyDismissals is what ApplyProblemDismissals returns when the change
+// would leave an account holding more than the limit it was given. Nothing of
+// the change is applied.
+var ErrTooManyDismissals = errors.New("too many dismissed problems")
 
 // ProblemDismissal is one problem, or one kind of problem, an account has put
 // away. The store treats Key as opaque: what makes two reports "the same
@@ -59,7 +65,13 @@ func (s *Store) ProblemDismissals(ctx context.Context, userID string) ([]Problem
 // again with a different length is the same call as the first time. The batch
 // is atomic because "dismiss all" is one gesture: half of it applying would
 // leave the drawer showing a state nobody chose.
-func (s *Store) ApplyProblemDismissals(ctx context.Context, userID string, set []ProblemDismissal, remove []string) error {
+//
+// limit bounds what the account holds afterwards, and is checked on the rows
+// the transaction actually leaves rather than on arithmetic over the request: a
+// removal of a key never held frees nothing, and two requests that each looked
+// small beside the count they read would otherwise both fit. The single writer
+// is what makes the count inside the transaction the count that is kept.
+func (s *Store) ApplyProblemDismissals(ctx context.Context, userID string, set []ProblemDismissal, remove []string, limit int) error {
 	return wrapWrite(s.tx(ctx, func(t *sql.Tx) error {
 		for _, key := range remove {
 			if _, err := t.ExecContext(ctx,
@@ -75,6 +87,14 @@ func (s *Store) ApplyProblemDismissals(ctx context.Context, userID string, set [
 				userID, d.Key, d.Severity, ms(d.DismissedAt), msp(d.Until)); err != nil {
 				return err
 			}
+		}
+		var held int
+		if err := t.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM problem_dismissals WHERE user_id = ?`, userID).Scan(&held); err != nil {
+			return err
+		}
+		if limit > 0 && held > limit {
+			return ErrTooManyDismissals
 		}
 		return nil
 	}))

@@ -114,6 +114,9 @@ class Notifications {
   // restore can never overtake the dismissal it undoes.
   #queue: Promise<void> = Promise.resolve();
   #syncedAt = 0;
+  // Counts local decisions, so a read of the account that started before one
+  // can be told from one that did not.
+  #revision = 0;
 
   constructor() {
     // A dismissal outlives nothing it was not meant to. Once the controller
@@ -154,31 +157,51 @@ class Notifications {
    * different account hands nothing over.
    */
   async syncAccount(userID: string): Promise<void> {
-    const now = Date.now();
+    // Remembered before anything can fail, so a first sync that hits an
+    // unreachable controller is retried the next time the page is looked at
+    // instead of leaving this tab on browser-only dismissals until a reload.
+    this.#account = userID;
+    const previous = storage.get(ACCOUNT_KEY);
+    if (previous !== null && previous !== userID) {
+      // What is in memory was read by somebody else; it must not stay on screen
+      // for an account that never made those decisions, even if the controller
+      // cannot be reached to say what this one did.
+      this.#dismissals = {};
+      this.#persist();
+    }
     // Not more often than a tab can plausibly change hands: switching between
     // two windows should not be a request each time.
-    if (this.#account === userID && now - this.#syncedAt < 5_000) return;
+    if (this.#remote && Date.now() - this.#syncedAt < 5_000) return;
     try {
-      await this.#queue;
-      let view = await getProblemDismissals();
-      if (!view.stored) {
-        this.#remote = false;
+      // A decision made while the read is in flight would be overwritten by
+      // an answer that predates it, so a read that was overtaken is thrown away
+      // and taken again. Three tries is generous: a person makes decisions far
+      // slower than a request returns, and the visibility handler is the retry.
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const revision = this.#revision;
+        await this.#queue;
+        const now = Date.now();
+        let view = await getProblemDismissals();
+        if (!view.stored) {
+          this.#remote = false;
+          return;
+        }
+        let remote = fromServer(view.items, now);
+        const carry =
+          storage.get(ACCOUNT_KEY) === null ? carriedOver(this.#dismissals, remote, now) : [];
+        if (carry.length > 0) {
+          view = await patchProblemDismissals({ set: carry });
+          remote = fromServer(view.items, now);
+        }
+        this.#remote = true;
+        if (this.#revision !== revision) continue;
+        this.#dismissals = remote;
+        this.#persist();
+        storage.set(ACCOUNT_KEY, userID);
+        this.#syncedAt = Date.now();
+        this.#closeIfClear();
         return;
       }
-      let remote = fromServer(view.items, now);
-      const previous = storage.get(ACCOUNT_KEY);
-      const carry = previous === null ? carriedOver(this.#dismissals, remote, now) : [];
-      if (carry.length > 0) {
-        view = await patchProblemDismissals({ set: carry });
-        remote = fromServer(view.items, now);
-      }
-      this.#dismissals = remote;
-      this.#persist();
-      storage.set(ACCOUNT_KEY, userID);
-      this.#account = userID;
-      this.#remote = true;
-      this.#syncedAt = Date.now();
-      this.#closeIfClear();
     } catch {
       // The browser's copy stands, exactly as it did before dismissals were
       // kept on the server: an unreachable controller must not make the drawer
@@ -371,6 +394,7 @@ class Notifications {
   /** The one place a decision changes: in memory and in the browser at once,
    * so the drawer answers instantly, and on the account behind them. */
   #apply(set: Dismissals, remove: string[]): void {
+    this.#revision++;
     const next = { ...this.#dismissals };
     for (const key of remove) delete next[key];
     Object.assign(next, set);

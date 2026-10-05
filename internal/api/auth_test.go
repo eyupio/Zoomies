@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -151,6 +152,36 @@ func TestProblemDismissalsRefuseAnUnknownSeverity(t *testing.T) {
 	bad := h.do(request{method: http.MethodPatch, path: "/api/v1/auth/problem-dismissals", cookie: cookie,
 		body: map[string]any{"set": []map[string]any{{"key": "a", "severity": "catastrophe"}}}})
 	bad.mustStatus(t, http.StatusUnprocessableEntity, "save a dismissal with an invented severity")
+}
+
+// An account can only keep so many dismissals, and padding a request with
+// removals of keys it never held must not buy extra room.
+func TestProblemDismissalsAreCappedOnWhatIsLeftHeld(t *testing.T) {
+	h := newHarness(t)
+	_, cookie := h.user("alice", store.RoleViewer)
+	batch := func(prefix string, n int) []map[string]any {
+		out := make([]map[string]any, n)
+		for i := range out {
+			out[i] = map[string]any{"key": fmt.Sprintf("%s%d", prefix, i), "severity": "info"}
+		}
+		return out
+	}
+	full := h.do(request{method: http.MethodPatch, path: "/api/v1/auth/problem-dismissals", cookie: cookie,
+		body: map[string]any{"set": batch("a", 1000)}})
+	full.mustStatus(t, http.StatusOK, "fill the account to its limit")
+
+	phantom := make([]string, 1000)
+	for i := range phantom {
+		phantom[i] = fmt.Sprintf("never-held-%d", i)
+	}
+	over := h.do(request{method: http.MethodPatch, path: "/api/v1/auth/problem-dismissals", cookie: cookie,
+		body: map[string]any{"set": batch("b", 1000), "remove": phantom}})
+	over.mustStatus(t, http.StatusUnprocessableEntity, "pad a request with removals that free nothing")
+
+	got := h.do(request{method: http.MethodGet, path: "/api/v1/auth/problem-dismissals", cookie: cookie})
+	if items, _ := got.json(t)["items"].([]any); len(items) != 1000 {
+		t.Fatalf("a refused request changed the account: %d held, want 1000", len(items))
+	}
 }
 
 // The synthesised identity of an auth-disabled instance has no users row, so a
