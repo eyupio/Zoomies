@@ -256,9 +256,43 @@
     gap: var(--z-space-4);
     padding-bottom: var(--z-space-2);
   }
-  .echo {
+  /* ElasticMemory is the pool editor's control, and like every control there it
+     takes its form vocabulary from whatever holds it: PoolSection's body in the
+     editor, this form here. Without it the fieldset is the browser's -- a groove
+     drawn round it, and a width that will not shrink below its content, which on
+     a phone is wider than the dialog -- and its hints are body text. */
+  .fields :global(.group) {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-4);
+    min-width: 0;
     margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  /* The legend is not a flex item, so the group's gap does not reach it. It also
+     carries the rule above the group, as PoolSection's does between two, because
+     a fieldset's own border is broken where its legend sits. */
+  .fields :global(.group > legend) {
+    width: 100%;
+    padding: var(--z-space-5) 0 var(--z-space-4);
+    border-top: var(--z-border-width) solid var(--z-border);
+    font-size: var(--z-text-sm);
+    font-weight: var(--z-weight-semibold);
+    color: var(--z-text);
+  }
+  .fields :global(.hint),
+  .fields :global(.echo) {
+    margin: 0;
+    max-width: 70ch;
     font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+    overflow-wrap: anywhere;
+  }
+  .fields :global(.hint) {
+    color: var(--z-text-subtle);
+  }
+  .fields :global(.echo) {
     color: var(--z-text-muted);
   }
 </style>

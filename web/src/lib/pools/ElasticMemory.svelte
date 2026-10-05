@@ -41,7 +41,8 @@
   let { draft, errors, touch, room }: Props = $props();
 
   /* The ceiling's notches start at nothing, which is half as much again as a
-     runner starts with. */
+     runner starts with. The field says "Default" and the hint says what that is:
+     a longer placeholder is clipped mid-word in the dialog, which is narrow. */
   const ceilingNotches = $derived(
     withValue([0, ...MEMORY_NOTCHES], Number(draft.memory_burst_max) || 0),
   );
@@ -101,7 +102,7 @@
           label="Memory ceiling"
           valuetext={(v) => (v === 0 ? 'half as much again' : memoryLabel(v))}
           marks={[{ value: 0, label: 'default' }]}
-          empty={{ value: 0, placeholder: 'Half as much again' }}
+          empty={{ value: 0, placeholder: 'Default' }}
           {id}
           {describedBy}
           {invalid}
