@@ -128,3 +128,50 @@ func TestAHostsRunnerProfileCarriesAMemoryCeiling(t *testing.T) {
 		t.Fatal("a profile with only a memory ceiling reads as unset")
 	}
 }
+
+// A runner's in-memory folders are recorded once, at the moment its create task
+// is built, and read back as they were: a pool edited since must not rewrite
+// what a running job was started with.
+func TestARunnersInMemoryFoldersAreRecordedOnceAndReadBack(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+	_, pool, host := seedPool(t, s)
+	r := &Runner{PoolID: pool.ID, HostID: host.ID, Name: "scratchy", State: RunnerProvisioning}
+	if err := s.CreateRunner(ctx, r); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetRunner(ctx, r.ID)
+	if err != nil || got.Scratch.Any() {
+		t.Fatalf("a runner with nothing recorded has %+v, %v", got.Scratch, err)
+	}
+
+	want := RunnerScratch{Folders: []ScratchFolder{
+		{Kind: ScratchWork, AskedMB: 4096, SizeMB: 2048, Auto: true},
+		{Kind: ScratchTmp, AskedMB: 1024, Auto: true, Why: ScratchAutoTooSmall},
+		{Kind: ScratchDaemon, AskedMB: 8192, SizeMB: 4096},
+	}}
+	if err := s.SetRunnerScratch(ctx, r.ID, want); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.GetRunner(ctx, r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Scratch.Folders) != 3 || got.Scratch.Folders[0] != want.Folders[0] || got.Scratch.Folders[1] != want.Folders[1] || got.Scratch.Folders[2] != want.Folders[2] {
+		t.Fatalf("scratch = %+v, want %+v", got.Scratch, want)
+	}
+	if got.Scratch.InMemory() != 2 || got.Scratch.Folders[1].InMemory() {
+		t.Fatalf("%d folders in memory, want the work folder and the image store, and not /tmp", got.Scratch.InMemory())
+	}
+
+	// A whole-row update from an older read does not rewrite it.
+	got.Message = "written from a read taken before"
+	got.Scratch = RunnerScratch{}
+	if err := s.UpdateRunner(ctx, got); err != nil {
+		t.Fatal(err)
+	}
+	again, err := s.GetRunner(ctx, r.ID)
+	if err != nil || len(again.Scratch.Folders) != 3 {
+		t.Fatalf("scratch after a whole-row update = %+v, %v; want it kept", again.Scratch, err)
+	}
+}

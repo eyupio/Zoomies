@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/eyupio/zoomies/internal/agent"
+	"github.com/eyupio/zoomies/internal/backend"
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -559,4 +560,32 @@ func autoKeptOnDisk(p *store.Pool, hosts []PoolHostRoom) (Problem, bool) {
 		TargetKind: "pool",
 		TargetID:   p.ID,
 	}, true
+}
+
+// recordScratch writes on a runner's row which of its folders its pool keeps in
+// memory and what it was given of each, worked out from the spec its create task
+// will carry. Recorded, not recomputed, because a pool or a host edited since
+// would give a different answer than the one the running job was started with.
+//
+// A write that fails costs the Runners page a badge and nothing else: the
+// runner is created as it would have been.
+func (c *Controller) recordScratch(ctx context.Context, r *store.Runner, pool *store.Pool, host *store.Host, spec backend.Spec) {
+	if pool.Backend != store.BackendDocker && pool.Backend != store.BackendPodman {
+		return
+	}
+	scratch := backend.PlanScratch(spec, pool.Tmpfs)
+	if host != nil && !hostSupportsTmpfs(host) {
+		// An agent too old to mount a tmpfs starts the runner with its folders
+		// on disk, which is what the row has to say rather than what the pool
+		// asked for.
+		for i := range scratch.Folders {
+			scratch.Folders[i].SizeMB, scratch.Folders[i].Why = 0, store.ScratchUnsupported
+		}
+	}
+	if !scratch.Any() {
+		return
+	}
+	if err := c.st.SetRunnerScratch(ctx, r.ID, scratch); err != nil {
+		c.log.Warn("could not record a runner's in-memory folders", "runner", r.ID, "error", err)
+	}
 }

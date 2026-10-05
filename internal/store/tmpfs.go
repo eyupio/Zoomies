@@ -391,3 +391,68 @@ func (c TmpfsConfig) Validate(capMB int64) (field, problem string) {
 	}
 	return "", ""
 }
+
+// ScratchKind names one of a runner's folders that a pool may keep in memory.
+type ScratchKind string
+
+const (
+	// ScratchWork is the runner's _work folder, ScratchTmp its /tmp, and
+	// ScratchDaemon the docker-in-docker sidecar's image store.
+	ScratchWork   ScratchKind = "work"
+	ScratchTmp    ScratchKind = "tmp"
+	ScratchDaemon ScratchKind = "daemon"
+)
+
+// ScratchWhy says why a folder a pool keeps in memory is on disk for one runner.
+// Empty for a folder that is in memory.
+type ScratchWhy string
+
+const (
+	// ScratchAutoTooSmall: the folder is automatic, and the runner's limit left
+	// it less than it is worth having (the AutoMin* floors).
+	ScratchAutoTooSmall ScratchWhy = "auto_too_small"
+	// ScratchHostOff: the host's owner has said no folder is kept in memory on it.
+	ScratchHostOff ScratchWhy = "host_off"
+	// ScratchUnsupported: the agent on the host is too old to mount one.
+	ScratchUnsupported ScratchWhy = "unsupported"
+	// ScratchBound: the work folder is a directory bound from the host, and
+	// two mounts at one path is an error the daemon reports only at create.
+	ScratchBound ScratchWhy = "bound"
+)
+
+// ScratchFolder is one in-memory folder of one runner: what was asked for and
+// what it was given.
+type ScratchFolder struct {
+	Kind ScratchKind `json:"kind"`
+	// AskedMB is what the pool, or the host's standard for a folder the pool
+	// leaves to size itself, asked for. SizeMB is what the runner was given,
+	// fitted to its limit, and zero is on disk.
+	AskedMB int64 `json:"asked_mb,omitempty"`
+	SizeMB  int64 `json:"size_mb,omitempty"`
+	// Auto is the folder letting each runner decide where it lives.
+	Auto bool       `json:"auto,omitempty"`
+	Why  ScratchWhy `json:"why,omitempty"`
+}
+
+// InMemory reports whether the runner was given the folder in memory.
+func (f ScratchFolder) InMemory() bool { return f.SizeMB > 0 }
+
+// RunnerScratch is the folders a pool keeps in memory, as they were worked out
+// for one runner when it was created. Empty for a runner whose pool keeps none.
+type RunnerScratch struct {
+	Folders []ScratchFolder `json:"folders,omitempty"`
+}
+
+// Any reports whether the pool asked for any folder to be kept in memory.
+func (s RunnerScratch) Any() bool { return len(s.Folders) > 0 }
+
+// InMemory counts the folders the runner was given in memory.
+func (s RunnerScratch) InMemory() int {
+	n := 0
+	for _, f := range s.Folders {
+		if f.InMemory() {
+			n++
+		}
+	}
+	return n
+}

@@ -14,3 +14,11 @@ ALTER TABLE pools ADD COLUMN memory_burst TEXT NOT NULL DEFAULT '{}';
 -- written by the agent's report alone; 0 is nothing lent, which every existing
 -- runner is.
 ALTER TABLE runners ADD COLUMN lent_memory_mb INTEGER NOT NULL DEFAULT 0;
+-- scratch records which of a runner's folders were kept in memory when it was
+-- created, and at what size, as the backend worked it out from the pool, the
+-- host's own say and the runner's limits. It is recorded rather than recomputed
+-- for the reason the allocation is: a pool edited since would give a different
+-- answer than the one the running job was started with. '' is not recorded,
+-- which is every runner that exists today and every runner of a pool that keeps
+-- nothing in memory.
+ALTER TABLE runners ADD COLUMN scratch TEXT NOT NULL DEFAULT '';

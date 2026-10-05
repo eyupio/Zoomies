@@ -1467,6 +1467,10 @@ type Runner struct {
 	// placement ledger charges it to the host (scheduler.RunnerCharge), so new
 	// work sees the room the loan used.
 	LentMemoryMB int64 `json:"lent_memory_mb,omitempty"`
+	// Scratch is which of the runner's folders were kept in memory when it was
+	// created, recorded for the reason the allocation is: a pool edited since
+	// would give a different answer than the one the running job was started with.
+	Scratch RunnerScratch `json:"scratch,omitzero"`
 	// SizedForCPUs is the CPU count the runner's toolchains were told to size
 	// their workers for when it started (see CPUBurstPolicy.SizeForCeiling),
 	// or zero when they were told nothing. Recorded rather than recomputed,

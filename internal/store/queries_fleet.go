@@ -954,11 +954,11 @@ const runnerCols = `id, pool_id, host_id, name, state, github_runner_id, contain
 	cleanup_error, cleanup_failed_at, cleanup_attempts, registration_deleted_at, cleaned_up_at,
 	draining_since, create_task_issued_at, host_removed_at, cleanup_estimated_at,
 	allocated_cpus, allocated_memory_mb, allocation_source, fault_kind, resource_sample,
-	host_cleanup_error, registration_cleanup_error, sized_for_cpus, lent_memory_mb`
+	host_cleanup_error, registration_cleanup_error, sized_for_cpus, lent_memory_mb, scratch`
 
 func scanRunner(sc interface{ Scan(...any) error }) (*Runner, error) {
 	var r Runner
-	var resourceSample string
+	var resourceSample, scratch string
 	var ephemeral int
 	var created int64
 	var started, idle, finished, pullMS, containerStarted, registered, taskIssued sql.NullInt64
@@ -971,9 +971,12 @@ func scanRunner(sc interface{ Scan(...any) error }) (*Runner, error) {
 		&r.CleanupError, &cleanupFailed, &r.CleanupAttempts, &registrationDeleted, &cleanedUp,
 		&drainingSince, &createIssued, &hostRemoved, &cleanupEstimated,
 		&r.AllocatedCPUs, &r.AllocatedMemoryMB, &r.AllocationSource, &r.FaultKind, &resourceSample,
-		&r.HostCleanupError, &r.RegistrationCleanupError, &r.SizedForCPUs, &r.LentMemoryMB)
+		&r.HostCleanupError, &r.RegistrationCleanupError, &r.SizedForCPUs, &r.LentMemoryMB, &scratch)
 	if err != nil {
 		return nil, err
+	}
+	if err := unmarshalJSON(scratch, &r.Scratch); err != nil {
+		return nil, fmt.Errorf("runner %s: decoding its in-memory folders: %w", r.ID, err)
 	}
 	r.ResourceSample = []byte(resourceSample)
 	r.Ephemeral = ephemeral == 1
@@ -1002,7 +1005,7 @@ func (s *Store) CreateRunner(ctx context.Context, r *Runner) error {
 	}
 	r.CreatedAt = s.Now()
 	_, err := s.exec(ctx, `INSERT INTO runners (`+runnerCols+`)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		r.ID, r.PoolID, r.HostID, r.Name, string(r.State), r.GitHubRunnerID, r.ContainerID,
 		boolInt(r.Ephemeral), r.Labels, r.Image, r.ImageDigest, r.RunnerVersion, r.CurrentJobID,
 		ms(r.CreatedAt), msp(r.StartedAt), msp(r.LastIdleAt), msp(r.FinishedAt),
@@ -1012,7 +1015,7 @@ func (s *Store) CreateRunner(ctx context.Context, r *Runner) error {
 		msp(r.RegistrationDeletedAt), msp(r.CleanedUpAt), msp(r.DrainingSince),
 		msp(r.CreateTaskIssuedAt), msp(r.HostRemovedAt), msp(r.CleanupEstimatedAt),
 		r.AllocatedCPUs, r.AllocatedMemoryMB, r.AllocationSource, r.FaultKind, runnerSampleJSON(r.ResourceSample),
-		r.HostCleanupError, r.RegistrationCleanupError, r.SizedForCPUs, r.LentMemoryMB)
+		r.HostCleanupError, r.RegistrationCleanupError, r.SizedForCPUs, r.LentMemoryMB, scratchJSON(r.Scratch))
 	return wrapWrite(err)
 }
 
@@ -1842,6 +1845,27 @@ func (s *Store) SetRunnerResourceSample(ctx context.Context, id string, cpu floa
 func (s *Store) SetRunnerLentMemory(ctx context.Context, id string, lentMB int64) error {
 	_, err := s.exec(ctx, `UPDATE runners SET lent_memory_mb=? WHERE id=?`, max(lentMB, 0), id)
 	return err
+}
+
+// SetRunnerScratch records which of a runner's folders were kept in memory when
+// it was created. It is written once, when the controller builds the create
+// task, and never by the whole-row update.
+func (s *Store) SetRunnerScratch(ctx context.Context, id string, scratch RunnerScratch) error {
+	_, err := s.exec(ctx, `UPDATE runners SET scratch=? WHERE id=?`, scratchJSON(scratch), id)
+	return err
+}
+
+// scratchJSON is the column's text: nothing recorded is the empty string, not
+// an empty document, so a runner whose pool keeps nothing in memory stores nothing.
+func scratchJSON(s RunnerScratch) string {
+	if !s.Any() {
+		return ""
+	}
+	out, err := marshalJSON(s)
+	if err != nil {
+		return ""
+	}
+	return out
 }
 
 // DeferRegistrationCleanup refreshes a busy registration's explanation without
