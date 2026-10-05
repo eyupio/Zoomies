@@ -114,6 +114,7 @@
       figures.standardCpus,
       figures.standardMemoryMb,
       figures.burstMaxCpus,
+      figures.burstMaxMemoryMb,
       figures.tmpfsOff,
       figures.tmpfsMaxMb,
       figures.tmpfsWorkMb,

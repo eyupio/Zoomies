@@ -11,6 +11,10 @@
   The bar is drawn against the whole machine, so its segments are comparable
   between hosts of different sizes; the figures beside it are what a bar cannot
   carry.
+
+  The figure and bar are one button: focus opens the same ledger hover does, and
+  a tap leaves it open, so neither a keyboard nor a touch screen is left with a
+  card only a mouse could read.
 -->
 <script lang="ts">
   import type { MemoryPool } from '$lib/api/types';
@@ -119,7 +123,19 @@
     </span>
   {/snippet}
 
-  <span class="pool" data-testid="host-memory-pool">
+  <button
+    type="button"
+    class="pool"
+    data-testid="host-memory-pool"
+    aria-describedby={descriptionId}
+    aria-expanded={open}
+    onclick={(event) => {
+      // A tap has no hover to open the ledger with, and leaves it open until the
+      // next tap elsewhere, which is how the runner pills' cards behave too.
+      event.currentTarget.focus();
+      open = true;
+    }}
+  >
     <span class="top">
       <span class="figure tabular">
         {#if pool.supported}
@@ -142,7 +158,7 @@
         A runner was refused memory <RelativeTime value={pool.short_at} plain />.
       </span>
     {/if}
-  </span>
+  </button>
 </Tooltip>
 
 <style>
@@ -151,11 +167,21 @@
     width: 100%;
     min-width: 0;
   }
+  /* A button, because a ledger that only hover reaches is one a keyboard and a
+     finger cannot read; the resets keep it looking like the figure and bar it
+     wraps. */
   .pool {
     display: grid;
     gap: var(--z-space-2);
     width: 100%;
     min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
     cursor: help;
   }
   .figure {
