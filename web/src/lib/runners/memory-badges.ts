@@ -368,7 +368,10 @@ function capTitle(v: MemoryResourceState): string {
 function capDetail(v: MemoryResourceState): string {
   switch (v.blocked) {
     case 'at_ceiling':
-      return `It wanted more memory and holds ${mb(v.current_mb)}, the most this runner may. Raise the pool's memory ceiling to let a job like it use more.`;
+      // The ceiling is the lowest of several, and the view does not say which one
+      // bit: naming only the pool's would send an operator to raise a figure that
+      // a host cap or a small machine was holding down anyway.
+      return `It wanted more memory and holds ${mb(v.current_mb)}, the most this runner may. That is the lowest of its pool's memory ceiling (one and a half times what it was created with, where the pool names none), any cap set on its host, and the memory of the machine it runs on. Raising the pool's ceiling helps only if the other two are higher.`;
     case 'pool_empty':
     case 'host_floor':
       return 'It wanted more memory than it was created with, and its host had none to spare: every runner there is promised its own share, and the host keeps some back for itself. A smaller share per runner, or fewer slots, leaves more to lend.';

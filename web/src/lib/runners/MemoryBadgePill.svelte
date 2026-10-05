@@ -19,6 +19,12 @@
   const componentId = $props.id();
   const descriptionId = `${componentId}-description`;
   let open = $state(false);
+  // The name begins with the words on the pill, so that a person who says what
+  // they can see ("click plus one point five gigabytes") reaches the button they
+  // mean; the title then says what it is.
+  const name = $derived(
+    `${badge.label}, ${badge.title}${badge.wanting ? ', and it wants more' : ''}: show details`,
+  );
 </script>
 
 <Tooltip text={badge.text} {descriptionId} bind:open {placement} wide class="memory-badge-tip">
@@ -32,7 +38,7 @@
     data-tone={badge.tone}
     data-badge={badge.key}
     data-wanting={badge.wanting || undefined}
-    aria-label="{badge.title}{badge.wanting ? ', and it wants more' : ''}: show details"
+    aria-label={name}
     aria-describedby={descriptionId}
     aria-expanded={open}
     onclick={(event) => {

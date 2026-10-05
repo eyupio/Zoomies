@@ -96,7 +96,12 @@
     const stop = [
       events.subscribe(['runner.created', 'runner.updated'], (row) => {
         if (row.id !== runnerId || !runner) return;
-        runner = { ...runner, ...row };
+        // A frame is the runner's whole view, and a view leaves out what a runner
+        // has none of: spreading it over the page's copy would keep a loan, or a
+        // list of folders, that the runner no longer has -- the card for a valve
+        // that was switched off would stay until the page was reloaded.
+        const { memory_resource: _memory, scratch: _scratch, ...kept } = runner;
+        runner = { ...kept, ...row };
       }),
       events.subscribe('runner.deleted', (payload) => {
         if (payload.id === runnerId) gone = true;

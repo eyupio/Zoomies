@@ -129,7 +129,7 @@ const SHOTS = [
     path: '/runners',
     heading: 'Runners',
     async prepare(page) {
-      const pill = page.getByRole('button', { name: /^Lent .* of memory/ }).first();
+      const pill = page.getByRole('button', { name: /Lent .* of memory/ }).first();
       await pill.scrollIntoViewIfNeeded();
       await pill.hover();
       await page.locator('.memory-badge-tip .bubble:popover-open').waitFor();

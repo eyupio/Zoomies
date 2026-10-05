@@ -159,7 +159,7 @@ test('a runner lent memory wears a pill with the figure, and its card says every
   await waitForRows(grid(page, 'Runners'));
   await showMemoryColumn(page);
 
-  const lentPill = pill(page, /^Lent 1\.5 GB of memory: show details/);
+  const lentPill = pill(page, /Lent 1\.5 GB of memory: show details/);
   await expect(lentPill).toBeVisible();
   await expect(lentPill).toContainText('+1.5 GB');
 
@@ -229,7 +229,7 @@ test('swap, a runner that wants more, and an observing valve are each told apart
 
   // Swap is its own pill beside the loan it follows, and the loan's pill carries
   // a mark because the runner wants more than it may have.
-  const loan = pill(page, /^Lent 2\.0 GB of memory, and it wants more: show details/);
+  const loan = pill(page, /Lent 2\.0 GB of memory, and it wants more: show details/);
   await expect(loan).toBeVisible();
   await expect(loan).toHaveAttribute('data-wanting', 'true');
   const swap = pill(page, /^May use 1\.0 GB of swap/);
@@ -265,7 +265,7 @@ test('folders in memory are one pill with an icon for each, and the card says wh
   await goto(page, '/runners', 'Runners');
   await waitForRows(grid(page, 'Runners'));
 
-  const memory = pill(page, /^2 of 3 folders in memory: show details/);
+  const memory = pill(page, /2 of 3 folders in memory: show details/);
   await expect(memory).toBeVisible();
   await expect(memory).toContainText('3.0 GB');
   // An icon for each folder that is in memory, and none for the one that is not.
@@ -341,8 +341,8 @@ test("the runner's page repeats it in a panel, and counts a loan in the memory i
 
   // The pills are in the header beside the status, with the valve's first.
   const header = page.getByTestId('memory-badges').first();
-  await expect(header.getByRole('button', { name: /^Lent 1\.5 GB of memory/ })).toBeVisible();
-  await expect(header.getByRole('button', { name: /^2 of 3 folders in memory/ })).toBeVisible();
+  await expect(header.getByRole('button', { name: /Lent 1\.5 GB of memory/ })).toBeVisible();
+  await expect(header.getByRole('button', { name: /2 of 3 folders in memory/ })).toBeVisible();
 
   // And the panel is the same cards, drawn open.
   const panel = page.getByTestId('memory-cards');
@@ -354,4 +354,41 @@ test("the runner's page repeats it in a panel, and counts a loan in the memory i
   // The usage bar is measured against what the runner may hold now, not what it
   // was created with: 5.4 GB used against a 5 GB limit would read as past it.
   await expect(page.getByText('of 6.5 GB allowed, 1.5 GB of it lent')).toBeVisible();
+});
+
+test("a frame that says the runner holds no loan takes the loan off the runner's page", async ({
+  page,
+}) => {
+  // A frame is the runner's whole view, and a view leaves out what a runner has
+  // none of. The page merges frames into the detail it fetched, and a merge that
+  // only added would keep the loan, and the card for it, after the pool switched
+  // its valve off -- an operator would be told, on the page they opened to find
+  // out, about memory the runner no longer has.
+  await quietEvents(page);
+  const runners = await page.request.get('/api/v1/runners?limit=1').then((r) => r.json());
+  const target = (runners.items as Row[])[0]!;
+  await page.route(`**/api/v1/runners/${target.id}`, async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    await route.fulfill({ response, json: { ...data, memory_resource: lent, scratch: folders } });
+  });
+  await goto(page, `/runners/${target.id}`, String(target.name));
+  const panel = page.getByTestId('memory-cards');
+  await expect(panel).toContainText('Lent 1.5 GB of memory');
+
+  const { memory_resource: _m, scratch: _s, ...bare } = target;
+  await page.route('**/api/v1/events*', (route) =>
+    route.fulfill({
+      status: 200,
+      headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-store' },
+      body: `id: 999201\nevent: runner.updated\ndata: ${JSON.stringify(bare)}\n\n`,
+    }),
+  );
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event('offline'));
+    window.dispatchEvent(new Event('online'));
+  });
+
+  await expect(panel).toHaveCount(0, { timeout: 10_000 });
+  await expect(page.getByTestId('memory-badges')).toHaveCount(0);
 });
