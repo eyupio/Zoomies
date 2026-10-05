@@ -717,7 +717,9 @@ used, and when one has been squeezed against its own limit while the other idled
 across enough jobs on several runners — `pool.daemon_share_suggested` names the pool
 and a share to try, for CPU and for memory on their own: more CPU to a sidecar that
 is building, less memory to one that is not, in one notice with a flag for each. It
-informs and never changes the pool; it applies only to host-sized pools, and clears
+informs and never changes the pool; it applies only to pools sized by their hosts —
+by a share of the host or by its
+[runner profile](#runner-profiles-how-big-a-runner-is-on-one-host) — and clears
 itself once you change the share.
 
 **When to turn it on.** Zoomies tells you. `pool.tmpfs_suggested` is raised for
@@ -1323,7 +1325,11 @@ While a job runs, the agent's usage samples — the same ones elastic CPU is
 decided on — raise the job's **peak CPU** and **peak memory**, and a runner
 the kernel killed for memory (the container's `OOMKilled`, or exit 137 from
 the runner or one of its steps) marks the job **OOM-killed**, a fault of the
-fleet's rather than the workflow's. Both show on the job's page, in
+fleet's rather than the workflow's. In a Docker-in-Docker pool the builds run
+in the sidecar, under a limit of its own, so a kill there leaves a runner that
+finishes its job cleanly; the sidecar's own `OOMKilled` is read once the runner
+has stopped, and the job's explanation says it was the sidecar that was short of
+room. Both show on the job's page, in
 `GET /api/v1/jobs/{id}`, in `job_stats` and in the MCP tools.
 
 A job's **requirement** is the ninetieth percentile of the peaks of its last

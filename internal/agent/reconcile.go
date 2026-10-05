@@ -227,6 +227,11 @@ func terminalOutcome(r tracked, s backend.Status) (store.RunnerState, string, st
 		// something in it for memory on the way: a step's process, which the
 		// job then failed on like any test. The lifecycle is a clean end; the
 		// fault is what lets the controller put it on the job.
+		if s.SidecarOOMKilled {
+			// The build ran in the pool's Docker sidecar, which has a limit of
+			// its own, and its message says which container and what moves it.
+			return store.RunnerRemoved, "runner exited after its job, but " + s.Message, store.FaultOutOfMemory
+		}
 		return store.RunnerRemoved, "runner exited after its job, but the kernel killed a process in it for its memory limit", store.FaultOutOfMemory
 	case s.ExitCode == 0:
 		if r.ephemeral {

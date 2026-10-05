@@ -56,10 +56,10 @@ type pairSample struct {
 }
 
 // observePair records a busy runner's two halves. Only a runner sized from the
-// host counts: a typed limit goes to both containers in full, so there is no
-// division to judge.
+// host counts, by its share or by its profile's standard size: a typed limit
+// goes to both containers in full, so there is no division to judge.
 func (c *Controller) observePair(r *store.Runner, st backend.Stats) {
-	if st.Halves == nil || r.AllocationSource != store.AllocationFromHost || st.SampledAt == nil {
+	if st.Halves == nil || !store.SizedByHost(r.AllocationSource) || st.SampledAt == nil {
 		return
 	}
 	h := *st.Halves

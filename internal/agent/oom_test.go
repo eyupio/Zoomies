@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/eyupio/zoomies/internal/backend"
@@ -33,5 +34,28 @@ func TestAnOutOfMemoryKillIsClassifiedWhateverTheRunnerDidNext(t *testing.T) {
 				t.Fatalf("terminalOutcome = %s, %q (%s); want %s, %q", state, fault, msg, tc.wantState, tc.wantFault)
 			}
 		})
+	}
+}
+
+// A build killed in the pool's Docker sidecar leaves a runner that finishes its
+// job, and the sentence the controller files on the job has to name the
+// container that was short of room: saying "a process in it" sends an operator
+// to the runner's limit when it was the daemon's half that ran out.
+func TestAKillInTheSidecarSaysSoWhenTheRunnerFinishedItsJob(t *testing.T) {
+	status := backend.Status{
+		Phase: backend.PhaseFailed, OOMKilled: true, SidecarOOMKilled: true,
+		Message: "the Docker sidecar was killed for exceeding its memory limit; raise the pool's memory_mb",
+	}
+	state, msg, fault := terminalOutcome(tracked{ephemeral: true}, status)
+	if state != store.RunnerRemoved || fault != store.FaultOutOfMemory {
+		t.Fatalf("terminalOutcome = %s, %q (%s); want a clean end with an out-of-memory fault", state, fault, msg)
+	}
+	if want := "runner exited after its job, but the Docker sidecar was killed for exceeding its memory limit"; !strings.HasPrefix(msg, want) {
+		t.Fatalf("message = %q, want it to begin %q", msg, want)
+	}
+	// The runner's own kill keeps the sentence it always had.
+	_, own, _ := terminalOutcome(tracked{ephemeral: true}, backend.Status{Phase: backend.PhaseFailed, OOMKilled: true})
+	if strings.Contains(own, "sidecar") {
+		t.Fatalf("a kill in the runner itself named the sidecar: %q", own)
 	}
 }

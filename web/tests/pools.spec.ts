@@ -1148,6 +1148,17 @@ test('an automatic size can carry a minimum for hosts with less than a share lef
   await expect(minimum).toHaveValue('2 GB');
   await expect(page.getByText(/whole slot's share/)).toContainText('never less than');
   await expect(page.getByText(/whole slot's share/)).toContainText('2 GB');
+
+  // With both minimums the sentence joins them with "and". The word sat alone
+  // between two conditional blocks, which trim the whitespace at either end, so
+  // it read "1 coreand2 GB"; the check is on the whole phrase because every
+  // part of it was present all along.
+  const minimumCpu = page.getByRole('textbox', { name: 'Minimum CPU' });
+  await minimumCpu.fill('1');
+  await minimumCpu.press('Enter');
+  await expect(page.getByText(/whole slot's share/)).toContainText(
+    'never less than 1 core and 2 GB.',
+  );
 });
 
 test('a container pool can keep its tool cache with its cache', async ({ page }) => {
