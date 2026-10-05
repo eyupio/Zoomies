@@ -52,6 +52,12 @@ jobs:
     # Fork code never reaches the self-hosted fleet. A manual dispatch can use
     # GitHub-hosted capacity if the Zoomies pool is unavailable.
     runs-on: ${{ ((github.event_name == 'workflow_dispatch' && inputs.runner == 'github') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork)) && 'ubuntu-latest' || 'zoomies-linux-x64' }}
+    # Bound the scanner and compiler on small runner containers. A killed
+    # scanner has no result; keep the full reachable-code scan enabled.
+    env:
+      GOMAXPROCS: "2"
+      GOMEMLIMIT: "768MiB"
+      GOFLAGS: "-p=1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0

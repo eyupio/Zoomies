@@ -49,7 +49,7 @@ type serveCheck struct {
 // listener comes from its settings, and those are read from its database,
 // which the new process may be migrating a moment later.
 func (p *upgradePlan) serveCheck(ctx context.Context) *serveCheck {
-	if p.record.Mode == ModeAgent {
+	if p.record.Deployment.Containerised() && p.record.Mode == ModeAgent {
 		return nil
 	}
 	if p.record.Deployment.Containerised() {
@@ -210,19 +210,21 @@ func (p *upgradePlan) waitServing(ctx context.Context, check *serveCheck) error 
 		err := check.probe(ctx)
 		if err == nil {
 			if announced {
-				fmt.Fprintf(out, "The controller is answering, %s after it restarted.\n", time.Since(start).Round(time.Second))
+				PaletteFor(out).Done(out, "The controller is answering (%s)", time.Since(start).Round(time.Second))
 			}
 			return nil
 		}
 		if errors.Is(err, errNoHealthCheck) {
-			fmt.Fprintf(out, "The container declares no health check, so the upgrade cannot tell when the controller is answering; follow it with: %s\n", logs)
+			PaletteFor(out).Warn(out, "Container declares no health check; readiness is unverified")
+			PaletteFor(out).Hint(out, "Follow startup: %s", logs)
 			return nil
 		}
 		if why := check.stopped(ctx); why != "" {
 			return fmt.Errorf("the controller stopped after the upgrade: %s. See why with: %s. The upgrade was not rolled back: the new release may already have migrated the database, which an older one cannot open", why, logs)
 		}
 		if !announced {
-			fmt.Fprintf(out, "Waiting for the controller to answer (%s). Its database migrations run first, and on a large database they can take several minutes.\n", check.what)
+			PaletteFor(out).Doing(out, "Waiting for the controller to answer")
+			PaletteFor(out).Hint(out, "Database migrations may take several minutes. Logs: %s", logs)
 			announced = true
 		}
 		if time.Since(start) >= timeout {
