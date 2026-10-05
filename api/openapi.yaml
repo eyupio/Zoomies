@@ -6633,11 +6633,32 @@ components:
           description: >-
             For a `docker_mode: dind` pool whose size comes from the host: the percentage of one
             slot given to the Docker daemon, which does the building; the runner keeps the rest.
-            Zero is the even split every pool had before this was settable. Between 10 and 90
-            otherwise. It divides only a share the host chose -- a typed `cpus` or `memory_mb` is
-            given to both containers in full -- and the host is charged one slot either way. A
-            slot too small to give the thinner half what a runner needs is refused rather than
-            divided.
+            One figure for CPU and memory alike; `daemon_cpu_share_percent` and
+            `daemon_memory_share_percent` override it for their own resource. Zero is the even
+            split every pool had before this was settable. Between 10 and 90 otherwise. It
+            divides only a share the host chose -- a typed `cpus` or `memory_mb` is given to both
+            containers in full -- and the host is charged one slot either way. A slot too small to
+            give the thinner half what a runner needs is raised to it, which costs runners, or
+            refused.
+        daemon_cpu_share_percent:
+          type: integer
+          minimum: 0
+          maximum: 90
+          examples: [70]
+          description: >-
+            The daemon's share of a slot's CPU, where it differs from `daemon_share_percent`. A
+            build is CPU in the daemon, so this is usually the one worth raising. Zero follows
+            `daemon_share_percent`, then the even split.
+        daemon_memory_share_percent:
+          type: integer
+          minimum: 0
+          maximum: 90
+          examples: [35]
+          description: >-
+            The daemon's share of a slot's memory, where it differs from `daemon_share_percent`.
+            The runner's memory holds the checkout, the toolchain and any in-memory work folder
+            (charged to the runner), so this is often the one worth lowering. Zero follows
+            `daemon_share_percent`, then the even split.
 
     CPUBurstPolicy:
       type: object
@@ -6860,6 +6881,30 @@ components:
         disk_known: { type: boolean }
         tmpfs_plan:
           $ref: "#/components/schemas/TmpfsPlan"
+        split_plan:
+          $ref: "#/components/schemas/SplitPlan"
+
+    SplitPlan:
+      type: object
+      description: >-
+        The ways of dividing a host-sized Docker-in-Docker pool's slot between the runner and
+        its daemon, priced on the pool's hosts. A skewed split raises a thin half to its
+        minimum and the slot grows with it, so the same preset keeps every runner on one fleet
+        and loses most of them on another; the preset to start from is one that costs nothing.
+        Absent for a pool with a typed size, which gives the daemon the whole limit.
+      properties:
+        options:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string, enum: [even, build, runner], description: "`even` is 50/50; `build` gives the daemon most of the CPU; `runner` gives the runner most of both." }
+              cpu_percent: { type: integer, description: The daemon's share of a slot's CPU under this preset. }
+              memory_percent: { type: integer, description: The daemon's share of a slot's memory under this preset. }
+              runners: { type: integer, description: How many runners the hosts could hold under it. }
+              loses: { type: boolean, description: True when that is fewer than under the pool's own division now. }
+        runners_now: { type: integer, description: The room under the pool's own division. }
+        recommended: { type: string, enum: [even, build, runner], description: The preset to start from -- one that suits a pool that builds images and loses no runner, else `even`. }
 
     TmpfsPlan:
       type: object
@@ -6893,7 +6938,7 @@ components:
         share:
           type: object
           description: >-
-            A daemon share (`resources.daemon_share_percent`) that would put more folders in
+            A daemon memory share (`resources.daemon_memory_share_percent`) that would put more folders in
             memory without losing a runner. Absent when none does, which is usual: moving a
             share raises what a thinner half is charged and costs runners.
           properties:

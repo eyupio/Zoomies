@@ -221,10 +221,39 @@ func autoAsk(a *poolAuto) string {
 // words, because "cpus 0" reads as unlimited and it is the opposite.
 func poolSizing(pool poolItem) string {
 	out := poolSizingBase(pool)
-	if share := pool.Resources.DaemonSharePercent; share > 0 && pool.Sizing != "fixed" {
-		out += fmt.Sprintf("; the Docker daemon takes %d%% of a slot, the runner %d%%", share, 100-share)
+	if pool.Sizing != "fixed" {
+		out += poolShareLabel(pool.Resources)
 	}
 	return out
+}
+
+// poolShareLabel says how a host-sized slot is divided between the runner and its
+// Docker daemon when the pool has said: one figure when CPU and memory share it,
+// both when they differ, and nothing for the even split every pool starts with.
+func poolShareLabel(r poolResources) string {
+	cpu, mem := firstPositive(r.DaemonCPUSharePercent, r.DaemonSharePercent), firstPositive(r.DaemonMemorySharePercent, r.DaemonSharePercent)
+	switch {
+	case cpu == 0 && mem == 0:
+		return ""
+	case cpu == mem:
+		return fmt.Sprintf("; the Docker daemon takes %d%% of a slot, the runner %d%%", cpu, 100-cpu)
+	}
+	describe := func(name string, p int) string {
+		if p == 0 {
+			p = 50
+		}
+		return fmt.Sprintf("%d%% of the %s", p, name)
+	}
+	return fmt.Sprintf("; the Docker daemon takes %s and %s", describe("CPU", cpu), describe("memory", mem))
+}
+
+func firstPositive(vals ...int) int {
+	for _, v := range vals {
+		if v > 0 {
+			return v
+		}
+	}
+	return 0
 }
 
 func poolSizingBase(pool poolItem) string {
@@ -377,7 +406,9 @@ type poolSpec struct {
 	// create, where there is nothing to carry.
 	current poolResources
 	// daemonShare is --daemon-share, the daemon's part of a split slot.
-	daemonShare *int
+	daemonShare       *int
+	daemonCPUShare    *int
+	daemonMemoryShare *int
 	// currentBurst is the elastic CPU policy the pool has now, kept for the
 	// same reason: a ceiling typed alone must not switch the mode off.
 	currentBurst poolCPUBurst
@@ -448,7 +479,9 @@ func registerPoolFlags(fs *flagSet) *poolSpec {
 	fs.Var(spec.envVars, "env", "environment variables for every job in this pool, e.g. HTTP_PROXY=...")
 	spec.cpus = fs.Float64("cpus", 0, "CPU limit per runner; 0 leaves the size to the host, which gives each runner one slot's share of its machine")
 	spec.memoryMB = fs.Int64("memory-mb", 0, "memory limit per runner, in MiB; 0 leaves the size to the host")
-	spec.daemonShare = fs.Int("daemon-share", 0, "for a --docker-mode dind pool sized by its host: the percentage of one slot given to the Docker daemon, 10 to 90; 0 is an even split")
+	spec.daemonShare = fs.Int("daemon-share", 0, "for a --docker-mode dind pool sized by its host: the percentage of one slot given to the Docker daemon, for CPU and memory alike, 10 to 90; 0 is an even split")
+	spec.daemonCPUShare = fs.Int("daemon-cpu-share", 0, "the daemon's share of a slot's CPU, 10 to 90, where it differs from --daemon-share; a build is CPU in the daemon, so this is usually the one to raise")
+	spec.daemonMemoryShare = fs.Int("daemon-memory-share", 0, "the daemon's share of a slot's memory, 10 to 90, where it differs from --daemon-share; the runner holds the checkout and any in-memory work folder, so this is often the one to lower")
 	spec.sizeFromHost = fs.Bool("size-from-host", false, "take each runner's size from the host it lands on, as that host's runner sizes say (see zoomies hosts edit); a pool does this or states a size, so it cannot be combined with --cpus or --memory-mb")
 	spec.diskGB = fs.Int64("disk-gb", 0, "disk limit per runner, in GiB")
 	spec.pidsLimit = fs.Int64("pids-limit", 0, "the container's pids cgroup limit (0 is no limit)")
@@ -595,7 +628,7 @@ func (spec *poolSpec) body(fs *flagSet, onlyChanged bool) map[string]any {
 		delete(res, "cpus")
 		delete(res, "memory_mb")
 		body["resources"] = res
-	case fs.changed("cpus") || fs.changed("memory-mb") || fs.changed("disk-gb") || fs.changed("pids-limit") || fs.changed("daemon-share"):
+	case fs.changed("cpus") || fs.changed("memory-mb") || fs.changed("disk-gb") || fs.changed("pids-limit") || fs.changed("daemon-share") || fs.changed("daemon-cpu-share") || fs.changed("daemon-memory-share"):
 		body["resources"] = spec.resources(fs)
 	}
 	// The elastic CPU policy is one object for the same reason the size is,
@@ -691,9 +724,15 @@ func (spec *poolSpec) resources(fs *flagSet) map[string]any {
 	if fs.changed("disk-gb") {
 		disk = *spec.diskGB
 	}
-	share := spec.current.DaemonSharePercent
+	share, cpuShare, memShare := spec.current.DaemonSharePercent, spec.current.DaemonCPUSharePercent, spec.current.DaemonMemorySharePercent
 	if fs.changed("daemon-share") {
 		share = *spec.daemonShare
+	}
+	if fs.changed("daemon-cpu-share") {
+		cpuShare = *spec.daemonCPUShare
+	}
+	if fs.changed("daemon-memory-share") {
+		memShare = *spec.daemonMemoryShare
 	}
 	if fs.changed("pids-limit") {
 		pids = *spec.pidsLimit
@@ -712,6 +751,12 @@ func (spec *poolSpec) resources(fs *flagSet) map[string]any {
 	}
 	if share > 0 {
 		out["daemon_share_percent"] = share
+	}
+	if cpuShare > 0 {
+		out["daemon_cpu_share_percent"] = cpuShare
+	}
+	if memShare > 0 {
+		out["daemon_memory_share_percent"] = memShare
 	}
 	return out
 }
@@ -915,7 +960,7 @@ func poolsEdit(ctx context.Context, e *env, args []string) error {
 	// forward -- `resources` is one object, and a partial one clears what it
 	// leaves out -- so the pool as it stands is read first. It is read only
 	// when it is needed, so an edit that changes a label costs no extra call.
-	if fs.changed("cpus") || fs.changed("memory-mb") || fs.changed("disk-gb") || fs.changed("pids-limit") || fs.changed("daemon-share") ||
+	if fs.changed("cpus") || fs.changed("memory-mb") || fs.changed("disk-gb") || fs.changed("pids-limit") || fs.changed("daemon-share") || fs.changed("daemon-cpu-share") || fs.changed("daemon-memory-share") ||
 		fs.changed("size-from-host") ||
 		fs.changed("cpu-burst") || fs.changed("cpu-burst-max") || fs.changed("cpu-burst-size-builds") ||
 		fs.changed("memory-burst") || fs.changed("memory-burst-max") || fs.changed("memory-burst-spill") ||

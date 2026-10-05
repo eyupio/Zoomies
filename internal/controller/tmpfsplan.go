@@ -125,14 +125,14 @@ func (c *Controller) tmpfsPlan(ctx context.Context, p *store.Pool, room PoolRoom
 	// minimum and the slot grows with it. Each candidate is judged by asking the
 	// room again under it.
 	if p.DockerMode == store.DockerDinD && p.Resources.MemoryMB <= 0 {
-		now := p.Resources.DaemonPercent()
+		now := p.Resources.DaemonMemoryPercent()
 		best := TmpfsShareOption{Percent: now, InMemory: inMemory, Now: inMemory, Runners: room.Runners, RunnersNow: room.Runners}
 		for s := store.MinDaemonSharePercent; s <= store.MaxDaemonSharePercent; s += 5 {
 			if s == now {
 				continue
 			}
 			cand := *p
-			cand.Resources.DaemonSharePercent = s
+			cand.Resources.DaemonMemorySharePercent = s
 			r2, err := c.poolRoom(ctx, &cand)
 			// A share that costs runners is not offered: a pool that gains a folder in
 			// memory and loses most of its fleet has not been helped. It happens
@@ -203,3 +203,85 @@ func onDiskHere(hosts []TmpfsHostPlan, host, folder string) bool {
 }
 
 func abs(n int) int { return int(math.Abs(float64(n))) }
+
+// A host-sized Docker-in-Docker pool divides each slot between the runner and its
+// daemon, CPU and memory on their own shares, and what is a sensible division
+// depends on where the jobs do their work -- which Zoomies cannot know when a
+// pool is made. What it can know is what each division would cost on these hosts:
+// a skewed split raises a thin half to its minimum and the slot grows with it, so
+// the same preset keeps every runner on one fleet and loses most of them on
+// another. So the presets are priced against the hosts, and the one preselected is
+// one that costs nothing.
+
+// SplitOption is one way of dividing a slot, priced on the pool's hosts.
+type SplitOption struct {
+	ID            string `json:"id"`
+	CPUPercent    int    `json:"cpu_percent"`
+	MemoryPercent int    `json:"memory_percent"`
+	// Runners is how many runners the hosts could hold under this division, and
+	// Loses is whether that is fewer than under the pool's own now.
+	Runners int  `json:"runners"`
+	Loses   bool `json:"loses"`
+}
+
+// SplitPlan prices the presets and names the one to start from.
+type SplitPlan struct {
+	Options []SplitOption `json:"options"`
+	// RunnersNow is the room under the division the pool has now.
+	RunnersNow int `json:"runners_now"`
+	// Recommended is the preset to preselect: the first that suits a pool that
+	// builds images and loses no runner, or "even" when none does.
+	Recommended string `json:"recommended"`
+}
+
+// splitPresets are the divisions offered, in the order a pool is preselected from.
+// "build" gives the daemon most of the CPU, because a build is CPU in the daemon,
+// and leaves memory even; "runner" gives the runner most of both, for jobs whose
+// work -- compiles, tests, installs, an in-memory work folder charged to the
+// runner -- is in the runner while the daemon mostly idles.
+var splitPresets = []SplitOption{
+	{ID: "build", CPUPercent: 70, MemoryPercent: 50},
+	{ID: "runner", CPUPercent: 35, MemoryPercent: 35},
+	{ID: "even", CPUPercent: 50, MemoryPercent: 50},
+}
+
+// splitPlan prices the presets for a host-sized docker-in-docker pool, or returns
+// nil: a pool with a typed size gives its daemon the whole limit and has no
+// division to choose.
+func (c *Controller) splitPlan(ctx context.Context, p *store.Pool, room PoolRoom) *SplitPlan {
+	if p.DockerMode != store.DockerDinD || !p.Automatic() || len(room.Placeable()) == 0 {
+		return nil
+	}
+	plan := &SplitPlan{RunnersNow: room.Runners, Recommended: "even"}
+	for _, preset := range splitPresets {
+		cand := *p
+		cand.Resources.DaemonSharePercent = 0
+		cand.Resources.DaemonCPUSharePercent, cand.Resources.DaemonMemorySharePercent = preset.CPUPercent, preset.MemoryPercent
+		r2, err := c.poolRoom(ctx, &cand)
+		if err != nil {
+			return nil
+		}
+		opt := preset
+		opt.Runners, opt.Loses = r2.Runners, r2.Runners < room.Runners
+		plan.Options = append(plan.Options, opt)
+	}
+	// A pool that is being made with a daemon is one that builds images: start from
+	// the division that gives that work the CPU, if the fleet can afford it.
+	for _, o := range plan.Options {
+		if o.ID == "build" && !o.Loses {
+			plan.Recommended = "build"
+		}
+	}
+	sort.SliceStable(plan.Options, func(i, j int) bool { return splitOrder(plan.Options[i].ID) < splitOrder(plan.Options[j].ID) })
+	return plan
+}
+
+func splitOrder(id string) int {
+	switch id {
+	case "even":
+		return 0
+	case "build":
+		return 1
+	}
+	return 2
+}

@@ -738,12 +738,23 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 	case p.Resources.MinMemoryMB > 0 && p.Resources.MinMemoryMB < store.MinRunnerMemoryMB:
 		add("resources.min_memory_mb", "a runner needs at least 512 MB, however short its host is; below that the runner binary is killed before it takes a job")
 	}
-	if share := p.Resources.DaemonSharePercent; share != 0 {
+	// The daemon's share of a slot: one figure for both resources, and one for each
+	// that overrides it. They mean something only where there is a daemon to give
+	// them to, and are held to a range that leaves neither container with nothing.
+	for _, f := range []struct {
+		field string
+		share int
+	}{
+		{"resources.daemon_share_percent", p.Resources.DaemonSharePercent},
+		{"resources.daemon_cpu_share_percent", p.Resources.DaemonCPUSharePercent},
+		{"resources.daemon_memory_share_percent", p.Resources.DaemonMemorySharePercent},
+	} {
 		switch {
+		case f.share == 0:
 		case p.DockerMode != store.DockerDinD:
-			add("resources.daemon_share_percent", "the daemon's share only means something for a pool with docker_mode dind, which is the one that runs a daemon beside the runner")
-		case share < store.MinDaemonSharePercent || share > store.MaxDaemonSharePercent:
-			add("resources.daemon_share_percent", fmt.Sprintf("the daemon's share must be between %d and %d percent, or 0 for an even split; a container given less than a tenth of the slot is no limit in effect", store.MinDaemonSharePercent, store.MaxDaemonSharePercent))
+			add(f.field, "the daemon's share only means something for a pool with docker_mode dind, which is the one that runs a daemon beside the runner")
+		case f.share < store.MinDaemonSharePercent || f.share > store.MaxDaemonSharePercent:
+			add(f.field, fmt.Sprintf("the daemon's share must be between %d and %d percent, or 0 for an even split; a container given less than a tenth of the slot is no limit in effect", store.MinDaemonSharePercent, store.MaxDaemonSharePercent))
 		}
 	}
 	if p.Resources.DiskGB < 0 {

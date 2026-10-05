@@ -327,6 +327,27 @@ const SHOTS = [
     },
   },
   {
+    // How a slot is divided between the runner and its Docker sidecar: CPU and
+    // memory are two shares, the presets are priced on the fleet's hosts, and one is
+    // already chosen. Nothing is typed beyond the pool's name.
+    name: 'pool-size-split',
+    path: '/pools/new',
+    heading: 'Create a pool',
+    device: { viewport: { width: DESKTOP.width, height: 1500 }, deviceScaleFactor: SCALE },
+    async prepare(page) {
+      const row = (id) =>
+        page.locator(`#pool-${id}`).getByRole('heading', { level: 2 }).getByRole('button');
+      await page.getByRole('textbox', { name: 'Pool name' }).fill('zoomies-dind-builds');
+      await page.getByRole('textbox', { name: 'Pool name' }).blur();
+      await page.getByRole('radio', { name: /Yes, give each runner a Docker daemon/ }).check();
+      await row('size').click();
+      const split = page.getByTestId('pool-split');
+      await split.waitFor();
+      await split.getByRole('radio', { checked: true }).waitFor();
+      await split.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    },
+  },
+  {
     // The host's runner sizes, scrolled to the in-memory folders: the host's
     // owner has the last word on what a pool may ask of the machine. Nothing is
     // saved; a work folder size and a ceiling are typed so the section is shown in use.

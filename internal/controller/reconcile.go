@@ -531,11 +531,13 @@ func (c *Controller) finishCreateRunner(ctx context.Context, inst *store.Install
 		// What the row records, not the pool's field: a pool that sets no
 		// limit gets one slot's share of the host, and the agent applies
 		// whatever this says without knowing the difference.
-		Resources:          resources,
-		ResourcesSource:    wireSource(source),
-		Cache:              pool.Cache,
-		Tmpfs:              pool.Tmpfs,
-		DaemonSharePercent: pool.Resources.DaemonSharePercent,
+		Resources:                resources,
+		ResourcesSource:          wireSource(source),
+		Cache:                    pool.Cache,
+		Tmpfs:                    pool.Tmpfs,
+		DaemonSharePercent:       pool.Resources.DaemonSharePercent,
+		DaemonCPUSharePercent:    pool.Resources.DaemonCPUSharePercent,
+		DaemonMemorySharePercent: pool.Resources.DaemonMemorySharePercent,
 		// An organisation installation's target is the organisation, which is
 		// no repository at all; a pool under one names its cache's repository
 		// itself, and that is the identity the runner should carry.

@@ -4578,10 +4578,20 @@ export interface components {
              */
             min_memory_mb?: number;
             /**
-             * @description For a `docker_mode: dind` pool whose size comes from the host: the percentage of one slot given to the Docker daemon, which does the building; the runner keeps the rest. Zero is the even split every pool had before this was settable. Between 10 and 90 otherwise. It divides only a share the host chose -- a typed `cpus` or `memory_mb` is given to both containers in full -- and the host is charged one slot either way. A slot too small to give the thinner half what a runner needs is refused rather than divided.
+             * @description For a `docker_mode: dind` pool whose size comes from the host: the percentage of one slot given to the Docker daemon, which does the building; the runner keeps the rest. One figure for CPU and memory alike; `daemon_cpu_share_percent` and `daemon_memory_share_percent` override it for their own resource. Zero is the even split every pool had before this was settable. Between 10 and 90 otherwise. It divides only a share the host chose -- a typed `cpus` or `memory_mb` is given to both containers in full -- and the host is charged one slot either way. A slot too small to give the thinner half what a runner needs is raised to it, which costs runners, or refused.
              * @example 70
              */
             daemon_share_percent?: number;
+            /**
+             * @description The daemon's share of a slot's CPU, where it differs from `daemon_share_percent`. A build is CPU in the daemon, so this is usually the one worth raising. Zero follows `daemon_share_percent`, then the even split.
+             * @example 70
+             */
+            daemon_cpu_share_percent?: number;
+            /**
+             * @description The daemon's share of a slot's memory, where it differs from `daemon_share_percent`. The runner's memory holds the checkout, the toolchain and any in-memory work folder (charged to the runner), so this is often the one worth lowering. Zero follows `daemon_share_percent`, then the even split.
+             * @example 35
+             */
+            daemon_memory_share_percent?: number;
         };
         /** @description Whether an automatically-sized Docker or Podman pool only observes, or may use, CPU left over after every live runner's guaranteed host share and one imminent start have been protected. Memory has a policy of its own (`MemoryBurstPolicy`), because a memory limit can be raised and never taken back. Existing pools default to off; new pools default to observe. */
         CPUBurstPolicy: {
@@ -4747,6 +4757,32 @@ export interface components {
             smallest_disk_host?: string;
             disk_known?: boolean;
             tmpfs_plan?: components["schemas"]["TmpfsPlan"];
+            split_plan?: components["schemas"]["SplitPlan"];
+        };
+        /** @description The ways of dividing a host-sized Docker-in-Docker pool's slot between the runner and its daemon, priced on the pool's hosts. A skewed split raises a thin half to its minimum and the slot grows with it, so the same preset keeps every runner on one fleet and loses most of them on another; the preset to start from is one that costs nothing. Absent for a pool with a typed size, which gives the daemon the whole limit. */
+        SplitPlan: {
+            options?: {
+                /**
+                 * @description `even` is 50/50; `build` gives the daemon most of the CPU; `runner` gives the runner most of both.
+                 * @enum {string}
+                 */
+                id?: "even" | "build" | "runner";
+                /** @description The daemon's share of a slot's CPU under this preset. */
+                cpu_percent?: number;
+                /** @description The daemon's share of a slot's memory under this preset. */
+                memory_percent?: number;
+                /** @description How many runners the hosts could hold under it. */
+                runners?: number;
+                /** @description True when that is fewer than under the pool's own division now. */
+                loses?: boolean;
+            }[];
+            /** @description The room under the pool's own division. */
+            runners_now?: number;
+            /**
+             * @description The preset to start from -- one that suits a pool that builds images and loses no runner
+             * @enum {string}
+             */
+            recommended?: "even" | "build" | "runner";
         };
         /** @description What a pool's automatic in-memory folders come to on its hosts, and what would change it. Present only for a pool that keeps a folder in memory with `auto`, the setting that decides per host and so needs saying per host. It informs; every change is the operator's. The same figures are in the `pool.tmpfs_auto_on_disk` problem's fix. */
         TmpfsPlan: {
@@ -4783,7 +4819,7 @@ export interface components {
             in_memory?: number;
             /** @description How many folder placements there are. */
             total?: number;
-            /** @description A daemon share (`resources.daemon_share_percent`) that would put more folders in memory without losing a runner. Absent when none does, which is usual: moving a share raises what a thinner half is charged and costs runners. */
+            /** @description A daemon memory share (`resources.daemon_memory_share_percent`) that would put more folders in memory without losing a runner. Absent when none does, which is usual: moving a share raises what a thinner half is charged and costs runners. */
             share?: {
                 percent?: number;
                 /** @description Folder placements in memory at this share. */
