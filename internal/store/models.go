@@ -585,8 +585,9 @@ func (m CPUBurstMode) Valid() bool {
 }
 
 // CPUBurstPolicy lets an automatically-sized container runner borrow CPU that
-// no live runner or imminent start has been promised. Memory is intentionally
-// absent: lowering a live memory limit can kill the job it is meant to help.
+// no live runner or imminent start has been promised. Memory is a separate
+// policy (MemoryBurstPolicy) because it cannot be handed back: lowering a live
+// memory limit can kill the job it was meant to help.
 type CPUBurstPolicy struct {
 	Mode CPUBurstMode `json:"mode,omitempty"`
 	// MaxCPUs is the most CPU one logical runner may use. Zero means the
@@ -614,6 +615,58 @@ func (p CPUBurstPolicy) Observes() bool {
 }
 
 func (p CPUBurstPolicy) Enforces() bool { return p.Mode == CPUBurstAutomatic }
+
+// MemoryBurstMode says what a pool does with memory that its live runners have
+// not been promised. The empty value is deliberately off, so an upgrade never
+// changes the limit of a runner on a pool that existed before the policy did.
+type MemoryBurstMode string
+
+const (
+	MemoryBurstOff       MemoryBurstMode = "off"
+	MemoryBurstObserve   MemoryBurstMode = "observe"
+	MemoryBurstAutomatic MemoryBurstMode = "automatic"
+)
+
+func (m MemoryBurstMode) Valid() bool {
+	return m == "" || m == MemoryBurstOff || m == MemoryBurstObserve || m == MemoryBurstAutomatic
+}
+
+// MemoryBurstPolicy lets a container runner be given more memory than it was
+// created with, while its job runs, out of memory the host has not promised to
+// any runner. It is the policy of the memory valve: a runner keeps its
+// guarantee, draws on a shared pool of the host's spare memory when it nears
+// its limit, and may be allowed a bounded amount of swap once the pool cannot
+// cover it.
+//
+// It is a separate policy from CPUBurstPolicy because the two do not behave
+// alike. A CPU quota can be lent and taken back in the same heartbeat, so CPU is
+// lent on the controller's say-so and withdrawn by its next plan. A memory limit
+// can only go up: lowering one under a live process is refused by the daemon or
+// kills the process, so a loan of memory lasts as long as the runner does, and
+// the rules that bound it -- the ceiling, the floor the host keeps, the spare
+// memory there is -- have to hold at the moment of lending rather than being
+// corrected afterwards.
+type MemoryBurstPolicy struct {
+	Mode MemoryBurstMode `json:"mode,omitempty"`
+	// MaxMemoryMB is the most memory one logical runner may hold, its guarantee
+	// and what it is lent together. For a docker-in-docker runner it covers the
+	// runner and its sidecar between them. Zero means the default ceiling, one and
+	// a half times the guarantee; a host's own ceiling
+	// (RunnerStandard.BurstMaxMemoryMB) can lower this and never raise it.
+	MaxMemoryMB int64 `json:"max_memory_mb,omitempty"`
+	// SpillMB is how much swap one runner may use beyond its memory limit as the
+	// last resort, once the shared pool is empty or the ceiling reached and the
+	// runner is about to be killed. Zero is none, which is also what a pool that
+	// has never said anything gets: swap turns a kill into a slowdown, and some
+	// operators would rather have the kill.
+	SpillMB int64 `json:"spill_mb,omitempty"`
+}
+
+func (p MemoryBurstPolicy) Observes() bool {
+	return p.Mode == MemoryBurstObserve || p.Mode == MemoryBurstAutomatic
+}
+
+func (p MemoryBurstPolicy) Enforces() bool { return p.Mode == MemoryBurstAutomatic }
 
 // SplitWithDaemon divides limits a runner was given by its host's slot between
 // the runner and the docker-in-docker daemon that runs beside it.
@@ -809,7 +862,9 @@ type Pool struct {
 	DockerMode        DockerMode     `json:"docker_mode"`
 	Resources         Resources      `json:"resources"`
 	CPUBurst          CPUBurstPolicy `json:"cpu_burst"`
-	Cache             CacheConfig    `json:"cache"`
+	// MemoryBurst is the memory valve's policy; see MemoryBurstPolicy.
+	MemoryBurst MemoryBurstPolicy `json:"memory_burst"`
+	Cache       CacheConfig       `json:"cache"`
 	// Tmpfs keeps the runner's work folder and /tmp in memory. Off unless an
 	// operator opts in, because it spends the pool's memory limit on disk speed.
 	Tmpfs TmpfsConfig `json:"tmpfs"`
@@ -1403,6 +1458,15 @@ type Runner struct {
 	AllocatedCPUs     float64 `json:"allocated_cpus,omitempty"`
 	AllocatedMemoryMB int64   `json:"allocated_memory_mb,omitempty"`
 	AllocationSource  string  `json:"allocation_source,omitempty"`
+	// LentMemoryMB is how much more memory than AllocatedMemoryMB (and than its
+	// daemon's, for a docker-in-docker pair) this runner's containers hold now,
+	// because the memory valve raised their limits. It only ever goes up while
+	// the runner lives, and it is written with the resource sample rather than
+	// with the rest of the row: the agent is the only thing that knows it, and a
+	// whole-row update from an older read must not put it back to zero. The
+	// placement ledger charges it to the host (scheduler.RunnerCharge), so new
+	// work sees the room the loan used.
+	LentMemoryMB int64 `json:"lent_memory_mb,omitempty"`
 	// SizedForCPUs is the CPU count the runner's toolchains were told to size
 	// their workers for when it started (see CPUBurstPolicy.SizeForCeiling),
 	// or zero when they were told nothing. Recorded rather than recomputed,

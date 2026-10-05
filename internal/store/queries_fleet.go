@@ -233,20 +233,20 @@ const poolCols = `id, name, installation_id, labels, runner_group, backend, os, 
 	idle_timeout_ms, ephemeral, docker_mode, resources, cache, host_selector, env,
 	run_as_root, enabled, created_at, updated_at, repository_scale_up_limit,
 	cost_per_runner_hour, runner_settings, cpu_burst, no_default_labels, size_from_profile, tmpfs,
-	auto_key, auto_min, auto_cap, auto_paused`
+	auto_key, auto_min, auto_cap, auto_paused, memory_burst`
 
 func scanPool(sc interface{ Scan(...any) error }) (*Pool, error) {
 	var p Pool
 	var idle, created, updated int64
 	var ephemeral, runAsRoot, enabled, noDefaultLabels, sizeFromProfile, autoPaused int
-	var resources, cache, runnerSettings, cpuBurst, tmpfs string
+	var resources, cache, runnerSettings, cpuBurst, tmpfs, memoryBurst string
 	err := sc.Scan(&p.ID, &p.Name, &p.InstallationID, &p.Labels, &p.RunnerGroup, &p.Backend,
 		&p.Platform.OS, &p.Platform.OSVersion, &p.Platform.Arch,
 		&p.Image, &p.PullPolicy, &p.RunnerVersion, &p.MinRunners, &p.MaxRunners, &p.Priority,
 		&idle, &ephemeral, &p.DockerMode, &resources, &cache, &p.HostSelector, &p.Env,
 		&runAsRoot, &enabled, &created, &updated, &p.RepositoryScaleUpLimit, &p.CostPerRunnerHour,
 		&runnerSettings, &cpuBurst, &noDefaultLabels, &sizeFromProfile, &tmpfs,
-		&p.AutoKey, &p.AutoMin, &p.AutoCap, &autoPaused)
+		&p.AutoKey, &p.AutoMin, &p.AutoCap, &autoPaused, &memoryBurst)
 	if err != nil {
 		return nil, err
 	}
@@ -270,6 +270,9 @@ func scanPool(sc interface{ Scan(...any) error }) (*Pool, error) {
 	}
 	if err := unmarshalJSON(tmpfs, &p.Tmpfs); err != nil {
 		return nil, fmt.Errorf("pool %s: decoding tmpfs settings: %w", p.ID, err)
+	}
+	if err := unmarshalJSON(memoryBurst, &p.MemoryBurst); err != nil {
+		return nil, fmt.Errorf("pool %s: decoding memory burst policy: %w", p.ID, err)
 	}
 	return &p, nil
 }
@@ -303,11 +306,11 @@ func (s *Store) poolInsert(p *Pool) (string, []any, error) {
 	if p.PullPolicy == "" {
 		p.PullPolicy = PullIfNotPresent
 	}
-	res, cache, settings, burst, tmpfs, err := poolJSON(p)
+	res, cache, settings, burst, tmpfs, memoryBurst, err := poolJSON(p)
 	if err != nil {
 		return "", nil, err
 	}
-	return `INSERT INTO pools (` + poolCols + `) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, []any{
+	return `INSERT INTO pools (` + poolCols + `) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, []any{
 		p.ID, p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend),
 		p.Platform.OS, p.Platform.OSVersion, p.Platform.Arch, p.Image,
 		string(p.PullPolicy),
@@ -315,11 +318,12 @@ func (s *Store) poolInsert(p *Pool) (string, []any, error) {
 		boolInt(p.Ephemeral), string(p.DockerMode), res, cache, p.HostSelector, p.Env,
 		boolInt(p.RunAsRoot), boolInt(p.Enabled), ms(p.CreatedAt), ms(p.UpdatedAt),
 		p.RepositoryScaleUpLimit, p.CostPerRunnerHour, settings, burst, boolInt(p.NoDefaultLabels),
-		boolInt(p.SizeFromProfile), tmpfs, p.AutoKey, p.AutoMin, p.AutoCap, boolInt(p.AutoPaused)}, nil
+		boolInt(p.SizeFromProfile), tmpfs, p.AutoKey, p.AutoMin, p.AutoCap, boolInt(p.AutoPaused),
+		memoryBurst}, nil
 }
 
-// poolJSON encodes the five columns a pool keeps as JSON documents.
-func poolJSON(p *Pool) (res, cache, settings, burst, tmpfs string, err error) {
+// poolJSON encodes the six columns a pool keeps as JSON documents.
+func poolJSON(p *Pool) (res, cache, settings, burst, tmpfs, memoryBurst string, err error) {
 	if res, err = marshalJSON(p.Resources); err != nil {
 		return
 	}
@@ -332,7 +336,10 @@ func poolJSON(p *Pool) (res, cache, settings, burst, tmpfs string, err error) {
 	if burst, err = marshalJSON(p.CPUBurst); err != nil {
 		return
 	}
-	tmpfs, err = marshalJSON(p.Tmpfs)
+	if tmpfs, err = marshalJSON(p.Tmpfs); err != nil {
+		return
+	}
+	memoryBurst, err = marshalJSON(p.MemoryBurst)
 	return
 }
 
@@ -412,7 +419,7 @@ func (s *Store) poolUpdate(p *Pool) (string, []any, error) {
 	if p.PullPolicy == "" {
 		p.PullPolicy = PullIfNotPresent
 	}
-	res, cache, settings, burst, tmpfs, err := poolJSON(p)
+	res, cache, settings, burst, tmpfs, memoryBurst, err := poolJSON(p)
 	if err != nil {
 		return "", nil, err
 	}
@@ -428,7 +435,7 @@ func (s *Store) poolUpdate(p *Pool) (string, []any, error) {
 		boolInt(p.Ephemeral), string(p.DockerMode), res, cache, p.HostSelector, p.Env,
 		boolInt(p.RunAsRoot), boolInt(p.Enabled), ms(p.UpdatedAt), p.RepositoryScaleUpLimit,
 		p.CostPerRunnerHour, settings, burst, boolInt(p.NoDefaultLabels), boolInt(p.SizeFromProfile), tmpfs,
-		p.AutoMin, p.AutoCap, boolInt(p.AutoPaused), p.ID,
+		p.AutoMin, p.AutoCap, boolInt(p.AutoPaused), memoryBurst, p.ID,
 	}
 	query := `UPDATE pools SET name=?, installation_id=?, labels=?, runner_group=?,
 		backend=?, os=?, os_version=?, arch=?, image=?, pull_policy=?, runner_version=?,
@@ -436,7 +443,7 @@ func (s *Store) poolUpdate(p *Pool) (string, []any, error) {
 		docker_mode=?, resources=?, cache=?, host_selector=?, env=?, run_as_root=?,
 		enabled=?, updated_at=?, repository_scale_up_limit=?, cost_per_runner_hour=?,
 		runner_settings=?, cpu_burst=?, no_default_labels=?, size_from_profile=?, tmpfs=?,
-		auto_min=?, auto_cap=?, auto_paused=? WHERE id=?`
+		auto_min=?, auto_cap=?, auto_paused=?, memory_burst=? WHERE id=?`
 	return query, args, nil
 }
 
@@ -947,7 +954,7 @@ const runnerCols = `id, pool_id, host_id, name, state, github_runner_id, contain
 	cleanup_error, cleanup_failed_at, cleanup_attempts, registration_deleted_at, cleaned_up_at,
 	draining_since, create_task_issued_at, host_removed_at, cleanup_estimated_at,
 	allocated_cpus, allocated_memory_mb, allocation_source, fault_kind, resource_sample,
-	host_cleanup_error, registration_cleanup_error, sized_for_cpus`
+	host_cleanup_error, registration_cleanup_error, sized_for_cpus, lent_memory_mb`
 
 func scanRunner(sc interface{ Scan(...any) error }) (*Runner, error) {
 	var r Runner
@@ -964,7 +971,7 @@ func scanRunner(sc interface{ Scan(...any) error }) (*Runner, error) {
 		&r.CleanupError, &cleanupFailed, &r.CleanupAttempts, &registrationDeleted, &cleanedUp,
 		&drainingSince, &createIssued, &hostRemoved, &cleanupEstimated,
 		&r.AllocatedCPUs, &r.AllocatedMemoryMB, &r.AllocationSource, &r.FaultKind, &resourceSample,
-		&r.HostCleanupError, &r.RegistrationCleanupError, &r.SizedForCPUs)
+		&r.HostCleanupError, &r.RegistrationCleanupError, &r.SizedForCPUs, &r.LentMemoryMB)
 	if err != nil {
 		return nil, err
 	}
@@ -995,7 +1002,7 @@ func (s *Store) CreateRunner(ctx context.Context, r *Runner) error {
 	}
 	r.CreatedAt = s.Now()
 	_, err := s.exec(ctx, `INSERT INTO runners (`+runnerCols+`)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		r.ID, r.PoolID, r.HostID, r.Name, string(r.State), r.GitHubRunnerID, r.ContainerID,
 		boolInt(r.Ephemeral), r.Labels, r.Image, r.ImageDigest, r.RunnerVersion, r.CurrentJobID,
 		ms(r.CreatedAt), msp(r.StartedAt), msp(r.LastIdleAt), msp(r.FinishedAt),
@@ -1005,7 +1012,7 @@ func (s *Store) CreateRunner(ctx context.Context, r *Runner) error {
 		msp(r.RegistrationDeletedAt), msp(r.CleanedUpAt), msp(r.DrainingSince),
 		msp(r.CreateTaskIssuedAt), msp(r.HostRemovedAt), msp(r.CleanupEstimatedAt),
 		r.AllocatedCPUs, r.AllocatedMemoryMB, r.AllocationSource, r.FaultKind, runnerSampleJSON(r.ResourceSample),
-		r.HostCleanupError, r.RegistrationCleanupError, r.SizedForCPUs)
+		r.HostCleanupError, r.RegistrationCleanupError, r.SizedForCPUs, r.LentMemoryMB)
 	return wrapWrite(err)
 }
 
@@ -1824,6 +1831,16 @@ func runnerSampleJSON(sample []byte) string {
 // an agent reports its retained last sample after a collection failure.
 func (s *Store) SetRunnerResourceSample(ctx context.Context, id string, cpu float64, mem int64, sample []byte) error {
 	_, err := s.exec(ctx, `UPDATE runners SET cpu_percent=?, memory_bytes=?, resource_sample=? WHERE id=?`, cpu, mem, runnerSampleJSON(sample), id)
+	return err
+}
+
+// SetRunnerLentMemory records how much memory beyond what a runner was created
+// with the memory valve has given its containers. It is a column of its own
+// rather than a part of UpdateRunner's whole-row write, because the figure only
+// ever goes up and a stale read written back would hand a runner's loan to the
+// next placement as room.
+func (s *Store) SetRunnerLentMemory(ctx context.Context, id string, lentMB int64) error {
+	_, err := s.exec(ctx, `UPDATE runners SET lent_memory_mb=? WHERE id=?`, max(lentMB, 0), id)
 	return err
 }
 
