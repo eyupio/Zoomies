@@ -492,26 +492,3 @@ func printDoctorBrief(w io.Writer, r hosttune.Report, fresh int) {
 		ui.Hint(w, "Review fixes: sudo zoomies tune")
 	}
 }
-
-// askLine reads one line a byte at a time, so nothing beyond it is consumed:
-// the tune that may follow reads the same input, and a buffered reader here
-// would swallow its first answer. End of input is an empty answer.
-func askLine(in io.Reader, out io.Writer, prompt string) string {
-	fmt.Fprint(out, prompt)
-	var line []byte
-	buf := make([]byte, 1)
-	for {
-		n, err := in.Read(buf)
-		if n == 1 {
-			if buf[0] == '\n' {
-				break
-			}
-			line = append(line, buf[0])
-		}
-		if err != nil {
-			fmt.Fprintln(out)
-			break
-		}
-	}
-	return strings.TrimSpace(string(line))
-}
