@@ -140,6 +140,10 @@ A raise that went through says `raised`; a container well inside its limit says
 `healthy`. Two more codes are about the container runtime and not the host:
 `unsupported`, a runtime that refused to change a limit that is already set —
 it is not asked again — and `failed`, a refusal for any other reason, which is.
+`failed` is also what a runner says when three looks in a row could not read its
+memory from the runtime: a valve that cannot see a runner protects nothing, and
+an observing pool's evidence would otherwise be an empty page that reads as a
+quiet one.
 
 Each decision carries its reason in plain words, with the numbers it had: *"raised
 the limit from 6144 to 6656 MB: it was using 5400 MB"*, or *"it is using 7900 MB
@@ -216,8 +220,9 @@ a ceiling under a runner's own share would be a request to take memory back.
 A host can set a ceiling of its own, `burst_max_memory_mb` in its [runner
 profile](hosts-and-pools.md#runner-profiles-how-big-a-runner-is-on-one-host),
 for a machine whose owner wants a limit on how much of it one job may take
-whatever the pool says. Where both are set the smaller applies, so the host's
-ceiling can lower a pool's and never raise it.
+whatever the pool says. It is a cap: it lowers whatever the pool asked for — a
+ceiling it named, or the default of half as much again — and never raises it, so
+a host capped at 32 GB does not give a pool that left the figure alone 32 GB.
 
 ## Turning it on
 
