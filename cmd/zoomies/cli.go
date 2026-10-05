@@ -12,12 +12,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/cliconfig"
 	"github.com/eyupio/zoomies/internal/version"
-	"gopkg.in/yaml.v3"
 )
 
 // The commands in this file and the per-resource files beside it are pure API
@@ -41,54 +40,15 @@ const importRequestTimeout = 30 * time.Minute
 // Credentials
 // ---------------------------------------------------------------------------
 
-// cliConfig is ~/.config/zoomies/cli.yaml: the credentials of last resort, for
-// an operator who does not want ZOOMIES_TOKEN in their shell history.
-type cliConfig struct {
-	URL      string `yaml:"url"`
-	Token    string `yaml:"token"`
-	CAFile   string `yaml:"ca_file"`
-	Insecure bool   `yaml:"insecure"`
-}
+// cliConfig is ~/.config/zoomies/cli.yaml, which the installer writes and this
+// reads; see internal/cliconfig for why it is not defined here.
+type cliConfig = cliconfig.Config
 
 // cliConfigPath is where that file lives.
-//
-// It is resolved explicitly rather than with os.UserConfigDir so that the path
-// is the documented ~/.config/zoomies/cli.yaml on every platform, including
-// macOS, where UserConfigDir would answer with an Application Support
-// directory no documentation mentions.
-func cliConfigPath() string {
-	if p := strings.TrimSpace(os.Getenv("ZOOMIES_CLI_CONFIG")); p != "" {
-		return p
-	}
-	if dir := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); dir != "" {
-		return filepath.Join(dir, "zoomies", "cli.yaml")
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return filepath.Join(".config", "zoomies", "cli.yaml")
-	}
-	return filepath.Join(home, ".config", "zoomies", "cli.yaml")
-}
+func cliConfigPath() string { return cliconfig.Path() }
 
-// loadCLIConfig reads the credentials file. A missing file is not an error:
-// most people use the environment, and complaining about a file they never
-// created would be noise.
-func loadCLIConfig(path string) (cliConfig, error) {
-	var c cliConfig
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return c, nil
-		}
-		return c, fmt.Errorf("reading %s: %w", path, err)
-	}
-	dec := yaml.NewDecoder(bytes.NewReader(raw))
-	dec.KnownFields(true)
-	if err := dec.Decode(&c); err != nil && !errors.Is(err, io.EOF) {
-		return c, fmt.Errorf("%s: %w (it should hold url, token and optionally ca_file and insecure)", path, err)
-	}
-	return c, nil
-}
+// loadCLIConfig reads the credentials file. A missing file is not an error.
+func loadCLIConfig(path string) (cliConfig, error) { return cliconfig.Load(path) }
 
 // clientFlags are the flags every command that talks to a controller accepts.
 type clientFlags struct {

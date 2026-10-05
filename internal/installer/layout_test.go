@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/eyupio/zoomies/internal/config"
 )
 
 // mountsShared reports whether a Compose file's zoomies service mounts the
@@ -321,5 +323,61 @@ func TestAskApprovalTakesEnterAsYesAndNothingAsNo(t *testing.T) {
 		if got := askApproval(strings.NewReader(in), &bytes.Buffer{}, "? "); got != want {
 			t.Errorf("askApproval(%q) = %v, want %v", in, got, want)
 		}
+	}
+}
+
+func TestConnectionURLPrefersTheExternalURLAndGuessesNothingForTLS(t *testing.T) {
+	for _, tc := range []struct {
+		external, bind string
+		tls            config.TLSMode
+		want           string
+	}{
+		{"https://zoomies.example.com/", "0.0.0.0:8080", config.TLSFiles, "https://zoomies.example.com"},
+		{"", "0.0.0.0:8080", config.TLSOff, "http://127.0.0.1:8080"},
+		{"", ":8080", config.TLSOff, "http://127.0.0.1:8080"},
+		{"", "127.0.0.1:9000", config.TLSOff, "http://127.0.0.1:9000"},
+		{"", "10.0.0.5:8080", config.TLSOff, "http://10.0.0.5:8080"},
+		// A certificate would not match an address, and there is no name to use.
+		{"", "0.0.0.0:8443", config.TLSSelfSigned, ""},
+		{"", "", config.TLSOff, ""},
+	} {
+		if got := connectionURL(tc.external, tc.bind, tc.tls); got != tc.want {
+			t.Errorf("connectionURL(%q, %q, %s) = %q, want %q", tc.external, tc.bind, tc.tls, got, tc.want)
+		}
+	}
+}
+
+// A controller host that has no CLI file is offered one, named in the list of
+// additions an upgrade asks approval for; one that already names a controller
+// is not, and an agent-only host has no controller to name.
+func TestAnUpgradeOffersTheCLIConnectionFileOnlyWhereItIsMissing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cli.yaml")
+	t.Setenv("ZOOMIES_CLI_CONFIG", path)
+	cfg := config.Default()
+	cfg.Server.ExternalURL = "https://zoomies.example.com"
+	s := deploymentSettings{cfg: cfg, read: true}
+	p := &upgradePlan{record: DeploymentRecord{Mode: ModeController}}
+
+	changes := p.cliConfigChanges(s)
+	if len(changes) != 1 || !strings.Contains(changes[0].what, path) || !strings.Contains(changes[0].what, "https://zoomies.example.com") || changes[0].required {
+		t.Fatalf("changes = %+v, want one optional addition naming the file and the controller", changes)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("offering the file wrote it")
+	}
+	if err := changes[0].apply(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if raw, _ := os.ReadFile(path); !strings.Contains(string(raw), "url: https://zoomies.example.com") {
+		t.Errorf("approval must write the url: %s", raw)
+	}
+	if again := p.cliConfigChanges(s); len(again) != 0 {
+		t.Errorf("a file that names a controller is not offered again: %+v", again)
+	}
+
+	p.record.Mode = ModeAgent
+	_ = os.Remove(path)
+	if got := p.cliConfigChanges(s); len(got) != 0 {
+		t.Errorf("an agent host has no controller to name: %+v", got)
 	}
 }

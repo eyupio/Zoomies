@@ -40,6 +40,20 @@ Everything under *Your fleet* below takes the same connection flags:
 
 The listing commands add `--limit` (50), `--offset`, `--sort` and `--order`.
 
+Where the URL and token come from is, in order: the flags, then `ZOOMIES_URL` and
+`ZOOMIES_TOKEN`, then `~/.config/zoomies/cli.yaml` (`url`, `token`, and optionally
+`ca_file` and `insecure`; `ZOOMIES_CLI_CONFIG` points at another file).
+
+On the machine that runs the controller you do not have to write that file.
+`zoomies init` creates it, with the controller's address and no token, and
+`zoomies upgrade` offers to when it is missing — it is listed with the other
+additions an upgrade asks approval for, and `--yes` accepts it. The file is private
+(`0600`), an address you already put there is never replaced, and a token is never
+written for you: create one in the UI under your account's API tokens, or with
+`zoomies tokens create --name this-host --role operator` once you have one, and add it
+as `token:`. It is the file of whichever account ran the command, so under `sudo` it is
+`root`'s.
+
 ## Running Zoomies
 
 | Command | What it does |
