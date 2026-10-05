@@ -1652,7 +1652,7 @@ and a pool that cannot be placed is told which resource is short of its
 minimum, not of its standard.
 
 These two settings are the fleet's minimum, and every pool that has not set one
-of its own follows them — live. A pool's own minimum, set on its size step or
+of its own follows them — live. A pool's own minimum, set in the **Size** section of the pool editor or
 as `resources.min_cpus` and `resources.min_memory_mb`, wins on the field it
 sets; where it is 0, the pool's minimum is the fleet's, so changing these
 settings moves every such pool on the next scheduling pass, with nothing
@@ -1676,7 +1676,7 @@ that saving or exporting a pool never freezes the fleet's value into it. A
 minimum is held to the same floor any runner is: a quarter of a core and 512
 MB.
 [How big a runner is](hosts-and-pools.md#how-big-a-runner-is-and-how-many-there-are)
-has what the wizard does with them, and what it checks the answer against.
+has what the pool editor does with them, and what it checks the answer against.
 
 ### `agent.extra_ca_file` — behind a proxy that re-signs TLS
 
@@ -2045,7 +2045,7 @@ across hosts, use its [registry cache recipe](persistent-caches.md#dind-and-buil
 `setup-python`, `setup-node`, `setup-go` and `setup-java` download, so the first
 job to ask for a version downloads it and the rest find it there. It is a
 setting of the pool, stored with it — the **Keep a tool cache as well** box
-under the cache on the pool's size step — and not an environment variable to
+under the cache in the pool editor's **Speed-ups** section — and not an environment variable to
 remember.
 
 ```yaml
@@ -2176,8 +2176,8 @@ no tag at all), the release it was cut from, and the operating-system aliases a
 pool gets by naming a platform (`ubuntu-2404`, `debian-12-dev`). One step of one
 workflow publishes both images, so a tag that exists for one exists for the
 other. The response, the audit row and the pool's page all show
-the image that runs; the wizard says so on the step that decides it and shows
-it on the review step; and a pool saved before this rule existed is moved by a
+the image that runs; the pool editor says so in the section that decides it and
+shows it in the pool written out at the foot of the page; and a pool saved before this rule existed is moved by a
 migration the first time a controller that has it starts. Idle runners made
 from the old image are replaced, so a warm pool does not keep handing Docker
 jobs to runners that cannot run them. The switch is not reversed when the

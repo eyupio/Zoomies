@@ -218,7 +218,7 @@ neighbour, briefly, and then has them.
 | `cpu_burst.mode` | What it does | Who gets it |
 | --- | --- | --- |
 | `off` | Nothing. Runners stay at their creation quota, and the runner page shows CPU state only when the host is throttling. | Every pool that existed before elasticity did, so an upgrade changes no running quota. |
-| `observe` | Makes every decision above and publishes it to Prometheus, but moves no quota. The runner page says **Nose to the wind — watching spare CPU**. | Every automatically-sized Docker or Podman pool created in the wizard, the CLI or the API without saying otherwise. The one the installer creates during setup starts `off`. |
+| `observe` | Makes every decision above and publishes it to Prometheus, but moves no quota. The runner page says **Nose to the wind — watching spare CPU**. | Every automatically-sized Docker or Podman pool created in the pool editor, the CLI or the API without saying otherwise. The one the installer creates during setup starts `off`. |
 | `automatic` | Applies the target: the agent moves the runner's CPU quota live, and the runner page and the feed say so. | A pool you have switched on, after watching `observe`. |
 
 `observe` exists so that switching a fleet on is a decision made with evidence
@@ -260,11 +260,10 @@ does. The pool's per-host table shows whose ceiling is in force on each host.
 
 ## Turning it on
 
-=== "The pool wizard"
+=== "The pool editor"
 
-    Elasticity is on the **Size** step of the pool wizard, which the advanced
-    path walks — every step of the simple path offers it, one click along —
-    under **One share of each host**. It is a property of a pool sized by its
+    Elasticity is in the **Size** section of the pool editor, one tap from
+    any other section, under **One share of each host**. It is a property of a pool sized by its
     host, and the fixed size radio hides it, because a fixed size *is* the
     guarantee and has no share to grow into.
 
@@ -308,7 +307,7 @@ does. The pool's per-host table shows whose ceiling is in force on each host.
     The two go to the API as one object, so an edit that types only the
     ceiling carries the mode forward from the pool as it stands rather than
     resetting it. `pools get` shows the policy beside the pool's sizing, and
-    `--dry-run` on a create gives the wizard's own verdict — including the
+    `--dry-run` on a create gives the pool editor's own verdict — including the
     refusal below — without creating anything.
 
 === "The API"
@@ -351,9 +350,9 @@ That is the one thing a host needs for elastic CPU, and the only one the
 controller cannot do for you: agents connect outbound, and a binary is
 replaced on the host. So it says so instead, everywhere the question comes up.
 The controller records what each agent advertises (`features` and
-`elastic_cpu` on the host), the wizard's size step says whether every host the
-pool can land on can lend CPU and names the ones that cannot, the review step
-warns (`pool.elastic_cpu_unsupported`) with the same names, and each such
+`elastic_cpu` on the host), the editor's **Size** section says whether every host the
+pool can land on can lend CPU and names the ones that cannot, the controller's
+check at the foot of the page warns (`pool.elastic_cpu_unsupported`) with the same names, and each such
 host's card carries a **Cannot lend CPU** badge with the upgrade command folded
 beneath it. Nothing else about a host is part of it — no slot, reserve or
 capacity setting changes for an elastic pool.
@@ -402,7 +401,7 @@ container is using, and a pair is demanding when that is at 80% or more. An
 agent too old to report it is judged on the sum, as before.
 
 The `process` backend stays static. It starts a runner as a plain process with
-no cgroup, which is why a pool on it cannot be elastic and why the wizard does
+no cgroup, which is why a pool on it cannot be elastic and why the pool editor does
 not offer it there.
 
 ## When a boosted runner's CPU does not rise
@@ -454,7 +453,7 @@ starts a thread per host core, which is already more than any ceiling.
 On a host with nothing to lend, the extra workers share the guarantee, which
 costs a little in context switches and memory — each JVM or Cargo job holds
 its own. A pool whose jobs are memory-tight at their guarantee can turn it
-off: **Size builds for the ceiling** under *Automatic boost* in the wizard,
+off: **Size builds for the ceiling** under *Automatic boost* in the pool editor,
 `--cpu-burst-size-builds=false` on the command line, or `"size_for_ceiling":
 false` in the pool's `cpu_burst` in the API. It is on by default, applies only
 to `automatic` pools — `observe` lends nothing, so there is nothing to size
