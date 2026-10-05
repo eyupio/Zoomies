@@ -28,9 +28,9 @@ const (
 	// minimumEvidenceWindow is how far back the jobs counted run. A week spans the
 	// regular builds and the weekly one.
 	minimumEvidenceWindow = 7 * 24 * time.Hour
-	// minimumEvidenceJobs is how many completed jobs it takes to say what a pool's
-	// jobs need, at least one of them measured. A pool with a dozen jobs has not
-	// shown its heaviest one.
+	// minimumEvidenceJobs is how many jobs with a measured peak it takes to say what
+	// a pool's jobs need. A pool with a dozen has not shown its heaviest one, and a job
+	// too short to be sampled has no peak to count.
 	minimumEvidenceJobs = 20
 	// minimumHeadroom is what a slot is kept above the most a job has used, because
 	// the next job is allowed to be somewhat heavier than the heaviest so far.
@@ -69,18 +69,16 @@ func (c *Controller) pairMemoryPeaks(poolID string) (halfPeaks, bool) {
 		return halfPeaks{}, false
 	}
 	var out halfPeaks
-	runners := map[string]bool{}
-	n := 0
+	var cover pairCover
 	for _, s := range window {
 		if share := pairMemShare(s); share == 0 || !sameShare(share, current) {
 			continue
 		}
-		n++
-		runners[s.runner] = true
+		cover.add(s)
 		out.runnerMB = max(out.runnerMB, s.halves.Runner.MemoryBytes>>20)
 		out.daemonMB = max(out.daemonMB, s.halves.Daemon.MemoryBytes>>20)
 	}
-	return out, n >= pairMinSamples && len(runners) >= pairMinRunners
+	return out, cover.enough()
 }
 
 // poolMinimumAdviceProblems is pool.minimum_overcharges.
@@ -132,7 +130,7 @@ func (c *Controller) poolMinimumAdviceProblems(ctx context.Context, out *[]Probl
 		g, ok := byPool[p.ID]
 		// A killed job's peak is the limit it hit, not what it needed, and a pool
 		// that has been killed for memory is not one to shrink the floor of.
-		if !ok || g.PeakMemoryMB == nil || g.Count < minimumEvidenceJobs || g.OOMKilled > 0 {
+		if !ok || g.PeakMemoryMB == nil || g.MeasuredMemory < minimumEvidenceJobs || g.OOMKilled > 0 {
 			continue
 		}
 		// The job's peak is the two containers added together, but each has its own
@@ -176,10 +174,10 @@ func (c *Controller) poolMinimumAdviceProblems(ctx context.Context, out *[]Probl
 			return fmt.Errorf("pricing pool %s's smallest runner: %w", p.Name, err)
 		}
 		detail := fmt.Sprintf("a runner of this pool is charged at least %s of memory on every host, because its smallest runner is %s a container and the Docker sidecar holds %d%% of the memory, "+
-			"so the slot has to be %s for the runner's half to reach it. Over the last %s its %d completed jobs used at most %s, with no job killed for memory. "+
+			"so the slot has to be %s for the runner's half to reach it. Over the last %s its %d measured jobs (of %d completed) used at most %s, with no job killed for memory. "+
 			"Typical jobs waited %s or more for a runner in the last %s.",
 			scheduler.FormatMB(floor), scheduler.FormatMB(max(sized.Resources.MinMemoryMB, store.MinRunnerMemoryMB)), p.Resources.DaemonMemoryPercent(),
-			scheduler.FormatMB(floor), minimumEvidenceWindow, g.Count, scheduler.FormatMB(*g.PeakMemoryMB), pressureMedianWait, pressureWindow)
+			scheduler.FormatMB(floor), minimumEvidenceWindow, g.MeasuredMemory, g.Count, scheduler.FormatMB(*g.PeakMemoryMB), pressureMedianWait, pressureWindow)
 		fix := fmt.Sprintf("lower the pool's smallest runner to %s a container (the pool editor's Size step, or zoomies pools edit %s --min-memory-mb %d), "+
 			"which keeps every slot at least %s, 1.5 times the most a job has used and enough for each of the two containers' own peaks. "+
 			"Memory a job keeps in a tmpfs counts as used and is taken from the same slot.", scheduler.FormatMB(perContainer), p.Name, perContainer,

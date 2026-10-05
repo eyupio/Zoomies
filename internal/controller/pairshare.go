@@ -37,6 +37,14 @@ const (
 	// several.
 	pairMinSamples = 60
 	pairMinRunners = 3
+	// pairMinSpan and pairMaxRunnerShare are the same idea in time and in share: a
+	// pool just restarted has sixty samples from three runners within minutes, all of
+	// them the first phase of their jobs, and one long job with stragglers can be
+	// most of a window. The count is a floor and these are what make it a pool's
+	// evidence -- an hour "could be one unusual build", and half an hour is the
+	// least that is not.
+	pairMinSpan        = 30 * time.Minute
+	pairMaxRunnerShare = 0.5
 	// pairHot is a container's use of its own limit, at its 95th percentile,
 	// above which it is the one being squeezed; pairIdle is the most the other
 	// may use for the squeeze to be the division's fault rather than the job's.
@@ -134,6 +142,9 @@ type shareCost struct {
 type pairAdvice struct {
 	CPU, Memory      *resourceAdvice
 	Samples, Runners int
+	// Span is the time the judged samples cover, which is what the notice says
+	// rather than the window it could have had.
+	Span time.Duration
 }
 
 // pairPercentile is the p-th (0..1) value of xs, which it sorts.
@@ -143,6 +154,43 @@ func pairPercentile(xs []float64, p float64) float64 {
 	}
 	sort.Float64s(xs)
 	return xs[min(int(math.Ceil(p*float64(len(xs))))-1, len(xs)-1)]
+}
+
+// pairCover is how much of a pool a set of samples covers: how many there are, how
+// many runners they came from and how much of the time between the first and the
+// last. Both detectors that rest on the window ask the same question of it.
+type pairCover struct {
+	n           int
+	perRunner   map[string]int
+	first, last time.Time
+}
+
+func (c *pairCover) add(s pairSample) {
+	if c.perRunner == nil {
+		c.perRunner = map[string]int{}
+	}
+	c.n++
+	c.perRunner[s.runner]++
+	if c.first.IsZero() || s.sampled.Before(c.first) {
+		c.first = s.sampled
+	}
+	if s.sampled.After(c.last) {
+		c.last = s.sampled
+	}
+}
+
+func (c *pairCover) span() time.Duration { return c.last.Sub(c.first) }
+
+// enough says whether the samples are a pool's evidence rather than one job's.
+func (c *pairCover) enough() bool {
+	if c.n < pairMinSamples || len(c.perRunner) < pairMinRunners || c.span() < pairMinSpan {
+		return false
+	}
+	most := 0
+	for _, n := range c.perRunner {
+		most = max(most, n)
+	}
+	return float64(most) <= pairMaxRunnerShare*float64(c.n)
 }
 
 // pairCPUShare and pairMemShare are the share of the slot the daemon was created
@@ -194,6 +242,7 @@ func judgePair(window []pairSample) (pairAdvice, bool) {
 	}
 	var rCPU, dCPU, rMem, dMem []float64
 	var slotCPU, slotMem float64
+	var cover pairCover
 	runners := map[string]bool{}
 	n := 0
 	for _, s := range window {
@@ -202,12 +251,13 @@ func judgePair(window []pairSample) (pairAdvice, bool) {
 		}
 		n++
 		runners[s.runner] = true
+		cover.add(s)
 		rCPU, dCPU = append(rCPU, s.halves.Runner.CPUs), append(dCPU, s.halves.Daemon.CPUs)
 		rMem, dMem = append(rMem, float64(s.halves.Runner.MemoryBytes)), append(dMem, float64(s.halves.Daemon.MemoryBytes))
 		slotCPU = max(slotCPU, s.halves.Runner.CPULimit+s.halves.Daemon.CPULimit)
 		slotMem = max(slotMem, float64(s.halves.Runner.MemoryLimit+s.halves.Daemon.MemoryLimit))
 	}
-	if n < pairMinSamples || len(runners) < pairMinRunners {
+	if !cover.enough() {
 		return pairAdvice{}, false
 	}
 	// Use as a part of each container's own limit, which is what "squeezed" means.
@@ -220,7 +270,7 @@ func judgePair(window []pairSample) (pairAdvice, bool) {
 		}
 		return out
 	}
-	adv := pairAdvice{Samples: n, Runners: len(runners)}
+	adv := pairAdvice{Samples: n, Runners: len(runners), Span: cover.span()}
 	if curCPU > 0 && slotCPU > 0 {
 		rLimit, dLimit := slotCPU*float64(100-curCPU)/100, slotCPU*float64(curCPU)/100
 		adv.CPU = judgeResource("CPU", curCPU, over(rCPU, rLimit), over(dCPU, dLimit), rCPU, dCPU, slotCPU)
@@ -497,8 +547,8 @@ func (c *Controller) daemonShareAdviceProblems(ctx context.Context, out *[]Probl
 			Code:        "pool.daemon_share_suggested",
 			Severity:    config.SeverityInfo,
 			Title:       fmt.Sprintf("pool %s: %s", p.Name, strings.Join(titles, "; and ")),
-			Detail: fmt.Sprintf("across %d samples from %d runners over the last %s. A runner and its sidecar divide one slot, CPU and memory each on their own share. %s.",
-				adv.Samples, adv.Runners, pairWindow, strings.Join(lines, ". ")),
+			Detail: fmt.Sprintf("across %d samples from %d runners over %s. A runner and its sidecar divide one slot, CPU and memory each on their own share. %s.",
+				adv.Samples, adv.Runners, adv.Span.Round(time.Minute), strings.Join(lines, ". ")),
 			Fix:        strings.Join(fix, " "),
 			TargetKind: "pool",
 			TargetID:   p.ID,

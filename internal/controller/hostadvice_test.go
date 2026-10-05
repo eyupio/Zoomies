@@ -138,6 +138,13 @@ func TestNoRemedyIsOfferedForASizeBelowTheHostsOwnSmallestRunner(t *testing.T) {
 // three runners at a third of that.
 func minimumFleet(t *testing.T, peakMB int64, jobs int, oom bool) (*harness, *store.Pool) {
 	t.Helper()
+	return minimumFleetMeasured(t, peakMB, jobs, jobs, oom)
+}
+
+// minimumFleetMeasured is minimumFleet where only the first measured of the jobs had
+// a peak recorded: a job too short to be sampled has none.
+func minimumFleetMeasured(t *testing.T, peakMB int64, jobs, measured int, oom bool) (*harness, *store.Pool) {
+	t.Helper()
 	h := newHarness(t)
 	inst := h.installation()
 	pool := h.pool(inst, "builders")
@@ -165,8 +172,10 @@ func minimumFleet(t *testing.T, peakMB int64, jobs int, oom bool) (*harness, *st
 		if _, err := h.st.UpsertJob(h.ctx, job); err != nil {
 			t.Fatal(err)
 		}
-		if err := h.st.RecordJobUsage(h.ctx, runner.ID, 1, peakMB); err != nil {
-			t.Fatal(err)
+		if i < measured {
+			if err := h.st.RecordJobUsage(h.ctx, runner.ID, 1, peakMB); err != nil {
+				t.Fatal(err)
+			}
 		}
 		job.State, job.Conclusion, job.CompletedAt = store.JobCompleted, "success", &done
 		if _, err := h.st.UpsertJob(h.ctx, job); err != nil {
@@ -192,7 +201,7 @@ func seedPairs(h *harness, pool *store.Pool, runnerMB, daemonMB int64) {
 	defer h.c.pairMu.Unlock()
 	h.c.pairs = map[string][]pairSample{}
 	for i := 0; i < pairMinSamples+10; i++ {
-		h.c.pairs[pool.ID] = append(h.c.pairs[pool.ID], pairSample{at: h.c.Now(), runner: fmt.Sprintf("r%d", i%pairMinRunners+1), halves: backend.PairHalves{
+		h.c.pairs[pool.ID] = append(h.c.pairs[pool.ID], pairSample{at: h.c.Now(), sampled: h.c.Now().Add(time.Duration(i) * 30 * time.Second), runner: fmt.Sprintf("r%d", i%pairMinRunners+1), halves: backend.PairHalves{
 			Runner: backend.HalfUse{MemoryBytes: runnerMB << 20, MemoryLimit: 8704 << 20},
 			Daemon: backend.HalfUse{MemoryBytes: daemonMB << 20, MemoryLimit: 1536 << 20},
 		}})
@@ -434,7 +443,7 @@ func TestMinimumEvidenceKeepsTheSmallHostWhicheverReportedLast(t *testing.T) {
 		h.c.pairMu.Lock()
 		defer h.c.pairMu.Unlock()
 		for i := 0; i < n; i++ {
-			h.c.pairs[pool.ID] = append(h.c.pairs[pool.ID], pairSample{at: h.c.Now(), runner: fmt.Sprintf("%s%d", id, i%pairMinRunners), halves: backend.PairHalves{
+			h.c.pairs[pool.ID] = append(h.c.pairs[pool.ID], pairSample{at: h.c.Now(), sampled: h.c.Now().Add(time.Duration(i) * 30 * time.Second), runner: fmt.Sprintf("%s%d", id, i%pairMinRunners), halves: backend.PairHalves{
 				Runner: backend.HalfUse{MemoryBytes: runnerMB << 20, MemoryLimit: runnerLimit << 20},
 				Daemon: backend.HalfUse{MemoryBytes: daemonMB << 20, MemoryLimit: daemonLimit << 20},
 			}})
@@ -443,8 +452,8 @@ func TestMinimumEvidenceKeepsTheSmallHostWhicheverReportedLast(t *testing.T) {
 	h.c.pairMu.Lock()
 	h.c.pairs = map[string][]pairSample{}
 	h.c.pairMu.Unlock()
-	seed(8704, 1536, 600, 1400, pairMinSamples, "small") // the floor-bound host, daemon at 91%
-	seed(37100, 6550, 1000, 300, pairMinSamples, "big")  // a large host reported last
+	seed(8704, 1536, 600, 1400, pairMinSamples+10, "small") // the floor-bound host, daemon at 91%
+	seed(37100, 6550, 1000, 300, pairMinSamples+10, "big")  // a large host reported last
 	if p := h.problemOrNil("pool.minimum_overcharges"); p != nil {
 		t.Errorf("a lower minimum was proposed that the small host's sidecar would be killed under: %+v", p)
 	}
@@ -495,5 +504,54 @@ func TestARemedysBaseIsWhatTheTargetIsReadAsAtApply(t *testing.T) {
 	}
 	if q.Remedy.Base != RemedyBase(freshPool.Resources) {
 		t.Errorf("pool remedy base %q is not the pool's resources as they are read", q.Remedy.Base)
+	}
+}
+
+// Sixty samples from three runners that arrive within minutes of a restart are the
+// first phase of three jobs, not a pool. The advice that can get a daemon killed
+// waits until the samples span half an hour, and until no one runner is most of them.
+func TestPoolMinimumAdviceWaitsForEvidenceThatSpansTimeAndRunners(t *testing.T) {
+	h, pool := minimumFleet(t, 2048, 25, false)
+	if h.problemOrNil("pool.minimum_overcharges") == nil {
+		t.Fatal("the fixture must be advised with a half hour of samples")
+	}
+	reseed := func(step time.Duration, runnerOf func(i int) string) {
+		h.c.pairMu.Lock()
+		defer h.c.pairMu.Unlock()
+		h.c.pairs = map[string][]pairSample{}
+		for i := 0; i < pairMinSamples+10; i++ {
+			h.c.pairs[pool.ID] = append(h.c.pairs[pool.ID], pairSample{at: h.c.Now(), sampled: h.c.Now().Add(time.Duration(i) * step), runner: runnerOf(i), halves: backend.PairHalves{
+				Runner: backend.HalfUse{MemoryBytes: 600 << 20, MemoryLimit: 8704 << 20},
+				Daemon: backend.HalfUse{MemoryBytes: 300 << 20, MemoryLimit: 1536 << 20},
+			}})
+		}
+	}
+	reseed(5*time.Second, func(i int) string { return fmt.Sprintf("r%d", i%pairMinRunners) })
+	if p := h.problemOrNil("pool.minimum_overcharges"); p != nil {
+		t.Errorf("advised on samples that span minutes: %+v", p)
+	}
+	reseed(30*time.Second, func(i int) string {
+		if i%10 == 0 {
+			return fmt.Sprintf("other%d", i%3)
+		}
+		return "one-long-job"
+	})
+	if p := h.problemOrNil("pool.minimum_overcharges"); p != nil {
+		t.Errorf("advised on a window that one runner is most of: %+v", p)
+	}
+}
+
+// Count is every completed job, and a job too short to be sampled has no peak. A pool
+// of 25 jobs of which three were measured has shown three jobs' use, not twenty-five's,
+// and is told nothing: the evidence the notice names is the evidence it rests on.
+func TestPoolMinimumAdviceCountsJobsThatWereMeasuredNotJobsThatCompleted(t *testing.T) {
+	h, _ := minimumFleetMeasured(t, 2048, 25, 3, false)
+	if p := h.problemOrNil("pool.minimum_overcharges"); p != nil {
+		t.Errorf("advised on three measured jobs of 25: %+v", p)
+	}
+	h, _ = minimumFleetMeasured(t, 2048, 40, 22, false)
+	p := h.problemOrNil("pool.minimum_overcharges")
+	if p == nil || !strings.Contains(p.Detail, "22 measured jobs (of 40 completed)") {
+		t.Errorf("with 22 measured the notice must say so: %+v", p)
 	}
 }

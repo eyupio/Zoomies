@@ -21,7 +21,7 @@ func pairWindowOf(n, runners int, runnerUse, daemonUse backend.HalfUse) []pairSa
 		r, d := runnerUse, daemonUse
 		r.CPULimit, r.MemoryLimit = 2, 4*gib
 		d.CPULimit, d.MemoryLimit = 2, 4*gib
-		out = append(out, pairSample{runner: fmt.Sprintf("r%d", i%runners), halves: backend.PairHalves{Runner: r, Daemon: d}})
+		out = append(out, pairSample{sampled: time.Unix(1_700_000_000, 0).Add(time.Duration(i) * 30 * time.Second), runner: fmt.Sprintf("r%d", i%runners), halves: backend.PairHalves{Runner: r, Daemon: d}})
 	}
 	return out
 }
@@ -145,7 +145,7 @@ func TestASqueezedSidecarShowsUpAsAStandingProblemUntilTheShareMoves(t *testing.
 		backend.HalfUse{CPUs: 0.1, MemoryBytes: gib / 4},
 		backend.HalfUse{CPUs: 1.9, MemoryBytes: 3*gib + gib/2}) {
 		r := &store.Runner{ID: fmt.Sprintf("run-%d", i%5), PoolID: pool.ID, AllocationSource: store.AllocationFromHost}
-		sampled := now.Add(time.Duration(i) * time.Second)
+		sampled := now.Add(time.Duration(i) * 30 * time.Second)
 		h.c.observePair(r, backend.Stats{SampledAt: &sampled, Halves: &s.halves})
 	}
 	p := h.problemOrNil("pool.daemon_share_suggested")
@@ -184,7 +184,7 @@ func TestASqueezedSidecarIsAdvisedWhetherTheHostsShareOrItsProfileSizedTheRunner
 				backend.HalfUse{CPUs: 0.1, MemoryBytes: gib / 4},
 				backend.HalfUse{CPUs: 1.9, MemoryBytes: 3*gib + gib/2}) {
 				r := &store.Runner{ID: fmt.Sprintf("run-%d", i%5), PoolID: pool.ID, AllocationSource: source}
-				sampled := now.Add(time.Duration(i) * time.Second)
+				sampled := now.Add(time.Duration(i) * 30 * time.Second)
 				h.c.observePair(r, backend.Stats{SampledAt: &sampled, Halves: &s.halves})
 			}
 			if p := h.problemOrNil("pool.daemon_share_suggested"); p == nil || p.TargetID != pool.ID {
@@ -208,7 +208,7 @@ func TestAMixedSqueezeIsOneNoticeWithAFlagForEachResource(t *testing.T) {
 		backend.HalfUse{CPUs: 0.1, MemoryBytes: 3*gib + gib/2},
 		backend.HalfUse{CPUs: 1.9, MemoryBytes: gib / 4}) {
 		r := &store.Runner{ID: fmt.Sprintf("run-%d", i%5), PoolID: pool.ID, AllocationSource: store.AllocationFromHost}
-		sampled := now.Add(time.Duration(i) * time.Second)
+		sampled := now.Add(time.Duration(i) * 30 * time.Second)
 		h.c.observePair(r, backend.Stats{SampledAt: &sampled, Halves: &s.halves})
 	}
 	p := h.problemOrNil("pool.daemon_share_suggested")
@@ -244,7 +244,7 @@ func TestAPoolTheControllerKeepsIsNotAdvisedOnHowItDividesItsSlot(t *testing.T) 
 		backend.HalfUse{CPUs: 0.1, MemoryBytes: gib / 4},
 		backend.HalfUse{CPUs: 1.9, MemoryBytes: 3*gib + gib/2}) {
 		r := &store.Runner{ID: fmt.Sprintf("run-%d", i%5), PoolID: pool.ID, AllocationSource: store.AllocationFromHost}
-		sampled := now.Add(time.Duration(i) * time.Second)
+		sampled := now.Add(time.Duration(i) * 30 * time.Second)
 		h.c.observePair(r, backend.Stats{SampledAt: &sampled, Halves: &s.halves})
 	}
 	if p := h.problemOrNil("pool.daemon_share_suggested"); p != nil {
@@ -278,7 +278,7 @@ func squeezedRunnerPool(t *testing.T, hostCPUs int) (*harness, *store.Pool) {
 			Daemon: backend.HalfUse{CPULimit: slot * 0.35, CPUs: 0.05, MemoryLimit: 4 * gib, MemoryBytes: gib / 4},
 		}
 		r := &store.Runner{ID: fmt.Sprintf("run-%d", i%5), PoolID: pool.ID, AllocationSource: store.AllocationFromHost}
-		sampled := now.Add(time.Duration(i) * time.Second)
+		sampled := now.Add(time.Duration(i) * 30 * time.Second)
 		h.c.observePair(r, backend.Stats{SampledAt: &sampled, Halves: &halves})
 	}
 	return h, pool
@@ -422,7 +422,7 @@ func TestASidecarPinnedAtThePoolsMinimumIsNotOfferedAShareThatOnlyShrinksTheRunn
 			Daemon: backend.HalfUse{MemoryLimit: 1536 << 20, MemoryBytes: 1400 << 20},
 		}
 		r := &store.Runner{ID: fmt.Sprintf("run-%d", i%5), PoolID: pool.ID, AllocationSource: store.AllocationFromHost}
-		sampled := now.Add(time.Duration(i) * time.Second)
+		sampled := now.Add(time.Duration(i) * 30 * time.Second)
 		h.c.observePair(r, backend.Stats{SampledAt: &sampled, Halves: &halves})
 	}
 	p := h.problemOrNil("pool.daemon_share_suggested")
