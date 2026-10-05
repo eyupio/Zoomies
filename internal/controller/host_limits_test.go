@@ -257,3 +257,24 @@ func TestAPoolThatCannotPlaceHereDoesNotMakeItsSlotsPairs(t *testing.T) {
 		t.Fatalf("problems = %v; the dind pool cannot place on an amd64 host", codes)
 	}
 }
+
+// agent.capacity is read when the embedded host first enrols and not again, so a
+// single-VM operator who is sent to edit it and restart finds the warning unchanged.
+// The fix names what does move an enrolled host's capacity, and no setting is
+// offered as the place to change it.
+func TestTheEmbeddedHostsCapacityWarningDoesNotSendAnOperatorToASettingThatDoesNothing(t *testing.T) {
+	host := &store.Host{
+		ID: "host_embedded", Name: "controller", Embedded: true, Capacity: 8, CPUs: 4, MemoryMB: 16384,
+		Backends: store.StringSlice{"docker"},
+	}
+	p, ok := overprovisionedProblem(host, nil, true)
+	if !ok {
+		t.Fatal("eight slots on four cores must be warned about")
+	}
+	if p.Setting != "" {
+		t.Errorf("the warning offers the setting %q, which does nothing once the host has enrolled", p.Setting)
+	}
+	if strings.Contains(p.Fix, "zoomies.yaml") || !strings.Contains(p.Fix, "zoomies hosts edit host_embedded --capacity 2") {
+		t.Errorf("the fix must name the command that changes an enrolled host's capacity: %q", p.Fix)
+	}
+}

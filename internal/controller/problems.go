@@ -1626,9 +1626,13 @@ func overprovisionedProblem(h *store.Host, pools []*store.Pool, defaults bool) (
 	// the agent is not left wondering why the warning stayed.
 	where := "lower the host's capacity to " + strconv.Itoa(fits)
 	if h.Embedded {
-		where += " (agent.capacity in the controller's zoomies.yaml, or PATCH /api/v1/hosts/" + h.ID + ")"
+		// agent.capacity is read when the embedded host first enrols and not again
+		// (adoptEmbeddedCredentials returns before joining once its credentials are
+		// recognised), so naming it here sent a single-VM operator to a setting that
+		// does nothing for a host that already exists.
+		where += " (on the host card, or zoomies hosts edit " + h.ID + " --capacity " + strconv.Itoa(fits) + "; agent.capacity only sets it when the host first enrols)"
 	} else {
-		where += " (on the host card, or PATCH /api/v1/hosts/" + h.ID + "; --capacity on a fresh join token applies only at the host's next join)"
+		where += " (on the host card, or zoomies hosts edit " + h.ID + " --capacity " + strconv.Itoa(fits) + "; --capacity on a fresh join token applies only at the host's next join)"
 	}
 	where += ", or add a host"
 	tooSmall := (a.CPUsKnown && a.CPUs+1e-9 < needCPUs*float64(containers)) ||
@@ -1651,9 +1655,6 @@ func overprovisionedProblem(h *store.Host, pools []*store.Pool, defaults bool) (
 		Fix:        fix,
 		TargetKind: "host",
 		TargetID:   h.ID,
-	}
-	if h.Embedded {
-		p.Setting = "agent.capacity"
 	}
 	return p, true
 }
