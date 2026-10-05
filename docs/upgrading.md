@@ -21,6 +21,12 @@ upgrade both when they share the installed binary. An active native host-health
 reporter using that binary is restarted too. Use `--mode controller` or
 `--mode agent` to select one service explicitly.
 
+At a colour-capable terminal, a brief paw trail runs beside the Zoomies
+wordmark before the stages begin. It plays once, including when the command
+continues in a downloaded binary. Use `--no-animation` or set
+`ZOOMIES_NO_ANIMATION=1` to skip it. `NO_COLOR`, `TERM=dumb`, `--check`,
+`--non-interactive` and redirected output also skip the animation.
+
 The terminal shows four short stages: **Binary**, **Deployment**, **Verify**
 and **Host health**, followed by the upgrade result. Host health is read-only
 and never opens a tuning menu. Run `zoomies doctor` afterwards to review

@@ -204,6 +204,7 @@ func runUpgradeNamed(ctx context.Context, e *env, args []string, name string) er
 	noDownload := fs.Bool("no-download", false, "apply the binary that is already installed; do not look for a newer one")
 	yes := fs.Bool("yes", false, "approve deployment additions and settings migration; never OS tuning")
 	nonInteractive := fs.Bool("non-interactive", false, "never prompt; optional deployment changes require --yes")
+	noAnimation := fs.Bool("no-animation", false, "skip the short branded terminal splash")
 	fs.example("sudo zoomies upgrade", "zoomies upgrade --check", "sudo zoomies upgrade --yes", "sudo zoomies upgrade --mode agent --version v1.4.0")
 	if err := fs.parse(args); err != nil {
 		return err
@@ -230,6 +231,11 @@ func runUpgradeNamed(ctx context.Context, e *env, args []string, name string) er
 	}
 	ui := installer.PaletteFor(e.out)
 	if os.Getenv("ZOOMIES_UPGRADE_STARTED") == "" {
+		if !*noAnimation && !*nonInteractive && !*check {
+			if err := installer.UpgradeSplash(ctx, e.out); err != nil {
+				return err
+			}
+		}
 		title := "Zoomies upgrade"
 		if *check {
 			title = "Zoomies upgrade preview"
