@@ -114,6 +114,14 @@ func (s *Server) handleUpdateHost(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
+	s.applyHostUpdate(w, r, id, h, &req)
+}
+
+// applyHostUpdate is the half of a host's update that comes after its request has
+// been read, for the reason applyPoolUpdate is: a remedy is applied by this, and
+// so is every PATCH, and they cannot disagree about what a change to a host checks.
+func (s *Server) applyHostUpdate(w http.ResponseWriter, r *http.Request, id string, h *store.Host, req *hostUpdateRequest) {
+	var err error
 	var fields []fieldError
 	if req.Name != nil {
 		name := strings.TrimSpace(*req.Name)
