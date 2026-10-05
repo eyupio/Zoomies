@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/config"
@@ -39,6 +40,37 @@ const (
 	minimumReductionWorth = 0.25
 )
 
+// halfPeaks is the most memory each container of a pair used in the window.
+type halfPeaks struct{ runnerMB, daemonMB int64 }
+
+// pairMemoryPeaks is what each half of a pool's pairs used, at most, over the
+// samples taken at the division in force now. It says false until there are enough
+// samples from enough runners to be about the pool rather than one job. The samples
+// are the last few hours and the job evidence is a week, so this is the part of the
+// evidence that can be short; the headroom is what covers a heavier job than seen.
+func (c *Controller) pairMemoryPeaks(poolID string) (halfPeaks, bool) {
+	c.pairMu.Lock()
+	window := slices.Clone(c.pairs[poolID])
+	c.pairMu.Unlock()
+	if len(window) == 0 {
+		return halfPeaks{}, false
+	}
+	division := window[len(window)-1].halves.Daemon.MemoryLimit
+	var out halfPeaks
+	runners := map[string]bool{}
+	n := 0
+	for _, s := range window {
+		if s.halves.Daemon.MemoryLimit != division {
+			continue
+		}
+		n++
+		runners[s.runner] = true
+		out.runnerMB = max(out.runnerMB, s.halves.Runner.MemoryBytes>>20)
+		out.daemonMB = max(out.daemonMB, s.halves.Daemon.MemoryBytes>>20)
+	}
+	return out, n >= pairMinSamples && len(runners) >= pairMinRunners
+}
+
 // poolMinimumAdviceProblems is pool.minimum_overcharges.
 func (c *Controller) poolMinimumAdviceProblems(ctx context.Context, out *[]Problem) error {
 	pools, err := c.st.ListPools(ctx)
@@ -72,10 +104,27 @@ func (c *Controller) poolMinimumAdviceProblems(ctx context.Context, out *[]Probl
 		if !ok || g.PeakMemoryMB == nil || g.Count < minimumEvidenceJobs || g.OOMKilled > 0 {
 			continue
 		}
+		// The job's peak is the two containers added together, but each has its own
+		// limit: a slot the sum fits can still be too small for a thin sidecar, whose
+		// kill takes the job with it. Without what each half used there is nothing to
+		// size the halves by, so the advice waits for it.
+		halves, ok := c.pairMemoryPeaks(p.ID)
+		if !ok {
+			continue
+		}
 		sized := sizingPool(p, fleet)
 		factor := p.Resources.MemoryPairFactor()
 		floor := scheduler.ShareFloor(sized).MemoryMB
 		need := int64(math.Ceil(float64(*g.PeakMemoryMB)*minimumHeadroom/256) * 256)
+		daemonFrac := float64(p.Resources.DaemonMemoryPercent()) / 100
+		for _, half := range []struct {
+			peak int64
+			frac float64
+		}{{halves.runnerMB, 1 - daemonFrac}, {halves.daemonMB, daemonFrac}} {
+			if half.frac > 0 {
+				need = max(need, int64(math.Ceil(float64(half.peak)*minimumHeadroom/half.frac/256)*256))
+			}
+		}
 		if need >= floor || float64(floor-need) < minimumReductionWorth*float64(floor) {
 			continue
 		}
@@ -101,7 +150,8 @@ func (c *Controller) poolMinimumAdviceProblems(ctx context.Context, out *[]Probl
 			scheduler.FormatMB(floor), scheduler.FormatMB(max(sized.Resources.MinMemoryMB, store.MinRunnerMemoryMB)), p.Resources.DaemonMemoryPercent(),
 			scheduler.FormatMB(floor), minimumEvidenceWindow, g.Count, scheduler.FormatMB(*g.PeakMemoryMB), pressureMedianWait, pressureWindow)
 		fix := fmt.Sprintf("lower the pool's smallest runner to %s a container (the pool editor's Size step, or zoomies pools edit %s --min-memory-mb %d), "+
-			"which keeps every slot at least %s, 1.5 times the most a job has used.", scheduler.FormatMB(perContainer), p.Name, perContainer,
+			"which keeps every slot at least %s, 1.5 times the most a job has used and enough for each of the two containers' own peaks. "+
+			"Memory a job keeps in a tmpfs counts as used and is taken from the same slot.", scheduler.FormatMB(perContainer), p.Name, perContainer,
 			scheduler.FormatMB(candFloor))
 		var remedy *Remedy
 		if after.Runners > before.Runners {

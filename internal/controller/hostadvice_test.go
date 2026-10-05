@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/backend"
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -177,7 +178,50 @@ func minimumFleet(t *testing.T, peakMB int64, jobs int, oom bool) (*harness, *st
 			}
 		}
 	}
+	// The halves the jobs used: most of the peak in the runner, a fifth in the
+	// daemon, which is inside the share it is given.
+	seedPairs(h, pool, peakMB*8/10, peakMB*2/10)
 	return h, pool
+}
+
+// seedPairs is the window of what each container of the pool's pairs used, from
+// enough runners to count as the pool's. The limits are the slot a 15% sidecar
+// divides, which is all a sample's use is judged against.
+func seedPairs(h *harness, pool *store.Pool, runnerMB, daemonMB int64) {
+	h.c.pairMu.Lock()
+	defer h.c.pairMu.Unlock()
+	h.c.pairs = map[string][]pairSample{}
+	for i := 0; i < pairMinSamples+10; i++ {
+		h.c.pairs[pool.ID] = append(h.c.pairs[pool.ID], pairSample{at: h.c.Now(), runner: fmt.Sprintf("r%d", i%pairMinRunners+1), halves: backend.PairHalves{
+			Runner: backend.HalfUse{MemoryBytes: runnerMB << 20, MemoryLimit: 8704 << 20},
+			Daemon: backend.HalfUse{MemoryBytes: daemonMB << 20, MemoryLimit: 1536 << 20},
+		}})
+	}
+}
+
+// A job's peak is the two containers added together, but a thin sidecar has a limit
+// of its own: a pool whose jobs fit the slot in sum can still keep nearly all of
+// its peak in a daemon holding 15%, and a floor sized from the sum would have it
+// killed. So the floor follows the half that needs the most, and a pool whose
+// daemon wants more than it is charged now is not told to charge less.
+func TestPoolMinimumAdviceIsSizedByTheThinnerContainerNotJustTheSum(t *testing.T) {
+	h, pool := minimumFleet(t, 2048, 25, false)
+	seedPairs(h, pool, 600, 1448)
+	if p := h.problemOrNil("pool.minimum_overcharges"); p != nil {
+		t.Errorf("advised a floor the sidecar would be killed under: %+v", p)
+	}
+}
+
+// Without what each container used there is nothing to size the halves by, and the
+// sum alone is the assumption this advice does not rest on.
+func TestPoolMinimumAdviceWaitsForWhatEachContainerUsed(t *testing.T) {
+	h, pool := minimumFleet(t, 2048, 25, false)
+	h.c.pairMu.Lock()
+	delete(h.c.pairs, pool.ID)
+	h.c.pairMu.Unlock()
+	if p := h.problemOrNil("pool.minimum_overcharges"); p != nil {
+		t.Errorf("advised on the sum alone: %+v", p)
+	}
 }
 
 func TestAPoolWhoseMinimumChargesFarMoreThanItsJobsUsedIsOfferedALowerOne(t *testing.T) {
