@@ -11,7 +11,15 @@
   import { navigate } from '$lib/router';
   import { healthSummary } from './health';
   import { slotsOf } from './slots';
-  import { CircleDashed, Gauge, Pencil, Ruler, ServerCog, Trash2 } from '@lucide/svelte';
+  import {
+    CircleDashed,
+    Gauge,
+    Pencil,
+    PencilLine,
+    Ruler,
+    ServerCog,
+    Trash2,
+  } from '@lucide/svelte';
   import type { Host, Machine } from '$lib/api/types';
   import { formatMegabytes, formatNumber, onClockTick, toMillis } from '$lib/format';
   import { hostStatus, throttled } from '$lib/status';
@@ -44,6 +52,7 @@
     /** Set how big a runner is on this host. */
     onsizes: (host: Host) => void;
     onedit: (host: Host) => void;
+    onrename: (host: Host) => void;
     ondelete: (host: Host) => void;
     class?: string;
   }
@@ -58,6 +67,7 @@
     oncapacity,
     onsizes,
     onedit,
+    onrename,
     ondelete,
     class: className = '',
   }: Props = $props();
@@ -389,6 +399,13 @@
       icon: Ruler,
       disabled: !canOperate,
       onSelect: () => onsizes(host),
+    },
+    {
+      id: 'rename',
+      label: 'Rename this host',
+      icon: PencilLine,
+      disabled: !canOperate,
+      onSelect: () => onrename(host),
     },
     {
       id: 'edit',
