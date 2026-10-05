@@ -289,7 +289,7 @@
 />
 
 {#if roomToSpare && !following}
-  <div class="lead">
+  <div class="proposal">
     <p class="echo">
       The hosts this pool reaches have room for {pluralise(roomTotal, 'runner')} of this size, and its
       maximum is {maximum}. A burst of jobs will queue behind that cap on machines that are standing

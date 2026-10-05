@@ -413,7 +413,7 @@
   {/if}
 
   {#if draft.sizing === 'fixed'}
-    <div class="lead">
+    <div class="proposal">
       <p class="echo">
         One runner asks for <strong>{cpuLabel(cpus)}</strong> and
         <strong>{memoryLabel(memoryMb)}</strong>{charged.pair

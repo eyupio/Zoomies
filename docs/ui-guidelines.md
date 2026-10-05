@@ -920,7 +920,7 @@ it.
   line saying whether any are in use. One or two to a section, and open already
   when one is — never a setting in use hidden behind a closed row.
 * **The form vocabulary is shared.** `.group`, `.hint`, `.echo`, `.pair`,
-  `.lead` and `.callout` are laid out once, by the section that holds them, so
+  `.proposal` and `.callout` are laid out once, by the section that holds them, so
   six bodies do not carry six copies of the same eight rules; a `.pair` stacks
   at `--z-bp-md`, and anything that can be one long word (an image reference, a
   path, a selector) wraps rather than widening the page. The phone suite checks
