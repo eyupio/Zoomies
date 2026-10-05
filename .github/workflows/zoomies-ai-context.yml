@@ -42,9 +42,9 @@ jobs:
           OUTPUT_DIR: ${{ runner.temp }}/zoomies-context
           REPOMIX_CLI: ${{ runner.temp }}/zoomies-tools/node_modules/.bin/repomix
           SOURCE_COMMIT: ${{ github.sha }}
-          EXPECTED_CONFIG: "{\"manager\":\"zoomies-ai-context\",\"template_version\":1,\"source_branch\":\"main\",\"destination\":\"both\",\"exclude\":[\"**/.env*\",\"**/node_modules/**\",\"**/.git/**\",\"**/dist/**\",\"**/vendor/**\",\"**/*.pem\",\"**/*.key\",\"**/*.db\",\".zoomies/**\"],\"keep_snapshots\":3,\"setup_generation\":1}"
+          EXPECTED_CONFIG: "{\"manager\":\"zoomies-ai-context\",\"template_version\":1,\"source_branch\":\"main\",\"destination\":\"both\",\"exclude\":[\"**/.env*\",\"**/node_modules/**\",\"**/.git/**\",\"**/dist/**\",\"**/vendor/**\",\"**/*.pem\",\"**/*.key\",\"**/*.db\",\".zoomies/**\"],\"keep_snapshots\":3,\"setup_generation\":2}"
           REPOSITORY_IDENTITY: "{\"github_host\":\"github.com\",\"installation_id\":\"ins_7xad5wpfjwbo6\",\"repository_id\":1357002726}"
-          CONFIG_HASH: "c5cf955bb110e579589ae4869d64ab994e75ab507d90d96208df2a22200bbcd9"
+          CONFIG_HASH: "6c841a094a19f8756c85719b735b905adac4edd6125129e0926bf80395216fa2"
         shell: python
         run: |
           # Managed by Zoomies AI Context. Repository text is data, never executable setup.
@@ -63,10 +63,19 @@ jobs:
           MAX_SOURCE = 24 << 20
           MAX_SNAPSHOT = 32 << 20
           MAX_FILES = 5000
+          MAX_OMITTED = MAX_FILES
+          OMIT_TOO_LARGE = 'too_large'
+          OMIT_OVER_BUDGET = 'over_budget'
+          OMIT_FLAGGED = 'flagged'
 
 
           class GenerationRefusal(ValueError):
               pass
+
+
+          class OversizedText(GenerationRefusal):
+              """A text file over MAX_FILE. Raised without the path so that source_blob
+              stays free of repository text; build() names the file."""
 
 
           def command(*args, **kwargs):
@@ -115,8 +124,65 @@ jobs:
               except UnicodeDecodeError:
                   return None
               if size > MAX_FILE:
-                  raise GenerationRefusal('A source file exceeds the context size limit; add an exclusion')
+                  raise OversizedText('A source file exceeds the context size limit; add an exclusion')
               return content, text
+
+
+          def mib(size):
+              return '%.1f MiB' % (size / (1 << 20))
+
+
+          def human(size):
+              if size < 1 << 10:
+                  return '%d B' % size
+              return '%.1f KiB' % (size / (1 << 10)) if size < 1 << 20 else mib(size)
+
+
+          def within_budget(candidates):
+              """Split {path: bytes} into what fits MAX_FILES and MAX_SOURCE and what does not.
+
+              The largest files go first, ties by path, so the same commit always loses the
+              same files and the most files survive: one big generated file should not cost
+              a repository its hundreds of small ones."""
+              kept = dict(candidates)
+              total = sum(kept.values())
+              dropped = []
+              for name, size in sorted(candidates.items(), key=lambda item: (-item[1], item[0])):
+                  if len(kept) <= MAX_FILES and total <= MAX_SOURCE:
+                      break
+                  del kept[name]
+                  total -= size
+                  dropped.append(name)
+              return kept, dropped
+
+
+          REASONS = {
+              OMIT_TOO_LARGE: 'over the %s limit' % mib(MAX_FILE),
+              OMIT_OVER_BUDGET: 'dropped to fit the size and file-count limits',
+              OMIT_FLAGGED: 'withheld by the secret scan',
+          }
+
+
+          def report_omitted(omitted):
+              """Say, in the run log and as an annotation, what the context does not carry.
+
+              Only paths, sizes and fixed reasons are printed, never content. A reader of
+              the context is told the same thing, so this is for the operator who would
+              rather exclude the file, or fix what the scan flagged, than live with it."""
+              if not omitted:
+                  return
+              def escape(text):
+                  return text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              entries = ['%s (%s, %s)' % (o['path'], human(o['bytes']), REASONS[o['reason']]) for o in omitted]
+              shown = entries[:10]
+              if len(entries) > 10:
+                  shown.append('and %d more' % (len(entries) - 10))
+              print('::warning title=Zoomies AI Context omitted %d file%s::%s' % (
+                  len(omitted), '' if len(omitted) == 1 else 's',
+                  escape('Listed, but their content is not in the context: ' + '; '.join(shown) +
+                         '. Assistants are told each file exists and why it is missing. Add an exclusion to drop it from the list.')))
+              for entry in entries:
+                  print('omitted: ' + entry)
 
 
           def build(root, output, cli, expected, identity, config_hash, source_commit):
@@ -128,29 +194,37 @@ jobs:
               if len(raw) > 512 << 10 or json.loads(raw) != expected:
                   raise GenerationRefusal('Managed configuration changed; review a setup repair')
               entries = command('git', '-C', str(root), 'ls-tree', '-rz', '--full-tree', source_commit).split(b'\0')
+              candidates = {}
+              omitted = []
+              for entry in entries:
+                  if not entry:
+                      continue
+                  info, name = entry.split(b'\t', 1)
+                  mode, kind, blob = info.decode().split(' ')
+                  name = name.decode('utf-8', errors='strict')
+                  if mode not in ('100644', '100755') or kind != 'blob' or not safe_path(name):
+                      continue
+                  if excluded(name, expected['exclude']):
+                      continue
+                  size = int(command('git', '-C', str(root), 'cat-file', '-s', blob))
+                  try:
+                      source = source_blob(root, blob, size)
+                  except OversizedText:
+                      omitted.append({'path': name, 'bytes': size, 'reason': OMIT_TOO_LARGE})
+                      continue
+                  if source is not None:
+                      # Only the size is kept: holding every file's text until the budget
+                      # is known would make memory depend on the repository.
+                      candidates[name] = (blob, size)
+              kept, dropped = within_budget({name: size for name, (blob, size) in candidates.items()})
+              for name in dropped:
+                  omitted.append({'path': name, 'bytes': candidates[name][1], 'reason': OMIT_OVER_BUDGET})
               originals = {}
-              total = 0
               with tempfile.TemporaryDirectory(prefix='zoomies-context-') as tmp:
                   stage = Path(tmp) / 'source'
                   stage.mkdir()
-                  for entry in entries:
-                      if not entry:
-                          continue
-                      info, name = entry.split(b'\t', 1)
-                      mode, kind, blob = info.decode().split(' ')
-                      name = name.decode('utf-8', errors='strict')
-                      if mode not in ('100644', '100755') or kind != 'blob' or not safe_path(name):
-                          continue
-                      if excluded(name, expected['exclude']):
-                          continue
-                      size = int(command('git', '-C', str(root), 'cat-file', '-s', blob))
-                      source = source_blob(root, blob, size)
-                      if source is None:
-                          continue
-                      content, text = source
-                      total += len(content)
-                      if total > MAX_SOURCE or len(originals) >= MAX_FILES:
-                          raise GenerationRefusal('Source context exceeds its limits; add exclusions')
+                  for name in sorted(kept):
+                      content, text = source_blob(root, candidates[name][0], candidates[name][1])
                       originals[name] = text
                       target = stage / name
                       target.parent.mkdir(parents=True, exist_ok=True)
@@ -171,22 +245,47 @@ jobs:
                       raise GenerationRefusal('Repomix output exceeds its limit')
                   generated = json.loads(pack.read_text())['files']
                   # Repomix trims file boundaries. Verify that this is its only change,
-                  # then retain Git's exact original bytes and line numbers.
-                  # Repomix removes files its security scan identifies. Fail publication
-                  # rather than quietly publishing an incomplete, apparently fresh pack.
+                  # then retain Git's exact original bytes and line numbers. A file it
+                  # removed is one its security scan identified: that is listed as omitted
+                  # rather than carried, never published and never allowed to pass as
+                  # absent. Anything it added or altered is not Git's source, so refuse.
                   js_whitespace = '\u0009\u000b\u000c\u0020\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u202f\u205f\u3000\ufeff\n\r\u2028\u2029'
-                  if generated != {p: c.strip(js_whitespace) for p, c in originals.items()}:
-                      raise GenerationRefusal('Repomix omitted or changed source; inspect exclusions and secret scanning')
-                  snapshot = {'manifest': {
-                      'schema_version': 1, 'repository': identity,
-                      'source_branch': expected['source_branch'], 'source_commit': source_commit,
-                      'config_hash': config_hash, 'generated_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                      'manager': 'zoomies', 'generator': 'repomix@1.18.1',
-                  }, 'files': [{'path': p, 'sha256': hashlib.sha256(c.encode()).hexdigest(), 'content': c}
-                              for p, c in sorted(originals.items())]}
-                  encoded = json.dumps(snapshot, ensure_ascii=False, separators=(',', ':')).encode()
-                  if len(encoded) > MAX_SNAPSHOT:
-                      raise GenerationRefusal('Serialized snapshot exceeds its limit')
+                  trimmed = {p: c.strip(js_whitespace) for p, c in originals.items()}
+                  if any(trimmed.get(p) != c for p, c in generated.items()):
+                      raise GenerationRefusal('Repomix added or changed source; inspect exclusions and secret scanning')
+                  for name in sorted(set(originals) - set(generated)):
+                      omitted.append({'path': name, 'bytes': candidates[name][1], 'reason': OMIT_FLAGGED})
+                      del originals[name]
+                  if not originals:
+                      raise GenerationRefusal('No eligible source files remain')
+
+                  def encode():
+                      snapshot = {'manifest': {
+                          'schema_version': 1, 'repository': identity,
+                          'source_branch': expected['source_branch'], 'source_commit': source_commit,
+                          'config_hash': config_hash, 'generated_at': generated_at,
+                          'manager': 'zoomies', 'generator': 'repomix@1.18.1',
+                      }, 'files': [{'path': p, 'sha256': hashlib.sha256(c.encode()).hexdigest(), 'content': c}
+                                  for p, c in sorted(originals.items())]}
+                      if omitted:
+                          snapshot['omitted'] = sorted(omitted, key=lambda o: o['path'])
+                      return json.dumps(snapshot, ensure_ascii=False, separators=(',', ':')).encode()
+
+                  generated_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                  encoded = encode()
+                  # JSON escaping can push text that fits MAX_SOURCE past MAX_SNAPSHOT, so
+                  # shed the largest carried file until the serialised snapshot fits.
+                  shed = 0
+                  while len(encoded) > MAX_SNAPSHOT:
+                      shed += 1
+                      if shed > 200 or len(originals) == 1:
+                          raise GenerationRefusal('Serialized snapshot exceeds its limit; add exclusions')
+                      name = max(originals, key=lambda p: (len(originals[p]), p))
+                      omitted.append({'path': name, 'bytes': candidates[name][1], 'reason': OMIT_OVER_BUDGET})
+                      del originals[name]
+                      encoded = encode()
+                  if len(omitted) > MAX_OMITTED:
+                      raise GenerationRefusal('%d files would be omitted and only %d can be listed; add exclusions' % (len(omitted), MAX_OMITTED))
                   output.mkdir(parents=True, exist_ok=False)
                   (output / 'snapshot.json').write_bytes(encoded)
                   (output / 'NOTICE.md').write_text('Managed by Zoomies AI Context. Generated by Repomix. Do not edit.\n')
@@ -196,6 +295,7 @@ jobs:
                       'snapshot_sha256': hashlib.sha256(encoded).hexdigest(),
                       'token_count_method': 'not measured',
                   }, indent=2) + '\n')
+              report_omitted(sorted(omitted, key=lambda o: o['path']))
 
 
           if __name__ == '__main__':
@@ -223,7 +323,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: zoomies-ai-context
           path: ${{ runner.temp }}/zoomies-context
@@ -234,7 +334,7 @@ jobs:
           SOURCE_COMMIT: ${{ github.sha }}
           SOURCE_BRANCH: "main"
           REPOSITORY_IDENTITY: "{\"github_host\":\"github.com\",\"installation_id\":\"ins_7xad5wpfjwbo6\",\"repository_id\":1357002726}"
-          CONFIG_HASH: "c5cf955bb110e579589ae4869d64ab994e75ab507d90d96208df2a22200bbcd9"
+          CONFIG_HASH: "6c841a094a19f8756c85719b735b905adac4edd6125129e0926bf80395216fa2"
         shell: python
         run: |
           # Managed by Zoomies AI Context. Never execute files downloaded from the artifact.
@@ -292,19 +392,34 @@ jobs:
               files = snapshot['files']
               if not 1 <= len(files) <= 5000:
                   raise ValueError('Invalid source count')
-              for file in files:
-                  name, data = file['path'], file['content'].encode()
+              def unsafe(name):
                   parts = name.split('/')
-                  if (not name or len(name) > 1024 or name.startswith('/') or name in seen
+                  return (not name or len(name) > 1024 or name.startswith('/') or name in seen
                           or any(c in name for c in '\\\x00\r\n:')
                           or any(p in ('', '.', '..') or p.lower() in ('.git', 'node_modules', '.zoomies') or p.lower().startswith('.env') for p in parts)
-                          or name.lower().endswith(('.pem', '.key', '.p12', '.pfx', '.db', '.sqlite', '.sqlite3'))
-                          or len(data) > 1 << 20 or b'\0' in data or hashlib.sha256(data).hexdigest() != file['sha256']):
+                          or name.lower().endswith(('.pem', '.key', '.p12', '.pfx', '.db', '.sqlite', '.sqlite3')))
+              for file in files:
+                  name, data = file['path'], file['content'].encode()
+                  if unsafe(name) or len(data) > 1 << 20 or b'\0' in data or hashlib.sha256(data).hexdigest() != file['sha256']:
                       raise ValueError('Unsafe source or corrupt hash')
                   seen.add(name)
                   total += len(data)
               if total > 24 << 20:
                   raise ValueError('Source exceeds limit')
+              # Omitted files carry no content, so only what a reader is told is checked:
+              # a safe, unique path, a size, and a reason that agrees with that size.
+              omitted = snapshot.get('omitted', [])
+              if len(omitted) > 5000:
+                  raise ValueError('Too many omitted files')
+              for entry in omitted:
+                  if set(entry) != {'path', 'bytes', 'reason'}:
+                      raise ValueError('Unexpected omitted file fields')
+                  name, size, reason = entry['path'], entry['bytes'], entry['reason']
+                  if (not isinstance(name, str) or unsafe(name) or type(size) is not int or size < 0
+                          or reason not in ('too_large', 'over_budget', 'flagged')
+                          or (reason == 'too_large') != (size > 1 << 20)):
+                      raise ValueError('Unsafe or inconsistent omitted file')
+                  seen.add(name)
               ref = '/git/ref/heads/' + urllib.parse.quote(branch, safe='')
               if request('GET', ref)['object']['sha'] != commit:
                   raise ValueError('Source was superseded; generate its latest commit')

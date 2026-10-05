@@ -21,6 +21,16 @@ name: Cleanup Old Container Images
 # therefore deletes for real, keeping anything younger than 14 days; a manual
 # run is still a dry run unless asked otherwise. Image health runs when this
 # finishes, so anything it breaks goes red the same night.
+#
+# Untagged versions are only half of it. Every commit also publishes a
+# sha-<short> tag and one <variant>-sha-<short> tag per variant, and none of
+# those was ever removed, so each package kept hundreds of tagged versions and
+# the manifests under them (zoomies-runner-docker: 566 tagged, 905 untagged).
+# .github/scripts/ghcr-prune-tags.sh deletes versions whose every tag is a
+# per-commit tag, last updated more than 30 days ago and outside the newest 20
+# commits, unless a kept version refers to them. A release tag, latest, dev or
+# main keeps a version. The untagged prune that follows then collects their
+# children.
 
 on:
   schedule:
@@ -35,6 +45,14 @@ on:
         description: "Never delete an untagged version younger than this many days."
         type: string
         default: "14"
+      tag_keep_days:
+        description: "Never delete a per-commit tagged version younger than this many days."
+        type: string
+        default: "30"
+      tag_keep_commits:
+        description: "Always keep the versions of this many newest commits."
+        type: string
+        default: "20"
 
 permissions: {}
 
@@ -65,6 +83,15 @@ jobs:
       # trusted with the real one.
       - name: Test the prune
         run: .github/scripts/ghcr-prune-test.sh
+      - name: Test the tag prune
+        run: .github/scripts/ghcr-prune-tags-test.sh
+      - name: Delete old per-commit tagged versions
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || inputs.dry_run }}
+          TAG_KEEP_DAYS: ${{ inputs.tag_keep_days || '30' }}
+          TAG_KEEP_COMMITS: ${{ inputs.tag_keep_commits || '20' }}
+        run: .github/scripts/ghcr-prune-tags.sh "${{ matrix.package }}"
       - name: Delete unreferenced untagged versions
         env:
           GH_TOKEN: ${{ github.token }}

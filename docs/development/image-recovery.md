@@ -20,6 +20,13 @@ it treated the children of every older multi-platform tag as garbage.
 an untagged version only when no tagged or recent version refers to it, and
 has no schedule until a dry run has been reviewed.
 
+Tagged versions are pruned separately by `.github/scripts/ghcr-prune-tags.sh`,
+which runs first. It deletes a version only when every tag on it is a per-commit
+tag (`sha-<hex>` or `<variant>-sha-<hex>`), it was last updated more than 30
+days ago, it is not one of the newest 20 commits, and no kept version refers to
+it. Release tags, `latest`, `dev` and `main` are never touched. The untagged
+prune then collects the children it leaves behind.
+
 ## Finding broken tags
 
 `image-health.yml` checks `latest`, `dev` and the newest release of every

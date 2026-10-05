@@ -6858,6 +6858,68 @@ components:
         smallest_disk_mb: { type: integer, format: int64, description: The least free disk on any matching host, which is what a cache size limit has to live inside. }
         smallest_disk_host: { type: string }
         disk_known: { type: boolean }
+        tmpfs_plan:
+          $ref: "#/components/schemas/TmpfsPlan"
+
+    TmpfsPlan:
+      type: object
+      description: >-
+        What a pool's automatic in-memory folders come to on its hosts, and what would
+        change it. Present only for a pool that keeps a folder in memory with `auto`, the
+        setting that decides per host and so needs saying per host. It informs; every
+        change is the operator's. The same figures are in the `pool.tmpfs_auto_on_disk`
+        problem's fix.
+      properties:
+        hosts:
+          type: array
+          description: What a runner of the pool is given on each host that mounts the folders.
+          items:
+            type: object
+            properties:
+              host: { type: string }
+              runner_mb: { type: integer, format: int64, description: The memory limit a runner is given there. }
+              daemon_mb: { type: integer, format: int64, description: The sidecar's, for a Docker-in-Docker pool. }
+              folders:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name: { type: string, examples: [work folder] }
+                    ask_mb: { type: integer, format: int64, description: What the folder is asked for there. }
+                    mb: { type: integer, format: int64, description: What a runner is given; zero is disk. }
+                    auto: { type: boolean }
+        in_memory: { type: integer, description: How many folder placements across the hosts are in memory. }
+        total: { type: integer, description: How many folder placements there are. }
+        share:
+          type: object
+          description: >-
+            A daemon share (`resources.daemon_share_percent`) that would put more folders in
+            memory without losing a runner. Absent when none does, which is usual: moving a
+            share raises what a thinner half is charged and costs runners.
+          properties:
+            percent: { type: integer }
+            in_memory: { type: integer, description: Folder placements in memory at this share. }
+            now: { type: integer, description: The same at the pool's. }
+            runners: { type: integer }
+            runners_now: { type: integer }
+        sizes:
+          type: array
+          description: Per host where the work folder is on disk, the runner size at which it would be in memory.
+          items:
+            type: object
+            properties:
+              host: { type: string }
+              memory_mb: { type: integer, format: int64, description: The runner memory, in half-gigabyte steps. }
+              slots: { type: integer, description: The slots the host would hold at that size. }
+              slots_now: { type: integer }
+              lever:
+                type: string
+                enum: [standard, capacity]
+                description: >-
+                  What changes the runner's size for this pool: `standard`, the host's standard
+                  runner size in its runner profile, for a pool that takes its size from its
+                  hosts; or `capacity`, the host's slot count, for a pool sized by a slot's share,
+                  where fewer slots are bigger ones.
 
     PoolPlatform:
       type: object

@@ -80,6 +80,27 @@ type TmpfsConfig struct {
 // Any reports whether any folder is kept in memory.
 func (c TmpfsConfig) Any() bool { return c.Work.Enabled || c.Tmp.Enabled || c.Daemon.Enabled }
 
+// AnyAuto reports whether any folder that is in memory is placed per runner.
+func (c TmpfsConfig) AnyAuto() bool {
+	return c.Work.Enabled && c.Work.Auto || c.Tmp.Enabled && c.Tmp.Auto || c.Daemon.Enabled && c.Daemon.Auto
+}
+
+// AskedMB is what a folder is asked for: the size the pool typed, or else the
+// host's own standard for a folder the pool leaves to size itself, or else the
+// built-in default. It is the one place that order is written, because the
+// warnings, the pool editor's plan and what a runner's row says it was asked
+// for must agree about it.
+func (m TmpfsMount) AskedMB(standard, def int64) int64 {
+	switch {
+	case m.SizeMB > 0:
+		return m.SizeMB
+	case standard > 0:
+		return standard
+	default:
+		return def
+	}
+}
+
 // ReserveMB is the memory this configuration may take, which is what a memory
 // limit sized for the job alone should be raised by. A mount with no size of
 // its own counts at its default, because that is what it would be given on a

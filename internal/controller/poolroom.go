@@ -123,6 +123,11 @@ type PoolRoom struct {
 	SmallestDiskMB   int64  `json:"smallest_disk_mb"`
 	SmallestDiskHost string `json:"smallest_disk_host,omitempty"`
 	DiskKnown        bool   `json:"disk_known"`
+	// TmpfsPlan is what the pool's in-memory folders come to on these hosts, and
+	// what would change it. Present only for a pool that keeps a folder in memory
+	// automatically, which is the setting that decides per host and so needs
+	// saying per host.
+	TmpfsPlan *TmpfsPlan `json:"tmpfs_plan,omitempty"`
 }
 
 // Overcommitted is every host promising more slots than it can back.
@@ -143,6 +148,19 @@ func (r PoolRoom) Overcommitted() []PoolHostRoom {
 // HostFit already says so in its own words. Counting it here would put machine
 // the pool can never reach into the number an operator sets a maximum from.
 func (c *Controller) PoolRoom(ctx context.Context, p *store.Pool) (PoolRoom, error) {
+	room, err := c.poolRoom(ctx, p)
+	if err != nil {
+		return PoolRoom{}, err
+	}
+	if p.Tmpfs.AnyAuto() {
+		room.TmpfsPlan = c.tmpfsPlan(ctx, p, room)
+	}
+	return room, nil
+}
+
+// poolRoom is PoolRoom without the in-memory plan, which is itself worked out by
+// asking what the room would be under other settings.
+func (c *Controller) poolRoom(ctx context.Context, p *store.Pool) (PoolRoom, error) {
 	raw, fleet := p, c.cfg().Runners
 	p = sizingPool(p, fleet)
 	hosts, err := c.st.ListHosts(ctx)
@@ -291,7 +309,7 @@ func PoolRoomWarnings(p *store.Pool, room PoolRoom) []Problem {
 		out = append(out, w)
 	}
 
-	if w, ok := autoKeptOnDisk(p, placeable); ok {
+	if w, ok := autoKeptOnDisk(p, placeable, room.TmpfsPlan); ok {
 		out = append(out, w)
 	}
 

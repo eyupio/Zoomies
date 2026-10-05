@@ -44,7 +44,7 @@ func PlanScratch(spec Spec, asked store.TmpfsConfig) store.RunnerScratch {
 		if !want.Enabled {
 			return
 		}
-		f := store.ScratchFolder{Kind: kind, AskedMB: askedSize(want, standard, def), Auto: want.Auto}
+		f := store.ScratchFolder{Kind: kind, AskedMB: want.AskedMB(standard, def), Auto: want.Auto}
 		switch {
 		case bound:
 			f.Why = store.ScratchBound
@@ -63,17 +63,4 @@ func PlanScratch(spec Spec, asked store.TmpfsConfig) store.RunnerScratch {
 		add(store.ScratchDaemon, asked.Daemon, spec.Tmpfs.Daemon, host.DaemonMB, store.DefaultTmpfsDaemonMB, image, false)
 	}
 	return out
-}
-
-// askedSize is what a folder is asked for: a size the pool typed, or else the
-// host's standard for one the pool leaves to size itself, or else the default.
-func askedSize(m store.TmpfsMount, standard, def int64) int64 {
-	switch {
-	case m.SizeMB > 0:
-		return m.SizeMB
-	case standard > 0:
-		return standard
-	default:
-		return def
-	}
 }

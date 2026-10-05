@@ -314,3 +314,26 @@ func TestAnAutomaticFolderGoesToDiskWhereTheRunnerIsTooSmallForIt(t *testing.T) 
 		t.Errorf("a manual store on a 3 GB daemon was given %d MB, want 1536", got)
 	}
 }
+
+// Three places say what a folder was asked for -- the pool editor's plan, the
+// warnings, and the line on a runner's row -- and an operator reads them side by
+// side, so the order has to be written once: what the pool typed, then what the
+// host's profile says, then the built-in default.
+func TestAFolderIsAskedForWhatThePoolTypedThenTheHostsStandardThenTheDefault(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		mount    TmpfsMount
+		standard int64
+		want     int64
+	}{
+		{"the pool's own size wins over everything", TmpfsMount{Enabled: true, SizeMB: 3072}, 8192, 3072},
+		{"a folder the pool leaves to size itself takes the host's standard", TmpfsMount{Enabled: true}, 8192, 8192},
+		{"and the default where the host names none", TmpfsMount{Enabled: true}, 0, 4096},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.mount.AskedMB(tc.standard, 4096); got != tc.want {
+				t.Errorf("asked for %d MB, want %d", got, tc.want)
+			}
+		})
+	}
+}
