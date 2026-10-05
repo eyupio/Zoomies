@@ -727,7 +727,10 @@ You don't have to guess the figures. The agent reports what each container of a 
 used, and when one has been squeezed against its own limit while the other idled —
 across enough jobs on several runners — `pool.daemon_share_suggested` names the pool
 and a share to try, for CPU and for memory on their own: more CPU to a sidecar that
-is building, less memory to one that is not, in one notice with a flag for each. It
+is building, less memory to one that is not, in one notice with a flag for each. A share
+is never proposed if it would cost the pool runners on its hosts, since a thinner half is
+held to the pool's smallest runner: the notice offers the nearest share they can carry, or
+says what the figure would cost and leaves the share alone. It
 informs and never changes the pool; it applies only to pools sized by their hosts —
 by a share of the host or by its
 [runner profile](#runner-profiles-how-big-a-runner-is-on-one-host) — and clears

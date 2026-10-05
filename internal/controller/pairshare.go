@@ -93,6 +93,14 @@ type resourceAdvice struct {
 	Current, Proposed       int
 	DaemonHot               bool
 	HotPercent, IdlePercent float64
+	// Held is set when no share worth proposing keeps every runner the pool's
+	// hosts hold now: the figure the use points at, and what it would leave.
+	Held *shareCost
+}
+
+// shareCost is what a share the use points at would cost the pool on its hosts.
+type shareCost struct {
+	Wanted, Runners, RunnersNow int
 }
 
 // pairAdvice is what the window shows about how a slot is divided: a proposal
@@ -211,6 +219,47 @@ func judgeResource(name string, current int, rUse, dUse, rUsed, dUsed []float64,
 	return adv
 }
 
+// affordShare prices r's proposal on the pool's hosts and brings it back to one
+// they can carry. The window says what the containers use; it cannot say what a
+// thinner half is charged, and that is the larger half of the arithmetic: a
+// half is held to the pool's smallest runner, so a 10% sidecar on a four-core
+// slot is a request for a ten-core one, and the notice that proposed it was
+// followed by a warning that three hosts in four could no longer run the pool.
+// Advice that costs the fleet its runners is not advice, so the proposal is
+// stepped back toward the current share until the hosts hold as many runners as
+// they do now, and when no step that still matters does, r says what the
+// figure would have cost and proposes nothing.
+func (c *Controller) affordShare(ctx context.Context, p *store.Pool, now PoolRoom, r *resourceAdvice) error {
+	step := 5
+	if r.Proposed < r.Current {
+		step = -step
+	}
+	var cost *shareCost
+	for s := r.Proposed; abs(s-r.Current) >= pairMinMove; s -= step {
+		cand := *p
+		if r.Resource == "CPU" {
+			cand.Resources.DaemonCPUSharePercent = s
+		} else {
+			cand.Resources.DaemonMemorySharePercent = s
+		}
+		room, err := c.poolRoom(ctx, &cand)
+		if err != nil {
+			return err
+		}
+		if room.Runners >= now.Runners {
+			r.Proposed = s
+			return nil
+		}
+		if cost == nil {
+			cost = &shareCost{Wanted: s, Runners: room.Runners, RunnersNow: now.Runners}
+		}
+	}
+	// judgeResource only proposes a move of at least pairMinMove, so the loop
+	// priced the proposal itself at least once and cost is set.
+	r.Held = cost
+	return nil
+}
+
 // daemonShareAdviceProblems is the standing advice on how a pool divides its
 // slot. Recomputed every pass, so it stays while the window shows it and clears
 // itself when the split is changed, or the work is.
@@ -234,26 +283,52 @@ func (c *Controller) daemonShareAdviceProblems(ctx context.Context, out *[]Probl
 		if !ok {
 			continue
 		}
-		var lines, flags []string
+		room, err := c.poolRoom(ctx, p)
+		if err != nil {
+			return fmt.Errorf("pricing pool %s's sidecar share: %w", p.Name, err)
+		}
+		var lines, flags, held []string
 		titles := []string{}
 		for _, r := range []*resourceAdvice{adv.CPU, adv.Memory} {
 			if r == nil {
 				continue
+			}
+			if err := c.affordShare(ctx, p, room, r); err != nil {
+				return fmt.Errorf("pricing pool %s's sidecar %s share: %w", p.Name, strings.ToLower(r.Resource), err)
 			}
 			hot, idle, raise, flag := "runner", "Docker sidecar", "lower", "--daemon-"+strings.ToLower(r.Resource)+"-share"
 			if r.DaemonHot {
 				hot, idle, raise = "Docker sidecar", "runner", "raise"
 			}
 			titles = append(titles, fmt.Sprintf("its %s is short of %s while the %s beside it is not", hot, r.Resource, idle))
-			lines = append(lines, fmt.Sprintf("%s: the %s used at least %.0f%% of its own limit for one sample in twenty, while the %s used at most %.0f%% of its; "+
-				"it is divided %d%% to the sidecar now, and %s it to about %d%%",
-				r.Resource, hot, r.HotPercent, idle, r.IdlePercent, r.Current, raise, r.Proposed))
+			line := fmt.Sprintf("%s: the %s used at least %.0f%% of its own limit for one sample in twenty, while the %s used at most %.0f%% of its; "+
+				"it is divided %d%% to the sidecar now",
+				r.Resource, hot, r.HotPercent, idle, r.IdlePercent, r.Current)
+			if r.Held != nil {
+				// Said, not dropped: the squeeze is real, and an operator who is told
+				// nothing has no way to know the share was priced and found too dear.
+				lines = append(lines, line+fmt.Sprintf(", and the use points at about %d%%, but the thinner half is held to this pool's smallest runner and the slot grows to carry it, "+
+					"which would leave its hosts room for %s where they hold %d now",
+					r.Held.Wanted, plural(r.Held.Runners, "runner"), r.Held.RunnersNow))
+				held = append(held, strings.ToLower(r.Resource))
+				continue
+			}
+			lines = append(lines, fmt.Sprintf("%s, and %s it to about %d%%", line, raise, r.Proposed))
 			flags = append(flags, fmt.Sprintf("%s %d", flag, r.Proposed))
 		}
 		// Two resources that want the same figure are one share, which is also the
 		// shorter command and the one that leaves the pool a single setting.
-		if adv.CPU != nil && adv.Memory != nil && adv.CPU.Proposed == adv.Memory.Proposed {
+		if adv.CPU != nil && adv.Memory != nil && adv.CPU.Held == nil && adv.Memory.Held == nil && adv.CPU.Proposed == adv.Memory.Proposed {
 			flags = []string{fmt.Sprintf("--daemon-share %d", adv.CPU.Proposed)}
+		}
+		var fix []string
+		if len(flags) > 0 {
+			fix = append(fix, fmt.Sprintf("change the sidecar's share in the pool editor (Size step), or zoomies pools edit %s %s, and watch the next few jobs. "+
+				"It applies to runners created after the change.", p.Name, strings.Join(flags, " ")))
+		}
+		if len(held) > 0 {
+			fix = append(fix, fmt.Sprintf("Leave the %s share where it is: moving it would cost runners. To give the squeezed container more room, lower the pool's smallest runner "+
+				"in the pool editor (Size step), which is what holds the thinner half up, or run the pool on larger machines.", strings.Join(held, " and ")))
 		}
 		*out = append(*out, Problem{
 			Code:     "pool.daemon_share_suggested",
@@ -261,8 +336,7 @@ func (c *Controller) daemonShareAdviceProblems(ctx context.Context, out *[]Probl
 			Title:    fmt.Sprintf("pool %s: %s", p.Name, strings.Join(titles, "; and ")),
 			Detail: fmt.Sprintf("across %d samples from %d runners over the last %s. A runner and its sidecar divide one slot, CPU and memory each on their own share. %s.",
 				adv.Samples, adv.Runners, pairWindow, strings.Join(lines, ". ")),
-			Fix: fmt.Sprintf("change the sidecar's share in the pool editor (Size step), or zoomies pools edit %s %s, and watch the next few jobs. "+
-				"It applies to runners created after the change.", p.Name, strings.Join(flags, " ")),
+			Fix:        strings.Join(fix, " "),
 			TargetKind: "pool",
 			TargetID:   p.ID,
 		})
