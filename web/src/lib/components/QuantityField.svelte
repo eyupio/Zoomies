@@ -178,28 +178,31 @@
 </div>
 
 <style>
+  /* Flex rather than a fixed grid: the field may sit in a column of a
+     dialog far narrower than the viewport, so the entry drops under the
+     slider when the two do not fit side by side instead of overlapping it. */
   .quantity {
-    display: grid;
-    grid-template-columns: 1fr 8rem;
-    align-items: start;
-    gap: var(--z-space-4);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: var(--z-space-2) var(--z-space-4);
+    min-width: 0;
+  }
+  .quantity > :global(:first-child:not(.entry)) {
+    flex: 1 1 8rem;
+    min-width: 0;
   }
   .quantity.alone {
-    grid-template-columns: minmax(0, 12rem);
+    max-width: 12rem;
   }
   .entry {
     display: flex;
+    flex: 0 1 8rem;
     flex-direction: column;
     gap: var(--z-space-1);
+    min-width: 0;
   }
-  .unreadable {
-    margin: 0;
-    color: var(--z-danger);
-    font-size: var(--z-text-xs);
-  }
-  @media (max-width: 640px) {
-    .quantity {
-      grid-template-columns: 1fr;
-    }
+  .quantity.alone .entry {
+    flex: 1 1 auto;
   }
 </style>
