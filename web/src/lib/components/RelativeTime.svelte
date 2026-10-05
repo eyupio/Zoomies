@@ -25,10 +25,15 @@
   const iso = $derived(typeof value === 'string' ? value : undefined);
 </script>
 
-<time class="relative {className}" class:plain datetime={iso} {title}>
-  {#if prefix}{prefix}
-  {/if}{text}
-</time>
+<!--
+  The space after a prefix is written here and not left to the markup: Svelte
+  trims the whitespace at the end of a block, so a line break after the prefix
+  inside the `{#if}` was never a space, and "created" ran into "just now". A
+  prefix that ends in a space of its own (`since `) is not given two.
+-->
+<time class="relative {className}" class:plain datetime={iso} {title}
+  >{#if prefix}{prefix.trimEnd()}{' '}{/if}{text}</time
+>
 
 <style>
   .relative {
