@@ -28,8 +28,9 @@ const (
 	// minimumEvidenceWindow is how far back the jobs counted run. A week spans the
 	// regular builds and the weekly one.
 	minimumEvidenceWindow = 7 * 24 * time.Hour
-	// minimumEvidenceJobs is how many measured jobs it takes to say what a pool's
-	// jobs need. A pool with a dozen jobs has not shown its heaviest one.
+	// minimumEvidenceJobs is how many completed jobs it takes to say what a pool's
+	// jobs need, at least one of them measured. A pool with a dozen jobs has not
+	// shown its heaviest one.
 	minimumEvidenceJobs = 20
 	// minimumHeadroom is what a slot is kept above the most a job has used, because
 	// the next job is allowed to be somewhat heavier than the heaviest so far.
@@ -44,23 +45,34 @@ const (
 type halfPeaks struct{ runnerMB, daemonMB int64 }
 
 // pairMemoryPeaks is what each half of a pool's pairs used, at most, over the
-// samples taken at the division in force now. It says false until there are enough
-// samples from enough runners to be about the pool rather than one job. The samples
-// are the last few hours and the job evidence is a week, so this is the part of the
-// evidence that can be short; the headroom is what covers a heavier job than seen.
+// samples still in the window that were taken at the share in force now. It says
+// false until there are enough samples from enough runners to be about the pool
+// rather than one job. The samples are the last few hours and the job evidence is a
+// week, so this is the part of the evidence that can be short; the headroom is what
+// covers a heavier job than seen.
+//
+// The division is the share of the slot, not the daemon's limit in bytes: a pool
+// that spans two sizes of host has a different limit on each and one share. Keyed
+// on the limit, which host reported last decided which machines the evidence came
+// from -- and the small, floor-bound ones, where a minimum is what sizes the slot,
+// were the ones dropped. The peak is then the largest in megabytes over all of
+// them, which is the conservative figure for a floor.
 func (c *Controller) pairMemoryPeaks(poolID string) (halfPeaks, bool) {
 	c.pairMu.Lock()
-	window := slices.Clone(c.pairs[poolID])
+	window := slices.Clone(freshPairs(c.pairs[poolID], c.Now()))
 	c.pairMu.Unlock()
 	if len(window) == 0 {
 		return halfPeaks{}, false
 	}
-	division := window[len(window)-1].halves.Daemon.MemoryLimit
+	current := pairMemShare(window[len(window)-1])
+	if current == 0 {
+		return halfPeaks{}, false
+	}
 	var out halfPeaks
 	runners := map[string]bool{}
 	n := 0
 	for _, s := range window {
-		if s.halves.Daemon.MemoryLimit != division {
+		if share := pairMemShare(s); share == 0 || !sameShare(share, current) {
 			continue
 		}
 		n++
@@ -77,15 +89,34 @@ func (c *Controller) poolMinimumAdviceProblems(ctx context.Context, out *[]Probl
 	if err != nil {
 		return fmt.Errorf("listing pools: %w", err)
 	}
+	// Decide who could be advised before reading anything about jobs: the week's
+	// statistics are the dearest query in the problems pass, and most fleets have no
+	// pool this is about. The pools it reads them for are then named, so it costs what
+	// it concerns and not every job the fleet ran.
+	var candidates []*store.Pool
+	for _, p := range pools {
+		if p.Enabled && p.DockerMode == store.DockerDinD && p.Automatic() && !p.FromHosts() {
+			candidates = append(candidates, p)
+		}
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
 	pressure, err := c.poolsUnderPressure(ctx)
 	if err != nil {
 		return err
 	}
-	if len(pressure) == 0 {
+	var ids []string
+	for _, p := range candidates {
+		if pressure[p.ID] {
+			ids = append(ids, p.ID)
+		}
+	}
+	if len(ids) == 0 {
 		return nil
 	}
 	since := c.Now().Add(-minimumEvidenceWindow)
-	stats, err := c.st.JobStats(ctx, store.JobFilter{Since: &since}, []string{store.GroupByPool})
+	stats, err := c.st.JobStats(ctx, store.JobFilter{Since: &since, PoolIDs: ids}, []string{store.GroupByPool})
 	if err != nil {
 		return fmt.Errorf("reading what jobs used: %w", err)
 	}
@@ -145,7 +176,7 @@ func (c *Controller) poolMinimumAdviceProblems(ctx context.Context, out *[]Probl
 			return fmt.Errorf("pricing pool %s's smallest runner: %w", p.Name, err)
 		}
 		detail := fmt.Sprintf("a runner of this pool is charged at least %s of memory on every host, because its smallest runner is %s a container and the Docker sidecar holds %d%% of the memory, "+
-			"so the slot has to be %s for the runner's half to reach it. Over the last %s its %d measured jobs used at most %s, with no job killed for memory. "+
+			"so the slot has to be %s for the runner's half to reach it. Over the last %s its %d completed jobs used at most %s, with no job killed for memory. "+
 			"Typical jobs waited %s or more for a runner in the last %s.",
 			scheduler.FormatMB(floor), scheduler.FormatMB(max(sized.Resources.MinMemoryMB, store.MinRunnerMemoryMB)), p.Resources.DaemonMemoryPercent(),
 			scheduler.FormatMB(floor), minimumEvidenceWindow, g.Count, scheduler.FormatMB(*g.PeakMemoryMB), pressureMedianWait, pressureWindow)
@@ -159,7 +190,7 @@ func (c *Controller) poolMinimumAdviceProblems(ctx context.Context, out *[]Probl
 			res.MinMemoryMB = perContainer
 			remedy = newRemedy(RemedyPoolUpdate, p.ID, "Lower the smallest runner to "+scheduler.FormatMB(perContainer),
 				fmt.Sprintf("the pool's hosts have room for %s instead of %d", plural(after.Runners, "runner"), before.Runners),
-				map[string]any{"resources": res})
+				map[string]any{"resources": res}, p.Resources)
 		} else {
 			detail += " Lowering it would not give the pool's hosts room for more runners, so it is not proposed."
 			fix = "the smallest runner is not what limits this pool's hosts: see the hosts' runner sizes and capacities."

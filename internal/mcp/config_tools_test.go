@@ -124,4 +124,9 @@ func TestApplyRemedySendsTheProblemAndNeverTheChange(t *testing.T) {
 	if _, err := call(t, "apply_remedy", r, `{"target_id":"host_1"}`); err == nil {
 		t.Error("a call with no problem code must be refused")
 	}
+	// An agent that never read the proposal would apply whatever is proposed at that
+	// moment, which is not what it was shown.
+	if _, err := call(t, "apply_remedy", r, `{"code":"host.slots_below_capacity","target_id":"host_1"}`); err == nil {
+		t.Error("a call with no remedy id must be refused")
+	}
 }

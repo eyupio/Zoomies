@@ -332,3 +332,168 @@ func TestWorkConcentrationIsOnlySaidWhileItIsTrueAndTheOrderIsTheDefault(t *test
 		t.Errorf("advised to change an order that was already changed: %+v", p)
 	}
 }
+
+// A host the controller has stepped down is held back by load, and changing its
+// runner profile lifts the step-down in the same write. Offering the change would
+// price a gain the throttle was withholding and remove the protection with it; the
+// throttled-host notice already says what to do about it.
+func TestAThrottledHostIsNotOfferedARunnerSizeThatWouldLiftItsStepDown(t *testing.T) {
+	h, host, pool := capacityFleet(t, nil)
+	waiting(h, pool)
+	if h.problemOrNil("host.slots_below_capacity") == nil {
+		t.Fatal("the fixture must be advised before it is throttled")
+	}
+	now := h.c.Now()
+	if err := h.st.SetHostThrottle(h.ctx, host.ID, store.HostThrottle{Level: 1, Since: &now, ChangedAt: &now, Reason: "load"}, 0); err != nil {
+		t.Fatal(err)
+	}
+	if p := h.problemOrNil("host.slots_below_capacity"); p != nil {
+		t.Errorf("a throttled host was offered a runner size: %+v", p)
+	}
+}
+
+// Two pools that reach one machine each have room for what it holds. The sum of
+// their rooms is not a number of runners the host can run, and printed as one it
+// promised more than its capacity.
+func TestAHostRemedyCountsTheHostsRunnersAndNotTheSumOfThePoolsThatReachIt(t *testing.T) {
+	h, host, pool := capacityFleet(t, nil)
+	other := h.pool(&store.Installation{ID: pool.InstallationID}, "tests")
+	other.SizeFromProfile = true
+	if err := h.st.UpdatePool(h.ctx, other); err != nil {
+		t.Fatal(err)
+	}
+	waiting(h, pool)
+	p := h.problemOrNil("host.slots_below_capacity")
+	if p == nil || p.Remedy == nil {
+		t.Fatalf("problem = %+v; want a remedy", p)
+	}
+	if !strings.Contains(p.Remedy.Effect, fmt.Sprintf("holds %s instead of %s", plural(host.Capacity, "runner"), plural(host.Slots(), "runner"))) {
+		t.Errorf("the effect must be the host's own count (%d from %d): %s", host.Capacity, host.Slots(), p.Remedy.Effect)
+	}
+}
+
+// An idle machine is idle for a reason when the busy host's work could never run on
+// it, and naming it would send an operator to rebalance towards a host the pool
+// cannot use.
+func TestAnIdleHostThatTheBusyOnesWorkCouldNotRunOnIsNotCounted(t *testing.T) {
+	h, big := concentratedFleet(t, true)
+	if p := h.problemOrNil("host.work_concentrated"); p == nil {
+		t.Fatal("an idle host the work could run on must be counted")
+	}
+	// The pool now asks for the busy host's label, which the idle one does not carry.
+	if err := h.st.PatchHost(h.ctx, big.ID, store.HostChanges{Labels: &store.StringMap{"tier": "big"}}); err != nil {
+		t.Fatal(err)
+	}
+	pools, err := h.st.ListPools(h.ctx)
+	if err != nil || len(pools) != 1 {
+		t.Fatalf("pools = %d, %v", len(pools), err)
+	}
+	pool := pools[0]
+	pool.HostSelector = store.StringMap{"tier": "big"}
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	if p := h.problemOrNil("host.work_concentrated"); p != nil {
+		t.Errorf("an idle host the pool's selector excludes was counted: %+v", p)
+	}
+}
+
+// What a pool's hosts can hold is a fact about the machines. A hold on new starts
+// is load that lifts within minutes, so a room priced while one is on would flap
+// with the queue pressure that makes the price worth taking.
+func TestARoomIsCountedWhileAHostIsHeldBackByLoad(t *testing.T) {
+	h, pool := minimumFleet(t, 2048, 25, false)
+	before, err := h.c.poolRoom(h.ctx, pool)
+	if err != nil || before.Runners == 0 {
+		t.Fatalf("room before = %+v, %v", before, err)
+	}
+	host, err := h.st.GetHostByName(h.ctx, "box-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cpu := 99.0
+	if err := h.st.SetHostUsage(h.ctx, host.ID, store.HostUsage{CPUPercent: &cpu, CPUHeld: true, SampledAt: h.c.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	after, err := h.c.poolRoom(h.ctx, pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Runners != before.Runners {
+		t.Errorf("a host held back by load lost the pool its room: %d from %d", after.Runners, before.Runners)
+	}
+}
+
+// A pool that spans two sizes of host has a different daemon limit on each and one
+// share. The evidence must come from both whichever host reported last: the small,
+// floor-bound host is where the minimum sizes the slot, and a sidecar there at 91%
+// of its limit is the one thing that must stop a lower minimum.
+func TestMinimumEvidenceKeepsTheSmallHostWhicheverReportedLast(t *testing.T) {
+	h, pool := minimumFleet(t, 2048, 25, false)
+	seed := func(runnerLimit, daemonLimit, runnerMB, daemonMB int64, n int, id string) {
+		h.c.pairMu.Lock()
+		defer h.c.pairMu.Unlock()
+		for i := 0; i < n; i++ {
+			h.c.pairs[pool.ID] = append(h.c.pairs[pool.ID], pairSample{at: h.c.Now(), runner: fmt.Sprintf("%s%d", id, i%pairMinRunners), halves: backend.PairHalves{
+				Runner: backend.HalfUse{MemoryBytes: runnerMB << 20, MemoryLimit: runnerLimit << 20},
+				Daemon: backend.HalfUse{MemoryBytes: daemonMB << 20, MemoryLimit: daemonLimit << 20},
+			}})
+		}
+	}
+	h.c.pairMu.Lock()
+	h.c.pairs = map[string][]pairSample{}
+	h.c.pairMu.Unlock()
+	seed(8704, 1536, 600, 1400, pairMinSamples, "small") // the floor-bound host, daemon at 91%
+	seed(37100, 6550, 1000, 300, pairMinSamples, "big")  // a large host reported last
+	if p := h.problemOrNil("pool.minimum_overcharges"); p != nil {
+		t.Errorf("a lower minimum was proposed that the small host's sidecar would be killed under: %+v", p)
+	}
+}
+
+// Stale evidence must stop speaking for a pool: a window nothing has trimmed since
+// the pool went quiet is days old, and the notice claims the last six hours.
+func TestSamplesOlderThanTheWindowStopSpeakingForAPool(t *testing.T) {
+	h, pool := minimumFleet(t, 2048, 25, false)
+	if h.problemOrNil("pool.minimum_overcharges") == nil {
+		t.Fatal("the fixture must be advised while its samples are fresh")
+	}
+	h.c.pairMu.Lock()
+	for i := range h.c.pairs[pool.ID] {
+		h.c.pairs[pool.ID][i].at = h.c.Now().Add(-pairWindow - time.Hour)
+	}
+	h.c.pairMu.Unlock()
+	if p := h.problemOrNil("pool.minimum_overcharges"); p != nil {
+		t.Errorf("advised on samples older than the window: %+v", p)
+	}
+}
+
+// The apply refuses a remedy whose base is not what it is about to replace, so a base
+// worked out from a different read of the same row would refuse every apply.
+func TestARemedysBaseIsWhatTheTargetIsReadAsAtApply(t *testing.T) {
+	h, host, pool := capacityFleet(t, nil)
+	waiting(h, pool)
+	p := h.problemOrNil("host.slots_below_capacity")
+	if p == nil || p.Remedy == nil {
+		t.Fatalf("problem = %+v", p)
+	}
+	fresh, err := h.st.GetHost(h.ctx, host.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Remedy.Base == "" || p.Remedy.Base != RemedyBase(fresh.RunnerProfile) {
+		t.Errorf("host remedy base %q is not the host's runner profile as it is read", p.Remedy.Base)
+	}
+
+	hm, pm := minimumFleet(t, 2048, 25, false)
+	q := hm.problemOrNil("pool.minimum_overcharges")
+	if q == nil || q.Remedy == nil {
+		t.Fatalf("problem = %+v", q)
+	}
+	freshPool, err := hm.st.GetPool(hm.ctx, pm.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q.Remedy.Base != RemedyBase(freshPool.Resources) {
+		t.Errorf("pool remedy base %q is not the pool's resources as they are read", q.Remedy.Base)
+	}
+}

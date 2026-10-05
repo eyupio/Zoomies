@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/eyupio/zoomies/internal/backend"
 	"github.com/eyupio/zoomies/internal/config"
@@ -144,7 +145,8 @@ func TestASqueezedSidecarShowsUpAsAStandingProblemUntilTheShareMoves(t *testing.
 		backend.HalfUse{CPUs: 0.1, MemoryBytes: gib / 4},
 		backend.HalfUse{CPUs: 1.9, MemoryBytes: 3*gib + gib/2}) {
 		r := &store.Runner{ID: fmt.Sprintf("run-%d", i%5), PoolID: pool.ID, AllocationSource: store.AllocationFromHost}
-		h.c.observePair(r, backend.Stats{SampledAt: &now, Halves: &s.halves})
+		sampled := now.Add(time.Duration(i) * time.Second)
+		h.c.observePair(r, backend.Stats{SampledAt: &sampled, Halves: &s.halves})
 	}
 	p := h.problemOrNil("pool.daemon_share_suggested")
 	if p == nil || p.TargetID != pool.ID {
@@ -182,7 +184,8 @@ func TestASqueezedSidecarIsAdvisedWhetherTheHostsShareOrItsProfileSizedTheRunner
 				backend.HalfUse{CPUs: 0.1, MemoryBytes: gib / 4},
 				backend.HalfUse{CPUs: 1.9, MemoryBytes: 3*gib + gib/2}) {
 				r := &store.Runner{ID: fmt.Sprintf("run-%d", i%5), PoolID: pool.ID, AllocationSource: source}
-				h.c.observePair(r, backend.Stats{SampledAt: &now, Halves: &s.halves})
+				sampled := now.Add(time.Duration(i) * time.Second)
+				h.c.observePair(r, backend.Stats{SampledAt: &sampled, Halves: &s.halves})
 			}
 			if p := h.problemOrNil("pool.daemon_share_suggested"); p == nil || p.TargetID != pool.ID {
 				t.Fatalf("problem = %+v; want one for the pool whose runners are sized by %q", p, source)
@@ -205,7 +208,8 @@ func TestAMixedSqueezeIsOneNoticeWithAFlagForEachResource(t *testing.T) {
 		backend.HalfUse{CPUs: 0.1, MemoryBytes: 3*gib + gib/2},
 		backend.HalfUse{CPUs: 1.9, MemoryBytes: gib / 4}) {
 		r := &store.Runner{ID: fmt.Sprintf("run-%d", i%5), PoolID: pool.ID, AllocationSource: store.AllocationFromHost}
-		h.c.observePair(r, backend.Stats{SampledAt: &now, Halves: &s.halves})
+		sampled := now.Add(time.Duration(i) * time.Second)
+		h.c.observePair(r, backend.Stats{SampledAt: &sampled, Halves: &s.halves})
 	}
 	p := h.problemOrNil("pool.daemon_share_suggested")
 	if p == nil {
@@ -240,7 +244,8 @@ func TestAPoolTheControllerKeepsIsNotAdvisedOnHowItDividesItsSlot(t *testing.T) 
 		backend.HalfUse{CPUs: 0.1, MemoryBytes: gib / 4},
 		backend.HalfUse{CPUs: 1.9, MemoryBytes: 3*gib + gib/2}) {
 		r := &store.Runner{ID: fmt.Sprintf("run-%d", i%5), PoolID: pool.ID, AllocationSource: store.AllocationFromHost}
-		h.c.observePair(r, backend.Stats{SampledAt: &now, Halves: &s.halves})
+		sampled := now.Add(time.Duration(i) * time.Second)
+		h.c.observePair(r, backend.Stats{SampledAt: &sampled, Halves: &s.halves})
 	}
 	if p := h.problemOrNil("pool.daemon_share_suggested"); p != nil {
 		t.Fatalf("a pool the controller keeps was advised to change a setting it has not got: %+v", p)
@@ -273,7 +278,8 @@ func squeezedRunnerPool(t *testing.T, hostCPUs int) (*harness, *store.Pool) {
 			Daemon: backend.HalfUse{CPULimit: slot * 0.35, CPUs: 0.05, MemoryLimit: 4 * gib, MemoryBytes: gib / 4},
 		}
 		r := &store.Runner{ID: fmt.Sprintf("run-%d", i%5), PoolID: pool.ID, AllocationSource: store.AllocationFromHost}
-		h.c.observePair(r, backend.Stats{SampledAt: &now, Halves: &halves})
+		sampled := now.Add(time.Duration(i) * time.Second)
+		h.c.observePair(r, backend.Stats{SampledAt: &sampled, Halves: &halves})
 	}
 	return h, pool
 }
@@ -363,5 +369,33 @@ func TestTheNoticeClearsAtOnceWhenThePoolsShareIsChanged(t *testing.T) {
 	}
 	if p := h.problemOrNil("pool.daemon_share_suggested"); p != nil {
 		t.Fatalf("the notice is still up after the share was changed: %+v", p)
+	}
+}
+
+// The agent sends its last sample with the heartbeat and again with each reconcile
+// report, and keeps sending it when the next sample fails. The same reading is not
+// more evidence for arriving again, or 60 samples would be half an hour of one
+// runner.
+func TestTheSameSampleArrivingTwiceIsCountedOnce(t *testing.T) {
+	h := newHarness(t)
+	pool := h.pool(h.installation(), "builders")
+	pool.DockerMode = store.DockerDinD
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	now := h.c.Now()
+	halves := backend.PairHalves{
+		Runner: backend.HalfUse{MemoryBytes: gib, MemoryLimit: 4 * gib, CPULimit: 2},
+		Daemon: backend.HalfUse{MemoryBytes: gib, MemoryLimit: 4 * gib, CPULimit: 2},
+	}
+	r := &store.Runner{ID: "run-1", PoolID: pool.ID, AllocationSource: store.AllocationFromHost}
+	for i := 0; i < 5; i++ {
+		h.c.observePair(r, backend.Stats{SampledAt: &now, Halves: &halves})
+	}
+	later := now.Add(30 * time.Second)
+	h.c.observePair(r, backend.Stats{SampledAt: &later, Halves: &halves})
+	h.c.observePair(r, backend.Stats{SampledAt: &later, Halves: &halves})
+	if n := len(h.c.pairs[pool.ID]); n != 2 {
+		t.Errorf("%d samples kept from two readings", n)
 	}
 }

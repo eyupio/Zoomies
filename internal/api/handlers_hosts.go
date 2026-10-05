@@ -238,7 +238,7 @@ func (s *Server) applyHostUpdate(w http.ResponseWriter, r *http.Request, id stri
 			return
 		}
 		if len(stranded) > 0 {
-			conflict(w, hostStrandingRefusal(stranded[0].Host, stranded))
+			conflict(w, hostStrandingRefusal(stranded[0].Host, stranded, strandingEnding(r)))
 			return
 		}
 	}

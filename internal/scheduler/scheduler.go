@@ -1579,7 +1579,16 @@ func HostIsPlatform(h *store.Host, p *store.Pool) bool {
 // its existing runners keep working and are drained as normal. A fleet
 // mid-upgrade shrinks host by host instead of falling over all at once.
 func HostAvailable(h *store.Host, now time.Time) bool {
-	return h.Healthy(now) && !h.Cordoned && !h.Incompatible && HostAdmissionReason(h, now) == ""
+	return HostPresent(h, now) && HostAdmissionReason(h, now) == ""
+}
+
+// HostPresent is HostAvailable without the load: a host that is reporting, not
+// cordoned and compatible. What a host could hold is a question about the machine,
+// and a CPU or memory hold lifts within minutes of the queue that caused it, so a
+// price taken while one is on would flap with the very pressure that makes it
+// worth taking.
+func HostPresent(h *store.Host, now time.Time) bool {
+	return h.Healthy(now) && !h.Cordoned && !h.Incompatible
 }
 
 // HostOffers reports whether a host's agent offers the pool's backend.

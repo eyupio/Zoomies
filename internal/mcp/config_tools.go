@@ -37,10 +37,10 @@ func configTools() []*tool {
 				"you never send the change itself. It runs as the pool's or host's own update, so it needs the role that update needs, " +
 				"it is refused when it would leave a pool with no host that could run it, and it applies to runners created after. " +
 				"A problem whose proposal has since changed or gone is refused, so read list_problems again.",
-			InputSchema: object([]string{"code", "target_id"}, map[string]any{
+			InputSchema: object([]string{"code", "target_id", "remedy_id"}, map[string]any{
 				"code":      str("the problem's code, such as host.slots_below_capacity"),
 				"target_id": str("the pool or host the problem is about, as list_problems shows it"),
-				"remedy_id": str("the remedy's id from list_problems, so that what is applied is what you read"),
+				"remedy_id": str("the remedy's id from list_problems, so that what is applied is what you read; required here, because an agent that applies without reading applies whatever is proposed at that moment"),
 			}),
 			Annotations: annotations{Idempotent: true},
 			action:      true,
@@ -385,14 +385,17 @@ func applyRemedy(ctx context.Context, c API, raw json.RawMessage) ([]Content, er
 	if err := requireID("target_id", a.TargetID); err != nil {
 		return nil, err
 	}
+	// The REST route leaves it optional for scripts that want whatever is proposed now.
+	// An agent is not asked to guess: it applies what it read in list_problems, or
+	// reads again.
+	if err := requireID("remedy_id", a.RemedyID); err != nil {
+		return nil, err
+	}
 	bc, ok := c.(BodyCaller)
 	if !ok {
 		return nil, fmt.Errorf("this transport cannot apply a change")
 	}
-	body := map[string]string{"code": a.Code, "target_id": a.TargetID}
-	if a.RemedyID != "" {
-		body["remedy_id"] = a.RemedyID
-	}
+	body := map[string]string{"code": a.Code, "target_id": a.TargetID, "remedy_id": a.RemedyID}
 	payload, err := json.Marshal(body)
 	if err != nil {
 		return nil, err

@@ -27,10 +27,11 @@ const (
 	// pairWindow is how far back a pool's samples count. A day's jobs would hide
 	// a change of workload; an hour could be one unusual build.
 	pairWindow = 6 * time.Hour
-	// pairMaxSamples bounds the window per pool. Heartbeats arrive every few
-	// seconds per busy runner, so this is well over the window for any pool this
-	// controller serves, and a bound keeps a busy fleet's memory flat.
-	pairMaxSamples = 4000
+	// pairMaxSamples bounds the window per pool. A busy runner is sampled every 30
+	// seconds, so this holds six hours of about eleven busy runners, and a pool with
+	// more has a shorter window and its newest samples; the bound keeps a busy
+	// fleet's memory flat.
+	pairMaxSamples = 8000
 	// pairMinSamples and pairMinRunners keep one long job from speaking for a
 	// pool: its samples are all the same job, and a pool's advice should rest on
 	// several.
@@ -50,9 +51,12 @@ const (
 
 // pairSample is one heartbeat of one busy pair.
 type pairSample struct {
-	at     time.Time
-	runner string
-	halves backend.PairHalves
+	at time.Time
+	// sampled is when the agent took the sample, which is how a sample that reaches
+	// the controller twice is told from two.
+	sampled time.Time
+	runner  string
+	halves  backend.PairHalves
 }
 
 // observePair records a busy runner's two halves. Only a runner sized from the
@@ -72,7 +76,19 @@ func (c *Controller) observePair(r *store.Runner, st backend.Stats) {
 	if c.pairs == nil {
 		c.pairs = make(map[string][]pairSample)
 	}
-	w := append(c.pairs[r.PoolID], pairSample{at: now, runner: r.ID, halves: h})
+	// The agent sends its last sample with the heartbeat and again with each
+	// reconcile report, and keeps sending it when the next one fails, so the same
+	// reading arrives more than once. Counting each arrival would make 60 samples
+	// half an hour of one runner and let a stale reading speak for the pool.
+	for i := len(c.pairs[r.PoolID]) - 1; i >= 0; i-- {
+		if prev := c.pairs[r.PoolID][i]; prev.runner == r.ID {
+			if prev.sampled.Equal(*st.SampledAt) {
+				return
+			}
+			break
+		}
+	}
+	w := append(c.pairs[r.PoolID], pairSample{at: now, sampled: *st.SampledAt, runner: r.ID, halves: h})
 	cut := 0
 	for cut < len(w) && now.Sub(w[cut].at) > pairWindow {
 		cut++
@@ -119,6 +135,36 @@ func pairPercentile(xs []float64, p float64) float64 {
 	return xs[min(int(math.Ceil(p*float64(len(xs))))-1, len(xs)-1)]
 }
 
+// pairCPUShare and pairMemShare are the share of the slot the daemon was created
+// with, as a whole percent, read from the two limits the sample carries. Zero is
+// "not divided": a limit that was not set has no share to judge.
+func pairCPUShare(s pairSample) int {
+	d, r := s.halves.Daemon.CPULimit, s.halves.Runner.CPULimit
+	if d > 0 && r > 0 {
+		return int(math.Round(100 * d / (d + r)))
+	}
+	return 0
+}
+
+func pairMemShare(s pairSample) int {
+	d, r := float64(s.halves.Daemon.MemoryLimit), float64(s.halves.Runner.MemoryLimit)
+	if d > 0 && r > 0 {
+		return int(math.Round(100 * d / (d + r)))
+	}
+	return 0
+}
+
+// freshPairs is the samples still inside the window. The window is trimmed when a
+// pool's runner reports, so a pool that has gone quiet keeps its last six hours
+// until something reads them with the clock in hand.
+func freshPairs(window []pairSample, now time.Time) []pairSample {
+	cut := 0
+	for cut < len(window) && now.Sub(window[cut].at) > pairWindow {
+		cut++
+	}
+	return window[cut:]
+}
+
 // judgePair says whether a window of samples shows the slot divided against the
 // work, for CPU and for memory. It is pure, like the scheduler's decisions: the
 // window and nothing else.
@@ -130,20 +176,7 @@ func judgePair(window []pairSample) (pairAdvice, bool) {
 	if len(window) == 0 {
 		return pairAdvice{}, false
 	}
-	cpuShare := func(s pairSample) int {
-		d, r := s.halves.Daemon.CPULimit, s.halves.Runner.CPULimit
-		if d > 0 && r > 0 {
-			return int(math.Round(100 * d / (d + r)))
-		}
-		return 0
-	}
-	memShare := func(s pairSample) int {
-		d, r := float64(s.halves.Daemon.MemoryLimit), float64(s.halves.Runner.MemoryLimit)
-		if d > 0 && r > 0 {
-			return int(math.Round(100 * d / (d + r)))
-		}
-		return 0
-	}
+	cpuShare, memShare := pairCPUShare, pairMemShare
 	newest := window[len(window)-1]
 	curCPU, curMem := cpuShare(newest), memShare(newest)
 	if curCPU == 0 && curMem == 0 {
@@ -282,7 +315,7 @@ func (c *Controller) daemonShareAdviceProblems(ctx context.Context, out *[]Probl
 			continue
 		}
 		c.pairMu.Lock()
-		window := slices.Clone(c.pairs[p.ID])
+		window := slices.Clone(freshPairs(c.pairs[p.ID], c.Now()))
 		c.pairMu.Unlock()
 		adv, ok := judgePair(window)
 		if !ok {
@@ -376,7 +409,7 @@ func (c *Controller) daemonShareAdviceProblems(ctx context.Context, out *[]Probl
 			if room.Runners > 0 {
 				effect = fmt.Sprintf("the pool's hosts keep room for all %s", plural(room.Runners, "runner"))
 			}
-			remedy = newRemedy(RemedyPoolUpdate, p.ID, "Give the sidecar "+strings.Join(words, " and "), effect, map[string]any{"resources": res})
+			remedy = newRemedy(RemedyPoolUpdate, p.ID, "Give the sidecar "+strings.Join(words, " and "), effect, map[string]any{"resources": res}, p.Resources)
 		}
 		*out = append(*out, Problem{
 			DaemonShare: change,
