@@ -646,6 +646,16 @@ fails with `no space left on device`, which names neither the mount nor the
 setting, while saving little disk traffic. A folder that is not `auto` is never
 put on disk; it is always in memory, as small as the limit demands.
 
+The pool editor shows the result while you are choosing: under the folders in the
+Speed section, for every host the pool can run on, what a runner there has and what
+each folder is given, in memory or on disk. Where something is on disk it says
+what would change that — the standard runner memory to set on a host (or, for a
+pool sized by a slot's share, the capacity to lower it to) and the slots the host
+is left with, and a daemon share where one helps without losing a runner — so the
+trade is on the page where it is made, with its cost. A runner profile is where
+a host's standard size is set, so that is the lever for a pool that takes its size
+from its hosts.
+
 Auto never silently changes what a pool is. Where it kept a folder on disk,
 `pool.tmpfs_auto_on_disk` names the hosts and what their runners have, as
 information, and says what would put the folder in memory there: bigger runners

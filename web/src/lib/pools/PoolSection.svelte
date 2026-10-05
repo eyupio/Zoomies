@@ -329,6 +329,19 @@
     font-weight: var(--z-weight-semibold);
     color: var(--z-text);
   }
+  /* A callout that is good news rather than a cost: nothing was given up. */
+  .body :global(.callout.ok) {
+    border-color: var(--z-idle-border);
+    background: var(--z-idle-subtle);
+  }
+  /* A list inside one: a line per host, or per way to change the answer. */
+  .body :global(.callout .plan) {
+    margin: var(--z-space-2) 0;
+    padding-left: var(--z-space-4);
+  }
+  .body :global(.callout .plan li + li) {
+    margin-top: var(--z-space-1);
+  }
   @keyframes reveal {
     from {
       opacity: 0;

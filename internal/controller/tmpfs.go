@@ -367,7 +367,7 @@ func (c *Controller) tmpfsHostProblems(ctx context.Context, out *[]Problem) erro
 		if w, ok := hostSizedTmpfsWarning(p, placeable); ok {
 			*out = append(*out, w)
 		}
-		if w, ok := autoKeptOnDisk(p, placeable); ok {
+		if w, ok := autoKeptOnDisk(p, placeable, room.TmpfsPlan); ok {
 			*out = append(*out, w)
 		}
 	}
@@ -518,7 +518,7 @@ func hostSizedTmpfsWarning(p *store.Pool, hosts []PoolHostRoom) (Problem, bool) 
 // memory and got disk on some machines is otherwise indistinguishable from one
 // that is broken, and the operator who wants memory there has one lever --
 // bigger runners on that host -- which the line names.
-func autoKeptOnDisk(p *store.Pool, hosts []PoolHostRoom) (Problem, bool) {
+func autoKeptOnDisk(p *store.Pool, hosts []PoolHostRoom, plan *TmpfsPlan) (Problem, bool) {
 	if p == nil || !p.Tmpfs.Any() {
 		return Problem{}, false
 	}
@@ -554,9 +554,46 @@ func autoKeptOnDisk(p *store.Pool, hosts []PoolHostRoom) (Problem, bool) {
 		Title:    fmt.Sprintf("pool %s: its automatic in-memory folders are on disk on %s", p.Name, plural(len(lines), "host")),
 		Detail: "this pool lets each runner decide, and a folder goes in memory only where the runner has room for it to be useful -- below that it would fill and fail jobs with " +
 			"\"no space left on device\" while saving little disk traffic. On these hosts the runner is too small, so the folder is on disk: " + strings.Join(lines, "; ") + ".",
-		Fix: "nothing is wrong. To have these folders in memory there, give those hosts bigger runners (Runner sizes on each host, or fewer slots), " +
-			"or lower the folders' sizes on the host (Runner sizes, in-memory folders).",
+		Fix:        autoOnDiskFix(p, plan),
 		TargetKind: "pool",
 		TargetID:   p.ID,
 	}, true
+}
+
+// autoOnDiskFix says what would put the folders in memory, from the plan: the
+// daemon share that does it and what it costs in runners, and per host the
+// runner size that does. Without a plan it says only where to look.
+func autoOnDiskFix(p *store.Pool, plan *TmpfsPlan) string {
+	fix := "Nothing is broken: a folder is in memory only where it would be useful. To have more in memory"
+	var options []string
+	if plan != nil && plan.Share != nil {
+		sh := plan.Share
+		line := fmt.Sprintf("give the Docker sidecar %d%% of a slot (Docker sidecar's share in the pool editor, or zoomies pools edit %s --daemon-share %d), which puts %d of %d folders in memory and loses no runners",
+			sh.Percent, p.Name, sh.Percent, sh.InMemory, plan.Total)
+		options = append(options, line)
+	}
+	if plan != nil && len(plan.Sizes) > 0 {
+		// How the size changes depends on where the pool takes it from: a pool that
+		// takes it from its hosts' runner profiles has it raised there, and one
+		// sized by a slot's share has it raised by having fewer, bigger slots.
+		var standard, capacity []string
+		for _, o := range plan.Sizes {
+			if o.Lever == "standard" {
+				standard = append(standard, fmt.Sprintf("%s to %s (%s, now %d)", o.Host, formatRoomMB(o.MemoryMB), plural(o.Slots, "slot"), o.SlotsNow))
+			} else {
+				capacity = append(capacity, fmt.Sprintf("%s to %s (each runner about %s)", o.Host, plural(o.Slots, "slot"), formatRoomMB(o.MemoryMB)))
+			}
+		}
+		if len(standard) > 0 {
+			options = append(options, "raise the standard runner memory on a host so the work folder fits (Runner sizes on the host, or zoomies hosts edit <host> --standard-memory-mb): "+strings.Join(standard, "; "))
+		}
+		if len(capacity) > 0 {
+			options = append(options, "lower a host's capacity so each runner is bigger (zoomies hosts edit <host> --capacity): "+strings.Join(capacity, "; "))
+		}
+	}
+	options = append(options, "or lower the folders' sizes on the host (Runner sizes, in-memory folders)")
+	if len(options) == 1 {
+		return fix + ", " + options[0] + "."
+	}
+	return fix + ": " + strings.Join(options, "; ") + "."
 }

@@ -872,7 +872,9 @@
           aria-hidden="true"
         >
           {#each layout.labels as label, c (c)}
-            {#if label}<span style:grid-column={c + 2}>{label}</span>{/if}
+            {#if label}<span class:last={c === layout.labels.length - 1} style:grid-column={c + 2}
+                >{label}</span
+              >{/if}
           {/each}
         </div>
         <div
@@ -1244,6 +1246,13 @@
   .labels span {
     grid-row: 1;
     white-space: nowrap;
+  }
+  /* A month that begins in the newest column -- any Monday that is the first
+     of a month's first week -- has a name wider than the column. Left-aligned
+     it spills past the grid and the frame grows a scrollbar for the overhang;
+     right-aligned it grows back over the empty columns beside it. */
+  .labels span.last {
+    justify-self: end;
   }
   .grid {
     row-gap: var(--gap);

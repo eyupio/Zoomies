@@ -80,6 +80,11 @@ type TmpfsConfig struct {
 // Any reports whether any folder is kept in memory.
 func (c TmpfsConfig) Any() bool { return c.Work.Enabled || c.Tmp.Enabled || c.Daemon.Enabled }
 
+// AnyAuto reports whether any folder that is in memory is placed per runner.
+func (c TmpfsConfig) AnyAuto() bool {
+	return c.Work.Enabled && c.Work.Auto || c.Tmp.Enabled && c.Tmp.Auto || c.Daemon.Enabled && c.Daemon.Auto
+}
+
 // ReserveMB is the memory this configuration may take, which is what a memory
 // limit sized for the job alone should be raised by. A mount with no size of
 // its own counts at its default, because that is what it would be given on a
