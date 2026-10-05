@@ -20,7 +20,7 @@
 <script lang="ts">
   import { Check, Container, Package } from '@lucide/svelte';
   import type { DockerMode } from '$lib/api/types';
-  import type { PoolDraft } from './PoolWizardForm.svelte';
+  import type { PoolDraft } from './draft';
 
   interface Props {
     draft: PoolDraft;

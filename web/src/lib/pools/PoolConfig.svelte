@@ -11,7 +11,7 @@
   import { formatBytes, formatGoDuration, formatMegabytes, formatNumber } from '$lib/format';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import PoolLabels from './PoolLabels.svelte';
-  import { backendLabel, dockerModeLabel, platformLabelOrAny } from './PoolVocabulary.svelte';
+  import { backendLabel, dockerModeLabel, platformLabelOrAny } from './vocabulary';
 
   interface Props {
     pool: Pool;

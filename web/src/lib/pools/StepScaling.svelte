@@ -24,7 +24,7 @@
   import Input from '$lib/components/Input.svelte';
   import PoolRoom from './PoolRoom.svelte';
   import { sizeLabel } from './sizing';
-  import type { PoolDraft } from './PoolWizardForm.svelte';
+  import type { PoolDraft } from './draft';
 
   interface Props {
     draft: PoolDraft;

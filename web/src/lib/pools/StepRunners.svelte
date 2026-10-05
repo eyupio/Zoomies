@@ -21,7 +21,7 @@
   import Field from '$lib/components/Field.svelte';
   import Input from '$lib/components/Input.svelte';
   import type { Result } from '$lib/api/types';
-  import type { PoolDraft } from './PoolWizardForm.svelte';
+  import type { PoolDraft } from './draft';
 
   interface Props {
     draft: PoolDraft;

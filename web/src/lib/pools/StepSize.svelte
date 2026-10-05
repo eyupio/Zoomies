@@ -62,7 +62,7 @@
     tmpfsReserveMb,
     withValue,
   } from './sizing';
-  import type { PoolDraft } from './PoolWizardForm.svelte';
+  import type { PoolDraft } from './draft';
 
   interface Props {
     draft: PoolDraft;

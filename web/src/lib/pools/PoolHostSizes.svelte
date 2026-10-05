@@ -18,7 +18,7 @@
   import ErrorState from '$lib/components/ErrorState.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import PoolRoom from './PoolRoom.svelte';
-  import { draftFromPool, toPoolBody } from './PoolWizardForm.svelte';
+  import { draftFromPool, toPoolBody } from './draft';
 
   interface Props {
     pool: Pool;

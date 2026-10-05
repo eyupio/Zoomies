@@ -18,9 +18,9 @@
   import PoolRoom from './PoolRoom.svelte';
   import PoolWarnings from './PoolWarnings.svelte';
   import { isStartupFinding } from './startupStability';
-  import { FIELD_LABELS, stepForField, wizardSteps } from './PoolVocabulary.svelte';
-  import type { WizardMode } from './PoolVocabulary.svelte';
-  import type { PoolDraft } from './PoolWizardForm.svelte';
+  import { FIELD_LABELS, stepForField, wizardSteps } from './vocabulary';
+  import type { WizardMode } from './vocabulary';
+  import type { PoolDraft } from './draft';
 
   interface Props {
     draft: PoolDraft;

@@ -16,7 +16,7 @@
   import { toasts } from '$lib/state/toasts.svelte';
   import Button from '$lib/components/Button.svelte';
   import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
-  import { backendLabel } from './PoolVocabulary.svelte';
+  import { backendLabel } from './vocabulary';
 
   interface Props {
     pool: Pool;

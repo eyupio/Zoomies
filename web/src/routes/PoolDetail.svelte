@@ -49,7 +49,7 @@
   import RunsOnPreview from '$lib/pools/RunsOnPreview.svelte';
   import TestJob from '$lib/pools/TestJob.svelte';
   import PoolWizardForm from '$lib/pools/PoolWizardForm.svelte';
-  import { backendLabel } from '$lib/pools/PoolVocabulary.svelte';
+  import { backendLabel } from '$lib/pools/vocabulary';
   import { isAutomatic } from '$lib/pools/auto';
   import { deletionConsequences } from '$lib/pools/consequences';
 

@@ -10,7 +10,7 @@
   import { BRAND_LABEL, brandLabels, brandedLabel, isImplicit } from '$lib/brand';
   import LabelInput from './LabelInput.svelte';
   import RunsOnPreview from './RunsOnPreview.svelte';
-  import type { PoolDraft } from './PoolWizardForm.svelte';
+  import type { PoolDraft } from './draft';
 
   interface Props {
     draft: PoolDraft;

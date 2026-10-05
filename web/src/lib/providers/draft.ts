@@ -4,8 +4,7 @@
  * Pure, and in a `.ts` rather than in the form's `<script module>`, for one
  * reason: the unit tests run under Node with no Svelte compiler, so machinery
  * kept inside a component is machinery nothing can test without a browser.
- * `PoolWizardForm.svelte` keeps its draft in a module block for the same
- * purpose; this is the same idea one file further out.
+ * The pool editor's draft is a `.ts` for the same reason (`pools/draft.ts`).
  *
  * Numbers are held as strings because that is what a text input gives back,
  * and because '' and '0' are different answers -- one is "not filled in", the

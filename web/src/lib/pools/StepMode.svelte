@@ -26,7 +26,7 @@
   import { Check, Sliders, Wand } from '@lucide/svelte';
   import type { Host } from '$lib/api/types';
   import { formatMegabytes, pluralise } from '$lib/format';
-  import type { WizardMode } from './PoolVocabulary.svelte';
+  import type { WizardMode } from './vocabulary';
 
   interface Props {
     mode: WizardMode;

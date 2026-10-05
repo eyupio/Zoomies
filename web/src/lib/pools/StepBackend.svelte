@@ -33,9 +33,9 @@
     backendLabel,
     backendUnavailable,
     platformKey,
-  } from './PoolVocabulary.svelte';
-  import type { BackendOffer } from './PoolVocabulary.svelte';
-  import type { PoolDraft } from './PoolWizardForm.svelte';
+  } from './vocabulary';
+  import type { BackendOffer } from './vocabulary';
+  import type { PoolDraft } from './draft';
 
   interface Props {
     draft: PoolDraft;
