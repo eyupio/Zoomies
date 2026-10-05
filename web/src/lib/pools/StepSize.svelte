@@ -44,6 +44,7 @@
   import QuantityField from '$lib/components/QuantityField.svelte';
   import PoolFit from './PoolFit.svelte';
   import PoolRoom from './PoolRoom.svelte';
+  import PoolSplit from './PoolSplit.svelte';
   import {
     CACHE_NOTCHES,
     CPU_NOTCHES,
@@ -355,24 +356,7 @@
     </Field>
   </div>
   {#if hasSidecar && draft.sizing !== 'fixed'}
-    <Field
-      label="Docker sidecar's share (%)"
-      error={errors['resources.daemon_share_percent']}
-      hint="A runner and its sidecar split one slot. Builds, image pulls and container tests run in the sidecar, so give it more if the runner container is mostly idle. Empty is an even split (50%); the runner keeps the rest. A host too small to give the smaller half a workable size is not used."
-    >
-      {#snippet children({ id, describedBy, invalid })}
-        <Input
-          bind:value={draft.daemon_share}
-          {id}
-          {describedBy}
-          {invalid}
-          inputmode="numeric"
-          placeholder="50 (even split)"
-          autocomplete="off"
-          onblur={() => touch('resources.daemon_share_percent')}
-        />
-      {/snippet}
-    </Field>
+    <PoolSplit {draft} {errors} {touch} plan={room?.split_plan ?? null} />
   {/if}
   <!--
     The least a runner is given, as the sentences below say it: "1 core and 2 GB",
@@ -844,14 +828,18 @@
             <ul class="plan">
               {#if plan.share}
                 <li>
-                  Give the sidecar {plan.share.percent}% of a slot — {plan.share.in_memory} of {plan.total}
+                  Give the sidecar {plan.share.percent}% of a slot's memory — {plan.share.in_memory} of
+                  {plan.total}
                   folders in memory, no runners lost.
                   <Button
                     variant="secondary"
                     size="sm"
-                    onclick={() => (draft.daemon_share = String(plan.share?.percent ?? ''))}
+                    onclick={() => {
+                      draft.daemon_memory_share = String(plan.share?.percent ?? '');
+                      draft.split_chosen = true;
+                    }}
                   >
-                    Set the share to {plan.share.percent}%
+                    Set the memory share to {plan.share.percent}%
                   </Button>
                 </li>
               {/if}

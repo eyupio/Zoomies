@@ -563,7 +563,7 @@ func pairLimits(spec Spec) (runner, daemon store.Resources) {
 	if spec.ResourcesSource != store.AllocationFromHost {
 		return spec.Resources, spec.Resources
 	}
-	return spec.Resources.SplitWithDaemonShare(spec.DaemonSharePercent)
+	return spec.Resources.SplitWithDaemonShares(spec.DaemonShares())
 }
 
 func buildRunnerConfig(spec Spec, fl flavor, o containerOptions) ContainerCreateRequest {

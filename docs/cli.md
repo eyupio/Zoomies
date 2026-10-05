@@ -109,8 +109,11 @@ in memory](hosts-and-pools.md#keeping-the-work-folder-in-memory).
 `--tmpfs-auto` lets each runner decide whether the folders that are on are in memory (where it has room for one to be useful) or on disk, and is the recommended setting; `--tmpfs-auto=false` makes them always in memory.
 
 `--daemon-share <percent>` sets how much of a host-sized slot a Docker-in-Docker
-pool's daemon is given, 10 to 90, with the runner keeping the rest; `0` is the
-even split.
+pool's daemon is given, 10 to 90, for CPU and memory alike, with the runner keeping
+the rest; `0` is the even split. `--daemon-cpu-share` and `--daemon-memory-share` say
+it for one resource and override `--daemon-share` for it: a build is CPU in the
+daemon, so `--daemon-cpu-share 70 --daemon-memory-share 50` gives it the CPU while
+the runner keeps the memory. Naming one carries the other forward as it stands.
 
 On `edit`, only the flags you actually type are sent — the defaults above are
 not applied to a partial update, so editing a pool's image cannot silently reset

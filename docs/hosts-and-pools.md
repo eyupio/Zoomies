@@ -676,22 +676,51 @@ pool is sized.
   not four because half of them brought a daemon. The host is charged once. The
   split is an accounting rule, not a measurement of where a build's memory goes —
   the memory a Docker-in-Docker job reports is the two containers added together.
-  If the daemon is where your jobs spend memory and disk, set the pool's
-  **Docker sidecar's share** (Size step of the pool editor, or
-  `--daemon-share`): the percentage of the slot the daemon is given, from 10 to
-  90, with the runner keeping the rest. Seventy gives the daemon 70% of the
-  slot's CPU and memory. The host is still charged one slot, and a host whose
-  slot is too small to give the thinner half a workable size is not used for the
-  pool, which the pool's host list says. It divides only a share the host chose;
+  Where your jobs do their work decides how the slot should be divided, so it is
+  yours to set — see the next paragraph. It divides only a share the host chose;
   a typed size goes to both containers in full whatever it says.
 
-  You don't have to guess the number. The agent reports what each container of
-  a pair used, and when one has been squeezed against its own limit while the
-  other idled — across enough jobs on several runners — `pool.daemon_share_suggested`
-  names the pool and a share to try. It informs and never changes the pool; it
-  applies only to pools sized by their hosts — by a share of the host or by its
-  [runner profile](#runner-profiles-how-big-a-runner-is-on-one-host) — and clears
-  itself once you change the share.
+**Dividing a slot: CPU and memory apart.** The Size step of the pool editor has a
+*Runner and Docker sidecar* choice for a Docker-in-Docker pool sized by its hosts.
+CPU and memory are two shares, not one, because the two are not used alike: an
+image build is CPU in the sidecar, so that is the share worth raising, while the
+runner's memory holds the checkout, the toolchain and any in-memory work folder
+(all charged to the runner), so memory is often better left even or lowered. One
+number could not say "more CPU to the sidecar, and keep the memory".
+
+![The Size step of the pool editor for a Docker-in-Docker pool, with the Runner and Docker sidecar choice: Even, Image builds in the sidecar, Work in the runner and Custom, each with what it suits and what it costs on the fleet's hosts.](screenshots/pool-size-split-dark.webp#only-dark){ .zoomies-shot }
+![The Size step of the pool editor for a Docker-in-Docker pool, with the Runner and Docker sidecar choice: Even, Image builds in the sidecar, Work in the runner and Custom, each with what it suits and what it costs on the fleet's hosts.](screenshots/pool-size-split-light.webp#only-light){ .zoomies-shot }
+
+| Preset | Sidecar's CPU | Sidecar's memory | For |
+| --- | --- | --- | --- |
+| Even | 50% | 50% | The right start when you do not yet know where the work is. |
+| Image builds in the sidecar | 70% | 50% | Jobs that build images or run containers, where the CPU is spent in the sidecar while the runner waits. |
+| Work in the runner | 35% | 35% | Jobs that compile, test or install in the runner with a Docker step at the end, and an in-memory work folder, which is charged to the runner. |
+| Custom | 10–90% | 10–90% | Any two figures. |
+
+Nobody knows where their jobs work when a pool is made, so each preset is priced on
+the hosts the pool will land on, and a new pool starts on one that costs nothing.
+That pricing matters: a skewed split raises the thinner half to its minimum and the
+slot grows with it, so the same preset keeps every runner on a fleet of large slots
+and loses most of them on a fleet of small ones. The editor says which, in runners,
+beside each choice, and starts on *Image builds in the sidecar* only where it loses
+none, on *Even* otherwise.
+
+The same two figures are `resources.daemon_cpu_share_percent` and
+`resources.daemon_memory_share_percent` in the API and `--daemon-cpu-share` and
+`--daemon-memory-share` on `zoomies pools`; the older `--daemon-share` sets both and
+each specific one overrides it for its own resource. A pool saved with one figure
+keeps meaning it.
+
+You don't have to guess the figures. The agent reports what each container of a pair
+used, and when one has been squeezed against its own limit while the other idled —
+across enough jobs on several runners — `pool.daemon_share_suggested` names the pool
+and a share to try, for CPU and for memory on their own: more CPU to a sidecar that
+is building, less memory to one that is not, in one notice with a flag for each. It
+informs and never changes the pool; it applies only to pools sized by their hosts —
+by a share of the host or by its
+[runner profile](#runner-profiles-how-big-a-runner-is-on-one-host) — and clears
+itself once you change the share.
 
 **When to turn it on.** Zoomies tells you. `pool.tmpfs_suggested` is raised for
 a pool when, on one host, all three are true: the pool ran jobs there in the
