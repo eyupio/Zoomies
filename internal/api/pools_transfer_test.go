@@ -34,6 +34,7 @@ func richPool(h *harness, inst *store.Installation) *store.Pool {
 		Ephemeral:              true,
 		DockerMode:             store.DockerNone,
 		Resources:              store.Resources{CPUs: 2, MemoryMB: 4096, DiskGB: 20, PidsLimit: 2048},
+		MemoryBurst:            store.MemoryBurstPolicy{Mode: store.MemoryBurstAutomatic, MaxMemoryMB: 6144, SpillMB: 1024},
 		RunnerSettings:         store.RunnerSettings{ProvisionTimeout: &provision, DrainTimeout: &drain},
 		Cache:                  store.CacheConfig{Enabled: true, Scope: store.CacheScopePool},
 		HostSelector:           store.StringMap{"zone": "a"},
@@ -157,6 +158,9 @@ func TestPoolsExportedFromOneInstanceAreTheSamePoolsOnAnother(t *testing.T) {
 		got.RunnerSettings.DrainTimeout == nil || got.PullPolicy != store.PullAlways || got.HostSelector["zone"] != "a" ||
 		!strings.Contains(strings.Join(got.Labels, ","), "gpu") || got.RunnerGroup != "release" {
 		t.Errorf("the created pool is not the source's: %+v", got)
+	}
+	if got.MemoryBurst != (store.MemoryBurstPolicy{Mode: store.MemoryBurstAutomatic, MaxMemoryMB: 6144, SpillMB: 1024}) {
+		t.Errorf("the memory valve did not cross with the pool: %+v", got.MemoryBurst)
 	}
 	if len(got.Env) != 0 {
 		t.Errorf("env = %v; an import has no values to set", got.Env)

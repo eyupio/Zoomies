@@ -2261,10 +2261,10 @@ paths:
         saves it anyway, which is right for a pool whose hosts have not joined yet.
 
         A pool the controller keeps from the hosts it has (it carries `auto`) has
-        only `idle_timeout` and `auto` for an operator to change, and `enabled`,
-        which is read as the pause: `enabled: false` is `auto.paused: true`. Any
-        other field is refused with 422 and its name, because it is worked out
-        and not typed. A pass of the controller's reconciler is run before the
+        only `idle_timeout`, `auto` and `memory_burst` for an operator to change,
+        and `enabled`, which is read as the pause: `enabled: false` is
+        `auto.paused: true`. Any other field is refused with 422 and its name,
+        because it is worked out and not typed. A pass of the controller's reconciler is run before the
         answer, so the change has taken effect in it -- for a pool the controller is
         keeping. For one it is not (`auto.kept` is false), a pause or the end of one
         still takes effect at once, but a cap or a warm count is stored and applies
@@ -6644,8 +6644,10 @@ components:
       description: >-
         Whether an automatically-sized Docker or Podman pool only observes, or
         may use, CPU left over after every live runner's guaranteed host share
-        and one imminent start have been protected. Memory never changes while
-        a job runs. Existing pools default to off; new pools default to observe.
+        and one imminent start have been protected. Memory has a policy of its
+        own (`MemoryBurstPolicy`), because a memory limit can be raised and
+        never taken back. Existing pools default to off; new pools default to
+        observe.
       properties:
         mode:
           type: string
@@ -6674,6 +6676,42 @@ components:
             otherwise use CPU lent later. A variable the pool's or the fleet's
             env already sets is left alone. Absent is on; ignored unless the
             mode is `automatic`.
+
+    MemoryBurstPolicy:
+      type: object
+      description: >-
+        Whether a Docker or Podman pool lets a runner be given more memory than it was created
+        with, while its job runs, out of memory the host has not promised to any runner -- the
+        memory valve. A runner keeps its guarantee, draws on the host's shared pool when it nears
+        its limit, and may be allowed a bounded amount of swap once the pool cannot cover it. A
+        limit is only ever raised, never lowered, so a loan lasts as long as the runner does.
+        Existing pools default to off; a new pool made without it observes.
+      properties:
+        mode:
+          type: string
+          enum: [off, observe, automatic]
+          default: off
+          description: >-
+            `off` does nothing; `observe` decides what it would have lent and records it, changing
+            nothing; `automatic` lends. Both need an agent that advertises `elastic-memory`.
+        max_memory_mb:
+          type: integer
+          format: int64
+          minimum: 0
+          description: >-
+            The most memory one logical runner may hold, its own share and anything lent to it
+            together. For a Docker-in-Docker runner it covers the runner and its sidecar. Zero is
+            the default, half as much again as the runner was created with. A host's own
+            `runner_profile.standard.burst_max_memory_mb` can lower it and never raise it.
+        spill_mb:
+          type: integer
+          format: int64
+          minimum: 0
+          description: >-
+            The swap each container may be allowed beyond its memory limit as the last resort,
+            once the pool is empty or the ceiling is reached and a kill is close. Zero is none,
+            which swap is for every pool that has never said otherwise: it turns a kill into a
+            slowdown, and some operators would rather have the kill. Only if the host has free swap.
 
     RunnerSettings:
       type: object
@@ -6753,6 +6791,11 @@ components:
           description: >-
             Whether this host's agent can move a live runner's CPU quota. An elastic pool is
             honoured only where it is true; a runner of one placed elsewhere is held at its share.
+        elastic_memory:
+          type: boolean
+          description: >-
+            Whether this host's agent carries out the memory valve's rules. A pool that has the
+            valve on is lent nothing, and observes nothing, on a host where this is false.
         tmpfs:
           type: boolean
           description: >-
@@ -6793,6 +6836,11 @@ components:
           format: double
           description: The most CPU one runner may use there, its guarantee and a loan together, for a pool that lends CPU -- the smaller of the pool's ceiling and the host's. Absent is as much as the host's allocatable CPU.
         ceiling_source: { type: string, enum: [pool, host] }
+        ceiling_memory_mb:
+          type: integer
+          format: int64
+          description: The most memory one runner may hold there, its guarantee and what it is lent together, for a pool that has the memory valve on. The smaller of the pool's ceiling and the host's, or half as much again as the runner's guarantee where neither has said.
+        ceiling_memory_source: { type: string, enum: [pool, host, default] }
 
     PoolRoom:
       type: object
@@ -7088,6 +7136,7 @@ components:
         docker_mode: { $ref: "#/components/schemas/DockerMode" }
         resources: { $ref: "#/components/schemas/Resources" }
         cpu_burst: { $ref: "#/components/schemas/CPUBurstPolicy" }
+        memory_burst: { $ref: "#/components/schemas/MemoryBurstPolicy" }
         size_from_profile:
           type: boolean
           description: >-
@@ -7282,7 +7331,7 @@ components:
     PoolDocument:
       type: object
       description: One pool as a pools export carries it.
-      required: [name, installation, labels, backend, platform, image, pull_policy, min_runners, max_runners, idle_timeout, ephemeral, docker_mode, resources, cpu_burst, runner_settings, cache, host_selector, env_keys, run_as_root, enabled]
+      required: [name, installation, labels, backend, platform, image, pull_policy, min_runners, max_runners, idle_timeout, ephemeral, docker_mode, resources, cpu_burst, memory_burst, runner_settings, cache, host_selector, env_keys, run_as_root, enabled]
       properties:
         name: { type: string }
         installation: { type: string, description: The organisation or owner/repository the pool's installation covers. }
@@ -7303,6 +7352,7 @@ components:
         docker_mode: { type: string }
         resources: { $ref: "#/components/schemas/Resources" }
         cpu_burst: { $ref: "#/components/schemas/CPUBurstPolicy" }
+        memory_burst: { $ref: "#/components/schemas/MemoryBurstPolicy" }
         runner_settings:
           type: object
           description: Every override, with null for one the pool does not make, so importing hands it back to the fleet.
@@ -7407,6 +7457,7 @@ components:
         docker_mode: { allOf: [{ $ref: "#/components/schemas/DockerMode" }], default: none }
         resources: { $ref: "#/components/schemas/Resources" }
         cpu_burst: { allOf: [{ $ref: "#/components/schemas/CPUBurstPolicy" }], default: { mode: observe, max_cpus: 0 } }
+        memory_burst: { allOf: [{ $ref: "#/components/schemas/MemoryBurstPolicy" }], default: { mode: observe, max_memory_mb: 0, spill_mb: 0 } }
         runner_settings: { $ref: "#/components/schemas/RunnerSettings" }
         cache: { $ref: "#/components/schemas/CacheConfig" }
         tmpfs: { $ref: "#/components/schemas/TmpfsConfig" }
@@ -7451,6 +7502,7 @@ components:
         docker_mode: { $ref: "#/components/schemas/DockerMode" }
         resources: { $ref: "#/components/schemas/Resources" }
         cpu_burst: { $ref: "#/components/schemas/CPUBurstPolicy" }
+        memory_burst: { $ref: "#/components/schemas/MemoryBurstPolicy" }
         runner_settings: { $ref: "#/components/schemas/RunnerSettings" }
         cache: { $ref: "#/components/schemas/CacheConfig" }
         tmpfs: { $ref: "#/components/schemas/TmpfsConfig" }
@@ -7463,8 +7515,8 @@ components:
           allOf: [{ $ref: "#/components/schemas/PoolAutoUpdate" }]
           description: >-
             What an operator asks of a pool the controller keeps. Refused on a pool somebody made.
-            On a pool the controller keeps, `idle_timeout` and `auto` are the only fields that may
-            be changed, and any other is refused with its name.
+            On a pool the controller keeps, `idle_timeout`, `auto` and `memory_burst` are the only
+            fields that may be changed, and any other is refused with its name.
         enabled: { type: boolean }
 
     # --- runners ----------------------------------------------------------
@@ -7488,6 +7540,73 @@ components:
             The CPU count the runner's toolchains were told to size their workers for
             when it started (see `CPUBurstPolicy.size_for_ceiling`). Absent when they were
             told nothing.
+
+    MemoryResourceState:
+      type: object
+      description: >-
+        What the memory valve has done for a runner: memory lent beyond what it was created
+        with, swap allowed, or what an observing valve would have done. Absent for a runner
+        whose pool does not have the valve on and that holds no loan. A loan that was made stands
+        after the valve is switched off, and is still reported.
+      required: [state, mode, guaranteed_mb, current_mb, ceiling_mb, lent_mb]
+      properties:
+        state:
+          type: string
+          enum: [watching, observing, lent, spilled]
+          description: >-
+            `watching` is an automatic valve that has done nothing; `observing` is observe mode;
+            `lent` is a runner holding memory beyond its guarantee; `spilled` is one that may also
+            use swap beyond its limits.
+        mode: { type: string, enum: [off, observe, automatic], description: What the agent was told to do. `off` for a runner whose pool has switched the valve off while a loan it made stands. }
+        blocked:
+          type: string
+          enum: [at_ceiling, pool_empty, host_floor, unmeasured, unsupported, failed]
+          description: >-
+            The agent's latest word when it wanted to lend more and could not, or could not lend
+            at all. Absent when nothing is in the way. Beside `state`, not instead of it: a runner
+            can hold a loan and be at its ceiling.
+        reason: { type: string, description: The sentence for the last decision that was not "healthy". }
+        guaranteed_mb: { type: integer, format: int64, description: What the runner was created with, its containers together. }
+        current_mb: { type: integer, format: int64, description: What its containers hold now. }
+        ceiling_mb: { type: integer, format: int64, description: The most they may hold. }
+        lent_mb: { type: integer, format: int64, description: "`current_mb` less `guaranteed_mb`. Only ever goes up while the runner lives." }
+        spill_mb: { type: integer, format: int64, description: The swap the runner may use beyond its limits. }
+        spill_allowed_mb: { type: integer, format: int64, description: The swap its pool allows each container. }
+        would_lend_mb: { type: integer, format: int64, description: Observe mode only -- what the valve would hold if it were allowed to. }
+        would_spill_mb: { type: integer, format: int64 }
+        near_limit: { type: boolean, description: Whether the runner has come within a tenth of a memory limit at any point in its life. }
+        raises: { type: integer, description: How many times a limit was raised for it. }
+
+    RunnerScratch:
+      type: object
+      description: >-
+        Which of a runner's folders its pool keeps in memory, as they were worked out when it was
+        created. Recorded rather than recomputed, because a pool edited since would give a
+        different answer than the one the running job was started with. Absent for a runner whose
+        pool keeps none.
+      required: [in_memory, folders]
+      properties:
+        in_memory: { type: integer, description: How many of the folders the runner was given in memory. }
+        folders:
+          type: array
+          items: { $ref: "#/components/schemas/ScratchFolder" }
+
+    ScratchFolder:
+      type: object
+      required: [kind, label, path, in_memory]
+      properties:
+        kind: { type: string, enum: [work, tmp, daemon] }
+        label: { type: string, description: "A name for the folder: Work folder, Temporary folder, Docker image store." }
+        path: { type: string, description: Where it is in the container. }
+        in_memory: { type: boolean }
+        size_mb: { type: integer, format: int64, description: What it was given, fitted to the runner's limit. Absent when it is on disk. }
+        asked_mb: { type: integer, format: int64, description: "What the pool, or the host's standard for a folder the pool leaves to size itself, asked for." }
+        auto: { type: boolean, description: The folder lets each runner decide where it lives. }
+        why:
+          type: string
+          enum: [auto_too_small, host_off, unsupported, bound]
+          description: Why a folder the pool wants in memory is on disk for this runner. Absent when it is in memory.
+        note: { type: string, description: The sentence for `why`. }
 
     Runner:
       type: object
@@ -7547,6 +7666,8 @@ components:
             (`scheduler.history_sizing: on`). Omitted when the runner was created with no limit
             at all.
         cpu_resource: { $ref: "#/components/schemas/CPUResourceState" }
+        memory_resource: { $ref: "#/components/schemas/MemoryResourceState" }
+        scratch: { $ref: "#/components/schemas/RunnerScratch" }
         created_at: { type: string, format: date-time }
         container_started_at:
           type: string
@@ -8824,6 +8945,14 @@ components:
             The most CPU one runner here may use, its guaranteed share and any CPU lent to it
             together. A pool's own `cpu_burst.max_cpus` can lower it and never raise it.
             Absent is no host ceiling.
+        burst_max_memory_mb:
+          type: integer
+          format: int64
+          minimum: 0
+          description: >-
+            The most memory one runner here may hold, its guaranteed share and any memory lent to
+            it together. A pool's own `memory_burst.max_memory_mb` can lower it and never raise it.
+            Absent is no host ceiling.
 
     RunnerProfile:
       type: object
@@ -8911,6 +9040,8 @@ components:
           properties:
             burst_max_cpus: { type: number, format: double, description: The host's own ceiling. Absent is none. }
             burst_max_cpus_source: { type: string, enum: [host] }
+            burst_max_memory_mb: { type: integer, format: int64, description: The host's own memory ceiling. Absent is none. }
+            burst_max_memory_mb_source: { type: string, enum: [host] }
 
     EffectiveProfile:
       type: object
@@ -8921,6 +9052,30 @@ components:
       properties:
         minimum: { $ref: "#/components/schemas/EffectiveSize" }
         standard: { $ref: "#/components/schemas/EffectiveStandard" }
+
+    MemoryPool:
+      type: object
+      description: >-
+        What a host can lend its runners' memory limits, as the controller last worked it out:
+        what is left of the machine once every promise is kept and the host's floor is left
+        alone, and how much of it has been lent already. Absent for a host with no runner the
+        valve applies to.
+      required: [supported, capacity_mb, lent_mb, pool_mb, floor_mb, committed_mb, idle_reserve_mb, start_reserve_mb, binding, observing, enforcing, at]
+      properties:
+        supported: { type: boolean, description: Whether the host's agent carries the rules out. }
+        capacity_mb: { type: integer, format: int64, description: The most that may be lent on the host in all, what is lent already included. }
+        lent_mb: { type: integer, format: int64 }
+        pool_mb: { type: integer, format: int64, description: What is left to lend. }
+        floor_mb: { type: integer, format: int64, description: "The least free memory a loan leaves the host: its reserve and a twentieth of the machine." }
+        committed_mb: { type: integer, format: int64, description: Busy and starting runners' guarantees, charged in full. }
+        idle_reserve_mb: { type: integer, format: int64, description: The largest idle runner's guarantee, held back for the next job. }
+        start_reserve_mb: { type: integer, format: int64, description: One queued start protected. }
+        binding: { type: string, enum: [ledger, measured], description: "What limited the capacity: the promises already made, or the memory the host measured as free." }
+        observing: { type: integer, description: Runners on the host with a rule in observe mode. }
+        enforcing: { type: integer, description: Runners on the host with a rule in automatic mode. }
+        short_at: { type: string, format: date-time, description: When a runner here was last refused memory because the host had none to give. Absent after fifteen minutes. }
+        short_code: { type: string, enum: [pool_empty, host_floor] }
+        at: { type: string, format: date-time, description: When the pool was last worked out. }
 
     Host:
       type: object
@@ -9023,13 +9178,21 @@ components:
           items: { type: string }
           description: >-
             What the agent says it can do beyond running a backend, re-read from every
-            heartbeat. `elastic-cpu` means it can move a live runner's CPU quota.
+            heartbeat. `elastic-cpu` means it can move a live runner's CPU quota, and
+            `elastic-memory` that it can raise a live runner's memory limit.
         elastic_cpu:
           type: boolean
           description: >-
             Whether this host honours an elastic pool: true when its agent advertises
             `elastic-cpu`. A runner of such a pool placed where this is false is held at its
             guaranteed share, and the host's card says so.
+        elastic_memory:
+          type: boolean
+          description: >-
+            Whether this host's agent carries out the memory valve's rules, which is when it
+            advertises `elastic-memory`. A pool with the valve on is lent nothing, and observes
+            nothing, on a host where this is false.
+        memory_pool: { $ref: "#/components/schemas/MemoryPool" }
         labels: { type: object, additionalProperties: { type: string } }
         os: { type: string, description: The kernel, as Go names it - linux, darwin, windows. }
         distro: { type: string, description: The distribution, e.g. ubuntu. Empty when the host has not said. }
@@ -9853,6 +10016,31 @@ components:
         resync_requested: { type: boolean, description: Send a full runner report next time. Set after the controller restarts. }
         throttle: { $ref: "#/components/schemas/ThrottleDirective" }
         elastic_cpu: { type: array, items: { $ref: "#/components/schemas/ElasticCPUDirective" }, description: Complete boosted-runner set; omission restores a previous boost to its guarantee. }
+        elastic_memory: { $ref: "#/components/schemas/ElasticMemoryDirective" }
+    ElasticMemoryDirective:
+      type: object
+      description: >-
+        The memory valve's rules for one host. Unlike `elastic_cpu` it is not a plan to carry out
+        and replace on the next beat but limits to work within, because a memory limit that is
+        raised cannot be taken back and the agent has to act between two heartbeats. An agent
+        keeps working on the last it was given if the controller goes quiet. Absent means no
+        runner here is lent anything.
+      required: [capacity_mb, floor_mb]
+      properties:
+        capacity_mb: { type: integer, format: int64, description: The most that may be lent on this host in all, what has been lent already included. }
+        floor_mb: { type: integer, format: int64, description: The least free memory a loan may leave the host. }
+        runners:
+          type: array
+          items: { $ref: "#/components/schemas/ElasticMemoryRunner" }
+    ElasticMemoryRunner:
+      type: object
+      required: [runner_id, mode, guarantee_mb, ceiling_mb]
+      properties:
+        runner_id: { type: string }
+        mode: { type: string, enum: [observe, automatic] }
+        guarantee_mb: { type: integer, format: int64, description: What the runner was created with, every container together. }
+        ceiling_mb: { type: integer, format: int64, description: The most those containers may hold between them. }
+        spill_mb: { type: integer, format: int64, description: The swap each container may be allowed beyond its limit. Absent is none. }
     ThrottleDirective:
       type: object
       properties:
@@ -9904,6 +10092,20 @@ components:
         memory_limit: { type: integer, format: int64 }
         cpu_allocation_factor: { type: number, format: double, description: One is the guaranteed creation quota; above one is elastic CPU and below one is host-pressure throttling. }
         busiest_half_percent: { type: number, format: double, description: For a docker-in-docker pair, how much of its own creation quota the busier container is using, in percent. Absent for a single container. }
+        memory_valve:
+          type: object
+          description: What the memory valve has done for this runner, as its agent saw it. Absent for a runner the agent is not watching.
+          required: [mode, code]
+          properties:
+            mode: { type: string, enum: [off, observe, automatic] }
+            code: { type: string, enum: [healthy, raised, spilled, at_ceiling, pool_empty, host_floor, unmeasured, unsupported, failed], description: The guard's latest decision. }
+            reason: { type: string, description: The sentence for the last decision that was not "healthy". }
+            lent_bytes: { type: integer, format: int64, description: What the runner's containers hold beyond what they were created with. }
+            spill_bytes: { type: integer, format: int64, description: The swap they may use beyond their limits. }
+            would_lend_bytes: { type: integer, format: int64 }
+            would_spill_bytes: { type: integer, format: int64 }
+            near_limit: { type: boolean }
+            raises: { type: integer }
         halves:
           type: object
           description: For a docker-in-docker pair, what each container used on its own, beside the limits it was created with. Absent for a single container and from an agent that predates it. The controller judges how the pair's slot is divided from it (`pool.daemon_share_suggested`).

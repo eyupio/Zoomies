@@ -310,7 +310,10 @@ func TestAMaximumTheFleetCanPlaceRaisesNothing(t *testing.T) {
 		Name: "big-1", Capacity: 4,
 		CPUs: 10, MemoryMB: 20480,
 		Backends: store.StringSlice{"docker"}, Labels: store.StringMap{},
-		OS: "linux", Arch: "amd64", LastHeartbeat: time.Now(),
+		// A current agent: a new pool watches memory by default, and a host that
+		// cannot is the case the warning is for, not this one.
+		Features: store.StringSlice{agent.FeatureElasticMemory},
+		OS:       "linux", Arch: "amd64", LastHeartbeat: time.Now(),
 	}
 	if err := h.st.CreateHost(h.ctx, host); err != nil {
 		t.Fatalf("CreateHost: %v", err)

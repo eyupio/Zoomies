@@ -13,7 +13,11 @@ import (
 // may change. Every other field of poolInput is refused by name, which is the
 // right default for one added later: a field nobody has thought about for these
 // pools is one the reconciler would put back.
-var autoPoolEditable = map[string]bool{"idle_timeout": true, "auto": true, "enabled": true}
+//
+// The memory valve is one of them because it is a policy and not a figure worked
+// out from the hosts: the reconciler writes no column it lives in, and without
+// this the pools most fleets run on would be the ones that could never turn it on.
+var autoPoolEditable = map[string]bool{"idle_timeout": true, "auto": true, "enabled": true, "memory_burst": true}
 
 // autoPoolWorkedOut is the refused fields the controller itself sets, from the
 // hosts and the class a pool is kept for. They are said to be worked out because
@@ -47,12 +51,12 @@ func refusedForAutoPool(in *poolInput) []fieldError {
 		if name == "" || name == "-" || !isSet(v.Field(i)) || autoPoolEditable[name] {
 			continue
 		}
-		msg := "the controller sets this pool up and takes no change to this; its idle timeout, warm runners, cap and pause are the settings that are yours. To change anything else, make a pool of your own."
+		msg := "the controller sets this pool up and takes no change to this; its idle timeout, warm runners, cap, pause and memory valve are the settings that are yours. To change anything else, make a pool of your own."
 		switch {
 		case name == "min_runners" || name == "max_runners":
 			msg = "this pool's minimum and maximum are worked out from the hosts in it; ask for runners to keep ready with auto.warm and for a ceiling with auto.cap"
 		case autoPoolWorkedOut[name]:
-			msg = "this pool is kept by the controller from your hosts, so this is worked out and not typed; its idle timeout, warm runners, cap and pause are the settings that are yours. To change anything else, make a pool of your own."
+			msg = "this pool is kept by the controller from your hosts, so this is worked out and not typed; its idle timeout, warm runners, cap, pause and memory valve are the settings that are yours. To change anything else, make a pool of your own."
 		}
 		errs = append(errs, fieldError{name, msg})
 	}
@@ -84,6 +88,9 @@ func (s *Server) updateAutoPool(w http.ResponseWriter, r *http.Request, existing
 	before := *existing
 	updated := *existing
 	errs = append(errs, in.apply(&updated)...)
+	if in.MemoryBurst != nil {
+		validateMemoryBurst(&updated, func(field, msg string) { errs = append(errs, fieldError{field, msg}) })
+	}
 	if in.Auto != nil {
 		if in.Auto.Warm != nil {
 			if *in.Auto.Warm < 0 {

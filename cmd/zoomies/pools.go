@@ -184,6 +184,7 @@ func poolsGet(ctx context.Context, e *env, args []string) error {
 		{"host selector", dash(kvValue(pool.HostSelector).String())},
 		{"sizing", poolSizing(pool)},
 		{"elastic CPU", poolCPUBurstLabel(pool)},
+		{"elastic memory", poolMemoryBurstLabel(pool)},
 		{"in memory", poolTmpfsLabel(pool)},
 		{"created", p.relTime(pool.CreatedAt)},
 		{"updated", p.relTime(pool.UpdatedAt)},
@@ -297,6 +298,39 @@ func poolCPUBurstLabel(pool poolItem) string {
 	return label + ", up to the host's allocatable CPU"
 }
 
+// poolMemoryBurstLabel renders the memory valve's policy: the mode, the ceiling
+// when there is one, and the swap it may fall back on.
+func poolMemoryBurstLabel(pool poolItem) string {
+	mode := pool.MemoryBurst.Mode
+	if mode == "" || mode == "off" {
+		return "off"
+	}
+	label := mode
+	if mode == "observe" {
+		label = "observe only"
+	}
+	if pool.MemoryBurst.MaxMemoryMB > 0 {
+		label += fmt.Sprintf(", up to %s per runner", formatMB(pool.MemoryBurst.MaxMemoryMB))
+	} else {
+		label += ", up to half as much again as a runner starts with"
+	}
+	if pool.MemoryBurst.SpillMB > 0 {
+		label += fmt.Sprintf(", with up to %s of swap as the last resort", formatMB(pool.MemoryBurst.SpillMB))
+	}
+	return label
+}
+
+// formatMB writes a size the way an operator says it: 2 GB, 1.5 GB, 512 MB.
+func formatMB(mb int64) string {
+	switch {
+	case mb >= 1024 && mb%1024 == 0:
+		return fmt.Sprintf("%d GB", mb/1024)
+	case mb >= 1024 && mb%512 == 0:
+		return fmt.Sprintf("%.1f GB", float64(mb)/1024)
+	}
+	return fmt.Sprintf("%d MB", mb)
+}
+
 // poolImage says which image this pool's runners will boot, and where that
 // came from. A pool that pins nothing is the common case now that a platform
 // picks the variant, and "-" would leave an operator guessing at the single
@@ -347,6 +381,9 @@ type poolSpec struct {
 	// currentBurst is the elastic CPU policy the pool has now, kept for the
 	// same reason: a ceiling typed alone must not switch the mode off.
 	currentBurst poolCPUBurst
+	// currentMemoryBurst is the memory valve's policy as it stands, kept for the
+	// same reason: a ceiling typed alone must not switch the mode off.
+	currentMemoryBurst poolMemoryBurst
 	// currentTmpfs is the pool's in-memory folders as they stand, for the same
 	// reason: a size typed for one folder must not switch the other off.
 	currentTmpfs poolTmpfs
@@ -369,6 +406,9 @@ type poolSpec struct {
 	dockerWait        *string
 	cpuBurst          *string
 	cpuBurstMax       *float64
+	memoryBurst       *string
+	memoryBurstMax    *int64
+	memoryBurstSpill  *int64
 	sizeBuilds        *bool
 	tmpfsWork         *bool
 	tmpfsWorkSize     *int64
@@ -428,6 +468,9 @@ func registerPoolFlags(fs *flagSet) *poolSpec {
 	spec.cpuBurst = fs.String("cpu-burst", "", "elastic CPU: off, observe (measure without moving a quota) or automatic (lend spare host CPU to busy runners); needs automatic sizing on docker or podman")
 	spec.sizeBuilds = fs.Bool("cpu-burst-size-builds", true, "with --cpu-burst automatic, start runners with CARGO_BUILD_JOBS, DOTNET_PROCESSOR_COUNT and the JVM's processor count set to the ceiling, so a build has workers for CPU lent after it started")
 	spec.cpuBurstMax = fs.Float64("cpu-burst-max", 0, "the most CPU one runner may be lent up to, in cores; 0 is the host's allocatable CPU")
+	spec.memoryBurst = fs.String("memory-burst", "", "elastic memory: off, observe (decide what it would lend and record it, changing nothing) or automatic (raise a live runner's memory limit out of memory the host has not promised to anyone); needs docker or podman")
+	spec.memoryBurstMax = fs.Int64("memory-burst-max", 0, "the most memory one runner may hold, in MiB, its own share and what it is lent together; 0 is half as much again as it starts with")
+	spec.memoryBurstSpill = fs.Int64("memory-burst-spill", 0, "the swap each container may be allowed beyond its memory limit, in MiB, as the last resort once the host has no memory left to lend; 0 allows none")
 	spec.tmpfsWork = fs.Bool("tmpfs-work", false, "keep the runner's _work folder in memory instead of on the host's disk; the folder is charged to the runner's memory limit; needs docker or podman")
 	spec.tmpfsWorkSize = fs.Int64("tmpfs-work-size", 0, "the _work folder's ceiling in MiB (at least 64); 0 sizes it from the memory limit, at most 4096 and half the limit")
 	spec.tmpfsTmp = fs.Bool("tmpfs-tmp", false, "keep /tmp in memory as well; off unless asked for, because some jobs leave gigabytes there")
@@ -574,6 +617,22 @@ func (spec *poolSpec) body(fs *flagSet, onlyChanged bool) map[string]any {
 		}
 		body["cpu_burst"] = burst
 	}
+	// The memory valve's policy is one object too, so an edit that types only the
+	// ceiling or the swap carries the mode forward from the pool as it stands.
+	if fs.changed("memory-burst") || fs.changed("memory-burst-max") || fs.changed("memory-burst-spill") {
+		current := spec.currentMemoryBurst
+		mode, ceiling, spill := current.Mode, current.MaxMemoryMB, current.SpillMB
+		if fs.changed("memory-burst") {
+			mode = *spec.memoryBurst
+		}
+		if fs.changed("memory-burst-max") {
+			ceiling = *spec.memoryBurstMax
+		}
+		if fs.changed("memory-burst-spill") {
+			spill = *spec.memoryBurstSpill
+		}
+		body["memory_burst"] = map[string]any{"mode": mode, "max_memory_mb": ceiling, "spill_mb": spill}
+	}
 	// The in-memory folders are one object, so an edit that types only a size
 	// carries the other folder, and the mode of this one, forward from the pool
 	// as it stands rather than switching them off.
@@ -690,6 +749,11 @@ func poolsCreate(ctx context.Context, e *env, args []string) error {
 	// the policy is absent -- so a create that names one has to name the other.
 	if fs.changed("cpu-burst-max") && !fs.changed("cpu-burst") {
 		return usagef("pools create", "--cpu-burst-max needs --cpu-burst to say which mode the ceiling applies to: observe or automatic")
+	}
+	// The same for the memory valve: a ceiling or an allowance of swap alone would
+	// be sent with an empty mode, which the API reads as off.
+	if (fs.changed("memory-burst-max") || fs.changed("memory-burst-spill")) && !fs.changed("memory-burst") {
+		return usagef("pools create", "--memory-burst-max and --memory-burst-spill need --memory-burst to say which mode they apply to: observe or automatic")
 	}
 	// A size alone would be sent for a folder that is off, which the API reads
 	// as nothing to size; saying so here is kinder than a pool that quietly
@@ -825,6 +889,7 @@ func poolsEdit(ctx context.Context, e *env, args []string) error {
 		"zoomies pools edit pool_k3f9qz2m --warm 2 --cap 6   # a pool the controller keeps",
 		"zoomies pools edit pool_k3f9qz2m --size-from-host",
 		"zoomies pools edit pool_k3f9qz2m --cpu-burst automatic --cpu-burst-max 6",
+		"zoomies pools edit pool_k3f9qz2m --memory-burst automatic --memory-burst-max 12288 --memory-burst-spill 2048",
 		"zoomies pools edit pool_k3f9qz2m --tmpfs-work --memory-mb 12288",
 		"zoomies pools edit pool_k3f9qz2m --os ubuntu --os-version 24.04",
 		"zoomies pools edit pool_k3f9qz2m --labels zoomies-4vcpu-ubuntu-2404,gpu")
@@ -853,6 +918,7 @@ func poolsEdit(ctx context.Context, e *env, args []string) error {
 	if fs.changed("cpus") || fs.changed("memory-mb") || fs.changed("disk-gb") || fs.changed("pids-limit") || fs.changed("daemon-share") ||
 		fs.changed("size-from-host") ||
 		fs.changed("cpu-burst") || fs.changed("cpu-burst-max") || fs.changed("cpu-burst-size-builds") ||
+		fs.changed("memory-burst") || fs.changed("memory-burst-max") || fs.changed("memory-burst-spill") ||
 		spec.tmpfsChanged(fs) {
 		var existing poolItem
 		if _, err := client.get(ctx, "/pools/"+url.PathEscape(id), nil, &existing); err != nil {
@@ -860,6 +926,7 @@ func poolsEdit(ctx context.Context, e *env, args []string) error {
 		}
 		spec.current = existing.Resources
 		spec.currentBurst = existing.CPUBurst
+		spec.currentMemoryBurst = existing.MemoryBurst
 		spec.currentTmpfs = existing.Tmpfs
 	}
 

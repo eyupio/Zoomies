@@ -204,9 +204,11 @@ func tools() []*tool {
 			call:        getRunnerLog,
 		},
 		{
-			Name:        "list_runners",
-			Title:       "List runners",
-			Description: "The runners that exist now, with their pool, host, state and current job.",
+			Name:  "list_runners",
+			Title: "List runners",
+			Description: "The runners that exist now, with their pool, host, state and current job. " +
+				"A runner on a pool with the memory valve on carries memory_resource: whether it has been lent memory, how much, and what stopped it being lent more. " +
+				"One whose pool keeps folders in memory carries scratch, naming each folder, its size, and why it is on disk where it is.",
 			InputSchema: object(nil, map[string]any{
 				"pool_id": str("only runners of this pool"),
 				"host_id": str("only runners on this host"),
@@ -220,6 +222,7 @@ func tools() []*tool {
 			Name:  "list_pools",
 			Title: "List pools",
 			Description: "The pools: which labels each serves, its image and size, its minimum and maximum runners, and whether it is enabled. " +
+				"memory_burst is the pool's memory valve: off, observe (decide and record, change nothing) or automatic (raise a live runner's memory limit from memory the host has not promised). " +
 				"A pool the controller keeps from the hosts it has carries auto, with the hosts that count towards it and what an operator has asked of it; its minimum and maximum are worked out, not typed.",
 			InputSchema: object(nil, map[string]any{}),
 			Annotations: readOnly,
@@ -234,6 +237,7 @@ func tools() []*tool {
 			Name:  "list_hosts",
 			Title: "List hosts",
 			Description: "The hosts runners run on: their health, last heartbeat, capacity and free slots, and whether each is cordoned. " +
+				"memory_pool is the memory the host has left to lend to running jobs, and what limited it. " +
 				"With size classes on or being watched each also carries tags (the labels on it, and the ones the controller derives, marked automatic), size_class (the class it is in and why) and auto_pool (the automatic pool its slots count towards, or why they count towards none).",
 			InputSchema: object(nil, map[string]any{}),
 			Annotations: readOnly,

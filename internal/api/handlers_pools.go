@@ -130,15 +130,19 @@ type poolInput struct {
 	DockerMode             *string               `json:"docker_mode"`
 	Resources              *store.Resources      `json:"resources"`
 	CPUBurst               *store.CPUBurstPolicy `json:"cpu_burst"`
-	RunnerSettings         *runnerSettingsIn     `json:"runner_settings"`
-	Cache                  *store.CacheConfig    `json:"cache"`
-	Tmpfs                  *store.TmpfsConfig    `json:"tmpfs"`
-	HostSelector           *map[string]string    `json:"host_selector"`
-	Env                    *map[string]string    `json:"env"`
-	RunAsRoot              *bool                 `json:"run_as_root"`
-	NoDefaultLabels        *bool                 `json:"no_default_labels"`
-	SizeFromProfile        *bool                 `json:"size_from_profile"`
-	Enabled                *bool                 `json:"enabled"`
+	// MemoryBurst is the memory valve's policy. Absent leaves it as it is on an
+	// edit, and off on a pool made before the valve existed; a new pool made
+	// without it observes (defaultNewPoolBurst).
+	MemoryBurst     *store.MemoryBurstPolicy `json:"memory_burst"`
+	RunnerSettings  *runnerSettingsIn        `json:"runner_settings"`
+	Cache           *store.CacheConfig       `json:"cache"`
+	Tmpfs           *store.TmpfsConfig       `json:"tmpfs"`
+	HostSelector    *map[string]string       `json:"host_selector"`
+	Env             *map[string]string       `json:"env"`
+	RunAsRoot       *bool                    `json:"run_as_root"`
+	NoDefaultLabels *bool                    `json:"no_default_labels"`
+	SizeFromProfile *bool                    `json:"size_from_profile"`
+	Enabled         *bool                    `json:"enabled"`
 	// Auto is what an operator asks of a pool the controller keeps, and is
 	// refused on any other.
 	Auto *autoPoolInput `json:"auto"`
@@ -273,17 +277,27 @@ func (s *Server) defaultPool() *store.Pool {
 		// That is the shape a pool has unless somebody chooses otherwise --
 		// see automaticSizing -- and it is the one that keeps fitting when a
 		// bigger machine joins the fleet.
-		Resources: store.Resources{},
-		CPUBurst:  store.CPUBurstPolicy{Mode: store.CPUBurstOff},
+		Resources:   store.Resources{},
+		CPUBurst:    store.CPUBurstPolicy{Mode: store.CPUBurstOff},
+		MemoryBurst: store.MemoryBurstPolicy{Mode: store.MemoryBurstOff},
 	}
 }
 
 // defaultNewPoolBurst enables the safe, metrics-only stage only when a new
 // pool actually kept automatic sizing. A create request that supplies fixed
 // resources must remain valid without also knowing to turn elasticity off.
+//
+// The memory valve starts on observe on any new container pool, automatic or
+// not: it needs no automatic size, only a memory limit to watch, and observing
+// changes nothing while it collects the evidence for whether the pool's jobs
+// would use it. A pool made before it existed stays off until somebody opts in.
 func defaultNewPoolBurst(in *poolInput, p *store.Pool) {
-	if in.CPUBurst == nil && p.Automatic() && (p.Backend == store.BackendDocker || p.Backend == store.BackendPodman) {
+	container := p.Backend == store.BackendDocker || p.Backend == store.BackendPodman
+	if in.CPUBurst == nil && p.Automatic() && container {
 		p.CPUBurst.Mode = store.CPUBurstObserve
+	}
+	if in.MemoryBurst == nil && container {
+		p.MemoryBurst.Mode = store.MemoryBurstObserve
 	}
 }
 
@@ -406,6 +420,10 @@ func (in *poolInput) apply(p *store.Pool) []fieldError {
 	if in.CPUBurst != nil {
 		p.CPUBurst = *in.CPUBurst
 		p.CPUBurst.Mode = store.CPUBurstMode(strings.ToLower(strings.TrimSpace(string(p.CPUBurst.Mode))))
+	}
+	if in.MemoryBurst != nil {
+		p.MemoryBurst = *in.MemoryBurst
+		p.MemoryBurst.Mode = store.MemoryBurstMode(strings.ToLower(strings.TrimSpace(string(p.MemoryBurst.Mode))))
 	}
 	if in.RunnerSettings != nil {
 		in.RunnerSettings.apply(&p.RunnerSettings, add)
@@ -754,6 +772,7 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 	if p.CPUBurst.Observes() && p.Backend != store.BackendDocker && p.Backend != store.BackendPodman {
 		add("cpu_burst.mode", "CPU elasticity needs the Docker or Podman backend, which can measure and move a live cgroup quota")
 	}
+	validateMemoryBurst(p, add)
 	// The runner image refuses a Docker wait outside 1..3600 seconds with a
 	// configuration exit, so a pool that overrides it past the hour starts no
 	// runner at all. The fleet's own figure is a startup error for the same
@@ -1466,4 +1485,50 @@ func runnerCount(n int) string {
 		return "1 runner"
 	}
 	return fmt.Sprintf("%d runners", n)
+}
+
+// maxSpillMB is the most swap one container may be allowed beyond its limit,
+// which is a sanity bound and not a recommendation: a terabyte is more than any
+// host has, and a figure that large is a typo for a smaller one.
+const maxSpillMB = 1 << 20
+
+// validateMemoryBurst checks a pool's memory valve policy. The mode is a
+// closed list; the ceiling and the swap are figures that mean something only
+// where the valve is on; and the valve is a container runtime's feature, so a
+// pool on another backend cannot have it.
+func validateMemoryBurst(p *store.Pool, add func(field, msg string)) {
+	mb := p.MemoryBurst
+	if !mb.Mode.Valid() {
+		add("memory_burst.mode", "use off, observe or automatic")
+	}
+	switch {
+	case mb.MaxMemoryMB < 0:
+		add("memory_burst.max_memory_mb", "a memory ceiling cannot be negative; use 0 for the default of half as much again as a runner's own memory")
+	case mb.MaxMemoryMB > 0 && mb.MaxMemoryMB < store.MinRunnerMemoryMB:
+		add("memory_burst.max_memory_mb", "a memory ceiling below 512 MB cannot hold the runner itself")
+	case mb.MaxMemoryMB > 0 && p.Resources.MemoryMB > 0 && mb.MaxMemoryMB <= p.Resources.MemoryMB*int64(typedFactor(p)):
+		add("memory_burst.max_memory_mb", fmt.Sprintf("the ceiling (%d MB) is no more than what a runner is created with (%d MB), so there is nothing to lend; raise the ceiling or leave it at 0 for half as much again",
+			mb.MaxMemoryMB, p.Resources.MemoryMB*int64(typedFactor(p))))
+	}
+	switch {
+	case mb.SpillMB < 0:
+		add("memory_burst.spill_mb", "an allowance of swap cannot be negative; use 0 to allow none")
+	case mb.SpillMB > maxSpillMB:
+		add("memory_burst.spill_mb", "an allowance of swap beyond a terabyte is a typo; use 0 to allow none")
+	case mb.SpillMB > 0 && !mb.Observes():
+		add("memory_burst.spill_mb", "swap is the memory valve's last resort, so it means nothing while the valve is off; set memory_burst.mode to observe or automatic, or clear the allowance")
+	}
+	if mb.Observes() && p.Backend != store.BackendDocker && p.Backend != store.BackendPodman {
+		add("memory_burst.mode", "the memory valve needs the Docker or Podman backend, which can measure and raise a live container's memory limit")
+	}
+}
+
+// typedFactor is how many containers a pool's typed memory limit is given to: two
+// for docker-in-docker, where the daemon is given the same limit, and one
+// otherwise.
+func typedFactor(p *store.Pool) int {
+	if p.DockerMode == store.DockerDinD {
+		return 2
+	}
+	return 1
 }

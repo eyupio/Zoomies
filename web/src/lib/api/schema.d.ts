@@ -1603,7 +1603,7 @@ export interface paths {
         /**
          * Update a pool
          * @description Refused with 409 when the change would leave this pool with no host in the fleet that could ever run it, while a host can run it as it stands. The message names the machine it no longer fits and by how much; confirm=true saves it anyway, which is right for a pool whose hosts have not joined yet.
-         *     A pool the controller keeps from the hosts it has (it carries `auto`) has only `idle_timeout` and `auto` for an operator to change, and `enabled`, which is read as the pause: `enabled: false` is `auto.paused: true`. Any other field is refused with 422 and its name, because it is worked out and not typed. A pass of the controller's reconciler is run before the answer, so the change has taken effect in it -- for a pool the controller is keeping. For one it is not (`auto.kept` is false), a pause or the end of one still takes effect at once, but a cap or a warm count is stored and applies when the controller keeps the pool.
+         *     A pool the controller keeps from the hosts it has (it carries `auto`) has only `idle_timeout`, `auto` and `memory_burst` for an operator to change, and `enabled`, which is read as the pause: `enabled: false` is `auto.paused: true`. Any other field is refused with 422 and its name, because it is worked out and not typed. A pass of the controller's reconciler is run before the answer, so the change has taken effect in it -- for a pool the controller is keeping. For one it is not (`auto.kept` is false), a pause or the end of one still takes effect at once, but a cap or a warm count is stored and applies when the controller keeps the pool.
          */
         patch: operations["updatePool"];
         trace?: never;
@@ -4583,7 +4583,7 @@ export interface components {
              */
             daemon_share_percent?: number;
         };
-        /** @description Whether an automatically-sized Docker or Podman pool only observes, or may use, CPU left over after every live runner's guaranteed host share and one imminent start have been protected. Memory never changes while a job runs. Existing pools default to off; new pools default to observe. */
+        /** @description Whether an automatically-sized Docker or Podman pool only observes, or may use, CPU left over after every live runner's guaranteed host share and one imminent start have been protected. Memory has a policy of its own (`MemoryBurstPolicy`), because a memory limit can be raised and never taken back. Existing pools default to off; new pools default to observe. */
         CPUBurstPolicy: {
             /**
              * @description `off` makes no decisions; `observe` publishes the decision and metrics without changing quotas; `automatic` applies the target to capable agents. Host pressure throttling always takes precedence.
@@ -4601,6 +4601,25 @@ export interface components {
              * @default true
              */
             size_for_ceiling: boolean;
+        };
+        /** @description Whether a Docker or Podman pool lets a runner be given more memory than it was created with, while its job runs, out of memory the host has not promised to any runner -- the memory valve. A runner keeps its guarantee, draws on the host's shared pool when it nears its limit, and may be allowed a bounded amount of swap once the pool cannot cover it. A limit is only ever raised, never lowered, so a loan lasts as long as the runner does. Existing pools default to off; a new pool made without it observes. */
+        MemoryBurstPolicy: {
+            /**
+             * @description `off` does nothing; `observe` decides what it would have lent and records it, changing nothing; `automatic` lends. Both need an agent that advertises `elastic-memory`.
+             * @default off
+             * @enum {string}
+             */
+            mode: "off" | "observe" | "automatic";
+            /**
+             * Format: int64
+             * @description The most memory one logical runner may hold, its own share and anything lent to it together. For a Docker-in-Docker runner it covers the runner and its sidecar. Zero is the default, half as much again as the runner was created with. A host's own `runner_profile.standard.burst_max_memory_mb` can lower it and never raise it.
+             */
+            max_memory_mb?: number;
+            /**
+             * Format: int64
+             * @description The swap each container may be allowed beyond its memory limit as the last resort, once the pool is empty or the ceiling is reached and a kill is close. Zero is none, which swap is for every pool that has never said otherwise: it turns a kill into a slowdown, and some operators would rather have the kill. Only if the host has free swap.
+             */
+            spill_mb?: number;
         };
         /**
          * @description What one pool overrides of the fleet's own runner timings. Every field is optional and every one is nullable, and the three states are distinct: absent leaves whatever the pool already had, `null` clears the override and hands the setting back to the fleet, and a duration sets it. A pool that overrides nothing follows the fleet and keeps following it when the fleet's figure changes, which is why these are not copied onto the pool when it is created.
@@ -4670,6 +4689,8 @@ export interface components {
             disk_known?: boolean;
             /** @description Whether this host's agent can move a live runner's CPU quota. An elastic pool is honoured only where it is true; a runner of one placed elsewhere is held at its share. */
             elastic_cpu?: boolean;
+            /** @description Whether this host's agent carries out the memory valve's rules. A pool that has the valve on is lent nothing, and observes nothing, on a host where this is false. */
+            elastic_memory?: boolean;
             /** @description Whether this host's agent mounts a pool's in-memory folders. A pool that asks for them is honoured only where it is true; a runner of one placed elsewhere starts on disk. */
             tmpfs?: boolean;
             /** @description Whether this host's operator turned in-memory folders off in its runner profile. A pool that asks for them is not given them here. Absent where they are allowed. */
@@ -4703,6 +4724,13 @@ export interface components {
             ceiling_cpus?: number;
             /** @enum {string} */
             ceiling_source?: "pool" | "host";
+            /**
+             * Format: int64
+             * @description The most memory one runner may hold there, its guarantee and what it is lent together, for a pool that has the memory valve on. The smaller of the pool's ceiling and the host's, or half as much again as the runner's guarantee where neither has said.
+             */
+            ceiling_memory_mb?: number;
+            /** @enum {string} */
+            ceiling_memory_source?: "pool" | "host" | "default";
         };
         /** @description How many runners of a pool the hosts that can run it have room for, counted on an empty fleet. What is running right now changes with every job; the question a size and a maximum are chosen against is how big the machines are, in runners of this pool. */
         PoolRoom: {
@@ -5007,6 +5035,7 @@ export interface components {
             docker_mode?: components["schemas"]["DockerMode"];
             resources?: components["schemas"]["Resources"];
             cpu_burst?: components["schemas"]["CPUBurstPolicy"];
+            memory_burst?: components["schemas"]["MemoryBurstPolicy"];
             /** @description The pool takes its runners' size from the host each lands on, as that host's runner profile says it: the standard size the operator gave the host, or the fleet's default where the host names none. It excludes `resources.cpus` and `memory_mb`, and it is what makes `sizing` `profile`. */
             size_from_profile?: boolean;
             /** @description For a pool with `size_from_profile`, the size a runner is on a host whose profile names no standard: the fleet's default, `runners.default_cpus` and `runners.default_memory_mb`. Absent on every other pool. */
@@ -5157,6 +5186,7 @@ export interface components {
             docker_mode: string;
             resources: components["schemas"]["Resources"];
             cpu_burst: components["schemas"]["CPUBurstPolicy"];
+            memory_burst: components["schemas"]["MemoryBurstPolicy"];
             /** @description Every override, with null for one the pool does not make, so importing hands it back to the fleet. */
             runner_settings: {
                 provision_timeout?: string | null;
@@ -5255,6 +5285,14 @@ export interface components {
              *     }
              */
             cpu_burst: components["schemas"]["CPUBurstPolicy"];
+            /**
+             * @default {
+             *       "mode": "observe",
+             *       "max_memory_mb": 0,
+             *       "spill_mb": 0
+             *     }
+             */
+            memory_burst: components["schemas"]["MemoryBurstPolicy"];
             runner_settings?: components["schemas"]["RunnerSettings"];
             cache?: components["schemas"]["CacheConfig"];
             tmpfs?: components["schemas"]["TmpfsConfig"];
@@ -5303,6 +5341,7 @@ export interface components {
             docker_mode?: components["schemas"]["DockerMode"];
             resources?: components["schemas"]["Resources"];
             cpu_burst?: components["schemas"]["CPUBurstPolicy"];
+            memory_burst?: components["schemas"]["MemoryBurstPolicy"];
             runner_settings?: components["schemas"]["RunnerSettings"];
             cache?: components["schemas"]["CacheConfig"];
             tmpfs?: components["schemas"]["TmpfsConfig"];
@@ -5317,7 +5356,7 @@ export interface components {
             no_default_labels?: boolean;
             /** @description Size each runner from the host it lands on, as that host's runner profile says. Refused together with `resources.cpus` or `memory_mb`: moving a pool from a stated size to one taken from the host clears them in the same request. */
             size_from_profile?: boolean;
-            /** @description What an operator asks of a pool the controller keeps. Refused on a pool somebody made. On a pool the controller keeps, `idle_timeout` and `auto` are the only fields that may be changed, and any other is refused with its name. */
+            /** @description What an operator asks of a pool the controller keeps. Refused on a pool somebody made. On a pool the controller keeps, `idle_timeout`, `auto` and `memory_burst` are the only fields that may be changed, and any other is refused with its name. */
             auto?: components["schemas"]["PoolAutoUpdate"];
             enabled?: boolean;
         };
@@ -5339,6 +5378,101 @@ export interface components {
             factor?: number;
             /** @description The CPU count the runner's toolchains were told to size their workers for when it started (see `CPUBurstPolicy.size_for_ceiling`). Absent when they were told nothing. */
             sized_for_cpus?: number;
+        };
+        /** @description What the memory valve has done for a runner: memory lent beyond what it was created with, swap allowed, or what an observing valve would have done. Absent for a runner whose pool does not have the valve on and that holds no loan. A loan that was made stands after the valve is switched off, and is still reported. */
+        MemoryResourceState: {
+            /**
+             * @description `watching` is an automatic valve that has done nothing; `observing` is observe mode; `lent` is a runner holding memory beyond its guarantee; `spilled` is one that may also use swap beyond its limits.
+             * @enum {string}
+             */
+            state: "watching" | "observing" | "lent" | "spilled";
+            /**
+             * @description What the agent was told to do. `off` for a runner whose pool has switched the valve off while a loan it made stands.
+             * @enum {string}
+             */
+            mode: "off" | "observe" | "automatic";
+            /**
+             * @description The agent's latest word when it wanted to lend more and could not, or could not lend at all. Absent when nothing is in the way. Beside `state`, not instead of it: a runner can hold a loan and be at its ceiling.
+             * @enum {string}
+             */
+            blocked?: "at_ceiling" | "pool_empty" | "host_floor" | "unmeasured" | "unsupported" | "failed";
+            /** @description The sentence for the last decision that was not "healthy". */
+            reason?: string;
+            /**
+             * Format: int64
+             * @description What the runner was created with
+             */
+            guaranteed_mb: number;
+            /**
+             * Format: int64
+             * @description What its containers hold now.
+             */
+            current_mb: number;
+            /**
+             * Format: int64
+             * @description The most they may hold.
+             */
+            ceiling_mb: number;
+            /**
+             * Format: int64
+             * @description `current_mb` less `guaranteed_mb`. Only ever goes up while the runner lives.
+             */
+            lent_mb: number;
+            /**
+             * Format: int64
+             * @description The swap the runner may use beyond its limits.
+             */
+            spill_mb?: number;
+            /**
+             * Format: int64
+             * @description The swap its pool allows each container.
+             */
+            spill_allowed_mb?: number;
+            /**
+             * Format: int64
+             * @description Observe mode only -- what the valve would hold if it were allowed to.
+             */
+            would_lend_mb?: number;
+            /** Format: int64 */
+            would_spill_mb?: number;
+            /** @description Whether the runner has come within a tenth of a memory limit at any point in its life. */
+            near_limit?: boolean;
+            /** @description How many times a limit was raised for it. */
+            raises?: number;
+        };
+        /** @description Which of a runner's folders its pool keeps in memory, as they were worked out when it was created. Recorded rather than recomputed, because a pool edited since would give a different answer than the one the running job was started with. Absent for a runner whose pool keeps none. */
+        RunnerScratch: {
+            /** @description How many of the folders the runner was given in memory. */
+            in_memory: number;
+            folders: components["schemas"]["ScratchFolder"][];
+        };
+        ScratchFolder: {
+            /** @enum {string} */
+            kind: "work" | "tmp" | "daemon";
+            /** @description A name for the folder: Work folder, Temporary folder, Docker image store. */
+            label: string;
+            /** @description Where it is in the container. */
+            path: string;
+            in_memory: boolean;
+            /**
+             * Format: int64
+             * @description What it was given
+             */
+            size_mb?: number;
+            /**
+             * Format: int64
+             * @description What the pool, or the host's standard for a folder the pool leaves to size itself, asked for.
+             */
+            asked_mb?: number;
+            /** @description The folder lets each runner decide where it lives. */
+            auto?: boolean;
+            /**
+             * @description Why a folder the pool wants in memory is on disk for this runner. Absent when it is in memory.
+             * @enum {string}
+             */
+            why?: "auto_too_small" | "host_off" | "unsupported" | "bound";
+            /** @description The sentence for `why`. */
+            note?: string;
         };
         Runner: {
             id?: string;
@@ -5385,6 +5519,8 @@ export interface components {
              */
             allocation_source?: "pool" | "host" | "profile" | "reduced" | "history" | "";
             cpu_resource?: components["schemas"]["CPUResourceState"];
+            memory_resource?: components["schemas"]["MemoryResourceState"];
+            scratch?: components["schemas"]["RunnerScratch"];
             /** Format: date-time */
             created_at?: string;
             /**
@@ -6641,6 +6777,11 @@ export interface components {
              * @description The most CPU one runner here may use, its guaranteed share and any CPU lent to it together. A pool's own `cpu_burst.max_cpus` can lower it and never raise it. Absent is no host ceiling.
              */
             burst_max_cpus?: number;
+            /**
+             * Format: int64
+             * @description The most memory one runner here may hold, its guaranteed share and any memory lent to it together. A pool's own `memory_burst.max_memory_mb` can lower it and never raise it. Absent is no host ceiling.
+             */
+            burst_max_memory_mb?: number;
         };
         /** @description An operator's answer, for one host, to "how big is a runner here?": a minimum below which no runner is placed on the host, and a standard size with the most CPU a runner may be lent. Every field is optional; one left out follows the fleet's `runners.*` setting. Where a standard names a size, the host's slots are what its allocatable machine holds of it, up to its capacity. */
         RunnerProfile: {
@@ -6698,11 +6839,76 @@ export interface components {
             burst_max_cpus?: number;
             /** @enum {string} */
             burst_max_cpus_source?: "host";
+            /**
+             * Format: int64
+             * @description The host's own memory ceiling. Absent is none.
+             */
+            burst_max_memory_mb?: number;
+            /** @enum {string} */
+            burst_max_memory_mb_source?: "host";
         };
         /** @description What a runner on a host is held to. A host's minimum that follows the fleet is shown as the fleet's, but a pool that sets a minimum of its own still wins over the fleet's for the runners it places there: the host's own figure is a floor under the pool's. */
         EffectiveProfile: {
             minimum?: components["schemas"]["EffectiveSize"];
             standard?: components["schemas"]["EffectiveStandard"];
+        };
+        /** @description What a host can lend its runners' memory limits, as the controller last worked it out: what is left of the machine once every promise is kept and the host's floor is left alone, and how much of it has been lent already. Absent for a host with no runner the valve applies to. */
+        MemoryPool: {
+            /** @description Whether the host's agent carries the rules out. */
+            supported: boolean;
+            /**
+             * Format: int64
+             * @description The most that may be lent on the host in all
+             */
+            capacity_mb: number;
+            /** Format: int64 */
+            lent_mb: number;
+            /**
+             * Format: int64
+             * @description What is left to lend.
+             */
+            pool_mb: number;
+            /**
+             * Format: int64
+             * @description The least free memory a loan leaves the host: its reserve and a twentieth of the machine.
+             */
+            floor_mb: number;
+            /**
+             * Format: int64
+             * @description Busy and starting runners' guarantees
+             */
+            committed_mb: number;
+            /**
+             * Format: int64
+             * @description The largest idle runner's guarantee
+             */
+            idle_reserve_mb: number;
+            /**
+             * Format: int64
+             * @description One queued start protected.
+             */
+            start_reserve_mb: number;
+            /**
+             * @description What limited the capacity: the promises already made, or the memory the host measured as free.
+             * @enum {string}
+             */
+            binding: "ledger" | "measured";
+            /** @description Runners on the host with a rule in observe mode. */
+            observing: number;
+            /** @description Runners on the host with a rule in automatic mode. */
+            enforcing: number;
+            /**
+             * Format: date-time
+             * @description When a runner here was last refused memory because the host had none to give. Absent after fifteen minutes.
+             */
+            short_at?: string;
+            /** @enum {string} */
+            short_code?: "pool_empty" | "host_floor";
+            /**
+             * Format: date-time
+             * @description When the pool was last worked out.
+             */
+            at: string;
         };
         Host: {
             doctor?: components["schemas"]["HostDoctor"];
@@ -6763,10 +6969,13 @@ export interface components {
             free?: number;
             backends?: string[];
             backend_info?: components["schemas"]["BackendInfo"][];
-            /** @description What the agent says it can do beyond running a backend, re-read from every heartbeat. `elastic-cpu` means it can move a live runner's CPU quota. */
+            /** @description What the agent says it can do beyond running a backend, re-read from every heartbeat. `elastic-cpu` means it can move a live runner's CPU quota, and `elastic-memory` that it can raise a live runner's memory limit. */
             features?: string[];
             /** @description Whether this host honours an elastic pool: true when its agent advertises `elastic-cpu`. A runner of such a pool placed where this is false is held at its guaranteed share, and the host's card says so. */
             elastic_cpu?: boolean;
+            /** @description Whether this host's agent carries out the memory valve's rules, which is when it advertises `elastic-memory`. A pool with the valve on is lent nothing, and observes nothing, on a host where this is false. */
+            elastic_memory?: boolean;
+            memory_pool?: components["schemas"]["MemoryPool"];
             labels?: {
                 [key: string]: string;
             };
@@ -7571,6 +7780,41 @@ export interface components {
             throttle?: components["schemas"]["ThrottleDirective"];
             /** @description Complete boosted-runner set; omission restores a previous boost to its guarantee. */
             elastic_cpu?: components["schemas"]["ElasticCPUDirective"][];
+            elastic_memory?: components["schemas"]["ElasticMemoryDirective"];
+        };
+        /** @description The memory valve's rules for one host. Unlike `elastic_cpu` it is not a plan to carry out and replace on the next beat but limits to work within, because a memory limit that is raised cannot be taken back and the agent has to act between two heartbeats. An agent keeps working on the last it was given if the controller goes quiet. Absent means no runner here is lent anything. */
+        ElasticMemoryDirective: {
+            /**
+             * Format: int64
+             * @description The most that may be lent on this host in all
+             */
+            capacity_mb: number;
+            /**
+             * Format: int64
+             * @description The least free memory a loan may leave the host.
+             */
+            floor_mb: number;
+            runners?: components["schemas"]["ElasticMemoryRunner"][];
+        };
+        ElasticMemoryRunner: {
+            runner_id: string;
+            /** @enum {string} */
+            mode: "observe" | "automatic";
+            /**
+             * Format: int64
+             * @description What the runner was created with
+             */
+            guarantee_mb: number;
+            /**
+             * Format: int64
+             * @description The most those containers may hold between them.
+             */
+            ceiling_mb: number;
+            /**
+             * Format: int64
+             * @description The swap each container may be allowed beyond its limit. Absent is none.
+             */
+            spill_mb?: number;
         };
         ThrottleDirective: {
             level?: number;
@@ -7645,6 +7889,34 @@ export interface components {
              * @description For a docker-in-docker pair
              */
             busiest_half_percent?: number;
+            /** @description What the memory valve has done for this runner, as its agent saw it. Absent for a runner the agent is not watching. */
+            memory_valve?: {
+                /** @enum {string} */
+                mode: "off" | "observe" | "automatic";
+                /**
+                 * @description The guard's latest decision.
+                 * @enum {string}
+                 */
+                code: "healthy" | "raised" | "spilled" | "at_ceiling" | "pool_empty" | "host_floor" | "unmeasured" | "unsupported" | "failed";
+                /** @description The sentence for the last decision that was not "healthy". */
+                reason?: string;
+                /**
+                 * Format: int64
+                 * @description What the runner's containers hold beyond what they were created with.
+                 */
+                lent_bytes?: number;
+                /**
+                 * Format: int64
+                 * @description The swap they may use beyond their limits.
+                 */
+                spill_bytes?: number;
+                /** Format: int64 */
+                would_lend_bytes?: number;
+                /** Format: int64 */
+                would_spill_bytes?: number;
+                near_limit?: boolean;
+                raises?: number;
+            };
             /** @description For a docker-in-docker pair, what each container used on its own, beside the limits it was created with. Absent for a single container and from an agent that predates it. The controller judges how the pair's slot is divided from it (`pool.daemon_share_suggested`). */
             halves?: {
                 runner?: components["schemas"]["WorkloadHalfUse"];

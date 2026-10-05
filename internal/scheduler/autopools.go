@@ -197,6 +197,7 @@ func NewAutoPool(in AutoPoolInput, arch string, class store.SizeClass, backend s
 	}
 	if backend == store.BackendDocker || backend == store.BackendPodman {
 		p.CPUBurst = store.CPUBurstPolicy{Mode: store.CPUBurstObserve}
+		p.MemoryBurst = store.MemoryBurstPolicy{Mode: store.MemoryBurstObserve}
 	}
 	return p
 }

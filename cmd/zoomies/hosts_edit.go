@@ -11,7 +11,7 @@ import (
 
 // profileFlags are the flags that edit a host's runner profile, in the order
 // the help lists them.
-var profileFlags = []string{"min-cpus", "min-memory-mb", "standard-cpus", "standard-memory-mb", "burst-max-cpus", "tmpfs-off", "tmpfs-max-mb", "tmpfs-work-mb", "tmpfs-tmp-mb", "tmpfs-docker-mb"}
+var profileFlags = []string{"min-cpus", "min-memory-mb", "standard-cpus", "standard-memory-mb", "burst-max-cpus", "burst-max-memory-mb", "tmpfs-off", "tmpfs-max-mb", "tmpfs-work-mb", "tmpfs-tmp-mb", "tmpfs-docker-mb"}
 
 // hostsEdit is `zoomies hosts edit`: the host's capacity, its reserve and how
 // big a runner is on it, which is the host's half of what the API's PATCH takes.
@@ -36,6 +36,7 @@ func hostsEdit(ctx context.Context, e *env, args []string) error {
 	standardCPUs := fs.Float64("standard-cpus", 0, "the CPU one runner is given here for a pool that takes its size from the host; 0 follows runners.default_cpus")
 	standardMemory := fs.Int64("standard-memory-mb", 0, "the memory one runner is given here, in MB; 0 follows runners.default_memory_mb")
 	burstMax := fs.Float64("burst-max-cpus", 0, "the most CPU one runner here may use, lent CPU included; 0 sets no host ceiling")
+	burstMaxMemory := fs.Int64("burst-max-memory-mb", 0, "the most memory one runner here may hold, in MB, lent memory included; 0 sets no host ceiling, which leaves a pool's own or half as much again as a runner starts with")
 	tmpfsOff := fs.Bool("tmpfs-off", false, "fall back to disk on this host: keep pools' in-memory folders off it, whatever a pool asks for. A tactical fix for a machine that cannot spare the memory today, and the pool is told for as long as it is on; --tmpfs-off=false lets them back")
 	tmpfsWork := fs.Int64("tmpfs-work-mb", 0, "the size the _work folder is asked for on this host when a pool leaves it to size itself, in MB (at least 64); 0 is the default of 4096")
 	tmpfsTmp := fs.Int64("tmpfs-tmp-mb", 0, "the same for /tmp, in MB (at least 64); 0 is the default of 1024")
@@ -49,6 +50,7 @@ func hostsEdit(ctx context.Context, e *env, args []string) error {
 	fs.example(
 		"zoomies hosts edit hst_k3f9qz2m --standard-cpus 3 --standard-memory-mb 8192",
 		"zoomies hosts edit hst_k3f9qz2m --min-cpus 1 --standard-cpus 2 --burst-max-cpus 4",
+		"zoomies hosts edit hst_k3f9qz2m --burst-max-memory-mb 16384",
 		"zoomies hosts edit hst_k3f9qz2m --capacity 6 --reserve-memory-mb 4096",
 		"zoomies hosts edit hst_k3f9qz2m --tmpfs-max-mb 2048",
 		"zoomies hosts edit hst_k3f9qz2m --tmpfs-off",
@@ -124,6 +126,9 @@ func hostsEdit(ctx context.Context, e *env, args []string) error {
 		}
 		if fs.changed("burst-max-cpus") {
 			profile.Standard.BurstMaxCPUs = *burstMax
+		}
+		if fs.changed("burst-max-memory-mb") {
+			profile.Standard.BurstMaxMemoryMB = *burstMaxMemory
 		}
 		if fs.changed("tmpfs-off") {
 			profile.Tmpfs.Disabled = *tmpfsOff
