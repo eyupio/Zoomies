@@ -102,9 +102,12 @@ flowchart LR
   [See every page](https://zoomies.sh/ui/).
 * **Elastic CPU zoomies.** Every runner keeps its guaranteed share of its
   host, and a busy one is lent the CPU nobody else is using — the next queued
-  job's room held back, the host's reserve untouched, memory never moved. New
-  pools measure it by default and move nothing until you say so.
+  job's room held back, the host's reserve untouched. New pools measure it by
+  default and move nothing until you say so.
   [How it works](https://zoomies.sh/elastic-cpu/).
+* **Elastic memory.** A job about to be killed for its memory limit is given
+  more, out of memory no other runner on its host was promised — raised, never
+  lowered, with swap as the last resort. [How it works](https://zoomies.sh/elastic-memory/).
 * **Ephemeral by default.** One job per runner. Nothing leaks from one workflow
   run to the next.
 * **No pasted tokens.** Zoomies authenticates as a GitHub App and mints

@@ -401,6 +401,7 @@ writes one.
 | `minimum.cpus`, `minimum.memory_mb` | The least a runner is given on this host. | `runners.minimum_cpus` and `runners.minimum_memory_mb` |
 | `standard.cpus`, `standard.memory_mb` | The size of one runner here, for a pool that takes its size from the host. It is also what decides how many runners the host takes. | `runners.default_cpus` and `runners.default_memory_mb` |
 | `standard.burst_max_cpus` | The most CPU one runner here may use, its own share and any CPU lent to it together. | no ceiling of the host's |
+| `standard.burst_max_memory_mb` | The most memory one runner here may hold, its own share and any memory [lent to it](elastic-memory.md) together. | no ceiling of the host's |
 | `tmpfs.disabled`, `tmpfs.max_mb` | Whether pools may keep a runner's folders [in memory](#keeping-the-work-folder-in-memory) on this host, and the most any one folder may be. | each pool's own setting |
 
 A profile is set from the host's menu on **Hosts** (*Set runner sizes*), with
@@ -432,7 +433,8 @@ other:
   host's `burst_max_cpus`. An unset side does not count, so a pool with a ceiling
   and a host with none keeps the pool's. Whoever owns the machine has the last
   word on how much of it one job may take, so the host's can lower the pool's
-  and never raise it.
+  and never raise it. The memory ceiling is the same rule: the smaller of the
+  pool's `memory_burst.max_memory_mb` and the host's `burst_max_memory_mb`.
 * A **pool that states a size** — `cpus` and `memory_mb` — is never given more
   than it states. A host whose minimum is above that size is not used for the
   pool at all, and says so, rather than building a bigger runner than the pool
@@ -661,9 +663,11 @@ Auto never silently changes what a pool is. Where it kept a folder on disk,
 information, and says what would put the folder in memory there: bigger runners
 on that host, or smaller folders.
 
-**The memory limit.** Zoomies never raises it for you, because it is also what
-the scheduler charges the host for and changing it changes how many runners fit.
-It proposes instead. The pool editor offers the limit that leaves the job the
+**The memory limit.** Zoomies never raises the pool's setting for you, because
+it is also what the scheduler charges the host for and changing it changes how
+many runners fit. It proposes instead. (A running container's limit is a
+different thing, and [elastic memory](elastic-memory.md) can raise it while a
+job runs.) The pool editor offers the limit that leaves the job the
 room it has now — the current one plus what the folders may fill, and never less
 than twice what they may fill, because folders are fitted into half a limit and a
 proposal that left them more would be tight again when it was taken — as soon as
@@ -1206,8 +1210,8 @@ The share is a guarantee, not a ceiling. An automatically-sized Docker or
 Podman pool can let a busy runner be lent the CPU its host is not using —
 after every live runner's guarantee and one queued start have been charged,
 and never on a host under pressure — and give it back the moment the demand
-ends. Memory never moves. New pools measure it by default and move no quota
-until you say so; the runner page says **Squirrel spotted — maximum zoomies**
+ends. Memory has [a valve of its own](elastic-memory.md), which only raises a
+limit. New pools measure both by default and move nothing until you say so; the runner page says **Squirrel spotted — maximum zoomies**
 when it is happening.
 
 In the UI the setting is in the **Size** section of the pool editor, one tap from

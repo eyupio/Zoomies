@@ -169,11 +169,13 @@ and memory divided by its slot count, applied as a real cgroup limit — and, on
 a pool with [elastic CPU zoomies](elastic-cpu.md) switched on, a busy runner is
 lent the CPU the rest of the host is not using on top of that. The guarantee is
 never reduced by another runner, one queued job's worth of CPU is held back
-before anything is lent, and memory never changes while a job runs. A pool made
-in the UI starts by measuring what it would lend and publishing that to
-Prometheus; switch it to *Automatic boost* in the pool's **Size** section once
-the numbers say the host has room. A pool whose jobs need the same size everywhere can
-type a fixed one instead.
+before anything is lent. Memory is lent on different terms: a pool with
+[elastic memory](elastic-memory.md) on raises the limit of a job that is about
+to be killed for it, out of memory the host has not promised to anyone, and
+never lowers one. A pool made in the UI starts by measuring what it would lend
+and publishing that to Prometheus; switch it to *Automatic boost* in the pool's
+**Size** section once the numbers say the host has room. A pool whose jobs need
+the same size everywhere can type a fixed one instead.
 
 ## Can I see what the scheduler is doing, and why?
 
