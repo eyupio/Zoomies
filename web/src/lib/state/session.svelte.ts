@@ -16,6 +16,7 @@ import {
 } from '../api/client';
 import type { Identity, Meta, Role, SignInChallenge, TwoStepSignIn } from '../api/types';
 import { atLeast } from '../api/types';
+import { notifications } from './notifications.svelte';
 import { prefs } from './prefs.svelte';
 
 export type SessionPhase =
@@ -130,7 +131,10 @@ class Session {
       // Auth-disabled sessions resolve to a fixed identity with no row behind
       // it, so there is no account for a table layout to belong to.
       if (!this.authDisabled && this.#identity.kind === 'user' && this.#identity.id) {
-        await prefs.syncAccount(this.#identity.id);
+        await Promise.all([
+          prefs.syncAccount(this.#identity.id),
+          notifications.syncAccount(this.#identity.id),
+        ]);
       }
       this.#phase = 'ready';
     } catch (cause) {
@@ -167,7 +171,7 @@ class Session {
   async #signedIn(identity: Identity): Promise<void> {
     this.#identity = identity;
     if (identity.kind === 'user' && identity.id) {
-      await prefs.syncAccount(identity.id);
+      await Promise.all([prefs.syncAccount(identity.id), notifications.syncAccount(identity.id)]);
     }
     this.#phase = 'ready';
   }
@@ -181,7 +185,10 @@ class Session {
   }): Promise<Identity> {
     this.#identity = await bootstrapRequest(input);
     if (this.#identity.kind === 'user' && this.#identity.id) {
-      await prefs.syncAccount(this.#identity.id);
+      await Promise.all([
+        prefs.syncAccount(this.#identity.id),
+        notifications.syncAccount(this.#identity.id),
+      ]);
     }
     this.#meta = this.#meta ? { ...this.#meta, bootstrap_required: false } : this.#meta;
     this.#phase = 'ready';
@@ -225,6 +232,7 @@ class Session {
   /** Drop the identity without calling the server. The 401 handler uses this. */
   clear(): void {
     prefs.disconnectAccount();
+    notifications.disconnectAccount();
     this.#identity = null;
     this.#phase = 'anonymous';
   }

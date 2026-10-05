@@ -2266,8 +2266,8 @@ zoomies config print          # the effective config, secrets blanked
 The same findings are served at `GET /api/v1/problems` and rendered in the UI's
 problems drawer, so a warning cannot be missed just because nobody was reading
 the logs the day it appeared. An operator can dismiss one they have read; that
-is a per-browser preference and changes nothing the API or `zoomies status`
-reports.
+is kept on their account, so it follows them to another browser, and changes
+nothing the API or `zoomies status` reports.
 
 ### `scheduler.registration_concurrency`
 

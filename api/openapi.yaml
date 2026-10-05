@@ -1350,6 +1350,49 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "422": { $ref: "#/components/responses/Unprocessable" }
 
+  /auth/problem-dismissals:
+    get:
+      operationId: getProblemDismissals
+      tags: [auth]
+      summary: The problems this account has dismissed or snoozed
+      description: >-
+        Returns what the signed-in account has put away in the problems drawer, so a
+        snooze made in one browser holds in every other. A snooze whose time has passed is
+        not returned. `stored` is false for identities that are not backed by an account
+        (an API token, or auth turned off); a client keeps their decisions in the browser.
+        These are the account's own reading of the fleet: `GET /problems` is unaffected.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProblemDismissals" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    patch:
+      operationId: patchProblemDismissals
+      tags: [auth]
+      summary: Dismiss, snooze or restore problems for the current account
+      description: >-
+        Applies `remove` and then `set` as one change and returns what the account now
+        holds. A patch rather than a replacement, so two open tabs that each snooze a
+        different problem both keep theirs.
+      x-zoomies-role: viewer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProblemDismissalsPatch" }
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProblemDismissals" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
   /auth/password:
     post:
       operationId: changeOwnPassword
@@ -9857,6 +9900,53 @@ components:
           type: object
           additionalProperties:
             $ref: "#/components/schemas/TableLayoutPreference"
+
+    ProblemDismissal:
+      type: object
+      required: [key, severity]
+      properties:
+        key:
+          type: string
+          minLength: 1
+          maxLength: 300
+          description: >-
+            The UI's identity for one problem, or `type:<code>` for every problem of one
+            kind. Opaque to the controller.
+        severity:
+          type: string
+          enum: [error, warning, info]
+          description: The severity that was read. A problem that has become worse is not covered.
+        at:
+          type: string
+          format: date-time
+          description: When it was put away. Defaults to now on a patch.
+        until:
+          type: [string, "null"]
+          format: date-time
+          description: When a snooze ends. Absent or null is a dismissal until the problem resolves.
+
+    ProblemDismissals:
+      type: object
+      required: [stored, items]
+      properties:
+        stored:
+          type: boolean
+          description: Whether this identity has an account to keep dismissals on.
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/ProblemDismissal" }
+
+    ProblemDismissalsPatch:
+      type: object
+      properties:
+        set:
+          type: array
+          maxItems: 1000
+          items: { $ref: "#/components/schemas/ProblemDismissal" }
+        remove:
+          type: array
+          maxItems: 1000
+          items: { type: string, minLength: 1, maxLength: 300 }
 
     TableLayoutPreference:
       type: object

@@ -980,6 +980,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/problem-dismissals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The problems this account has dismissed or snoozed
+         * @description Returns what the signed-in account has put away in the problems drawer, so a snooze made in one browser holds in every other. A snooze whose time has passed is not returned. `stored` is false for identities that are not backed by an account (an API token, or auth turned off); a client keeps their decisions in the browser. These are the account's own reading of the fleet: `GET /problems` is unaffected.
+         */
+        get: operations["getProblemDismissals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Dismiss, snooze or restore problems for the current account
+         * @description Applies `remove` and then `set` as one change and returns what the account now holds. A patch rather than a replacement, so two open tabs that each snooze a different problem both keep theirs.
+         */
+        patch: operations["patchProblemDismissals"];
+        trace?: never;
+    };
     "/auth/password": {
         parameters: {
             query?: never;
@@ -7611,6 +7635,34 @@ export interface components {
                 [key: string]: components["schemas"]["TableLayoutPreference"];
             };
         };
+        ProblemDismissal: {
+            /** @description The UI's identity for one problem, or `type:<code>` for every problem of one kind. Opaque to the controller. */
+            key: string;
+            /**
+             * @description The severity that was read. A problem that has become worse is not covered.
+             * @enum {string}
+             */
+            severity: "error" | "warning" | "info";
+            /**
+             * Format: date-time
+             * @description When it was put away. Defaults to now on a patch.
+             */
+            at?: string;
+            /**
+             * Format: date-time
+             * @description When a snooze ends. Absent or null is a dismissal until the problem resolves.
+             */
+            until?: string | null;
+        };
+        ProblemDismissals: {
+            /** @description Whether this identity has an account to keep dismissals on. */
+            stored: boolean;
+            items: components["schemas"]["ProblemDismissal"][];
+        };
+        ProblemDismissalsPatch: {
+            set?: components["schemas"]["ProblemDismissal"][];
+            remove?: string[];
+        };
         TableLayoutPreference: {
             widths?: {
                 [key: string]: number;
@@ -9736,6 +9788,54 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserPreferences"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    getProblemDismissals: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDismissals"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    patchProblemDismissals: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProblemDismissalsPatch"];
+            };
+        };
+        responses: {
+            /** @description Saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDismissals"];
                 };
             };
             401: components["responses"]["Unauthorized"];

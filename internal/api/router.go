@@ -165,6 +165,8 @@ func (s *Server) apiRoutes() chi.Router {
 		r.Get("/auth/session", s.handleSession)
 		r.Get("/auth/preferences", s.handleGetPreferences)
 		r.Put("/auth/preferences", s.handlePutPreferences)
+		r.Get("/auth/problem-dismissals", s.handleGetProblemDismissals)
+		r.Patch("/auth/problem-dismissals", s.handlePatchProblemDismissals)
 		r.Post("/auth/password", s.handleChangePassword)
 		r.Get("/auth/two-step", s.handleTwoStepStatus)
 		r.Post("/auth/two-step/setup", s.handleTwoStepSetup)

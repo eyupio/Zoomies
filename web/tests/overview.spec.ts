@@ -264,8 +264,8 @@ test('a dismissed problem stops asking, and can be brought back', async ({ page 
   await dismissed.getByRole('button', { name: /^Restore:/ }).click();
   await expect(problems.getByRole('listitem')).toHaveCount(before);
 
-  // The controller is untouched by any of this: what an operator has read is a
-  // browser preference, never fleet state, so an alerting rule still sees it.
+  // The controller is untouched by any of this: what an operator has read belongs
+  // to their account, never to the fleet, so an alerting rule still sees it.
   const api = await page.request.get('/api/v1/problems').then((r) => r.json());
   expect(
     (api.items ?? []).some((p: { code?: string }) => p.code === 'auth.disabled'),
