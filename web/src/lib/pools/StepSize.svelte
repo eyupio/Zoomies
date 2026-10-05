@@ -369,15 +369,28 @@
       {/snippet}
     </Field>
   {/if}
+  <!--
+    The least a runner is given, as the sentences below say it: "1 core and 2 GB",
+    "1 core", or "2 GB". One branch each, with the "and" between two elements in
+    the branch that has both: Svelte trims the whitespace at either end of a
+    block, so an "and" that was a block of its own, between two {#if} blocks,
+    lost both its spaces and read "1 coreand2 GB".
+  -->
+  {#snippet minimumFloor()}
+    {#if minCpus > 0 && minMemoryMb > 0}
+      <strong>{cpuLabel(minCpus)}</strong> and <strong>{memoryLabel(minMemoryMb)}</strong>
+    {:else if minCpus > 0}
+      <strong>{cpuLabel(minCpus)}</strong>
+    {:else}
+      <strong>{memoryLabel(minMemoryMb)}</strong>
+    {/if}
+  {/snippet}
   {#if minCpus > 0 || minMemoryMb > 0}
     {#if profileSize}
       <p class="echo">
         A runner is given its host's standard size, and never less than
-        {#if minCpus > 0}<strong>{cpuLabel(minCpus)}</strong
-          >{/if}{#if minCpus > 0 && minMemoryMb > 0}
-          and
-        {/if}{#if minMemoryMb > 0}<strong>{memoryLabel(minMemoryMb)}</strong>{/if}. A host whose
-        standard is smaller than that is not given this pool's runners.
+        {@render minimumFloor()}. A host whose standard is smaller than that is not given this
+        pool's runners.
       </p>
     {:else if automaticSize}
       <p class="echo">
@@ -385,10 +398,7 @@
         where that is more, and a host whose share is smaller holds fewer runners. Where no whole
         share is left, it goes on the host with a free slot that can spare the most and is given as
         much as it can, never less than
-        {#if minCpus > 0}<strong>{cpuLabel(minCpus)}</strong
-          >{/if}{#if minCpus > 0 && minMemoryMb > 0}
-          and
-        {/if}{#if minMemoryMb > 0}<strong>{memoryLabel(minMemoryMb)}</strong>{/if}.
+        {@render minimumFloor()}.
       </p>
     {:else}
       <p class="echo">
