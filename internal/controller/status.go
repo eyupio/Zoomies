@@ -194,7 +194,10 @@ func wholeMinutes(ms int64) int {
 // calls so it means "since the state last changed" rather than "since you
 // asked".
 func (c *Controller) Status(ctx context.Context) (*FleetStatus, error) {
-	problems, err := c.Problems(ctx)
+	// Shared, as the event stream's and the API's are: this is the public status page's
+	// handler, so a poll from every open tab -- or a flood from anyone who can reach
+	// it -- would each run the whole list, the heaviest read the controller does.
+	problems, err := c.SharedProblems(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("gathering the fleet's problems: %w", err)
 	}

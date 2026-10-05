@@ -104,9 +104,17 @@ func (c *Controller) poolMinimumAdviceProblems(ctx context.Context, out *[]Probl
 	if err != nil {
 		return err
 	}
+	// What each half used is in memory and gates the advice below, so a pool whose
+	// samples do not yet cover it -- every pool for half an hour after a restart -- is
+	// not read about at all.
 	var ids []string
+	halvesOf := map[string]halfPeaks{}
 	for _, p := range candidates {
-		if pressure[p.ID] {
+		if !pressure[p.ID] {
+			continue
+		}
+		if halves, ok := c.pairMemoryPeaks(p.ID); ok {
+			halvesOf[p.ID] = halves
 			ids = append(ids, p.ID)
 		}
 	}
@@ -137,7 +145,7 @@ func (c *Controller) poolMinimumAdviceProblems(ctx context.Context, out *[]Probl
 		// limit: a slot the sum fits can still be too small for a thin sidecar, whose
 		// kill takes the job with it. Without what each half used there is nothing to
 		// size the halves by, so the advice waits for it.
-		halves, ok := c.pairMemoryPeaks(p.ID)
+		halves, ok := halvesOf[p.ID]
 		if !ok {
 			continue
 		}
@@ -184,10 +192,10 @@ func (c *Controller) poolMinimumAdviceProblems(ctx context.Context, out *[]Probl
 			return fmt.Errorf("pricing pool %s's smallest runner: %w", p.Name, err)
 		}
 		detail := fmt.Sprintf("a runner of this pool is charged at least %s of memory on every host, because its smallest runner is %s a container and the Docker sidecar holds %d%% of the memory, "+
-			"so the slot has to be %s for the runner's half to reach it. Over the last %s its %d measured jobs (of %d completed) used at most %s, with no job killed for memory. "+
+			"so the slot has to be %s for the runner's half to reach it. Over the last %s its jobs used at most %s, from at least %d with a measured peak, with no job killed for memory. "+
 			"Typical jobs waited %s or more for a runner in the last %s.",
 			scheduler.FormatMB(floor), scheduler.FormatMB(max(sized.Resources.MinMemoryMB, store.MinRunnerMemoryMB)), p.Resources.DaemonMemoryPercent(),
-			scheduler.FormatMB(floor), minimumEvidenceWindow, g.MeasuredMemory, g.Count, scheduler.FormatMB(*g.PeakMemoryMB), pressureMedianWait, pressureWindow)
+			scheduler.FormatMB(floor), minimumEvidenceWindow, scheduler.FormatMB(*g.PeakMemoryMB), minimumEvidenceJobs, pressureMedianWait, pressureWindow)
 		fix := fmt.Sprintf("lower the pool's smallest runner to %s a container (the pool editor's Size step, or zoomies pools edit %s --min-memory-mb %d), "+
 			"which keeps every slot at least %s, 1.5 times the most a job has used and enough for each of the two containers' own peaks. "+
 			"Memory a job keeps in a tmpfs counts as used and is taken from the same slot.", scheduler.FormatMB(perContainer), p.Name, perContainer,
@@ -244,13 +252,12 @@ func (c *Controller) minimumHeldByJob(ctx context.Context, p *store.Pool, fleet 
 		return nil, nil
 	}
 	var othersPeak int64
-	var othersMeasured, othersJobs int
+	var othersMeasured int
 	for i := range stats.Groups {
 		g := &stats.Groups[i]
 		if g == holder {
 			continue
 		}
-		othersJobs += g.Count
 		othersMeasured += g.MeasuredMemory
 		if g.PeakMemoryMB != nil {
 			othersPeak = max(othersPeak, *g.PeakMemoryMB)
@@ -288,12 +295,12 @@ func (c *Controller) minimumHeldByJob(ctx context.Context, p *store.Pool, fleet 
 	return &Problem{
 		Code:     "pool.minimum_held_by_job",
 		Severity: config.SeverityInfo,
-		Title: fmt.Sprintf("pool %s: one job, %s, holds every runner's slot at %s; the other %s used at most %s",
-			p.Name, name, scheduler.FormatMB(floor), plural(othersJobs, "job"), scheduler.FormatMB(othersPeak)),
-		Detail: fmt.Sprintf("the pool's smallest runner puts every slot at least %s, and that is where it is because of %q, which used up to %s across its %s in the last %s. "+
+		Title: fmt.Sprintf("pool %s: one job, %s, holds every runner's slot at %s; the pool's other jobs used at most %s",
+			p.Name, name, scheduler.FormatMB(floor), scheduler.FormatMB(othersPeak)),
+		Detail: fmt.Sprintf("the pool's smallest runner puts every slot at least %s, and that is where it is because of %q, which used up to %s in the last %s. "+
 			"The pool's other jobs used at most %s, so a slot of %s would hold them with room to spare, and the pool's hosts would then have room for %s instead of %d. "+
 			"The controller does not propose lowering the smallest runner while that job shares the pool, because it is the job that would be killed.",
-			scheduler.FormatMB(floor), name, scheduler.FormatMB(*holder.PeakMemoryMB), plural(holder.Count, "run"), minimumEvidenceWindow,
+			scheduler.FormatMB(floor), name, scheduler.FormatMB(*holder.PeakMemoryMB), minimumEvidenceWindow,
 			scheduler.FormatMB(othersPeak), scheduler.FormatMB(candFloor), plural(after.Runners, "runner"), before.Runners),
 		Fix: fmt.Sprintf("move %q off this pool and then lower the smallest runner to %s a container (zoomies pools edit %s --min-memory-mb %d). "+
 			"A pool of its own, with a label only that job asks for, is the one way that is certain; with scheduler.size_routing on, a size label or `zoomies size pin` sends it to a larger class "+

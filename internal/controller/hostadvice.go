@@ -77,15 +77,12 @@ func (c *Controller) hostCapacityAdviceProblems(ctx context.Context, out *[]Prob
 	if err != nil {
 		return fmt.Errorf("listing pools: %w", err)
 	}
-	pressure, err := c.poolsUnderPressure(ctx)
-	if err != nil {
-		return err
-	}
-	if len(pressure) == 0 {
-		return nil
-	}
 	now := c.Now()
 	fleet := c.cfg().Runners
+	// Which hosts could be advised comes first, and costs nothing: the jobs' waits
+	// are a database read, and on a fleet where no host has been given a runner size
+	// -- the default -- there is nothing to read them for.
+	var short []*store.Host
 	for _, h := range hosts {
 		// A host the controller has stepped down is held back by load, not by its
 		// runner size, and changing its profile lifts the step-down in the same write:
@@ -94,10 +91,22 @@ func (c *Controller) hostCapacityAdviceProblems(ctx context.Context, out *[]Prob
 		if h.Cordoned || h.Capacity <= 0 || h.Throttle.Active() || !scheduler.HostAvailable(h, now) || !h.RunnerProfile.Standard.Sized() {
 			continue
 		}
-		slots := h.Slots()
-		if slots >= h.Capacity {
-			continue
+		if h.Slots() < h.Capacity {
+			short = append(short, h)
 		}
+	}
+	if len(short) == 0 {
+		return nil
+	}
+	pressure, err := c.poolsUnderPressure(ctx)
+	if err != nil {
+		return err
+	}
+	if len(pressure) == 0 {
+		return nil
+	}
+	for _, h := range short {
+		slots := h.Slots()
 		var reaching []*store.Pool
 		var waiting []string
 		for _, p := range pools {

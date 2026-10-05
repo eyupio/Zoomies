@@ -551,8 +551,8 @@ func TestPoolMinimumAdviceCountsJobsThatWereMeasuredNotJobsThatCompleted(t *test
 	}
 	h, _ = minimumFleetMeasured(t, 2048, 40, 22, false)
 	p := h.problemOrNil("pool.minimum_overcharges")
-	if p == nil || !strings.Contains(p.Detail, "22 measured jobs (of 40 completed)") {
-		t.Errorf("with 22 measured the notice must say so: %+v", p)
+	if p == nil || !strings.Contains(p.Detail, "at least 20 with a measured peak") {
+		t.Errorf("with 22 measured the notice must say what it rests on: %+v", p)
 	}
 }
 
@@ -628,5 +628,35 @@ func TestTheHeldByJobNoticeNeedsOrdinaryJobsToBeHeld(t *testing.T) {
 	addMeasuredJob(t, h, pool, 1, "weekly-release", 7400)
 	if p := h.problemOrNil("pool.minimum_held_by_job"); p != nil {
 		t.Errorf("named a job in a pool whose jobs are all heavy: %+v", p)
+	}
+}
+
+// The problems list is diffed by its bytes, and a notice that stands is not to be
+// republished every pass. A count that moves with every heartbeat or every completed
+// job -- samples taken, jobs run -- in the text of advice that stands made every pass
+// a full problems.updated frame to every open browser. The text states the bar the
+// evidence cleared, not the live figures.
+func TestStandingAdviceReadsTheSameWhileTheEvidenceGrows(t *testing.T) {
+	h, pool := minimumFleet(t, 2048, 25, false)
+	first := h.problemOrNil("pool.minimum_overcharges")
+	if first == nil {
+		t.Fatal("the fixture must be advised")
+	}
+	// More jobs finish and more samples arrive.
+	for i := 0; i < 3; i++ {
+		addMeasuredJob(t, h, pool, 100+i, "build", 2048)
+	}
+	h.c.pairMu.Lock()
+	more := h.c.pairs[pool.ID]
+	h.c.pairs[pool.ID] = append(more, more[len(more)-1])
+	h.c.pairMu.Unlock()
+	second := h.problemOrNil("pool.minimum_overcharges")
+	if second == nil || first.Detail != second.Detail || first.Title != second.Title {
+		t.Errorf("standing advice changed with its evidence:\n%s\n%s", first.Detail, func() string {
+			if second == nil {
+				return "(gone)"
+			}
+			return second.Detail
+		}())
 	}
 }
