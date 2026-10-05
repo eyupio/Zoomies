@@ -286,6 +286,7 @@ var publicSentences = map[string]string{
 	"pool.tmpfs_memory_tight":                       "Some runners could run out of memory because the working space they keep in memory takes much of their limit.",
 	"pool.daemon_share_suggested":                   "A pool's two build containers are divided unevenly against the work, so one is short of room while the other idles.",
 	"host.work_concentrated":                        "One machine is being kept busy to the point of slowing down while others sit idle, because new jobs keep going to the biggest one first.",
+	"pool.minimum_held_by_job":                      "One kind of job in a pool is why every runner there is sized so large, and the rest would fit more runners on each machine in a smaller one.",
 	"pool.minimum_overcharges":                      "A pool's smallest runner, multiplied by its thin Docker sidecar, charges every runner far more memory than its jobs have ever used, so machines hold fewer runners while jobs wait.",
 	"host.slots_below_capacity":                     "A machine could hold more runners than it does, because each runner is sized larger than the machine divides into, while jobs have been waiting for room.",
 	"pool.tmpfs_auto_on_disk":                       "Some runners keep their working files on disk because they are too small for memory to be worth using.",

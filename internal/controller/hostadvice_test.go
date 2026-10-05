@@ -555,3 +555,78 @@ func TestPoolMinimumAdviceCountsJobsThatWereMeasuredNotJobsThatCompleted(t *test
 		t.Errorf("with 22 measured the notice must say so: %+v", p)
 	}
 }
+
+// addMeasuredJob is one completed, measured job of a given name on the pool.
+func addMeasuredJob(t *testing.T, h *harness, pool *store.Pool, n int, name string, peakMB int64) {
+	t.Helper()
+	host, err := h.st.GetHostByName(h.ctx, "box-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &store.Runner{PoolID: pool.ID, HostID: host.ID, Name: fmt.Sprintf("x%d", n), State: store.RunnerBusy}
+	if err := h.st.CreateRunner(h.ctx, runner); err != nil {
+		t.Fatal(err)
+	}
+	queued := h.c.Now().Add(-time.Hour)
+	started, done := queued.Add(2*time.Minute), queued.Add(5*time.Minute)
+	job := &store.Job{
+		GitHubJobID: int64(9000 + n), GitHubRunID: 2, Repo: "acme/widgets", Workflow: "release", JobName: name,
+		Labels: store.StringSlice{"self-hosted", "linux", "x64"}, State: store.JobInProgress, RunnerID: runner.ID,
+		InstallationID: pool.InstallationID, PoolID: pool.ID, Matched: true, QueuedAt: queued, StartedAt: &started,
+	}
+	if _, err := h.st.UpsertJob(h.ctx, job); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.st.RecordJobUsage(h.ctx, runner.ID, 1, peakMB); err != nil {
+		t.Fatal(err)
+	}
+	job.State, job.Conclusion, job.CompletedAt = store.JobCompleted, "success", &done
+	if _, err := h.st.UpsertJob(h.ctx, job); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// One heavy job among many silences the minimum advice, because the pool's floor has
+// to hold it. That is the operator's report: a weekly job at 7.3 GB with everything
+// else under 2 GB. The notice names the job and says what the rest would fit in, and
+// proposes nothing, because lowering the minimum first is what gets that job killed.
+func TestOneHeavyJobHoldingAPoolsFloorIsNamedAndNothingIsProposed(t *testing.T) {
+	h, pool := minimumFleet(t, 2048, 25, false)
+	for i := 0; i < 2; i++ {
+		addMeasuredJob(t, h, pool, i, "weekly-release", 7300)
+	}
+	// The per-half evidence has to cover the heavy job too, or the advice waits.
+	seedPairs(h, pool, 5800, 1500)
+	if p := h.problemOrNil("pool.minimum_overcharges"); p != nil {
+		t.Fatalf("the floor is sized for the weekly job and must not be lowered: %+v", p)
+	}
+	p := h.problemOrNil("pool.minimum_held_by_job")
+	if p == nil || p.TargetID != pool.ID {
+		t.Fatalf("problem = %+v; want one naming the job that holds the floor", p)
+	}
+	if p.Remedy != nil {
+		t.Errorf("a remedy was proposed that would get the heavy job killed: %+v", p.Remedy)
+	}
+	for _, want := range []string{"weekly-release", "7.1 GB", "instead of"} {
+		if !strings.Contains(p.Title+" "+p.Detail, want) {
+			t.Errorf("the notice must mention %q:\n%s\n%s", want, p.Title, p.Detail)
+		}
+	}
+	if !strings.Contains(p.Fix, "size_routing") || !strings.Contains(p.Fix, "pool of its own") {
+		t.Errorf("the notice must name the ways to move the job:\n%s", p.Fix)
+	}
+}
+
+// Without the heavy job the ordinary notice is raised, and with only heavy jobs
+// there is nothing to move: neither is the held-by-job notice.
+func TestTheHeldByJobNoticeNeedsOrdinaryJobsToBeHeld(t *testing.T) {
+	h, _ := minimumFleet(t, 2048, 25, false)
+	if p := h.problemOrNil("pool.minimum_held_by_job"); p != nil {
+		t.Errorf("named a job in a pool with none holding it: %+v", p)
+	}
+	h, pool := minimumFleet(t, 7300, 25, false)
+	addMeasuredJob(t, h, pool, 1, "weekly-release", 7400)
+	if p := h.problemOrNil("pool.minimum_held_by_job"); p != nil {
+		t.Errorf("named a job in a pool whose jobs are all heavy: %+v", p)
+	}
+}

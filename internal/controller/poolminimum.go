@@ -155,6 +155,16 @@ func (c *Controller) poolMinimumAdviceProblems(ctx context.Context, out *[]Probl
 			}
 		}
 		if need >= floor || float64(floor-need) < minimumReductionWorth*float64(floor) {
+			// The floor is not far above what the pool's heaviest job needs. If that is
+			// one job among many, it is the job and not the pool that holds the floor, and
+			// that is worth saying even though nothing can be offered to apply.
+			held, err := c.minimumHeldByJob(ctx, p, fleet, floor, since)
+			if err != nil {
+				return err
+			}
+			if held != nil {
+				*out = append(*out, *held)
+			}
 			continue
 		}
 		perContainer := max(int64(math.Ceil(float64(need)/factor/256)*256), store.MinRunnerMemoryMB)
@@ -203,4 +213,92 @@ func (c *Controller) poolMinimumAdviceProblems(ctx context.Context, out *[]Probl
 		})
 	}
 	return nil
+}
+
+// minimumHeldByJob is pool.minimum_held_by_job: a pool's floor is where it is
+// because of one job name, and without it the rest would run in a slot that is far
+// smaller and fits more runners on every host.
+//
+// The week's statistics are by pool, so a single heavy job -- a weekly build, a
+// release -- is all the pool's evidence says, and every runner carries a slot sized
+// for it. Nothing is proposed to apply, because lowering the minimum before that job
+// is somewhere else is what gets it killed; the notice names it and the ways to move it.
+func (c *Controller) minimumHeldByJob(ctx context.Context, p *store.Pool, fleet config.Runners, floor int64, since time.Time) (*Problem, error) {
+	stats, err := c.st.JobStats(ctx, store.JobFilter{Since: &since, PoolIDs: []string{p.ID}}, []string{store.GroupByPool, store.GroupByJobName})
+	if err != nil {
+		return nil, fmt.Errorf("reading which job holds pool %s's floor: %w", p.Name, err)
+	}
+	// A name that is not in the list could be the one that matters, so a truncated
+	// answer says nothing.
+	if stats.Truncated {
+		return nil, nil
+	}
+	var holder *store.JobStatsGroup
+	for i := range stats.Groups {
+		g := &stats.Groups[i]
+		if g.PeakMemoryMB != nil && (holder == nil || *g.PeakMemoryMB > *holder.PeakMemoryMB) {
+			holder = g
+		}
+	}
+	if holder == nil {
+		return nil, nil
+	}
+	var othersPeak int64
+	var othersMeasured, othersJobs int
+	for i := range stats.Groups {
+		g := &stats.Groups[i]
+		if g == holder {
+			continue
+		}
+		othersJobs += g.Count
+		othersMeasured += g.MeasuredMemory
+		if g.PeakMemoryMB != nil {
+			othersPeak = max(othersPeak, *g.PeakMemoryMB)
+		}
+	}
+	if othersMeasured < minimumEvidenceJobs {
+		return nil, nil
+	}
+	need := int64(math.Ceil(float64(othersPeak)*minimumHeadroom/256) * 256)
+	if need >= floor || float64(floor-need) < minimumReductionWorth*float64(floor) {
+		return nil, nil
+	}
+	perContainer := max(int64(math.Ceil(float64(need)/p.Resources.MemoryPairFactor()/256)*256), store.MinRunnerMemoryMB)
+	cand := *p
+	cand.Resources.MinMemoryMB = perContainer
+	candFloor := scheduler.ShareFloor(sizingPool(&cand, fleet)).MemoryMB
+	if candFloor >= floor {
+		return nil, nil
+	}
+	before, err := c.poolRoom(ctx, p)
+	if err != nil {
+		return nil, fmt.Errorf("pricing pool %s's smallest runner: %w", p.Name, err)
+	}
+	after, err := c.poolRoom(ctx, &cand)
+	if err != nil {
+		return nil, fmt.Errorf("pricing pool %s's smallest runner: %w", p.Name, err)
+	}
+	if after.Runners <= before.Runners {
+		return nil, nil
+	}
+	name := holder.Keys[store.GroupByJobName]
+	if len(name) > 80 {
+		name = name[:80] + "..."
+	}
+	return &Problem{
+		Code:     "pool.minimum_held_by_job",
+		Severity: config.SeverityInfo,
+		Title: fmt.Sprintf("pool %s: one job, %s, holds every runner's slot at %s; the other %s used at most %s",
+			p.Name, name, scheduler.FormatMB(floor), plural(othersJobs, "job"), scheduler.FormatMB(othersPeak)),
+		Detail: fmt.Sprintf("the pool's smallest runner puts every slot at least %s, and that is where it is because of %q, which used up to %s across its %s in the last %s. "+
+			"The pool's other jobs used at most %s, so a slot of %s would hold them with room to spare, and the pool's hosts would then have room for %s instead of %d. "+
+			"The controller does not propose lowering the smallest runner while that job shares the pool, because it is the job that would be killed.",
+			scheduler.FormatMB(floor), name, scheduler.FormatMB(*holder.PeakMemoryMB), plural(holder.Count, "run"), minimumEvidenceWindow,
+			scheduler.FormatMB(othersPeak), scheduler.FormatMB(candFloor), plural(after.Runners, "runner"), before.Runners),
+		Fix: fmt.Sprintf("move %q off this pool and then lower the smallest runner to %s a container (zoomies pools edit %s --min-memory-mb %d). "+
+			"A pool of its own, with a label only that job asks for, is the one way that is certain; with scheduler.size_routing on, a size label or `zoomies size pin` sends it to a larger class "+
+			"of the pool's own runners, and scheduler.history_sizing=on gives it a larger runner from what it used before, though only after a run or two.",
+			name, scheduler.FormatMB(perContainer), p.Name, perContainer),
+		TargetKind: "pool", TargetID: p.ID,
+	}, nil
 }
