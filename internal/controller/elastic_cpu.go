@@ -377,7 +377,7 @@ func (c *Controller) decideLoan(r *store.Runner, p *store.Pool, base float64, st
 		Saturated: throttlingRose(r, st) || st.BusiestHalfPercent >= elasticSaturatedPercent,
 		Demanding: demanding,
 	}
-	if p.DockerMode == store.DockerDinD && r.AllocationSource == store.AllocationFromHost && st.BusiestHalfPercent > 0 {
+	if p.DockerMode == store.DockerDinD && store.SizedByHost(r.AllocationSource) && st.BusiestHalfPercent > 0 {
 		// The pair's loan is given to its busier half alone, so that half is
 		// what is judged. A host-sized pair splits its slot evenly (see
 		// store.Resources.SplitWithDaemon), and BusiestHalfPercent is that

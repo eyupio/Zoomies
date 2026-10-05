@@ -223,36 +223,44 @@ func TestLoanMemoryDoesNotOutliveEphemeralRunners(t *testing.T) {
 
 // Codex review: a docker-in-docker pair's loan goes to its busier half, and
 // judged on the pair's sum a daemon using its lent cores was taken back.
+//
+// It holds for a pair sized by its host's profile as much as by its plain
+// share: the profile's source is the one the runner's row and the API say, and
+// a check against "host" alone judged those pairs on their sum as well.
 func TestADinDDaemonUsingItsLoanKeepsIt(t *testing.T) {
-	h := newHarness(t)
-	_, pool, host := h.fleet()
-	pool.DockerMode = store.DockerDinD
-	pool.CPUBurst = store.CPUBurstPolicy{Mode: store.CPUBurstAutomatic}
-	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
-		t.Fatal(err)
-	}
-	runner := h.runnerRow(pool, host, store.RunnerBusy)
-	runner.AllocatedCPUs = 2
-	runner.AllocationSource = store.AllocationFromHost
-	if err := h.st.UpdateRunner(h.ctx, runner); err != nil {
-		t.Fatal(err)
-	}
-	start := h.c.Now()
-	for i := range 6 {
-		now := start.Add(time.Duration(i) * 30 * time.Second)
-		cpu := 20.0
-		host.Usage = store.HostUsage{CPUPercent: &cpu, SampledAt: now}
-		sampled := now
-		// Lent two cores above a pair guarantee of two: the daemon, on a
-		// one-core half, uses 2.3 of its 3; the runner half idles.
-		d := h.c.elasticCPUTargets(h.ctx, host, agent.HeartbeatRequest{
-			Features: []string{agent.FeatureElasticCPU},
-			Runners: []agent.RunnerReport{{RunnerID: runner.ID, Stats: backend.Stats{
-				SampledAt: &sampled, CPUPercent: 240, CPUAllocationFactor: 2, BusiestHalfPercent: 230,
-			}}},
-		}, now)
-		if len(d) != 1 {
-			t.Fatalf("heartbeat %d: a daemon using its loan lost it", i)
-		}
+	for _, source := range []string{store.AllocationFromHost, store.AllocationFromProfile} {
+		t.Run(source, func(t *testing.T) {
+			h := newHarness(t)
+			_, pool, host := h.fleet()
+			pool.DockerMode = store.DockerDinD
+			pool.CPUBurst = store.CPUBurstPolicy{Mode: store.CPUBurstAutomatic}
+			if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+				t.Fatal(err)
+			}
+			runner := h.runnerRow(pool, host, store.RunnerBusy)
+			runner.AllocatedCPUs = 2
+			runner.AllocationSource = source
+			if err := h.st.UpdateRunner(h.ctx, runner); err != nil {
+				t.Fatal(err)
+			}
+			start := h.c.Now()
+			for i := range 6 {
+				now := start.Add(time.Duration(i) * 30 * time.Second)
+				cpu := 20.0
+				host.Usage = store.HostUsage{CPUPercent: &cpu, SampledAt: now}
+				sampled := now
+				// Lent two cores above a pair guarantee of two: the daemon, on a
+				// one-core half, uses 2.3 of its 3; the runner half idles.
+				d := h.c.elasticCPUTargets(h.ctx, host, agent.HeartbeatRequest{
+					Features: []string{agent.FeatureElasticCPU},
+					Runners: []agent.RunnerReport{{RunnerID: runner.ID, Stats: backend.Stats{
+						SampledAt: &sampled, CPUPercent: 240, CPUAllocationFactor: 2, BusiestHalfPercent: 230,
+					}}},
+				}, now)
+				if len(d) != 1 {
+					t.Fatalf("heartbeat %d: a daemon using its loan lost it", i)
+				}
+			}
+		})
 	}
 }

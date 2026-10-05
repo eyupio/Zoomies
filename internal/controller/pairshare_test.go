@@ -120,6 +120,34 @@ func TestASqueezedSidecarShowsUpAsAStandingProblemUntilTheShareMoves(t *testing.
 	}
 }
 
+// A pool that takes its size from its hosts' runner profiles gives each runner
+// a share of a slot exactly as one sized by the host's plain share does, so the
+// advice about how the pair divides it has to hear from both. Comparing the
+// runner's source with "host" alone left every profile-sized pool -- the pools
+// the runner-sizes screen makes -- with an empty window and no advice, ever.
+func TestASqueezedSidecarIsAdvisedWhetherTheHostsShareOrItsProfileSizedTheRunners(t *testing.T) {
+	for _, source := range []string{store.AllocationFromHost, store.AllocationFromProfile} {
+		t.Run(source, func(t *testing.T) {
+			h := newHarness(t)
+			_, pool, _ := h.fleet()
+			pool.DockerMode = store.DockerDinD
+			if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+				t.Fatal(err)
+			}
+			now := h.c.Now()
+			for i, s := range pairWindowOf(100, 5,
+				backend.HalfUse{CPUs: 0.1, MemoryBytes: gib / 4},
+				backend.HalfUse{CPUs: 1.9, MemoryBytes: 3*gib + gib/2}) {
+				r := &store.Runner{ID: fmt.Sprintf("run-%d", i%5), PoolID: pool.ID, AllocationSource: source}
+				h.c.observePair(r, backend.Stats{SampledAt: &now, Halves: &s.halves})
+			}
+			if p := h.problemOrNil("pool.daemon_share_suggested"); p == nil || p.TargetID != pool.ID {
+				t.Fatalf("problem = %+v; want one for the pool whose runners are sized by %q", p, source)
+			}
+		})
+	}
+}
+
 // A pool the controller keeps divides its slot evenly and refuses an edit of
 // the division, so advice to change it would be advice to do what the pool does
 // not allow.

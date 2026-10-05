@@ -1297,6 +1297,18 @@ const (
 	AllocationFromProfile = "profile"
 )
 
+// SizedByHost reports whether a runner's limits are one slot's share of the
+// host it was placed on: the plain share of a pool that names no size, or the
+// standard size of the host's runner profile. What an agent does with the two
+// is the same -- one slot, split between a docker-in-docker pair -- so what the
+// controller judges them by is the same too. A check against
+// AllocationFromHost alone leaves every pool sized by its hosts' profiles out
+// of those judgements, and nothing says so: the advice about how a pair
+// divides its slot simply never has a sample to speak from.
+func SizedByHost(source string) bool {
+	return source == AllocationFromHost || source == AllocationFromProfile
+}
+
 // Runner is one runner instance: a row that the controller creates in
 // "provisioning" and an agent then materialises, reports on, and tears down.
 type Runner struct {

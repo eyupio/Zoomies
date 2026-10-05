@@ -679,7 +679,9 @@ pool is sized.
   a pair used, and when one has been squeezed against its own limit while the
   other idled — across enough jobs on several runners — `pool.daemon_share_suggested`
   names the pool and a share to try. It informs and never changes the pool; it
-  applies only to host-sized pools, and clears itself once you change the share.
+  applies only to pools sized by their hosts — by a share of the host or by its
+  [runner profile](#runner-profiles-how-big-a-runner-is-on-one-host) — and clears
+  itself once you change the share.
 
 **When to turn it on.** Zoomies tells you. `pool.tmpfs_suggested` is raised for
 a pool when, on one host, all three are true: the pool ran jobs there in the
