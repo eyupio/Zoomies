@@ -6042,6 +6042,15 @@ components:
             can put the change one click away.
           items: { $ref: "#/components/schemas/BackendKind" }
           examples: [[podman]]
+        daemon_share:
+          type: object
+          description: >-
+            For `pool.daemon_share_suggested`: the sidecar shares it proposes, as a percentage of
+            the slot, so the UI can apply them in one click with `PATCH /pools/{id}`. A resource
+            left out is one with no advice, or advice that would cost the pool runners.
+          properties:
+            cpu_percent: { type: integer, minimum: 10, maximum: 90, examples: [20] }
+            memory_percent: { type: integer, minimum: 10, maximum: 90, examples: [35] }
         since: { type: string, format: date-time }
 
     # --- status -----------------------------------------------------------

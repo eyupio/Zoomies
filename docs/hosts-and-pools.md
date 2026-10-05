@@ -734,11 +734,12 @@ and a share to try, for CPU and for memory on their own: more CPU to a sidecar t
 is building, less memory to one that is not, in one notice with a flag for each. A share
 is never proposed if it would cost the pool runners on its hosts, since a thinner half is
 held to the pool's smallest runner: the notice offers the nearest share they can carry, or
-says what the figure would cost and leaves the share alone. It
-informs and never changes the pool; it applies only to pools sized by their hosts —
-by a share of the host or by its
-[runner profile](#runner-profiles-how-big-a-runner-is-on-one-host) — and clears
-itself once you change the share.
+says what the figure would cost and leaves the share alone. An
+operator can make the change from a button on the notice, which sets those shares and leaves
+the rest of the pool as it was; nothing changes until it is clicked. It applies only to pools
+sized by their hosts — by a share of the host or by its
+[runner profile](#runner-profiles-how-big-a-runner-is-on-one-host) — and clears itself once you
+change the share.
 
 **When to turn it on.** Zoomies tells you. `pool.tmpfs_suggested` is raised for
 a pool when, on one host, all three are true: the pool ran jobs there in the

@@ -4046,6 +4046,13 @@ export interface components {
              *     ]
              */
             alternatives?: components["schemas"]["BackendKind"][];
+            /** @description For `pool.daemon_share_suggested`: the sidecar shares it proposes, as a percentage of the slot, so the UI can apply them in one click with `PATCH /pools/{id}`. A resource left out is one with no advice, or advice that would cost the pool runners. */
+            daemon_share?: {
+                /** @example 20 */
+                cpu_percent?: number;
+                /** @example 35 */
+                memory_percent?: number;
+            };
             /** Format: date-time */
             since?: string;
         };

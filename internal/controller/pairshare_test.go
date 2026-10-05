@@ -328,3 +328,40 @@ func TestAShareIsBroughtBackToOneTheHostsCanCarry(t *testing.T) {
 		t.Errorf("the proposed share leaves room for %d runners, down from %d", after.Runners, before.Runners)
 	}
 }
+
+// The notice carries its proposal as numbers, so that the UI can make the change
+// in one click without reading a sentence for it.
+func TestTheNoticeCarriesTheShareItProposesForTheUIToApply(t *testing.T) {
+	h, _ := squeezedRunnerPool(t, 6)
+	p := h.problemOrNil("pool.daemon_share_suggested")
+	if p == nil || p.DaemonShare == nil {
+		t.Fatalf("problem = %+v; want one with the change attached", p)
+	}
+	if p.DaemonShare.CPUPercent != 20 || p.DaemonShare.MemoryPercent != 0 {
+		t.Errorf("change = %+v; want 20%% of CPU and nothing for memory, which has no advice", p.DaemonShare)
+	}
+
+	// A notice that only explains why it will not move the share has nothing to apply.
+	h, _ = squeezedRunnerPool(t, 4)
+	p = h.problemOrNil("pool.daemon_share_suggested")
+	if p == nil || p.DaemonShare != nil {
+		t.Errorf("problem = %+v; want the notice with no change to apply, since moving the share costs runners", p)
+	}
+}
+
+// Applying the suggestion has to end it. The window is judged at the newest
+// sample's division, which is the old one until a runner made after the edit
+// reports, so without this the card stays up offering the change just made.
+func TestTheNoticeClearsAtOnceWhenThePoolsShareIsChanged(t *testing.T) {
+	h, pool := squeezedRunnerPool(t, 6)
+	if h.problemOrNil("pool.daemon_share_suggested") == nil {
+		t.Fatal("no notice to clear")
+	}
+	pool.Resources.DaemonCPUSharePercent = 20
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	if p := h.problemOrNil("pool.daemon_share_suggested"); p != nil {
+		t.Fatalf("the notice is still up after the share was changed: %+v", p)
+	}
+}

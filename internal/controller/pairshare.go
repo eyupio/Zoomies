@@ -219,6 +219,11 @@ func judgeResource(name string, current int, rUse, dUse, rUsed, dUsed []float64,
 	return adv
 }
 
+// sameShare says whether the share the containers were created with is the one
+// the pool names. Two points of slack, because the halves are rounded to the
+// core and the byte and a slot raised to a minimum is not divided to the digit.
+func sameShare(observed, configured int) bool { return abs(observed-configured) <= 2 }
+
 // affordShare prices r's proposal on the pool's hosts and brings it back to one
 // they can carry. The window says what the containers use; it cannot say what a
 // thinner half is charged, and that is the larger half of the arithmetic: a
@@ -283,6 +288,19 @@ func (c *Controller) daemonShareAdviceProblems(ctx context.Context, out *[]Probl
 		if !ok {
 			continue
 		}
+		// The window is judged at the newest sample's division, which stays the old
+		// one until a runner made after an edit reports. A share that is not the
+		// pool's now has been changed since, so what it shows is about a split the
+		// pool no longer has and the notice would offer the change just made.
+		if adv.CPU != nil && !sameShare(adv.CPU.Current, p.Resources.DaemonCPUPercent()) {
+			adv.CPU = nil
+		}
+		if adv.Memory != nil && !sameShare(adv.Memory.Current, p.Resources.DaemonMemoryPercent()) {
+			adv.Memory = nil
+		}
+		if adv.CPU == nil && adv.Memory == nil {
+			continue
+		}
 		room, err := c.poolRoom(ctx, p)
 		if err != nil {
 			return fmt.Errorf("pricing pool %s's sidecar share: %w", p.Name, err)
@@ -330,10 +348,21 @@ func (c *Controller) daemonShareAdviceProblems(ctx context.Context, out *[]Probl
 			fix = append(fix, fmt.Sprintf("Leave the %s share where it is: moving it would cost runners. To give the squeezed container more room, lower the pool's smallest runner "+
 				"in the pool editor (Size step), which is what holds the thinner half up, or run the pool on larger machines.", strings.Join(held, " and ")))
 		}
+		var change *DaemonShareChange
+		if len(flags) > 0 {
+			change = &DaemonShareChange{}
+			if adv.CPU != nil && adv.CPU.Held == nil {
+				change.CPUPercent = adv.CPU.Proposed
+			}
+			if adv.Memory != nil && adv.Memory.Held == nil {
+				change.MemoryPercent = adv.Memory.Proposed
+			}
+		}
 		*out = append(*out, Problem{
-			Code:     "pool.daemon_share_suggested",
-			Severity: config.SeverityInfo,
-			Title:    fmt.Sprintf("pool %s: %s", p.Name, strings.Join(titles, "; and ")),
+			DaemonShare: change,
+			Code:        "pool.daemon_share_suggested",
+			Severity:    config.SeverityInfo,
+			Title:       fmt.Sprintf("pool %s: %s", p.Name, strings.Join(titles, "; and ")),
 			Detail: fmt.Sprintf("across %d samples from %d runners over the last %s. A runner and its sidecar divide one slot, CPU and memory each on their own share. %s.",
 				adv.Samples, adv.Runners, pairWindow, strings.Join(lines, ". ")),
 			Fix:        strings.Join(fix, " "),
