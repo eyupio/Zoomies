@@ -287,6 +287,7 @@ var publicSentences = map[string]string{
 	"pool.daemon_share_suggested":                   "A pool's two build containers are divided unevenly against the work, so one is short of room while the other idles.",
 	"host.work_concentrated":                        "One machine is being kept busy to the point of slowing down while others sit idle, because new jobs keep going to the biggest one first.",
 	"pool.minimum_overcharges":                      "A pool's smallest runner, multiplied by its thin Docker sidecar, charges every runner far more memory than its jobs have ever used, so machines hold fewer runners while jobs wait.",
+	"pool.queue_wait_high":                          "A pool keeps no runner warm, and the slowest jobs wait minutes for one to be made, even though most start at once.",
 	"host.slots_below_capacity":                     "A machine could hold more runners than it does, because each runner is sized larger than the machine divides into, while jobs have been waiting for room.",
 	"pool.tmpfs_auto_on_disk":                       "Some runners keep their working files on disk because they are too small for memory to be worth using.",
 	"pool.tmpfs_suggested":                          "Jobs on some runners are slow and their machines have spare memory, so keeping working files in memory could speed them up.",
