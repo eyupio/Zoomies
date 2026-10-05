@@ -131,7 +131,7 @@ allow, asked in the order an operator would fix them:
 
 | What stopped the raise | The decision | What to do about it |
 | --- | --- | --- |
-| The runner already holds the most it may | `at_ceiling` | Raise the pool's [memory ceiling](#the-ceiling), or give each runner more to start with. |
+| The runner already holds the most it may | `at_ceiling` | Raise the pool's [memory ceiling](#the-ceiling) — or the host's cap, if that is the lower of the two — or give each runner more to start with. |
 | The host's pool is empty | `pool_empty` | The host's slots add up to its machine. Lower its capacity, give its runners a smaller share, or put this pool on a larger host. |
 | The host's free memory is at its floor | `host_floor` | The same, or look for what else is using the machine. |
 | The host's free memory could not be read | `unmeasured` | Nothing is lent: a loan that cannot be checked is not made. The valve is offered where the host's memory can be read, which is Linux. |
@@ -287,8 +287,8 @@ of 5.5 GB allowed, 1.5 GB of it lent*.
 **On a host's card**, **Memory to lend** is the pool as a bar drawn against the
 whole machine — what is promised, what the host keeps back, what is lent, and
 what is left — with the ledger behind it, line by line, in the card that opens
-from it. A host that has refused a runner memory in the last quarter of an hour
-says when, and why.
+from it on hover, focus or a tap. A host that has refused a runner memory in the
+last quarter of an hour says when, and why.
 
 **In the problems drawer**, three codes say where the valve is short, each with
 what to change:
