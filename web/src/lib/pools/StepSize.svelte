@@ -184,6 +184,11 @@
   /* The room is the controller's count, which knows what the fleet is actually
      charged. It is what both this step and the next one are read against. */
   const room = $derived<PoolRoomShape | null>(verdict?.room ?? null);
+  // What Auto comes to on this pool's hosts, worked out by the controller from the
+  // sizes on this form: per host, what each folder is given, and the smallest
+  // change that would put more in memory. Present only while a folder is Auto.
+  const plan = $derived(room?.tmpfs_plan ?? null);
+  const planOnDisk = $derived(plan ? (plan.in_memory ?? 0) < (plan.total ?? 0) : false);
   const roomTotal = $derived(room?.runners ?? 0);
   /* The hosts on which an elastic pool would not be elastic: their agent is
      too old to move a live quota, so a runner there is held at its share
@@ -800,6 +805,70 @@
       {/if}
     {/if}
 
+    {#if tmpfsOn && draft.tmpfs_auto && plan}
+      <div class="callout" class:ok={!planOnDisk} role="status" data-testid="tmpfs-plan">
+        <div>
+          <p class="callout-title">
+            {#if planOnDisk}
+              Auto puts {plan.in_memory} of {plan.total} folders in memory on your hosts
+            {:else}
+              Auto puts every folder in memory on your hosts
+            {/if}
+          </p>
+          <ul class="plan">
+            {#each plan.hosts as h (h.host)}
+              <li>
+                <strong>{h.host}</strong>, a runner has {memoryLabel(h.runner_mb ?? 0)}{h.daemon_mb
+                  ? ` and its sidecar ${memoryLabel(h.daemon_mb)}`
+                  : ''}:
+                {#each h.folders ?? [] as f, i (f.name)}{i > 0 ? ', ' : ' '}{f.name}
+                  {(f.mb ?? 0) > 0 ? `${memoryLabel(f.mb ?? 0)} in memory` : 'on disk'}{/each}
+              </li>
+            {/each}
+          </ul>
+          {#if planOnDisk}
+            <p>
+              A folder stays on disk where a runner is too small for it to be useful, which beats
+              filling it and failing jobs. To put more in memory:
+            </p>
+            <ul class="plan">
+              {#if plan.share}
+                <li>
+                  Give the sidecar {plan.share.percent}% of a slot — {plan.share.in_memory} of {plan.total}
+                  folders in memory, no runners lost.
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onclick={() => (draft.daemon_share = String(plan.share?.percent ?? ''))}
+                  >
+                    Set the share to {plan.share.percent}%
+                  </Button>
+                </li>
+              {/if}
+              {#each plan.sizes ?? [] as o (o.host)}
+                <li>
+                  {#if o.lever === 'standard'}
+                    Raise <strong>{o.host}</strong>'s standard runner memory to {memoryLabel(
+                      o.memory_mb ?? 0,
+                    )}
+                    ({pluralise(o.slots ?? 0, 'slot')}, now {o.slots_now}) under
+                    <a href="/hosts">Runner sizes</a>.
+                  {:else}
+                    Lower <strong>{o.host}</strong>'s capacity to {pluralise(o.slots ?? 0, 'slot')} so
+                    each runner is about {memoryLabel(o.memory_mb ?? 0)}, on the
+                    <a href="/hosts">Hosts</a> page.
+                  {/if}
+                </li>
+              {/each}
+              {#if !plan.share && (plan.sizes ?? []).length === 0}
+                <li>No change to these hosts' runner sizes puts the work folder in memory.</li>
+              {/if}
+            </ul>
+          {/if}
+        </div>
+      </div>
+    {/if}
+
     {#if tmpfsOn && !draft.tmpfs_auto && proposedLimitMb > 0}
       <div class="callout" role="status">
         <TriangleAlert size={16} aria-hidden="true" />
@@ -1115,6 +1184,17 @@
   .callout-title {
     font-weight: var(--z-weight-semibold);
     color: var(--z-text);
+  }
+  .callout.ok {
+    border-color: var(--z-idle-border);
+    background: var(--z-idle-subtle);
+  }
+  .plan {
+    margin: var(--z-space-2) 0;
+    padding-left: var(--z-space-4);
+  }
+  .plan li + li {
+    margin-top: var(--z-space-1);
   }
   @media (max-width: 768px) {
     .pair {

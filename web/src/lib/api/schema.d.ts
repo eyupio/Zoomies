@@ -4718,6 +4718,70 @@ export interface components {
             smallest_disk_mb?: number;
             smallest_disk_host?: string;
             disk_known?: boolean;
+            tmpfs_plan?: components["schemas"]["TmpfsPlan"];
+        };
+        /** @description What a pool's automatic in-memory folders come to on its hosts, and what would change it. Present only for a pool that keeps a folder in memory with `auto`, the setting that decides per host and so needs saying per host. It informs; every change is the operator's. The same figures are in the `pool.tmpfs_auto_on_disk` problem's fix. */
+        TmpfsPlan: {
+            /** @description What a runner of the pool is given on each host that mounts the folders. */
+            hosts?: {
+                host?: string;
+                /**
+                 * Format: int64
+                 * @description The memory limit a runner is given there.
+                 */
+                runner_mb?: number;
+                /**
+                 * Format: int64
+                 * @description The sidecar's
+                 */
+                daemon_mb?: number;
+                folders?: {
+                    /** @example work folder */
+                    name?: string;
+                    /**
+                     * Format: int64
+                     * @description What the folder is asked for there.
+                     */
+                    ask_mb?: number;
+                    /**
+                     * Format: int64
+                     * @description What a runner is given; zero is disk.
+                     */
+                    mb?: number;
+                    auto?: boolean;
+                }[];
+            }[];
+            /** @description How many folder placements across the hosts are in memory. */
+            in_memory?: number;
+            /** @description How many folder placements there are. */
+            total?: number;
+            /** @description A daemon share (`resources.daemon_share_percent`) that would put more folders in memory without losing a runner. Absent when none does, which is usual: moving a share raises what a thinner half is charged and costs runners. */
+            share?: {
+                percent?: number;
+                /** @description Folder placements in memory at this share. */
+                in_memory?: number;
+                /** @description The same at the pool's. */
+                now?: number;
+                runners?: number;
+                runners_now?: number;
+            };
+            /** @description Per host where the work folder is on disk, the runner size at which it would be in memory. */
+            sizes?: {
+                host?: string;
+                /**
+                 * Format: int64
+                 * @description The runner memory
+                 */
+                memory_mb?: number;
+                /** @description The slots the host would hold at that size. */
+                slots?: number;
+                slots_now?: number;
+                /**
+                 * @description What changes the runner's size for this pool: `standard`, the host's standard runner size in its runner profile, for a pool that takes its size from its hosts; or `capacity`, the host's slot count, for a pool sized by a slot's share, where fewer slots are bigger ones.
+                 * @enum {string}
+                 */
+                lever?: "standard" | "capacity";
+            }[];
         };
         /** @description One row of the runner image catalogue. */
         PoolPlatform: {
