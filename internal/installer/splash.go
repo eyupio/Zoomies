@@ -11,30 +11,30 @@ import (
 	"golang.org/x/term"
 )
 
-// UpgradeSplash is a short ASCII dog animation beneath the Zoomies wordmark. It finishes
+// Splash is a short illuminated Zoomies banner. It finishes
 // before deployment output or prompts begin, so it cannot erase a finding or
 // consume an answer. Redirected output never receives animation controls.
-func UpgradeSplash(ctx context.Context, out io.Writer) error {
+func Splash(ctx context.Context, out io.Writer, action string) error {
 	ui := PaletteFor(out)
 	if !splashAllowed(ui) {
 		return nil
 	}
 	if f, ok := out.(*os.File); ok {
-		if width, height, err := term.GetSize(int(f.Fd())); err != nil || width < 32 || height < splashLines+2 {
+		if width, height, err := term.GetSize(int(f.Fd())); err != nil || width < 45 || height < splashLines+2 {
 			return nil
 		}
 	}
-	return animateUpgradeSplash(ctx, out, ui, 120*time.Millisecond)
+	return animateSplash(ctx, out, ui, action, 40*time.Millisecond)
 }
 
 func splashAllowed(ui Palette) bool {
-	if !ui.On || os.Getenv("TERM") == "dumb" {
+	if !ui.On || os.Getenv("TERM") == "dumb" || os.Getenv("CI") != "" {
 		return false
 	}
 	return strings.TrimSpace(os.Getenv("ZOOMIES_NO_ANIMATION")) == ""
 }
 
-func animateUpgradeSplash(ctx context.Context, out io.Writer, ui Palette, interval time.Duration) error {
+func animateSplash(ctx context.Context, out io.Writer, ui Palette, action string, interval time.Duration) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -43,8 +43,8 @@ func animateUpgradeSplash(ctx context.Context, out io.Writer, ui Palette, interv
 		return err
 	}
 	defer fmt.Fprint(out, splashClear)
-	for step := range 20 {
-		if _, err := fmt.Fprint(out, "\r\x1b[9A", splashFrame(step, ui)); err != nil {
+	for step := range splashFrames {
+		if _, err := fmt.Fprint(out, fmt.Sprintf("\r\x1b[%dA", splashLines-1), splashFrame(step, ui, action)); err != nil {
 			return err
 		}
 		if err := ctx.Err(); err != nil {
@@ -61,46 +61,79 @@ func animateUpgradeSplash(ctx context.Context, out io.Writer, ui Palette, interv
 	return nil
 }
 
-const splashLines = 10
+const (
+	splashLines  = 7
+	splashFrames = 80 // Reveal, highlight sweep, then a one-second hold.
+)
 
 var splashClear = "\r\x1b[2K" + strings.Repeat("\x1b[1A\r\x1b[2K", splashLines-1)
 
-// Hand-drawn frames retain a recognisable floppy ear and long muzzle while
-// the legs cycle, the tail wags and the head sways. ASCII avoids emoji widths
-// and different platform glyphs changing the mascot's appearance.
-func splashFrame(step int, ui Palette) string {
-	legs := []string{` / /  \ \`, ` / |  | \`, ` \ \  / /`, ` | \  / |`}
-	dog := []string{
-		`     / \__`,
-		`    (    o\___`,
-		`     /        O`,
-		` ___/   (_____/`,
-		`/          /`,
-		`\___/\____/`,
-		legs[step%len(legs)],
-	}
-	if step%4 >= 2 {
-		dog[4] = `~          /`
-	}
-	if step >= 16 {
-		dog[1] = `    (    ^\___`
-	}
-	caption := "Squirrel detected."
-	if step >= 6 {
-		caption = "Zoomies engaged."
-	}
-	if step >= 14 {
-		caption = "Good dog. Let's upgrade."
-	}
-	lines := []string{"  " + ui.Accent("zoomies") + "  " + ui.Dim("/ upgrade"), ""}
-	indent := strings.Repeat(" ", 2+min(step/2, 6))
-	// A slight head sway gives the gait movement beyond the sliding body.
-	for i, line := range dog {
-		if step%4 >= 2 && i < 4 {
-			line = " " + line
+// Five-row block lettering keeps the banner readable at ordinary terminal
+// sizes. Each block occupies one terminal column.
+var splashLetters = map[rune][5]string{
+	'Z': {"█████", "   █ ", "  █  ", " █   ", "█████"},
+	'O': {" ███ ", "█   █", "█   █", "█   █", " ███ "},
+	'M': {"█   █", "██ ██", "█ █ █", "█   █", "█   █"},
+	'I': {"█████", "  █  ", "  █  ", "  █  ", "█████"},
+	'E': {"█████", "█    ", "████ ", "█    ", "█████"},
+	'S': {" ████", "█    ", " ███ ", "    █", "████ "},
+}
+
+func splashFrame(step int, ui Palette, action string) string {
+	lines := make([]string, 0, splashLines)
+	for row := range 5 {
+		var parts []string
+		for _, letter := range "ZOOMIES" {
+			parts = append(parts, splashLetters[letter][row])
 		}
-		lines = append(lines, indent+ui.Bold(line))
+		var line strings.Builder
+		line.WriteString("  ")
+		for x, cell := range []rune(strings.Join(parts, " ")) {
+			if cell == ' ' {
+				line.WriteByte(' ')
+			} else {
+				line.WriteString(ui.paint(splashColour(step*40, x, row), string(cell)))
+			}
+		}
+		lines = append(lines, line.String())
 	}
-	lines = append(lines, "  "+ui.Dim(caption))
+	lines = append(lines, "", "  "+ui.Dim("Ready. Set. "+action+"."))
 	return "\x1b[2K" + strings.Join(lines, "\n\r\x1b[2K")
+}
+
+// Use exact brand colours on true-colour terminals, with 256- and 16-colour
+// fallbacks. The sweep advances by columns, so there is no layout movement.
+func splashColour(ms, x, row int) string {
+	colour := 0
+	if x >= 14 {
+		colour = 1
+	}
+	if x >= 28 {
+		colour = 2
+	}
+	if ms < 1050 && x*18 > ms-150 {
+		colour = 3
+	}
+	if ms >= 1100 && ms < 2200 {
+		distance := float64(x) - (float64(ms-1100)/19 - float64(row)*0.7)
+		if distance < 0 {
+			distance = -distance
+		}
+		if distance < 4.8 {
+			colour = 4
+		}
+		if distance < 2.1 {
+			colour = 5
+		}
+	}
+	trueColours := [...]string{"38;2;47;128;237", "38;2;34;184;237", "38;2;34;211;238", "38;2;35;48;62", "38;2;142;234;250", "38;2;240;252;255"}
+	colours256 := [...]string{"38;5;33", "38;5;39", "38;5;45", "38;5;238", "38;5;123", "38;5;195"}
+	colours16 := [...]string{"34", "36", "96", "90", "96", "97"}
+	if ct := os.Getenv("COLORTERM"); ct == "truecolor" || ct == "24bit" {
+		return trueColours[colour]
+	}
+	if strings.Contains(os.Getenv("TERM"), "256color") {
+		return colours256[colour]
+	}
+	return colours16[colour]
 }

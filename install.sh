@@ -158,8 +158,7 @@ field() { k="$1"; shift; printf '%s      %-12s%s%s\n' "$C_DIM" "$k" "$*" "$C_RES
 # always got, and every animated byte is spent only where a person is watching.
 # ---------------------------------------------------------------------------
 
-# Whether the locale can render the multibyte paw. The banner makes the same
-# downgrade for the same reason: mojibake where the mark should be.
+# Whether the locale can render the loader's multibyte paw.
 anim_ready() {
     case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
         *UTF-8*|*utf8*|*UTF8*|*utf-8*) return 0 ;;
@@ -176,9 +175,9 @@ _cur_on()  { [ "$Z_ANIM" -eq 1 ] && printf '\033[?25h'; return 0; }
 init_motion() {
     Z_ANIM=0
     if anim_ready; then
-        _RUNNER='🐾'; _RD=2; _DASH_MARK='🐾'
+        _RUNNER='🐾'; _RD=2
     else
-        _RUNNER='[paw]'; _RD=5; _DASH_MARK='[paw]'
+        _RUNNER='[paw]'; _RD=5
     fi
     _W=32
     if [ "$NO_ANIM" -eq 1 ] || [ -n "${ZOOMIES_NO_ANIMATION:-}" ]; then
@@ -286,64 +285,6 @@ pulse() {
     return 0
 }
 
-# A tiny arrival before the permanent banner. UTF-8 terminals get the paw mark;
-# the portable fallback spells it out instead of attempting ambiguous face art.
-# Six frames take less than a quarter of a second: enough to feel alive, never
-# enough to make a quick local install feel slower.
-brand_dash() {
-    [ "$Z_ANIM" -eq 1 ] || return 0
-    _cur_off
-    for _bp in 0 4 8 12 16 20; do
-        _i=0; _pad=''
-        while [ "$_i" -lt "$_bp" ]; do _pad="$_pad "; _i=$((_i + 1)); done
-        printf '\r\033[K  %s~~~~%s%s%s%s%s' \
-            "$C_DIM" "$C_RESET" "$_pad" "$C_ACCENT" "$_DASH_MARK" "$C_RESET"
-        sleep 0.035
-    done
-    printf '\r\033[K'
-    _cur_on
-    return 0
-}
-
-# Pace the one-shot banner reveal without making the static path sleep.
-brand_beat() { [ "$Z_ANIM" -eq 1 ] && sleep 0.045; return 0; }
-
-# The dog skids to a stop and sits as the install hands off. A moving dog is a
-# courtesy while work happens; a dog that has arrived is the payoff.
-finale() {
-    [ "$Z_ANIM" -eq 1 ] || return 0
-    fin_ver=$1
-    _cur_off
-    _fr=0
-    while [ "$_fr" -lt 11 ]; do
-        _sp=$((_fr * 3))
-        _i=0; _pad=""
-        while [ "$_i" -lt "$_sp" ]; do _pad="$_pad "; _i=$((_i + 1)); done
-        _wl=$((24 - _fr * 3)); [ "$_wl" -lt 0 ] && _wl=0
-        _k=0; _w=""
-        while [ "$_k" -lt "$_wl" ]; do _w="$_w~"; _k=$((_k + 1)); done
-        printf '\r\033[K  %s%s%s%s%s%s%s' \
-            "$C_DIM" "$_w" "$C_RESET" "$C_ACCENT" "$_pad" "$_RUNNER" "$C_RESET"
-        _fr=$((_fr + 1))
-        sleep 0.04
-    done
-    printf '\r\033[K'
-    _cur_on
-    printf '%s        ▄██▄     ▄██▄%s\n' "$C_ACCENT" "$C_RESET"
-    printf '%s       ██████   ██████%s  %s%s%s is installed.\n' \
-        "$C_ACCENT" "$C_RESET" "$C_BOLD" "$fin_ver" "$C_RESET"
-    printf '%s  ▄██▄ ██████   ██████ ▄██▄%s  %snext: zoomies init%s\n' \
-        "$C_ACCENT" "$C_RESET" "$C_DIM" "$C_RESET"
-    printf '%s █████  ▀██▀     ▀██▀  █████%s\n' "$C_ACCENT" "$C_RESET"
-    printf '%s  ▀██▀      ▄██▄       ▀██▀%s\n' "$C_ACCENT" "$C_RESET"
-    printf '%s         ▄████████▄%s\n' "$C_ACCENT" "$C_RESET"
-    printf '%s       ▄████████████▄%s\n' "$C_ACCENT" "$C_RESET"
-    printf '%s      ████████████████%s\n' "$C_ACCENT" "$C_RESET"
-    printf '%s       ▀████████████▀%s\n' "$C_ACCENT" "$C_RESET"
-    printf '%s          ▀▀██▀▀%s\n' "$C_ACCENT" "$C_RESET"
-    return 0
-}
-
 # preview_all plays the whole set without touching the host, so the art can be
 # judged against a real terminal, font and tmux before it is trusted in an
 # install. It is the reason --preview exists.
@@ -370,45 +311,16 @@ preview_all() {
     pulse 3 "asset still building"
     ok "available now"
     say ""
-    finale "zoomies 1.4.2 (abc1234)"
+    ok "zoomies 1.4.2 is installed"
     say ""
     ok "preview done -- nothing was installed."
 }
 
-# A block-built interpretation of the Zoomies paw: four toe pads and one broad,
-# tapered central pad. The logo's fine speed ring is deliberately omitted at
-# terminal resolution so the paw stays crisp instead of becoming a flat blob.
+# The downloaded binary owns the animated banner for both controller and
+# remote-host setup. Keep bootstrap output compact and play the intro once.
 banner() {
-    printf '\n'
-    brand_dash
-    if anim_ready && [ "${TERM:-dumb}" != "dumb" ]; then
-        printf '%s        ▄██▄     ▄██▄%s\n' "$C_ACCENT" "$C_RESET"; brand_beat
-        printf '%s       ██████   ██████%s          %sZOOMIES%s\n' \
-            "$C_ACCENT" "$C_RESET" "$C_BOLD$C_ACCENT" "$C_RESET"; brand_beat
-        printf '%s  ▄██▄ ██████   ██████ ▄██▄%s   %sSELF-HOSTED GITHUB ACTIONS RUNNERS%s\n' \
-            "$C_ACCENT" "$C_RESET" "$C_BOLD" "$C_RESET"; brand_beat
-        printf '%s █████  ▀██▀     ▀██▀  █████%s   Fast when needed. Gone when done.\n' \
-            "$C_ACCENT" "$C_RESET"; brand_beat
-        printf '%s  ▀██▀      ▄██▄       ▀██▀%s   %soff the lead, on the job.%s\n' \
-            "$C_ACCENT" "$C_RESET" "$C_DIM" "$C_RESET"; brand_beat
-        printf '%s         ▄████████▄%s\n' "$C_ACCENT" "$C_RESET"; brand_beat
-        printf '%s       ▄████████████▄%s\n' "$C_ACCENT" "$C_RESET"; brand_beat
-        printf '%s      ████████████████%s\n' "$C_ACCENT" "$C_RESET"; brand_beat
-        printf '%s       ▀████████████▀%s\n' "$C_ACCENT" "$C_RESET"; brand_beat
-        printf '%s          ▀▀██▀▀%s\n' "$C_ACCENT" "$C_RESET"; brand_beat
-    else
-        printf "%s          .--.    .--.%s\n" "$C_ACCENT" "$C_RESET"
-        printf "%s         (    )  (    )%s        %sZOOMIES%s\n" "$C_ACCENT" "$C_RESET" "$C_BOLD$C_ACCENT" "$C_RESET"
-        printf "%s    .-.  (    )  (    )  .-.%s   %sSELF-HOSTED GITHUB ACTIONS RUNNERS%s\n" "$C_ACCENT" "$C_RESET" "$C_BOLD" "$C_RESET"
-        printf "%s   (   )  '--'    '--'  (   )%s  Fast when needed. Gone when done.\n" "$C_ACCENT" "$C_RESET"
-        printf "%s    '-'      .--.        '-'%s   %soff the lead, on the job.%s\n" "$C_ACCENT" "$C_RESET" "$C_DIM" "$C_RESET"
-        printf "%s           .'    '.%s\n" "$C_ACCENT" "$C_RESET"
-        printf "%s         .'        '.%s\n" "$C_ACCENT" "$C_RESET"
-        printf "%s        (            )%s\n" "$C_ACCENT" "$C_RESET"
-        printf "%s         '.        .'%s\n" "$C_ACCENT" "$C_RESET"
-        printf "%s           '------'%s\n" "$C_ACCENT" "$C_RESET"
-    fi
-    printf '%s       https://github.com/%s%s\n\n' "$C_DIM" "$REPO" "$C_RESET"
+    printf '\n%sZoomies installer%s\n' "$C_BOLD$C_ACCENT" "$C_RESET"
+    printf '%shttps://github.com/%s%s\n\n' "$C_DIM" "$REPO" "$C_RESET"
 }
 
 usage() {
@@ -1348,9 +1260,9 @@ upgrade_run() {
     # that predates a flag would refuse to start on it, and it goes through env
     # because sudo resets the environment.
     if [ -n "$ELEVATE" ] && [ "$OS" = linux ]; then
-        run_privileged env ZOOMIES_NO_SELF_UPDATE=1 "$upgrade_run_binary" "$@"
+        run_privileged env ZOOMIES_NO_SELF_UPDATE=1 ZOOMIES_NO_ANIMATION="${ZOOMIES_NO_ANIMATION:-}" "$upgrade_run_binary" "$@"
     else
-        env ZOOMIES_NO_SELF_UPDATE=1 "$upgrade_run_binary" "$@"
+        env ZOOMIES_NO_SELF_UPDATE=1 ZOOMIES_NO_ANIMATION="${ZOOMIES_NO_ANIMATION:-}" "$upgrade_run_binary" "$@"
     fi
 }
 
@@ -1467,6 +1379,9 @@ run_demo() {
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
+[ "${NO_COLOR+x}" != x ] && [ -z "${CI:-}" ] || NO_ANIM=1
+[ "$NO_ANIM" -eq 0 ] || ZOOMIES_NO_ANIMATION=1
 
 banner
 detect_platform
@@ -1886,11 +1801,6 @@ if [ -n "$ELEVATE" ] && [ "$OS" = linux ]; then
 fi
 
 say ""
-# The dog has arrived. This is the only place the finale runs: --no-init and
-# --uninstall exit above with their own closing line, and only the interactive
-# handoff earns the little skid to a stop before setup takes the lead.
-finale "${NEW_VERSION:-$VERSION}"
-say ""
 if [ -n "$ELEVATE_INIT" ]; then
     step "Handing over to \`$ELEVATE_INIT zoomies init\`"
     note "setup installs a service and writes to /etc/zoomies, so it runs as root --"
@@ -1906,10 +1816,10 @@ say ""
 # bits are readable in plenty of places the open is not.
 if [ "$NON_INTERACTIVE" -eq 0 ] && [ ! -t 0 ] && have_tty; then
     # shellcheck disable=SC2086
-    exec $ELEVATE_INIT "$PREFIX/zoomies" "$@" < /dev/tty
+    exec $ELEVATE_INIT env ZOOMIES_NO_ANIMATION="${ZOOMIES_NO_ANIMATION:-}" "$PREFIX/zoomies" "$@" < /dev/tty
 fi
 # shellcheck disable=SC2086
-exec $ELEVATE_INIT "$PREFIX/zoomies" "$@"
+exec $ELEVATE_INIT env ZOOMIES_NO_ANIMATION="${ZOOMIES_NO_ANIMATION:-}" "$PREFIX/zoomies" "$@"
 }
 
 main "$@"

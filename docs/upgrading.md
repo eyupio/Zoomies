@@ -21,11 +21,21 @@ upgrade both when they share the installed binary. An active native host-health
 reporter using that binary is restarted too. Use `--mode controller` or
 `--mode agent` to select one service explicitly.
 
-At a colour-capable terminal, a brief ASCII dog animation runs beneath the
-Zoomies wordmark, with a running gait, wagging tail and a closing wink before the stages begin. It plays once, including when the command
+At a colour-capable terminal, a block-letter Zoomies banner lights up from
+blue to cyan, catches a bright sweep, then holds briefly before the stages
+begin. The intro lasts about three seconds and plays once, including when the command
 continues in a downloaded binary. Use `--no-animation` or set
 `ZOOMIES_NO_ANIMATION=1` to skip it. `NO_COLOR`, `TERM=dumb`, `--check`,
-`--non-interactive` and redirected output also skip the animation.
+`--non-interactive` and redirected output also skip the animation. Small terminals
+skip it too. True-colour terminals use the brand colours; other terminals use
+256- or 16-colour equivalents.
+
+The same banner welcomes initial controller and remote-host installs through
+`zoomies init`, including `install.sh --mode agent`, and agent template setup
+with `zoomies agent install`. It runs once when the binary takes over setup,
+with the caption “Ready. Set. Install.”. `install.sh --no-animation` carries
+through to setup, including when setup runs via sudo. Answer-file installs stay
+unanimated.
 
 The terminal shows four short stages: **Binary**, **Deployment**, **Verify**
 and **Host health**, followed by the upgrade result. Host health is read-only

@@ -34,6 +34,7 @@ func runInit(ctx context.Context, e *env, args []string) error {
 	port := fs.Int("port", 0, "host port for the controller; 0 asks interactively or uses the detected default")
 	answers := fs.String("answers", "", "a YAML answer file for unattended setup; implies --non-interactive")
 	nonInteractive := fs.Bool("non-interactive", false, "never prompt; a missing answer is an error naming the key")
+	noAnimation := fs.Bool("no-animation", false, "skip the short branded terminal splash")
 	assumeYes := fs.Bool("yes", false, "accept the confirmations that are not destructive")
 	printAnswers := fs.Bool("print-answers", false, "write an annotated example answer file to stdout and exit")
 
@@ -120,6 +121,11 @@ func runInit(ctx context.Context, e *env, args []string) error {
 	})
 	if err != nil {
 		return err
+	}
+	if !*noAnimation && !*nonInteractive && *answers == "" {
+		if err := installer.Splash(ctx, e.out, "Install"); err != nil {
+			return err
+		}
 	}
 	return inst.Run(ctx)
 }
@@ -232,7 +238,7 @@ func runUpgradeNamed(ctx context.Context, e *env, args []string, name string) er
 	ui := installer.PaletteFor(e.out)
 	if os.Getenv("ZOOMIES_UPGRADE_STARTED") == "" {
 		if !*noAnimation && !*nonInteractive && !*check {
-			if err := installer.UpgradeSplash(ctx, e.out); err != nil {
+			if err := installer.Splash(ctx, e.out, "Upgrade"); err != nil {
 				return err
 			}
 		}
