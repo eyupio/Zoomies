@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"time"
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/hosttune"
@@ -24,6 +25,9 @@ func runTune(ctx context.Context, e *env, args []string) error {
 	revert := fs.Bool("revert", false, "restore recorded previous values and files")
 	force := fs.Bool("force", false, "maintenance restart: where a change needs Docker restarted, stop this host's Zoomies services, wait for running jobs to finish (--wait), restart Docker, and start the services again. Never overrides dependency or managed-configuration guards")
 	wait := fs.Duration("wait", hosttune.DefaultMaintenanceWait, "with --force, how long running jobs are given to finish before the restart is given up")
+	background := fs.Bool("background", false, "with --force: do not wait here; start a background task that keeps this host in service and keeps trying until a moment with no containers running, then restarts Docker (it gives up after --give-up-after, and never stops a job)")
+	giveUp := fs.Duration("give-up-after", hosttune.DefaultGiveUp, "with --background or --restart-pending, how long to keep looking for a quiet moment")
+	restartPending := fs.Bool("restart-pending", false, "do nothing but the Docker restart a previous tune left pending, retrying until the host is quiet; this is what --background runs, and can be run in a terminal multiplexer on a host without systemd")
 	killRunning := fs.Bool("kill-running", false, "with --force, stop containers still running when --wait is over and restart Docker anyway, which ends their jobs")
 	cfg := fs.String("config", "", "local Zoomies configuration file")
 	work := fs.String("work-dir", "", "host path to runner work directory")
@@ -37,6 +41,18 @@ func runTune(ctx context.Context, e *env, args []string) error {
 	}
 	if (fs.changed("wait") || *killRunning) && !*force {
 		return usagef("tune", "--wait and --kill-running only apply to a maintenance restart; add --force")
+	}
+	if *background && !*force {
+		return usagef("tune", "--background hands a maintenance restart to a background task; add --force")
+	}
+	if (*background || *restartPending) && (*killRunning || fs.changed("wait")) {
+		return usagef("tune", "a background restart waits for a quiet host and never stops a job, so --kill-running and --wait do not apply to it")
+	}
+	if fs.changed("give-up-after") && !*background && !*restartPending {
+		return usagef("tune", "--give-up-after applies to --background and --restart-pending")
+	}
+	if *restartPending && (*revert || *dedicated || *force || *background || *only != "" || *skip != "") {
+		return usagef("tune", "--restart-pending only restarts Docker for a change already made; it cannot be combined with --revert, --dedicated, --force, --background, --only or --skip")
 	}
 	t, err := tierValue(*tier)
 	if err != nil || t == hosttune.Dedicated {
@@ -74,7 +90,9 @@ func runTune(ctx context.Context, e *env, args []string) error {
 	}
 	ui.Title(e.out, "Host tuning", label+" -- "+action)
 	ui.Hint(e.out, "Every applied change has a reversal record: zoomies tune --revert")
-	err = engine.Tune(ctx, hosttune.TuneOptions{Tier: t, Dedicated: *dedicated, DryRun: *dry, Yes: *yes, Only: hosttune.IDs(*only), Skip: hosttune.IDs(*skip), Revert: *revert, Force: *force, Wait: *wait, KillRunning: *killRunning, In: e.in, Out: e.out, Actor: actor})
+	err = engine.Tune(ctx, hosttune.TuneOptions{Tier: t, Dedicated: *dedicated, DryRun: *dry, Yes: *yes, Only: hosttune.IDs(*only), Skip: hosttune.IDs(*skip), Revert: *revert, Force: *force, Wait: *wait, KillRunning: *killRunning,
+		Background: *background, GiveUp: *giveUp, RestartPending: *restartPending, BackgroundCommand: backgroundCommand(*cfg, *work, *dockerHost, *giveUp),
+		In: e.in, Out: e.out, Actor: actor})
 	if err == nil && !*dry {
 		r := engine.Run(ctx, hosttune.Dedicated)
 		if _, statErr := engine.System.Stat(engine.WorkDir); statErr == nil {
@@ -92,4 +110,21 @@ func runTune(ctx context.Context, e *env, args []string) error {
 		}
 	}
 	return err
+}
+
+// backgroundCommand is what the background task runs: this binary, asked for
+// nothing but the pending restart. It carries the settings that say which host
+// and which Docker, and never --yes, because the task has nothing to approve.
+func backgroundCommand(cfg, work, dockerHost string, giveUp time.Duration) []string {
+	exe, err := os.Executable()
+	if err != nil {
+		exe = "zoomies"
+	}
+	args := []string{exe, "tune", "--restart-pending", "--give-up-after", giveUp.String()}
+	for _, f := range [][2]string{{"--config", cfg}, {"--work-dir", work}, {"--docker-host", dockerHost}} {
+		if f[1] != "" {
+			args = append(args, f[0], f[1])
+		}
+	}
+	return args
 }

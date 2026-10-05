@@ -129,6 +129,16 @@ func TestMaintenanceFlagsNeedTheirParents(t *testing.T) {
 		{"doctor", "--force"},
 		{"doctor", "--interactive", "--kill-running"},
 		{"doctor", "--interactive", "--wait", "5m"},
+		{"tune", "--background"},
+		{"tune", "--give-up-after", "1h"},
+		{"tune", "--force", "--background", "--kill-running"},
+		{"tune", "--force", "--background", "--wait", "5m"},
+		{"tune", "--restart-pending", "--kill-running"},
+		{"tune", "--restart-pending", "--revert"},
+		{"tune", "--restart-pending", "--force"},
+		{"doctor", "--interactive", "--background"},
+		{"doctor", "--interactive", "--force", "--background", "--kill-running"},
+		{"doctor", "--interactive", "--give-up-after", "1h"},
 	} {
 		e, _, errOut := newTestEnv(t)
 		if code := dispatch(context.Background(), e, args); code != exitUsage {

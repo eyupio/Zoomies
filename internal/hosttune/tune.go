@@ -24,10 +24,21 @@ type TuneOptions struct {
 	// out; see MaintenanceOptions. KillRunning without Force does nothing.
 	Wait        time.Duration
 	KillRunning bool
-	Only, Skip  map[string]bool
-	In          io.Reader
-	Out         io.Writer
-	Actor       string
+	// Background, with Force, hands the restart to a background task that keeps
+	// trying until the host is quiet instead of waiting here (RestartWhenSafe);
+	// BackgroundCommand is the command that task runs, which the caller builds
+	// because only it knows where its own binary is. GiveUp is how long the task
+	// keeps trying. RestartPending is that task: it does nothing but the Docker
+	// restart a previous tune left pending, and never reviews or applies anything,
+	// so a task started with approval cannot approve what nobody was asked about.
+	Background        bool
+	BackgroundCommand []string
+	GiveUp            time.Duration
+	RestartPending    bool
+	Only, Skip        map[string]bool
+	In                io.Reader
+	Out               io.Writer
+	Actor             string
 }
 
 func IDs(s string) map[string]bool {
@@ -59,6 +70,9 @@ func (e *Engine) Tune(ctx context.Context, o TuneOptions) error {
 	}
 	if e.UID != 0 {
 		return fmt.Errorf("root is required; review with doctor, then run sudo zoomies tune")
+	}
+	if o.RestartPending {
+		return e.RestartWhenSafe(ctx, WhenSafeOptions{GiveUp: o.GiveUp, Out: o.Out})
 	}
 	for id := range o.Only {
 		if c, ok := e.Check(id); ok && !o.Revert && ((c.Tier == Dedicated && !o.Dedicated) || (c.Tier == Aggressive && o.Tier == Safe && !o.Dedicated)) {
@@ -189,7 +203,17 @@ func (e *Engine) Tune(ctx context.Context, o TuneOptions) error {
 		}
 		restart = s.DockerRestartPending
 	}
-	if restart && !o.DryRun && o.Force {
+	if restart && !o.DryRun && o.Force && o.Background {
+		fmt.Fprintln(o.Out, "Docker needs a restart. New log settings apply to newly created containers.")
+		fmt.Fprintf(o.Out, "Background restart: a task that keeps this host in service and keeps looking for a moment with no containers running, then stops this host's Zoomies services, restarts Docker and starts them again. It gives up after %s and the change stays pending. It never stops a job.\n", giveUp(o.GiveUp))
+		if o.Yes || ask("Start the background task? [y/N] ") {
+			if err := e.StartBackground(ctx, o.BackgroundCommand); err != nil {
+				summarise()
+				return err
+			}
+			fmt.Fprintf(o.Out, "Started %s. Follow it with: journalctl -u %s -f\nStop it with: systemctl stop %s\n", BackgroundUnit, BackgroundUnit, BackgroundUnit)
+		}
+	} else if restart && !o.DryRun && o.Force {
 		fmt.Fprintln(o.Out, "Docker needs a restart. New log settings apply to newly created containers.")
 		fmt.Fprintf(o.Out, "Maintenance restart: stop this host's Zoomies services so nothing new starts, wait up to %s for running jobs to finish, restart Docker, then start the services again.\n", maintenanceWait(o.Wait))
 		if o.KillRunning {
@@ -218,6 +242,14 @@ func (e *Engine) Tune(ctx context.Context, o TuneOptions) error {
 	}
 	summarise()
 	return nil
+}
+
+// giveUp is what an unset GiveUp means, said the same way everywhere.
+func giveUp(d time.Duration) time.Duration {
+	if d <= 0 {
+		return DefaultGiveUp
+	}
+	return d
 }
 
 // maintenanceWait is what an unset Wait means, said the same way everywhere.

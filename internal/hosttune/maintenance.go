@@ -2,11 +2,17 @@ package hosttune
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
 	"time"
 )
+
+// ErrHostBusy is a restart that did not happen because containers were still
+// running. It is the one failure that is only a matter of time, which is what
+// lets RestartWhenSafe retry it and nothing else.
+var ErrHostBusy = errors.New("host busy")
 
 // A change to the Docker daemon's configuration takes effect when the daemon
 // restarts, and restarting it ends every container it is running: a runner's job
@@ -135,8 +141,8 @@ func (e *Engine) MaintainDocker(ctx context.Context, o MaintenanceOptions) (err 
 	}
 	if len(running) > 0 {
 		if !o.KillRunning {
-			return fmt.Errorf("%d container(s) were still running after %s, so Docker was not restarted and its change stays pending; "+
-				"run again when the host is quieter, or add --kill-running to stop them", len(running), o.Wait)
+			return fmt.Errorf("%w: %d container(s) were still running after %s, so Docker was not restarted and its change stays pending; "+
+				"run again when the host is quieter, or add --kill-running to stop them", ErrHostBusy, len(running), o.Wait)
 		}
 		fmt.Fprintf(o.Out, "Stopping %d container(s) still running, as asked: %s\n", len(running), strings.Join(running, " "))
 		if _, serr := command(ctx, e, "docker", append([]string{"stop"}, running...)...); serr != nil {
@@ -184,4 +190,106 @@ func (e *Engine) runningContainers(ctx context.Context) ([]string, error) {
 		return nil, fmt.Errorf("cannot check running containers, so Docker is not restarted")
 	}
 	return strings.Fields(v), nil
+}
+
+// WhenSafeOptions is how RestartWhenSafe goes about waiting for a quiet host.
+type WhenSafeOptions struct {
+	// GiveUp is how long to keep trying. Zero is DefaultGiveUp.
+	GiveUp time.Duration
+	// Poll is how often to look for a quiet host; Settle is how long the brief
+	// out-of-service window is given to confirm it. Both are for tests as much
+	// as for operators.
+	Poll, Settle time.Duration
+	Sleep        func(context.Context, time.Duration)
+	Out          io.Writer
+}
+
+// DefaultGiveUp is a day: long enough for a host with a quiet night, short enough
+// that a background task nobody remembers does not run for ever.
+const DefaultGiveUp = 24 * time.Hour
+
+// RestartWhenSafe keeps trying to restart Docker until the host is quiet, and
+// leaves the host in service while it waits.
+//
+// That is the difference from MaintainDocker, which takes the host out of service
+// and waits for the work to drain. On a host that is busy for hours, draining is
+// hours of queued jobs; waiting for the gaps that ephemeral runners leave between
+// jobs costs nothing until one appears. When it does, the host is taken out of
+// service for as long as the restart needs, a job that arrived in that moment puts
+// everything back and the loop carries on, and nothing is ever stopped to make
+// room. It restarts only what a previous tune left pending, and does nothing when
+// nothing is.
+func (e *Engine) RestartWhenSafe(ctx context.Context, o WhenSafeOptions) error {
+	if o.Out == nil {
+		o.Out = io.Discard
+	}
+	if o.GiveUp <= 0 {
+		o.GiveUp = DefaultGiveUp
+	}
+	if o.Poll <= 0 {
+		o.Poll = 30 * time.Second
+	}
+	if o.Settle <= 0 {
+		o.Settle = 30 * time.Second
+	}
+	if o.Sleep == nil {
+		o.Sleep = sleepCtx
+	}
+	attempts := max(int(o.GiveUp/o.Poll), 1)
+	for i := 0; i < attempts; i++ {
+		s, err := e.LoadState()
+		if err != nil {
+			return err
+		}
+		if !s.DockerRestartPending {
+			fmt.Fprintln(o.Out, "No Docker restart is pending.")
+			return nil
+		}
+		running, err := e.runningContainers(ctx)
+		if err != nil {
+			return err
+		}
+		if len(running) == 0 {
+			fmt.Fprintln(o.Out, "The host is quiet; restarting Docker.")
+			err := e.MaintainDocker(ctx, MaintenanceOptions{Wait: o.Settle, Poll: min(o.Poll, o.Settle), Out: o.Out, Sleep: o.Sleep})
+			if err == nil {
+				return nil
+			}
+			if !errors.Is(err, ErrHostBusy) {
+				return err
+			}
+			fmt.Fprintln(o.Out, "A job started in that moment; the host is back in service and the restart will be tried again.")
+		} else if i%20 == 0 {
+			// Said now and then, not at every poll: a day of "still busy" is a log
+			// nobody reads.
+			fmt.Fprintf(o.Out, "Waiting for a quiet moment: %d container(s) running.\n", len(running))
+		}
+		o.Sleep(ctx, o.Poll)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+	}
+	return fmt.Errorf("%w: no quiet moment in %s, so Docker was not restarted; its change stays pending and the next tune can try again", ErrHostBusy, o.GiveUp)
+}
+
+// BackgroundUnit is the transient unit a background restart runs as. One name, so
+// a second request while one is waiting is refused instead of started beside it.
+const BackgroundUnit = "zoomies-docker-restart.service"
+
+// StartBackground runs a command as a transient systemd unit of its own, which is
+// the only way it can outlive both the terminal and the services it will stop: a
+// child of zoomies-agent.service would be stopped with it.
+func (e *Engine) StartBackground(ctx context.Context, args []string) error {
+	if _, err := e.System.Stat("/run/systemd/system"); err != nil {
+		return fmt.Errorf("this host does not run systemd, so there is nowhere to keep a background task; run `zoomies tune --restart-pending` in a terminal multiplexer instead")
+	}
+	if v, err := command(ctx, e, "systemctl", "is-active", BackgroundUnit); err == nil && strings.TrimSpace(v) == "active" {
+		return fmt.Errorf("a background restart is already waiting (%s); follow it with: journalctl -u %s -f", BackgroundUnit, BackgroundUnit)
+	}
+	run := append([]string{"--quiet", "--collect", "--unit", strings.TrimSuffix(BackgroundUnit, ".service"),
+		"--description", "Restart Docker for a Zoomies host tuning change, when the host is quiet"}, args...)
+	if _, err := command(ctx, e, "systemd-run", run...); err != nil {
+		return fmt.Errorf("could not start the background task: %w", err)
+	}
+	return nil
 }
