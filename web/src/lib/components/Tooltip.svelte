@@ -19,6 +19,8 @@
      */
     content?: Snippet;
     placement?: 'top' | 'bottom' | 'left' | 'right';
+    /** A card with figures and rows in it wants more room than a sentence does. */
+    wide?: boolean;
     class?: string;
     children: Snippet;
   }
@@ -27,6 +29,7 @@
     text,
     content,
     placement = 'top',
+    wide = false,
     class: className = '',
     children,
     open = $bindable(false),
@@ -161,7 +164,13 @@
   {@render children()}
   <span class="sr-only" id={descriptionId}>{text}</span>
   {#if open}
-    <span bind:this={bubble} class="bubble" popover="manual" role="presentation" aria-hidden="true"
+    <span
+      bind:this={bubble}
+      class="bubble"
+      class:wide
+      popover="manual"
+      role="presentation"
+      aria-hidden="true"
       >{#if content}{@render content()}{:else}{text}{/if}</span
     >
   {/if}
@@ -193,5 +202,8 @@
     white-space: normal;
     width: max-content;
     pointer-events: none;
+  }
+  .bubble.wide {
+    max-width: min(360px, calc(100vw - var(--z-space-4)));
   }
 </style>

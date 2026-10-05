@@ -28,6 +28,8 @@
     allocatedCpus?: number;
     allocatedMemoryMb?: number;
     allocationSource?: string;
+    /** Memory the valve has lent it since it was created: part of what it may hold now, and never taken back. */
+    lentMemoryMb?: number;
     /** The throttle its host is on, if any: it is what the CPU quota is running under. */
     hostThrottle?: HostThrottle | null;
     /** The backend its pool runs on. A `process` runner has no container, so no quota for a throttle to lower. */
@@ -42,6 +44,7 @@
     allocatedCpus,
     allocatedMemoryMb,
     allocationSource,
+    lentMemoryMb,
     hostThrottle,
     backend,
     class: className = '',
@@ -50,7 +53,11 @@
   // The runner's own allocation wins over the pool's current limits: it is
   // what the container was given, and the pool may have changed since.
   const cpuLimit = $derived(allocatedCpus || limits?.cpus || 0);
-  const memoryLimit = $derived(allocatedMemoryMb || limits?.memory_mb || 0);
+  const lent = $derived(Math.max(lentMemoryMb ?? 0, 0));
+  // What it was created with plus what it has been lent, because the limit its
+  // container holds now is both: a bar measured against the smaller would show a
+  // runner past its limit that the kernel has not stopped.
+  const memoryLimit = $derived((allocatedMemoryMb || limits?.memory_mb || 0) + lent);
 
   const cpuCeiling = $derived(cpuLimit > 0 ? cpuLimit * 100 : 100);
   const cpuShare = $derived(ratio((cpuPercent ?? 0) / cpuCeiling));
@@ -103,7 +110,9 @@
         {hasMemory ? formatBytes(memoryBytes ?? 0) : 'Not reported'}
       </span>
       <span class="ceiling">
-        {memoryCeiling > 0 ? `of ${formatMegabytes(memoryLimit)} allowed` : 'no limit set'}
+        {memoryCeiling > 0
+          ? `of ${formatMegabytes(memoryLimit)} allowed${lent > 0 ? `, ${formatMegabytes(lent)} of it lent` : ''}`
+          : 'no limit set'}
       </span>
       {#if hasMemory && memoryCeiling > 0}
         <div class="track" aria-hidden="true">
