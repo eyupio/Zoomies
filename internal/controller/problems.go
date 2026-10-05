@@ -53,6 +53,12 @@ type Problem struct {
 	// are carried apart from the prose so the UI can put the change one click
 	// away rather than leaving an operator to find the pool's edit form.
 	Alternatives []string `json:"alternatives,omitempty"`
+	// DaemonShare is the change pool.daemon_share_suggested proposes, carried
+	// apart from the prose for the same reason: an operator who is told a
+	// number should be able to make the change with one click, and a UI that had
+	// to parse "--daemon-cpu-share 20" out of a sentence would be one reworded
+	// sentence from applying the wrong figure.
+	DaemonShare *DaemonShareChange `json:"daemon_share,omitempty"`
 	// Since is when the situation started, where that is knowable.
 	Since *time.Time `json:"since,omitempty"`
 	// Audience is whose problem this is. It is filled in by Problems() from
@@ -61,6 +67,15 @@ type Problem struct {
 	// at the site, which is the drift the settings registry exists to
 	// prevent.
 	Audience Audience `json:"audience"`
+}
+
+// DaemonShareChange is a pool's Docker sidecar share, as a percentage of the
+// slot, for each resource a notice proposes moving. A resource it leaves out is
+// one the notice has no advice for, or advice that would cost the pool its
+// runners, and applying the change leaves that share where it is.
+type DaemonShareChange struct {
+	CPUPercent    int `json:"cpu_percent,omitempty"`
+	MemoryPercent int `json:"memory_percent,omitempty"`
 }
 
 // Audience says which of an instance's two audiences a problem is for.
