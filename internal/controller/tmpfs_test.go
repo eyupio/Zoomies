@@ -604,7 +604,7 @@ func TestAutomaticFoldersOnDiskAreSaidAsInformation(t *testing.T) {
 		Tmpfs: store.TmpfsConfig{Work: store.TmpfsMount{Enabled: true, Auto: true}, Daemon: store.TmpfsMount{Enabled: true, Auto: true}}}
 	small := PoolHostRoom{Host: "twelve-core", Tmpfs: true, ChargeMemoryMB: 5120}
 	roomy := PoolHostRoom{Host: "big", Tmpfs: true, ChargeMemoryMB: 65536}
-	w, ok := autoKeptOnDisk(pool, []PoolHostRoom{small, roomy})
+	w, ok := autoKeptOnDisk(pool, []PoolHostRoom{small, roomy}, nil)
 	if !ok || w.Code != "pool.tmpfs_auto_on_disk" || w.Severity != config.SeverityInfo {
 		t.Fatalf("warning = %+v, ok = %v", w, ok)
 	}
@@ -618,14 +618,118 @@ func TestAutomaticFoldersOnDiskAreSaidAsInformation(t *testing.T) {
 	// A pool that is not automatic has nothing to say here.
 	manual := *pool
 	manual.Tmpfs = store.TmpfsConfig{Work: store.TmpfsMount{Enabled: true}}
-	if _, ok := autoKeptOnDisk(&manual, []PoolHostRoom{small}); ok {
+	if _, ok := autoKeptOnDisk(&manual, []PoolHostRoom{small}, nil); ok {
 		t.Error("a manual pool was told its folders were put on disk")
 	}
 	// A host's own standard changes what is asked, so what counts as small.
 	big := small
 	big.ChargeMemoryMB = 40960
 	big.TmpfsPolicy = store.HostTmpfs{WorkMB: 4096}
-	if _, ok := autoKeptOnDisk(pool, []PoolHostRoom{big}); ok {
+	if _, ok := autoKeptOnDisk(pool, []PoolHostRoom{big}, nil); ok {
 		t.Error("a 40 GB slot with a 4 GB host standard should have room for the folders")
+	}
+}
+
+// The notice has to say what to do, not only that a folder is on disk: on the
+// fleet that raised this, 6 GB runners split evenly leave the runner 3 GB, and
+// the work folder needs the runner to have 4. The plan works that out per host
+// and the problem says it, with what it costs in slots.
+func TestAnAutomaticFolderOnDiskSaysWhatWouldPutItInMemory(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+	host := &store.Host{
+		Name: "vm-1", Capacity: 4, Backends: store.StringSlice{"docker"}, Labels: store.StringMap{},
+		OS: "linux", Arch: "amd64", CPUs: 12, MemoryMB: 32048, DiskTotalMB: 500 * 1024, DiskFreeMB: 400 * 1024,
+		LastHeartbeat: time.Now(), Features: store.StringSlice{agent.FeatureTmpfs},
+		RunnerProfile: store.RunnerProfile{
+			Minimum:  store.RunnerSize{CPUs: 1, MemoryMB: 2048},
+			Standard: store.RunnerStandard{CPUs: 2, MemoryMB: 6144},
+		},
+	}
+	if err := h.st.CreateHost(h.ctx, host); err != nil {
+		t.Fatal(err)
+	}
+	pool.DockerMode = store.DockerDinD
+	pool.SizeFromProfile = true
+	pool.Resources = store.Resources{MinCPUs: 1, MinMemoryMB: 2048}
+	pool.Tmpfs = store.TmpfsConfig{
+		Work: store.TmpfsMount{Enabled: true, Auto: true},
+		Tmp:  store.TmpfsMount{Enabled: true, Auto: true},
+	}
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+
+	room, err := h.c.PoolRoom(h.ctx, pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := room.TmpfsPlan
+	if plan == nil || len(plan.Hosts) != 1 || plan.InMemory != 0 || plan.Total != 2 {
+		t.Fatalf("plan = %+v; want one host with both folders on disk", plan)
+	}
+	if len(plan.Sizes) != 1 || plan.Sizes[0].MemoryMB != 8192 || plan.Sizes[0].Host != host.Name {
+		t.Fatalf("sizes = %+v; want 8 GB on %s, the runner at which the work folder fits", plan.Sizes, host.Name)
+	}
+	if plan.Sizes[0].Lever != "standard" {
+		t.Errorf("lever = %q; a pool that takes its size from the host profile is changed there", plan.Sizes[0].Lever)
+	}
+	if plan.Sizes[0].Slots < 1 || plan.Sizes[0].Slots > plan.Sizes[0].SlotsNow {
+		t.Errorf("slots = %+v; an 8 GB runner cannot leave more slots than 6 GB did", plan.Sizes[0])
+	}
+	if plan.Share != nil && plan.Share.InMemory <= plan.Share.Now {
+		t.Errorf("share = %+v; a share is only offered if it puts more in memory", plan.Share)
+	}
+
+	p := h.problemOrNil("pool.tmpfs_auto_on_disk")
+	if p == nil {
+		t.Fatal("no pool.tmpfs_auto_on_disk problem")
+	}
+	// A share that would cost runners is not offered: at 6 GB runners every share
+	// that puts the folder in memory raises the slot and loses most of the fleet.
+	if plan.Share != nil && plan.Share.Runners < plan.Share.RunnersNow {
+		t.Errorf("share = %+v; a share that loses runners must not be offered", plan.Share)
+	}
+	for _, want := range []string{"standard runner memory", "--standard-memory-mb", host.Name, "8 GB"} {
+		if !strings.Contains(p.Fix, want) {
+			t.Errorf("fix %q does not say %q", p.Fix, want)
+		}
+	}
+}
+
+// A pool sized by a slot's share of the machine has no standard to raise: its
+// runners are bigger when the host has fewer slots, so that is the lever named.
+func TestAPoolSizedBySlotShareIsToldToLowerCapacity(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "linux-x64")
+	host := &store.Host{
+		Name: "vm-8", Capacity: 8, Backends: store.StringSlice{"docker"}, Labels: store.StringMap{},
+		OS: "linux", Arch: "amd64", CPUs: 16, MemoryMB: 32048, DiskTotalMB: 500 * 1024, DiskFreeMB: 400 * 1024,
+		LastHeartbeat: time.Now(), Features: store.StringSlice{agent.FeatureTmpfs},
+	}
+	if err := h.st.CreateHost(h.ctx, host); err != nil {
+		t.Fatal(err)
+	}
+	pool.DockerMode = store.DockerDinD
+	pool.Tmpfs = store.TmpfsConfig{Work: store.TmpfsMount{Enabled: true, Auto: true}}
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	room, err := h.c.PoolRoom(h.ctx, pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if room.TmpfsPlan == nil || len(room.TmpfsPlan.Sizes) != 1 {
+		t.Fatalf("plan = %+v; want one size option", room.TmpfsPlan)
+	}
+	o := room.TmpfsPlan.Sizes[0]
+	if o.Lever != "capacity" || o.Slots >= o.SlotsNow {
+		t.Fatalf("option = %+v; want fewer slots as the lever", o)
+	}
+	p := h.problemOrNil("pool.tmpfs_auto_on_disk")
+	if p == nil || !strings.Contains(p.Fix, "--capacity") || strings.Contains(p.Fix, "--standard-memory-mb") {
+		t.Fatalf("problem = %+v; want capacity named and no standard size", p)
 	}
 }

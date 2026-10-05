@@ -1304,6 +1304,11 @@ test('in-memory folders are Auto by default, and Auto says it keeps a folder on 
   await expect(page.getByRole('radio', { name: /^Auto/ })).toBeChecked();
   await page.getByRole('checkbox', { name: 'Keep the work folder in memory' }).check();
   await page.getByRole('checkbox', { name: 'Keep /tmp in memory as well' }).check();
+  // And Auto says what it comes to on the fleet's hosts, per host, so the answer
+  // to "where did my folders go" is on the page that asked for them.
+  const plan = page.getByTestId('tmpfs-plan');
+  await expect(plan).toBeVisible();
+  await expect(plan).toContainText(/Auto puts/);
   // No "raise the limit" callout under Auto, where the same folders under Always
   // would raise one.
   await expect(page.getByText('Raise the memory limit to')).toHaveCount(0);
