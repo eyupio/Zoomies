@@ -128,7 +128,13 @@ func TestSamplesFromBeforeAShareWasChangedAreIgnored(t *testing.T) {
 // clears when the pool's daemon is given the share.
 func TestASqueezedSidecarShowsUpAsAStandingProblemUntilTheShareMoves(t *testing.T) {
 	h := newHarness(t)
-	_, pool, _ := h.fleet()
+	_, pool, host := h.fleet()
+	// One slot to a machine, so that a lopsided share is one the host can carry:
+	// the notice does not propose what would cost the pool its runners.
+	host.Capacity = 1
+	if err := h.st.UpdateHost(h.ctx, host); err != nil {
+		t.Fatal(err)
+	}
 	pool.DockerMode = store.DockerDinD
 	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
 		t.Fatal(err)
@@ -238,5 +244,87 @@ func TestAPoolTheControllerKeepsIsNotAdvisedOnHowItDividesItsSlot(t *testing.T) 
 	}
 	if p := h.problemOrNil("pool.daemon_share_suggested"); p != nil {
 		t.Fatalf("a pool the controller keeps was advised to change a setting it has not got: %+v", p)
+	}
+}
+
+// squeezedRunnerPool is a Docker-in-Docker pool whose runner is flat out while its
+// sidecar idles, on hosts of the given size with one slot each: the pool in the
+// report this is written from, a 35% sidecar on four-core machines. Heartbeats
+// carry the limits that division gives a slot of that size.
+func squeezedRunnerPool(t *testing.T, hostCPUs int) (*harness, *store.Pool) {
+	t.Helper()
+	h := newHarness(t)
+	inst := h.installation()
+	pool := h.pool(inst, "builders")
+	pool.DockerMode = store.DockerDinD
+	pool.Resources.MinCPUs = 1
+	pool.Resources.DaemonCPUSharePercent = 35
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 4; i++ {
+		h.measuredHost(fmt.Sprintf("build-%d", i), hostCPUs, 32768, 1, enforcesEverything)
+	}
+	slot := float64(hostCPUs) - 0.5
+	now := h.c.Now()
+	for i := 0; i < 100; i++ {
+		halves := backend.PairHalves{
+			Runner: backend.HalfUse{CPULimit: slot * 0.65, CPUs: slot * 0.65, MemoryLimit: 4 * gib, MemoryBytes: gib / 4},
+			Daemon: backend.HalfUse{CPULimit: slot * 0.35, CPUs: 0.05, MemoryLimit: 4 * gib, MemoryBytes: gib / 4},
+		}
+		r := &store.Runner{ID: fmt.Sprintf("run-%d", i%5), PoolID: pool.ID, AllocationSource: store.AllocationFromHost}
+		h.c.observePair(r, backend.Stats{SampledAt: &now, Halves: &halves})
+	}
+	return h, pool
+}
+
+// The share that the use points at is not advice if taking it costs the pool its
+// hosts: a sidecar held to the pool's smallest runner at 10% is a request for a
+// slot ten times that, and four-core machines have none. The notice said so only
+// after the operator had made the change, in a warning about the same pool.
+func TestAShareThatWouldCostTheFleetItsRunnersIsNotProposed(t *testing.T) {
+	h, pool := squeezedRunnerPool(t, 4)
+	before, err := h.c.poolRoom(h.ctx, pool)
+	if err != nil || before.Runners == 0 {
+		t.Fatalf("the pool has room for %d runners (%v); the case needs a fleet that runs it today", before.Runners, err)
+	}
+	p := h.problemOrNil("pool.daemon_share_suggested")
+	if p == nil {
+		t.Fatal("no notice: the squeeze is real and an operator told nothing cannot know the share was priced")
+	}
+	if strings.Contains(p.Fix, "--daemon-cpu-share") || strings.Contains(p.Fix, "--daemon-share") {
+		t.Errorf("fix %q proposes a share that costs runners", p.Fix)
+	}
+	for _, want := range []string{"would leave its hosts room for", "smallest runner"} {
+		if !strings.Contains(p.Detail+" "+p.Fix, want) {
+			t.Errorf("notice %q / %q does not say %q", p.Detail, p.Fix, want)
+		}
+	}
+}
+
+// Somewhere between the share the use points at and the one the pool has is one
+// the hosts can carry, and that is the one to offer.
+func TestAShareIsBroughtBackToOneTheHostsCanCarry(t *testing.T) {
+	h, pool := squeezedRunnerPool(t, 6)
+	p := h.problemOrNil("pool.daemon_share_suggested")
+	if p == nil {
+		t.Fatal("no notice")
+	}
+	if !strings.Contains(p.Fix, "--daemon-cpu-share 20") {
+		t.Fatalf("fix %q: want the 20%% that a 5.5-core slot can carry, not the 10%% it cannot", p.Fix)
+	}
+
+	// And taking it loses no runner.
+	before, err := h.c.poolRoom(h.ctx, pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool.Resources.DaemonCPUSharePercent = 20
+	after, err := h.c.poolRoom(h.ctx, pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Runners < before.Runners {
+		t.Errorf("the proposed share leaves room for %d runners, down from %d", after.Runners, before.Runners)
 	}
 }
