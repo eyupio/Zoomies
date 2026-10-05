@@ -12,10 +12,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/eyupio/zoomies/internal/config"
 	"gopkg.in/yaml.v3"
 )
 
@@ -146,4 +148,52 @@ func writeFile(path string, body []byte) error {
 		return err
 	}
 	return os.Rename(name, path)
+}
+
+// ConnectionURL is where this host's own CLI should reach a controller with
+// these settings.
+//
+// The external URL is preferred wherever it is set: it is what the operator
+// actually reaches, it carries the right scheme and name for a certificate, and
+// a container's published port is not something the controller's own settings
+// know. Without one, a controller serving plain HTTP is on its listener,
+// reached on loopback when that listener is open to every address. A controller
+// serving TLS with no external URL has no name its certificate would match, so
+// nothing is guessed.
+func ConnectionURL(external, bind string, tls config.TLSMode) string {
+	if u := strings.TrimRight(strings.TrimSpace(external), "/"); u != "" {
+		return u
+	}
+	if tls != config.TLSOff {
+		return ""
+	}
+	host, port, err := net.SplitHostPort(strings.TrimSpace(bind))
+	if err != nil || port == "" {
+		return ""
+	}
+	if ip := net.ParseIP(host); host == "" || (ip != nil && ip.IsUnspecified()) {
+		host = "127.0.0.1"
+	}
+	return "http://" + net.JoinHostPort(host, port)
+}
+
+// InstalledURL is the last resort for a CLI with no URL from anywhere else: the
+// controller installed on this host, as its zoomies.yaml names it. It is empty
+// when there is no such file, which is what stops a machine with no controller
+// being sent to a loopback address nobody is listening on.
+//
+// It reads the file and nothing else -- not the database, not this process's
+// environment -- because the CLI's commands are pure API clients that open no
+// database. The cost is that an address changed afterwards on the Settings page
+// is not in the file, so the caller says where the URL came from, and the file
+// the installer writes (from the settings as they stand) is the accurate one.
+func InstalledURL(file string) string {
+	if _, err := os.Stat(file); err != nil {
+		return ""
+	}
+	cfg, _, err := config.Effective(file, nil, nil, nil)
+	if err != nil {
+		return ""
+	}
+	return ConnectionURL(cfg.Server.ExternalURL, cfg.Server.Bind, cfg.Server.TLS.Mode)
 }

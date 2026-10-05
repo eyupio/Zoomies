@@ -42,7 +42,13 @@ The listing commands add `--limit` (50), `--offset`, `--sort` and `--order`.
 
 Where the URL and token come from is, in order: the flags, then `ZOOMIES_URL` and
 `ZOOMIES_TOKEN`, then `~/.config/zoomies/cli.yaml` (`url`, `token`, and optionally
-`ca_file` and `insecure`; `ZOOMIES_CLI_CONFIG` points at another file).
+`ca_file` and `insecure`; `ZOOMIES_CLI_CONFIG` points at another file). With none
+of those, a CLI on the machine that runs the controller falls back to the controller
+installed there, read from its `zoomies.yaml` (`/etc/zoomies/zoomies.yaml` as root), and
+says on stderr which address it chose. It reads that file and nothing else: the CLI's
+commands are pure API clients that open no database, so an address changed afterwards on
+the Settings page is not in it. Put `url` in `cli.yaml` to choose, or to follow the
+Settings page. It supplies an address only, never a token.
 
 On the machine that runs the controller you do not have to write that file.
 `zoomies init` creates it, with the controller's address and no token, and

@@ -326,27 +326,6 @@ func TestAskApprovalTakesEnterAsYesAndNothingAsNo(t *testing.T) {
 	}
 }
 
-func TestConnectionURLPrefersTheExternalURLAndGuessesNothingForTLS(t *testing.T) {
-	for _, tc := range []struct {
-		external, bind string
-		tls            config.TLSMode
-		want           string
-	}{
-		{"https://zoomies.example.com/", "0.0.0.0:8080", config.TLSFiles, "https://zoomies.example.com"},
-		{"", "0.0.0.0:8080", config.TLSOff, "http://127.0.0.1:8080"},
-		{"", ":8080", config.TLSOff, "http://127.0.0.1:8080"},
-		{"", "127.0.0.1:9000", config.TLSOff, "http://127.0.0.1:9000"},
-		{"", "10.0.0.5:8080", config.TLSOff, "http://10.0.0.5:8080"},
-		// A certificate would not match an address, and there is no name to use.
-		{"", "0.0.0.0:8443", config.TLSSelfSigned, ""},
-		{"", "", config.TLSOff, ""},
-	} {
-		if got := connectionURL(tc.external, tc.bind, tc.tls); got != tc.want {
-			t.Errorf("connectionURL(%q, %q, %s) = %q, want %q", tc.external, tc.bind, tc.tls, got, tc.want)
-		}
-	}
-}
-
 // A controller host that has no CLI file is offered one, named in the list of
 // additions an upgrade asks approval for; one that already names a controller
 // is not, and an agent-only host has no controller to name.

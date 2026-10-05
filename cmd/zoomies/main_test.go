@@ -10,6 +10,22 @@ import (
 	"testing"
 )
 
+// TestMain points the controller's configuration directory at an empty folder
+// for the whole package. A CLI with no URL falls back to the controller
+// installed on its host, so on a machine that has one -- a developer's, or a CI
+// runner's -- every test that expects "no controller URL" would otherwise find
+// the real controller and talk to it.
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "zoomies-cli-test-")
+	if err != nil {
+		panic(err)
+	}
+	os.Setenv("ZOOMIES_CONFIG_DIR", dir)
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
+}
+
 // newTestEnv gives a command somewhere to write and, crucially, a temporary
 // HOME.
 //

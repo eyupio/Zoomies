@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/eyupio/zoomies/internal/config"
 )
 
 func TestEnsureURLCreatesThePrivateFileAndItsDirectory(t *testing.T) {
@@ -77,5 +79,53 @@ func TestPathHonoursTheOverridesInOrder(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "/xdg")
 	if Path() != filepath.Join("/xdg", "zoomies", "cli.yaml") {
 		t.Errorf("Path = %s", Path())
+	}
+}
+
+func TestConnectionURLPrefersTheExternalURLAndGuessesNothingForTLS(t *testing.T) {
+	for _, tc := range []struct {
+		external, bind string
+		tls            config.TLSMode
+		want           string
+	}{
+		{"https://zoomies.example.com/", "0.0.0.0:8080", config.TLSFiles, "https://zoomies.example.com"},
+		{"", "0.0.0.0:8080", config.TLSOff, "http://127.0.0.1:8080"},
+		{"", ":8080", config.TLSOff, "http://127.0.0.1:8080"},
+		{"", "127.0.0.1:9000", config.TLSOff, "http://127.0.0.1:9000"},
+		{"", "10.0.0.5:8080", config.TLSOff, "http://10.0.0.5:8080"},
+		// A certificate would not match an address, and there is no name to use.
+		{"", "0.0.0.0:8443", config.TLSSelfSigned, ""},
+		{"", "", config.TLSOff, ""},
+	} {
+		if got := ConnectionURL(tc.external, tc.bind, tc.tls); got != tc.want {
+			t.Errorf("ConnectionURL(%q, %q, %s) = %q, want %q", tc.external, tc.bind, tc.tls, got, tc.want)
+		}
+	}
+}
+
+// The fallback reads the file it is given and nothing else: with no file there is
+// no controller on this host, and a default listener address must not be invented
+// for a machine that has none. Nor does it read this process's environment, which
+// says nothing about the service.
+func TestInstalledURLReadsOnlyTheFileItIsGiven(t *testing.T) {
+	dir := t.TempDir()
+	if got := InstalledURL(filepath.Join(dir, "absent.yaml")); got != "" {
+		t.Errorf("no file is no controller, got %q", got)
+	}
+
+	file := filepath.Join(dir, "zoomies.yaml")
+	if err := os.WriteFile(file, []byte("server:\n  bind: 0.0.0.0:8080\n  tls:\n    mode: \"off\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ZOOMIES_EXTERNAL_URL", "https://from-the-environment.example")
+	if got := InstalledURL(file); got != "http://127.0.0.1:8080" {
+		t.Errorf("InstalledURL = %q, want the listener on loopback and not the environment's URL", got)
+	}
+
+	if err := os.WriteFile(file, []byte("server: [not, a, map\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := InstalledURL(file); got != "" {
+		t.Errorf("a file that does not parse names no controller, got %q", got)
 	}
 }

@@ -500,3 +500,53 @@ func TestJobsGetPrintsTheControllersExplanation(t *testing.T) {
 		})
 	}
 }
+
+// On the controller's own host, a CLI told nothing finds the controller installed
+// there, says where it got the address, and never prefers it over something the
+// operator did say.
+func TestAHostWithAnInstalledControllerNeedsNoURL(t *testing.T) {
+	configDir := func(t *testing.T, yaml string) {
+		t.Helper()
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "zoomies.yaml"), []byte(yaml), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("ZOOMIES_CONFIG_DIR", dir)
+	}
+
+	t.Run("it falls back to the installed controller", func(t *testing.T) {
+		e, _, _ := newTestEnv(t)
+		configDir(t, "server:\n  external_url: https://zoomies.example.com\n")
+		client, err := parseClientFlags(t, e).client()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if client.base != "https://zoomies.example.com" {
+			t.Errorf("base = %q, want the installed controller's address", client.base)
+		}
+	})
+
+	t.Run("a flag, the environment and the file all beat it", func(t *testing.T) {
+		e, _, _ := newTestEnv(t)
+		configDir(t, "server:\n  external_url: https://installed.example.com\n")
+		writeCLIConfig(t, "url: https://from-file.example.com\n")
+		if c, _ := parseClientFlags(t, e).client(); c == nil || c.base != "https://from-file.example.com" {
+			t.Errorf("the CLI file must beat the installed controller, got %+v", c)
+		}
+		t.Setenv("ZOOMIES_URL", "https://from-env.example.com")
+		if c, _ := parseClientFlags(t, e).client(); c == nil || c.base != "https://from-env.example.com" {
+			t.Errorf("the environment must beat it, got %+v", c)
+		}
+		if c, _ := parseClientFlags(t, e, "--url", "https://from-flag.example.com").client(); c == nil || c.base != "https://from-flag.example.com" {
+			t.Errorf("a flag must beat it, got %+v", c)
+		}
+	})
+
+	t.Run("no installed controller is no guess", func(t *testing.T) {
+		e, _, _ := newTestEnv(t) // an empty configuration directory
+		_, err := parseClientFlags(t, e).client()
+		if err == nil || !strings.Contains(err.Error(), "no controller configuration was found") {
+			t.Errorf("a host with no controller must be told so, not sent to a default address: %v", err)
+		}
+	})
+}

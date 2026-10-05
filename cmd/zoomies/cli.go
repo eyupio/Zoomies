@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/eyupio/zoomies/internal/cliconfig"
+	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/version"
 )
 
@@ -119,7 +120,17 @@ func (cf *clientFlags) client() (*apiClient, error) {
 
 	base := firstNonBlank(*cf.url, os.Getenv("ZOOMIES_URL"), file.URL)
 	if base == "" {
-		return nil, missingCredential("no controller URL", "url", "https://zoomies.example.com", "")
+		// The last resort, and said aloud: a command that quietly picked a
+		// controller would be one the operator could not account for.
+		conf := config.DefaultConfigFile()
+		if base = cliconfig.InstalledURL(conf); base != "" {
+			fmt.Fprintf(os.Stderr, "using the controller installed on this host, %s (from %s; set url in %s to choose another)\n",
+				base, conf, cliConfigPath())
+		}
+	}
+	if base == "" {
+		return nil, missingCredential("no controller URL", "url", "https://zoomies.example.com",
+			"and no controller configuration was found on this host at "+config.DefaultConfigFile())
 	}
 	if !strings.Contains(base, "://") {
 		// A bare host is what people type first. Assume https, because

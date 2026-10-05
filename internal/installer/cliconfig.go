@@ -2,7 +2,6 @@ package installer
 
 import (
 	"context"
-	"net"
 	"strings"
 
 	"github.com/eyupio/zoomies/internal/cliconfig"
@@ -19,30 +18,10 @@ import (
 // address and nothing else. A token is authority; the installer does not mint
 // one on an operator's behalf, and says where to make one.
 
-// connectionURL is where this host's own CLI should reach the controller.
-//
-// The external URL is preferred wherever it is set: it is what the operator
-// actually reaches, it carries the right scheme and name for a certificate, and
-// a container's published port is not something the controller's own settings
-// know. Without one, a controller serving plain HTTP is on its listener,
-// reached on loopback when that listener is open to every address. A controller
-// serving TLS with no external URL has no name its certificate would match, so
-// nothing is guessed.
+// connectionURL is where this host's own CLI should reach the controller; the
+// rule is shared with the CLI's own fallback, in internal/cliconfig.
 func connectionURL(external, bind string, tls config.TLSMode) string {
-	if u := strings.TrimRight(strings.TrimSpace(external), "/"); u != "" {
-		return u
-	}
-	if tls != config.TLSOff {
-		return ""
-	}
-	host, port, err := net.SplitHostPort(strings.TrimSpace(bind))
-	if err != nil || port == "" {
-		return ""
-	}
-	if ip := net.ParseIP(host); host == "" || (ip != nil && ip.IsUnspecified()) {
-		host = "127.0.0.1"
-	}
-	return "http://" + net.JoinHostPort(host, port)
+	return cliconfig.ConnectionURL(external, bind, tls)
 }
 
 // cliConfigChanges is the CLI's connection file, offered where this host runs
