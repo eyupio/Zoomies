@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 
 	"golang.org/x/term"
 )
@@ -71,13 +70,10 @@ func (p Palette) Fail(out io.Writer, format string, a ...any) {
 	fmt.Fprintf(out, " %s %s\n", p.Red(p.mark("✗", "x")), fmt.Sprintf(format, a...))
 }
 
-// Rule is a section divider with a label, sized for an 80-column terminal.
+// Rule uses a short heading rather than a fixed-width divider, so maintenance
+// stages fit a narrow terminal and do not fill redirected logs with decoration.
 func (p Palette) Rule(out io.Writer, label string) {
-	bar := "-"
-	if p.On {
-		bar = "─"
-	}
-	fmt.Fprintln(out, p.Dim(strings.Repeat(bar, 2)+" ")+p.Bold(label)+" "+p.Dim(strings.Repeat(bar, max(2, 60-len(label)))))
+	fmt.Fprintf(out, "\n%s\n", p.Bold(label))
 }
 
 // Hint is a dimmed aside, indented under the line it belongs to.

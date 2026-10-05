@@ -905,10 +905,22 @@ func TestAdoptingEmbeddedCredentialsRenamesTheHostToItsConfiguredName(t *testing
 
 	// Two hosts called zoomies would be worse than one called by its
 	// container ID, so a name that is taken stays where it is.
-	other := h.host("build-box")
+	other := h.host("0123456789ab")
 	h.c.renameEmbeddedHost(h.ctx, other, "zoomies")
-	if got, _ := h.st.GetHost(h.ctx, other.ID); got.Name != "build-box" {
+	if got, _ := h.st.GetHost(h.ctx, other.ID); got.Name != "0123456789ab" {
 		t.Fatalf("name = %q; a taken name must not be duplicated", got.Name)
+	}
+}
+
+// An operator can rename the embedded host, and the controller coming back up
+// must not put the configured name back over their choice.
+func TestAnOperatorsRenameOfTheEmbeddedHostSurvivesARestart(t *testing.T) {
+	h := newHarness(t)
+	host := h.host("front-door")
+
+	h.c.renameEmbeddedHost(h.ctx, host, "zoomies")
+	if got, _ := h.st.GetHost(h.ctx, host.ID); got.Name != "front-door" {
+		t.Fatalf("name = %q, want the operator's name kept", got.Name)
 	}
 }
 

@@ -3578,7 +3578,7 @@ paths:
     patch:
       operationId: updateHost
       tags: [hosts]
-      summary: Update a host's capacity, labels, reserve or runner profile
+      summary: Update a host's name, capacity, labels, reserve or runner profile
       description: >-
         A `size` label is the host's size class while `scheduler.size_routing` or
         `scheduler.auto_pools` is not `off`, and is refused with 422 unless it is
@@ -3609,6 +3609,14 @@ paths:
                 reported, or one that would leave nothing to place on, is refused rather
                 than clamped.
               properties:
+                name:
+                  type: string
+                  maxLength: 128
+                  description: >-
+                    What the host is called. Surrounding whitespace is trimmed; it must be
+                    non-empty, free of control characters and not used by another host
+                    (422 otherwise). An agent's configured name is read only when it first
+                    joins, so a heartbeat does not undo a rename.
                 capacity: { type: integer, minimum: 0 }
                 labels: { type: object, additionalProperties: { type: string } }
                 reserve_cpus: { type: integer, minimum: 0 }

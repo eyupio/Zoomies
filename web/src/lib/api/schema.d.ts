@@ -2275,7 +2275,7 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Update a host's capacity, labels, reserve or runner profile
+         * Update a host's name, capacity, labels, reserve or runner profile
          * @description A `size` label is the host's size class while `scheduler.size_routing` or `scheduler.auto_pools` is not `off`, and is refused with 422 unless it is `small`, `medium` or `large`; with both off it is an ordinary label. Refused with 409 when the reserve, the labels or the runner profile described would leave a pool that runs here today with no host in the fleet that could ever run it. The message names the pool and the limit -- a host minimum above a size the pool states, or a host standard below the floor of a pool that takes its size from the host; confirm=true saves it anyway, which is right when the pool is on its way out. Changing the capacity, the reserve or the runner profile lifts the host's throttle, as the operator answering the pressure that raised it.
          */
         patch: operations["updateHost"];
@@ -11656,6 +11656,8 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
+                    /** @description What the host is called. Surrounding whitespace is trimmed; it must be non-empty, free of control characters and not used by another host (422 otherwise). An agent's configured name is read only when it first joins, so a heartbeat does not undo a rename. */
+                    name?: string;
                     capacity?: number;
                     labels?: {
                         [key: string]: string;

@@ -44,6 +44,7 @@
   import HostRunnerSizesDialog from '$lib/hosts/HostRunnerSizesDialog.svelte';
   import { slotsOf } from '$lib/hosts/slots';
   import HostDeleteDialog from '$lib/hosts/HostDeleteDialog.svelte';
+  import HostRenameDialog from '$lib/hosts/HostRenameDialog.svelte';
   import HostLabelsDialog from '$lib/hosts/HostLabelsDialog.svelte';
   import JoinTokenList from '$lib/hosts/JoinTokenList.svelte';
   import MachineBand from '$lib/providers/MachineBand.svelte';
@@ -180,6 +181,8 @@
 
   let editing = $state<Host | null>(null);
   let editOpen = $state(false);
+  let renaming = $state<Host | null>(null);
+  let renameOpen = $state(false);
   let sizing = $state<Host | null>(null);
   let sizeOpen = $state(false);
   let profiling = $state<Host | null>(null);
@@ -244,6 +247,11 @@
   function edit(host: Host): void {
     editing = host;
     editOpen = true;
+  }
+
+  function rename(host: Host): void {
+    renaming = host;
+    renameOpen = true;
   }
 
   function size(host: Host): void {
@@ -392,6 +400,7 @@
           oncapacity={size}
           onsizes={sizes}
           onedit={edit}
+          onrename={rename}
           ondelete={remove}
         />
       {/each}
@@ -437,6 +446,7 @@
   onclose={() => (profiling = null)}
 />
 
+<HostRenameDialog bind:open={renameOpen} host={renaming} onclose={() => (renaming = null)} />
 <HostLabelsDialog bind:open={editOpen} host={editing} onclose={() => (editing = null)} />
 <HostDeleteDialog bind:open={deleteOpen} host={deleting} onclose={() => (deleting = null)} />
 

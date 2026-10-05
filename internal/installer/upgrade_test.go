@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -22,12 +25,12 @@ func TestUpgradeSaysWhetherAMovingImageAdvanced(t *testing.T) {
 		runAfter  string
 		want      string
 	}{
-		{"same image", "sha256:aaaaaaaaaaaaaaaa", "sha256:aaaaaaaaaaaaaaaa", "sha256:aaaaaaaaaaaaaaaa", "sha256:aaaaaaaaaaaaaaaa", "Image channel did not advance"},
-		{"new image", "sha256:aaaaaaaaaaaaaaaa", "sha256:bbbbbbbbbbbbbbbb", "sha256:aaaaaaaaaaaaaaaa", "sha256:bbbbbbbbbbbbbbbb", "Image channel advanced"},
+		{"same image", "sha256:aaaaaaaaaaaaaaaa", "sha256:aaaaaaaaaaaaaaaa", "sha256:aaaaaaaaaaaaaaaa", "sha256:aaaaaaaaaaaaaaaa", "Service image unchanged"},
+		{"new image", "sha256:aaaaaaaaaaaaaaaa", "sha256:bbbbbbbbbbbbbbbb", "sha256:aaaaaaaaaaaaaaaa", "sha256:bbbbbbbbbbbbbbbb", "Service image updated"},
 		// The tag was pulled before the upgrade while the service still ran
 		// an older image. Saying "did not advance" there hid an upgrade that
 		// recreated the service onto a new build and migrated its database.
-		{"tag pulled earlier", "sha256:bbbbbbbbbbbbbbbb", "sha256:bbbbbbbbbbbbbbbb", "sha256:aaaaaaaaaaaaaaaa", "sha256:bbbbbbbbbbbbbbbb", "The service moved from aaaaaaaaaaaa to bbbbbbbbbbbb"},
+		{"tag pulled earlier", "sha256:bbbbbbbbbbbbbbbb", "sha256:bbbbbbbbbbbbbbbb", "sha256:aaaaaaaaaaaaaaaa", "sha256:bbbbbbbbbbbbbbbb", "Service image updated: aaaaaaaaaaaa -> bbbbbbbbbbbb"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			opts, _ := upgradeFixture(t, DeploymentCompose)
@@ -111,6 +114,9 @@ func TestComposeUpgradeKeepsConfigurationAndPullsBeforeRestarting(t *testing.T) 
 				calls = append(calls, line)
 				if strings.Contains(line, "config --images") {
 					return opts.Image, nil
+				}
+				if name == "systemctl" {
+					return "", nil
 				}
 				if name == "docker" {
 					if len(args) > 0 && args[0] == "inspect" {
@@ -263,5 +269,109 @@ func TestStockRunnerImagesAreRefreshedOnceWithoutChangingPinnedReferences(t *tes
 	want := []string{"ghcr.io/eyupio/zoomies-runner:dev", "ghcr.io/eyupio/zoomies-runner-docker:v1"}
 	if !reflect.DeepEqual(pulled, want) {
 		t.Fatalf("pulled %v", pulled)
+	}
+}
+
+func TestNativeUpgradeRestartsBothInstalledServicesWithOneBinary(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("systemd native services")
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }))
+	defer server.Close()
+	opts, rec := upgradeFixture(t, DeploymentNative)
+	opts.Mode, opts.BinaryPath = "", "/custom/bin/zoomies"
+	rec.Mode = ModeSingle
+	if _, err := WriteDeploymentRecord(opts.ConfigDir, rec); err != nil {
+		t.Fatal(err)
+	}
+	cfg := "server:\n  bind: " + strings.TrimPrefix(server.URL, "http://") + "\nagent:\n  embedded: false\n  backend: process\ndatabase:\n  path: " + filepath.Join(opts.ConfigDir, "missing.db") + "\n"
+	if err := os.WriteFile(filepath.Join(opts.ConfigDir, "zoomies.yaml"), []byte(cfg), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var restarts []string
+	opts.run = func(_ context.Context, name string, args ...string) (string, error) {
+		line := strings.Join(args, " ")
+		if strings.Contains(line, "LoadState") {
+			return "loaded", nil
+		}
+		if strings.Contains(line, "ExecStart") {
+			return "{ path=/custom/bin/zoomies ; }", nil
+		}
+		if name == "systemctl" && len(args) > 1 && args[0] == "restart" {
+			restarts = append(restarts, args[1])
+		}
+		return "", nil
+	}
+	if err := Upgrade(context.Background(), opts); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(restarts, []string{UnitController, UnitAgent}) {
+		t.Fatalf("restarted %v", restarts)
+	}
+}
+
+func TestNativeRunnerRefreshUsesTheDefaultSocketAndOnlyStockRepositories(t *testing.T) {
+	var calls []string
+	p := upgradePlan{unit: UnitAgent, nativeUnits: []string{UnitAgent}, opts: UpgradeOptions{ConfigDir: t.TempDir(), Out: &bytes.Buffer{}, run: func(_ context.Context, name string, args ...string) (string, error) {
+		line := name + " " + strings.Join(args, " ")
+		calls = append(calls, line)
+		if strings.Contains(line, "image ls") {
+			return "ghcr.io/eyupio/zoomies-runner:dev\nghcr.io/eyupio/zoomies-runner-custom:dev\nghcr.io/eyupio/zoomies-runner-full:dev\n", nil
+		}
+		return "", nil
+	}}}
+	if err := p.pullRunnerImages(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 3 || calls[1] != "docker pull ghcr.io/eyupio/zoomies-runner:dev" || calls[2] != "docker pull ghcr.io/eyupio/zoomies-runner-full:dev" {
+		t.Fatalf("calls %v", calls)
+	}
+}
+
+func TestUpgradeResultFollowsVerificationAndHealth(t *testing.T) {
+	opts, out, _ := waitFixture(t, 0, "running", composeHealthCheck)
+	opts.Doctor = func(_ context.Context, _ *config.Config) { out.WriteString("Health observed\n") }
+	if err := Upgrade(context.Background(), opts); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	last := -1
+	for _, step := range []string{"2/4 Deployment", "3/4 Verify", "4/4 Host health", "Health observed", "Upgrade complete"} {
+		at := strings.Index(text, step)
+		if at <= last {
+			t.Fatalf("out of order %q: %s", step, text)
+		}
+		last = at
+	}
+}
+
+func TestUpgradeRestartsOnlyAHealthReporterUsingTheInstalledBinary(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("systemd reporter")
+	}
+	for _, matching := range []bool{false, true} {
+		var restarted bool
+		p := upgradePlan{opts: UpgradeOptions{BinaryPath: "/custom/zoomies", Out: &bytes.Buffer{}, run: func(_ context.Context, _ string, args ...string) (string, error) {
+			line := strings.Join(args, " ")
+			if strings.Contains(line, "ActiveState") {
+				return "active", nil
+			}
+			if strings.Contains(line, "ExecStart") {
+				if matching {
+					return "{ path=/custom/zoomies ; }", nil
+				}
+				return "{ path=/another/zoomies ; }", nil
+			}
+			if args[0] == "restart" {
+				restarted = true
+			}
+			return "", nil
+		}}}
+		if err := p.restartHealthReporter(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if restarted != matching {
+			t.Fatalf("matching=%v restarted=%v", matching, restarted)
+		}
 	}
 }

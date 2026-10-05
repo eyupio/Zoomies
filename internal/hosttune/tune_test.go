@@ -53,3 +53,21 @@ func TestNativeAgentPreventsRestartRace(t *testing.T) {
 		t.Fatal("agent accepts work during restart")
 	}
 }
+
+func TestTuningReportsPreviewAndDeclinedChangesWithoutWriting(t *testing.T) {
+	for _, dry := range []bool{false, true} {
+		e, f := fixture()
+		f.put("/proc/sys/fs/inotify/max_user_watches", "1024")
+		var out strings.Builder
+		if err := e.Tune(context.Background(), TuneOptions{DryRun: dry, Only: IDs("inotify.watches"), In: strings.NewReader("n\n"), Out: &out}); err != nil {
+			t.Fatal(err)
+		}
+		want := "Tuning complete: 0 applied, 1 left unchanged"
+		if dry {
+			want = "Preview complete: 1 eligible changes. No changes made."
+		}
+		if f.writes != 0 || !strings.Contains(out.String(), want) {
+			t.Fatalf("dry=%v: %s writes=%d", dry, out.String(), f.writes)
+		}
+	}
+}

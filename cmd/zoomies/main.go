@@ -114,10 +114,10 @@ func commands() []*command {
 
 		{"demo", groupSetup, "Look around: a throwaway controller with a fleet already in it, on this machine only", runDemo},
 		{"init", groupSetup, "Set this host up: service, backend, GitHub App, first admin", runInit},
-		{"update", groupSetup, "Update an existing deployment (alias for upgrade)", runUpdate},
-		{"upgrade", groupSetup, "Upgrade an existing deployment without running setup again", runUpgrade},
+		{"update", groupSetup, "Compatibility alias for upgrade", runUpdate},
+		{"upgrade", groupSetup, "Upgrade this host: binary, services and runner images", runUpgrade},
 		{"logs", groupSetup, "Show the installed container deployment's latest logs", runLogs},
-		{"deployment", groupSetup, "Start, stop, restart, update, or take down the installed containers", runDeployment},
+		{"deployment", groupSetup, "Manage installed containers; use upgrade for updates", runDeployment},
 		{"uninstall", groupSetup, "Remove Zoomies from this host", runUninstall},
 		{"backup", groupSetup, "Copy this host's database, with a manifest saying what it needs", runBackup},
 		{"restore", groupSetup, "Put a backup's database back, and fence the fleet while you check it", runRestore},

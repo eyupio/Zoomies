@@ -46,7 +46,7 @@ func TestTheBriefReportListsOnlyWhatNeedsAttentionAndSaysWhatTuneCanFix(t *testi
 	var b strings.Builder
 	printDoctorBrief(&b, r, 1)
 	out := b.String()
-	for _, want := range []string{"2 to look at", "1 new", "Docker log rotation", "[fixable]", "Docker root filesystem"} {
+	for _, want := range []string{"2 warnings, 0 errors", "1 new", "Docker log rotation", "[fixable]", "Docker root filesystem"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}
@@ -71,6 +71,49 @@ func TestTheFullReportWrapsToANarrowTerminalAndPutsFindingsFirst(t *testing.T) {
 	for _, l := range strings.Split(out, "\n") {
 		if len(l) > 56 && !strings.Contains(l, "checked") {
 			t.Errorf("line too wide for a phone: %q", l)
+		}
+	}
+}
+
+func TestUpgradeHealthNeverTurnsFindingsIntoATuningConversation(t *testing.T) {
+	var out strings.Builder
+	r := hosttune.Report{Results: []hosttune.Result{{Title: "Logs", Status: hosttune.Warn, Actionable: true}}, RebootPending: true}
+	printUpgradeHealth(&out, r)
+	text := out.String()
+	for _, want := range []string{"Host health: 1 warning, 0 errors", "Review: zoomies doctor", "Reboot pending"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q in %s", want, text)
+		}
+	}
+	for _, unwanted := range []string{"What next", "[t]", "[y/N]", "Logs", "tune"} {
+		if strings.Contains(text, unwanted) {
+			t.Fatalf("upgrade includes %q: %s", unwanted, text)
+		}
+	}
+}
+
+func TestUnavailableHealthChecksAreNotReportedAsPassing(t *testing.T) {
+	var out strings.Builder
+	printUpgradeHealth(&out, hosttune.Report{Results: []hosttune.Result{{Status: hosttune.Skip}}})
+	if !strings.Contains(out.String(), "checks unavailable") || strings.Contains(out.String(), "passed") {
+		t.Fatal(out.String())
+	}
+}
+
+func TestDoctorBriefCapsAndWrapsFindings(t *testing.T) {
+	t.Setenv("COLUMNS", "36")
+	r := hosttune.Report{}
+	for range 8 {
+		r.Results = append(r.Results, hosttune.Result{Title: "Container log rotation", Recommended: "Use bounded logs for newly created containers", Status: hosttune.Warn})
+	}
+	var out strings.Builder
+	printDoctorBrief(&out, r, 0)
+	if strings.Count(out.String(), "Container log rotation") != 3 || !strings.Contains(out.String(), "5 more") {
+		t.Fatal(out.String())
+	}
+	for _, line := range strings.Split(out.String(), "\n") {
+		if len(line) > 36 {
+			t.Fatalf("too wide: %q", line)
 		}
 	}
 }

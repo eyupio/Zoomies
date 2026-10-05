@@ -11,7 +11,15 @@
   import { navigate } from '$lib/router';
   import { healthSummary } from './health';
   import { slotsOf } from './slots';
-  import { CircleDashed, Gauge, Pencil, Ruler, ServerCog, Trash2 } from '@lucide/svelte';
+  import {
+    CircleDashed,
+    Gauge,
+    Pencil,
+    PencilLine,
+    Ruler,
+    ServerCog,
+    Trash2,
+  } from '@lucide/svelte';
   import type { Host, Machine } from '$lib/api/types';
   import { formatMegabytes, formatNumber, onClockTick, toMillis } from '$lib/format';
   import { hostStatus, throttled } from '$lib/status';
@@ -44,6 +52,7 @@
     /** Set how big a runner is on this host. */
     onsizes: (host: Host) => void;
     onedit: (host: Host) => void;
+    onrename: (host: Host) => void;
     ondelete: (host: Host) => void;
     class?: string;
   }
@@ -58,6 +67,7 @@
     oncapacity,
     onsizes,
     onedit,
+    onrename,
     ondelete,
     class: className = '',
   }: Props = $props();
@@ -391,6 +401,13 @@
       onSelect: () => onsizes(host),
     },
     {
+      id: 'rename',
+      label: 'Rename this host',
+      icon: PencilLine,
+      disabled: !canOperate,
+      onSelect: () => onrename(host),
+    },
+    {
       id: 'edit',
       label: 'Edit tags',
       icon: Pencil,
@@ -426,6 +443,28 @@
         <a href="/hosts/{host.id}" aria-label="Host health for {host.name || host.id}"
           ><Badge label={health.label} tone={health.tone} size="sm" title={health.hint} /></a
         >
+        <!-- How this host is attached comes first and in the neutral tone, so
+             every card reads in the same order: state, then what kind of host
+             it is, then what is worth knowing about it. An accent here made
+             two hosts of the same standing look unlike one another. -->
+        {#if host.connection === 'tailcat'}
+          <Badge
+            tone="neutral"
+            label="Tailcat host"
+            size="sm"
+            dot={false}
+            title="Private encrypted agent connection. No public host address or inbound port required. Health is shown separately."
+          />
+        {/if}
+        {#if host.embedded}
+          <Badge
+            tone="neutral"
+            label="Embedded"
+            size="sm"
+            dot={false}
+            title="This agent runs inside the controller process, so it cannot be removed."
+          />
+        {/if}
         {#if host.incompatible}
           <Badge
             tone="danger"
@@ -491,24 +530,6 @@
             size="sm"
             dot={false}
             title="Zoomies created this host. Deleting the machine removes the resource too; removing the host here would leave it running, and on the bill."
-          />
-        {/if}
-        {#if host.connection === 'tailcat'}
-          <Badge
-            tone="accent"
-            label="Tailcat host"
-            size="sm"
-            dot={false}
-            title="Private encrypted agent connection. No public host address or inbound port required. Health is shown separately."
-          />
-        {/if}
-        {#if host.embedded}
-          <Badge
-            tone="accent"
-            label="Embedded"
-            size="sm"
-            dot={false}
-            title="This agent runs inside the controller process, so it cannot be removed."
           />
         {/if}
       </div>
@@ -883,6 +904,10 @@
     font-weight: var(--z-weight-semibold);
     color: var(--z-text);
     overflow-wrap: anywhere;
+    /* Two lines reserved: a long name wraps and a short one does not, and
+       without this the badges under it start at a different height on each
+       card in the row. */
+    min-height: calc(2 * var(--z-leading-lg));
   }
   .badges {
     display: flex;

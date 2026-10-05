@@ -10,6 +10,7 @@ import (
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/hosttune"
+	"github.com/eyupio/zoomies/internal/installer"
 )
 
 func runTune(ctx context.Context, e *env, args []string) error {
@@ -23,6 +24,8 @@ func runTune(ctx context.Context, e *env, args []string) error {
 	revert := fs.Bool("revert", false, "restore recorded previous values and files")
 	force := fs.Bool("force", false, "does not override active-job, dependency or managed-configuration guards")
 	cfg := fs.String("config", "", "local Zoomies configuration file")
+	work := fs.String("work-dir", "", "host path to runner work directory")
+	dockerHost := fs.String("docker-host", "", "Docker socket on this host")
 	fs.example("sudo zoomies tune", "sudo zoomies tune --dry-run", "sudo zoomies tune --revert", "sudo zoomies tune --dedicated --only service.snapd")
 	if err := fs.parse(args); err != nil {
 		return err
@@ -38,6 +41,12 @@ func runTune(ctx context.Context, e *env, args []string) error {
 	if err != nil {
 		return err
 	}
+	if *work != "" {
+		engine.WorkDir = *work
+	}
+	if *dockerHost != "" {
+		engine.DockerHost = *dockerHost
+	}
 	actor := "root"
 	if u, err := user.Current(); err == nil {
 		actor = u.Username
@@ -47,7 +56,19 @@ func runTune(ctx context.Context, e *env, args []string) error {
 			}
 		}
 	}
-	fmt.Fprintln(e.out, "No reboot is performed. Running jobs always prevent a Docker restart.")
+	ui := installer.PaletteFor(e.out)
+	action := "Review changes"
+	if *dry {
+		action = "Preview only"
+	} else if *revert {
+		action = "Restore recorded settings"
+	}
+	label := string(t)
+	if *dedicated {
+		label = "dedicated"
+	}
+	ui.Title(e.out, "Host tuning", label+" -- "+action)
+	ui.Hint(e.out, "Every applied change has a reversal record: zoomies tune --revert")
 	err = engine.Tune(ctx, hosttune.TuneOptions{Tier: t, Dedicated: *dedicated, DryRun: *dry, Yes: *yes, Only: hosttune.IDs(*only), Skip: hosttune.IDs(*skip), Revert: *revert, Force: *force, In: e.in, Out: e.out, Actor: actor})
 	if err == nil && !*dry {
 		r := engine.Run(ctx, hosttune.Dedicated)
