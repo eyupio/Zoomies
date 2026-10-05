@@ -148,3 +148,22 @@ test('a proposed limit leaves the folders no more than half of it', () => {
   }
   assert.equal(recommendedMemoryMb(6144, work, off), 6144 + DEFAULT_TMPFS_WORK_MB);
 });
+
+// The editor's presets are the sidecar's share of CPU and of memory, and a pair of
+// typed figures is whichever preset it matches, even when left empty, or the
+// person's own.
+test('a pair of sidecar shares is the preset it matches, an empty one is even, anything else is custom', async () => {
+  const { splitPreset, SPLIT_PRESETS } = await import('../src/lib/pools/sizing.ts');
+  assert.equal(splitPreset('', ''), 'even');
+  assert.equal(splitPreset('50', '50'), 'even');
+  assert.equal(splitPreset('70', ''), 'build');
+  assert.equal(splitPreset('70', '50'), 'build');
+  assert.equal(splitPreset('35', '35'), 'runner');
+  assert.equal(splitPreset('70', '35'), 'custom');
+  assert.equal(splitPreset('abc', ''), 'custom');
+  assert.equal(splitPreset('7.5', '50'), 'custom');
+  // Every preset stays inside what the API accepts.
+  for (const p of SPLIT_PRESETS) {
+    for (const n of [p.cpu, p.memory]) assert.ok(n >= 10 && n <= 90, `${p.id}: ${n}`);
+  }
+});

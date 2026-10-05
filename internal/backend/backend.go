@@ -221,9 +221,13 @@ type Spec struct {
 	// controller that predates it, which a backend reads as the pool's.
 	ResourcesSource string `json:"resources_source,omitempty"`
 	// DaemonSharePercent is the part of a host-sized slot the docker-in-docker
-	// daemon is given; zero is the even split. See store.Resources.
-	DaemonSharePercent int               `json:"daemon_share_percent,omitempty"`
-	Cache              store.CacheConfig `json:"cache"`
+	// daemon is given; zero is the even split. The CPU and memory figures say it
+	// per resource and, where set, override it for that resource. See
+	// store.Resources.
+	DaemonSharePercent       int               `json:"daemon_share_percent,omitempty"`
+	DaemonCPUSharePercent    int               `json:"daemon_cpu_share_percent,omitempty"`
+	DaemonMemorySharePercent int               `json:"daemon_memory_share_percent,omitempty"`
+	Cache                    store.CacheConfig `json:"cache"`
 	// Tmpfs keeps the runner's work folder and /tmp in memory. A container
 	// backend mounts them; an agent that predates the field ignores it and the
 	// runner simply uses disk, which is why the controller warns about a pool
@@ -466,4 +470,11 @@ func (r *Registry) Available(ctx context.Context) []string {
 		}
 	}
 	return out
+}
+
+// DaemonShares is the daemon's share of a host-sized slot's CPU and of its
+// memory, each the specific figure, else the general one, else even.
+func (s Spec) DaemonShares() (cpuPercent, memoryPercent int) {
+	r := store.Resources{DaemonSharePercent: s.DaemonSharePercent, DaemonCPUSharePercent: s.DaemonCPUSharePercent, DaemonMemorySharePercent: s.DaemonMemorySharePercent}
+	return r.DaemonCPUPercent(), r.DaemonMemoryPercent()
 }

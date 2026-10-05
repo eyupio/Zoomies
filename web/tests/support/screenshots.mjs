@@ -285,6 +285,33 @@ const SHOTS = [
     },
   },
   {
+    // How a slot is divided between the runner and its Docker sidecar: CPU and
+    // memory are two shares, the presets are priced on the fleet's hosts, and one is
+    // already chosen. Nothing is typed.
+    name: 'pool-size-split',
+    path: '/pools/new',
+    heading: 'Create a pool',
+    async prepare(page) {
+      await page.getByRole('radio', { name: 'Advanced' }).check();
+      await page.getByRole('button', { name: 'Next' }).click();
+      await page.getByRole('textbox', { name: 'Pool name' }).fill('zoomies-dind-builds');
+      await page.getByRole('button', { name: 'Next' }).click();
+      const labels = page.getByRole('textbox', { name: 'Labels' });
+      await labels.fill('zoomies-dind-builds');
+      await page.keyboard.press('Enter');
+      for (let step = 0; step < 2; step++) {
+        await page.getByRole('button', { name: 'Next' }).click();
+      }
+      await page.getByRole('radio', { name: 'Docker in Docker' }).check();
+      await page.getByRole('button', { name: 'Next' }).click();
+      await page.getByRole('heading', { level: 2, name: 'Size' }).waitFor();
+      const split = page.getByTestId('pool-split');
+      await split.waitFor();
+      await split.getByRole('radio', { checked: true }).waitFor();
+      await split.evaluate((el) => el.scrollIntoView({ block: 'start' }));
+    },
+  },
+  {
     // The host's runner sizes, scrolled to the in-memory folders: the host's
     // owner has the last word on what a pool may ask of the machine. Nothing is
     // saved; a work folder size and a ceiling are typed so the section is shown in use.

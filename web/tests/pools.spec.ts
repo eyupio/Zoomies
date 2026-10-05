@@ -1305,7 +1305,7 @@ test('in-memory folders are Auto by default, and Auto says it keeps a folder on 
   await expect(page.getByText('Raise the memory limit to')).toBeVisible();
 });
 
-test('a Docker-in-Docker pool sized by its host can give the sidecar a larger share of the slot', async ({
+test('a Docker-in-Docker pool sized by its host chooses how a slot is divided, CPU and memory apart', async ({
   page,
 }) => {
   // The build runs in the sidecar, so an even split can starve the container
@@ -1322,18 +1322,41 @@ test('a Docker-in-Docker pool sized by its host can give the sidecar a larger sh
   await next(page).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Size' })).toBeVisible();
 
-  const share = page.getByRole('textbox', { name: "Docker sidecar's share (%)" });
-  await expect(share).toBeVisible();
-  await share.fill('95');
-  await share.blur();
-  await expect(page.getByRole('alert').filter({ hasText: /between 10 and 90/ })).toBeVisible();
-  await share.fill('70');
-  await share.blur();
+  // The division is a choice with a reason beside each answer, priced on the hosts,
+  // and one is already chosen: nobody has to know their workload to get a sound start.
+  const split = page.getByTestId('pool-split');
+  await expect(split).toBeVisible();
+  await expect(split.getByRole('radio', { name: /^Even/ })).toBeVisible();
+  await expect(split.getByRole('radio', { name: /^Image builds in the sidecar/ })).toBeVisible();
+  await expect(split.getByRole('radio', { name: /^Work in the runner/ })).toBeVisible();
+  await expect(split.getByRole('radio', { checked: true })).toHaveCount(1);
+
+  // CPU and memory are two shares, shown only under Custom, each held to its range.
+  await split.getByRole('radio', { name: 'Custom' }).check();
+  const cpu = split.getByRole('textbox', { name: "Sidecar's CPU share (%)" });
+  const memory = split.getByRole('textbox', { name: "Sidecar's memory share (%)" });
+  await cpu.fill('95');
+  await cpu.blur();
+  await expect(
+    page.getByRole('alert').filter({ hasText: /between 10 and 90 percent of the CPU/ }),
+  ).toBeVisible();
+  await cpu.fill('70');
+  await memory.fill('35');
+  await memory.blur();
   await expect(page.getByRole('alert').filter({ hasText: /between 10 and 90/ })).toHaveCount(0);
 
-  // A fixed size gives both containers the whole figure, so there is no share.
+  // Choosing a preset sets both figures, and the even one clears them.
+  await split.getByRole('radio', { name: /^Work in the runner/ }).check();
+  await split.getByRole('radio', { name: 'Custom' }).check();
+  await expect(cpu).toHaveValue('35');
+  await expect(memory).toHaveValue('35');
+  await split.getByRole('radio', { name: /^Even/ }).check();
+  await split.getByRole('radio', { name: 'Custom' }).check();
+  await expect(cpu).toHaveValue('');
+
+  // A fixed size gives both containers the whole figure, so there is nothing to divide.
   await page.getByRole('radio', { name: 'A fixed size on every host' }).check();
-  await expect(share).toHaveCount(0);
+  await expect(split).toHaveCount(0);
 });
 
 test('a fixed size can carry a minimum for hosts a little short of it', async ({ page }) => {
