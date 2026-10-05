@@ -236,8 +236,13 @@
     belongs to the section and has a name of its own; `.hint` and `.echo` are
     the two sizes of small print (what a control is, and what the choice
     amounts to); `.pair` puts two short controls side by side until there is
-    no room; `.lead` is a sentence with the one button that acts on it; and
+    no room; `.proposal` is a sentence with the one button that acts on it; and
     `.callout` is the cost of something that is allowed.
+
+    These are global rules, so a name here is a name no component inside a
+    section may use for something else. `.proposal` was `.lead` until Button's own
+    icon wrapper, a span called `.lead`, turned out to be inside every section
+    too, and the rule drew a bordered tile round the icon of each button in them.
   */
   .body :global(.group) {
     display: flex;
@@ -295,7 +300,7 @@
   .body :global(.pair > *) {
     min-width: 0;
   }
-  .body :global(.lead) {
+  .body :global(.proposal) {
     display: flex;
     flex-wrap: wrap;
     align-items: center;

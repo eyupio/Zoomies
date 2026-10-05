@@ -1533,3 +1533,34 @@ test('prewarming an image says how many hosts matched in words, singular or plur
     await page.unroute(prewarm);
   }
 });
+
+/**
+ * The sections share a form vocabulary, and one of its names is `.proposal`: a
+ * sentence with the one button that acts on it, drawn as a bordered box. A
+ * Button's own icon wrapper is a span with a class of its own, and when the two
+ * shared a name the box's rule painted a bordered, padded tile round the icon of
+ * every button in a section -- which is how "Use the fleet's default" and the
+ * "Set to 4" beside a host came to wear one, taller than the button itself.
+ */
+test('a button with an icon in a section is a button, and the proposal around it is still a box', async ({
+  page,
+}) => {
+  await goto(page, '/pools/new', 'Create a pool');
+  await nameField(page).fill('e2e-icon-tile');
+  await openSection(page, 'size');
+  await page.getByRole('radio', { name: 'A fixed size on every host' }).check();
+  const memory = page.getByRole('textbox', { name: 'Memory per runner', exact: true });
+  await memory.fill('6g');
+  await memory.press('Enter');
+
+  const reset = page.getByRole('button', { name: "Use the fleet's default" });
+  await expect(reset).toBeEnabled();
+  const icon = reset.locator('.lead');
+  await expect(icon).toHaveCSS('border-top-width', '0px');
+  await expect(icon).toHaveCSS('padding-left', '0px');
+  await expect(icon).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+
+  // The box the button sits in is the vocabulary's own, so renaming it must not
+  // have taken its border away.
+  await expect(page.locator('.proposal').first()).toHaveCSS('border-top-width', '1px');
+});
