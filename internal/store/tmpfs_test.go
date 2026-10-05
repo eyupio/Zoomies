@@ -264,11 +264,11 @@ func TestADaemonShareDividesASlotUnevenlyAndEvenByDefault(t *testing.T) {
 	if r2, d2 := slot.SplitWithDaemonShare(5); r2 != r0(slot) || d2 != d0(slot) {
 		t.Fatalf("a share out of range must fall back to even, got %+v / %+v", r2, d2)
 	}
-	if got := (Resources{DaemonSharePercent: 80}).PairFactor(); got != 5 {
-		t.Fatalf("PairFactor(80) = %v, want 5", got)
+	if got := (Resources{DaemonSharePercent: 80}).MemoryPairFactor(); got != 5 {
+		t.Fatalf("MemoryPairFactor(80) = %v, want 5", got)
 	}
-	if got := (Resources{}).PairFactor(); got != 2 {
-		t.Fatalf("PairFactor() = %v, want 2", got)
+	if got := (Resources{}).CPUPairFactor(); got != 2 {
+		t.Fatalf("CPUPairFactor() = %v, want 2", got)
 	}
 }
 
@@ -312,5 +312,42 @@ func TestAnAutomaticFolderGoesToDiskWhereTheRunnerIsTooSmallForIt(t *testing.T) 
 	manual := TmpfsConfig{Daemon: TmpfsMount{Enabled: true}}
 	if got := manual.PlaceDaemon(3072, HostTmpfs{}); got != 1536 {
 		t.Errorf("a manual store on a 3 GB daemon was given %d MB, want 1536", got)
+	}
+}
+
+// CPU and memory are split on their own: a build is CPU in the daemon, while the
+// runner keeps the memory its checkout and an in-memory work folder need. The
+// general figure applies to both unless a specific one overrides it, so a pool
+// that set one number before keeps meaning it.
+func TestCPUAndMemoryAreSplitIndependently(t *testing.T) {
+	slot := Resources{CPUs: 10, MemoryMB: 10000}
+	r, d := slot.SplitWithDaemonShares(70, 30)
+	if d.CPUs != 7 || r.CPUs != 3 || d.MemoryMB != 3000 || r.MemoryMB != 7000 {
+		t.Fatalf("70%% CPU, 30%% memory = runner %+v, daemon %+v", r, d)
+	}
+	if r, d := slot.SplitWithDaemonShares(70, 50); d.CPUs != 7 || r.MemoryMB != 5000 || d.MemoryMB != 5000 {
+		t.Fatalf("an even memory share was not even: %+v / %+v", r, d)
+	}
+	// A figure out of range is even for that resource only.
+	if r, d := slot.SplitWithDaemonShares(5, 70); d.CPUs != 5 || d.MemoryMB != 7000 || r.MemoryMB != 3000 {
+		t.Fatalf("a bad CPU share spoiled the memory one: %+v / %+v", r, d)
+	}
+
+	for _, tc := range []struct {
+		name     string
+		r        Resources
+		cpu, mem int
+	}{
+		{"nothing said is even", Resources{}, 50, 50},
+		{"the general figure applies to both", Resources{DaemonSharePercent: 70}, 70, 70},
+		{"a specific figure overrides it for its own resource", Resources{DaemonSharePercent: 70, DaemonCPUSharePercent: 60}, 60, 70},
+		{"each can stand alone", Resources{DaemonCPUSharePercent: 80, DaemonMemorySharePercent: 25}, 80, 25},
+	} {
+		if cpu, mem := tc.r.DaemonCPUPercent(), tc.r.DaemonMemoryPercent(); cpu != tc.cpu || mem != tc.mem {
+			t.Errorf("%s: cpu %d memory %d, want %d and %d", tc.name, cpu, mem, tc.cpu, tc.mem)
+		}
+	}
+	if got := (Resources{DaemonCPUSharePercent: 80, DaemonMemorySharePercent: 50}); got.CPUPairFactor() != 5 || got.MemoryPairFactor() != 2 {
+		t.Errorf("pair factors are per resource: cpu %v memory %v", got.CPUPairFactor(), got.MemoryPairFactor())
 	}
 }

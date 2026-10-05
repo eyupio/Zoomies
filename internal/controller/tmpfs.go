@@ -428,7 +428,7 @@ func runnerLimitsOn(p *store.Pool, h PoolHostRoom) (runnerMB, daemonMB int64, ok
 	if !dind {
 		return h.ChargeMemoryMB, 0, true
 	}
-	r, d := store.Resources{MemoryMB: h.ChargeMemoryMB}.SplitWithDaemonShare(p.Resources.DaemonPercent())
+	r, d := store.Resources{MemoryMB: h.ChargeMemoryMB}.SplitWithDaemonShare(p.Resources.DaemonMemoryPercent())
 	return r.MemoryMB, d.MemoryMB, true
 }
 
@@ -451,7 +451,7 @@ func hostSizedTmpfsWarning(p *store.Pool, hosts []PoolHostRoom) (Problem, bool) 
 		return Problem{}, false
 	}
 	dind := p.DockerMode == store.DockerDinD
-	share := int64(p.Resources.DaemonPercent())
+	share := int64(p.Resources.DaemonMemoryPercent())
 	var cut []string
 	var worst, needSlot int64
 	severity := config.SeverityInfo
@@ -505,7 +505,7 @@ func hostSizedTmpfsWarning(p *store.Pool, hosts []PoolHostRoom) (Problem, bool) 
 			"for a docker-in-docker runner only its part of that share. Folders left to size themselves are fitted into half of it, and these came out smaller than asked for: " +
 			strings.Join(cut, "; ") + ". A job that fills a folder fails with \"no space left on device\".",
 		Fix: fmt.Sprintf("let the folders decide per runner (Placement: Auto in the pool editor, or zoomies pools edit %s --tmpfs-auto), which keeps a folder on disk where it would be too small; "+
-			"or give these hosts runners of about %s or more (Runner sizes on each host, or fewer slots); move the daemon's share toward the container that needs the room; or turn off the folder that does not fit (zoomies pools edit %s --tmpfs-tmp=false). "+
+			"or give these hosts runners of about %s or more (Runner sizes on each host, or fewer slots); move the sidecar's memory share toward the container that needs the room (Runner and Docker sidecar on the pool's Size step); or turn off the folder that does not fit (zoomies pools edit %s --tmpfs-tmp=false). "+
 			"The largest runner here is charged %s now.", p.Name, formatRoomMB(needSlot), p.Name, formatRoomMB(worst)),
 		TargetKind: "pool",
 		TargetID:   p.ID,
@@ -568,7 +568,7 @@ func autoOnDiskFix(p *store.Pool, plan *TmpfsPlan) string {
 	var options []string
 	if plan != nil && plan.Share != nil {
 		sh := plan.Share
-		line := fmt.Sprintf("give the Docker sidecar %d%% of a slot (Docker sidecar's share in the pool editor, or zoomies pools edit %s --daemon-share %d), which puts %d of %d folders in memory and loses no runners",
+		line := fmt.Sprintf("give the Docker sidecar %d%% of a slot's memory (Runner and Docker sidecar on the pool's Size step, or zoomies pools edit %s --daemon-memory-share %d), which puts %d of %d folders in memory and loses no runners",
 			sh.Percent, p.Name, sh.Percent, sh.InMemory, plan.Total)
 		options = append(options, line)
 	}

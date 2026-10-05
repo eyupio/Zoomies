@@ -340,3 +340,19 @@ func TestAnAutomaticFolderIsNotMountedOnARunnerTooSmallForIt(t *testing.T) {
 		t.Errorf("a ceiling from an older controller gave %v", got)
 	}
 }
+
+// A host-sized pair is split per resource: the daemon can have most of the CPU
+// while the runner keeps most of the memory.
+func TestPairLimitsSplitCPUAndMemoryOnTheirOwnShares(t *testing.T) {
+	spec := Spec{Resources: store.Resources{CPUs: 10, MemoryMB: 10000}, ResourcesSource: store.AllocationFromHost,
+		DaemonCPUSharePercent: 70, DaemonMemorySharePercent: 30}
+	r, d := pairLimits(spec)
+	if d.CPUs != 7 || r.CPUs != 3 || d.MemoryMB != 3000 || r.MemoryMB != 7000 {
+		t.Fatalf("pair = runner %+v, daemon %+v; want 70%% of the CPU and 30%% of the memory to the daemon", r, d)
+	}
+	// The general share still means both, for a spec from before the split.
+	old := Spec{Resources: spec.Resources, ResourcesSource: store.AllocationFromHost, DaemonSharePercent: 75}
+	if r, d := pairLimits(old); d.CPUs != 7.5 || d.MemoryMB != 7500 || r.MemoryMB != 2500 {
+		t.Fatalf("a single share = runner %+v, daemon %+v", r, d)
+	}
+}

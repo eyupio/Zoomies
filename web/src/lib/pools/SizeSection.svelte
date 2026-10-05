@@ -39,13 +39,13 @@
   import { fleet } from '$lib/state/fleet.svelte';
   import Button from '$lib/components/Button.svelte';
   import Field from '$lib/components/Field.svelte';
-  import Input from '$lib/components/Input.svelte';
   import RadioGroup from '$lib/components/RadioGroup.svelte';
   import QuantityField from '$lib/components/QuantityField.svelte';
   import ElasticCpu from './ElasticCpu.svelte';
   import PoolFit from './PoolFit.svelte';
   import PoolMore from './PoolMore.svelte';
   import PoolRoom from './PoolRoom.svelte';
+  import PoolSplit from './PoolSplit.svelte';
   import {
     CPU_NOTCHES,
     DISK_NOTCHES,
@@ -329,27 +329,6 @@
   {/if}
 {/snippet}
 
-{#snippet sidecarShare()}
-  <Field
-    label="Docker sidecar's share (%)"
-    error={errors['resources.daemon_share_percent']}
-    hint="A runner and its sidecar split one slot, and builds run in the sidecar: give it more if the runner container is mostly idle. Empty is an even split."
-  >
-    {#snippet children({ id, describedBy, invalid })}
-      <Input
-        bind:value={draft.daemon_share}
-        {id}
-        {describedBy}
-        {invalid}
-        inputmode="numeric"
-        placeholder="50 (even split)"
-        autocomplete="off"
-        onblur={() => touch('resources.daemon_share_percent')}
-      />
-    {/snippet}
-  </Field>
-{/snippet}
-
 <fieldset class="group">
   <legend>What one runner gets</legend>
   <RadioGroup
@@ -429,7 +408,7 @@
     {/if}
 
     {#if hasSidecar}
-      {@render sidecarShare()}
+      <PoolSplit {draft} {errors} {touch} plan={room?.split_plan ?? null} />
     {/if}
   {/if}
 

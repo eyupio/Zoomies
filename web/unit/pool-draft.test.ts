@@ -54,18 +54,40 @@ test('a minimum is sent only when one was given', () => {
   assert.equal(body.resources?.min_memory_mb, 2048);
 });
 
-// The sidecar's share means nothing for a fixed size, where both containers get
-// the whole figure, and nothing without a sidecar.
-test('the sidecar share is sent only for a host-sized Docker-in-Docker pool', () => {
-  const sent = toPoolBody(valid({ docker_mode: 'dind', daemon_share: '70' }));
-  assert.equal(sent.resources?.daemon_share_percent, 70);
+// The sidecar's shares mean nothing for a fixed size, where both containers get
+// the whole figure, and nothing without a sidecar. CPU and memory are two shares
+// that are sent on their own, and an even one is left out: absent is even.
+test('the sidecar shares are sent only for a host-sized Docker-in-Docker pool, each on its own', () => {
+  const sent = toPoolBody(
+    valid({ docker_mode: 'dind', daemon_cpu_share: '70', daemon_memory_share: '35' }),
+  );
+  assert.equal(sent.resources?.daemon_cpu_share_percent, 70);
+  assert.equal(sent.resources?.daemon_memory_share_percent, 35);
+  const cpuOnly = toPoolBody(valid({ docker_mode: 'dind', daemon_cpu_share: '70' }));
+  assert.equal(cpuOnly.resources?.daemon_cpu_share_percent, 70);
+  assert.equal(cpuOnly.resources?.daemon_memory_share_percent, undefined);
   for (const over of [
-    { docker_mode: 'none' as const, daemon_share: '70' },
-    { docker_mode: 'dind' as const, daemon_share: '70', sizing: 'fixed' as const, cpus: '2' },
-    { docker_mode: 'dind' as const, daemon_share: '70', backend: 'podman' as const },
-    { docker_mode: 'dind' as const, daemon_share: '' },
+    { docker_mode: 'none' as const, daemon_cpu_share: '70', daemon_memory_share: '35' },
+    {
+      docker_mode: 'dind' as const,
+      daemon_cpu_share: '70',
+      daemon_memory_share: '35',
+      sizing: 'fixed' as const,
+      cpus: '2',
+    },
+    {
+      docker_mode: 'dind' as const,
+      daemon_cpu_share: '70',
+      daemon_memory_share: '35',
+      backend: 'podman' as const,
+    },
+    { docker_mode: 'dind' as const, daemon_cpu_share: '', daemon_memory_share: '' },
+    { docker_mode: 'dind' as const, daemon_cpu_share: '50', daemon_memory_share: '50' },
   ]) {
-    assert.equal(toPoolBody(valid(over)).resources?.daemon_share_percent, undefined);
+    const body = toPoolBody(valid(over));
+    assert.equal(body.resources?.daemon_cpu_share_percent, undefined);
+    assert.equal(body.resources?.daemon_memory_share_percent, undefined);
+    assert.equal(body.resources?.daemon_share_percent, undefined);
   }
 });
 
@@ -255,21 +277,43 @@ test('a minimum sits at or under the standard and above the floor', () => {
   assert.match(tiny['resources.min_memory_mb'] ?? '', /512 MB/);
 });
 
-test('the sidecar share stays between ten and ninety percent', () => {
-  for (const share of ['5', '95']) {
-    assert.ok(
-      draftErrors(valid({ daemon_share: share }), false)['resources.daemon_share_percent'],
-      share,
-    );
+test('each sidecar share stays between ten and ninety percent, and says which resource it is about', () => {
+  for (const [key, field, what] of [
+    ['daemon_cpu_share', 'resources.daemon_cpu_share_percent', 'CPU'],
+    ['daemon_memory_share', 'resources.daemon_memory_share_percent', 'memory'],
+  ] as const) {
+    for (const share of ['5', '95']) {
+      assert.match(
+        draftErrors(valid({ [key]: share }), false)[field] ?? '',
+        new RegExp(`between 10 and 90 percent of the ${what}`),
+        `${key} ${share}`,
+      );
+    }
+    for (const share of ['70', '']) {
+      assert.equal(
+        draftErrors(valid({ [key]: share }), false)[field],
+        undefined,
+        `${key} ${share}`,
+      );
+    }
   }
-  assert.equal(
-    draftErrors(valid({ daemon_share: '70' }), false)['resources.daemon_share_percent'],
-    undefined,
-  );
-  assert.equal(
-    draftErrors(valid({ daemon_share: '' }), false)['resources.daemon_share_percent'],
-    undefined,
-  );
+});
+
+// A pool saved with one figure meant it for both resources, so opening it shows
+// that, and a specific figure beats the general one. A pool being edited has its
+// division already, which is why it is marked chosen: the recommended preset is
+// only ever the start of a new pool.
+test('a pool saved with one share opens with it for both, and is never preselected over', () => {
+  const general = draftFromPool({ resources: { daemon_share_percent: 70 } } as Pool);
+  assert.equal(general.daemon_cpu_share, '70');
+  assert.equal(general.daemon_memory_share, '70');
+  assert.equal(general.split_chosen, true);
+  const specific = draftFromPool({
+    resources: { daemon_share_percent: 70, daemon_memory_share_percent: 35 },
+  } as Pool);
+  assert.equal(specific.daemon_cpu_share, '70');
+  assert.equal(specific.daemon_memory_share, '35');
+  assert.equal(emptyDraft().split_chosen, false);
 });
 
 // A size limit is kept by evicting from a directory on the host: there is

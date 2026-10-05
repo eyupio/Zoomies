@@ -385,7 +385,7 @@ func (c *Controller) decideLoan(r *store.Runner, p *store.Pool, base float64, st
 		// the pair judged on its sum, as it always was.
 		// The busier half is judged against its own share, which a pool
 		// that gives its daemon more than half has made the daemon's.
-		half, daemon := store.Resources{CPUs: base}.SplitWithDaemonShare(p.Resources.DaemonSharePercent)
+		half, daemon := store.Resources{CPUs: base}.SplitWithDaemonShare(p.Resources.DaemonCPUPercent())
 		holder := max(half.CPUs, daemon.CPUs)
 		in.HolderBaseCPUs = holder
 		in.HolderUsedCPUs = st.BusiestHalfPercent / 100 * holder

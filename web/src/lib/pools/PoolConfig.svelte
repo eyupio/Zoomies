@@ -27,6 +27,14 @@
   // Only CPU and memory decide the question. Disk and the pids limit have no
   // share to be given, so a pool may cap its cache's disk and still leave its
   // size to the host.
+  // The daemon's share of a split slot, CPU and memory on their own: a specific figure,
+  // else the general one, else even.
+  const daemonCpu = $derived(
+    resources.daemon_cpu_share_percent || resources.daemon_share_percent || 50,
+  );
+  const daemonMemory = $derived(
+    resources.daemon_memory_share_percent || resources.daemon_share_percent || 50,
+  );
   const hasSize = $derived((resources.cpus ?? 0) > 0 || (resources.memory_mb ?? 0) > 0);
   // The server says which of the two this is rather than the browser inferring
   // it from two absent numbers -- "no CPU limit" alone cannot tell "the host
@@ -226,9 +234,11 @@
         charges its host — so this pool is sized correctly on every host, and follows one that is
         resized.{#if dind}
           Its runner and its Docker daemon share that slot, so a slot here is one runner like
-          anywhere else.{#if resources.daemon_share_percent}
-            The daemon is given {resources.daemon_share_percent}% of it and the runner
-            {100 - resources.daemon_share_percent}%.{:else}
+          anywhere else.{#if daemonCpu !== 50 || daemonMemory !== 50}
+            {#if daemonCpu === daemonMemory}
+              The daemon is given {daemonCpu}% of it and the runner {100 - daemonCpu}%.{:else}
+              The daemon is given {daemonCpu}% of its CPU and {daemonMemory}% of its memory; the
+              runner keeps the rest.{/if}{:else}
             They split it evenly.{/if}{/if}
       {:else}
         A runner is charged this against its host, wherever it lands.{#if dind}

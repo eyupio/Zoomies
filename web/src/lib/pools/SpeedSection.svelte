@@ -279,14 +279,18 @@
             <ul class="plan">
               {#if plan.share}
                 <li>
-                  Give the sidecar {plan.share.percent}% of a slot — {plan.share.in_memory} of {plan.total}
+                  Give the sidecar {plan.share.percent}% of a slot's memory — {plan.share.in_memory} of
+                  {plan.total}
                   folders in memory, no runners lost.
                   <Button
                     variant="secondary"
                     size="sm"
-                    onclick={() => (draft.daemon_share = String(plan.share?.percent ?? ''))}
+                    onclick={() => {
+                      draft.daemon_memory_share = String(plan.share?.percent ?? '');
+                      draft.split_chosen = true;
+                    }}
                   >
-                    Set the share to {plan.share.percent}%
+                    Set the memory share to {plan.share.percent}%
                   </Button>
                 </li>
               {/if}

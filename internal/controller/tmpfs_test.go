@@ -733,3 +733,73 @@ func TestAPoolSizedBySlotShareIsToldToLowerCapacity(t *testing.T) {
 		t.Fatalf("problem = %+v; want capacity named and no standard size", p)
 	}
 }
+
+// The presets are priced on the hosts, and the one preselected is one that costs
+// nothing: a CPU-skewed split raises a thin half to its minimum and grows the slot,
+// which on a small slot loses runners and on a roomy one loses none.
+func TestSplitPresetsArePricedOnTheHostsAndTheCheapestSuitableIsPreselected(t *testing.T) {
+	plan := func(hostCPUs float64, memoryMB int64, std store.RunnerStandard) *SplitPlan {
+		h := newHarness(t)
+		inst := h.installation()
+		pool := h.pool(inst, "linux-x64")
+		host := &store.Host{
+			Name: "vm", Capacity: 4, Backends: store.StringSlice{"docker"}, Labels: store.StringMap{},
+			OS: "linux", Arch: "amd64", CPUs: int(hostCPUs), MemoryMB: memoryMB, DiskTotalMB: 500 * 1024, DiskFreeMB: 400 * 1024,
+			LastHeartbeat: time.Now(), Features: store.StringSlice{agent.FeatureTmpfs},
+			RunnerProfile: store.RunnerProfile{Minimum: store.RunnerSize{CPUs: 1, MemoryMB: 2048}, Standard: std},
+		}
+		if err := h.st.CreateHost(h.ctx, host); err != nil {
+			t.Fatal(err)
+		}
+		pool.DockerMode, pool.SizeFromProfile = store.DockerDinD, true
+		pool.Resources = store.Resources{MinCPUs: 1, MinMemoryMB: 2048}
+		if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+			t.Fatal(err)
+		}
+		room, err := h.c.PoolRoom(h.ctx, pool)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return room.SplitPlan
+	}
+
+	roomy := plan(32, 128*1024, store.RunnerStandard{CPUs: 4, MemoryMB: 16384})
+	if roomy == nil || len(roomy.Options) != 3 {
+		t.Fatalf("plan = %+v; want three priced presets", roomy)
+	}
+	if roomy.Options[0].ID != "even" || roomy.Options[0].Loses {
+		t.Errorf("even = %+v; the pool's own division can never lose against itself", roomy.Options[0])
+	}
+	if roomy.Recommended != "build" {
+		t.Errorf("recommended = %q on a roomy fleet, want build: %+v", roomy.Recommended, roomy.Options)
+	}
+
+	// A 2-CPU slot cannot give a 70% daemon its comfortable CPU without growing, and on
+	// a 12-core host the slots that grow no longer all fit.
+	tight := plan(12, 32*1024, store.RunnerStandard{CPUs: 2, MemoryMB: 6144})
+	var build *SplitOption
+	for i := range tight.Options {
+		if tight.Options[i].ID == "build" {
+			build = &tight.Options[i]
+		}
+	}
+	if build == nil || !build.Loses {
+		t.Fatalf("build = %+v on a small slot; want it priced as losing runners", build)
+	}
+	if tight.Recommended != "even" {
+		t.Errorf("recommended = %q; a preset that loses runners must not be preselected", tight.Recommended)
+	}
+
+	// A typed size has no division to choose.
+	h := newHarness(t)
+	inst := h.installation()
+	typed := h.pool(inst, "typed")
+	typed.DockerMode, typed.Resources = store.DockerDinD, store.Resources{CPUs: 2, MemoryMB: 4096}
+	if err := h.st.UpdatePool(h.ctx, typed); err != nil {
+		t.Fatal(err)
+	}
+	h.host("vm-1")
+	if room, err := h.c.PoolRoom(h.ctx, typed); err != nil || room.SplitPlan != nil {
+		t.Errorf("a typed pool has a split plan: %+v (err %v)", room.SplitPlan, err)
+	}
+}

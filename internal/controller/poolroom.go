@@ -125,6 +125,10 @@ type PoolRoom struct {
 	// automatically, which is the setting that decides per host and so needs
 	// saying per host.
 	TmpfsPlan *TmpfsPlan `json:"tmpfs_plan,omitempty"`
+	// SplitPlan prices the ways of dividing a slot between the runner and its
+	// Docker daemon on these hosts, and names the one to start from. Present only
+	// for a docker-in-docker pool whose size comes from its hosts.
+	SplitPlan *SplitPlan `json:"split_plan,omitempty"`
 }
 
 // Overcommitted is every host promising more slots than it can back.
@@ -152,6 +156,7 @@ func (c *Controller) PoolRoom(ctx context.Context, p *store.Pool) (PoolRoom, err
 	if p.Tmpfs.AnyAuto() {
 		room.TmpfsPlan = c.tmpfsPlan(ctx, p, room)
 	}
+	room.SplitPlan = c.splitPlan(ctx, p, room)
 	return room, nil
 }
 

@@ -266,3 +266,64 @@ export function recommendedMemoryMb(
 export function tmpfsIsTight(limitMb: number, reserveMb: number): boolean {
   return limitMb > 0 && reserveMb * 2 > limitMb;
 }
+
+/**
+ * The ways of dividing a host-sized slot between a runner and its Docker sidecar
+ * that the pool editor offers, as the sidecar's share of CPU and of memory. They
+ * mirror the controller's priced presets (`room.split_plan`), which carry the same
+ * ids and figures; the words are here because they are guidance, not data.
+ */
+export interface SplitPreset {
+  id: 'even' | 'build' | 'runner';
+  label: string;
+  /** The sidecar's share of a slot's CPU, in percent. */
+  cpu: number;
+  /** The sidecar's share of a slot's memory, in percent. */
+  memory: number;
+  description: string;
+}
+
+export const SPLIT_PRESETS: readonly SplitPreset[] = [
+  {
+    id: 'even',
+    label: 'Even',
+    cpu: 50,
+    memory: 50,
+    description:
+      'Half of the CPU and half of the memory to each. The right start when you do not yet know where the work is.',
+  },
+  {
+    id: 'build',
+    label: 'Image builds in the sidecar',
+    cpu: 70,
+    memory: 50,
+    description:
+      'The sidecar gets 70% of the CPU and the memory stays even. For jobs that build images or run containers: the CPU is spent in the sidecar while the runner waits.',
+  },
+  {
+    id: 'runner',
+    label: 'Work in the runner',
+    cpu: 35,
+    memory: 35,
+    description:
+      'The runner gets 65% of both. For jobs that compile, test or install in the runner with a Docker step at the end, and for an in-memory work folder, which is charged to the runner.',
+  },
+];
+
+/**
+ * Which preset a pair of typed shares is, or `custom`. An empty share is the even
+ * split, which is how the API reads zero; anything out of step with every preset is
+ * the person's own.
+ */
+export function splitPreset(cpu: string, memory: string): SplitPreset['id'] | 'custom' {
+  const read = (s: string): number | null => {
+    const t = s.trim();
+    if (t === '') return 50;
+    const n = Number(t);
+    return Number.isInteger(n) ? n : null;
+  };
+  const c = read(cpu);
+  const m = read(memory);
+  if (c === null || m === null) return 'custom';
+  return SPLIT_PRESETS.find((p) => p.cpu === c && p.memory === m)?.id ?? 'custom';
+}
