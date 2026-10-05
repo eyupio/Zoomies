@@ -31,6 +31,7 @@ func runMCP(ctx context.Context, e *env, args []string) error {
 			"CLI, so a viewer token is enough and is what to give it. Without --allow-actions\n"+
 			"it offers read-only tools and nothing else.")
 	cf := registerClientFlags(fs, false)
+	allowAdmin := fs.Bool("allow-admin", false, "with --allow-actions, also offer edit_host, clear_host_throttle, get_settings and update_settings; the token must be an administrator's")
 	allowActions := fs.Bool("allow-actions", false, "also offer rerun_job, drain_runner, update_pool, update_host and apply_remedy; the token's role must permit them too")
 	fs.example(
 		"zoomies mcp --url https://zoomies.example.com",
@@ -47,8 +48,11 @@ func runMCP(ctx context.Context, e *env, args []string) error {
 		return err
 	}
 	return mcp.New(mcpAPI{client}, mcp.Options{
-		Offer: func(string) bool { return *allowActions },
+		Offer: func(tool string) bool { return *allowActions && (!mcp.IsAdminTool(tool) || *allowAdmin) },
 		Refusal: func(tool string) string {
+			if mcp.IsAdminTool(tool) && *allowActions {
+				return tool + " is an administrator tool: restart this server with `zoomies mcp --allow-actions --allow-admin` and an administrator's token"
+			}
 			return tool + " changes the fleet, and this server was started read-only; restart it with `zoomies mcp --allow-actions` and a token whose role permits it"
 		},
 	}).ServeStdio(ctx, e.in, e.out)

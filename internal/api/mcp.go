@@ -29,6 +29,13 @@ var mcpToolActions = map[string]auth.Action{
 	"apply_remedy":    auth.ActionProblemsApply,
 	"update_host":     auth.ActionHostsWrite,
 	"context_publish": auth.ActionContextPublish,
+
+	// The administrator tools: offered only to an administrator, and only while
+	// security.mcp_admin_tools is on. See mcp.IsAdminTool.
+	"edit_host":           auth.ActionSettingsWrite,
+	"clear_host_throttle": auth.ActionSettingsWrite,
+	"get_settings":        auth.ActionSettingsRead,
+	"update_settings":     auth.ActionSettingsWrite,
 }
 
 // mcpResponseLimit bounds what one tool call reads back from a route. It is
@@ -91,9 +98,16 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 	mcp.New(inProcessAPI{s: s, from: r, as: id}, mcp.Options{
 		Offer: func(tool string) bool {
 			a, ok := mcpToolActions[tool]
-			return ok && auth.Allowed(id, a)
+			if !ok || !auth.Allowed(id, a) {
+				return false
+			}
+			return !mcp.IsAdminTool(tool) || s.cfg().Security.MCPAdminTools
 		},
 		Refusal: func(tool string) string {
+			if mcp.IsAdminTool(tool) && auth.Allowed(id, mcpToolActions[tool]) {
+				return tool + " is an administrator tool, and this controller does not offer those over MCP. " +
+					"An administrator turns it on at Settings, Security, \"Offer administrator tools over MCP\" (security.mcp_admin_tools)."
+			}
 			if id.Kind == auth.KindConnection {
 				return tool + " changes the fleet, and is not offered to this connection: " + auth.Explain(id, mcpToolActions[tool]) +
 					". Disconnect and connect again choosing the operator role to be offered it."

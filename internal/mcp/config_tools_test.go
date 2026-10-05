@@ -15,15 +15,18 @@ import (
 type recorder struct {
 	object string
 	sent   []string
+	paths  []string
 }
 
 func (r *recorder) Call(_ context.Context, _, _ string, _ url.Values) ([]byte, error) {
 	return []byte(r.object), nil
 }
 func (r *recorder) CallBody(_ context.Context, method, path string, _ url.Values, body []byte) ([]byte, error) {
-	if method != http.MethodPatch && !(method == http.MethodPost && path == "/problems/apply") {
+	post := path == "/problems/apply" || strings.HasSuffix(path, "/cordon") || strings.HasSuffix(path, "/throttle/clear")
+	if method != http.MethodPatch && !(method == http.MethodPost && post) {
 		return nil, refusal{http.StatusMethodNotAllowed}
 	}
+	r.paths = append(r.paths, method+" "+path)
 	r.sent = append(r.sent, string(body))
 	return []byte(`{}`), nil
 }

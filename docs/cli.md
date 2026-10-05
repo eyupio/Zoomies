@@ -453,6 +453,10 @@ again.
 | `update_pool` | Only with `--allow-actions`. `PATCH /pools/{id}` for a pool's smallest runner (`min_cpus`, `min_memory_mb`), its Docker sidecar's shares (`daemon_cpu_share_percent`, `daemon_memory_share_percent`), its scale (`min_runners`, `max_runners`, `idle_timeout`, `repository_scale_up_limit`), where its folders live (`tmpfs_work`, `tmpfs_tmp`, `tmpfs_daemon`: `auto`, `memory` or `disk`) and its burst valves (`cpu_burst_mode`, `cpu_burst_max_cpus`, `memory_burst_mode`, `memory_burst_spill_mb`). Every other setting of the pool is carried forward, because the API replaces `resources`, `cpu_burst`, `memory_burst` and `tmpfs` whole. Disabling a pool, its image, labels and environment are not offered: those stay with a person. Never with `confirm`, so a change that would leave the pool with no host that could run it is refused; needs `operator`. |
 | `apply_remedy` | Only with `--allow-actions`. `POST /problems/apply`: make the change a problem proposes, as `list_problems` shows it in the problem's `remedy`. You name the problem (`code`, `target_id`) and the proposal you read (`remedy_id`), never the change; the controller applies what it proposes now, as the pool's or host's own update, so it needs that update's role and is refused when it would leave a pool with nowhere to run; needs `operator`. |
 | `update_host` | Only with `--allow-actions`. `PATCH /hosts/{id}` for a host's capacity, reserve and runner sizes (`standard_cpus`, `standard_memory_mb`, `min_cpus`, `min_memory_mb`, `burst_max_cpus`), with the rest of its runner profile carried forward. A capacity of zero is refused: stopping a host taking runners is for a person to do by cordoning it; needs `operator`. |
+| `edit_host` | Only with `--allow-actions --allow-admin`. `PATCH /hosts/{id}` for a host's `name`, `labels` (replaced whole) and `reserve_disk_mb`, and `POST /hosts/{id}/cordon`. Never with `confirm`. Needs an administrator token; over `/mcp` it also needs `security.mcp_admin_tools`. |
+| `clear_host_throttle` | Only with `--allow-actions --allow-admin`. `POST /hosts/{id}/throttle/clear`. Same two conditions as `edit_host`. |
+| `get_settings` | Only with `--allow-actions --allow-admin`. `GET /settings`, optionally under a `prefix`; a secret's value is never sent. Same two conditions. |
+| `update_settings` | Only with `--allow-actions --allow-admin`. `PATCH /settings` for keys under `scheduler.`, `capacity_demand.`, `retention.`, `runners.`, `limits.`, `log.`, `metrics.`, `images.`, `status.`, `ui.` and `updates.` only. Security, sign-in, GitHub, provider, server, database, agent and backup settings are refused before anything is sent; a person changes those at the Settings page. Same two conditions. |
 
 #### Straight to the controller
 
@@ -485,7 +489,7 @@ It takes a bearer token and nothing else — a browser session is refused — an
 every tool is the documented route called with that token, so the controller
 applies the token's role and scopes to each call exactly as it would to the
 CLI's. There is no `--allow-actions` here: `rerun_job`, `drain_runner`, `update_pool`, `update_host` and `apply_remedy` are
-offered when the token's role reaches them and not otherwise, so a `viewer`
+offered when the token's role reaches them and not otherwise (the administrator tools `edit_host`, `clear_host_throttle`, `get_settings` and `update_settings` also wait for `security.mcp_admin_tools`, which is off until an administrator turns it on under Settings), so a `viewer`
 token is a read-only agent. A client that signs in with OAuth, such as a custom
 connector on claude.ai, needs no token at all: see
 [Connect Claude to Zoomies](connect-claude.md).

@@ -196,6 +196,8 @@ security:
                                             #   unset turns it on when auth is on and the controller is on https)
   mcp_open_registration: true               # ZOOMIES_MCP_OPEN_REGISTRATION (let MCP clients register themselves,
                                             #   rather than only use a client an administrator created)
+  mcp_admin_tools: false                    # ZOOMIES_MCP_ADMIN_TOOLS (offer an administrator's MCP token the host-edit
+                                            #   and tuning-settings tools; off, they are not offered)
 
 github:
   api_base_url: https://api.github.com   # ZOOMIES_GITHUB_API_BASE_URL
@@ -654,6 +656,7 @@ the validator says so with `limits.loopback`.
 | `security.encryption_key_file` | `ZOOMIES_ENCRYPTION_KEY_FILE` | file or environment only | Encryption key file — Where that key is read from, and written to on a first run. Back it up beside the database: without it the sealed rows cannot be read. |
 | `security.mcp_oauth` | `ZOOMIES_MCP_OAUTH` | live | Sign in to MCP with OAuth — Let an MCP client such as Claude be added by this controller's `/mcp` address alone and sign a person in through the browser, with this controller as its own OAuth authorisation server. The token it receives works on `/mcp` and nowhere else, at a role the person chooses and no higher than their own. Unset turns it on when authentication is on and the controller is reached over https. See [Connect Claude to Zoomies](connect-claude.md). |
 | `security.mcp_open_registration` | `ZOOMIES_MCP_OPEN_REGISTRATION` | live | Let MCP clients register themselves — Let an MCP client register itself — by dynamic client registration or a client ID metadata document — rather than only use a client an administrator created under Settings, MCP clients. A client that registers itself can do nothing until a person signs in and approves it. Off, only the clients an administrator created can ask. |
+| `security.mcp_admin_tools` | `ZOOMIES_MCP_ADMIN_TOOLS` | live | Offer administrator tools over MCP — Let an MCP token or connection whose role is administrator edit a host's name, labels and reserve, cordon it and lift its throttle, and read and change the tuning settings (scheduler, retention, runners, limits, logging, metrics, images, status, UI and updates — never security, sign-in, GitHub, providers or the database). Off, those tools are not offered and an agent that asks is told to turn this on. It changes nothing for a role below administrator. |
 | `security.rate_limit_logins` | `ZOOMIES_RATE_LIMIT_LOGINS` | next restart | Login attempts per minute — Password attempts allowed per source address per minute, and five times that per account. |
 | `security.require_two_step` | `ZOOMIES_REQUIRE_TWO_STEP` | next restart | Require two-step verification — Make every account that signs in with a password set up an authenticator app at its next sign-in. Accounts that use single sign-on are not asked — their identity provider owns their second factor — and API tokens are unaffected. See [Two-step verification](two-step.md). |
 | `security.session_ttl` | `ZOOMIES_SESSION_TTL` | next restart | Session lifetime — How long a browser login lasts before it has to be made again. |

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/mcp"
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -140,6 +141,9 @@ func TestMCPOverHTTPOffersActionsAsFarAsTheTokensRoleReaches(t *testing.T) {
 
 	names = h.mcpToolNames(operator)
 	for tool := range mcpToolActions {
+		if mcp.IsAdminTool(tool) {
+			continue
+		}
 		if !slices.Contains(names, tool) {
 			t.Errorf("%s must be offered to an operator token, got %v", tool, names)
 		}
@@ -393,5 +397,42 @@ func TestMCPUpdateHostChangesTheNamedSettingAndKeepsTheRest(t *testing.T) {
 	}
 	if got, _ := h.st.GetHost(h.ctx, host.ID); got.Capacity != host.Capacity {
 		t.Errorf("a refused call must change nothing, capacity is %d", got.Capacity)
+	}
+}
+
+// The administrator tools need two things at once: a role that reaches them and
+// the controller's switch. Either alone offers nothing, and an agent that asks
+// anyway is told which of the two is missing, so the person can fix the right one.
+func TestMCPAdministratorToolsNeedTheSwitchAndTheRole(t *testing.T) {
+	admin := func(h *harness) string { return h.token("boss", store.RoleAdmin) }
+
+	off := newHarness(t)
+	for _, tool := range mcp.ActionTools() {
+		if mcp.IsAdminTool(tool) && slices.Contains(off.mcpToolNames(admin(off)), tool) {
+			t.Errorf("%s must not be offered while security.mcp_admin_tools is off", tool)
+		}
+	}
+	r := off.mcpTool(admin(off), "update_settings", map[string]any{"changes": map[string]any{"retention.jobs": "720h"}})
+	if !r.IsError || !strings.Contains(resultText(r), "security.mcp_admin_tools") {
+		t.Errorf("asking while the switch is off must name it, got %s", resultText(r))
+	}
+
+	on := newHarness(t, func(c *config.Config) { c.Security.MCPAdminTools = true })
+	names := on.mcpToolNames(admin(on))
+	for _, tool := range mcp.ActionTools() {
+		if mcp.IsAdminTool(tool) && !slices.Contains(names, tool) {
+			t.Errorf("%s must be offered to an administrator once the switch is on, got %v", tool, names)
+		}
+	}
+	operator := on.mcpToolNames(on.token("actor", store.RoleOperator))
+	for _, tool := range mcp.ActionTools() {
+		if mcp.IsAdminTool(tool) && slices.Contains(operator, tool) {
+			t.Errorf("%s must not be offered to an operator even with the switch on", tool)
+		}
+	}
+
+	denied := on.mcpTool(admin(on), "update_settings", map[string]any{"changes": map[string]any{"security.disable_auth": true}})
+	if !denied.IsError || !strings.Contains(resultText(denied), "cannot be changed over MCP") {
+		t.Errorf("a security key must be refused even for an administrator, got %s", resultText(denied))
 	}
 }
