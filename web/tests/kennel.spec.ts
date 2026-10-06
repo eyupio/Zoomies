@@ -42,6 +42,8 @@ async function patchSettings(page: Page, settings: Record<string, unknown>): Pro
 interface Overview {
   enabled: boolean;
   repositories: number;
+  states: { attention: number; best_in_show: number };
+  counts: { error: number };
 }
 
 async function overview(page: Page): Promise<Overview> {
@@ -62,6 +64,23 @@ interface Row {
   id: string;
   name: string;
   findings: Array<{ code: string; evidence: Array<{ kind: string; ref: string; label?: string }> }>;
+}
+
+/**
+ * A repository with nothing open on it, whichever it is.
+ *
+ * Which ones those are changes while a controller runs: the demo fleet seeds one
+ * job that nothing claims, and ten minutes after it was queued a repository has a
+ * capacity warning that it did not have when the controller started. A suite
+ * that shares one controller for half an hour cannot name the quiet repository
+ * in advance, so it asks.
+ */
+async function quietRepository(page: Page): Promise<Row> {
+  const listed = (await page.request
+    .get('/api/v1/kennel/repositories?state=best_in_show')
+    .then((r) => r.json())) as { items: Row[] };
+  expect(listed.items.length, 'at least one repository has nothing open').toBeGreaterThan(0);
+  return listed.items[0] as Row;
 }
 
 async function repository(page: Page, name: string): Promise<Row> {
@@ -200,8 +219,14 @@ test.describe('with Kennel Club on', () => {
         .locator('dl.metrics > div')
         .filter({ has: page.getByRole('term').filter({ hasText: new RegExp(`^${label}$`) }) });
     await expect(tile('Repositories')).toContainText('3');
-    await expect(tile('Need attention')).toContainText('1');
-    await expect(tile('Errors')).toContainText('2');
+    // The number of repositories that need attention grows with the controller's
+    // age (see quietRepository), so the page is held to what the API says now, and
+    // to there being at least the one with the errors.
+    const now = await overview(page);
+    expect(now.states.attention).toBeGreaterThanOrEqual(1);
+    await expect(tile('Need attention')).toContainText(String(now.states.attention));
+    await expect(tile('Errors')).toContainText(String(now.counts.error));
+    expect(now.counts.error, 'only the public repository has errors').toBe(2);
 
     const attention = page.getByRole('region', { name: 'Needs attention' });
     await expect(attention.getByRole('link', { name: new RegExp(PUBLIC_REPO) })).toBeVisible();
@@ -329,7 +354,9 @@ test.describe('with Kennel Club on', () => {
     await expect(rows).toHaveCount(3);
 
     await goto(page, '/kennel/repositories?state=best_in_show', 'Repositories');
-    await expect(rows).toHaveCount(2);
+    const quiet = (await overview(page)).states.best_in_show;
+    expect(quiet, 'some repository has nothing open').toBeGreaterThan(0);
+    await expect(rows).toHaveCount(quiet);
     await expect(rows.filter({ hasText: PUBLIC_REPO })).toHaveCount(0);
 
     await goto(page, '/kennel/repositories?code=exposure.fork_code_ran', 'Repositories');
@@ -342,8 +369,8 @@ test.describe('with Kennel Club on', () => {
   test('a repository that was not looked at yet is not an all clear, and one that was read in full is', async ({
     page,
   }) => {
-    const quiet = await repository(page, 'acme/api');
-    await goto(page, `/kennel/repositories/${quiet.id}`, 'acme/api');
+    const quiet = await quietRepository(page);
+    await goto(page, `/kennel/repositories/${quiet.id}`, quiet.name);
     // Nothing is open and everything was read: the one place "best in show" is
     // earned, and the page says what earned it.
     await expect(
@@ -384,8 +411,8 @@ test.describe('with Kennel Club on', () => {
     await page.addInitScript(() =>
       localStorage.setItem('zoomies.prefs', JSON.stringify({ statusStyle: 'off' })),
     );
-    const quiet = await repository(page, 'acme/api');
-    await goto(page, `/kennel/repositories/${quiet.id}`, 'acme/api');
+    const quiet = await quietRepository(page);
+    await goto(page, `/kennel/repositories/${quiet.id}`, quiet.name);
     await expect(page.getByText('No open findings', { exact: true }).first()).toBeVisible();
     await expect(page.getByText('Best in show', { exact: true })).toHaveCount(0);
   });
@@ -394,8 +421,8 @@ test.describe('with Kennel Club on', () => {
     await page.addInitScript(() =>
       localStorage.setItem('zoomies.prefs', JSON.stringify({ statusStyle: 'cute' })),
     );
-    const quiet = await repository(page, 'acme/api');
-    await goto(page, `/kennel/repositories/${quiet.id}`, 'acme/api');
+    const quiet = await quietRepository(page);
+    await goto(page, `/kennel/repositories/${quiet.id}`, quiet.name);
     await expect(page.getByText('Best in show', { exact: true }).first()).toBeVisible();
   });
 
