@@ -263,3 +263,122 @@ func TestShadowModeRecordsWhatItWouldHaveDoneOnceAndChangesNothing(t *testing.T)
 		t.Errorf("turning it on after shadow did not make the change: %+v", got.RunnerProfile)
 	}
 }
+
+// sharePool is a docker-in-docker pool whose sidecar memory share autopilot has just
+// raised from 50% to 80%, recorded as an applied change, so the revert has something to
+// look at without sitting through the evidence a real proposal needs.
+func sharePool(t *testing.T) (*harness, *store.Pool, string) {
+	t.Helper()
+	h := newHarness(t)
+	pool := h.pool(h.installation(), "builders")
+	pool.DockerMode = store.DockerDinD
+	r := &controller.Remedy{Kind: controller.RemedyPoolUpdate, TargetID: pool.ID}
+	before, err := h.api.targetSnapshot(h.ctx, r, []string{"resources"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool.Resources.DaemonMemorySharePercent = 80
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	applied, err := h.api.targetSnapshot(h.ctx, r, []string{"resources"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.cfg.Security.AutoApplyRemedies = "on"
+	h.api.auth.Auditor().Record(h.ctx, autopilotIdentity, auditAutoApplied, "pool", pool.ID, before,
+		map[string]any{"code": "pool.daemon_share_suggested", "remedy": "rem_share", "label": "Give the sidecar 80% of the memory", "kind": controller.RemedyPoolUpdate, "applied": applied})
+	return h, pool, "rem_share"
+}
+
+func (h *harness) killForMemory(pool *store.Pool, n int64) {
+	h.t.Helper()
+	started := time.Now().Add(time.Minute)
+	runner := "run_killed"
+	if _, _, err := h.st.ApplyJob(h.ctx, &store.Job{GitHubJobID: n, Repo: "acme/widgets", Workflow: "ci", JobName: "build",
+		Labels: store.StringSlice{"self-hosted"}, State: store.JobInProgress, PoolID: pool.ID, Matched: true,
+		RunnerID: runner, QueuedAt: started, StartedAt: &started}); err != nil {
+		h.t.Fatal(err)
+	}
+	if err := h.st.RecordJobUsage(h.ctx, runner, 1, 3000); err != nil {
+		h.t.Fatal(err)
+	}
+	done := started.Add(time.Minute)
+	if _, _, err := h.st.ApplyJob(h.ctx, &store.Job{GitHubJobID: n, Repo: "acme/widgets", State: store.JobCompleted,
+		Conclusion: "failure", StartedAt: &started, CompletedAt: &done}); err != nil {
+		h.t.Fatal(err)
+	}
+	if _, _, err := h.st.MarkJobOOMKilled(h.ctx, runner, "killed for memory"); err != nil {
+		h.t.Fatal(err)
+	}
+}
+
+// Autopilot sized the share by what jobs used, and a kill for memory is the proof it
+// was wrong: the share is put back to what it replaced, as an undo would, and the
+// proposal is not made again.
+func TestAMemoryShareIsTakenBackWhenAJobInThePoolIsKilledAfterIt(t *testing.T) {
+	h, pool, remedy := sharePool(t)
+	if err := h.api.autopilotPass(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := h.st.GetPool(h.ctx, pool.ID); got.Resources.DaemonMemorySharePercent != 80 {
+		t.Fatalf("a share nothing has killed was taken back: %+v", got.Resources)
+	}
+	h.killForMemory(pool, 9001)
+	if err := h.api.autopilotPass(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := h.st.GetPool(h.ctx, pool.ID); got.Resources.DaemonMemorySharePercent != 0 {
+		t.Fatalf("the share was not taken back after a memory kill: %+v", got.Resources)
+	}
+	items := h.autoApplied()
+	if len(items) != 1 || !items[0].Undone || items[0].Undoable {
+		t.Errorf("list = %+v; want the change shown as undone", items)
+	}
+	rows, _, _ := h.st.ListAudit(h.ctx, store.AuditFilter{Actions: []string{auditAutoUndone}}, store.Page{Limit: 5})
+	if len(rows) != 1 || !strings.Contains(rows[0].After, remedy) || !strings.Contains(rows[0].After, "killed for memory") {
+		t.Errorf("audit rows = %+v; want one saying why", rows)
+	}
+	// Nothing is left to do, and a second pass does not do it again.
+	if err := h.api.autopilotPass(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if rows, _, _ := h.st.ListAudit(h.ctx, store.AuditFilter{Actions: []string{auditAutoUndone}}, store.Page{Limit: 5}); len(rows) != 1 {
+		t.Errorf("the change was taken back %d times", len(rows))
+	}
+}
+
+// A pool somebody has edited since is theirs: putting the old value back would undo
+// their work, so the change is only recorded as superseded.
+func TestAMemoryShareIsNotTakenBackOverAnEditMadeSince(t *testing.T) {
+	h, pool, _ := sharePool(t)
+	pool, _ = h.st.GetPool(h.ctx, pool.ID)
+	pool.Resources.DaemonMemorySharePercent = 90
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	h.killForMemory(pool, 9002)
+	if err := h.api.autopilotPass(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := h.st.GetPool(h.ctx, pool.ID); got.Resources.DaemonMemorySharePercent != 90 {
+		t.Errorf("an operator's edit was overwritten: %+v", got.Resources)
+	}
+	rows, _, _ := h.st.ListAudit(h.ctx, store.AuditFilter{Actions: []string{auditAutoUndone}}, store.Page{Limit: 5})
+	if len(rows) != 1 || !strings.Contains(rows[0].After, "superseded") {
+		t.Errorf("audit rows = %+v; want one marking the change superseded", rows)
+	}
+}
+
+// Shadow mode makes no change, so it takes none back either.
+func TestShadowModeTakesNothingBack(t *testing.T) {
+	h, pool, _ := sharePool(t)
+	h.cfg.Security.AutoApplyRemedies = "shadow"
+	h.killForMemory(pool, 9003)
+	if err := h.api.autopilotPass(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := h.st.GetPool(h.ctx, pool.ID); got.Resources.DaemonMemorySharePercent != 80 {
+		t.Errorf("shadow mode changed a pool: %+v", got.Resources)
+	}
+}
