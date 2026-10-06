@@ -543,8 +543,43 @@ commit verified, and a status:
 | **Draft saved** | Settings saved, nothing sent to GitHub. | Resume setup and create the setup PR. |
 | **Awaiting merge** | The setup PR is open. | Merge it. |
 | **Context verified** | The current commit was verified. Readers can use it. | Nothing. |
-| **Generation out of date** | The newest commit has not produced verified output yet. Reads are refused rather than served stale. The previous snapshot is kept but not served. | Check the repository's *Zoomies AI Context* workflow run, then **Recheck context**. |
+| **Generation out of date** | The newest commit has not produced verified output yet. Reads are refused rather than served stale. The previous snapshot is kept but not served. | If the workflow's last run failed, the card says why and what to do: see [When the workflow fails](#when-the-workflow-fails). Otherwise check the repository's *Zoomies AI Context* workflow run, then **Recheck context**. |
 | **Verification failed** | Zoomies could not confirm the setup or its access to GitHub. Source access is closed. | Read the reason shown, fix it, then **Recheck context**. |
+
+### When the workflow fails
+
+A repository whose context is behind because the workflow's last run failed no
+longer just says *out of date*. Zoomies reads the run for the commit it is waiting
+on, sorts the failure into one of the causes below, and shows that cause on the
+repository's card and in the problems list — the card links to the run, says what
+to change, and says what Zoomies will do about it on its own. It reads only what
+the GitHub App already may: **Actions** read. It never copies a log line into what
+it shows, because a run's log is written by whatever the run executed.
+
+Starting the workflow again is not always the answer, and doing it blindly costs
+runner minutes and buries the one run that explains the failure under copies of
+itself. So how soon and how often Zoomies starts it depends on the cause. It never
+starts a run while one is still working, because the workflow's concurrency group
+would cancel it. Whatever the cause, **Regenerate** starts one when you ask.
+
+| Problem code | What happened | Zoomies starts it again | What to do |
+| --- | --- | --- | --- |
+| `ai_context.artifact_quota` | GitHub refused to store the file that hands the context from one job to the next: the account's Actions artifact storage is full. A public repository is not affected; a private one shares its owner's quota with every other workflow that uploads artifacts, so what filled it is usually another workflow's builds. The card says what the repository's own artifacts hold. | Every six hours, three times. GitHub recalculates usage only every six to twelve hours, so sooner cannot succeed. | Delete old artifacts, or give the workflows that upload the most a shorter `retention-days`. |
+| `ai_context.runner_unavailable` | The run was queued but GitHub never gave its job a hosted runner, and it was cancelled when it timed out. | Half an hour after it ended, four times. | Nothing in Zoomies. If it persists, check githubstatus.com and that the account's billing allows Actions on private repositories. |
+| `ai_context.oversized_file` | The workflow was written by an earlier Zoomies release, which stops the whole run for any file over 1 MiB. | Never: it would fail again. | **Reinstall / repair**, or exclude the file. |
+| `ai_context.too_much_source` | The eligible source is over a size or file-count limit even with the largest files left out. | Never. | Add exclusions in **Amend**. |
+| `ai_context.generation_refused` | The generator stopped on a safety check: the managed configuration changed, the checkout was not the commit, nothing eligible was left, or the secret scan changed the output. | Never. | Open the run; **Reinstall / repair** re-reviews the configuration. |
+| `ai_context.publication_refused` | The context was built but the last job could not update the `zoomies-ai-context` branch: usually a token that cannot write contents, a ruleset on that branch, files on it Zoomies does not own, or the branch moving on during the run. | Once, after half an hour. | Allow the workflow to write that branch and check nobody has committed to it. |
+| `ai_context.delivery_failed` | A Zoomies-only upload did not reach the controller. | Half an hour after, twice. | Check `server.external_url` is an https address GitHub can reach; **Reinstall / repair** re-aims the workflow. |
+| `ai_context.setup_failed` | A step before generation failed: checkout, Node, or installing the pinned generator from npm. | Half an hour after, twice. | Open the run. Usually an outage at GitHub or npm. |
+| `ai_context.artifact_upload_failed` | The same hand-off failed for a reason other than the quota. | Half an hour after, twice. | Open the run; GitHub's message is on that step. |
+| `ai_context.timed_out` | A job started and reached its time limit. | Half an hour after, twice. | Add exclusions if the repository is large. |
+| `ai_context.startup_failed` | GitHub refused to start the run at all. | Six hours after, twice. | Open the run; check the account's Actions billing and the organisation's allowed-actions policy. |
+| `ai_context.run_failed` | A failure Zoomies does not recognise. | Half an hour after, twice. | Open the run and read its log. |
+
+A run cancelled by a newer push is not a failure, and a run that succeeded while
+the context is still behind is not blamed: both fall back to waiting thirty
+minutes for the push-triggered run, then starting it at most twice.
 
 Submitted repositories also have three maintenance actions. Each is reviewed in
 full before anything is written and published as one pull request:
@@ -563,6 +598,17 @@ A previous setup pull request has to be merged or closed before a new one for
 the same repository can be opened.
 
 ## Troubleshooting
+
+**Every run fails at *upload-artifact* with "Artifact storage quota has been
+hit".** The generator worked; GitHub will not store the file that carries its
+result to the next job. This is `ai_context.artifact_quota`. It is the account's
+quota, not this repository's: on a private repository every workflow that uploads
+artifacts counts against it, and a workflow that uploads a large build on every
+push to every branch can fill it alone. Look at what holds the space (the card
+names the largest artifact by name), give that workflow a short `retention-days`,
+and prune old copies on a schedule. Space freed shows up at GitHub's next
+recalculation, six to twelve hours later, and Zoomies starts the workflow again
+once that has had time to pass.
 
 **The workflow failed in *Generate bounded source context*.** The run's log names
 the reason. A file that is too large, over a limit, or withheld by the secret scan

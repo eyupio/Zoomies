@@ -115,6 +115,9 @@
           return { href: '/hosts', label: 'Open hosts' };
         case 'provider':
           return { href: `/providers/${id}`, label: 'Open the provider' };
+        case 'ai_context':
+          // The card on that page carries the run, the cause and the buttons.
+          return { href: '/ai-context', label: 'Open AI Context' };
         case 'machine':
           // A machine has a page of its own because the answer to "why is this
           // taking so long" is on it: the phase timeline, the last failure and

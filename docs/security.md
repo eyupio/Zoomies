@@ -295,6 +295,14 @@ installation and add only themselves as a reader. The viewer-level
 `context.manage` action is only the coarse gate: every handler behind it checks
 the ownership again, and tokens and OAuth connections never qualify.
 
+When the managed workflow's run fails, Zoomies reads that run and the log of its
+failed job, with the Actions read permission the App already has, to say why. The
+log's pre-signed address is requested without the installation's token, and is
+refused if it names this machine or a private network unless the GitHub API
+itself is on one. The log is matched against fixed phrases and read for nothing
+else: no line of it is stored or shown, because what a run prints is written by
+whatever the run executed.
+
 The mapping from every individual API action to its minimum role is a table in
 `internal/auth/rbac.go`, and a test walks the full action list — so a new
 endpoint cannot be added without deciding who may call it.

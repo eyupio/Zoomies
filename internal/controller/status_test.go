@@ -19,6 +19,11 @@ func TestEveryFleetCodeHasAPublicSentence(t *testing.T) {
 	for code, audience := range problemAudience {
 		_, has := publicSentences[code]
 		switch {
+		case statusExempt(code) && has:
+			t.Errorf("%s is exempt from the status page and has a public sentence it can never show", code)
+		case statusExempt(code):
+			// The fleet sees it; the page does not. TestAnAIContextFailure...
+			// holds the other half.
 		case audience.For(false) && !has:
 			t.Errorf("%s reaches the fleet's list and has no public sentence", code)
 		case !audience.For(false) && has:
@@ -45,6 +50,33 @@ func TestTheStatusCannotCarryAPlatformProblem(t *testing.T) {
 	}, nil)
 	if st.State != FleetHealthy || len(st.Reasons) != 0 || len(st.Explanations) != 0 {
 		t.Fatalf("status = %+v, want healthy with no reasons", st)
+	}
+}
+
+// A repository's AI Context workflow failing is an error for whoever set it up
+// and nothing to a developer waiting on a job. Were it on the status page, a full
+// artifact quota would turn the public state to "blocked" while every runner was
+// healthy.
+func TestAnAIContextFailureNeverMovesThePublicStatus(t *testing.T) {
+	st := ProjectStatus([]Problem{
+		{Code: "ai_context.artifact_quota", Severity: config.SeverityError, Title: "GitHub's artifact storage is full (acme/private-repo)", Audience: AudienceFleet},
+		{Code: "ai_context.runner_unavailable", Severity: config.SeverityWarning, Audience: AudienceFleet},
+	}, nil)
+	if st.State != FleetHealthy || len(st.Reasons) != 0 || len(st.Explanations) != 0 {
+		t.Fatalf("status = %+v, want healthy with no reasons", st)
+	}
+	body, _ := json.Marshal(st)
+	if strings.Contains(string(body), "private-repo") || strings.Contains(string(body), "ai_context") {
+		t.Errorf("the status carries an AI Context problem: %s", body)
+	}
+
+	// And it does not hide a real problem beside it.
+	st = ProjectStatus([]Problem{
+		{Code: "ai_context.artifact_quota", Severity: config.SeverityError, Audience: AudienceFleet},
+		{Code: "host.unhealthy", Severity: config.SeverityWarning, Audience: AudienceFleet},
+	}, nil)
+	if st.State != FleetDegraded || len(st.Reasons) != 1 || st.Reasons[0].Code != "host.unhealthy" {
+		t.Errorf("status = %+v, want degraded by the host alone", st)
 	}
 }
 

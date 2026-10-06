@@ -183,6 +183,18 @@ var problemAudience = map[string]Audience{
 	"jobs.runner_lost":                              AudienceFleet,
 	"jobs.label_advice":                             AudienceFleet,
 	"jobs.unmatched":                                AudienceFleet,
+	"ai_context.artifact_quota":                     AudienceFleet,
+	"ai_context.artifact_upload_failed":             AudienceFleet,
+	"ai_context.delivery_failed":                    AudienceFleet,
+	"ai_context.generation_refused":                 AudienceFleet,
+	"ai_context.oversized_file":                     AudienceFleet,
+	"ai_context.publication_refused":                AudienceFleet,
+	"ai_context.run_failed":                         AudienceFleet,
+	"ai_context.runner_unavailable":                 AudienceFleet,
+	"ai_context.setup_failed":                       AudienceFleet,
+	"ai_context.startup_failed":                     AudienceFleet,
+	"ai_context.timed_out":                          AudienceFleet,
+	"ai_context.too_much_source":                    AudienceFleet,
 	"poller.paused":                                 AudienceFleet,
 	"poller.stale":                                  AudienceFleet,
 	"pool.auto_blocked":                             AudienceFleet,
@@ -425,6 +437,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	out = append(out, c.loopProblems()...)
 	out = append(out, c.updateProblems()...)
 	out = append(out, c.backupProblems(ctx)...)
+	gather("AI Context", c.aiContextProblems)
 	gather("polling", c.pollerProblems)
 	gather("runners", c.runnerProblems)
 	gather("runner cleanup", c.cleanupProblems)

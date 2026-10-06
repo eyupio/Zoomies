@@ -13,9 +13,14 @@ import (
 )
 
 type AIContextRepository struct {
-	Freshness  *AIContextFreshness `json:"freshness,omitempty"`
-	SetupState string              `json:"setup_state,omitempty"`
-	SetupPRURL string              `json:"setup_pr_url,omitempty"`
+	Freshness *AIContextFreshness `json:"freshness,omitempty"`
+	// Diagnosis is why the last run of the managed workflow did not publish, when
+	// the controller has read it. The controller sets it on the way out and the
+	// store never saves it: it is a reading of GitHub that goes stale in minutes,
+	// and a row would only keep the wrong answer.
+	Diagnosis  *aicontext.Diagnosis `json:"diagnosis,omitempty"`
+	SetupState string               `json:"setup_state,omitempty"`
+	SetupPRURL string               `json:"setup_pr_url,omitempty"`
 	// WorkflowOutdated is true while the installed workflow is exactly one an
 	// earlier release wrote: still trusted, but due a repair to pick up fixes.
 	WorkflowOutdated bool                    `json:"workflow_outdated"`

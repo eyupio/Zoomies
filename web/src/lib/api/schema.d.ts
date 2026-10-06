@@ -3977,6 +3977,7 @@ export interface components {
                 checked_at: string;
                 failure?: string;
             };
+            diagnosis?: components["schemas"]["AIContextDiagnosis"];
             /** @enum {string} */
             setup_state?: "pending" | "awaiting_merge";
             setup_pr_url?: string;
@@ -3987,6 +3988,51 @@ export interface components {
             created_at: string;
             /** Format: date-time */
             updated_at: string;
+        };
+        /** @description Why the last run of the repository's managed workflow did not publish, read from GitHub by the controller. Present only while the context is behind and the newest run for the commit it is waiting on failed; absent otherwise, including when the run could not be read. It is never stored, and no line of the run's log is ever copied into it. */
+        AIContextDiagnosis: {
+            /**
+             * @description A closed set, so a client can switch on it. The problem code is `ai_context.` followed by the cause, except `unknown`, which is `ai_context.run_failed`.
+             * @enum {string}
+             */
+            cause: "artifact_quota" | "artifact_upload_failed" | "runner_unavailable" | "startup_failed" | "setup_failed" | "oversized_file" | "too_much_source" | "generation_refused" | "publication_refused" | "delivery_failed" | "timed_out" | "unknown";
+            /** @description What happened */
+            title: string;
+            /** @description What happened and why */
+            detail: string;
+            /** @description What to change. */
+            fix: string;
+            /**
+             * @description The control on the page that is the way out, when there is one.
+             * @enum {string}
+             */
+            action?: "repair" | "exclusions";
+            /** @description The trusted-branch commit the run was for. */
+            commit?: string;
+            /** @description The run on GitHub. */
+            run_url?: string;
+            /**
+             * Format: date-time
+             * @description When the run ended.
+             */
+            failed_at: string;
+            /**
+             * Format: date-time
+             * @description When Zoomies last read it.
+             */
+            observed_at: string;
+            /** @description What Zoomies will do about it without being asked. */
+            retry?: {
+                /** @description Whether Zoomies will start the workflow again on its own. */
+                automatic: boolean;
+                /**
+                 * Format: date-time
+                 * @description When it will next try.
+                 */
+                next_at?: string;
+                /** @description How many more times it will start the workflow for this commit. */
+                attempts_left: number;
+            };
         };
         /**
          * @description What an identity may do. `platform` is above `admin` and belongs to whoever runs the process rather than the fleet; on an instance where one team does both, the account that installed it holds it.

@@ -57,6 +57,9 @@ type FakeGitHub struct {
 	// contextDispatches counts manual runs of a repository's managed AI
 	// Context workflow, keyed by repository and workflow file.
 	contextDispatches map[string]int
+	// contextRuns is what the fake says the managed AI Context workflow did, and
+	// the artifacts a repository holds: see fake_ai_context_runs.go.
+	contextRuns fakeContextRuns
 
 	nextJobID     int64
 	nextRunID     int64
@@ -894,6 +897,9 @@ func (f *FakeGitHub) listWorkflowJobs(w http.ResponseWriter, r *http.Request) {
 
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.writeContextRunJobsLocked(w, full, runID) {
+		return
+	}
 	jobs := make([]map[string]any, 0)
 	for _, j := range f.jobs {
 		if j.Repo != full || j.RunID != runID {

@@ -112,6 +112,11 @@ type Controller struct {
 	// extra run, where remembering it would cost a migration.
 	aiContextRunsMu sync.Mutex
 	aiContextRuns   map[string]*aiContextRun
+	// aiContextDiagnoses is what the controller last read about why the managed
+	// workflow's latest run did not publish, per repository: see
+	// ai_context_diagnosis.go. Under the same mutex, and in memory for the same
+	// reason: a restart re-reads it on the next pass.
+	aiContextDiagnoses map[string]*aiContextDiagnosis
 	// actionsTokens verifies the OIDC tokens Zoomies-only uploads carry, with
 	// one verifier per issuer: GitHub.com's, and each Enterprise Server's own.
 	actionsTokens actionsVerifiers
@@ -442,6 +447,7 @@ func New(opts Options) (*Controller, error) {
 	c := &Controller{
 		aiContextChecks:         make(chan struct{}, 1),
 		aiContextRuns:           map[string]*aiContextRun{},
+		aiContextDiagnoses:      map[string]*aiContextDiagnosis{},
 		actionsTokens:           actionsVerifiers{issuerFor: github.ActionsIssuerFor},
 		st:                      opts.Store,
 		lease:                   opts.Lease,

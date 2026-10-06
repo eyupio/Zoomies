@@ -83,6 +83,9 @@ func (s *Server) handleListAIContextRepositories(w http.ResponseWriter, r *http.
 		s.fail(w, r, "listing AI context repositories", err)
 		return
 	}
+	for i := range rows {
+		rows[i].Diagnosis = s.ctrl.AIContextDiagnosis(&rows[i])
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": rows, "total": total, "limit": limit, "offset": offset})
 }
 
@@ -285,6 +288,7 @@ func (s *Server) handleGetAIContextRepository(w http.ResponseWriter, r *http.Req
 	if !ok {
 		return
 	}
+	out.Diagnosis = s.ctrl.AIContextDiagnosis(out)
 	writeJSON(w, http.StatusOK, out)
 }
 func (s *Server) handleFindAIContextDraft(w http.ResponseWriter, r *http.Request) {

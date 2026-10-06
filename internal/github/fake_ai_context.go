@@ -107,6 +107,7 @@ func (f *FakeGitHub) registerContextGitRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls", f.contextListPulls)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/pulls/{number}", f.contextGetPull)
 	mux.HandleFunc("POST /repos/{owner}/{repo}/actions/workflows/{file}/dispatches", f.contextDispatch)
+	f.registerContextRunRoutes(mux)
 }
 
 // contextDispatch answers a manual workflow run. Like the other Actions writes
