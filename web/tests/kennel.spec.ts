@@ -227,6 +227,67 @@ test.describe('with Kennel Club on', () => {
     await expect(seen.getByText('Read', { exact: true }).first()).toBeVisible();
   });
 
+  test('counts that are a minimum say so, and an installation that cannot be read is named', async ({
+    page,
+  }) => {
+    // What a held read looks like: one repository only partly read, and an
+    // installation whose reads are not getting through. The numbers above must
+    // not read as totals, and the page says why.
+    await page.route('**/api/v1/kennel', async (route) => {
+      const real = await route.fetch();
+      const body = (await real.json()) as {
+        states: Record<string, number>;
+        unavailable: unknown[];
+      };
+      body.states = { ...body.states, partial: 1 };
+      body.unavailable = [
+        {
+          installation_id: FIXTURE.installationId,
+          target: 'acme',
+          state: 'held',
+          reason: 'GitHub asked Zoomies to wait, so nothing was read.',
+          since: new Date(Date.now() - 3600_000).toISOString(),
+        },
+      ];
+      return route.fulfill({ response: real, json: body });
+    });
+    await goto(page, '/kennel', 'Kennel Club');
+
+    await expect(
+      page.getByText(
+        'These counts are a minimum: 1 repository is only partly checked and reads from acme are not getting through',
+      ),
+    ).toBeVisible();
+    const attention = page
+      .locator('dl.metrics > div')
+      .filter({ has: page.getByRole('term').filter({ hasText: /^Need attention$/ }) });
+    await expect(attention).toContainText('At least');
+    const note = page.getByRole('note').filter({ hasText: 'GitHub asked Zoomies to wait' });
+    await expect(note).toContainText('acme');
+    await expect(note).toContainText('Held for a rate limit');
+  });
+
+  test('a refresh that fails keeps what the page had, says so, and recovers', async ({ page }) => {
+    await goto(page, '/kennel', 'Kennel Club');
+    const repositories = page
+      .locator('dl.metrics > div')
+      .filter({ has: page.getByRole('term').filter({ hasText: /^Repositories$/ }) });
+    await expect(repositories).toContainText('3');
+
+    let down = true;
+    await page.route('**/api/v1/kennel', (route) =>
+      down ? route.abort('connectionfailed') : route.fallback(),
+    );
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await expect(page.getByText('The last refresh did not get through')).toBeVisible();
+    // Last-known data stays: a failed refresh is not a reason to blank the page.
+    await expect(repositories).toContainText('3');
+
+    down = false;
+    await page.getByRole('button', { name: 'Try again' }).click();
+    await expect(page.getByText('The last refresh did not get through')).toHaveCount(0);
+  });
+
   test('a repository shows each finding, what to change and where it was seen', async ({
     page,
   }) => {
@@ -269,6 +330,9 @@ test.describe('with Kennel Club on', () => {
     await goto(page, '/kennel/repositories?state=best_in_show', 'Repositories');
     await expect(rows).toHaveCount(2);
     await expect(rows.filter({ hasText: PUBLIC_REPO })).toHaveCount(0);
+    // With plain status words, which is what a browser that has not chosen sees,
+    // best in show says what it means.
+    await expect(rows.filter({ hasText: 'acme/api' })).toContainText('No open findings');
 
     await goto(page, '/kennel/repositories?code=exposure.fork_code_ran', 'Repositories');
     await expect(page.getByText('No repositories match those filters')).toBeVisible();
@@ -385,6 +449,31 @@ test.describe('with Kennel Club on', () => {
     await expect(page.getByText('1 error', { exact: true })).toBeVisible();
   });
 
+  test('a repository that stops being tracked says so instead of showing what it had', async ({
+    page,
+  }) => {
+    const row = await repository(page, PUBLIC_REPO);
+    await goto(page, `/kennel/repositories/${row.id}`, PUBLIC_REPO);
+    await expect(page.getByRole('article')).toHaveCount(2);
+
+    const frame = `id: 999991\nevent: kennel.deleted\ndata: ${JSON.stringify({ id: row.id })}\n\n`;
+    await page.route('**/api/v1/events*', (route) =>
+      route.fulfill({
+        status: 200,
+        headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-store' },
+        body: frame,
+      }),
+    );
+    await page.evaluate(() => {
+      window.dispatchEvent(new Event('offline'));
+      window.dispatchEvent(new Event('online'));
+    });
+    await expect(page.getByText('Kennel Club no longer tracks this repository')).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByRole('article')).toHaveCount(0);
+  });
+
   test('a page that lost the stream asks again when it comes back', async ({ page }) => {
     await goto(page, '/kennel', 'Kennel Club');
     await expect(page.locator('.connection')).toHaveAttribute('data-state', 'live');
@@ -450,7 +539,12 @@ test.describe('with Kennel Club on', () => {
       const body = (await real.json()) as Row;
       body.name = payload;
       for (const finding of body.findings)
-        for (const item of finding.evidence) item.label = payload;
+        for (const item of finding.evidence) {
+          item.label = payload;
+          // A reference is only ever linked when it has the shape of an
+          // identifier the controller made; this one is a path to somewhere else.
+          item.ref = '../settings/users';
+        }
       return route.fulfill({ response: real, json: body });
     });
 
@@ -463,6 +557,10 @@ test.describe('with Kennel Club on', () => {
       await expect(page.getByText(payload, { exact: true }).first(), path).toBeVisible();
       await expect(page.locator('img[src="x"]'), `${path} made an image`).toHaveCount(0);
     }
+    await expect(
+      page.locator('a[href*="settings/users"]'),
+      'a reference that is not an identifier was linked',
+    ).toHaveCount(0);
     expect(dialogs, 'nothing a stranger named ran').toEqual([]);
   });
 
