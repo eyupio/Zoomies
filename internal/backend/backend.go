@@ -80,6 +80,10 @@ type Status struct {
 	// workload for its memory limit. It can be true with any exit code: a
 	// step killed under a runner that lived on exits the container cleanly.
 	OOMKilled bool `json:"oom_killed,omitempty"`
+	// OOMReported says the daemon answered the question OOMKilled is the answer to, so a
+	// false OOMKilled means "not killed for memory" and not "nobody asked". Docker and
+	// Podman inspect a stopped container and say; a bare process has no daemon to.
+	OOMReported bool `json:"oom_reported,omitempty"`
 	// SidecarOOMKilled says the kill was in the pool's Docker-in-Docker
 	// sidecar, where its builds run under a limit of their own, and not in the
 	// runner container. OOMKilled is true either way: what to change is not.

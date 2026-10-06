@@ -1689,6 +1689,7 @@ func statusFromInspect(h Handle, insp *ContainerInspect) Status {
 	default:
 		st.ExitedAt = parseDockerTime(s.FinishedAt)
 		st.OOMKilled = s.OOMKilled
+		st.OOMReported = true
 		if s.ExitCode == 0 && !s.OOMKilled {
 			st.Phase = PhaseExited
 		} else {

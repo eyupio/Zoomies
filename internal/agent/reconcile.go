@@ -247,6 +247,13 @@ func terminalOutcome(r tracked, s backend.Status) (store.RunnerState, string, st
 		// Zoomies asked this workload to stop, so the non-zero code is the
 		// backend's kill, not the job's.
 		return store.RunnerRemoved, fmt.Sprintf("runner was stopped by the controller and exited with code %d", s.ExitCode), ""
+	case s.ExitCode == 137 && s.OOMReported && !s.OOMKilled:
+		// SIGKILL, and the daemon -- asked, and answering -- says the kernel did not do it for
+		// memory. Something outside killed the container: docker stop after its grace period,
+		// an operator, or a maintenance restart's --kill-running. Calling it an out-of-memory
+		// kill put it on the job's history, where it grew the pool's runner by half again and
+		// held back advice to lower its minimum for a week, for a job that never ran short.
+		return store.RunnerFailed, "runner was killed (exit 137), but the daemon reports no memory kill: it was stopped from outside, by docker stop, an operator or the host", store.FaultRunnerExited
 	default:
 		msg := fmt.Sprintf("runner exited with code %d", s.ExitCode)
 		if s.Message != "" {
@@ -276,7 +283,8 @@ func terminalOutcome(r tracked, s backend.Status) (store.RunnerState, string, st
 func exitFault(code int) store.FaultKind {
 	switch code {
 	case 137:
-		// 128+SIGKILL. The commonest cause by a distance is the memory limit;
+		// 128+SIGKILL. The commonest cause by a distance is the memory limit, unless the
+		// daemon said it was not (terminalOutcome asks it first);
 		// the message carries the daemon's own words where it had any, so an
 		// operator reading "out of memory" against a kill that was not one
 		// still has the sentence that says so.

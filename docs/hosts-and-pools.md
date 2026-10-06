@@ -1342,7 +1342,9 @@ half in. So the fleet remembers what each job used.
 While a job runs, the agent's usage samples — the same ones elastic CPU is
 decided on — raise the job's **peak CPU** and **peak memory**, and a runner
 the kernel killed for memory (the container's `OOMKilled`, or exit 137 from
-the runner or one of its steps) marks the job **OOM-killed**, a fault of the
+the runner or one of its steps, unless the daemon says the container was not
+killed for memory -- a `docker stop`, an operator, or a maintenance restart's
+`--kill-running`, which end in 137 too) marks the job **OOM-killed**, a fault of the
 fleet's rather than the workflow's. In a Docker-in-Docker pool the builds run
 in the sidecar, under a limit of its own, so a kill there leaves a runner that
 finishes its job cleanly; the sidecar's own `OOMKilled` is read once the runner
