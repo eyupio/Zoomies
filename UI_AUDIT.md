@@ -1876,8 +1876,9 @@ should ship first; DC3 is the largest and the most valuable.
 † **Correction.** The first draft's `build-04` disk error is a fixture, and not
 a state the engine produces: a nearly full disk is a warning (see the
 correction under DC2), so by the engine's own rules the row is 1 warn in the
-safe tier and the CLI counts 1 warning. The pill was still **Reboot pending**,
-which is the finding.
+safe tier. A host with a pending reboot also carries the `kernel.pending`
+warning the engine sets the reboot flag from, so the CLI would count 2
+warnings. The pill was still **Reboot pending**, which is the finding.
 
 | Measurement | Desktop 1440×900 | Phone 375×812 |
 | --- | --- | --- |
