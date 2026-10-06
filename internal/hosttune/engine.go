@@ -374,7 +374,7 @@ func (e *Engine) Run(ctx context.Context, t Tier) Report {
 			x.Reason = ""
 		}
 		x.Actionable = c.Plan != nil && x.Status == Warn && x.Reason == "" && e.Supported() && !e.Container && e.UID == 0
-		if c.ID == "kernel.pending" && x.Status == Warn {
+		if c.ID == KernelPending && x.Status == Warn {
 			r.RebootPending = true
 		}
 		r.Results = append(r.Results, x)
