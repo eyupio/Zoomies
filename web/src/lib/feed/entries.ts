@@ -379,7 +379,7 @@ function hostDetail(host: Host, change: HostChange): string | undefined {
     case 'reboot':
       return host.active_runners === 0
         ? 'Nothing is running on it, so it can be rebooted now.'
-        : 'Runners are still running on it. Cordon it and reboot once they finish; Zoomies never reboots a host itself.';
+        : 'Runners are on it, and one kept warm for a pool never finishes by itself. Cordon it and reboot when none is running a job; Zoomies never reboots a host itself.';
     default:
       return undefined;
   }

@@ -132,7 +132,7 @@ the host itself, with your consent, by `zoomies doctor --interactive` or
 | --- | --- | --- |
 | `host.os_health` | **Error when a counted check could not run, warning otherwise** | A connected host's latest report has a counted warning or error. One entry per host, naming up to three of the checks and how many more. |
 | `host.health_stale` | Warning | A connected host's newest report is more than ten minutes old by its own timestamp. It clears with the next report. |
-| `host.reboot_pending` | Info | The report says an update is waiting for a reboot. The entry says whether anything is running on the host: if not, it can be rebooted now, and otherwise to cordon it and wait. |
+| `host.reboot_pending` | Info | The report says an update is waiting for a reboot. The entry says whether there is a runner on the host: if not, it can be rebooted now. If there is, cordon the host and reboot it when `zoomies runners list --host <host-id> --state busy` shows nothing, because a runner kept warm for a pool never finishes by itself. |
 
 A warning is a setting below the recommendation, and a nearly full disk is one.
 An error is a check that could not run properly: a `/etc/docker/daemon.json`

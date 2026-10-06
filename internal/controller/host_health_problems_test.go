@@ -496,7 +496,12 @@ func TestTheRebootFixSaysWhetherTheHostCanBeRebootedNow(t *testing.T) {
 
 	h.runnerRow(pool, host, store.RunnerIdle)
 	busy := h.problem(t, "host.reboot_pending")
-	if !strings.Contains(busy.Fix, "runners are still running on vm-1") || !strings.Contains(busy.Fix, "reboot it once they have finished") {
+	// A runner kept warm for a pool is idle and never finishes by itself, so the
+	// fix must not promise that waiting for the runners to finish ends: it sends
+	// the operator to the runners that hold a job, by the host's id.
+	if !strings.Contains(busy.Fix, "runners are on vm-1") ||
+		!strings.Contains(busy.Fix, "`zoomies runners list --host "+host.ID+" --state busy`") ||
+		strings.Contains(busy.Fix, "once they have finished") {
 		t.Errorf("busy fix = %q", busy.Fix)
 	}
 
