@@ -13,7 +13,10 @@
 // fleet that runs it?". A check that cannot say yes does not belong here.
 package kennel
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // Version is the evaluator's version. A stored evaluation made by an older one
 // is re-run, so bump it whenever a check's meaning or wording changes.
@@ -91,6 +94,11 @@ type Check struct {
 	// Needs are the sources every evaluation of this check must have read to
 	// know whether it applies at all.
 	Needs []Source `json:"needs"`
+	// Conditional are the sources read only once the check applies, such as the
+	// run history, which is read for public repositories and no others. They are
+	// listed here so the catalogue can say what a check takes before anything has
+	// been read; a test holds this list equal to what the check actually asks for.
+	Conditional []Source `json:"conditional"`
 
 	eval func(*Snapshot) result
 }
@@ -124,14 +132,14 @@ var checks = []Check{
 	{
 		Code: CodeForkCodeRan, Area: AreaExposure, Severity: SeverityError,
 		Detects: "A run from a fork's pull request executed on this fleet.",
-		Needs:   []Source{SourceFleet, SourceMetadata},
-		eval:    evalForkCodeRan,
+		Needs:   []Source{SourceFleet, SourceMetadata}, Conditional: []Source{SourceRuns},
+		eval: evalForkCodeRan,
 	},
 	{
 		Code: CodeTargetEventRan, Area: AreaExposure, Severity: SeverityWarning,
 		Detects: "A workflow that strangers can trigger (pull_request_target, workflow_run, issue_comment, issues) ran on this fleet in a public repository.",
-		Needs:   []Source{SourceFleet, SourceMetadata},
-		eval:    evalTargetEventRan,
+		Needs:   []Source{SourceFleet, SourceMetadata}, Conditional: []Source{SourceRuns},
+		eval: evalTargetEventRan,
 	},
 	{
 		Code: CodeUnservedLabel, Area: AreaCapacity, Severity: SeverityWarning,
@@ -152,6 +160,7 @@ func Checks() []Check {
 	out := make([]Check, len(checks))
 	for i, c := range checks {
 		c.Needs = append([]Source(nil), c.Needs...)
+		c.Conditional = append([]Source(nil), c.Conditional...)
 		out[i] = c
 	}
 	return out
@@ -165,6 +174,23 @@ func Lookup(c Code) (Check, bool) {
 		}
 	}
 	return Check{}, false
+}
+
+// Names lists every name kennel.disabled_checks accepts -- each area, then each
+// code -- in registry order. The validator quotes it back to somebody who
+// misspelt one, so the answer comes from the registry and not from a second
+// list that could fall behind it.
+func Names() []string {
+	var out []string
+	for _, c := range checks {
+		if !slices.Contains(out, string(c.Area)) {
+			out = append(out, string(c.Area))
+		}
+	}
+	for _, c := range checks {
+		out = append(out, string(c.Code))
+	}
+	return out
 }
 
 // KnownCodeOrArea says whether a name in kennel.disabled_checks means anything,

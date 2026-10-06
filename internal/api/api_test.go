@@ -894,6 +894,18 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "POST", path: "/api/v1/machines/missing/release", role: store.RoleAdmin, action: auth.ActionMachinesDelete,
 			body: map[string]any{"name": "never-the-right-name"}},
 
+		// Kennel Club answers 409 while it is off, which is what this walk sees: it
+		// is a route's gate being walked, and the behaviour behind it is
+		// kennel_test.go's.
+		{method: "GET", path: "/api/v1/kennel", role: store.RoleViewer, action: auth.ActionKennelRead},
+		{method: "GET", path: "/api/v1/kennel/checks", role: store.RoleViewer, action: auth.ActionKennelRead},
+		{method: "GET", path: "/api/v1/kennel/repositories", role: store.RoleViewer, action: auth.ActionKennelRead},
+		{method: "GET", path: "/api/v1/kennel/repositories/kcr_x", role: store.RoleViewer, action: auth.ActionKennelRead},
+		{method: "POST", path: "/api/v1/kennel/repositories/kcr_x/recheck", role: store.RoleOperator, action: auth.ActionKennelRecheck},
+		{method: "PUT", path: "/api/v1/kennel/repositories/kcr_x/waivers", role: store.RoleOperator, action: auth.ActionKennelWaive,
+			body: map[string]any{"code": "exposure.public_repo_on_fleet", "reason": "isolated hosts that are rebuilt for every job", "expires_at": "2099-01-01T00:00:00Z"}},
+		{method: "DELETE", path: "/api/v1/kennel/repositories/kcr_x/waivers/kcw_x", role: store.RoleOperator, action: auth.ActionKennelWaive},
+
 		{method: "GET", path: "/api/v1/join-tokens", role: store.RoleAdmin, action: auth.ActionJoinsRead},
 		{method: "GET", path: "/api/v1/join-tokens/missing", role: store.RoleAdmin, action: auth.ActionJoinsRead},
 		{method: "POST", path: "/api/v1/join-tokens", role: store.RoleAdmin, body: map[string]any{"ttl": "15m"}, action: auth.ActionJoinsWrite},
@@ -1130,6 +1142,10 @@ func TestEveryActionIsReachableThroughARoute(t *testing.T) {
 	// every account's tokens where tokens.own reaches the caller's.
 	claimed[auth.ActionTokensRead] = true
 	claimed[auth.ActionTokensWrite] = true
+	// Likewise: waiving an error is asked for inside the waive handler, once it
+	// knows the finding is one, because the route is the operator's and this
+	// widens it. TestAnOperatorCannotWaiveAnErrorFindingAndAnAdminCan walks it.
+	claimed[auth.ActionKennelWaiveError] = true
 	for _, a := range auth.AllActions() {
 		if !claimed[a] {
 			t.Errorf("%s is a permission no route in the table checks", a)
@@ -1270,6 +1286,16 @@ func normalisePath(p string) string {
 		// A note is named by its slug, which the assistant chose.
 		if i > 0 && parts[i-1] == "notes" {
 			parts[i] = "{slug}"
+			continue
+		}
+		// A Kennel Club repository and its waivers have prefixed ids of their own,
+		// and the waiver's is the one path parameter that is not called {id}.
+		if strings.HasPrefix(part, "kcr_") {
+			parts[i] = "{id}"
+			continue
+		}
+		if strings.HasPrefix(part, "kcw_") {
+			parts[i] = "{waiver_id}"
 			continue
 		}
 		if strings.HasPrefix(part, "ins_") || strings.HasPrefix(part, "pool_") ||

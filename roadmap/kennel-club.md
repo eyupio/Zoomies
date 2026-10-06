@@ -424,7 +424,7 @@ flowchart LR
         snap["kennel.Snapshot<br/>plain data"]
         ev["kennel.Evaluate<br/>pure"]
         st[("SQLite<br/>kennel_repositories, kennel_waivers")]
-        pub["publishKennel<br/>controller/views.go"]
+        pub["publishKennel<br/>controller/kennel.go"]
     end
     fleet[("fleet facts<br/>jobs, pools, runner groups")]
     loop --> rd --> api
@@ -437,8 +437,8 @@ flowchart LR
 | Package | Rule |
 | --- | --- |
 | `internal/kennel` (new) | **Pure.** `Evaluate`, the check registry, the workflow parser, the prune planner. It imports **only the standard library's pure parts** — a stricter rule than the one `internal/provider` keeps, because the controller reduces what it needs from the store to plain data (a pool becomes a list of weakness words, a severity is its own string type that a test holds equal to `config.Severity`). No clock, no database, no network. `boundary_test.go` fails on any other import and on any call to `time.Now`, `Since`, `Until` or a timer, as `internal/provider`'s boundary test does for its own list. |
-| `internal/github` | A new narrow interface `RepoReader` in `kennel_reader.go`, type-asserted from `Client` exactly as `ContextRunReader` is (`internal/github/ai_context_runs.go:23-33`; `internal/controller/ai_context_diagnosis.go:40`), so the demo client simply does not implement it. `ListRepositories`' `Repository` gains `Visibility`, `Fork`, `PushedAt`; the data is already in the listing. A small conditional-request transport (`etag.go`, about a hundred lines, no dependency). |
-| `internal/store` | `queries_kennel.go` and migration `0079`. The only SQL. |
+| `internal/github` | A new narrow interface `RepoReader` in `kennel_reader.go`, type-asserted from `Client` exactly as `ContextRunReader` is (`internal/github/ai_context_runs.go:23-33`; `internal/controller/ai_context_diagnosis.go:40`), so the demo client simply does not implement it. `ListRepositories`' `Repository` gains `Visibility`; the data is already in the listing. A small conditional-request transport (`etag.go`, no dependency) that only Kennel Club's reads go through: its Stage 1 user is the repository listing it repeats every refresh. A run's trigger never changes, so each run is read once, and the transport earns its keep on the settings, artifact and cache reads of Stages 2 to 4. |
+| `internal/store` | `queries_kennel.go` and migration `0080`. The only SQL. |
 | `internal/controller` | The loop, the snapshot assembly (reads the store and the reader), the problems section, the views, the derived publish. |
 | `internal/api` | Transport only. Handlers alias `controller.KennelRepositoryView` as `providerResponse` aliases `ProviderView`; the SSE stream renders the same JSON. |
 | `internal/mcp` | Read tools that call REST through `mcp.API` and nothing else. |
@@ -533,8 +533,8 @@ Two tiers per repository:
   why Stage 1's capacity checks are live without costing quota.
 * **Remote**: the reads. Due every `kennel.refresh_interval` (24 hours,
   floor one hour), spread by a per-repository jitter, plus on **Recheck**
-  (cooldown five minutes per repository, three in flight fleet-wide) and when
-  the evaluator version changes.
+  (cooldown five minutes per repository, enforced at the API) and when the
+  evaluator version changes.
 
 **The budget is a rule, not a hope.** Zoomies' own comments document the
 installation quota as 5,000 requests an hour "shared with every other call
@@ -548,12 +548,16 @@ admits the toolchain scan "does not ration itself". Kennel Club does:
    neither today (`ai_context_diagnosis.go:44-50` logs and discards); Kennel
    Club must not copy that.
 2. It spends at most `kennel.api_budget_percent` (default 20) of the limit the
-   installation last reported (`Client.RateLimit`), as a per-installation token
-   bucket, and it stops entirely below 50% remaining. The poller, JIT
-   configuration and the registration reap come first.
-3. Concurrency is capped at two per installation and four overall; every call
-   goes through `observeGitHub` and a new
-   `zoomies_kennel_github_requests_total{result}`.
+   installation reports, as a per-installation counter that starts again each
+   hour, and it stops entirely below 50% remaining. `Client.RateLimit` is a real
+   request and not a remembered value, so the loop makes it once per
+   installation per pass (`GET /rate_limit`, which GitHub does not count against
+   the limit, and which is in Appendix A). The poller, JIT configuration and the
+   registration reap come first. Every request, including the further pages of a
+   listing, goes through one gate, `kennelTake`.
+3. A pass reads one repository at a time, which is inside the caps of two per
+   installation and four overall that this plan first proposed; every call goes
+   through `observeGitHub` and a new `zoomies_kennel_github_requests_total{result}`.
 4. Page caps everywhere (ten pages of artifacts, five of caches, three of runs):
    a cap yields coverage `partial`, never an unbounded read and never a guess.
 
@@ -586,10 +590,12 @@ No raw repository content is ever stored, in memory beyond a parse or in the
 database. That is a design rule, tested (section 7), and the reason Kennel Club
 can use fleet-role access rather than AI Context's source-membership model.
 
-### Migration `0079_kennel_club.sql`
+### Migration `0080_kennel_club.sql`
 
-Additive only: two `CREATE TABLE` statements and their indexes. The latest
-migration today is `0078_job_half_peaks.sql`. The file must also be appended to
+Additive only: two `CREATE TABLE` statements and their indexes. When this
+was written the latest migration was `0078_job_half_peaks.sql`; `0079_runners_live_host.sql`
+then landed on `main`, so this one takes `0080`. The rule (ROADMAP rule 7) is the
+next unused prefix at merge, never a number reserved in advance. The file must also be appended to
 `shippedMigrations` (`internal/store/migrations_test.go:14-93`) or
 `TestMigrationNamesAreFixedAndNewPrefixesAreUnique` fails. It does **not** touch
 `jobs`, which avoids `TestTheJobsRebuildKeepsEveryRowAndItsIndexes`. There is no
@@ -610,9 +616,13 @@ CREATE TABLE kennel_repositories (
     evaluated_at      INTEGER,
     next_due_at       INTEGER NOT NULL DEFAULT 0,
     inputs_digest     TEXT NOT NULL DEFAULT '',
-    coverage_json     TEXT NOT NULL DEFAULT '[]',
-    findings_json     TEXT NOT NULL DEFAULT '[]',
-    watermark_json    TEXT NOT NULL DEFAULT '{}',
+    coverage_json     TEXT NOT NULL DEFAULT '{}',   -- how far each source could be read
+    evaluation_json   TEXT NOT NULL DEFAULT '{}',   -- the whole kennel.Evaluation
+    watermark_json    TEXT NOT NULL DEFAULT '{}',   -- the controller's own: runs already examined
+    open_errors       INTEGER NOT NULL DEFAULT 0,   -- the same findings counted, so the list can
+    open_warnings     INTEGER NOT NULL DEFAULT 0,   -- be sorted and filtered without parsing a
+    open_infos        INTEGER NOT NULL DEFAULT 0,   -- document per row
+    waived            INTEGER NOT NULL DEFAULT 0,
     last_served_at    INTEGER NOT NULL,
     UNIQUE (github_host, repository_id)
 );
@@ -633,7 +643,13 @@ CREATE TABLE kennel_waivers (
 ```
 
 A repository row is kept for 90 days after it was last served, so a quiet
-repository keeps its waivers. ID prefixes `kcr` and `kcw` go in
+repository keeps its waivers. The store validates each stored document on write
+and refuses one that is not JSON or is over 64 KiB, because SQLite's `json_each`
+aborts a whole query on a malformed document: one bad row would otherwise stop
+the Overview counting every other repository (`TestADocumentThatIsNotJSONOrIsTooBig…`).
+Deleting an installation cascades away its repositories and their waivers without
+announcing it, so the controller publishes `kennel.deleted` for each before it
+deletes, as `DeleteInstallation` does for runners. ID prefixes `kcr` and `kcw` go in
 `internal/store/ids.go`, and `normalisePath` in `internal/api/api_test.go:1254`
 learns them.
 
@@ -650,7 +666,8 @@ never from a store row (`CLAUDE.md`).
   (`internal/controller/derived.go:33-60, 155-165`), exactly as `stats` and
   `problems.updated` are. Nothing publishes it by hand.
 
-Views live in `internal/controller/views.go` and are aliased by the handlers.
+Views live in `internal/controller/kennel_views.go`, beside the loop and apart from
+the 2,000-line `views.go`, and are aliased by the handlers.
 `web/src/lib/api/types.ts:305` (`EventPayloads`) gains the kinds, or
 `events.subscribe` will not typecheck; `docs/api-surface.md:478-495` lists them.
 Page-local SSE subscribers do **not** refetch after a reconnect (only
@@ -694,6 +711,17 @@ three places in `docs/configuration.md` (sample, table, prose). A new
 | `kennel.disabled_checks` | strings, empty | instance | live | A check code or an area (`exposure`, `capacity`, `storage`, `ci`, `token`, `protection`) to turn off. This is how "turn a section off" is a setting, not a deploy. |
 | `kennel.fixes` | enum `off` \| `pull_requests` \| `pull_requests_and_settings`, `off` | **platform** | live | Stage 5 and 6. The Zoomies-side half of consent for any write. `pull_requests_and_settings` raises a validator warning, `kennel.settings_write` (`docs/problem-codes.md` row), because it lets the App change repository settings — "silent dangerous toggles are the thing this design exists to prevent". |
 
+A value that would make a setting do something other than what its owner wrote
+is refused when it is saved, through the validator's existing mechanism (a
+candidate configuration may not introduce an error the running one lacks), and
+not silently ignored. There are four, all errors and all checked whether or not
+Kennel Club is on: `kennel.scope` (not a scope), `kennel.refresh_interval`
+(under an hour, which includes zero, because the settings layer allows zero for
+every duration), `kennel.api_budget` (outside 5 to 50) and `kennel.unknown_check`
+(a name that is neither a check nor an area, with the valid names in the
+sentence, taken from the registry by `kennel.Names`). A scope typed with a capital
+letter, or a list with a repeat or a blank, is tidied rather than refused.
+
 Thresholds (1 GiB, 5 GiB, 80%, ten minutes, seven days) are constants with
 documented values, not settings. The measures in section 9 say when one earns a
 knob. A per-repository exception is a waiver, not configuration.
@@ -736,11 +764,12 @@ permission, no write, no new webhook event.
 * Six checks: `exposure.public_repo_on_fleet`, `exposure.public_repo_weak_pool`,
   `exposure.fork_code_ran`, `exposure.target_event_ran`,
   `capacity.unserved_label`, `capacity.job_hit_default_limit`.
-* A run read of exactly five fields — trigger `event`, the head and base
-  repository IDs, the workflow `path`, and the run ID — for runs the fleet ran in
-  *public* repositories only. Actor, branch, title and every other string on a run
-  are not read. `path` is captured now so Stage 3 can join on it, and is not used
-  by any Stage 1 check.
+* A run read of exactly four fields — trigger `event`, the head and base
+  repository IDs, and the run ID — for runs the fleet ran in *public*
+  repositories only. Actor, branch, title, the workflow's `path` and every other
+  string on a run are not read. The path is the one field of a run a fork's author
+  chooses, and no Stage 1 check uses it, so it is not taken until Stage 3 joins a
+  run to its file (section 7 says how, and why only for some events).
 * Waivers, recheck, the two problem codes, REST, SSE, MCP read tools,
   settings, documentation, screenshots.
 * The AI Context relocation described in section 2.
@@ -753,7 +782,7 @@ the feature off:
 
 1. `internal/kennel`: registry, `Snapshot`, `Evaluate`, `refs.go`, state,
    waivers, the six checks, boundary and hostile tests. No wiring.
-2. Migration `0079`, `queries_kennel.go`, ID prefixes, `TestKennelMigrationsOnlyAddTables`.
+2. Migration `0080`, `queries_kennel.go`, ID prefixes, `TestKennelMigrationsOnlyAddTables`.
 3. `github.RepoReader` (`Repository` fields, `RunFacts`), the `ETag` transport,
    fake extensions, request-allow-list test.
 4. Controller: settings rows and struct fields, the loop, snapshot assembly,
@@ -770,30 +799,45 @@ the feature off:
   `evaluate.go`, `exposure.go`, `capacity.go`, `coverage.go`, `waiver.go`,
   `refs.go`, `state.go`, each with its `_test.go`, and `boundary_test.go`.
 * `internal/github/` — `kennel_reader.go`, `etag.go`, `fake_kennel.go`;
-  modified: `client.go` (`Repository` gains `Visibility`, `Fork`, `PushedAt`),
-  `migrate.go` (`repositoryOf`), `app.go` (Probe keeps requested *and* granted
-  permissions), `fake.go` (`getRepo` and `listInstallationRepos` stop hard-coding
-  `"private": true`, `fake.go:688`, `fake_migrate.go:184`).
-* `internal/store/` — `migrations/0079_kennel_club.sql`, `queries_kennel.go`,
+  modified: `client.go` (`Repository` gains `Visibility`, and nothing else until
+  a check needs it), `migrate.go` (`repositoryOf` fills it, and reads it from
+  `private` on an older server that omits it; the listing is shared between the
+  plain and the conditional client), `app.go` (the factory owns the bounded
+  conditional cache; a client may read through it), `fake.go` and `fake_migrate.go`
+  (visibility, run triggers, ETags and a counter of the 304s answered, and
+  the Actions-read gate a real GitHub applies to a run read; the repository
+  endpoints stop hard-coding `"private": true`). `Probe` keeping the App's
+  requested permissions beside the granted ones moves to Stage 3, where the
+  grant flow first needs it.
+* `internal/store/` — `migrations/0080_kennel_club.sql`, `queries_kennel.go`,
   `ids.go`; modified: `migrations_test.go`.
-* `internal/controller/` — `kennel.go`, `kennel_problems.go`; modified:
-  `controller.go` (spawn), `views.go`, `derived.go`, `problems.go` (the section
-  and `problemAudience` rows), `status.go` (`statusExempt`), `metrics.go`.
+* `internal/controller/` — `kennel.go` (the loop, the reads, the evaluation),
+  `kennel_snapshot.go` (the run watermark, the pool-to-danger words, the digests),
+  `kennel_budget.go`, `kennel_views.go`, `kennel_problems.go`; modified:
+  `controller.go` (the runtime, the spawn, announcing an installation's rows
+  before it is deleted), `derived.go`, `background.go` (the prune), `problems.go`
+  (the section and `problemAudience` rows), `status.go` (`statusExempt`),
+  `metrics.go`. `internal/events/bus.go` gains the three kinds.
 * `internal/api/` — `handlers_kennel.go`; modified: `router.go`, `sse.go` if a
   frame needs filtering (none is expected: findings carry no secrets and no
   source), `api_test.go` (route table, `normalisePath`).
 * `internal/auth/rbac.go` — `kennel.read` (viewer), `kennel.recheck` (operator),
-  `kennel.waive` (operator; the handler requires admin for an error finding).
+  `kennel.waive` (operator) and `kennel.waive_error` (admin). The fourth action
+  exists so the policy table says who may waive an error and `auth.Explain` can
+  name the role in the 403; the handler asks for it when the finding turns out to
+  be an error. `kennel:waive_error` as a token scope implies `kennel:waive`.
 * `internal/mcp/kennel.go`.
-* `internal/config/` — `settings.go`, `config.go`, `validate.go` untouched in
-  Stage 1.
+* `internal/config/` — `settings.go` (the five rows and the `kennel` section),
+  `config.go` (the `Kennel` struct, its defaults and its tidying), `validate.go`
+  (four error findings, below). `kennel.fixes` waits for Stage 5: a setting
+  nothing reads would be "saved" about nothing.
 * `web/` — `src/lib/shell/sections.ts`, `keys.ts`, `CommandPalette.svelte`,
   `router.ts`; `src/routes/Kennel.svelte`, `KennelRepository.svelte`;
   `src/lib/kennel/*`; `src/lib/aicontext/AiContextCard.svelte` (extracted);
   `src/lib/api/types.ts`, `client.ts`; `src/lib/problems/ProblemItem.svelte`
   (a `kennel_repository` link case). Tests under `web/tests/` and `web/unit/`.
 
-**Data model and migrations.** `0079_kennel_club.sql` as in section 5. The
+**Data model and migrations.** `0080_kennel_club.sql` as in section 5. The
 repository row is created the first time a repository is *served* while the
 feature is on, and nothing is written while it is off.
 
@@ -810,8 +854,8 @@ tags are inconsistent and are not copied), errors `{error:{code,message}}`.
 | `GET /kennel/repositories` | viewer | `kennel.read` | Paged. Filters `q`, `severity`, `code`, `state`, `installation`. Sort `severity` (default), `name`, `evaluated_at`. |
 | `GET /kennel/repositories/{id}` | viewer | `kennel.read` | `KennelRepository`: identity, `state`, `evaluated_at`, `next_due_at`, `coverage[]`, `findings[]`, `waived[]`. |
 | `POST /kennel/repositories/{id}/recheck` | operator | `kennel.recheck` | 202. Cooldown five minutes per repository (429 `rate_limited` with the time it will be allowed); audit `kennel.recheck`. |
-| `PUT /kennel/repositories/{id}/waivers` | operator / admin | `kennel.waive` | Body `{code, subject, reason, expires_at}`. `reason` is 10 to 500 characters; `expires_at` is required and at most 365 days away. 422 with `errors[]` per field. Waiving an *error* finding answers 403 naming the admin role (`auth.Explain`). Audit `kennel.waive` with the reason. |
-| `DELETE /kennel/repositories/{id}/waivers/{waiver_id}` | operator / admin | `kennel.waive` | Audit `kennel.unwaive`. |
+| `PUT /kennel/repositories/{id}/waivers` | operator / admin | `kennel.waive`, and `kennel.waive_error` for an error | Body `{code, subject, reason, expires_at}`. `reason` is 10 to 500 characters; `expires_at` is required and at most 365 days away. 200 with the repository, already worked out again. 422 with `errors[]` per field, all at once, including a code and subject that match no open finding. Waiving an *error* finding answers 403 naming the admin role (`auth.Explain`). 409 beyond 50 waivers on a repository. Waiving the same finding again renews the waiver and keeps its ID. Audit `kennel.waive` with the reason. |
+| `DELETE /kennel/repositories/{id}/waivers/{waiver_id}` | operator | `kennel.waive` | Any operator may end any waiver, an administrator's included: ending one only makes Kennel Club stricter. 200 with the repository, the finding open again; a waiver named through another repository is a 404. Audit `kennel.unwaive` with the waiver as it was. |
 
 Every repository route answers 409 `conflict` with *"Kennel Club is off. An
 administrator can turn it on under Settings → Configuration → kennel.enabled"*
@@ -913,7 +957,7 @@ and the pool page already offers that.
 check as a row, what it reads, what it never does, permissions, how to turn a
 section off, how to read the "Best in show" badge) and an entry in `mkdocs.yml`;
 `docs/ui.md` (a `## Kennel Club` heading — required by `internal/docs/ui_test.go:67`
-for every `label:` in `sections.ts`); `docs/problem-codes.md` (two rows);
+for every `label:` in `sections.ts`); `docs/problem-codes.md` (two runtime rows and four validator rows);
 `docs/configuration.md` (five keys, three places each); `docs/api-surface.md`
 (routes, the two event kinds); `docs/metrics.md`; `docs/ai-context.md` and
 `docs/ui.md:574-593` (paths); `docs/ui-guidelines.md` (§2 order, Keyboard,
@@ -923,7 +967,7 @@ rather than extend it); `docs/security.md` (what Kennel Club reads, the
 allow-list, what is tested); `docs/architecture.md` (a Components row and a
 paragraph); `docs/cli.md` and `docs/connect-claude.md` (the three tools);
 `docs/upgrading.md` (one paragraph: a new, off-by-default section; migration
-`0079` adds two tables); screenshots by `make screenshots`.
+`0080` adds two tables); screenshots by `make screenshots`.
 
 **Risks.**
 
@@ -935,6 +979,17 @@ paragraph); `docs/cli.md` and `docs/connect-claude.md` (the three tools);
   refresh; the read is `partial` and the finding stands if found, but "none
   seen" is worded "none in the runs we read". The watermark guarantees
   progress, not completeness.
+* *A rename splits a repository's history.* The jobs table keeps the name a
+  repository had when the job ran, and the fleet's facts are asked by the current
+  name, so after a rename the evidence starts again from the new name. The
+  waivers and the row follow the GitHub ID and are safe; the findings that
+  depended on older jobs clear until the new name has jobs of its own, which is
+  an under-report for as long as the retention window and never an over-report.
+* *Stale is still a fact, for what changes rarely.* When a read from GitHub fails
+  after one that worked, a repository's visibility is whatever was last read, and
+  the runs found stand and are called partial: an outage must not make a finding
+  vanish, and a repository whose visibility changed during it is noticed at the
+  next successful read, which makes it due at once.
 * *The retention window bounds the evidence.* The jobs table is pruned at
   `retention.jobs` (30 days). Evidence windows are `min(30 days, retention.jobs)`,
   and the finding says the window it used.
@@ -1077,7 +1132,7 @@ job that calls one is *not judged*); a job's shell script; any write.
 `internal/kennel/ci.go`; `internal/github/kennel_reader.go` gains `WorkflowRefs`
 (one directory listing carrying each file's blob SHA), `ReadBlob` (bounded by the
 existing 512 KiB, `migrate.go:33`, and by 100 files), `DependabotConfig`;
-`internal/github/manifest.go` (`KennelWorkflows`); `internal/installer/manifest.go`;
+`internal/github/manifest.go` (`KennelWorkflows`); `internal/github/app.go` (`Probe` keeps the App's requested permissions beside the installation's granted ones, `AppInfo` gains the field, and a test pins that go-github's typed permissions carry every key the grant flow names); `internal/installer/manifest.go`;
 `internal/api/handlers_installations.go`; `web/src/lib/installations/ConnectDialog.svelte`.
 
 **Parsing, bounded and conservative.** `gopkg.in/yaml.v3` into `yaml.Node`, then
@@ -1344,7 +1399,7 @@ that structural rather than a matter of discipline:
 | A workflow **path** on a *fork's* `pull_request` run | **The fork's author**, who names the file | Never used. For events whose workflow is defined on the default branch (`pull_request_target`, `workflow_run`, `issue_comment`, `issues`) the path may be joined to a file already in the snapshot by *membership test* — it is matched, never echoed. This is the one place a stranger's text reaches Kennel Club's inputs, so the evidence for a fork run is its numeric run ID and a link, and a test feeds a hostile path through it. |
 | Required-check names, ruleset names, branch names | Repository admins and collaborators | Counted, never echoed. The sentence says "2 required checks" and links to GitHub's page. |
 | Artifact and cache names and keys | Any job | Through the same gate as `artifactName` (`internal/aicontext/diagnosis.go:410`); otherwise "an artifact with an unusual name". |
-| Run metadata (actor, head branch, titles) | Anyone | Not read at all. Only `event`, the head and base repository IDs and `path` are taken from a run. |
+| Run metadata (actor, head branch, titles, the workflow's path) | Anyone | Not read at all. Only `event` and the head and base repository IDs are taken from a run, and the event is bounded to 64 bytes and passed through an allow-list (`kennel.NormalizeEvent`), so a name the evaluator does not know is "other". |
 | Repository full names | GitHub, validated `owner/name` | Used as keys; rendered as text. |
 | Pool names | The operator | Rendered as text. |
 | A waiver's reason | An operator or admin | Length-bounded (500), rendered as text, stored, audited. |
@@ -1382,13 +1437,13 @@ proves the token is never sent to the log host.
 | Hiding a risky workflow by making it unreadable | `ci.workflow_unreadable` is a finding of its own; an unreadable repository is `partial`, never "Best in show". |
 | Making a finding vanish by waiving it | A collaborator cannot: waivers live in Zoomies, behind an operator or admin role, not in a file in the repository. This is why there is **no `.github/kennel.yml`** (section 11). |
 | Steering Stage 5 into editing something else | `VerifyEdit` and the plan hash; the edit touches only lines the plan lists. A `uses:` the collaborator wrote is pinned, not endorsed, and a reviewer reads the diff. |
-| Repeated **Recheck** to drive reads | Operator role, a five-minute cooldown per repository, three in flight fleet-wide, the same budget. |
+| Repeated **Recheck** to drive reads | Operator role, a five-minute cooldown per repository, the same budget, and a loop that reads one repository at a time. |
 
 ### The blast radius of every write path
 
 | Path | Writes to | Worst case | Bound |
 | --- | --- | --- | --- |
-| Evaluation, state, waivers (Stages 1–4) | Zoomies' own SQLite | A bad row | Findings JSON is capped at 64 KiB a repository; rows pruned 90 days after last served; waivers expire. |
+| Evaluation, state, waivers (Stages 1–4) | Zoomies' own SQLite | A bad row | Each stored document is capped at 64 KiB a repository; rows pruned 90 days after last served; waivers expire. |
 | Recheck | Nothing but GitHub reads | Spent quota | Cooldown, budget, hold. |
 | Fix by pull request (Stage 5) | One new branch and one pull request per repository, through the Git Data API | A pull request somebody should not merge | Never a default branch, never a merge, at most 25 per call, a base-SHA precondition, `kennel.fixes`, three consents, an audit row with the plan hash. |
 | Fix a setting (Stage 6, deferred) | One setting in one repository | A weaker or stricter setting | Previous value recorded, one-click revert; never offered to an org App. |
@@ -1400,7 +1455,8 @@ text, and viewers can already see jobs by repository, so reading them reveals
 nothing new. Source access stays where it is — AI Context's explicit-membership
 model — and the AI Context tab calls the same routes with the same gates, so
 Kennel Club cannot widen it. `kennel.recheck` and `kennel.waive` are operator,
-and the handler requires admin to waive an *error* finding. `kennel.fix` is admin.
+and waiving an *error* finding is `kennel.waive_error`, which is admin. Ending a
+waiver needs only `kennel.waive`. `kennel.fix` is admin.
 The kennel finding audience is **fleet**, as AI Context's is, so the platform
 sees everything and a fleet viewer sees fleet problems; `TestEveryProblemCodeHasAnAudience`
 and `problemAudience` (`internal/controller/problems.go:128-274`) hold it.
@@ -1449,7 +1505,7 @@ Club could not fully read is never "Best in show".
   Overview says "turned off in Settings" instead of hiding it. Both are live
   settings; no restart.
 * **Upgrade path for an existing installation.** The upgrade applies migration
-  `0079`, which creates two empty tables. A pre-migration copy of the database is
+  `0080`, which creates two empty tables. A pre-migration copy of the database is
   already taken when migrations are pending (`internal/store/store.go`, around
   380-435), and migrations are one-way, so an older binary refuses the new
   schema (`ErrSchemaNewer`; `docs/upgrading.md:601`) — the docs say so in one
@@ -1616,8 +1672,9 @@ read on 6 October 2026.
 | Stage | Method and path | GitHub permission | Purpose |
 | --- | --- | --- | --- |
 | 1 | `GET /installation/repositories` (org) or `GET /repos/{r}` (repo target) | Metadata: read | Visibility, fork flag, default branch; already made by discovery |
-| 1 | `GET /repos/{r}/actions/runs/{id}` | Actions: read | Trigger event, head and base repository IDs, path; public repositories only, runs the fleet ran |
-| 1 | `GET /orgs/{org}/actions/runner-groups` | Self-hosted runners: read | `AllowsPublicRepositories`; already read for the group view |
+| 1 | `GET /repos/{r}/actions/runs/{id}` | Actions: read | Trigger event and head and base repository IDs; public repositories only, runs the fleet ran |
+| 1 | `GET /orgs/{org}/actions/runner-groups` | Self-hosted runners: read | `AllowsPublicRepositories`; the loop reads it from the groups the controller caches when it creates a runner and makes no request of its own for it, so it stays listed as what the controller already asks |
+| 1 | `GET /rate_limit` | none; GitHub does not count it | The limit the budget is a share of, once per installation per pass |
 | 2 | `GET /repos/{r}/actions/artifacts` | Actions: read | Usage by name, retention |
 | 2 | `GET /repos/{r}/actions/cache/usage`, `…/cache/storage-limit`, `…/actions/caches` | Actions: read | Cache use against the limit |
 | 2 | `GET /repos/{r}/actions/workflows` | Actions: read | Workflow state |

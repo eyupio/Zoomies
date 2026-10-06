@@ -361,6 +361,9 @@ type Controller struct {
 	statusState FleetState
 	statusSince time.Time
 
+	// kennel is Kennel Club's loop state; see kennel.go.
+	kennel *kennelRuntime
+
 	// derivedMu guards the last published form of the stats and problems
 	// payloads, which the reconcile loop and the housekeeping loop both
 	// compare against, and of each host, which every publisher records so the
@@ -368,7 +371,9 @@ type Controller struct {
 	derivedMu    sync.Mutex
 	lastStats    []byte
 	lastProblems []byte
-	lastHosts    map[string][]byte
+	// lastKennel is the Overview's document as it was last sent.
+	lastKennel []byte
+	lastHosts  map[string][]byte
 	// lastMachines is the same memoisation for machines, which are in the tens
 	// like hosts: a machine whose elapsed phase time moved with no row written
 	// repaints from the pass's diff rather than needing a publish call.
@@ -464,6 +469,7 @@ func New(opts Options) (*Controller, error) {
 		httpClient:              opts.HTTPClient,
 		providerHTTP:            opts.ProviderHTTPClient,
 		backupHTTP:              opts.BackupRemoteHTTPClient,
+		kennel:                  newKennelRuntime(),
 		nudges:                  make(chan struct{}, 1),
 		autoPools:               newAutoPoolState(),
 		startedAt:               clock().UTC(),
@@ -568,6 +574,11 @@ func (c *Controller) Start(ctx context.Context) error {
 	c.spawn("background", loopCtx, c.backgroundLoop)
 	c.spawn("enrichment", loopCtx, c.enrichmentLoop)
 	c.spawn("ai-context", loopCtx, c.aiContextLoop)
+	// Its own loop, for the reason the AI Context loop has one: a pass of reads
+	// from GitHub is slow, and reconcileMu is held for a whole scheduling pass.
+	// It runs whether or not Kennel Club is on, and does nothing while it is not,
+	// so that turning it on is a setting and not a restart.
+	c.spawn("kennel", loopCtx, c.kennelLoop)
 	// Its own loop, because a copy of a large database takes as long as it
 	// takes and the housekeeping pass should not wait for it.
 	c.spawn("backups", loopCtx, c.backupLoop)
@@ -806,6 +817,11 @@ func (c *Controller) UpdateConfig(fn func(*config.Config)) *config.Config {
 		case wake <- struct{}{}:
 		default:
 		}
+	}
+	// Kennel Club's switch, scope and budget are read on every pass, and an
+	// operator who has just changed one is looking at the page.
+	if kennelSettingsChanged(before.Kennel, after.Kennel) {
+		c.KickKennel()
 	}
 	// The scheduler tunables change what the next pass decides, and a new
 	// interval takes effect once a pass has run and reset the timer.
@@ -1104,6 +1120,7 @@ func (c *Controller) DeleteInstallation(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("listing the installation's pools: %w", err)
 	}
+	kennelRows := c.kennelRowsOf(ctx, id)
 	runners, err := c.st.DeleteInstallation(ctx, id)
 	if err != nil {
 		return err
@@ -1115,6 +1132,7 @@ func (c *Controller) DeleteInstallation(ctx context.Context, id string) error {
 			c.PublishPoolDeleted(p.ID)
 		}
 	}
+	c.publishKennelDeleted(kennelRows)
 	c.PublishInstallationDeleted(id)
 	return nil
 }
@@ -1128,6 +1146,7 @@ func (c *Controller) PurgeInstallation(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("listing the installation's pools: %w", err)
 	}
+	kennelRows := c.kennelRowsOf(ctx, id)
 	runners, err := c.st.PurgeInstallation(ctx, id)
 	if err != nil {
 		return err
@@ -1139,6 +1158,7 @@ func (c *Controller) PurgeInstallation(ctx context.Context, id string) error {
 			c.PublishPoolDeleted(p.ID)
 		}
 	}
+	c.publishKennelDeleted(kennelRows)
 	c.PublishInstallationDeleted(id)
 	return nil
 }

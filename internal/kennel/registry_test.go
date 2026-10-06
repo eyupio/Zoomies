@@ -42,6 +42,41 @@ func TestTheRegistryIsTheClosedSetOfCodes(t *testing.T) {
 	}
 }
 
+// The catalogue says what a check takes before anything has been read, and the
+// evaluator asks for what it needs as it goes. The first is a list in the
+// registry and the second is the check's own code, so the two are held equal here:
+// a check that began reading a new source without the catalogue saying so would
+// have an operator grant a permission for it only after the fact.
+func TestWhatTheCatalogueSaysACheckReadsIsWhatItAsksFor(t *testing.T) {
+	for i := range checks {
+		c := &checks[i]
+		snap := positives[c.Code]()
+		r := c.eval(&snap)
+		got := map[Source]bool{}
+		for _, src := range r.extra {
+			got[src] = true
+		}
+		want := map[Source]bool{}
+		for _, src := range c.Conditional {
+			want[src] = true
+		}
+		if len(got) != len(want) {
+			t.Errorf("%s asks for %v once it applies, and the registry says %v", c.Code, r.extra, c.Conditional)
+			continue
+		}
+		for src := range got {
+			if !want[src] {
+				t.Errorf("%s asks for %s once it applies, and the registry does not say so", c.Code, src)
+			}
+		}
+		for _, src := range c.Needs {
+			if want[src] {
+				t.Errorf("%s lists %s as both always needed and conditional", c.Code, src)
+			}
+		}
+	}
+}
+
 // A check no test can make fire is a check nobody has seen work.
 func TestEveryCheckCanFire(t *testing.T) {
 	for _, c := range Checks() {
@@ -99,6 +134,34 @@ func TestANameInDisabledChecksIsOnlyKnownIfItIsACodeOrAnArea(t *testing.T) {
 		if KnownCodeOrArea(bad) {
 			t.Errorf("%q is known", bad)
 		}
+	}
+}
+
+// The validator quotes Names back to someone who misspelt a name, so every one
+// it lists has to be one the evaluator will accept, and nothing the evaluator
+// accepts may be missing from it. Areas come first because that is the answer
+// to "how do I turn all of these off", which is the commoner question.
+func TestTheNamesOfferedForDisabledChecksAreExactlyTheOnesAccepted(t *testing.T) {
+	names := Names()
+	seen := map[string]bool{}
+	for _, name := range names {
+		if !KnownCodeOrArea(name) {
+			t.Errorf("Names offers %q, which KnownCodeOrArea refuses", name)
+		}
+		if seen[name] {
+			t.Errorf("Names offers %q twice", name)
+		}
+		seen[name] = true
+	}
+	for _, c := range Checks() {
+		for _, want := range []string{string(c.Code), string(c.Area)} {
+			if !seen[want] {
+				t.Errorf("Names does not offer %q", want)
+			}
+		}
+	}
+	if len(names) < 2 || names[0] != string(AreaExposure) {
+		t.Errorf("Names should start with the areas in registry order, got %v", names)
 	}
 }
 

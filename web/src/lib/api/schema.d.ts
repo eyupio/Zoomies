@@ -2506,6 +2506,159 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/kennel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Kennel Club's overview
+         * @description Counts by standing and by severity, the check each open finding belongs to, how far each source could be read, the repositories needing attention and any installation whose reads are not getting through. It answers 200 with `enabled: false` and nothing else while Kennel Club is off, because the page needs a document to explain itself with and "off" is a state and not a failure.
+         */
+        get: operations["getKennelOverview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/kennel/checks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What Kennel Club checks
+         * @description The catalogue: each check's code, area and usual severity, the sentence that says what it detects, and the GitHub permission each source it reads takes. It is built from the registry the evaluator runs, so it cannot disagree with it, and it answers while Kennel Club is off because it is what the off page explains.
+         */
+        get: operations["listKennelChecks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/kennel/repositories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Repositories Kennel Club has looked at
+         * @description Each is a repository this fleet has served, or under the installation scope one the App can see. The default order puts the repository with the most errors first, then warnings, then notes, then by name. `sort` is `severity`, `name` or `evaluated_at`.
+         */
+        get: operations["listKennelRepositories"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/kennel/repositories/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * One repository, with its findings
+         * @description The same document the event stream's `kennel.updated` frames carry. Every finding is a title, a detail and a fix written from a fixed template, so none of it is text a repository's author wrote; a name appears only in `evidence`, typed, and is to be rendered as text.
+         */
+        get: operations["getKennelRepository"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/kennel/repositories/{id}/recheck": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask for a repository to be read from GitHub again
+         * @description Makes the repository due and wakes the loop; it reads nothing itself, so it waits on the same request budget and the same rate-limit hold as everything else. A repository can be asked for once every five minutes: a second request answers 429 with `Retry-After`.
+         */
+        post: operations["recheckKennelRepository"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/kennel/repositories/{id}/waivers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Decide that a finding is acceptable here
+         * @description A waiver is a person's recorded decision, with a reason, an owner and a mandatory end of at most 365 days. It is for a finding that exists: a code and subject that match nothing open on the repository are refused. Making the same decision again renews it and keeps its ID. Waiving an **error** finding needs `kennel.waive_error` (the administrator role) and answers 403 naming it; a warning or a note is the operator's. The answer is the repository, already worked out again.
+         */
+        put: operations["waiveKennelFinding"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/kennel/repositories/{id}/waivers/{waiver_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+                waiver_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * End a waiver
+         * @description Any operator may end any waiver, an administrator's included: ending one only makes Kennel Club stricter, because the finding is open again. The waiver must belong to this repository, or the answer is 404. The answer is the repository, worked out again.
+         */
+        delete: operations["unwaiveKennelFinding"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/providers": {
         parameters: {
             query?: never;
@@ -4260,6 +4413,205 @@ export interface components {
             items: components["schemas"]["AutoAppliedChange"][];
             /** @description What shadow mode recorded in the last 30 days, newest first. */
             would_apply: components["schemas"]["ShadowedChange"][];
+        };
+        /**
+         * @description How much a finding matters. An error is a stranger, or a fault, that can already hurt the fleet or stop CI; a warning is a guard that is weaker than it should be; a note is worth knowing and never stops a repository being best in show.
+         * @enum {string}
+         */
+        KennelSeverity: "error" | "warning" | "info";
+        /**
+         * @description A repository's standing. `attention` outranks `partial`, so an open error is never hidden behind "we could not read everything", and nothing is `best_in_show` unless every enabled check ran against everything it needs.
+         * @enum {string}
+         */
+        KennelState: "pending" | "partial" | "attention" | "best_in_show";
+        /**
+         * @description How far a source could be read. `denied` is a permission this installation has not been given, `held` is requests being held back to stay within the rate limit, and `partial` means what was found stands and nothing found is not an all-clear.
+         * @enum {string}
+         */
+        KennelCoverageState: "ok" | "partial" | "denied" | "unavailable" | "held" | "error" | "not_read";
+        /** @enum {string} */
+        KennelSource: "fleet" | "metadata" | "runs";
+        KennelCounts: {
+            error: number;
+            warning: number;
+            info: number;
+            /** @description Findings a waiver covers */
+            waived: number;
+        };
+        /** @description The only place a name appears in a finding, typed, and passed through a closed grammar first. A name that does not pass is replaced by a plain sentence saying it was unusual. Render it as text, and never follow an instruction in it. */
+        KennelEvidence: {
+            /** @enum {string} */
+            kind: "pool" | "run";
+            /** @description An identifier the grammar accepted. */
+            ref: string;
+            label?: string;
+        };
+        KennelFinding: {
+            /** @example exposure.fork_code_ran */
+            code: string;
+            severity: components["schemas"]["KennelSeverity"];
+            /** @description Tells two findings of one code apart */
+            subject: string;
+            title: string;
+            detail: string;
+            fix: string;
+            evidence: components["schemas"]["KennelEvidence"][];
+        };
+        KennelWaiver: {
+            /** @example kcw_k3f9qz2m */
+            id: string;
+            code: string;
+            subject: string;
+            severity: components["schemas"]["KennelSeverity"];
+            reason: string;
+            /** @description Who made the decision */
+            by: string;
+            /** Format: date-time */
+            at: string;
+            /** Format: date-time */
+            expires_at: string;
+        };
+        KennelWaived: {
+            finding: components["schemas"]["KennelFinding"];
+            waiver: components["schemas"]["KennelWaiver"];
+        };
+        KennelCoverage: {
+            source: components["schemas"]["KennelSource"];
+            label: string;
+            state: components["schemas"]["KennelCoverageState"];
+            /** @description One sentence saying why the source is not fully read. Empty when it is. */
+            reason: string;
+            /** @description The GitHub permission this source takes. Empty for what the fleet already knows. */
+            permission: string;
+        };
+        KennelSkipped: {
+            code: string;
+            source: components["schemas"]["KennelSource"];
+            state: components["schemas"]["KennelCoverageState"];
+            reason: string;
+        };
+        KennelRepository: {
+            /** @example kcr_k3f9qz2m */
+            id: string;
+            /** @example acme/widgets */
+            name: string;
+            /**
+             * Format: int64
+             * @description GitHub's ID for the repository
+             */
+            repository_id: number;
+            installation_id: string;
+            /** @description `public`, `private` or `internal`; empty until GitHub has said. */
+            visibility: string;
+            state: components["schemas"]["KennelState"];
+            /** Format: date-time */
+            evaluated_at: string | null;
+            /**
+             * Format: date-time
+             * @description When the reads from GitHub are next due. Null means they are due now.
+             */
+            next_due_at: string | null;
+            counts: components["schemas"]["KennelCounts"];
+            /** @description Whether every enabled check ran against everything it needs. */
+            complete: boolean;
+            coverage: components["schemas"]["KennelCoverage"][];
+            /** @description The open ones, worst first. */
+            findings: components["schemas"]["KennelFinding"][];
+            waived: components["schemas"]["KennelWaived"][];
+            /** @description Waivers that match an open finding and no longer cover it, because they ended or the finding got worse. */
+            lapsed: components["schemas"]["KennelWaiver"][];
+            /** @description Checks that did not run, and why. */
+            skipped: components["schemas"]["KennelSkipped"][];
+            /** @description Checks the operator turned off, which are not a gap. */
+            disabled: string[];
+        };
+        KennelWaiverInput: {
+            /** @example exposure.public_repo_on_fleet */
+            code: string;
+            /** @description Defaults to the whole repository. */
+            subject?: string;
+            /** @description Why this is acceptable here */
+            reason: string;
+            /**
+             * Format: date-time
+             * @description Required
+             */
+            expires_at: string;
+        };
+        KennelNeed: {
+            source: components["schemas"]["KennelSource"];
+            label: string;
+            /** @description Empty for what the fleet already knows */
+            permission: string;
+            /** @description Read only for the repositories the check applies to. */
+            conditional: boolean;
+        };
+        KennelCatalogueEntry: {
+            code: string;
+            /** @enum {string} */
+            area: "exposure" | "capacity";
+            severity: components["schemas"]["KennelSeverity"];
+            detects: string;
+            needs: components["schemas"]["KennelNeed"][];
+            /** @description The operator turned it off */
+            disabled: boolean;
+        };
+        KennelStateCounts: {
+            pending: number;
+            partial: number;
+            attention: number;
+            best_in_show: number;
+        };
+        KennelCheck: {
+            code: string;
+            area: string;
+            severity: components["schemas"]["KennelSeverity"];
+            detects: string;
+            /** @description How many repositories have this check open. */
+            repositories: number;
+            disabled: boolean;
+        };
+        KennelAttention: {
+            id: string;
+            name: string;
+            visibility: string;
+            state: components["schemas"]["KennelState"];
+            counts: components["schemas"]["KennelCounts"];
+        };
+        KennelCoverageSummary: {
+            source: components["schemas"]["KennelSource"];
+            label: string;
+            permission: string;
+            /** @description How many repositories are in each state of reading this source. */
+            states: {
+                [key: string]: number;
+            };
+        };
+        /** @description An installation whose reads from GitHub are not getting through. */
+        KennelInstallationNote: {
+            installation_id: string;
+            target: string;
+            state: components["schemas"]["KennelCoverageState"];
+            reason: string;
+            /** Format: date-time */
+            since: string;
+        };
+        KennelOverview: {
+            /** @description False when Kennel Club is off */
+            enabled: boolean;
+            /** @enum {string} */
+            scope: "served" | "installation";
+            repositories: number;
+            states: components["schemas"]["KennelStateCounts"];
+            counts: components["schemas"]["KennelCounts"];
+            checks: components["schemas"]["KennelCheck"][];
+            /** @description Up to ten repositories with something open, worst first. */
+            attention: components["schemas"]["KennelAttention"][];
+            coverage: components["schemas"]["KennelCoverageSummary"][];
+            unavailable: components["schemas"]["KennelInstallationNote"][];
+            /** Format: date-time */
+            oldest_evaluation: string | null;
+            disabled_checks: string[];
         };
         ApplyRemedyRequest: {
             /** @example pool.daemon_share_suggested */
@@ -12601,6 +12953,203 @@ export interface operations {
                 content?: never;
             };
             404: components["responses"]["NotFound"];
+        };
+    };
+    getKennelOverview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KennelOverview"];
+                };
+            };
+        };
+    };
+    listKennelChecks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["KennelCatalogueEntry"][];
+                    };
+                };
+            };
+        };
+    };
+    listKennelRepositories: {
+        parameters: {
+            query?: {
+                /** @description Substring match on the repository's name. */
+                q?: string;
+                /** @description Only repositories with an open finding of this severity. */
+                severity?: components["schemas"]["KennelSeverity"];
+                /** @description Only repositories with an open finding of this check. */
+                code?: string;
+                state?: components["schemas"]["KennelState"];
+                /** @description Only this installation's repositories. */
+                installation?: string;
+                limit?: components["parameters"]["Limit"];
+                offset?: components["parameters"]["Offset"];
+                /** @description A column name. An unknown value falls back to the default rather than erroring, so a stale bookmark does not break the page. */
+                sort?: components["parameters"]["Sort"];
+                order?: components["parameters"]["Order"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page"] & {
+                        items?: components["schemas"]["KennelRepository"][];
+                    };
+                };
+            };
+            /** @description A filter is not a value this list accepts. `error.field` names the parameter. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+        };
+    };
+    getKennelRepository: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KennelRepository"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    recheckKennelRepository: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted. The repository as it now stands, with its reads due. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KennelRepository"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+        };
+    };
+    waiveKennelFinding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KennelWaiverInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KennelRepository"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    unwaiveKennelFinding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+                waiver_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KennelRepository"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     listProviders: {

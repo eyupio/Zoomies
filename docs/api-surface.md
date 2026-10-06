@@ -469,6 +469,33 @@ bundle is taken is the moment a query is most likely to fail. Sections are
 capped by row count and the whole document by bytes; anything shortened says so
 in `truncated`. `zoomies diagnostics` is the wrapper that writes it to a file.
 
+## Kennel Club
+
+Kennel Club checks the repositories this fleet serves against the standards that
+affect CI and the fleet. It is off until an administrator sets `kennel.enabled`.
+While it is off `GET /kennel` still answers, with `enabled: false` and nothing
+else filled, because the page needs a document to say why it is empty; every
+route that needs a repository's row answers 409 with the setting to turn on.
+
+| Method | Path | Role | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/kennel` | viewer | The Overview: how many repositories are in each standing, open findings by severity, the checks with how many repositories have each open, the ten that most need attention, how far each source could be read, and the installations whose reads are not getting through. Computed, not stored. |
+| GET | `/api/v1/kennel/checks` | viewer | What is checked: every check with its area, severity, what it detects and the GitHub permission it needs, and whether the operator turned it off. It is the registry the evaluator runs, so it needs no row and answers while Kennel Club is off. |
+| GET | `/api/v1/kennel/repositories` | viewer | Paged (`limit`, `offset`). Narrow with `q` (a name fragment), `severity` (`error`, `warning` or `info`: an open finding of that severity), `code` (a check), `state` (`pending`, `partial`, `attention` or `best_in_show`) and `installation`. A value that is not one of those is a 400 naming the parameter, not an empty page. |
+| GET | `/api/v1/kennel/repositories/{id}` | viewer | One repository: its standing, open and waived findings, waivers that no longer cover a finding, and per source whether it could be read, with the sentence that says why not and the permission that would fix it. |
+| POST | `/api/v1/kennel/repositories/{id}/recheck` | operator | Makes the repository due and wakes the loop, and answers `202` with the repository. It reads nothing itself, so a recheck waits on the same API budget and installation hold as everything else. Asking again for the same repository inside five minutes is a `429` with `Retry-After`. Audited as `kennel.recheck`. |
+| PUT | `/api/v1/kennel/repositories/{id}/waivers` | operator; admin for an error | Waives one open finding: `code`, optional `subject`, `reason` (10 to 500 characters) and `expires_at` (in the future, at most 365 days away). Answers `200` with the repository, already worked out again. Waiving the same finding again renews the waiver and keeps its ID. A `422` lists every field that is wrong, not the first; one for a finding that is not open is refused as well, because a waiver made ahead of a finding is an exception nobody has looked at. A repository may carry 50 (`409` beyond that). Audited as `kennel.waive`, with the reason. |
+| DELETE | `/api/v1/kennel/repositories/{id}/waivers/{waiver_id}` | operator | Ends a waiver, anybody's, and answers `200` with the repository, the finding open again. A waiver named through a repository it does not belong to is a `404`. Audited as `kennel.unwaive`, with the waiver as it was. |
+
+Waiving an error finding is an action of its own, `kennel.waive_error`, held by
+the `admin` role. The route asks for `kennel.waive` first and the handler asks
+for the wider one when the finding turns out to be an error, so a `403` names the
+finding and the role it takes, and a token needs the `kennel:waive_error` scope
+for one (which also covers `kennel:waive`) as well as the role. An error is a
+stranger running code on the fleet, and the decision that it is acceptable is not
+an operator's to take alone. Ending a waiver needs only `kennel.waive`, because
+ending one only makes Kennel Club stricter.
+
 ## Webhooks
 
 | Method | Path | Role | Notes |
@@ -494,7 +521,8 @@ flowchart LR
 `host.deleted` · `scaling` · `installation.updated` · `installation.deleted` ·
 `problems.updated` · `stats` · `audit` · `webhook.delivery` ·
 `provider.updated` · `provider.deleted` · `machine.updated` ·
-`machine.deleted` · `heartbeat` · `resync`
+`machine.deleted` · `kennel.updated` · `kennel.deleted` · `kennel.summary` ·
+`heartbeat` · `resync`
 
 Every frame but `heartbeat` and `resync` carries an `id` of the form
 `<epoch>.<sequence>`, where the epoch names one run of the controller. A client
@@ -538,7 +566,10 @@ client ever has to poll or ask the operator to reload:
   an agent checking in moves the card with no row change to announce it. Each
   host whose rendered view differs from the one last sent gets a `host.updated`;
   a host nobody has touched marshals to the same bytes and gets nothing. None of
-  this is computed while nobody is connected to the stream.
+  this is computed while nobody is connected to the stream. `kennel.summary` is
+  the same idea for Kennel Club: it is `GET /kennel` whole, sent when it changes,
+  because nothing writes a row when an evaluation grows older. `kennel.updated`
+  is one repository's `GET` shape and `kennel.deleted` carries `{ "id": … }`.
 * **An operator's change is announced by the handler that made it.** Creating,
   editing, enabling, disabling or deleting a pool; editing, cordoning, clearing
   the throttle on or deleting a host; adding, editing or removing an

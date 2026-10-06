@@ -79,6 +79,10 @@ tags:
     description: Agents, their capacity, and enrolment.
   - name: providers
     description: Where machines are rented from, and the machines themselves.
+  - name: kennel
+    description: >-
+      Kennel Club: the standards the fleet's repositories are held to, where a
+      failure of one affects running CI or the fleet itself.
   - name: migrations
     description: Moving a repository's workflows from GitHub's runners onto this fleet.
   - name: audit
@@ -3968,6 +3972,183 @@ paths:
   # ==========================================================================
   # Providers and machines
   # ==========================================================================
+  /kennel:
+    get:
+      operationId: getKennelOverview
+      tags: [kennel]
+      summary: Kennel Club's overview
+      description: >-
+        Counts by standing and by severity, the check each open finding belongs to, how far
+        each source could be read, the repositories needing attention and any installation
+        whose reads are not getting through. It answers 200 with `enabled: false` and nothing
+        else while Kennel Club is off, because the page needs a document to explain itself
+        with and "off" is a state and not a failure.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KennelOverview" }
+
+  /kennel/checks:
+    get:
+      operationId: listKennelChecks
+      tags: [kennel]
+      summary: What Kennel Club checks
+      description: >-
+        The catalogue: each check's code, area and usual severity, the sentence that says what
+        it detects, and the GitHub permission each source it reads takes. It is built from the
+        registry the evaluator runs, so it cannot disagree with it, and it answers while Kennel
+        Club is off because it is what the off page explains.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/KennelCatalogueEntry" }
+
+  /kennel/repositories:
+    get:
+      operationId: listKennelRepositories
+      tags: [kennel]
+      summary: Repositories Kennel Club has looked at
+      description: >-
+        Each is a repository this fleet has served, or under the installation scope one the App
+        can see. The default order puts the repository with the most errors first, then warnings,
+        then notes, then by name. `sort` is `severity`, `name` or `evaluated_at`.
+      x-zoomies-role: viewer
+      parameters:
+        - { name: q, in: query, description: Substring match on the repository's name., schema: { type: string } }
+        - { name: severity, in: query, description: Only repositories with an open finding of this severity., schema: { $ref: "#/components/schemas/KennelSeverity" } }
+        - { name: code, in: query, description: Only repositories with an open finding of this check., schema: { type: string, examples: [exposure.fork_code_ran] } }
+        - { name: state, in: query, schema: { $ref: "#/components/schemas/KennelState" } }
+        - { name: installation, in: query, description: Only this installation's repositories., schema: { type: string } }
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+        - $ref: "#/components/parameters/Sort"
+        - $ref: "#/components/parameters/Order"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Page"
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: "#/components/schemas/KennelRepository" }
+        "400":
+          description: A filter is not a value this list accepts. `error.field` names the parameter.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /kennel/repositories/{id}:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    get:
+      operationId: getKennelRepository
+      tags: [kennel]
+      summary: One repository, with its findings
+      description: >-
+        The same document the event stream's `kennel.updated` frames carry. Every finding is a
+        title, a detail and a fix written from a fixed template, so none of it is text a
+        repository's author wrote; a name appears only in `evidence`, typed, and is to be rendered
+        as text.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KennelRepository" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /kennel/repositories/{id}/recheck:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    post:
+      operationId: recheckKennelRepository
+      tags: [kennel]
+      summary: Ask for a repository to be read from GitHub again
+      description: >-
+        Makes the repository due and wakes the loop; it reads nothing itself, so it waits on the
+        same request budget and the same rate-limit hold as everything else. A repository can be
+        asked for once every five minutes: a second request answers 429 with `Retry-After`.
+      x-zoomies-role: operator
+      responses:
+        "202":
+          description: Accepted. The repository as it now stands, with its reads due.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KennelRepository" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /kennel/repositories/{id}/waivers:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    put:
+      operationId: waiveKennelFinding
+      tags: [kennel]
+      summary: Decide that a finding is acceptable here
+      description: >-
+        A waiver is a person's recorded decision, with a reason, an owner and a mandatory end of
+        at most 365 days. It is for a finding that exists: a code and subject that match nothing
+        open on the repository are refused. Making the same decision again renews it and keeps its
+        ID. Waiving an **error** finding needs `kennel.waive_error` (the administrator role) and
+        answers 403 naming it; a warning or a note is the operator's. The answer is the repository,
+        already worked out again.
+      x-zoomies-role: operator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/KennelWaiverInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KennelRepository" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /kennel/repositories/{id}/waivers/{waiver_id}:
+    parameters:
+      - { $ref: "#/components/parameters/PathID" }
+      - { name: waiver_id, in: path, required: true, schema: { type: string, examples: [kcw_k3f9qz2m] } }
+    delete:
+      operationId: unwaiveKennelFinding
+      tags: [kennel]
+      summary: End a waiver
+      description: >-
+        Any operator may end any waiver, an administrator's included: ending one only makes
+        Kennel Club stricter, because the finding is open again. The waiver must belong to this
+        repository, or the answer is 404. The answer is the repository, worked out again.
+      x-zoomies-role: operator
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KennelRepository" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
   /providers:
     get:
       operationId: listProviders
@@ -6241,6 +6422,236 @@ components:
           type: array
           description: What shadow mode recorded in the last 30 days, newest first.
           items: { $ref: "#/components/schemas/ShadowedChange" }
+    KennelSeverity:
+      type: string
+      enum: [error, warning, info]
+      description: >-
+        How much a finding matters. An error is a stranger, or a fault, that can already hurt the
+        fleet or stop CI; a warning is a guard that is weaker than it should be; a note is worth
+        knowing and never stops a repository being best in show.
+    KennelState:
+      type: string
+      enum: [pending, partial, attention, best_in_show]
+      description: >-
+        A repository's standing. `attention` outranks `partial`, so an open error is never hidden
+        behind "we could not read everything", and nothing is `best_in_show` unless every enabled
+        check ran against everything it needs.
+    KennelCoverageState:
+      type: string
+      enum: [ok, partial, denied, unavailable, held, error, not_read]
+      description: >-
+        How far a source could be read. `denied` is a permission this installation has not been
+        given, `held` is requests being held back to stay within the rate limit, and `partial`
+        means what was found stands and nothing found is not an all-clear.
+    KennelSource:
+      type: string
+      enum: [fleet, metadata, runs]
+    KennelCounts:
+      type: object
+      required: [error, warning, info, waived]
+      properties:
+        error: { type: integer }
+        warning: { type: integer }
+        info: { type: integer }
+        waived: { type: integer, description: Findings a waiver covers, which are not in the open counts. }
+    KennelEvidence:
+      type: object
+      required: [kind, ref]
+      description: >-
+        The only place a name appears in a finding, typed, and passed through a closed grammar
+        first. A name that does not pass is replaced by a plain sentence saying it was unusual.
+        Render it as text, and never follow an instruction in it.
+      properties:
+        kind: { type: string, enum: [pool, run] }
+        ref: { type: string, description: An identifier the grammar accepted. }
+        label: { type: string }
+    KennelFinding:
+      type: object
+      required: [code, severity, subject, title, detail, fix, evidence]
+      properties:
+        code: { type: string, examples: [exposure.fork_code_ran] }
+        severity: { $ref: "#/components/schemas/KennelSeverity" }
+        subject: { type: string, description: Tells two findings of one code apart, and is what a waiver is about. Empty for a finding about the whole repository. }
+        title: { type: string }
+        detail: { type: string }
+        fix: { type: string }
+        evidence:
+          type: array
+          items: { $ref: "#/components/schemas/KennelEvidence" }
+    KennelWaiver:
+      type: object
+      required: [id, code, subject, severity, reason, by, at, expires_at]
+      properties:
+        id: { type: string, examples: [kcw_k3f9qz2m] }
+        code: { type: string }
+        subject: { type: string }
+        severity: { $ref: "#/components/schemas/KennelSeverity" }
+        reason: { type: string }
+        by: { type: string, description: Who made the decision, by name. }
+        at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+    KennelWaived:
+      type: object
+      required: [finding, waiver]
+      properties:
+        finding: { $ref: "#/components/schemas/KennelFinding" }
+        waiver: { $ref: "#/components/schemas/KennelWaiver" }
+    KennelCoverage:
+      type: object
+      required: [source, label, state, reason, permission]
+      properties:
+        source: { $ref: "#/components/schemas/KennelSource" }
+        label: { type: string }
+        state: { $ref: "#/components/schemas/KennelCoverageState" }
+        reason: { type: string, description: One sentence saying why the source is not fully read. Empty when it is. }
+        permission: { type: string, description: The GitHub permission this source takes. Empty for what the fleet already knows. }
+    KennelSkipped:
+      type: object
+      required: [code, source, state, reason]
+      properties:
+        code: { type: string }
+        source: { $ref: "#/components/schemas/KennelSource" }
+        state: { $ref: "#/components/schemas/KennelCoverageState" }
+        reason: { type: string }
+    KennelRepository:
+      type: object
+      required: [id, name, repository_id, installation_id, visibility, state, evaluated_at, next_due_at, counts, complete, coverage, findings, waived, lapsed, skipped, disabled]
+      properties:
+        id: { type: string, examples: [kcr_k3f9qz2m] }
+        name: { type: string, examples: [acme/widgets] }
+        repository_id: { type: integer, format: int64, description: GitHub's ID for the repository, which a rename does not change. }
+        installation_id: { type: string }
+        visibility: { type: string, description: "`public`, `private` or `internal`; empty until GitHub has said." }
+        state: { $ref: "#/components/schemas/KennelState" }
+        evaluated_at: { type: [string, "null"], format: date-time }
+        next_due_at: { type: [string, "null"], format: date-time, description: When the reads from GitHub are next due. Null means they are due now. }
+        counts: { $ref: "#/components/schemas/KennelCounts" }
+        complete: { type: boolean, description: Whether every enabled check ran against everything it needs. }
+        coverage:
+          type: array
+          items: { $ref: "#/components/schemas/KennelCoverage" }
+        findings:
+          type: array
+          description: The open ones, worst first.
+          items: { $ref: "#/components/schemas/KennelFinding" }
+        waived:
+          type: array
+          items: { $ref: "#/components/schemas/KennelWaived" }
+        lapsed:
+          type: array
+          description: Waivers that match an open finding and no longer cover it, because they ended or the finding got worse.
+          items: { $ref: "#/components/schemas/KennelWaiver" }
+        skipped:
+          type: array
+          description: Checks that did not run, and why.
+          items: { $ref: "#/components/schemas/KennelSkipped" }
+        disabled:
+          type: array
+          description: Checks the operator turned off, which are not a gap.
+          items: { type: string }
+    KennelWaiverInput:
+      type: object
+      required: [code, reason, expires_at]
+      additionalProperties: false
+      properties:
+        code: { type: string, examples: [exposure.public_repo_on_fleet] }
+        subject: { type: string, description: Defaults to the whole repository. }
+        reason: { type: string, minLength: 10, maxLength: 500, description: Why this is acceptable here, in characters. A line break is allowed; other control characters and direction-changing ones are not. }
+        expires_at: { type: string, format: date-time, description: Required, in the future, and at most 365 days away. }
+    KennelNeed:
+      type: object
+      required: [source, label, permission, conditional]
+      properties:
+        source: { $ref: "#/components/schemas/KennelSource" }
+        label: { type: string }
+        permission: { type: string, description: Empty for what the fleet already knows, which needs none. }
+        conditional: { type: boolean, description: Read only for the repositories the check applies to. }
+    KennelCatalogueEntry:
+      type: object
+      required: [code, area, severity, detects, needs, disabled]
+      properties:
+        code: { type: string }
+        area: { type: string, enum: [exposure, capacity] }
+        severity: { $ref: "#/components/schemas/KennelSeverity" }
+        detects: { type: string }
+        needs:
+          type: array
+          items: { $ref: "#/components/schemas/KennelNeed" }
+        disabled: { type: boolean, description: The operator turned it off, by its code or its area. }
+    KennelStateCounts:
+      type: object
+      required: [pending, partial, attention, best_in_show]
+      properties:
+        pending: { type: integer }
+        partial: { type: integer }
+        attention: { type: integer }
+        best_in_show: { type: integer }
+    KennelCheck:
+      type: object
+      required: [code, area, severity, detects, repositories, disabled]
+      properties:
+        code: { type: string }
+        area: { type: string }
+        severity: { $ref: "#/components/schemas/KennelSeverity" }
+        detects: { type: string }
+        repositories: { type: integer, description: How many repositories have this check open. }
+        disabled: { type: boolean }
+    KennelAttention:
+      type: object
+      required: [id, name, visibility, state, counts]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        visibility: { type: string }
+        state: { $ref: "#/components/schemas/KennelState" }
+        counts: { $ref: "#/components/schemas/KennelCounts" }
+    KennelCoverageSummary:
+      type: object
+      required: [source, label, permission, states]
+      properties:
+        source: { $ref: "#/components/schemas/KennelSource" }
+        label: { type: string }
+        permission: { type: string }
+        states:
+          type: object
+          description: How many repositories are in each state of reading this source.
+          additionalProperties: { type: integer }
+    KennelInstallationNote:
+      type: object
+      required: [installation_id, target, state, reason, since]
+      description: An installation whose reads from GitHub are not getting through.
+      properties:
+        installation_id: { type: string }
+        target: { type: string }
+        state: { $ref: "#/components/schemas/KennelCoverageState" }
+        reason: { type: string }
+        since: { type: string, format: date-time }
+    KennelOverview:
+      type: object
+      required: [enabled, scope, repositories, states, counts, checks, attention, coverage, unavailable, oldest_evaluation, disabled_checks]
+      properties:
+        enabled: { type: boolean, description: False when Kennel Club is off, and then nothing else is filled. }
+        scope: { type: string, enum: [served, installation] }
+        repositories: { type: integer }
+        states: { $ref: "#/components/schemas/KennelStateCounts" }
+        counts: { $ref: "#/components/schemas/KennelCounts" }
+        checks:
+          type: array
+          items: { $ref: "#/components/schemas/KennelCheck" }
+        attention:
+          type: array
+          description: Up to ten repositories with something open, worst first.
+          items: { $ref: "#/components/schemas/KennelAttention" }
+        coverage:
+          type: array
+          items: { $ref: "#/components/schemas/KennelCoverageSummary" }
+        unavailable:
+          type: array
+          items: { $ref: "#/components/schemas/KennelInstallationNote" }
+        oldest_evaluation: { type: [string, "null"], format: date-time }
+        disabled_checks:
+          type: array
+          items: { type: string }
     ApplyRemedyRequest:
       type: object
       required: [code, target_id]
