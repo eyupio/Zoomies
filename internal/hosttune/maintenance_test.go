@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io/fs"
 	"strings"
 	"testing"
 	"time"
@@ -26,7 +27,9 @@ type scriptedHost struct {
 	// psFail is how many of the first `docker ps` calls fail, as a daemon too slow to
 	// answer within the probe's budget does.
 	psFail int
-	log    []string
+	// failWrites makes the state file unwritable, as a full or read-only disk does.
+	failWrites bool
+	log        []string
 }
 
 func (s *scriptedHost) Run(_ context.Context, n string, a ...string) (string, error) {
@@ -402,7 +405,9 @@ func TestRestartPendingDoesNothingButTheRestart(t *testing.T) {
 	if err := e.Tune(context.Background(), TuneOptions{RestartPending: true, GiveUp: time.Hour, Yes: true, Out: &out, In: strings.NewReader(""), Actor: "test"}); err != nil {
 		t.Fatalf("%v\n%s", err, out.String())
 	}
-	if got := s.writes - before; got != 1 { // the state file, once, when the restart cleared the pending flag
+	// The state file, three times: the units the restart owes, the pending flag cleared, and the
+	// owed units cleared. Nothing else on the host.
+	if got := s.writes - before; got != 3 {
 		t.Errorf("--restart-pending applied changes to the host: %d writes", got)
 	}
 	if v, _ := s.ReadFile("/proc/sys/fs/inotify/max_user_watches"); string(v) != "1024" {
@@ -456,4 +461,49 @@ func TestWhenSafeGivesUpOnADockerThatNeverAnswers(t *testing.T) {
 	if s.did("systemctl stop") != 0 || s.did("systemctl restart docker") != 0 {
 		t.Errorf("a host whose Docker could not be read was taken out of service: %v", s.log)
 	}
+}
+
+// A restart killed after it stopped the units -- SIGKILL, a crash -- left them stopped, and a
+// rerun saw both inactive, concluded there was nothing to restore, and reported the host back in
+// service. The units it owes are on the record, and the next restart starts them.
+func TestARestartKilledAfterStoppingTheUnitsIsHealedByTheNextOne(t *testing.T) {
+	e, s := maintenanceHost(nil)
+	s.active["zoomies.service"], s.active["zoomies-agent.service"] = "inactive", "inactive"
+	if err := e.setMaintenanceOwed([]string{"zoomies.service", "zoomies-agent.service"}); err != nil {
+		t.Fatal(err)
+	}
+	o, out := opts(false)
+	if err := e.MaintainDocker(context.Background(), o); err != nil {
+		t.Fatalf("MaintainDocker: %v\n%s", err, out)
+	}
+	if s.active["zoomies.service"] != "active" || s.active["zoomies-agent.service"] != "active" {
+		t.Errorf("the units a killed restart left stopped were not started: %v\n%s", s.active, out)
+	}
+	if !strings.Contains(out.String(), "was interrupted") {
+		t.Errorf("it must say what it found:\n%s", out)
+	}
+	owed, err := e.maintenanceOwed()
+	if err != nil || len(owed) != 0 {
+		t.Errorf("the record was not cleared once the units were back: %v, %v", owed, err)
+	}
+}
+
+// The record is written before the first stop, and if it cannot be written nothing is stopped.
+func TestAHostIsLeftAsItIsWhenWhatItIsAboutToStopCannotBeRecorded(t *testing.T) {
+	e, s := maintenanceHost(nil)
+	s.failWrites = true
+	o, out := opts(false)
+	if err := e.MaintainDocker(context.Background(), o); err == nil {
+		t.Fatalf("a restart that could not record what it stops went ahead\n%s", out)
+	}
+	if s.did("systemctl stop") != 0 {
+		t.Errorf("a unit was stopped with no record of how to start it again: %v", s.log)
+	}
+}
+
+func (s *scriptedHost) WriteFile(p string, b []byte, m fs.FileMode) error {
+	if s.failWrites {
+		return errors.New("read-only file system")
+	}
+	return s.fakeSystem.WriteFile(p, b, m)
 }

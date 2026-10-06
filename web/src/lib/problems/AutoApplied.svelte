@@ -12,7 +12,7 @@
 <script lang="ts">
   import { Undo2 } from '@lucide/svelte';
   import { listAutoApplied, undoAutoApplied } from '$lib/api/client';
-  import type { AutoAppliedChange } from '$lib/api/types';
+  import type { AutoAppliedChange, ShadowedChange } from '$lib/api/types';
   import { pluralise, relativeTime } from '$lib/format';
   import { fleet } from '$lib/state/fleet.svelte';
   import { session } from '$lib/state/session.svelte';
@@ -21,6 +21,7 @@
 
   let items = $state<AutoAppliedChange[]>([]);
   let enabled = $state(false);
+  let wouldApply = $state<ShadowedChange[]>([]);
   let busy = $state<string | null>(null);
 
   async function load(): Promise<void> {
@@ -28,10 +29,12 @@
       const answer = await listAutoApplied();
       items = answer.items;
       enabled = answer.enabled;
+      wouldApply = answer.would_apply;
     } catch {
       // The list is a convenience under the problems: if it cannot be read the
       // problems above it are still the page.
       items = [];
+      wouldApply = [];
     }
   }
 
@@ -53,6 +56,27 @@
     void load();
   });
 </script>
+
+{#if wouldApply.length > 0 && !enabled}
+  <section class="auto" aria-label="Changes that would be made automatically">
+    <h3 class="title">Would be made automatically</h3>
+    <p class="note">
+      Automatic apply is in shadow mode, so nothing below has been changed. These are the changes it
+      would have made, after the proposal stood for two hours. Turn it on in Settings to make them.
+    </p>
+    <ul class="items">
+      {#each wouldApply as change (change.id)}
+        <li class="item">
+          <div class="what">
+            <span class="label">{change.label}</span>
+            <span class="when">{relativeTime(change.at)}</span>
+            {#if change.effect}<span class="effect">{change.effect}</span>{/if}
+          </div>
+        </li>
+      {/each}
+    </ul>
+  </section>
+{/if}
 
 {#if enabled || items.length > 0}
   <section class="auto" aria-label="Changes made automatically">

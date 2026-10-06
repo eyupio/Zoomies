@@ -573,8 +573,21 @@ func pairLimits(spec Spec) (runner, daemon store.Resources) {
 	if spec.ResourcesSource != store.AllocationFromHost {
 		return spec.Resources, spec.Resources
 	}
-	return spec.Resources.SplitWithDaemonShares(spec.DaemonShares())
+	runner, daemon = spec.Resources.SplitWithDaemonShares(spec.DaemonShares())
+	// A field the pool typed goes whole to both halves, as it does when nothing came
+	// from the host: only what the host decided is a slot to divide.
+	if spec.CPUTyped {
+		runner.CPUs, daemon.CPUs = spec.Resources.CPUs, spec.Resources.CPUs
+	}
+	if spec.MemoryTyped {
+		runner.MemoryMB, daemon.MemoryMB = spec.Resources.MemoryMB, spec.Resources.MemoryMB
+	}
+	return runner, daemon
 }
+
+// PairLimits is what each half of a docker-in-docker runner is given, for the agent,
+// which records the runner's own half and must not work it out a second way.
+func PairLimits(spec Spec) (runner, daemon store.Resources) { return pairLimits(spec) }
 
 func buildRunnerConfig(spec Spec, fl flavor, o containerOptions) ContainerCreateRequest {
 	labels := spec.Labels(o.Now)

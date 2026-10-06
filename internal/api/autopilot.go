@@ -49,7 +49,11 @@ const (
 	autoAppliedHistory = 30 * 24 * time.Hour
 
 	auditAutoApplied = "problem.remedy_auto_applied"
-	auditAutoUndone  = "problem.remedy_undone"
+	// auditAutoShadowed is a change shadow mode would have made, written once for each
+	// proposal. It is not an applied change and nothing reads it as one: the cooldown,
+	// the once-only rule and the undo list look only at auditAutoApplied.
+	auditAutoShadowed = "problem.remedy_auto_shadowed"
+	auditAutoUndone   = "problem.remedy_undone"
 )
 
 // autopilotIdentity is who the controller acts as: an operator, which is the role
@@ -90,7 +94,8 @@ func (s *Server) autopilotPass(ctx context.Context) error {
 	if st.seen == nil {
 		st.seen, st.retryAt = map[string]time.Time{}, map[string]time.Time{}
 	}
-	if !s.cfg().Security.AutoApplyRemedies {
+	mode := s.cfg().Security.AutoApplyMode()
+	if mode == "off" {
 		// Off forgets what it had seen, so turning it on later starts the wait afresh
 		// rather than acting on a proposal that stood while nobody had asked.
 		clear(st.seen)
@@ -143,6 +148,12 @@ func (s *Server) autopilotPass(ctx context.Context) error {
 		} else if !ok {
 			continue
 		}
+		if mode == "shadow" {
+			if err := s.recordShadowed(ctx, p); err != nil {
+				return err
+			}
+			continue
+		}
 		if err := s.autoApply(ctx, p); err != nil {
 			st.retryAt[p.Remedy.ID] = now.Add(autopilotRetry)
 			s.log.Info("a suggested change was not applied automatically", "code", p.Code, "target", p.TargetID, "reason", err.Error())
@@ -184,6 +195,45 @@ func (s *Server) mayAutoApply(ctx context.Context, p *controller.Problem, now ti
 		}
 	}
 	return true, nil
+}
+
+// recordShadowed writes down that a proposal is one shadow mode would have made, once for
+// each proposal: the remedy's ID covers the change, so the same ID is the same change,
+// and a proposal that moves is a new one. Nothing is changed. The record is what lets an
+// operator read what turning the setting on would do before it does, and it is written
+// with the same before-snapshot an applied change carries.
+func (s *Server) recordShadowed(ctx context.Context, p *controller.Problem) error {
+	r := p.Remedy
+	rows, _, err := s.ctrl.Store().ListAudit(ctx, store.AuditFilter{Actions: []string{auditAutoShadowed}, TargetID: r.TargetID}, store.Page{Limit: 500})
+	if err != nil {
+		return fmt.Errorf("reading the changes shadow mode has recorded: %w", err)
+	}
+	for _, row := range rows {
+		var a struct {
+			Remedy string `json:"remedy"`
+		}
+		if json.Unmarshal([]byte(row.After), &a) == nil && a.Remedy == r.ID {
+			return nil
+		}
+	}
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(r.Body, &body); err != nil {
+		return nil
+	}
+	keys := make([]string, 0, len(body))
+	for k := range body {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	before, err := s.targetSnapshot(ctx, r, keys)
+	if err != nil {
+		return err
+	}
+	s.auth.Auditor().Record(ctx, autopilotIdentity, auditAutoShadowed, targetKindOf(r), r.TargetID, before, map[string]any{
+		"code": p.Code, "remedy": r.ID, "label": r.Label, "effect": r.Effect, "kind": r.Kind,
+	})
+	s.log.Info("a suggested change would have been applied automatically (shadow)", "code", p.Code, "target", r.TargetID, "change", r.Label)
+	return nil
 }
 
 // autoApply makes one change and writes down what it replaced.
@@ -367,7 +417,47 @@ func (s *Server) handleAutoApplied(w http.ResponseWriter, r *http.Request) {
 		c.Undoable = !c.Undone && rec.applied != nil && s.untouchedSince(r.Context(), rec)
 		out = append(out, c)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"enabled": s.cfg().Security.AutoApplyRemedies, "items": out})
+	mode := s.cfg().Security.AutoApplyMode()
+	would, err := s.shadowedChanges(r.Context())
+	if err != nil {
+		s.internal(w, r, "reading the changes shadow mode would have made", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"enabled": mode == "on", "mode": mode, "items": out, "would_apply": would})
+}
+
+// shadowedChange is a change shadow mode would have made, as the list shows it.
+type shadowedChange struct {
+	ID       string                `json:"id"`
+	At       time.Time             `json:"at"`
+	Code     string                `json:"code"`
+	Label    string                `json:"label"`
+	Effect   string                `json:"effect,omitempty"`
+	Kind     controller.RemedyKind `json:"kind"`
+	TargetID string                `json:"target_id"`
+}
+
+// shadowedChanges is what shadow mode recorded in the last autoAppliedHistory, newest first.
+func (s *Server) shadowedChanges(ctx context.Context) ([]shadowedChange, error) {
+	since := s.ctrl.Now().Add(-autoAppliedHistory)
+	rows, _, err := s.ctrl.Store().ListAudit(ctx, store.AuditFilter{Actions: []string{auditAutoShadowed}, Since: &since}, store.Page{Limit: 500})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]shadowedChange, 0, len(rows))
+	for _, row := range rows {
+		var after struct {
+			Code   string                `json:"code"`
+			Label  string                `json:"label"`
+			Effect string                `json:"effect"`
+			Kind   controller.RemedyKind `json:"kind"`
+		}
+		if json.Unmarshal([]byte(row.After), &after) != nil {
+			continue
+		}
+		out = append(out, shadowedChange{ID: row.ID, At: row.CreatedAt, Code: after.Code, Label: after.Label, Effect: after.Effect, Kind: after.Kind, TargetID: row.TargetID})
+	}
+	return out, nil
 }
 
 // untouchedSince reports whether the target still holds what the automatic change

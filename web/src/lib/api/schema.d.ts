@@ -1174,8 +1174,13 @@ export interface paths {
          * @description With `security.auto_apply_remedies` on, the controller makes the change a
          *     problem proposes once it has stood unchanged for two hours, at most once a day
          *     for any one pool or host. Each change is listed here with what it was, newest
-         *     first. `enabled` says whether the switch is on now; the list is returned either
-         *     way, because a change made while it was on can still be undone.
+         *     first. `enabled` says whether the switch is on now and `mode` which position it
+         *     is in; the list is returned either way, because a change made while it was on
+         *     can still be undone.
+         *
+         *     In `shadow` mode, the default, nothing is changed: `would_apply` lists the
+         *     changes it would have made, once for each proposal, so what turning it on would
+         *     do can be read first.
          *
          *     `undoable` is false once the change has been undone, and also when the pool
          *     or host was edited after it was made or its result could not be read back:
@@ -4379,10 +4384,35 @@ export interface components {
             undone: boolean;
             undoable: boolean;
         };
+        ShadowedChange: {
+            id: string;
+            /**
+             * Format: date-time
+             * @description When the proposal had stood long enough for shadow mode to record it.
+             */
+            at: string;
+            /** @example pool.daemon_share_suggested */
+            code: string;
+            /** @description The change */
+            label: string;
+            /** @description What it was priced at. */
+            effect?: string;
+            /** @enum {string} */
+            kind: "pool.update" | "host.update";
+            /** @description The pool or host it would have changed. */
+            target_id: string;
+        };
         AutoAppliedList: {
-            /** @description Whether automatic apply is on now. */
+            /** @description Whether automatic apply is making changes now */
             enabled: boolean;
+            /**
+             * @description Off does nothing, shadow records what it would have changed, on makes the changes.
+             * @enum {string}
+             */
+            mode: "off" | "shadow" | "on";
             items: components["schemas"]["AutoAppliedChange"][];
+            /** @description What shadow mode recorded in the last 30 days, newest first. */
+            would_apply: components["schemas"]["ShadowedChange"][];
         };
         /**
          * @description How much a finding matters. An error is a stranger, or a fault, that can already hurt the fleet or stop CI; a warning is a guard that is weaker than it should be; a note is worth knowing and never stops a repository being best in show.
