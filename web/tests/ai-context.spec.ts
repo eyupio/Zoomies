@@ -27,7 +27,7 @@ test('setup saves resumable drafts, retries only failures and never enables sour
       createdInstallation = (await created.json()).id;
     }
     await goto(page, '/ai-context', 'AI Context');
-    await page.getByRole('link', { name: 'Enable repositories' }).click();
+    await page.getByRole('link', { name: 'Enable repositories' }).first().click();
     await page.getByLabel('GitHub installation').selectOption({ label: 'acme' });
     await page.getByRole('checkbox', { name: 'acme/site', exact: true }).check();
     await page.getByRole('checkbox', { name: 'acme/widgets', exact: true }).check();
