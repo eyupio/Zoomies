@@ -330,9 +330,6 @@ test.describe('with Kennel Club on', () => {
     await goto(page, '/kennel/repositories?state=best_in_show', 'Repositories');
     await expect(rows).toHaveCount(2);
     await expect(rows.filter({ hasText: PUBLIC_REPO })).toHaveCount(0);
-    // With plain status words, which is what a browser that has not chosen sees,
-    // best in show says what it means.
-    await expect(rows.filter({ hasText: 'acme/api' })).toContainText('No open findings');
 
     await goto(page, '/kennel/repositories?code=exposure.fork_code_ran', 'Repositories');
     await expect(page.getByText('No repositories match those filters')).toBeVisible();
@@ -377,6 +374,28 @@ test.describe('with Kennel Club on', () => {
     await expect(page.getByText('Nothing open, and not an all clear')).toBeVisible();
     await expect(page.getByText('Held for a rate limit')).toBeVisible();
     await expect(page.getByText('Every check that is turned on ran')).toHaveCount(0);
+  });
+
+  // Best in show is the kennel word, so it follows the vocabulary switch like the
+  // runner states do. The list's "Open" column also says "No open findings", so
+  // these look at the standing itself, on the page that is about one repository.
+  test('best in show says what it means in plain words', async ({ page }) => {
+    await page.addInitScript(() =>
+      localStorage.setItem('zoomies.prefs', JSON.stringify({ statusStyle: 'off' })),
+    );
+    const quiet = await repository(page, 'acme/api');
+    await goto(page, `/kennel/repositories/${quiet.id}`, 'acme/api');
+    await expect(page.getByText('No open findings', { exact: true }).first()).toBeVisible();
+    await expect(page.getByText('Best in show', { exact: true })).toHaveCount(0);
+  });
+
+  test('best in show is the kennel word when the kennel words are on', async ({ page }) => {
+    await page.addInitScript(() =>
+      localStorage.setItem('zoomies.prefs', JSON.stringify({ statusStyle: 'cute' })),
+    );
+    const quiet = await repository(page, 'acme/api');
+    await goto(page, `/kennel/repositories/${quiet.id}`, 'acme/api');
+    await expect(page.getByText('Best in show', { exact: true }).first()).toBeVisible();
   });
 
   test('a recheck is asked for, and a second ask is told to wait', async ({ page }) => {
