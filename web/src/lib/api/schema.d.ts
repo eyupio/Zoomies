@@ -7470,6 +7470,7 @@ export interface components {
             actionable: boolean;
             optional?: boolean;
         };
+        /** @description A host's OS report, as its agent writes it. This is also the body an agent sends with a heartbeat, and it carries no `summary`: the controller counts the report itself, so a host cannot claim a count (see HostDoctorView). */
         HostDoctor: {
             /** @description Host filesystem path inspected for runner disk headroom. */
             work_dir?: string;
@@ -7481,6 +7482,23 @@ export interface components {
             container: boolean;
             results: components["schemas"]["HostDoctorResult"][];
             reboot_pending: boolean;
+        };
+        /** @description The controller's own count of a host's OS report, worked out on every read and never stored. Only the checks that count are in it: the safe tier, without optional results. The aggressive and dedicated tiers, and anything optional, are suggestions that never make a host look unwell. A pending reboot is counted once, as `reboot_pending`, and is not also a warning here. */
+        HostDoctorSummary: {
+            /** @description How many checks count, whatever they found, so "every check passed" can be told from "every check was skipped" (`skipped` equal to `counted`). */
+            counted: number;
+            /** @description Counted checks that found a setting below the recommendation. */
+            warnings: number;
+            /** @description Counted checks that failed to read what they look at, or found a file that is not valid. That is different from a setting below the recommendation, which is a warning. */
+            errors: number;
+            /** @description Counted checks that did not apply to this host, or that needed access the agent does not have. */
+            skipped: number;
+            /** @description Warnings that do not count: the aggressive and dedicated tiers, and optional checks. They are on the host's page and never raise a problem. */
+            suggestions: number;
+        };
+        /** @description A host's OS report as the API returns it: the report the agent wrote, with the controller's count of it in `summary`. Read `summary` for how a host is doing and `results` for what each check found. The text in `results` is written by the host and is untrusted. A host that has sent no report has no `doctor` at all. */
+        HostDoctorView: components["schemas"]["HostDoctor"] & {
+            summary: components["schemas"]["HostDoctorSummary"];
         };
         RunnerSize: {
             /**
@@ -7644,7 +7662,7 @@ export interface components {
             at: string;
         };
         Host: {
-            doctor?: components["schemas"]["HostDoctor"];
+            doctor?: components["schemas"]["HostDoctorView"];
             usage?: components["schemas"]["HostUsage"];
             /** @description Usage is less than 90 seconds old. Unknown or stale readings retain reservation-based placement. */
             usage_fresh?: boolean;

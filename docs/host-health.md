@@ -28,11 +28,13 @@ sudo zoomies tune --revert
 ```
 
 Doctor exits **0** without warnings, **1** with warnings, and **2** when a check
-errors. Skipped checks explain the missing access or host capability. Doctor
-works without root; checks whose inputs cannot be read are skipped rather than
-silently assumed healthy. `--interactive` shows the report and offers eligible
-fixes individually, showing each file change and command before `[y/N]` consent.
-It cannot be combined with `--json`, `--watch` or a remote host selection.
+errors, counting every check in the tier you ran: `--tier aggressive` exits 1 on
+an aggressive warning. Skipped checks explain the missing access or host
+capability. Doctor works without root; checks whose inputs cannot be read are
+skipped rather than silently assumed healthy. `--interactive` shows the report
+and offers eligible fixes individually, showing each file change and command
+before `[y/N]` consent. It cannot be combined with `--json`, `--watch` or a
+remote host selection.
 
 ## Continuous reporting uses the installed host binary
 
@@ -44,16 +46,47 @@ container mount and no incoming connection to an agent.
 
 The service samples every minute. Agent heartbeats carry the latest report to
 the controller, which persists it and sends `host.updated` events. Host badges
-and the host detail checks table update without reloading the page. Reports
-older than three minutes or from unreachable hosts are labelled stale.
+and the host detail checks table update without reloading the page.
 
-The badge counts what `zoomies doctor` counts by default: the safe tier, without
+There are two staleness thresholds, for two different jobs. The host page greys
+a badge as **Health stale** once its report is more than three minutes old, or
+whenever the host is unreachable: that is a display, and it changes nothing
+else. Zoomies raises the `host.health_stale` problem only after **ten** minutes
+without a newer report from a host that is still sending heartbeats, so a
+collector that is merely slow does not raise a problem. See
+[What a host's report raises](#what-a-hosts-report-raises).
+
+The controller counts each report once, and every surface reads that count. It
+is `doctor.summary`, beside `doctor.results` in the host's payload: the host's
+badge, the problems, the metrics, the Overview feed and `zoomies hosts list` all
+show it, so they cannot disagree about a host. Five integers: how many checks
+count, and how many of those are warnings, errors or skipped, plus a separate
+count of suggestions.
+
+What counts is what `zoomies doctor` counts by default: the safe tier, without
 optional suggestions. The monitor reports the aggressive and dedicated tiers as
 well, but those are choices rather than faults, so the host page shows them as
-suggestions and they do not count towards a host's health. When more than one
-thing applies the badge names the worst first: health errors, then warnings,
-then a pending reboot. The host page opens with a **Needs attention** list of
-the counted findings, with the failing checks above the ones that pass.
+suggestions, the summary counts them as `suggestions` and nowhere else, and
+they never raise a problem. A stock Ubuntu host has `vm.swappiness=60` from its
+first minute; that is a suggestion for ever and not a warning. The summary is
+worked out from the results on every read. It is never stored, and an agent
+cannot send one: a heartbeat whose report carries a `summary` has it ignored.
+
+A pending reboot is counted **once**, as itself. The engine sets
+`reboot_pending` from the `kernel.pending` warning, so a report carries the one
+fact twice; the summary leaves the warning out and keeps the flag. A host whose
+only finding is a reboot therefore reads **Reboot pending**, not "1 warning",
+and raises `host.reboot_pending`, not `host.os_health`. `zoomies doctor` does
+not make that exception, on purpose: it counts every check in the tier you ran,
+exit code included, so on that host it counts the kernel as a warning, one more
+than the badge does, and prints the reboot hint beside it. The `kernel.pending`
+row stays in the checks table either way.
+
+When more than one thing applies the badge names the worst first: health errors,
+then warnings, then a pending reboot. A report that is only the container's
+partial view reads **Partial report** and is given no verdict, as below. The
+host page opens with a **Needs attention** list of the counted findings, with
+the failing checks above the ones that pass.
 Tuning and reversal refresh the shared report immediately where it exists;
 the next heartbeat carries that result.
 
@@ -85,6 +118,132 @@ zoomies doctor --host host_example --url https://zoomies.example.com
 This reads the latest report, including its timestamp. It does not execute a
 remote root command. Apply fixes locally on that host. The web UI is read-only
 for OS tuning; its health badge links to a tier-grouped checks table.
+
+## What a host's report raises
+
+A report is not only something to open a page and look at. The controller reads
+the count described above and tells you about a host the way it tells you about
+everything else that needs attention. The controller never changes a host's
+operating system, so none of these carries a one-click fix. A change is made on
+the host itself, with your consent, by `zoomies doctor --interactive` or
+`zoomies tune`.
+
+| Problem | Severity | Raised when |
+| --- | --- | --- |
+| `host.os_health` | **Error when a counted check could not run, warning otherwise** | A connected host's latest report has a counted warning or error. One entry per host, naming up to three of the checks and how many more. |
+| `host.health_stale` | Warning | A connected host's newest report is more than ten minutes old by its own timestamp. It clears with the next report. |
+| `host.reboot_pending` | Info | The report says an update is waiting for a reboot. The entry says whether anything is running on the host: if not, it can be rebooted now, and otherwise to cordon it and wait. |
+
+A warning is a setting below the recommendation, and a nearly full disk is one.
+An error is a check that could not run properly: a `/etc/docker/daemon.json`
+that is not valid JSON, `df` output it could not read, or a read that failed
+unexpectedly. That is why only errors raise the problem's severity. The
+aggressive and dedicated tiers and anything optional are suggestions, and never
+raise anything. Each entry's fix is a sentence, not a button. Run
+`zoomies doctor --host <host-id> --verbose` to see what every check found, and
+`sudo zoomies doctor --interactive` on the host to be offered each fix it can
+make, with the change shown first. Not every counted warning has a fix to
+offer: the checks marked report only or advice only in the safe table below,
+the kernel checks and the distribution check (`environment`) clear only when
+you change the machine yourself, and they count all the same. A reboot is only
+ever a note, because the host keeps working until it restarts. Zoomies never
+reboots a host itself.
+
+Nothing is raised for:
+
+* a host that has sent no report, whether it is an older agent or has not
+  reported yet;
+* a host that is offline. `host.unhealthy` already speaks for it, and its last
+  report describes a machine nobody can see;
+* a container's partial report. It skips most checks and warns about the
+  image's distribution for ever, so Zoomies draws no conclusion from it. See
+  [what it cannot see](#what-it-cannot-see).
+
+A stale report does not silence `host.os_health` or `host.reboot_pending`. A
+collector that has stopped does not fix a setting, and going quiet would turn
+"I can no longer see this host" into "all clear". None of the three reaches the
+public status page: they say whether a machine's settings match a
+recommendation, not whether a job will run, and a stock fleet carries some of
+them for ever.
+
+The same count reaches the other places you look:
+
+* **Metrics.** `zoomies_host_os_checks` (by `host` and `state`),
+  `zoomies_host_reboot_pending` and `zoomies_host_health_report_age_seconds`.
+  They are counts and never name a check. Each is absent for a host the
+  problems are not allowed to judge: one that is offline, has sent no report or
+  sent only a container's partial one. A host with a clean report shows zeroes,
+  so a missing series is never an all-clear. On a native agent the age is how
+  an alert notices a collector that has stopped. On a Docker or Compose
+  installation the series disappears instead, so alert on its absence too (see
+  [what it cannot see](#what-it-cannot-see)). See [Metrics](metrics.md) for
+  what to alert on.
+* **The Overview feed.** A line when a host starts to need attention, when it
+  has a health error, when it no longer needs attention, and when it is waiting
+  for a reboot. Only a change is news: a host's first report is a baseline and
+  says nothing, a refreshed report with the same verdict says nothing, and an
+  error easing to a warning says nothing, because the host already needs
+  attention. A stopped collector has no line of its own; `host.health_stale`
+  reaches you as a problem.
+* **`zoomies hosts list`.** An `os health` column: `ok`, `2 warnings`,
+  `1 error, 2 warnings`, `reboot pending`, `unavailable` when every counted
+  check was skipped, `partial`, `stale 14m`, or `-` for a host that is
+  unreachable or has sent no report. See [the CLI](cli.md).
+* **Assistants.** MCP's `list_hosts` tells the assistant to read
+  `doctor.summary` before `doctor.results`, and `list_problems` returns the
+  three problems like any other.
+
+### What it cannot see
+
+A stopped `zoomies-host-health.service` on a Docker or Compose installation is
+**not detected**. The container reads the host's report from the shared
+directory, but only while it is less than three minutes old. When the service
+stops, the container falls back to a report of its own, made afresh every
+minute, which is partial and is marked as one. A fresh partial report is not a
+stale one, so `host.health_stale` is never raised, and the OS metrics
+disappear rather than climb. The only signs are the host page's **Partial
+report** badge and `partial` in `zoomies hosts list`. On those installations,
+check the service on the host with `systemctl status zoomies-host-health.service`
+if either appears where you expected a full report.
+
+A native agent is different. Its report is the host's own, so a monitor that
+stalls, or a clock that runs behind, shows as `host.health_stale`.
+
+## Who can read the check detail
+
+Anyone who can read hosts can read the check detail: any signed-in viewer, or
+an API token with one of the scopes below. There is no separate permission for
+it and no setting that narrows it. The detail is `doctor.results`, which gives
+each check's current value, recommendation and reason, so it includes the
+running kernel's exact version, filesystem paths and which services are
+enabled. It reaches a reader by three routes, each opened by its own scope (a
+scope on a resource, such as `hosts:cordon`, includes reading it):
+
+* `hosts:read`, over the REST API in `GET /api/v1/hosts` and
+  `GET /api/v1/hosts/{id}`, and through MCP's `list_hosts` and
+  `zoomies doctor --host`, which use the caller's own token and so can never
+  show more than that token could;
+* `runners:read`, in the host that `GET /api/v1/runners/{id}` carries beside
+  the runner;
+* `events:read`, on the event stream, in `host.updated`. It is also a viewer
+  permission, and a token scoped to it alone sees the same frames.
+
+The problems show less, by a fourth scope. `stats:read` opens
+`GET /api/v1/problems` and MCP's `list_problems`, and the same list arrives in
+`problems.updated` on the event stream. A `host.os_health` entry in it names up
+to three of a host's failing checks by title, and says which could not run,
+with no value. So a token that must not see any of it needs none of
+`hosts:read`, `runners:read`, `events:read` or `stats:read`.
+
+The support bundle carries it for admins only. The public status page never
+carries it, and `/metrics` carries counts and no check's name. With
+`metrics.public` on, those counts are readable by anyone who can reach the
+endpoint.
+
+On a fleet that several teams share, the detail is a map of what is unpatched,
+so give the viewer role, and tokens with any of those scopes, accordingly. The
+text in the results is written by the host, so give it to a model as data and
+not as instructions.
 
 ## Safe checks
 
@@ -234,7 +393,11 @@ sudo zoomies tune --tier aggressive --only tmp.tmpfs --dry-run
 kernel with installed kernels and reports a pending reboot. `kernel.hwe` checks
 whether Ubuntu 24.04's official `linux-generic-hwe-24.04` package is installed
 or available in the locally cached package metadata. No package index is
-updated by doctor. Debian skips the Ubuntu-specific check.
+updated by doctor. Debian skips the Ubuntu-specific check. A pending reboot is
+one fact that a report carries twice, as this warning and as `reboot_pending`;
+the controller counts it once, as
+[described above](#continuous-reporting-uses-the-installed-host-binary), and
+`zoomies doctor` counts the warning.
 
 Zoomies never changes CPU vulnerability mitigations and never installs a
 mainline or third-party kernel. It never reboots. Cordon/drain the host, wait

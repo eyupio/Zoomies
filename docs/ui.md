@@ -75,8 +75,10 @@ decisions in its own words — *scaled zoomies-demo-linux-x64 4 → 5: 1 job
 queued* — beside how each job ended and the step it stopped at, a runner
 that failed and a runner that came up ready for work, a runner lent spare CPU
 — *Squirrel spotted — maximum zoomies* — or slowed because its host is under
-pressure, a host that went quiet, a machine a provider is renting, a pool
-somebody changed, and what the controller changed on its own about
+pressure, a host that went quiet, a host whose operating system has begun to
+need attention or is waiting for a reboot (one line when that changes, and none
+for a host's first report, which is only a baseline), a machine a provider is
+renting, a pool somebody changed, and what the controller changed on its own about
 [size classes and automatic pools](auto-pools.md) with its reason — *maximum
 runners 5 → 10: host build-2 joined*. What went right is in it as much as what
 went wrong. Which of those it carries is yours to choose, one switch per

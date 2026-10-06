@@ -432,6 +432,12 @@ type hostItem struct {
 	LastHeartbeat     time.Time         `json:"last_heartbeat"`
 	CreatedAt         time.Time         `json:"created_at"`
 
+	// Doctor is the host's report on its own operating system, with the
+	// controller's count of it. A host that has sent no report, and a controller
+	// older than the field, send none, and the list then says nothing about
+	// health rather than guessing.
+	Doctor *hostDoctor `json:"doctor"`
+
 	// Slots is what the host takes before any throttle -- its capacity, or what
 	// its machine holds of its standard runner size -- and SlotsLimitedBy says
 	// what sets it. RunnerProfile is what the operator wrote, nil when nothing,
@@ -480,6 +486,29 @@ type hostAutoPool struct {
 	Pool       string `json:"pool"`
 	Reason     string `json:"reason"`
 	ReasonCode string `json:"reason_code"`
+}
+
+// hostDoctor is the part of a host's OS report the list reads: when it was
+// taken, whether it is only the container's view, whether a reboot is due, and
+// the controller's own count. The report's results, distribution and work
+// folder are deliberately not decoded: the host's agent wrote them, they are not
+// something a table that cannot wrap or truncate could hold, and `--output json`
+// carries them for whoever wants them.
+type hostDoctor struct {
+	CheckedAt     time.Time          `json:"checked_at"`
+	Container     bool               `json:"container"`
+	RebootPending bool               `json:"reboot_pending"`
+	Summary       *hostDoctorSummary `json:"summary"` // nil from a controller older than the field
+}
+
+// hostDoctorSummary is the controller's count of a report: the same five
+// numbers the host's page, the problems and the metrics read. Suggestions are
+// not decoded because they never reach a cell.
+type hostDoctorSummary struct {
+	Counted  int `json:"counted"`
+	Warnings int `json:"warnings"`
+	Errors   int `json:"errors"`
+	Skipped  int `json:"skipped"`
 }
 
 // runnerProfile is a host's runner profile as the API writes and reads it.

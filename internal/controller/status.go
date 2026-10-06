@@ -170,8 +170,19 @@ func ProjectStatus(problems []Problem, stats *Stats) FleetStatus {
 // assistant context. A repository falling short of a standard is the same, and
 // worse to publish: a status page that said which repositories the fleet runs
 // code for, and that one of them is exposed, would be a map for the stranger the
-// finding is about. Neither has a public sentence, and a test holds them to that.
+// finding is about. None of them has a public sentence, and a test holds them to
+// that.
+//
+// The three host OS health codes are the same kind of exception. They say
+// whether a machine's settings match a recommendation, not whether a job will
+// run, and a stock fleet carries some of them for ever: letting them in would
+// turn the public page to "degraded" for people with no account over a sysctl,
+// and to "blocked" over a check that could not read a file.
 func statusExempt(code string) bool {
+	switch code {
+	case "host.os_health", "host.health_stale", "host.reboot_pending":
+		return true
+	}
 	return strings.HasPrefix(code, "ai_context.") || strings.HasPrefix(code, "kennel.")
 }
 

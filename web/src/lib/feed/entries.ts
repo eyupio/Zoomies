@@ -18,13 +18,16 @@ import {
   Boxes,
   Bot,
   CircleMinus,
+  HeartPulse,
   Plug,
   Minus,
   Plus,
+  RotateCw,
   ScrollText,
   ServerCog,
   TrendingDown,
   TrendingUp,
+  TriangleAlert,
 } from '@lucide/svelte';
 import type { LucideIcon } from '@lucide/svelte';
 import type {
@@ -43,6 +46,7 @@ import type {
 } from '../api/types';
 import { faultLabel } from '../faults';
 import { formatDuration, pluralise, shortId } from '../format';
+import { findingsLabel } from '../hosts/health';
 import {
   cpuResourceStatus,
   deliveryStatus,
@@ -331,30 +335,77 @@ const HOST_NEWS: Record<HostChange, { title: string; tone: StatusTone }> = {
   holding: { title: 'A host is holding new runners', tone: 'pending' },
   admitting: { title: 'A host is taking runners again', tone: 'idle' },
   incompatible: { title: 'A host’s agent is too old for Zoomies', tone: 'danger' },
+  attention: { title: 'A host needs attention', tone: 'pending' },
+  failing: { title: 'A host has a health error', tone: 'danger' },
+  clear: { title: 'A host no longer needs attention', tone: 'idle' },
+  reboot: { title: 'A host is waiting for a reboot', tone: 'pending' },
 };
+
+/**
+ * The four lines about a host's OS get a mark of their own. The host's status
+ * icon is the host's -- for a healthy one, a plain circle -- and a line about
+ * its settings drawn with it would look like a line about its heartbeat. Clear
+ * has the same mark as attention on purpose: it is the same subject coming
+ * good, and the tone says which way.
+ */
+const HOST_HEALTH_ICON: Partial<Record<HostChange, LucideIcon>> = {
+  attention: HeartPulse,
+  failing: TriangleAlert,
+  clear: HeartPulse,
+  reboot: RotateCw,
+};
+
+/**
+ * The one line under a host's entry, where there is one.
+ *
+ * The OS lines say the controller's count, in the pill's own words, and for a
+ * reboot whether it can be done now -- the question an operator reads it to
+ * answer. The active runner count is always sent, so 0 means nothing is
+ * running rather than nothing is known.
+ */
+function hostDetail(host: Host, change: HostChange): string | undefined {
+  switch (change) {
+    case 'holding':
+      return host.admission_reason || undefined;
+    case 'throttled':
+      return host.throttle_reason || hostStatus(host).hint;
+    case 'incompatible':
+      return host.incompatible_reason || undefined;
+    case 'unreachable':
+      return hostStatus(host).hint;
+    case 'attention':
+    case 'failing':
+      return (host.doctor?.summary && findingsLabel(host.doctor.summary)) || undefined;
+    case 'reboot':
+      return host.active_runners === 0
+        ? 'Nothing is running on it, so it can be rebooted now.'
+        : 'Runners are still running on it. Cordon it and reboot once they finish; Zoomies never reboots a host itself.';
+    default:
+      return undefined;
+  }
+}
 
 export function hostEntry(host: Host, change: HostChange, at: string): FeedEntry | null {
   if (!host.id) return null;
   const news = HOST_NEWS[change];
-  const status = hostStatus(host);
+  const osIcon = HOST_HEALTH_ICON[change];
+  const aboutOS = osIcon !== undefined;
   return {
     id: `host:${host.id}:${change}:${at}`,
     category: 'hosts',
     at,
     tone: news.tone,
-    icon: change === 'joined' ? Plus : status.icon,
+    icon: osIcon ?? (change === 'joined' ? Plus : hostStatus(host).icon),
     title: news.title,
-    detail:
-      change === 'holding'
-        ? host.admission_reason || undefined
-        : change === 'throttled'
-          ? host.throttle_reason || status.hint
-          : change === 'incompatible'
-            ? host.incompatible_reason || undefined
-            : change === 'unreachable'
-              ? status.hint
-              : undefined,
-    target: { label: host.name ?? shortId(host.id), href: '/hosts' },
+    detail: hostDetail(host, change),
+    // The host's own page for a line about its OS, because that is where the
+    // report and its rows are. `at` stays the arrival time rather than the
+    // report's `checked_at`, which is the agent's clock: a host whose clock is
+    // wrong would otherwise date its own news.
+    target: {
+      label: host.name ?? shortId(host.id),
+      href: aboutOS ? `/hosts/${host.id}` : '/hosts',
+    },
   };
 }
 

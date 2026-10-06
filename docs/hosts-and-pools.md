@@ -168,7 +168,7 @@ have added anything.
 ## Living with more than one host
 
 ```sh
-zoomies hosts list                  # health, free capacity, backends, platform
+zoomies hosts list                  # state, OS health, free capacity, backends, platform
 zoomies hosts cordon host_k3f9qz2m  # keep its runners, accept no new ones
 zoomies hosts uncordon host_k3f9qz2m
 zoomies hosts delete host_k3f9qz2m  # refused while runners are still on it

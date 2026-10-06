@@ -152,7 +152,7 @@ export const FEED_CATEGORIES: readonly FeedCategory[] = [
     label: 'Hosts',
     group: 'Infrastructure',
     description:
-      'A host that joined, stopped answering, came back, was cordoned, or that the fleet throttled after sustained pressure.',
+      'A host that joined, stopped answering, came back, was cordoned, or that the fleet throttled after sustained pressure; and one whose operating system has begun to need attention, has cleared, or is waiting for a reboot. A host’s first OS report is a baseline and says nothing.',
     icon: Server,
     on: true,
     history: false,

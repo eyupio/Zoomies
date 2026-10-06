@@ -114,6 +114,156 @@ test('two things going wrong on one host are two lines, worst first', () => {
   assert.deepEqual(hostChanges(after, before), ['unreachable', 'cordoned']);
 });
 
+/**
+ * A host as the controller sends it once its agent has reported: the report,
+ * and beside it the controller's count of it. Only the count is read.
+ */
+function reporting(
+  count: { warnings?: number; errors?: number },
+  doctor: { container?: boolean; reboot_pending?: boolean; checked_at?: string } = {},
+): Partial<Host> {
+  return {
+    doctor: {
+      checked_at: '2026-10-04T10:00:00Z',
+      os: 'linux',
+      distro: 'ubuntu 24.04',
+      container: false,
+      reboot_pending: false,
+      results: [],
+      summary: { counted: 12, warnings: 0, errors: 0, skipped: 0, suggestions: 0, ...count },
+      ...doctor,
+    },
+  } as Partial<Host>;
+}
+
+// The report arrives about once a minute per host and its checked_at is
+// different every time, so a feed that noticed the report would write a line a
+// minute per host. The signal holds the verdict and nothing else.
+test('a refreshed report with the same verdict is not news', () => {
+  const before = hostSignal(
+    host(reporting({ warnings: 2 }, { checked_at: '2026-10-04T10:00:00Z' })),
+  );
+  const after = hostSignal(
+    host(reporting({ warnings: 2 }, { checked_at: '2026-10-04T10:01:00Z' })),
+  );
+  assert.deepEqual(after, before);
+  assert.deepEqual(hostChanges(after, before), []);
+});
+
+// Otherwise a rolling upgrade would print "needs attention" once per host, the
+// first time each reported, about a state it had been in for months.
+test('the first report a host ever sends is a baseline and says nothing', () => {
+  const never = hostSignal(host());
+  assert.equal(never.reported, false);
+  assert.deepEqual(hostChanges(hostSignal(host(reporting({ warnings: 3 }))), never), []);
+  assert.deepEqual(hostChanges(hostSignal(host(reporting({ errors: 1 }))), never), []);
+  assert.deepEqual(
+    hostChanges(hostSignal(host(reporting({}, { reboot_pending: true }))), never),
+    [],
+    'a reboot already pending on the first report is part of the baseline too',
+  );
+});
+
+test('a host that starts needing attention says so once, and a worse verdict says it again', () => {
+  const calm = hostSignal(host(reporting({})));
+  const warned = hostSignal(host(reporting({ warnings: 1 })));
+  const failing = hostSignal(host(reporting({ errors: 1, warnings: 1 })));
+  assert.deepEqual(hostChanges(warned, calm), ['attention']);
+  assert.deepEqual(hostChanges(failing, warned), ['failing']);
+  assert.deepEqual(hostChanges(failing, calm), ['failing'], 'straight to an error is an error');
+});
+
+test('more warnings, or fewer, are not a new verdict', () => {
+  // The count moves as an operator fixes things one at a time, and the host
+  // needed attention before and after: that is the same news.
+  const one = hostSignal(host(reporting({ warnings: 1 })));
+  const three = hostSignal(host(reporting({ warnings: 3 })));
+  assert.deepEqual(hostChanges(three, one), []);
+  assert.deepEqual(hostChanges(one, three), []);
+});
+
+test('an error easing to a warning is not clear, and only reaching zero is', () => {
+  const failing = hostSignal(host(reporting({ errors: 1, warnings: 2 })));
+  const warned = hostSignal(host(reporting({ warnings: 2 })));
+  const calm = hostSignal(host(reporting({})));
+  assert.deepEqual(hostChanges(warned, failing), []);
+  assert.deepEqual(hostChanges(calm, warned), ['clear']);
+  assert.deepEqual(hostChanges(calm, failing), ['clear']);
+});
+
+test('a pending reboot is announced when it appears, not while it stays', () => {
+  const calm = hostSignal(host(reporting({})));
+  const waiting = hostSignal(host(reporting({}, { reboot_pending: true })));
+  assert.deepEqual(hostChanges(waiting, calm), ['reboot']);
+  assert.deepEqual(hostChanges(waiting, waiting), []);
+  assert.deepEqual(hostChanges(calm, waiting), [], 'having rebooted is not a line of its own');
+});
+
+test('a verdict and a reboot arriving together are two lines, the verdict first', () => {
+  const calm = hostSignal(host(reporting({})));
+  const both = hostSignal(host(reporting({ warnings: 1 }, { reboot_pending: true })));
+  assert.deepEqual(hostChanges(both, calm), ['attention', 'reboot']);
+});
+
+// A container's report skips most checks and warns about its image's
+// distribution for ever; the controller raises nothing for it, so the feed
+// treats it as no report at all rather than as a host that got better or worse.
+test('a container’s partial report is not a verdict', () => {
+  const partial = hostSignal(
+    host(reporting({ errors: 2, warnings: 4 }, { container: true, reboot_pending: true })),
+  );
+  assert.equal(partial.reported, false);
+  assert.equal(partial.attention, 0);
+  assert.equal(partial.rebootPending, false);
+});
+
+test('swapping between a full report and a partial one says nothing either way', () => {
+  const full = hostSignal(host(reporting({ errors: 1 })));
+  const partial = hostSignal(host(reporting({}, { container: true })));
+  // Not "clear": nothing got better, the host is simply being looked at
+  // through a smaller window.
+  assert.deepEqual(hostChanges(partial, full), []);
+  // And not a failure when the full report returns, for the same reason it
+  // would not be for a host's first.
+  assert.deepEqual(hostChanges(full, partial), []);
+});
+
+test('a host that goes unreachable says nothing about its health', () => {
+  const warned = hostSignal(host(reporting({ warnings: 2 })));
+  const silent = hostSignal(host({ ...reporting({ warnings: 2 }), healthy: false }));
+  assert.deepEqual(hostChanges(silent, warned), ['unreachable']);
+  assert.deepEqual(hostChanges(warned, silent), ['recovered']);
+});
+
+test('a host’s reachability comes before what its report says', () => {
+  const calm = hostSignal(host(reporting({})));
+  const worse = hostSignal(host({ ...reporting({ errors: 1 }), healthy: false }));
+  assert.deepEqual(hostChanges(worse, calm), ['unreachable', 'failing']);
+});
+
+// A payload with no count is a controller older than the page, or a host that
+// has not reported. Reading it must not throw -- this runs on every host frame
+// -- and it must not read as a host that is well, or the first count to arrive
+// would look like a recovery.
+test('a host with no count reads as not reported, and never throws', () => {
+  const bare = { checked_at: '2026-10-04T10:00:00Z', container: false, reboot_pending: true };
+  for (const fields of [
+    {},
+    { doctor: undefined },
+    { doctor: null },
+    { doctor: bare },
+    { doctor: { ...bare, summary: undefined } },
+    { doctor: { ...bare, summary: null } },
+  ]) {
+    const signal = hostSignal(host(fields as Partial<Host>));
+    assert.equal(signal.reported, false, JSON.stringify(fields));
+    assert.equal(signal.attention, 0, JSON.stringify(fields));
+    assert.equal(signal.rebootPending, false, JSON.stringify(fields));
+  }
+  const withCount = hostSignal(host(reporting({ errors: 1 })));
+  assert.deepEqual(hostChanges(withCount, hostSignal(host({ doctor: bare } as Partial<Host>))), []);
+});
+
 function machine(state: string): Machine {
   return { id: 'mach_1', state, name: 'zoomies-mach-1' } as unknown as Machine;
 }

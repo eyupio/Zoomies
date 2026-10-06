@@ -45,6 +45,7 @@ async function heartbeat(
   credentials: Credentials,
   results: Check[],
   reboot = false,
+  container = false,
 ): Promise<void> {
   const response = await page.request.post('/api/v1/agent/heartbeat', {
     headers: { Authorization: `Bearer ${credentials.agent_token}` },
@@ -54,7 +55,7 @@ async function heartbeat(
         checked_at: new Date().toISOString(),
         os: 'linux',
         distro: 'ubuntu 24.04',
-        container: false,
+        container,
         reboot_pending: reboot,
         results,
       },
@@ -81,6 +82,19 @@ function check(
     actionable: false,
     ...extra,
   };
+}
+
+/** The controller's own count of a host's report, as GET /hosts/{id} sends it. */
+async function summaryOf(
+  page: Page,
+  credentials: Credentials,
+): Promise<{ counted: number; warnings: number; errors: number; skipped: number }> {
+  const response = await page.request.get(`/api/v1/hosts/${credentials.host_id}`);
+  expect(response.ok()).toBeTruthy();
+  const host = (await response.json()) as { doctor?: { summary?: Record<string, number> } };
+  const summary = host.doctor?.summary;
+  expect(summary, 'the controller sends its count beside the results').toBeDefined();
+  return summary as { counted: number; warnings: number; errors: number; skipped: number };
 }
 
 test('host OS health updates live and stays read-only on the detail page', async ({ page }) => {
@@ -117,6 +131,42 @@ test('host OS health updates live and stays read-only on the detail page', async
     await beat(false, true);
     await expect(page.getByText('Reboot pending', { exact: true })).toBeVisible();
     await expect(page.getByRole('main')).toContainText('Drain the host');
+
+    // The reboot is a problem too, and its link opens the host, where the
+    // report is, rather than the list of every host. (The other host problems
+    // keep the list; a unit test covers those, because an offline host cannot
+    // be made in a test's time.)
+    //
+    // The pill above moved at once, because a heartbeat publishes the host. The
+    // problems list is not published by a heartbeat: it is worked out after each
+    // reconcile pass, which is every ten seconds by default, so the row can be
+    // that long coming and the seven-second default wait is shorter than the
+    // interval. The wait here is longer than an interval plus a pass; the
+    // interval is not shortened for the test.
+    await page.getByRole('button', { name: /^Problems\./ }).click();
+    const drawer = page.getByRole('dialog', { name: 'Problems' });
+    const waiting = drawer
+      .getByRole('listitem')
+      .filter({ hasText: `host ${name} is waiting for a reboot` });
+    await expect(waiting.getByRole('link', { name: 'Open the host' })).toHaveAttribute(
+      'href',
+      `/hosts/${credentials.host_id}`,
+      { timeout: 20_000 },
+    );
+    await page.keyboard.press('Escape');
+    await expect(drawer).toBeHidden();
+
+    // A container's report is the container's view: most checks skipped, and
+    // its image's distribution warned about for ever. The controller raises
+    // nothing for it, so the page does not paint the host for it either.
+    await heartbeat(
+      page,
+      credentials,
+      [check('environment', 'Distribution', 'safe', 'warn')],
+      false,
+      true,
+    );
+    await expect(page.getByText('Partial report', { exact: true })).toBeVisible();
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth > window.innerWidth,
     );
@@ -172,6 +222,31 @@ test('the badge counts what zoomies doctor counts, and the page leads with what 
     await expect(page).toHaveURL(/#disk\.space$/);
     await expect(page.locator('[id="disk.space"]')).toBeInViewport();
     await expect(page.getByRole('button', { name: /apply|tune/i })).toHaveCount(0);
+
+    // The agent says a pending reboot twice -- the flag, and a kernel.pending
+    // warning -- and the controller counts it once, as the reboot. The list
+    // above is written a second time in TypeScript, and asking the real
+    // controller how long it should be is what stops the two drifting.
+    const reboot = check('kernel.pending', 'Pending reboot', 'safe', 'warn', {
+      current: 'a newer kernel is installed',
+    });
+    const watchesWarn = check('inotify.watches', 'File watches', 'safe', 'warn', {
+      current: '8192',
+    });
+    await heartbeat(page, credentials, [watchesWarn, disk, reboot, swappiness, apport], true);
+    const counted = await summaryOf(page, credentials);
+    expect(counted.errors, 'the full disk').toBe(1);
+    expect(counted.warnings, 'the file watches, and not the reboot or the suggestions').toBe(1);
+    await expect(attention.getByRole('listitem')).toHaveCount(counted.warnings + counted.errors);
+    await expect(attention).not.toContainText('Pending reboot');
+    await expect(page.getByText('1 health error · 1 warning · reboot pending')).toBeVisible();
+
+    // A host whose only finding is a restart is waiting for one, not failing a
+    // check: the pill says so and there is nothing left to fix under it.
+    await heartbeat(page, credentials, [watches, reboot], true);
+    expect((await summaryOf(page, credentials)).warnings).toBe(0);
+    await expect(page.getByText('Reboot pending', { exact: true })).toBeVisible();
+    await expect(attention).toHaveCount(0);
   } finally {
     await page.request.delete(`/api/v1/hosts/${credentials.host_id}`);
   }

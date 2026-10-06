@@ -435,6 +435,22 @@ var (
 		"1 while a host's agent reports its container runtime is in a recovery cooldown, 0 otherwise.", []string{"host"}, nil)
 	descHostThrottleLevel = prometheus.NewDesc("zoomies_host_throttle_level",
 		"The throttle rung a host is on after sustained pressure, 0 to 3; 0 while it is not throttled.", []string{"host"}, nil)
+	// What a host's OS report says, as counts and never as names. The failure
+	// these are shaped to avoid is an alert that disagrees with the drawer: they
+	// read the same count the problems do and are gated by the same function, so
+	// a host the drawer says nothing about cannot page somebody from here. They
+	// carry no check label, because a metrics endpoint can be public and a check
+	// id such as docker.logs would tell anyone who can reach it which setting a
+	// host has not changed.
+	descHostOSChecks = prometheus.NewDesc("zoomies_host_os_checks",
+		"The checks on a host's latest OS report that need attention, by state: warning and error are the ones that count towards its health, skipped is a counted check that could not be assessed, and suggestion is a warning that is only a choice. Every state is reported for a host with a report; absent for a host that is offline, has sent no report, or sent only the container's partial one.",
+		[]string{"host", "state"}, nil)
+	descHostRebootPending = prometheus.NewDesc("zoomies_host_reboot_pending",
+		"1 while a host's latest OS report says an update is waiting for a reboot, 0 otherwise. Absent when the host is offline, has sent no report, or sent only the container's partial one.",
+		[]string{"host"}, nil)
+	descHostHealthReportAge = prometheus.NewDesc("zoomies_host_health_report_age_seconds",
+		"How old a host's latest OS report is, by the host's own clock; never negative. This is the freshness signal: on a native agent a host whose collector has stopped is still reported and its age climbs, but on a Docker or Compose installation the container's partial report takes over and the series is absent. Absent when the host is offline, has sent no report, or sent only the container's partial one.",
+		[]string{"host"}, nil)
 )
 
 // fleetCollector reads the fleet's shape from the database on each scrape.
@@ -464,6 +480,9 @@ func (f *fleetCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- descHostThrottleLevel
 	ch <- descHostRuntimeRecovering
 	ch <- descHostEffectiveCapacity
+	ch <- descHostOSChecks
+	ch <- descHostRebootPending
+	ch <- descHostHealthReportAge
 }
 
 func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
@@ -630,6 +649,7 @@ func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
 	gauge(descReservedMemory, float64(reservedMemory)*mb)
 
 	f.collectMachines(ctx, gauge)
+	f.collectHostHealth(hosts, now, gauge)
 
 	gauge(descHosts, float64(healthy), "healthy")
 	gauge(descHosts, float64(unhealthy), "unhealthy")
@@ -679,4 +699,49 @@ func (f *fleetCollector) collectMachines(ctx context.Context, gauge func(*promet
 		}
 	}
 	gauge(descProviderQuarantined, float64(quarantined))
+}
+
+// collectHostHealth reports what each host's OS report says, for the hosts it is
+// fair to judge and for no others.
+//
+// It asks hostHealthReport, the function the problems ask, so a host the drawer
+// says nothing about -- one that is offline, has sent no report or sent only the
+// container's partial one -- has no series at all. Missing is deliberately not
+// zero: a zero here would read as a clean bill of health for a machine nobody
+// has looked at. A host whose report has gone stale is still reported, because
+// the age is the signal that says so, and an alert on it agrees with
+// host.health_stale.
+//
+// Every state is emitted for a host that reports, zeroes included, for the reason
+// the runner gauges are: a threshold rule on the error count has to keep
+// matching when there are none. Exactly one sample is written per host and state;
+// a duplicate would fail the whole scrape.
+func (f *fleetCollector) collectHostHealth(hosts []*store.Host, now time.Time, gauge func(*prometheus.Desc, float64, ...string)) {
+	for _, h := range hosts {
+		r := hostHealthReport(h, now)
+		if r == nil {
+			continue
+		}
+		s := r.Summary()
+		for _, c := range []struct {
+			state string
+			n     int
+		}{
+			{"warning", s.Warnings},
+			{"error", s.Errors},
+			{"skipped", s.Skipped},
+			{"suggestion", s.Suggestions},
+		} {
+			gauge(descHostOSChecks, float64(c.n), h.ID, c.state)
+		}
+		pending := 0.0
+		if r.RebootPending {
+			pending = 1
+		}
+		gauge(descHostRebootPending, pending, h.ID)
+		// A report is accepted up to a minute ahead of the controller's clock, so
+		// the age can come out negative; a negative age would read as a report
+		// from the future rather than as a fresh one.
+		gauge(descHostHealthReportAge, max(now.Sub(r.CheckedAt).Seconds(), 0), h.ID)
+	}
 }
