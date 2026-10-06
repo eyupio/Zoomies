@@ -29,6 +29,10 @@ type scriptedHost struct {
 	psFail int
 	// failWrites makes the state file unwritable, as a full or read-only disk does.
 	failWrites bool
+	// managed is what `docker ps` says of the containers this fleet owns, one line each as
+	// the format asks for them, and withWorker is the containers a job is running in.
+	managed    []string
+	withWorker map[string]bool
 	log        []string
 }
 
@@ -69,6 +73,13 @@ func (s *scriptedHost) Run(_ context.Context, n string, a ...string) (string, er
 		i := min(s.psCalls, len(s.ps)-1)
 		s.psCalls++
 		return strings.Join(s.ps[i], "\n"), nil
+	case n == "docker" && len(a) > 1 && a[0] == "ps" && a[1] == "--filter":
+		return strings.Join(s.managed, "\n"), nil
+	case n == "docker" && len(a) > 1 && a[0] == "top":
+		if s.withWorker[a[1]] {
+			return "ARGS\n/runner/bin/Runner.Listener\n/runner/bin/Runner.Worker spawnclient", nil
+		}
+		return "ARGS\n/runner/bin/Runner.Listener run", nil
 	case n == "docker" && len(a) > 0 && a[0] == "stop":
 		s.killed = true
 	case n == "docker" && len(a) > 0 && a[0] == "info":
@@ -506,4 +517,68 @@ func (s *scriptedHost) WriteFile(p string, b []byte, m fs.FileMode) error {
 		return errors.New("read-only file system")
 	}
 	return s.fakeSystem.WriteFile(p, b, m)
+}
+
+// A pool with a minimum keeps idle runners up between jobs and never reaps below it, so
+// counting them as work made the quiet moment unreachable: the restart waited out its
+// whole budget, with the host out of service, to refuse at the end. An idle runner and
+// its sidecar are stopped for the restart instead; one with a job in it is still waited
+// for.
+func TestWarmRunnersAreNotWorkButARunnerWithAJobIs(t *testing.T) {
+	warm := []string{"r1|runner-1|runner|", "d1|dind-1|dind|runner-1"}
+	e, s := maintenanceHost([]string{"r1", "d1"})
+	s.managed = warm
+	o, _ := opts(false)
+	if err := e.MaintainDocker(context.Background(), o); err != nil {
+		t.Fatalf("a host holding only warm runners was refused: %v", err)
+	}
+	if s.did("docker stop r1 d1") != 1 || s.did("systemctl restart docker") != 1 {
+		t.Errorf("the idle runner and its sidecar were not stopped before the restart: %v", s.log)
+	}
+
+	e, s = maintenanceHost([]string{"r1", "d1"})
+	s.managed = warm
+	s.withWorker = map[string]bool{"r1": true}
+	o, _ = opts(false)
+	if err := e.MaintainDocker(context.Background(), o); !errors.Is(err, ErrHostBusy) {
+		t.Fatalf("err = %v; a runner with a job in it is work and must be waited for", err)
+	}
+	if s.did("systemctl restart docker") != 0 {
+		t.Errorf("Docker was restarted under a running job: %v", s.log)
+	}
+}
+
+// The background task's quiet moment is the same test: a host kept warm by a pool
+// minimum is quiet, where before it never was.
+func TestWhenSafeFindsAQuietMomentOnAHostThatKeepsWarmRunners(t *testing.T) {
+	e, s := maintenanceHost([]string{"r1"})
+	s.managed = []string{"r1|runner-1|runner|"}
+	o, _ := whenSafe(time.Hour)
+	if err := e.RestartWhenSafe(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	if s.did("systemctl restart docker") != 1 {
+		t.Errorf("Docker was not restarted: %v", s.log)
+	}
+}
+
+// What cannot be established counts as work: a wrong "idle" ends someone's job.
+func TestARunnerWhoseProcessesCannotBeReadIsTreatedAsWork(t *testing.T) {
+	e, s := maintenanceHost([]string{"r1"})
+	s.managed = []string{"r1|runner-1|runner|"}
+	s.withWorker = nil
+	e.System = &topFails{s}
+	busy, idle, err := e.workContainers(context.Background())
+	if err != nil || len(busy) != 1 || len(idle) != 0 {
+		t.Fatalf("busy = %v, idle = %v, err = %v; want the container counted as work", busy, idle, err)
+	}
+}
+
+type topFails struct{ *scriptedHost }
+
+func (t *topFails) Run(ctx context.Context, n string, a ...string) (string, error) {
+	if n == "docker" && len(a) > 0 && a[0] == "top" {
+		return "", errors.New("no such container")
+	}
+	return t.scriptedHost.Run(ctx, n, a...)
 }
