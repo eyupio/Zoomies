@@ -661,5 +661,7 @@ notes, is a 409. MCP wraps these as `context_notes` and `context_publish`.
 report, supplied by the authenticated agent heartbeat. It carries the check
 time, OS, distribution, report scope, reboot flag and bounded check results.
 `host.updated` events use the same shape, so badges and details refresh live.
-Older agents omit the report; the UI shows health unavailable. These routes
+The report carries every tier the host's collector ran; a client that wants a
+host's health counts the `safe` tier without `optional` results, as the UI and
+`zoomies doctor` do. Older agents omit the report; the UI shows health unavailable. These routes
 provide observations only, with no OS tuning endpoint.
