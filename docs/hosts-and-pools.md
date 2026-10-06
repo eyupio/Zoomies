@@ -694,6 +694,14 @@ pool is sized.
   Where your jobs do their work decides how the slot should be divided, so it is
   yours to set — see the next paragraph. It divides only a share the host chose;
   a typed size goes to both containers in full whatever it says.
+- *One field typed, the other left to the host* is each of the two at once: the
+  typed field goes to both containers in full and is charged twice, and the field
+  the host decided is one slot's share that the pair divides. That share is held to
+  the same floor as a pool left entirely to the host — about 2 CPU and 4 GB for the
+  two containers between them, more with a larger minimum — and a host whose slots
+  divide to less is refused, with the capacity that would fit named. Before, a pool
+  that typed only one field was never checked on the other, and its typed figure was
+  divided in two as well, so a job given 4 CPU ran on 2+2.
 
 **Dividing a slot: CPU and memory apart.** The Size section of the pool editor has a
 *Runner and Docker sidecar* choice for a Docker-in-Docker pool sized by its hosts.

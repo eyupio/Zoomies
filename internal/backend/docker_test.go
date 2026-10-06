@@ -1394,3 +1394,37 @@ func TestASlowSidecarCreateIsAdoptedByTheAgentsRetryRatherThanFailedAsAConflict(
 		t.Fatal("the abandoned-create record outlived the adoption")
 	}
 }
+
+// A pool that types one field and leaves the other to the host: the typed field goes whole to
+// each container of the pair, as it does when nothing came from the host, and only the slot the
+// host decided is divided. The whole of Resources used to be divided whenever either field came
+// from the host, so 4 CPU typed beside a host-sized memory share gave a job 2+2 CPU.
+func TestAPairDividesOnlyTheFieldsTheHostDecided(t *testing.T) {
+	spec := Spec{
+		Resources:       store.Resources{CPUs: 4, MemoryMB: 8192},
+		ResourcesSource: store.AllocationFromHost,
+		DockerMode:      store.DockerDinD,
+		CPUTyped:        true,
+	}
+	runner, daemon := pairLimits(spec)
+	if runner.CPUs != 4 || daemon.CPUs != 4 {
+		t.Errorf("typed CPU was divided: runner %v, daemon %v, want 4 each", runner.CPUs, daemon.CPUs)
+	}
+	if runner.MemoryMB != 4096 || daemon.MemoryMB != 4096 {
+		t.Errorf("the host's memory slot was not divided: runner %d, daemon %d, want 4096 each", runner.MemoryMB, daemon.MemoryMB)
+	}
+
+	// Typed memory, host CPU.
+	spec = Spec{Resources: store.Resources{CPUs: 4, MemoryMB: 8192}, ResourcesSource: store.AllocationFromHost, DockerMode: store.DockerDinD, MemoryTyped: true}
+	runner, daemon = pairLimits(spec)
+	if runner.CPUs != 2 || daemon.CPUs != 2 || runner.MemoryMB != 8192 || daemon.MemoryMB != 8192 {
+		t.Errorf("typed memory, host CPU: runner %+v, daemon %+v", runner, daemon)
+	}
+
+	// A spec from a controller that sends neither flag is the old reading: both divided.
+	old := Spec{Resources: store.Resources{CPUs: 4, MemoryMB: 8192}, ResourcesSource: store.AllocationFromHost, DockerMode: store.DockerDinD}
+	runner, _ = pairLimits(old)
+	if runner.CPUs != 2 || runner.MemoryMB != 4096 {
+		t.Errorf("an older controller's spec changed meaning: %+v", runner)
+	}
+}
