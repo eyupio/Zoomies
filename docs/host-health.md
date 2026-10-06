@@ -315,6 +315,13 @@ and, with `--kill-running`, stopped and not started again. The message names the
 and the three commands to do it by hand when the host is quiet: `docker stop`,
 `systemctl restart docker`, `docker start`.
 
+A maintenance restart that is killed outright -- `SIGKILL`, a crash, the machine going
+down -- cannot run its restore, so it writes down what it is about to stop first
+(`maintenance_stopped` in the tuning state) and clears the record only once everything
+is started again. The next restart finds the record, says that an earlier one was
+interrupted, and starts those units at the end of its own. If the state file cannot be
+written, nothing is stopped.
+
 A stop that outlasts the command is not a stop that failed: the agent's unit allows 20
 minutes to finish what it admitted, so the command waits that long for it, and a unit
 that was being stopped when the command gave up is started again on the way out like any

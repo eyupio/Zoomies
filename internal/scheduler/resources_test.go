@@ -91,7 +91,9 @@ func TestTwoPoolsCannotOversubscribeOneHostsMemory(t *testing.T) {
 // same limits as the runner, so the host carries twice what the pool asked
 // for. Charging it once would let a fleet promise away a machine twice over.
 func TestADockerInDockerRunnerIsChargedForItsSidecar(t *testing.T) {
-	h := sized("host_a", 8, 16, 8*1024+store.MinHostReserveMemoryMB, 500*1024)
+	// 24 CPUs across the 8 slots, so the CPU the pool leaves to the host is a share a pair can
+	// be given; this test is about the memory charge, not the floor a thin share is refused at.
+	h := sized("host_a", 8, 24, 8*1024+store.MinHostReserveMemoryMB, 500*1024)
 	p := limited("dind", 0, 4096)
 	p.DockerMode = store.DockerDinD
 
@@ -426,7 +428,9 @@ func onHost(r *store.Runner, hostID string) *store.Runner {
 // sidecar too, so an 8-CPU pool costs 16 and the "8 CPU" on the pool is not a
 // number anything on screen can be compared against.
 func TestTheShortfallNamesTheDoubledDockerInDockerCharge(t *testing.T) {
-	h := sized("host_a", 8, 12, 31*1024, 500*1024)
+	// 40 GB across the 8 slots, so the memory the pool leaves to the host clears the floor a
+	// pair is refused under; the point here is the CPU charge.
+	h := sized("host_a", 8, 12, 40*1024, 500*1024)
 	p := limited("builders", 8, 0)
 	p.DockerMode = store.DockerDinD
 
@@ -610,5 +614,39 @@ func TestARefusedShareNamesTheCapacityThatFits(t *testing.T) {
 	tiny := sized("host_tiny", 1, 2, 4*1024, 500*1024)
 	if strings.Contains(HostShortfall(tiny, p), "lower the host's capacity") {
 		t.Errorf("a host at one slot was told to lower its capacity: %q", HostShortfall(tiny, p))
+	}
+}
+
+// A pool that types one field and leaves the other to the host still has a field the host
+// decided, and a pair on it is judged like an automatic pool's: refused when each slot
+// divides to less than a runner and a daemon each need, and told the capacity that fits.
+// It was passed untouched, so 0.5 CPU typed beside a memory share of 240 MB ran on a machine
+// that would have refused the same pool left entirely to the host.
+func TestAPoolThatTypesOneFieldIsRefusedWhereTheOtherIsTooThinForAPair(t *testing.T) {
+	// 8 slots on 16 GB: the memory share is under the 4 GB a pair needs; the typed CPU is fine.
+	h := sized("host_a", 8, 64, 16*1024, 500*1024)
+	p := limited("builders", 4, 0)
+	p.DockerMode = store.DockerDinD
+	if field := ShareTooSmall(h, p); field != "memory" {
+		t.Fatalf("ShareTooSmall = %q, want memory: the host-decided field is below a pair's floor", field)
+	}
+	if HostFits(h, p) {
+		t.Error("a pool whose host-decided memory cannot be divided between a pair was accepted")
+	}
+	if why := HostShortfall(h, p); !strings.Contains(why, "lower the host's capacity to ") {
+		t.Errorf("the refusal must name the capacity that fits: %q", why)
+	}
+
+	// Typed on both fields it answers for itself, as it always did.
+	both := limited("both", 4, 4096)
+	both.DockerMode = store.DockerDinD
+	if field := ShareTooSmall(h, both); field != "" {
+		t.Errorf("a pool that typed both fields was refused for a share it was not given: %q", field)
+	}
+
+	// And the same pool on a host whose slots are wide enough is not refused.
+	wide := sized("host_b", 2, 64, 32*1024, 500*1024)
+	if field := ShareTooSmall(wide, p); field != "" {
+		t.Errorf("a roomy host was refused: %q", field)
 	}
 }

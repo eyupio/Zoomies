@@ -372,7 +372,11 @@ func ShareTooSmall(h *store.Host, p *store.Pool) string {
 	// is told so, and an automatic one divided the machine by no slots and read the
 	// answer as a share of nothing -- which reads as "no host could ever run this" to
 	// whatever decides to rent another machine.
-	if h == nil || p == nil || !p.Automatic() || h.Capacity <= 0 {
+	// A pool that typed both fields answers for itself at the API. One that typed only one
+	// still leaves the other to the host, and that share is judged on its own: it used to
+	// pass untouched, so 0.5 CPU typed beside a memory share of 240 MB ran on a machine an
+	// automatic pool would have been refused on.
+	if h == nil || p == nil || (p.Resources.CPUs > 0 && p.Resources.MemoryMB > 0) || h.Capacity <= 0 {
 		return ""
 	}
 	p = sizedOn(p, h)
@@ -391,10 +395,10 @@ func ShareTooSmall(h *store.Host, p *store.Pool) string {
 	// of them rather than none.
 	need := ShareFloor(p)
 	given := MinimumSlot(p)
-	if alloc.CPUsKnown && given.CPUs <= 0 && share.CPUs < need.CPUs {
+	if p.Resources.CPUs <= 0 && alloc.CPUsKnown && given.CPUs <= 0 && share.CPUs < need.CPUs {
 		return "cpu"
 	}
-	if alloc.MemoryKnown && given.MemoryMB <= 0 && share.MemoryMB < need.MemoryMB {
+	if p.Resources.MemoryMB <= 0 && alloc.MemoryKnown && given.MemoryMB <= 0 && share.MemoryMB < need.MemoryMB {
 		return "memory"
 	}
 	return ""
@@ -417,15 +421,17 @@ func ShareTooSmall(h *store.Host, p *store.Pool) string {
 // A share above the minimum is still what the runner is given. The minimum is
 // the floor, never the size: a runner is given all of the slot it lands in.
 func MinimumSlot(p *store.Pool) Reservation {
-	if p == nil || !p.Automatic() {
+	if p == nil {
 		return Reservation{}
 	}
 	floor := ShareFloor(p)
 	var out Reservation
-	if p.Resources.MinCPUs > 0 {
+	// On a field the host decides: a field the pool typed is the size and a minimum beside it
+	// raises nothing.
+	if p.Resources.MinCPUs > 0 && p.Resources.CPUs <= 0 {
 		out.CPUs = floor.CPUs
 	}
-	if p.Resources.MinMemoryMB > 0 {
+	if p.Resources.MinMemoryMB > 0 && p.Resources.MemoryMB <= 0 {
 		out.MemoryMB = floor.MemoryMB
 	}
 	return out
@@ -456,7 +462,7 @@ func MinimumSlot(p *store.Pool) Reservation {
 // alive, which the API already refuses to store.
 func ShareFloor(p *store.Pool) Reservation {
 	floor := comfortFloor(p)
-	if p == nil || !p.Automatic() {
+	if p == nil {
 		return floor
 	}
 	cpuPair, memPair := 1.0, 1.0
@@ -474,14 +480,22 @@ func ShareFloor(p *store.Pool) Reservation {
 
 // comfortFloor is ShareFloor for a pool nobody gave a minimum: the bare
 // minimum for one runner, or a comfortable figure for each of a pair.
+//
+// Each field on its own: a pool that typed one and left the other to the host has a
+// figure on the typed field that answers for itself, and a slot to divide between a
+// pair on the other.
 func comfortFloor(p *store.Pool) Reservation {
-	if p != nil && p.DockerMode == store.DockerDinD && p.Automatic() {
-		return Reservation{
-			CPUs:     comfortableRunnerCPUs * p.Resources.CPUPairFactor(),
-			MemoryMB: int64(math.Ceil(float64(comfortableRunnerMemoryMB) * p.Resources.MemoryPairFactor())),
-		}
+	out := Reservation{CPUs: store.MinRunnerCPUs, MemoryMB: store.MinRunnerMemoryMB}
+	if p == nil || p.DockerMode != store.DockerDinD {
+		return out
 	}
-	return Reservation{CPUs: store.MinRunnerCPUs, MemoryMB: store.MinRunnerMemoryMB}
+	if p.Resources.CPUs <= 0 {
+		out.CPUs = comfortableRunnerCPUs * p.Resources.CPUPairFactor()
+	}
+	if p.Resources.MemoryMB <= 0 {
+		out.MemoryMB = int64(math.Ceil(float64(comfortableRunnerMemoryMB) * p.Resources.MemoryPairFactor()))
+	}
+	return out
 }
 
 // fits is the one comparison, so that the empty-host question and the

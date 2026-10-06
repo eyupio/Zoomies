@@ -165,6 +165,12 @@ func startJobOnRunner(t *testing.T, h *harness, hostID string, jobID int64, labe
 	if err := h.c.Reconcile(h.ctx); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
+	// The pass detaches the credential call that finishes creating the runner. Until it
+	// has returned the runner's row is still being written, and a test that changes the
+	// runner's state first (a drain, say) races it: on a loaded machine the call lands
+	// late, finds the runner draining and removes it as a late credential for a runner
+	// nobody wants -- which is the right thing for it to do, and not what the test is about.
+	h.c.lifecycleCalls.Wait()
 	r := h.onlyRunner()
 	mustReport(t, h, hostID, r.ID, store.RunnerRegistering)
 	mustReportRunning(t, h, hostID, r.ID)

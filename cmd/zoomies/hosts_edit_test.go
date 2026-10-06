@@ -277,3 +277,23 @@ func TestAHostsFolderSizesAreEditedWithoutLosingTheRestOfThePolicy(t *testing.T)
 		})
 	}
 }
+
+// The refusal for a pool saved with nowhere to run says to confirm, so the command that is
+// refused has to be able to: `pools edit` had no --confirm while its 409 said to send one.
+func TestPoolsEditConfirmSendsTheQuery(t *testing.T) {
+	var query string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPatch {
+			query = r.URL.RawQuery
+		}
+		_, _ = w.Write([]byte(`{"id":"pool_a","name":"a"}`))
+	}))
+	defer srv.Close()
+	e, _, errOut := newTestEnv(t)
+	if code := dispatch(context.Background(), e, []string{"pools", "edit", "pool_a", "--max", "4", "--confirm", "--url", srv.URL}); code != exitOK {
+		t.Fatalf("exit code = %d\n%s", code, errOut)
+	}
+	if query != "confirm=true" {
+		t.Errorf("--confirm sent %q, want confirm=true", query)
+	}
+}

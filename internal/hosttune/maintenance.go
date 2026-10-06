@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"time"
 )
@@ -99,11 +100,33 @@ func (e *Engine) MaintainDocker(ctx context.Context, o MaintenanceOptions) (err 
 		}
 	}
 
+	// A restart that was killed after it stopped the units left them stopped, and left a
+	// record of them. They are owed a start as much as the ones running now, so they
+	// join the list before anything is decided from what is running.
+	owed, serr := e.maintenanceOwed()
+	if serr != nil {
+		return serr
+	}
+	for _, u := range owed {
+		if !slices.Contains(was, u) {
+			fmt.Fprintf(o.Out, "A maintenance restart was interrupted and left %s stopped; it is started again at the end of this one.\n", u)
+			was = append(was, u)
+		}
+	}
+	if len(was) > 0 {
+		// Written before the first stop. If it cannot be, nothing is stopped: a host taken
+		// out of service with no record of how to put it back is the thing this prevents.
+		if err := e.setMaintenanceOwed(was); err != nil {
+			return fmt.Errorf("cannot record what this restart is about to stop, so the host is left as it is: %w", err)
+		}
+	}
+
 	stopped := []string{}
 	// Restoring is the one thing that must happen on every path out, including a
 	// cancelled context, so it does not use the caller's.
 	defer func() {
 		rctx := context.WithoutCancel(ctx)
+		failed := false
 		for i := len(stopped) - 1; i >= 0; i-- {
 			u := stopped[i]
 			if _, serr := command(rctx, e, "systemctl", "start", u); serr != nil {
@@ -111,9 +134,18 @@ func (e *Engine) MaintainDocker(ctx context.Context, o MaintenanceOptions) (err 
 				if err == nil {
 					err = fmt.Errorf("%s was stopped for maintenance and did not start again", u)
 				}
+				failed = true
 				continue
 			}
 			fmt.Fprintf(o.Out, "Started %s again.\n", u)
+		}
+		// Cleared only when everything owed has been started: a unit that would not start
+		// stays on the record, so the next restart, or an operator reading the state,
+		// still knows.
+		if len(was) > 0 && !failed {
+			if cerr := e.setMaintenanceOwed(nil); cerr != nil {
+				fmt.Fprintf(o.Out, "Could not clear the record of this restart: %v\n", cerr)
+			}
 		}
 	}()
 
@@ -182,6 +214,32 @@ func (e *Engine) MaintainDocker(ctx context.Context, o MaintenanceOptions) (err 
 		return lerr
 	}
 	s.DockerRestartPending = false
+	return e.saveState(s)
+}
+
+// maintenanceOwed is the units an interrupted maintenance restart left stopped.
+func (e *Engine) maintenanceOwed() ([]string, error) {
+	s, err := e.LoadState()
+	if err != nil {
+		return nil, err
+	}
+	return s.MaintenanceStopped, nil
+}
+
+// setMaintenanceOwed records the units a restart owes a start, under the state lock, which
+// is taken for the write and not held: the restart itself can take the best part of an
+// hour waiting for jobs, and tuning must be able to read its state meanwhile.
+func (e *Engine) setMaintenanceOwed(units []string) error {
+	unlock, err := e.System.Lock(StateDir + "/lock")
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	s, err := e.LoadState()
+	if err != nil {
+		return err
+	}
+	s.MaintenanceStopped = slices.Clone(units)
 	return e.saveState(s)
 }
 

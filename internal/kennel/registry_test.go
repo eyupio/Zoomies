@@ -1,0 +1,113 @@
+package kennel
+
+import (
+	"regexp"
+	"slices"
+	"strings"
+	"testing"
+)
+
+// The set of codes is closed. Operators alert on them and waivers are keyed by
+// them, so a code appears when a stage ships and does not change afterwards;
+// this list is what a pull request that adds one has to edit.
+func TestTheRegistryIsTheClosedSetOfCodes(t *testing.T) {
+	want := []Code{
+		"exposure.public_repo_on_fleet",
+		"exposure.public_repo_weak_pool",
+		"exposure.fork_code_ran",
+		"exposure.target_event_ran",
+		"capacity.unserved_label",
+		"capacity.job_hit_default_limit",
+	}
+	var got []Code
+	seen := map[Code]bool{}
+	for _, c := range Checks() {
+		if seen[c.Code] {
+			t.Errorf("%s is registered twice", c.Code)
+		}
+		seen[c.Code] = true
+		got = append(got, c.Code)
+		if c.Code.Area() != c.Area {
+			t.Errorf("%s: area %q is not the prefix of its code", c.Code, c.Area)
+		}
+		if c.Severity.rank() == 0 {
+			t.Errorf("%s has no valid severity", c.Code)
+		}
+		if strings.TrimSpace(c.Detects) == "" || len(c.Needs) == 0 || c.eval == nil {
+			t.Errorf("%s is missing its description, its sources or its judgement", c.Code)
+		}
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("registry = %v, want %v", got, want)
+	}
+}
+
+// A check no test can make fire is a check nobody has seen work.
+func TestEveryCheckCanFire(t *testing.T) {
+	for _, c := range Checks() {
+		mk, ok := positives[c.Code]
+		if !ok {
+			t.Errorf("%s has no positive fixture", c.Code)
+			continue
+		}
+		if _, fired := finding(Evaluate(mk(), Policy{}), c.Code); !fired {
+			t.Errorf("%s did not fire on its own positive fixture", c.Code)
+		}
+	}
+	for code := range positives {
+		if _, ok := Lookup(code); !ok {
+			t.Errorf("a fixture for %s, which is not a registered code", code)
+		}
+	}
+}
+
+var american = regexp.MustCompile(`(?i)\b(organization|behavior|recognize|authorization|authorize|color|license|catalog|center)\w*`)
+
+// The voice rules apply to every public sentence: British spelling, and no
+// literal em dash in text that is read in a terminal as often as in a browser.
+// Each sentence says something and ends like one.
+func TestEverySentenceSaysWhatHappenedAndWhatToDoInHouseStyle(t *testing.T) {
+	for _, c := range Checks() {
+		f, _ := finding(Evaluate(positives[c.Code](), Policy{}), c.Code)
+		for name, text := range map[string]string{"title": f.Title, "detail": f.Detail, "fix": f.Fix, "detects": c.Detects} {
+			if strings.TrimSpace(text) == "" {
+				t.Errorf("%s has no %s", c.Code, name)
+			}
+			if american.MatchString(text) {
+				t.Errorf("%s %s uses an American spelling: %q", c.Code, name, text)
+			}
+			if strings.ContainsAny(text, "—–") {
+				t.Errorf("%s %s contains a dash character: %q", c.Code, name, text)
+			}
+			if name != "title" && !strings.HasSuffix(text, ".") {
+				t.Errorf("%s %s does not end like a sentence: %q", c.Code, name, text)
+			}
+		}
+		if f.Severity.rank() == 0 {
+			t.Errorf("%s fired without a severity", c.Code)
+		}
+	}
+}
+
+func TestANameInDisabledChecksIsOnlyKnownIfItIsACodeOrAnArea(t *testing.T) {
+	for _, ok := range []string{"exposure", "capacity", "exposure.fork_code_ran"} {
+		if !KnownCodeOrArea(ok) {
+			t.Errorf("%q is not known", ok)
+		}
+	}
+	for _, bad := range []string{"", "exposur", "Exposure", "exposure.nonsense", "storage"} {
+		if KnownCodeOrArea(bad) {
+			t.Errorf("%q is known", bad)
+		}
+	}
+}
+
+func TestEverySourceACheckReadsIsOneThePageCanName(t *testing.T) {
+	for _, c := range Checks() {
+		for _, src := range c.Needs {
+			if src != SourceFleet && src.Permission() == "" {
+				t.Errorf("%s needs %s, which names no permission to grant", c.Code, src)
+			}
+		}
+	}
+}
