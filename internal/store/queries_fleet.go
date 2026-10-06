@@ -718,9 +718,14 @@ type hostRunnerCounts struct {
 	live, unlimited int
 }
 
+// countRunnersByHostSQL is a constant so a plan test can pin it: its WHERE has to be
+// the text of idx_runners_live_host's predicate, or the planner cannot use that index
+// and the count reads every runner the host ever had.
+const countRunnersByHostSQL = `SELECT host_id, COUNT(*), SUM(allocated_cpus <= 0) FROM runners
+	WHERE state NOT IN ('removed','failed') GROUP BY host_id`
+
 func (s *Store) countRunnersByHost(ctx context.Context) (map[string]hostRunnerCounts, error) {
-	rows, err := s.read.QueryContext(ctx, `SELECT host_id, COUNT(*), SUM(allocated_cpus <= 0) FROM runners
-		WHERE state NOT IN ('removed','failed') GROUP BY host_id`)
+	rows, err := s.read.QueryContext(ctx, countRunnersByHostSQL)
 	if err != nil {
 		return nil, err
 	}

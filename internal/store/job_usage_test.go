@@ -276,3 +276,27 @@ func TestRecordJobHalfPeaksKeepsTheMostEachHalfUsedAndCountsTheJobsThatHaveThem(
 		t.Errorf("halves = runner %d, daemon %d from %d jobs; want 800, 2600 from 1", g.PeakRunnerMemoryMB, g.PeakDaemonMemoryMB, g.MeasuredHalves)
 	}
 }
+
+// Every host read counts its live runners, and removed and failed ones are kept for the
+// history, so the count has to be answered from the live rows alone: a covering read of the
+// partial index, not a walk of every runner the host ever had.
+func TestLiveRunnerCountReadsOnlyThePartialIndex(t *testing.T) {
+	s := newTestStore(t)
+	rows, err := s.read.QueryContext(t.Context(), "EXPLAIN QUERY PLAN "+countRunnersByHostSQL)
+	if err != nil {
+		t.Fatalf("EXPLAIN QUERY PLAN: %v", err)
+	}
+	defer rows.Close()
+	var plan []string
+	for rows.Next() {
+		var id, parent, notused int
+		var detail string
+		if err := rows.Scan(&id, &parent, &notused, &detail); err != nil {
+			t.Fatal(err)
+		}
+		plan = append(plan, detail)
+	}
+	if joined := strings.Join(plan, "\n"); !strings.Contains(joined, "COVERING INDEX idx_runners_live_host") {
+		t.Fatalf("the live runner count does not read its partial index:\n%s", joined)
+	}
+}
