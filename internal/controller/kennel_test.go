@@ -58,7 +58,7 @@ func (f *kennelFixture) ran(repo string, run int64, pool *store.Pool) {
 	}
 }
 
-func (f *kennelFixture) pass() { f.t.Helper(); f.c.kennelPass(f.ctx) }
+func (f *kennelFixture) pass() { f.t.Helper(); f.c.KennelPass(f.ctx) }
 
 // trigger tells the fake GitHub how a run was started, and from where.
 func (f *kennelFixture) trigger(repo string, run int64, event string, fromFork bool) {
@@ -1576,5 +1576,24 @@ func TestTheOverviewCountsWaivedFindingsBesideTheOpenOnes(t *testing.T) {
 	}
 	if len(o.Attention) != 1 || o.Attention[0].Counts.Waived != 1 {
 		t.Errorf("attention = %+v: the line for the repository should carry its waived count", o.Attention)
+	}
+}
+
+// "Due now" is stored as zero, which the store reads back as the start of 1970.
+// The page must be told null and not a date fifty years ago.
+func TestARepositoryThatIsDueNowHasNoDueDateOnItsView(t *testing.T) {
+	f := newKennelFixture(t)
+	f.repo("acme/widgets", "private")
+	f.ran("acme/widgets", 1, f.pool)
+	f.pass()
+	row := f.row("acme/widgets")
+	if v := newKennelRepositoryView(row); v.NextDueAt == nil {
+		t.Fatal("a repository that was just read has no due date")
+	}
+	if err := f.st.RequestKennelRecheck(f.ctx, row.ID); err != nil {
+		t.Fatal(err)
+	}
+	if v := newKennelRepositoryView(f.row("acme/widgets")); v.NextDueAt != nil {
+		t.Errorf("due date = %v for a repository that is due now", v.NextDueAt)
 	}
 }

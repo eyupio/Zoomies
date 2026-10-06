@@ -45,7 +45,7 @@ func (c *Controller) kennelProblems(ctx context.Context, out *[]Problem) error {
 func (c *Controller) kennelExposureProblems(ctx context.Context, out *[]Problem) error {
 	for offset := 0; ; {
 		rows, total, err := c.st.ListKennelRepositories(ctx,
-			store.KennelFilter{WithErrors: true}, store.Page{Limit: 100, Offset: offset})
+			store.KennelFilter{Severity: "error"}, store.Page{Limit: 100, Offset: offset})
 		if err != nil {
 			return fmt.Errorf("listing the repositories with open errors: %w", err)
 		}

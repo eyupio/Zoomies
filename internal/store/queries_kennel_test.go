@@ -744,19 +744,32 @@ func TestCoverageIsCountedPerSourceAndPerState(t *testing.T) {
 	}
 }
 
-func TestTheListCanBeNarrowedToRepositoriesWithOpenErrors(t *testing.T) {
+// A severity keeps the repositories with an open finding of exactly that
+// severity, and one the store does not know keeps none: a typo in a filter must
+// not read as "everything is fine" or as "everything is wrong".
+func TestTheListCanBeNarrowedToRepositoriesWithAnOpenFindingOfASeverity(t *testing.T) {
 	ctx := context.Background()
 	s, inst, _ := kennelStore(t)
 	bad := touch(t, s, inst, 1, "acme/bad", "public")
 	warned := touch(t, s, inst, 2, "acme/warned", "public")
-	touch(t, s, inst, 3, "acme/new", "public")
+	noted := touch(t, s, inst, 3, "acme/noted", "public")
+	touch(t, s, inst, 4, "acme/new", "public")
 	_ = s.SaveKennelEvaluation(ctx, bad.ID, record("attention", 1, 0, 0, "exposure.fork_code_ran"))
 	_ = s.SaveKennelEvaluation(ctx, warned.ID, record("attention", 0, 2, 0, "capacity.unserved_label"))
-	got, total, err := s.ListKennelRepositories(ctx, KennelFilter{WithErrors: true}, Page{Limit: 10})
-	if err != nil {
-		t.Fatal(err)
+	_ = s.SaveKennelEvaluation(ctx, noted.ID, record("best_in_show", 0, 0, 1))
+
+	for severity, want := range map[string]string{"error": bad.ID, "warning": warned.ID, "info": noted.ID} {
+		got, total, err := s.ListKennelRepositories(ctx, KennelFilter{Severity: severity}, Page{Limit: 10})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if total != 1 || len(got) != 1 || got[0].ID != want {
+			t.Errorf("%s: listed %d (total %d), want only %s", severity, len(got), total, want)
+		}
 	}
-	if total != 1 || len(got) != 1 || got[0].ID != bad.ID {
-		t.Errorf("listed %d (total %d), want only the repository with an error", len(got), total)
+	for _, unknown := range []string{"critical", "Error", " error"} {
+		if got, total, err := s.ListKennelRepositories(ctx, KennelFilter{Severity: unknown}, Page{Limit: 10}); err != nil || total != 0 || len(got) != 0 {
+			t.Errorf("%q kept %d rows (total %d), %v: an unknown severity should keep none", unknown, len(got), total, err)
+		}
 	}
 }

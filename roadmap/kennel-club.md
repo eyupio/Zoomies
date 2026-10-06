@@ -822,7 +822,10 @@ the feature off:
   frame needs filtering (none is expected: findings carry no secrets and no
   source), `api_test.go` (route table, `normalisePath`).
 * `internal/auth/rbac.go` — `kennel.read` (viewer), `kennel.recheck` (operator),
-  `kennel.waive` (operator; the handler requires admin for an error finding).
+  `kennel.waive` (operator) and `kennel.waive_error` (admin). The fourth action
+  exists so the policy table says who may waive an error and `auth.Explain` can
+  name the role in the 403; the handler asks for it when the finding turns out to
+  be an error. `kennel:waive_error` as a token scope implies `kennel:waive`.
 * `internal/mcp/kennel.go`.
 * `internal/config/` — `settings.go` (the five rows and the `kennel` section),
   `config.go` (the `Kennel` struct, its defaults and its tidying), `validate.go`
@@ -851,8 +854,8 @@ tags are inconsistent and are not copied), errors `{error:{code,message}}`.
 | `GET /kennel/repositories` | viewer | `kennel.read` | Paged. Filters `q`, `severity`, `code`, `state`, `installation`. Sort `severity` (default), `name`, `evaluated_at`. |
 | `GET /kennel/repositories/{id}` | viewer | `kennel.read` | `KennelRepository`: identity, `state`, `evaluated_at`, `next_due_at`, `coverage[]`, `findings[]`, `waived[]`. |
 | `POST /kennel/repositories/{id}/recheck` | operator | `kennel.recheck` | 202. Cooldown five minutes per repository (429 `rate_limited` with the time it will be allowed); audit `kennel.recheck`. |
-| `PUT /kennel/repositories/{id}/waivers` | operator / admin | `kennel.waive` | Body `{code, subject, reason, expires_at}`. `reason` is 10 to 500 characters; `expires_at` is required and at most 365 days away. 422 with `errors[]` per field. Waiving an *error* finding answers 403 naming the admin role (`auth.Explain`). Audit `kennel.waive` with the reason. |
-| `DELETE /kennel/repositories/{id}/waivers/{waiver_id}` | operator / admin | `kennel.waive` | Audit `kennel.unwaive`. |
+| `PUT /kennel/repositories/{id}/waivers` | operator / admin | `kennel.waive`, and `kennel.waive_error` for an error | Body `{code, subject, reason, expires_at}`. `reason` is 10 to 500 characters; `expires_at` is required and at most 365 days away. 200 with the repository, already worked out again. 422 with `errors[]` per field, all at once, including a code and subject that match no open finding. Waiving an *error* finding answers 403 naming the admin role (`auth.Explain`). 409 beyond 50 waivers on a repository. Waiving the same finding again renews the waiver and keeps its ID. Audit `kennel.waive` with the reason. |
+| `DELETE /kennel/repositories/{id}/waivers/{waiver_id}` | operator | `kennel.waive` | Any operator may end any waiver, an administrator's included: ending one only makes Kennel Club stricter. 200 with the repository, the finding open again; a waiver named through another repository is a 404. Audit `kennel.unwaive` with the waiver as it was. |
 
 Every repository route answers 409 `conflict` with *"Kennel Club is off. An
 administrator can turn it on under Settings → Configuration → kennel.enabled"*
@@ -1452,7 +1455,8 @@ text, and viewers can already see jobs by repository, so reading them reveals
 nothing new. Source access stays where it is — AI Context's explicit-membership
 model — and the AI Context tab calls the same routes with the same gates, so
 Kennel Club cannot widen it. `kennel.recheck` and `kennel.waive` are operator,
-and the handler requires admin to waive an *error* finding. `kennel.fix` is admin.
+and waiving an *error* finding is `kennel.waive_error`, which is admin. Ending a
+waiver needs only `kennel.waive`. `kennel.fix` is admin.
 The kennel finding audience is **fleet**, as AI Context's is, so the platform
 sees everything and a fleet viewer sees fleet problems; `TestEveryProblemCodeHasAnAudience`
 and `problemAudience` (`internal/controller/problems.go:128-274`) hold it.

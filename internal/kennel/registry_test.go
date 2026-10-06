@@ -42,6 +42,41 @@ func TestTheRegistryIsTheClosedSetOfCodes(t *testing.T) {
 	}
 }
 
+// The catalogue says what a check takes before anything has been read, and the
+// evaluator asks for what it needs as it goes. The first is a list in the
+// registry and the second is the check's own code, so the two are held equal here:
+// a check that began reading a new source without the catalogue saying so would
+// have an operator grant a permission for it only after the fact.
+func TestWhatTheCatalogueSaysACheckReadsIsWhatItAsksFor(t *testing.T) {
+	for i := range checks {
+		c := &checks[i]
+		snap := positives[c.Code]()
+		r := c.eval(&snap)
+		got := map[Source]bool{}
+		for _, src := range r.extra {
+			got[src] = true
+		}
+		want := map[Source]bool{}
+		for _, src := range c.Conditional {
+			want[src] = true
+		}
+		if len(got) != len(want) {
+			t.Errorf("%s asks for %v once it applies, and the registry says %v", c.Code, r.extra, c.Conditional)
+			continue
+		}
+		for src := range got {
+			if !want[src] {
+				t.Errorf("%s asks for %s once it applies, and the registry does not say so", c.Code, src)
+			}
+		}
+		for _, src := range c.Needs {
+			if want[src] {
+				t.Errorf("%s lists %s as both always needed and conditional", c.Code, src)
+			}
+		}
+	}
+}
+
 // A check no test can make fire is a check nobody has seen work.
 func TestEveryCheckCanFire(t *testing.T) {
 	for _, c := range Checks() {

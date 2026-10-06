@@ -75,7 +75,10 @@ func newKennelRepositoryView(r *store.KennelRepository) KennelRepositoryView {
 		ID: r.ID, Name: r.FullName, RepositoryID: r.RepositoryID, InstallationID: r.InstallationID,
 		Visibility: r.Visibility, State: kennel.State(r.State), EvaluatedAt: r.EvaluatedAt,
 	}
-	if !r.NextDueAt.IsZero() {
+	// A due time of zero is stored for "now", and the store reads it back as the
+	// start of 1970 and not as a zero time, so the test is for a real date. Null
+	// is how the page says the reads are due.
+	if r.NextDueAt.UnixMilli() > 0 {
 		due := r.NextDueAt
 		v.NextDueAt = &due
 	}

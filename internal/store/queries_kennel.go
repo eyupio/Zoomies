@@ -158,9 +158,10 @@ type KennelFilter struct {
 	// Code keeps repositories with an open finding of this code. The caller
 	// validates it against the registry; it is bound as a parameter either way.
 	Code string
-	// WithErrors keeps repositories with at least one open error finding, which
-	// is what the problems list is made from.
-	WithErrors bool
+	// Severity keeps repositories with at least one open finding of this severity
+	// ("error", "warning" or "info"). The caller validates it; a value the store
+	// does not know keeps nothing, so a mistake cannot read as "everything".
+	Severity string
 }
 
 var kennelSortCols = map[string]string{
@@ -191,8 +192,16 @@ func kennelWhere(f KennelFilter) (string, []any) {
 			WHERE json_extract(value, '$.code') = ?)`)
 		args = append(args, f.Code)
 	}
-	if f.WithErrors {
+	switch f.Severity {
+	case "":
+	case "error":
 		cond = append(cond, `open_errors > 0`)
+	case "warning":
+		cond = append(cond, `open_warnings > 0`)
+	case "info":
+		cond = append(cond, `open_infos > 0`)
+	default:
+		cond = append(cond, `0 = 1`)
 	}
 	if len(cond) == 0 {
 		return "", nil

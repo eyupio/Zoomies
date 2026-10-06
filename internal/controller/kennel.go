@@ -63,16 +63,20 @@ type kennelRuntime struct {
 	// listed is when each installation's repositories were last listed, which is
 	// what paces the listing under the installation scope.
 	listed map[string]time.Time
+	// rechecks is when each repository was last asked to be read again by a
+	// person, which is what the cooldown on Recheck is counted from.
+	rechecks map[string]time.Time
 	// wake is capacity 1 like nudges: it is a flag, not a queue.
 	wake chan struct{}
 }
 
 func newKennelRuntime() *kennelRuntime {
 	return &kennelRuntime{
-		budgets: map[string]*kennelBudget{},
-		notes:   map[string]kennelNote{},
-		listed:  map[string]time.Time{},
-		wake:    make(chan struct{}, 1),
+		budgets:  map[string]*kennelBudget{},
+		notes:    map[string]kennelNote{},
+		listed:   map[string]time.Time{},
+		rechecks: map[string]time.Time{},
+		wake:     make(chan struct{}, 1),
 	}
 }
 
@@ -109,7 +113,7 @@ func (c *Controller) kennelLoop(ctx context.Context) {
 		case <-time.After(wait):
 		case <-c.kennel.wake:
 		}
-		c.kennelPass(ctx)
+		c.KennelPass(ctx)
 		wait = kennelTick
 	}
 }
@@ -125,8 +129,11 @@ type kennelPassInput struct {
 	interval time.Duration
 }
 
-// kennelPass is one look at every installation. With Kennel Club off it does
+// KennelPass is one look at every installation. With Kennel Club off it does
 // nothing at all: no query, no request, no row.
+//
+// It is exported, as Reconcile is, so a test of the API can make a pass and read
+// what the loop itself wrote, not a row it built to agree with the handler.
 //
 // A fenced controller, or one that has lost its lease, does no GitHub work and
 // writes nothing: mayAct is asked before each installation is touched and before
@@ -134,17 +141,15 @@ type kennelPassInput struct {
 // for minutes after the answer changed. It is not asked up here as well, because
 // a second copy of a guard that the first already makes is a copy no test can
 // tell from the first.
-func (c *Controller) kennelPass(ctx context.Context) {
-	cfg := c.cfg()
-	if !cfg.Kennel.Enabled || ctx.Err() != nil {
+func (c *Controller) KennelPass(ctx context.Context) {
+	if !c.cfg().Kennel.Enabled || ctx.Err() != nil {
 		return
 	}
-	in := kennelPassInput{
-		now: c.Now(), window: kennelWindow(cfg.Retention.Jobs), cfg: cfg.Kennel,
-		policy:   kennel.Policy{Disabled: kennelDisabled(cfg.Kennel)},
-		interval: cfg.Kennel.RefreshInterval,
+	in, err := c.kennelInput(ctx)
+	if err != nil {
+		c.log.Warn("Kennel Club could not read what a pass needs", "error", err)
+		return
 	}
-
 	insts, err := c.st.ListInstallations(ctx)
 	if err != nil {
 		c.log.Warn("Kennel Club could not list the installations", "error", err)
@@ -154,15 +159,6 @@ func (c *Controller) kennelPass(ctx context.Context) {
 	if err != nil {
 		c.log.Warn("Kennel Club could not list the repositories this fleet has served", "error", err)
 		return
-	}
-	pools, err := c.st.ListPools(ctx)
-	if err != nil {
-		c.log.Warn("Kennel Club could not list the pools", "error", err)
-		return
-	}
-	in.pools = make(map[string]*store.Pool, len(pools))
-	for _, p := range pools {
-		in.pools[p.ID] = p
 	}
 	byInstallation := map[string][]store.KennelServed{}
 	for _, s := range served {
@@ -178,6 +174,28 @@ func (c *Controller) kennelPass(ctx context.Context) {
 		}
 		c.kennelInstallation(ctx, inst, byInstallation[inst.ID], in)
 	}
+}
+
+// kennelInput reads what a pass, or the evaluation of one repository, works
+// from: the clock, the window, the operator's settings and the pools. It is read
+// once and passed down, so a setting changed in the middle takes effect on the
+// next.
+func (c *Controller) kennelInput(ctx context.Context) (kennelPassInput, error) {
+	cfg := c.cfg()
+	in := kennelPassInput{
+		now: c.Now(), window: kennelWindow(cfg.Retention.Jobs), cfg: cfg.Kennel,
+		policy:   kennel.Policy{Disabled: kennelDisabled(cfg.Kennel)},
+		interval: cfg.Kennel.RefreshInterval,
+	}
+	pools, err := c.st.ListPools(ctx)
+	if err != nil {
+		return in, fmt.Errorf("listing the pools: %w", err)
+	}
+	in.pools = make(map[string]*store.Pool, len(pools))
+	for _, p := range pools {
+		in.pools[p.ID] = p
+	}
+	return in, nil
 }
 
 // kennelListing is what a listing of an installation's repositories came to.
@@ -625,6 +643,11 @@ func (c *Controller) kennelEvaluate(ctx context.Context, inst *store.Installatio
 			c.log.Warn("Kennel Club could not retire waivers for findings that stopped being reported", "repository", row.FullName, "error", err)
 		} else {
 			c.log.Info("Kennel Club retired waivers for findings that are no longer reported", "repository", row.FullName, "waivers", len(ids))
+			// A decision with a reason and an owner does not disappear without a
+			// trace: the audit row says whose it was and why it was made.
+			for _, w := range ev.Stale {
+				_ = c.authsvc.Auditor().Record(ctx, nil, "kennel.waiver_retired", "kennel_repository", row.ID, w, nil)
+			}
 		}
 	}
 	c.PublishKennelRepository(ctx, row.ID)

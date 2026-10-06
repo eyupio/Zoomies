@@ -94,6 +94,11 @@ type Check struct {
 	// Needs are the sources every evaluation of this check must have read to
 	// know whether it applies at all.
 	Needs []Source `json:"needs"`
+	// Conditional are the sources read only once the check applies, such as the
+	// run history, which is read for public repositories and no others. They are
+	// listed here so the catalogue can say what a check takes before anything has
+	// been read; a test holds this list equal to what the check actually asks for.
+	Conditional []Source `json:"conditional"`
 
 	eval func(*Snapshot) result
 }
@@ -127,14 +132,14 @@ var checks = []Check{
 	{
 		Code: CodeForkCodeRan, Area: AreaExposure, Severity: SeverityError,
 		Detects: "A run from a fork's pull request executed on this fleet.",
-		Needs:   []Source{SourceFleet, SourceMetadata},
-		eval:    evalForkCodeRan,
+		Needs:   []Source{SourceFleet, SourceMetadata}, Conditional: []Source{SourceRuns},
+		eval: evalForkCodeRan,
 	},
 	{
 		Code: CodeTargetEventRan, Area: AreaExposure, Severity: SeverityWarning,
 		Detects: "A workflow that strangers can trigger (pull_request_target, workflow_run, issue_comment, issues) ran on this fleet in a public repository.",
-		Needs:   []Source{SourceFleet, SourceMetadata},
-		eval:    evalTargetEventRan,
+		Needs:   []Source{SourceFleet, SourceMetadata}, Conditional: []Source{SourceRuns},
+		eval: evalTargetEventRan,
 	},
 	{
 		Code: CodeUnservedLabel, Area: AreaCapacity, Severity: SeverityWarning,
@@ -155,6 +160,7 @@ func Checks() []Check {
 	out := make([]Check, len(checks))
 	for i, c := range checks {
 		c.Needs = append([]Source(nil), c.Needs...)
+		c.Conditional = append([]Source(nil), c.Conditional...)
 		out[i] = c
 	}
 	return out
