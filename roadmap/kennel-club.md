@@ -438,7 +438,7 @@ flowchart LR
 | --- | --- |
 | `internal/kennel` (new) | **Pure.** `Evaluate`, the check registry, the workflow parser, the prune planner. It imports **only the standard library's pure parts** — a stricter rule than the one `internal/provider` keeps, because the controller reduces what it needs from the store to plain data (a pool becomes a list of weakness words, a severity is its own string type that a test holds equal to `config.Severity`). No clock, no database, no network. `boundary_test.go` fails on any other import and on any call to `time.Now`, `Since`, `Until` or a timer, as `internal/provider`'s boundary test does for its own list. |
 | `internal/github` | A new narrow interface `RepoReader` in `kennel_reader.go`, type-asserted from `Client` exactly as `ContextRunReader` is (`internal/github/ai_context_runs.go:23-33`; `internal/controller/ai_context_diagnosis.go:40`), so the demo client simply does not implement it. `ListRepositories`' `Repository` gains `Visibility`, `Fork`, `PushedAt`; the data is already in the listing. A small conditional-request transport (`etag.go`, about a hundred lines, no dependency). |
-| `internal/store` | `queries_kennel.go` and migration `0079`. The only SQL. |
+| `internal/store` | `queries_kennel.go` and migration `0080`. The only SQL. |
 | `internal/controller` | The loop, the snapshot assembly (reads the store and the reader), the problems section, the views, the derived publish. |
 | `internal/api` | Transport only. Handlers alias `controller.KennelRepositoryView` as `providerResponse` aliases `ProviderView`; the SSE stream renders the same JSON. |
 | `internal/mcp` | Read tools that call REST through `mcp.API` and nothing else. |
@@ -586,10 +586,12 @@ No raw repository content is ever stored, in memory beyond a parse or in the
 database. That is a design rule, tested (section 7), and the reason Kennel Club
 can use fleet-role access rather than AI Context's source-membership model.
 
-### Migration `0079_kennel_club.sql`
+### Migration `0080_kennel_club.sql`
 
-Additive only: two `CREATE TABLE` statements and their indexes. The latest
-migration today is `0078_job_half_peaks.sql`. The file must also be appended to
+Additive only: two `CREATE TABLE` statements and their indexes. When this
+was written the latest migration was `0078_job_half_peaks.sql`; `0079_runners_live_host.sql`
+then landed on `main`, so this one takes `0080`. The rule (ROADMAP rule 7) is the
+next unused prefix at merge, never a number reserved in advance. The file must also be appended to
 `shippedMigrations` (`internal/store/migrations_test.go:14-93`) or
 `TestMigrationNamesAreFixedAndNewPrefixesAreUnique` fails. It does **not** touch
 `jobs`, which avoids `TestTheJobsRebuildKeepsEveryRowAndItsIndexes`. There is no
@@ -610,9 +612,13 @@ CREATE TABLE kennel_repositories (
     evaluated_at      INTEGER,
     next_due_at       INTEGER NOT NULL DEFAULT 0,
     inputs_digest     TEXT NOT NULL DEFAULT '',
-    coverage_json     TEXT NOT NULL DEFAULT '[]',
-    findings_json     TEXT NOT NULL DEFAULT '[]',
-    watermark_json    TEXT NOT NULL DEFAULT '{}',
+    coverage_json     TEXT NOT NULL DEFAULT '{}',   -- how far each source could be read
+    evaluation_json   TEXT NOT NULL DEFAULT '{}',   -- the whole kennel.Evaluation
+    watermark_json    TEXT NOT NULL DEFAULT '{}',   -- the controller's own: runs already examined
+    open_errors       INTEGER NOT NULL DEFAULT 0,   -- the same findings counted, so the list can
+    open_warnings     INTEGER NOT NULL DEFAULT 0,   -- be sorted and filtered without parsing a
+    open_infos        INTEGER NOT NULL DEFAULT 0,   -- document per row
+    waived            INTEGER NOT NULL DEFAULT 0,
     last_served_at    INTEGER NOT NULL,
     UNIQUE (github_host, repository_id)
 );
@@ -633,7 +639,13 @@ CREATE TABLE kennel_waivers (
 ```
 
 A repository row is kept for 90 days after it was last served, so a quiet
-repository keeps its waivers. ID prefixes `kcr` and `kcw` go in
+repository keeps its waivers. The store validates each stored document on write
+and refuses one that is not JSON or is over 64 KiB, because SQLite's `json_each`
+aborts a whole query on a malformed document: one bad row would otherwise stop
+the Overview counting every other repository (`TestADocumentThatIsNotJSONOrIsTooBig…`).
+Deleting an installation cascades away its repositories and their waivers without
+announcing it, so the controller publishes `kennel.deleted` for each before it
+deletes, as `DeleteInstallation` does for runners. ID prefixes `kcr` and `kcw` go in
 `internal/store/ids.go`, and `normalisePath` in `internal/api/api_test.go:1254`
 learns them.
 
@@ -753,7 +765,7 @@ the feature off:
 
 1. `internal/kennel`: registry, `Snapshot`, `Evaluate`, `refs.go`, state,
    waivers, the six checks, boundary and hostile tests. No wiring.
-2. Migration `0079`, `queries_kennel.go`, ID prefixes, `TestKennelMigrationsOnlyAddTables`.
+2. Migration `0080`, `queries_kennel.go`, ID prefixes, `TestKennelMigrationsOnlyAddTables`.
 3. `github.RepoReader` (`Repository` fields, `RunFacts`), the `ETag` transport,
    fake extensions, request-allow-list test.
 4. Controller: settings rows and struct fields, the loop, snapshot assembly,
@@ -774,7 +786,7 @@ the feature off:
   `migrate.go` (`repositoryOf`), `app.go` (Probe keeps requested *and* granted
   permissions), `fake.go` (`getRepo` and `listInstallationRepos` stop hard-coding
   `"private": true`, `fake.go:688`, `fake_migrate.go:184`).
-* `internal/store/` — `migrations/0079_kennel_club.sql`, `queries_kennel.go`,
+* `internal/store/` — `migrations/0080_kennel_club.sql`, `queries_kennel.go`,
   `ids.go`; modified: `migrations_test.go`.
 * `internal/controller/` — `kennel.go`, `kennel_problems.go`; modified:
   `controller.go` (spawn), `views.go`, `derived.go`, `problems.go` (the section
@@ -793,7 +805,7 @@ the feature off:
   `src/lib/api/types.ts`, `client.ts`; `src/lib/problems/ProblemItem.svelte`
   (a `kennel_repository` link case). Tests under `web/tests/` and `web/unit/`.
 
-**Data model and migrations.** `0079_kennel_club.sql` as in section 5. The
+**Data model and migrations.** `0080_kennel_club.sql` as in section 5. The
 repository row is created the first time a repository is *served* while the
 feature is on, and nothing is written while it is off.
 
@@ -923,7 +935,7 @@ rather than extend it); `docs/security.md` (what Kennel Club reads, the
 allow-list, what is tested); `docs/architecture.md` (a Components row and a
 paragraph); `docs/cli.md` and `docs/connect-claude.md` (the three tools);
 `docs/upgrading.md` (one paragraph: a new, off-by-default section; migration
-`0079` adds two tables); screenshots by `make screenshots`.
+`0080` adds two tables); screenshots by `make screenshots`.
 
 **Risks.**
 
@@ -1388,7 +1400,7 @@ proves the token is never sent to the log host.
 
 | Path | Writes to | Worst case | Bound |
 | --- | --- | --- | --- |
-| Evaluation, state, waivers (Stages 1–4) | Zoomies' own SQLite | A bad row | Findings JSON is capped at 64 KiB a repository; rows pruned 90 days after last served; waivers expire. |
+| Evaluation, state, waivers (Stages 1–4) | Zoomies' own SQLite | A bad row | Each stored document is capped at 64 KiB a repository; rows pruned 90 days after last served; waivers expire. |
 | Recheck | Nothing but GitHub reads | Spent quota | Cooldown, budget, hold. |
 | Fix by pull request (Stage 5) | One new branch and one pull request per repository, through the Git Data API | A pull request somebody should not merge | Never a default branch, never a merge, at most 25 per call, a base-SHA precondition, `kennel.fixes`, three consents, an audit row with the plan hash. |
 | Fix a setting (Stage 6, deferred) | One setting in one repository | A weaker or stricter setting | Previous value recorded, one-click revert; never offered to an org App. |
@@ -1449,7 +1461,7 @@ Club could not fully read is never "Best in show".
   Overview says "turned off in Settings" instead of hiding it. Both are live
   settings; no restart.
 * **Upgrade path for an existing installation.** The upgrade applies migration
-  `0079`, which creates two empty tables. A pre-migration copy of the database is
+  `0080`, which creates two empty tables. A pre-migration copy of the database is
   already taken when migrations are pending (`internal/store/store.go`, around
   380-435), and migrations are one-way, so an older binary refuses the new
   schema (`ErrSchemaNewer`; `docs/upgrading.md:601`) — the docs say so in one
