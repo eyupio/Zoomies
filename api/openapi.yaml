@@ -9297,6 +9297,10 @@ components:
         optional: { type: boolean }
     HostDoctor:
       type: object
+      description: >-
+        A host's OS report, as its agent writes it. This is also the body an agent sends with
+        a heartbeat, and it carries no `summary`: the controller counts the report itself, so
+        a host cannot claim a count (see HostDoctorView).
       required: [checked_at, os, distro, container, results, reboot_pending]
       properties:
         work_dir: { type: string, description: Host filesystem path inspected for runner disk headroom. }
@@ -9306,6 +9310,53 @@ components:
         container: { type: boolean, description: True when only the container's view could be inspected. }
         results: { type: array, maxItems: 64, items: { $ref: "#/components/schemas/HostDoctorResult" } }
         reboot_pending: { type: boolean }
+    HostDoctorSummary:
+      type: object
+      description: >-
+        The controller's own count of a host's OS report, worked out on every read and never
+        stored. Only the checks that count are in it: the safe tier, without optional results.
+        The aggressive and dedicated tiers, and anything optional, are suggestions that never
+        make a host look unwell. A pending reboot is counted once, as `reboot_pending`, and
+        is not also a warning here.
+      required: [counted, warnings, errors, skipped, suggestions]
+      properties:
+        counted:
+          type: integer
+          minimum: 0
+          description: >-
+            How many checks count, whatever they found, so "every check passed" can be told
+            from "every check was skipped" (`skipped` equal to `counted`).
+        warnings: { type: integer, minimum: 0, description: Counted checks that found a setting below the recommendation. }
+        errors:
+          type: integer
+          minimum: 0
+          description: >-
+            Counted checks that failed to read what they look at, or found a file that is not
+            valid. That is different from a setting below the recommendation, which is a warning.
+        skipped:
+          type: integer
+          minimum: 0
+          description: >-
+            Counted checks that did not apply to this host, or that needed access the agent does
+            not have.
+        suggestions:
+          type: integer
+          minimum: 0
+          description: >-
+            Warnings that do not count: the aggressive and dedicated tiers, and optional checks.
+            They are on the host's page and never raise a problem.
+    HostDoctorView:
+      description: >-
+        A host's OS report as the API returns it: the report the agent wrote, with the
+        controller's count of it in `summary`. Read `summary` for how a host is doing and
+        `results` for what each check found. The text in `results` is written by the host and
+        is untrusted. A host that has sent no report has no `doctor` at all.
+      allOf:
+        - $ref: "#/components/schemas/HostDoctor"
+        - type: object
+          required: [summary]
+          properties:
+            summary: { $ref: "#/components/schemas/HostDoctorSummary" }
     RunnerSize:
       type: object
       properties:
@@ -9460,7 +9511,7 @@ components:
     Host:
       type: object
       properties:
-        doctor: { $ref: "#/components/schemas/HostDoctor" }
+        doctor: { $ref: "#/components/schemas/HostDoctorView" }
         usage: { $ref: "#/components/schemas/HostUsage" }
         usage_fresh: { type: boolean, description: Usage is less than 90 seconds old. Unknown or stale readings retain reservation-based placement. }
         admission_reason: { type: string, description: Why current host pressure is holding new runner starts. Empty when no pressure hold applies. }

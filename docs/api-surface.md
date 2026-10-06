@@ -661,7 +661,34 @@ notes, is a 409. MCP wraps these as `context_notes` and `context_publish`.
 report, supplied by the authenticated agent heartbeat. It carries the check
 time, OS, distribution, report scope, reboot flag and bounded check results.
 `host.updated` events use the same shape, so badges and details refresh live.
-The report carries every tier the host's collector ran; a client that wants a
-host's health counts the `safe` tier without `optional` results, as the UI and
-`zoomies doctor` do. Older agents omit the report; the UI shows health unavailable. These routes
-provide observations only, with no OS tuning endpoint.
+Older agents omit the report, and so does a host that has not sent one yet:
+`doctor` is then absent rather than an object of zeros. The UI shows health
+unavailable. These routes provide observations only, with no OS tuning endpoint.
+
+Beside `results`, `doctor.summary` is the controller's own count of the report:
+`counted`, `warnings`, `errors`, `skipped` and `suggestions`, five integers that
+are always present. It counts only the checks that matter to a host's health —
+the `safe` tier, without `optional` results. A warning in the `aggressive` or
+`dedicated` tier, or one marked `optional`, is a choice an operator has not made
+rather than a fault, so it is counted as a `suggestion` and nowhere else.
+`counted` is how many checks count whatever they found, so a client can tell
+every check passing from every check being skipped (`skipped` equal to
+`counted`).
+
+A pending reboot is counted once. `doctor.reboot_pending` carries it, and the
+`kernel.pending` warning that says the same thing is left out of `summary`, so a
+host whose only finding is a reboot has no warnings. `zoomies doctor` counts the
+tier it was asked to run and does not make that exception, so its own total is
+one higher for that check.
+
+The summary is worked out on every read from the results beside it. It is never
+stored, and an agent cannot send one: a heartbeat whose report carries a
+`summary` has it ignored, so a host cannot claim a count of its own. `results`
+stays in the payload in full, as the agent wrote it, so a client that wants a
+different reading of the tiers can still make one. The text in `results` is
+written by the host and is untrusted.
+
+Reading `doctor` takes the same access as reading the host it is on: any
+signed-in viewer, or an API token with the `hosts:read` scope, with no separate
+permission and no change from before the summary. See
+[Host health and tuning](host-health.md).

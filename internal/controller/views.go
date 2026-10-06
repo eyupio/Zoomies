@@ -56,9 +56,31 @@ type BackendInfoView struct {
 	SharedFolder string `json:"shared_folder,omitempty"`
 }
 
+// DoctorView is a host's OS report as the API renders it: the report the agent
+// wrote, untouched, and beside it the controller's own count of it. The count
+// is not a field of hosttune.Report because that type is also what an agent
+// posts and what the hosts table stores; a Summary there would be agent-supplied
+// and would outlive the results it counts. Summary here shadows the promoted
+// Report.Summary method on purpose -- the JSON key is the point -- so the count
+// is worked out on every read and a heartbeat that sends one has it ignored.
+type DoctorView struct {
+	*hosttune.Report
+	Summary hosttune.Summary `json:"summary"`
+}
+
+// doctorView is nil for a host with no report: a view round a nil report would
+// render as {"summary":{zeros}}, which reads as a healthy host with no checks
+// rather than one that has never been looked at.
+func doctorView(r *hosttune.Report) *DoctorView {
+	if r == nil {
+		return nil
+	}
+	return &DoctorView{Report: r, Summary: r.Summary()}
+}
+
 // HostView is one agent host and the room it has left.
 type HostView struct {
-	Doctor          *hosttune.Report `json:"doctor,omitempty"`
+	Doctor          *DoctorView      `json:"doctor,omitempty"`
 	Usage           *store.HostUsage `json:"usage,omitempty"`
 	UsageFresh      bool             `json:"usage_fresh"`
 	AdmissionReason string           `json:"admission_reason,omitempty"`
@@ -237,7 +259,7 @@ type HostView struct {
 // backends it never reported on.
 func (c *Controller) HostView(h *store.Host) HostView {
 	out := HostView{
-		Doctor:             h.Doctor.Report,
+		Doctor:             doctorView(h.Doctor.Report),
 		ID:                 h.ID,
 		Name:               h.Name,
 		Address:            h.Address,
