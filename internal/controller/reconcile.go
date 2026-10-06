@@ -75,6 +75,26 @@ func (c *Controller) reconcileNow(ctx context.Context) {
 // apply. It is exported so that tests and the API can force a pass and know it
 // has finished, which Nudge deliberately cannot promise.
 func (c *Controller) Reconcile(ctx context.Context) error {
+	started, err := c.reconcileLocked(ctx)
+	if err != nil {
+		return err
+	}
+	// The pass may have changed what the queue and the fleet look like, and
+	// time alone changes the wait percentiles; this is the moment the Overview
+	// learns either way. It is outside the pass's lock: it is a second of reads
+	// once the problems list is worked out, and a runner's create finishes by taking
+	// that lock to enqueue its task, so holding it here made every create wait for a
+	// list nobody had asked for. It is safe without it -- the housekeeping tick
+	// already publishes with no lock held.
+	c.publishDerived(ctx)
+	c.passes.Add(1)
+	c.metrics.reconcileDuration.Observe(time.Since(started).Seconds())
+	return nil
+}
+
+// reconcileLocked is the part of a pass that has to be serialised: snapshot,
+// decide, apply. It returns when the pass began, for the duration metric.
+func (c *Controller) reconcileLocked(ctx context.Context) (time.Time, error) {
 	c.reconcileMu.Lock()
 	defer c.reconcileMu.Unlock()
 
@@ -84,12 +104,12 @@ func (c *Controller) Reconcile(ctx context.Context) error {
 	// the problems list should describe now rather than then.
 	c.resetDeferredMints()
 	if err := c.recoverHostCleanup(ctx); err != nil {
-		return fmt.Errorf("recovering unfinished host cleanup: %w", err)
+		return started, fmt.Errorf("recovering unfinished host cleanup: %w", err)
 	}
 	placementVersion := c.placementVersion.Load()
 	snap, err := c.snapshot(ctx)
 	if err != nil {
-		return err
+		return started, err
 	}
 	plan := scheduler.Decide(snap)
 	if c.cfg().Scheduler.PlacementMode == "shadow" {
@@ -109,13 +129,7 @@ func (c *Controller) Reconcile(ctx context.Context) error {
 	c.apply(ctx, snap, plan)
 	c.routeFallbacks(ctx, snap, plan)
 	c.publishCapacitySignals(ctx, snap, plan)
-	// The pass may have changed what the queue and the fleet look like, and
-	// time alone changes the wait percentiles; this is the moment the Overview
-	// learns either way.
-	c.publishDerived(ctx)
-	c.passes.Add(1)
-	c.metrics.reconcileDuration.Observe(time.Since(started).Seconds())
-	return nil
+	return started, nil
 }
 
 // snapshot gathers everything the scheduler needs in one place. The scheduler
@@ -532,7 +546,7 @@ func (c *Controller) finishCreateRunner(ctx context.Context, inst *store.Install
 		// limit gets one slot's share of the host, and the agent applies
 		// whatever this says without knowing the difference.
 		Resources:                resources,
-		ResourcesSource:          wireSource(source),
+		ResourcesSource:          wireSource(source, pool),
 		Cache:                    pool.Cache,
 		Tmpfs:                    pool.Tmpfs,
 		DaemonSharePercent:       pool.Resources.DaemonSharePercent,
@@ -640,8 +654,20 @@ func (c *Controller) finishCreateRunner(ctx context.Context, inst *store.Install
 // figure on top of the runner's -- twice what the host was charged. What an
 // agent does with a size is the same for both, one slot split between the
 // pair, so it is told "host", which every agent that exists understands.
-func wireSource(source string) string {
-	if source == store.AllocationFromProfile {
+//
+// A reduced or history size is the same thing for a pair whose pool types
+// nothing: the ledger charges it one slot and the figure is that slot, so it is
+// split too. Left as "reduced" the agent reads it as typed, and a runner placed on a
+// host with little to spare -- the only time a reduced size is chosen -- got the
+// whole of that little for each container, twice what it was charged. A pool that
+// types one or both figures keeps its source: a typed limit goes to both
+// containers in full, which is what such a pool asked for.
+func wireSource(source string, pool *store.Pool) string {
+	switch {
+	case source == store.AllocationFromProfile:
+		return store.AllocationFromHost
+	case (source == store.AllocationReduced || source == store.AllocationHistory) &&
+		pool.DockerMode == store.DockerDinD && pool.Resources.CPUs <= 0 && pool.Resources.MemoryMB <= 0:
 		return store.AllocationFromHost
 	}
 	return source

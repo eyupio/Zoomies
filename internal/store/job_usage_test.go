@@ -206,4 +206,34 @@ func TestJobStatsCarryPeakUsageAndMemoryKills(t *testing.T) {
 	if light := by["light"]; light.OOMKilled != 0 || light.PeakMemoryMB == nil || *light.PeakMemoryMB != 400 {
 		t.Fatalf("light = %+v", light)
 	}
+	// Both were measured, so the coverage is the whole group.
+	if heavy.MeasuredMemory != 1 || by["light"].MeasuredMemory != 1 {
+		t.Fatalf("measured = %d and %d, want 1 each", heavy.MeasuredMemory, by["light"].MeasuredMemory)
+	}
+}
+
+// A job too short to be sampled has no peak, so a group's measured count is
+// smaller than its job count: the figure advice rests on is how many were measured.
+func TestJobStatsSayHowManyJobsWereMeasured(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	usageJob(t, s, 1, "build", "pool_a", "run_1", JobInProgress, versionsEpoch)
+	usageJob(t, s, 2, "build", "pool_a", "run_2", JobInProgress, versionsEpoch)
+	if err := s.RecordJobUsage(ctx, "run_1", 1, 900); err != nil {
+		t.Fatal(err)
+	}
+	for n := 1; n <= 2; n++ {
+		done := versionsEpoch.Add(time.Hour)
+		if _, _, err := s.ApplyJob(ctx, &Job{GitHubJobID: int64(5000 + n), State: JobCompleted, Conclusion: "success",
+			Repo: "eyupio/zoomies", StartedAt: &versionsEpoch, CompletedAt: &done}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	res, err := s.JobStats(ctx, JobFilter{}, []string{GroupByPool})
+	if err != nil || len(res.Groups) != 1 {
+		t.Fatalf("JobStats = %+v, %v", res, err)
+	}
+	if g := res.Groups[0]; g.Count != 2 || g.MeasuredMemory != 1 {
+		t.Fatalf("count %d, measured %d; want 2 completed and 1 measured", g.Count, g.MeasuredMemory)
+	}
 }

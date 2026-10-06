@@ -151,6 +151,12 @@ func (cf *clientFlags) client() (*apiClient, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A redirect is never followed. Go turns a PATCH or POST into a GET on a 301, 302
+	// or 303 and drops the body, so a controller behind a proxy that forces https
+	// answered `pools edit` with the pool as it was and the command printed "Updated"
+	// over a change that was never sent -- and the credential went to wherever the
+	// Location said. The CLI calls no route that legitimately redirects.
+	httpc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return &apiClient{
 		base:    strings.TrimRight(parsed.String(), "/"),
 		token:   token,
@@ -297,6 +303,9 @@ func (c *apiClient) do(ctx context.Context, method, path string, q url.Values, b
 	if err != nil {
 		return nil, fmt.Errorf("reading the answer to %s %s: %w", method, path, err)
 	}
+	if err := c.redirected(method, path, resp); err != nil {
+		return raw, err
+	}
 	if resp.StatusCode >= 400 {
 		return raw, parseAPIError(method, path, resp.StatusCode, raw)
 	}
@@ -345,12 +354,32 @@ func (c *apiClient) stream(ctx context.Context, path string, q url.Values, accep
 		}
 		return nil, c.transportError(http.MethodGet, path, err)
 	}
+	if err := c.redirected(http.MethodGet, path, resp); err != nil {
+		resp.Body.Close()
+		return nil, err
+	}
 	if resp.StatusCode >= 400 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 		resp.Body.Close()
 		return nil, parseAPIError(http.MethodGet, path, resp.StatusCode, raw)
 	}
 	return resp, nil
+}
+
+// redirected is the error for a controller that answered with a redirect, which the
+// client does not follow: it says where the controller pointed, because the usual
+// cause is an address that should have been https or a proxy's other hostname, and
+// the fix is a different --url.
+func (c *apiClient) redirected(method, path string, resp *http.Response) error {
+	if resp.StatusCode < 300 || resp.StatusCode >= 400 || resp.StatusCode == http.StatusNotModified {
+		return nil
+	}
+	where := resp.Header.Get("Location")
+	if where == "" {
+		where = "somewhere else"
+	}
+	return fmt.Errorf("the controller at %s answered %s %s with a redirect to %s, which this command does not follow: it would send your credential on and could turn a change into a read. "+
+		"Use that address as --url (a proxy in front of the controller is probably forcing https or another hostname)", c.base, method, path, where)
 }
 
 func (c *apiClient) decorate(req *http.Request) {

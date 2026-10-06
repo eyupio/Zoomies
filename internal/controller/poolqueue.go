@@ -86,7 +86,13 @@ func (c *Controller) poolQueueWaitProblems(ctx context.Context, out *[]Problem) 
 			warm, p.Name, warm)
 		problem.Remedy = newRemedy(RemedyPoolUpdate, p.ID, fmt.Sprintf("Keep %s warm", plural(warm, "runner")),
 			fmt.Sprintf("the pool's hosts have room for %s, and the first %d jobs of a burst start without waiting", plural(room.Runners, "runner"), warm),
-			map[string]any{"min_runners": warm})
+			map[string]any{"min_runners": warm}, nil)
+		if problem.Remedy != nil {
+			// The request replaces none of the pool's resources or profile, so there
+			// is no object an edit since could be put back by it: it has no base, and
+			// an apply compares none.
+			problem.Remedy.Base = ""
+		}
 		*out = append(*out, problem)
 	}
 	return nil

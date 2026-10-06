@@ -175,7 +175,11 @@ func (c *Controller) poolRoom(ctx context.Context, p *store.Pool) (PoolRoom, err
 	now := c.Now()
 	out := PoolRoom{Hosts: []PoolHostRoom{}}
 	for _, h := range hosts {
-		if !scheduler.HostSelects(h, p) || !scheduler.HostAvailable(h, now) {
+		// Present, not available: the room is what the machines can hold, and a hold
+		// on new starts is load that passes. Priced on it, a proposal made under
+		// queue pressure -- the only time the advice is given -- would be judged on
+		// the hosts that happen to be under the least of it.
+		if !scheduler.HostSelects(h, p) || !scheduler.HostPresent(h, now) {
 			continue
 		}
 		code, reason := HostRefusal(h, p)

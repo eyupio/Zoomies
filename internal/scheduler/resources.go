@@ -145,23 +145,42 @@ func RunnerCharge(p *store.Pool, h *store.Host, r *store.Runner) Reservation {
 
 // RunnerGuarantee is what one live runner was promised: what its row says it
 // was given, where it was given less than its pool's standard size, and the
-// pool's own charge otherwise.
+// larger of that and the pool's own charge otherwise.
 //
 // The row is the only place a reduced runner's size is written down. Charging
 // it the standard instead would have the fleet believe a host it had filled
 // with reduced runners was over-committed, and refuse the next one it had room
-// for; charging the standard is right for every other runner, because that is
-// what it was given.
+// for; charging the standard is right for every other runner that was given it.
+//
+// But the standard is today's, and a runner is given its size once. An operator
+// who gives a host's runners less -- the change a suggestion proposes on a host
+// that holds fewer runners than its capacity -- would see every runner already
+// there charged the new, smaller size, the host look mostly free, and the next
+// pass place work on top of runners still holding the old, larger one. So a runner
+// is never charged less than its row says it was created with. A row with no
+// figure (the process backend, limits off, a row from before they were kept) has
+// nothing to say and is charged the standard, as it always was.
 func RunnerGuarantee(p *store.Pool, h *store.Host, r *store.Runner) Reservation {
 	res := Reserve(p, h)
-	if r == nil || (r.AllocationSource != store.AllocationReduced && r.AllocationSource != store.AllocationHistory) {
+	if r == nil {
 		return res
 	}
+	reduced := r.AllocationSource == store.AllocationReduced || r.AllocationSource == store.AllocationHistory
 	if r.AllocatedCPUs > 0 {
-		res.CPUs = r.AllocatedCPUs * fieldFactor(p, p.Resources.CPUs > 0)
+		given := r.AllocatedCPUs * fieldFactor(p, p.Resources.CPUs > 0)
+		if reduced {
+			res.CPUs = given
+		} else {
+			res.CPUs = max(res.CPUs, given)
+		}
 	}
 	if r.AllocatedMemoryMB > 0 {
-		res.MemoryMB = r.AllocatedMemoryMB * int64(fieldFactor(p, p.Resources.MemoryMB > 0))
+		given := r.AllocatedMemoryMB * int64(fieldFactor(p, p.Resources.MemoryMB > 0))
+		if reduced {
+			res.MemoryMB = given
+		} else {
+			res.MemoryMB = max(res.MemoryMB, given)
+		}
 	}
 	return res
 }
@@ -349,7 +368,11 @@ func HostFits(h *store.Host, p *store.Pool) bool {
 // that has measured nothing is placed by slots alone exactly as it was before
 // any of this existed.
 func ShareTooSmall(h *store.Host, p *store.Pool) string {
-	if h == nil || p == nil || !p.Automatic() {
+	// A host an operator paused (capacity zero) is full, not too small: a typed pool
+	// is told so, and an automatic one divided the machine by no slots and read the
+	// answer as a share of nothing -- which reads as "no host could ever run this" to
+	// whatever decides to rent another machine.
+	if h == nil || p == nil || !p.Automatic() || h.Capacity <= 0 {
 		return ""
 	}
 	p = sizedOn(p, h)

@@ -1265,7 +1265,7 @@ func (s *Server) applyPoolUpdate(w http.ResponseWriter, r *http.Request, id stri
 			return
 		}
 		if len(stranded) > 0 {
-			conflict(w, poolStrandingRefusal(stranded[0]))
+			conflict(w, poolStrandingRefusal(stranded[0], strandingEnding(r)))
 			return
 		}
 	}

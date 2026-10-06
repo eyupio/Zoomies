@@ -279,3 +279,66 @@ func TestAFleetMinimumAboveTheShareIsWhatTheRunnerIsGiven(t *testing.T) {
 		t.Errorf("the pool's own minimum is %d MB, want 0: it follows the fleet", stored.Resources.MinMemoryMB)
 	}
 }
+
+// A reduced size is chosen only where a host has little to spare, so a pair given
+// it must split it: the ledger charges one slot, and a runner and a daemon each
+// handed the whole of that little would hold twice what the host was charged. The
+// agent splits only a size it is told came from the host.
+func TestAReducedDockerInDockerPairIsSplitAndNotGivenTwiceItsCharge(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	host := h.measuredHost("shared", 8, 16384, 2, enforcesEverything)
+	big := h.pool(inst, "big", "big")
+	big.MinRunners = 1
+	big.Resources = store.Resources{CPUs: 5, MemoryMB: 10 * 1024}
+	if err := h.st.UpdatePool(h.ctx, big); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	h.c.lifecycleCalls.Wait()
+
+	auto := h.pool(inst, "auto", "auto")
+	auto.MinRunners = 1
+	auto.DockerMode = store.DockerDinD
+	auto.Resources = store.Resources{MinCPUs: 1, MinMemoryMB: 1024}
+	if err := h.st.UpdatePool(h.ctx, auto); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	h.c.lifecycleCalls.Wait()
+
+	runners, _, err := h.st.ListRunners(h.ctx, store.RunnerFilter{PoolIDs: []string{auto.ID}}, store.Page{})
+	if err != nil || len(runners) != 1 {
+		t.Fatalf("runners = %d, %v; want the pair on the host's free slot", len(runners), err)
+	}
+	r := runners[0]
+	if r.AllocationSource != store.AllocationReduced {
+		t.Fatalf("allocation source = %q, want %q", r.AllocationSource, store.AllocationReduced)
+	}
+	var task *agent.Task
+	for _, tk := range h.tasksFor(host.ID) {
+		if tk.Kind == agent.TaskCreateRunner && tk.RunnerID == r.ID {
+			task = &tk
+		}
+	}
+	if task == nil || task.Spec == nil {
+		t.Fatal("no create task for the pair")
+	}
+	if task.Spec.ResourcesSource != store.AllocationFromHost {
+		t.Fatalf("the agent is told %q; it splits only a size that came from the host", task.Spec.ResourcesSource)
+	}
+	runnerHalf, daemonHalf := task.Spec.Resources.SplitWithDaemonShares(task.Spec.DaemonShares())
+	if got := runnerHalf.MemoryMB + daemonHalf.MemoryMB; got < r.AllocatedMemoryMB-1 || got > r.AllocatedMemoryMB+1 {
+		t.Errorf("the two containers hold %d MB between them, but the row charges %d", got, r.AllocatedMemoryMB)
+	}
+
+	// A pool that types a figure keeps its source: a typed limit goes to both in full.
+	typed := &store.Pool{DockerMode: store.DockerDinD, Resources: store.Resources{CPUs: 2}}
+	if got := wireSource(store.AllocationReduced, typed); got != store.AllocationReduced {
+		t.Errorf("a pool that types its CPUs is sent %q", got)
+	}
+}

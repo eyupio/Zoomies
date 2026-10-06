@@ -54,6 +54,9 @@ func TestAPoolWhoseSlowestJobsWaitMinutesIsOfferedAWarmRunner(t *testing.T) {
 	if got := string(p.Remedy.Body); got != `{"min_runners":2}` {
 		t.Errorf("the request must change the minimum and nothing else, got %s", got)
 	}
+	if p.Remedy.Base != "" {
+		t.Errorf("a request that replaces none of the pool's resources has no base to compare, or every apply is refused as out of date: %q", p.Remedy.Base)
+	}
 }
 
 func TestQueueWaitIsNotRaisedWithoutATail(t *testing.T) {

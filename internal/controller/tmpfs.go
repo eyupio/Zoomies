@@ -566,7 +566,7 @@ func autoOnDiskRemedy(p *store.Pool, plan *TmpfsPlan) *Remedy {
 	res := p.Resources
 	res.DaemonMemorySharePercent = sh.Percent
 	effect := fmt.Sprintf("puts %d of %d folders in memory, up from %d, with room for all %s", sh.InMemory, plan.Total, sh.Now, plural(sh.Runners, "runner"))
-	return newRemedy(RemedyPoolUpdate, p.ID, fmt.Sprintf("Give the sidecar %d%% of the memory", sh.Percent), effect, map[string]any{"resources": res})
+	return newRemedy(RemedyPoolUpdate, p.ID, fmt.Sprintf("Give the sidecar %d%% of the memory", sh.Percent), effect, map[string]any{"resources": res}, p.Resources)
 }
 
 // recordScratch writes on a runner's row which of its folders its pool keeps in

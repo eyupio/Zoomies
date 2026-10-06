@@ -436,3 +436,27 @@ func TestMCPAdministratorToolsNeedTheSwitchAndTheRole(t *testing.T) {
 		t.Errorf("a security key must be refused even for an administrator, got %s", resultText(denied))
 	}
 }
+
+// The tools never send confirm=true, so a refusal that says to send it again with it is
+// advice an agent cannot follow. The refusal itself still stands: the change is not made.
+func TestAnAgentRefusedAChangeIsNotToldToSendConfirm(t *testing.T) {
+	h := newHarness(t)
+	host := h.measuredHost("only")
+	pool := h.pool(h.installation(), "small")
+	pool.Resources = store.Resources{CPUs: 2, MemoryMB: 2048}
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	operator := h.token("agent", store.RoleOperator)
+
+	r := h.mcpTool(operator, "update_host", map[string]any{"host_id": host.ID, "min_cpus": 3})
+	if !r.IsError || !strings.Contains(resultText(r), "nowhere to run") {
+		t.Fatalf("a change that strands the only pool must be refused: %s", resultText(r))
+	}
+	if strings.Contains(resultText(r), "confirm=true") || !strings.Contains(resultText(r), "a person") {
+		t.Errorf("the agent is sent to a flag it cannot send: %s", resultText(r))
+	}
+	if stored, _ := h.st.GetHost(h.ctx, host.ID); stored.RunnerProfile.Set() {
+		t.Fatalf("a refused change was written: %+v", stored.RunnerProfile)
+	}
+}

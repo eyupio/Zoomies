@@ -97,24 +97,41 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 
 	mcp.New(inProcessAPI{s: s, from: r, as: id}, mcp.Options{
 		Offer: func(tool string) bool {
-			a, ok := mcpToolActions[tool]
-			if !ok || !auth.Allowed(id, a) {
-				return false
-			}
-			return !mcp.IsAdminTool(tool) || s.cfg().Security.MCPAdminTools
+			_, ok := mcpMissingAction(id, tool)
+			return ok && (!mcp.IsAdminTool(tool) || s.cfg().Security.MCPAdminTools)
 		},
 		Refusal: func(tool string) string {
-			if mcp.IsAdminTool(tool) && auth.Allowed(id, mcpToolActions[tool]) {
+			missing, ok := mcpMissingAction(id, tool)
+			if ok && mcp.IsAdminTool(tool) {
 				return tool + " is an administrator tool, and this controller does not offer those over MCP. " +
 					"An administrator turns it on at Settings, Security, \"Offer administrator tools over MCP\" (security.mcp_admin_tools)."
 			}
 			if id.Kind == auth.KindConnection {
-				return tool + " changes the fleet, and is not offered to this connection: " + auth.Explain(id, mcpToolActions[tool]) +
+				return tool + " changes the fleet, and is not offered to this connection: " + auth.Explain(id, missing) +
 					". Disconnect and connect again choosing the operator role to be offered it."
 			}
-			return tool + " changes the fleet, and is not offered to this token: " + auth.Explain(id, mcpToolActions[tool])
+			return tool + " changes the fleet, and is not offered to this token: " + auth.Explain(id, missing)
 		},
 	}).ServeHTTP(w, r)
+}
+
+// mcpMissingAction says whether the caller may use a tool and, when not, the action
+// they lack. apply_remedy is the one tool that needs two: the route's own
+// problems.apply and then the update it makes, which is a pool's or a host's. A
+// token with the first alone would be offered the tool and refused when it called it,
+// which is not the honest list the tools list promises.
+func mcpMissingAction(id *auth.Identity, tool string) (auth.Action, bool) {
+	a, known := mcpToolActions[tool]
+	if !known {
+		return a, false
+	}
+	if !auth.Allowed(id, a) {
+		return a, false
+	}
+	if tool == "apply_remedy" && !auth.Allowed(id, auth.ActionPoolsWrite) && !auth.Allowed(id, auth.ActionHostsWrite) {
+		return auth.ActionPoolsWrite, false
+	}
+	return a, true
 }
 
 // authenticateMCP resolves /mcp's caller: an MCP access token when OAuth is
@@ -176,6 +193,9 @@ func (a inProcessAPI) do(ctx context.Context, method, path string, q url.Values,
 	// router's own state for that request; left there, the router would take
 	// this for the rest of that dispatch rather than a request of its own.
 	ctx = context.WithValue(ctx, chi.RouteCtxKey, (*chi.Context)(nil))
+	// The tools never send confirm=true, so a refusal that says to send it again with
+	// it is advice an agent cannot follow, and one that loops it.
+	ctx = noConfirm(ctx)
 	var reader io.Reader
 	if body != nil {
 		reader = bytes.NewReader(body)

@@ -3,10 +3,12 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/controller"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -174,6 +176,14 @@ func TestAnAgentAppliesARemedyOverMCPAsItsTokenAllows(t *testing.T) {
 		t.Errorf("a viewer asking must be told which role is missing, got %s", resultText(r))
 	}
 
+	// A token that may apply suggestions but not change a pool or a host would be
+	// offered the tool and refused when it called it. The list is honest: it is not
+	// offered.
+	narrow := h.token("narrow", store.RoleOperator, "problems:apply", "stats:read")
+	if names := h.mcpToolNames(narrow); containsTool(names, "apply_remedy") {
+		t.Errorf("a token without pools:write or hosts:write was offered apply_remedy: %v", names)
+	}
+
 	id, _ := h.remedyFor(operator, "host.slots_below_capacity", host.ID)
 	r := h.mcpTool(operator, "apply_remedy", map[string]any{"code": "host.slots_below_capacity", "target_id": host.ID, "remedy_id": id})
 	if r.IsError {
@@ -191,4 +201,46 @@ func containsTool(names []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// Applying a suggestion needs the update's own scope as well as the apply route's,
+// so a token limited to applying suggestions cannot change a host or a pool by
+// naming a problem about it. Nothing else pins this: it rests on a second check in
+// the handler, and a refactor that dropped it would pass every other test.
+func TestAScopeThatMayApplySuggestionsStillNeedsTheScopeOfTheChange(t *testing.T) {
+	h, host := remedyFleet(t)
+	narrow := h.token("narrow", store.RoleOperator, "problems:apply", "stats:read")
+	id, _ := h.remedyFor(h.token("reader", store.RoleViewer), "host.slots_below_capacity", host.ID)
+	apply := map[string]any{"code": "host.slots_below_capacity", "target_id": host.ID, "remedy_id": id}
+
+	r := h.do(request{method: http.MethodPost, path: "/api/v1/problems/apply", token: narrow, body: apply})
+	if r.status != http.StatusForbidden || !strings.Contains(string(r.body), "hosts:write") {
+		t.Errorf("a token without hosts:write = %d %s; want 403 naming the scope", r.status, r.body)
+	}
+	if got, _ := h.st.GetHost(h.ctx, host.ID); got.RunnerProfile.Standard.CPUs != 6 {
+		t.Fatal("a refused apply changed the host")
+	}
+
+	wide := h.token("wide", store.RoleOperator, "problems:apply", "hosts:write")
+	if r := h.do(request{method: http.MethodPost, path: "/api/v1/problems/apply", token: wide, body: apply}); r.status != http.StatusOK {
+		t.Errorf("a token with both scopes = %d %s; want 200", r.status, r.body)
+	}
+}
+
+// The apply route never sends confirm, so a refusal that tells its caller to send it
+// again with confirm=true sends them to a flag they cannot set.
+func TestAStrandingRefusalToASuggestionDoesNotTellItToSendConfirm(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/problems/apply", nil)
+	if got := strandingEnding(req); got != strandingConfirm {
+		t.Errorf("an ordinary edit ends %q", got)
+	}
+	req = req.WithContext(noConfirm(req.Context()))
+	ending := strandingEnding(req)
+	if strings.Contains(ending, "confirm") || !strings.Contains(ending, "a person") {
+		t.Errorf("a suggestion's refusal ends %q; it must say to make the change by hand", ending)
+	}
+	msg := poolStrandingRefusal(controller.Stranding{Pool: "builders", Host: "big", Reason: "needs 10 GB"}, ending)
+	if strings.Contains(msg, "confirm=true") {
+		t.Errorf("the refusal still names confirm=true: %s", msg)
+	}
 }

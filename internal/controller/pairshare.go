@@ -27,15 +27,24 @@ const (
 	// pairWindow is how far back a pool's samples count. A day's jobs would hide
 	// a change of workload; an hour could be one unusual build.
 	pairWindow = 6 * time.Hour
-	// pairMaxSamples bounds the window per pool. Heartbeats arrive every few
-	// seconds per busy runner, so this is well over the window for any pool this
-	// controller serves, and a bound keeps a busy fleet's memory flat.
-	pairMaxSamples = 4000
+	// pairMaxSamples bounds the window per pool. A busy runner is sampled every 30
+	// seconds, so this holds six hours of about eleven busy runners, and a pool with
+	// more has a shorter window and its newest samples; the bound keeps a busy
+	// fleet's memory flat.
+	pairMaxSamples = 8000
 	// pairMinSamples and pairMinRunners keep one long job from speaking for a
 	// pool: its samples are all the same job, and a pool's advice should rest on
 	// several.
 	pairMinSamples = 60
 	pairMinRunners = 3
+	// pairMinSpan and pairMaxRunnerShare are the same idea in time and in share: a
+	// pool just restarted has sixty samples from three runners within minutes, all of
+	// them the first phase of their jobs, and one long job with stragglers can be
+	// most of a window. The count is a floor and these are what make it a pool's
+	// evidence -- an hour "could be one unusual build", and half an hour is the
+	// least that is not.
+	pairMinSpan        = 30 * time.Minute
+	pairMaxRunnerShare = 0.5
 	// pairHot is a container's use of its own limit, at its 95th percentile,
 	// above which it is the one being squeezed; pairIdle is the most the other
 	// may use for the squeeze to be the division's fault rather than the job's.
@@ -50,9 +59,12 @@ const (
 
 // pairSample is one heartbeat of one busy pair.
 type pairSample struct {
-	at     time.Time
-	runner string
-	halves backend.PairHalves
+	at time.Time
+	// sampled is when the agent took the sample, which is how a sample that reaches
+	// the controller twice is told from two.
+	sampled time.Time
+	runner  string
+	halves  backend.PairHalves
 }
 
 // observePair records a busy runner's two halves. Only a runner sized from the
@@ -72,7 +84,19 @@ func (c *Controller) observePair(r *store.Runner, st backend.Stats) {
 	if c.pairs == nil {
 		c.pairs = make(map[string][]pairSample)
 	}
-	w := append(c.pairs[r.PoolID], pairSample{at: now, runner: r.ID, halves: h})
+	// The agent sends its last sample with the heartbeat and again with each
+	// reconcile report, and keeps sending it when the next one fails, so the same
+	// reading arrives more than once. Counting each arrival would make 60 samples
+	// half an hour of one runner and let a stale reading speak for the pool.
+	for i := len(c.pairs[r.PoolID]) - 1; i >= 0; i-- {
+		if prev := c.pairs[r.PoolID][i]; prev.runner == r.ID {
+			if prev.sampled.Equal(*st.SampledAt) {
+				return
+			}
+			break
+		}
+	}
+	w := append(c.pairs[r.PoolID], pairSample{at: now, sampled: *st.SampledAt, runner: r.ID, halves: h})
 	cut := 0
 	for cut < len(w) && now.Sub(w[cut].at) > pairWindow {
 		cut++
@@ -93,14 +117,24 @@ type resourceAdvice struct {
 	Current, Proposed       int
 	DaemonHot               bool
 	HotPercent, IdlePercent float64
+	// HotUse and OtherUse are the 95th percentile use of the squeezed container and
+	// of the one beside it, in bytes for memory and cores for CPU: what a proposed
+	// share is checked against once it is turned into the limits it would give.
+	HotUse, OtherUse float64
 	// Held is set when no share worth proposing keeps every runner the pool's
-	// hosts hold now: the figure the use points at, and what it would leave.
+	// hosts hold now, or gives the squeezed container more where it counts: the
+	// figure the use points at, and what it would leave.
 	Held *shareCost
 }
 
 // shareCost is what a share the use points at would cost the pool on its hosts.
 type shareCost struct {
 	Wanted, Runners, RunnersNow int
+	// Pinned is set when the share is not what limits the squeezed container: the
+	// thinner half of a slot is held to the pool's smallest runner, so on a host
+	// where that decides the slot every share gives it the same, and the share
+	// would only take from the half beside it.
+	Pinned bool
 }
 
 // pairAdvice is what the window shows about how a slot is divided: a proposal
@@ -108,6 +142,9 @@ type shareCost struct {
 type pairAdvice struct {
 	CPU, Memory      *resourceAdvice
 	Samples, Runners int
+	// Span is the time the judged samples cover, which is what the notice says
+	// rather than the window it could have had.
+	Span time.Duration
 }
 
 // pairPercentile is the p-th (0..1) value of xs, which it sorts.
@@ -117,6 +154,73 @@ func pairPercentile(xs []float64, p float64) float64 {
 	}
 	sort.Float64s(xs)
 	return xs[min(int(math.Ceil(p*float64(len(xs))))-1, len(xs)-1)]
+}
+
+// pairCover is how much of a pool a set of samples covers: how many there are, how
+// many runners they came from and how much of the time between the first and the
+// last. Both detectors that rest on the window ask the same question of it.
+type pairCover struct {
+	n           int
+	perRunner   map[string]int
+	first, last time.Time
+}
+
+func (c *pairCover) add(s pairSample) {
+	if c.perRunner == nil {
+		c.perRunner = map[string]int{}
+	}
+	c.n++
+	c.perRunner[s.runner]++
+	if c.first.IsZero() || s.sampled.Before(c.first) {
+		c.first = s.sampled
+	}
+	if s.sampled.After(c.last) {
+		c.last = s.sampled
+	}
+}
+
+func (c *pairCover) span() time.Duration { return c.last.Sub(c.first) }
+
+// enough says whether the samples are a pool's evidence rather than one job's.
+func (c *pairCover) enough() bool {
+	if c.n < pairMinSamples || len(c.perRunner) < pairMinRunners || c.span() < pairMinSpan {
+		return false
+	}
+	most := 0
+	for _, n := range c.perRunner {
+		most = max(most, n)
+	}
+	return float64(most) <= pairMaxRunnerShare*float64(c.n)
+}
+
+// pairCPUShare and pairMemShare are the share of the slot the daemon was created
+// with, as a whole percent, read from the two limits the sample carries. Zero is
+// "not divided": a limit that was not set has no share to judge.
+func pairCPUShare(s pairSample) int {
+	d, r := s.halves.Daemon.CPULimit, s.halves.Runner.CPULimit
+	if d > 0 && r > 0 {
+		return int(math.Round(100 * d / (d + r)))
+	}
+	return 0
+}
+
+func pairMemShare(s pairSample) int {
+	d, r := float64(s.halves.Daemon.MemoryLimit), float64(s.halves.Runner.MemoryLimit)
+	if d > 0 && r > 0 {
+		return int(math.Round(100 * d / (d + r)))
+	}
+	return 0
+}
+
+// freshPairs is the samples still inside the window. The window is trimmed when a
+// pool's runner reports, so a pool that has gone quiet keeps its last six hours
+// until something reads them with the clock in hand.
+func freshPairs(window []pairSample, now time.Time) []pairSample {
+	cut := 0
+	for cut < len(window) && now.Sub(window[cut].at) > pairWindow {
+		cut++
+	}
+	return window[cut:]
 }
 
 // judgePair says whether a window of samples shows the slot divided against the
@@ -130,20 +234,7 @@ func judgePair(window []pairSample) (pairAdvice, bool) {
 	if len(window) == 0 {
 		return pairAdvice{}, false
 	}
-	cpuShare := func(s pairSample) int {
-		d, r := s.halves.Daemon.CPULimit, s.halves.Runner.CPULimit
-		if d > 0 && r > 0 {
-			return int(math.Round(100 * d / (d + r)))
-		}
-		return 0
-	}
-	memShare := func(s pairSample) int {
-		d, r := float64(s.halves.Daemon.MemoryLimit), float64(s.halves.Runner.MemoryLimit)
-		if d > 0 && r > 0 {
-			return int(math.Round(100 * d / (d + r)))
-		}
-		return 0
-	}
+	cpuShare, memShare := pairCPUShare, pairMemShare
 	newest := window[len(window)-1]
 	curCPU, curMem := cpuShare(newest), memShare(newest)
 	if curCPU == 0 && curMem == 0 {
@@ -151,6 +242,7 @@ func judgePair(window []pairSample) (pairAdvice, bool) {
 	}
 	var rCPU, dCPU, rMem, dMem []float64
 	var slotCPU, slotMem float64
+	var cover pairCover
 	runners := map[string]bool{}
 	n := 0
 	for _, s := range window {
@@ -159,12 +251,13 @@ func judgePair(window []pairSample) (pairAdvice, bool) {
 		}
 		n++
 		runners[s.runner] = true
+		cover.add(s)
 		rCPU, dCPU = append(rCPU, s.halves.Runner.CPUs), append(dCPU, s.halves.Daemon.CPUs)
 		rMem, dMem = append(rMem, float64(s.halves.Runner.MemoryBytes)), append(dMem, float64(s.halves.Daemon.MemoryBytes))
 		slotCPU = max(slotCPU, s.halves.Runner.CPULimit+s.halves.Daemon.CPULimit)
 		slotMem = max(slotMem, float64(s.halves.Runner.MemoryLimit+s.halves.Daemon.MemoryLimit))
 	}
-	if n < pairMinSamples || len(runners) < pairMinRunners {
+	if !cover.enough() {
 		return pairAdvice{}, false
 	}
 	// Use as a part of each container's own limit, which is what "squeezed" means.
@@ -177,7 +270,7 @@ func judgePair(window []pairSample) (pairAdvice, bool) {
 		}
 		return out
 	}
-	adv := pairAdvice{Samples: n, Runners: len(runners)}
+	adv := pairAdvice{Samples: n, Runners: len(runners), Span: cover.span()}
 	if curCPU > 0 && slotCPU > 0 {
 		rLimit, dLimit := slotCPU*float64(100-curCPU)/100, slotCPU*float64(curCPU)/100
 		adv.CPU = judgeResource("CPU", curCPU, over(rCPU, rLimit), over(dCPU, dLimit), rCPU, dCPU, slotCPU)
@@ -198,16 +291,27 @@ func judgePair(window []pairSample) (pairAdvice, bool) {
 func judgeResource(name string, current int, rUse, dUse, rUsed, dUsed []float64, slot float64) *resourceAdvice {
 	rHot, dHot := pairPercentile(slices.Clone(rUse), 0.95), pairPercentile(slices.Clone(dUse), 0.95)
 	adv := &resourceAdvice{Resource: name, Current: current}
+	// What a container is sized to hold. CPU is a burst the elastic valve lends for, so
+	// its 95th percentile will do. Memory is a limit a job is killed at: a half that
+	// held its 95th percentile and was given less than its peak -- 3.5 GiB in four
+	// samples of a hundred and twenty -- is killed the next time the heavy phase runs,
+	// and one click would have done it.
+	q := 0.95
+	if name == "memory" {
+		q = 1
+	}
 	switch {
 	case dHot >= pairHot && rHot <= pairIdle:
 		adv.DaemonHot, adv.HotPercent, adv.IdlePercent = true, dHot*100, rHot*100
+		adv.HotUse, adv.OtherUse = pairPercentile(slices.Clone(dUsed), 0.95), pairPercentile(slices.Clone(rUsed), q)
 	case rHot >= pairHot && dHot <= pairIdle:
 		adv.HotPercent, adv.IdlePercent = rHot*100, dHot*100
+		adv.HotUse, adv.OtherUse = pairPercentile(slices.Clone(rUsed), 0.95), pairPercentile(slices.Clone(dUsed), q)
 	default:
 		return nil
 	}
 	need := func(used []float64) float64 {
-		return max(pairPercentile(slices.Clone(used), 0.95)/slot*pairHeadroom, 0.05)
+		return max(pairPercentile(slices.Clone(used), q)/slot*pairHeadroom, 0.05)
 	}
 	d, r := need(dUsed), need(rUsed)
 	proposed := int(math.Round(100*d/(d+r)/5) * 5)
@@ -252,8 +356,14 @@ func (c *Controller) affordShare(ctx context.Context, p *store.Pool, now PoolRoo
 			return err
 		}
 		if room.Runners >= now.Runners {
-			r.Proposed = s
-			return nil
+			if shareHelps(now, room, r, s) {
+				r.Proposed = s
+				return nil
+			}
+			if cost == nil {
+				cost = &shareCost{Wanted: s, Runners: room.Runners, RunnersNow: now.Runners, Pinned: true}
+			}
+			continue
 		}
 		if cost == nil {
 			cost = &shareCost{Wanted: s, Runners: room.Runners, RunnersNow: now.Runners}
@@ -263,6 +373,56 @@ func (c *Controller) affordShare(ctx context.Context, p *store.Pool, now PoolRoo
 	// priced the proposal itself at least once and cost is set.
 	r.Held = cost
 	return nil
+}
+
+// shareHelps says whether a share, turned into the limits each container would
+// really be given on the pool's hosts, gives the squeezed container more somewhere
+// and leaves the other enough everywhere.
+//
+// The window judges a share as a part of one slot, but a slot is not fixed by the
+// share: where the pool has a smallest runner, the thinner half is held to it and
+// the slot grows to carry it. A daemon at 15% of a slot whose floor is its 1.5 GB
+// minimum is given 1.5 GB at any share of 50% or less, and a proposal to raise it
+// only took the memory from the runner -- which was then the half the detector
+// would call squeezed next, and the notice went quiet because both halves were.
+func shareHelps(now, candidate PoolRoom, r *resourceAdvice, share int) bool {
+	charge := func(e PoolHostRoom) float64 {
+		if r.Resource == "CPU" {
+			return e.ChargeCPUs
+		}
+		return float64(e.ChargeMemoryMB)
+	}
+	use := func(v float64) float64 {
+		if r.Resource == "CPU" {
+			return v
+		}
+		return v / (1 << 20)
+	}
+	hotFrac := func(daemonPercent int) float64 {
+		if r.DaemonHot {
+			return float64(daemonPercent) / 100
+		}
+		return 1 - float64(daemonPercent)/100
+	}
+	before := map[string]PoolHostRoom{}
+	for _, e := range now.Hosts {
+		before[e.HostID] = e
+	}
+	grew := false
+	for _, e := range candidate.Hosts {
+		was, ok := before[e.HostID]
+		if e.Room <= 0 || !ok || charge(e) <= 0 || charge(was) <= 0 {
+			continue
+		}
+		if charge(e)*hotFrac(share) > charge(was)*hotFrac(r.Current)*1.02 {
+			grew = true
+		}
+		otherFrac := 1 - hotFrac(share)
+		if charge(e)*otherFrac < use(r.OtherUse)*pairHeadroom {
+			return false
+		}
+	}
+	return grew
 }
 
 // daemonShareAdviceProblems is the standing advice on how a pool divides its
@@ -282,7 +442,7 @@ func (c *Controller) daemonShareAdviceProblems(ctx context.Context, out *[]Probl
 			continue
 		}
 		c.pairMu.Lock()
-		window := slices.Clone(c.pairs[p.ID])
+		window := slices.Clone(freshPairs(c.pairs[p.ID], c.Now()))
 		c.pairMu.Unlock()
 		adv, ok := judgePair(window)
 		if !ok {
@@ -306,6 +466,7 @@ func (c *Controller) daemonShareAdviceProblems(ctx context.Context, out *[]Probl
 			return fmt.Errorf("pricing pool %s's sidecar share: %w", p.Name, err)
 		}
 		var lines, flags, held []string
+		pinned := false
 		titles := []string{}
 		for _, r := range []*resourceAdvice{adv.CPU, adv.Memory} {
 			if r == nil {
@@ -325,9 +486,15 @@ func (c *Controller) daemonShareAdviceProblems(ctx context.Context, out *[]Probl
 			if r.Held != nil {
 				// Said, not dropped: the squeeze is real, and an operator who is told
 				// nothing has no way to know the share was priced and found too dear.
-				lines = append(lines, line+fmt.Sprintf(", and the use points at about %d%%, but the thinner half is held to this pool's smallest runner and the slot grows to carry it, "+
-					"which would leave its hosts room for %s where they hold %d now",
-					r.Held.Wanted, plural(r.Held.Runners, "runner"), r.Held.RunnersNow))
+				if r.Held.Pinned {
+					lines = append(lines, line+fmt.Sprintf(", and the use points at about %d%%, but on these hosts the thinner half is held to this pool's smallest runner, "+
+						"so a different share would not give it more and would only take from the half beside it", r.Held.Wanted))
+					pinned = true
+				} else {
+					lines = append(lines, line+fmt.Sprintf(", and the use points at about %d%%, but the thinner half is held to this pool's smallest runner and the slot grows to carry it, "+
+						"which would leave its hosts room for %s where they hold %d now",
+						r.Held.Wanted, plural(r.Held.Runners, "runner"), r.Held.RunnersNow))
+				}
 				held = append(held, strings.ToLower(r.Resource))
 				continue
 			}
@@ -345,8 +512,13 @@ func (c *Controller) daemonShareAdviceProblems(ctx context.Context, out *[]Probl
 				"It applies to runners created after the change.", p.Name, strings.Join(flags, " ")))
 		}
 		if len(held) > 0 {
-			fix = append(fix, fmt.Sprintf("Leave the %s share where it is: moving it would cost runners. To give the squeezed container more room, lower the pool's smallest runner "+
-				"in the pool editor (Size step), which is what holds the thinner half up, or run the pool on larger machines.", strings.Join(held, " and ")))
+			if pinned {
+				fix = append(fix, fmt.Sprintf("Leave the %s share where it is: the thinner half is given the pool's smallest runner whatever the share. To give it more, raise the pool's smallest runner "+
+					"in the pool editor (Size step), which is what sets it, or run the pool on larger machines.", strings.Join(held, " and ")))
+			} else {
+				fix = append(fix, fmt.Sprintf("Leave the %s share where it is: moving it would cost runners. To give the squeezed container more room, lower the pool's smallest runner "+
+					"in the pool editor (Size step), which is what holds the thinner half up, or run the pool on larger machines.", strings.Join(held, " and ")))
+			}
 		}
 		var change *DaemonShareChange
 		if len(flags) > 0 {
@@ -376,7 +548,7 @@ func (c *Controller) daemonShareAdviceProblems(ctx context.Context, out *[]Probl
 			if room.Runners > 0 {
 				effect = fmt.Sprintf("the pool's hosts keep room for all %s", plural(room.Runners, "runner"))
 			}
-			remedy = newRemedy(RemedyPoolUpdate, p.ID, "Give the sidecar "+strings.Join(words, " and "), effect, map[string]any{"resources": res})
+			remedy = newRemedy(RemedyPoolUpdate, p.ID, "Give the sidecar "+strings.Join(words, " and "), effect, map[string]any{"resources": res}, p.Resources)
 		}
 		*out = append(*out, Problem{
 			DaemonShare: change,
@@ -384,8 +556,8 @@ func (c *Controller) daemonShareAdviceProblems(ctx context.Context, out *[]Probl
 			Code:        "pool.daemon_share_suggested",
 			Severity:    config.SeverityInfo,
 			Title:       fmt.Sprintf("pool %s: %s", p.Name, strings.Join(titles, "; and ")),
-			Detail: fmt.Sprintf("across %d samples from %d runners over the last %s. A runner and its sidecar divide one slot, CPU and memory each on their own share. %s.",
-				adv.Samples, adv.Runners, pairWindow, strings.Join(lines, ". ")),
+			Detail: fmt.Sprintf("across at least %d samples from %d or more runners over at least %s. A runner and its sidecar divide one slot, CPU and memory each on their own share. %s.",
+				pairMinSamples, pairMinRunners, pairMinSpan, strings.Join(lines, ". ")),
 			Fix:        strings.Join(fix, " "),
 			TargetKind: "pool",
 			TargetID:   p.ID,

@@ -796,3 +796,33 @@ func TestPoolShareLabelSaysWhatDiffers(t *testing.T) {
 		}
 	}
 }
+
+// Go turns a PATCH into a GET on a 301 and drops its body, so a controller behind a
+// proxy that redirects answered `pools edit` with the pool as it was, and the command
+// printed "Updated" over a change that was never sent. A redirect is now an error that
+// says where it pointed, and nothing is sent on to it.
+func TestAWriteThatIsRedirectedIsRefusedNotReportedAsDone(t *testing.T) {
+	var reached []string
+	back := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reached = append(reached, r.Method+" "+r.URL.Path+" auth="+r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"pool_1","name":"zoomies-p","sizing":"automatic","resources":{}}`))
+	}))
+	t.Cleanup(back.Close)
+	front := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, back.URL+r.URL.Path, http.StatusMovedPermanently)
+	}))
+	t.Cleanup(front.Close)
+
+	e, out, errOut := newTestEnv(t)
+	code := dispatch(context.Background(), e, []string{"pools", "edit", "pool_1", "--max", "3", "--url", front.URL, "--token", "zoo_secret"})
+	if code == exitOK || strings.Contains(out.String(), "Updated") {
+		t.Fatalf("a redirected write was reported as done (exit %d):\n%s", code, out)
+	}
+	if !strings.Contains(errOut.String(), "redirect to "+back.URL) || !strings.Contains(errOut.String(), "--url") {
+		t.Errorf("the error must say where the controller pointed and what to do:\n%s", errOut)
+	}
+	if len(reached) != 0 {
+		t.Errorf("the redirect was followed, and the credential went with it: %v", reached)
+	}
+}

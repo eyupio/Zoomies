@@ -26,3 +26,13 @@ func TestTheShareFloorScalesEachResourceByItsOwnSplit(t *testing.T) {
 		t.Errorf("floor with minimums = %v CPU, %d MB; want 5 and 2048", got.CPUs, got.MemoryMB)
 	}
 }
+
+// Pausing a host (capacity zero) makes it full for every pool alike. An automatic
+// pool read the paused host as too small, which is what the machine provisioner
+// treats as "no host could ever run this pool".
+func TestAPausedHostIsFullAndNotTooSmallForAnAutomaticPool(t *testing.T) {
+	h := sized("paused", 0, 16, hostFor(32*1024), 100000)
+	if got := ShareTooSmall(h, testPool("auto", "a")); got != "" {
+		t.Errorf("a host with no slots is %q for an automatic pool, want it left to the capacity check", got)
+	}
+}

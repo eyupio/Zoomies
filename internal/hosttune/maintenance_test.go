@@ -20,7 +20,13 @@ type scriptedHost struct {
 	failRestart bool
 	unitActive  bool
 	killed      bool
-	log         []string
+	// failStop is the units whose stop returns an error although systemd goes on to
+	// finish stopping them: a client that gave up waiting.
+	failStop map[string]bool
+	// psFail is how many of the first `docker ps` calls fail, as a daemon too slow to
+	// answer within the probe's budget does.
+	psFail int
+	log    []string
 }
 
 func (s *scriptedHost) Run(_ context.Context, n string, a ...string) (string, error) {
@@ -35,6 +41,9 @@ func (s *scriptedHost) Run(_ context.Context, n string, a ...string) (string, er
 		return v, nil
 	case n == "systemctl" && len(a) == 2 && a[0] == "stop":
 		s.active[a[1]] = "inactive"
+		if s.failStop[a[1]] {
+			return "", errors.New("signal: killed")
+		}
 	case n == "systemctl" && len(a) == 2 && a[0] == "start":
 		s.active[a[1]] = "active"
 	case n == "systemctl" && len(a) == 2 && a[0] == "restart" && a[1] == "docker.service":
@@ -47,6 +56,10 @@ func (s *scriptedHost) Run(_ context.Context, n string, a ...string) (string, er
 		}
 		return "inactive", errors.New("inactive")
 	case k == "docker ps -q":
+		if s.psCalls < s.psFail {
+			s.psCalls++
+			return "", errors.New("context deadline exceeded")
+		}
 		if s.killed {
 			return "", nil
 		}
@@ -394,5 +407,53 @@ func TestRestartPendingDoesNothingButTheRestart(t *testing.T) {
 	}
 	if v, _ := s.ReadFile("/proc/sys/fs/inotify/max_user_watches"); string(v) != "1024" {
 		t.Errorf("a setting was changed: %s", v)
+	}
+}
+
+// A stop that outlasts the client leaves systemd finishing it, and a unit that was not
+// recorded as stopped is never started again: the agent stayed down for good. The unit
+// is on the list before the stop is asked for.
+func TestAStopThatTimesOutStillStartsTheUnitAgain(t *testing.T) {
+	e, s := maintenanceHost(nil)
+	s.failStop = map[string]bool{"zoomies-agent.service": true}
+	o, out := opts(false)
+	err := e.MaintainDocker(context.Background(), o)
+	if err == nil || !strings.Contains(err.Error(), "may still be stopping") {
+		t.Fatalf("a stop that failed must be an error that says the unit may still be stopping: %v", err)
+	}
+	if s.active["zoomies-agent.service"] != "active" {
+		t.Errorf("the agent was left stopped after a stop that timed out: %v\n%s", s.active, out)
+	}
+	if s.index("systemctl start zoomies-agent.service") < 0 {
+		t.Errorf("the restore never started the agent: %v", s.log)
+	}
+}
+
+// A failed look at what is running is not a quiet moment, and not the end of a task that
+// has a day to find one: it used to return at once, and the background restart vanished
+// with its change still pending and nobody told.
+func TestWhenSafeLooksAgainAfterAFailedLookAtWhatIsRunning(t *testing.T) {
+	e, s := maintenanceHost(nil)
+	s.psFail = 2
+	o, out := whenSafe(time.Hour)
+	if err := e.RestartWhenSafe(context.Background(), o); err != nil {
+		t.Fatalf("two failed looks ended the wait: %v\n%s", err, out)
+	}
+	if s.did("systemctl restart docker") != 1 {
+		t.Errorf("Docker was not restarted once it answered: %v", s.log)
+	}
+}
+
+// A Docker that is really down still ends the task, and stops nothing on the way.
+func TestWhenSafeGivesUpOnADockerThatNeverAnswers(t *testing.T) {
+	e, s := maintenanceHost(nil)
+	s.psFail = 1000
+	o, _ := whenSafe(time.Hour)
+	err := e.RestartWhenSafe(context.Background(), o)
+	if err == nil || !errors.Is(err, errDockerUnreadable) {
+		t.Fatalf("a Docker that never answers must be reported, got %v", err)
+	}
+	if s.did("systemctl stop") != 0 || s.did("systemctl restart docker") != 0 {
+		t.Errorf("a host whose Docker could not be read was taken out of service: %v", s.log)
 	}
 }
