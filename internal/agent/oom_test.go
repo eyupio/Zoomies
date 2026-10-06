@@ -21,6 +21,10 @@ func TestAnOutOfMemoryKillIsClassifiedWhateverTheRunnerDidNext(t *testing.T) {
 		wantFault store.FaultKind
 	}{
 		{"exit 137", backend.Status{Phase: backend.PhaseFailed, ExitCode: 137}, false, store.RunnerFailed, store.FaultOutOfMemory},
+		// The daemon was asked and said no: docker stop after its grace period, an operator, or
+		// a maintenance restart's --kill-running. Not the job's memory, and not evidence.
+		{"exit 137 the daemon says was not memory", backend.Status{Phase: backend.PhaseFailed, ExitCode: 137, OOMReported: true}, false, store.RunnerFailed, store.FaultRunnerExited},
+		{"exit 137 the daemon says was memory", backend.Status{Phase: backend.PhaseFailed, ExitCode: 137, OOMReported: true, OOMKilled: true}, false, store.RunnerFailed, store.FaultOutOfMemory},
 		{"killed with another code", backend.Status{Phase: backend.PhaseFailed, ExitCode: 1, OOMKilled: true}, false, store.RunnerFailed, store.FaultOutOfMemory},
 		{"a step killed under a runner that finished", backend.Status{Phase: backend.PhaseFailed, OOMKilled: true}, false, store.RunnerRemoved, store.FaultOutOfMemory},
 		{"a clean exit is no fault", backend.Status{Phase: backend.PhaseExited}, false, store.RunnerRemoved, ""},

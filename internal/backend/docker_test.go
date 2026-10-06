@@ -437,6 +437,13 @@ func TestStatusFromInspect(t *testing.T) {
 		t.Fatal("an OOM kill must be carried as a fact, not only as a sentence")
 	}
 
+	// A stopped container the daemon says was not killed for memory is a "no", which is not
+	// the same as a backend that never says: exit 137 is only evidence of memory after the first.
+	stopped := statusFromInspect(h, &ContainerInspect{State: &ContainerState{Status: "exited", ExitCode: 137}})
+	if !stopped.OOMReported || stopped.OOMKilled {
+		t.Fatalf("a stopped container's answer is not carried: reported %t, killed %t", stopped.OOMReported, stopped.OOMKilled)
+	}
+
 	timed := statusFromInspect(h, &ContainerInspect{State: &ContainerState{
 		Status: "exited", StartedAt: "2026-01-02T03:04:05Z", FinishedAt: "2026-01-02T03:09:05Z",
 	}})
