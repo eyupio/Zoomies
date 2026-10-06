@@ -235,6 +235,7 @@ var problemAudience = map[string]Audience{
 	"pool.minimum_held_by_job":                      AudienceFleet,
 	"host.work_concentrated":                        AudienceFleet,
 	"pool.tmpfs_unsupported":                        AudienceFleet,
+	"pool.daemon_share_unsupported":                 AudienceFleet,
 	"provider.bootstrap_failed":                     AudienceFleet,
 	"provider.contract_unsupported":                 AudienceFleet,
 	"provider.credentials_refused":                  AudienceFleet,
@@ -420,6 +421,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	gather("in-memory folders", c.tmpfsAdviceProblems)
 	gather("in-memory folders by host", c.tmpfsHostProblems)
 	gather("the memory valve", c.memoryValveProblems)
+	gather("sidecar share by host", c.daemonShareHostProblems)
 	gather("sidecar share", c.daemonShareAdviceProblems)
 	gather("host capacity", c.hostCapacityAdviceProblems)
 	gather("pool minimums", c.poolMinimumAdviceProblems)

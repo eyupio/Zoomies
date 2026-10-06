@@ -66,6 +66,9 @@ type PoolHostRoom struct {
 	// Tmpfs is whether this host's agent mounts a pool's in-memory folders. A
 	// pool that asks for them is honoured only where it is true.
 	Tmpfs bool `json:"tmpfs"`
+	// DaemonShare is whether this host's agent divides a docker-in-docker slot by the
+	// pool's sidecar shares. It is for the warnings and the advice, not for an editor.
+	DaemonShare bool `json:"-"`
 	// TmpfsOff is whether this host's operator turned in-memory folders off, in
 	// its runner profile. A pool that asks for them is not given them here, which
 	// is a decision of the host's owner and not a fault, but is not something the
@@ -235,6 +238,7 @@ func poolHostRoom(h *store.Host, p *store.Pool) PoolHostRoom {
 		ElasticCPU:     h.Supports(agent.FeatureElasticCPU),
 		ElasticMemory:  h.Supports(agent.FeatureElasticMemory),
 		Tmpfs:          hostSupportsTmpfs(h),
+		DaemonShare:    h.Supports(agent.FeatureDaemonShare),
 		TmpfsOff:       h.RunnerProfile.Tmpfs.Disabled,
 		TmpfsPolicy:    h.RunnerProfile.Tmpfs,
 	}
@@ -307,6 +311,10 @@ func PoolRoomWarnings(p *store.Pool, room PoolRoom) []Problem {
 	}
 
 	if w, ok := heldWithoutTmpfs(p, placeable); ok {
+		out = append(out, w)
+	}
+
+	if w, ok := heldWithoutDaemonShare(p, placeable); ok {
 		out = append(out, w)
 	}
 
