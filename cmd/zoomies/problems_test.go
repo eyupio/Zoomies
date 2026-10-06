@@ -113,3 +113,66 @@ func TestProblemsApplyRefusesWhatHasNoProposalOrIsAmbiguous(t *testing.T) {
 		t.Errorf("posted = %v; want pool_b's proposal", posted)
 	}
 }
+
+// `--output json` is the server's own document, and a script that asked for proposals reads
+// only proposals: the unproposed items used to arrive anyway, as if the flag had been ignored.
+func TestProblemsListProposalsInJSONCarriesOnlyProposals(t *testing.T) {
+	var posted []map[string]any
+	srv := problemsServer(t, &posted)
+	out, _ := runCLI(t, "problems", "list", "--proposals", "--output", "json", "--url", srv.URL)
+	var doc struct {
+		Items []struct {
+			Code   string          `json:"code"`
+			Remedy json.RawMessage `json:"remedy"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out)
+	}
+	if len(doc.Items) != 3 {
+		t.Fatalf("items = %d, want the three that carry a proposal:\n%s", len(doc.Items), out)
+	}
+	for _, it := range doc.Items {
+		if it.Code == "host.throttled" || len(it.Remedy) == 0 {
+			t.Errorf("an item with nothing proposed came through: %s", it.Code)
+		}
+	}
+}
+
+// A dry run in a machine format is a document, not a table, and still makes no change.
+func TestProblemsApplyDryRunInJSONIsADocumentAndChangesNothing(t *testing.T) {
+	var posted []map[string]any
+	srv := problemsServer(t, &posted)
+	out, _ := runCLI(t, "problems", "apply", "host.slots_below_capacity", "--dry-run", "--output", "json", "--url", srv.URL)
+	var doc struct {
+		DryRun   bool   `json:"dry_run"`
+		TargetID string `json:"target_id"`
+		Remedy   struct {
+			ID string `json:"id"`
+		} `json:"remedy"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("not JSON: %v\n%s", err, out)
+	}
+	if !doc.DryRun || doc.TargetID != "host_1" || doc.Remedy.ID != "rem_aaa" {
+		t.Errorf("document = %+v", doc)
+	}
+	if len(posted) != 0 {
+		t.Errorf("a dry run posted %v", posted)
+	}
+}
+
+// A list the controller could not finish is not a list with nothing in it.
+func TestProblemsApplySaysSoWhenTheControllerCouldNotLookAtEverything(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"ok":false,"items":[{"code":"controller.problems_partial","severity":"warning","title":"partial","detail":"the pool pass failed"}]}`))
+	}))
+	defer srv.Close()
+	e, _, errOut := newTestEnv(t)
+	if code := dispatch(context.Background(), e, []string{"problems", "apply", "pool.daemon_share_suggested", "--url", srv.URL}); code == exitOK {
+		t.Fatal("applying with no proposal succeeded")
+	}
+	if !strings.Contains(errOut.String(), "could not check everything") {
+		t.Errorf("the refusal must say the list was partial:\n%s", errOut)
+	}
+}
