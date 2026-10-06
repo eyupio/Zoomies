@@ -451,19 +451,22 @@ func (c *Controller) ProbeInstallation(ctx context.Context, installationID strin
 	return info, nil
 }
 
-// observeGitHub records one GitHub API outcome for the metrics endpoint.
-func (c *Controller) observeGitHub(installationID string, err error) {
-	result := "ok"
+// githubResult is what a GitHub API outcome is called on the metrics endpoint.
+func githubResult(err error) string {
 	switch {
 	case err == nil:
+		return "ok"
 	case errors.Is(err, github.ErrRateLimited):
-		result = "rate_limited"
+		return "rate_limited"
 	case errors.Is(err, github.ErrForbidden):
-		result = "forbidden"
+		return "forbidden"
 	case errors.Is(err, github.ErrNotFound):
-		result = "not_found"
-	default:
-		result = "error"
+		return "not_found"
 	}
-	c.metrics.githubRequests.WithLabelValues(installationID, result).Inc()
+	return "error"
+}
+
+// observeGitHub records one GitHub API outcome for the metrics endpoint.
+func (c *Controller) observeGitHub(installationID string, err error) {
+	c.metrics.githubRequests.WithLabelValues(installationID, githubResult(err)).Inc()
 }

@@ -167,9 +167,12 @@ func ProjectStatus(problems []Problem, stats *Stats) FleetStatus {
 // severity on the list. An AI Context workflow that cannot publish is a real
 // error for the person who set it up, and has nothing to do with whether any job
 // runs: letting it in would turn the page to "blocked" over a repository's
-// assistant context. It has no public sentence, and a test holds it to that.
+// assistant context. A repository falling short of a standard is the same, and
+// worse to publish: a status page that said which repositories the fleet runs
+// code for, and that one of them is exposed, would be a map for the stranger the
+// finding is about. Neither has a public sentence, and a test holds them to that.
 func statusExempt(code string) bool {
-	return strings.HasPrefix(code, "ai_context.")
+	return strings.HasPrefix(code, "ai_context.") || strings.HasPrefix(code, "kennel.")
 }
 
 // countBand says a count roughly.

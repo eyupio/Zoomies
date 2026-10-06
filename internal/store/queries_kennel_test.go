@@ -743,3 +743,20 @@ func TestCoverageIsCountedPerSourceAndPerState(t *testing.T) {
 		t.Errorf("a source with no state was counted as one: %v", got["runs"])
 	}
 }
+
+func TestTheListCanBeNarrowedToRepositoriesWithOpenErrors(t *testing.T) {
+	ctx := context.Background()
+	s, inst, _ := kennelStore(t)
+	bad := touch(t, s, inst, 1, "acme/bad", "public")
+	warned := touch(t, s, inst, 2, "acme/warned", "public")
+	touch(t, s, inst, 3, "acme/new", "public")
+	_ = s.SaveKennelEvaluation(ctx, bad.ID, record("attention", 1, 0, 0, "exposure.fork_code_ran"))
+	_ = s.SaveKennelEvaluation(ctx, warned.ID, record("attention", 0, 2, 0, "capacity.unserved_label"))
+	got, total, err := s.ListKennelRepositories(ctx, KennelFilter{WithErrors: true}, Page{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 1 || len(got) != 1 || got[0].ID != bad.ID {
+		t.Errorf("listed %d (total %d), want only the repository with an error", len(got), total)
+	}
+}

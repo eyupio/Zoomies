@@ -399,6 +399,7 @@ func (c *Controller) kennelList(ctx context.Context, inst *store.Installation, i
 // holdIfRateLimited is holdRateLimited for an error that may be anything.
 func (c *Controller) holdIfRateLimited(installationID string, err error, now time.Time, doing string) {
 	if errors.Is(err, github.ErrRateLimited) {
+		c.metrics.kennelHolds.Inc()
 		c.holdRateLimited(installationID, err, now, doing)
 	}
 }
@@ -586,6 +587,7 @@ func (c *Controller) kennelEvaluate(ctx context.Context, inst *store.Installatio
 	if err != nil {
 		return err
 	}
+	opened, closed, waived := kennelMovement(row, ev)
 	next := row.NextDueAt
 	if due {
 		next = in.now.Add(in.interval + kennelJitter(row.RepositoryID, in.interval))
@@ -599,6 +601,16 @@ func (c *Controller) kennelEvaluate(ctx context.Context, inst *store.Installatio
 		OpenErrors: counts.Error, OpenWarnings: counts.Warning, OpenInfos: counts.Info, Waived: counts.Waived,
 	}); err != nil {
 		return err
+	}
+
+	for _, code := range opened {
+		c.metrics.kennelOpened.WithLabelValues(string(code)).Inc()
+	}
+	for _, code := range closed {
+		c.metrics.kennelClosed.WithLabelValues(string(code)).Inc()
+	}
+	for _, code := range waived {
+		c.metrics.kennelWaived.WithLabelValues(string(code)).Inc()
 	}
 
 	// A waiver for a finding that is no longer reported has no use. It is retired
@@ -830,4 +842,58 @@ func marshalJSON(v any) (json.RawMessage, error) {
 // does, so the installation's request counter says all of them.
 func (c *Controller) observeKennel(installationID string, err error) {
 	c.observeGitHub(installationID, err)
+	c.metrics.kennelRequests.WithLabelValues(githubResult(err)).Inc()
+}
+
+// kennelMovement says what an evaluation changed about a repository's findings,
+// for the three counters that say whether a check is earning its place.
+//
+// A finding is identified by its code and subject. Opened is one that was not
+// there before, open or waived; closed is one that was there and is not reported
+// at all now; waived is one that was open and a waiver now covers. One that goes
+// from waived back to open because its waiver ended is none of the three: nothing
+// was fixed and nothing is new, and counting it would make a lapsed waiver look
+// like a failure of the check.
+func kennelMovement(row *store.KennelRepository, now kennel.Evaluation) (opened, closed, waived []kennel.Code) {
+	type key struct {
+		code    kennel.Code
+		subject string
+	}
+	var before kennel.Evaluation
+	_ = json.Unmarshal(row.Evaluation, &before)
+	was, wasOpen, is := map[key]bool{}, map[key]bool{}, map[key]bool{}
+	for _, f := range before.Findings {
+		was[key{f.Code, f.Subject}], wasOpen[key{f.Code, f.Subject}] = true, true
+	}
+	for _, w := range before.Waived {
+		was[key{w.Finding.Code, w.Finding.Subject}] = true
+	}
+	for _, f := range now.Findings {
+		k := key{f.Code, f.Subject}
+		is[k] = true
+		if !was[k] {
+			opened = append(opened, f.Code)
+		}
+	}
+	for _, w := range now.Waived {
+		k := key{w.Finding.Code, w.Finding.Subject}
+		is[k] = true
+		switch {
+		case !was[k]:
+			opened = append(opened, w.Finding.Code)
+		case wasOpen[k]:
+			waived = append(waived, w.Finding.Code)
+		}
+	}
+	for _, f := range before.Findings {
+		if !is[key{f.Code, f.Subject}] {
+			closed = append(closed, f.Code)
+		}
+	}
+	for _, w := range before.Waived {
+		if !is[key{w.Finding.Code, w.Finding.Subject}] {
+			closed = append(closed, w.Finding.Code)
+		}
+	}
+	return opened, closed, waived
 }

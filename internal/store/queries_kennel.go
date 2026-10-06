@@ -158,6 +158,9 @@ type KennelFilter struct {
 	// Code keeps repositories with an open finding of this code. The caller
 	// validates it against the registry; it is bound as a parameter either way.
 	Code string
+	// WithErrors keeps repositories with at least one open error finding, which
+	// is what the problems list is made from.
+	WithErrors bool
 }
 
 var kennelSortCols = map[string]string{
@@ -187,6 +190,9 @@ func kennelWhere(f KennelFilter) (string, []any) {
 		cond = append(cond, `EXISTS (SELECT 1 FROM json_each(evaluation_json, '$.findings')
 			WHERE json_extract(value, '$.code') = ?)`)
 		args = append(args, f.Code)
+	}
+	if f.WithErrors {
+		cond = append(cond, `open_errors > 0`)
 	}
 	if len(cond) == 0 {
 		return "", nil
