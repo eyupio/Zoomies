@@ -649,6 +649,28 @@ export const rotateMCPClientSecret = (id: string) =>
 export const revokeMCPClient = (id: string) =>
   api.del<Result<'revokeMCPClient'>>(`/mcp-clients/${enc(id)}`);
 
+/* -- Kennel Club ----------------------------------------------------------
+ * Reads, and the one write a person makes without a form: asking for a
+ * repository to be read again. Waivers come with the dialog that makes them.
+ * ------------------------------------------------------------------------ */
+
+export const getKennelOverview = (signal?: AbortSignal) =>
+  api.get<Result<'getKennelOverview'>>('/kennel', { signal });
+
+export const listKennelChecks = (signal?: AbortSignal) =>
+  api.get<Result<'listKennelChecks'>>('/kennel/checks', { signal });
+
+export const listKennelRepositories = (
+  query?: Query<'listKennelRepositories'>,
+  signal?: AbortSignal,
+) => api.get<Result<'listKennelRepositories'>>('/kennel/repositories', { query, signal });
+
+export const getKennelRepository = (id: string, signal?: AbortSignal) =>
+  api.get<Result<'getKennelRepository'>>(`/kennel/repositories/${enc(id)}`, { signal });
+
+export const recheckKennelRepository = (id: string) =>
+  api.post<Result<'recheckKennelRepository'>>(`/kennel/repositories/${enc(id)}/recheck`);
+
 /* -- providers and machines ------------------------------------------------
  * "Provider" is the infrastructure a machine is rented from, and "machine" is
  * the thing rented. Neither is `listProvisioning` below, which is the queued

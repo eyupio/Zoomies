@@ -21,6 +21,7 @@
  */
 import {
   Activity,
+  Award,
   Ban,
   ChevronsUp,
   Circle,
@@ -61,6 +62,8 @@ import type {
   JobEventKind,
   JobState,
   JoinToken,
+  KennelCoverageState,
+  KennelState,
   MachineState,
   ProvisioningStatus,
   Pool,
@@ -851,6 +854,92 @@ export function severityStatus(severity: Severity | undefined): StatusMeta {
   if (severity === 'warning')
     return meta('warning', 'Warning', 'pending', 'triangle', TriangleAlert);
   return meta('info', 'Info', 'busy', 'hollow', Info);
+}
+
+/* -- Kennel Club ----------------------------------------------------------
+ * A repository's standing, and how far one source of facts about it could be
+ * read. Both reuse the six hues for what they already mean: a finding that
+ * needs attention is drawn as the worst thing open on it (an error is danger, a
+ * warning is pending), a source that could not be read is not a fault unless
+ * something actually went wrong reading it, and a permission an operator chose
+ * not to grant is neutral, never a problem.
+ * ------------------------------------------------------------------------ */
+
+/**
+ * What a repository's standing looks like. `worst` is the severity of the worst
+ * open finding and only matters for "attention", which is the one standing
+ * whose colour depends on what is in it.
+ *
+ * "Best in show" is the kennel word, so it follows the vocabulary switch like
+ * the runner states do; with plain words on it says what it means.
+ */
+export function kennelStatus(
+  state: KennelState | undefined,
+  worst?: Severity,
+  quirky = true,
+): StatusMeta {
+  switch (state) {
+    case 'best_in_show':
+      return meta(
+        'best_in_show',
+        quirky ? 'Best in show' : 'No open findings',
+        'idle',
+        'filled',
+        Award,
+        'Every check that is turned on ran against everything it needs, and nothing worse than a note is open.',
+      );
+    case 'attention':
+      return meta(
+        'attention',
+        'Needs attention',
+        worst === 'error' ? 'danger' : 'pending',
+        'triangle',
+        TriangleAlert,
+        'An error or a warning is open.',
+      );
+    case 'partial':
+      return meta(
+        'partial',
+        'Partly checked',
+        'neutral',
+        'dashed',
+        CircleDashed,
+        'Nothing is open, but something could not be read, so this is not an all clear.',
+      );
+    case 'pending':
+      return meta(
+        'pending',
+        'Pending',
+        'neutral',
+        'hollow',
+        Hourglass,
+        'Kennel Club has not looked at this repository yet.',
+      );
+    default:
+      return UNKNOWN;
+  }
+}
+
+/** Whether one source of facts about a repository could be read. */
+export function kennelCoverageStatus(state: KennelCoverageState | undefined): StatusMeta {
+  switch (state) {
+    case 'ok':
+      return meta('ok', 'Read', 'idle', 'filled', CircleCheck);
+    case 'partial':
+      return meta('partial', 'Partly read', 'pending', 'dashed', CircleDashed);
+    case 'denied':
+      return meta('denied', 'Not granted', 'neutral', 'slash', Lock);
+    case 'unavailable':
+      return meta('unavailable', 'Unavailable', 'neutral', 'dashed', CircleQuestionMark);
+    case 'held':
+      return meta('held', 'Held for a rate limit', 'draining', 'slash', Clock);
+    case 'error':
+      return meta('error', 'Could not be read', 'danger', 'triangle', TriangleAlert);
+    case 'not_read':
+      return meta('not_read', 'Not read', 'neutral', 'hollow', Minus);
+    default:
+      return UNKNOWN;
+  }
 }
 
 export type DeliveryStatus = 'accepted' | 'rejected' | 'error';
