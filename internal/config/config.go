@@ -513,12 +513,25 @@ type Security struct {
 	// handing it the settings page is a decision, not a side effect of the
 	// token being an administrator's.
 	MCPAdminTools bool `yaml:"mcp_admin_tools"`
-	// AutoApplyRemedies lets the controller make the change a problem proposes
-	// without anyone clicking it, once the same proposal has stood unchanged for
-	// two hours and at most once a day for a pool or host. Off by default: it is
-	// the controller editing its own fleet. Each change is recorded with what it
-	// replaced, and can be undone from the problems page.
-	AutoApplyRemedies bool `yaml:"auto_apply_remedies"`
+	// AutoApplyRemedies is off, shadow or on: whether the controller makes the change
+	// a problem proposes without anyone clicking it, once the same proposal has stood
+	// unchanged for two hours and at most once a day for a pool or host. Each change
+	// is recorded with what it replaced, and can be undone from the problems page.
+	// Shadow, the default, records what it would have done and changes nothing; true
+	// and false are the older spellings of on and off. Read it through
+	// AutoApplyMode, which says what an unset or older value means.
+	AutoApplyRemedies string `yaml:"auto_apply_remedies"`
+}
+
+// AutoApplyMode is AutoApplyRemedies as one of off, shadow or on.
+func (s Security) AutoApplyMode() string {
+	switch strings.ToLower(strings.TrimSpace(s.AutoApplyRemedies)) {
+	case "on", "true", "yes":
+		return "on"
+	case "off", "false", "no":
+		return "off"
+	}
+	return "shadow"
 }
 
 // GitHub configures the GitHub integration.
@@ -1035,6 +1048,9 @@ func Default() *Config {
 			// Registration only ever creates a client that has to be approved
 			// by somebody signing in, so being open costs a row, not access.
 			MCPOpenRegistration: true,
+			// Shadow records what the controller would have changed and changes nothing,
+			// so a deployment can read what turning it on would do before it does.
+			AutoApplyRemedies: "shadow",
 		},
 		GitHub: GitHub{
 			APIBaseURL:                "https://api.github.com",
