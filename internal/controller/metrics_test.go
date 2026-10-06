@@ -2,6 +2,7 @@ package controller
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/eyupio/zoomies/internal/agent"
+	"github.com/eyupio/zoomies/internal/hosttune"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
@@ -484,5 +486,286 @@ func TestEveryRunnerCreatedForAWaitingJobRecordsHowLongItWaited(t *testing.T) {
 	}
 	if mean := sum / float64(n); mean < 100 || mean > 200 {
 		t.Errorf("queued-to-create averaged %.0fs; the jobs were queued two minutes before the pass", mean)
+	}
+}
+
+// osHealthMetrics are the three families a host's OS report is exported as.
+var osHealthMetrics = []string{
+	"zoomies_host_os_checks", "zoomies_host_reboot_pending", "zoomies_host_health_report_age_seconds",
+}
+
+// osHealthSeries is every sample of the three OS health families in one scrape,
+// keyed by family, host and state. The value is a slice so that a duplicate is
+// something a test can see, rather than only something Gather refuses.
+func osHealthSeries(t *testing.T, c *Controller) map[[3]string][]float64 {
+	t.Helper()
+	families, err := c.Registry().Gather()
+	if err != nil {
+		t.Fatalf("gathering metrics: %v", err)
+	}
+	out := map[[3]string][]float64{}
+	for _, f := range families {
+		if !slices.Contains(osHealthMetrics, f.GetName()) {
+			continue
+		}
+		for _, m := range f.GetMetric() {
+			key := [3]string{f.GetName()}
+			for _, l := range m.GetLabel() {
+				switch l.GetName() {
+				case "host":
+					key[1] = l.GetValue()
+				case "state":
+					key[2] = l.GetValue()
+				default:
+					// The families carry the host and the state and nothing
+					// else; see TestTheOSHealthSeriesCarryNoCheckName.
+					t.Errorf("%s carries the label %q", f.GetName(), l.GetName())
+				}
+			}
+			out[key] = append(out[key], m.GetGauge().GetValue())
+		}
+	}
+	return out
+}
+
+// seriesFor is how many of the three families have a sample for a host.
+func seriesFor(series map[[3]string][]float64, hostID string) int {
+	n := 0
+	for k, v := range series {
+		if k[1] == hostID {
+			n += len(v)
+		}
+	}
+	return n
+}
+
+// The counts an alert reads are the counts a person is shown. Each state is its
+// own series, taken from the same Summary the problems and the host page read,
+// so a rule on the error count cannot disagree with the drawer about a host.
+//
+// The report has all three tiers, an optional check and a skip, because the
+// value of each state is the point: a suggestion is a warning that is only a
+// choice, an uncounted error is in no number, and a skipped check is not a
+// warning.
+func TestAHostsOSReportIsExportedAsCountsByState(t *testing.T) {
+	h := newHarness(t)
+	host := h.host("build-04")
+	r := report(h.c.Now().Add(-5*time.Minute),
+		// Counted: two warnings, one error, one skip and one pass.
+		check("inotify.watches", hosttune.Safe, hosttune.Warn, false),
+		check("disk.space", hosttune.Safe, hosttune.Warn, false),
+		check("docker.logs", hosttune.Safe, hosttune.Error, false),
+		check("files.service", hosttune.Safe, hosttune.Skip, false),
+		check("cgroup.version", hosttune.Safe, hosttune.OK, false),
+		// Suggestions: a safe check that is optional and the other two tiers.
+		check("tmp.tmpfs", hosttune.Safe, hosttune.Warn, true),
+		check("cpu.governor", hosttune.Aggressive, hosttune.Warn, false),
+		check("journal.size", hosttune.Dedicated, hosttune.Warn, false),
+		// An uncounted error is in no number, though it is still in the report.
+		check("service.snapd", hosttune.Dedicated, hosttune.Error, false),
+	)
+	r.RebootPending = true
+	h.reports(t, host, r)
+
+	for state, want := range map[string]float64{"warning": 2, "error": 1, "skipped": 1, "suggestion": 3} {
+		got, ok := gatherValue(t, h.c, "zoomies_host_os_checks", map[string]string{"host": host.ID, "state": state})
+		if !ok || got != want {
+			t.Errorf("zoomies_host_os_checks{state=%q} = %v (present=%v), want %v", state, got, ok, want)
+		}
+	}
+	if got, ok := gatherValue(t, h.c, "zoomies_host_reboot_pending", map[string]string{"host": host.ID}); !ok || got != 1 {
+		t.Errorf("zoomies_host_reboot_pending = %v (present=%v), want 1", got, ok)
+	}
+	// Taken five minutes ago by the host's clock. The scrape runs a moment
+	// later on the controller's, which is all the slack there is.
+	age, ok := gatherValue(t, h.c, "zoomies_host_health_report_age_seconds", map[string]string{"host": host.ID})
+	if want := (5 * time.Minute).Seconds(); !ok || age < want || age > want+30 {
+		t.Errorf("zoomies_host_health_report_age_seconds = %v (present=%v), want about %v", age, ok, want)
+	}
+}
+
+// A pending reboot is one fact, and the metrics say it once. The report carries
+// it twice -- as the flag and as the kernel.pending warning -- so counting both
+// would give an alert on the warning count a host whose only finding is a
+// reboot, and the drawer would say that host needs a reboot and nothing else.
+func TestAPendingRebootIsExportedOnceAndNotAsAWarning(t *testing.T) {
+	h := newHarness(t)
+	host := h.host("needs-reboot")
+	r := report(h.c.Now(), check(hosttune.KernelPending, hosttune.Safe, hosttune.Warn, false))
+	r.RebootPending = true
+	h.reports(t, host, r)
+
+	if got, ok := gatherValue(t, h.c, "zoomies_host_os_checks", map[string]string{"host": host.ID, "state": "warning"}); !ok || got != 0 {
+		t.Errorf("warnings = %v (present=%v), want 0: the reboot is not also a failing check", got, ok)
+	}
+	if got, ok := gatherValue(t, h.c, "zoomies_host_reboot_pending", map[string]string{"host": host.ID}); !ok || got != 1 {
+		t.Errorf("zoomies_host_reboot_pending = %v (present=%v), want 1", got, ok)
+	}
+}
+
+// A host with a clean report reports zeroes rather than nothing. A series that
+// exists only while something is wrong cannot be alerted on with a threshold,
+// because the rule stops matching exactly when it would otherwise fire.
+func TestAHostWithACleanReportExportsZeroesForEveryState(t *testing.T) {
+	h := newHarness(t)
+	host := h.host("clean")
+	h.reports(t, host, report(h.c.Now(), check("cgroup.version", hosttune.Safe, hosttune.OK, false)))
+
+	for _, state := range []string{"warning", "error", "skipped", "suggestion"} {
+		got, ok := gatherValue(t, h.c, "zoomies_host_os_checks", map[string]string{"host": host.ID, "state": state})
+		if !ok || got != 0 {
+			t.Errorf("zoomies_host_os_checks{state=%q} = %v (present=%v), want a present zero", state, got, ok)
+		}
+	}
+	if got, ok := gatherValue(t, h.c, "zoomies_host_reboot_pending", map[string]string{"host": host.ID}); !ok || got != 0 {
+		t.Errorf("zoomies_host_reboot_pending = %v (present=%v), want a present zero", got, ok)
+	}
+}
+
+// The three series are absent wherever the problems say nothing, because they
+// ask the same question. Missing is not zero: a zero for a host nobody has
+// looked at is a clean bill of health that nobody issued, and a container's
+// partial report would otherwise carry its image's distribution warning as an
+// error count for ever.
+func TestTheOSHealthSeriesAreAbsentWhereThereIsNothingFairToSay(t *testing.T) {
+	findings := func() []hosttune.Result {
+		return []hosttune.Result{
+			check("inotify.watches", hosttune.Safe, hosttune.Warn, false),
+			check("docker.logs", hosttune.Safe, hosttune.Error, false),
+		}
+	}
+	cases := []struct {
+		name  string
+		setup func(t *testing.T, h *harness, host *store.Host)
+	}{
+		{"a host that has sent no report", func(t *testing.T, h *harness, host *store.Host) {}},
+		{"an offline host, whatever its last report said", func(t *testing.T, h *harness, host *store.Host) {
+			h.silence(t, host)
+			r := report(h.c.Now().Add(-time.Hour), findings()...)
+			r.RebootPending = true
+			h.reports(t, host, r)
+		}},
+		{"a container's partial report", func(t *testing.T, h *harness, host *store.Host) {
+			r := report(h.c.Now(), findings()...)
+			r.Container, r.RebootPending = true, true
+			h.reports(t, host, r)
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			host := h.host("quiet")
+			tc.setup(t, h, host)
+
+			if n := seriesFor(osHealthSeries(t, h.c), host.ID); n != 0 {
+				t.Errorf("%d OS health samples for the host, want none", n)
+			}
+			// And through the question an alert asks, of each of the three
+			// families a rule could be written on.
+			for _, name := range osHealthMetrics {
+				labels := map[string]string{"host": host.ID}
+				if got, ok := gatherValue(t, h.c, name, labels); ok {
+					t.Errorf("%s = %v for a host there is nothing fair to say about, want it absent", name, got)
+				}
+			}
+		})
+	}
+}
+
+// Gather refuses a duplicate sample outright, so a collector that wrote a state
+// twice would take the whole scrape down with it. This holds the shape: four
+// states and the two single series for each reporting host, one sample each, and
+// none for the host that has not reported.
+func TestEachReportingHostHasOneSamplePerStateAndNoOneElseHasAny(t *testing.T) {
+	h := newHarness(t)
+	first := h.host("build-01")
+	second := h.host("build-02")
+	silent := h.host("build-03")
+	h.reports(t, first, report(h.c.Now(), check("inotify.watches", hosttune.Safe, hosttune.Warn, false)))
+	h.reports(t, second, report(h.c.Now(), check("docker.logs", hosttune.Safe, hosttune.Error, false)))
+
+	series := osHealthSeries(t, h.c)
+	for _, host := range []*store.Host{first, second} {
+		for _, state := range []string{"warning", "error", "skipped", "suggestion"} {
+			if got := series[[3]string{"zoomies_host_os_checks", host.ID, state}]; len(got) != 1 {
+				t.Errorf("%s state %q has %d samples, want exactly 1", host.Name, state, len(got))
+			}
+		}
+		for _, name := range []string{"zoomies_host_reboot_pending", "zoomies_host_health_report_age_seconds"} {
+			if got := series[[3]string{name, host.ID, ""}]; len(got) != 1 {
+				t.Errorf("%s has %d samples of %s, want exactly 1", host.Name, len(got), name)
+			}
+		}
+		if n := seriesFor(series, host.ID); n != 6 {
+			t.Errorf("%s has %d OS health samples, want 6: four states, the reboot and the age", host.Name, n)
+		}
+	}
+	if n := seriesFor(series, silent.ID); n != 0 {
+		t.Errorf("%s has not reported and has %d OS health samples", silent.Name, n)
+	}
+	// The host with the warning and the host with the error are told apart: the
+	// label is the host's id, and each count is its own.
+	if got := series[[3]string{"zoomies_host_os_checks", first.ID, "warning"}]; got[0] != 1 {
+		t.Errorf("%s warnings = %v, want 1", first.Name, got)
+	}
+	if got := series[[3]string{"zoomies_host_os_checks", second.ID, "error"}]; got[0] != 1 {
+		t.Errorf("%s errors = %v, want 1", second.Name, got)
+	}
+}
+
+// A report is accepted up to a minute ahead of the controller's clock, so a host
+// whose clock runs a little fast sends one that is, to the controller, from the
+// future. The age is reported as zero then: a negative age is not a freshness
+// anyone can alert on, and it would sit below every threshold rule's floor.
+func TestAReportFromTheFutureHasAnAgeOfZeroNotNegative(t *testing.T) {
+	h := newHarness(t)
+	host := h.host("fast-clock")
+	h.reports(t, host, report(h.c.Now().Add(30*time.Second)))
+
+	got, ok := gatherValue(t, h.c, "zoomies_host_health_report_age_seconds", map[string]string{"host": host.ID})
+	if !ok || got != 0 {
+		t.Errorf("zoomies_host_health_report_age_seconds = %v (present=%v), want 0", got, ok)
+	}
+}
+
+// A stale report is still reported, with an age that has passed ten minutes. The
+// age is the freshness signal: dropping the series would make a stopped
+// collector look like a host with nothing to say, and an alert on age above
+// ReportStaleAfter agrees with host.health_stale because it reads the same clock.
+func TestAStaleReportIsStillExportedAndItsAgeSaysSo(t *testing.T) {
+	h := newHarness(t)
+	host := h.host("quiet-collector")
+	h.reports(t, host, report(h.c.Now().Add(-hosttune.ReportStaleAfter-time.Minute),
+		check("inotify.watches", hosttune.Safe, hosttune.Warn, false)))
+
+	age, ok := gatherValue(t, h.c, "zoomies_host_health_report_age_seconds", map[string]string{"host": host.ID})
+	if !ok || age <= hosttune.ReportStaleAfter.Seconds() {
+		t.Errorf("age = %v (present=%v), want it reported and past %v", age, ok, hosttune.ReportStaleAfter.Seconds())
+	}
+	if got, ok := gatherValue(t, h.c, "zoomies_host_os_checks", map[string]string{"host": host.ID, "state": "warning"}); !ok || got != 1 {
+		t.Errorf("a stale report's warnings = %v (present=%v), want 1: a stopped collector does not fix a setting", got, ok)
+	}
+}
+
+// The endpoint can be public, and a check id such as docker.logs names a setting
+// a host has not changed. These series are counts, so no check, title or any
+// text the agent wrote may reach a label or a value.
+func TestTheOSHealthSeriesCarryNoCheckName(t *testing.T) {
+	h := newHarness(t)
+	host := h.host("build-04")
+	h.reports(t, host, report(h.c.Now(),
+		check("docker.logs", hosttune.Safe, hosttune.Error, false),
+		check("inotify.watches", hosttune.Safe, hosttune.Warn, false),
+		check("cpu.governor", hosttune.Aggressive, hosttune.Warn, false)))
+
+	// osHealthSeries fails on any label other than host and state.
+	allowed := map[string]bool{"warning": true, "error": true, "skipped": true, "suggestion": true, "": true}
+	for key := range osHealthSeries(t, h.c) {
+		if !allowed[key[2]] {
+			t.Errorf("%s has the state %q, which is not one of the four", key[0], key[2])
+		}
+		if key[1] != host.ID {
+			t.Errorf("%s is labelled with host %q, want the host's id %q", key[0], key[1], host.ID)
+		}
 	}
 }

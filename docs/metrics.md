@@ -68,6 +68,9 @@ memory, so they are always current and never drift.
 | `zoomies_host_load_average_1m` | gauge | `host` | Recent whole-host one-minute load average. Missing when stale or unmeasured. Past twice the host's CPUs it is what throttles the host; under one per CPU is calm. |
 | `zoomies_host_runtime_recovering` | gauge | `host` | 1 while the host's agent reports its container runtime in a recovery cooldown — new starts held until one recovery attempt — and 0 otherwise. Reported for every host. The drawer's `host.runtime_recovering` says which failure it is and when the attempt is due. |
 | `zoomies_host_throttle_level` | gauge | `host` | The rung of the throttle ladder the host is on after sustained pressure, 0 to 3. Reported for every host, throttled or not, so a threshold rule keeps matching when nothing is wrong. |
+| `zoomies_host_os_checks` | gauge | `host`, `state` | The checks on a host's latest [OS report](host-health.md) that need attention, by `warning`, `error`, `skipped` or `suggestion`. The first three count only what `zoomies doctor` counts by default — the safe tier, without optional checks — and are the numbers the host page and the `host.os_health` problem use; a pending reboot is not one of the warnings, because `zoomies_host_reboot_pending` says it. `suggestion` is a warning that is only a choice, from another tier or optional. All four are reported for every host with a report, zeroes included, so a threshold rule keeps matching when nothing is wrong; there is no `ok` state, so the four do not add up to the number of checks. Missing for a host that is offline, has sent no report or sent only a container's partial one. Counts only, never the name of a check. |
+| `zoomies_host_reboot_pending` | gauge | `host` | 1 while the host's latest OS report says an update is waiting for a reboot, 0 otherwise. Missing in the same cases as the series above. The drawer's `host.reboot_pending` is an info note, so this is for finding hosts that are overdue for one rather than for paging. |
+| `zoomies_host_health_report_age_seconds` | gauge | `host` | How old the host's latest OS report is, by the host's own clock, and never below zero. It is the freshness signal: a host whose collector has stopped is still reported and its age climbs, so a value above 600 is the same ten minutes as `host.health_stale`. Missing in the same cases as the series above. |
 | `zoomies_host_allocatable_cpus` | gauge | — | CPUs across healthy, uncordoned hosts, less each host's reserve. |
 | `zoomies_host_allocatable_memory_bytes` | gauge | — | The same for memory. |
 | `zoomies_host_reserved_cpus` | gauge | — | What the live runners have promised away, as of the last scheduling pass. |
@@ -143,6 +146,13 @@ Every `pool` label is the pool's **name**, so a query can join these against
 the gauges above on `pool`. Work no pool claims is counted under the literal
 `unmatched` — a real pool of that name would merge with it, which is a reason
 not to name one that.
+
+Every `host` label is the host's **ID**, as `zoomies hosts list` prints it in
+its `id` column, not its name, so a query can join the host series against one
+another on `host`. The OS health series are counts and nothing else: no check's
+name is ever a label or a value, because a check such as Docker log rotation
+says which setting a host has not changed. With `metrics.public` on, these
+counts are readable by anyone who can reach the endpoint.
 
 `zoomies_image_prewarm_duration_seconds` is the matching histogram, with the
 same `pool`, `backend` and `outcome` labels. It measures the complete agent-side
@@ -324,6 +334,17 @@ being down:
 * `zoomies_host_throttle_level` above zero for longer than a job takes, which
   is a host with too many slots for its machine rather than a host having a
   bad afternoon.
+* `zoomies_host_os_checks{state="error"} > 0` and
+  `zoomies_host_health_report_age_seconds > 600` are the two worth a page: an
+  error is a check that could not run, so nobody knows what that host is
+  doing, and ten minutes without a report is a collector that has stopped —
+  the same ten minutes after which the drawer raises `host.health_stale`.
+* `sum(zoomies_host_os_checks{state="warning"})` is a ticket and never a
+  page, because a stock host carries some warnings for ever. The useful
+  question is whether a host got worse, which is
+  `delta(zoomies_host_os_checks{state="warning"}[1d]) > 0`.
+* Nothing on `state="suggestion"`. Those are choices the operator has not
+  made, and the drawer raises nothing for them either.
 * `absent(zoomies_runners)`, which catches the case above where the gauges stop
   being reported at all.
 
