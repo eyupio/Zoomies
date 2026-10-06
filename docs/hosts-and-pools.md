@@ -715,7 +715,7 @@ number could not say "more CPU to the sidecar, and keep the memory".
 
 Nobody knows where their jobs work when a pool is made, so each preset is priced on
 the hosts the pool will land on, and a new pool starts on one that costs nothing.
-That pricing matters: a skewed split raises the thinner half to its minimum and the
+That cost matters: a skewed split raises the thinner half to its minimum and the
 slot grows with it, so the same preset keeps every runner on a fleet of large slots
 and loses most of them on a fleet of small ones. The editor says which, in runners,
 beside each choice, and starts on *Image builds in the sidecar* only where it loses

@@ -463,7 +463,7 @@ func (c *Controller) daemonShareAdviceProblems(ctx context.Context, out *[]Probl
 		}
 		room, err := c.poolRoom(ctx, p)
 		if err != nil {
-			return fmt.Errorf("pricing pool %s's sidecar share: %w", p.Name, err)
+			return fmt.Errorf("sizing pool %s's sidecar share: %w", p.Name, err)
 		}
 		var lines, flags, held []string
 		pinned := false
@@ -473,7 +473,7 @@ func (c *Controller) daemonShareAdviceProblems(ctx context.Context, out *[]Probl
 				continue
 			}
 			if err := c.affordShare(ctx, p, room, r); err != nil {
-				return fmt.Errorf("pricing pool %s's sidecar %s share: %w", p.Name, strings.ToLower(r.Resource), err)
+				return fmt.Errorf("sizing pool %s's sidecar %s share: %w", p.Name, strings.ToLower(r.Resource), err)
 			}
 			hot, idle, raise, flag := "runner", "Docker sidecar", "lower", "--daemon-"+strings.ToLower(r.Resource)+"-share"
 			if r.DaemonHot {
