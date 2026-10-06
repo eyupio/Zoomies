@@ -366,6 +366,10 @@ func (c *Controller) prune(ctx context.Context) {
 		}
 	}
 
+	// Kennel Club's own rows, ninety days after the fleet last served the
+	// repository they are about. This runs with the feature off.
+	c.pruneKennel(ctx, now)
+
 	if n, err := c.st.PruneSessions(ctx, now); err != nil {
 		c.log.Warn("could not prune expired sessions", "error", err)
 	} else if n > 0 {

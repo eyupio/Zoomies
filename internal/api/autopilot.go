@@ -37,6 +37,11 @@ import (
 //     only while nobody has edited the target since. A proposal that has been made
 //     once is never made again, whether it was undone here or put back by hand:
 //     whoever reversed it has answered the question.
+//   - A memory share it gave a sidecar is taken back if a job in that pool is killed
+//     for memory afterwards, to what it replaced and only while nobody has edited the
+//     pool since. Autopilot sizes by what jobs used, and a kill is the proof that it was
+//     wrong; leaving the change for an operator to notice is how one wrong guess
+//     becomes a week of dead jobs.
 //   - It makes one change a pass. Each one changes what the next proposal would
 //     be, and the next pass is the controller's chance to see that.
 const (
@@ -44,6 +49,9 @@ const (
 	autopilotSteady   = 2 * time.Hour
 	autopilotCooldown = 24 * time.Hour
 	autopilotRetry    = time.Hour
+	// autopilotWatch is how long after a memory share change a kill in the pool is blamed
+	// on it. A week spans the weekly build that a window of light jobs would not.
+	autopilotWatch = 7 * 24 * time.Hour
 	// autoAppliedHistory is how far back the list of automatic changes reaches,
 	// which is also how long an undo is offered.
 	autoAppliedHistory = 30 * 24 * time.Hour
@@ -105,6 +113,14 @@ func (s *Server) autopilotPass(ctx context.Context) error {
 	now := s.ctrl.Now()
 	st.lastPass = now
 
+	// Taking a harmful change back comes before making a new one, and does not wait on
+	// the proposals below: it is about what already happened, not about what is proposed.
+	if mode == "on" {
+		if err := s.revertShareAfterMemoryKill(ctx, now); err != nil {
+			return err
+		}
+	}
+
 	items, err := s.ctrl.Problems(ctx)
 	if err != nil {
 		return fmt.Errorf("gathering the current problems: %w", err)
@@ -162,6 +178,78 @@ func (s *Server) autopilotPass(ctx context.Context) error {
 		return nil
 	}
 	return nil
+}
+
+// revertShareAfterMemoryKill takes back a sidecar memory share autopilot gave a pool
+// when a job in the pool has been killed for memory since.
+//
+// The advice is sized on what jobs used, and a kill says that was too little for some
+// job. The change is put back to what it replaced through the pool's own update, exactly
+// as an operator's undo is, so it is refused where that is and it never runs over an
+// edit: a pool somebody has changed since is left as they have it, and the change is
+// recorded as superseded so it is not looked at again. Either way the proposal is not
+// made again, because the record names it.
+func (s *Server) revertShareAfterMemoryKill(ctx context.Context, now time.Time) error {
+	records, undone, err := s.autoAppliedRecords(ctx)
+	if err != nil {
+		return fmt.Errorf("reading the automatic changes: %w", err)
+	}
+	for _, rec := range records {
+		if undone[rec.row.ID] || rec.kind != controller.RemedyPoolUpdate || rec.code != "pool.daemon_share_suggested" || rec.applied == nil {
+			continue
+		}
+		if now.Sub(rec.row.CreatedAt) > autopilotWatch || !changedMemoryShare(rec.before, rec.applied) {
+			continue
+		}
+		since := rec.row.CreatedAt
+		stats, err := s.ctrl.Store().JobStats(ctx, store.JobFilter{Since: &since, PoolIDs: []string{rec.row.TargetID}}, []string{store.GroupByPool})
+		if err != nil {
+			return fmt.Errorf("reading what the pool's jobs have done since the change: %w", err)
+		}
+		killed := 0
+		for _, g := range stats.Groups {
+			killed += g.OOMKilled
+		}
+		if killed == 0 {
+			continue
+		}
+		fields := map[string]any{"undoes": rec.row.ID, "remedy": rec.remedy, "label": rec.label, "auto": true,
+			"reason": fmt.Sprintf("%d job(s) in the pool were killed for memory after the change", killed)}
+		if !s.untouchedSince(ctx, rec) {
+			fields["superseded"] = true
+			s.auth.Auditor().Record(ctx, autopilotIdentity, auditAutoUndone, "pool", rec.row.TargetID, nil, fields)
+			s.log.Info("a memory kill followed an automatic share change, but the pool was edited since so it is left as it is", "pool", rec.row.TargetID)
+			continue
+		}
+		payload, err := json.Marshal(rec.before)
+		if err != nil {
+			return err
+		}
+		if status, answer := s.callAs(ctx, autopilotIdentity, http.MethodPatch, "/api/v1/pools/"+rec.row.TargetID, payload); status >= 400 {
+			s.log.Warn("could not take back an automatic share change after a memory kill", "pool", rec.row.TargetID, "status", status, "answer", string(bytes.TrimSpace(answer)))
+			continue
+		}
+		s.auth.Auditor().Record(ctx, autopilotIdentity, auditAutoUndone, "pool", rec.row.TargetID, rec.applied, fields)
+		s.log.Info("took back an automatic share change: a job was killed for memory after it", "pool", rec.row.TargetID, "killed", killed)
+		return nil
+	}
+	return nil
+}
+
+// changedMemoryShare reports whether a pool's resources, before and after an automatic
+// change, differ in a share that decides what the sidecar's memory is.
+func changedMemoryShare(before, applied map[string]any) bool {
+	for _, key := range []string{"daemon_share_percent", "daemon_memory_share_percent"} {
+		if !reflect.DeepEqual(resourceField(before, key), resourceField(applied, key)) {
+			return true
+		}
+	}
+	return false
+}
+
+func resourceField(snapshot map[string]any, key string) any {
+	res, _ := snapshot["resources"].(map[string]any)
+	return res[key]
 }
 
 // mayAutoApply is the cooldown and the once-only rule: false when this target has

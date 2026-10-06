@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -414,6 +416,21 @@ func (c *apiClient) transportError(method, path string, err error) error {
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return fmt.Errorf("%s %s timed out after %s; raise --timeout, or check that %s is reachable from here", method, path, c.timeout, c.base)
+	}
+	// It answered, and not as the address said it would: the two mistakes that look like
+	// "is it running" and are not. Both name the flag that fixes them.
+	var unknownAuthority x509.UnknownAuthorityError
+	var hostname x509.HostnameError
+	var invalid x509.CertificateInvalidError
+	var tlsCert *tls.CertificateVerificationError
+	switch {
+	case errors.As(err, &unknownAuthority) || errors.As(err, &hostname) || errors.As(err, &invalid) || errors.As(err, &tlsCert):
+		return fmt.Errorf("the controller at %s answered, but its certificate is not trusted from here: %w\n"+
+			"  if it is self-signed or from a private CA, give the CLI that certificate with --ca-file (or ZOOMIES_CA_FILE, or ca_file in the CLI's connection file); "+
+			"on the controller's own host it is in its tls directory, and if the name in --url is not one the certificate carries, use a name it does", c.base, err)
+	case errors.Is(err, http.ErrSchemeMismatch) || strings.Contains(err.Error(), "server gave HTTP response to HTTPS client"):
+		return fmt.Errorf("the controller at %s answered in plain HTTP, but the address says https: %w\n"+
+			"  use --url with http:// and the port it listens on, unless it is meant to be behind TLS, in which case check what answers on that port", c.base, err)
 	}
 	return fmt.Errorf("cannot reach the controller at %s: %w\n"+
 		"  check that it is running, that --url (or ZOOMIES_URL) is right, and that nothing between you and it is blocking the port", c.base, err)

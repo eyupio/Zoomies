@@ -41,7 +41,7 @@ func (p *upgradePlan) cliConfigChanges(s deploymentSettings) []layoutChange {
 		return nil
 	}
 	return []layoutChange{{
-		what: "the CLI's connection file " + path + ", naming this controller at " + url + " (no token), so `zoomies pools` and the rest work on this host",
+		what: "the CLI's connection file " + path + ", naming this controller at " + url + " (no token), so `zoomies` on this host knows where the controller is; every command still needs a token added to it",
 		apply: func(context.Context) error {
 			_, err := cliconfig.EnsureURL(path, url)
 			return err

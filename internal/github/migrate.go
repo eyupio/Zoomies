@@ -65,11 +65,18 @@ type Readme struct {
 // something, and assuming "main" is how a migration silently fails on a
 // repository that still uses "master".
 func (c *appClient) ListRepositories(ctx context.Context, limit int) ([]Repository, error) {
+	return c.listRepositories(ctx, c.asInstallation, limit)
+}
+
+// listRepositories is ListRepositories through whichever client the caller
+// chooses: the migration wizard and the poller read as they always have, and
+// Kennel Club reads through the conditional one.
+func (c *appClient) listRepositories(ctx context.Context, client *gh.Client, limit int) ([]Repository, error) {
 	if limit <= 0 || limit > maxScanRepos {
 		limit = maxScanRepos
 	}
 	if !c.isOrg() {
-		repo, resp, err := c.asInstallation.Repositories.Get(ctx, c.owner, c.repo)
+		repo, resp, err := client.Repositories.Get(ctx, c.owner, c.repo)
 		if err != nil {
 			return nil, c.fail(fmt.Sprintf("read repository %s", c.target), resp, err)
 		}
@@ -82,7 +89,7 @@ func (c *appClient) ListRepositories(ctx context.Context, limit int) ([]Reposito
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		page, resp, err := c.asInstallation.Apps.ListRepos(ctx, opts)
+		page, resp, err := client.Apps.ListRepos(ctx, opts)
 		if err != nil {
 			return nil, c.fail("list repositories visible to the installation", resp, err)
 		}
@@ -104,6 +111,13 @@ func (c *appClient) ListRepositories(ctx context.Context, limit int) ([]Reposito
 }
 
 func repositoryOf(r *gh.Repository) Repository {
+	vis := r.GetVisibility()
+	if vis == "" {
+		vis = "public"
+		if r.GetPrivate() {
+			vis = "private"
+		}
+	}
 	return Repository{
 		ID:            r.GetID(),
 		FullName:      r.GetFullName(),
@@ -111,6 +125,7 @@ func repositoryOf(r *gh.Repository) Repository {
 		Private:       r.GetPrivate(),
 		Archived:      r.GetArchived(),
 		HTMLURL:       r.GetHTMLURL(),
+		Visibility:    vis,
 	}
 }
 

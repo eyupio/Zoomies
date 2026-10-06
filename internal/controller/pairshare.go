@@ -465,6 +465,13 @@ func (c *Controller) daemonShareAdviceProblems(ctx context.Context, out *[]Probl
 		if err != nil {
 			return fmt.Errorf("sizing pool %s's sidecar share: %w", p.Name, err)
 		}
+		// A share changes what a host's agent gives the sidecar only if the agent divides by
+		// it. Where one that does not is among the hosts the pool can land on, a proposal is
+		// a proposal to change a number that host ignores, and pool.daemon_share_unsupported
+		// says so; it is not made.
+		if _, unsupported := heldWithoutDaemonShare(p, room.Placeable()); unsupported {
+			continue
+		}
 		var lines, flags, held []string
 		pinned := false
 		titles := []string{}

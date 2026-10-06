@@ -309,6 +309,13 @@ func TestNoMetricDeclaresAnUnboundedLabel(t *testing.T) {
 		// never become is the job, the workflow or the repository a class was
 		// worked out for, which is what the job's own page is for.
 		"class": true, "ran_class": true, "basis": true, "from": true, "to": true,
+		// "code" is a Kennel Club check's code -- exposure.fork_code_ran and its
+		// few siblings -- from the closed registry in internal/kennel, a list
+		// somebody writes in the source and a test holds to the documentation. It
+		// must never become what a finding is about, which is a repository or a
+		// run: that is what the repository's own page is for, and a label of
+		// repositories would multiply every series by the fleet's size.
+		"code": true,
 	}
 
 	descs := make(chan *prometheus.Desc, 256)

@@ -42,6 +42,10 @@ const (
 	PrefixAIContext    = "aic"
 	// PrefixAIArtifact names one version of an assistant-written note.
 	PrefixAIArtifact = "aia"
+	// The Kennel Club rows: a repository whose standards are being checked,
+	// and a waiver a person recorded about one of its findings.
+	PrefixKennelRepository = "kcr"
+	PrefixKennelWaiver     = "kcw"
 )
 
 var idEncoding = base32.NewEncoding("abcdefghijklmnopqrstuvwxyz234567").WithPadding(base32.NoPadding)

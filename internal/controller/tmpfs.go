@@ -171,6 +171,67 @@ func heldWithoutTmpfs(p *store.Pool, hosts []PoolHostRoom) (Problem, bool) {
 	}, true
 }
 
+// heldWithoutDaemonShare names the hosts on which a docker-in-docker pool's sidecar
+// share is not honoured.
+//
+// The share is applied by the agent that creates the pair. An agent too old to
+// advertise that it can splits the slot evenly whatever the pool says, while the ledger
+// charges the pair by the share: the pool reads 80% and the daemon is given half, with
+// nothing to say so. Only a pool that asks for something other than the even split is
+// affected, and only the hosts it can be placed on count.
+func heldWithoutDaemonShare(p *store.Pool, hosts []PoolHostRoom) (Problem, bool) {
+	if p.DockerMode != store.DockerDinD || p.FromHosts() {
+		return Problem{}, false
+	}
+	if p.Resources.DaemonCPUPercent() == store.DefaultDaemonSharePercent && p.Resources.DaemonMemoryPercent() == store.DefaultDaemonSharePercent {
+		return Problem{}, false
+	}
+	var names []string
+	for _, h := range hosts {
+		if !h.DaemonShare {
+			names = append(names, h.Host)
+		}
+	}
+	if len(names) == 0 {
+		return Problem{}, false
+	}
+	return Problem{
+		Code:     "pool.daemon_share_unsupported",
+		Severity: config.SeverityWarning,
+		Title: fmt.Sprintf("pool %s: %d of its %s %s an agent that does not divide a slot by the sidecar's share",
+			p.Name, len(names), plural(len(hosts), "host"), map[bool]string{true: "runs", false: "run"}[len(names) == 1]),
+		Detail: "the agent on a host divides a docker-in-docker slot between the runner and its daemon, and these agents are too old to say they follow the pool's shares: " +
+			strings.Join(names, ", ") + ". A runner placed there is given half of the slot for each container whatever the share says, while the host is charged by the share.",
+		Fix: "upgrade the agent on those hosts -- the command is on each host's card under Hosts -- " +
+			"or point the pool at other hosts with its host selector until they are.",
+		TargetKind: "pool",
+		TargetID:   p.ID,
+	}, true
+}
+
+// daemonShareHostProblems is the standing form of heldWithoutDaemonShare: the dry run
+// warns while a pool is being edited, and this keeps saying so afterwards, because an
+// agent that is not upgraded splits the slot evenly with nothing on the pool to show it.
+func (c *Controller) daemonShareHostProblems(ctx context.Context, out *[]Problem) error {
+	pools, err := c.st.ListPools(ctx)
+	if err != nil {
+		return fmt.Errorf("listing pools: %w", err)
+	}
+	for _, p := range pools {
+		if !p.Enabled || p.DockerMode != store.DockerDinD {
+			continue
+		}
+		room, err := c.PoolRoom(ctx, p)
+		if err != nil {
+			return fmt.Errorf("counting the room pool %s has: %w", p.Name, err)
+		}
+		if w, ok := heldWithoutDaemonShare(p, room.Placeable()); ok {
+			*out = append(*out, w)
+		}
+	}
+	return nil
+}
+
 // keptOnDiskByHost names the hosts where an operator has turned in-memory
 // folders off.
 //

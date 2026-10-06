@@ -167,7 +167,11 @@ func ProjectStatus(problems []Problem, stats *Stats) FleetStatus {
 // severity on the list. An AI Context workflow that cannot publish is a real
 // error for the person who set it up, and has nothing to do with whether any job
 // runs: letting it in would turn the page to "blocked" over a repository's
-// assistant context. It has no public sentence, and a test holds it to that.
+// assistant context. A repository falling short of a standard is the same, and
+// worse to publish: a status page that said which repositories the fleet runs
+// code for, and that one of them is exposed, would be a map for the stranger the
+// finding is about. None of them has a public sentence, and a test holds them to
+// that.
 //
 // The three host OS health codes are the same kind of exception. They say
 // whether a machine's settings match a recommendation, not whether a job will
@@ -179,7 +183,7 @@ func statusExempt(code string) bool {
 	case "host.os_health", "host.health_stale", "host.reboot_pending":
 		return true
 	}
-	return strings.HasPrefix(code, "ai_context.")
+	return strings.HasPrefix(code, "ai_context.") || strings.HasPrefix(code, "kennel.")
 }
 
 // countBand says a count roughly.
@@ -319,6 +323,7 @@ var publicSentences = map[string]string{
 	"host.slots_below_capacity":                     "A machine could hold more runners than it does, because each runner is sized larger than the machine divides into, while jobs have been waiting for room.",
 	"pool.tmpfs_auto_on_disk":                       "Some runners keep their working files on disk because they are too small for memory to be worth using.",
 	"pool.tmpfs_suggested":                          "Jobs on some runners are slow and their machines have spare memory, so keeping working files in memory could speed them up.",
+	"pool.daemon_share_unsupported":                 "Some machines give a Docker-in-Docker runner's daemon half of its slot whatever the pool asks for, until their agent is upgraded.",
 	"pool.tmpfs_unsupported":                        "Some machines cannot keep runners' working files in memory, so those runners use disk as before.",
 	"provider.bootstrap_failed":                     "A newly rented machine failed to join the fleet.",
 	"provider.contract_unsupported":                 "The fleet cannot rent machines from one of its providers.",

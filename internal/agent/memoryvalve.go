@@ -173,7 +173,7 @@ type memoryRules struct {
 // the way it has to be, which is Linux's procfs; elsewhere there is nothing to
 // check a loan against, and a loan that cannot be checked is not made.
 func (a *Agent) features() []string {
-	out := []string{FeatureElasticCPU, FeatureToolCacheFill, FeatureTmpfs}
+	out := []string{FeatureElasticCPU, FeatureToolCacheFill, FeatureTmpfs, FeatureDaemonShare}
 	if a.opts.ReadMemory != nil {
 		return append(out, FeatureElasticMemory)
 	}

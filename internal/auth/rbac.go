@@ -119,6 +119,23 @@ const (
 	ActionContextPublish Action = "context.publish"
 )
 
+// Kennel Club says which of the fleet's repositories fall short of a standard
+// that affects running CI or the fleet itself. Reading it is every role's. Asking
+// for a repository to be read again spends GitHub requests the scheduler shares,
+// and waiving a finding is a recorded decision with a reason and an owner, so both
+// are an operator's.
+//
+// Waiving an error is a fourth action and not a second check inside a handler,
+// for the reason the policy is one table: an error is a stranger already running
+// code on the fleet, the decision that this is acceptable is an administrator's,
+// and a scoped token has to be able to be given the one without the other.
+const (
+	ActionKennelRead       Action = "kennel.read"
+	ActionKennelRecheck    Action = "kennel.recheck"
+	ActionKennelWaive      Action = "kennel.waive"
+	ActionKennelWaiveError Action = "kennel.waive_error"
+)
+
 // Migrations move a repository's workflows onto this fleet, which means
 // opening pull requests in repositories Zoomies does not own. Reading a plan
 // is an operator's job rather than a viewer's because it costs a burst of
@@ -190,6 +207,11 @@ const (
 // settings. Deleting a host is an admin action rather than an operator one
 // because it removes a machine's whole history, not just a runner.
 var actionRoles = map[Action]store.Role{
+	ActionKennelRead:       store.RoleViewer,
+	ActionKennelRecheck:    store.RoleOperator,
+	ActionKennelWaive:      store.RoleOperator,
+	ActionKennelWaiveError: store.RoleAdmin,
+
 	ActionContextRead:      store.RoleViewer,
 	ActionContextConfigure: store.RoleAdmin,
 	ActionContextManage:    store.RoleViewer,
@@ -348,6 +370,9 @@ func Allowed(id *Identity, a Action) bool {
 // refusing it its own would break every such token the day tokens.own arrived.
 var impliedBy = map[Action][]Action{
 	ActionTokensOwn: {ActionTokensRead, ActionTokensWrite},
+	// A token minted to waive errors is minted to waive, and the route asks for
+	// kennel.waive first; refusing it that would make the wider scope useless.
+	ActionKennelWaive: {ActionKennelWaiveError},
 }
 
 // scopesAllow reports whether any scope in the list covers a.

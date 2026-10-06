@@ -470,3 +470,24 @@ func TestAMemoryShareIsNeverProposedThatShrinksTheRunnerBelowItsOwnPeak(t *testi
 		}
 	}
 }
+
+// A share is a number the agent has to act on. Where a host on the pool's path runs an
+// agent that splits the slot evenly whatever the pool says, proposing a new share is
+// proposing a change that host ignores, so the pool is told about the agent instead.
+func TestNoShareIsProposedWhileAnAgentOnThePoolsPathIgnoresShares(t *testing.T) {
+	h, pool := squeezedRunnerPool(t, 8)
+	if h.problemOrNil("pool.daemon_share_suggested") == nil {
+		t.Fatal("no notice with every agent current; the case needs advice to withhold")
+	}
+	old := h.measuredHost("build-old", 8, 32768, 1, enforcesEverything)
+	old.Features = nil
+	if err := h.st.SetHostReported(h.ctx, old); err != nil {
+		t.Fatal(err)
+	}
+	if p := h.problemOrNil("pool.daemon_share_suggested"); p != nil {
+		t.Errorf("a share was proposed to a pool one of whose hosts ignores it: %+v", p)
+	}
+	if h.problemOrNil("pool.daemon_share_unsupported") == nil {
+		t.Errorf("pool %s was not told which host ignores its share", pool.Name)
+	}
+}

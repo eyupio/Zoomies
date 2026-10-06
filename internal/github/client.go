@@ -331,6 +331,10 @@ type Repository struct {
 	Private       bool   `json:"private"`
 	Archived      bool   `json:"archived"`
 	HTMLURL       string `json:"html_url"`
+	// Visibility is "public", "private" or "internal". GitHub sends it with every
+	// repository; an older GitHub Enterprise Server that does not is read from
+	// Private instead, so it is never empty.
+	Visibility string `json:"visibility"`
 }
 
 // WorkflowFile is one file under .github/workflows as it exists on the

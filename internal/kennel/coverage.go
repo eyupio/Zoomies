@@ -31,7 +31,9 @@ const (
 	// CoverageUnavailable: this GitHub does not offer it, or the repository
 	// does not have it. Never a finding.
 	CoverageUnavailable CoverageState = "unavailable"
-	// CoverageHeld: the installation is waiting for a rate limit to reset.
+	// CoverageHeld: reads are being held back for this installation, either
+	// because GitHub rate-limited it or because Kennel Club has spent what its
+	// budget allows this hour.
 	CoverageHeld CoverageState = "held"
 	// CoverageError: a transient failure, retried at the next refresh.
 	CoverageError CoverageState = "error"
@@ -72,6 +74,44 @@ func (s Source) Permission() string {
 	return ""
 }
 
+// Label is the source in the words an operator reads on the page.
+func (s Source) Label() string {
+	switch s {
+	case SourceFleet:
+		return "What this fleet observed"
+	case SourceMetadata:
+		return "Repository details"
+	case SourceRuns:
+		return "Workflow runs"
+	}
+	return "Something else"
+}
+
+// Explain says in one sentence why a source is in a state, and is empty for one
+// that was read in full. Like Skipped.Reason it names a permission or a state
+// and never anything read from a repository, so it is safe to put on a page
+// beside a repository's name.
+func Explain(src Source, st CoverageState) string {
+	switch st {
+	case CoverageOK:
+		return ""
+	case CoveragePartial:
+		return "Only part of this could be read. What was found stands, and nothing found is not an all-clear."
+	case CoverageDenied:
+		if need := src.Permission(); need != "" {
+			return "Zoomies needs " + need + ", which this installation has not been given."
+		}
+		return "GitHub refused the read."
+	case CoverageUnavailable:
+		return "This GitHub does not offer it."
+	case CoverageHeld:
+		return "Requests to GitHub for this installation are being held back to stay within its rate limit; it is read again when they can resume."
+	case CoverageError:
+		return "The last attempt to read it failed, and it will be tried again."
+	}
+	return "It has not been read yet."
+}
+
 // Skipped is a check that did not run, and why.
 type Skipped struct {
 	Code   Code          `json:"code"`
@@ -92,7 +132,7 @@ func (s Skipped) Reason() string {
 	case CoverageUnavailable:
 		return "This GitHub does not offer what this check reads."
 	case CoverageHeld:
-		return "GitHub's rate limit is holding this installation back; the check runs again when it lifts."
+		return "Requests to GitHub for this installation are being held back to stay within its rate limit; the check runs again when they can resume."
 	case CoverageError:
 		return "The last attempt to read what this check needs failed; it will be tried again."
 	}

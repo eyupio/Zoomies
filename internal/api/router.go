@@ -319,6 +319,22 @@ func (s *Server) apiRoutes() chi.Router {
 			r.With(s.require(auth.ActionJoinsWrite)).Delete("/{id}", s.handleDeleteJoinToken)
 		})
 
+		// Kennel Club. The static sub-paths come before /{id}, or chi would route
+		// /kennel/checks to the repository whose id is "checks".
+		r.Route("/kennel", func(r chi.Router) {
+			r.With(s.require(auth.ActionKennelRead)).Get("/", s.handleKennelOverview)
+			r.With(s.require(auth.ActionKennelRead)).Get("/checks", s.handleKennelChecks)
+			r.Route("/repositories", func(r chi.Router) {
+				r.With(s.require(auth.ActionKennelRead)).Get("/", s.handleListKennelRepositories)
+				r.With(s.require(auth.ActionKennelRead)).Get("/{id}", s.handleGetKennelRepository)
+				r.With(s.require(auth.ActionKennelRecheck)).Post("/{id}/recheck", s.handleRecheckKennelRepository)
+				// The route's own action is kennel.waive; the handler asks for
+				// kennel.waive_error as well when the finding is an error.
+				r.With(s.require(auth.ActionKennelWaive)).Put("/{id}/waivers", s.handleWaiveKennelFinding)
+				r.With(s.require(auth.ActionKennelWaive)).Delete("/{id}/waivers/{waiver_id}", s.handleUnwaiveKennelFinding)
+			})
+		})
+
 		// Providers and the machines they rent. Both blocks register their
 		// static sub-paths before /{id}, or chi would route /providers/kinds
 		// to the provider whose id is "kinds".

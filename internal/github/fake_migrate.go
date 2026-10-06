@@ -37,6 +37,8 @@ type fakeRepo struct {
 	// answers 403. It is here so a test can prove the migration never gets
 	// that far rather than only that it survives the refusal.
 	archived bool
+	// visibility is "public", "private" or "internal"; empty is private.
+	visibility string
 	// files maps a repository-relative path to its contents.
 	files map[string]string
 	// branches maps a branch name to the commit it points at.
@@ -175,13 +177,14 @@ func (f *FakeGitHub) getRepo(w http.ResponseWriter, r *http.Request) {
 	}
 	repo := f.repoLocked(full)
 	owner, name, _ := SplitTarget(full)
-	writeJSON(w, http.StatusOK, map[string]any{
+	f.writeETagged(w, r, map[string]any{
 		"id":             repo.id,
 		"full_name":      full,
 		"name":           name,
 		"owner":          map[string]any{"login": owner},
 		"default_branch": repo.defaultBranch,
-		"private":        true,
+		"private":        f.visibilityLocked(full) != "public",
+		"visibility":     f.visibilityLocked(full),
 		"archived":       repo.archived,
 		"html_url":       "https://github.com/" + full,
 	})

@@ -165,37 +165,42 @@ var problemAudience = map[string]Audience{
 	// The fleet's own: its pools, its hosts, its runners, its jobs, the
 	// machines it rents and the App it runs on. An operator who uses the
 	// fleet is the person who can act on every one of these.
-	"host.cordoned_with_work":                       AudienceFleet,
-	"host.auto_pool_skipped":                        AudienceFleet,
-	"host.duplicate_agent":                          AudienceFleet,
-	"host.image_pull_failed":                        AudienceFleet,
-	"host.limits_unenforceable":                     AudienceFleet,
-	"host.limits_unverified":                        AudienceFleet,
-	"host.overprovisioned":                          AudienceFleet,
-	"host.resources_unknown":                        AudienceFleet,
-	"host.shared_folder_unmounted":                  AudienceFleet,
-	"host.runtime_recovering":                       AudienceFleet,
-	"host.throttled":                                AudienceFleet,
-	"host.unhealthy":                                AudienceFleet,
-	"host.os_health":                                AudienceFleet,
-	"host.health_stale":                             AudienceFleet,
-	"host.reboot_pending":                           AudienceFleet,
-	"host.version_behind":                           AudienceFleet,
-	"installation.unhealthy":                        AudienceFleet,
-	"jobs.oom_killed":                               AudienceFleet,
-	"jobs.runner_lost":                              AudienceFleet,
-	"jobs.label_advice":                             AudienceFleet,
-	"jobs.unmatched":                                AudienceFleet,
-	"ai_context.artifact_quota":                     AudienceFleet,
-	"ai_context.artifact_upload_failed":             AudienceFleet,
-	"ai_context.delivery_failed":                    AudienceFleet,
-	"ai_context.generation_refused":                 AudienceFleet,
-	"ai_context.oversized_file":                     AudienceFleet,
-	"ai_context.publication_refused":                AudienceFleet,
-	"ai_context.run_failed":                         AudienceFleet,
-	"ai_context.runner_unavailable":                 AudienceFleet,
-	"ai_context.setup_failed":                       AudienceFleet,
-	"ai_context.startup_failed":                     AudienceFleet,
+	"host.cordoned_with_work":           AudienceFleet,
+	"host.auto_pool_skipped":            AudienceFleet,
+	"host.duplicate_agent":              AudienceFleet,
+	"host.image_pull_failed":            AudienceFleet,
+	"host.limits_unenforceable":         AudienceFleet,
+	"host.limits_unverified":            AudienceFleet,
+	"host.overprovisioned":              AudienceFleet,
+	"host.resources_unknown":            AudienceFleet,
+	"host.shared_folder_unmounted":      AudienceFleet,
+	"host.runtime_recovering":           AudienceFleet,
+	"host.throttled":                    AudienceFleet,
+	"host.unhealthy":                    AudienceFleet,
+	"host.os_health":                    AudienceFleet,
+	"host.health_stale":                 AudienceFleet,
+	"host.reboot_pending":               AudienceFleet,
+	"host.version_behind":               AudienceFleet,
+	"installation.unhealthy":            AudienceFleet,
+	"jobs.oom_killed":                   AudienceFleet,
+	"jobs.runner_lost":                  AudienceFleet,
+	"jobs.label_advice":                 AudienceFleet,
+	"jobs.unmatched":                    AudienceFleet,
+	"ai_context.artifact_quota":         AudienceFleet,
+	"ai_context.artifact_upload_failed": AudienceFleet,
+	"ai_context.delivery_failed":        AudienceFleet,
+	"ai_context.generation_refused":     AudienceFleet,
+	"ai_context.oversized_file":         AudienceFleet,
+	"ai_context.publication_refused":    AudienceFleet,
+	"ai_context.run_failed":             AudienceFleet,
+	"ai_context.runner_unavailable":     AudienceFleet,
+	"ai_context.setup_failed":           AudienceFleet,
+	"ai_context.startup_failed":         AudienceFleet,
+	// A repository the fleet serves has a stranger's code running on it, which is
+	// the fleet's to act on. Kennel Club's own reads failing is the process's: the
+	// fleet cannot do anything about an installation's credentials or its budget.
+	"kennel.exposure":                               AudienceFleet,
+	"kennel.unavailable":                            AudiencePlatform,
 	"ai_context.timed_out":                          AudienceFleet,
 	"ai_context.too_much_source":                    AudienceFleet,
 	"poller.paused":                                 AudienceFleet,
@@ -238,6 +243,7 @@ var problemAudience = map[string]Audience{
 	"pool.minimum_held_by_job":                      AudienceFleet,
 	"host.work_concentrated":                        AudienceFleet,
 	"pool.tmpfs_unsupported":                        AudienceFleet,
+	"pool.daemon_share_unsupported":                 AudienceFleet,
 	"provider.bootstrap_failed":                     AudienceFleet,
 	"provider.contract_unsupported":                 AudienceFleet,
 	"provider.credentials_refused":                  AudienceFleet,
@@ -423,6 +429,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	gather("in-memory folders", c.tmpfsAdviceProblems)
 	gather("in-memory folders by host", c.tmpfsHostProblems)
 	gather("the memory valve", c.memoryValveProblems)
+	gather("sidecar share by host", c.daemonShareHostProblems)
 	gather("sidecar share", c.daemonShareAdviceProblems)
 	gather("host capacity", c.hostCapacityAdviceProblems)
 	gather("pool minimums", c.poolMinimumAdviceProblems)
@@ -448,6 +455,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	out = append(out, c.updateProblems()...)
 	out = append(out, c.backupProblems(ctx)...)
 	gather("AI Context", c.aiContextProblems)
+	gather("Kennel Club", c.kennelProblems)
 	gather("polling", c.pollerProblems)
 	gather("runners", c.runnerProblems)
 	gather("runner cleanup", c.cleanupProblems)

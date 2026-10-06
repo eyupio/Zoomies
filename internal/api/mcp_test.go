@@ -326,11 +326,11 @@ func TestMCPUpdatePoolChangesTheNamedSettingAndKeepsTheRest(t *testing.T) {
 	operator := h.token("actor", store.RoleOperator)
 	viewer := h.token("reader", store.RoleViewer)
 
-	if r := h.mcpTool(viewer, "update_pool", map[string]any{"pool_id": pool.ID, "daemon_cpu_share_percent": 20}); !r.IsError || !strings.Contains(resultText(r), "operator") {
+	if r := h.mcpTool(viewer, "update_pool", map[string]any{"pool_id": pool.ID, "daemon_cpu_share_percent": 20, "expect": map[string]any{"daemon_cpu_share_percent": 35}}); !r.IsError || !strings.Contains(resultText(r), "operator") {
 		t.Errorf("a viewer asking to change a pool must be told which role is missing, got %s", resultText(r))
 	}
 
-	r := h.mcpTool(operator, "update_pool", map[string]any{"pool_id": pool.ID, "daemon_cpu_share_percent": 20})
+	r := h.mcpTool(operator, "update_pool", map[string]any{"pool_id": pool.ID, "daemon_cpu_share_percent": 20, "expect": map[string]any{"daemon_cpu_share_percent": 35}})
 	if r.IsError {
 		t.Fatalf("update_pool failed: %s", resultText(r))
 	}
@@ -350,7 +350,7 @@ func TestMCPUpdatePoolChangesTheNamedSettingAndKeepsTheRest(t *testing.T) {
 	}
 
 	// The smallest runner can be lowered on its own, and the shares survive it.
-	if r := h.mcpTool(operator, "update_pool", map[string]any{"pool_id": pool.ID, "min_cpus": 0.75, "min_memory_mb": 1024}); r.IsError {
+	if r := h.mcpTool(operator, "update_pool", map[string]any{"pool_id": pool.ID, "min_cpus": 0.75, "min_memory_mb": 1024, "expect": map[string]any{"min_cpus": 1, "min_memory_mb": 1536}}); r.IsError {
 		t.Fatalf("lowering the minimum failed: %s", resultText(r))
 	}
 	after, _ = h.st.GetPool(h.ctx, pool.ID)
@@ -376,7 +376,7 @@ func TestMCPUpdateHostChangesTheNamedSettingAndKeepsTheRest(t *testing.T) {
 	}
 	operator := h.token("actor", store.RoleOperator)
 
-	r := h.mcpTool(operator, "update_host", map[string]any{"host_id": host.ID, "standard_cpus": 2.25, "reserve_cpus": 2})
+	r := h.mcpTool(operator, "update_host", map[string]any{"host_id": host.ID, "standard_cpus": 2.25, "reserve_cpus": 2, "expect": map[string]any{"standard_cpus": 6, "reserve_cpus": 0}})
 	if r.IsError {
 		t.Fatalf("update_host failed: %s", resultText(r))
 	}
@@ -392,7 +392,7 @@ func TestMCPUpdateHostChangesTheNamedSettingAndKeepsTheRest(t *testing.T) {
 	}
 
 	// Stopping a host taking runners is a person's decision, not an agent's.
-	if r := h.mcpTool(operator, "update_host", map[string]any{"host_id": host.ID, "capacity": 0}); !r.IsError {
+	if r := h.mcpTool(operator, "update_host", map[string]any{"host_id": host.ID, "capacity": 0, "expect": map[string]any{"capacity": host.Capacity}}); !r.IsError {
 		t.Errorf("a capacity of zero must be refused, got %s", resultText(r))
 	}
 	if got, _ := h.st.GetHost(h.ctx, host.ID); got.Capacity != host.Capacity {
@@ -449,7 +449,7 @@ func TestAnAgentRefusedAChangeIsNotToldToSendConfirm(t *testing.T) {
 	}
 	operator := h.token("agent", store.RoleOperator)
 
-	r := h.mcpTool(operator, "update_host", map[string]any{"host_id": host.ID, "min_cpus": 3})
+	r := h.mcpTool(operator, "update_host", map[string]any{"host_id": host.ID, "min_cpus": 3, "expect": map[string]any{"min_cpus": 0}})
 	if !r.IsError || !strings.Contains(resultText(r), "nowhere to run") {
 		t.Fatalf("a change that strands the only pool must be refused: %s", resultText(r))
 	}

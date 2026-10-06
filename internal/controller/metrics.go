@@ -40,6 +40,8 @@ type metrics struct {
 	registrationsDeferred                                                                        *prometheus.CounterVec
 	webhookDeliveries                                                                            *prometheus.CounterVec
 	githubRequests                                                                               *prometheus.CounterVec
+	kennelRequests, kennelOpened, kennelClosed, kennelWaived                                     *prometheus.CounterVec
+	kennelHolds                                                                                  prometheus.Counter
 	reconcileDuration                                                                            prometheus.Histogram
 	storeWriteWait                                                                               prometheus.Histogram
 	storeWriteHeld                                                                               prometheus.Histogram
@@ -183,6 +185,34 @@ func newMetrics(c *Controller) *metrics {
 			Name: "zoomies_github_api_requests_total",
 			Help: "GitHub API calls by installation and outcome.",
 		}, []string{"installation", "result"}),
+		// Kennel Club's share of the line above, kept apart so that what it spends
+		// can be read against the installation's limit without subtracting what the
+		// poller and the scheduler spend. It is the number to watch before anybody
+		// raises kennel.api_budget_percent.
+		kennelRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zoomies_kennel_github_requests_total",
+			Help: "GitHub API calls made for Kennel Club, by outcome. Read it against the installation's hourly limit before raising kennel.api_budget_percent.",
+		}, []string{"result"}),
+		// Opened and closed are what makes "is this check useful" answerable from an
+		// operator's own Prometheus: a check whose findings are mostly closed by a
+		// change is doing its job, and one whose findings are mostly waived is wrong
+		// for this fleet.
+		kennelOpened: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zoomies_kennel_findings_opened_total",
+			Help: "Findings Kennel Club has raised, by check code. A finding that comes back after being waived is not counted again.",
+		}, []string{"code"}),
+		kennelClosed: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zoomies_kennel_findings_closed_total",
+			Help: "Findings that stopped being reported, by check code: fixed, or gone with the repository's jobs. Waived findings are counted apart.",
+		}, []string{"code"}),
+		kennelWaived: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zoomies_kennel_findings_waived_total",
+			Help: "Open findings that a waiver now covers, by check code. A high share of a check's findings waived means the check is wrong for this fleet.",
+		}, []string{"code"}),
+		kennelHolds: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "zoomies_kennel_rate_limit_holds_total",
+			Help: "Rate-limit holds that began because a Kennel Club read was refused. The target is zero: any is a defect in the budget.",
+		}),
 		// The single database writer is the design, and the queue behind it is
 		// where a busy instance slows down first: every heartbeat, webhook,
 		// scheduling pass and API write waits its turn there. The two halves
@@ -299,7 +329,7 @@ func newMetrics(c *Controller) *metrics {
 	m.reg.MustRegister(
 		m.jobsTotal, m.jobsRunnerLost, m.jobReruns, m.jobFailures, m.jobsSized, m.jobsRan, m.jobsRerouted, m.runnerStartFailures, m.queueWait, m.jobDuration, m.scalingEvents,
 		m.registrationsDeferred,
-		m.webhookDeliveries, m.githubRequests, m.reconcileDuration, m.storeWriteWait, m.storeWriteHeld, m.reconcileErrors, m.cleanups, m.pollsShed, m.agentLimited, m.logRelayDropped, m.buildInfo,
+		m.webhookDeliveries, m.githubRequests, m.kennelRequests, m.kennelOpened, m.kennelClosed, m.kennelWaived, m.kennelHolds, m.reconcileDuration, m.storeWriteWait, m.storeWriteHeld, m.reconcileErrors, m.cleanups, m.pollsShed, m.agentLimited, m.logRelayDropped, m.buildInfo,
 		m.providerOperations, m.providerOperationSeconds,
 		m.imagePrewarms, m.imagePrewarmDuration, m.runtimeFailures, m.imagePullFailures,
 		m.elasticCPUDecisions, m.elasticCPUFactor,

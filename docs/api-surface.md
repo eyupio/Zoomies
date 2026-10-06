@@ -105,7 +105,7 @@ Conventions:
 | GET | `/api/v1/samples` | viewer | Fleet samples for the sparklines. `?since=` or `?window=1h`. |
 | POST | `/api/v1/problems/apply` | operator | Apply the change a problem proposes. Some problems carry a `remedy`: a change the controller has worked out and priced against the fleet, as the update that makes it, with what it costs in `effect`. The request is `{ "code", "target_id", "remedy_id"? }` — the problem, never the change, so a client cannot make the controller edit anything it is not proposing. The problems are worked out again and only a remedy among them is applied; with `remedy_id` a proposal that has since changed is a 409, as is one that no longer applies. The update then runs as the caller through the same code as `PATCH /pools/{id}` or `PATCH /hosts/{id}`: it needs the `operator` role and `problems.apply`, and then that route's own action as well (`pools.write` or `hosts.write`), so a token scoped to one resource cannot change another by naming a problem about it, it is refused for what that route refuses — including a change that would leave a pool with no host that could run it, which `confirm` is never sent to override — and it writes that route's audit row plus a `problem.remedy_applied` row. Answers `{ "applied": true, "remedy": {...}, "result": <what the update answered> }`. |
 | GET | `/api/v1/problems/auto-applied` | viewer | The changes the controller made on its own in the last 30 days, newest first, with whether each was undone and whether it still can be. `enabled` says whether `security.auto_apply_remedies` is `on` now and `mode` which of `off`, `shadow` and `on` it is; in shadow mode `would_apply` lists what it would have changed. The list is returned either way. |
-| POST | `/api/v1/problems/auto-applied/{id}/undo` | operator | Put back what an automatic change replaced, through `PATCH /pools/{id}` or `PATCH /hosts/{id}` as the caller, so it needs that route's role. 409 if it was already undone or the pool or host was edited since. An undone proposal is not made again. Audited as `problem.remedy_undone`. |
+| POST | `/api/v1/problems/auto-applied/{id}/undo` | operator | Put back what an automatic change replaced, through `PATCH /pools/{id}` or `PATCH /hosts/{id}` as the caller, so it needs that route's role. 409 if it was already undone or the pool or host was edited since. An undone proposal is not made again. Audited as `problem.remedy_undone`. A sidecar memory share the controller changed is also put back by the controller itself, within a week, if a job in the pool is killed for memory afterwards; that row carries `auto` and the reason, and a pool edited since is only marked `superseded`. |
 | GET | `/api/v1/problems` | viewer | The problems drawer: unhealthy hosts, failed registrations, webhook delivery failures, unmatched queued jobs, jobs whose runner stopped under them in the last hour, and every configuration warning from `config.Validate`. Returns `{ "items": [...], "ok": true }` — `ok` is true and `items` empty when there is nothing wrong. **Answers by audience**: each problem carries an `audience`, and a caller below `platform` gets the fleet's — its pools, hosts, runners and jobs — while the process's own (its lease, its loops, its backups, the release it could be running, and every `config.Validate` finding) reach `platform` only. `ok` is computed after that filter, so a fleet with nothing of its own wrong is told so. On a single-team instance the one account holds `platform` and the list is undivided. |
 | GET | `/api/v1/scaling-events` | viewer | Recent scheduler decisions with their reason strings. `?pool_id=&limit=`. |
 | GET | `/api/v1/events` | viewer | **SSE.** All live updates. Honours `Last-Event-ID`, and opens with a `resync` frame when it cannot replay the gap. Query `kinds=` and `topic=` narrow it. Sends a `heartbeat` comment every 20s. |
@@ -469,6 +469,33 @@ bundle is taken is the moment a query is most likely to fail. Sections are
 capped by row count and the whole document by bytes; anything shortened says so
 in `truncated`. `zoomies diagnostics` is the wrapper that writes it to a file.
 
+## Kennel Club
+
+Kennel Club checks the repositories this fleet serves against the standards that
+affect CI and the fleet. It is off until an administrator sets `kennel.enabled`.
+While it is off `GET /kennel` still answers, with `enabled: false` and nothing
+else filled, because the page needs a document to say why it is empty; every
+route that needs a repository's row answers 409 with the setting to turn on.
+
+| Method | Path | Role | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/kennel` | viewer | The Overview: how many repositories are in each standing, open findings by severity, the checks with how many repositories have each open, the ten that most need attention, how far each source could be read, and the installations whose reads are not getting through. Computed, not stored. |
+| GET | `/api/v1/kennel/checks` | viewer | What is checked: every check with its area, severity, what it detects and the GitHub permission it needs, and whether the operator turned it off. It is the registry the evaluator runs, so it needs no row and answers while Kennel Club is off. |
+| GET | `/api/v1/kennel/repositories` | viewer | Paged (`limit`, `offset`). Narrow with `q` (a name fragment), `severity` (`error`, `warning` or `info`: an open finding of that severity), `code` (a check), `state` (`pending`, `partial`, `attention` or `best_in_show`) and `installation`. A value that is not one of those is a 400 naming the parameter, not an empty page. |
+| GET | `/api/v1/kennel/repositories/{id}` | viewer | One repository: its standing, open and waived findings, waivers that no longer cover a finding, and per source whether it could be read, with the sentence that says why not and the permission that would fix it. |
+| POST | `/api/v1/kennel/repositories/{id}/recheck` | operator | Makes the repository due and wakes the loop, and answers `202` with the repository. It reads nothing itself, so a recheck waits on the same API budget and installation hold as everything else. Asking again for the same repository inside five minutes is a `429` with `Retry-After`. Audited as `kennel.recheck`. |
+| PUT | `/api/v1/kennel/repositories/{id}/waivers` | operator; admin for an error | Waives one open finding: `code`, optional `subject`, `reason` (10 to 500 characters) and `expires_at` (in the future, at most 365 days away). Answers `200` with the repository, already worked out again. Waiving the same finding again renews the waiver and keeps its ID. A `422` lists every field that is wrong, not the first; one for a finding that is not open is refused as well, because a waiver made ahead of a finding is an exception nobody has looked at. A repository may carry 50 (`409` beyond that). Audited as `kennel.waive`, with the reason. |
+| DELETE | `/api/v1/kennel/repositories/{id}/waivers/{waiver_id}` | operator | Ends a waiver, anybody's, and answers `200` with the repository, the finding open again. A waiver named through a repository it does not belong to is a `404`. Audited as `kennel.unwaive`, with the waiver as it was. |
+
+Waiving an error finding is an action of its own, `kennel.waive_error`, held by
+the `admin` role. The route asks for `kennel.waive` first and the handler asks
+for the wider one when the finding turns out to be an error, so a `403` names the
+finding and the role it takes, and a token needs the `kennel:waive_error` scope
+for one (which also covers `kennel:waive`) as well as the role. An error is a
+stranger running code on the fleet, and the decision that it is acceptable is not
+an operator's to take alone. Ending a waiver needs only `kennel.waive`, because
+ending one only makes Kennel Club stricter.
+
 ## Webhooks
 
 | Method | Path | Role | Notes |
@@ -494,7 +521,8 @@ flowchart LR
 `host.deleted` · `scaling` · `installation.updated` · `installation.deleted` ·
 `problems.updated` · `stats` · `audit` · `webhook.delivery` ·
 `provider.updated` · `provider.deleted` · `machine.updated` ·
-`machine.deleted` · `heartbeat` · `resync`
+`machine.deleted` · `kennel.updated` · `kennel.deleted` · `kennel.summary` ·
+`heartbeat` · `resync`
 
 Every frame but `heartbeat` and `resync` carries an `id` of the form
 `<epoch>.<sequence>`, where the epoch names one run of the controller. A client
@@ -538,7 +566,10 @@ client ever has to poll or ask the operator to reload:
   an agent checking in moves the card with no row change to announce it. Each
   host whose rendered view differs from the one last sent gets a `host.updated`;
   a host nobody has touched marshals to the same bytes and gets nothing. None of
-  this is computed while nobody is connected to the stream.
+  this is computed while nobody is connected to the stream. `kennel.summary` is
+  the same idea for Kennel Club: it is `GET /kennel` whole, sent when it changes,
+  because nothing writes a row when an evaluation grows older. `kennel.updated`
+  is one repository's `GET` shape and `kennel.deleted` carries `{ "id": … }`.
 * **An operator's change is announced by the handler that made it.** Creating,
   editing, enabling, disabling or deleting a pool; editing, cordoning, clearing
   the throttle on or deleting a host; adding, editing or removing an

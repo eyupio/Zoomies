@@ -334,6 +334,12 @@ Draining a host that is busy for hours is hours of queued jobs. `--background` t
 other approach: leave the host in service and keep looking for the gaps ephemeral
 runners leave between jobs.
 
+A runner that is up but holds no job -- a pool's minimum keeps some warm -- is not work,
+for either kind of restart. It is recognised by having no `Runner.Worker` process, which
+the runner starts for each job, and is stopped together with its Docker-in-Docker sidecar
+just before Docker restarts; the controller starts it again afterwards. A container whose
+processes cannot be read counts as work.
+
 ```sh
 sudo zoomies tune --force --background
 sudo zoomies doctor --interactive --force --background --give-up-after 12h
