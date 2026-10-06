@@ -53,9 +53,16 @@ type Change struct {
 	Phase         string       `json:"phase"`
 }
 type State struct {
-	DockerRestartPending bool     `json:"docker_restart_pending"`
-	Version              int      `json:"version"`
-	Changes              []Change `json:"changes"`
+	DockerRestartPending bool `json:"docker_restart_pending"`
+	// MaintenanceStopped is the units a maintenance restart has stopped and not yet
+	// started again. It is written before the first stop and cleared after the last
+	// start, so a restart that was killed in between -- SIGKILL, a crash, the machine
+	// going down -- left a record of what it owed. Without it a rerun saw both units
+	// inactive, decided there was nothing to restore, and reported the host back in
+	// service with the agent and the controller still stopped.
+	MaintenanceStopped []string `json:"maintenance_stopped,omitempty"`
+	Version            int      `json:"version"`
+	Changes            []Change `json:"changes"`
 }
 
 func snapshot(e *Engine, p string) (Snapshot, error) {
