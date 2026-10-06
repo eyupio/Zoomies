@@ -262,11 +262,17 @@ func decode(s Setting, f reflect.Value, value any) error {
 		f.SetFloat(n)
 
 	case KindEnum:
+		if b, isBool := value.(bool); isBool && len(s.Aliases) > 0 {
+			value = strconv.FormatBool(b)
+		}
 		text, ok := value.(string)
 		if !ok {
 			return fail("expected a string, got %T", value)
 		}
 		text = strings.ToLower(strings.TrimSpace(text))
+		if canonical, ok := s.Aliases[text]; ok {
+			text = canonical
+		}
 		found := false
 		for _, c := range s.Choices {
 			if c == text {

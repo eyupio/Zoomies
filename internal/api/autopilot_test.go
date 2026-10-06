@@ -18,7 +18,7 @@ import (
 func autopilotFleet(t *testing.T, on bool) (*harness, *store.Host, string) {
 	t.Helper()
 	h, host := remedyFleet(t)
-	h.cfg.Security.AutoApplyRemedies = on
+	h.cfg.Security.AutoApplyRemedies = map[bool]string{true: "on", false: "off"}[on]
 	viewer := h.token("reader", store.RoleViewer)
 	id, _ := h.remedyFor(viewer, "host.slots_below_capacity", host.ID)
 	if id == "" {
@@ -193,9 +193,15 @@ func TestATargetIsChangedAutomaticallyAtMostOncePerCooldown(t *testing.T) {
 	}
 }
 
-func TestAutomaticApplyIsOffByDefaultAndNotChangeableOverMCP(t *testing.T) {
-	if config.Default().Security.AutoApplyRemedies {
-		t.Error("automatic apply must be off until an administrator turns it on")
+func TestAutomaticApplyIsShadowByDefaultAndNeverChangesAnythingThere(t *testing.T) {
+	if mode := config.Default().Security.AutoApplyMode(); mode != "shadow" {
+		t.Errorf("automatic apply defaults to %q; it must only record what it would do until an administrator turns it on", mode)
+	}
+	// The older spellings are still read, as on and off.
+	for in, want := range map[string]string{"true": "on", "false": "off", "on": "on", "off": "off", "shadow": "shadow", "": "shadow", "bogus": "shadow"} {
+		if got := (config.Security{AutoApplyRemedies: in}).AutoApplyMode(); got != want {
+			t.Errorf("AutoApplyMode(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 
@@ -214,5 +220,46 @@ func TestAProposalAlreadyMadeIsNotMadeAgainAfterTheCooldownEvenIfRevertedByHand(
 	ok, err := h.api.mayAutoApply(h.ctx, same, time.Now().Add(autopilotCooldown+time.Hour))
 	if err != nil || ok {
 		t.Errorf("mayAutoApply for a proposal already made = %v, %v; want false", ok, err)
+	}
+}
+
+// Shadow mode does the whole of the work except the change: a proposal that has stood is
+// recorded as one it would have made, once, and the target is left exactly as it was. The
+// record is not an applied change, so the cooldown and the undo list do not see it and
+// turning the setting on afterwards still makes the change.
+func TestShadowModeRecordsWhatItWouldHaveDoneOnceAndChangesNothing(t *testing.T) {
+	h, host, id := autopilotFleet(t, true)
+	h.cfg.Security.AutoApplyRemedies = "shadow"
+	if err := h.api.autopilotPass(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	h.ageProposal(id)
+	for i := 0; i < 3; i++ {
+		if err := h.api.autopilotPass(h.ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, _ := h.st.GetHost(h.ctx, host.ID); got.RunnerProfile.Standard.CPUs != 6 {
+		t.Fatalf("shadow mode changed the host: %+v", got.RunnerProfile)
+	}
+	rows, _, err := h.st.ListAudit(h.ctx, store.AuditFilter{Actions: []string{auditAutoShadowed}}, store.Page{Limit: 10})
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("shadow rows after three passes = %d, %v; want one for the one proposal", len(rows), err)
+	}
+	if applied, _, _ := h.st.ListAudit(h.ctx, store.AuditFilter{Actions: []string{auditAutoApplied, "problem.remedy_applied"}}, store.Page{Limit: 10}); len(applied) != 0 {
+		t.Errorf("shadow mode wrote an applied row: %+v", applied)
+	}
+	if len(h.autoApplied()) != 0 {
+		t.Error("a shadowed change is listed as applied")
+	}
+
+	// Turned on, the same proposal is made: shadow did not use it up.
+	h.cfg.Security.AutoApplyRemedies = "on"
+	h.ageProposal(id)
+	if err := h.api.autopilotPass(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := h.st.GetHost(h.ctx, host.ID); got.RunnerProfile.Standard.CPUs >= 6 {
+		t.Errorf("turning it on after shadow did not make the change: %+v", got.RunnerProfile)
 	}
 }
