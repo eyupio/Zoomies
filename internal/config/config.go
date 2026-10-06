@@ -513,6 +513,12 @@ type Security struct {
 	// handing it the settings page is a decision, not a side effect of the
 	// token being an administrator's.
 	MCPAdminTools bool `yaml:"mcp_admin_tools"`
+	// AutoApplyRemedies lets the controller make the change a problem proposes
+	// without anyone clicking it, once the same proposal has stood unchanged for
+	// two hours and at most once a day for a pool or host. Off by default: it is
+	// the controller editing its own fleet. Each change is recorded with what it
+	// replaced, and can be undone from the problems page.
+	AutoApplyRemedies bool `yaml:"auto_apply_remedies"`
 }
 
 // GitHub configures the GitHub integration.

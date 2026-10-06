@@ -1566,6 +1566,60 @@ paths:
         "422": { $ref: "#/components/responses/Unprocessable" }
         "503": { description: "The controller could not read what it needs to say whether the suggestion still applies; nothing was changed" }
 
+  /problems/auto-applied:
+    get:
+      operationId: listAutoAppliedChanges
+      tags: [overview]
+      summary: The changes the controller made on its own in the last 30 days
+      description: |
+        With `security.auto_apply_remedies` on, the controller makes the change a
+        problem proposes once it has stood unchanged for two hours, at most once a day
+        for any one pool or host. Each change is listed here with what it was, newest
+        first. `enabled` says whether the switch is on now; the list is returned either
+        way, because a change made while it was on can still be undone.
+
+        `undoable` is false once the change has been undone, and also when the pool
+        or host was edited after it was made or its result could not be read back:
+        putting the old value back over an edit would undo that edit too.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AutoAppliedList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /problems/auto-applied/{id}/undo:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    post:
+      operationId: undoAutoAppliedChange
+      tags: [overview]
+      summary: Put back what an automatic change replaced
+      description: |
+        Sends the pool's or host's earlier value back through `PATCH /pools/{id}` or
+        `PATCH /hosts/{id}` as the caller, so it needs that route's role and is refused
+        for what that route refuses. A 409 says the change was already undone or that
+        the target was edited after it was made. An undone proposal is not made again
+        automatically. Writes a `problem.remedy_undone` audit row.
+      x-zoomies-role: operator
+      responses:
+        "200":
+          description: Undone
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [undone, id, target_id]
+                properties:
+                  undone: { type: boolean }
+                  id: { type: string }
+                  target_id: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
   /scaling-events:
     get:
       operationId: listScalingEvents
@@ -6104,6 +6158,29 @@ components:
           type: object
           additionalProperties: true
           description: The request of that update.
+    AutoAppliedChange:
+      type: object
+      required: [id, at, code, label, kind, target_id, undone, undoable]
+      properties:
+        id: { type: string, description: The change's ID, which `undo` takes. }
+        at: { type: string, format: date-time }
+        code: { type: string, description: The problem that proposed it., examples: [pool.queue_wait_high] }
+        label: { type: string, description: The change, in a few words., examples: [Keep 2 runners warm] }
+        effect: { type: string, description: What it was priced at when it was made. }
+        kind:
+          type: string
+          enum: [pool.update, host.update]
+        target_id: { type: string, description: The pool or host it changed. }
+        undone: { type: boolean }
+        undoable: { type: boolean }
+    AutoAppliedList:
+      type: object
+      required: [enabled, items]
+      properties:
+        enabled: { type: boolean, description: Whether automatic apply is on now. }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/AutoAppliedChange" }
     ApplyRemedyRequest:
       type: object
       required: [code, target_id]
