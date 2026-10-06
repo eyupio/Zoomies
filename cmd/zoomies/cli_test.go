@@ -550,3 +550,38 @@ func TestAHostWithAnInstalledControllerNeedsNoURL(t *testing.T) {
 		}
 	})
 }
+
+// A certificate the CLI does not trust, and an https address answered in plain HTTP, both used
+// to read as "check that it is running", which sent an operator to a controller that was up.
+func TestTransportErrorNamesTheFlagThatFixesACertificateOrSchemeMistake(t *testing.T) {
+	tls := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer tls.Close()
+	e, outBuf, errBuf := newTestEnv(t)
+	code := dispatch(context.Background(), e, []string{"problems", "list", "--url", tls.URL})
+	out, errOut := outBuf.String(), errBuf.String()
+	if code == exitOK {
+		t.Fatalf("a self-signed controller was trusted:\n%s", out)
+	}
+	for _, want := range []string{"certificate is not trusted", "--ca-file", "ca_file"} {
+		if !strings.Contains(errOut, want) {
+			t.Errorf("the certificate error does not say %q:\n%s", want, errOut)
+		}
+	}
+	if strings.Contains(errOut, "check that it is running") {
+		t.Errorf("a controller that answered was described as not running:\n%s", errOut)
+	}
+
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer plain.Close()
+	e, _, errBuf = newTestEnv(t)
+	code = dispatch(context.Background(), e, []string{"problems", "list", "--url", "https://" + strings.TrimPrefix(plain.URL, "http://")})
+	errOut = errBuf.String()
+	if code == exitOK {
+		t.Fatal("plain HTTP was accepted for an https address")
+	}
+	for _, want := range []string{"plain HTTP", "http://"} {
+		if !strings.Contains(errOut, want) {
+			t.Errorf("the scheme error does not say %q:\n%s", want, errOut)
+		}
+	}
+}
