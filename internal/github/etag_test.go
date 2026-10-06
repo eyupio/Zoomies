@@ -64,12 +64,6 @@ func (s *etagServer) set(body string, status int) {
 	s.body, s.status = body, status
 }
 
-func (s *etagServer) count() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.requests
-}
-
 func get(t *testing.T, c *http.Client, url string, hdr ...string) (int, string, http.Header) {
 	t.Helper()
 	req, _ := http.NewRequest(http.MethodGet, url, nil)
