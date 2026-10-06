@@ -14,6 +14,11 @@ courts, and a checklist that deletes itself when a stranger's job arrives. And
 the page that sells it breaks on the phone it is most likely to be opened on
 first. Fix the funnel, not the dashboard.
 
+> **Part 2** audits one feature in the same format: [host OS health
+> (Zoomies Doctor) in the web UI](#part-2--host-os-health-zoomies-doctor-in-the-web-ui),
+> at `df596c9`. Its findings are numbered `DC`, `DH` and `DN`, after the
+> appendices below.
+
 ## What has been done since
 
 The follow-up is PR #563. Every fix there comes with the test that would have
@@ -1146,3 +1151,729 @@ hide each child of `.zoomies-hero` in turn; the pseudo-element is not in
 
 Screenshots were captured throughout and deliberately not committed, to keep
 binaries out of the repository; the recipes above regenerate any of them.
+
+
+---
+
+# Part 2 — Host OS health (Zoomies Doctor) in the web UI
+
+Audited at commit `df596c9`, 6 October 2026. Scope: the OS checks the native
+Zoomies binary runs, and everything the web UI does with them — what it lets an
+operator **see**, what it lets them **control**, and what it **automates**. The
+findings are numbered `DC` (critical), `DH` (high impact) and `DN` (nice to have)
+so they cannot be confused with Part 1's `C`, `H` and `N`.
+
+**Verdict.** The collector is the best-engineered part of this feature and the
+web UI throws most of it away. Every host runs a careful read-only check every
+minute, in three tiers, with reasons for every skip — and the operator is shown
+a 16-pixel pill that counts the wrong things, ranks a reboot above a disk-space
+error, sits three screens down a phone, and feeds nothing else in the product.
+Zoomies has a complete attention system (Problems, the bell, the Overview feed,
+the status page, Prometheus, MCP, one-click remedies) and OS health plugs into
+none of it. A health monitor that nobody is told about is a log file with a
+badge. Wire it into the attention system first, then fix what the pill says.
+
+```mermaid
+flowchart LR
+    mon["Native monitor<br/>every minute, all three tiers"] --> hb["Agent heartbeat"]
+    hb --> row["hosts.doctor<br/>about 8.5 KB, rewritten every minute"]
+    row --> pill["Host card pill"]
+    row --> page["Host page: three tables"]
+    row -. none .-> prob["Problems drawer and bell"]
+    row -. none .-> feed["Overview feed"]
+    row -. none .-> met["Prometheus"]
+    row -. none .-> stat["Status page"]
+```
+
+## Read this first
+
+### The brief assumes a trial and a paywall. There still isn't one.
+
+Part 1 established this at `0b4734c`; I searched again at `df596c9`. `web/src`
+has no billing, plan, pricing, trial or upsell logic (the hits for "checkout" are
+`git checkout`), and every "upgrade" is a software version bump. So, as in
+Part 1, the conversion that exists is mapped like this:
+
+* "Start a free trial" becomes **an operator reaches a host that is tuned for CI
+  and stays that way** — which needs them to *trust* the signal and *act* on it.
+* "Paywall" becomes **anything that discredits the signal or interrupts that
+  path**: a number that disagrees with the CLI, a warning the docs say to ignore,
+  an instruction the page cannot help with.
+* "Nagware" has a twin: **alarm fatigue**. Part 1 declined to make that claim for
+  the demo fleet because its warnings were planted. Here it is deterministic and
+  I make it (DC1).
+
+### The design constraints I kept
+
+The docs are explicit that **OS tuning is CLI-only**: the controller never dials
+an agent, never runs a root command on a host, and `web/tests/host-health.spec.ts`
+asserts the host page has no apply or tune button. I am not proposing to change
+that. Every fix below stays inside it: more visibility, controls the REST API
+already has (cordon), copyable commands, and one read-only "check now" task that
+rides the queue the agent already long-polls (DH6).
+
+### How I tested
+
+I built `df596c9` (`make build`) and drove real Chromium (Playwright, the
+repository's own `playwright-core`) at **1440×900** and **375×812** (touch, 2×),
+in light and dark, against a real controller with authentication off.
+
+* **Fake agents, real API.** I enrolled eight hosts through `POST
+  /api/v1/join-tokens` and `POST /api/v1/agent/join`, and heartbeated them every
+  30 seconds with doctor reports whose ids, titles, tiers, rationale and reason
+  text are copied from `internal/hosttune/checks.go`, `kernel.go` and
+  `dedicated.go`. The counts quoted below ("15 warnings") are **my fixtures'**.
+  The *mechanism* is not: I verified it by running the real engine (below).
+* **The real engine.** On this sandbox (Ubuntu 24.04) `zoomies doctor` prints
+  **1 warning**, while `zoomies doctor --tier dedicated --json` — what the monitor
+  publishes and what the installed host-health service runs — contains **3**:
+  `cgroup.version` (safe), `tmp.tmpfs` (aggressive, optional) and `journal.size`
+  (dedicated).
+* **The seeded demo.** `ZOOMIES_SEED_DEMO=true` gives three hosts and **zero**
+  doctor reports.
+* **Also read:** the Problems API (`GET /api/v1/problems`), `/metrics`, the host
+  payloads, the MCP `list_hosts` tool, the CLI, and the docs.
+
+Evidence tags, as in Part 1: **Reproduced**, **Measured**, **Code-verified**,
+**Judgement**.
+
+### What I measured and threw away
+
+So nobody chases ghosts. "Different build", "Cannot lend CPU" and the amber
+"Agent version guidance" box appear on every card because my fake agents report
+version `dev` and no capabilities; they are not findings. The bell's "5" is the
+harness (authentication off, no external URL, poller off) plus
+`host.version_behind` for the same reason; none of the five is about OS health,
+which is DC3. `build-04`'s report has `reboot_pending: true` while its
+`kernel.pending` row says OK: my fixture, since the real engine sets one from the
+other (`engine.go:377-379`); the UI reads the flag, so no finding depends on it.
+The 19-digit `fs.file-max` in my fixture is a guess at a kernel default, so I
+use the *recommended* values (`524288`, `2097152`) as evidence in DN2 instead. I
+did not measure the `host.updated` frame rate; DH7 rests on payload size and the
+code. Colour contrast, the focus ring and page-level overflow all passed; see the
+next section.
+
+### What is already good — do not "fix" it
+
+* **The read-only boundary and the consent model.** Right call; keep it.
+* **Honest edges.** A 3-minute staleness rule, a `container` flag for partial
+  reports, and a `reason` on every skip ("root access is needed to read this
+  setting"). Few products say *why* they could not check.
+* **The check id under every title** (`inotify.watches`). It is exactly what
+  `zoomies tune --only` takes (DH3 builds on it).
+* **Live without a reload.** The health pill updated from a heartbeat with the
+  page untouched; `host-health.spec.ts` covers it.
+* **Accessibility basics.** Pill text contrast **9.4:1** dark, **4.6:1** light
+  (measured, computed over the card background); a 2px focus ring on the link;
+  no page-level sideways scroll at 375px; the table scroller is a named,
+  keyboard-focusable region; status is text *and* colour.
+* **The CLI's brief output is the model for the web.** One line when well, three
+  rows when not, a `[fixable]` mark, one hint. DC1, DC2 and DH3 are mostly "do
+  what the CLI already does".
+* **`docs/host-health.md`** is thorough and honest about what Zoomies will not do.
+
+### How this part is ordered
+
+By users affected × severity ÷ effort. DC1 and DC2 are small and certain, and
+should ship first; DC3 is the largest and the most valuable.
+
+| Severity | Findings |
+| --- | --- |
+| Critical | 5 (DC1–DC5) |
+| High impact | 7 (DH1–DH7) |
+| Nice to have | 6 (DN1–DN6) |
+
+## 1. Critical
+
+### DC1. The badge counts checks the docs say not to apply: a host whose every safe check passes reads "9 warnings"
+
+* **Pass:** Designer and First-time user
+* **Evidence:** Reproduced (fixtures), Measured (real engine), Code-verified.
+* **Where:** `web/src/lib/hosts/health.ts:18-20` (the counts) and `:40-46` (the
+  label); `internal/hosttune/monitor.go:50` (`m.Engine.Run(c, Dedicated)`);
+  `internal/installer/host_health.go:20` (`doctor --watch --tier dedicated`);
+  `web/src/lib/hosts/HostCard.svelte:101,450` and
+  `web/src/routes/HostDetail.svelte:23`. Routes `/hosts` and `/hosts/:id`, both
+  viewports.
+* **Problem:** Every report carries all three tiers, and `healthSummary` counts
+  every `warn` in it: safe, aggressive and dedicated, optional or not, fixable or
+  advice-only. The page's own copy says the opposite
+  (`HostDetail.svelte:99`: "These changes are never included in safe or
+  aggressive defaults"), as do the docs: aggressive checks need `--tier
+  aggressive` "explicitly" and are "not offered by the installer"; dedicated ones
+  are "only for a host running nothing but Zoomies".
+
+  The CLI agrees with the docs, not the UI. `zoomies doctor` defaults to the
+  safe tier and prints at most three rows (`briefRows`), and `Actionable` and
+  `Optional` exist on every result (`engine.go:213-214,376`) and are ignored by
+  the UI. Real engine, same machine: CLI **1 warning**, published report **3**.
+  Fixtures: `build-02`, with all 14 safe checks passing, is an amber **"9
+  warnings"**; `build-01` is **"15 warnings"**.
+
+  Any stock Ubuntu host has `vm.swappiness=60` and a `/tmp` that is not tmpfs, so
+  two aggressive warnings are permanent from day one, and the dedicated tier adds
+  a warning per service the host merely *has* (`multipathd`, `apport`,
+  `motd-news`, `udisks2`, `cloud-init`, the journal). The operator opens Hosts
+  and sees a wall of amber about settings the docs tell them not to change; follows
+  the page's advice, runs `zoomies doctor`, and gets a smaller number. Both
+  numbers cannot be right, so neither is trusted, and the two warnings that
+  matter (disk, file watches) are buried in the noise they were meant to survive.
+* **Fix:** Count what the CLI counts, in one place, on the server, so the UI, CLI,
+  MCP, Problems and metrics cannot drift (DC3 and DH7 reuse it).
+
+  ```go
+  // internal/hosttune/engine.go
+  // Summary is the one count every surface agrees on: the safe tier, without
+  // optional suggestions -- what `zoomies doctor` shows by default. The other
+  // tiers are choices an operator opts into, so a host that has not made them is
+  // not unwell.
+  type Summary struct {
+  	Warnings, Errors, Skipped, Suggestions int
+  	RebootPending                          bool
+  }
+
+  func (r Report) Summary() Summary { /* count Tier==Safe && !Optional; the rest are Suggestions */ }
+  ```
+
+  Add `summary` to `HostDoctor` in `api/openapi.yaml`, run `go run
+  internal/api/gen_openapi.go` and `make openapi`, and fill it in
+  `internal/controller/views.go:240`. In the UI:
+
+  ```ts
+  // web/src/lib/hosts/health.ts
+  const { warnings, errors, skipped, suggestions } = report.summary;
+  ```
+
+  Show the rest quietly: `Health OK` with the hint "+9 optional suggestions",
+  and "No warnings · 9 suggestions" on the host page. Tests that must change or
+  be added: `web/unit/host-health.test.ts` (a report with one safe OK and five
+  dedicated warnings is `Health OK`), `host-health.spec.ts` (the same through the
+  heartbeat), and `internal/hosttune` (`Summary` against a three-tier report).
+
+### DC2. The worst finding is the hardest to find: a reboot outranks a disk-space error, and the page lists 29 rows in catalogue order
+
+* **Pass:** Designer and First-time user
+* **Evidence:** Reproduced, Code-verified.
+* **Where:** `web/src/lib/hosts/health.ts:32-39` (`reboot_pending` returns before
+  `errors` is looked at); `web/src/routes/HostDetail.svelte:89-143` (tables in
+  engine order). `/hosts/:id`, both viewports.
+* **Problem:** `build-04` has a `disk.space` **error** (3% free, so the next job
+  fails) and a pending reboot. The header badge says amber **"Reboot pending"**.
+  The error appears only as "1 error(s)" in a sentence, and its row is the tenth
+  in the Safe table, under nine rows of green "OK". The `danger` tone cannot be
+  shown while a reboot is pending at all.
+
+  The page is 3,219px tall on desktop and 5,237px on a phone for 29 rows, of
+  which three matter. It has no "what do I do first" and no way to hide the 12
+  passing and 7 skipped rows. A health page that makes you read 29 rows to find
+  the red one has the hierarchy of a log file.
+* **Fix:** Severity order, and say every state that applies:
+
+  ```ts
+  // web/src/lib/hosts/health.ts -- error beats warning beats reboot beats OK
+  const parts: string[] = [];
+  if (errors) parts.push(pluralise(errors, 'error'));
+  if (warnings) parts.push(pluralise(warnings, 'warning'));
+  if (report.reboot_pending) parts.push('reboot pending');
+  if (parts.length)
+    return { label: parts.join(' · '), tone: errors ? 'danger' : 'pending', hint, stale };
+  ```
+
+  `pluralise` lives in `lib/format.ts`, which has no imports, so the node unit test
+  can still load `health.ts` through a relative import.
+
+  On the host page, a **Needs attention** panel above the tier tables, listing
+  every counted warning and error (error first), each as title, "now `65536`,
+  want `524288`" and the rationale, linking to its row. Give each row an id
+  (`<tr id={check.id}>`; there are none today, which also blocks DC3's deep
+  links). Inside the tables, sort by status (error, warn, ok, skip) and put the
+  passing and skipped rows in a closed `<details>` titled "19 passing or skipped
+  checks". Expected result for `build-04`: header "1 error · reboot pending", the
+  disk row first, the page about one screen.
+
+### DC3. Nothing consumes the report: no problem, no event, no metric, no status, no alert
+
+* **Pass:** First-time user
+* **Evidence:** Reproduced (live controller), Code-verified.
+* **Where:** `internal/controller/problems.go:742` (`hostProblems`, no doctor);
+  `internal/controller/metrics.go`; `web/src/lib/feed/changes.ts:62-68`
+  (`hostSignal` tracks `healthy`, `cordoned`, `throttle`, `incompatible`,
+  `holding`); `web/src/lib/state/notifications.svelte.ts`;
+  `internal/mcp/tools.go:237-249`; `cmd/zoomies/hosts.go`; `docs/problem-codes.md`.
+* **Problem:** With eight hosts reporting a disk error, a pending reboot, a stale
+  report and a 15-warning host, `GET /api/v1/problems` returned **5 items, none
+  about OS health**; `/metrics` has no health series; the Overview says "0 of 16
+  slots on 8 healthy hosts"; and `host.updated` does not move the feed, because
+  `hostSignal` does not look at `doctor`.
+
+  This product has an excellent attention system: a codebook with severities and
+  audiences, a bell with snooze, a feed, a public status page, Prometheus,
+  `zoomies problems`, MCP `list_problems`, and one-click remedies. It was built so
+  that operators are *told*. The OS collector runs every minute and produces
+  exactly the things that fail jobs next week (`disk.space`, `docker.logs`
+  without rotation, `files.service`), and the only way to learn any of it is to
+  open Hosts, scroll past a chart (DC4), and notice a pill. A feature that only
+  works if someone goes looking will not work on the day it matters.
+* **Fix:** Three problem codes beside `hostProblems`, severity capped so the
+  codebook's meaning of "error" is kept:
+
+  ```go
+  // internal/controller/problems.go
+  // hostHealthProblems turns each host's OS report into problems. Counted
+  // results only (see hosttune.Report.Summary): the aggressive and dedicated
+  // tiers are choices, not faults, so they never raise one.
+  //
+  // host.os_health        warning; error when a counted check errors (disk, say).
+  //   Title:  "host build-04 has 2 OS settings below the recommendation"
+  //   Detail: "File watches 65536, want 524288; Docker log rotation off."
+  //   Fix:    "on build-04 run `sudo zoomies doctor --interactive`; Zoomies
+  //            never changes the OS without that consent."
+  // host.health_stale     warning; a connected host that sent a report once and
+  //                       has not for ten minutes -- the health service stopped.
+  // host.reboot_pending   info; "build-04 can be rebooted now: nothing is
+  //                       running on it" when ActiveRunners == 0.
+  ```
+
+  Register each in `problemAudience` (`problems.go:128`, the fleet audience),
+  `publicSentences` (`status.go:245`; `status_test.go` and
+  `problems_audience_test.go` fail without both) and `docs/problem-codes.md`. A
+  host with no report, or one that is offline (`host.unhealthy` already speaks),
+  raises nothing. Snooze and dismissal come free from
+  `notifications.svelte.ts`.
+
+  The rest of the attention system, each small:
+
+  * **Metrics** in `metrics.go`, with rows in `docs/metrics.md`:
+    `zoomies_host_os_checks{host,status}`, `zoomies_host_reboot_pending{host}`,
+    `zoomies_host_health_report_age_seconds{host}`.
+  * **Feed.** Add `attention` and `rebootPending` to `HostSignal`
+    (`changes.ts:62-68`) and entries in `feed/entries.ts`, so "build-04: reboot
+    became pending" shows once, at the moment it changed.
+  * **CLI and MCP.** A `HEALTH` column in `zoomies hosts list`; one sentence in
+    `list_hosts`'s description saying it carries OS health (today it says
+    "health, last heartbeat, capacity" and means the heartbeat).
+
+### DC4. On the Hosts page the first screen says "8 healthy", and the OS signal is 1.5 to 3.3 screens down
+
+* **Pass:** Designer and First-time user
+* **Evidence:** Measured.
+* **Where:** `web/src/routes/Hosts.svelte:280` (summary line), `:331-367`
+  (`MetricGrid`; the tile at `:347`), `:371` (`MachineBand`), `:379` (capacity
+  map), `:390` (cards); `web/src/lib/hosts/HostCard.svelte:449-451`. Desktop and
+  375px.
+* **Problem:** At 1440×900 the first card's health pill is at **y = 1,395**; on a
+  375×812 phone it is at **y = 2,659** of a 9,189px page, 3.3 screens down, behind
+  five tiles and a day-long chart. Everything above it says the fleet is fine:
+  "8 hosts · 8 healthy", and a tile titled "Hosts reporting healthy 8 / 8 — Live
+  fleet health".
+
+  "Healthy" there means *the agent sent a heartbeat in 90 seconds*
+  (`store.HeartbeatTimeout`). On the cards the green "Healthy" pill sits beside
+  "Health OK" for the OS, so a host can be "Healthy · 15 warnings" and
+  "Healthy · Reboot pending", and on `build-03` the page says "Healthy · Health
+  OK" in two adjacent pills. One word, two meanings, side by side.
+* **Fix:** Name the two things differently, and bring the second one to the top.
+
+  ```svelte
+  <!-- web/src/routes/Hosts.svelte -->
+  const attention = $derived(
+    hosts.filter((h) => ['danger', 'pending'].includes(healthSummary(h.doctor, now, h.healthy).tone)),
+  );
+  <!-- summary: "8 hosts · 8 connected · 2 need attention · 0 of 16 slots in use" -->
+  { label: 'Hosts connected', value: `${healthy} / ${hosts.length}`, detail: 'Sending heartbeats' },
+  { label: 'Need attention', value: String(attention.length), tone: attention.length ? 'warning' : 'neutral',
+    detail: 'OS settings below the recommendation, or a reboot pending' },
+  ```
+
+  Rename the status pill's label for hosts from "Healthy" to "Connected"
+  (`status.ts:713`, the label only; the colour mapping is fixed and stays).
+  `MetricGrid` already supports `tone: 'warning'`. Add a filter row above the
+  cards ("All 8 · Need attention 2 · Report stale 1 · No report 1") and move the
+  capacity map below the cards, or collapse it by default and remember the choice
+  in `prefs`. The cards are the page's job; the chart is context.
+
+### DC5. The page says "drain the host" and cannot; its commands are not host-specific and cannot be copied
+
+* **Pass:** First-time user
+* **Evidence:** Reproduced, Code-verified.
+* **Where:** `web/src/routes/HostDetail.svelte:81-87`; the cordon action at
+  `web/src/routes/Hosts.svelte:204`; `web/src/lib/components/CopyButton.svelte`.
+  `/hosts/:id`, both viewports.
+* **Problem:** The only call to action on the page is "A reboot is pending.
+  Drain the host before rebooting manually." Cordoning is a real, existing,
+  one-call operation (`cordonHost`), but it lives in a card menu on another page,
+  so the operator must go back, find the card among eight, open "…" and cordon,
+  then return — and the page never shows runners active, cordoned state, or the
+  one fact they need: *is it safe to reboot now?*
+
+  The second instruction, "Review changes locally with `sudo zoomies doctor
+  --interactive`", does not say *where*. "Locally" is a machine the page knows
+  the name and address of; a fleet of twenty hosts makes the operator remember
+  which. There is no copy button, and on a phone the command wraps mid-flag
+  (`doctor` / `--interactive`).
+* **Fix:** A **Next step** panel, shown when a counted finding or a pending reboot
+  exists and the viewer is an operator. It uses only what the API already has.
+
+  ```svelte
+  <!-- web/src/routes/HostDetail.svelte -->
+  {#if canOperate && (attention.length || report.reboot_pending)}
+    <Panel title="Next step">
+      <p>{host.active_runners ?? 0} active · {host.cordoned ? 'cordoned' : 'taking new work'}</p>
+      {#if report.reboot_pending && host.cordoned && !host.active_runners}
+        <p><Badge tone="idle" label="Idle and cordoned" /> Safe to reboot now.</p>
+      {/if}
+      <Button variant="secondary" onclick={() => cordon(host, !host.cordoned)}>
+        {host.cordoned ? 'Uncordon' : 'Cordon'} {host.name}
+      </Button>
+      <!-- On {host.name}{host.address ? ` (${host.address})` : ''}: -->
+      <CopyButton value="sudo zoomies doctor --interactive" label="Copy command" />
+    </Panel>
+  {/if}
+  ```
+
+  Extract `cordon()` from `Hosts.svelte:204` into `web/src/lib/hosts/actions.ts` so
+  both pages share it (it already uses `fleet.optimistic`, `cordonHost` and
+  `toasts`). Name the copy button "Copy command": `host-health.spec.ts` asserts no
+  button matching `/apply|tune/i`, and that guarantee should keep holding. Add a
+  spec case: cordon from the host page, then assert "Cordoned" on the card.
+
+## 2. High impact
+
+### DH1. The health pill looks like a label, is 16px tall, and never says what is wrong
+
+* **Pass:** Designer
+* **Evidence:** Measured.
+* **Where:** `web/src/lib/hosts/HostCard.svelte:450-452` and the `.badges > a` rule
+  near `:931`; desktop and 375px.
+* **Problem:** The link is **77×16px** (67–116px wide across the fixtures) with
+  11px text. WCAG 2.2 target size (2.5.8) asks for 24×24, and Part 1's H8 already
+  names this class of problem on phones. It is the same shape as the three
+  non-interactive pills beside it; on desktop the only cue is a pointer cursor on
+  hover, and on touch there is none. The sentence that says what is wrong lives
+  in the `title` attribute (`"…15 warning(s), 0 error(s), 7 skipped check(s)."`),
+  which a tap never shows: tapping navigates. So on a phone the card says "15
+  warnings" and not one word of which.
+* **Fix:** A trailing chevron so it reads as a link, a 24px hit area, and the
+  finding as text on the card:
+
+  ```css
+  /* HostCard.svelte -- a 16px pill gets a 24px target on the 4px scale */
+  .badges > a { display: flex; padding-block: var(--z-space-1); }
+  .badges > a:hover :global(.badge) { text-decoration: underline; }
+  ```
+
+  ```svelte
+  <a href="/hosts/{host.id}#{top?.id ?? ''}" aria-label="Host health for {host.name || host.id}">
+    <Badge label={health.label} tone={health.tone} size="sm" title={health.hint}>
+      {health.label}<ChevronRight size={12} aria-hidden="true" />
+    </Badge>
+  </a>
+  {#if health.top}<p class="health-line">{health.top}</p>{/if}
+  <!-- health.top: "File watches, Docker log rotation and 1 more", from the Needs attention list (DC2) -->
+  ```
+
+### DH2. Partial, unsupported and stale reports read as health
+
+* **Pass:** First-time user
+* **Evidence:** Reproduced.
+* **Where:** `web/src/lib/hosts/health.ts:21-49`;
+  `web/src/routes/HostDetail.svelte:79-88`. `/hosts` and `/hosts/:id`.
+* **Problem:**
+  * `edge-container` (a containerised agent with no host collector) has 12 of 14
+    checks skipped. Its pill is a green **"Health OK"**, and its page header says
+    the same, over a panel that reads "Partial report from the container… 12
+    skipped check(s)". The qualifier is in the sentence and the tooltip; the
+    label is a claim.
+  * `mac-mini` gets "Review changes locally with `sudo zoomies doctor
+    --interactive` or preview them with `sudo zoomies tune --dry-run`", although
+    the docs say non-Linux hosts report unsupported checks and tuning is
+    unavailable there.
+  * `stale-06` says "Report is stale **or** the host is unreachable". The page
+    knows which (`host.healthy`), and the fix for each is different.
+* **Fix:**
+
+  ```ts
+  // health.ts, after the counts
+  const partial = report.container || skipped * 2 >= counted;
+  if (partial && !errors && !warnings)
+    return { label: 'Partly checked', tone: 'neutral', hint, stale };
+  // stale: say which, in the label and the panel
+  //   reachable   -> 'Report stale'  "The agent is connected but sent no report for 13 minutes.
+  //                  If this host runs in a container, check `systemctl status zoomies-host-health`."
+  //   unreachable -> 'Last report 13m ago' (neutral); host.unhealthy already says the rest
+  ```
+
+  Hide the "Review changes locally" sentence unless `report.os === 'linux'`.
+
+### DH3. On a phone the check tables hide the explanation: 720px of table in a 349px region
+
+* **Pass:** Designer
+* **Evidence:** Measured, Reproduced.
+* **Where:** `web/src/routes/HostDetail.svelte:104-139` and the CSS at `:160-176`
+  (`min-width: 9rem` on five columns). 375px.
+* **Problem:** Each of the three tables is `scrollWidth 720` in `clientWidth 349`.
+  "Current" is cut mid-number ("10485…", "922337…"); "Recommended" and the whole
+  "Why / details" column, the useful one, are off-screen to the right, with no
+  fade, shadow or hint that anything scrolls. Page-level overflow is zero, which
+  is why the existing spec passes: the problem is inside the scroller. The phone
+  user sees a list of names and badges and can never learn why anything is
+  flagged.
+* **Fix:** Below the narrow breakpoint, render each check as a card, not a table.
+  The repo already has `web/src/lib/state/viewport.svelte.ts`; use it, so the
+  markup is a real list rather than `display: block` table cells, which drops
+  table semantics in some assistive technology.
+
+  ```svelte
+  {#if viewport.narrow}
+    <ul class="check-list">
+      {#each checks as check (check.id)}
+        <li id={check.id}>
+          <header><strong>{check.title}</strong><Badge ... /></header>
+          <p>Now <code>{check.current || '—'}</code>, want <code>{check.recommended || '—'}</code></p>
+          <p class="why">{check.rationale}</p>
+          {#if check.reason}<small>{check.reason}</small>{/if}
+        </li>
+      {/each}
+    </ul>
+  {:else}<table>…</table>{/if}
+  ```
+
+  Add a mobile case to `host-health.spec.ts` asserting that "Leave room for new
+  builds." is visible without horizontal scrolling at 375px.
+
+### DH4. Fixable and advice-only look identical, and no row gives its command
+
+* **Pass:** Designer and First-time user
+* **Evidence:** Reproduced, Code-verified.
+* **Where:** `web/src/routes/HostDetail.svelte:114-137` (no use of `actionable` or
+  `optional`); for contrast `cmd/zoomies/doctor.go:291,510` (the `[fixable]`
+  mark) and `internal/hosttune/engine.go:376`.
+* **Problem:** In `build-01` the Work directory filesystem row is amber "Warning"
+  with "advice only; review mount settings and drain before changing them" in
+  small print; the File watches row is the same amber "Warning" and `tune` can fix
+  it in one command. Two different calls to action, one badge. The CLI separates
+  them and the web discards the field that does.
+
+  Control stops at visibility here: the page shows `inotify.watches` under the
+  title, which is precisely the argument `zoomies tune --only` takes, and then
+  makes the operator type it.
+* **Fix:** Show the field. In the Status cell, `Warning` becomes **Fixable** (a
+  tick-shaped icon) when `check.actionable && !check.optional`, **Advice** when
+  not, and **Optional** when `check.optional`; tones unchanged. For a fixable
+  row, a copy button for `sudo zoomies tune --only {check.id} --dry-run`, as one
+  icon button in the row, named "Copy command for {check.title}". For an
+  advice row, no button at all.
+
+### DH5. A host with no report gets a dead end
+
+* **Pass:** First-time user
+* **Evidence:** Reproduced.
+* **Where:** `web/src/routes/HostDetail.svelte:71-76`; `web/src/lib/hosts/health.ts:9-15`.
+* **Problem:** `old-agent-07` lands on "No health report yet — Check
+  zoomies-host-health.service for a container deployment, or update the native
+  agent. Run zoomies doctor directly on the host for an immediate report." with a
+  body of one line: "No tuning can be applied from this page." That is a
+  negative non-answer, shown in every state, in place of the next step. The three
+  possible causes (an old agent; a container install without the host service; a
+  report that has not arrived yet) need different actions and the page names none.
+  The card already has `upgrade_command` for a remote agent behind "Agent version
+  guidance"; this page does not use it.
+* **Fix:** Choose the sentence from fields the host already carries, and delete
+  "No tuning can be applied from this page.":
+
+  ```ts
+  // Old agent (host.upgrade_command present):  "This agent is too old to send OS reports."
+  //                                            + the copyable host.upgrade_command
+  // Embedded or containerised controller agent: "Install the host health service:" + `sudo zoomies upgrade`
+  // Anything else, joined in the last 5 minutes: "The first report arrives within a minute of the agent starting."
+  ```
+
+### DH6. The fix → clear loop is invisible, and "Refresh" does not re-check anything
+
+* **Pass:** First-time user
+* **Evidence:** Code-verified.
+* **Where:** `web/src/routes/HostDetail.svelte:51-53` (the `host.updated`
+  subscription), the `onrefresh` on the page header; `internal/hosttune/monitor.go`
+  (interval one minute).
+* **Problem:** The satisfying moment is: run `tune`, watch the row go amber to
+  green. The page gets there silently, up to a minute later, with no cue that
+  anything changed, and its **Refresh** button re-fetches a cached row at most 60
+  seconds old. On a health page "Refresh" promises "check again", and that is not
+  what it does. Part 1's N2 flagged the same pattern on pages where nothing
+  needs pressing.
+* **Fix:** Three small steps.
+  1. Say what the button does, and that the page is live: remove it here and show
+     "Checked 20s ago · checks every minute" under the title.
+  2. In the `host.updated` handler, diff the previous and new `results` by id and
+     toast "File watches is now OK" for each warn→ok, and "Docker log rotation
+     now needs attention" for each ok→warn.
+  3. Optional: a **Check now** button for operators that queues a read-only
+     `host_health_refresh` task on the queue the agent already long-polls (the
+     same inversion `stream_logs` uses; the controller still never dials the
+     agent). The agent runs `Engine.Run` once and heartbeats the result. It
+     changes no host setting, so the boundary holds.
+
+### DH7. The report is rewritten and re-broadcast every minute, and it is 84% of every host payload
+
+* **Pass:** Designer (it governs how live the UI can be)
+* **Evidence:** Measured (sizes), Code-verified (cadence).
+* **Where:** `internal/controller/agents.go:746-756` (`CheckedAt.After` is true
+  every minute, so `SetHostDoctor` and `c.publishHost(h)` run); `internal/hosttune/monitor.go`;
+  `internal/mcp/tools.go:237-249` (`list_hosts` returns `/hosts` whole).
+* **Problem:** The doctor object is **8.4–8.6 KB** of a **10.1–10.3 KB** host view
+  with 29 results: about 84%. Because `checked_at` always moves, every host takes a
+  row write and a `host.updated` frame to every open tab each minute, and every
+  card repaints, with nothing different to say. The root `CLAUDE.md` says a
+  host's view is "computed after every pass and sent only when they change"; this
+  breaks that. The same payload is what an assistant gets from the MCP
+  `list_hosts` tool when it only asked about free slots. I did not measure the
+  frame rate, so the per-minute figure is from the code and the monitor's
+  one-minute interval.
+* **Fix:** Follow the pattern the controller already uses. Put `summary` (DC1) and
+  a server-computed `stale` in `HostView.doctor`, drop `c.publishHost(h)` when only
+  `checked_at` moved, and let the pass publish when the view changes. Keep
+  `results` out of the list payload: add `GET /api/v1/hosts/{id}/doctor` for the
+  host page and an MCP `host_health` tool, then run `make openapi`. Do this
+  after DC1, which creates the `summary` it relies on, and note it changes the
+  OpenAPI shape, so it is the one item here that needs the owner.
+
+## 3. Nice to have
+
+### DN1. Copy: raw plural markers, a leaked developer TODO, jargon titles, one sentence three times
+
+* **Pass:** Designer
+* **Evidence:** Reproduced.
+* **Where:** `web/src/lib/hosts/health.ts:24`; `internal/hosttune/dedicated.go:98`;
+  `web/src/routes/HostDetail.svelte:100`; the check titles in `dedicated.go`.
+* **Problem:** The panel prints "15 warning(s), 0 error(s), 7 skipped check(s)".
+  Two rows (`apt-daily.timer`, `apt-daily-upgrade.timer`) show "…leave automatic
+  updates enabled **(maintenance scheduler TODO)**", an engineering note in an
+  operator's UI. Titles read "Dedicated host: snapd.service". "Applying a change
+  requires consent in the CLI" appears on every tier panel.
+* **Fix:** `pluralise()`. Change the reason to "…leave automatic updates enabled;
+  a maintenance window is not configured." Title "Disable snapd (dedicated hosts
+  only)". State the consent rule once, under the page title, and give each tier
+  panel one line on why you would choose it.
+
+### DN2. Numbers without separators or units
+
+* **Pass:** Designer
+* **Evidence:** Reproduced.
+* **Where:** `HostDetail.svelte:134` (`{check.current}`, `{check.recommended}`).
+* **Problem:** The page shows `524288` and `2097152` where `docs/host-health.md`
+  writes "524,288" and "2,097,152". Large unsegmented numbers are slow to compare,
+  which is the whole job of the Current and Recommended columns.
+* **Fix:** `const nice = (v: string) => /^\d{4,15}$/.test(v) ? formatNumber(+v) : v`,
+  with `formatNumber` from `lib/format.ts`. Leave anything that is not a plain
+  integer alone.
+
+### DN3. The "host page" is called "Host health": one tab title for every host, and a name link that leads only to health
+
+* **Pass:** Designer
+* **Evidence:** Measured.
+* **Where:** `web/src/lib/router.ts:96-100`; `HostCard.svelte:446`.
+* **Problem:** `/hosts/host_x` and `/hosts/host_y` both have the tab title **"Host
+  health · Zoomies"**, and the top bar says "Hosts › Host health" above a page
+  whose breadcrumb says "Hosts › build-04". The host's name on a card is a link to
+  this page, which contains only OS health: no runners, capacity, cordon state or
+  heartbeat. Someone clicking a name expecting a host gets a report.
+* **Fix:** Set the title from the host (`build-04 · Host health`), and add a
+  one-line summary strip under the heading (state, runners active, last
+  heartbeat). DC5's Next step panel already needs those fields.
+
+### DN4. No way to say "this is deliberate"
+
+* **Pass:** First-time user
+* **Evidence:** Judgement.
+* **Where:** `web/src/lib/hosts/health.ts`; the fleet settings (see
+  `internal/config/CLAUDE.md` for how a setting is declared).
+* **Problem:** After DC1 an operator who keeps `relatime` on purpose still sees
+  "2 warnings" for ever, on every host. The only way back to green is to change
+  something they chose not to. That is the road back to alarm fatigue, one level
+  down.
+* **Fix:** An "Accept" action per check, per host or fleet-wide, stored as a
+  setting. An accepted result keeps its row with an "Accepted" badge, leaves the
+  count, and is never turned into a problem (DC3). Do this after DC1 and DC3, not
+  with them.
+
+### DN5. Who can read it: any viewer gets kernel versions, mount paths and service state
+
+* **Pass:** Designer
+* **Evidence:** Code-verified; a decision, not a defect.
+* **Where:** `docs/api-surface.md` (`GET /api/v1/hosts` is viewer-level);
+  `internal/controller/views.go:61`; the `host.updated` stream; MCP `list_hosts`.
+* **Problem:** The report includes `kernel.running` (an exact kernel version),
+  `pending` kernel upgrades, filesystem paths, and which services run. On a
+  single-team instance that is fine; on one that shares the fleet with other
+  teams it is a map of what is unpatched, readable by every signed-in viewer.
+* **Fix:** Owner's call. If it matters, give `summary` to viewers and the
+  `results` (`current`, `recommended`, `reason`) to `operator` and above, using the
+  new `/hosts/{id}/doctor` route from DH7. At the least, say who can read it in
+  `docs/host-health.md`.
+
+### DN6. Two disks, two truths
+
+* **Pass:** Designer
+* **Evidence:** Reproduced.
+* **Where:** `HostCard.svelte:293,350,550-554` (the agent's own `disk_free_mb`,
+  amber when low) versus the doctor's `disk.space` row.
+* **Problem:** `build-04` shows an amber "3 GB free of 100" on the card from one
+  source, while the doctor has its own `disk.space` error from another, and
+  neither mentions the other. (The doctor measures the work directory's
+  filesystem; the card says it does too.) Two sources for one fact will
+  eventually disagree.
+* **Fix:** Pick one. Make the card's disk figure link to
+  `/hosts/:id#disk.space` when the doctor has a result for it, and drop the
+  doctor row's duplicate "current" when both read the same filesystem.
+
+## Appendix D — measurements
+
+| Fixture | Safe | Aggressive | Dedicated | Pill (today) | Counted by the CLI |
+| --- | --- | --- | --- | --- | --- |
+| `build-01` stock Ubuntu | 6 warn | 2 warn | 7 warn | **15 warnings** | 6 |
+| `build-02` safe all passing | 0 | 2 warn | 7 warn | **9 warnings** | 0 |
+| `build-03` clean | 0 | 0 | 0 | Health OK | 0 |
+| `build-04` disk error | 1 error | 2 warn | 7 warn | **Reboot pending** | 1 error |
+| `mac-mini` | 1 skip | — | — | Checks unavailable | 0 |
+| `edge-container` partial | 12 skip, 2 ok | — | — | **Health OK** | 0 |
+| `stale-06` 12 min old | 1 warn | 2 warn | 7 warn | Health stale | n/a |
+| `old-agent-07` | no report | — | — | Health unavailable | n/a |
+
+| Measurement | Desktop 1440×900 | Phone 375×812 |
+| --- | --- | --- |
+| `/hosts` page height | 4,012px | 9,189px |
+| First health pill, from the top | y = 1,395 | y = 2,659 |
+| Pill size / type | 77×16px / 11px | 77×16px / 11px |
+| Host page height (29 rows) | 3,219px | 5,237–5,353px |
+| Check table width / its scroller | fits | 720px in 349px |
+| Page-level sideways scroll | none | none |
+| Pill contrast, dark / light | 9.4:1 / 4.6:1 | 9.4:1 / 4.6:1 |
+| Doctor payload / whole host view | 8,464–8,619 B / 10,091–10,300 B | |
+| Problems API with all of the above | 5 items, none about OS health | |
+
+Real engine, Ubuntu 24.04 sandbox: `zoomies doctor` reports 1 warning
+(`cgroup.version`); `zoomies doctor --tier dedicated --json` reports 3
+(`cgroup.version`, `tmp.tmpfs`, `journal.size`).
+
+## Appendix E — reproducing
+
+```sh
+make build
+mkdir -p /tmp/zd && ZOOMIES_DISABLE_AUTH=true ZOOMIES_BIND=127.0.0.1:8099 \
+  ZOOMIES_DB_PATH=/tmp/zd/z.db ZOOMIES_STATE_DIR=/tmp/zd ZOOMIES_CONFIG_DIR=/tmp/zd \
+  ZOOMIES_WORK_DIR=/tmp/zd/work ZOOMIES_AGENT_EMBEDDED=false ./zoomies controller &
+
+# A real report to base fixtures on, with the engine's own ids and wording:
+./zoomies doctor --tier dedicated --json > /tmp/zd/report.json
+```
+
+Then, per host: `POST /api/v1/join-tokens` (`{"ttl":"1h","capacity":2,"labels":{}}`),
+`POST /api/v1/agent/join` with the returned token (the shape is in
+`web/tests/host-health.spec.ts`), and `POST /api/v1/agent/heartbeat` with the
+agent token and a `doctor` object every 30 seconds; a host is healthy only for 90
+seconds after its last beat. Edit `results[].status` to produce each row of the
+fixtures table. For the demo finding, start a controller with
+`ZOOMIES_SEED_DEMO=true` and count `doctor` in `GET /api/v1/hosts`.
+
+Screenshots were captured throughout and deliberately not committed, as in
+Part 1; the recipe regenerates any of them.
