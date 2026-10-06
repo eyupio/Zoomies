@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import {
   countsAreAFloor,
   coverageStatesText,
+  floorSentence,
   openFindingsText,
+  worstCoverageState,
   worstSeverity,
 } from '../src/lib/kennel/words.ts';
 
@@ -56,4 +58,39 @@ test('how a source was read leads with the news that is worst', () => {
   );
   // A zero is not a thing to say.
   assert.equal(coverageStatesText({ ok: 3, denied: 0 }), '3 read');
+});
+
+test('the sentence over the counts says what is missing from them, or nothing when nothing is', () => {
+  const states = { pending: 0, partial: 0, attention: 3, best_in_show: 5 };
+  assert.equal(floorSentence({ states, unavailable: [] }), '');
+  assert.equal(
+    floorSentence({ states: { ...states, partial: 1 }, unavailable: [] }),
+    'These counts are a minimum: 1 repository is only partly checked.',
+  );
+  assert.equal(
+    floorSentence({ states: { ...states, partial: 2, pending: 1 }, unavailable: [] }),
+    'These counts are a minimum: 2 repositories are only partly checked and 1 repository has not been looked at yet.',
+  );
+  const note = {
+    installation_id: 'ins_1',
+    target: 'acme',
+    state: 'error',
+    reason: 'x',
+    since: 'x',
+  } as const;
+  assert.equal(
+    floorSentence({
+      states,
+      unavailable: [note, { ...note, installation_id: 'ins_2', target: 'beta' }],
+    }),
+    'These counts are a minimum: reads from acme and beta are not getting through, so some repositories may not be listed.',
+  );
+});
+
+test('a source is drawn by the worst state any repository is in', () => {
+  assert.equal(worstCoverageState({}), undefined);
+  assert.equal(worstCoverageState({ ok: 9 }), 'ok');
+  assert.equal(worstCoverageState({ ok: 9, partial: 1 }), 'partial');
+  assert.equal(worstCoverageState({ ok: 9, denied: 1, partial: 1 }), 'denied');
+  assert.equal(worstCoverageState({ ok: 9, denied: 1, error: 1 }), 'error');
 });

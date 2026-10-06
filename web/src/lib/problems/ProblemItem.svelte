@@ -117,7 +117,13 @@
           return { href: `/providers/${id}`, label: 'Open the provider' };
         case 'ai_context':
           // The card on that page carries the run, the cause and the buttons.
-          return { href: '/ai-context', label: 'Open AI Context' };
+          return { href: '/kennel/ai-context', label: 'Open AI Context' };
+        case 'kennel_repository':
+          // The finding, what to change and the button to say it is acceptable.
+          return {
+            href: `/kennel/repositories/${encodeURIComponent(id)}`,
+            label: 'Open the repository',
+          };
         case 'machine':
           // A machine has a page of its own because the answer to "why is this
           // taking so long" is on it: the phase timeline, the last failure and

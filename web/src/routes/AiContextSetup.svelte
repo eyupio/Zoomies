@@ -31,7 +31,7 @@
   subtitle={router.param('mode')
     ? 'Review repository changes before reinstalling, amending or removing AI Context.'
     : 'Choose repositories, output and readers. Review the setup before publishing context.'}
-  breadcrumb={[{ label: 'AI Context', href: '/ai-context' }]}
+  breadcrumb={[{ label: 'AI Context', href: '/kennel/ai-context' }]}
 />
 {#if owns === null && !session.can('admin')}<Skeleton lines={4} />
 {:else if allowed}{#if router.param('mode')}<MaintenanceWizard

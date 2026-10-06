@@ -43,6 +43,31 @@ export function countsAreAFloor(overview: Pick<KennelOverview, 'states' | 'unava
   );
 }
 
+/**
+ * Why the counts are a floor, said once, above them. Empty when they are not.
+ */
+export function floorSentence(overview: Pick<KennelOverview, 'states' | 'unavailable'>): string {
+  const { partial, pending } = overview.states;
+  const parts: string[] = [];
+  if (partial > 0) {
+    parts.push(
+      `${pluralise(partial, 'repository', 'repositories')} ${partial === 1 ? 'is' : 'are'} only partly checked`,
+    );
+  }
+  if (pending > 0) {
+    parts.push(
+      `${pluralise(pending, 'repository', 'repositories')} ${pending === 1 ? 'has' : 'have'} not been looked at yet`,
+    );
+  }
+  if (overview.unavailable.length > 0) {
+    const where = joinWords(overview.unavailable.map((note) => note.target));
+    parts.push(
+      `reads from ${where} are not getting through, so some repositories may not be listed`,
+    );
+  }
+  return parts.length > 0 ? `These counts are a minimum: ${joinWords(parts)}.` : '';
+}
+
 /** Where an administrator turns Kennel Club on, and what the 409 says to do. */
 export const KENNEL_SETTING_HREF = '/settings/configuration?setting=kennel.enabled';
 
@@ -78,4 +103,11 @@ export function coverageStatesText(states: Readonly<Record<string, number>>): st
     if (n > 0) parts.push(`${n} ${COVERAGE_WORDS[state]}`);
   }
   return parts.length > 0 ? parts.join(', ') : 'none read yet';
+}
+
+/** The state of a source that is worth drawing it by: the worst one any repository is in. */
+export function worstCoverageState(
+  states: Readonly<Record<string, number>>,
+): (typeof COVERAGE_STATE_ORDER)[number] | undefined {
+  return COVERAGE_STATE_ORDER.find((state) => (states[state] ?? 0) > 0);
 }

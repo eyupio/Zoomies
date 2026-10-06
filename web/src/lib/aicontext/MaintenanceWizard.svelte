@@ -145,7 +145,7 @@
   {:else}<Button variant="primary" loading={busy} disabled={busy || !repository} onclick={review}
       >Review changes</Button
     >{/if}
-  <Button href="/ai-context">Back to AI Context</Button>
+  <Button href="/kennel/ai-context">Back to AI Context</Button>
 </section>
 
 <style>

@@ -571,6 +571,18 @@ works](migration.md).
 ![The migration wizard's review step: the exact diff for one repository, changing runs-on from ubuntu-latest to the pool's labels, and the jobs it will not touch](screenshots/migrate-dark.webp#only-dark){ .zoomies-shot }
 ![The migration wizard's review step: the exact diff for one repository, changing runs-on from ubuntu-latest to the pool's labels, and the jobs it will not touch](screenshots/migrate-light.webp#only-light){ .zoomies-shot }
 
+## Kennel Club
+
+How the repositories this fleet serves measure up against what affects CI and the fleet: a public repository whose pull requests run on a machine that keeps state between jobs, or a label no pool serves. It is off until an administrator turns on `kennel.enabled`, and until then the page says what it would do, what it would read and what it never does, and lists the six checks it would make. **Turn on in Settings** takes an administrator straight to the setting. `g k` opens it from anywhere.
+
+Once it is on, the **Overview** counts the repositories by standing and what is open across them by severity, and names the repositories to open first. Under that, **By check** says which repositories have each check open, and **What Kennel Club can see** says how far each source of facts could be read. When something could not be read, the counts are a minimum, and the page says so above them rather than letting a count read as a total.
+
+A repository's standing is one of four: **Best in show** (or **No open findings**, with plain status words), **Needs attention**, **Partly checked** and **Pending**. Nothing is shown as all clear on a read that was not whole.
+
+**Repositories** lists every one Kennel Club has looked at, worst first, and narrows by standing, severity and check; each filter is in the address, so a view is a link to send. Opening one shows each finding as what is wrong, what to change and where it was seen, the pools and runs it is about, and then what could be read and what could not, with the permission that would fix it. Operators can press **Recheck** to have it read again.
+
+AI Context lives under Kennel Club, at `/kennel/ai-context`. Its old address, `/ai-context`, opens the same page, so links and bookmarks keep working.
+
 ## AI Context
 
 Repositories prepared for AI coding assistants, and the way to prepare more.
