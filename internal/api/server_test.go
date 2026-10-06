@@ -102,9 +102,13 @@ func TestListenAndServeWithSelfSignedTLS(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- h.api.ListenAndServe(ctx) }()
 
+	// The key is written after the certificate, so wait for the key: its
+	// presence means the certificate is complete too. Waiting on the certificate
+	// alone left a gap in which the key did not exist yet, and a loaded machine
+	// found it.
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		if _, err := os.Stat(certFile); err == nil {
+		if _, err := os.Stat(keyFile); err == nil {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
