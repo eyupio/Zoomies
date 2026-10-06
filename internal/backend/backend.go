@@ -262,6 +262,14 @@ type Spec struct {
 	// memory limit should tell the operator to change. Empty from a
 	// controller that predates it, which a backend reads as the pool's.
 	ResourcesSource string `json:"resources_source,omitempty"`
+	// CPUTyped and MemoryTyped say that the pool typed that field, so a docker-in-docker
+	// pair gets it whole on each container -- the ledger charges it twice -- while the
+	// other field, which the host decided, is a slot divided between them. Without them
+	// the whole of Resources was divided whenever either field came from the host, so a
+	// pool that typed 4 CPU and left its memory to the host gave its job 2+2 CPU. False
+	// from a controller that predates them, which is the old reading: both divided.
+	CPUTyped    bool `json:"cpu_typed,omitempty"`
+	MemoryTyped bool `json:"memory_typed,omitempty"`
 	// DaemonSharePercent is the part of a host-sized slot the docker-in-docker
 	// daemon is given; zero is the even split. The CPU and memory figures say it
 	// per resource and, where set, override it for that resource. See

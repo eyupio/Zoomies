@@ -547,6 +547,8 @@ func (c *Controller) finishCreateRunner(ctx context.Context, inst *store.Install
 		// whatever this says without knowing the difference.
 		Resources:                resources,
 		ResourcesSource:          wireSource(source, pool),
+		CPUTyped:                 pool.Resources.CPUs > 0,
+		MemoryTyped:              pool.Resources.MemoryMB > 0,
 		Cache:                    pool.Cache,
 		Tmpfs:                    pool.Tmpfs,
 		DaemonSharePercent:       pool.Resources.DaemonSharePercent,
