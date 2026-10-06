@@ -467,7 +467,7 @@ against it in both directions, word for word.
 | `pool.minimum_overcharges` | A pool's smallest runner, multiplied by its thin Docker sidecar, charges every runner far more memory than its jobs have ever used, so machines hold fewer runners while jobs wait. |
 | `pool.minimum_held_by_job` | One kind of job in a pool is why every runner there is sized so large, and the rest would fit more runners on each machine in a smaller one. |
 | `pool.queue_wait_high` | A pool keeps no runner warm, and the slowest jobs wait minutes for one to be made, even though most start at once. |
-| `jobs.workflow_failing` | A workflow job keeps failing at the same step and has not passed, which is the workflow's to fix rather than the fleet's. |
+| `jobs.workflow_failing` | A workflow job has failed at the same step several times in a row and not passed once, which is the workflow's to fix rather than the fleet's. |
 | `jobs.duration_regressed` | A job now typically takes much longer than it did the week before. |
 | `host.slots_below_capacity` | A machine could hold more runners than it does, because each runner is sized larger than the machine divides into, while jobs have been waiting for room. |
 | `pool.tmpfs_auto_on_disk` | Some runners keep their working files on disk because they are too small for memory to be worth using. |
