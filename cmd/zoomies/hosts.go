@@ -7,13 +7,15 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/eyupio/zoomies/internal/hosttune"
 )
 
 // runHosts is `zoomies hosts ...`, including the join-token subcommand an
 // operator uses to add a machine to the fleet.
 func runHosts(ctx context.Context, e *env, args []string) error {
 	return runGroup(ctx, e, "hosts", "Agents, their capacity, and enrolment.", []*subcommand{
-		{"list", "", "Every host, with health and free capacity", hostsList},
+		{"list", "", "Every host, with its state, OS health and free capacity", hostsList},
 		{"edit", "<host-id>", "Change its capacity, reserve or runner sizes", hostsEdit},
 		{"cordon", "<host-id>", "Keep its runners, accept no new ones", hostsCordon},
 		{"drain", "<host-id>", "Cordon it, then drain every runner on it", hostsDrain},
@@ -97,6 +99,7 @@ func hostsList(ctx context.Context, e *env, args []string) error {
 			h.Name,
 			h.ID,
 			health,
+			hostOSHealth(p, h),
 			runners,
 			p.bar(used, 10),
 			dash(strings.Join(h.Backends, ",")),
@@ -105,7 +108,7 @@ func hostsList(ctx context.Context, e *env, args []string) error {
 			p.relTime(h.LastHeartbeat),
 		})
 	}
-	p.table([]string{"name", "id", "state", "runners", "used", "backends", "platform", "size", "last seen"}, rows)
+	p.table([]string{"name", "id", "state", "os health", "runners", "used", "backends", "platform", "size", "last seen"}, rows)
 
 	// A host with its own runner sizes says what they are and how many slots
 	// they give, which is what the capacity column no longer tells.
@@ -154,6 +157,69 @@ func hostsList(ctx context.Context, e *env, args []string) error {
 // at all, and a zero there is an old controller, not a host with no slots.
 func hostThrottled(h hostItem) bool {
 	return h.ThrottleReason != "" && h.EffectiveCapacity > 0
+}
+
+// hostOSHealth is the list's one-cell answer to "does this host's operating
+// system need anything of me", read from the controller's own count of the host's
+// report -- the same count the host's page, the problems and the metrics read --
+// so the table cannot say ok about a host the drawer is complaining about. The
+// first line that matches wins.
+//
+// Nothing here is the report's own text: the cell is built from integers, one
+// duration and words chosen here, because the table cannot wrap or truncate and
+// the report's strings are written by the host.
+//
+// Only the controller's count is trusted. A host with no summary is a host that
+// has never reported or a controller older than the field, and either way a
+// dash is more honest than a verdict this binary worked out for itself.
+func hostOSHealth(p *printer, h hostItem) string {
+	d := h.Doctor
+	// An unreachable host's last report describes a machine nobody can see, and
+	// the state column already says so.
+	if !h.Healthy || d == nil || d.Summary == nil {
+		return "-"
+	}
+	// The container's view skips most checks, so it says nothing about the host
+	// and the controller raises nothing for it. Saying so is the point: a bare
+	// "ok" here would be a clean bill of health nobody gave.
+	if d.Container {
+		return p.paint(colourDim, "partial")
+	}
+	// Staleness is measured against the host's last heartbeat, which is the
+	// controller's clock, and never against this machine's: an operator's laptop
+	// that is a few minutes off would otherwise mark every host stale. A report
+	// dated after the heartbeat is the host's clock running ahead, not old.
+	if d.CheckedAt.IsZero() {
+		return p.paint(colourYellow, "stale")
+	}
+	if age := h.LastHeartbeat.Sub(d.CheckedAt); age > hosttune.ReportStaleAfter {
+		return p.paint(colourYellow, "stale "+compactDuration(age))
+	}
+	var parts []string
+	if n := d.Summary.Errors; n > 0 {
+		parts = append(parts, p.paint(colourRed, plural(n, "error")))
+	}
+	if n := d.Summary.Warnings; n > 0 {
+		parts = append(parts, p.paint(colourYellow, plural(n, "warning")))
+	}
+	// A pending reboot is counted once, as itself: the controller leaves the
+	// kernel check out of the warnings, so a host whose only finding is a reboot
+	// reads "reboot pending" and not "1 warning, reboot pending". It is unpainted
+	// because the problem it raises is only a note.
+	if d.RebootPending {
+		parts = append(parts, "reboot pending")
+	}
+	if len(parts) > 0 {
+		return strings.Join(parts, ", ")
+	}
+	// Every counted check skipped is not the same as every one passing, and the
+	// host's page says so too.
+	if d.Summary.Skipped == d.Summary.Counted {
+		return p.paint(colourDim, "unavailable")
+	}
+	// Suggestions never reach the cell: a host whose safe checks all pass is ok
+	// whatever the aggressive and optional ones would like.
+	return p.paint(colourGreen, "ok")
 }
 
 // hostPlatform is what this machine is, in the terms a pool asks in. The
