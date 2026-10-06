@@ -290,3 +290,13 @@ test('findings are said errors first, in the words the pill and the feed share',
   assert.equal(findingsLabel({ errors: 1, warnings: 2 }), '1 health error · 2 warnings');
   assert.equal(findingsLabel({ errors: 3, warnings: 1 }), '3 health errors · 1 warning');
 });
+
+// The pill calls a container's report no verdict and the controller raises
+// nothing for it, so a list of what needs attention beside them would say the
+// opposite, about a warning (the image's own distribution) nobody can clear.
+test('a container’s partial report has nothing that needs attention, whatever its rows say', () => {
+  const r = reportOf([result('environment', 'warn'), result('disk.space', 'warn')]);
+  assert.equal(attention(r).length, 2);
+  r.container = true;
+  assert.deepEqual(attention(r), []);
+});

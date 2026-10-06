@@ -45,8 +45,14 @@ export const KERNEL_PENDING = 'kernel.pending';
  * and the host-health spec checks that against a real controller -- this is the
  * one place the rule is written a second time, so it is where the two would
  * drift.
+ *
+ * Empty for a container's partial report. The pill calls that report no verdict
+ * and the controller raises nothing for it, so a list of what "needs attention"
+ * on the same page would contradict both -- and its one warning, the image's own
+ * distribution, is one nobody can clear. The rows stay in the tables below.
  */
 export function attention(report: DoctorReport): DoctorResult[] {
+  if (report.container) return [];
   return bySeverity(
     report.results.filter(
       (r) =>
