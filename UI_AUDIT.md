@@ -1274,14 +1274,20 @@ next section.
 
 ### What has been done since
 
-Started on 6 October 2026, UI only, so nothing here needs an OpenAPI change.
+Started on 6 October 2026. DC1 and DC2 were UI only. DC3 is not: it adds a field
+to the API, three problem codes, three metrics and a column to the CLI, so it
+needed the OpenAPI change, and where it did not follow a finding's own
+suggestion the row says why.
 
 | Finding | Status | What changed |
 | --- | --- | --- |
-| **DC1** badge counts the wrong tiers | Fixed in the UI | `healthSummary` counts the safe tier without optional checks, as `zoomies doctor` does. Against the same fixtures: `build-01` 15 → 6 warnings (the CLI's 6), `build-02` 9 warnings → "Health OK". Other tiers show as "Suggestion" and say they do not count. The server-side `Summary` is left for DC3, which needs it. |
-| **DC2** worst finding hidden | Fixed | An error now outranks a reboot and both are said (`build-04`: "1 health error · reboot pending", danger tone). The host page opens with **Needs attention**, findings sort above passing checks, passing and skipped rows fold away when there is something to find, and every row has an id to link to. `build-04`'s phone page is 2,788px, from 5,237px. |
+| **DC1** badge counts the wrong tiers | Fixed in the UI, then on the server | `healthSummary` counts the safe tier without optional checks, as `zoomies doctor` does. Against the same fixtures: `build-01` 15 → 6 warnings (the CLI's 6), `build-02` 9 warnings → "Health OK". Other tiers show as "Suggestion" and say they do not count. The server-side `Summary` has since landed with DC3, as `hosttune.Report.Summary` sent as `doctor.summary`, and the badge reads it instead of counting for itself. It differs from the sketch in two ways: it has a `counted` field, which is how a page tells "every check passed" from "every check was skipped", and no `reboot_pending`, which stays on the report so there is one copy of it to disagree with. |
+| **DC2** worst finding hidden | Fixed | An error now outranks a reboot and both are said (`build-04`: "1 health error · reboot pending", danger tone). The host page opens with **Needs attention**, findings sort above passing checks, passing and skipped rows fold away when there is something to find, and every row has an id to link to. `build-04`'s phone page is 2,788px, from 5,237px. The fixture's disk error is not a state the real engine produces; see the correction under DC2. |
+| **DC3** nothing consumes the report | Done, less one blind spot | The controller counts each report once, as `doctor.summary` (`counted`, `warnings`, `errors`, `skipped`, `suggestions`) beside `doctor.results`, worked out on every read and never stored, and the badge, the problems, the metrics, the feed and `zoomies hosts list` all read it. Three problems, none with a remedy: `host.os_health` (a warning for counted warnings, an error only when a counted check could not run), `host.health_stale` (a warning, after ten minutes without a report from a host that is still heartbeating) and `host.reboot_pending` (info, saying whether the host can be rebooted now). A host with no report, one that is offline and a container's partial report raise nothing. They are exempt from the public status page rather than given a sentence in `publicSentences`, as the sketch said: they say whether a machine's settings match a recommendation, not whether a job will run, and a stock fleet carries some of them for ever. Three series, `zoomies_host_os_checks{host,state}`, `zoomies_host_reboot_pending` and `zoomies_host_health_report_age_seconds`, which are counts and never a check's name; four feed lines (a host that needs attention, has an error, has cleared, is waiting for a reboot) and none for a host's first report; an `os health` column in `zoomies hosts list`; `list_hosts` tells an assistant to read the summary before the results; and the three problems link to the host's own page. A pending reboot is counted once, as the reboot, so a host whose only finding is a reboot raises `host.reboot_pending` and not `host.os_health`; `zoomies doctor` counts the kernel check as a warning as well, so its own total is one higher for that check. Also not as sketched: the text names checks from the controller's own list and carries no current value, because a value such as free disk moves with every report and would send the problem list to every open tab each minute; the series label is `state`, not `status`; the column is headed `os health`. **Not detected:** a stopped host-health service on a Docker or Compose install, whose container then sends a fresh partial report that nothing judges. `docs/host-health.md` says so. |
+| **DH7** report rewritten and re-broadcast every minute | Partly | `doctor.summary` exists (DC3), and nothing else of the fix was done. `results` is still in every host payload, in `list_hosts`, in each `host.updated` frame and in the support bundle; there is no `/hosts/{id}/doctor` route and no `host_health` tool; and the agent still rewrites the row and publishes a frame for every report, so the payload is as large as it was, plus the summary. The owner's decision was that the API is additive and carries no `stale` field, so the part of the fix that reshapes the OpenAPI is still open. The new consumers were written to be quiet about it: a refreshed report with the same verdict changes no problem text and sends no `problems.updated`, and the feed's signal holds the verdict and never `checked_at`. |
+| **DN5** who can read it | Decided, documented | The owner's decision is that it stays as it is: anyone who can read hosts, a signed-in viewer or a `hosts:read` token, can read the check detail. `docs/host-health.md` now says so, with every route it travels by (REST, `host.updated` on `events:read`, MCP, the admin-only support bundle) and that the text in it is the host's own. No route splits `summary` from `results`. |
 
-Everything else here is open. DC3 is the next and the largest.
+Everything else here is open.
 
 ### How this part is ordered
 
@@ -1378,6 +1384,21 @@ should ship first; DC3 is the largest and the most valuable.
   which three matter. It has no "what do I do first" and no way to hide the 12
   passing and 7 skipped rows. A health page that makes you read 29 rows to find
   the red one has the hierarchy of a log file.
+
+  **Correction.** The first draft called `build-04`'s disk finding an error, and
+  the same example runs through this part: the verdict, DC3's problem and its
+  sketch, DN6 and Appendix D. The real engine never reports a nearly full disk
+  as an error. `diskCheck` returns a **warning** below 10% free or 10 GiB
+  (`checks.go:382-407`), and a check errors only on a `daemon.json` that is not
+  valid JSON (`checks.go:291`), `df` output it cannot read (`:396`, `:400`) or a
+  read that failed unexpectedly (`unavailable`, `engine.go:396-403`). So the
+  fixture's disk error is not a state the engine produces, and a real
+  `build-04` would show a warning. The finding stands, and is wider than the
+  first draft said: the old badge returned on `reboot_pending` before it read
+  the errors **and** the warnings, so any finding, of either kind, was hidden
+  behind a reboot. The fix is unchanged, because it already said every state
+  that applies; the header it gives the fixture is "1 warning · reboot
+  pending", in the pending tone, and not the danger one. (Code-verified.)
 * **Fix:** Severity order, and say every state that applies:
 
   ```ts
@@ -1434,7 +1455,9 @@ should ship first; DC3 is the largest and the most valuable.
   // results only (see hosttune.Report.Summary): the aggressive and dedicated
   // tiers are choices, not faults, so they never raise one.
   //
-  // host.os_health        warning; error when a counted check errors (disk, say).
+  // host.os_health        warning; error when a counted check could not run (a
+  //                       daemon.json that is not valid JSON, say). A nearly full
+  //                       disk is a warning.
   //   Title:  "host build-04 has 2 OS settings below the recommendation"
   //   Detail: "File watches 65536, want 524288; Docker log rotation off."
   //   Fix:    "on build-04 run `sudo zoomies doctor --interactive`; Zoomies
@@ -1844,11 +1867,17 @@ should ship first; DC3 is the largest and the most valuable.
 | `build-01` stock Ubuntu | 6 warn | 2 warn | 7 warn | **15 warnings** | 6 |
 | `build-02` safe all passing | 0 | 2 warn | 7 warn | **9 warnings** | 0 |
 | `build-03` clean | 0 | 0 | 0 | Health OK | 0 |
-| `build-04` disk error | 1 error | 2 warn | 7 warn | **Reboot pending** | 1 error |
+| `build-04` disk error † | 1 error | 2 warn | 7 warn | **Reboot pending** | 1 error |
 | `mac-mini` | 1 skip | — | — | Checks unavailable | 0 |
 | `edge-container` partial | 12 skip, 2 ok | — | — | **Health OK** | 0 |
 | `stale-06` 12 min old | 1 warn | 2 warn | 7 warn | Health stale | n/a |
 | `old-agent-07` | no report | — | — | Health unavailable | n/a |
+
+† **Correction.** The first draft's `build-04` disk error is a fixture, and not
+a state the engine produces: a nearly full disk is a warning (see the
+correction under DC2), so by the engine's own rules the row is 1 warn in the
+safe tier and the CLI counts 1 warning. The pill was still **Reboot pending**,
+which is the finding.
 
 | Measurement | Desktop 1440×900 | Phone 375×812 |
 | --- | --- | --- |
