@@ -688,7 +688,9 @@ stays in the payload in full, as the agent wrote it, so a client that wants a
 different reading of the tiers can still make one. The text in `results` is
 written by the host and is untrusted.
 
-Reading `doctor` takes the same access as reading the host it is on: any
-signed-in viewer, or an API token with the `hosts:read` scope, with no separate
-permission and no change from before the summary. See
-[Host health and tuning](host-health.md).
+Any signed-in viewer can read `doctor`, with no separate permission and no
+change from before the summary. A token reads it with `hosts:read`, with
+`runners:read` (a runner's detail carries its host) or with `events:read`
+(`host.updated`). `stats:read`, which opens the problems, shows less: the titles
+of up to three failing checks per host and no values. See
+[Who can read the check detail](host-health.md#who-can-read-the-check-detail).

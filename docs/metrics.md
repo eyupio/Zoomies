@@ -70,7 +70,7 @@ memory, so they are always current and never drift.
 | `zoomies_host_throttle_level` | gauge | `host` | The rung of the throttle ladder the host is on after sustained pressure, 0 to 3. Reported for every host, throttled or not, so a threshold rule keeps matching when nothing is wrong. |
 | `zoomies_host_os_checks` | gauge | `host`, `state` | The checks on a host's latest [OS report](host-health.md) that need attention, by `warning`, `error`, `skipped` or `suggestion`. The first three count only what `zoomies doctor` counts by default — the safe tier, without optional checks — and are the numbers the host page and the `host.os_health` problem use; a pending reboot is not one of the warnings, because `zoomies_host_reboot_pending` says it. `suggestion` is a warning that is only a choice, from another tier or optional. All four are reported for every host with a report, zeroes included, so a threshold rule keeps matching when nothing is wrong; there is no `ok` state, so the four do not add up to the number of checks. Missing for a host that is offline, has sent no report or sent only a container's partial one. Counts only, never the name of a check. |
 | `zoomies_host_reboot_pending` | gauge | `host` | 1 while the host's latest OS report says an update is waiting for a reboot, 0 otherwise. Missing in the same cases as the series above. The drawer's `host.reboot_pending` is an info note, so this is for finding hosts that are overdue for one rather than for paging. |
-| `zoomies_host_health_report_age_seconds` | gauge | `host` | How old the host's latest OS report is, by the host's own clock, and never below zero. It is the freshness signal: a host whose collector has stopped is still reported and its age climbs, so a value above 600 is the same ten minutes as `host.health_stale`. Missing in the same cases as the series above. |
+| `zoomies_host_health_report_age_seconds` | gauge | `host` | How old the host's latest OS report is, by the host's own clock, and never below zero. It is the freshness signal: on a native agent, a host whose collector has stopped is still reported and its age climbs, so a value above 600 is the same ten minutes as `host.health_stale`. On a Docker or Compose installation a stopped `zoomies-host-health.service` makes the series disappear instead, because the container's own partial report takes over; alert on its absence too (see [what it cannot see](host-health.md#what-it-cannot-see)). Missing in the same cases as the series above. |
 | `zoomies_host_allocatable_cpus` | gauge | — | CPUs across healthy, uncordoned hosts, less each host's reserve. |
 | `zoomies_host_allocatable_memory_bytes` | gauge | — | The same for memory. |
 | `zoomies_host_reserved_cpus` | gauge | — | What the live runners have promised away, as of the last scheduling pass. |
@@ -338,7 +338,10 @@ being down:
   `zoomies_host_health_report_age_seconds > 600` are the two worth a page: an
   error is a check that could not run, so nobody knows what that host is
   doing, and ten minutes without a report is a collector that has stopped —
-  the same ten minutes after which the drawer raises `host.health_stale`.
+  the same ten minutes after which the drawer raises `host.health_stale`. On a
+  Docker or Compose installation that collector's stopping makes the series
+  vanish rather than climb, so a rule there wants
+  `absent(zoomies_host_health_report_age_seconds{host="host_example"})` as well.
 * `sum(zoomies_host_os_checks{state="warning"})` is a ticket and never a
   page, because a stock host carries some warnings for ever. The useful
   question is whether a host got worse, which is

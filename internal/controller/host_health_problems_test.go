@@ -128,8 +128,8 @@ func TestACountedWarningIsAWarningAndOnlyACountedErrorIsAnError(t *testing.T) {
 			if p.TargetKind != "host" || p.TargetID != host.ID || p.Audience != AudienceFleet {
 				t.Errorf("target %s/%s, audience %q; want this host, for the fleet", p.TargetKind, p.TargetID, p.Audience)
 			}
-			// Zoomies never changes the operating system, and the autopilot acts
-			// only on a problem that carries a remedy, so none may.
+			// The controller never changes the operating system, and the autopilot
+			// acts only on a problem that carries a remedy, so none may.
 			if p.Remedy != nil || p.Setting != "" || p.Since != nil {
 				t.Errorf("remedy %v, setting %q, since %v; want none of them", p.Remedy, p.Setting, p.Since)
 			}

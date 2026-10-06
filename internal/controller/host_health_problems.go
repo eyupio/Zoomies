@@ -37,9 +37,11 @@ func hostHealthReport(h *store.Host, now time.Time) *hosttune.Report {
 // what the report says needs attention, that the reports have stopped coming,
 // and that a reboot is due.
 //
-// None of the three carries a Remedy. Zoomies never changes a host's operating
-// system, and the autopilot only acts on problems that carry one, so each Fix
-// is a sentence that sends a person to the host rather than a button.
+// None of the three carries a Remedy. The controller never changes a host's
+// operating system -- only a person on the host does, with consent, through
+// zoomies doctor --interactive or zoomies tune -- and the autopilot only acts
+// on problems that carry one, so each Fix is a sentence that sends a person to
+// the host rather than a button.
 func (c *Controller) hostHealthProblems(ctx context.Context, out *[]Problem) error {
 	hosts, err := c.st.ListHosts(ctx)
 	if err != nil {

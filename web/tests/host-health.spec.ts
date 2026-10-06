@@ -136,6 +136,13 @@ test('host OS health updates live and stays read-only on the detail page', async
     // report is, rather than the list of every host. (The other host problems
     // keep the list; a unit test covers those, because an offline host cannot
     // be made in a test's time.)
+    //
+    // The pill above moved at once, because a heartbeat publishes the host. The
+    // problems list is not published by a heartbeat: it is worked out after each
+    // reconcile pass, which is every ten seconds by default, so the row can be
+    // that long coming and the seven-second default wait is shorter than the
+    // interval. The wait here is longer than an interval plus a pass; the
+    // interval is not shortened for the test.
     await page.getByRole('button', { name: /^Problems\./ }).click();
     const drawer = page.getByRole('dialog', { name: 'Problems' });
     const waiting = drawer
@@ -144,6 +151,7 @@ test('host OS health updates live and stays read-only on the detail page', async
     await expect(waiting.getByRole('link', { name: 'Open the host' })).toHaveAttribute(
       'href',
       `/hosts/${credentials.host_id}`,
+      { timeout: 20_000 },
     );
     await page.keyboard.press('Escape');
     await expect(drawer).toBeHidden();

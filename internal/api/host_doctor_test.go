@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/eyupio/zoomies/internal/agent"
@@ -177,5 +178,99 @@ func TestAHeartbeatThatSendsItsOwnSummaryHasItIgnoredAndNeverStoresIt(t *testing
 	}
 	if _, ok := fields["summary"]; ok {
 		t.Errorf("the host's summary was stored: %s", column)
+	}
+}
+
+// docs/host-health.md says which scopes reach a host's check detail, and a token
+// that must not see it is minted from that list. A route the page leaves out, or
+// a scope it names that does not open one, is how an operator ends up holding a
+// token that reads every host's kernel version and filesystem paths while
+// believing it cannot. So the list is held to the routes, and the problems --
+// which name a failing check and never carry a value -- are held to that too.
+func TestTheCheckDetailReachesTheScopesTheDocsNameAndNoOther(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	host := h.host("detail-host")
+	run := h.runner(h.pool(inst, "linux-x64"), host, store.RunnerIdle)
+	const value = "9% free of /srv/private/builds"
+	r := &hosttune.Report{
+		CheckedAt: h.ctrl.Now(), OS: "linux", Distro: "ubuntu 24.04",
+		Results: []hosttune.Result{{
+			ID: "disk.space", Title: "Disk space", Tier: hosttune.Safe, Status: hosttune.Warn,
+			Current: value, Recommended: "10%", Rationale: "Leave room for builds.",
+		}},
+	}
+	if _, err := h.ctrl.Heartbeat(h.ctx, host.ID, agent.HeartbeatRequest{ProtocolVersion: agent.ProtocolVersion, Doctor: r}); err != nil {
+		t.Fatal(err)
+	}
+	title, ok := hosttune.Title("disk.space")
+	if !ok {
+		t.Fatal("the controller does not know disk.space, so no problem could name it")
+	}
+
+	const (
+		hostPath    = "/api/v1/hosts/"
+		runnerPath  = "/api/v1/runners/"
+		problemPath = "/api/v1/problems"
+	)
+	cases := []struct {
+		scope string
+		// Which of the three routes the scope opens, and so whether the value
+		// is in the body: the first two carry the host's results, the problems
+		// carry only the name of the check.
+		host, runner, problems bool
+	}{
+		{scope: "hosts:read", host: true},
+		// Any scope on a resource includes reading it, so a token that may only
+		// cordon hosts reads them too, and the docs say so.
+		{scope: "hosts:cordon", host: true},
+		// A runner's detail carries its host, whole.
+		{scope: "runners:read", runner: true},
+		{scope: "stats:read", problems: true},
+		{scope: "pools:read"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.scope, func(t *testing.T) {
+			token := h.token("reads "+tc.scope, store.RoleViewer, tc.scope)
+			for _, route := range []struct {
+				path string
+				open bool
+			}{
+				{hostPath + host.ID, tc.host},
+				{runnerPath + run.ID, tc.runner},
+				{problemPath, tc.problems},
+			} {
+				res := h.do(request{method: http.MethodGet, path: route.path, token: token})
+				if !route.open {
+					res.mustStatus(t, http.StatusForbidden, tc.scope+" on "+route.path)
+					continue
+				}
+				res.mustStatus(t, http.StatusOK, tc.scope+" on "+route.path)
+				carriesValue := strings.Contains(string(res.body), value)
+				if isProblems := route.path == problemPath; carriesValue == isProblems {
+					t.Errorf("%s on %s: the check's value is in the body = %v; the host routes carry it and the problems never do",
+						tc.scope, route.path, carriesValue)
+				}
+				if route.path != problemPath {
+					continue
+				}
+				var got struct {
+					Items []struct {
+						Code   string `json:"code"`
+						Detail string `json:"detail"`
+					} `json:"items"`
+				}
+				res.into(t, &got)
+				found := false
+				for _, p := range got.Items {
+					if p.Code == "host.os_health" {
+						found = strings.Contains(p.Detail, title)
+					}
+				}
+				if !found {
+					t.Errorf("%s on the problems: no host.os_health entry naming %q: %s", tc.scope, title, truncate(res.body))
+				}
+			}
+		})
 	}
 }

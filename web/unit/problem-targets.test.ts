@@ -10,9 +10,10 @@ test('the OS health problems open the host itself', () => {
   }
 });
 
-// An offline host has no report to show: its page would say "no report yet" to
-// an operator who was told the host is not answering. Every other host problem
-// keeps the list, which is where the host's state and its slots are.
+// A host's own page is its OS health page, so it is the wrong place to send
+// somebody about the agent going quiet, the host's capacity or a folder that is
+// not mounted. Every other host problem keeps the list, which is where the
+// host's state and its slots are.
 test('every other host problem keeps its link to the list of hosts', () => {
   for (const code of [
     'host.unhealthy',

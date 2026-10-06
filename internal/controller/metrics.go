@@ -419,7 +419,7 @@ var (
 		"1 while a host's latest OS report says an update is waiting for a reboot, 0 otherwise. Absent when the host is offline, has sent no report, or sent only the container's partial one.",
 		[]string{"host"}, nil)
 	descHostHealthReportAge = prometheus.NewDesc("zoomies_host_health_report_age_seconds",
-		"How old a host's latest OS report is, by the host's own clock; never negative. This is the freshness signal, so a host whose collector has stopped is still reported and its age climbs. Absent when the host is offline, has sent no report, or sent only the container's partial one.",
+		"How old a host's latest OS report is, by the host's own clock; never negative. This is the freshness signal: on a native agent a host whose collector has stopped is still reported and its age climbs, but on a Docker or Compose installation the container's partial report takes over and the series is absent. Absent when the host is offline, has sent no report, or sent only the container's partial one.",
 		[]string{"host"}, nil)
 )
 

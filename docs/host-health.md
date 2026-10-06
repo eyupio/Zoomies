@@ -123,8 +123,10 @@ for OS tuning; its health badge links to a tier-grouped checks table.
 
 A report is not only something to open a page and look at. The controller reads
 the count described above and tells you about a host the way it tells you about
-everything else that needs attention. Nothing here changes the host: Zoomies
-never alters an operating system, so none of these carries a one-click fix.
+everything else that needs attention. The controller never changes a host's
+operating system, so none of these carries a one-click fix. A change is made on
+the host itself, with your consent, by `zoomies doctor --interactive` or
+`zoomies tune`.
 
 | Problem | Severity | Raised when |
 | --- | --- | --- |
@@ -169,8 +171,13 @@ The same count reaches the other places you look:
 * **Metrics.** `zoomies_host_os_checks` (by `host` and `state`),
   `zoomies_host_reboot_pending` and `zoomies_host_health_report_age_seconds`.
   They are counts and never name a check. Each is absent for a host the
-  problems say nothing about, and the age is how an alert notices a collector
-  that has stopped. See [Metrics](metrics.md) for what to alert on.
+  problems are not allowed to judge: one that is offline, has sent no report or
+  sent only a container's partial one. A host with a clean report shows zeroes,
+  so a missing series is never an all-clear. On a native agent the age is how
+  an alert notices a collector that has stopped. On a Docker or Compose
+  installation the series disappears instead, so alert on its absence too (see
+  [what it cannot see](#what-it-cannot-see)). See [Metrics](metrics.md) for
+  what to alert on.
 * **The Overview feed.** A line when a host starts to need attention, when it
   has a health error, when it no longer needs attention, and when it is waiting
   for a reboot. Only a change is news: a host's first report is a baseline and
@@ -204,21 +211,29 @@ stalls, or a clock that runs behind, shows as `host.health_stale`.
 
 ## Who can read the check detail
 
-Anyone who can read hosts can read the check detail: any signed-in viewer, or an
-API token carrying the `hosts:read` scope. There is no separate permission for
+Anyone who can read hosts can read the check detail: any signed-in viewer, or
+an API token with one of the scopes below. There is no separate permission for
 it and no setting that narrows it. The detail is `doctor.results`, which gives
 each check's current value, recommendation and reason, so it includes the
 running kernel's exact version, filesystem paths and which services are
-enabled. It reaches a reader:
+enabled. It reaches a reader by three routes, each opened by its own scope (a
+scope on a resource, such as `hosts:cordon`, includes reading it):
 
-* over the REST API, in `GET /api/v1/hosts`, `GET /api/v1/hosts/{id}` and the
-  host that `GET /api/v1/runners/{id}` carries;
-* on the event stream, in `host.updated`. That needs `events:read`, not
-  `hosts:read`: it is also a viewer permission, but a token scoped to
-  `events:read` alone sees the same frames, so a token that must not see the
-  detail needs neither scope;
-* through MCP's `list_hosts` and `zoomies doctor --host`, which use the
-  caller's own token and so can never show more than that token could.
+* `hosts:read`, over the REST API in `GET /api/v1/hosts` and
+  `GET /api/v1/hosts/{id}`, and through MCP's `list_hosts` and
+  `zoomies doctor --host`, which use the caller's own token and so can never
+  show more than that token could;
+* `runners:read`, in the host that `GET /api/v1/runners/{id}` carries beside
+  the runner;
+* `events:read`, on the event stream, in `host.updated`. It is also a viewer
+  permission, and a token scoped to it alone sees the same frames.
+
+The problems show less, by a fourth scope. `stats:read` opens
+`GET /api/v1/problems` and MCP's `list_problems`, and the same list arrives in
+`problems.updated` on the event stream. A `host.os_health` entry in it names up
+to three of a host's failing checks by title, and says which could not run,
+with no value. So a token that must not see any of it needs none of
+`hosts:read`, `runners:read`, `events:read` or `stats:read`.
 
 The support bundle carries it for admins only. The public status page never
 carries it, and `/metrics` carries counts and no check's name. With
@@ -226,9 +241,9 @@ carries it, and `/metrics` carries counts and no check's name. With
 endpoint.
 
 On a fleet that several teams share, the detail is a map of what is unpatched,
-so give the viewer role and `hosts:read` tokens accordingly. The text in the
-results is written by the host, so give it to a model as data and not as
-instructions.
+so give the viewer role, and tokens with any of those scopes, accordingly. The
+text in the results is written by the host, so give it to a model as data and
+not as instructions.
 
 ## Safe checks
 
