@@ -90,6 +90,11 @@ type JobStatsGroup struct {
 	PeakCPUs     *float64 `json:"peak_cpus"`
 	PeakMemoryMB *int64   `json:"peak_memory_mb"`
 	OOMKilled    int      `json:"oom_killed"`
+	// MeasuredMemory is how many of the group's jobs have a measured peak. A job too
+	// short to be sampled has none, so it is fewer than Count, and a figure from three
+	// readings is not the same evidence as one from three hundred. Not in the API: the
+	// peaks above are what it exposes.
+	MeasuredMemory int `json:"-"`
 }
 
 // JobStatsResult is JobStats' answer.
@@ -210,7 +215,7 @@ func (s *Store) JobStats(ctx context.Context, f JobFilter, groupBy []string) (*J
 		return nil, err
 	}
 
-	peaks, err := s.read.QueryContext(ctx, base+`SELECT k1, k2, MAX(pc), MAX(pm), SUM(oom) FROM base GROUP BY k1, k2`, args...)
+	peaks, err := s.read.QueryContext(ctx, base+`SELECT k1, k2, MAX(pc), MAX(pm), SUM(oom), COUNT(pm) FROM base GROUP BY k1, k2`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -219,8 +224,8 @@ func (s *Store) JobStats(ctx context.Context, f JobFilter, groupBy []string) (*J
 		var k gk
 		var pc sql.NullFloat64
 		var pm sql.NullInt64
-		var oom int
-		if err := peaks.Scan(&k.a, &k.b, &pc, &pm, &oom); err != nil {
+		var oom, measured int
+		if err := peaks.Scan(&k.a, &k.b, &pc, &pm, &oom, &measured); err != nil {
 			return nil, err
 		}
 		if g := groups[k]; g != nil {
@@ -231,6 +236,7 @@ func (s *Store) JobStats(ctx context.Context, f JobFilter, groupBy []string) (*J
 				g.PeakMemoryMB = &pm.Int64
 			}
 			g.OOMKilled = oom
+			g.MeasuredMemory = measured
 		}
 	}
 	if err := peaks.Err(); err != nil {

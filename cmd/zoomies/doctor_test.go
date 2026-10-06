@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"github.com/eyupio/zoomies/internal/hosttune"
+	"github.com/eyupio/zoomies/internal/installer"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -143,6 +145,28 @@ func TestMaintenanceFlagsNeedTheirParents(t *testing.T) {
 		e, _, errOut := newTestEnv(t)
 		if code := dispatch(context.Background(), e, args); code != exitUsage {
 			t.Errorf("%v: exit code = %d, want %d (usage)\n%s", args, code, exitUsage, errOut.String())
+		}
+	}
+}
+
+// A container deployment has no systemd units to stop, so a maintenance restart counted
+// the controller's own container as running work and --kill-running stopped it and never
+// started it again. It is refused, with what to do by hand.
+func TestAMaintenanceRestartIsRefusedOnAHostThatRunsZoomiesInAContainer(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("ZOOMIES_CONFIG_DIR", dir)
+	record := `{"deployment":"docker","container":"zoomies-ctr"}`
+	if err := os.WriteFile(installer.DeploymentRecordPath(dir), []byte(record), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"tune", "--force"}, {"tune", "--force", "--background"}, {"tune", "--restart-pending"}, {"tune", "--revert", "--force", "--yes", "--kill-running"}} {
+		e, _, errOut := newTestEnv(t)
+		t.Setenv("ZOOMIES_CONFIG_DIR", dir)
+		if code := dispatch(context.Background(), e, args); code == exitOK {
+			t.Errorf("%v on a container deployment succeeded", args)
+		}
+		if !strings.Contains(errOut.String(), "zoomies-ctr") || !strings.Contains(errOut.String(), "docker stop zoomies-ctr") {
+			t.Errorf("%v: the refusal must name the container and say what to do:\n%s", args, errOut)
 		}
 	}
 }

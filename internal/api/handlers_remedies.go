@@ -58,7 +58,11 @@ func (s *Server) handleApplyRemedy(w http.ResponseWriter, r *http.Request) {
 		unprocessable(w, "name the suggestion to apply", []fieldError{{"code", "the problem's code, as the problems list shows it"}, {"target_id", "the pool or host it is about"}})
 		return
 	}
-	items, err := s.ctrl.SharedProblems(r.Context())
+	// Worked out for this request, not joined from a computation that began before it:
+	// an apply is rare and deliberate, and the shared list can be a computation old,
+	// which is long enough for a second operator's apply of the same suggestion to
+	// find it still there.
+	items, err := s.ctrl.Problems(r.Context())
 	if err != nil {
 		s.internal(w, r, "gathering the current problems", err)
 		return
@@ -74,6 +78,15 @@ func (s *Server) handleApplyRemedy(w http.ResponseWriter, r *http.Request) {
 		break
 	}
 	if found == nil {
+		// A section of the problems that could not be read leaves its suggestions out,
+		// which is not the same as there being none: say the controller could not look,
+		// so a script or an agent does not conclude the change was made elsewhere.
+		for i := range items {
+			if items[i].Code == "controller.problems_partial" {
+				writeError(w, http.StatusServiceUnavailable, errorEnvelope{Error: errorBody{Code: codeInternal, Message: "the controller could not read everything it needs to say whether that suggestion still applies, so nothing was changed: " + items[i].Detail + " Try again in a moment."}})
+				return
+			}
+		}
 		conflict(w, "that suggestion no longer applies: the controller is not proposing a change for "+in.Code+" on "+in.TargetID+" now. Read the problems again.")
 		return
 	}
@@ -95,7 +108,7 @@ func (s *Server) handleApplyRemedy(w http.ResponseWriter, r *http.Request) {
 
 	// The update's own request: the proposed body, no query -- so nothing the
 	// caller sent can switch on confirm -- and a response of its own to read.
-	req := r.Clone(r.Context())
+	req := r.Clone(noConfirm(r.Context()))
 	req.URL.RawQuery = ""
 	req.Body = io.NopCloser(bytes.NewReader(found.Body))
 	req.Header.Set("Content-Type", "application/json")
@@ -108,6 +121,10 @@ func (s *Server) handleApplyRemedy(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, r, "reading the pool", gerr)
 			return
 		}
+		if found.Base != "" && found.Base != controller.RemedyBase(existing.Resources) {
+			conflict(w, changedSinceProposed)
+			return
+		}
 		var body poolInput
 		if !decode(rec, req, &body) {
 			s.relay(w, rec)
@@ -118,6 +135,10 @@ func (s *Server) handleApplyRemedy(w http.ResponseWriter, r *http.Request) {
 		h, gerr := s.ctrl.Store().GetHost(r.Context(), found.TargetID)
 		if gerr != nil {
 			s.fail(w, r, "reading the host", gerr)
+			return
+		}
+		if found.Base != "" && found.Base != controller.RemedyBase(h.RunnerProfile) {
+			conflict(w, changedSinceProposed)
 			return
 		}
 		var body hostUpdateRequest
@@ -146,6 +167,12 @@ func (s *Server) handleApplyRemedy(w http.ResponseWriter, r *http.Request) {
 		Result:  json.RawMessage(bytes.TrimSpace(rec.body.Bytes())),
 	})
 }
+
+// changedSinceProposed answers an apply whose target was edited between the
+// controller working the suggestion out and the apply reading the target. The
+// suggestion replaces the pool's resources or the host's runner profile whole, so
+// applying it over an edit would quietly undo the edit.
+const changedSinceProposed = "that suggestion is out of date: the pool or host was edited after the controller worked it out, and applying it now would put back what that edit changed. Read the problems again."
 
 // relay writes a recorded response out as it was recorded: its status, its
 // content type and its body.

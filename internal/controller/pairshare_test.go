@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/eyupio/zoomies/internal/backend"
 	"github.com/eyupio/zoomies/internal/config"
@@ -20,7 +21,7 @@ func pairWindowOf(n, runners int, runnerUse, daemonUse backend.HalfUse) []pairSa
 		r, d := runnerUse, daemonUse
 		r.CPULimit, r.MemoryLimit = 2, 4*gib
 		d.CPULimit, d.MemoryLimit = 2, 4*gib
-		out = append(out, pairSample{runner: fmt.Sprintf("r%d", i%runners), halves: backend.PairHalves{Runner: r, Daemon: d}})
+		out = append(out, pairSample{sampled: time.Unix(1_700_000_000, 0).Add(time.Duration(i) * 30 * time.Second), runner: fmt.Sprintf("r%d", i%runners), halves: backend.PairHalves{Runner: r, Daemon: d}})
 	}
 	return out
 }
@@ -144,7 +145,8 @@ func TestASqueezedSidecarShowsUpAsAStandingProblemUntilTheShareMoves(t *testing.
 		backend.HalfUse{CPUs: 0.1, MemoryBytes: gib / 4},
 		backend.HalfUse{CPUs: 1.9, MemoryBytes: 3*gib + gib/2}) {
 		r := &store.Runner{ID: fmt.Sprintf("run-%d", i%5), PoolID: pool.ID, AllocationSource: store.AllocationFromHost}
-		h.c.observePair(r, backend.Stats{SampledAt: &now, Halves: &s.halves})
+		sampled := now.Add(time.Duration(i) * 30 * time.Second)
+		h.c.observePair(r, backend.Stats{SampledAt: &sampled, Halves: &s.halves})
 	}
 	p := h.problemOrNil("pool.daemon_share_suggested")
 	if p == nil || p.TargetID != pool.ID {
@@ -182,7 +184,8 @@ func TestASqueezedSidecarIsAdvisedWhetherTheHostsShareOrItsProfileSizedTheRunner
 				backend.HalfUse{CPUs: 0.1, MemoryBytes: gib / 4},
 				backend.HalfUse{CPUs: 1.9, MemoryBytes: 3*gib + gib/2}) {
 				r := &store.Runner{ID: fmt.Sprintf("run-%d", i%5), PoolID: pool.ID, AllocationSource: source}
-				h.c.observePair(r, backend.Stats{SampledAt: &now, Halves: &s.halves})
+				sampled := now.Add(time.Duration(i) * 30 * time.Second)
+				h.c.observePair(r, backend.Stats{SampledAt: &sampled, Halves: &s.halves})
 			}
 			if p := h.problemOrNil("pool.daemon_share_suggested"); p == nil || p.TargetID != pool.ID {
 				t.Fatalf("problem = %+v; want one for the pool whose runners are sized by %q", p, source)
@@ -205,7 +208,8 @@ func TestAMixedSqueezeIsOneNoticeWithAFlagForEachResource(t *testing.T) {
 		backend.HalfUse{CPUs: 0.1, MemoryBytes: 3*gib + gib/2},
 		backend.HalfUse{CPUs: 1.9, MemoryBytes: gib / 4}) {
 		r := &store.Runner{ID: fmt.Sprintf("run-%d", i%5), PoolID: pool.ID, AllocationSource: store.AllocationFromHost}
-		h.c.observePair(r, backend.Stats{SampledAt: &now, Halves: &s.halves})
+		sampled := now.Add(time.Duration(i) * 30 * time.Second)
+		h.c.observePair(r, backend.Stats{SampledAt: &sampled, Halves: &s.halves})
 	}
 	p := h.problemOrNil("pool.daemon_share_suggested")
 	if p == nil {
@@ -240,7 +244,8 @@ func TestAPoolTheControllerKeepsIsNotAdvisedOnHowItDividesItsSlot(t *testing.T) 
 		backend.HalfUse{CPUs: 0.1, MemoryBytes: gib / 4},
 		backend.HalfUse{CPUs: 1.9, MemoryBytes: 3*gib + gib/2}) {
 		r := &store.Runner{ID: fmt.Sprintf("run-%d", i%5), PoolID: pool.ID, AllocationSource: store.AllocationFromHost}
-		h.c.observePair(r, backend.Stats{SampledAt: &now, Halves: &s.halves})
+		sampled := now.Add(time.Duration(i) * 30 * time.Second)
+		h.c.observePair(r, backend.Stats{SampledAt: &sampled, Halves: &s.halves})
 	}
 	if p := h.problemOrNil("pool.daemon_share_suggested"); p != nil {
 		t.Fatalf("a pool the controller keeps was advised to change a setting it has not got: %+v", p)
@@ -273,7 +278,8 @@ func squeezedRunnerPool(t *testing.T, hostCPUs int) (*harness, *store.Pool) {
 			Daemon: backend.HalfUse{CPULimit: slot * 0.35, CPUs: 0.05, MemoryLimit: 4 * gib, MemoryBytes: gib / 4},
 		}
 		r := &store.Runner{ID: fmt.Sprintf("run-%d", i%5), PoolID: pool.ID, AllocationSource: store.AllocationFromHost}
-		h.c.observePair(r, backend.Stats{SampledAt: &now, Halves: &halves})
+		sampled := now.Add(time.Duration(i) * 30 * time.Second)
+		h.c.observePair(r, backend.Stats{SampledAt: &sampled, Halves: &halves})
 	}
 	return h, pool
 }
@@ -363,5 +369,104 @@ func TestTheNoticeClearsAtOnceWhenThePoolsShareIsChanged(t *testing.T) {
 	}
 	if p := h.problemOrNil("pool.daemon_share_suggested"); p != nil {
 		t.Fatalf("the notice is still up after the share was changed: %+v", p)
+	}
+}
+
+// The agent sends its last sample with the heartbeat and again with each reconcile
+// report, and keeps sending it when the next sample fails. The same reading is not
+// more evidence for arriving again, or 60 samples would be half an hour of one
+// runner.
+func TestTheSameSampleArrivingTwiceIsCountedOnce(t *testing.T) {
+	h := newHarness(t)
+	pool := h.pool(h.installation(), "builders")
+	pool.DockerMode = store.DockerDinD
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	now := h.c.Now()
+	halves := backend.PairHalves{
+		Runner: backend.HalfUse{MemoryBytes: gib, MemoryLimit: 4 * gib, CPULimit: 2},
+		Daemon: backend.HalfUse{MemoryBytes: gib, MemoryLimit: 4 * gib, CPULimit: 2},
+	}
+	r := &store.Runner{ID: "run-1", PoolID: pool.ID, AllocationSource: store.AllocationFromHost}
+	for i := 0; i < 5; i++ {
+		h.c.observePair(r, backend.Stats{SampledAt: &now, Halves: &halves})
+	}
+	later := now.Add(30 * time.Second)
+	h.c.observePair(r, backend.Stats{SampledAt: &later, Halves: &halves})
+	h.c.observePair(r, backend.Stats{SampledAt: &later, Halves: &halves})
+	if n := len(h.c.pairs[pool.ID]); n != 2 {
+		t.Errorf("%d samples kept from two readings", n)
+	}
+}
+
+// A pool whose smallest runner holds the thin half of its slot is the shape that
+// motivated all of this: a 15% sidecar with a 1.5 GB minimum is given 1.5 GB at any
+// share of 50% or less, so raising its share cannot give it more -- it only shrinks
+// the runner beside it, and the notice then goes quiet because both halves are
+// squeezed. The detector must say so and offer no share to apply.
+func TestASidecarPinnedAtThePoolsMinimumIsNotOfferedAShareThatOnlyShrinksTheRunner(t *testing.T) {
+	h := newHarness(t)
+	pool := h.pool(h.installation(), "builders")
+	pool.DockerMode = store.DockerDinD
+	pool.Resources.MinMemoryMB = 1536
+	pool.Resources.DaemonMemorySharePercent = 15
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	h.measuredHost("box", 16, 12288, 4, enforcesEverything)
+	now := h.c.Now()
+	for i := 0; i < 100; i++ {
+		halves := backend.PairHalves{
+			Runner: backend.HalfUse{MemoryLimit: 8704 << 20, MemoryBytes: 2000 << 20},
+			Daemon: backend.HalfUse{MemoryLimit: 1536 << 20, MemoryBytes: 1400 << 20},
+		}
+		r := &store.Runner{ID: fmt.Sprintf("run-%d", i%5), PoolID: pool.ID, AllocationSource: store.AllocationFromHost}
+		sampled := now.Add(time.Duration(i) * 30 * time.Second)
+		h.c.observePair(r, backend.Stats{SampledAt: &sampled, Halves: &halves})
+	}
+	p := h.problemOrNil("pool.daemon_share_suggested")
+	if p == nil {
+		t.Fatal("the squeeze is real and the pool should still be told")
+	}
+	if p.Remedy != nil || p.DaemonShare != nil {
+		t.Errorf("a share was offered that cannot give the daemon more: %+v %+v", p.Remedy, p.DaemonShare)
+	}
+	if !strings.Contains(p.Detail, "smallest runner") || !strings.Contains(p.Fix, "raise the pool's smallest runner") {
+		t.Errorf("the notice must say what sets the thin half and what raises it:\n%s\n%s", p.Detail, p.Fix)
+	}
+}
+
+// A memory limit is one a job is killed at. The runner beside a squeezed sidecar used
+// 1 GiB in 116 samples of 120 and 3.5 GiB in four, so its 95th percentile said it could
+// be given almost nothing and one click proposed 80% to the sidecar: a runner of 1.6 GiB
+// against a 3.5 GiB peak, killed the next time its heavy phase ran. Memory is sized from
+// the most each half used.
+func TestAMemoryShareIsNeverProposedThatShrinksTheRunnerBelowItsOwnPeak(t *testing.T) {
+	h := newHarness(t)
+	pool := h.pool(h.installation(), "builders")
+	pool.DockerMode = store.DockerDinD
+	if err := h.st.UpdatePool(h.ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	h.measuredHost("big", 16, 65536, 4, enforcesEverything)
+	now := h.c.Now()
+	for i := 0; i < 120; i++ {
+		runnerUse := gib
+		if i%30 == 0 {
+			runnerUse = 3*gib + gib/2
+		}
+		halves := backend.PairHalves{
+			Runner: backend.HalfUse{MemoryLimit: 4 * gib, MemoryBytes: runnerUse},
+			Daemon: backend.HalfUse{MemoryLimit: 4 * gib, MemoryBytes: 3*gib + gib*6/10},
+		}
+		r := &store.Runner{ID: fmt.Sprintf("run-%d", i%5), PoolID: pool.ID, AllocationSource: store.AllocationFromHost}
+		sampled := now.Add(time.Duration(i) * 30 * time.Second)
+		h.c.observePair(r, backend.Stats{SampledAt: &sampled, Halves: &halves})
+	}
+	if p := h.problemOrNil("pool.daemon_share_suggested"); p != nil {
+		if p.DaemonShare != nil && p.DaemonShare.MemoryPercent > 55 {
+			t.Errorf("a share of %d%% was proposed that leaves the runner under its 3.5 GiB peak: %+v", p.DaemonShare.MemoryPercent, p)
+		}
 	}
 }

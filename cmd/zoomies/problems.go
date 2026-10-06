@@ -38,6 +38,7 @@ func problemsList(ctx context.Context, e *env, args []string) error {
 	if err != nil {
 		return err
 	}
+	out.sanitise()
 	if p.structured() {
 		return p.emit(raw)
 	}
@@ -97,6 +98,7 @@ func problemsApply(ctx context.Context, e *env, args []string) error {
 	if _, err := client.get(ctx, "/problems", nil, &list); err != nil {
 		return err
 	}
+	list.sanitise()
 	var matches []problemItem
 	for _, it := range list.Items {
 		if it.Code == code && it.Remedy != nil && (*target == "" || it.TargetID == *target) {

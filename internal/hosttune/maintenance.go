@@ -119,10 +119,13 @@ func (e *Engine) MaintainDocker(ctx context.Context, o MaintenanceOptions) (err 
 
 	for _, u := range was {
 		fmt.Fprintf(o.Out, "Stopping %s so nothing new starts.\n", u)
-		if _, serr := command(ctx, e, "systemctl", "stop", u); serr != nil {
-			return fmt.Errorf("could not stop %s: %w", u, serr)
-		}
+		// Recorded before the stop, not after it: a stop that times out or is
+		// interrupted can leave systemd finishing it, and a unit that is not on this
+		// list is never started again. Starting one that never stopped is a no-op.
 		stopped = append(stopped, u)
+		if _, serr := command(ctx, e, "systemctl", "stop", u); serr != nil {
+			return fmt.Errorf("could not stop %s: %w (it may still be stopping; it is started again on the way out)", u, serr)
+		}
 	}
 
 	running, rerr := e.runningContainers(ctx)
@@ -187,10 +190,19 @@ func (e *Engine) MaintainDocker(ctx context.Context, o MaintenanceOptions) (err 
 func (e *Engine) runningContainers(ctx context.Context) ([]string, error) {
 	v, err := command(ctx, e, "docker", "ps", "-q")
 	if err != nil {
-		return nil, fmt.Errorf("cannot check running containers, so Docker is not restarted")
+		return nil, fmt.Errorf("%w, so Docker is not restarted: %v", errDockerUnreadable, err)
 	}
 	return strings.Fields(v), nil
 }
+
+// errDockerUnreadable is a failed look at what is running. It is not a verdict on the
+// host: a daemon that is briefly slow, or a probe that ran over its budget on a loaded
+// machine, fails once and answers the next time.
+var errDockerUnreadable = errors.New("cannot check running containers")
+
+// maxUnreadable is how many looks in a row may fail before the background task gives
+// up on a Docker that is really down.
+const maxUnreadable = 10
 
 // WhenSafeOptions is how RestartWhenSafe goes about waiting for a quiet host.
 type WhenSafeOptions struct {
@@ -236,6 +248,7 @@ func (e *Engine) RestartWhenSafe(ctx context.Context, o WhenSafeOptions) error {
 		o.Sleep = sleepCtx
 	}
 	attempts := max(int(o.GiveUp/o.Poll), 1)
+	unreadable := 0
 	for i := 0; i < attempts; i++ {
 		s, err := e.LoadState()
 		if err != nil {
@@ -247,18 +260,34 @@ func (e *Engine) RestartWhenSafe(ctx context.Context, o WhenSafeOptions) error {
 		}
 		running, err := e.runningContainers(ctx)
 		if err != nil {
-			return err
+			// One failed look at what is running is not a reason to end a day-long wait
+			// that would otherwise vanish without a word: it is not a quiet moment, and
+			// the next look is soon.
+			if unreadable++; unreadable >= maxUnreadable || !errors.Is(err, errDockerUnreadable) {
+				return err
+			}
+			fmt.Fprintf(o.Out, "%v; looking again.\n", err)
+			o.Sleep(ctx, o.Poll)
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			continue
 		}
+		unreadable = 0
 		if len(running) == 0 {
 			fmt.Fprintln(o.Out, "The host is quiet; restarting Docker.")
 			err := e.MaintainDocker(ctx, MaintenanceOptions{Wait: o.Settle, Poll: min(o.Poll, o.Settle), Out: o.Out, Sleep: o.Sleep})
 			if err == nil {
 				return nil
 			}
-			if !errors.Is(err, ErrHostBusy) {
+			if errors.Is(err, errDockerUnreadable) && unreadable+1 < maxUnreadable {
+				unreadable++
+				fmt.Fprintf(o.Out, "%v; the host is back in service and the restart will be tried again.\n", err)
+			} else if !errors.Is(err, ErrHostBusy) {
 				return err
+			} else {
+				fmt.Fprintln(o.Out, "A job started in that moment; the host is back in service and the restart will be tried again.")
 			}
-			fmt.Fprintln(o.Out, "A job started in that moment; the host is back in service and the restart will be tried again.")
 		} else if i%20 == 0 {
 			// Said now and then, not at every poll: a day of "still busy" is a log
 			// nobody reads.

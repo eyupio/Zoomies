@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/config"
@@ -216,6 +217,7 @@ var problemAudience = map[string]Audience{
 	"pool.daemon_share_suggested":                   AudienceFleet,
 	"host.slots_below_capacity":                     AudienceFleet,
 	"pool.minimum_overcharges":                      AudienceFleet,
+	"pool.minimum_held_by_job":                      AudienceFleet,
 	"host.work_concentrated":                        AudienceFleet,
 	"pool.tmpfs_unsupported":                        AudienceFleet,
 	"provider.bootstrap_failed":                     AudienceFleet,
@@ -1625,9 +1627,13 @@ func overprovisionedProblem(h *store.Host, pools []*store.Pool, defaults bool) (
 	// the agent is not left wondering why the warning stayed.
 	where := "lower the host's capacity to " + strconv.Itoa(fits)
 	if h.Embedded {
-		where += " (agent.capacity in the controller's zoomies.yaml, or PATCH /api/v1/hosts/" + h.ID + ")"
+		// agent.capacity is read when the embedded host first enrols and not again
+		// (adoptEmbeddedCredentials returns before joining once its credentials are
+		// recognised), so naming it here sent a single-VM operator to a setting that
+		// does nothing for a host that already exists.
+		where += " (on the host card, or zoomies hosts edit " + h.ID + " --capacity " + strconv.Itoa(fits) + "; agent.capacity only sets it when the host first enrols)"
 	} else {
-		where += " (on the host card, or PATCH /api/v1/hosts/" + h.ID + "; --capacity on a fresh join token applies only at the host's next join)"
+		where += " (on the host card, or zoomies hosts edit " + h.ID + " --capacity " + strconv.Itoa(fits) + "; --capacity on a fresh join token applies only at the host's next join)"
 	}
 	where += ", or add a host"
 	tooSmall := (a.CPUsKnown && a.CPUs+1e-9 < needCPUs*float64(containers)) ||
@@ -1650,9 +1656,6 @@ func overprovisionedProblem(h *store.Host, pools []*store.Pool, defaults bool) (
 		Fix:        fix,
 		TargetKind: "host",
 		TargetID:   h.ID,
-	}
-	if h.Embedded {
-		p.Setting = "agent.capacity"
 	}
 	return p, true
 }
@@ -1816,7 +1819,11 @@ func (c *Controller) jobProblems(ctx context.Context, out *[]Problem) error {
 		return nil
 	}
 	example := unmatched[0].Job
-	labels := strings.Join(example.Labels, ", ")
+	labelNames := make([]string, len(example.Labels))
+	for i, l := range example.Labels {
+		labelNames[i] = workflowText(l)
+	}
+	labels := strings.Join(labelNames, ", ")
 	// The scheduler's reason is only set for a job something less obvious than
 	// its labels refused -- a pool advertising exactly those labels but on
 	// another installation. Saying "if another provider serves those labels,
@@ -1844,11 +1851,50 @@ func (c *Controller) jobProblems(ctx context.Context, out *[]Problem) error {
 		Severity: config.SeverityWarning,
 		Title:    fmt.Sprintf("no enabled pool here claims %s", plural(len(unmatched), "queued job")),
 		Detail: fmt.Sprintf("if they are meant for this fleet, nothing will run them. The oldest is %s in %s, asking for [%s], queued since %s.%s",
-			example.JobName, example.Repo, labels, example.QueuedAt.UTC().Format(time.RFC3339), tail),
+			workflowText(example.JobName), workflowText(example.Repo), labels, example.QueuedAt.UTC().Format(time.RFC3339), tail),
 		Fix:        fix,
 		TargetKind: "job", TargetID: example.ID, Since: &example.QueuedAt,
 	})
 	return nil
+}
+
+// workflowText makes a name a workflow author wrote safe to put in a problem. A job's
+// name and the labels it asked for are written by whoever can open a pull request
+// against a repository this fleet serves, and a problem's text goes to the browser --
+// where a run of backticks is shown as a command with a copy button -- to the CLI's
+// terminal, and to an agent over MCP. Control and direction-changing characters are
+// replaced, backticks are made apostrophes, and it is cut at a length no real name
+// reaches.
+func workflowText(s string) string {
+	const longest = 80
+	var b strings.Builder
+	runes := 0
+	for _, r := range s {
+		if runes == longest {
+			b.WriteString("...")
+			break
+		}
+		switch {
+		case r == '`':
+			r = '\''
+		case unicode.IsControl(r) || isBidiControl(r):
+			r = ' '
+		}
+		b.WriteRune(r)
+		runes++
+	}
+	return b.String()
+}
+
+// isBidiControl is every character that changes the direction text is shown in, or
+// where a line ends: the Arabic letter mark, the left-to-right and right-to-left marks,
+// the embeddings and overrides, the isolates, and the line and paragraph separators.
+// None is a control character to unicode.IsControl, and each can reorder what a
+// terminal or a browser shows of a name a workflow author wrote.
+func isBidiControl(r rune) bool {
+	return r == '\u061c' || r == '\u200e' || r == '\u200f' ||
+		(r >= '\u202a' && r <= '\u202e') || (r >= '\u2066' && r <= '\u2069') ||
+		r == '\u2028' || r == '\u2029'
 }
 
 // capitalise upper-cases the first letter of a sentence written to be joined
@@ -1923,7 +1969,7 @@ func (c *Controller) lostRunnerProblems(ctx context.Context, out *[]Problem, fau
 	// of them out of memory" is a memory limit to raise, and the second is the
 	// whole reason the category exists.
 	detail := fmt.Sprintf("GitHub records these as ordinary failures. The most recent is %s in %s: %s.",
-		example.JobName, example.Repo, example.RunnerFault)
+		workflowText(example.JobName), workflowText(example.Repo), example.RunnerFault)
 	fix := "open the job for its timeline and the runner for its last output; a runner that dies mid-job has usually run out of memory or disk, or was removed with force. Re-run the workflow once the cause is fixed."
 	if kind, n := dominantFault(recent); n > 0 {
 		if n == len(recent) {
@@ -1981,7 +2027,7 @@ func (c *Controller) oomKilledProblems(ctx context.Context, out *[]Problem, faul
 		if len(jobs) > 1 {
 			title = fmt.Sprintf("%d jobs were killed for memory on host %s in the last hour", len(jobs), host)
 		}
-		detail := fmt.Sprintf("The most recent is %s in %s", example.JobName, example.Repo)
+		detail := fmt.Sprintf("The most recent is %s in %s", workflowText(example.JobName), workflowText(example.Repo))
 		if example.PeakMemoryMB > 0 {
 			detail += fmt.Sprintf(", which was measured using up to %s before it was killed", formatJobMB(example.PeakMemoryMB))
 		}

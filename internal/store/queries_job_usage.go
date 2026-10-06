@@ -23,6 +23,11 @@ type JobPeak struct {
 	CPUs      float64 `json:"cpus"`
 	MemoryMB  int64   `json:"memory_mb"`
 	OOMKilled bool    `json:"oom_killed"`
+	// GrantedMemoryMB is the memory limit the run was killed at, when it was killed.
+	// The sampled peak is the most a 30-second sample saw, so a run killed by a
+	// spike between two samples can read well under the limit it hit, and the
+	// limit is the one figure that is known to have been too little.
+	GrantedMemoryMB int64 `json:"granted_memory_mb,omitempty"`
 }
 
 // JobUsageHistoryLimit is how many recent runs of one job a profile is taken
@@ -114,7 +119,7 @@ func (s *Store) JobUsageHistory(ctx context.Context, keys []JobUsageKey) (map[Jo
 // jobUsageHistorySQL is a const so a query-plan test can pin the statement
 // that ships: it must seek idx_jobs_usage_profile, not scan the table, because
 // it runs for every distinct queued job on every scheduling pass.
-const jobUsageHistorySQL = `SELECT pool_id, peak_cpus, peak_memory_mb, oom_killed FROM jobs
+const jobUsageHistorySQL = `SELECT pool_id, peak_cpus, peak_memory_mb, oom_killed, granted_memory_mb FROM jobs
 	WHERE repo = ? AND workflow = ? AND job_name = ? AND state = 'completed'
 	AND (peak_memory_mb > 0 OR peak_cpus > 0 OR oom_killed = 1)
 	ORDER BY completed_at DESC LIMIT ?`
@@ -131,7 +136,7 @@ func (s *Store) jobUsageHistory(ctx context.Context, repo, workflow, job string,
 		var p JobPeak
 		var pool string
 		var oom int
-		if err := rows.Scan(&pool, &p.CPUs, &p.MemoryMB, &oom); err != nil {
+		if err := rows.Scan(&pool, &p.CPUs, &p.MemoryMB, &oom, &p.GrantedMemoryMB); err != nil {
 			return err
 		}
 		p.OOMKilled = oom == 1

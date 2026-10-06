@@ -40,6 +40,8 @@ Everything under *Your fleet* below takes the same connection flags:
 
 The listing commands add `--limit` (50), `--offset`, `--sort` and `--order`.
 
+The CLI never follows a redirect. Go would turn a `PATCH` or `POST` into a `GET` on a `301`, `302` or `303` and drop its body, so a controller behind a proxy that forces `https` answered `pools edit` with the pool as it was and the command reported a change that was never sent — and the credential would have followed the `Location`. A redirect is an error that says where it pointed; use that address as `--url`.
+
 Where the URL and token come from is, in order: the flags, then `ZOOMIES_URL` and
 `ZOOMIES_TOKEN`, then `~/.config/zoomies/cli.yaml` (`url`, `token`, and optionally
 `ca_file` and `insecure`; `ZOOMIES_CLI_CONFIG` points at another file). With none
@@ -451,7 +453,7 @@ again.
 | `rerun_job` | Only with `--allow-actions`. `POST /jobs/{id}/rerun`; needs `operator`. |
 | `drain_runner` | Only with `--allow-actions`. `POST /runners/{id}/drain`, never with `confirm`, so a busy runner is refused rather than having its job stopped; needs `operator`. |
 | `update_pool` | Only with `--allow-actions`. `PATCH /pools/{id}` for a pool's smallest runner (`min_cpus`, `min_memory_mb`), its Docker sidecar's shares (`daemon_cpu_share_percent`, `daemon_memory_share_percent`) and its CPU burst ceiling (`cpu_burst_max_cpus`). Every other setting of the pool is carried forward, because the API replaces `resources` and `cpu_burst` whole. Never with `confirm`, so a change that would leave the pool with no host that could run it is refused; needs `operator`. |
-| `apply_remedy` | Only with `--allow-actions`. `POST /problems/apply`: make the change a problem proposes, as `list_problems` shows it in the problem's `remedy`. You name the problem (`code`, `target_id`) and the proposal you read (`remedy_id`), never the change; the controller applies what it proposes now, as the pool's or host's own update, so it needs that update's role and is refused when it would leave a pool with nowhere to run; needs `operator`. |
+| `apply_remedy` | Only with `--allow-actions`. `POST /problems/apply`: make the change a problem proposes, as `list_problems` shows it in the problem's `remedy`. You name the problem (`code`, `target_id`) and the proposal you read (`remedy_id`, required here, optional on the REST route for scripts), never the change; the controller applies what it proposes now, as the pool's or host's own update, so it needs that update's role and is refused when it would leave a pool with nowhere to run; needs `operator`, and the pools or hosts write scope too, or it is not offered. |
 | `update_host` | Only with `--allow-actions`. `PATCH /hosts/{id}` for a host's capacity, reserve and runner sizes (`standard_cpus`, `standard_memory_mb`, `min_cpus`, `min_memory_mb`, `burst_max_cpus`), with the rest of its runner profile carried forward. A capacity of zero is refused: stopping a host taking runners is for a person to do by cordoning it; needs `operator`. |
 
 #### Straight to the controller

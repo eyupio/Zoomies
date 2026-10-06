@@ -43,10 +43,28 @@ type Remedy struct {
 	Kind     RemedyKind      `json:"kind"`
 	TargetID string          `json:"target_id"`
 	Body     json.RawMessage `json:"body"`
+	// Base is what the body was built from -- the pool's resources or the host's
+	// runner profile as the controller read them -- as RemedyBase hashes it. The body
+	// replaces that whole object, so applying it to one that has been edited since
+	// would put back whatever the edit changed; the apply compares the two and
+	// refuses. It is the controller's own check and never leaves it.
+	Base string `json:"-"`
 }
 
-// newRemedy builds a remedy for a pool or host from the request that makes it.
-func newRemedy(kind RemedyKind, targetID, label, effect string, body any) *Remedy {
+// RemedyBase is the fingerprint a remedy's Base and the object it will replace are
+// compared by.
+func RemedyBase(v any) string {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:8])
+}
+
+// newRemedy builds a remedy for a pool or host from the request that makes it, and
+// the object the request was built from.
+func newRemedy(kind RemedyKind, targetID, label, effect string, body, base any) *Remedy {
 	raw, err := json.Marshal(body)
 	if err != nil {
 		// A request built from the controller's own types does not fail to
@@ -55,5 +73,5 @@ func newRemedy(kind RemedyKind, targetID, label, effect string, body any) *Remed
 		return nil
 	}
 	sum := sha256.Sum256([]byte(string(kind) + "\x00" + targetID + "\x00" + string(raw)))
-	return &Remedy{ID: "rem_" + hex.EncodeToString(sum[:6]), Label: label, Effect: effect, Kind: kind, TargetID: targetID, Body: raw}
+	return &Remedy{ID: "rem_" + hex.EncodeToString(sum[:6]), Label: label, Effect: effect, Kind: kind, TargetID: targetID, Body: raw, Base: RemedyBase(base)}
 }

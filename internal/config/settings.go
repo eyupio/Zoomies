@@ -371,8 +371,8 @@ var registry = buildRegistry([]Setting{
 	},
 	{
 		Key: "agent.capacity", Label: "Runners per host", Env: "ZOOMIES_AGENT_CAPACITY", Kind: KindInt, Scope: ScopeInstance,
-		Summary:       "How many runners this host will hold at once. It defaults to one per two cores, which leaves the machine room to breathe.",
-		RestartReason: "the agent reports its capacity when it enrols",
+		Summary:       "How many runners this host will hold at once when it first enrols. It defaults to one per two cores, which leaves the machine room to breathe. Afterwards the host's own row holds it: change it on the host's card, or with `zoomies hosts edit --capacity`.",
+		RestartReason: "the agent reports its capacity when it first enrols, and the host's row holds it from then on",
 	},
 	{
 		Key: "agent.backend", Label: "Runner backend", Env: "ZOOMIES_AGENT_BACKEND", Kind: KindEnum, Scope: ScopePlatform,

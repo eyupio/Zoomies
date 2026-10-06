@@ -1142,7 +1142,11 @@ export interface paths {
          *     out again now and only a remedy among them is applied, so a stale page, a
          *     replayed request or a forged one cannot make a change the controller does not
          *     currently propose. Send `remedy_id` to apply exactly what was on screen; a
-         *     409 says the proposal has since changed.
+         *     409 says the proposal has since changed, or that the pool or host was edited
+         *     after it was worked out (the change replaces the pool's resources or the
+         *     host's runner profile whole, so it is not applied over an edit). A 503 says
+         *     the controller could not read everything it needs to say whether the
+         *     suggestion still applies; nothing was changed, and trying again is right.
          *
          *     The update runs as the caller through the same code as `PATCH /pools/{id}` or
          *     `PATCH /hosts/{id}`, so it needs that route's role (the answer says which is
@@ -10108,8 +10112,16 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["Unprocessable"];
+            /** @description The controller could not read what it needs to say whether the suggestion still applies; nothing was changed */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     listScalingEvents: {

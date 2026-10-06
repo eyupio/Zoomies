@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -60,6 +61,11 @@ func (LocalSystem) Run(ctx context.Context, n string, a ...string) (string, erro
 	switch {
 	case n == "apt-get":
 		budget = 20 * time.Minute
+	case n == "systemctl" && len(a) > 1 && (a[0] == "stop" || a[0] == "start") && slices.Contains(maintainedServices, a[len(a)-1]):
+		// A Zoomies unit stops by waiting for the tasks it admitted -- a cold image pull
+		// included -- and its unit allows 20 minutes for it, so a client that gave up at
+		// three left systemd finishing a stop nothing would then start again.
+		budget = 21 * time.Minute
 	case n == "systemctl" && len(a) > 0 && (a[0] == "stop" || a[0] == "start" || a[0] == "restart"),
 		n == "docker" && len(a) > 0 && a[0] == "stop":
 		// A service or a daemon stopping waits on what it is running: Docker

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -76,6 +77,27 @@ func (c *Controller) hostCapacityAdviceProblems(ctx context.Context, out *[]Prob
 	if err != nil {
 		return fmt.Errorf("listing pools: %w", err)
 	}
+	now := c.Now()
+	fleet := c.cfg().Runners
+	// Which hosts could be advised comes first, and costs nothing: the jobs' waits
+	// are a database read, and on a fleet where no host has been given a runner size
+	// -- the default -- there is nothing to read them for.
+	var short []*store.Host
+	for _, h := range hosts {
+		// A host the controller has stepped down is held back by load, not by its
+		// runner size, and changing its profile lifts the step-down in the same write:
+		// the priced gain would be wrong and the protection gone. host.throttled already
+		// says what to do about it.
+		if h.Cordoned || h.Capacity <= 0 || h.Throttle.Active() || !scheduler.HostAvailable(h, now) || !h.RunnerProfile.Standard.Sized() {
+			continue
+		}
+		if h.Slots() < h.Capacity {
+			short = append(short, h)
+		}
+	}
+	if len(short) == 0 {
+		return nil
+	}
 	pressure, err := c.poolsUnderPressure(ctx)
 	if err != nil {
 		return err
@@ -83,20 +105,12 @@ func (c *Controller) hostCapacityAdviceProblems(ctx context.Context, out *[]Prob
 	if len(pressure) == 0 {
 		return nil
 	}
-	now := c.Now()
-	fleet := c.cfg().Runners
-	for _, h := range hosts {
-		if h.Cordoned || h.Capacity <= 0 || !scheduler.HostAvailable(h, now) || !h.RunnerProfile.Standard.Sized() {
-			continue
-		}
+	for _, h := range short {
 		slots := h.Slots()
-		if slots >= h.Capacity {
-			continue
-		}
 		var reaching []*store.Pool
 		var waiting []string
 		for _, p := range pools {
-			if !p.Enabled || !scheduler.HostSelects(h, p) || !scheduler.HostOffers(h, p) || !scheduler.HostIsPlatform(h, p) {
+			if !p.Enabled || !reaches(h, p) {
 				continue
 			}
 			reaching = append(reaching, sizingPool(p, fleet))
@@ -126,6 +140,13 @@ func (c *Controller) hostCapacityAdviceProblems(ctx context.Context, out *[]Prob
 		}
 
 		remedy, why := c.priceHostSize(h, reaching, next, limits)
+		if remedy != nil {
+			if blocked, berr := c.hostSizeKillsJobs(ctx, reaching, std, next); berr != nil {
+				return berr
+			} else if blocked != "" {
+				remedy, why = nil, blocked
+			}
+		}
 		detail := fmt.Sprintf("it is set to %s, and its machine has %s CPU and %s to place runners on, but one runner here is %s CPU and %s, which holds %s. "+
 			"Typical jobs waited %s or more for a runner in the last %s: pools %s.",
 			plural(h.Capacity, "slot"), scheduler.FormatCPUs(alloc.CPUs), scheduler.FormatMB(alloc.MemoryMB),
@@ -151,6 +172,47 @@ func (c *Controller) hostCapacityAdviceProblems(ctx context.Context, out *[]Prob
 		})
 	}
 	return nil
+}
+
+// hostSizeKillsJobs says why a smaller runner on a host would put the jobs of a pool that
+// takes its size from the host at risk, or "" when the evidence says it would not.
+//
+// Pricing counts runners, and a smaller runner holds more of them -- which is no use to a
+// job that needed the memory. Memory is a limit a job is killed at, so what a week of a pool's
+// jobs used, with the headroom every floor here carries, has to fit in the new size; a pool
+// that has had a job killed for memory is not one to give less. CPU is not asked: a build's
+// CPU peak is a burst, and the slot is not sized by it.
+func (c *Controller) hostSizeKillsJobs(ctx context.Context, reaching []*store.Pool, std, next store.RunnerStandard) (string, error) {
+	if next.MemoryMB <= 0 || next.MemoryMB >= std.MemoryMB {
+		return "", nil
+	}
+	names := map[string]string{}
+	var ids []string
+	for _, p := range reaching {
+		if p.SizeFromProfile {
+			ids = append(ids, p.ID)
+			names[p.ID] = p.Name
+		}
+	}
+	if len(ids) == 0 {
+		return "", nil
+	}
+	since := c.Now().Add(-minimumEvidenceWindow)
+	stats, err := c.st.JobStats(ctx, store.JobFilter{Since: &since, PoolIDs: ids}, []string{store.GroupByPool})
+	if err != nil {
+		return "", fmt.Errorf("reading what jobs used: %w", err)
+	}
+	for _, g := range stats.Groups {
+		name := names[g.Keys[store.GroupByPool]]
+		if g.OOMKilled > 0 {
+			return fmt.Sprintf("pool %s had a job killed for memory in the last %s, and a smaller runner would give it less", name, minimumEvidenceWindow), nil
+		}
+		if g.PeakMemoryMB != nil && float64(*g.PeakMemoryMB)*minimumHeadroom > float64(next.MemoryMB) {
+			return fmt.Sprintf("jobs in pool %s used up to %s in the last %s, which a runner of %s would not hold with room to spare",
+				name, scheduler.FormatMB(*g.PeakMemoryMB), minimumEvidenceWindow, scheduler.FormatMB(next.MemoryMB)), nil
+		}
+	}
+	return "", nil
 }
 
 // priceHostSize prices giving a host the runner size next: every pool that
@@ -184,10 +246,13 @@ func (c *Controller) priceHostSize(h *store.Host, reaching []*store.Pool, next s
 	}
 	profile := h.RunnerProfile
 	profile.Standard = next
-	effect := fmt.Sprintf("the host holds %s instead of %s, and no pool that reaches it loses room", plural(after, "runner"), plural(before, "runner"))
+	// The host's own count, not the pools' rooms added up: two pools that reach one
+	// machine each have room for what it holds, and their sum is not a number of
+	// runners it can run.
+	effect := fmt.Sprintf("the host holds %s instead of %s, and no pool that reaches it loses room", plural(cand.Slots(), "runner"), plural(h.Slots(), "runner"))
 	return newRemedy(RemedyHostUpdate, h.ID,
 		fmt.Sprintf("Give each runner %s CPU and %s", scheduler.FormatCPUs(next.CPUs), scheduler.FormatMB(next.MemoryMB)),
-		effect, map[string]any{"runner_profile": profile}), ""
+		effect, map[string]any{"runner_profile": profile}, h.RunnerProfile), ""
 }
 
 // A host that has been throttled is a host that was given more than it could do.
@@ -231,25 +296,49 @@ func (c *Controller) hostConcentrationProblems(ctx context.Context, out *[]Probl
 	if len(pinned) == 0 || len(idle) == 0 {
 		return nil
 	}
-	sort.Slice(idle, func(i, j int) bool { return idle[i].Name < idle[j].Name })
-	var names []string
-	for _, h := range idle {
-		names = append(names, h.Name)
+	pools, err := c.st.ListPools(ctx)
+	if err != nil {
+		return fmt.Errorf("listing pools: %w", err)
 	}
+	sort.Slice(idle, func(i, j int) bool { return idle[i].Name < idle[j].Name })
 	for _, h := range pinned {
+		// An idle host only counts if work that runs on this one could run there: a
+		// Windows or arm64 machine beside a throttled amd64 one is idle for a reason.
+		var reaching []*store.Pool
+		for _, p := range pools {
+			if p.Enabled && reaches(h, p) {
+				reaching = append(reaching, p)
+			}
+		}
+		var names []string
+		for _, other := range idle {
+			if slices.ContainsFunc(reaching, func(p *store.Pool) bool { return reaches(other, p) }) {
+				names = append(names, other.Name)
+			}
+		}
+		if len(names) == 0 {
+			continue
+		}
 		*out = append(*out, Problem{
 			Code:     "host.work_concentrated",
 			Severity: config.SeverityInfo,
-			Title:    fmt.Sprintf("host %s is throttled while %s idle", h.Name, plural(len(idle), "other host")+verbIs(len(idle))),
-			Detail: fmt.Sprintf("%s is running %s and has been stepped down after sustained pressure, while %s with no runners and under %.0f%% CPU. "+
+			Title:    fmt.Sprintf("host %s is throttled while %s idle", h.Name, plural(len(names), "other host")+verbIs(len(names))),
+			Detail: fmt.Sprintf("%s is running %s and has been stepped down after sustained pressure, while %s with no runners and under %.0f%% CPU, and work that runs on %s could run there. "+
 				"The placement order is headroom, which prefers the host with the most left afterwards, so the largest machine is the first choice again as soon as a job needs a runner, throttled or not.",
-				h.Name, plural(h.ActiveRunners, "runner"), strings.Join(names, ", ")+verbIs(len(idle)), idleCPUPercent),
-			Fix: fmt.Sprintf("lower %s's capacity so it takes fewer runners at once, or set scheduler.host_order to best_fit, which fills the smaller hosts before the larger one, "+
-				"or largest_standard, which prefers the host where a pool's runner is biggest. Neither is proposed for you, because which is right depends on what %s is for.", h.Name, h.Name),
+				h.Name, plural(h.ActiveRunners, "runner"), strings.Join(names, ", ")+verbIs(len(names)), idleCPUPercent, h.Name),
+			Fix: fmt.Sprintf("lower %s's capacity so it takes fewer runners at once. Changing scheduler.host_order is not the answer on its own: best_fit packs the fullest host first "+
+				"and largest_standard prefers the host where a pool's runner is biggest, and both keep choosing a large host that headroom would have left. "+
+				"Which capacity is right depends on what %s is for, so none is proposed for you.", h.Name, h.Name),
 			TargetKind: "host", TargetID: h.ID,
 		})
 	}
 	return nil
+}
+
+// reaches is whether a pool's runners could be placed on a host at all: the
+// host's selector, its backend and its platform, and none of its sizes or load.
+func reaches(h *store.Host, p *store.Pool) bool {
+	return scheduler.HostSelects(h, p) && scheduler.HostOffers(h, p) && scheduler.HostIsPlatform(h, p)
 }
 
 // verbIs is " is" or " are", for a sentence that counts hosts.

@@ -380,7 +380,7 @@ settings page reports rather than refusing the edit.
 | `agent.allow_unverified_runner_download` | `ZOOMIES_AGENT_ALLOW_UNVERIFIED_RUNNER_DOWNLOAD` | next restart | Allow unverified runner downloads — Let the process backend install a runner archive whose digest it cannot check. The alternative to checking is executing whatever the network handed over. |
 | `agent.backend` | `ZOOMIES_AGENT_BACKEND` | next restart | Runner backend — What a runner runs in: a Docker container, a Podman container, or a bare process on this host. |
 | `agent.ca_file` | `ZOOMIES_AGENT_CA_FILE` | on the agent's own host | Controller certificate — The certificate a standalone agent pins for its controller. It is configured on that agent's own host. |
-| `agent.capacity` | `ZOOMIES_AGENT_CAPACITY` | next restart | Runners per host — How many runners this host will hold at once. It defaults to one per two cores, which leaves the machine room to breathe. |
+| `agent.capacity` | `ZOOMIES_AGENT_CAPACITY` | next restart | Runners per host — How many runners this host will hold at once when it first enrols. It defaults to one per two cores, which leaves the machine room to breathe. Afterwards the host's own row holds it: change it on the host's card, or with `zoomies hosts edit --capacity`. |
 | `agent.client_cert_file` | `ZOOMIES_AGENT_CLIENT_CERT_FILE` | on the agent's own host | Client certificate — A standalone agent's client certificate, for mutual TLS. It is configured on that agent's own host. |
 | `agent.client_key_file` | `ZOOMIES_AGENT_CLIENT_KEY_FILE` | on the agent's own host | Client private key — The key for that client certificate. It is configured on that agent's own host. |
 | `agent.controller_url` | `ZOOMIES_CONTROLLER_URL` | on the agent's own host | Controller URL — The controller a standalone agent connects to. It is configured on that agent's own host. |
@@ -1215,6 +1215,13 @@ available across matching hosts.
 
 Default is half the CPU count, on the reasoning that a job usually wants more
 than one core and the host still has to breathe.
+
+The setting is read when the host first enrols -- for the embedded host, the first
+time the controller starts with a given database -- and not again: from then on the
+host's own row holds the capacity, which is what an operator's edit changes and what a
+heartbeat deliberately never rewrites. Change it afterwards on the host's card or with
+`zoomies hosts edit <id> --capacity N`; editing `agent.capacity` and restarting does
+not move a host that has already enrolled.
 
 With `scheduler.default_runner_limits` on, the capacity also sets each runner's
 share: a runner whose pool sets no `cpus` or `memory_mb` is given the host's
