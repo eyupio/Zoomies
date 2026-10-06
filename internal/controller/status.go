@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/config"
@@ -102,7 +103,7 @@ func ProjectStatus(problems []Problem, stats *Stats) FleetStatus {
 		if audience == "" {
 			audience = audienceFor(p.Code)
 		}
-		if !audience.For(false) {
+		if !audience.For(false) || statusExempt(p.Code) {
 			continue
 		}
 		if p.Severity != config.SeverityError && p.Severity != config.SeverityWarning {
@@ -158,6 +159,17 @@ func ProjectStatus(problems []Problem, stats *Stats) FleetStatus {
 		out.P95WaitMinutes = wholeMinutes(stats.Fleet.P95WaitMS)
 	}
 	return out
+}
+
+// statusExempt is whether a code is one the fleet is shown but the public status
+// page never carries. The page answers one question for a developer whose job
+// has queued -- will it run, or should I wait -- and its state is the worst
+// severity on the list. An AI Context workflow that cannot publish is a real
+// error for the person who set it up, and has nothing to do with whether any job
+// runs: letting it in would turn the page to "blocked" over a repository's
+// assistant context. It has no public sentence, and a test holds it to that.
+func statusExempt(code string) bool {
+	return strings.HasPrefix(code, "ai_context.")
 }
 
 // countBand says a count roughly.

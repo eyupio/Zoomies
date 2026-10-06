@@ -428,3 +428,26 @@ Still open, all needing a real deployment:
 4. A live Zoomies-only upload on github.com to an https controller.
 
 Next concrete action: run one of the live pilots above against a deployed controller. Code work, if wanted first: `t.Parallel()` for the store and controller suites.
+
+## Failed-run diagnosis checkpoint — 6 October 2026
+
+Every run of the managed workflow on `eyupio/rea` since 5 October failed, and Zoomies said only "stale" while starting the workflow again every half hour. Three different things had gone wrong over the repository's history, and the card could not tell them apart:
+
+| Runs | Cause | Seen as |
+| --- | --- | --- |
+| 1–7 | An earlier template refused the whole run for one file over 1 MiB | `Context generation refused: A source file exceeds the context size limit` |
+| 9, 13, 14 | The account's Actions artifact quota was full | `Failed to CreateArtifact: Artifact storage quota has been hit` |
+| 11, 12 | GitHub never gave the job a hosted runner | job cancelled with no steps; annotation `not acquired by Runner of type hosted` |
+
+The quota was not the workflow's doing: `rea` is private, `zoomies` is public (artifact storage is free there, which is why it never failed), and 3.5 GiB of `rea`'s artifacts were 118 copies of another workflow's 30 MiB Windows build with the 90-day default retention. That is fixed in `rea` (daily artifact pruning, `retention-days`), not here.
+
+- **Diagnosis.** `internal/aicontext/diagnosis.go` is pure: `Diagnose(RunFacts)` returns an outcome (running, succeeded, superseded, failed) and, for a failure, one of twelve causes with the sentences an operator needs and a retry policy. The set is closed and a log line is only ever matched, never copied: the log of a run is written by whatever the run executed. `TestPolicyIsWhatTheDocumentationPromises` pins the numbers the docs state.
+- **Reading the run.** `internal/github/ai_context_runs.go` (`ContextRunReader`, Actions read only, which the App already needs). It lists runs for the commit, skips one cancelled by a newer one, reads the failed job's log from its pre-signed address without the installation token and keeps only `##[error]` lines and the line before each. The address is refused if private unless the API is (`fetchableLogAddress`). Run against the real logs of `rea` runs 37425650458 and 37139058368 it classified them correctly.
+- **Retry by cause** (`aiContextRunDue`). A run in progress is never started over; a deterministic failure (`oversized_file`, `too_much_source`, `generation_refused`) is never retried; a full quota waits six hours, three attempts; a runner GitHub failed to give waits half an hour, four attempts; everything else is as before. With nothing known it is exactly the old rule. A manual Regenerate counts as a start for spacing (`noteAIContextStart`), because GitHub can take seconds to list the new run and the next pass would otherwise start a second one that cancels it.
+- **Surfaces.** `diagnosis` on the repository (OpenAPI, card with cause, what to do, next automatic attempt, run link, and the button it points at promoted), twelve `ai_context.*` problem codes in the drawer and over MCP, and docs in `docs/ai-context.md` and `docs/problem-codes.md`.
+- **No migration.** The reading lives in memory, like the attempt counters beside it, and is re-read on the next pass after a restart.
+
+Not done, and why:
+1. **Freeing quota is not automatic.** The only thing that fixes `artifact_quota` is deleting someone's artifacts or paying, and deleting another workflow's output is not Zoomies' to do unasked. The card says what holds the space; a one-click "prune duplicates" would be a deletion path and needs the threat review `CONTRIBUTING.md` asks for.
+2. **No live run yet.** Everything above is tested against the fake and the real log text, not a deployed controller reading a real run end to end.
+3. **`ubuntu-latest` unreliability.** `rea` moved other workflows off GitHub-hosted runners after 28 September; the managed workflow still uses them. A per-repository runner label would be a template change.

@@ -266,6 +266,100 @@ test('verification shows retained source separately from failure and rechecks on
   });
 });
 
+test('a failed workflow run is explained on the card, with what Zoomies will do about it', async ({
+  page,
+}) => {
+  const repository = {
+    id: 'aic_failed',
+    full_name: 'acme/private-repo',
+    repository: { github_host: 'github.com', installation_id: 'installation', repository_id: 43 },
+    config: { source_branch: 'main', destination: 'both', exclude: [], keep_snapshots: 3 },
+    revision: 1,
+    available: false,
+    workflow_outdated: false,
+    setup_state: 'awaiting_merge',
+    setup_pr_url: 'https://github.com/acme/private-repo/pull/1',
+    created_at: '2026-10-03T10:00:00Z',
+    updated_at: '2026-10-03T10:00:00Z',
+    freshness: {
+      state: 'stale',
+      desired_commit: 'b'.repeat(40),
+      published_commit: 'a'.repeat(40),
+      snapshot_id: 'c'.repeat(64),
+      checked_at: '2026-10-06T07:00:00Z',
+      failure: "GitHub's artifact storage is full. Delete old artifacts.",
+    },
+    diagnosis: {
+      cause: 'artifact_quota',
+      title: "GitHub's artifact storage is full",
+      detail:
+        'GitHub refused to store the file that carries the context from one job to the next. In this repository, 608 unexpired artifacts hold 3.5 GiB; 118 of them, named rea-graph-studio-windows-amd64-alpha, hold 3.5 GiB.',
+      fix: 'Delete old artifacts, or give the workflows that upload the most a shorter retention-days.',
+      commit: 'b'.repeat(40),
+      run_url: 'https://github.com/acme/private-repo/actions/runs/1',
+      failed_at: '2026-10-06T06:47:50Z',
+      observed_at: '2026-10-06T07:00:00Z',
+      retry: { automatic: true, next_at: '2026-10-06T12:47:50Z', attempts_left: 3 },
+    },
+  };
+  const serve = (current: object) =>
+    page.route('**/api/v1/ai-context/repositories?*', (route) =>
+      route.fulfill({ json: { items: [current], total: 1, limit: 50, offset: 0 } }),
+    );
+  await serve(repository);
+  await goto(page, '/ai-context', 'AI Context');
+  await chooseTheme(page, 'light');
+
+  const card = page.getByRole('group', { name: 'Why the last workflow run failed' });
+  await expect(
+    card.getByRole('heading', { name: "GitHub's artifact storage is full" }),
+  ).toBeVisible();
+  await expect(card).toContainText('118 of them, named rea-graph-studio-windows-amd64-alpha');
+  await expect(card).toContainText('Delete old artifacts');
+  await expect(card).toContainText('Zoomies will start the workflow again from');
+  await expect(card).toContainText('3 attempts left for this commit');
+  // The diagnosis replaces the generic failure rather than repeating it beside it.
+  await expect(
+    page.getByText("GitHub's artifact storage is full. Delete old artifacts."),
+  ).toHaveCount(0);
+  const run = card.getByRole('link', { name: 'Open the failed run' });
+  await expect(run).toHaveAttribute('href', 'https://github.com/acme/private-repo/actions/runs/1');
+  await expect(run).toHaveAttribute('target', '_blank');
+  // Nothing a person can fix by repairing the workflow, so no button is promoted.
+  await expect(page.getByRole('link', { name: 'Reinstall / repair' })).not.toHaveClass(/primary/);
+
+  await page.setViewportSize({ width: 375, height: 812 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/ai-context-diagnosis-mobile.png', fullPage: true });
+
+  // A failure only a new workflow can fix says so, and the control that does it
+  // is the one that stands out. A run address that is not https is not linked.
+  await page.unroute('**/api/v1/ai-context/repositories?*');
+  await serve({
+    ...repository,
+    diagnosis: {
+      ...repository.diagnosis,
+      cause: 'oversized_file',
+      title: 'The workflow refuses files over 1 MiB',
+      detail: 'This workflow was written by an earlier Zoomies release.',
+      fix: 'Use Reinstall / repair to move the workflow to the current generator.',
+      action: 'repair',
+      run_url: 'javascript:alert(1)',
+      retry: { automatic: false, attempts_left: 0 },
+    },
+  });
+  await goto(page, '/ai-context', 'AI Context');
+  await expect(card).toContainText('Zoomies will not start the workflow again by itself');
+  await expect(card.getByRole('link', { name: 'Open the failed run' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Reinstall / repair' })).toHaveClass(/primary/);
+  await chooseTheme(page, 'dark');
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.screenshot({
+    path: 'test-results/ai-context-diagnosis-desktop-dark.png',
+    fullPage: true,
+  });
+});
+
 test('maintenance reviews amended settings, recovers publication and shows removal effects', async ({
   page,
 }) => {

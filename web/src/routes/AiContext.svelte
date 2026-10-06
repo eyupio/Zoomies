@@ -56,6 +56,25 @@
     retry: 'recheck' | 'regenerate';
   } | null>(null);
 
+  type Diagnosis = NonNullable<AIContextRepository['diagnosis']>;
+
+  // What Zoomies will do about a failed run, in a sentence. "Will not" covers both
+  // a cause no run can fix and one it has already tried as often as it will:
+  // either way it is up to the person, and Regenerate is how to try once they have.
+  function retryText(retry: Diagnosis['retry']): string {
+    if (retry?.automatic && retry.next_at) {
+      const left = retry.attempts_left;
+      return `Zoomies will start the workflow again from ${formatAbsolute(retry.next_at)} (${left} ${left === 1 ? 'attempt' : 'attempts'} left for this commit).`;
+    }
+    return 'Zoomies will not start the workflow again by itself. Use Regenerate once this is fixed.';
+  }
+
+  // The run's address comes from GitHub, but a link in the page is only ever
+  // followed if it is https.
+  function runLink(url: string | undefined): string | undefined {
+    return url?.startsWith('https://') ? url : undefined;
+  }
+
   async function recheck(id: string) {
     checking = id;
     checkFailure = null;
@@ -368,7 +387,19 @@
                   <dd><code>{item.freshness.published_commit.slice(0, 12)}</code></dd>
                 </div>{/if}
             </dl>
-            {#if item.freshness.failure}<p class="verification-failure">
+            {#if item.diagnosis}
+              <div class="diagnosis" role="group" aria-label="Why the last workflow run failed">
+                <h3>{item.diagnosis.title}</h3>
+                <p>{item.diagnosis.detail}</p>
+                <p><strong>What to do.</strong> {item.diagnosis.fix}</p>
+                <p class="muted">{retryText(item.diagnosis.retry)}</p>
+                {#if runLink(item.diagnosis.run_url)}<Button
+                    size="sm"
+                    newTab
+                    href={runLink(item.diagnosis.run_url)}>Open the failed run</Button
+                  >{/if}
+              </div>
+            {:else if item.freshness.failure}<p class="verification-failure">
                 {item.freshness.failure}
               </p>{/if}
           {/if}
@@ -403,7 +434,11 @@
               {#each ['reinstall', 'amend', 'remove'] as mode (mode)}
                 <Button
                   size="sm"
-                  variant={mode === 'reinstall' && item.workflow_outdated ? 'primary' : 'secondary'}
+                  variant={(mode === 'reinstall' &&
+                    (item.workflow_outdated || item.diagnosis?.action === 'repair')) ||
+                  (mode === 'amend' && item.diagnosis?.action === 'exclusions')
+                    ? 'primary'
+                    : 'secondary'}
                   href="/ai-context/setup?draft_id={encodeURIComponent(item.id)}&mode={mode}"
                   >{mode === 'reinstall'
                     ? 'Reinstall / repair'
@@ -532,6 +567,21 @@
     flex-wrap: wrap;
     align-items: center;
     gap: var(--z-space-2);
+  }
+  .diagnosis {
+    margin-bottom: var(--z-space-3);
+    padding: var(--z-space-3) var(--z-space-4);
+    background: var(--z-surface-sunken);
+    border-left: var(--z-border-width-rail) solid var(--z-danger-border);
+    border-radius: var(--z-radius-sm);
+    font-size: var(--z-text-sm);
+  }
+  .diagnosis h3 {
+    margin: 0 0 var(--z-space-2);
+    font-size: var(--z-text-base);
+  }
+  .diagnosis p {
+    margin: 0 0 var(--z-space-2);
   }
   .verification-failure {
     color: var(--z-danger);

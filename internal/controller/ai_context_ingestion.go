@@ -80,6 +80,15 @@ func aiContextPublicationFailure(err error, branch string, transient bool) strin
 
 var errAIContextGenerator = errors.New("context generator identity does not match its managed workflow")
 
+// aiContextRetained says what became of the previous context, which depends on
+// where the output goes.
+func aiContextRetained(config aicontext.Config) string {
+	if config.Destination == aicontext.Repository {
+		return " Repository-only output keeps no copy."
+	}
+	return " The previous snapshot is retained."
+}
+
 // Context verification has its own bounded loop so a repository pack cannot
 // hold the fleet's scheduling lock. Polling also recovers missed push events.
 func (c *Controller) aiContextLoop(ctx context.Context) {
@@ -221,7 +230,8 @@ func (c *Controller) verifyAIContext(ctx context.Context, id string) (*aicontext
 				}
 			}
 		}
-		_ = c.failAIContextCheck(ctx, id, "stale", source.Commit, "Waiting for the workflow to upload context for the current commit. The previous snapshot is retained.")
+		_ = c.failAIContextCheck(ctx, id, "stale", source.Commit, c.aiContextStaleReason(id, source.Commit,
+			"Waiting for the workflow to upload context for the current commit. The previous snapshot is retained.", aiContextRetained(r.Config)))
 		return nil, "", errAIContextAwaitingUpload
 	}
 	transient := r.Config.Destination == aicontext.Repository
@@ -262,7 +272,13 @@ func (c *Controller) verifyAIContext(ctx context.Context, id string) (*aicontext
 		}
 	}
 	if err != nil {
-		_ = c.failAIContextCheck(ctx, id, "stale", source.Commit, aiContextPublicationFailure(err, r.Config.SourceBranch, transient))
+		reason := aiContextPublicationFailure(err, r.Config.SourceBranch, transient)
+		// Only a context that is behind has a failed run to explain it; a
+		// publication that is present and wrong is a different story.
+		if aiContextNeedsRun(err) {
+			reason = c.aiContextStaleReason(id, source.Commit, reason, aiContextRetained(r.Config))
+		}
+		_ = c.failAIContextCheck(ctx, id, "stale", source.Commit, reason)
 		return nil, "", err
 	}
 	if transient {
@@ -336,6 +352,7 @@ func (c *Controller) RegenerateAIContext(ctx context.Context, id string) error {
 		}
 		return err
 	}
+	c.noteAIContextStart(ctx, id)
 	return nil
 }
 
@@ -382,15 +399,29 @@ func (c *Controller) SyncAIContext(ctx context.Context, id string, grace time.Du
 	if verifyErr == nil {
 		c.aiContextRunsMu.Lock()
 		delete(c.aiContextRuns, id)
+		delete(c.aiContextDiagnoses, id)
 		c.aiContextRunsMu.Unlock()
 		return nil
 	}
 	if !aiContextNeedsRun(verifyErr) {
+		// A lost permission or an edited workflow is not about the last run, and
+		// a reading of it would only be shown beside the wrong problem.
+		c.forgetAIContextDiagnosis(id)
 		return verifyErr
 	}
 	f, err := c.st.GetAIContextFreshness(ctx, id)
 	if err != nil || f.State != "stale" || f.DesiredCommit == "" {
+		c.forgetAIContextDiagnosis(id)
 		return verifyErr
+	}
+	// Say why before deciding whether to try again: starting a workflow that
+	// failed for a reason it will fail for again costs a run and hides the one
+	// that explains it.
+	var known *aiContextDiagnosis
+	if r, err := c.st.GetAIContextRepository(ctx, id); err == nil {
+		if known = c.diagnoseAIContext(ctx, r, f.DesiredCommit); known != nil && known.diagnosis != nil {
+			_ = c.failAIContextCheck(ctx, id, "stale", f.DesiredCommit, known.diagnosis.Summary()+aiContextRetained(r.Config))
+		}
 	}
 	now := c.Now()
 	c.aiContextRunsMu.Lock()
@@ -399,7 +430,7 @@ func (c *Controller) SyncAIContext(ctx context.Context, id string, grace time.Du
 		run = &aiContextRun{commit: f.DesiredCommit, since: now}
 		c.aiContextRuns[id] = run
 	}
-	due := now.Sub(run.since) >= grace && run.attempts < aiContextRunAttempts && (run.lastStart.IsZero() || now.Sub(run.lastStart) >= aiContextRunSpacing)
+	due := aiContextRunDue(now, grace, run, known)
 	if due {
 		// Spacing applies to a failed request too, so an outage or a missing
 		// permission is retried every half hour rather than every pass; the count
