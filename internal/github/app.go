@@ -59,6 +59,10 @@ const (
 // the same TCP connection pool.
 type AppFactory struct {
 	http *http.Client
+	// etags remembers conditional reads for every installation this factory
+	// builds a client for. It is bounded, and the scope each client adds to a key
+	// is what keeps one installation's answers from another.
+	etags *conditionalCache
 }
 
 // NewAppFactory returns a factory that dials GitHub with httpClient. Passing
@@ -68,7 +72,7 @@ func NewAppFactory(httpClient *http.Client) *AppFactory {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: defaultHTTPTimeout}
 	}
-	return &AppFactory{http: httpClient}
+	return &AppFactory{http: httpClient, etags: newConditionalCache(conditionalCacheBytes)}
 }
 
 // For returns a Client scoped to one installation, authenticated with the
@@ -137,7 +141,9 @@ func (f *AppFactory) For(ctx context.Context, inst *store.Installation, privateK
 	if err != nil {
 		return nil, err
 	}
-	return newAppClient(asApp, asInstallation, inst.Target, inst.TargetType, inst.InstallationID, WebURLForAPI(apiBase)), nil
+	c := newAppClient(asApp, asInstallation, inst.Target, inst.TargetType, inst.InstallationID, WebURLForAPI(apiBase))
+	c.enableConditionalReads(f.etags, apiBase+"|"+strconv.FormatInt(inst.InstallationID, 10))
+	return c, nil
 }
 
 func expectedTargetShape(kind store.TargetType) string {
@@ -174,6 +180,11 @@ func newGitHubClient(hc *http.Client, apiBaseURL, uploadBaseURL string) (*gh.Cli
 type appClient struct {
 	asApp          *gh.Client
 	asInstallation *gh.Client
+	// conditional reads like asInstallation, but a repeated GET that GitHub says
+	// is unchanged is answered from memory and costs nothing against the primary
+	// rate limit. Nil until enableConditionalReads, and readClient falls back to
+	// asInstallation, so a client built without it still works.
+	conditional    *gh.Client
 	installationID int64
 
 	target string
@@ -195,6 +206,29 @@ func newAppClient(asApp, asInstallation *gh.Client, target string, kind store.Ta
 		repo:           repo,
 		webURL:         strings.TrimRight(webBase, "/") + "/" + target,
 	}
+}
+
+// enableConditionalReads gives the client a second go-github client over the
+// same installation token whose GETs are revalidated rather than repeated. If
+// it cannot be built the client simply keeps reading as it did.
+func (c *appClient) enableConditionalReads(cache *conditionalCache, scope string) {
+	if cache == nil || c.asInstallation.BaseURL() == "" || c.asInstallation.UploadURL() == "" {
+		return
+	}
+	k, err := newGitHubClient(newConditionalClient(c.asInstallation.Client(), cache, scope),
+		c.asInstallation.BaseURL(), c.asInstallation.UploadURL())
+	if err != nil {
+		return
+	}
+	c.conditional = k
+}
+
+// readClient is the client a read that can tolerate a remembered answer uses.
+func (c *appClient) readClient() *gh.Client {
+	if c.conditional != nil {
+		return c.conditional
+	}
+	return c.asInstallation
 }
 
 // Target returns the org or repo this client acts on.

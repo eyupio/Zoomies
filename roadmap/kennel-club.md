@@ -437,7 +437,7 @@ flowchart LR
 | Package | Rule |
 | --- | --- |
 | `internal/kennel` (new) | **Pure.** `Evaluate`, the check registry, the workflow parser, the prune planner. It imports **only the standard library's pure parts** — a stricter rule than the one `internal/provider` keeps, because the controller reduces what it needs from the store to plain data (a pool becomes a list of weakness words, a severity is its own string type that a test holds equal to `config.Severity`). No clock, no database, no network. `boundary_test.go` fails on any other import and on any call to `time.Now`, `Since`, `Until` or a timer, as `internal/provider`'s boundary test does for its own list. |
-| `internal/github` | A new narrow interface `RepoReader` in `kennel_reader.go`, type-asserted from `Client` exactly as `ContextRunReader` is (`internal/github/ai_context_runs.go:23-33`; `internal/controller/ai_context_diagnosis.go:40`), so the demo client simply does not implement it. `ListRepositories`' `Repository` gains `Visibility`, `Fork`, `PushedAt`; the data is already in the listing. A small conditional-request transport (`etag.go`, about a hundred lines, no dependency). |
+| `internal/github` | A new narrow interface `RepoReader` in `kennel_reader.go`, type-asserted from `Client` exactly as `ContextRunReader` is (`internal/github/ai_context_runs.go:23-33`; `internal/controller/ai_context_diagnosis.go:40`), so the demo client simply does not implement it. `ListRepositories`' `Repository` gains `Visibility`; the data is already in the listing. A small conditional-request transport (`etag.go`, no dependency) that only Kennel Club's reads go through: its Stage 1 user is the repository listing it repeats every refresh. A run's trigger never changes, so each run is read once, and the transport earns its keep on the settings, artifact and cache reads of Stages 2 to 4. |
 | `internal/store` | `queries_kennel.go` and migration `0080`. The only SQL. |
 | `internal/controller` | The loop, the snapshot assembly (reads the store and the reader), the problems section, the views, the derived publish. |
 | `internal/api` | Transport only. Handlers alias `controller.KennelRepositoryView` as `providerResponse` aliases `ProviderView`; the SSE stream renders the same JSON. |
@@ -748,11 +748,12 @@ permission, no write, no new webhook event.
 * Six checks: `exposure.public_repo_on_fleet`, `exposure.public_repo_weak_pool`,
   `exposure.fork_code_ran`, `exposure.target_event_ran`,
   `capacity.unserved_label`, `capacity.job_hit_default_limit`.
-* A run read of exactly five fields — trigger `event`, the head and base
-  repository IDs, the workflow `path`, and the run ID — for runs the fleet ran in
-  *public* repositories only. Actor, branch, title and every other string on a run
-  are not read. `path` is captured now so Stage 3 can join on it, and is not used
-  by any Stage 1 check.
+* A run read of exactly four fields — trigger `event`, the head and base
+  repository IDs, and the run ID — for runs the fleet ran in *public*
+  repositories only. Actor, branch, title, the workflow's `path` and every other
+  string on a run are not read. The path is the one field of a run a fork's author
+  chooses, and no Stage 1 check uses it, so it is not taken until Stage 3 joins a
+  run to its file (section 7 says how, and why only for some events).
 * Waivers, recheck, the two problem codes, REST, SSE, MCP read tools,
   settings, documentation, screenshots.
 * The AI Context relocation described in section 2.
@@ -782,10 +783,16 @@ the feature off:
   `evaluate.go`, `exposure.go`, `capacity.go`, `coverage.go`, `waiver.go`,
   `refs.go`, `state.go`, each with its `_test.go`, and `boundary_test.go`.
 * `internal/github/` — `kennel_reader.go`, `etag.go`, `fake_kennel.go`;
-  modified: `client.go` (`Repository` gains `Visibility`, `Fork`, `PushedAt`),
-  `migrate.go` (`repositoryOf`), `app.go` (Probe keeps requested *and* granted
-  permissions), `fake.go` (`getRepo` and `listInstallationRepos` stop hard-coding
-  `"private": true`, `fake.go:688`, `fake_migrate.go:184`).
+  modified: `client.go` (`Repository` gains `Visibility`, and nothing else until
+  a check needs it), `migrate.go` (`repositoryOf` fills it, and reads it from
+  `private` on an older server that omits it; the listing is shared between the
+  plain and the conditional client), `app.go` (the factory owns the bounded
+  conditional cache; a client may read through it), `fake.go` and `fake_migrate.go`
+  (visibility, run triggers, ETags and a counter of the 304s answered, and
+  the Actions-read gate a real GitHub applies to a run read; the repository
+  endpoints stop hard-coding `"private": true`). `Probe` keeping the App's
+  requested permissions beside the granted ones moves to Stage 3, where the
+  grant flow first needs it.
 * `internal/store/` — `migrations/0080_kennel_club.sql`, `queries_kennel.go`,
   `ids.go`; modified: `migrations_test.go`.
 * `internal/controller/` — `kennel.go`, `kennel_problems.go`; modified:
@@ -1089,7 +1096,7 @@ job that calls one is *not judged*); a job's shell script; any write.
 `internal/kennel/ci.go`; `internal/github/kennel_reader.go` gains `WorkflowRefs`
 (one directory listing carrying each file's blob SHA), `ReadBlob` (bounded by the
 existing 512 KiB, `migrate.go:33`, and by 100 files), `DependabotConfig`;
-`internal/github/manifest.go` (`KennelWorkflows`); `internal/installer/manifest.go`;
+`internal/github/manifest.go` (`KennelWorkflows`); `internal/github/app.go` (`Probe` keeps the App's requested permissions beside the installation's granted ones, `AppInfo` gains the field, and a test pins that go-github's typed permissions carry every key the grant flow names); `internal/installer/manifest.go`;
 `internal/api/handlers_installations.go`; `web/src/lib/installations/ConnectDialog.svelte`.
 
 **Parsing, bounded and conservative.** `gopkg.in/yaml.v3` into `yaml.Node`, then
@@ -1356,7 +1363,7 @@ that structural rather than a matter of discipline:
 | A workflow **path** on a *fork's* `pull_request` run | **The fork's author**, who names the file | Never used. For events whose workflow is defined on the default branch (`pull_request_target`, `workflow_run`, `issue_comment`, `issues`) the path may be joined to a file already in the snapshot by *membership test* — it is matched, never echoed. This is the one place a stranger's text reaches Kennel Club's inputs, so the evidence for a fork run is its numeric run ID and a link, and a test feeds a hostile path through it. |
 | Required-check names, ruleset names, branch names | Repository admins and collaborators | Counted, never echoed. The sentence says "2 required checks" and links to GitHub's page. |
 | Artifact and cache names and keys | Any job | Through the same gate as `artifactName` (`internal/aicontext/diagnosis.go:410`); otherwise "an artifact with an unusual name". |
-| Run metadata (actor, head branch, titles) | Anyone | Not read at all. Only `event`, the head and base repository IDs and `path` are taken from a run. |
+| Run metadata (actor, head branch, titles, the workflow's path) | Anyone | Not read at all. Only `event` and the head and base repository IDs are taken from a run, and the event is bounded to 64 bytes and passed through an allow-list (`kennel.NormalizeEvent`), so a name the evaluator does not know is "other". |
 | Repository full names | GitHub, validated `owner/name` | Used as keys; rendered as text. |
 | Pool names | The operator | Rendered as text. |
 | A waiver's reason | An operator or admin | Length-bounded (500), rendered as text, stored, audited. |
@@ -1628,7 +1635,7 @@ read on 6 October 2026.
 | Stage | Method and path | GitHub permission | Purpose |
 | --- | --- | --- | --- |
 | 1 | `GET /installation/repositories` (org) or `GET /repos/{r}` (repo target) | Metadata: read | Visibility, fork flag, default branch; already made by discovery |
-| 1 | `GET /repos/{r}/actions/runs/{id}` | Actions: read | Trigger event, head and base repository IDs, path; public repositories only, runs the fleet ran |
+| 1 | `GET /repos/{r}/actions/runs/{id}` | Actions: read | Trigger event and head and base repository IDs; public repositories only, runs the fleet ran |
 | 1 | `GET /orgs/{org}/actions/runner-groups` | Self-hosted runners: read | `AllowsPublicRepositories`; already read for the group view |
 | 2 | `GET /repos/{r}/actions/artifacts` | Actions: read | Usage by name, retention |
 | 2 | `GET /repos/{r}/actions/cache/usage`, `…/cache/storage-limit`, `…/actions/caches` | Actions: read | Cache use against the limit |

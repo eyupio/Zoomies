@@ -75,6 +75,12 @@ type FakeGitHub struct {
 
 	rateLimit RateLimit
 
+	// runTriggers says how a run began, for the runs a test has described: see
+	// fake_kennel.go.
+	runTriggers map[string]fakeRunTrigger
+	// notModified counts the 304s the fake has answered.
+	notModified int
+
 	failures []fakeFailure
 	delays   []fakeDelay
 	requests []string
@@ -175,7 +181,11 @@ func (f *FakeGitHub) Client(target string, kind store.TargetType) Client {
 		// beats handing back a client that talks to the real GitHub.
 		panic("github: fake: " + err.Error())
 	}
-	return newAppClient(c, c, target, kind, f.installationID, "https://github.com")
+	ac := newAppClient(c, c, target, kind, f.installationID, "https://github.com")
+	// Kennel Club's reads go through the conditional client in production, so a
+	// test of them must too, or it would pass while the real path was broken.
+	ac.enableConditionalReads(newConditionalCache(conditionalCacheBytes), "fake|"+strconv.FormatInt(f.installationID, 10))
+	return ac
 }
 
 // SetRepositorySelection sets GitHub's "all" or "selected", so a test can
@@ -669,7 +679,7 @@ func (f *FakeGitHub) createInstallationToken(w http.ResponseWriter, r *http.Requ
 	})
 }
 
-func (f *FakeGitHub) listInstallationRepos(w http.ResponseWriter, _ *http.Request) {
+func (f *FakeGitHub) listInstallationRepos(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	repos := make([]map[string]any, 0, len(f.repos))
@@ -684,13 +694,14 @@ func (f *FakeGitHub) listInstallationRepos(w http.ResponseWriter, _ *http.Reques
 			// request has to be opened against one, and guessing "main" is how
 			// a migration fails silently on a repository still using "master".
 			"default_branch": f.repoLocked(full).defaultBranch,
-			"private":        true,
+			"private":        f.visibilityLocked(full) != "public",
+			"visibility":     f.visibilityLocked(full),
 			"archived":       f.repoLocked(full).archived,
 			"html_url":       "https://github.com/" + full,
 			"pushed_at":      f.repoLocked(full).pushedAt.UTC().Format(time.RFC3339),
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(repos), "repositories": repos})
+	f.writeETagged(w, r, map[string]any{"total_count": len(repos), "repositories": repos})
 }
 
 func (f *FakeGitHub) getRateLimit(w http.ResponseWriter, _ *http.Request) {
@@ -879,16 +890,43 @@ func (f *FakeGitHub) getWorkflowRun(w http.ResponseWriter, r *http.Request) {
 
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	// Reading a run needs Actions read, as it does on GitHub. Without it the
+	// answer is a 403, not a 404: the repository is there, the App just may not
+	// look at its runs.
+	if !f.canReadActionsLocked() {
+		writeError(w, http.StatusForbidden, "Resource not accessible by integration")
+		return
+	}
+	body := map[string]any{"id": runID}
+	found := false
 	for _, j := range f.jobs {
 		if j.Repo == full && j.RunID == runID {
-			writeJSON(w, http.StatusOK, map[string]any{
-				"id": runID, "status": j.runStatus, "conclusion": j.Conclusion,
-				"name": j.WorkflowName, "html_url": j.HTMLURL, "run_number": j.RunNumber,
-			})
-			return
+			body["status"], body["conclusion"] = j.runStatus, j.Conclusion
+			body["name"], body["html_url"], body["run_number"] = j.WorkflowName, j.HTMLURL, j.RunNumber
+			found = true
+			break
 		}
 	}
-	writeError(w, http.StatusNotFound, "Not Found")
+	trig, described := f.runTriggers[triggerKey(full, runID)]
+	if !found && !described {
+		writeError(w, http.StatusNotFound, "Not Found")
+		return
+	}
+	// A run says where it ran and where its head commit is. A push or a
+	// scheduled run is its own repository's; a pull request from a fork is not.
+	repoID := f.repoLocked(full).id
+	body["event"] = "push"
+	body["repository"] = map[string]any{"id": repoID}
+	body["head_repository"] = map[string]any{"id": repoID}
+	if described {
+		body["event"] = trig.event
+		if trig.headRepositoryID == 0 {
+			body["head_repository"] = nil
+		} else {
+			body["head_repository"] = map[string]any{"id": trig.headRepositoryID}
+		}
+	}
+	writeJSON(w, http.StatusOK, body)
 }
 
 func (f *FakeGitHub) listWorkflowJobs(w http.ResponseWriter, r *http.Request) {

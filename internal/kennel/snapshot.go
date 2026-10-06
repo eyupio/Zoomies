@@ -1,6 +1,9 @@
 package kennel
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 // Visibility is a repository's visibility as GitHub reports it. An internal
 // repository, GitHub Enterprise's, is not public: only members of the
@@ -123,4 +126,16 @@ type Run struct {
 	// FromFork is whether the run's head repository is not the repository it
 	// ran in.
 	FromFork bool
+}
+
+// NormalizeEvent is what a run's trigger is called once it has been through the
+// allow-list. The only events any check looks at are a pull request, which is
+// fork code when the run is from a fork, and the four a stranger can trigger on
+// the default branch; every other name -- including anything a snapshot should
+// not carry -- is "other", which no check treats specially.
+func NormalizeEvent(event string) string {
+	if event == "pull_request" || slices.Contains(strangerEvents, event) {
+		return event
+	}
+	return "other"
 }
