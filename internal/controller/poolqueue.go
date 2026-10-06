@@ -60,7 +60,7 @@ func (c *Controller) poolQueueWaitProblems(ctx context.Context, out *[]Problem) 
 		tail := time.Duration(*w.P95MS) * time.Millisecond
 		room, err := c.poolRoom(ctx, p)
 		if err != nil {
-			return fmt.Errorf("pricing pool %s's minimum: %w", p.Name, err)
+			return fmt.Errorf("sizing pool %s's minimum: %w", p.Name, err)
 		}
 		warm := min(queueWarmRunners, p.MaxRunners, room.Runners)
 		median := "under half a minute"

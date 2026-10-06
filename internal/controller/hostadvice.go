@@ -177,7 +177,7 @@ func (c *Controller) hostCapacityAdviceProblems(ctx context.Context, out *[]Prob
 // hostSizeKillsJobs says why a smaller runner on a host would put the jobs of a pool that
 // takes its size from the host at risk, or "" when the evidence says it would not.
 //
-// Pricing counts runners, and a smaller runner holds more of them -- which is no use to a
+// The gain is counted in runners, and a smaller runner holds more of them -- which is no use to a
 // job that needed the memory. Memory is a limit a job is killed at, so what a week of a pool's
 // jobs used, with the headroom every floor here carries, has to fit in the new size; a pool
 // that has had a job killed for memory is not one to give less. CPU is not asked: a build's

@@ -185,11 +185,11 @@ func (c *Controller) poolMinimumAdviceProblems(ctx context.Context, out *[]Probl
 
 		before, err := c.poolRoom(ctx, p)
 		if err != nil {
-			return fmt.Errorf("pricing pool %s's smallest runner: %w", p.Name, err)
+			return fmt.Errorf("sizing pool %s's smallest runner: %w", p.Name, err)
 		}
 		after, err := c.poolRoom(ctx, &cand)
 		if err != nil {
-			return fmt.Errorf("pricing pool %s's smallest runner: %w", p.Name, err)
+			return fmt.Errorf("sizing pool %s's smallest runner: %w", p.Name, err)
 		}
 		detail := fmt.Sprintf("a runner of this pool is charged at least %s of memory on every host, because its smallest runner is %s a container and the Docker sidecar holds %d%% of the memory, "+
 			"so the slot has to be %s for the runner's half to reach it. Over the last %s its jobs used at most %s, from at least %d with a measured peak, with no job killed for memory. "+
@@ -279,11 +279,11 @@ func (c *Controller) minimumHeldByJob(ctx context.Context, p *store.Pool, fleet 
 	}
 	before, err := c.poolRoom(ctx, p)
 	if err != nil {
-		return nil, fmt.Errorf("pricing pool %s's smallest runner: %w", p.Name, err)
+		return nil, fmt.Errorf("sizing pool %s's smallest runner: %w", p.Name, err)
 	}
 	after, err := c.poolRoom(ctx, &cand)
 	if err != nil {
-		return nil, fmt.Errorf("pricing pool %s's smallest runner: %w", p.Name, err)
+		return nil, fmt.Errorf("sizing pool %s's smallest runner: %w", p.Name, err)
 	}
 	if after.Runners <= before.Runners {
 		return nil, nil

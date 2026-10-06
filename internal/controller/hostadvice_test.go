@@ -662,7 +662,7 @@ func TestStandingAdviceReadsTheSameWhileTheEvidenceGrows(t *testing.T) {
 	}
 }
 
-// Pricing counts runners, and a smaller runner holds more of them, which is no use to a
+// The gain is counted in runners, and a smaller runner holds more of them, which is no use to a
 // job that needed the memory. The host's runner size is never proposed smaller than what
 // a week of the pool's jobs used, with the headroom every floor here carries.
 func TestAHostSizeIsNotProposedThatTheJobsOfAPoolThatTakesItWouldNotFitIn(t *testing.T) {
