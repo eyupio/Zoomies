@@ -613,13 +613,13 @@ func HostShortfall(h *store.Host, p *store.Pool) string {
 		}
 		switch field {
 		case "cpu":
-			return fmt.Sprintf("it is set to %s, which divides its %s allocatable CPU into shares of %s each, and a runner needs at least %s to keep up with its own job%s",
+			return fmt.Sprintf("it is set to %s, which divides its %s allocatable CPU into shares of %s each, and a runner needs at least %s to keep up with its own job%s%s",
 				plural(h.Slots(), "slot"), formatCPUs(h.Allocatable().CPUs),
-				formatCPUs(share.CPUs), formatCPUs(need.CPUs), pair)
+				formatCPUs(share.CPUs), formatCPUs(need.CPUs), pair, capacityThatFits(h, need))
 		default:
-			return fmt.Sprintf("it is set to %s, which divides its %s of allocatable memory into shares of %s each, and a runner is killed before it takes a job below %s%s",
+			return fmt.Sprintf("it is set to %s, which divides its %s of allocatable memory into shares of %s each, and a runner is killed before it takes a job below %s%s%s",
 				plural(h.Slots(), "slot"), formatMB(h.Allocatable().MemoryMB),
-				formatMB(share.MemoryMB), formatMB(need.MemoryMB), pair)
+				formatMB(share.MemoryMB), formatMB(need.MemoryMB), pair, capacityThatFits(h, need))
 		}
 	}
 	alloc := h.Allocatable()
@@ -826,4 +826,25 @@ func HostRoomFor(h *store.Host, p *store.Pool) HostRoom {
 		out.LimitedBy = "slots"
 	}
 	return out
+}
+
+// capacityThatFits is the sentence that names the capacity at which each slot of h
+// covers need, or "" when there is none to name. The refusal says what is wrong with
+// the split; an automatic pool has no limit of its own to lower, so without the number
+// an operator is left to find the capacity by trying -- and lowering it is the only
+// change that makes the host usable. A host whose whole allocatable does not cover one
+// slot, or that is already at the capacity named, is told nothing here.
+func capacityThatFits(h *store.Host, need Reservation) string {
+	a := h.Allocatable()
+	n := math.MaxInt
+	if a.CPUsKnown && need.CPUs > 0 {
+		n = min(n, int(math.Floor(a.CPUs/need.CPUs+1e-9)))
+	}
+	if a.MemoryKnown && need.MemoryMB > 0 {
+		n = min(n, int(a.MemoryMB/need.MemoryMB))
+	}
+	if n < 1 || n >= h.Slots() || n == math.MaxInt {
+		return ""
+	}
+	return fmt.Sprintf(" -- lower the host's capacity to %d, which gives each slot that much", n)
 }
