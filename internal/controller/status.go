@@ -309,6 +309,7 @@ var publicSentences = map[string]string{
 	"host.slots_below_capacity":                     "A machine could hold more runners than it does, because each runner is sized larger than the machine divides into, while jobs have been waiting for room.",
 	"pool.tmpfs_auto_on_disk":                       "Some runners keep their working files on disk because they are too small for memory to be worth using.",
 	"pool.tmpfs_suggested":                          "Jobs on some runners are slow and their machines have spare memory, so keeping working files in memory could speed them up.",
+	"pool.daemon_share_unsupported":                 "Some machines give a Docker-in-Docker runner's daemon half of its slot whatever the pool asks for, until their agent is upgraded.",
 	"pool.tmpfs_unsupported":                        "Some machines cannot keep runners' working files in memory, so those runners use disk as before.",
 	"provider.bootstrap_failed":                     "A newly rented machine failed to join the fleet.",
 	"provider.contract_unsupported":                 "The fleet cannot rent machines from one of its providers.",

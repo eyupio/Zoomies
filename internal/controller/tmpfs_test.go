@@ -840,3 +840,31 @@ func TestAnAutomaticFolderOnDiskOffersTheDaemonShareAsARemedy(t *testing.T) {
 		t.Error("a pool the controller keeps refuses edits to its resources, so none is offered")
 	}
 }
+
+// An agent too old to divide a slot by the pool's sidecar shares splits it evenly,
+// which is safe and invisible: the pool reads 80% and the daemon is given half. The
+// pool is told, but only if it asked for something other than the even split, and only
+// for hosts it can land on.
+func TestADindPoolWithAShareOnAnAgentThatIgnoresItIsWarned(t *testing.T) {
+	shared := &store.Pool{Name: "zoomies-ci", DockerMode: store.DockerDinD, Resources: store.Resources{DaemonSharePercent: 80}}
+	hosts := []PoolHostRoom{{Host: "new", DaemonShare: true}, {Host: "old"}}
+	w, ok := heldWithoutDaemonShare(shared, hosts)
+	if !ok || w.Code != "pool.daemon_share_unsupported" || !strings.Contains(w.Detail, "old") || strings.Contains(w.Detail, "new,") {
+		t.Fatalf("warning = %+v, ok = %v; want only the old host named", w, ok)
+	}
+	even := &store.Pool{Name: "zoomies-ci", DockerMode: store.DockerDinD}
+	if _, ok := heldWithoutDaemonShare(even, hosts); ok {
+		t.Error("a pool on the even split was warned about a split every agent already makes")
+	}
+	if _, ok := heldWithoutDaemonShare(shared, []PoolHostRoom{{Host: "new", DaemonShare: true}}); ok {
+		t.Error("a pool whose hosts all follow the share was warned")
+	}
+	plain := &store.Pool{Name: "zoomies-ci", Resources: store.Resources{DaemonSharePercent: 80}}
+	if _, ok := heldWithoutDaemonShare(plain, hosts); ok {
+		t.Error("a pool with no sidecar was warned about its share")
+	}
+	room := PoolRoom{Hosts: []PoolHostRoom{{Host: "new", DaemonShare: true}, {Host: "excluded-old", ExcludedBy: ExcludedProfile}}}
+	if _, ok := heldWithoutDaemonShare(shared, room.Placeable()); ok {
+		t.Error("a host the pool is kept off was named as one it would land on")
+	}
+}

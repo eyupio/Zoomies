@@ -45,6 +45,13 @@ const FeatureToolCacheFill = "tool-cache-fill"
 // pool says tmpfs, the job is as slow as it was, and nothing says why.
 const FeatureTmpfs = "tmpfs"
 
+// FeatureDaemonShare is advertised by an agent that divides a docker-in-docker
+// runner's slot by the pool's own shares for the sidecar. An older agent splits it
+// evenly whatever the pool says: the ledger charges the pair by the share and the
+// containers are given half each, which is safe and invisible -- the pool says 80%
+// and the daemon it asked for is given 50%.
+const FeatureDaemonShare = "daemon-share"
+
 // JoinRequest redeems a short-lived join token and enrols a new host.
 type JoinRequest struct {
 	Connection      string `json:"-"`
