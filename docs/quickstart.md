@@ -330,8 +330,11 @@ that fits otherwise. See [Naming and platforms](naming.md).
 
 This stays `none` until a workflow needs a daemon — a `docker` step, a
 `container:` or a `services:` block — and then `dind` is the one to choose. That
-one setting is enough: the pool is switched to a runner image with a Docker
-client as it is saved. [Jobs that build container
+one setting is enough for the pool: it is switched to a runner image with a Docker
+client as it is saved. Each slot is then a runner and a daemon, which needs about 2 CPU
+and 4 GB of the machine, so a host left at its default capacity of half its CPUs can
+be too thin for it. If the host is, the pool says so and names the capacity to set
+(`zoomies hosts edit <host> --capacity N`). [Jobs that build container
 images](configuration.md#jobs-that-build-container-images) says what it costs.
 
 ### The names the pool editor offers
