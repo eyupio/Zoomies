@@ -803,3 +803,40 @@ func TestSplitPresetsArePricedOnTheHostsAndTheCheapestSuitableIsPreselected(t *t
 		t.Errorf("a typed pool has a split plan: %+v (err %v)", room.SplitPlan, err)
 	}
 }
+
+// The share the plan found is offered as a change that can be applied, with what it
+// costs, but only on a dind pool somebody made, since one the controller keeps
+// refuses edits to its resources. The plan only ever offers a share that loses no runners,
+// so the remedy never needs a warning about capacity.
+func TestAnAutomaticFolderOnDiskOffersTheDaemonShareAsARemedy(t *testing.T) {
+	pool := &store.Pool{ID: "pool_x", Name: "zoomies-ci", DockerMode: store.DockerDinD, Resources: store.Resources{DaemonMemorySharePercent: 50, MinCPUs: 0.5},
+		Tmpfs: store.TmpfsConfig{Work: store.TmpfsMount{Enabled: true, Auto: true}}}
+	small := PoolHostRoom{Host: "twelve-core", Tmpfs: true, ChargeMemoryMB: 5120}
+	plan := &TmpfsPlan{Total: 8, Share: &TmpfsShareOption{Percent: 15, InMemory: 7, Now: 4, Runners: 6, RunnersNow: 6}}
+
+	w, ok := autoKeptOnDisk(pool, []PoolHostRoom{small}, plan)
+	if !ok || w.Remedy == nil {
+		t.Fatalf("problem = %+v, ok = %v; want a remedy", w, ok)
+	}
+	if w.Remedy.Kind != RemedyPoolUpdate || w.Remedy.TargetID != "pool_x" || !strings.Contains(w.Remedy.Effect, "7 of 8 folders") {
+		t.Errorf("remedy = %+v", w.Remedy)
+	}
+	var body struct {
+		Resources store.Resources `json:"resources"`
+	}
+	if err := json.Unmarshal(w.Remedy.Body, &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Resources.DaemonMemorySharePercent != 15 || body.Resources.MinCPUs != 0.5 {
+		t.Errorf("the request must be the pool's own resources with only the share changed: %+v", body.Resources)
+	}
+
+	if w, _ := autoKeptOnDisk(pool, []PoolHostRoom{small}, nil); w.Remedy != nil {
+		t.Error("without a plan there is nothing priced to offer")
+	}
+	kept := *pool
+	kept.AutoKey = "amd64/large"
+	if w, _ := autoKeptOnDisk(&kept, []PoolHostRoom{small}, plan); w.Remedy != nil {
+		t.Error("a pool the controller keeps refuses edits to its resources, so none is offered")
+	}
+}

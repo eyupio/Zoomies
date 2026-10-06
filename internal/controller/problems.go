@@ -217,6 +217,7 @@ var problemAudience = map[string]Audience{
 	"pool.daemon_share_suggested":                   AudienceFleet,
 	"host.slots_below_capacity":                     AudienceFleet,
 	"pool.minimum_overcharges":                      AudienceFleet,
+	"pool.queue_wait_high":                          AudienceFleet,
 	"pool.minimum_held_by_job":                      AudienceFleet,
 	"host.work_concentrated":                        AudienceFleet,
 	"pool.tmpfs_unsupported":                        AudienceFleet,
@@ -408,6 +409,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	gather("sidecar share", c.daemonShareAdviceProblems)
 	gather("host capacity", c.hostCapacityAdviceProblems)
 	gather("pool minimums", c.poolMinimumAdviceProblems)
+	gather("pool queue waits", c.poolQueueWaitProblems)
 	gather("host concentration", c.hostConcentrationProblems)
 	gather("runner profiles", c.runnerProfileProblems)
 	gather("automatic pools", c.autoPoolProblems)
