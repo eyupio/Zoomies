@@ -1826,7 +1826,13 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 		// can be changed, and which one is right is theirs to say.
 		b.fix = "change those hosts' minimum or standard runner size, or this pool's size or minimum, or add a host whose profile suits it"
 	case tooSmall > 0 && tooSmall+unhealthy+cordoned == len(hs.hosts):
-		b.fix = "lower this pool's CPU or memory limits, or add a host large enough to run one"
+		if p.Automatic() {
+			// There are no limits of its own to lower; what is wrong is how many slots the
+			// host divides itself into, and the reason above says to what.
+			b.fix = "lower those hosts' capacity (the reason names the figure), or add a host large enough to run one"
+		} else {
+			b.fix = "lower this pool's CPU or memory limits, or add a host large enough to run one"
+		}
 	case shortMemory+shortCPU > 0 && shortMemory+shortCPU+unhealthy+cordoned == len(hs.hosts):
 		switch {
 		case p.Automatic() && !p.Resources.Reducible():

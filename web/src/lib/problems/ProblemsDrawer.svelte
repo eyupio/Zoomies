@@ -22,6 +22,7 @@
   import Button from '$lib/components/Button.svelte';
   import Drawer from '$lib/components/Drawer.svelte';
   import StatusDot from '$lib/components/StatusDot.svelte';
+  import AutoApplied from './AutoApplied.svelte';
   import ProblemItem from './ProblemItem.svelte';
 
   const active = $derived(notifications.active);
@@ -127,6 +128,10 @@
         </div>
       {/if}
     </div>
+  {/if}
+
+  {#if notifications.open}
+    <AutoApplied />
   {/if}
 </Drawer>
 

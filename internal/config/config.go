@@ -506,6 +506,19 @@ type Security struct {
 	// registers itself still cannot do anything until a person signs in and
 	// approves it, which is why it is on by default.
 	MCPOpenRegistration bool `yaml:"mcp_open_registration"`
+	// MCPAdminTools offers the administrator-only MCP tools -- editing a
+	// host's name, labels and reserve, cordoning it, lifting its throttle, and
+	// reading and changing a few settings -- to a token whose role reaches
+	// them. Off by default: an agent is steered by text a workflow wrote, so
+	// handing it the settings page is a decision, not a side effect of the
+	// token being an administrator's.
+	MCPAdminTools bool `yaml:"mcp_admin_tools"`
+	// AutoApplyRemedies lets the controller make the change a problem proposes
+	// without anyone clicking it, once the same proposal has stood unchanged for
+	// two hours and at most once a day for a pool or host. Off by default: it is
+	// the controller editing its own fleet. Each change is recorded with what it
+	// replaced, and can be undone from the problems page.
+	AutoApplyRemedies bool `yaml:"auto_apply_remedies"`
 }
 
 // GitHub configures the GitHub integration.

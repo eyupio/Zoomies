@@ -312,6 +312,14 @@ var registry = buildRegistry([]Setting{
 		Key: "security.mcp_open_registration", Label: "Let MCP clients register themselves", Env: "ZOOMIES_MCP_OPEN_REGISTRATION", Kind: KindBool, Scope: ScopePlatform, Live: true,
 		Summary: "Let an MCP client register itself -- by dynamic client registration or a client ID metadata document -- rather than only use a client an administrator created under Settings, MCP clients. A client that registers itself can do nothing until a person signs in and approves it. Off, only the clients an administrator created can ask.",
 	},
+	{
+		Key: "security.auto_apply_remedies", Label: "Apply suggested changes automatically", Env: "ZOOMIES_AUTO_APPLY_REMEDIES", Kind: KindBool, Scope: ScopePlatform, Live: true,
+		Summary: "Let the controller make the change a problem proposes -- a sidecar share, a smallest runner, a warm runner -- without anyone clicking it. A change is made only after the same proposal has stood unchanged for two hours, at most once a day for any one pool or host, and never one an administrator has undone. It runs as the pool's or host's own update, so every refusal that route makes still holds, and each change is recorded with what it replaced and can be undone from the problems page. Off, the controller only proposes.",
+	},
+	{
+		Key: "security.mcp_admin_tools", Label: "Offer administrator tools over MCP", Env: "ZOOMIES_MCP_ADMIN_TOOLS", Kind: KindBool, Scope: ScopePlatform, Live: true,
+		Summary: "Let an MCP token or connection whose role is administrator edit a host's name, labels and reserve, cordon it and lift its throttle, and read and change the tuning settings (scheduler, retention, runners, limits, logging, metrics, images, status, UI and updates -- never security, sign-in, GitHub, providers or the database). Off, those tools are not offered and an agent that asks is told to turn this on. It changes nothing for a role below administrator.",
+	},
 
 	// ---------------------------------------------------------------------
 	// github

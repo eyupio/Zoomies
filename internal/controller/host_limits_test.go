@@ -278,3 +278,39 @@ func TestTheEmbeddedHostsCapacityWarningDoesNotSendAnOperatorToASettingThatDoesN
 		t.Errorf("the fix must name the command that changes an enrolled host's capacity: %q", p.Fix)
 	}
 }
+
+// The scheduler divides a docker-in-docker pair's slot by the pool's own shares and charges a
+// minimum to both halves, so the warning counts the same slot. Two flat containers said
+// "lower to 3" for a sidecar given 70% of the CPU, which still left the pool no room on a
+// 4-slot host, and stayed silent where a 3 GB minimum had made every slot 6 GB.
+func TestAnAutomaticDockerInDockerPoolsOwnSlotDecidesTheOverprovisionedCapacity(t *testing.T) {
+	tests := []struct {
+		name     string
+		res      store.Resources
+		capacity int
+		want     string // the capacity the fix names; "" means no warning
+	}{
+		{"an even split asks two cores a slot", store.Resources{}, 4, "capacity to 3"},
+		{"a sidecar given 70% of the CPU asks more of the slot", store.Resources{DaemonCPUSharePercent: 70, DaemonMemorySharePercent: 50}, 4, "capacity to 2"},
+		{"a 3 GB minimum a container makes every slot 6 GB", store.Resources{MinMemoryMB: 3072}, 3, "capacity to 2"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.measuredHost("big", 8, 16384, tc.capacity, enforcesEverything)
+			p := h.pool(h.installation(), "builders")
+			p.DockerMode = store.DockerDinD
+			p.Resources = tc.res
+			if err := h.st.UpdatePool(h.ctx, p); err != nil {
+				t.Fatal(err)
+			}
+			got := h.problemOrNil("host.overprovisioned")
+			if got == nil {
+				t.Fatalf("no warning at capacity %d", tc.capacity)
+			}
+			if !strings.Contains(got.Fix, tc.want) {
+				t.Errorf("fix %q does not say %q", got.Fix, tc.want)
+			}
+		})
+	}
+}

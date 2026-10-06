@@ -229,6 +229,9 @@ var problemAudience = map[string]Audience{
 	"pool.daemon_share_suggested":                   AudienceFleet,
 	"host.slots_below_capacity":                     AudienceFleet,
 	"pool.minimum_overcharges":                      AudienceFleet,
+	"pool.queue_wait_high":                          AudienceFleet,
+	"jobs.workflow_failing":                         AudienceFleet,
+	"jobs.duration_regressed":                       AudienceFleet,
 	"pool.minimum_held_by_job":                      AudienceFleet,
 	"host.work_concentrated":                        AudienceFleet,
 	"pool.tmpfs_unsupported":                        AudienceFleet,
@@ -420,6 +423,9 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	gather("sidecar share", c.daemonShareAdviceProblems)
 	gather("host capacity", c.hostCapacityAdviceProblems)
 	gather("pool minimums", c.poolMinimumAdviceProblems)
+	gather("pool queue waits", c.poolQueueWaitProblems)
+	gather("failing workflows", c.workflowFailingProblems)
+	gather("slower jobs", c.jobsSlowerProblems)
 	gather("host concentration", c.hostConcentrationProblems)
 	gather("runner profiles", c.runnerProfileProblems)
 	gather("automatic pools", c.autoPoolProblems)
@@ -1576,12 +1582,22 @@ func overprovisionedProblem(h *store.Host, pools []*store.Pool, defaults bool) (
 		containers = 2
 	}
 	needCPUs, needMemoryMB := slotNeed(h, pools)
+	// The whole slot, which is not always two of the one container. The scheduler
+	// divides a pair's slot by the pool's own shares, so a sidecar given 70% of the
+	// CPU makes a slot of 1 / 0.3 cores before the thinner half has its core, and a
+	// minimum is charged to both halves: counting two flat containers said "lower to
+	// 3" where the room is 0 until the capacity is 2, and stayed silent where a 3 GB
+	// minimum had already made every slot 6 GB.
+	slotCPUs, slotMemoryMB := needCPUs*float64(containers), needMemoryMB*containers
+	if f, ok := automaticPairFloor(h, pools); ok {
+		slotCPUs, slotMemoryMB = max(slotCPUs, f.CPUs), max(slotMemoryMB, f.MemoryMB)
+	}
 	fits := math.MaxInt
 	if a.CPUsKnown {
-		fits = min(fits, max(1, int(math.Floor(a.CPUs/(needCPUs*float64(containers))+1e-9))))
+		fits = min(fits, max(1, int(math.Floor(a.CPUs/slotCPUs+1e-9))))
 	}
 	if a.MemoryKnown {
-		fits = min(fits, max(1, int(a.MemoryMB/(needMemoryMB*containers))))
+		fits = min(fits, max(1, int(float64(a.MemoryMB)/float64(slotMemoryMB)+1e-9)))
 	}
 	if slots <= fits {
 		return Problem{}, false
@@ -1649,14 +1665,13 @@ func overprovisionedProblem(h *store.Host, pools []*store.Pool, defaults bool) (
 		where += " (on the host card, or zoomies hosts edit " + h.ID + " --capacity " + strconv.Itoa(fits) + "; --capacity on a fresh join token applies only at the host's next join)"
 	}
 	where += ", or add a host"
-	tooSmall := (a.CPUsKnown && a.CPUs+1e-9 < needCPUs*float64(containers)) ||
-		(a.MemoryKnown && a.MemoryMB < needMemoryMB*containers)
+	tooSmall := (a.CPUsKnown && a.CPUs+1e-9 < slotCPUs) || (a.MemoryKnown && float64(a.MemoryMB) < float64(slotMemoryMB))
 	fix := where + "."
 	if tooSmall {
 		wants := fmt.Sprintf("%s CPU and %d MB", scheduler.FormatCPUs(needCPUs), needMemoryMB)
 		if containers > 1 {
 			wants = fmt.Sprintf("%s CPU and %d MB between its runner and its sidecar",
-				scheduler.FormatCPUs(needCPUs*float64(containers)), needMemoryMB*containers)
+				scheduler.FormatCPUs(slotCPUs), slotMemoryMB)
 		}
 		fix = fmt.Sprintf("the machine is too small to run a runner well: after its reserve it has %s to give, and one runner wants %s. %s, and give it lighter jobs or replace it with a larger machine.",
 			strings.Join(allocatable, " and "), wants, where)
@@ -1712,6 +1727,26 @@ func slotNeed(h *store.Host, pools []*store.Pool) (cpus float64, memoryMB int64)
 		return 1, overprovisionedSlotMemoryMB
 	}
 	return cpus, memoryMB
+}
+
+// automaticPairFloor is the largest slot an automatic docker-in-docker pool that
+// reaches h will accept: the scheduler's own floor, with the pool's shares and
+// minimum in it, so the warning and the refusal agree about what a slot needs.
+// Typed pools are charged what they ask for and keep the flat judgement.
+func automaticPairFloor(h *store.Host, pools []*store.Pool) (scheduler.Reservation, bool) {
+	var out scheduler.Reservation
+	var any bool
+	for _, p := range pools {
+		if p == nil || !p.Enabled || p.DockerMode != store.DockerDinD || p.Backend == store.BackendProcess || !p.Automatic() {
+			continue
+		}
+		if !scheduler.HostSelects(h, p) || !scheduler.HostOffers(h, p) || !scheduler.HostIsPlatform(h, p) {
+			continue
+		}
+		f := scheduler.ShareFloor(p)
+		out.CPUs, out.MemoryMB, any = max(out.CPUs, f.CPUs), max(out.MemoryMB, f.MemoryMB), true
+	}
+	return out, any
 }
 
 // dindPoolPlacesOn names the first docker-in-docker pool that would place a

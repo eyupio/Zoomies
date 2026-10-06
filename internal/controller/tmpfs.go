@@ -541,6 +541,7 @@ func autoKeptOnDisk(p *store.Pool, hosts []PoolHostRoom, plan *TmpfsPlan) (Probl
 	}
 	sort.Strings(lines)
 	return Problem{
+		Remedy:   autoOnDiskRemedy(p, plan),
 		Code:     "pool.tmpfs_auto_on_disk",
 		Severity: config.SeverityInfo,
 		Title:    fmt.Sprintf("pool %s: its automatic in-memory folders are on disk on %s", p.Name, plural(len(lines), "host")),
@@ -550,6 +551,22 @@ func autoKeptOnDisk(p *store.Pool, hosts []PoolHostRoom, plan *TmpfsPlan) (Probl
 		TargetKind: "pool",
 		TargetID:   p.ID,
 	}, true
+}
+
+// autoOnDiskRemedy is the daemon share the plan found, as a change that can be
+// applied rather than a sentence to retype. The plan only offers a share that
+// loses no runners, which is the whole of what makes it safe to offer. A pool
+// the controller keeps is left to its prose: it refuses edits to its resources,
+// so a remedy that edited them would only be refused when applied.
+func autoOnDiskRemedy(p *store.Pool, plan *TmpfsPlan) *Remedy {
+	if plan == nil || plan.Share == nil || p.DockerMode != store.DockerDinD || p.FromHosts() {
+		return nil
+	}
+	sh := plan.Share
+	res := p.Resources
+	res.DaemonMemorySharePercent = sh.Percent
+	effect := fmt.Sprintf("puts %d of %d folders in memory, up from %d, with room for all %s", sh.InMemory, plan.Total, sh.Now, plural(sh.Runners, "runner"))
+	return newRemedy(RemedyPoolUpdate, p.ID, fmt.Sprintf("Give the sidecar %d%% of the memory", sh.Percent), effect, map[string]any{"resources": res}, p.Resources)
 }
 
 // recordScratch writes on a runner's row which of its folders its pool keeps in

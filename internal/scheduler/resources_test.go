@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -575,5 +576,39 @@ func TestARunnerIsNeverChargedLessThanItWasCreatedWith(t *testing.T) {
 	h.RunnerProfile = store.RunnerProfile{Standard: store.RunnerStandard{CPUs: 4, MemoryMB: 10 * 1024}}
 	if got := RunnerGuarantee(p, h, r); got.CPUs != 4 || got.MemoryMB != 10*1024 {
 		t.Errorf("after the standard was raised the runner is charged %+v, want the larger", got)
+	}
+}
+
+// An automatic pool has no limit of its own to lower, so the refusal that says each slot is
+// too thin has to say what to set: the capacity at which a slot covers the floor. Without it
+// an operator who switched a pool to docker-in-docker on a default-capacity host was left to
+// find the number by trying. The figure named must be one that works.
+func TestARefusedShareNamesTheCapacityThatFits(t *testing.T) {
+	h := sized("host_default", 4, 8, 16*1024, 500*1024)
+	p := testPool("builders", "builders")
+	p.DockerMode = store.DockerDinD
+	if ShareTooSmall(h, p) == "" {
+		t.Fatal("the fixture must be refused for the test to mean anything")
+	}
+	why := HostShortfall(h, p)
+	if !strings.Contains(why, "lower the host's capacity to ") {
+		t.Fatalf("HostShortfall = %q, want it to name a capacity", why)
+	}
+	var n int
+	if _, err := fmt.Sscanf(why[strings.Index(why, "capacity to ")+len("capacity to "):], "%d", &n); err != nil || n < 1 || n >= h.Slots() {
+		t.Fatalf("capacity named in %q is not a lower, positive figure (%d, %v)", why, n, err)
+	}
+	h.Capacity = n
+	if got := ShareTooSmall(h, p); got != "" {
+		t.Errorf("at the named capacity %d the host is still refused (%s)", n, got)
+	}
+	if !HostFits(h, p) {
+		t.Errorf("at the named capacity %d one runner of the pool still does not fit", n)
+	}
+
+	// A host whose whole allocatable cannot cover one slot is told nothing to set.
+	tiny := sized("host_tiny", 1, 2, 4*1024, 500*1024)
+	if strings.Contains(HostShortfall(tiny, p), "lower the host's capacity") {
+		t.Errorf("a host at one slot was told to lower its capacity: %q", HostShortfall(tiny, p))
 	}
 }
