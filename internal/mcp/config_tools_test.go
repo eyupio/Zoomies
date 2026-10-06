@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -53,7 +54,7 @@ func call(t *testing.T, name string, c API, args string) (string, error) {
 // because the merge is into what the API returned and not into a copy of its types.
 func TestUpdatePoolMergesIntoWhatTheAPIReturned(t *testing.T) {
 	r := &recorder{object: `{"name":"p","resources":{"min_cpus":1,"future_field":7,"daemon_cpu_share_percent":35},"cpu_burst":{"mode":"automatic","size_for_ceiling":true}}`}
-	if _, err := call(t, "update_pool", r, `{"pool_id":"pool_1","daemon_cpu_share_percent":20,"cpu_burst_max_cpus":6}`); err != nil {
+	if _, err := call(t, "update_pool", r, `{"pool_id":"pool_1","daemon_cpu_share_percent":20,"cpu_burst_max_cpus":6,"expect":{"daemon_cpu_share_percent":35,"cpu_burst_max_cpus":0}}`); err != nil {
 		t.Fatal(err)
 	}
 	var sent struct {
@@ -159,7 +160,8 @@ func TestUpdatePoolChangesScalePlacementAndValvesWithoutClearingTheRest(t *testi
 		`"tmpfs":{"work":{"enabled":true,"auto":true,"size_mb":3072},"tmp":{"enabled":true,"auto":true},"daemon":{"enabled":false}},` +
 		`"cpu_burst":{"mode":"observe","max_cpus":6},"memory_burst":{"mode":"automatic","spill_mb":2048,"max_memory_mb":9000}}`}
 	args := `{"pool_id":"pool_1","min_runners":2,"max_runners":10,"idle_timeout":"10m","tmpfs_work":"memory","tmpfs_tmp":"disk",` +
-		`"cpu_burst_mode":"automatic","memory_burst_mode":"observe"}`
+		`"cpu_burst_mode":"automatic","memory_burst_mode":"observe",` +
+		`"expect":{"min_runners":0,"max_runners":8,"idle_timeout":"5m0s","tmpfs_work":"auto","tmpfs_tmp":"auto","cpu_burst_mode":"observe","memory_burst_mode":"automatic"}}`
 	if _, err := call(t, "update_pool", r, args); err != nil {
 		t.Fatal(err)
 	}
@@ -208,5 +210,79 @@ func TestUpdatePoolRefusesAScaleThatCannotBeRight(t *testing.T) {
 	}
 	if len(r.sent) != 0 {
 		t.Errorf("a refused call sent %v", r.sent)
+	}
+}
+
+// update_pool and update_host write absolute values, so an agent that read a setting an hour
+// ago and sets another figure over it would put back what a person has since changed -- the
+// kill-a-job direction for a minimum. The call has to say what it read, and what it read has
+// to still be there.
+func TestAnUpdateThatDoesNotSayWhatItReadOrReadItLongAgoChangesNothing(t *testing.T) {
+	pool := `{"name":"p","resources":{"min_memory_mb":6144}}`
+
+	r := &recorder{object: pool}
+	if _, err := call(t, "update_pool", r, `{"pool_id":"pool_1","min_memory_mb":2304}`); err == nil || !strings.Contains(err.Error(), "say what you read") {
+		t.Errorf("an update that did not say what it read was accepted: %v", err)
+	}
+	if _, err := call(t, "update_pool", r, `{"pool_id":"pool_1","min_memory_mb":2304,"expect":{}}`); err == nil {
+		t.Error("an empty expect was accepted for a setting being changed")
+	}
+
+	// The agent read 3072; a person has since raised it to 6144.
+	_, err := call(t, "update_pool", r, `{"pool_id":"pool_1","min_memory_mb":2304,"expect":{"min_memory_mb":3072}}`)
+	if err == nil || !strings.Contains(err.Error(), "min_memory_mb is now 6144, not 3072") {
+		t.Fatalf("a stale read was written over: %v", err)
+	}
+	if len(r.sent) != 0 {
+		t.Errorf("a refused update sent %v", r.sent)
+	}
+
+	// What it read is what is there: the change is made.
+	if _, err := call(t, "update_pool", r, `{"pool_id":"pool_1","min_memory_mb":2304,"expect":{"min_memory_mb":6144}}`); err != nil {
+		t.Fatalf("an update that matched was refused: %v", err)
+	}
+	if len(r.sent) != 1 {
+		t.Errorf("sent %d updates, want 1", len(r.sent))
+	}
+
+	// A setting that followed the fleet's is read as 0, null or left out.
+	for _, expect := range []string{`"min_cpus":0`, `"min_cpus":null`} {
+		r := &recorder{object: pool}
+		if _, err := call(t, "update_pool", r, `{"pool_id":"pool_1","min_cpus":1,"expect":{`+expect+`}}`); err != nil {
+			t.Errorf("expect %s for a setting that follows the fleet's was refused: %v", expect, err)
+		}
+	}
+
+	// Hosts are the same.
+	host := &recorder{object: `{"name":"h","capacity":4,"runner_profile":{"standard":{"cpus":2}}}`}
+	if _, err := call(t, "update_host", host, `{"host_id":"host_1","capacity":6}`); err == nil {
+		t.Error("a host update that did not say what it read was accepted")
+	}
+	if _, err := call(t, "update_host", host, `{"host_id":"host_1","capacity":6,"expect":{"capacity":3}}`); err == nil || !strings.Contains(err.Error(), "capacity is now 4, not 3") {
+		t.Errorf("a stale host read was written over: %v", err)
+	}
+	if _, err := call(t, "update_host", host, `{"host_id":"host_1","capacity":6,"standard_cpus":3,"expect":{"capacity":4,"standard_cpus":2}}`); err != nil {
+		t.Errorf("a host update that matched was refused: %v", err)
+	}
+}
+
+// The schema asks for expect, so a client lists it as required and an agent is told so before it
+// calls rather than after.
+func TestTheUpdateToolsRequireExpectInTheirSchema(t *testing.T) {
+	for _, tl := range tools() {
+		if tl.Name != "update_pool" && tl.Name != "update_host" {
+			continue
+		}
+		b, _ := json.Marshal(tl.InputSchema)
+		if !strings.Contains(string(b), `"required":[`) || !strings.Contains(string(b), `"expect"`) {
+			t.Errorf("%s does not list expect: %s", tl.Name, b)
+		}
+		var schema struct {
+			Required []string `json:"required"`
+		}
+		_ = json.Unmarshal(b, &schema)
+		if !slices.Contains(schema.Required, "expect") {
+			t.Errorf("%s does not require expect: %v", tl.Name, schema.Required)
+		}
 	}
 }

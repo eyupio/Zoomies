@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -67,8 +68,9 @@ func configTools() []*tool {
 				"refuses a change that would leave the pool with no host that could run it. Read the pool first (list_pools) and make one " +
 				"change at a time: the smallest runner is per container, so a Docker-in-Docker pool needs it twice over, scaled by the " +
 				"sidecar's share, and lowering a share raises what each slot is charged. Zero for a minimum means 'follow the fleet's'.",
-			InputSchema: object([]string{"pool_id"}, map[string]any{
+			InputSchema: object([]string{"pool_id", "expect"}, map[string]any{
 				"pool_id":                     str("the pool's ID, starting pool_"),
+				"expect":                      expectSchema("pool", "list_pools"),
 				"min_cpus":                    map[string]any{"type": "number", "minimum": 0, "description": "the least CPU a runner of this pool is given, per container; 0 follows the fleet's, otherwise at least 0.25"},
 				"min_memory_mb":               map[string]any{"type": "integer", "minimum": 0, "description": "the least memory a runner is given, per container, in MiB; 0 follows the fleet's, otherwise at least 512"},
 				"daemon_cpu_share_percent":    integer("the Docker sidecar's share of a slot's CPU, 10 to 90", 10, 90),
@@ -97,8 +99,9 @@ func configTools() []*tool {
 				"never set to zero here: stopping a host taking runners is a decision for a person at the UI or CLI (cordon it). Read the " +
 				"host first (list_hosts); a host's slots are limited by whichever of its CPU, memory or capacity runs out first, and " +
 				"lowering a standard size adds slots only up to the capacity. Zero for a size means 'follow the fleet's'.",
-			InputSchema: object([]string{"host_id"}, map[string]any{
+			InputSchema: object([]string{"host_id", "expect"}, map[string]any{
 				"host_id":            str("the host's ID, starting host_"),
+				"expect":             expectSchema("host", "list_hosts"),
 				"capacity":           integer("the most runners the host takes; with a standard runner size, the ceiling on the slots its machine gives", 1, 1024),
 				"reserve_cpus":       integer("whole CPUs held back from placement for the machine's own sake", 0, 1024),
 				"reserve_memory_mb":  integer("memory held back from placement, in MiB", 0, 16<<20),
@@ -134,22 +137,23 @@ type sizingReply struct {
 
 func updatePool(ctx context.Context, c API, raw json.RawMessage) ([]Content, error) {
 	var a struct {
-		PoolID            string   `json:"pool_id"`
-		MinCPUs           *float64 `json:"min_cpus"`
-		MinMemoryMB       *int64   `json:"min_memory_mb"`
-		DaemonCPUShare    *int     `json:"daemon_cpu_share_percent"`
-		DaemonMemoryShare *int     `json:"daemon_memory_share_percent"`
-		CPUBurstMax       *float64 `json:"cpu_burst_max_cpus"`
-		MinRunners        *int     `json:"min_runners"`
-		MaxRunners        *int     `json:"max_runners"`
-		IdleTimeout       *string  `json:"idle_timeout"`
-		ScaleUpLimit      *int     `json:"repository_scale_up_limit"`
-		TmpfsWork         *string  `json:"tmpfs_work"`
-		TmpfsTmp          *string  `json:"tmpfs_tmp"`
-		TmpfsDaemon       *string  `json:"tmpfs_daemon"`
-		CPUBurstMode      *string  `json:"cpu_burst_mode"`
-		MemoryBurstMode   *string  `json:"memory_burst_mode"`
-		MemoryBurstSpill  *int64   `json:"memory_burst_spill_mb"`
+		PoolID            string         `json:"pool_id"`
+		MinCPUs           *float64       `json:"min_cpus"`
+		MinMemoryMB       *int64         `json:"min_memory_mb"`
+		DaemonCPUShare    *int           `json:"daemon_cpu_share_percent"`
+		DaemonMemoryShare *int           `json:"daemon_memory_share_percent"`
+		CPUBurstMax       *float64       `json:"cpu_burst_max_cpus"`
+		MinRunners        *int           `json:"min_runners"`
+		MaxRunners        *int           `json:"max_runners"`
+		IdleTimeout       *string        `json:"idle_timeout"`
+		ScaleUpLimit      *int           `json:"repository_scale_up_limit"`
+		TmpfsWork         *string        `json:"tmpfs_work"`
+		TmpfsTmp          *string        `json:"tmpfs_tmp"`
+		TmpfsDaemon       *string        `json:"tmpfs_daemon"`
+		CPUBurstMode      *string        `json:"cpu_burst_mode"`
+		MemoryBurstMode   *string        `json:"memory_burst_mode"`
+		MemoryBurstSpill  *int64         `json:"memory_burst_spill_mb"`
+		Expect            map[string]any `json:"expect"`
 	}
 	if err := decodeArgs(raw, &a); err != nil {
 		return nil, err
@@ -292,6 +296,9 @@ func updatePool(ctx context.Context, c API, raw json.RawMessage) ([]Content, err
 		}
 		body["tmpfs"] = tmpfs
 	}
+	if err := checkExpected("pool", "list_pools", a.Expect, changes); err != nil {
+		return nil, err
+	}
 	return send(ctx, bc, path, body, sizingReply{
 		ID:      a.PoolID,
 		Name:    stringOf(current["name"]),
@@ -302,15 +309,16 @@ func updatePool(ctx context.Context, c API, raw json.RawMessage) ([]Content, err
 
 func updateHost(ctx context.Context, c API, raw json.RawMessage) ([]Content, error) {
 	var a struct {
-		HostID           string   `json:"host_id"`
-		Capacity         *int     `json:"capacity"`
-		ReserveCPUs      *int     `json:"reserve_cpus"`
-		ReserveMemoryMB  *int64   `json:"reserve_memory_mb"`
-		StandardCPUs     *float64 `json:"standard_cpus"`
-		StandardMemoryMB *int64   `json:"standard_memory_mb"`
-		MinCPUs          *float64 `json:"min_cpus"`
-		MinMemoryMB      *int64   `json:"min_memory_mb"`
-		BurstMaxCPUs     *float64 `json:"burst_max_cpus"`
+		HostID           string         `json:"host_id"`
+		Capacity         *int           `json:"capacity"`
+		ReserveCPUs      *int           `json:"reserve_cpus"`
+		ReserveMemoryMB  *int64         `json:"reserve_memory_mb"`
+		StandardCPUs     *float64       `json:"standard_cpus"`
+		StandardMemoryMB *int64         `json:"standard_memory_mb"`
+		MinCPUs          *float64       `json:"min_cpus"`
+		MinMemoryMB      *int64         `json:"min_memory_mb"`
+		BurstMaxCPUs     *float64       `json:"burst_max_cpus"`
+		Expect           map[string]any `json:"expect"`
 	}
 	if err := decodeArgs(raw, &a); err != nil {
 		return nil, err
@@ -392,12 +400,88 @@ func updateHost(ctx context.Context, c API, raw json.RawMessage) ([]Content, err
 		profile["minimum"], profile["standard"] = minimum, standard
 		body["runner_profile"] = profile
 	}
+	if err := checkExpected("host", "list_hosts", a.Expect, changes); err != nil {
+		return nil, err
+	}
 	return send(ctx, bc, path, body, sizingReply{
 		ID:      a.HostID,
 		Name:    stringOf(current["name"]),
 		Changes: changes,
 		Note:    "Applies to runners created from now on. Read the host again (list_hosts) to see the slots it now gives and what limits them.",
 	})
+}
+
+// expectSchema is the `expect` argument both update tools take: for each setting being
+// changed, the value the agent read before deciding to change it.
+func expectSchema(kind, lister string) map[string]any {
+	return map[string]any{
+		"type":                 "object",
+		"additionalProperties": true,
+		"description": "for every setting you are changing, the value you read for it in " + lister + " -- 0, null or the key left out where it followed the fleet's. " +
+			"Required, like remedy_id on apply_remedy: this tool writes absolute values, so an agent that read a setting an hour ago and sets another figure over " +
+			"it would put back what a person has since changed. If the " + kind + " no longer holds what you expected, nothing is changed and the answer says what it holds now.",
+	}
+}
+
+// checkExpected refuses an update whose settings are not what the agent says it read, or that
+// does not say. The tool has already read the object to carry its other settings forward, so
+// the comparison costs nothing and closes everything but the instant between that read and
+// the write.
+func checkExpected(kind, lister string, expect map[string]any, changes map[string]change) error {
+	fields := make([]string, 0, len(changes))
+	for f := range changes {
+		fields = append(fields, f)
+	}
+	slices.Sort(fields)
+	var missing, stale []string
+	for _, f := range fields {
+		want, said := expect[f]
+		switch {
+		case !said:
+			missing = append(missing, f)
+		case settingText(want) != settingText(changes[f].Before):
+			stale = append(stale, fmt.Sprintf("%s is now %s, not %s", f, shown(changes[f].Before), shown(want)))
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("say what you read for each setting you are changing, in expect: it has no value for %s. Read the %s with %s and pass what it showed, so a change made since is not written over", strings.Join(missing, ", "), kind, lister)
+	}
+	if len(stale) > 0 {
+		return fmt.Errorf("the %s was changed since you read it, so nothing was changed: %s. Read it again with %s and decide again", kind, strings.Join(stale, "; "), lister)
+	}
+	return nil
+}
+
+// settingText is a setting's value as a comparable string. Absent, null, zero and an empty
+// string are one thing -- a setting that follows the fleet's -- and a number is its shortest
+// decimal form, so 6144 read as a float and sent as an integer are the same.
+func settingText(v any) string {
+	switch x := v.(type) {
+	case nil:
+		return ""
+	case float64:
+		if x == 0 {
+			return ""
+		}
+		return strconv.FormatFloat(x, 'f', -1, 64)
+	case int:
+		return settingText(float64(x))
+	case int64:
+		return settingText(float64(x))
+	case string:
+		return x
+	case bool:
+		return strconv.FormatBool(x)
+	}
+	b, _ := json.Marshal(v)
+	return string(b)
+}
+
+func shown(v any) string {
+	if t := settingText(v); t != "" {
+		return t
+	}
+	return "the fleet's"
 }
 
 // send makes the update and answers with what changed, plus any warnings the
