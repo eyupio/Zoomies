@@ -46,10 +46,20 @@ const (
 	KindProviderDeleted Kind = "provider.deleted"
 	KindMachineUpdated  Kind = "machine.updated"
 	KindMachineDeleted  Kind = "machine.deleted"
-	KindProblems        Kind = "problems.updated"
-	KindStats           Kind = "stats"
-	KindAudit           Kind = "audit"
-	KindWebhook         Kind = "webhook.delivery"
+	// The Kennel Club kinds follow the same rule. kennel.updated is one
+	// repository exactly as GET /kennel/repositories/{id} returns it, and
+	// kennel.deleted is the id of one that is gone -- pruned, or taken away with
+	// its installation. kennel.summary is the Overview's document, computed and
+	// sent only when it changes, as stats and problems.updated are: nothing
+	// writes a row when a repository's last evaluation ages, so nothing could
+	// announce it.
+	KindKennelUpdated Kind = "kennel.updated"
+	KindKennelDeleted Kind = "kennel.deleted"
+	KindKennelSummary Kind = "kennel.summary"
+	KindProblems      Kind = "problems.updated"
+	KindStats         Kind = "stats"
+	KindAudit         Kind = "audit"
+	KindWebhook       Kind = "webhook.delivery"
 	// KindHeartbeat is an empty keep-alive so that proxies do not close an
 	// idle SSE connection.
 	KindHeartbeat Kind = "heartbeat"

@@ -50,6 +50,16 @@ func (c *Controller) publishDerived(ctx context.Context) {
 		c.bus.Publish(events.KindProblems, "", json.RawMessage(raw))
 	}
 
+	// The Overview of Kennel Club is computed, not stored: nothing writes a row
+	// when an evaluation grows older, so nothing could announce that it did. With
+	// the feature off this costs no query -- the document is the same "off" one
+	// each time -- and is sent once when it flips.
+	if overview, err := c.KennelOverview(ctx); err != nil {
+		c.log.Warn("could not compute the Kennel Club overview for the event stream", "error", err)
+	} else if raw, changed := c.derivedChanged(&c.lastKennel, overview); changed {
+		c.bus.Publish(events.KindKennelSummary, "", json.RawMessage(raw))
+	}
+
 	c.publishHostChanges(ctx)
 	c.publishMachineChanges(ctx)
 }

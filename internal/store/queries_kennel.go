@@ -287,14 +287,38 @@ func (s *Store) RequestKennelRecheck(ctx context.Context, id string) error {
 }
 
 // PruneKennelRepositories deletes the repositories last served before the
-// cutoff, and their waivers with them. It is the one delete Kennel Club makes,
-// and only of its own rows.
-func (s *Store) PruneKennelRepositories(ctx context.Context, before time.Time) (int64, error) {
-	res, err := s.exec(ctx, `DELETE FROM kennel_repositories WHERE last_served_at < ?`, ms(before))
+// cutoff, and their waivers with them, and returns the IDs it removed so that
+// each can be announced: a page that is looking at one is looking at something
+// that no longer exists. It is the one delete Kennel Club makes, and only of its
+// own rows.
+func (s *Store) PruneKennelRepositories(ctx context.Context, before time.Time) ([]string, error) {
+	var ids []string
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		var err error
+		ids, err = deletedIDs(ctx, tx, `DELETE FROM kennel_repositories WHERE last_served_at < ? RETURNING id`, ms(before))
+		return err
+	})
+	return ids, err
+}
+
+// KennelRepositoryIDs lists the IDs of an installation's repositories, which is
+// what the controller announces as gone before it deletes the installation: the
+// rows cascade away with it, and a cascade says nothing on the event stream.
+func (s *Store) KennelRepositoryIDs(ctx context.Context, installationID string) ([]string, error) {
+	rows, err := s.read.QueryContext(ctx, `SELECT id FROM kennel_repositories WHERE installation_id = ? ORDER BY id`, installationID)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return res.RowsAffected()
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 // KennelCounts is the Overview's numbers, counted over every repository.
@@ -364,6 +388,38 @@ func (s *Store) KennelCheckCounts(ctx context.Context) (map[string]int, error) {
 		if code.Valid {
 			out[code.String] = n
 		}
+	}
+	return out, rows.Err()
+}
+
+// KennelCoverageCounts says, for each source, how many repositories are in each
+// state of reading it: {"runs": {"ok": 3, "denied": 1}}. It is what the
+// Overview's coverage panel is made from, and counts a repository once per
+// source it has a state for. A repository with no evaluation yet has no states
+// and is in none of them.
+func (s *Store) KennelCoverageCounts(ctx context.Context) (map[string]map[string]int, error) {
+	rows, err := s.read.QueryContext(ctx, `SELECT c.key, json_extract(c.value, '$.state'), COUNT(*)
+		FROM kennel_repositories r, json_each(r.coverage_json) c
+		GROUP BY 1, 2`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]map[string]int{}
+	for rows.Next() {
+		var source string
+		var state sql.NullString
+		var n int
+		if err := rows.Scan(&source, &state, &n); err != nil {
+			return nil, err
+		}
+		if !state.Valid {
+			continue
+		}
+		if out[source] == nil {
+			out[source] = map[string]int{}
+		}
+		out[source][state.String] = n
 	}
 	return out, rows.Err()
 }

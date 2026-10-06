@@ -34,6 +34,9 @@ var KennelEndpoints = []string{
 	"GET /repos/{owner}/{repo}",
 	"GET /repos/{owner}/{repo}/actions/runs/{run}",
 	"GET /orgs/{org}/actions/runner-groups",
+	// The budget is a share of the limit the installation reports, and this is
+	// how it reports it. GitHub does not count the request against the limit.
+	"GET /rate_limit",
 }
 
 // KennelRun is the four fields of a workflow run that the exposure checks read.

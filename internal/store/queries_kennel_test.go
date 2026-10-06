@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -345,9 +347,9 @@ func TestPruningRemovesOnlyWhatWasLastServedBeforeTheCutoffAndItsWaivers(t *test
 	if err := s.UpsertKennelWaiver(ctx, w); err != nil {
 		t.Fatal(err)
 	}
-	n, err := s.PruneKennelRepositories(ctx, clock.Add(-90*24*time.Hour))
-	if err != nil || n != 1 {
-		t.Fatalf("pruned %d, %v; want 1", n, err)
+	gone, err := s.PruneKennelRepositories(ctx, clock.Add(-90*24*time.Hour))
+	if err != nil || len(gone) != 1 || gone[0] != old.ID {
+		t.Fatalf("pruned %v, %v; want only %s", gone, err, old.ID)
 	}
 	if _, err := s.GetKennelRepository(ctx, old.ID); !errors.Is(err, ErrNotFound) {
 		t.Errorf("the old repository survived: %v", err)
@@ -673,5 +675,71 @@ func TestRunsAreListedNewestFirstAboveTheWatermarkWithTheirFirstQueueTime(t *tes
 	}
 	if !r101.QueuedAt.Equal(now.Add(-9 * time.Minute)) {
 		t.Errorf("run 101 first queued %s, want the earlier of its two jobs", r101.QueuedAt)
+	}
+}
+
+// An installation's rows go with it, silently. The controller announces each as
+// gone before the delete, so it needs the list first, and it must be that
+// installation's alone: announcing another's would blank a page for nothing.
+func TestAnInstallationsRepositoriesAreListedByTheirIDsAndNobodyElses(t *testing.T) {
+	ctx := context.Background()
+	s, inst, _ := kennelStore(t)
+	other := &Installation{AppID: 1, InstallationID: 3, Target: "other", TargetType: TargetOrg}
+	if err := s.CreateInstallation(ctx, other); err != nil {
+		t.Fatal(err)
+	}
+	// Enough of them that insertion order is not id order by luck.
+	var want []string
+	for i := range int64(8) {
+		want = append(want, touch(t, s, inst, i+1, fmt.Sprintf("acme/r%d", i), "public").ID)
+	}
+	slices.Sort(want)
+	foreign := touch(t, s, other, 100, "other/c", "public")
+
+	ids, err := s.KennelRepositoryIDs(ctx, inst.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(ids, want) {
+		t.Errorf("ids = %v, want %v, in order, and not %s", ids, want, foreign.ID)
+	}
+	if none, err := s.KennelRepositoryIDs(ctx, "inst_nope"); err != nil || len(none) != 0 {
+		t.Errorf("an unknown installation listed %v, %v", none, err)
+	}
+}
+
+// The coverage panel counts a repository once for each source it has a state
+// for. A repository nothing has evaluated has no states, so it is in none of
+// them, and a stored document with no state for a source does not count as one.
+func TestCoverageIsCountedPerSourceAndPerState(t *testing.T) {
+	ctx := context.Background()
+	s, inst, _ := kennelStore(t)
+	if empty, err := s.KennelCoverageCounts(ctx); err != nil || len(empty) != 0 {
+		t.Fatalf("empty = %v, %v", empty, err)
+	}
+	a := touch(t, s, inst, 1, "acme/a", "public")
+	b := touch(t, s, inst, 2, "acme/b", "public")
+	c := touch(t, s, inst, 3, "acme/c", "private")
+	touch(t, s, inst, 4, "acme/never-evaluated", "public")
+	for repo, doc := range map[string]string{
+		a.ID: `{"fleet":{"state":"ok"},"metadata":{"state":"ok"},"runs":{"state":"ok"}}`,
+		b.ID: `{"fleet":{"state":"ok"},"metadata":{"state":"ok"},"runs":{"state":"denied"}}`,
+		c.ID: `{"fleet":{"state":"ok"},"metadata":{"state":"ok"},"runs":{}}`,
+	} {
+		rec := record("attention", 0, 1, 0)
+		rec.Coverage = json.RawMessage(doc)
+		if err := s.SaveKennelEvaluation(ctx, repo, rec); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.KennelCoverageCounts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["fleet"]["ok"] != 3 || got["metadata"]["ok"] != 3 || got["runs"]["ok"] != 1 || got["runs"]["denied"] != 1 {
+		t.Errorf("counts = %v", got)
+	}
+	if len(got["runs"]) != 2 {
+		t.Errorf("a source with no state was counted as one: %v", got["runs"])
 	}
 }

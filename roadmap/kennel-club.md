@@ -424,7 +424,7 @@ flowchart LR
         snap["kennel.Snapshot<br/>plain data"]
         ev["kennel.Evaluate<br/>pure"]
         st[("SQLite<br/>kennel_repositories, kennel_waivers")]
-        pub["publishKennel<br/>controller/views.go"]
+        pub["publishKennel<br/>controller/kennel.go"]
     end
     fleet[("fleet facts<br/>jobs, pools, runner groups")]
     loop --> rd --> api
@@ -533,8 +533,8 @@ Two tiers per repository:
   why Stage 1's capacity checks are live without costing quota.
 * **Remote**: the reads. Due every `kennel.refresh_interval` (24 hours,
   floor one hour), spread by a per-repository jitter, plus on **Recheck**
-  (cooldown five minutes per repository, three in flight fleet-wide) and when
-  the evaluator version changes.
+  (cooldown five minutes per repository, enforced at the API) and when the
+  evaluator version changes.
 
 **The budget is a rule, not a hope.** Zoomies' own comments document the
 installation quota as 5,000 requests an hour "shared with every other call
@@ -548,12 +548,16 @@ admits the toolchain scan "does not ration itself". Kennel Club does:
    neither today (`ai_context_diagnosis.go:44-50` logs and discards); Kennel
    Club must not copy that.
 2. It spends at most `kennel.api_budget_percent` (default 20) of the limit the
-   installation last reported (`Client.RateLimit`), as a per-installation token
-   bucket, and it stops entirely below 50% remaining. The poller, JIT
-   configuration and the registration reap come first.
-3. Concurrency is capped at two per installation and four overall; every call
-   goes through `observeGitHub` and a new
-   `zoomies_kennel_github_requests_total{result}`.
+   installation reports, as a per-installation counter that starts again each
+   hour, and it stops entirely below 50% remaining. `Client.RateLimit` is a real
+   request and not a remembered value, so the loop makes it once per
+   installation per pass (`GET /rate_limit`, which GitHub does not count against
+   the limit, and which is in Appendix A). The poller, JIT configuration and the
+   registration reap come first. Every request, including the further pages of a
+   listing, goes through one gate, `kennelTake`.
+3. A pass reads one repository at a time, which is inside the caps of two per
+   installation and four overall that this plan first proposed; every call goes
+   through `observeGitHub` and a new `zoomies_kennel_github_requests_total{result}`.
 4. Page caps everywhere (ten pages of artifacts, five of caches, three of runs):
    a cap yields coverage `partial`, never an unbounded read and never a guess.
 
@@ -662,7 +666,8 @@ never from a store row (`CLAUDE.md`).
   (`internal/controller/derived.go:33-60, 155-165`), exactly as `stats` and
   `problems.updated` are. Nothing publishes it by hand.
 
-Views live in `internal/controller/views.go` and are aliased by the handlers.
+Views live in `internal/controller/kennel_views.go`, beside the loop and apart from
+the 2,000-line `views.go`, and are aliased by the handlers.
 `web/src/lib/api/types.ts:305` (`EventPayloads`) gains the kinds, or
 `events.subscribe` will not typecheck; `docs/api-surface.md:478-495` lists them.
 Page-local SSE subscribers do **not** refetch after a reconnect (only
@@ -806,9 +811,13 @@ the feature off:
   grant flow first needs it.
 * `internal/store/` — `migrations/0080_kennel_club.sql`, `queries_kennel.go`,
   `ids.go`; modified: `migrations_test.go`.
-* `internal/controller/` — `kennel.go`, `kennel_problems.go`; modified:
-  `controller.go` (spawn), `views.go`, `derived.go`, `problems.go` (the section
-  and `problemAudience` rows), `status.go` (`statusExempt`), `metrics.go`.
+* `internal/controller/` — `kennel.go` (the loop, the reads, the evaluation),
+  `kennel_snapshot.go` (the run watermark, the pool-to-danger words, the digests),
+  `kennel_budget.go`, `kennel_views.go`, `kennel_problems.go`; modified:
+  `controller.go` (the runtime, the spawn, announcing an installation's rows
+  before it is deleted), `derived.go`, `background.go` (the prune), `problems.go`
+  (the section and `problemAudience` rows), `status.go` (`statusExempt`),
+  `metrics.go`. `internal/events/bus.go` gains the three kinds.
 * `internal/api/` — `handlers_kennel.go`; modified: `router.go`, `sse.go` if a
   frame needs filtering (none is expected: findings carry no secrets and no
   source), `api_test.go` (route table, `normalisePath`).
@@ -967,6 +976,17 @@ paragraph); `docs/cli.md` and `docs/connect-claude.md` (the three tools);
   refresh; the read is `partial` and the finding stands if found, but "none
   seen" is worded "none in the runs we read". The watermark guarantees
   progress, not completeness.
+* *A rename splits a repository's history.* The jobs table keeps the name a
+  repository had when the job ran, and the fleet's facts are asked by the current
+  name, so after a rename the evidence starts again from the new name. The
+  waivers and the row follow the GitHub ID and are safe; the findings that
+  depended on older jobs clear until the new name has jobs of its own, which is
+  an under-report for as long as the retention window and never an over-report.
+* *Stale is still a fact, for what changes rarely.* When a read from GitHub fails
+  after one that worked, a repository's visibility is whatever was last read, and
+  the runs found stand and are called partial: an outage must not make a finding
+  vanish, and a repository whose visibility changed during it is noticed at the
+  next successful read, which makes it due at once.
 * *The retention window bounds the evidence.* The jobs table is pruned at
   `retention.jobs` (30 days). Evidence windows are `min(30 days, retention.jobs)`,
   and the finding says the window it used.
@@ -1414,7 +1434,7 @@ proves the token is never sent to the log host.
 | Hiding a risky workflow by making it unreadable | `ci.workflow_unreadable` is a finding of its own; an unreadable repository is `partial`, never "Best in show". |
 | Making a finding vanish by waiving it | A collaborator cannot: waivers live in Zoomies, behind an operator or admin role, not in a file in the repository. This is why there is **no `.github/kennel.yml`** (section 11). |
 | Steering Stage 5 into editing something else | `VerifyEdit` and the plan hash; the edit touches only lines the plan lists. A `uses:` the collaborator wrote is pinned, not endorsed, and a reviewer reads the diff. |
-| Repeated **Recheck** to drive reads | Operator role, a five-minute cooldown per repository, three in flight fleet-wide, the same budget. |
+| Repeated **Recheck** to drive reads | Operator role, a five-minute cooldown per repository, the same budget, and a loop that reads one repository at a time. |
 
 ### The blast radius of every write path
 
@@ -1649,7 +1669,8 @@ read on 6 October 2026.
 | --- | --- | --- | --- |
 | 1 | `GET /installation/repositories` (org) or `GET /repos/{r}` (repo target) | Metadata: read | Visibility, fork flag, default branch; already made by discovery |
 | 1 | `GET /repos/{r}/actions/runs/{id}` | Actions: read | Trigger event and head and base repository IDs; public repositories only, runs the fleet ran |
-| 1 | `GET /orgs/{org}/actions/runner-groups` | Self-hosted runners: read | `AllowsPublicRepositories`; already read for the group view |
+| 1 | `GET /orgs/{org}/actions/runner-groups` | Self-hosted runners: read | `AllowsPublicRepositories`; the loop reads it from the groups the controller caches when it creates a runner and makes no request of its own for it, so it stays listed as what the controller already asks |
+| 1 | `GET /rate_limit` | none; GitHub does not count it | The limit the budget is a share of, once per installation per pass |
 | 2 | `GET /repos/{r}/actions/artifacts` | Actions: read | Usage by name, retention |
 | 2 | `GET /repos/{r}/actions/cache/usage`, `…/cache/storage-limit`, `…/actions/caches` | Actions: read | Cache use against the limit |
 | 2 | `GET /repos/{r}/actions/workflows` | Actions: read | Workflow state |

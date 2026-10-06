@@ -295,6 +295,11 @@ func TestKennelClubCallsOnlyTheEndpointsItDocuments(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
+		// The budget is a share of what the installation reports, and this is how
+		// it reports it.
+		if _, err := c.RateLimit(ctx); err != nil {
+			t.Fatal(err)
+		}
 	}
 	allowed := map[string]bool{}
 	for _, e := range KennelEndpoints {
