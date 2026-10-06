@@ -22,6 +22,7 @@ import {
   FIXTURE,
   goto,
   grid,
+  expectNoReload,
   menuEntry,
   navEntry,
   openNavMenu,
@@ -436,36 +437,27 @@ test.describe('with Kennel Club on', () => {
     await expect(page.locator('.toast[data-tone="error"]')).toContainText('asked to be read again');
   });
 
-  test('a repository the stream changes is repainted in place', async ({ page }) => {
+  test('a repository the controller changes is repainted in place', async ({ page }) => {
     const row = await repository(page, PUBLIC_REPO);
     await goto(page, `/kennel/repositories/${row.id}`, PUBLIC_REPO);
     await expect(page.getByRole('article')).toHaveCount(2);
-
-    // The frame is the repository's own GET shape, with one finding gone, which
-    // is what the stream sends when a pool is fixed.
-    const current = (await page.request
-      .get(`/api/v1/kennel/repositories/${row.id}`)
-      .then((r) => r.json())) as { findings: unknown[]; counts: Record<string, number> };
-    const next = {
-      ...current,
-      findings: current.findings.slice(0, 1),
-      counts: { ...current.counts, error: 1 },
-    };
-    const frame = `id: 999990\nevent: kennel.updated\ndata: ${JSON.stringify(next)}\n\n`;
-    await page.route('**/api/v1/events*', (route) =>
-      route.fulfill({
-        status: 200,
-        headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-store' },
-        body: frame,
-      }),
-    );
     await plantMarker(page);
-    await page.evaluate(() => {
-      window.dispatchEvent(new Event('offline'));
-      window.dispatchEvent(new Event('online'));
-    });
-    await expect(page.getByRole('article')).toHaveCount(1, { timeout: 10_000 });
-    await expect(page.getByText('1 error', { exact: true })).toBeVisible();
+
+    try {
+      // Turning one check off is a decision the controller applies at once and
+      // announces on the stream, so this is the real path end to end: nothing is
+      // injected, the connection is never cut, and so nothing makes the page ask
+      // again. Only the frame can repaint it.
+      await patchSettings(page, { 'kennel.disabled_checks': ['exposure.public_repo_weak_pool'] });
+      await expect(page.getByRole('article')).toHaveCount(1, { timeout: 20_000 });
+      // With the weak pool no longer a finding, the public-repository finding is
+      // back to its usual severity, which is a warning.
+      await expect(page.getByText('1 warning', { exact: true })).toBeVisible();
+      await expectNoReload(page);
+    } finally {
+      await patchSettings(page, { 'kennel.disabled_checks': [] });
+    }
+    await expect(page.getByRole('article')).toHaveCount(2, { timeout: 20_000 });
   });
 
   test('a repository that stops being tracked says so instead of showing what it had', async ({
