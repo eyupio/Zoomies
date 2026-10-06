@@ -2,9 +2,11 @@
  * What in a frame is actually news.
  *
  * Kept apart from `entries.ts`, which imports the state map and its icon
- * components and so cannot be loaded outside a browser, for the same reason
- * `outcomes.ts` is kept apart from `status.ts`: this is the half a person
- * would argue about, and it is tested in Node.
+ * components, for the same reason `outcomes.ts` is kept apart from
+ * `status.ts`: this is the half a person would argue about -- what is news --
+ * with no wording or icons to read past, and it is tested in Node. (The unit
+ * runner stubs a Svelte import, so `entries.ts` loads there too and has a test
+ * of its own, for the wording.)
  *
  * The rule every function here exists to enforce is that **a frame is not an
  * event**. A host publishes one whenever a heartbeat moves its CPU reading; a
@@ -31,10 +33,13 @@ import { problemKey } from '../problems/identity';
 /* -- hosts ---------------------------------------------------------------- */
 
 /**
- * The five facts about a host worth a line. Everything else a host frame
- * carries -- its load, its free slots, when it last spoke -- moves every
- * thirty seconds and says nothing that has not already been said by the
- * capacity map.
+ * The facts about a host worth a line. Everything else a host frame carries --
+ * its load, its free slots, when it last spoke -- moves every thirty seconds
+ * and says nothing that has not already been said by the capacity map.
+ *
+ * The OS report is the extreme case of that: a native agent sends one about
+ * every minute and its `checked_at` is different every time, so the signal
+ * holds the controller's verdict on it and never the report.
  */
 export interface HostSignal {
   healthy: boolean;
@@ -45,6 +50,20 @@ export interface HostSignal {
   incompatible: boolean;
   /** Whether pressure is holding new runners off this host right now. */
   holding: boolean;
+  /**
+   * Whether there is a verdict on the host's OS: a full report, with the
+   * controller's count of it. A container's partial report is not one -- it
+   * skips most checks and warns about the image's distribution for ever -- and
+   * a payload with no count reads as not reported rather than as healthy.
+   */
+  reported: boolean;
+  /**
+   * How badly the counted checks say it is doing: 0 none, 1 warnings, 2 errors.
+   * The throttle ladder's shape, so a warning becoming an error is news and an
+   * error easing to a warning is not.
+   */
+  attention: number;
+  rebootPending: boolean;
 }
 
 export type HostChange =
@@ -57,15 +76,27 @@ export type HostChange =
   | 'calm'
   | 'holding'
   | 'admitting'
-  | 'incompatible';
+  | 'incompatible'
+  | 'attention'
+  | 'failing'
+  | 'clear'
+  | 'reboot';
 
 export function hostSignal(host: Host): HostSignal {
+  // Optional chains all the way down: this runs on every host frame, and a
+  // controller that sends no count must make a host that has not reported, not
+  // a feed that throws. Nothing here reads a clock or `checked_at` -- a value
+  // that moves with the time is a value that flaps.
+  const summary = host.doctor?.container === true ? undefined : host.doctor?.summary;
   return {
     healthy: host.healthy !== false,
     cordoned: host.cordoned === true,
     throttle: host.throttle?.level ?? 0,
     incompatible: host.incompatible === true,
     holding: Boolean(host.admission_reason),
+    reported: Boolean(summary),
+    attention: summary ? (summary.errors > 0 ? 2 : summary.warnings > 0 ? 1 : 0) : 0,
+    rebootPending: Boolean(summary) && host.doctor?.reboot_pending === true,
   };
 }
 
@@ -91,6 +122,21 @@ export function hostChanges(next: HostSignal, previous: HostSignal | undefined):
   // to "why is nothing starting here", and only the transitions are reported
   // -- the reason's wording moves with the load and would flap.
   if (next.holding !== previous.holding) out.push(next.holding ? 'holding' : 'admitting');
+  // Both readings must be verdicts, and that one condition is the whole of the
+  // noise story. A host's first report is a baseline, not news -- or a rolling
+  // upgrade would print a line per host. A report with the same verdict as the
+  // last, and a full report swapping with a container's partial one, change
+  // nothing here. Going unreachable changes no summary, so it says nothing
+  // about health. There is no stale line: no frame announces time passing, and
+  // `host.health_stale` reaches people as a problem.
+  if (previous.reported && next.reported) {
+    if (next.attention > previous.attention)
+      out.push(next.attention === 2 ? 'failing' : 'attention');
+    // Only reaching zero is clear; an error easing to a warning is still a
+    // host that needs attention, and has said so already.
+    else if (next.attention === 0 && previous.attention > 0) out.push('clear');
+    if (next.rebootPending && !previous.rebootPending) out.push('reboot');
+  }
   return out;
 }
 

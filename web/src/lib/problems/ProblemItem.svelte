@@ -14,6 +14,7 @@
   import RemedyText from '$lib/components/RemedyText.svelte';
   import StatusDot from '$lib/components/StatusDot.svelte';
   import ApplyRemedy from './ApplyRemedy.svelte';
+  import { hostTarget } from './targets';
 
   interface Props {
     problem: Problem;
@@ -112,7 +113,7 @@
         case 'runner':
           return { href: `/runners/${id}`, label: 'Open the runner' };
         case 'host':
-          return { href: '/hosts', label: 'Open hosts' };
+          return hostTarget(p.code, id);
         case 'provider':
           return { href: `/providers/${id}`, label: 'Open the provider' };
         case 'ai_context':
