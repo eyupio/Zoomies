@@ -5,7 +5,16 @@
   import { router } from '$lib/router';
   import { fleet } from '$lib/state/fleet.svelte';
   import { onClockTick } from '$lib/format';
-  import { healthSummary } from '$lib/hosts/health';
+  import {
+    attention as attentionOf,
+    bySeverity,
+    counts,
+    healthSummary,
+    isFinding,
+    type DoctorResult,
+  } from '$lib/hosts/health';
+  import { pluralise } from '$lib/format';
+  import type { StatusTone } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
   import Panel from '$lib/components/Panel.svelte';
@@ -21,7 +30,21 @@
   const host = $derived(fleet.hosts.find((h) => h.id === id) ?? fetched);
   const report = $derived(host?.doctor);
   const summary = $derived(healthSummary(report, now, host?.healthy ?? true));
+  // What needs doing, worst first. Counted checks only, which is what the badge
+  // and `zoomies doctor` count: the other tiers are choices, not faults.
+  const attention = $derived(report ? attentionOf(report) : []);
   const tiers = ['safe', 'aggressive', 'dedicated'] as const;
+  // A warning that does not count says so in its own word and tone, or the
+  // header would read "Health OK" above a column of amber "Warning" badges.
+  function statusBadge(check: DoctorResult): { label: string; tone: StatusTone } {
+    if (check.status === 'error') return { label: 'Error', tone: 'danger' };
+    if (check.status === 'warn')
+      return counts(check)
+        ? { label: 'Warning', tone: 'pending' }
+        : { label: 'Suggestion', tone: 'neutral' };
+    if (check.status === 'ok') return { label: 'OK', tone: 'idle' };
+    return { label: 'Skipped', tone: 'neutral' };
+  }
   async function refresh(): Promise<void> {
     try {
       fetched = await getHost(id);
@@ -86,8 +109,33 @@
         with <code>sudo zoomies tune --dry-run</code>.
       </p>
     </Panel>
+    {#if attention.length}
+      <Panel
+        title="Needs attention"
+        description="{pluralise(
+          attention.length,
+          'check',
+        )} below what Zoomies recommends for a CI host, worst first. Select one to see its row."
+      >
+        <ul class="attention">
+          {#each attention as check (check.id)}
+            {@const badge = statusBadge(check)}
+            <li>
+              <Badge label={badge.label} tone={badge.tone} />
+              <a href="#{check.id}">{check.title}</a>
+              <span class="now"
+                >now <code>{check.current || '—'}</code>, recommended
+                <code>{check.recommended || '—'}</code></span
+              >
+            </li>
+          {/each}
+        </ul>
+      </Panel>
+    {/if}
     {#each tiers as tier (tier)}
-      {@const checks = report.results.filter((r) => r.tier === tier)}
+      {@const checks = bySeverity(report.results.filter((r) => r.tier === tier))}
+      {@const findings = checks.filter(isFinding)}
+      {@const rest = checks.filter((r) => !isFinding(r))}
       {#if checks.length}
         <Panel
           title={tier === 'safe'
@@ -96,53 +144,55 @@
               ? 'Aggressive checks'
               : 'Dedicated host checks'}
           description={tier === 'dedicated'
-            ? 'Only for hosts running nothing but Zoomies. These changes are never included in safe or aggressive defaults.'
-            : 'Read-only findings. Applying a change requires consent in the CLI.'}
+            ? 'Only for hosts running nothing but Zoomies. These changes are never included in safe or aggressive defaults, and do not count towards this host’s health.'
+            : tier === 'aggressive'
+              ? 'Optional tuning, and not counted towards this host’s health. Applying a change needs --tier aggressive and consent in the CLI.'
+              : 'Read-only findings. Applying a change requires consent in the CLI.'}
           flush
         >
-          <!-- Keyboard focus enables horizontal scrolling on narrow screens. -->
-          <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-          <div class="checks" role="region" aria-label={`${tier} host checks`} tabindex="0">
-            <table>
-              <thead
-                ><tr
-                  ><th scope="col">Check</th><th scope="col">Status</th><th scope="col">Current</th
-                  ><th scope="col">Recommended</th><th scope="col">Why / details</th></tr
-                ></thead
-              >
-              <tbody
-                >{#each checks as check (check.id)}<tr>
-                    <th scope="row">{check.title}<small>{check.id}</small></th>
-                    <td
-                      ><Badge
-                        label={check.status === 'warn'
-                          ? 'Warning'
-                          : check.status === 'skip'
-                            ? 'Skipped'
-                            : check.status === 'error'
-                              ? 'Error'
-                              : 'OK'}
-                        tone={check.status === 'warn'
-                          ? 'pending'
-                          : check.status === 'error'
-                            ? 'danger'
-                            : check.status === 'ok'
-                              ? 'idle'
-                              : 'neutral'}
-                      /></td
-                    >
-                    <td>{check.current || '—'}</td><td>{check.recommended || '—'}</td><td
-                      >{check.rationale}{#if check.reason}<small>{check.reason}</small>{/if}</td
-                    >
-                  </tr>{/each}</tbody
-              >
-            </table>
-          </div>
+          {#if findings.length}{@render checkTable(`${tier} host checks`, findings)}{/if}
+          {#if rest.length}
+            <!-- Folded when there is something to find, so the finding is the
+                 first thing on the page rather than the tenth row under nine
+                 passing ones. Open when there is nothing, so a healthy host's
+                 page shows what was checked. -->
+            <details class="rest" open={!findings.length}>
+              <summary>{pluralise(rest.length, 'passing or skipped check')}</summary>
+              {@render checkTable(`${tier} passing and skipped host checks`, rest)}
+            </details>
+          {/if}
         </Panel>
       {/if}
     {/each}
   </div>
 {/if}
+
+{#snippet checkTable(label: string, rows: DoctorResult[])}
+  <!-- Keyboard focus enables horizontal scrolling on narrow screens. -->
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+  <div class="checks" role="region" aria-label={label} tabindex="0">
+    <table>
+      <thead
+        ><tr
+          ><th scope="col">Check</th><th scope="col">Status</th><th scope="col">Current</th><th
+            scope="col">Recommended</th
+          ><th scope="col">Why / details</th></tr
+        ></thead
+      >
+      <tbody
+        >{#each rows as check (check.id)}
+          {@const badge = statusBadge(check)}
+          <tr id={check.id}>
+            <th scope="row">{check.title}<small>{check.id}</small></th>
+            <td><Badge label={badge.label} tone={badge.tone} /></td>
+            <td>{check.current || '—'}</td><td>{check.recommended || '—'}</td><td
+              >{check.rationale}{#if check.reason}<small>{check.reason}</small>{/if}</td
+            >
+          </tr>{/each}</tbody
+      >
+    </table>
+  </div>
+{/snippet}
 
 <style>
   .health-content {
@@ -185,5 +235,47 @@
   }
   thead {
     background: var(--z-surface-raised);
+  }
+  /* A link from "Needs attention" lands the row under the top bar otherwise,
+     and the row it landed on should say so. */
+  tr[id] {
+    scroll-margin-top: calc(var(--z-topbar-height) + var(--z-space-4));
+  }
+  tr:target {
+    background: var(--z-accent-subtle);
+  }
+  .attention {
+    display: grid;
+    gap: var(--z-space-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--z-text-sm);
+  }
+  .attention li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--z-space-2) var(--z-space-3);
+  }
+  .attention a {
+    color: var(--z-accent);
+    text-decoration: underline;
+  }
+  .now {
+    color: var(--z-text-muted);
+    overflow-wrap: anywhere;
+  }
+  .rest summary {
+    cursor: pointer;
+    padding: var(--z-space-3) var(--z-space-4);
+    color: var(--z-text-muted);
+    font-size: var(--z-text-sm);
+  }
+  .rest[open] summary {
+    border-bottom: var(--z-border-width) solid var(--z-border);
+  }
+  .rest tbody tr:last-child > * {
+    border-bottom: 0;
   }
 </style>

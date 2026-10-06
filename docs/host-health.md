@@ -46,6 +46,14 @@ The service samples every minute. Agent heartbeats carry the latest report to
 the controller, which persists it and sends `host.updated` events. Host badges
 and the host detail checks table update without reloading the page. Reports
 older than three minutes or from unreachable hosts are labelled stale.
+
+The badge counts what `zoomies doctor` counts by default: the safe tier, without
+optional suggestions. The monitor reports the aggressive and dedicated tiers as
+well, but those are choices rather than faults, so the host page shows them as
+suggestions and they do not count towards a host's health. When more than one
+thing applies the badge names the worst first: health errors, then warnings,
+then a pending reboot. The host page opens with a **Needs attention** list of
+the counted findings, with the failing checks above the ones that pass.
 Tuning and reversal refresh the shared report immediately where it exists;
 the next heartbeat carries that result.
 

@@ -1272,6 +1272,17 @@ next section.
   what the CLI already does".
 * **`docs/host-health.md`** is thorough and honest about what Zoomies will not do.
 
+### What has been done since
+
+Started on 6 October 2026, UI only, so nothing here needs an OpenAPI change.
+
+| Finding | Status | What changed |
+| --- | --- | --- |
+| **DC1** badge counts the wrong tiers | Fixed in the UI | `healthSummary` counts the safe tier without optional checks, as `zoomies doctor` does. Against the same fixtures: `build-01` 15 → 6 warnings (the CLI's 6), `build-02` 9 warnings → "Health OK". Other tiers show as "Suggestion" and say they do not count. The server-side `Summary` is left for DC3, which needs it. |
+| **DC2** worst finding hidden | Fixed | An error now outranks a reboot and both are said (`build-04`: "1 health error · reboot pending", danger tone). The host page opens with **Needs attention**, findings sort above passing checks, passing and skipped rows fold away when there is something to find, and every row has an id to link to. `build-04`'s phone page is 2,788px, from 5,237px. |
+
+Everything else here is open. DC3 is the next and the largest.
+
 ### How this part is ordered
 
 By users affected × severity ÷ effort. DC1 and DC2 are small and certain, and
@@ -1388,8 +1399,8 @@ should ship first; DC3 is the largest and the most valuable.
   (`<tr id={check.id}>`; there are none today, which also blocks DC3's deep
   links). Inside the tables, sort by status (error, warn, ok, skip) and put the
   passing and skipped rows in a closed `<details>` titled "19 passing or skipped
-  checks". Expected result for `build-04`: header "1 error · reboot pending", the
-  disk row first, the page about one screen.
+  checks". Expected result for `build-04`: header "1 health error · reboot pending",
+  the disk row first, the page about one screen.
 
 ### DC3. Nothing consumes the report: no problem, no event, no metric, no status, no alert
 
