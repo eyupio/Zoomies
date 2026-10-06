@@ -177,6 +177,9 @@ var problemAudience = map[string]Audience{
 	"host.runtime_recovering":                       AudienceFleet,
 	"host.throttled":                                AudienceFleet,
 	"host.unhealthy":                                AudienceFleet,
+	"host.os_health":                                AudienceFleet,
+	"host.health_stale":                             AudienceFleet,
+	"host.reboot_pending":                           AudienceFleet,
 	"host.version_behind":                           AudienceFleet,
 	"installation.unhealthy":                        AudienceFleet,
 	"jobs.oom_killed":                               AudienceFleet,
@@ -431,6 +434,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	gather("automatic pools", c.autoPoolProblems)
 	gather("label advice", c.labelAdviceProblems)
 	gather("host incidents", c.hostIncidentProblems)
+	gather("host OS health", c.hostHealthProblems)
 	out = append(out, c.fenceProblems()...)
 	out = append(out, c.ssoProblems()...)
 	out = append(out, c.bootstrapProblems()...)

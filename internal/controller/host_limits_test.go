@@ -82,7 +82,10 @@ func TestAHostWhoseSlotsFitRaisesNoOverprovisioningWarning(t *testing.T) {
 	if err := demo.c.SeedDemo(demo.ctx); err != nil {
 		t.Fatalf("SeedDemo: %v", err)
 	}
-	for _, code := range []string{"host.overprovisioned", "host.limits_unverified", "host.limits_unenforceable", "host.resources_unknown"} {
+	// The demo seeds no OS report, and a host with none raises none of the three
+	// OS health codes.
+	for _, code := range []string{"host.overprovisioned", "host.limits_unverified", "host.limits_unenforceable", "host.resources_unknown",
+		"host.os_health", "host.health_stale", "host.reboot_pending"} {
 		if contains(demo.problemCodes(), code) {
 			t.Errorf("the demo fleet raises %s; it exists to look like a fleet with nothing wrong", code)
 		}

@@ -168,7 +168,17 @@ func ProjectStatus(problems []Problem, stats *Stats) FleetStatus {
 // error for the person who set it up, and has nothing to do with whether any job
 // runs: letting it in would turn the page to "blocked" over a repository's
 // assistant context. It has no public sentence, and a test holds it to that.
+//
+// The three host OS health codes are the same kind of exception. They say
+// whether a machine's settings match a recommendation, not whether a job will
+// run, and a stock fleet carries some of them for ever: letting them in would
+// turn the public page to "degraded" for people with no account over a sysctl,
+// and to "blocked" over a check that could not read a file.
 func statusExempt(code string) bool {
+	switch code {
+	case "host.os_health", "host.health_stale", "host.reboot_pending":
+		return true
+	}
 	return strings.HasPrefix(code, "ai_context.")
 }
 
