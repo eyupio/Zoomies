@@ -149,6 +149,16 @@ func (c *Controller) poolMinimumAdviceProblems(ctx context.Context, out *[]Probl
 		if !ok {
 			continue
 		}
+		// The window is the last few hours and the week is what spans the heavy job: a
+		// weekly build whose daemon used 2.6 GB is missing from a window of light phases,
+		// and a floor sized by the window alone was lowered under it. The most each half
+		// used in any job of the week counts, and the advice waits until enough jobs have
+		// been measured that way -- every pool for a week after an upgrade.
+		if g.MeasuredHalves < minimumEvidenceJobs {
+			continue
+		}
+		halves.runnerMB = max(halves.runnerMB, g.PeakRunnerMemoryMB)
+		halves.daemonMB = max(halves.daemonMB, g.PeakDaemonMemoryMB)
 		sized := sizingPool(p, fleet)
 		factor := p.Resources.MemoryPairFactor()
 		floor := scheduler.ShareFloor(sized).MemoryMB

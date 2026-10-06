@@ -95,6 +95,13 @@ type JobStatsGroup struct {
 	// readings is not the same evidence as one from three hundred. Not in the API: the
 	// peaks above are what it exposes.
 	MeasuredMemory int `json:"-"`
+	// PeakRunnerMemoryMB and PeakDaemonMemoryMB are the most each container of a
+	// docker-in-docker pair was measured using in any job of the group, and
+	// MeasuredHalves how many jobs have them. Not in the API: they are what the
+	// minimum advice sizes each half by, and the peaks above are what it exposes.
+	PeakRunnerMemoryMB int64 `json:"-"`
+	PeakDaemonMemoryMB int64 `json:"-"`
+	MeasuredHalves     int   `json:"-"`
 }
 
 // JobStatsResult is JobStats' answer.
@@ -146,6 +153,7 @@ func (s *Store) JobStats(ctx context.Context, f JobFilter, groupBy []string) (*J
 	base := `WITH base AS (SELECT ` + keys[0] + ` AS k1, ` + keys[1] + ` AS k2, queued_at AS q,
 			conclusion, runner_fault, fault_kind,
 			NULLIF(peak_cpus, 0) AS pc, NULLIF(peak_memory_mb, 0) AS pm, oom_killed AS oom,
+			peak_runner_memory_mb AS prm, peak_daemon_memory_mb AS pdm,
 			CASE WHEN started_at IS NOT NULL THEN MAX(started_at - queued_at, 0) END AS wait,
 			CASE WHEN started_at IS NOT NULL AND completed_at IS NOT NULL AND conclusion NOT IN ('cancelled','skipped')
 				THEN MAX(completed_at - started_at, 0) END AS dur,
@@ -215,7 +223,8 @@ func (s *Store) JobStats(ctx context.Context, f JobFilter, groupBy []string) (*J
 		return nil, err
 	}
 
-	peaks, err := s.read.QueryContext(ctx, base+`SELECT k1, k2, MAX(pc), MAX(pm), SUM(oom), COUNT(pm) FROM base GROUP BY k1, k2`, args...)
+	peaks, err := s.read.QueryContext(ctx, base+`SELECT k1, k2, MAX(pc), MAX(pm), SUM(oom), COUNT(pm), MAX(prm), MAX(pdm),
+		SUM(CASE WHEN prm > 0 AND pdm > 0 THEN 1 ELSE 0 END) FROM base GROUP BY k1, k2`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -224,8 +233,9 @@ func (s *Store) JobStats(ctx context.Context, f JobFilter, groupBy []string) (*J
 		var k gk
 		var pc sql.NullFloat64
 		var pm sql.NullInt64
-		var oom, measured int
-		if err := peaks.Scan(&k.a, &k.b, &pc, &pm, &oom, &measured); err != nil {
+		var oom, measured, halves int
+		var prm, pdm int64
+		if err := peaks.Scan(&k.a, &k.b, &pc, &pm, &oom, &measured, &prm, &pdm, &halves); err != nil {
 			return nil, err
 		}
 		if g := groups[k]; g != nil {
@@ -237,6 +247,7 @@ func (s *Store) JobStats(ctx context.Context, f JobFilter, groupBy []string) (*J
 			}
 			g.OOMKilled = oom
 			g.MeasuredMemory = measured
+			g.PeakRunnerMemoryMB, g.PeakDaemonMemoryMB, g.MeasuredHalves = prm, pdm, halves
 		}
 	}
 	if err := peaks.Err(); err != nil {
