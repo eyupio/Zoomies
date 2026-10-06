@@ -998,6 +998,37 @@ var registry = buildRegistry([]Setting{
 	},
 
 	// ---------------------------------------------------------------------
+	// kennel -- Kennel Club, the standards the fleet's repositories are held
+	// to.
+	//
+	// All of it is live. The loop is always running and asks these on every
+	// pass, so that switching it off stops the reads at once rather than at
+	// the next restart, which is the property that makes it safe to try.
+	// ---------------------------------------------------------------------
+	{
+		Key: "kennel.enabled", Label: "Check repository standards", Env: "ZOOMIES_KENNEL_ENABLED", Kind: KindBool, Scope: ScopeInstance, Live: true,
+		Summary: "Whether Kennel Club runs. Off by default, and off means off: no request to GitHub, nothing stored, and AI Context carries on as it was. On, it reads facts about the repositories this fleet serves and keeps what it concludes.",
+	},
+	{
+		Key: "kennel.scope", Label: "Repositories to check", Env: "ZOOMIES_KENNEL_SCOPE", Kind: KindEnum, Scope: ScopeInstance, Live: true,
+		Choices: KennelScopes,
+		Summary: "served checks the repositories this fleet has run a job for; installation checks every repository the GitHub App can see, up to 500. installation multiplies the requests Kennel Club makes, so it is a choice and not the default.",
+	},
+	{
+		Key: "kennel.refresh_interval", Label: "Refresh interval", Env: "ZOOMIES_KENNEL_REFRESH_INTERVAL", Kind: KindDuration, Scope: ScopeInstance, Live: true,
+		Summary: "How stale what Kennel Club reads from GitHub may get before it is read again. What the fleet observed for itself is re-checked as the fleet changes, whatever this says. The smallest useful value is 1h.",
+		Floor:   time.Hour,
+	},
+	{
+		Key: "kennel.api_budget_percent", Label: "GitHub request budget", Env: "ZOOMIES_KENNEL_API_BUDGET_PERCENT", Kind: KindInt, Scope: ScopeInstance, Live: true,
+		Summary: "The share, from 5 to 50, of an installation's hourly GitHub request limit that Kennel Club may spend. Scaling, registration and polling come first, and Kennel Club stops altogether when less than half the limit is left.",
+	},
+	{
+		Key: "kennel.disabled_checks", Label: "Checks turned off", Env: "ZOOMIES_KENNEL_DISABLED_CHECKS", Kind: KindStrings, Scope: ScopeInstance, Live: true,
+		Summary: "Checks to turn off, by code (exposure.fork_code_ran) or by area (exposure, capacity). A check that is turned off is listed as turned off in Settings, not hidden, and a repository with none left to run is not given the badge.",
+	},
+
+	// ---------------------------------------------------------------------
 	// ui -- what the web UI opens with. Each is a starting point an operator
 	// moves away from on the page itself, which then remembers the move in
 	// that browser; what is set here is what somebody who has never chosen
@@ -1092,7 +1123,7 @@ func StoredSettings() []Setting {
 var SectionOrder = []string{
 	"server", "database", "security", "github", "agent", "runners", "scheduler",
 	"log", "oidc", "metrics", "status", "retention", "limits", "backup", "images", "updates", "capacity_demand",
-	"provider", "ui",
+	"provider", "kennel", "ui",
 }
 
 // CompareKeys orders two dotted keys by section first and then alphabetically,

@@ -211,6 +211,10 @@ than about what any one setting says.
 | `log.debug` | info | `log.level` | Debug logging is on, which is loud and includes request detail. |
 | `limits.loopback` | warning | the `limits.*` key named | A ceiling is set on a controller only this machine can reach. It guards an instance many people reach against one caller spending what the others need; with nobody else able to reach this one it can only refuse you. Set it back to 0, or leave it if the controller is about to go behind a proxy or get an external URL. |
 | `limits.negative` | error | the `limits.*` key named | A ceiling cannot be negative. Set it to 0 for no ceiling, or to the most this instance should hold. |
+| `kennel.scope` | error | `kennel.scope` | Not a scope Kennel Club knows. They are `served`, the repositories this fleet has run a job for, and `installation`, every repository the GitHub App can see. |
+| `kennel.refresh_interval` | error | `kennel.refresh_interval` | Shorter than an hour, or zero. Every refresh spends requests from a limit shared with everything else the installation does, and what is read changes over days, so a shorter interval buys nothing and zero would never refresh. Use `24h`, the default, or anything of an hour or more. |
+| `kennel.api_budget` | error | `kennel.api_budget_percent` | Outside 5 to 50. Below 5% a refresh would not finish before the next was due; above 50% Kennel Club would compete with the scheduler for the requests it needs to place a runner. The default is 20. |
+| `kennel.unknown_check` | error | `kennel.disabled_checks` | A name that is neither a check's code nor an area. It would turn nothing off, so the check you meant to turn off would go on running. The finding lists the names that are valid. |
 | `ui.capacity_map.layout` | error | `ui.capacity_map.overview_layout`, `ui.capacity_map.hosts_layout` | Not a layout the host capacity map can open in. They are `overlay`, every host on one chart, and `split`, a chart for each. |
 
 ## Configuration: infrastructure providers

@@ -359,6 +359,13 @@ provider:
   scale_down_cooldown: 15m      # ZOOMIES_PROVIDER_SCALE_DOWN_COOLDOWN    -- at least one idle_timeout, or the fleet churns
   delete_grace: 10m             # ZOOMIES_PROVIDER_DELETE_GRACE           -- after a machine's host goes silent
 
+kennel:
+  enabled: false                # ZOOMIES_KENNEL_ENABLED              -- off means no GitHub request, nothing stored
+  scope: served                 # ZOOMIES_KENNEL_SCOPE                -- served | installation; installation multiplies the requests
+  refresh_interval: 24h         # ZOOMIES_KENNEL_REFRESH_INTERVAL     -- how stale what it reads from GitHub may get; at least 1h
+  api_budget_percent: 20        # ZOOMIES_KENNEL_API_BUDGET_PERCENT   -- share of an installation's hourly limit it may spend; 5–50
+  disabled_checks: []           # ZOOMIES_KENNEL_DISABLED_CHECKS      -- check codes or areas to turn off
+
 ui:
   capacity_map:
     overview_layout: overlay    # ZOOMIES_UI_CAPACITY_MAP_OVERVIEW_LAYOUT -- overlay | split; what the Overview's map opens with
@@ -501,6 +508,16 @@ if you set `keep: 0` and never expect the page to say what is there.
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
 | `images.refresh_interval` | `ZOOMIES_IMAGE_REFRESH_INTERVAL` | at once | Image refresh interval — How often every pool's image is prewarmed again, so a moving tag reaches the hosts. 0 switches it off, which is what an air-gapped fleet wants. |
+
+### `kennel`
+
+| Key | Environment | Takes effect | What it is |
+| --- | --- | --- | --- |
+| `kennel.api_budget_percent` | `ZOOMIES_KENNEL_API_BUDGET_PERCENT` | at once | GitHub request budget — The share, from 5 to 50, of an installation's hourly GitHub request limit that Kennel Club may spend. Scaling, registration and polling come first, and Kennel Club stops altogether when less than half the limit is left. |
+| `kennel.disabled_checks` | `ZOOMIES_KENNEL_DISABLED_CHECKS` | at once | Checks turned off — Checks to turn off, by code (exposure.fork_code_ran) or by area (exposure, capacity). A check that is turned off is listed as turned off in Settings, not hidden, and a repository with none left to run is not given the badge. |
+| `kennel.enabled` | `ZOOMIES_KENNEL_ENABLED` | at once | Check repository standards — Whether Kennel Club runs. Off by default, and off means off: no request to GitHub, nothing stored, and AI Context carries on as it was. On, it reads facts about the repositories this fleet serves and keeps what it concludes. |
+| `kennel.refresh_interval` | `ZOOMIES_KENNEL_REFRESH_INTERVAL` | at once | Refresh interval — How stale what Kennel Club reads from GitHub may get before it is read again. What the fleet observed for itself is re-checked as the fleet changes, whatever this says. The smallest useful value is 1h. |
+| `kennel.scope` | `ZOOMIES_KENNEL_SCOPE` | at once | Repositories to check — served checks the repositories this fleet has run a job for; installation checks every repository the GitHub App can see, up to 500. installation multiplies the requests Kennel Club makes, so it is a choice and not the default. |
 
 ### `limits`
 
@@ -1925,6 +1942,39 @@ question: how long a machine's host must have been empty before it is drained,
 and how long that emptiness must hold continuously before anything is deleted.
 Set the cooldown below one idle period and a fleet pays the creation cost again
 in every gap between two bursts.
+
+### `kennel.enabled` — what Kennel Club reads and what it spends
+
+```yaml
+kennel:
+  enabled: true
+```
+
+Kennel Club looks at the repositories your fleet serves and says which of them
+could hurt it or stop its CI: a public repository whose jobs run on a pool a
+stranger's pull request could damage, a job waiting for a label no pool serves.
+It is off by default, and off means off. Nothing is read from GitHub, nothing is
+stored, and AI Context carries on exactly as it was.
+
+What it asks of GitHub is held to a rule and not left to hope. It never starts a
+read for an installation GitHub has rate-limited, it spends at most
+`api_budget_percent` of the limit that installation last reported, and it stops
+altogether when less than half of that limit is left. A read GitHub answers with
+"not modified" costs nothing against the limit, so a refresh that finds nothing
+changed is free. A private repository costs no read beyond the repository
+listing Zoomies already makes.
+
+`refresh_interval` is how stale what it read may get. What your own fleet
+observed — which pool ran a job, which label nothing served — is not subject to
+it: that is re-checked as the fleet changes, and costs GitHub nothing.
+
+`disabled_checks` turns off a check by its code, such as
+`exposure.fork_code_ran`, or a whole area, such as `capacity`. A misspelt name
+is refused when it is saved, because a name that matches nothing would leave
+running the check you meant to turn off. A check that is turned off is shown as
+turned off, not hidden, so nobody reads its silence as a clean bill of health.
+A repository with every check turned off is never given the "Best in show"
+badge.
 
 ## Pool settings
 

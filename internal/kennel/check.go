@@ -13,7 +13,10 @@
 // fleet that runs it?". A check that cannot say yes does not belong here.
 package kennel
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // Version is the evaluator's version. A stored evaluation made by an older one
 // is re-run, so bump it whenever a check's meaning or wording changes.
@@ -165,6 +168,23 @@ func Lookup(c Code) (Check, bool) {
 		}
 	}
 	return Check{}, false
+}
+
+// Names lists every name kennel.disabled_checks accepts -- each area, then each
+// code -- in registry order. The validator quotes it back to somebody who
+// misspelt one, so the answer comes from the registry and not from a second
+// list that could fall behind it.
+func Names() []string {
+	var out []string
+	for _, c := range checks {
+		if !slices.Contains(out, string(c.Area)) {
+			out = append(out, string(c.Area))
+		}
+	}
+	for _, c := range checks {
+		out = append(out, string(c.Code))
+	}
+	return out
 }
 
 // KnownCodeOrArea says whether a name in kennel.disabled_checks means anything,

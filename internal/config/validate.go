@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/eyupio/zoomies/internal/kennel"
 )
 
 // Severity ranks a validation finding.
@@ -1079,6 +1081,12 @@ func (c *Config) Validate() Findings {
 		}
 	}
 
+	// --- Kennel Club -----------------------------------------------------
+	// Checked whether or not it is on. These are refused when they are saved,
+	// and a value that is wrong while the feature is off is still wrong on the
+	// day somebody switches it on.
+	c.validateKennel(add)
+
 	// --- Outbound addresses ----------------------------------------------
 	// A warning here, never an error. The value in front of the validator
 	// came from whoever runs the process -- the file, the environment, or a
@@ -1374,6 +1382,56 @@ func (c *Config) Validate() Findings {
 func (c *Config) ValidateStrict() (Findings, error) {
 	fs := c.Validate()
 	return fs, fs.Err()
+}
+
+// validateKennel checks what Kennel Club was told, and says what is valid when
+// it was told something it cannot use.
+//
+// All four are errors, because each one makes the setting do something other
+// than what its owner wrote: an interval of zero would never refresh, a
+// misspelt check name would leave on the check its owner believed they had
+// turned off, and a budget above the ceiling would spend the requests the
+// scheduler needs to place a runner.
+func (c *Config) validateKennel(add func(Finding)) {
+	switch c.Kennel.Scope {
+	case KennelScopeServed, KennelScopeInstallation:
+	default:
+		add(Finding{
+			Code: "kennel.scope", Severity: SeverityError, Setting: "kennel.scope",
+			Title: fmt.Sprintf("Kennel Club does not know the scope %q", c.Kennel.Scope),
+			Fix:   "choose served, which checks the repositories this fleet has run a job for, or installation, which checks every repository the GitHub App can see.",
+		})
+	}
+	if d := c.Kennel.RefreshInterval; d < time.Hour {
+		add(Finding{
+			Code: "kennel.refresh_interval", Severity: SeverityError, Setting: "kennel.refresh_interval",
+			Title:  fmt.Sprintf("Kennel Club would refresh what it reads from GitHub every %s", d),
+			Detail: "every refresh spends requests from a limit shared with everything else this installation does, and what is read changes over days, so a shorter interval buys nothing and a zero one would never refresh at all.",
+			Fix:    `use "24h", which is the default, or any interval of an hour or more.`,
+		})
+	}
+	if p := c.Kennel.APIBudgetPercent; p < KennelBudgetMinPercent || p > KennelBudgetMaxPercent {
+		add(Finding{
+			Code: "kennel.api_budget", Severity: SeverityError, Setting: "kennel.api_budget_percent",
+			Title:  fmt.Sprintf("Kennel Club may not spend %d%% of an installation's GitHub request limit", p),
+			Detail: "below 5% a refresh would not finish before the next was due, and above 50% Kennel Club would be competing with the scheduler for the requests it needs to place a runner.",
+			Fix:    "set kennel.api_budget_percent between 5 and 50; the default is 20.",
+		})
+	}
+	var unknown []string
+	for _, name := range c.Kennel.DisabledChecks {
+		if !kennel.KnownCodeOrArea(name) {
+			unknown = append(unknown, fmt.Sprintf("%q", name))
+		}
+	}
+	if len(unknown) > 0 {
+		add(Finding{
+			Code: "kennel.unknown_check", Severity: SeverityError, Setting: "kennel.disabled_checks",
+			Title:  fmt.Sprintf("Kennel Club has no check or area called %s", strings.Join(unknown, " or ")),
+			Detail: "a name that matches nothing turns nothing off, so the check its owner meant to turn off would go on running.",
+			Fix:    "use one of " + strings.Join(kennel.Names(), ", ") + ".",
+		})
+	}
 }
 
 // validateBackupRemotes checks the offsite destinations.

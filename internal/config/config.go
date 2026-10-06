@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -46,6 +47,7 @@ type Config struct {
 	Updates        Updates        `yaml:"updates"`
 	CapacityDemand CapacityDemand `yaml:"capacity_demand"`
 	Provider       Provider       `yaml:"provider"`
+	Kennel         Kennel         `yaml:"kennel"`
 	UI             UI             `yaml:"ui"`
 	Backup         Backup         `yaml:"backup"`
 
@@ -315,6 +317,49 @@ type CapacityDemand struct {
 	Timeout        time.Duration `yaml:"timeout"`
 	Pools          []string      `yaml:"pools"`
 }
+
+// Kennel is Kennel Club: the standards the fleet's repositories are held to,
+// where a failure of one affects running CI or the fleet itself.
+//
+// Off by default, and off means off: no loop work, no GitHub request and no row
+// written. A feature that reads other people's repositories does not start
+// doing it because a release added the ability to.
+type Kennel struct {
+	// Enabled is the master switch.
+	Enabled bool `yaml:"enabled"`
+	// Scope says which repositories are looked at: those the fleet has served
+	// (the default), or every one the GitHub App can see. The second multiplies
+	// the requests Kennel Club spends, so it is a choice and not a default.
+	Scope string `yaml:"scope"`
+	// RefreshInterval is how stale a read from GitHub may get before it is
+	// made again. What the fleet itself observed is never this old: it is
+	// re-evaluated as the fleet changes.
+	RefreshInterval time.Duration `yaml:"refresh_interval"`
+	// APIBudgetPercent is the share of an installation's hourly GitHub request
+	// limit Kennel Club may spend. The scheduler, registration and the poller
+	// come first; this is what is left for looking at repositories.
+	APIBudgetPercent int `yaml:"api_budget_percent"`
+	// DisabledChecks names the checks, or whole areas of them, to turn off.
+	DisabledChecks []string `yaml:"disabled_checks"`
+}
+
+// The repositories Kennel Club looks at, as the setting names them.
+const (
+	KennelScopeServed       = "served"
+	KennelScopeInstallation = "installation"
+)
+
+// KennelScopes lists them in the order the settings page offers them.
+var KennelScopes = []string{KennelScopeServed, KennelScopeInstallation}
+
+// The bounds on what Kennel Club may spend of an installation's request limit.
+// Below the floor a refresh would never finish before the next was due; above
+// the ceiling it would be competing with the scheduler for the quota the
+// scheduler needs to place a runner.
+const (
+	KennelBudgetMinPercent = 5
+	KennelBudgetMaxPercent = 50
+)
 
 // Provider bounds what the infrastructure providers may do. The providers
 // themselves -- their endpoints, credentials and the machine each one offers --
@@ -1142,6 +1187,15 @@ func Default() *Config {
 		// to notice a mistake made on Monday.
 		Backup:         Backup{Interval: 24 * time.Hour, Keep: 7},
 		CapacityDemand: CapacityDemand{Cooldown: 10 * time.Minute, Timeout: 10 * time.Second},
+		// Off. Once a day for what has to be read from GitHub, because the
+		// facts it asks about (a repository's visibility, how a run was
+		// triggered) change on the scale of days, and a fifth of the request
+		// limit, because the poller and the registrations come first.
+		Kennel: Kennel{
+			Scope:            KennelScopeServed,
+			RefreshInterval:  24 * time.Hour,
+			APIBudgetPercent: 20,
+		},
 		// Off, with no ceiling and every step generously bounded. The numbers
 		// are what a hypervisor actually takes: a full clone of a small Linux
 		// template is minutes rather than seconds, and a guest that has to
@@ -1522,6 +1576,22 @@ func putPath(into map[string]any, key string, value any) {
 	into[parts[len(parts)-1]] = value
 }
 
+// normaliseCheckNames lowercases and trims a list of check names and drops the
+// empty ones and the repeats, so "Exposure, ,exposure" is one entry. It returns
+// a new slice: the one it was given may belong to a snapshot somebody is still
+// reading.
+func normaliseCheckNames(in []string) []string {
+	var out []string
+	for _, name := range in {
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name == "" || slices.Contains(out, name) {
+			continue
+		}
+		out = append(out, name)
+	}
+	return out
+}
+
 // normalize fills in values that depend on other values.
 func (c *Config) normalize() {
 	// The old name for the scaling-history window still sets it. Only a
@@ -1546,6 +1616,14 @@ func (c *Config) normalize() {
 	}
 	c.Log.Format = strings.ToLower(strings.TrimSpace(c.Log.Format))
 	c.Agent.Backend = strings.ToLower(strings.TrimSpace(c.Agent.Backend))
+	// A scope somebody typed with a capital or a trailing space is the scope
+	// they meant. An empty one is not a choice of anything, so it is the
+	// default rather than a validation error nobody could have predicted.
+	c.Kennel.Scope = strings.ToLower(strings.TrimSpace(c.Kennel.Scope))
+	if c.Kennel.Scope == "" {
+		c.Kennel.Scope = KennelScopeServed
+	}
+	c.Kennel.DisabledChecks = normaliseCheckNames(c.Kennel.DisabledChecks)
 	// The environment override was always lowercased; the file is now too, so
 	// "Self-Signed" in zoomies.yaml is the same mode as self-signed.
 	c.Server.TLS.Mode = TLSMode(strings.ToLower(strings.TrimSpace(string(c.Server.TLS.Mode))))

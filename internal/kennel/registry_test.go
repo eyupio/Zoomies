@@ -102,6 +102,34 @@ func TestANameInDisabledChecksIsOnlyKnownIfItIsACodeOrAnArea(t *testing.T) {
 	}
 }
 
+// The validator quotes Names back to someone who misspelt a name, so every one
+// it lists has to be one the evaluator will accept, and nothing the evaluator
+// accepts may be missing from it. Areas come first because that is the answer
+// to "how do I turn all of these off", which is the commoner question.
+func TestTheNamesOfferedForDisabledChecksAreExactlyTheOnesAccepted(t *testing.T) {
+	names := Names()
+	seen := map[string]bool{}
+	for _, name := range names {
+		if !KnownCodeOrArea(name) {
+			t.Errorf("Names offers %q, which KnownCodeOrArea refuses", name)
+		}
+		if seen[name] {
+			t.Errorf("Names offers %q twice", name)
+		}
+		seen[name] = true
+	}
+	for _, c := range Checks() {
+		for _, want := range []string{string(c.Code), string(c.Area)} {
+			if !seen[want] {
+				t.Errorf("Names does not offer %q", want)
+			}
+		}
+	}
+	if len(names) < 2 || names[0] != string(AreaExposure) {
+		t.Errorf("Names should start with the areas in registry order, got %v", names)
+	}
+}
+
 func TestEverySourceACheckReadsIsOneThePageCanName(t *testing.T) {
 	for _, c := range Checks() {
 		for _, src := range c.Needs {

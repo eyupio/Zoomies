@@ -706,6 +706,17 @@ three places in `docs/configuration.md` (sample, table, prose). A new
 | `kennel.disabled_checks` | strings, empty | instance | live | A check code or an area (`exposure`, `capacity`, `storage`, `ci`, `token`, `protection`) to turn off. This is how "turn a section off" is a setting, not a deploy. |
 | `kennel.fixes` | enum `off` \| `pull_requests` \| `pull_requests_and_settings`, `off` | **platform** | live | Stage 5 and 6. The Zoomies-side half of consent for any write. `pull_requests_and_settings` raises a validator warning, `kennel.settings_write` (`docs/problem-codes.md` row), because it lets the App change repository settings — "silent dangerous toggles are the thing this design exists to prevent". |
 
+A value that would make a setting do something other than what its owner wrote
+is refused when it is saved, through the validator's existing mechanism (a
+candidate configuration may not introduce an error the running one lacks), and
+not silently ignored. There are four, all errors and all checked whether or not
+Kennel Club is on: `kennel.scope` (not a scope), `kennel.refresh_interval`
+(under an hour, which includes zero, because the settings layer allows zero for
+every duration), `kennel.api_budget` (outside 5 to 50) and `kennel.unknown_check`
+(a name that is neither a check nor an area, with the valid names in the
+sentence, taken from the registry by `kennel.Names`). A scope typed with a capital
+letter, or a list with a repeat or a blank, is tidied rather than refused.
+
 Thresholds (1 GiB, 5 GiB, 80%, ten minutes, seven days) are constants with
 documented values, not settings. The measures in section 9 say when one earns a
 knob. A per-repository exception is a waiver, not configuration.
@@ -804,8 +815,10 @@ the feature off:
 * `internal/auth/rbac.go` — `kennel.read` (viewer), `kennel.recheck` (operator),
   `kennel.waive` (operator; the handler requires admin for an error finding).
 * `internal/mcp/kennel.go`.
-* `internal/config/` — `settings.go`, `config.go`, `validate.go` untouched in
-  Stage 1.
+* `internal/config/` — `settings.go` (the five rows and the `kennel` section),
+  `config.go` (the `Kennel` struct, its defaults and its tidying), `validate.go`
+  (four error findings, below). `kennel.fixes` waits for Stage 5: a setting
+  nothing reads would be "saved" about nothing.
 * `web/` — `src/lib/shell/sections.ts`, `keys.ts`, `CommandPalette.svelte`,
   `router.ts`; `src/routes/Kennel.svelte`, `KennelRepository.svelte`;
   `src/lib/kennel/*`; `src/lib/aicontext/AiContextCard.svelte` (extracted);
@@ -932,7 +945,7 @@ and the pool page already offers that.
 check as a row, what it reads, what it never does, permissions, how to turn a
 section off, how to read the "Best in show" badge) and an entry in `mkdocs.yml`;
 `docs/ui.md` (a `## Kennel Club` heading — required by `internal/docs/ui_test.go:67`
-for every `label:` in `sections.ts`); `docs/problem-codes.md` (two rows);
+for every `label:` in `sections.ts`); `docs/problem-codes.md` (two runtime rows and four validator rows);
 `docs/configuration.md` (five keys, three places each); `docs/api-surface.md`
 (routes, the two event kinds); `docs/metrics.md`; `docs/ai-context.md` and
 `docs/ui.md:574-593` (paths); `docs/ui-guidelines.md` (§2 order, Keyboard,
