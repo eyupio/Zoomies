@@ -482,21 +482,27 @@ test.describe('with Kennel Club on', () => {
     let cut = true;
     await page.route('**/api/v1/events*', async (route) => {
       if (cut) return route.abort('connectionfailed');
-      return route.fallback();
+      // The stream is back and says nothing: no replay of what was missed and no
+      // resync. A page that caught up only because the controller told it what it
+      // missed would pass the test without ever asking; this one has to ask.
+      return route.fulfill({
+        status: 200,
+        headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-store' },
+        body: ': back\n\n',
+      });
     });
     await page.evaluate(() => window.dispatchEvent(new Event('offline')));
     await expect(page.locator('.connection')).not.toHaveAttribute('data-state', 'live');
 
-    // Something changes while nobody is listening. A page-local subscription
-    // would never hear of it; this one asks again once it can hear.
+    // Something changes while nobody is listening, so no frame will ever say so.
     await patchSettings(page, { 'kennel.disabled_checks': ['capacity'] });
-    cut = false;
-    await page.evaluate(() => window.dispatchEvent(new Event('online')));
-    await expect(page.locator('.connection')).toHaveAttribute('data-state', 'live', {
-      timeout: 20_000,
-    });
-    await expect(page.getByText('Turned off').first()).toBeVisible({ timeout: 15_000 });
-    await patchSettings(page, { 'kennel.disabled_checks': [] });
+    try {
+      cut = false;
+      await page.evaluate(() => window.dispatchEvent(new Event('online')));
+      await expect(page.getByText('Turned off').first()).toBeVisible({ timeout: 20_000 });
+    } finally {
+      await patchSettings(page, { 'kennel.disabled_checks': [] });
+    }
   });
 
   test('a problem about a repository opens the repository', async ({ page }) => {
