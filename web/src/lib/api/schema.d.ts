@@ -1162,6 +1162,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/problems/auto-applied": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The changes the controller made on its own in the last 30 days
+         * @description With `security.auto_apply_remedies` on, the controller makes the change a
+         *     problem proposes once it has stood unchanged for two hours, at most once a day
+         *     for any one pool or host. Each change is listed here with what it was, newest
+         *     first. `enabled` says whether the switch is on now; the list is returned either
+         *     way, because a change made while it was on can still be undone.
+         *
+         *     `undoable` is false once the change has been undone, and also when the pool
+         *     or host was edited after it was made or its result could not be read back:
+         *     putting the old value back over an edit would undo that edit too.
+         */
+        get: operations["listAutoAppliedChanges"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/problems/auto-applied/{id}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Put back what an automatic change replaced
+         * @description Sends the pool's or host's earlier value back through `PATCH /pools/{id}` or
+         *     `PATCH /hosts/{id}` as the caller, so it needs that route's role and is refused
+         *     for what that route refuses. A 409 says the change was already undone or that
+         *     the target was edited after it was made. An undone proposal is not made again
+         *     automatically. Writes a `problem.remedy_undone` audit row.
+         */
+        post: operations["undoAutoAppliedChange"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/scaling-events": {
         parameters: {
             query?: never;
@@ -4100,6 +4155,35 @@ export interface components {
             body: {
                 [key: string]: unknown;
             };
+        };
+        AutoAppliedChange: {
+            /** @description The change's ID */
+            id: string;
+            /** Format: date-time */
+            at: string;
+            /**
+             * @description The problem that proposed it.
+             * @example pool.queue_wait_high
+             */
+            code: string;
+            /**
+             * @description The change
+             * @example Keep 2 runners warm
+             */
+            label: string;
+            /** @description What it was priced at when it was made. */
+            effect?: string;
+            /** @enum {string} */
+            kind: "pool.update" | "host.update";
+            /** @description The pool or host it changed. */
+            target_id: string;
+            undone: boolean;
+            undoable: boolean;
+        };
+        AutoAppliedList: {
+            /** @description Whether automatic apply is on now. */
+            enabled: boolean;
+            items: components["schemas"]["AutoAppliedChange"][];
         };
         ApplyRemedyRequest: {
             /** @example pool.daemon_share_suggested */
@@ -10122,6 +10206,58 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    listAutoAppliedChanges: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutoAppliedList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    undoAutoAppliedChange: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Undone */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        undone: boolean;
+                        id: string;
+                        target_id: string;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
         };
     };
     listScalingEvents: {

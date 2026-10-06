@@ -191,6 +191,9 @@ func (s *Server) apiRoutes() chi.Router {
 		// An operator's, and then the pool's or host's own action for the change it
 		// makes, which the handler checks once it knows which that is.
 		r.With(s.require(auth.ActionProblemsApply)).Post("/problems/apply", s.handleApplyRemedy)
+		r.With(s.require(auth.ActionStatsRead)).Get("/problems/auto-applied", s.handleAutoApplied)
+		// An operator's, and then the pool's or host's own action, as for an apply.
+		r.With(s.require(auth.ActionProblemsApply)).Post("/problems/auto-applied/{id}/undo", s.handleUndoAutoApplied)
 		r.With(s.require(auth.ActionStatsRead)).Get("/scaling-events", s.handleScalingEvents)
 		r.With(s.require(auth.ActionEventsRead)).Get("/events", s.handleEvents)
 

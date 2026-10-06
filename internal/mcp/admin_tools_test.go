@@ -110,3 +110,19 @@ func TestAdministratorToolsAreActionsAndNamed(t *testing.T) {
 		}
 	}
 }
+
+// The switch that lets the controller edit its own fleet is not one an agent may
+// turn on, whatever role its token has: it is a security setting, and the tuning
+// allowlist does not reach any.
+func TestAnAgentCannotTurnOnAutomaticApplyOverMCP(t *testing.T) {
+	r := &recorder{object: `{}`}
+	for _, key := range []string{"security.auto_apply_remedies", "security.mcp_admin_tools"} {
+		_, err := call(t, "update_settings", r, `{"changes":{"`+key+`":true}}`)
+		if err == nil || !strings.Contains(err.Error(), key) {
+			t.Errorf("%s: error = %v, want a refusal naming it", key, err)
+		}
+	}
+	if len(r.sent) != 0 {
+		t.Errorf("a refused call sent %v", r.sent)
+	}
+}

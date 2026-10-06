@@ -373,6 +373,13 @@ export const listPoolPlatforms = (signal?: AbortSignal) =>
 export const applyRemedy = (body: Body<'applyRemedy'>) =>
   api.post<Result<'applyRemedy'>>('/problems/apply', { body });
 
+/** The changes the controller made on its own, and the undo; see AutoApplied.svelte. */
+export const listAutoApplied = (signal?: AbortSignal) =>
+  api.get<Result<'listAutoAppliedChanges'>>('/problems/auto-applied', { signal });
+
+export const undoAutoApplied = (id: string) =>
+  api.post<Result<'undoAutoAppliedChange'>>(`/problems/auto-applied/${enc(id)}/undo`, {});
+
 export const updatePool = (id: string, body: Body<'updatePool'>, query?: Query<'updatePool'>) =>
   api.patch<Result<'updatePool'>>(`/pools/${enc(id)}`, { body, query });
 

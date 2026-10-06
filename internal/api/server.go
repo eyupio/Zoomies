@@ -50,6 +50,9 @@ type Server struct {
 	auth *auth.Service
 	log  *slog.Logger
 
+	// autopilot is what the loop that applies suggested changes remembers.
+	autopilot autopilotState
+
 	// key seals the GitHub App private keys and webhook secrets that arrive on
 	// the installations endpoints. It is loaded from the same configuration the
 	// controller was built with rather than passed in, so the two can never be
@@ -259,6 +262,7 @@ const shutdownGrace = 15 * time.Second
 func (s *Server) ListenAndServe(ctx context.Context) error {
 	defer s.closeTailcat()
 	go s.retryOIDC(ctx)
+	go s.runAutopilot(ctx)
 	if err := s.resumeTailcat(ctx, tailcatCheckInterval, tailcatHealthyInterval); err != nil {
 		return err
 	}

@@ -92,6 +92,7 @@ export const ROLES: readonly Role[] = ['viewer', 'operator', 'admin', 'platform'
 export type Page = Schemas['Page'];
 export type FieldError = Schemas['FieldError'];
 export type Problem = Schemas['Problem'];
+export type AutoAppliedChange = Schemas['AutoAppliedChange'];
 export type Meta = Schemas['Meta'];
 export type SignInChallenge = Schemas['SignInChallenge'];
 export type TwoStepSignIn = Schemas['TwoStepSignIn'];
