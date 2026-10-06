@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -40,6 +41,9 @@ func problemsList(ctx context.Context, e *env, args []string) error {
 	}
 	out.sanitise()
 	if p.structured() {
+		if *proposals {
+			raw = onlyProposals(raw)
+		}
 		return p.emit(raw)
 	}
 	rows := [][]string{}
@@ -107,6 +111,13 @@ func problemsApply(ctx context.Context, e *env, args []string) error {
 	}
 	switch len(matches) {
 	case 0:
+		for _, it := range list.Items {
+			if it.Code == "controller.problems_partial" {
+				// A list the controller could not finish is not a list with nothing in it:
+				// the proposal may be in the part it could not look at.
+				return fmt.Errorf("the controller could not check everything just now, so it may be proposing a change for %s%s that this list does not show: %s; try again in a minute", code, onTarget(*target), it.Detail)
+			}
+		}
 		return fmt.Errorf("the controller is not proposing a change for %s%s; `zoomies problems list --proposals` shows what it is", code, onTarget(*target))
 	case 1:
 	default:
@@ -117,6 +128,14 @@ func problemsApply(ctx context.Context, e *env, args []string) error {
 		return usagef("problems apply", "%s has a proposal for more than one target (%s); name one with --target", code, strings.Join(names, ", "))
 	}
 	m := matches[0]
+	if *dry && p.structured() {
+		// The same facts as the table, as the document a script reads, and still no change.
+		doc, err := json.Marshal(map[string]any{"dry_run": true, "code": code, "target_id": m.TargetID, "problem": m.Title, "remedy": m.Remedy})
+		if err != nil {
+			return err
+		}
+		return p.emit(doc)
+	}
 	if *dry {
 		p.keyValues([][2]string{{"problem", m.Title}, {"change", m.Remedy.Label}, {"cost", dash(m.Remedy.Effect)},
 			{"kind", m.Remedy.Kind}, {"target", m.TargetID}, {"request", string(m.Remedy.Body)}})
@@ -143,6 +162,35 @@ func problemsApply(ctx context.Context, e *env, args []string) error {
 	}
 	p.note("It applies to runners created from now on.")
 	return nil
+}
+
+// onlyProposals keeps the items of a problems response that carry a proposed change, and
+// leaves every other byte of each as the server wrote it. `ok` is the controller's own word
+// about the fleet and is not recomputed from the part that was kept.
+func onlyProposals(raw []byte) []byte {
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return raw
+	}
+	var items []json.RawMessage
+	if err := json.Unmarshal(doc["items"], &items); err != nil {
+		return raw
+	}
+	kept := []json.RawMessage{}
+	for _, it := range items {
+		var probe struct {
+			Remedy json.RawMessage `json:"remedy"`
+		}
+		if json.Unmarshal(it, &probe) == nil && len(probe.Remedy) > 0 && string(probe.Remedy) != "null" {
+			kept = append(kept, it)
+		}
+	}
+	doc["items"], _ = json.Marshal(kept)
+	out, err := json.Marshal(doc)
+	if err != nil {
+		return raw
+	}
+	return out
 }
 
 func onTarget(target string) string {

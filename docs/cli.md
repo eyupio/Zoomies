@@ -115,7 +115,7 @@ What runners to make, and how many.
 | `pools list` | Every pool, with its live counts and utilisation. |
 | `pools get <pool-id>` | One pool in full, including any dangerous settings. |
 | `pools create` | Create a pool. The server validates exactly as the UI's wizard does, so `--dry-run` gives you that verdict without creating anything. |
-| `pools edit <pool-id>` | Change the settings you name. Anything you do not name is left alone. |
+| `pools edit <pool-id>` | Change the settings you name. Anything you do not name is left alone. An edit that would leave the pool with nowhere to run is refused unless `--confirm`. |
 | `pools delete <pool-id>` | Delete it. Its runners drain first unless `--force`. |
 | `pools enable` / `pools disable` | Let a pool create runners, or stop it. Disabling interrupts nothing: existing runners drain as they go idle. |
 | `pools prewarm <pool-id>` | Pre-pull the pool's image on every matching host. |

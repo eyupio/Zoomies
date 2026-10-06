@@ -953,6 +953,7 @@ func poolsEdit(ctx context.Context, e *env, args []string) error {
 	spec := registerPoolFlags(fs)
 	warm := fs.Int("warm", 0, "on a pool the controller keeps: runners to keep ready (0 for none)")
 	capRunners := fs.Int("cap", 0, "on a pool the controller keeps: the most runners to allow, however many slots its hosts give (0 for no cap)")
+	confirm := fs.Bool("confirm", false, "save even if it leaves the pool with nowhere to run")
 	fs.example("zoomies pools edit pool_k3f9qz2m --max 12",
 		"zoomies pools edit pool_k3f9qz2m --warm 2 --cap 6   # a pool the controller keeps",
 		"zoomies pools edit pool_k3f9qz2m --size-from-host",
@@ -1014,8 +1015,12 @@ func poolsEdit(ctx context.Context, e *env, args []string) error {
 		return usagef("pools edit", "nothing to change; name at least one setting, for example --max 8")
 	}
 
+	q := url.Values{}
+	if *confirm {
+		q.Set("confirm", "true")
+	}
 	var pool poolItem
-	raw, err := client.patch(ctx, "/pools/"+url.PathEscape(id), nil, body, &pool)
+	raw, err := client.patch(ctx, "/pools/"+url.PathEscape(id), q, body, &pool)
 	if err != nil {
 		return err
 	}
