@@ -160,7 +160,7 @@ func (e *Engine) MaintainDocker(ctx context.Context, o MaintenanceOptions) (err 
 		}
 	}
 
-	running, rerr := e.runningContainers(ctx)
+	running, idle, rerr := e.workContainers(ctx)
 	if rerr != nil {
 		return rerr
 	}
@@ -170,7 +170,7 @@ func (e *Engine) MaintainDocker(ctx context.Context, o MaintenanceOptions) (err 
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if running, rerr = e.runningContainers(ctx); rerr != nil {
+		if running, idle, rerr = e.workContainers(ctx); rerr != nil {
 			return rerr
 		}
 	}
@@ -182,6 +182,18 @@ func (e *Engine) MaintainDocker(ctx context.Context, o MaintenanceOptions) (err 
 		fmt.Fprintf(o.Out, "Stopping %d container(s) still running, as asked: %s\n", len(running), strings.Join(running, " "))
 		if _, serr := command(ctx, e, "docker", append([]string{"stop"}, running...)...); serr != nil {
 			return fmt.Errorf("could not stop the running containers: %w", serr)
+		}
+	}
+
+	// Warm runners are not work, so they were not waited for; they do not survive the
+	// restart either, and are stopped here rather than left for Docker to kill. The
+	// controller starts them again when it is back. The look that found them idle was
+	// the last one made, so a job that began in the instant since is the same race
+	// every restart has with a runner that was not there a moment ago.
+	if len(idle) > 0 {
+		fmt.Fprintf(o.Out, "Stopping %d idle runner container(s) that hold no job.\n", len(idle))
+		if _, serr := command(ctx, e, "docker", append([]string{"stop"}, idle...)...); serr != nil {
+			return fmt.Errorf("could not stop the idle runner containers: %w", serr)
 		}
 	}
 
@@ -243,14 +255,81 @@ func (e *Engine) setMaintenanceOwed(units []string) error {
 	return e.saveState(s)
 }
 
-// runningContainers lists every running container's ID, the host's own and other
-// people's alike: a restart ends them all, so all of them are waited for.
-func (e *Engine) runningContainers(ctx context.Context) ([]string, error) {
+// workContainers splits what is running into the containers that hold work and the
+// idle Zoomies runners that do not.
+//
+// A restart ends every container, the host's own and other people's alike, so all of
+// those are waited for. A runner of this fleet that is not running a job is the
+// exception: a pool with a minimum keeps them up between jobs and never reaps below it,
+// so counting them made the quiet moment unreachable -- a foreground restart stopped
+// the controller for the whole wait to refuse at the end of it, and the background one
+// never found its gap. A runner is idle when its container has no Runner.Worker, which
+// the listener starts per job; its docker-in-docker sidecar goes with it. Anything the
+// look cannot establish counts as work: a wrong "idle" ends a job, a wrong "busy" costs
+// a poll.
+func (e *Engine) workContainers(ctx context.Context) (busy, idle []string, err error) {
 	v, err := command(ctx, e, "docker", "ps", "-q")
 	if err != nil {
-		return nil, fmt.Errorf("%w, so Docker is not restarted: %v", errDockerUnreadable, err)
+		return nil, nil, fmt.Errorf("%w, so Docker is not restarted: %v", errDockerUnreadable, err)
 	}
-	return strings.Fields(v), nil
+	all := strings.Fields(v)
+	if len(all) == 0 {
+		return nil, nil, nil
+	}
+	list, lerr := command(ctx, e, "docker", "ps", "--filter", "label=io.zoomies.managed=true", "--format",
+		`{{.ID}}|{{.Names}}|{{.Label "io.zoomies.role"}}|{{.Label "io.zoomies.dind-for"}}`)
+	if lerr != nil {
+		return all, nil, nil
+	}
+	idleRunners := map[string]bool{}
+	type sidecar struct{ id, runner string }
+	var sidecars []sidecar
+	ids := map[string]string{}
+	for _, line := range strings.Split(list, "\n") {
+		f := strings.Split(strings.TrimSpace(line), "|")
+		if len(f) != 4 {
+			continue
+		}
+		id, name, role, owner := f[0], f[1], f[2], f[3]
+		switch role {
+		case "runner":
+			top, terr := command(ctx, e, "docker", "top", id, "-eo", "args")
+			if terr == nil && !strings.Contains(top, "Runner.Worker") {
+				idleRunners[name] = true
+				ids[id] = name
+			}
+		case "dind":
+			sidecars = append(sidecars, sidecar{id, owner})
+		}
+	}
+	idleIDs := map[string]bool{}
+	for id := range ids {
+		idleIDs[id] = true
+	}
+	for _, sc := range sidecars {
+		if idleRunners[sc.runner] {
+			idleIDs[sc.id] = true
+		}
+	}
+	for _, id := range all {
+		if idleIDs[id] || containsPrefixID(idleIDs, id) {
+			idle = append(idle, id)
+		} else {
+			busy = append(busy, id)
+		}
+	}
+	return busy, idle, nil
+}
+
+// containsPrefixID matches a short ID from one listing against the same container in
+// another: both come from the same daemon, but the format of an ID is its business.
+func containsPrefixID(set map[string]bool, id string) bool {
+	for k := range set {
+		if strings.HasPrefix(k, id) || strings.HasPrefix(id, k) {
+			return true
+		}
+	}
+	return false
 }
 
 // errDockerUnreadable is a failed look at what is running. It is not a verdict on the
@@ -316,7 +395,7 @@ func (e *Engine) RestartWhenSafe(ctx context.Context, o WhenSafeOptions) error {
 			fmt.Fprintln(o.Out, "No Docker restart is pending.")
 			return nil
 		}
-		running, err := e.runningContainers(ctx)
+		running, _, err := e.workContainers(ctx)
 		if err != nil {
 			// One failed look at what is running is not a reason to end a day-long wait
 			// that would otherwise vanish without a word: it is not a quiet moment, and
