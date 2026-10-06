@@ -388,13 +388,24 @@ stateDiagram-v2
     partial --> attention: the missing source arrives
     partial --> best_in_show: the missing source arrives, nothing open
     attention --> best_in_show: the last finding is fixed or waived
+    attention --> partial: the last finding is fixed, but a source is still missing
     best_in_show --> attention: a finding appears
     best_in_show --> partial: a permission is withdrawn
 ```
 
 **"Best in show" is never awarded on partial coverage.** A repository Kennel Club
-could not fully read is not the best of anything. Waived findings do not block
-the badge, but the badge's line says how many are waived, so it cannot hide them.
+could not fully read is not the best of anything. Three rules settle the edges,
+and each is a test in `internal/kennel`:
+
+* **An open error or warning outranks "partial".** An open error is never hidden
+  behind "we could not read everything"; the Overview shows both.
+* **An info finding does not stop the badge.** Info is "worth knowing, cheap to
+  ignore", and losing the badge over it would teach operators to waive info.
+* **A fleet with every check turned off is not best in show.** Having asked not
+  to be told is different from being clear.
+
+Waived findings do not block the badge either, but its line says how many are
+waived, so it cannot hide them.
 
 ---
 
@@ -425,7 +436,7 @@ flowchart LR
 
 | Package | Rule |
 | --- | --- |
-| `internal/kennel` (new) | **Pure.** `Evaluate`, the check registry, the workflow parser, the prune planner. May import `internal/store`'s domain types and `config.Severity` and **nothing else**. No clock, no database, no network. Two tests enforce the import boundary and that no file names `time.Now`, `net/http` or `database/sql`, the way `internal/provider` does. |
+| `internal/kennel` (new) | **Pure.** `Evaluate`, the check registry, the workflow parser, the prune planner. It imports **only the standard library's pure parts** — a stricter rule than the one `internal/provider` keeps, because the controller reduces what it needs from the store to plain data (a pool becomes a list of weakness words, a severity is its own string type that a test holds equal to `config.Severity`). No clock, no database, no network. `boundary_test.go` fails on any other import and on any call to `time.Now`, `Since`, `Until` or a timer, as `internal/provider`'s boundary test does for its own list. |
 | `internal/github` | A new narrow interface `RepoReader` in `kennel_reader.go`, type-asserted from `Client` exactly as `ContextRunReader` is (`internal/github/ai_context_runs.go:23-33`; `internal/controller/ai_context_diagnosis.go:40`), so the demo client simply does not implement it. `ListRepositories`' `Repository` gains `Visibility`, `Fork`, `PushedAt`; the data is already in the listing. A small conditional-request transport (`etag.go`, about a hundred lines, no dependency). |
 | `internal/store` | `queries_kennel.go` and migration `0079`. The only SQL. |
 | `internal/controller` | The loop, the snapshot assembly (reads the store and the reader), the problems section, the views, the derived publish. |
