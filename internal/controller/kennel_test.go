@@ -1360,9 +1360,10 @@ func TestWhatTheRunnerGroupsSayAboutPublicRepositoriesIsOnlyReportedWhenKnown(t 
 	}
 }
 
-// The demo fixtures have no GitHub behind them. Asking one would put a failure
-// on the Overview that says nothing about the fleet.
-func TestDemoInstallationsAreNeverRead(t *testing.T) {
+// The demo fixtures have no GitHub behind them, so Kennel Club is answered from the
+// fixture and GitHub is never asked: a failure on the Overview that says nothing
+// about the fleet is what asking would put there.
+func TestTheDemoInstallationIsReadFromItsFixtureAndNeverFromGitHub(t *testing.T) {
 	f := newKennelFixture(t)
 	demo := &store.Installation{
 		ID: demoInstallationID, AppID: 1, InstallationID: 2, Target: "acme", TargetType: store.TargetOrg,
@@ -1371,19 +1372,32 @@ func TestDemoInstallationsAreNeverRead(t *testing.T) {
 	if err := f.st.CreateInstallation(f.ctx, demo); err != nil {
 		t.Fatal(err)
 	}
-	f.next++
-	if _, err := f.st.UpsertJob(f.ctx, &store.Job{
-		GitHubJobID: f.next, GitHubRunID: 1, Repo: "acme/demo", InstallationID: demo.ID, RunnerID: "run_x",
-		State: store.JobCompleted, Matched: true, QueuedAt: f.c.Now().Add(-time.Hour),
-	}); err != nil {
-		t.Fatal(err)
+	for _, repo := range []string{"acme/site", "acme/widgets"} {
+		f.next++
+		if _, err := f.st.UpsertJob(f.ctx, &store.Job{
+			GitHubJobID: f.next, GitHubRunID: f.next, Repo: repo, InstallationID: demo.ID, RunnerID: "run_x",
+			State: store.JobCompleted, Matched: true, QueuedAt: f.c.Now().Add(-time.Hour),
+		}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	f.pass()
 	if reqs := f.gh.Requests(); len(reqs) != 0 {
-		t.Errorf("a demo installation was read: %v", reqs)
+		t.Errorf("a demo installation was read from GitHub: %v", reqs)
 	}
 	if notes := f.c.kennelNotes(f.ctx); len(notes) != 0 {
 		t.Errorf("a demo installation was recorded as failing: %+v", notes)
+	}
+	// The fixture names one repository public, so the demo has something to show,
+	// and says the rest are private.
+	if got := f.row("acme/site").Visibility; got != "public" {
+		t.Errorf("acme/site is %q, want the fixture's one public repository", got)
+	}
+	if got := f.row("acme/widgets").Visibility; got != "private" {
+		t.Errorf("acme/widgets is %q, want private", got)
+	}
+	if got := f.view("acme/site").State; got == kennel.StatePending {
+		t.Error("the public fixture repository was never evaluated")
 	}
 }
 
