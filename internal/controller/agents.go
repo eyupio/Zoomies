@@ -1448,6 +1448,14 @@ func (c *Controller) applyReports(ctx context.Context, hostID string, reports []
 				if err := c.st.RecordJobUsage(ctx, r.ID, rep.Stats.CPUPercent/100, rep.Stats.MemoryBytes/(1<<20)); err != nil {
 					c.log.Debug("could not record a job's usage", "runner", r.ID, "error", err)
 				}
+				// What each container of a pair used, which is what a pool's smallest
+				// runner is sized to hold: the window in memory is the last few hours,
+				// and this is every job of the week.
+				if h := rep.Stats.Halves; h != nil {
+					if err := c.st.RecordJobHalfPeaks(ctx, r.ID, h.Runner.MemoryBytes>>20, h.Daemon.MemoryBytes>>20); err != nil {
+						c.log.Debug("could not record a pair's peaks", "runner", r.ID, "error", err)
+					}
+				}
 				// How often the runner was held back by its CPU quota, which is
 				// what tells a job that wants more CPU from one that is merely
 				// busy. An agent that sends no counters leaves the job as it was.

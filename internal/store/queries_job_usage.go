@@ -53,6 +53,21 @@ func (s *Store) RecordJobUsage(ctx context.Context, runnerID string, cpus float6
 	return err
 }
 
+// RecordJobHalfPeaks raises the per-container peaks of the job in progress on a runner
+// to one sample of a docker-in-docker pair, in megabytes. It is the same statement
+// shape as RecordJobUsage -- only a job GitHub says is in progress, MAX so a late sample
+// never lowers a peak -- and is written only for a pair, so a pool that is not one pays
+// nothing for it.
+func (s *Store) RecordJobHalfPeaks(ctx context.Context, runnerID string, runnerMB, daemonMB int64) error {
+	if runnerID == "" || (runnerMB <= 0 && daemonMB <= 0) {
+		return nil
+	}
+	_, err := s.exec(ctx, `UPDATE jobs SET peak_runner_memory_mb = MAX(peak_runner_memory_mb, ?),
+		peak_daemon_memory_mb = MAX(peak_daemon_memory_mb, ?)
+		WHERE state = 'in_progress' AND runner_id = ?`, max(runnerMB, 0), max(daemonMB, 0), runnerID)
+	return err
+}
+
 // MarkJobOOMKilled records that the kernel killed something in a runner for
 // its memory limit, on the job that runner ran last, and returns that job and
 // whether this call is the one that marked it.

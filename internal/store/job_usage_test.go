@@ -237,3 +237,42 @@ func TestJobStatsSayHowManyJobsWereMeasured(t *testing.T) {
 		t.Fatalf("count %d, measured %d; want 2 completed and 1 measured", g.Count, g.MeasuredMemory)
 	}
 }
+
+// A pair's halves are kept per job, as the most each used, and the statistics say how many
+// jobs have them: a job that ran before they were kept has none and is not counted, so the
+// advice that sizes a floor by them can wait for enough that do.
+func TestRecordJobHalfPeaksKeepsTheMostEachHalfUsedAndCountsTheJobsThatHaveThem(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	running := usageJob(t, s, 1, "build", "pool_a", "run_1", JobInProgress, versionsEpoch)
+	old := usageJob(t, s, 2, "build", "pool_a", "run_old", JobCompleted, versionsEpoch.Add(-time.Hour))
+	_ = old
+	for _, h := range [][2]int64{{800, 200}, {400, 2600}, {100, 50}, {0, 0}} {
+		if err := s.RecordJobHalfPeaks(ctx, "run_1", h[0], h[1]); err != nil {
+			t.Fatalf("RecordJobHalfPeaks: %v", err)
+		}
+	}
+	// The job completes; it is the week's statistics that read it.
+	done := *running
+	done.State = JobCompleted
+	when := versionsEpoch.Add(time.Minute)
+	done.StartedAt, done.CompletedAt, done.Conclusion = &versionsEpoch, &when, "success"
+	if _, _, err := s.ApplyJob(ctx, &done); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordJobUsage(ctx, "run_old", 1, 500); err != nil {
+		t.Fatal(err)
+	}
+	since := versionsEpoch.Add(-24 * time.Hour)
+	res, err := s.JobStats(ctx, JobFilter{Since: &since}, []string{GroupByPool})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Groups) != 1 {
+		t.Fatalf("groups = %d", len(res.Groups))
+	}
+	g := res.Groups[0]
+	if g.PeakRunnerMemoryMB != 800 || g.PeakDaemonMemoryMB != 2600 || g.MeasuredHalves != 1 {
+		t.Errorf("halves = runner %d, daemon %d from %d jobs; want 800, 2600 from 1", g.PeakRunnerMemoryMB, g.PeakDaemonMemoryMB, g.MeasuredHalves)
+	}
+}

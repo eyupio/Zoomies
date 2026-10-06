@@ -176,6 +176,9 @@ func minimumFleetMeasured(t *testing.T, peakMB int64, jobs, measured int, oom bo
 			if err := h.st.RecordJobUsage(h.ctx, runner.ID, 1, peakMB); err != nil {
 				t.Fatal(err)
 			}
+			if err := h.st.RecordJobHalfPeaks(h.ctx, runner.ID, peakMB*8/10, peakMB*2/10); err != nil {
+				t.Fatal(err)
+			}
 		}
 		job.State, job.Conclusion, job.CompletedAt = store.JobCompleted, "success", &done
 		if _, err := h.st.UpsertJob(h.ctx, job); err != nil {
@@ -559,6 +562,13 @@ func TestPoolMinimumAdviceCountsJobsThatWereMeasuredNotJobsThatCompleted(t *test
 // addMeasuredJob is one completed, measured job of a given name on the pool.
 func addMeasuredJob(t *testing.T, h *harness, pool *store.Pool, n int, name string, peakMB int64) {
 	t.Helper()
+	addMeasuredJobHalves(t, h, pool, n, name, peakMB, peakMB*8/10, peakMB*2/10)
+}
+
+// addMeasuredJobHalves is addMeasuredJob with the most each container used given, zero
+// for a job that ran before the peaks were kept per half.
+func addMeasuredJobHalves(t *testing.T, h *harness, pool *store.Pool, n int, name string, peakMB, runnerMB, daemonMB int64) {
+	t.Helper()
 	hosts, err := h.st.ListHosts(h.ctx)
 	if err != nil || len(hosts) == 0 {
 		t.Fatalf("hosts = %d, %v", len(hosts), err)
@@ -579,6 +589,9 @@ func addMeasuredJob(t *testing.T, h *harness, pool *store.Pool, n int, name stri
 		t.Fatal(err)
 	}
 	if err := h.st.RecordJobUsage(h.ctx, runner.ID, 1, peakMB); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.st.RecordJobHalfPeaks(h.ctx, runner.ID, runnerMB, daemonMB); err != nil {
 		t.Fatal(err)
 	}
 	job.State, job.Conclusion, job.CompletedAt = store.JobCompleted, "success", &done
@@ -693,5 +706,43 @@ func TestAHostSizeIsNotProposedThatTheJobsOfAPoolThatTakesItWouldNotFitIn(t *tes
 	}
 	if p := h.problemOrNil("host.slots_below_capacity"); p == nil || p.Remedy == nil {
 		t.Errorf("jobs that fit in the smaller runner must not hold the advice back: %+v", p)
+	}
+}
+
+// The window of what each half used is the last few hours; the jobs are the week. A weekly
+// build whose daemon used 2.6 GB is missing from a window of light phases, and a floor sized
+// by the window alone was offered a lower minimum that the weekly build was then killed at.
+// The most each half used in any job of the week counts.
+func TestPoolMinimumAdviceSizesHalvesFromTheWeekAndNotOnlyTheWindow(t *testing.T) {
+	// 25 ordinary jobs of 800 MB, and a window of light phases.
+	h, pool := minimumFleet(t, 800, 25, false)
+	if p := h.problemOrNil("pool.minimum_overcharges"); p == nil || p.Remedy == nil {
+		t.Fatalf("the fixture must be advised while its halves are light: %+v", p)
+	}
+
+	// One weekly job whose daemon used 2.6 GB, which the window never saw: a sidecar holding
+	// 15% of the slot needs 2.6 GB * 1.5 / 0.15 = 26 GB, no lower than the floor.
+	addMeasuredJobHalves(t, h, pool, 90, "weekly-release", 3000, 400, 2600)
+	if p := h.problemOrNil("pool.minimum_overcharges"); p != nil && p.Remedy != nil {
+		t.Errorf("a lower minimum was offered under a daemon that used 2.6 GB in the week: %+v", p.Remedy)
+	}
+}
+
+// Jobs measured before the peaks were kept per half have none, so the advice waits for
+// enough that do rather than size the halves from a window.
+func TestPoolMinimumAdviceWaitsUntilEnoughJobsHaveHalfPeaks(t *testing.T) {
+	h, pool := minimumFleetMeasured(t, 800, 0, 0, false)
+	for i := 0; i < 25; i++ {
+		addMeasuredJobHalves(t, h, pool, i, "build", 800, 0, 0)
+	}
+	seedPairs(h, pool, 640, 160)
+	if p := h.problemOrNil("pool.minimum_overcharges"); p != nil {
+		t.Errorf("advice was given with no job measured per half: %+v", p)
+	}
+	for i := 25; i < 50; i++ {
+		addMeasuredJobHalves(t, h, pool, i, "build", 800, 640, 160)
+	}
+	if p := h.problemOrNil("pool.minimum_overcharges"); p == nil {
+		t.Error("advice was withheld although 25 jobs were measured per half")
 	}
 }
