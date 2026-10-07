@@ -1121,7 +1121,38 @@ test('a link to a check still lands on its card on a phone', async ({ page }) =>
     await expect(row).toHaveAttribute('data-landed', '');
     await expect(row).toBeInViewport();
     const tint = await row.evaluate((el) => getComputedStyle(el).backgroundColor);
-    expect(tint).not.toBe('rgba(0, 0, 0, 0)');
+    const other = await page
+      .locator('.health-content tr[id="inotify.watches"]')
+      .evaluate((el) => getComputedStyle(el).backgroundColor);
+    // Differing from a row that was not landed on is what proves the tint shows;
+    // a card background on every row would be non-transparent and still pass.
+    expect(tint).not.toBe(other);
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+  }
+});
+
+test('the check tables do not scroll sideways across the tablet band', async ({ page }) => {
+  // A five-column floor of 720px once scrolled the table from 769 to about 855px.
+  const name = `health-tab-${Date.now() % 1e6}`;
+  const credentials = await enrol(page, name);
+  try {
+    await heartbeat(page, credentials, [
+      check('inotify.watches', 'File watches', 'safe', 'warn', { current: '8192' }),
+    ]);
+    for (const width of [769, 800, 820, 855]) {
+      await page.setViewportSize({ width, height: 900 });
+      await goto(page, `/hosts/${credentials.host_id}`, name);
+      const regions = await page.evaluate(() =>
+        [...document.querySelectorAll('.health-content .checks')].map((region) => ({
+          scrollWidth: region.scrollWidth,
+          clientWidth: region.clientWidth,
+        })),
+      );
+      expect(regions.length).toBeGreaterThan(0);
+      for (const region of regions)
+        expect(region.scrollWidth, `at ${width}px`).toBeLessThanOrEqual(region.clientWidth);
+    }
   } finally {
     await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
   }
@@ -1153,6 +1184,124 @@ test('on a desktop the check tables keep their header row and their columns', as
     }));
     expect(fit.display).toBe('table-row');
     expect(fit.scrollWidth).toBeLessThanOrEqual(fit.clientWidth);
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+  }
+});
+
+// A flagged row says what a person can do about it, in a word beside the
+// Warning or Suggestion badge. The badge keeps its counted-or-not meaning; the
+// kind word is a second signal, so a Fixable row on an aggressive check still
+// reads Suggestion. The preview button copies text for a person to run on the
+// host: Zoomies never runs it, and nothing the agent wrote reaches the copy
+// except an id that passed the pattern.
+test('a flagged row says Fixable, Advice or Optional, and an operator can copy the preview for a fixable one', async ({
+  page,
+}) => {
+  const name = `health-kind-${Date.now() % 1e6}`;
+  const credentials = await enrol(page, name);
+  try {
+    await heartbeat(page, credentials, [
+      check('inotify.watches', 'File watches', 'safe', 'warn', { actionable: true }),
+      check('cpu.governor', 'CPU frequency governor', 'aggressive', 'warn', { actionable: true }),
+      check('journal.size', 'Journal size', 'dedicated', 'warn', { actionable: true }),
+      check('vm.swappiness', 'Swappiness', 'safe', 'warn'),
+      check('net.offload', 'Network offload', 'aggressive', 'warn', {
+        actionable: true,
+        optional: true,
+      }),
+      check('cpu.x$(reboot)', 'Odd check', 'safe', 'warn', { actionable: true }),
+      check('disk.space', 'Free space', 'safe', 'ok'),
+    ]);
+    await stubClipboard(page);
+    await goto(page, `/hosts/${credentials.host_id}`, name);
+    const row = (id: string) => page.locator(`.health-content tr[id="${id}"]`);
+    await expect(row('inotify.watches').locator('.kind')).toHaveText('Fixable');
+    await expect(row('vm.swappiness').locator('.kind')).toHaveText('Advice');
+    await expect(row('net.offload').locator('.kind')).toHaveText('Optional');
+    // The badge word is unchanged beside the kind: counted is a Warning, the
+    // other tiers' fixable rows are still a Suggestion.
+    await expect(row('inotify.watches')).toContainText('Warning');
+    await expect(row('cpu.governor')).toContainText('Suggestion');
+    await expect(row('cpu.governor').locator('.kind')).toHaveText('Fixable');
+    // A passing row has no kind at all.
+    await expect(row('disk.space').locator('.kind')).toHaveCount(0);
+
+    const commands: Record<string, string> = {
+      'inotify.watches': 'sudo zoomies tune --only inotify.watches --dry-run',
+      'cpu.governor': 'sudo zoomies tune --tier aggressive --only cpu.governor --dry-run',
+      'journal.size': 'sudo zoomies tune --dedicated --only journal.size --dry-run',
+    };
+    for (const [id, command] of Object.entries(commands)) {
+      await row(id)
+        .getByRole('button', { name: `Copy preview command for ${id}`, exact: true })
+        .click();
+      expect(await page.evaluate(() => sessionStorage.getItem('copied'))).toBe(command);
+    }
+    // Advice, Optional and an id that fails the pattern get the word, if any, and no button.
+    const all = page.getByRole('button', { name: /Copy preview command/ });
+    await expect(all).toHaveCount(3);
+    await expect(row('vm.swappiness').getByRole('button')).toHaveCount(0);
+    await expect(row('net.offload').getByRole('button')).toHaveCount(0);
+    await expect(row('cpu.x$(reboot)').getByRole('button')).toHaveCount(0);
+    await expect(
+      page.getByText('A Fixable row has a button that copies a read-only preview').first(),
+    ).toBeVisible();
+    await expect(page.getByText('Only for a host that runs nothing but Zoomies.')).toBeVisible();
+    await expect(page.getByRole('button', { name: /apply|tune/i })).toHaveCount(0);
+    await expect(page.getByText(/drain/i)).toHaveCount(0);
+
+    // WCAG 2.5.8: a target at least 24px high, on a phone as anywhere.
+    await page.setViewportSize({ width: 375, height: 900 });
+    const box = await all.first().boundingBox();
+    expect(box?.height ?? 0).toBeGreaterThanOrEqual(24);
+    expect(box?.width ?? 0).toBeGreaterThanOrEqual(24);
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+  }
+});
+
+test('a viewer sees the kind word on a row and no button to copy a preview', async ({ page }) => {
+  // A viewer does not see the Next step panel either, so a button that
+  // offers a command to run on the host would be the one place that does.
+  const name = `health-kv-${Date.now() % 1e6}`;
+  const credentials = await enrol(page, name);
+  try {
+    await heartbeat(page, credentials, [
+      check('inotify.watches', 'File watches', 'safe', 'warn', { actionable: true }),
+    ]);
+    await signedInAs(page, 'viewer');
+    await goto(page, `/hosts/${credentials.host_id}`, name);
+    await expect(page.locator('[id="inotify.watches"] .kind')).toHaveText('Fixable');
+    await expect(page.getByRole('button', { name: /Copy preview command/ })).toHaveCount(0);
+    await expect(page.getByText('A Fixable row has a button')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /apply|tune/i })).toHaveCount(0);
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+  }
+});
+
+test('a report-only host has no kind word and no preview button, even if a row says fixable', async ({
+  page,
+}) => {
+  // A container or non-Linux agent cannot be tuned however its report is
+  // marked, so the page does not trust the flag there.
+  const name = `health-kr-${Date.now() % 1e6}`;
+  const credentials = await enrol(page, name);
+  try {
+    await heartbeat(
+      page,
+      credentials,
+      [check('inotify.watches', 'File watches', 'safe', 'warn', { actionable: true })],
+      false,
+      true,
+    );
+    await goto(page, `/hosts/${credentials.host_id}`, name);
+    await expect(page.locator('[id="inotify.watches"]')).toBeVisible();
+    await expect(page.locator('[id="inotify.watches"] .kind')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Copy preview command/ })).toHaveCount(0);
+    await expect(page.getByText('A Fixable row has a button')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /apply|tune/i })).toHaveCount(0);
   } finally {
     await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
   }

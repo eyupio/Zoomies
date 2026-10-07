@@ -101,6 +101,27 @@ work directory skips several at once. If there are findings or a reboot, the bad
 names them and the hint adds how many checks could not run. The host page opens with a **Needs attention** list of the counted findings, with
 the failing checks above the ones that pass.
 
+A flagged row in the checks tables says what a person can do about it, in a word
+beside its **Warning** or **Suggestion** badge. **Suggestion** still means the
+row does not count towards the host's health, and the word beside it does not
+change that. **Fixable** is whatever the report marks `actionable`, which needs
+the reporting process to be root, so on a native host whose agent runs as the
+service user most rows read **Advice** instead. **Advice** is neutral: it means
+the report does not offer the row for `zoomies tune`, not that nothing can be
+done about it. **Optional** is a trade-off to read about first, and it wins over
+Fixable. A host whose report is read-only, a container or a non-Linux machine,
+shows no word at all, because nothing on it can be tuned from here.
+
+An operator or administrator also gets a **Copy preview command for** button on
+each Fixable row, named for the check's id. It copies text for a person to run on
+the host, for example `sudo zoomies tune --only inotify.watches --dry-run`. An
+aggressive row adds `--tier aggressive` and a dedicated one adds `--dedicated`,
+because `tune` refuses either without its flag. The dry run prints each file
+before and after and each command, writes nothing, asks nothing, and still needs
+root. Zoomies never runs it: the controller does not dial the host, and the host's
+name and the check's title are never part of what is copied. A check id that does
+not look like `family.name` gets no button. A viewer sees the word and no button.
+
 For an operator the host page opens one step earlier, with a **Next step**
 panel, whenever the host has a counted finding or a pending reboot, and also
 while the host is cordoned, so that a host brought back from its reboot and left

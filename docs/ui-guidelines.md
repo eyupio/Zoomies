@@ -1137,7 +1137,8 @@ Five things make it fit, in this order:
   header to associate each cell with.
 
 The same card layout is written out by hand in the tables that are not grids —
-the usage report, the accounts and API-token lists, the outstanding join tokens.
+the usage report, the accounts and API-token lists, the outstanding join tokens
+and the three check tables on a host's page.
 The `tableLayout` action gives those record tables the same measured defaults,
 handles and account preference keys without taking ownership of their rows. A
 compact matrix whose column order carries meaning — the chronological capacity
