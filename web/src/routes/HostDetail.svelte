@@ -336,25 +336,38 @@
   <!-- Keyboard focus enables horizontal scrolling on narrow screens. -->
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <div class="checks" role="region" aria-label={label} tabindex="0">
-    <table>
-      <thead
-        ><tr
-          ><th scope="col">Check</th><th scope="col">Status</th><th scope="col">Current</th><th
-            scope="col">Recommended</th
-          ><th scope="col">Why / details</th></tr
-        ></thead
-      >
-      <tbody
-        >{#each rows as check (check.id)}
+    <!-- The roles are spelled out because a phone turns each row into a card
+         with display:block and grid, which makes some browsers drop the table
+         semantics a screen reader relies on. -->
+    <!-- svelte-ignore a11y_no_redundant_roles -->
+    <table role="table">
+      <!-- svelte-ignore a11y_no_redundant_roles -->
+      <thead role="rowgroup">
+        <!-- svelte-ignore a11y_no_redundant_roles -->
+        <tr role="row">
+          <th role="columnheader" scope="col">Check</th>
+          <th role="columnheader" scope="col">Status</th>
+          <th role="columnheader" scope="col">Current</th>
+          <th role="columnheader" scope="col">Recommended</th>
+          <th role="columnheader" scope="col">Why / details</th>
+        </tr>
+      </thead>
+      <!-- svelte-ignore a11y_no_redundant_roles -->
+      <tbody role="rowgroup">
+        {#each rows as check (check.id)}
           {@const badge = statusBadge(check)}
-          <tr id={check.id} tabindex="-1">
-            <th scope="row">{check.title}<small>{check.id}</small></th>
-            <td><Badge label={badge.label} tone={badge.tone} /></td>
-            <td>{check.current || '—'}</td><td>{check.recommended || '—'}</td><td
+          <!-- svelte-ignore a11y_no_redundant_roles -->
+          <tr role="row" id={check.id} tabindex="-1">
+            <th role="rowheader" scope="row">{check.title}<small>{check.id}</small></th>
+            <td role="cell" data-label="Status"><Badge label={badge.label} tone={badge.tone} /></td>
+            <td role="cell" data-label="Current">{check.current || '—'}</td>
+            <td role="cell" data-label="Recommended">{check.recommended || '—'}</td>
+            <td role="cell" data-label="Why / details"
               >{check.rationale}{#if check.reason}<small>{check.reason}</small>{/if}</td
             >
-          </tr>{/each}</tbody
-      >
+          </tr>
+        {/each}
+      </tbody>
     </table>
   </div>
 {/snippet}
@@ -472,7 +485,15 @@
     vertical-align: top;
     border-bottom: var(--z-border-width) solid var(--z-border);
     overflow-wrap: anywhere;
-    min-width: 9rem;
+    min-width: 0;
+  }
+  /* Five columns at 9rem each floor the table at 720px; the phone layout below
+     must not inherit that, so the floor is only for a table laid out as one. */
+  @media (min-width: 769px) {
+    th,
+    td {
+      min-width: 9rem;
+    }
   }
   th {
     font-weight: var(--z-weight-medium);
@@ -495,6 +516,62 @@
   tr:target,
   tr:global([data-landed]) {
     background: var(--z-accent-subtle);
+  }
+  @media (max-width: 768px) {
+    .checks {
+      overflow-x: visible;
+    }
+    table {
+      display: block;
+    }
+    thead {
+      display: none;
+    }
+    tbody {
+      display: flex;
+      flex-direction: column;
+      gap: var(--z-space-3);
+      padding: var(--z-space-3);
+    }
+    /* No background on the card: it would out-specify the data-landed tint and
+       hide landing on a phone. The panel body is already the surface colour. */
+    tbody tr {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: var(--z-space-2) var(--z-space-4);
+      padding: var(--z-space-3);
+      border: var(--z-border-width) solid var(--z-border);
+      border-radius: var(--z-radius-md);
+    }
+    tbody th,
+    tbody td {
+      padding: 0;
+      border: 0;
+    }
+    tbody th[scope='row'] {
+      grid-column: 1;
+    }
+    /* The badge names itself, so it takes the title's line and no label. */
+    td:nth-of-type(1) {
+      grid-column: 2;
+      grid-row: 1;
+      justify-self: end;
+    }
+    td:nth-of-type(1)::before {
+      display: none;
+    }
+    td:nth-of-type(4) {
+      grid-column: 1 / -1;
+    }
+    td::before {
+      content: attr(data-label);
+      display: block;
+      color: var(--z-text-muted);
+      font-size: var(--z-text-2xs);
+      font-weight: var(--z-weight-medium);
+      text-transform: uppercase;
+      letter-spacing: var(--z-tracking-wide);
+    }
   }
   .attention {
     display: grid;
