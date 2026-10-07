@@ -1417,3 +1417,55 @@ test('the host page says how old the report is, and never how often one arrives'
     await page.request.delete(`/api/v1/hosts/${credentials.host_id}`);
   }
 });
+
+// A person watching the page while they fix a host on the machine should hear
+// when a check clears, without a toast (background events are shown by the page
+// changing) and without the page announcing everything it shows on load.
+test('a check that clears while the page is open is announced and listed', async ({ page }) => {
+  const name = `clear-host-${Date.now() % 1e8}`;
+  const credentials = await enrol(page, name);
+  const disk = (status: Check['status']) =>
+    check('disk.space', 'Free space', 'safe', status, { recommended: '10% free' });
+  try {
+    await heartbeat(page, credentials, [disk('warn')]);
+    await goto(page, `/hosts/${credentials.host_id}`, name);
+    const live = page.locator('.health-content > output[aria-live="polite"]');
+    // Opening the page says nothing: the first report is the baseline.
+    await expect(page.getByRole('region', { name: 'Needs attention' })).toBeVisible();
+    await expect(live).toHaveText('');
+    await expect(page.getByText('Changed since you opened this page')).toHaveCount(0);
+
+    await heartbeat(page, credentials, [disk('ok')]);
+    await expect(live).toContainText('Free space — now OK');
+    await expect(live).toContainText('Nothing on this host needs attention now');
+    const list = page.getByRole('region', { name: 'Changed since you opened this page' });
+    await expect(list).toContainText('Free space — now OK');
+    await expect(page.getByRole('button', { name: /apply|tune/i })).toHaveCount(0);
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+  }
+});
+
+test('a check that starts needing attention while the page is open is announced', async ({
+  page,
+}) => {
+  const name = `start-host-${Date.now() % 1e8}`;
+  const credentials = await enrol(page, name);
+  const disk = (status: Check['status']) =>
+    check('disk.space', 'Free space', 'safe', status, { recommended: '10% free' });
+  try {
+    await heartbeat(page, credentials, [disk('ok')]);
+    await goto(page, `/hosts/${credentials.host_id}`, name);
+    const live = page.locator('.health-content > output[aria-live="polite"]');
+    await expect(page.getByText('Health OK', { exact: true }).first()).toBeVisible();
+    await expect(live).toHaveText('');
+
+    await heartbeat(page, credentials, [disk('warn')]);
+    await expect(live).toHaveText('Free space — now needs attention');
+    await expect(
+      page.getByRole('region', { name: 'Changed since you opened this page' }),
+    ).toContainText('Free space — now needs attention');
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+  }
+});

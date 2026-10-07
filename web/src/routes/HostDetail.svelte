@@ -25,6 +25,7 @@
     reportOrigin,
   } from '$lib/hosts/report-only';
   import { noReport, noReportSubtitle } from '$lib/hosts/no-report';
+  import { allClear, announcement, logLine, reportChanges } from '$lib/hosts/report-changes';
   import { KIND_WORDS, previewCommand, rowKind } from '$lib/hosts/row-kind';
   import { pluralise } from '$lib/format';
   import type { StatusTone } from '$lib/status';
@@ -107,6 +108,51 @@
     landedFor = key;
     // After App.svelte has put focus on the page heading, or it would take it back.
     void tick().then(() => requestAnimationFrame(land));
+  });
+  // What changed while this page was open. The first report seen is the
+  // baseline, so opening the page announces nothing. It is read off the derived
+  // report -- the fleet cache, else the page's own fetch -- and not off this
+  // page's host.updated subscription, which writes only `fetched` and would miss
+  // a frame the cache had already applied. Not reactive: only a report moves it.
+  let baseline: { id: string; report: NonNullable<typeof report>; version: string } | null = null;
+  let changeLog = $state<{ line: string; at: string }[]>([]);
+  let liveText = $state('');
+  $effect(() => {
+    const next = report;
+    const hostId = id;
+    const version = host?.version ?? '';
+    untrack(() => {
+      if (baseline && baseline.id !== hostId) {
+        baseline = null;
+        changeLog = [];
+        liveText = '';
+      }
+      if (!next) return;
+      if (!baseline) {
+        baseline = { id: hostId, report: next, version };
+        return;
+      }
+      if (next === baseline.report) return;
+      const changes = reportChanges(baseline.report, next, {
+        prevVersion: baseline.version,
+        nextVersion: version,
+      });
+      const advanced = Date.parse(next.checked_at) > Date.parse(baseline.report.checked_at);
+      // A source change is rebaselined without a word; an older or repeated
+      // frame leaves the baseline where it was.
+      const sourceMoved =
+        next.os !== baseline.report.os ||
+        next.distro !== baseline.report.distro ||
+        next.container !== baseline.report.container ||
+        version !== baseline.version;
+      if (advanced || sourceMoved) baseline = { id: hostId, report: next, version };
+      if (changes.length === 0) return;
+      liveText = announcement(changes, allClear(next, Date.now()));
+      changeLog = [
+        ...changes.map((c) => ({ line: logLine(c), at: next.checked_at })),
+        ...changeLog,
+      ].slice(0, 5);
+    });
   });
   // The in-page links under "Needs attention" are plain #id links, which the
   // router leaves to the browser; this is what moves focus for them too.
@@ -265,10 +311,22 @@
   </div>
 {:else}
   <div class="health-content">
+    <!-- Empty whenever a report is showing: text arriving in it is what is announced. -->
+    <output class="sr-only" aria-live="polite">{liveText}</output>
     <!-- First, so that a phone meets the action before a long list of findings. -->
     {@render nextPanel()}
     <Panel title="Latest host report" description={summary.hint}>
       <p>{reportOrigin(report)} · Checked <RelativeTime value={report.checked_at} /></p>
+      {#if changeLog.length}
+        <section class="changes" aria-labelledby="changes-h">
+          <h3 id="changes-h">Changed since you opened this page</h3>
+          <ul>
+            {#each changeLog as c, i (i + c.line + c.at)}
+              <li>{c.line} · <RelativeTime value={c.at} /></li>
+            {/each}
+          </ul>
+        </section>
+      {/if}
       {#if !showStep && rebootPending(report)}
         <!-- Cordon, never drain: drain cordons and then stops a runner still busy after
              five minutes (host_health_problems.go), which is the wrong advice for waiting
@@ -509,6 +567,31 @@
   .act p,
   .command p {
     font-size: var(--z-text-xs);
+  }
+  .changes {
+    display: grid;
+    gap: var(--z-space-2);
+    margin: 0 0 var(--z-space-3);
+    padding: var(--z-space-3) var(--z-space-4);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-md);
+    background: var(--z-surface-sunken);
+    font-size: var(--z-text-sm);
+  }
+  .changes h3 {
+    margin: 0;
+    color: var(--z-text);
+    font-size: var(--z-text-sm);
+    font-weight: var(--z-weight-semibold);
+  }
+  .changes ul {
+    display: grid;
+    gap: var(--z-space-1);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    color: var(--z-text-muted);
+    overflow-wrap: anywhere;
   }
   .fresh {
     font-size: var(--z-text-xs);
