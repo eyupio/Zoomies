@@ -103,13 +103,6 @@ func exposureErrors(findings []kennel.Finding) []kennel.Finding {
 	return out
 }
 
-func isAre(n int) string {
-	if n == 1 {
-		return " is"
-	}
-	return " are"
-}
-
 // kennelUnavailableProblems says that Kennel Club has not been able to read an
 // installation's repositories for six hours, for a reason that is not a choice.
 //
