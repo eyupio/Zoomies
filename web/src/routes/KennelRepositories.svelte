@@ -13,6 +13,12 @@
   remembered in their browser. The address can override it with ?active=all, so a
   link that counts every repository -- a card on the Overview, the problem in the
   drawer -- opens on as many rows as it said.
+
+  A repository Kennel Club has been told not to look at is left out the same way, and
+  for the same reason: the Overview's numbers are of the ones it is looking at. It is
+  a filter, though, and not a scope: it is the address's alone (?tracked=false for
+  those, ?tracked=all for both), it has a chip, and clearing the filters brings the
+  default back.
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
@@ -47,7 +53,7 @@
   import { fleet } from '$lib/state/fleet.svelte';
   import { prefs, remember, remembered } from '$lib/state/prefs.svelte';
   import { session } from '$lib/state/session.svelte';
-  import { kennelStatus } from '$lib/status';
+  import { kennelStatus, kennelTrackingStatus } from '$lib/status';
 
   /* -- whether there is anything to list ------------------------------------- */
 
@@ -80,6 +86,12 @@
   const standing = $derived(router.param('state'));
   const code = $derived(router.param('code'));
   const installation = $derived(router.param('installation'));
+  // Which view of the tracking: the ones Kennel Club is looking at unless the
+  // address says otherwise.
+  const trackedParam = $derived(router.param('tracked'));
+  const tracking = $derived<'tracked' | 'untracked' | 'all'>(
+    trackedParam === 'false' ? 'untracked' : trackedParam === 'all' ? 'all' : 'tracked',
+  );
 
   // Only the repositories being served, unless this person has said otherwise or the
   // address does. It is a scope on the view and not a filter: it has no chip and
@@ -96,8 +108,18 @@
     router.setQuery({ active: null, offset: null });
   }
 
-  const filters = $derived({ search, severity, standing, code, installation, activeOnly });
-  const anyFilter = $derived(Boolean(search || severity || standing || code || installation));
+  const filters = $derived({
+    search,
+    severity,
+    standing,
+    code,
+    installation,
+    activeOnly,
+    tracking,
+  });
+  const anyFilter = $derived(
+    Boolean(search || severity || standing || code || installation || tracking !== 'tracked'),
+  );
 
   let searchField = $state<HTMLInputElement | null>(null);
   $effect(() => registerSearch(searchField));
@@ -144,6 +166,11 @@
     ...checks.map((check) => ({ value: check.code, label: check.code })),
   ]);
   // One installation is the usual fleet, and a menu of one is noise.
+  const trackingOptions = [
+    { value: '', label: 'Tracked' },
+    { value: 'false', label: 'Not tracked' },
+    { value: 'all', label: 'Tracked and not tracked' },
+  ];
   const installationOptions = $derived([
     { value: '', label: 'Any installation' },
     ...installations.map((i) => ({ value: i.id, label: i.target })),
@@ -175,6 +202,12 @@
         value: code,
         onremove: () => router.setQuery({ code: null, offset: null }),
       },
+      tracking !== 'tracked' && {
+        id: 'tracked',
+        label: 'Tracking',
+        value: trackingOptions.find((o) => o.value === trackedParam)?.label ?? trackedParam,
+        onremove: () => router.setQuery({ tracked: null, offset: null }),
+      },
       installation && {
         id: 'installation',
         label: 'Installation',
@@ -191,6 +224,7 @@
       state: null,
       code: null,
       installation: null,
+      tracked: null,
       offset: null,
     });
   }
@@ -216,6 +250,8 @@
       'attention' | 'partial' | 'pending' | 'best_in_show' | undefined,
     code: code || undefined,
     installation: installation || undefined,
+    // The API lists both when it is not asked, so "both" is the absence of the filter.
+    tracked: tracking === 'all' ? undefined : tracking === 'tracked',
   });
 
   async function fetchRepositories(
@@ -312,20 +348,28 @@
 
 {#snippet standingCell(row: KennelRepository)}
   <Badge
-    status={kennelStatus(row.state, worstSeverity(row.counts), prefs.quirkyStatus)}
+    status={row.tracking.tracked
+      ? kennelStatus(row.state, worstSeverity(row.counts), prefs.quirkyStatus)
+      : kennelTrackingStatus()}
     size="sm"
   />
 {/snippet}
 
 {#snippet findingsCell(row: KennelRepository)}
-  <span>{openFindingsText(row.counts)}</span>
-  {#if row.counts.waived > 0}
-    <span class="waived">, {row.counts.waived} waived</span>
+  {#if row.tracking.tracked}
+    <span>{openFindingsText(row.counts)}</span>
+    {#if row.counts.waived > 0}
+      <span class="waived">, {row.counts.waived} waived</span>
+    {/if}
+  {:else}
+    <span class="waived">Not evaluated</span>
   {/if}
 {/snippet}
 
 {#snippet evaluatedCell(row: KennelRepository)}
-  {#if row.evaluated_at}
+  {#if !row.tracking.tracked && row.tracking.since}
+    <span class="waived">Stopped <RelativeTime value={row.tracking.since} plain /></span>
+  {:else if row.evaluated_at}
     <RelativeTime value={row.evaluated_at} />
   {:else}
     <span class="waived">Not yet</span>
@@ -396,6 +440,13 @@
           size="sm"
           ariaLabel="Filter by check"
           onchange={(value) => router.setQuery({ code: value || null, offset: null })}
+        />
+        <Select
+          value={trackedParam === 'false' || trackedParam === 'all' ? trackedParam : ''}
+          options={trackingOptions}
+          size="sm"
+          ariaLabel="Filter by tracking"
+          onchange={(value) => router.setQuery({ tracked: value || null, offset: null })}
         />
         {#if installations.length > 1}
           <Select

@@ -147,6 +147,19 @@
         detail: overview.scope === 'served' ? 'This fleet has run jobs for' : 'The App can see',
         ...opens(overview.repositories),
       },
+      // Only when there are some: a card of zero for a feature most fleets never use
+      // is a number to learn to ignore. It opens the ones Kennel Club was told not to
+      // look at, which the list leaves out unless asked.
+      ...(overview.not_tracked > 0
+        ? [
+            {
+              label: 'Not tracked',
+              value: formatNumber(overview.not_tracked),
+              detail: 'Kennel Club was told not to look at these',
+              ...opens(overview.not_tracked, { notTracked: true }),
+            },
+          ]
+        : []),
       {
         label: bestWord,
         value: formatNumber(states.best_in_show),
@@ -281,11 +294,26 @@
             </Panel>
           {/if}
         {:else if overview.repositories === 0}
-          <EmptyState
-            icon={Trophy}
-            title="Nothing to look at yet"
-            description="Kennel Club looks at repositories your fleet has run jobs for. None yet."
-          />
+          <!-- Not tracked is a choice, not an absence: say so, and where they are. -->
+          {#if overview.not_tracked > 0}
+            <EmptyState
+              icon={Trophy}
+              title="Kennel Club is not looking at any repository"
+              description="{overview.not_tracked === 1
+                ? 'The one repository it has'
+                : `All ${overview.not_tracked} repositories it has`} been told not to look at."
+            >
+              <Button href={kennelListHref({ notTracked: true, everything: true })}>
+                See {overview.not_tracked === 1 ? 'it' : 'them'}
+              </Button>
+            </EmptyState>
+          {:else}
+            <EmptyState
+              icon={Trophy}
+              title="Nothing to look at yet"
+              description="Kennel Club looks at repositories your fleet has run jobs for. None yet."
+            />
+          {/if}
           <Panel title="What it checks" flush>
             <ChecksTable rows={overview.checks} label="What Kennel Club checks" />
           </Panel>
