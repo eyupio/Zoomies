@@ -48,3 +48,24 @@ export const KENNEL_GROUPS: readonly KennelGroup[] = [
 
 /** Every page, in the order the rail lists them. */
 export const KENNEL_PAGES: readonly KennelPage[] = KENNEL_GROUPS.flatMap((group) => group.pages);
+
+/** What the list of repositories can be narrowed by from outside it: the two the cards on the Overview count. */
+export interface KennelListFilter {
+  state?: string;
+  severity?: string;
+}
+
+/**
+ * The address of the list of repositories, narrowed. The list reads its filters
+ * from the address, so a link is the whole of "show me these", and a colleague can
+ * be sent the same one. An empty value is left out, so no filter is `/kennel/repositories`
+ * and not `/kennel/repositories?state=`.
+ */
+export function kennelListHref(filter: KennelListFilter = {}): string {
+  const base = KENNEL_PAGES.find((page) => page.id === 'repositories')!.path;
+  const query = new URLSearchParams();
+  if (filter.state) query.set('state', filter.state);
+  if (filter.severity) query.set('severity', filter.severity);
+  const text = query.toString();
+  return text ? `${base}?${text}` : base;
+}

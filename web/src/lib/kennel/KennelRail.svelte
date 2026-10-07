@@ -12,6 +12,10 @@
 <script lang="ts">
   import { BookOpenText, LayoutDashboard, ListChecks } from '@lucide/svelte';
   import type { LucideIcon } from '@lucide/svelte';
+  import { aiContextAttention, type AiContextAttention } from '$lib/aicontext/attention';
+  import Badge from '$lib/components/Badge.svelte';
+  import { fleet } from '$lib/state/fleet.svelte';
+  import { severityStatus } from '$lib/status';
   import KennelSwitch from './KennelSwitch.svelte';
   import { KENNEL_GROUPS, type KennelPageId } from './pages';
 
@@ -31,6 +35,12 @@
   let { current }: Props = $props();
 
   const uid = $props.id();
+
+  // A row can say something about the page behind it. Only AI Context does, and
+  // only when a run has failed: a badge on a healthy row is noise on every page.
+  const badges = $derived<Partial<Record<KennelPageId, AiContextAttention | null>>>({
+    'ai-context': aiContextAttention(fleet.problems),
+  });
 </script>
 
 <nav class="rail" aria-label="Kennel Club">
@@ -42,11 +52,32 @@
         {#each group.pages as page (page.id)}
           {@const here = page.id === current}
           {@const Icon = ICONS[page.id]}
+          {@const badge = badges[page.id]}
           <li>
-            <a href={page.path} aria-current={here ? 'page' : undefined} class:current={here}>
+            <a
+              href={page.path}
+              aria-current={here ? 'page' : undefined}
+              aria-describedby={badge ? `kennel-state-${uid}-${page.id}` : undefined}
+              class:current={here}
+            >
               <Icon size={16} aria-hidden="true" />
               <span class="label">{page.label}</span>
+              {#if badge}
+                <span class="state" aria-hidden="true">
+                  <Badge
+                    status={severityStatus(badge.worst)}
+                    label={String(badge.count)}
+                    size="sm"
+                    title={badge.text}
+                  />
+                </span>
+              {/if}
             </a>
+            <!-- Outside the link, so the link is still named for the page and what is
+                 wrong is its description: inside, it would be part of the name. -->
+            {#if badge}
+              <span class="sr-only" id="kennel-state-{uid}-{page.id}">{badge.text}</span>
+            {/if}
           </li>
         {/each}
       </ul>
@@ -112,6 +143,10 @@
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .state {
+    flex: none;
+    display: inline-flex;
   }
   /* A finger needs the height the rest of the UI gives it, in the rail and the strip alike. */
   @media (pointer: coarse) {

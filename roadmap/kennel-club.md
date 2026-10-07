@@ -912,6 +912,17 @@ the feature off:
    ([0006](decisions/0006-kennel-club-tracks-repositories-one-at-a-time.md)).
    **(f)** A side menu for the section and an on/off switch in it, asked for after
    (c) merged ([0010](decisions/0010-kennel-club-has-a-side-menu-and-the-switch-is-in-it.md)).
+   **(g)** The Overview's counts open the repositories behind them, from the same
+   request as (f). Two do not: *Partly checked* adds two standings and the list
+   filters by one, and the list has no waiver filter for *Waived*. Both want a
+   change to the list's API, which is a separate decision.
+   **(h)** A state on the AI Context row of the side menu, from the same request:
+   the number of repositories whose last workflow run failed, drawn as the worst of
+   them, read from the problems the page already holds. A count of repositories
+   set up or healthy would need a summary on the API: the lists are paged, which
+   list a person reads depends on whether they may configure (administrators and
+   installation owners read one, everybody else another), and each carries whole
+   records. That is a separate decision.
    The order is the owner's, set on 7 October.
 8. Documentation and screenshots.
 
