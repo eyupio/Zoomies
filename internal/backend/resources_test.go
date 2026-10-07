@@ -471,3 +471,63 @@ func TestUpdateResourcesLendsADinDBoostToTheHalfThatIsBusy(t *testing.T) {
 		t.Fatalf("runner updates = %v, want it given the loan", got)
 	}
 }
+
+// The two samples are taken together. A stats call is a second of the daemon's time at
+// the least, and taken in turn they spent two of the agent's five before the pair had
+// been looked at: here the runner's call is held until the sidecar's has arrived, which
+// a sampler that waited for the first would never let happen.
+func TestDinDStatsAsksForBothHalvesAtTheSameTime(t *testing.T) {
+	runnerLabels := map[string]string{LabelName: "runner-1", LabelDockerMode: string(store.DockerDinD), LabelCPUs: "2"}
+	sidecarAsked := make(chan struct{})
+	f := newFakeEngine(t, map[string]http.HandlerFunc{
+		"GET " + v + "/containers/c1/stats": func(w http.ResponseWriter, r *http.Request) {
+			select {
+			case <-sidecarAsked:
+			case <-time.After(5 * time.Second):
+				http.Error(w, "the sidecar was never asked for while the runner's call was out", http.StatusGatewayTimeout)
+				return
+			}
+			writeJSON(w, 200, map[string]any{})
+		},
+		"GET " + v + "/containers/d1/stats": func(w http.ResponseWriter, r *http.Request) {
+			close(sidecarAsked)
+			writeJSON(w, 200, map[string]any{})
+		},
+		"GET " + v + "/containers/c1/json": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, 200, &ContainerInspect{ID: "c1", Config: &ContainerConfig{Labels: runnerLabels}})
+		},
+		"GET " + v + "/containers/json": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, 200, []ContainerSummary{{ID: "d1", Labels: map[string]string{LabelDinDFor: "runner-1", LabelCPUs: "2"}}})
+		},
+	})
+	b := dockerBackendFor(t, f, DockerOptions{})
+	got, err := b.Stats(context.Background(), "c1")
+	if err != nil || got.Halves == nil {
+		t.Fatalf("stats = %+v, err = %v; want both halves", got, err)
+	}
+}
+
+// A sidecar that will not answer loses the whole reading rather than leave the runner's
+// figure standing for the job: recorded as its peak with the daemon's share missing, it
+// would be too low, which is the one error the sizing advice built on it cannot take. The
+// agent keeps its last good sample instead.
+func TestDinDStatsLoseTheWholeReadingWhenTheSidecarCannotBeSampled(t *testing.T) {
+	runnerLabels := map[string]string{LabelName: "runner-1", LabelDockerMode: string(store.DockerDinD)}
+	f := newFakeEngine(t, map[string]http.HandlerFunc{
+		"GET " + v + "/containers/c1/stats": func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, map[string]any{}) },
+		"GET " + v + "/containers/d1/stats": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"message": "cgroup unavailable"})
+		},
+		"GET " + v + "/containers/c1/json": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, 200, &ContainerInspect{ID: "c1", Config: &ContainerConfig{Labels: runnerLabels}})
+		},
+		"GET " + v + "/containers/json": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, 200, []ContainerSummary{{ID: "d1", Labels: map[string]string{LabelDinDFor: "runner-1"}}})
+		},
+	})
+	b := dockerBackendFor(t, f, DockerOptions{})
+	got, err := b.Stats(context.Background(), "c1")
+	if err == nil || got != (Stats{}) {
+		t.Fatalf("stats = %+v, err = %v; want the reading lost and the failure reported", got, err)
+	}
+}
