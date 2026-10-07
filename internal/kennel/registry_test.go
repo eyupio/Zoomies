@@ -174,3 +174,24 @@ func TestEverySourceACheckReadsIsOneThePageCanName(t *testing.T) {
 		}
 	}
 }
+
+// The problems list says one thing for Kennel Club, counts the repositories with
+// an exposure error, and links to the list narrowed to errors. Those agree only
+// while exposure is the one area whose checks can be an error. A check that could
+// be an error in another area must narrow that link by area and count its own,
+// so the day one is added this fails, and says why, instead of the drawer
+// counting fewer repositories than the page it sends you to lists.
+func TestOnlyExposureChecksCanBeErrors(t *testing.T) {
+	for _, c := range Checks() {
+		if c.Severity == SeverityError && c.Area != AreaExposure {
+			t.Errorf("%s can be an error in the %s area: the kennel.exposure problem counts only exposure errors and links to every error (decision 0009)", c.Code, c.Area)
+		}
+	}
+	// What escalation raises is exposure too: it only ever makes an exposure
+	// warning an error.
+	for _, c := range Checks() {
+		if c.Code == CodePublicRepoOnFleet && c.Area != AreaExposure {
+			t.Errorf("%s is raised to an error by escalate and is not in the exposure area", c.Code)
+		}
+	}
+}
