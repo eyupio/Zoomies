@@ -1,0 +1,56 @@
+# 0008: The repository page leads with what the fleet knows
+
+**Status**: accepted. Taken on 7 October 2026 on the owner's instruction, in
+answer to which per-repository runtime data the page should show.
+
+## Context
+
+The repository page shows what Kennel Club concluded: findings, how far each
+source could be read, and waivers. It shows nothing the fleet knows about the
+repository itself, although the fleet knows a great deal, and the owner expected
+the page to carry it.
+
+Most of it is already behind documented routes:
+
+* `GET /jobs/stats?repo=` answers with counts of jobs and how they ended, and
+  queue wait and run duration at the median and the 95th percentile. It groups by
+  pool or host, so it also says which pools and hosts ran the repository's jobs.
+* `GET /jobs?repo=&unmatched=true` lists the jobs waiting right now for a label no
+  pool serves.
+* `GET /usage?group_by=repository` has history and peak concurrency, but no cost
+  for a repository, and it reads every managed job in the window.
+
+Some of it is not there. Runner minutes per repository need a new query (the
+session table has no repository column). Nothing aggregates how much of a
+repository's CPU time was throttled. The history of unserved-label events is held
+only inside the Kennel facts. Prometheus has no repository label, and adding one
+is a cardinality decision of its own.
+
+## Decision
+
+Add an **Overview** tab to the repository page and make it the default. It shows,
+for the last 7 days and the last 30, the jobs the fleet ran for the repository
+(how many, and how they ended), their queue wait and run duration at the median
+and the 95th percentile, the pools and hosts that ran them with links, and the
+jobs waiting now for a label no pool serves. Hosted jobs are left out. It is built
+from the existing routes above, with no new store query, no schema change and no
+new route.
+
+## Consequences
+
+The window is as long as jobs are kept: 30 days by default, so the oldest edge of
+the 30-day window is partial, and the page says it covers what the fleet still
+holds.
+
+A job records its repository by name and Kennel's row is keyed by GitHub's ID, so
+after a rename the numbers count only under the current name. The page does not
+pretend otherwise.
+
+The page never shows cost, because there is none per repository. Runner minutes,
+the throttled share, a history chart and GitHub's own metadata about the
+repository (default branch, fork, archived, language, last push) are each a later
+decision; the last extends what Kennel stores, the first two need new queries and
+an index review.
+
+Untracked repositories (decision 0006) still have this tab, because none of it
+comes from GitHub.

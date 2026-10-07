@@ -41,3 +41,6 @@ what was decided.
 | [0003](0003-windows-runners-are-processes-on-a-host.md) | Windows runners are actions/runner processes on a Windows host, not Windows containers | accepted, at the owner's instruction; shape not separately confirmed |
 | [0002](0002-choose-the-model-by-what-the-stage-risks.md) | Choose the Claude model and effort by what a stage risks, and record both per package | proposed |
 | [0005](0005-a-stable-automation-contract.md) | Name the routes unattended automation may rely on, and promise their stability | proposed |
+| [0006](0006-kennel-club-tracks-repositories-one-at-a-time.md) | Kennel Club tracks repositories one at a time: each is tracked by default, and an administrator can stop tracking one | accepted, at the owner's instruction; the role split not yet ratified |
+| [0007](0007-the-repository-page-hosts-ai-context-and-adds-no-switch.md) | The repository page hosts the AI Context card and adds no switch or pause to AI Context | accepted, at the owner's instruction |
+| [0008](0008-the-repository-page-leads-with-what-the-fleet-knows.md) | The repository page leads with an Overview of what the fleet knows, built from existing routes | accepted, at the owner's instruction |
