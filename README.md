@@ -1,11 +1,3 @@
-<!-- zoomies-ai-context:start -->
-
-[![Zoomies AI Context](https://github.com/eyupio/zoomies/actions/workflows/zoomies-ai-context.yml/badge.svg)](https://github.com/eyupio/zoomies/actions/workflows/zoomies-ai-context.yml)
-
-Repomix-generated context: [`.zoomies/ai-context/`](https://github.com/eyupio/zoomies/tree/zoomies-ai-context/.zoomies/ai-context). The badge shows workflow status, not context freshness or assistant connectivity. Private repository badges require GitHub access.
-
-<!-- zoomies-ai-context:end -->
-
 <div align="center">
 
 <picture>
@@ -36,6 +28,8 @@ anything precious on this.*
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14604/badge)](https://www.bestpractices.dev/projects/14604)
 [![Website](https://github.com/eyupio/zoomies/actions/workflows/docs.yml/badge.svg)](https://zoomies.sh)
 [![CI has the Zoomies](https://zoomies.sh/badge.svg)](https://zoomies.sh)
+[![Zoomies AI Context](https://github.com/eyupio/zoomies/actions/workflows/zoomies-ai-context.yml/badge.svg)](https://github.com/eyupio/zoomies/actions/workflows/zoomies-ai-context.yml)
+
 
 ```sh
 curl -fsSL https://zoomies.sh/install.sh | sh
