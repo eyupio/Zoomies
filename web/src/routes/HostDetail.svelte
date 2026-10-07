@@ -511,10 +511,23 @@
     overflow-wrap: anywhere;
     min-width: 0;
   }
-  /* Five columns at 9rem floored the table at 720px, which scrolled sideways
-     from 769 to about 855px. Only the column of sentences needs a floor, and the
-     floors live here so the phone block never has to fight them. */
+  /* Five columns at 9rem each floor the table at 720px, which is right for a
+     table laid out as one at desktop widths but scrolled it sideways from 769 to
+     about 855px. Freeing the floors everywhere moved the desktop columns (the
+     Recommended one lost a third of its width at 1181 and 1440), so only the
+     tablet band takes the smaller floors and desktop is as it was. The phone
+     block below must not inherit either. */
   @media (min-width: 769px) {
+    th,
+    td {
+      min-width: 9rem;
+    }
+  }
+  @media (min-width: 769px) and (max-width: 855px) {
+    th,
+    td {
+      min-width: 0;
+    }
     td:last-child {
       min-width: 12rem;
     }
