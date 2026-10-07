@@ -624,4 +624,383 @@ test.describe('with Kennel Club on', () => {
       }
     }
   });
+
+  /* -- waiving ----------------------------------------------------------------- */
+
+  test.describe('waiving a finding', () => {
+    interface Finding {
+      code: string;
+      severity: string;
+      subject: string;
+      title: string;
+    }
+    interface Waived {
+      finding: Finding;
+      waiver: { id: string; reason: string; by: string; expires_at: string };
+    }
+    interface Detail {
+      id: string;
+      counts: { error: number; warning: number };
+      findings: Finding[];
+      waived: Waived[];
+    }
+
+    const WEAK_POOL = 'exposure.public_repo_weak_pool';
+
+    async function detail(page: Page, id: string): Promise<Detail> {
+      return (await page.request
+        .get(`/api/v1/kennel/repositories/${id}`)
+        .then((r) => r.json())) as Detail;
+    }
+
+    /** What this block made is the shared controller's to be rid of, passed or failed. */
+    async function endWaivers(page: Page, id: string): Promise<void> {
+      for (const entry of (await detail(page, id)).waived) {
+        await page.request.delete(`/api/v1/kennel/repositories/${id}/waivers/${entry.waiver.id}`);
+      }
+    }
+
+    async function target(page: Page): Promise<{ id: string; finding: Finding }> {
+      const row = await repository(page, PUBLIC_REPO);
+      const finding = (await detail(page, row.id)).findings.find((f) => f.code === WEAK_POOL);
+      expect(finding, `${PUBLIC_REPO} has the finding this block waives`).toBeTruthy();
+      return { id: row.id, finding: finding as Finding };
+    }
+
+    // A toast from the step before can still be on screen, so each assertion
+    // names its own.
+    const toast = (page: Page, tone: 'success' | 'error', text: string) =>
+      page.locator(`.toast[data-tone="${tone}"]`, { hasText: text });
+
+    // A finding is a section of the page and not a row, so it is found by what it
+    // is about. The class and not the role: while a dialog is open the page
+    // behind it is hidden from the accessibility tree, and a query by role would
+    // find nothing whether or not the finding was still there.
+    const article = (page: Page, finding: Finding) =>
+      page.locator('article.finding', { hasText: finding.title });
+
+    test('a finding is waived with a reason, listed under Waived, and ended again', async ({
+      page,
+    }) => {
+      const { id, finding } = await target(page);
+      try {
+        const before = await detail(page, id);
+        await goto(page, `/kennel/repositories/${id}`, PUBLIC_REPO);
+        await page.getByRole('button', { name: `Waive: ${finding.title}` }).click();
+
+        const dialog = page.getByRole('dialog', { name: 'Waive this finding' });
+        await expect(dialog).toContainText(finding.title);
+        const waive = dialog.getByRole('button', { name: 'Waive', exact: true });
+        const reason = dialog.getByRole('textbox', { name: /Why this is acceptable here/ });
+
+        // The rule is said before it is broken, and ten spaces are not ten
+        // characters of reason.
+        await expect(waive).toBeDisabled();
+        await reason.fill('too short');
+        await expect(dialog).toContainText('At least 10 characters');
+        await expect(waive).toBeDisabled();
+        await reason.fill(' '.repeat(12));
+        await expect(waive).toBeDisabled();
+
+        // Whatever the screen, the form fits in it.
+        await auditThePage(page, 'the waive dialog');
+        const box = await dialog.boundingBox();
+        const viewport = page.viewportSize();
+        expect(box, 'the dialog is drawn').toBeTruthy();
+        expect(box!.x).toBeGreaterThanOrEqual(0);
+        expect(box!.x + box!.width).toBeLessThanOrEqual(viewport!.width);
+
+        const why = 'The pool is rebuilt from a clean image every night, and this is a docs site.';
+        await reason.fill(why);
+        await expect(dialog).toContainText('of 500 characters');
+        await dialog.getByLabel('Waive for').selectOption({ label: '30 days' });
+        await expect(waive).toBeEnabled();
+        const asked = Date.now();
+        await waive.click();
+
+        await expect(toast(page, 'success', 'Finding waived')).toBeVisible();
+        await expect(dialog).toBeHidden();
+
+        // It is no longer open, and it is not gone: it is listed with who, why and
+        // until when.
+        await expect(article(page, finding)).toHaveCount(0);
+        const waived = page.locator('details.waived');
+        await expect(waived).toContainText(finding.title);
+        await expect(waived).toContainText(why);
+        await expect(waived).toContainText('Waived by');
+
+        const after = await detail(page, id);
+        expect(after.counts.error, 'one fewer error is open').toBe(before.counts.error - 1);
+        expect(after.waived).toHaveLength(1);
+        const days = (Date.parse(after.waived[0]!.waiver.expires_at) - asked) / 86_400_000;
+        expect(days, 'the waiver runs for the 30 days that were chosen').toBeGreaterThan(29.9);
+        expect(days).toBeLessThan(30.1);
+
+        // Ending it asks first, says what happens, and puts the finding back.
+        await page.getByRole('button', { name: `End the waiver: ${finding.title}` }).click();
+        const confirm = page.getByRole('dialog', { name: 'End waiver' });
+        await expect(confirm).toContainText('open again straight away');
+        await confirm.getByRole('button', { name: 'End waiver', exact: true }).click();
+        await expect(toast(page, 'success', 'Waiver ended')).toBeVisible();
+        await expect(article(page, finding)).toBeVisible();
+        expect((await detail(page, id)).waived).toHaveLength(0);
+      } finally {
+        await endWaivers(page, id);
+      }
+    });
+
+    test('a finding that stops being open while the form is open is said so', async ({ page }) => {
+      const { id, finding } = await target(page);
+      try {
+        await goto(page, `/kennel/repositories/${id}`, PUBLIC_REPO);
+        await page.getByRole('button', { name: `Waive: ${finding.title}` }).click();
+        const dialog = page.getByRole('dialog', { name: 'Waive this finding' });
+        await dialog
+          .getByRole('textbox', { name: /Why this is acceptable here/ })
+          .fill('Decided before the check was turned off, and typed slowly.');
+
+        // The check is turned off in Settings while the form is open, so the
+        // finding the form is about is not there any more.
+        await patchSettings(page, { 'kennel.disabled_checks': [WEAK_POOL] });
+        await expect(article(page, finding)).toHaveCount(0);
+
+        await dialog.getByRole('button', { name: 'Waive', exact: true }).click();
+        // The controller's own sentence, and the form stays for the person to read it.
+        await expect(dialog.getByRole('alert')).toContainText('matches no open finding');
+        await expect(dialog).toBeVisible();
+        expect((await detail(page, id)).waived, 'nothing was waived').toHaveLength(0);
+      } finally {
+        await patchSettings(page, { 'kennel.disabled_checks': [] });
+        await endWaivers(page, id);
+      }
+    });
+
+    test('what the controller says is wrong sits beside the field it is about', async ({
+      page,
+    }) => {
+      const { id, finding } = await target(page);
+      // The form will not send a reason that is too short, so the controller's
+      // field answers are handed back by the test, in the shape its 422 has.
+      await page.route(`**/api/v1/kennel/repositories/${id}/waivers`, (route) =>
+        route.fulfill({
+          status: 422,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            error: { code: 'invalid', message: 'the waiver was refused' },
+            errors: [
+              {
+                field: 'reason',
+                message: 'may not contain control or direction-changing characters',
+              },
+              { field: 'expires_at', message: 'must be in the future' },
+            ],
+          }),
+        }),
+      );
+      await goto(page, `/kennel/repositories/${id}`, PUBLIC_REPO);
+      await page.getByRole('button', { name: `Waive: ${finding.title}` }).click();
+      const dialog = page.getByRole('dialog', { name: 'Waive this finding' });
+      await dialog
+        .getByRole('textbox', { name: /Why this is acceptable here/ })
+        .fill('A reason that is long enough to be sent.');
+      await dialog.getByRole('button', { name: 'Waive', exact: true }).click();
+
+      await expect(
+        dialog.getByRole('textbox', { name: /Why this is acceptable here/ }),
+      ).toHaveAccessibleDescription(/may not contain control or direction-changing characters/);
+      await expect(dialog.getByLabel('Waive for')).toHaveAccessibleDescription(
+        /must be in the future/,
+      );
+      await expect(dialog).toBeVisible();
+      // A refusal that is about the fields is not also a toast.
+      await expect(page.locator('.toast')).toHaveCount(0);
+    });
+
+    test('a refusal about the person and not a field is said as a sentence', async ({ page }) => {
+      const { id, finding } = await target(page);
+      await page.route(`**/api/v1/kennel/repositories/${id}/waivers`, (route) =>
+        route.fulfill({
+          status: 403,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            error: {
+              code: 'forbidden',
+              message: 'waiving an error needs the admin role, and you are an operator',
+            },
+          }),
+        }),
+      );
+      await goto(page, `/kennel/repositories/${id}`, PUBLIC_REPO);
+      await page.getByRole('button', { name: `Waive: ${finding.title}` }).click();
+      const dialog = page.getByRole('dialog', { name: 'Waive this finding' });
+      await dialog
+        .getByRole('textbox', { name: /Why this is acceptable here/ })
+        .fill('A reason that is long enough to be sent.');
+      await dialog.getByRole('button', { name: 'Waive', exact: true }).click();
+
+      await expect(toast(page, 'error', 'waiving an error needs the admin role')).toBeVisible();
+      await expect(dialog).toBeVisible();
+    });
+
+    test('an operator may waive a warning and is told an error is an administrator’s', async ({
+      page,
+    }) => {
+      const { id } = await target(page);
+      const real = await detail(page, id);
+      const error = real.findings.find((f) => f.severity === 'error') as Finding;
+      const warning: Finding = {
+        code: 'capacity.unserved_label',
+        severity: 'warning',
+        subject: '',
+        title: 'Jobs waited for a label no pool serves',
+      };
+      const done: Finding = {
+        code: 'capacity.job_hit_default_limit',
+        severity: 'warning',
+        subject: '',
+        title: 'A job ran until GitHub stopped it at six hours',
+      };
+      const full = (f: Finding) => ({ ...f, detail: 'Detail.', fix: 'Fix.', evidence: [] });
+      await page.route(`**/api/v1/kennel/repositories/${id}`, async (route) => {
+        const response = await route.fetch();
+        const body = (await response.json()) as Record<string, unknown> & { findings: unknown[] };
+        body.findings = [...body.findings, full(warning)];
+        body.waived = [
+          {
+            finding: full(done),
+            waiver: {
+              id: 'kcw_pretend01',
+              code: done.code,
+              subject: '',
+              severity: 'warning',
+              reason: 'A nightly export that is meant to take hours.',
+              by: 'somebody else',
+              at: new Date().toISOString(),
+              expires_at: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+            },
+          },
+        ];
+        return route.fulfill({ response, json: body });
+      });
+      // The fixture controller has authentication off, so everybody there is an
+      // administrator. The page is told who it is talking to, and asks no
+      // different questions of the controller.
+      const actAs = async (role: 'viewer' | 'operator') => {
+        await page.route('**/api/v1/meta', async (route) => {
+          const response = await route.fetch();
+          const body = (await response.json()) as Record<string, unknown>;
+          return route.fulfill({
+            response,
+            json: { ...body, auth_disabled: false, bootstrap_required: false },
+          });
+        });
+        await page.route('**/api/v1/auth/session', (route) =>
+          route.fulfill({ json: { kind: 'token', id: 'tok_pretend', name: 'a token', role } }),
+        );
+      };
+
+      await actAs('operator');
+      await goto(page, `/kennel/repositories/${id}`, PUBLIC_REPO);
+      await expect(page.getByRole('button', { name: `Waive: ${warning.title}` })).toBeVisible();
+      await expect(page.getByRole('button', { name: `Waive: ${error.title}` })).toHaveCount(0);
+      await expect(article(page, error)).toContainText('Only an administrator can waive an error');
+      await expect(article(page, warning)).not.toContainText('Only an administrator');
+      // Any operator may end any waiver: ending one only makes Kennel Club stricter.
+      await expect(
+        page.getByRole('button', { name: `End the waiver: ${done.title}` }),
+      ).toBeVisible();
+
+      await page.unroute('**/api/v1/auth/session');
+      await page.route('**/api/v1/auth/session', (route) =>
+        route.fulfill({
+          json: { kind: 'token', id: 'tok_pretend', name: 'a token', role: 'viewer' },
+        }),
+      );
+      await page.reload();
+      await expect(page.getByRole('heading', { level: 1, name: PUBLIC_REPO })).toBeVisible();
+      await expect(article(page, warning)).toBeVisible();
+      // A viewer is offered nothing, and is not told about a rule that is not theirs.
+      await expect(page.getByRole('button', { name: /^Waive/ })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: /^End the waiver/ })).toHaveCount(0);
+      await expect(page.getByText('Only an administrator')).toHaveCount(0);
+    });
+
+    test('a reason somebody typed is shown as text and never run', async ({ page }) => {
+      const { id, finding } = await target(page);
+      const reason =
+        '<img src=x onerror=alert(1)> <b>bold</b> because the docs site has no secrets';
+      const dialogs: string[] = [];
+      page.on('dialog', (dialog) => {
+        dialogs.push(dialog.message());
+        void dialog.dismiss();
+      });
+      try {
+        await goto(page, `/kennel/repositories/${id}`, PUBLIC_REPO);
+        await page.getByRole('button', { name: `Waive: ${finding.title}` }).click();
+        const form = page.getByRole('dialog', { name: 'Waive this finding' });
+        await form.getByRole('textbox', { name: /Why this is acceptable here/ }).fill(reason);
+        await form.getByRole('button', { name: 'Waive', exact: true }).click();
+        await expect(toast(page, 'success', 'Finding waived')).toBeVisible();
+
+        const waived = page.locator('details.waived');
+        await expect(waived.getByText(reason, { exact: true })).toBeVisible();
+        await expect(page.locator('img[src="x"]'), 'a reason made an image').toHaveCount(0);
+        await expect(waived.locator('b'), 'a reason made markup').toHaveCount(0);
+        expect(dialogs, 'nothing a person typed ran').toEqual([]);
+      } finally {
+        await endWaivers(page, id);
+      }
+    });
+
+    test('cancelling leaves nothing waived, and the form opens empty again', async ({ page }) => {
+      const { id, finding } = await target(page);
+      await goto(page, `/kennel/repositories/${id}`, PUBLIC_REPO);
+      const open = () => page.getByRole('button', { name: `Waive: ${finding.title}` }).click();
+      const dialog = page.getByRole('dialog', { name: 'Waive this finding' });
+      const reason = dialog.getByRole('textbox', { name: /Why this is acceptable here/ });
+
+      await open();
+      await reason.fill('Half of a decision, abandoned.');
+      await page.keyboard.press('Escape');
+      await expect(dialog).toBeHidden();
+      await open();
+      await expect(reason, 'the last form’s reason was not kept').toHaveValue('');
+      await dialog.getByRole('button', { name: 'Cancel' }).click();
+      await expect(dialog).toBeHidden();
+      expect((await detail(page, id)).waived).toHaveLength(0);
+      await expect(article(page, finding)).toBeVisible();
+    });
+
+    test('a waiver somebody else already ended is said so', async ({ page }) => {
+      const { id, finding } = await target(page);
+      try {
+        const made = await page.request.put(`/api/v1/kennel/repositories/${id}/waivers`, {
+          data: {
+            code: finding.code,
+            subject: finding.subject,
+            reason: 'Made through the API, to be ended under the page.',
+            expires_at: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+          },
+        });
+        expect(made.ok(), 'the waiver was made').toBeTruthy();
+        const waiver = (await detail(page, id)).waived[0]!.waiver;
+
+        await goto(page, `/kennel/repositories/${id}`, PUBLIC_REPO);
+        await page.getByRole('button', { name: `End the waiver: ${finding.title}` }).click();
+        const confirm = page.getByRole('dialog', { name: 'End waiver' });
+        // A colleague ends it first.
+        const ended = await page.request.delete(
+          `/api/v1/kennel/repositories/${id}/waivers/${waiver.id}`,
+        );
+        expect(ended.ok()).toBeTruthy();
+
+        await confirm.getByRole('button', { name: 'End waiver', exact: true }).click();
+        await expect(toast(page, 'error', 'That waiver was not ended')).toBeVisible();
+        // The confirmation stays, so the person reads why instead of wondering.
+        await expect(confirm).toBeVisible();
+      } finally {
+        await endWaivers(page, id);
+      }
+    });
+  });
 });

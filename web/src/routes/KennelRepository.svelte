@@ -9,12 +9,17 @@
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { RotateCw, Trophy } from '@lucide/svelte';
-  import { getKennelRepository, recheckKennelRepository } from '$lib/api/client';
+  import { RotateCw, ShieldCheck, Trophy, Undo2 } from '@lucide/svelte';
+  import {
+    getKennelRepository,
+    recheckKennelRepository,
+    unwaiveKennelFinding,
+  } from '$lib/api/client';
   import { events } from '$lib/api/sse';
-  import type { KennelRepository } from '$lib/api/types';
+  import type { KennelFinding, KennelRepository, KennelWaived } from '$lib/api/types';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
+  import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import ErrorState from '$lib/components/ErrorState.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
@@ -22,7 +27,13 @@
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import Finding from '$lib/kennel/Finding.svelte';
-  import { openFindingsText, worstSeverity } from '$lib/kennel/words';
+  import WaiveDialog from '$lib/kennel/WaiveDialog.svelte';
+  import {
+    ERROR_WAIVER_SENTENCE,
+    openFindingsText,
+    waiverRole,
+    worstSeverity,
+  } from '$lib/kennel/words';
   import { formatAbsolute } from '$lib/format';
   import { router } from '$lib/router';
   import { fleet } from '$lib/state/fleet.svelte';
@@ -115,6 +126,37 @@
     }
   }
 
+  /* -- waiving and ending a waiver --------------------------------------------- */
+
+  let waiveOpen = $state(false);
+  let waiving = $state<KennelFinding | null>(null);
+
+  function startWaive(finding: KennelFinding): void {
+    waiving = finding;
+    waiveOpen = true;
+  }
+
+  let endOpen = $state(false);
+  let ending = $state<KennelWaived | null>(null);
+
+  function startEnd(entry: KennelWaived): void {
+    ending = entry;
+    endOpen = true;
+  }
+
+  async function endWaiver(): Promise<boolean> {
+    const entry = ending;
+    if (!repo || !entry) return false;
+    try {
+      repo = await unwaiveKennelFinding(repo.id, entry.waiver.id);
+      toasts.success('Waiver ended', 'The finding is open again.');
+      return true;
+    } catch (cause) {
+      toasts.fromError(cause, 'That waiver was not ended');
+      return false;
+    }
+  }
+
   /* -- what to say ------------------------------------------------------------- */
 
   const status = $derived(
@@ -198,7 +240,25 @@
       </h2>
       {#if repo.findings.length > 0}
         {#each repo.findings as finding (finding.code + '\u0000' + finding.subject)}
-          <Finding {finding} />
+          <Finding {finding}>
+            {#snippet actions()}
+              {#if session.can('operator')}
+                {#if session.can(waiverRole(finding.severity))}
+                  <Button
+                    size="sm"
+                    icon={ShieldCheck}
+                    ariaLabel="Waive: {finding.title}"
+                    onclick={() => startWaive(finding)}
+                  >
+                    Waive
+                  </Button>
+                {:else}
+                  <!-- Said, not hidden or greyed: a sentence reads on a phone and to a screen reader. -->
+                  <span class="refusal">{ERROR_WAIVER_SENTENCE}</span>
+                {/if}
+              {/if}
+            {/snippet}
+          </Finding>
         {/each}
       {:else if repo.state === 'pending'}
         <EmptyState
@@ -276,6 +336,19 @@
               <RelativeTime value={entry.waiver.at} plain />, until
               {formatAbsolute(entry.waiver.expires_at)}.
             </p>
+            <!-- Any operator may end any waiver: ending one only makes Kennel Club stricter. -->
+            {#if session.can('operator')}
+              <div class="end">
+                <Button
+                  size="sm"
+                  icon={Undo2}
+                  ariaLabel="End the waiver: {entry.finding.title}"
+                  onclick={() => startEnd(entry)}
+                >
+                  End waiver
+                </Button>
+              </div>
+            {/if}
           </div>
         {/each}
         {#each repo.lapsed as waiver (waiver.id)}
@@ -288,6 +361,27 @@
         {/each}
       </details>
     {/if}
+
+    <WaiveDialog
+      bind:open={waiveOpen}
+      repositoryId={repo.id}
+      finding={waiving}
+      onwaived={(next) => (repo = next)}
+    />
+
+    <ConfirmDialog
+      bind:open={endOpen}
+      title="End waiver"
+      name={ending?.finding.title}
+      description="The finding is open again straight away."
+      consequences={[
+        'It counts against this repository again.',
+        'To waive it again, somebody will have to give a reason.',
+      ]}
+      confirmLabel="End waiver"
+      tone="default"
+      onconfirm={endWaiver}
+    />
 
     <p class="next">
       {#if repo.next_due_at}
@@ -424,6 +518,13 @@
   .by {
     color: var(--z-text-muted);
     font-size: var(--z-text-xs);
+  }
+  .end {
+    margin-top: var(--z-space-1);
+  }
+  .refusal {
+    font-size: var(--z-text-xs);
+    color: var(--z-text-muted);
   }
   .next {
     margin: 0;
