@@ -913,6 +913,18 @@ the feature off:
    tab's setup button opens the wizard on the repository's installation and not on
    the repository, because the wizard takes an installation and not a repository to
    preselect; that is a change to the wizard, not to the tab.
+   **(i)** A switch on the list, **Active on Zoomies**, asked for on 7 October, that
+   leaves out the repositories the fleet is not serving. Taken with the owner by
+   question: active is a job the fleet had a hand in within Kennel Club's window
+   (thirty days, or its job retention if shorter); it applies to the list only, so
+   the Overview, its cards and the problem still cover every repository; and it is
+   each person's own, remembered in their browser, on by default. It is asked of the
+   jobs table, as the loop asks which repositories to look at, and not of a row's
+   `last_served_at`, which is only when a pass last saw the repository in that list
+   and under the installation scope is every pass for every repository. It adds a
+   filter, `active`, to `GET /kennel/repositories` and no migration. The MCP tools
+   do not take it. A link that counts every repository carries `active=all`, so it
+   opens on as many rows as its number.
    **(e)** The Track switch: migration `0081`, API, UI, MCP and the counts
    ([0006](decisions/0006-kennel-club-tracks-repositories-one-at-a-time.md)).
    **(f)** A side menu for the section and an on/off switch in it, asked for after

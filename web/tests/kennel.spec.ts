@@ -362,6 +362,10 @@ test.describe('with Kennel Club on', () => {
     await expect(rows.filter({ hasText: PUBLIC_REPO })).toHaveCount(0);
 
     await goto(page, '/kennel/repositories?code=exposure.fork_code_ran', 'Repositories');
+    // The list shows the repositories being served unless told otherwise, and says
+    // that is what it looked among; asked for every repository, it says that.
+    await expect(page.getByText('No active repositories match those filters')).toBeVisible();
+    await goto(page, '/kennel/repositories?code=exposure.fork_code_ran&active=all', 'Repositories');
     await expect(page.getByText('No repositories match those filters')).toBeVisible();
     await page.getByRole('button', { name: 'Clear filters' }).click();
     await expect(rows).toHaveCount(3);
@@ -571,7 +575,8 @@ test.describe('with Kennel Club on', () => {
     for (const name of FIXTURE.repos) await expect(entries).not.toContainText(name);
 
     await entries.getByRole('link', { name: 'Open Kennel Club' }).click();
-    await expect(page).toHaveURL(/\/kennel\/repositories\?severity=error$/);
+    // It counts every repository, so the list it opens shows every one.
+    await expect(page).toHaveURL(/\/kennel\/repositories\?severity=error&active=all$/);
     await expect(page.getByRole('heading', { level: 1, name: 'Repositories' })).toBeVisible();
     await expect(page.getByRole('link', { name: PUBLIC_REPO })).toBeVisible();
   });
@@ -2037,14 +2042,18 @@ test.describe('the cards on the Overview', () => {
 
     const rows = dataRows(grid(page, 'Repositories'));
     for (const [label, href, expected] of [
-      ['Repositories', '/kennel/repositories', counted.repositories],
+      ['Repositories', '/kennel/repositories?active=all', counted.repositories],
       // Named for the standing, which the preference for playful wording changes.
       [
         'No open findings|Best in show',
-        '/kennel/repositories?state=best_in_show',
+        '/kennel/repositories?state=best_in_show&active=all',
         counted.states.best_in_show,
       ],
-      ['Need attention', '/kennel/repositories?state=attention', counted.states.attention],
+      [
+        'Need attention',
+        '/kennel/repositories?state=attention&active=all',
+        counted.states.attention,
+      ],
     ] as const) {
       await goto(page, '/kennel', 'Kennel Club');
       await expect(card(page, label), label).toHaveAttribute('href', href);
@@ -2058,14 +2067,14 @@ test.describe('the cards on the Overview', () => {
     // the rows are the ones with an error open and not as many as the number.
     await goto(page, '/kennel', 'Kennel Club');
     await card(page, 'Errors').click();
-    await expect(page).toHaveURL(/\/kennel\/repositories\?severity=error$/);
+    await expect(page).toHaveURL(/\/kennel\/repositories\?severity=error&active=all$/);
     await expect(rows.first()).toContainText(PUBLIC_REPO);
     await expect(page.getByRole('button', { name: /Remove.*Severity/i })).toBeVisible();
 
     // The panel under the cards opens the same list as its card.
     await goto(page, '/kennel', 'Kennel Club');
     await page.getByRole('link', { name: 'See all', exact: true }).click();
-    await expect(page).toHaveURL(/\/kennel\/repositories\?state=attention$/);
+    await expect(page).toHaveURL(/\/kennel\/repositories\?state=attention&active=all$/);
     await expect(rows, 'See all opens as many rows as Need attention counts').toHaveCount(
       counted.states.attention,
     );
@@ -2082,10 +2091,10 @@ test.describe('the cards on the Overview', () => {
     // One count at a time is something, and every other is nothing, so a card
     // judged by another card's count, or by none, is the one that shows.
     const counted = [
-      ['No open findings|Best in show', '/kennel/repositories?state=best_in_show'],
-      ['Need attention', '/kennel/repositories?state=attention'],
-      ['Errors', '/kennel/repositories?severity=error'],
-      ['Warnings', '/kennel/repositories?severity=warning'],
+      ['No open findings|Best in show', '/kennel/repositories?state=best_in_show&active=all'],
+      ['Need attention', '/kennel/repositories?state=attention&active=all'],
+      ['Errors', '/kennel/repositories?severity=error&active=all'],
+      ['Warnings', '/kennel/repositories?severity=warning&active=all'],
     ] as const;
     let alone = 0;
     await page.route('**/api/v1/kennel', async (route) => {
@@ -2113,7 +2122,10 @@ test.describe('the cards on the Overview', () => {
       alone = only;
       await goto(page, '/kennel', 'Kennel Club');
       // The card that always links, which is also how the page is known to be read.
-      await expect(card(page, 'Repositories')).toHaveAttribute('href', '/kennel/repositories');
+      await expect(card(page, 'Repositories')).toHaveAttribute(
+        'href',
+        '/kennel/repositories?active=all',
+      );
       for (const [n, [label, href]] of counted.entries()) {
         const where = `${label}, when only ${alonelabel} counts something`;
         if (n === only) await expect(card(page, label), where).toHaveAttribute('href', href);
@@ -2143,7 +2155,7 @@ test.describe('the cards on the Overview', () => {
     await expect(box).toBeInViewport({ ratio: 1 });
     // Its far corner is nowhere near the label, and still opens the list.
     await box.click({ position: { x: size.width - 6, y: size.height - 6 } });
-    await expect(page).toHaveURL(/\/kennel\/repositories\?state=attention$/);
+    await expect(page).toHaveURL(/\/kennel\/repositories\?state=attention&active=all$/);
     await auditThePage(page, 'the list from a card');
   });
 });
@@ -2678,5 +2690,227 @@ test.describe('the AI Context tab on a repository', () => {
     const ids = asked.map((p) => p.get('repository_id'));
     expect(new Set(ids).size, 'each repository was asked about by its own ID').toBe(2);
     await expectNoReload(page);
+  });
+});
+
+/* -- the list of repositories, and which of them it shows ------------------------- */
+
+// Kennel Club keeps a row for a repository for a quarter after its last job, and
+// under the installation scope for every one the App can see, so the list shows
+// only the repositories the fleet is serving unless a person says otherwise. The
+// choice is theirs and stays in their browser. The fixture has no repository that
+// is not being served, so the totals the page is told are the ones a fleet with
+// quiet repositories would give, and what is checked is what the page asks and says.
+test.describe('the list of repositories shows the ones being served', () => {
+  const off = { 'kennel.enabled': false };
+  const everyone = (page: Page) => page.getByRole('switch', { name: 'Active on Zoomies' });
+  const scope = (page: Page) => page.locator('#main p.scope');
+
+  /** What the page asked of the list, in order. */
+  function listened(page: Page): URLSearchParams[] {
+    const asked: URLSearchParams[] = [];
+    page.on('request', (request) => {
+      const url = new URL(request.url());
+      if (url.pathname === '/api/v1/kennel/repositories') asked.push(url.searchParams);
+    });
+    return asked;
+  }
+
+  /**
+   * The totals of a fleet with quiet repositories: the served ones are all but
+   * `quiet` of the real rows, and `quiet` is how many have no recent job.
+   */
+  async function fleetWithQuietOnes(page: Page, quiet: number): Promise<void> {
+    await page.route('**/api/v1/kennel/repositories?*', async (route) => {
+      const params = new URL(route.request().url()).searchParams;
+      const response = await route.fetch();
+      const body = (await response.json()) as { items?: unknown[]; total: number };
+      // Anything that is not a list -- an answer that Kennel Club is off, once a test
+      // has finished with it -- is passed on as it came.
+      if (!Array.isArray(body.items)) return route.fulfill({ response, json: body });
+      if (params.get('active') === 'false')
+        return route.fulfill({ response, json: { ...body, items: [], total: quiet } });
+      if (params.get('active') === 'true') {
+        const served = body.items.slice(0, Math.max(0, body.items.length - 1));
+        return route.fulfill({ response, json: { ...body, items: served, total: served.length } });
+      }
+      return route.fulfill({ response });
+    });
+  }
+
+  test.beforeEach(async ({ page }) => {
+    await patchSettings(page, { 'kennel.enabled': true });
+    await untilRead(page);
+  });
+  test.afterEach(async ({ page }) => patchSettings(page, off));
+
+  test('it lists the repositories being served by default, and says what it leaves out', async ({
+    page,
+  }) => {
+    await fleetWithQuietOnes(page, 4);
+    const asked = listened(page);
+    await goto(page, '/kennel/repositories', 'Repositories');
+    await expect(everyone(page)).toHaveAttribute('aria-checked', 'true');
+    await expect(scope(page)).toContainText('Showing repositories with a job in the last 30 days');
+    await expect(scope(page)).toContainText('4 more repositories have no recent job.');
+    await expect
+      .poll(() => asked.some((p) => p.get('active') === 'true'), {
+        message: 'the rows were asked for as active',
+      })
+      .toBe(true);
+    // The count of what is left out is the same question, asked of the rest.
+    const left = asked.find((p) => p.get('active') === 'false');
+    expect(left, 'the hidden ones were counted').toBeTruthy();
+    expect(left!.get('limit')).toBe('1');
+    await auditThePage(page, 'the list, scoped');
+  });
+
+  test('a person who wants every repository says so, and it is remembered', async ({ page }) => {
+    await fleetWithQuietOnes(page, 4);
+    await goto(page, '/kennel/repositories', 'Repositories');
+    // Settled: the served rows are in and the page has counted what it leaves out.
+    const rows = dataRows(grid(page, 'Repositories'));
+    await expect(rows).toHaveCount(2);
+    await expect(scope(page)).toContainText('4 more repositories have no recent job.');
+    const asked = listened(page);
+
+    await everyone(page).click();
+    await expect(everyone(page)).toHaveAttribute('aria-checked', 'false');
+    await expect(scope(page)).toContainText('Showing every repository Kennel Club has a row for');
+    await expect(scope(page)).not.toContainText('no recent job');
+    // The rows are the other one as well, which is the point.
+    await expect(rows).toHaveCount(3);
+    // From the request that asked for every repository on, nothing asks for a scope.
+    const unscoped = asked.findIndex((p) => p.get('active') === null && p.has('sort'));
+    expect(unscoped, 'the list was asked again with no scope').toBeGreaterThanOrEqual(0);
+    expect(
+      asked.slice(unscoped).every((p) => p.get('active') === null),
+      'nothing counts what is left out when nothing is',
+    ).toBe(true);
+
+    // Their browser remembers it.
+    await page.reload();
+    await expect(page.getByRole('heading', { level: 1, name: 'Repositories' })).toBeVisible();
+    await expect(everyone(page)).toHaveAttribute('aria-checked', 'false');
+    await everyone(page).click();
+    await expect(everyone(page)).toHaveAttribute('aria-checked', 'true');
+    await page.reload();
+    await expect(everyone(page)).toHaveAttribute('aria-checked', 'true');
+  });
+
+  test('"Show them" looks at every repository once, and does not change what is remembered', async ({
+    page,
+  }) => {
+    await fleetWithQuietOnes(page, 2);
+    await goto(page, '/kennel/repositories', 'Repositories');
+    await page.getByRole('button', { name: 'Show them' }).click();
+    await expect(page).toHaveURL(/\/kennel\/repositories\?active=all$/);
+    await expect(everyone(page)).toHaveAttribute('aria-checked', 'false');
+    await expect(scope(page)).toContainText('Showing every repository');
+    // The next visit, with no address to say otherwise, is the person's own choice.
+    await goto(page, '/kennel/repositories', 'Repositories');
+    await expect(everyone(page)).toHaveAttribute('aria-checked', 'true');
+  });
+
+  test('an address that says every repository wins, and turning the switch on lets go of it', async ({
+    page,
+  }) => {
+    await fleetWithQuietOnes(page, 2);
+    const asked = listened(page);
+    await goto(page, '/kennel/repositories?active=all', 'Repositories');
+    await expect(everyone(page)).toHaveAttribute('aria-checked', 'false');
+    expect(asked.every((p) => p.get('active') === null)).toBe(true);
+    await everyone(page).click();
+    await expect(everyone(page)).toHaveAttribute('aria-checked', 'true');
+    await expect(page).toHaveURL(/\/kennel\/repositories$/);
+    await expect.poll(() => asked.some((p) => p.get('active') === 'true')).toBe(true);
+  });
+
+  test('when nothing is being served it says so, and where the quiet ones are', async ({
+    page,
+  }) => {
+    await page.route('**/api/v1/kennel/repositories?*', async (route) => {
+      const params = new URL(route.request().url()).searchParams;
+      const response = await route.fetch();
+      const body = (await response.json()) as { items?: unknown[]; total: number };
+      if (!Array.isArray(body.items)) return route.fulfill({ response, json: body });
+      return route.fulfill({
+        response,
+        json:
+          params.get('active') === 'true'
+            ? { ...body, items: [], total: 0 }
+            : params.get('active') === 'false'
+              ? { ...body, items: [], total: 3 }
+              : body,
+      });
+    });
+    await goto(page, '/kennel/repositories', 'Repositories');
+    await expect(page.getByText('No repository has had a job lately')).toBeVisible();
+    await expect(
+      page.getByText('3 without a job in the last 30 days are not shown.'),
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'Show them' }).last().click();
+    await expect(page).toHaveURL(/active=all$/);
+    await expect(page.getByRole('link', { name: PUBLIC_REPO })).toBeVisible();
+
+    // A filter that finds no served repository says the others are not shown, too.
+    await goto(page, '/kennel/repositories?severity=error', 'Repositories');
+    await expect(page.getByText('No active repositories match those filters')).toBeVisible();
+  });
+
+  test('a fleet with every repository being served loses nothing and has nothing to say', async ({
+    page,
+  }) => {
+    // The real API, no mock: every repository the fixture has was served a moment ago.
+    const total = (await overview(page)).repositories;
+    const served = (await page.request
+      .get('/api/v1/kennel/repositories?active=true&limit=1')
+      .then((r) => r.json())) as { total: number };
+    const idle = (await page.request
+      .get('/api/v1/kennel/repositories?active=false&limit=1')
+      .then((r) => r.json())) as { total: number };
+    expect(served.total, 'every repository is being served').toBe(total);
+    expect(idle.total, 'none is not').toBe(0);
+
+    await goto(page, '/kennel/repositories', 'Repositories');
+    await expect(dataRows(grid(page, 'Repositories'))).toHaveCount(total);
+    await expect(scope(page)).toContainText('Showing repositories with a job in the last 30 days');
+    await expect(scope(page)).not.toContainText('no recent job');
+  });
+
+  // The Overview's counts and the problem in the drawer cover every repository, so
+  // the list they open must too, or it would open on fewer rows than the number it
+  // came from. The fixture cannot show fewer rows, so what is checked is the request.
+  test('a link that counts every repository asks the list for every repository', async ({
+    page,
+  }) => {
+    const asked = listened(page);
+    await goto(page, '/kennel', 'Kennel Club');
+    await page.getByRole('link', { name: /^Need attention: / }).click();
+    await expect(page).toHaveURL(/\/kennel\/repositories\?state=attention&active=all$/);
+    await expect(everyone(page)).toHaveAttribute('aria-checked', 'false');
+    await expect.poll(() => asked.length).toBeGreaterThan(0);
+    expect(
+      asked.every((p) => p.get('active') === null),
+      'no scope was asked for',
+    ).toBe(true);
+  });
+
+  test('on a phone the switch is in view beside the filters, and nothing scrolls sideways', async ({
+    page,
+    isMobile,
+  }) => {
+    test.skip(!isMobile, 'the phone project checks the narrow widths');
+    await fleetWithQuietOnes(page, 4);
+    for (const width of [320, 360, 412]) {
+      await page.setViewportSize({ width, height: 780 });
+      await goto(page, '/kennel/repositories', 'Repositories');
+      await expect(everyone(page), `the switch at ${width}px`).toBeInViewport({ ratio: 1 });
+      await expect(scope(page), `the sentence at ${width}px`).toBeInViewport({ ratio: 1 });
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+        `the page does not scroll sideways at ${width}px`,
+      ).toBe(true);
+    }
   });
 });

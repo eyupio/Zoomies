@@ -53,6 +53,12 @@ export const KENNEL_PAGES: readonly KennelPage[] = KENNEL_GROUPS.flatMap((group)
 export interface KennelListFilter {
   state?: string;
   severity?: string;
+  /**
+   * List every repository, not only the ones being served. The list leaves the
+   * others out unless told, so a link that counts every repository has to say so, or
+   * it opens on fewer rows than the number it came from.
+   */
+  everything?: boolean;
 }
 
 /**
@@ -66,6 +72,7 @@ export function kennelListHref(filter: KennelListFilter = {}): string {
   const query = new URLSearchParams();
   if (filter.state) query.set('state', filter.state);
   if (filter.severity) query.set('severity', filter.severity);
+  if (filter.everything) query.set('active', 'all');
   const text = query.toString();
   return text ? `${base}?${text}` : base;
 }

@@ -134,7 +134,7 @@
   // checked" adds two standings and the list filters by one, and the list has no
   // waiver filter to open "Waived" on.
   const opens = (count: number, filter?: KennelListFilter) =>
-    count > 0 ? { href: kennelListHref(filter) } : {};
+    count > 0 ? { href: kennelListHref({ ...filter, everything: true }) } : {};
 
   const metrics = $derived.by(() => {
     if (!overview) return [];
@@ -313,7 +313,7 @@
             flush
           >
             {#snippet actions()}
-              <a href={kennelListHref({ state: 'attention' })}>See all</a>
+              <a href={kennelListHref({ state: 'attention', everything: true })}>See all</a>
             {/snippet}
             {#if overview.attention.length === 0}
               <EmptyState
