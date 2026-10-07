@@ -353,6 +353,7 @@ export type KennelFinding = Schemas['KennelFinding'];
 export type KennelEvidence = Schemas['KennelEvidence'];
 export type KennelWaived = Schemas['KennelWaived'];
 export type KennelWaiver = Schemas['KennelWaiver'];
+export type KennelWaiverInput = Schemas['KennelWaiverInput'];
 export type KennelCoverage = Schemas['KennelCoverage'];
 export type KennelCounts = Schemas['KennelCounts'];
 export type KennelState = Schemas['KennelState'];
