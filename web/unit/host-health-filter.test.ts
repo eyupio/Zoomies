@@ -135,11 +135,11 @@ test('a host whose agent is not connected is stale, even with a fresh report', (
   assert.equal(healthBucket(host(fresh), now), 'attention');
 });
 
-// Its pill is the neutral "Reboot pending · stale", not the amber one, so the
+// Its pill is the neutral "Report stale", not the amber one, so the
 // chip that says "Need attention" must not hold it.
 test('a stale host that is also waiting for a reboot is stale, not attention', () => {
   const waiting = report(ok, { reboot: true, age: 4 * MINUTE });
-  assert.equal(healthSummary(waiting, now).label, 'Reboot pending · stale');
+  assert.equal(healthSummary(waiting, now).label, 'Report stale');
   assert.equal(healthBucket(connected(waiting), now), 'stale');
 });
 

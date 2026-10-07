@@ -14,9 +14,9 @@
  *    clean report, a partial report or "Checks unavailable" is in none of them,
  *    because its pill says nothing is wrong and nothing is missing.
  *  - A host whose agent is not connected is "Report stale" even with a fresh
- *    report, because its pill reads "Health stale". A stale host that is also
- *    waiting for a reboot is stale rather than attention, because its pill is
- *    the neutral "Reboot pending · stale".
+ *    report, because its pill reads "Last known report". A stale host that is
+ *    also waiting for a reboot is stale rather than attention, because its pill
+ *    is neutral and never says "reboot pending".
  *  - The page goes stale at three minutes, where the controller's own
  *    `host.health_stale` problem waits ten, so a count here can be higher than
  *    the problems list for a few minutes. The pill is what the card shows, and

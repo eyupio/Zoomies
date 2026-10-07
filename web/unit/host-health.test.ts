@@ -69,7 +69,7 @@ test('freshness and reboot status update when time or the report changes', () =>
   const r = report('ok');
   r.reboot_pending = true;
   assert.equal(healthSummary(r, now).label, 'Reboot pending');
-  assert.equal(healthSummary(r, now + 4 * 60_000).label, 'Reboot pending · stale');
+  assert.equal(healthSummary(r, now + 4 * 60_000).label, 'Report stale');
   assert.equal(healthSummary(r, now, false).stale, true);
   r.reboot_pending = false;
   assert.equal(healthSummary(r, now).label, 'Health OK');
@@ -154,7 +154,7 @@ test('an error outranks a pending reboot, and both are said', () => {
 
 test('a stale report is never worse than stale, whatever it says', () => {
   const r = reportOf([result('disk.space', 'error')]);
-  assert.equal(healthSummary(r, now + 4 * 60_000).label, 'Health stale');
+  assert.equal(healthSummary(r, now + 4 * 60_000).label, 'Report stale');
   assert.equal(healthSummary(r, now + 4 * 60_000).tone, 'neutral');
 });
 
@@ -278,8 +278,8 @@ test('a container’s partial report is Partial report, whatever it found', () =
   assert.match(s.hint, /Partial report from the container/);
   assert.doesNotMatch(s.hint, /warning|error/);
   // Nor does a stale one carry its reboot flag: that is no more a verdict than
-  // its rows are, and "Reboot pending · stale" would say it was.
-  assert.equal(healthSummary(r, now + 4 * 60_000).label, 'Health stale');
+  // its rows are, and a reboot label would say it was.
+  assert.equal(healthSummary(r, now + 4 * 60_000).label, 'Report stale');
 });
 
 test('findings are said errors first, in the words the pill and the feed share', () => {
@@ -299,4 +299,74 @@ test('a container’s partial report has nothing that needs attention, whatever 
   assert.equal(attention(r).length, 2);
   r.container = true;
   assert.deepEqual(attention(r), []);
+});
+
+// An operator reads "stale" as "the host is fine, the page is slow" unless the
+// label says the agent is gone. Which of the two it is decides what to do next,
+// so the label and the hint both carry it.
+test('an old report from a connected host is Report stale, and from a gone host Last known report', () => {
+  const r = reportOf([result('disk.space', 'ok')]);
+  const old = now + 4 * 60_000;
+  const connected = healthSummary(r, old, true);
+  assert.equal(connected.label, 'Report stale');
+  assert.match(connected.hint, /connected, but its last OS report is more than three minutes old/);
+  assert.match(connected.hint, /sudo systemctl restart zoomies-agent/);
+  const gone = healthSummary(r, old, false);
+  assert.equal(gone.label, 'Last known report');
+  assert.match(gone.hint, /not connected/);
+  assert.doesNotMatch(gone.hint, /systemctl/);
+  // Both stay stale, so the Report stale filter chip holds them either way.
+  assert.equal(connected.stale && gone.stale, true);
+  assert.equal(connected.tone, 'neutral');
+  assert.equal(gone.tone, 'neutral');
+});
+
+// The flag may have cleared since the report was written, so a stale label that
+// said "reboot pending" would assert something nobody has checked.
+test('a stale report never says reboot pending in its label, only in its hint', () => {
+  const r = reportOf([result('disk.space', 'ok')], true);
+  for (const reachable of [true, false]) {
+    const s = healthSummary(r, now + 4 * 60_000, reachable);
+    assert.doesNotMatch(s.label, /reboot/i);
+    assert.match(s.hint, /That report said a reboot was pending\./);
+  }
+  assert.doesNotMatch(healthSummary(r, now).hint, /said a reboot was pending/);
+});
+
+function skipping(skipped: number, counted: number, extra: DoctorResult[] = []): DoctorReport {
+  const results = [
+    ...Array.from({ length: counted - skipped }, (_, i) => result(`ok.${i}`, 'ok')),
+    ...Array.from({ length: skipped }, (_, i) => result(`skip.${i}`, 'skip')),
+    ...extra,
+  ];
+  return reportOf(results);
+}
+
+// A healthy Linux host skips 1-5 of 14 checks; half or more cannot vouch for the
+// host, and a green pill would be a claim nobody checked.
+test('a native report that skipped half its checks is Partial report, not Health OK', () => {
+  const six = healthSummary(skipping(6, 14), now);
+  assert.equal(six.label, 'Health OK');
+  const seven = healthSummary(skipping(7, 14), now);
+  assert.equal(seven.label, 'Partial report');
+  assert.equal(seven.tone, 'neutral');
+  assert.equal(seven.stale, false);
+  assert.match(seven.hint, /7 of 14 checks could not run/);
+});
+
+test('a report that skipped every check is still Checks unavailable, not Partial report', () => {
+  assert.equal(healthSummary(skipping(14, 14), now).label, 'Checks unavailable');
+  assert.equal(healthSummary(reportOf([]), now).label, 'Checks unavailable');
+});
+
+// The skip rule is about green only: a host with a finding or a reboot says so
+// whatever else it skipped, and the hint says how much of the report is missing.
+test('findings and a pending reboot win over the mostly skipped rule', () => {
+  const warned = healthSummary(skipping(8, 14, [result('disk.space', 'warn')]), now);
+  assert.equal(warned.label, '1 warning');
+  assert.equal(warned.tone, 'pending');
+  assert.match(warned.hint, /8 of 15 checks could not run/);
+  const r = skipping(8, 14);
+  r.reboot_pending = true;
+  assert.equal(healthSummary(r, now).label, 'Reboot pending');
 });
