@@ -1627,7 +1627,16 @@ test.describe('with Kennel Club on', () => {
 
       await reason.fill(`  ${REASON}  `);
       await expect(stop).toBeEnabled();
+      // The controller trims what it is sent as well, so the stored reason cannot
+      // tell whether the page did; what the page sends is the page's to answer for.
+      const sent = page.waitForRequest(
+        (request) => request.method() === 'PUT' && request.url().endsWith('/tracking'),
+      );
       await stop.click();
+      expect((await sent).postDataJSON(), 'the words around the reason are not sent').toEqual({
+        tracked: false,
+        reason: REASON,
+      });
 
       await expect(toast(page, 'success', 'Repository no longer tracked')).toBeVisible();
       await expect(dialog).toBeHidden();
