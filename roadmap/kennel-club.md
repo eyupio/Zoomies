@@ -760,9 +760,13 @@ CREATE TABLE kennel_untracked (
 );
 ```
 
-The row goes with the repository row when it is pruned, ninety days after the
-repository was last served, so a repository that was quiet for a quarter comes
-back tracked. Whether it should not is the one thing the record leaves open.
+The prune, ninety days after the repository was last served, leaves a repository
+that is not tracked alone, so one that was quiet for a quarter does not come back
+tracked: the owner decided that on 7 October, and the record
+([0006](decisions/0006-kennel-club-tracks-repositories-one-at-a-time.md)) says why.
+The row still goes with the repository's when the installation is deleted. Stopping
+puts `kennel_repositories` back to before anything evaluated it, so that nothing
+downstream has a stale finding to count; the waivers and the watermark are kept.
 
 ### Event-stream payloads
 
@@ -926,7 +930,10 @@ the feature off:
    do not take it. A link that counts every repository carries `active=all`, so it
    opens on as many rows as its number.
    **(e)** The Track switch: migration `0081`, API, UI, MCP and the counts
-   ([0006](decisions/0006-kennel-club-tracks-repositories-one-at-a-time.md)).
+   ([0006](decisions/0006-kennel-club-tracks-repositories-one-at-a-time.md)). Built in
+   two pull requests, the controller and API with the MCP descriptions first and
+   the UI second. Taken with the owner by question on 7 October: an administrator
+   stops, an operator starts, and an untracked row outlives the ninety days.
    **(f)** A side menu for the section and an on/off switch in it, asked for after
    (c) merged ([0010](decisions/0010-kennel-club-has-a-side-menu-and-the-switch-is-in-it.md)).
    **(g)** The Overview's counts open the repositories behind them, from the same

@@ -26,6 +26,13 @@ var (
 	// ErrKennelWaiverLimit means a repository already has as many waivers as it
 	// may.
 	ErrKennelWaiverLimit = errors.New("kennel club: this repository has as many waivers as it may")
+	// ErrKennelNotTracked is the answer to anything that needs Kennel Club's
+	// findings for a repository it has been told not to look at: it has none, and
+	// reading or deciding about findings that are not there would be guessing.
+	ErrKennelNotTracked = errors.New("kennel club: this repository is not tracked")
+	// ErrKennelUntrackNeedsAdmin is a request to stop Kennel Club looking at a
+	// repository by somebody who may only start it again.
+	ErrKennelUntrackNeedsAdmin = errors.New("kennel club: stopping tracking a repository takes the administrator role")
 )
 
 const (
@@ -89,6 +96,9 @@ type KennelListFilter struct {
 	// the one every sentence on the Overview names: thirty days, or as long as the
 	// fleet keeps its jobs if that is shorter.
 	Active *bool
+	// Tracked, when set, keeps the repositories Kennel Club is looking at (true) or
+	// the ones it has been told not to (false). Left alone, both are listed.
+	Tracked *bool
 }
 
 // KennelRepositories lists what Kennel Club has concluded, in the shape of GET
@@ -97,7 +107,7 @@ func (c *Controller) KennelRepositories(ctx context.Context, f KennelListFilter,
 	if !c.cfg().Kennel.Enabled {
 		return nil, 0, ErrKennelOff
 	}
-	filter := store.KennelFilter{Q: f.Q, InstallationID: f.InstallationID}
+	filter := store.KennelFilter{Q: f.Q, InstallationID: f.InstallationID, Tracked: f.Tracked}
 	if f.Active != nil {
 		filter.Served = f.Active
 		filter.ServedSince = c.Now().Add(-kennelWindow(c.cfg().Retention.Jobs))
@@ -204,6 +214,9 @@ func (c *Controller) RecheckKennelRepository(ctx context.Context, id string) (*K
 	if err != nil {
 		return nil, err
 	}
+	if row.Untracked != nil {
+		return nil, ErrKennelNotTracked
+	}
 	now := c.Now()
 	c.kennel.mu.Lock()
 	if last, ok := c.kennel.rechecks[id]; ok && now.Before(last.Add(KennelRecheckCooldown)) {
@@ -235,6 +248,10 @@ type KennelActor struct {
 	// CanWaiveErrors is whether the caller holds kennel.waive_error. The policy
 	// table says who does; the controller only asks.
 	CanWaiveErrors bool
+	// CanUntrack is whether the caller holds kennel.untrack. Stopping Kennel Club
+	// looking at a repository silences its errors, which is what makes it the
+	// administrator's; starting it again only makes Kennel Club stricter.
+	CanUntrack bool
 }
 
 // WaiveKennelFinding records a decision that a finding is acceptable here, and
@@ -252,6 +269,9 @@ func (c *Controller) WaiveKennelFinding(ctx context.Context, repositoryID string
 	row, err := c.st.GetKennelRepository(ctx, repositoryID)
 	if err != nil {
 		return nil, nil, err
+	}
+	if row.Untracked != nil {
+		return nil, nil, ErrKennelNotTracked
 	}
 	now := c.Now()
 	in.Subject = strings.TrimSpace(in.Subject)
@@ -296,6 +316,64 @@ func (c *Controller) WaiveKennelFinding(ctx context.Context, repositoryID string
 	return v, w, err
 }
 
+// KennelTrackingInput is a request to stop Kennel Club looking at a repository,
+// or to start again.
+type KennelTrackingInput struct {
+	Tracked bool
+	// Reason is why it should not look, and is only read when stopping: starting
+	// again is a return to what every repository is.
+	Reason string
+}
+
+// SetKennelTracking stops Kennel Club looking at a repository, or starts it
+// again. It returns the repository as it now stands, the decision it replaced
+// (nil if the repository was tracked), and whether anything changed: asking for
+// the state a repository is already in is answered and is not a second decision,
+// so the caller has no audit row to write for it.
+//
+// Stopping silences the repository's errors, so it takes the administrator role
+// and a reason in the words a waiver's is held to, and it is checked before the
+// reason is: a person who may not do it is told so and not told how to ask better.
+// Starting again takes an operator, because the only thing it can do is make Kennel
+// Club stricter, and it makes the repository due at once so the next pass reads it.
+func (c *Controller) SetKennelTracking(ctx context.Context, repositoryID string, in KennelTrackingInput, by KennelActor) (*KennelRepositoryView, *store.KennelUntracked, bool, error) {
+	if !c.cfg().Kennel.Enabled {
+		return nil, nil, false, ErrKennelOff
+	}
+	row, err := c.st.GetKennelRepository(ctx, repositoryID)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	was := row.Untracked
+
+	var changed bool
+	if in.Tracked {
+		changed, err = c.st.TrackKennelRepository(ctx, row.ID)
+	} else {
+		if !by.CanUntrack {
+			return nil, nil, false, ErrKennelUntrackNeedsAdmin
+		}
+		reason := strings.TrimSpace(in.Reason)
+		if f := checkKennelReason(reason, "say why Kennel Club should not look at this repository, for whoever finds it quiet in a year"); f != nil {
+			return nil, nil, false, &KennelInvalidError{Fields: []KennelFieldError{*f}}
+		}
+		changed, err = c.st.UntrackKennelRepository(ctx, row.ID, store.KennelUntracked{Reason: reason, By: by.ID, ByName: by.Name})
+	}
+	if err != nil {
+		return nil, nil, false, err
+	}
+	if changed {
+		c.PublishKennelRepository(ctx, row.ID)
+		if in.Tracked {
+			// Due at once is only a flag; the loop is what reads, and it looks once a
+			// minute unless it is woken.
+			c.KickKennel()
+		}
+	}
+	v, err := c.KennelRepository(ctx, row.ID)
+	return v, was, changed, err
+}
+
 // checkKennelWaiverInput is everything wrong with a request to waive that can be
 // said without looking at the repository, all of it at once so a form does not
 // send a person round it three times. It is a function of the request and the
@@ -309,10 +387,8 @@ func checkKennelWaiverInput(in KennelWaiverInput, now time.Time) []KennelFieldEr
 	if len(in.Subject) > kennelMaxSubject {
 		bad = append(bad, KennelFieldError{"subject", fmt.Sprintf("is longer than %d bytes", kennelMaxSubject)})
 	}
-	if n := utf8.RuneCountInString(in.Reason); n < KennelMinReason || n > KennelMaxReason {
-		bad = append(bad, KennelFieldError{"reason", fmt.Sprintf("must be %d to %d characters: say why this is acceptable here, for whoever reads the audit log in a year", KennelMinReason, KennelMaxReason)})
-	} else if badReasonCharacter(in.Reason) {
-		bad = append(bad, KennelFieldError{"reason", "may not contain control or direction-changing characters"})
+	if f := checkKennelReason(in.Reason, "say why this is acceptable here, for whoever reads the audit log in a year"); f != nil {
+		bad = append(bad, *f)
 	}
 	switch {
 	case in.ExpiresAt.IsZero():
@@ -325,11 +401,35 @@ func checkKennelWaiverInput(in KennelWaiverInput, now time.Time) []KennelFieldEr
 	return bad
 }
 
+// checkKennelReason is the rule for the words a person gives for a decision they
+// record: a waiver, or stopping tracking. Both end up in the audit log and on the
+// page, so they are held to the same length and the same characters, and advice
+// is what the message tells the person to say.
+func checkKennelReason(reason, advice string) *KennelFieldError {
+	if n := utf8.RuneCountInString(reason); n < KennelMinReason || n > KennelMaxReason {
+		return &KennelFieldError{"reason", fmt.Sprintf("must be %d to %d characters: %s", KennelMinReason, KennelMaxReason, advice)}
+	}
+	if badReasonCharacter(reason) {
+		return &KennelFieldError{"reason", "may not contain control or direction-changing characters"}
+	}
+	return nil
+}
+
 // UnwaiveKennelFinding ends a waiver. It returns the waiver it ended, which is
 // what the audit row records as what was.
 func (c *Controller) UnwaiveKennelFinding(ctx context.Context, repositoryID, waiverID string) (*KennelRepositoryView, *store.KennelWaiver, error) {
 	if !c.cfg().Kennel.Enabled {
 		return nil, nil, ErrKennelOff
+	}
+	row, err := c.st.GetKennelRepository(ctx, repositoryID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if row.Untracked != nil {
+		// Ending a waiver works the repository out again, and there is nothing to
+		// work out for one nobody is tracking. Its waivers wait, and come back into
+		// force when it is tracked.
+		return nil, nil, ErrKennelNotTracked
 	}
 	w, err := c.st.GetKennelWaiver(ctx, waiverID)
 	if err != nil {

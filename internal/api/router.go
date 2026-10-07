@@ -332,6 +332,9 @@ func (s *Server) apiRoutes() chi.Router {
 				// kennel.waive_error as well when the finding is an error.
 				r.With(s.require(auth.ActionKennelWaive)).Put("/{id}/waivers", s.handleWaiveKennelFinding)
 				r.With(s.require(auth.ActionKennelWaive)).Delete("/{id}/waivers/{waiver_id}", s.handleUnwaiveKennelFinding)
+				// The route's own action is kennel.track; stopping needs kennel.untrack
+				// as well, which the handler asks for when the body says to stop.
+				r.With(s.require(auth.ActionKennelTrack)).Put("/{id}/tracking", s.handleSetKennelTracking)
 			})
 		})
 
