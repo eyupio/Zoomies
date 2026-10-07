@@ -53,6 +53,7 @@ async function heartbeat(
   results: Check[],
   reboot = false,
   container = false,
+  report: { os?: string; distro?: string } = {},
 ): Promise<void> {
   const response = await page.request.post('/api/v1/agent/heartbeat', {
     headers: { Authorization: `Bearer ${credentials.agent_token}` },
@@ -60,8 +61,8 @@ async function heartbeat(
       protocol_version: 1,
       doctor: {
         checked_at: new Date().toISOString(),
-        os: 'linux',
-        distro: 'ubuntu 24.04',
+        os: report.os ?? 'linux',
+        distro: report.distro ?? 'ubuntu 24.04',
         container,
         reboot_pending: reboot,
         results,
@@ -823,4 +824,48 @@ test('a command that could not be made says why and leaves nothing to copy', asy
     await expect(panel.locator('pre')).toHaveCount(0);
     await expect(panel.getByRole('button', { name: 'Make a command' })).toBeEnabled();
   });
+});
+
+// "Review changes locally with zoomies tune" is wrong for a host that cannot be
+// tuned: following it on a Mac or inside a container sends a person to a command
+// that changes nothing. The page must say what kind of report it is instead.
+test('a macOS host and a container are told their report is read-only, not to tune', async ({
+  page,
+}) => {
+  const name = `health-ro-${Date.now() % 1e6}`;
+  const credentials = await enrol(page, name);
+  try {
+    await heartbeat(
+      page,
+      credentials,
+      [check('environment', 'Operating system', 'safe', 'skip', { current: 'darwin' })],
+      false,
+      false,
+      { os: 'darwin', distro: '' },
+    );
+    await goto(page, `/hosts/${credentials.host_id}`, name);
+    await expect(
+      page.getByText('OS checks run on Linux hosts only. Zoomies does not change this host.'),
+    ).toBeVisible();
+    await expect(page.getByText('Zoomies does not tune darwin hosts')).toBeVisible();
+    await expect(page.getByText('Review changes locally with')).toHaveCount(0);
+    await expect(page.getByText('Read-only. Zoomies does not change this host.')).toBeVisible();
+    // The blank distribution leaves no stray separator.
+    await expect(page.getByText(/^darwin · Checked/)).toBeVisible();
+    await expect(page.getByRole('button', { name: /apply|tune/i })).toHaveCount(0);
+    await expect(page.getByText(/drain/i)).toHaveCount(0);
+
+    await heartbeat(
+      page,
+      credentials,
+      [check('environment', 'Distribution', 'safe', 'warn')],
+      false,
+      true,
+    );
+    await expect(page.getByText('not inside the container')).toBeVisible();
+    await expect(page.getByText('Review changes locally with')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /apply|tune/i })).toHaveCount(0);
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+  }
 });
