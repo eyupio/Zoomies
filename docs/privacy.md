@@ -60,9 +60,12 @@ What it does talk to, because you configured it to:
 
 The one request the software makes that is **not** about your fleet is the
 update check: once a day (`updates.check_interval`, default `24h`), the
-controller asks github.com which release of Zoomies is current. It sends no
-information about your installation beyond the request itself, and downloads
-nothing. Set it to `0` and it never asks. See
+controller asks github.com which release of Zoomies is current. The request
+carries the version you run in its `User-Agent` (`zoomies/<version>`, which on a
+development build includes its `main-sha-*` identity), and GitHub sees your
+address as it would for any request. Nothing else about your installation is
+sent, and nothing is downloaded. Every other call to GitHub's API carries the
+same `User-Agent`. Set the interval to `0` and the update check never asks. See
 [`updates.check_interval`](configuration.md#updatescheck_interval-knowing-the-controller-is-behind).
 
 ### What your controller keeps
