@@ -52,6 +52,14 @@ commands are pure API clients that open no database, so an address changed after
 the Settings page is not in it. Put `url` in `cli.yaml` to choose, or to follow the
 Settings page. It supplies an address only, never a token.
 
+A host that joined a controller as an agent has the same file, and what it names there is
+the controller it joined (`agent.controller_url`), so the CLI on that host uses it too,
+with no flag. A host that joined over a private connection is the exception: its agent
+reaches the controller through a tunnel of its own, there is no address a command can
+dial, and the CLI says so and asks for `--url`. When a request cannot reach the controller,
+the error names where its address came from — `--url`, `ZOOMIES_URL` or a file — because
+an address nobody typed is the one that cannot be fixed without knowing.
+
 On the machine that runs the controller you do not have to write that file.
 `zoomies init` creates it, with the controller's address and no token, and
 `zoomies upgrade` offers to when it is missing — it is listed with the other

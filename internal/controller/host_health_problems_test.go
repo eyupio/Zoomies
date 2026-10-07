@@ -136,8 +136,20 @@ func TestACountedWarningIsAWarningAndOnlyACountedErrorIsAnError(t *testing.T) {
 			if got := strings.Contains(p.Detail, "could not run failed"); got != tc.isError {
 				t.Errorf("detail explains a check that could not run = %v, want %v: %q", got, tc.isError, p.Detail)
 			}
-			if !strings.Contains(p.Fix, "`zoomies doctor --host "+host.ID+" --verbose`") || !strings.Contains(p.Fix, "`sudo zoomies doctor --interactive`") {
-				t.Errorf("fix %q should name the two commands, with the host's id", p.Fix)
+			// The command that works where the person is: on the host, which needs no
+			// address and no token. `--host` reads through the controller and needs
+			// both, so it is not offered as text to be typed -- the host's page has
+			// it written out, with a token made on the spot -- and an advice that
+			// led with it was how somebody ended up running it on the host, with
+			// neither, and being told the controller was unreachable.
+			if !strings.Contains(p.Fix, "on "+host.Name+", run `sudo zoomies doctor --verbose`") || !strings.Contains(p.Fix, "`sudo zoomies doctor --interactive`") {
+				t.Errorf("fix %q should name the two commands to run on the host, and the host", p.Fix)
+			}
+			if !strings.Contains(p.Fix, "the host's page has the command") || !strings.Contains(p.Fix, "short-lived token") {
+				t.Errorf("fix %q should send a person on another machine to the page that has the command", p.Fix)
+			}
+			if strings.Contains(p.Fix, "--host") {
+				t.Errorf("fix %q hands over a command that cannot work as written", p.Fix)
 			}
 			if strings.Contains(strings.ToLower(p.Fix), "controller log") {
 				t.Errorf("fix %q sends the fleet to a log it cannot read", p.Fix)

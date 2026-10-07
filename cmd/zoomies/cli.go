@@ -120,19 +120,46 @@ func (cf *clientFlags) client() (*apiClient, error) {
 		return nil, err
 	}
 
-	base := firstNonBlank(*cf.url, os.Getenv("ZOOMIES_URL"), file.URL)
+	// Where the address came from is kept, because the error that most often
+	// follows is "cannot reach", and an address nobody can account for -- one the
+	// operator never typed -- is the one they cannot fix.
+	var base, source string
+	for _, c := range []struct{ value, from string }{
+		{*cf.url, "--url"},
+		{os.Getenv("ZOOMIES_URL"), "ZOOMIES_URL"},
+		{file.URL, cliConfigPath()},
+	} {
+		if v := strings.TrimSpace(c.value); v != "" {
+			base, source = v, c.from
+			break
+		}
+	}
 	if base == "" {
 		// The last resort, and said aloud: a command that quietly picked a
 		// controller would be one the operator could not account for.
 		conf := config.DefaultConfigFile()
 		if base = cliconfig.InstalledURL(conf); base != "" {
-			fmt.Fprintf(os.Stderr, "using the controller installed on this host, %s (from %s; set url in %s to choose another)\n",
-				base, conf, cliConfigPath())
+			source = conf
+			fmt.Fprintf(os.Stderr, "using the controller named in %s, %s (set url in %s to choose another)\n",
+				conf, base, cliConfigPath())
 		}
 	}
 	if base == "" {
-		return nil, missingCredential("no controller URL", "url", "https://zoomies.example.com",
-			"and no controller configuration was found on this host at "+config.DefaultConfigFile())
+		conf := config.DefaultConfigFile()
+		why := "and no controller configuration was found on this host at " + conf
+		if cliconfig.InstalledUnreadable(conf) {
+			// It is there, and this user may not read it: say so, or the operator is told
+			// to look for an install that is in front of them.
+			why = "and the controller's configuration at " + conf + " is not readable by this user -- " +
+				"run with sudo, join the group that owns it, or say where the controller is"
+		} else if _, err := os.Stat(conf); err == nil {
+			// The file is there and names nothing a command can dial: a host that
+			// joined over a private connection reaches its controller through a
+			// tunnel only its agent can open.
+			why = conf + " names no controller address a command can use here " +
+				"(this host may have joined over a private connection, which only its agent can dial)"
+		}
+		return nil, missingCredential("no controller URL", "url", "https://zoomies.example.com", why)
 	}
 	if !strings.Contains(base, "://") {
 		// A bare host is what people type first. Assume https, because
@@ -161,6 +188,7 @@ func (cf *clientFlags) client() (*apiClient, error) {
 	httpc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return &apiClient{
 		base:    strings.TrimRight(parsed.String(), "/"),
+		source:  source,
 		token:   token,
 		http:    httpc,
 		timeout: *cf.timeout,
@@ -204,7 +232,9 @@ func missingCredential(what, key, example, why string) error {
 
 // apiClient speaks the REST API in api/openapi.yaml and nothing else.
 type apiClient struct {
-	base    string
+	base string
+	// source is where base came from: a flag, the environment or a file, named.
+	source  string
 	token   string
 	http    *http.Client
 	timeout time.Duration
@@ -432,8 +462,12 @@ func (c *apiClient) transportError(method, path string, err error) error {
 		return fmt.Errorf("the controller at %s answered in plain HTTP, but the address says https: %w\n"+
 			"  use --url with http:// and the port it listens on, unless it is meant to be behind TLS, in which case check what answers on that port", c.base, err)
 	}
-	return fmt.Errorf("cannot reach the controller at %s: %w\n"+
-		"  check that it is running, that --url (or ZOOMIES_URL) is right, and that nothing between you and it is blocking the port", c.base, err)
+	where := ""
+	if c.source != "" {
+		where = " (the address came from " + c.source + ")"
+	}
+	return fmt.Errorf("cannot reach the controller at %s%s: %w\n"+
+		"  check that it is running, that --url (or ZOOMIES_URL) is right, and that nothing between you and it is blocking the port", c.base, where, err)
 }
 
 // parseAPIError decodes the error envelope every route returns.

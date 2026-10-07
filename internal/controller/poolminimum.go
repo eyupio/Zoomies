@@ -27,7 +27,7 @@ import (
 const (
 	// minimumEvidenceWindow is how far back the jobs counted run. A week spans the
 	// regular builds and the weekly one.
-	minimumEvidenceWindow = 7 * 24 * time.Hour
+	minimumEvidenceWindow = config.SizingEvidenceWindow
 	// minimumEvidenceJobs is how many jobs with a measured peak it takes to say what
 	// a pool's jobs need. A pool with a dozen has not shown its heaviest one, and a job
 	// too short to be sampled has no peak to count.
@@ -40,6 +40,15 @@ const (
 	// number to second-guess for no gain.
 	minimumReductionWorth = 0.25
 )
+
+// sizingHistoryKept says whether the job history the database keeps reaches back as far as
+// the evidence window. Retention can be shorter than a week, and advice that says "over the
+// last week" while resting on three days is advice that sizes by a lighter window than it
+// claims: the config validator says why it is withheld.
+func (c *Controller) sizingHistoryKept() bool {
+	keep := c.cfg().Retention.Jobs
+	return keep <= 0 || keep >= minimumEvidenceWindow
+}
 
 // halfPeaks is the most memory each container of a pair used in the window.
 type halfPeaks struct{ runnerMB, daemonMB int64 }
@@ -97,7 +106,7 @@ func (c *Controller) poolMinimumAdviceProblems(ctx context.Context, out *[]Probl
 			candidates = append(candidates, p)
 		}
 	}
-	if len(candidates) == 0 {
+	if len(candidates) == 0 || !c.sizingHistoryKept() {
 		return nil
 	}
 	pressure, err := c.poolsUnderPressure(ctx)

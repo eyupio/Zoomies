@@ -28,3 +28,22 @@ export function isLoopbackURL(raw: string): boolean {
     return false;
   }
 }
+
+/**
+ * Where a command run on another machine should be told to find the controller.
+ *
+ * `server.external_url` is right when it is set and is not loopback: the default
+ * single-VM install sets it to http://localhost:8080, which no other machine
+ * answers on. Failing that, the address this browser is using is the best guess
+ * there is, because a machine on the same network usually reaches the controller
+ * the way an operator does.
+ *
+ * It is one function because two places hand an address to somebody to paste --
+ * the command that adds a host and the one that reads its health -- and an
+ * address that differed between them would be one of them wrong.
+ */
+export function suggestedControllerURL(configured: string | undefined, origin: string): string {
+  const url = (configured ?? '').replace(/\/+$/, '');
+  if (url && !isLoopbackURL(url)) return url;
+  return origin;
+}
