@@ -9,13 +9,19 @@ Rules the copy follows:
 - Say "free and open source (AGPL-3.0)", not "free" alone. The licence matters to a reader deciding whether to run it.
 - Disclose authorship wherever you post as a person (Reddit, Lobsters, Hacker News, Indie Hackers).
 
+**Write the posts yourself.** These are drafts to work from, not text to paste. awesome-selfhosted bans LLM-generated contributions outright, including AI-written text that a human then submits, so there is no draft for it here, and this project is built with Claude Code, so decide whether you are comfortable submitting at all. Show HN, r/selfhosted and Lobsters expect a human author talking in their own words, and a post that reads as generated draws the "AI slop" reaction. Rewrite each draft until it sounds like you, and post it from your own account.
+
+Research behind the choices below was done on 2026-10-07 and is recorded, with sources and what could not be verified, in `tracker.csv`.
+
 Links to use: home `https://zoomies.sh`, source `https://github.com/eyupio/zoomies`, quick start `https://zoomies.sh/quickstart/`, alternatives `https://zoomies.sh/alternatives/`, install `curl -fsSL https://zoomies.sh/install.sh | sh`.
 
 Tags to draw from: github actions, self-hosted runners, ci/cd, devops, ephemeral runners, autoscaling, go, sqlite, docker, podman, proxmox, open source, self-hosted.
 
 ---
 
-## Dev tools (DevHunt, SourceForge, Slashdot, Stackshare, awesome-lists, Dev.to, Hashnode)
+## Dev tools (DevHunt, SourceForge, Slashdot, Stackshare)
+
+**DevHunt form fields:** name, website (`https://zoomies.sh`), description (the long variant below), logo (`docs/brand/mark-dark.png` or `github-avatar.png`) and screenshots (export from `docs/screenshots/`). The free queue is nofollow; the $19 launch gets a permanent dofollow link.
 
 **Tagline:** Self-hosted GitHub Actions runners without Kubernetes.
 
@@ -54,7 +60,9 @@ Tags to draw from: github actions, self-hosted runners, ci/cd, devops, ephemeral
 >
 > Compared honestly, with where each alternative is better: zoomies.sh/alternatives/. AGPL-3.0.
 
-**Alternatives to list on AlternativeTo / SaaSHub:** actions-runner-controller, GARM, Cirun, terraform-aws-github-runner, Blacksmith, WarpBuild, RunsOn, GitHub-hosted runners.
+**Listing fields (AlternativeTo and SaaSHub both ask):** name Zoomies; website `https://zoomies.sh`; licence AGPL-3.0; platforms Linux, Docker, self-hosted; category CI/CD or DevOps; tags github actions, self-hosted runners, ci/cd.
+
+**Alternatives to name:** only ones you can see already listed on that directory. The research could not confirm that ARC, GARM or Cirun have AlternativeTo or SaaSHub entries, and SaaSHub delays approval if you name no competitors at all, so search for them in the live form and pick from what exists. Candidates: actions-runner-controller, GARM, Cirun, terraform-aws-github-runner, Blacksmith, WarpBuild, RunsOn, GitHub Actions.
 
 ---
 
@@ -100,8 +108,12 @@ Tags to draw from: github actions, self-hosted runners, ci/cd, devops, ephemeral
 
 **Title:** Show HN: Zoomies – self-hosted GitHub Actions runners without Kubernetes
 
+Link the post to something people can try, not a landing page: Show HN's own rules say a project should be easy to run without signups, and static pages are off-topic. Point it at the repo, and put the demo command in the first comment. Do not ask anyone to upvote or comment.
+
 **First comment (technical angle, written as the author):**
 
+> Try it without installing anything permanent: `curl -fsSL https://zoomies.sh/install.sh | sh -s -- --demo` runs a controller with a fleet already in it, on your machine only, and goes when you press Ctrl-C.
+>
 > I work on Zoomies, a controller that gives each GitHub Actions job a fresh runner container and tears it down afterwards. One static Go binary, SQLite, a Svelte UI embedded with go:embed.
 >
 > A few design decisions I'd like feedback on:
@@ -111,6 +123,34 @@ Tags to draw from: github actions, self-hosted runners, ci/cd, devops, ephemeral
 > - The scheduler is a pure function from a snapshot to a plan, with no clock, database or network, which makes scaling behaviour testable and gives every decision a human-readable reason.
 >
 > Limits: Linux-first, the Windows agent is not yet qualified on real hardware, and it is not tested against GitHub Enterprise Server. AGPL-3.0. Compared with ARC, GARM and the hosted services, with where each is better: https://zoomies.sh/alternatives/
+
+---
+
+## r/selfhosted New Project Megathread
+
+A project under three months old can only be shared in the weekly New Project Megathread (a new one each Friday), until about 2026-12-04. Re-read the live rules first: they were checked through a mirror, not the subreddit. The suggested shape is project name, link, description.
+
+> **Zoomies** — https://github.com/eyupio/zoomies (site: https://zoomies.sh)
+>
+> I'm one of the authors. It's a controller for self-hosted GitHub Actions runners: one Go binary and SQLite, a web UI, and a fresh container per job that's destroyed afterwards. It runs on ordinary Linux hosts, so no Kubernetes, and an agent on a home server dials out, so nothing needs opening on your router. AGPL-3.0. `curl -fsSL https://zoomies.sh/install.sh | sh -s -- --demo` runs a throwaway demo fleet locally. Linux-first; the Windows agent isn't qualified yet. Questions and criticism welcome.
+
+---
+
+## Dev.to and Hashnode article
+
+Both platforms want a real technical article, not a pitch: Dev.to's terms ask for on-topic, high-quality posts "not designed primarily for the purposes of promotion or creating backlinks". Set the canonical URL only if the same article exists at zoomies.sh; otherwise publish it as an original post. State your affiliation in the first paragraph.
+
+**Working title:** Running GitHub Actions on a few VMs without Kubernetes
+
+**Outline (draw on `docs/architecture.md` and `docs/runners-without-kubernetes.md`):**
+
+1. The problem: hosted minutes are expensive, one static runner is fragile, and a cluster is more machinery than three VMs deserve. Say plainly when ARC or a hosted service is the better answer.
+2. What "ephemeral" buys: a fresh runner per job, single-use JIT registration, nothing left behind.
+3. The three design decisions that came out of "one binary, no database server": agents connect outbound only, webhooks are at-least-once so the jobs upsert never moves a job backwards, and the scheduler is a pure function so every decision has a readable reason.
+4. What it does not do yet: Linux-first, Windows not qualified, no GHES testing, no support contract.
+5. Try it: the `--demo` command, then the quick start.
+
+Dev.to front matter: `title`, `tags: githubactions, devops, selfhosted, go`, and `canonical_url` only if applicable. Hashnode: Article Settings, "Are you republishing?", "Add Original URL".
 
 ---
 
