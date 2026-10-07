@@ -73,6 +73,42 @@ func (i Image) Supports(arch string) bool {
 	return slices.Contains(i.Arches, NormalizeArch(arch))
 }
 
+// maxImageReferenceLength is Docker's own limit on a reference, name and tag
+// together.
+const maxImageReferenceLength = 255
+
+// IsImageReference reports whether ref is shaped like an image reference and
+// nothing else, which is what it takes to be offered as the argument of a command
+// somebody will copy and run.
+//
+// A pool's image is free text, and the reference in a failed start is whatever the
+// task carried, so a sentence that builds `docker pull <image>` out of one hands
+// the text's author a command with a copy button: a backtick ends the span the UI
+// draws, and a semicolon, a pipe, a substitution or a space starts a second
+// command or a second argument inside it. ForSentence cannot make that safe,
+// because the span is deliberate and the characters that matter are not only the
+// backtick. The caller leaves the command out when this says no, and the sentence
+// carries on without it.
+//
+// The rule is Docker's own alphabet -- letters, digits and . _ - : / @ -- with a
+// letter or digit first, so that a reference cannot be read as an option. It is
+// narrower than the reference grammar on purpose: nothing it refuses is an image
+// anyone runs, and nothing it accepts means anything to a shell.
+func IsImageReference(ref string) bool {
+	if ref == "" || len(ref) > maxImageReferenceLength {
+		return false
+	}
+	for i := 0; i < len(ref); i++ {
+		switch c := ref[i]; {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		case i > 0 && strings.IndexByte("._-:/@", c) >= 0:
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // The package-manager families deploy/Dockerfile.runner knows how to drive.
 const (
 	FamilyAPT = "apt"
