@@ -5,6 +5,8 @@ import (
 	"context"
 	"github.com/eyupio/zoomies/internal/hosttune"
 	"github.com/eyupio/zoomies/internal/installer"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -167,6 +169,29 @@ func TestAMaintenanceRestartIsRefusedOnAHostThatRunsZoomiesInAContainer(t *testi
 		}
 		if !strings.Contains(errOut.String(), "zoomies-ctr") || !strings.Contains(errOut.String(), "docker stop zoomies-ctr") {
 			t.Errorf("%v: the refusal must name the container and say what to do:\n%s", args, errOut)
+		}
+	}
+}
+
+// Reading a host's report through the controller needs a token, and the one
+// thing a person at a terminal on that host cannot be expected to have is one.
+// The page for the host makes one for exactly this, so a refusal says so, rather
+// than leaving them with a generic instruction to go and mint one by hand.
+func TestARefusedHostReportPointsAtTheHostsPage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"code":"unauthorized","message":"sign in first"}}`))
+	}))
+	defer srv.Close()
+
+	e, _, errOut := newTestEnv(t)
+	if code := dispatch(context.Background(), e, []string{"doctor", "--host", "host_abc", "--url", srv.URL}); code != exitError {
+		t.Fatalf("exit code = %d, want %d", code, exitError)
+	}
+	for _, want := range []string{"--token", "the host's page in the web UI", "15 minutes"} {
+		if !strings.Contains(errOut.String(), want) {
+			t.Errorf("a refused doctor --host does not say %q:\n%s", want, errOut)
 		}
 	}
 }

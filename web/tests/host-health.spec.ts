@@ -251,3 +251,151 @@ test('the badge counts what zoomies doctor counts, and the page leads with what 
     await page.request.delete(`/api/v1/hosts/${credentials.host_id}`);
   }
 });
+
+/* -- reading a host's report from a terminal -------------------------------------- */
+
+/**
+ * Enrol a host that has sent a report, and run the body on its page. The host is
+ * removed afterwards whether or not the body passed: the suite shares one
+ * controller.
+ */
+async function withReportingHost(
+  page: Page,
+  body: (host: { id: string; name: string }) => Promise<void>,
+): Promise<void> {
+  const name = `terminal-host-${Date.now()}`;
+  const credentials = await enrol(page, name);
+  try {
+    await heartbeat(page, credentials, [check('disk.space', 'Free space', 'safe', 'ok')]);
+    await body({ id: credentials.host_id, name });
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}`);
+  }
+}
+
+/**
+ * The page is told who it is talking to. The fixture controller has
+ * authentication off, so everybody there is an administrator and a token has no
+ * account to belong to; the page asks the controller nothing different.
+ */
+async function signedInAs(page: Page, role: 'viewer' | 'operator' | 'admin'): Promise<void> {
+  await page.route('**/api/v1/meta', async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as Record<string, unknown>;
+    return route.fulfill({
+      response,
+      json: { ...body, auth_disabled: false, bootstrap_required: false },
+    });
+  });
+  await page.route('**/api/v1/auth/session', (route) =>
+    route.fulfill({ json: { kind: 'token', id: 'tok_pretend', name: 'a token', role } }),
+  );
+}
+
+// `zoomies doctor --host` needs the controller's address and, unless the
+// controller has authentication off, a token. The page hands over the command
+// whole, because the machine it is pasted on is usually the host itself, which
+// has neither to hand.
+test('with authentication off, the host page gives a command with the address already in', async ({
+  page,
+}) => {
+  await withReportingHost(page, async ({ id, name }) => {
+    await goto(page, `/hosts/${id}`, name);
+    const panel = page.getByRole('region', { name: 'Read this report from a terminal' });
+    await expect(panel).toContainText('authentication off');
+    await expect(panel.getByRole('button', { name: 'Make a command' })).toHaveCount(0);
+    const origin = new URL(page.url()).origin;
+    await expect(panel.locator('pre')).toHaveText(
+      `zoomies doctor --host ${id} --verbose --url ${origin}`,
+    );
+    // The host itself needs none of it.
+    await expect(panel).toContainText('zoomies doctor --verbose');
+  });
+});
+
+test('with authentication on, the page makes a short-lived read-only token and puts it in the command', async ({
+  page,
+}) => {
+  await withReportingHost(page, async ({ id, name }) => {
+    const made = 'zoo_pretend_0123456789abcdefghij';
+    const asked: Array<Record<string, unknown>> = [];
+    await signedInAs(page, 'viewer');
+    await page.route('**/api/v1/tokens', (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      asked.push(route.request().postDataJSON() as Record<string, unknown>);
+      return route.fulfill({
+        status: 201,
+        json: {
+          id: 'tok_pretend',
+          name: asked[0]!.name,
+          role: 'viewer',
+          scopes: ['hosts:read'],
+          prefix: 'zoo_pretend',
+          revoked: false,
+          created_at: new Date().toISOString(),
+          expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
+          last_used_at: null,
+          token: made,
+        },
+      });
+    });
+    await page.clock.install();
+    await goto(page, `/hosts/${id}`, name);
+    const panel = page.getByRole('region', { name: 'Read this report from a terminal' });
+
+    // Nothing is made until it is asked for, and there is no command to copy
+    // that would fail.
+    await expect(panel.locator('pre')).toHaveCount(0);
+    await panel.getByRole('button', { name: 'Make a command' }).click();
+
+    // What was asked for is what makes it safe to offer on a click: the least
+    // role, reading hosts and nothing else, for a quarter of an hour, named for
+    // the host by its id and not by the name the host gave itself.
+    await expect.poll(() => asked.length).toBe(1);
+    expect(asked[0]).toEqual({
+      name: `Terminal: doctor ${id}`,
+      role: 'viewer',
+      scopes: ['hosts:read'],
+      expires_in: '15m',
+    });
+    const origin = new URL(page.url()).origin;
+    await expect(panel.locator('pre')).toHaveText(
+      `zoomies doctor --host ${id} --verbose --url ${origin} --token ${made}`,
+    );
+    await expect(panel).toContainText('can only read hosts');
+    // A long command does not push the page sideways, on a phone least of all.
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth > window.innerWidth,
+    );
+    expect(overflow).toBe(false);
+
+    // When the token ends the command goes with it, so a dead one is never what
+    // gets copied, and a new one can be made.
+    await page.clock.fastForward('16:00');
+    await expect(panel.locator('pre')).toHaveCount(0);
+    await expect(panel).toContainText('That token has ended');
+    await expect(panel.getByRole('button', { name: 'Make another command' })).toBeVisible();
+  });
+});
+
+test('a command that could not be made says why and leaves nothing to copy', async ({ page }) => {
+  await withReportingHost(page, async ({ id, name }) => {
+    await signedInAs(page, 'viewer');
+    await page.route('**/api/v1/tokens', (route) =>
+      route.request().method() === 'POST'
+        ? route.fulfill({
+            status: 422,
+            json: { error: { code: 'invalid', message: 'tokens cannot be made right now' } },
+          })
+        : route.fallback(),
+    );
+    await goto(page, `/hosts/${id}`, name);
+    const panel = page.getByRole('region', { name: 'Read this report from a terminal' });
+    await panel.getByRole('button', { name: 'Make a command' }).click();
+    await expect(
+      page.locator('.toast[data-tone="error"]', { hasText: 'tokens cannot be made right now' }),
+    ).toBeVisible();
+    await expect(panel.locator('pre')).toHaveCount(0);
+    await expect(panel.getByRole('button', { name: 'Make a command' })).toBeEnabled();
+  });
+});

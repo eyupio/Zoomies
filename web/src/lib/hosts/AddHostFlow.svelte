@@ -39,7 +39,7 @@
   import Input from '$lib/components/Input.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import Select from '$lib/components/Select.svelte';
-  import { isLoopbackURL } from '$lib/addresses';
+  import { isLoopbackURL, suggestedControllerURL } from '$lib/addresses';
   import { AGENT_OWNS_URL } from '$lib/links';
   import { hostMatchesSelector } from '$lib/pools/hostSelector';
   import BackendList from './BackendList.svelte';
@@ -75,24 +75,12 @@
 
   /* -- describe -------------------------------------------------------------- */
 
-  /**
-   * Where the new host should be told to find Zoomies.
-   *
-   * server.external_url is right when it is set and is not loopback; the
-   * default single-VM install sets it to http://localhost:8080, which no
-   * other machine answers on. Failing that, the address this browser is using
-   * is the best guess there is: a machine on the same network usually reaches
-   * the controller the same way an operator does.
-   */
-  function suggestedControllerURL(): string {
-    const configured = (session.meta?.external_url ?? '').replace(/\/+$/, '');
-    if (configured && !isLoopbackURL(configured)) return configured;
-    return location.origin;
-  }
+  /** Where the new host should be told to find Zoomies: see `suggestedControllerURL`. */
+  const suggestedURL = () => suggestedControllerURL(session.meta?.external_url, location.origin);
 
   let connection = $state<'direct' | 'tailcat'>('direct');
   const tailcatAvailable = $derived(session.meta?.tailcat_available === true);
-  let controllerURL = $state(suggestedControllerURL());
+  let controllerURL = $state(suggestedURL());
   let capacity = $state('');
   let ttl = $state('15m');
   let rows = $state<{ key: string; value: string }[]>([]);
