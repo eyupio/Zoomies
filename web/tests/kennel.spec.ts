@@ -42,12 +42,22 @@ async function patchSettings(page: Page, settings: Record<string, unknown>): Pro
 interface Overview {
   enabled: boolean;
   repositories: number;
-  states: { attention: number; best_in_show: number };
-  counts: { error: number };
+  states: { attention: number; best_in_show: number; partial: number; pending: number };
+  counts: { error: number; warning: number; waived: number };
 }
 
 async function overview(page: Page): Promise<Overview> {
   return (await page.request.get('/api/v1/kennel').then((r) => r.json())) as Overview;
+}
+
+/**
+ * One of the cards on the Overview, found by its label. A card that opens a list
+ * has an arrow after the label, which is part of the label's text.
+ */
+function tile(page: Page, label: string) {
+  return page
+    .locator('dl.metrics > div')
+    .filter({ has: page.getByRole('term').filter({ hasText: new RegExp(`^${label}↗?$`) }) });
 }
 
 /** The demo's repositories are read within moments of the setting being turned on. */
@@ -214,18 +224,14 @@ test.describe('with Kennel Club on', () => {
     await untilRead(page);
     await goto(page, '/kennel', 'Kennel Club');
 
-    const tile = (label: string) =>
-      page
-        .locator('dl.metrics > div')
-        .filter({ has: page.getByRole('term').filter({ hasText: new RegExp(`^${label}$`) }) });
-    await expect(tile('Repositories')).toContainText('3');
+    await expect(tile(page, 'Repositories')).toContainText('3');
     // The number of repositories that need attention grows with the controller's
     // age (see quietRepository), so the page is held to what the API says now, and
     // to there being at least the one with the errors.
     const now = await overview(page);
     expect(now.states.attention).toBeGreaterThanOrEqual(1);
-    await expect(tile('Need attention')).toContainText(String(now.states.attention));
-    await expect(tile('Errors')).toContainText(String(now.counts.error));
+    await expect(tile(page, 'Need attention')).toContainText(String(now.states.attention));
+    await expect(tile(page, 'Errors')).toContainText(String(now.counts.error));
     expect(now.counts.error, 'only the public repository has errors').toBe(2);
 
     const attention = page.getByRole('region', { name: 'Needs attention' });
@@ -284,10 +290,7 @@ test.describe('with Kennel Club on', () => {
         'These counts are a minimum: 1 repository is only partly checked and reads from acme are not getting through',
       ),
     ).toBeVisible();
-    const attention = page
-      .locator('dl.metrics > div')
-      .filter({ has: page.getByRole('term').filter({ hasText: /^Need attention$/ }) });
-    await expect(attention).toContainText('At least');
+    await expect(tile(page, 'Need attention')).toContainText('At least');
     const note = page.getByRole('note').filter({ hasText: 'GitHub asked Zoomies to wait' });
     await expect(note).toContainText('acme');
     await expect(note).toContainText('Held for a rate limit');
@@ -295,9 +298,7 @@ test.describe('with Kennel Club on', () => {
 
   test('a refresh that fails keeps what the page had, says so, and recovers', async ({ page }) => {
     await goto(page, '/kennel', 'Kennel Club');
-    const repositories = page
-      .locator('dl.metrics > div')
-      .filter({ has: page.getByRole('term').filter({ hasText: /^Repositories$/ }) });
+    const repositories = tile(page, 'Repositories');
     await expect(repositories).toContainText('3');
 
     let down = true;
@@ -2007,5 +2008,142 @@ test.describe('the side menu and the switch', () => {
         await auditThePage(page, `${path} at ${width}px`);
       }
     }
+  });
+});
+
+/* -- the cards on the Overview ------------------------------------------------- */
+
+// A card opens the repositories it counts. The number on it and the rows behind it
+// have to agree, or the click shows the card to be wrong; and a card that counts
+// nothing has no link, since it would open an empty list.
+test.describe('the cards on the Overview', () => {
+  const card = (page: Page, label: string) =>
+    page.getByRole('link', { name: new RegExp(`^(?:${label}): `) });
+  const off = { 'kennel.enabled': false };
+
+  test.beforeEach(async ({ page }) => {
+    await patchSettings(page, { 'kennel.enabled': true });
+    await untilRead(page);
+  });
+  test.afterEach(async ({ page }) => patchSettings(page, off));
+
+  test('a card opens the repositories it counts, and the rows are as many as the number', async ({
+    page,
+  }) => {
+    const counted = await overview(page);
+    expect(counted.states.attention, 'some repository needs attention').toBeGreaterThan(0);
+    expect(counted.states.best_in_show, 'some repository has nothing open').toBeGreaterThan(0);
+    expect(counted.counts.error, 'some repository has an error open').toBeGreaterThan(0);
+
+    const rows = dataRows(grid(page, 'Repositories'));
+    for (const [label, href, expected] of [
+      ['Repositories', '/kennel/repositories', counted.repositories],
+      // Named for the standing, which the preference for playful wording changes.
+      [
+        'No open findings|Best in show',
+        '/kennel/repositories?state=best_in_show',
+        counted.states.best_in_show,
+      ],
+      ['Need attention', '/kennel/repositories?state=attention', counted.states.attention],
+    ] as const) {
+      await goto(page, '/kennel', 'Kennel Club');
+      await expect(card(page, label), label).toHaveAttribute('href', href);
+      await card(page, label).click();
+      await expect(page, label).toHaveURL(new RegExp(`${href.replace('?', '\\?')}$`));
+      await expect(page.getByRole('heading', { level: 1, name: 'Repositories' })).toBeVisible();
+      await expect(rows, `${label} opens as many rows as its number`).toHaveCount(expected);
+    }
+
+    // Errors counts findings and the list shows the repositories that have them, so
+    // the rows are the ones with an error open and not as many as the number.
+    await goto(page, '/kennel', 'Kennel Club');
+    await card(page, 'Errors').click();
+    await expect(page).toHaveURL(/\/kennel\/repositories\?severity=error$/);
+    await expect(rows.first()).toContainText(PUBLIC_REPO);
+    await expect(page.getByRole('button', { name: /Remove.*Severity/i })).toBeVisible();
+
+    // The panel under the cards opens the same list as its card.
+    await goto(page, '/kennel', 'Kennel Club');
+    await page.getByRole('link', { name: 'See all', exact: true }).click();
+    await expect(page).toHaveURL(/\/kennel\/repositories\?state=attention$/);
+    await expect(rows, 'See all opens as many rows as Need attention counts').toHaveCount(
+      counted.states.attention,
+    );
+  });
+
+  test('a card is judged by its own count, and two cards have no link to give', async ({
+    page,
+  }) => {
+    // The stream is cut so that only this document is ever on the page: a frame
+    // of the real summary would replace it, and a "has no link" check made after
+    // that would be about the real fleet and not about the card.
+    await page.route('**/api/v1/events*', (route) => route.abort('connectionfailed'));
+
+    // One count at a time is something, and every other is nothing, so a card
+    // judged by another card's count, or by none, is the one that shows.
+    const counted = [
+      ['No open findings|Best in show', '/kennel/repositories?state=best_in_show'],
+      ['Need attention', '/kennel/repositories?state=attention'],
+      ['Errors', '/kennel/repositories?severity=error'],
+      ['Warnings', '/kennel/repositories?severity=warning'],
+    ] as const;
+    let alone = 0;
+    await page.route('**/api/v1/kennel', async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as Overview;
+      const some = (n: number) => (alone === n ? 3 : 0);
+      return route.fulfill({
+        response,
+        json: {
+          ...body,
+          // "Partly checked" and "Waived" always have something to count.
+          states: {
+            ...body.states,
+            best_in_show: some(0),
+            attention: some(1),
+            partial: 1,
+            pending: 1,
+          },
+          counts: { ...body.counts, error: some(2), warning: some(3), waived: 1 },
+        },
+      });
+    });
+
+    for (const [only, [alonelabel]] of counted.entries()) {
+      alone = only;
+      await goto(page, '/kennel', 'Kennel Club');
+      // The card that always links, which is also how the page is known to be read.
+      await expect(card(page, 'Repositories')).toHaveAttribute('href', '/kennel/repositories');
+      for (const [n, [label, href]] of counted.entries()) {
+        const where = `${label}, when only ${alonelabel} counts something`;
+        if (n === only) await expect(card(page, label), where).toHaveAttribute('href', href);
+        else await expect(card(page, label), `${where}: no link`).toHaveCount(0);
+      }
+      // These two have no list to open whatever they count. "Partly checked" adds
+      // two standings and the list filters by one; the list has no waiver filter.
+      for (const [label, value] of [
+        ['Partly checked', '2'],
+        ['Waived', '1'],
+      ] as const) {
+        await expect(tile(page, label), `${label} is on the page`).toBeVisible();
+        await expect(tile(page, label).locator('a'), `${label} is not a link`).toHaveCount(0);
+        await expect(tile(page, label), `${label} says ${value}`).toContainText(value);
+      }
+    }
+  });
+
+  // The whole card is the target, not the small label in it, and it is tall enough
+  // for a finger: a phone is where the cards are tapped.
+  test('the whole card is the link, and it is a size a finger can use', async ({ page }) => {
+    await goto(page, '/kennel', 'Kennel Club');
+    const link = card(page, 'Need attention');
+    const box = page.locator('.metric').filter({ has: link });
+    const size = (await box.boundingBox())!;
+    expect(size.height, 'the card is a finger-sized target').toBeGreaterThanOrEqual(44);
+    await expect(box).toBeInViewport({ ratio: 1 });
+    // Its far corner is nowhere near the label, and still opens the list.
+    await box.click({ position: { x: size.width - 6, y: size.height - 6 } });
+    await expect(page).toHaveURL(/\/kennel\/repositories\?state=attention$/);
+    await auditThePage(page, 'the list from a card');
   });
 });
