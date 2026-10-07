@@ -1573,3 +1573,186 @@ test('the card disk figure goes amber by the check rule and links to the check',
     await page.request.delete(`/api/v1/hosts/${credentials.host_id}`);
   }
 });
+
+// Accepting a check is a decision on the controller about one host: it changes
+// what is counted and nothing on the machine. The pill, the card's line, the
+// Needs attention list, the controller's own count and the Hosts chip are five
+// views of one fact, so they are walked together, and so is taking it back.
+const ACCEPT_WHY = 'Pinned on purpose until the vendor ships a fix';
+
+async function countOf(page: Page, credentials: Credentials) {
+  const response = await page.request.get(`/api/v1/hosts/${credentials.host_id}`);
+  const host = (await response.json()) as { doctor: { summary: Record<string, number> } };
+  return host.doctor.summary;
+}
+
+async function acceptViaApi(
+  page: Page,
+  credentials: Credentials,
+  checkId: string,
+  seen: string,
+): Promise<void> {
+  const response = await page.request.put(
+    `/api/v1/hosts/${credentials.host_id}/check-acceptances`,
+    {
+      data: {
+        check_id: checkId,
+        seen_current: seen,
+        reason: ACCEPT_WHY,
+        expires_at: new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString(),
+      },
+    },
+  );
+  expect(response.ok()).toBeTruthy();
+}
+
+test('an operator accepts a warning and the page, the card and the count agree, then revokes it', async ({
+  page,
+}) => {
+  const name = `health-acc-${Date.now() % 1e8}`;
+  const credentials = await enrol(page, name);
+  const row = (id: string) => page.locator(`.health-content tr[id="${id}"]`);
+  try {
+    await heartbeat(page, credentials, [
+      check('inotify.watches', 'File watches', 'safe', 'warn', { current: '8192' }),
+      check('docker.logs', 'Docker log rotation', 'safe', 'warn', { current: 'none' }),
+    ]);
+    await goto(page, `/hosts/${credentials.host_id}`, name);
+    await expect(page.getByRole('main')).toContainText('2 warnings');
+    await expect(page.getByRole('button', { name: /apply|tune/i })).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Accept: File watches' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Accept this check as deliberate' });
+    await expect(dialog).toContainText('It changes nothing on the host');
+    await expect(page.getByRole('button', { name: /apply|tune/i })).toHaveCount(0);
+    const submit = dialog.getByRole('button', { name: 'Accept check', exact: true });
+    const why = dialog.getByLabel(/Why this is deliberate/);
+    await expect(why).toBeFocused();
+    await why.fill('too short');
+    await expect(submit).toBeDisabled();
+    await why.fill(ACCEPT_WHY);
+    await expect(submit).toBeEnabled();
+    await submit.click();
+    await expect(dialog).toBeHidden();
+
+    // The row stays in the findings table, after the one still counting.
+    await expect(row('inotify.watches')).toContainText('Accepted');
+    await expect(row('inotify.watches')).toContainText(ACCEPT_WHY);
+    await expect(row('inotify.watches').locator('.kind')).toHaveCount(0);
+    await expect(row('inotify.watches')).toBeFocused();
+    const order = await page
+      .locator('.health-content tbody tr[id]')
+      .evaluateAll((rows) => rows.map((r) => r.id));
+    expect(order.indexOf('docker.logs')).toBeLessThan(order.indexOf('inotify.watches'));
+    await expect(page.getByRole('main')).toContainText('1 warning');
+    const attention = page.getByRole('region', { name: 'Needs attention' });
+    await expect(attention).toContainText('Docker log rotation');
+    await expect(attention).not.toContainText('File watches');
+    expect(await countOf(page, credentials)).toMatchObject({
+      warnings: 1,
+      accepted: 1,
+      counted: 2,
+    });
+    await expect(page.getByRole('button', { name: /apply|tune/i })).toHaveCount(0);
+
+    // The card says the same: one warning, and the check still counting is the
+    // one it names.
+    await goto(page, '/hosts', 'Hosts');
+    const card = page.getByRole('article', { name, exact: true });
+    await expect(card.getByRole('link', { name: `Host health for ${name}` })).toContainText(
+      '1 warning',
+    );
+    await expect(card).toContainText('Docker log rotation');
+    await expect(card).not.toContainText('File watches');
+
+    // The chip counts hosts that need attention, and this one is among them
+    // until its last counted warning is accepted: then it leaves, live, and the
+    // card reads Health OK, with nothing counted against it.
+    const chip = page
+      .getByRole('group', { name: 'Show hosts by OS health' })
+      .getByRole('button', { name: /^Need attention \d+$/ });
+    const withIt = Number(/(\d+)$/.exec((await chip.innerText()).trim())?.[1]);
+    expect(Number.isFinite(withIt)).toBe(true);
+    await acceptViaApi(page, credentials, 'docker.logs', 'none');
+    await expect(chip).toHaveAccessibleName(`Need attention ${withIt - 1}`);
+    await expect(card).toContainText('Health OK');
+    await expect(card).not.toContainText('Docker log rotation');
+
+    // Revoke: the check counts again straight away.
+    await goto(page, `/hosts/${credentials.host_id}`, name);
+    await page.getByRole('button', { name: 'Revoke acceptance: File watches' }).click();
+    const confirm = page.getByRole('dialog', { name: 'Revoke acceptance' });
+    await confirm.getByRole('button', { name: 'Revoke', exact: true }).click();
+    await expect(confirm).toBeHidden();
+    await expect(row('inotify.watches')).not.toContainText('Accepted');
+    await expect(row('inotify.watches')).toContainText('Warning');
+    await expect(row('inotify.watches')).toBeFocused();
+    // Only this one counts again: the other stays accepted.
+    await expect(page.getByRole('main')).toContainText('1 warning');
+    expect(await countOf(page, credentials)).toMatchObject({ warnings: 1, accepted: 1 });
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+  }
+});
+
+test('an accepted warning counts again, with the reason why, when its value changes', async ({
+  page,
+}) => {
+  // The acceptance is of what the person saw. A kernel pinned at 5.15 and then
+  // at 4.4 is a different decision, and the page must say so rather than let a
+  // row quietly return.
+  const name = `health-end-${Date.now() % 1e8}`;
+  const credentials = await enrol(page, name);
+  const row = page.locator('.health-content tr[id="inotify.watches"]');
+  const beat = (current: string) =>
+    heartbeat(page, credentials, [
+      check('inotify.watches', 'File watches', 'safe', 'warn', { current }),
+    ]);
+  try {
+    await beat('8192');
+    await acceptViaApi(page, credentials, 'inotify.watches', '8192');
+    await goto(page, `/hosts/${credentials.host_id}`, name);
+    await expect(row).toContainText('Accepted');
+    await expect(page.getByRole('main')).toContainText('Health OK');
+
+    await beat('4096');
+    await expect(row).not.toContainText(/Accepted\b(?! by)/);
+    await expect(row).toContainText('It now reads “4096”, so it counts again');
+    await expect(row).toContainText('while it read “8192”');
+    await expect(page.getByRole('region', { name: 'Needs attention' })).toContainText(
+      'File watches',
+    );
+    expect(await countOf(page, credentials)).toMatchObject({ warnings: 1, accepted: 0 });
+    // It can be accepted again, because it is a counted warning once more.
+    await expect(page.getByRole('button', { name: 'Accept: File watches' })).toBeVisible();
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+  }
+});
+
+test('a viewer reads the badge and the reason on an accepted row and is given no control', async ({
+  page,
+}) => {
+  const name = `health-accv-${Date.now() % 1e8}`;
+  const credentials = await enrol(page, name);
+  try {
+    await heartbeat(page, credentials, [
+      check('inotify.watches', 'File watches', 'safe', 'warn', { current: '8192' }),
+    ]);
+    await acceptViaApi(page, credentials, 'inotify.watches', '8192');
+    await signedInAs(page, 'viewer');
+    for (const width of [375, 820, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      await goto(page, `/hosts/${credentials.host_id}`, name);
+      const row = page.locator('.health-content tr[id="inotify.watches"]');
+      await expect(row).toContainText('Accepted');
+      await expect(row).toContainText(ACCEPT_WHY);
+      await expect(page.getByRole('button', { name: /^(Accept|Revoke)/ })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: /apply|tune/i })).toHaveCount(0);
+      const { scrollWidth, clientWidth } = await documentWidth(page);
+      expect(scrollWidth, `no sideways scroll at ${width}px`).toBeLessThanOrEqual(clientWidth);
+    }
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+  }
+});

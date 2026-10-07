@@ -7,6 +7,7 @@
  */
 import type { KennelCounts, KennelOverview, Severity } from '../api/types';
 import { joinWords, pluralise } from '../format';
+import { REASON_MAX, REASON_MIN } from '../reason';
 
 /** The worst severity that is open, or nothing when nothing is. */
 export function worstSeverity(
@@ -114,28 +115,10 @@ export function worstCoverageState(
 
 /* -- waivers ------------------------------------------------------------------ */
 
-/** The controller's own bounds on a reason, in characters. A test holds them to what it says. */
-export const WAIVER_REASON_MIN = 10;
-export const WAIVER_REASON_MAX = 500;
-
-/**
- * How long a reason is, counted the way the controller counts it: characters,
- * after the ends are trimmed. `.length` counts UTF-16 units, so an emoji would
- * be two, and a form that says "9 of 10" while the controller says "10" is a
- * form that argues with the person typing.
- */
-export function reasonLength(reason: string): number {
-  return [...reason.trim()].length;
-}
-
-/** What the reason field says about itself: the rule while it is unmet, the count after. */
-export function reasonHint(reason: string): string {
-  const n = reasonLength(reason);
-  if (n < WAIVER_REASON_MIN) {
-    return `At least ${WAIVER_REASON_MIN} characters: say why this is acceptable here, for whoever reads the audit log in a year.`;
-  }
-  return `${n} of ${WAIVER_REASON_MAX} characters.`;
-}
+/** The reason's bounds are the shared ones; the names stay for the pages that already say waiver. */
+export { reasonHint, reasonLength } from '../reason';
+export const WAIVER_REASON_MIN = REASON_MIN;
+export const WAIVER_REASON_MAX = REASON_MAX;
 
 /**
  * How long a waiver can run. The longest is a day short of the 365 the

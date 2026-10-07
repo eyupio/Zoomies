@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getHost } from '$lib/api/client';
+  import { getHost, revokeHostCheck } from '$lib/api/client';
   import { events } from '$lib/api/sse';
   import type { Host } from '$lib/api/types';
   import { href, router } from '$lib/router';
@@ -29,6 +29,10 @@
   import { KIND_WORDS, previewCommand, rowKind } from '$lib/hosts/row-kind';
   import { pluralise } from '$lib/format';
   import { niceValue } from '$lib/hosts/check-value';
+  import { acceptedIds, acceptedLast, acceptNote, canAccept, endedNote } from '$lib/hosts/accept';
+  import AcceptDialog from '$lib/hosts/AcceptDialog.svelte';
+  import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+  import { toasts } from '$lib/state/toasts.svelte';
   import type { StatusTone } from '$lib/status';
   import { tick, untrack } from 'svelte';
   import { ServerCog } from '@lucide/svelte';
@@ -145,7 +149,12 @@
         next.os !== baseline.report.os ||
         next.distro !== baseline.report.distro ||
         next.container !== baseline.report.container ||
-        version !== baseline.version;
+        version !== baseline.version ||
+        // An accept or a revoke frame keeps the report's checked_at, so without
+        // this the baseline would keep the report from before the decision and
+        // the next real one would announce a resolved or a new check that the
+        // person had just decided on themselves.
+        acceptedIds(next.results) !== acceptedIds(baseline.report.results);
       if (advanced || sourceMoved) baseline = { id: hostId, report: next, version };
       if (changes.length === 0) return;
       liveText = announcement(changes, allClear(next, Date.now()));
@@ -165,6 +174,55 @@
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   });
+
+  // Accepting and revoking change what the controller counts and nothing on the
+  // host. Not optimistic: the answer is the host, and every surface repaints
+  // from that one payload.
+  let acceptOpen = $state(false);
+  let acceptTarget = $state<DoctorResult | null>(null);
+  let revokeOpen = $state(false);
+  let revokeTarget = $state<DoctorResult | null>(null);
+  function openAccept(check: DoctorResult): void {
+    acceptTarget = check;
+    acceptOpen = true;
+  }
+  function openRevoke(check: DoctorResult): void {
+    revokeTarget = check;
+    revokeOpen = true;
+  }
+  // The opener is replaced by the other button, so a dialog closing cannot hand
+  // focus back to it. The row takes it, as it does when a link lands on it; the
+  // page's name is the fallback.
+  async function keepFocus(checkId: string): Promise<void> {
+    await tick();
+    requestAnimationFrame(() => {
+      const active = document.activeElement;
+      // The dialog's own restore has already run by now and, finding its opener
+      // gone, left focus on the page's name; that is the one place to take it from.
+      if (active && active !== document.body && active.id !== 'page-heading') return;
+      const row = [...document.querySelectorAll<HTMLElement>('.health-content tr[id]')].find(
+        (r) => r.id === checkId,
+      );
+      (row ?? document.getElementById('page-heading'))?.focus({ preventScroll: true });
+    });
+  }
+  function accepted(updated: Host): void {
+    fleet.ingestHosts([updated]);
+    fetched = updated;
+    if (acceptTarget) void keepFocus(acceptTarget.id);
+  }
+  async function revoke(): Promise<boolean> {
+    const check = revokeTarget;
+    if (!check || !host?.id) return false;
+    const updated = await revokeHostCheck(host.id, check.id);
+    fleet.ingestHosts([updated]);
+    fetched = updated;
+    toasts.success(`Acceptance revoked: ${check.title}`, `It counts again on ${host.name}.`);
+    // The confirmation closes when this returns, and its own restore of focus
+    // is queued then; asking a turn later puts the row's claim after it.
+    setTimeout(() => void keepFocus(check.id), 0);
+    return true;
+  }
 
   async function toggleCordon(): Promise<void> {
     if (!host || cordoning) return;
@@ -188,6 +246,9 @@
   // A warning that does not count says so in its own word and tone, or the
   // header would read "Health OK" above a column of amber "Warning" badges.
   function statusBadge(check: DoctorResult): { label: string; tone: StatusTone } {
+    // The accent is the seventh tone and never a state: the row is a decision
+    // somebody took, not a colour the fleet means anything by.
+    if (check.accepted) return { label: 'Accepted', tone: 'accent' };
     if (check.status === 'error') return { label: 'Error', tone: 'danger' };
     if (check.status === 'warn')
       return counts(check)
@@ -384,7 +445,7 @@
     {/if}
     {#each tiers as tier (tier)}
       {@const checks = bySeverity(report.results.filter((r) => r.tier === tier))}
-      {@const findings = checks.filter(isFinding)}
+      {@const findings = acceptedLast(checks.filter(isFinding))}
       {@const rest = checks.filter((r) => !isFinding(r))}
       {#if checks.length}
         <Panel
@@ -412,6 +473,23 @@
     {/each}
   </div>
 {/if}
+
+<AcceptDialog
+  bind:open={acceptOpen}
+  hostId={host?.id ?? id}
+  hostName={host?.name ?? id}
+  check={acceptTarget}
+  onaccepted={accepted}
+/>
+<ConfirmDialog
+  bind:open={revokeOpen}
+  title="Revoke acceptance"
+  description="{revokeTarget?.title ??
+    'It'} counts again straight away, and Zoomies raises a problem for it if it needs one."
+  confirmLabel="Revoke"
+  tone="default"
+  onconfirm={revoke}
+/>
 
 {#snippet nextPanel()}
   {#if showStep && step && host}
@@ -503,7 +581,31 @@
             <td role="cell" data-label="Current">{niceValue(check.current) || '—'}</td>
             <td role="cell" data-label="Recommended">{niceValue(check.recommended) || '—'}</td>
             <td role="cell" data-label="Why / details"
-              >{check.rationale}{#if check.reason}<small>{check.reason}</small>{/if}</td
+              >{check.rationale}{#if check.reason}<small>{check.reason}</small>{/if}
+              {#if check.accepted}
+                <small class="accepted-note">{acceptNote(check.accepted, now)}</small>
+              {:else if endedNote(check)}
+                <small class="accepted-note">{endedNote(check)}</small>
+              {/if}
+              {#if canOperate && (canAccept(check) || check.accepted)}
+                <span class="decide">
+                  {#if check.accepted}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      ariaLabel="Revoke acceptance: {check.title}"
+                      onclick={() => openRevoke(check)}>Revoke</Button
+                    >
+                  {:else}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      ariaLabel="Accept: {check.title}"
+                      onclick={() => openAccept(check)}>Accept</Button
+                    >
+                  {/if}
+                </span>
+              {/if}</td
             >
           </tr>
         {/each}
@@ -689,6 +791,13 @@
     flex-wrap: wrap;
     align-items: center;
     gap: var(--z-space-2);
+  }
+  .accepted-note {
+    color: var(--z-text);
+  }
+  .decide {
+    display: block;
+    margin-top: var(--z-space-2);
   }
   .kind {
     color: var(--z-text-muted);
