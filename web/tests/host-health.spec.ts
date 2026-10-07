@@ -278,18 +278,43 @@ async function withReportingHost(
  * authentication off, so everybody there is an administrator and a token has no
  * account to belong to; the page asks the controller nothing different.
  */
-async function signedInAs(page: Page, role: 'viewer' | 'operator' | 'admin'): Promise<void> {
+async function signedInAs(
+  page: Page,
+  role: 'viewer' | 'operator' | 'admin',
+  externalURL?: string,
+): Promise<void> {
   await page.route('**/api/v1/meta', async (route) => {
     const response = await route.fetch();
     const body = (await response.json()) as Record<string, unknown>;
     return route.fulfill({
       response,
-      json: { ...body, auth_disabled: false, bootstrap_required: false },
+      json: {
+        ...body,
+        auth_disabled: false,
+        bootstrap_required: false,
+        ...(externalURL ? { external_url: externalURL } : {}),
+      },
     });
   });
   await page.route('**/api/v1/auth/session', (route) =>
     route.fulfill({ json: { kind: 'token', id: 'tok_pretend', name: 'a token', role } }),
   );
+}
+
+/** What the page's token request is answered with: what the controller would send, for a token. */
+function tokenAnswer(asked: Record<string, unknown>, made: string, lifeMs: number) {
+  return {
+    id: 'tok_pretend',
+    name: asked.name,
+    role: 'viewer',
+    scopes: ['hosts:read'],
+    prefix: 'zoo_pretend',
+    revoked: false,
+    created_at: new Date().toISOString(),
+    expires_at: new Date(Date.now() + lifeMs).toISOString(),
+    last_used_at: null,
+    token: made,
+  };
 }
 
 // `zoomies doctor --host` needs the controller's address and, unless the
@@ -318,25 +343,18 @@ test('with authentication on, the page makes a short-lived read-only token and p
 }) => {
   await withReportingHost(page, async ({ id, name }) => {
     const made = 'zoo_pretend_0123456789abcdefghij';
+    const configured = 'https://zoomies.example.com';
     const asked: Array<Record<string, unknown>> = [];
-    await signedInAs(page, 'viewer');
+    await signedInAs(page, 'viewer', configured);
     await page.route('**/api/v1/tokens', (route) => {
       if (route.request().method() !== 'POST') return route.fallback();
       asked.push(route.request().postDataJSON() as Record<string, unknown>);
-      return route.fulfill({
-        status: 201,
-        json: {
-          id: 'tok_pretend',
-          name: asked[0]!.name,
-          role: 'viewer',
-          scopes: ['hosts:read'],
-          prefix: 'zoo_pretend',
-          revoked: false,
-          created_at: new Date().toISOString(),
-          expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
-          last_used_at: null,
-          token: made,
-        },
+      return route.fulfill({ status: 201, json: tokenAnswer(asked[0]!, made, 15 * 60_000) });
+    });
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: { writeText: async (value: string) => sessionStorage.setItem('copied', value) },
       });
     });
     await page.clock.install();
@@ -358,11 +376,14 @@ test('with authentication on, the page makes a short-lived read-only token and p
       scopes: ['hosts:read'],
       expires_in: '15m',
     });
-    const origin = new URL(page.url()).origin;
-    await expect(panel.locator('pre')).toHaveText(
-      `zoomies doctor --host ${id} --verbose --url ${origin} --token ${made}`,
-    );
+    // The address is the one the controller was configured to hand out, and not
+    // the one this browser happens to be using.
+    const command = `zoomies doctor --host ${id} --verbose --url ${configured} --token ${made}`;
+    await expect(panel.locator('pre')).toHaveText(command);
     await expect(panel).toContainText('can only read hosts');
+    // What is copied is the command, whole.
+    await panel.getByRole('button', { name: 'Copy the command' }).click();
+    expect(await page.evaluate(() => sessionStorage.getItem('copied'))).toBe(command);
     // A long command does not push the page sideways, on a phone least of all.
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth > window.innerWidth,
@@ -375,6 +396,31 @@ test('with authentication on, the page makes a short-lived read-only token and p
     await expect(panel.locator('pre')).toHaveCount(0);
     await expect(panel).toContainText('That token has ended');
     await expect(panel.getByRole('button', { name: 'Make another command' })).toBeVisible();
+  });
+});
+
+// The page's clock ticks every ten seconds, and a command that outlived its token
+// by up to that long is one somebody copies. So the command goes at the second the
+// token ends: this one lasts two, on the real clock, with no tick near it.
+test('the command goes at the second its token ends, not at the next tick of the page', async ({
+  page,
+}) => {
+  await withReportingHost(page, async ({ id, name }) => {
+    await signedInAs(page, 'viewer');
+    await page.route('**/api/v1/tokens', (route) =>
+      route.request().method() === 'POST'
+        ? route.fulfill({
+            status: 201,
+            json: tokenAnswer(route.request().postDataJSON(), 'zoo_pretend_short_lived', 2_500),
+          })
+        : route.fallback(),
+    );
+    await goto(page, `/hosts/${id}`, name);
+    const panel = page.getByRole('region', { name: 'Read this report from a terminal' });
+    await panel.getByRole('button', { name: 'Make a command' }).click();
+    await expect(panel.locator('pre')).toContainText('zoo_pretend_short_lived');
+    await expect(panel.locator('pre')).toHaveCount(0, { timeout: 5_000 });
+    await expect(panel).toContainText('That token has ended');
   });
 });
 
