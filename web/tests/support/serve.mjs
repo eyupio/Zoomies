@@ -14,5 +14,11 @@ serveController({
     ZOOMIES_DISABLE_AUTH: 'true',
     // Seeds a deterministic fixture fleet so pages have content to assert on.
     ZOOMIES_SEED_DEMO: 'true',
+    // The join route shares the sign-in limit, ten a minute for each source
+    // address, so that a stranger cannot guess join tokens. That is invisible to
+    // an operator and not to a suite that enrols a dozen hosts from one address
+    // in about a minute, whose result then depended on how fast the runner was.
+    // Authentication is off here, so there is no sign-in this loosens.
+    ZOOMIES_RATE_LIMIT_LOGINS: '1000',
   },
 });
