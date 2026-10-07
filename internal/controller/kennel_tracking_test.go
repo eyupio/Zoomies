@@ -130,7 +130,7 @@ func TestOnlyAnAdministratorMayStopKennelClubLookingAndTheReasonIsHeldToAWaivers
 		"none":          "",
 		"too short":     "a sandbox",
 		"too long":      strings.Repeat("x", KennelMaxReason+1),
-		"a bidi marker": "a sandbox nobody keeps ‮ up",
+		"a bidi marker": "a sandbox nobody keeps \u202e up",
 	} {
 		var invalid *KennelInvalidError
 		if err := stop(reason, trackingAdmin); !errors.As(err, &invalid) || len(invalid.Fields) != 1 || invalid.Fields[0].Field != "reason" {
