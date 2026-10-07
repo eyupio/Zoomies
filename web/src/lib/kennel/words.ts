@@ -111,3 +111,61 @@ export function worstCoverageState(
 ): (typeof COVERAGE_STATE_ORDER)[number] | undefined {
   return COVERAGE_STATE_ORDER.find((state) => (states[state] ?? 0) > 0);
 }
+
+/* -- waivers ------------------------------------------------------------------ */
+
+/** The controller's own bounds on a reason, in characters. A test holds them to what it says. */
+export const WAIVER_REASON_MIN = 10;
+export const WAIVER_REASON_MAX = 500;
+
+/**
+ * How long a reason is, counted the way the controller counts it: characters,
+ * after the ends are trimmed. `.length` counts UTF-16 units, so an emoji would
+ * be two, and a form that says "9 of 10" while the controller says "10" is a
+ * form that argues with the person typing.
+ */
+export function reasonLength(reason: string): number {
+  return [...reason.trim()].length;
+}
+
+/** What the reason field says about itself: the rule while it is unmet, the count after. */
+export function reasonHint(reason: string): string {
+  const n = reasonLength(reason);
+  if (n < WAIVER_REASON_MIN) {
+    return `At least ${WAIVER_REASON_MIN} characters: say why this is acceptable here, for whoever reads the audit log in a year.`;
+  }
+  return `${n} of ${WAIVER_REASON_MAX} characters.`;
+}
+
+/**
+ * How long a waiver can run. The longest is a day short of the 365 the
+ * controller allows, so that a browser whose clock is a little ahead of the
+ * controller's does not turn the longest choice into a refusal.
+ */
+export const WAIVER_EXPIRY_CHOICES = [
+  { value: '30', label: '30 days' },
+  { value: '90', label: '90 days' },
+  { value: '180', label: '6 months' },
+  { value: '364', label: 'A year' },
+] as const;
+
+/** A waiver is a decision to be made again, and a quarter is the default for that. */
+export const WAIVER_DEFAULT_DAYS = '90';
+
+/** When a waiver of `days` days ends, if it is made at `now`. */
+export function waiverEndsAt(days: number, now: Date): string {
+  return new Date(now.getTime() + days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+/**
+ * The role a finding's waiver needs. An error is an administrator's decision;
+ * a warning or a note is an operator's. It is the controller's rule, drawn here
+ * so that a person who cannot make the decision is told so instead of being
+ * handed a form the controller will refuse.
+ */
+export function waiverRole(severity: Severity): 'admin' | 'operator' {
+  return severity === 'error' ? 'admin' : 'operator';
+}
+
+export const ERROR_WAIVER_SENTENCE =
+  'Only an administrator can waive an error. An operator can waive a warning or a note.';

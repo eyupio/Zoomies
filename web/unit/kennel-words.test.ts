@@ -5,6 +5,13 @@ import {
   coverageStatesText,
   floorSentence,
   openFindingsText,
+  reasonHint,
+  reasonLength,
+  waiverEndsAt,
+  waiverRole,
+  WAIVER_EXPIRY_CHOICES,
+  WAIVER_REASON_MAX,
+  WAIVER_REASON_MIN,
   worstCoverageState,
   worstSeverity,
 } from '../src/lib/kennel/words.ts';
@@ -93,4 +100,43 @@ test('a source is drawn by the worst state any repository is in', () => {
   assert.equal(worstCoverageState({ ok: 9, partial: 1 }), 'partial');
   assert.equal(worstCoverageState({ ok: 9, denied: 1, partial: 1 }), 'denied');
   assert.equal(worstCoverageState({ ok: 9, denied: 1, error: 1 }), 'error');
+});
+
+test('a reason is counted in characters, after its ends are trimmed, as the controller counts it', () => {
+  assert.equal(reasonLength(''), 0);
+  assert.equal(reasonLength('   padded   '), 6);
+  // An emoji is one character to the controller and two UTF-16 units to
+  // `.length`: a form that disagreed would say "9 of 10" at the tenth.
+  assert.equal(reasonLength('🐕🐕🐕🐕🐕🐕🐕🐕🐕🐕'), 10);
+  assert.equal('🐕🐕🐕🐕🐕🐕🐕🐕🐕🐕'.length, 20);
+});
+
+test('the reason field says the rule while it is unmet and the count once it is met', () => {
+  assert.match(reasonHint('too short'), new RegExp(`At least ${WAIVER_REASON_MIN} characters`));
+  // Ten spaces are not ten characters of reason.
+  assert.match(reasonHint(' '.repeat(12)), /At least 10 characters/);
+  assert.equal(reasonHint('x'.repeat(10)), `10 of ${WAIVER_REASON_MAX} characters.`);
+});
+
+test('every way to choose how long a waiver runs is shorter than the controller allows', () => {
+  const days = WAIVER_EXPIRY_CHOICES.map((choice) => Number(choice.value));
+  assert.deepEqual(
+    days,
+    [...days].sort((a, b) => a - b),
+  );
+  // 365 is the controller's own limit: the longest choice stays inside it.
+  assert.ok(Math.max(...days) < 365);
+  assert.ok(Math.min(...days) > 0);
+});
+
+test('a waiver ends the stated number of days after it is made', () => {
+  const now = new Date('2026-10-07T09:00:00.000Z');
+  assert.equal(waiverEndsAt(30, now), '2026-11-06T09:00:00.000Z');
+  assert.equal(waiverEndsAt(364, now), '2027-10-06T09:00:00.000Z');
+});
+
+test('an error is waived by an administrator and anything lighter by an operator', () => {
+  assert.equal(waiverRole('error'), 'admin');
+  assert.equal(waiverRole('warning'), 'operator');
+  assert.equal(waiverRole('info'), 'operator');
 });
