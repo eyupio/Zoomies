@@ -112,9 +112,11 @@ func osHealthProblem(h *store.Host, r *hosttune.Report) (Problem, bool) {
 		Severity: severity,
 		Title:    title,
 		Detail:   detail,
-		Fix: fmt.Sprintf("run `zoomies doctor --host %s --verbose` to see what each check found, why any could not run "+
-			"and what would be better, then `sudo zoomies doctor --interactive` on %s to be offered each fix it can make, "+
-			"with the changes shown first. Zoomies never changes a host's operating system without that consent.", h.ID, h.Name),
+		Fix: fmt.Sprintf("on %s, run `sudo zoomies doctor --verbose` to see what each check found, why any could not run "+
+			"and what would be better, then `sudo zoomies doctor --interactive` to be offered each fix it can make, "+
+			"with the changes shown first. From another machine, the host's page has the command to read the report, with the "+
+			"controller's address and a short-lived token already in it. Zoomies never changes a host's operating system "+
+			"without that consent.", h.Name),
 		TargetKind: "host", TargetID: h.ID,
 	}, true
 }

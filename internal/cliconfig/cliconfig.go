@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -195,5 +196,23 @@ func InstalledURL(file string) string {
 	if err != nil {
 		return ""
 	}
+	if !cfg.Agent.Embedded && cfg.Agent.ControllerURL != "" {
+		// An agent's file names the controller it joined and runs none of its own.
+		// Its server section is only the defaults, and read as a listener it is a
+		// controller on loopback that is not there: `zoomies doctor --host` on a
+		// host that had joined was sent to an address nothing on it answers.
+		return dialable(cfg.Agent.ControllerURL)
+	}
 	return ConnectionURL(cfg.Server.ExternalURL, cfg.Server.Bind, cfg.Server.TLS.Mode)
+}
+
+// dialable is the address if a command typed in a shell can dial it, and nothing
+// if it cannot. An agent that joined over a private connection reaches its
+// controller through a tunnel of its own, and no URL stands for that.
+func dialable(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return ""
+	}
+	return strings.TrimRight(u.String(), "/")
 }

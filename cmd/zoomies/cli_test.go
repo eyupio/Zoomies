@@ -585,3 +585,84 @@ func TestTransportErrorNamesTheFlagThatFixesACertificateOrSchemeMistake(t *testi
 		}
 	}
 }
+
+// A host that joined a controller as an agent has a zoomies.yaml too, and what it
+// names is the controller it joined. The CLI used to read it for a listener of its
+// own, found the default one on loopback, and sent `zoomies doctor --host` there:
+// to an address nothing on that host answers.
+func TestAnAgentHostFindsTheControllerItJoined(t *testing.T) {
+	configDir := func(t *testing.T, yaml string) string {
+		t.Helper()
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "zoomies.yaml"), []byte(yaml), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("ZOOMIES_CONFIG_DIR", dir)
+		return filepath.Join(dir, "zoomies.yaml")
+	}
+
+	t.Run("it uses the controller the agent joined, and says where that came from", func(t *testing.T) {
+		e, _, _ := newTestEnv(t)
+		file := configDir(t, "agent:\n  embedded: false\n  controller_url: https://zoomies.example.com\n")
+		client, err := parseClientFlags(t, e).client()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if client.base != "https://zoomies.example.com" {
+			t.Errorf("base = %q, want the controller this host joined and not a listener on loopback", client.base)
+		}
+		if client.source != file {
+			t.Errorf("source = %q, want the file it was read from, %q", client.source, file)
+		}
+	})
+
+	t.Run("a private connection is said to be one, not guessed at", func(t *testing.T) {
+		e, _, _ := newTestEnv(t)
+		file := configDir(t, "agent:\n  embedded: false\n  controller_url: tailcat://controller\n")
+		_, err := parseClientFlags(t, e).client()
+		if err == nil {
+			t.Fatal("a controller reached through a tunnel was given an address")
+		}
+		for _, want := range []string{file, "private connection", "--url"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("the error does not mention %q:\n%s", want, err)
+			}
+		}
+		if strings.Contains(err.Error(), "no controller configuration was found") {
+			t.Errorf("the file is there, and the error says it is not:\n%s", err)
+		}
+	})
+}
+
+// "Cannot reach the controller" is the error an operator meets when the address is
+// wrong, and an address they never typed is the one they cannot fix, so it says
+// where it came from.
+func TestTheUnreachableErrorSaysWhereTheAddressCameFrom(t *testing.T) {
+	gone := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	address := gone.URL
+	gone.Close()
+
+	t.Run("a flag", func(t *testing.T) {
+		e, _, errOut := newTestEnv(t)
+		dispatch(context.Background(), e, []string{"pools", "list", "--url", address})
+		if !strings.Contains(errOut.String(), "the address came from --url") {
+			t.Errorf("the error does not say where the address came from:\n%s", errOut)
+		}
+	})
+	t.Run("the environment", func(t *testing.T) {
+		e, _, errOut := newTestEnv(t)
+		t.Setenv("ZOOMIES_URL", address)
+		dispatch(context.Background(), e, []string{"pools", "list"})
+		if !strings.Contains(errOut.String(), "the address came from ZOOMIES_URL") {
+			t.Errorf("the error does not say where the address came from:\n%s", errOut)
+		}
+	})
+	t.Run("the connection file", func(t *testing.T) {
+		e, _, errOut := newTestEnv(t)
+		writeCLIConfig(t, "url: "+address+"\n")
+		dispatch(context.Background(), e, []string{"pools", "list"})
+		if !strings.Contains(errOut.String(), "the address came from "+cliConfigPath()) {
+			t.Errorf("the error does not say where the address came from:\n%s", errOut)
+		}
+	})
+}
