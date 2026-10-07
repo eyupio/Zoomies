@@ -16,9 +16,16 @@
   } from '$lib/hosts/health';
   import { cordon } from '$lib/hosts/actions';
   import { DOCTOR_COMMAND, nextStep, rebootAdvice, rebootPending } from '$lib/hosts/next-step';
+  import {
+    REPORT_ONLY_SAFE_DESCRIPTION,
+    reportOnly,
+    reportOnlySentence,
+    reportOnlySubtitle,
+    reportOrigin,
+  } from '$lib/hosts/report-only';
   import { pluralise } from '$lib/format';
   import type { StatusTone } from '$lib/status';
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { ServerCog } from '@lucide/svelte';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
@@ -37,6 +44,9 @@
   $effect(() => onClockTick((t) => (now = t)));
   const host = $derived(fleet.hosts.find((h) => h.id === id) ?? fetched);
   const report = $derived(host?.doctor);
+  // Whether this report can be acted on at all: a Mac, an unsupported distribution
+  // and a container can be read but not tuned, and the page must not say otherwise.
+  const readOnly = $derived(reportOnly(report));
   const summary = $derived(healthSummary(report, now, host?.healthy ?? true));
   // What needs doing, worst first. Counted checks only, which is what the badge
   // and `zoomies doctor` count: the other tiers are choices, not faults.
@@ -57,6 +67,50 @@
   // The doctor hint stays wherever the panel has no command of its own, which
   // is for a viewer, and for a cordoned host with nothing waiting on it.
   const showCommand = $derived(showStep && step?.where != null);
+
+  // Scoped, never getElementById: a host chooses its own check ids, and one
+  // called "main" or "page-heading" must not win the lookup.
+  function land(): void {
+    let wanted = '';
+    try {
+      wanted = decodeURIComponent(location.hash.slice(1));
+    } catch {
+      return;
+    }
+    if (!wanted) return;
+    const row = [...document.querySelectorAll<HTMLElement>('.health-content tr[id]')].find(
+      (r) => r.id === wanted,
+    );
+    // Fixed since, or folded away: stay where the page put us. A closed
+    // <details> is never opened to land, findings are never inside one.
+    if (!row || row.closest('details:not([open])') || row.offsetParent === null) return;
+    document.querySelector('.health-content tr[data-landed]')?.removeAttribute('data-landed');
+    // Instant on purpose, so reduced motion needs no branch of its own.
+    row.scrollIntoView({ block: 'start' });
+    row.focus({ preventScroll: true });
+    row.setAttribute('data-landed', '');
+  }
+  // One landing per navigation and hash. Without the key, the host.doctor frame
+  // that swaps the report in every few seconds would scroll the page back each time.
+  let landedFor = '';
+  $effect(() => {
+    if (!report) return;
+    const key = `${router.navigation}:${location.hash}`;
+    if (untrack(() => landedFor) === key) return;
+    landedFor = key;
+    // After App.svelte has put focus on the page heading, or it would take it back.
+    void tick().then(() => requestAnimationFrame(land));
+  });
+  // The in-page links under "Needs attention" are plain #id links, which the
+  // router leaves to the browser; this is what moves focus for them too.
+  $effect(() => {
+    const onHash = () => {
+      landedFor = `${untrack(() => router.navigation)}:${location.hash}`;
+      land();
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  });
 
   async function toggleCordon(): Promise<void> {
     if (!host || cordoning) return;
@@ -126,7 +180,8 @@
 
 <PageHeader
   title={host?.name || 'Host health'}
-  subtitle="OS checks from the native Zoomies binary. Fixes require explicit consent on the host."
+  subtitle={reportOnlySubtitle(readOnly) ??
+    'OS checks from the native Zoomies binary. Fixes require explicit consent on the host.'}
   breadcrumb={[{ label: 'Hosts', href: '/hosts' }, { label: host?.name || id }]}
   onrefresh={refresh}
 >
@@ -148,14 +203,16 @@
     <!-- First, so that a phone meets the action before a long list of findings. -->
     {@render nextPanel()}
     <Panel title="Latest host report" description={summary.hint}>
-      <p>{report.os} · {report.distro} · Checked <RelativeTime value={report.checked_at} /></p>
+      <p>{reportOrigin(report)} · Checked <RelativeTime value={report.checked_at} /></p>
       {#if !showStep && rebootPending(report)}
         <!-- Cordon, never drain: drain cordons and then stops a runner still busy after
              five minutes (host_health_problems.go), which is the wrong advice for waiting
              for jobs to finish. -->
         <p>{rebootAdvice()}</p>
       {/if}
-      {#if !showCommand}
+      {#if !showCommand && readOnly}
+        <p>{reportOnlySentence(readOnly, report.os)}</p>
+      {:else if !showCommand}
         <p>
           Review changes locally with <code>sudo zoomies doctor --interactive</code> or preview them
           with <code>sudo zoomies tune --dry-run</code>.
@@ -202,11 +259,13 @@
             : tier === 'aggressive'
               ? 'Aggressive checks'
               : 'Dedicated host checks'}
-          description={tier === 'dedicated'
-            ? 'Only for hosts running nothing but Zoomies. These changes are never included in safe or aggressive defaults, and do not count towards this host’s health.'
-            : tier === 'aggressive'
-              ? 'Optional tuning, and not counted towards this host’s health. Applying a change needs --tier aggressive and consent in the CLI.'
-              : 'Read-only findings. Applying a change requires consent in the CLI.'}
+          description={tier === 'safe' && readOnly
+            ? REPORT_ONLY_SAFE_DESCRIPTION
+            : tier === 'dedicated'
+              ? 'Only for hosts running nothing but Zoomies. These changes are never included in safe or aggressive defaults, and do not count towards this host’s health.'
+              : tier === 'aggressive'
+                ? 'Optional tuning, and not counted towards this host’s health. Applying a change needs --tier aggressive and consent in the CLI.'
+                : 'Read-only findings. Applying a change requires consent in the CLI.'}
           flush
         >
           {#if findings.length}{@render checkTable(`${tier} host checks`, findings)}{/if}
@@ -288,7 +347,7 @@
       <tbody
         >{#each rows as check (check.id)}
           {@const badge = statusBadge(check)}
-          <tr id={check.id}>
+          <tr id={check.id} tabindex="-1">
             <th scope="row">{check.title}<small>{check.id}</small></th>
             <td><Badge label={badge.label} tone={badge.tone} /></td>
             <td>{check.current || '—'}</td><td>{check.recommended || '—'}</td><td
@@ -432,7 +491,9 @@
   tr[id] {
     scroll-margin-top: calc(var(--z-topbar-height) + var(--z-space-4));
   }
-  tr:target {
+  /* data-landed is set from script, so the compiler cannot see it. */
+  tr:target,
+  tr:global([data-landed]) {
     background: var(--z-accent-subtle);
   }
   .attention {

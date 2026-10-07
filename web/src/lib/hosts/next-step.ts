@@ -21,6 +21,7 @@
 import type { Host } from '$lib/api/types';
 import { pluralise } from '../format';
 import { attention, type DoctorReport } from './health';
+import { reportOnly } from './report-only';
 
 /**
  * The one command the panel offers. Never built from the host's name or
@@ -86,7 +87,14 @@ export function rebootPending(report: DoctorReport | undefined): boolean {
 export function nextStep(input: NextStepInput): NextStep | null {
   const { host, report, cordoned } = input;
   const reboot = rebootPending(report);
-  const waiting = reboot || (report !== undefined && attention(report).length > 0);
+  // On a report-only distribution the `environment` warning is the report
+  // saying so, and nothing an operator can fix, so it alone is not a reason to
+  // put a panel on the page. It stays in Needs attention: the controller counts it.
+  const kind = reportOnly(report);
+  const waiting =
+    reboot ||
+    (report !== undefined &&
+      attention(report).some((r) => !(kind === 'distro' && r.id === 'environment')));
   if (!waiting && !cordoned) return null;
 
   const name = host.name || host.id || 'this host';
@@ -124,9 +132,15 @@ export function nextStep(input: NextStepInput): NextStep | null {
     };
   }
 
-  const where = host.embedded
-    ? `Run this on the controller's own machine (${name}), in a shell there:`
-    : `Run this on ${name}${host.address ? ` (${host.address})` : ''}, in a shell on that machine:`;
+  // `zoomies doctor --interactive` offers fixes that do not exist for a
+  // distribution or container that cannot be tuned, so no command is offered;
+  // the cordon and the reboot advice are about scheduling and stay.
+  const where =
+    kind === 'distro' || kind === 'container'
+      ? null
+      : host.embedded
+        ? `Run this on the controller's own machine (${name}), in a shell there:`
+        : `Run this on ${name}${host.address ? ` (${host.address})` : ''}, in a shell on that machine:`;
   const rebootLine = 'Zoomies never reboots a host itself.';
 
   // A host nobody can hear has a runner count that is the last one recorded,

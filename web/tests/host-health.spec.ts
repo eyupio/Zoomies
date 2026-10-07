@@ -5,6 +5,7 @@ import {
   expectNoReload,
   goto,
   plantMarker,
+  reload,
 } from './support/fixtures';
 test.use(browserOverride);
 
@@ -53,6 +54,7 @@ async function heartbeat(
   results: Check[],
   reboot = false,
   container = false,
+  report: { os?: string; distro?: string } = {},
 ): Promise<void> {
   const response = await page.request.post('/api/v1/agent/heartbeat', {
     headers: { Authorization: `Bearer ${credentials.agent_token}` },
@@ -60,8 +62,8 @@ async function heartbeat(
       protocol_version: 1,
       doctor: {
         checked_at: new Date().toISOString(),
-        os: 'linux',
-        distro: 'ubuntu 24.04',
+        os: report.os ?? 'linux',
+        distro: report.distro ?? 'ubuntu 24.04',
         container,
         reboot_pending: reboot,
         results,
@@ -823,4 +825,215 @@ test('a command that could not be made says why and leaves nothing to copy', asy
     await expect(panel.locator('pre')).toHaveCount(0);
     await expect(panel.getByRole('button', { name: 'Make a command' })).toBeEnabled();
   });
+});
+
+// "Review changes locally with zoomies tune" is wrong for a host that cannot be
+// tuned: following it on a Mac or inside a container sends a person to a command
+// that changes nothing. The page must say what kind of report it is instead.
+test('a macOS host and a container are told their report is read-only, not to tune', async ({
+  page,
+}) => {
+  const name = `health-ro-${Date.now() % 1e6}`;
+  const credentials = await enrol(page, name);
+  try {
+    await heartbeat(
+      page,
+      credentials,
+      [check('environment', 'Operating system', 'safe', 'skip', { current: 'darwin' })],
+      false,
+      false,
+      { os: 'darwin', distro: '' },
+    );
+    await goto(page, `/hosts/${credentials.host_id}`, name);
+    await expect(
+      page.getByText('OS checks run on Linux hosts only. Zoomies does not change this host.'),
+    ).toBeVisible();
+    await expect(page.getByText('Zoomies does not tune darwin hosts')).toBeVisible();
+    await expect(page.getByText('Review changes locally with')).toHaveCount(0);
+    await expect(page.getByText('Read-only. Zoomies does not change this host.')).toBeVisible();
+    // The blank distribution leaves no stray separator.
+    await expect(page.getByText(/^darwin · Checked/)).toBeVisible();
+    await expect(page.getByRole('button', { name: /apply|tune/i })).toHaveCount(0);
+    await expect(page.getByText(/drain/i)).toHaveCount(0);
+
+    await heartbeat(
+      page,
+      credentials,
+      [check('environment', 'Distribution', 'safe', 'warn')],
+      false,
+      true,
+    );
+    await expect(page.getByText('not inside the container')).toBeVisible();
+    await expect(page.getByText('Review changes locally with')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /apply|tune/i })).toHaveCount(0);
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+  }
+});
+
+// A link that names a check is only useful if it lands on that check and a
+// keyboard user comes with it: focus left on the heading, or on <body>, makes
+// the click a scroll position and nothing more.
+test('a link to a check lands on its row, moves focus there and stays quiet once it is fixed', async ({
+  page,
+}) => {
+  const name = `health-land-${Date.now() % 1e6}`;
+  const credentials = await enrol(page, name);
+  const disk = check('disk.space', 'Work directory free space', 'safe', 'error', {
+    current: '3% free (11G)',
+  });
+  const watches = check('inotify.watches', 'File watches', 'safe', 'warn', { current: '8192' });
+  const row = page.locator('.health-content tr[id="disk.space"]');
+  try {
+    await heartbeat(page, credentials, [watches, disk]);
+
+    // Client-side navigation: the router, not the browser, takes the link, and
+    // the page heading is focused first, so the row must win that race.
+    await goto(page, '/hosts', 'Hosts');
+    await plantMarker(page);
+    await page.evaluate((target) => {
+      const link = document.createElement('a');
+      link.href = target;
+      link.id = 'planted-link';
+      link.textContent = 'planted';
+      document.body.append(link);
+    }, `/hosts/${credentials.host_id}#disk.space`);
+    // Script click: on a phone the bottom bar covers the end of the page.
+    await page.evaluate(() => document.getElementById('planted-link')?.click());
+    await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
+    await expect(row).toBeFocused();
+    await expect(row).toHaveAttribute('data-landed', '');
+    await expect(row).toBeInViewport();
+    await expectNoReload(page);
+
+    // The report is swapped in every few seconds; that must not take focus back.
+    await page.locator('.health-content').getByRole('link', { name: 'File watches' }).click();
+    await expect(page.locator('.health-content tr[id="inotify.watches"]')).toBeFocused();
+    await expect(page.locator('.health-content tr[id="inotify.watches"]')).toBeFocused();
+    // Move away, so a re-land would be visible as focus and scroll coming back.
+    await page.evaluate(() => {
+      (document.activeElement as HTMLElement | null)?.blur();
+      window.scrollTo(0, 0);
+    });
+    // A report whose content visibly changes, and a wait for that change to
+    // reach the page: a heartbeat that has merely returned proves nothing.
+    await heartbeat(page, credentials, [
+      watches,
+      disk,
+      check('swap.marker', 'Swap marker', 'safe', 'warn', { current: 'new' }),
+    ]);
+    await expect(page.locator('.health-content tr[id="swap.marker"]')).toBeAttached();
+    await page.evaluate(() => new Promise(requestAnimationFrame));
+    expect(await page.evaluate(() => document.activeElement?.tagName)).not.toBe('TR');
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+
+    // A reload and a link shared with someone else are the same arrival.
+    // Away first: the same URL again would be a same-document jump, not an arrival.
+    await page.goto('about:blank');
+    await page.goto(`/hosts/${credentials.host_id}#disk.space`, { waitUntil: 'domcontentloaded' });
+    await expect(row).toBeFocused();
+    await reload(page, name);
+    await expect(row).toBeFocused();
+    await expect(row).toBeInViewport();
+
+    // Fixed since the link was written: the page stays where it put you, with
+    // no row to land on and no error.
+    await heartbeat(page, credentials, [
+      watches,
+      check('disk.space', 'Work directory free space', 'safe', 'ok'),
+    ]);
+    // Away first: the same URL again would be a same-document jump, not an arrival.
+    await page.goto('about:blank');
+    await page.goto(`/hosts/${credentials.host_id}#disk.space`, { waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
+    // Wait for a row that only exists once the report has rendered, then a
+    // couple of frames: landing runs after a tick and a frame, so a count of
+    // zero taken at once would be true whatever it did.
+    await expect(page.locator('.health-content tr[id="inotify.watches"]')).toBeAttached();
+    await page.evaluate(
+      () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+    );
+    await expect(page.locator('tr[data-landed]')).toHaveCount(0);
+    expect(await page.evaluate(() => document.activeElement?.tagName)).not.toBe('TR');
+    await expect(page.getByRole('button', { name: /apply|tune/i })).toHaveCount(0);
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+  }
+});
+
+test('the health pill on a card is a 24 pixel link that names the worst checks and lands on the first', async ({
+  page,
+}) => {
+  // The pill was 16px tall and said only "3 warnings": an operator had to open
+  // the host to learn which three, and on a phone could barely hit it.
+  const name = `health-card-${Date.now() % 1e6}`;
+  const credentials = await enrol(page, name);
+  const disk = check('disk.space', 'Work directory free space', 'safe', 'error', {
+    current: '3% free (11G)',
+  });
+  const checks = [
+    check('inotify.watches', 'File watches', 'safe', 'warn'),
+    disk,
+    check('net.somaxconn', 'Listen backlog', 'safe', 'warn'),
+    check('vm.swappiness', 'Swappiness', 'safe', 'warn'),
+  ];
+  try {
+    await heartbeat(page, credentials, checks);
+    for (const width of [1440, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await goto(page, '/hosts', 'Hosts');
+      const card = page.getByRole('article', { name, exact: true });
+      const pill = card.getByRole('link', { name: `Host health for ${name}` });
+      // The state is in the name, not only in the colour.
+      await expect(pill).toHaveAccessibleName(
+        `Host health for ${name}: 1 health error · 3 warnings`,
+      );
+      await expect(pill).toHaveAccessibleDescription(
+        'Work directory free space, File watches and 2 more',
+      );
+      await expect(card.locator('.health-checks')).toHaveText(
+        'Work directory free space, File watches and 2 more',
+      );
+      const box = await pill.boundingBox();
+      expect(box?.height ?? 0).toBeGreaterThanOrEqual(24);
+      expect(box?.width ?? 0).toBeGreaterThanOrEqual(24);
+      const fit = await documentWidth(page);
+      expect(fit.scrollWidth).toBeLessThanOrEqual(fit.clientWidth);
+    }
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await goto(page, '/hosts', 'Hosts');
+    const card = page.getByRole('article', { name, exact: true });
+    await plantMarker(page);
+    await card.getByRole('link', { name: `Host health for ${name}` }).click();
+    await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
+    await expect(page).toHaveURL(/#disk\.space$/);
+    await expect(page.locator('.health-content tr[id="disk.space"]')).toBeFocused();
+    await expectNoReload(page);
+
+    await expect(page.getByRole('button', { name: /apply|tune/i })).toHaveCount(0);
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+  }
+});
+
+test('a host with a clean report has a pill that links to its page and no line under it', async ({
+  page,
+}) => {
+  // A line that appeared with nothing to say would teach operators to ignore it.
+  const name = `health-quiet-${Date.now() % 1e6}`;
+  const credentials = await enrol(page, name);
+  try {
+    await heartbeat(page, credentials, [
+      check('disk.space', 'Work directory free space', 'safe', 'ok'),
+    ]);
+    await goto(page, '/hosts', 'Hosts');
+    const card = page.getByRole('article', { name, exact: true });
+    const pill = card.getByRole('link', { name: `Host health for ${name}: Health OK` });
+    await expect(pill).toHaveAttribute('href', `/hosts/${credentials.host_id}`);
+    await expect(card.locator('.health-checks')).toHaveCount(0);
+    await expect(pill).not.toHaveAttribute('aria-describedby', /.+/);
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+  }
 });

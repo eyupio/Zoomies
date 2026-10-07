@@ -10,8 +10,10 @@
 <script lang="ts">
   import { navigate } from '$lib/router';
   import { healthSummary } from './health';
+  import { cardLine } from './health-card';
   import { slotsOf } from './slots';
   import {
+    ChevronRight,
     CircleDashed,
     Gauge,
     Pencil,
@@ -99,6 +101,7 @@
   // here would give a different answer from the one the agent logs about
   // itself.
   const health = $derived(healthSummary(host.doctor, now, host.healthy));
+  const line = $derived(cardLine(host, health));
   const skew = $derived(host.version_skew ?? '');
   const skewLabel = $derived(
     skew === 'behind' ? 'Behind' : skew === 'ahead' ? 'Ahead' : skew ? 'Different build' : '',
@@ -447,8 +450,14 @@
       </h3>
       <div class="badges">
         <Badge {status} size="sm" title={status.hint} />
-        <a href="/hosts/{host.id}" aria-label="Host health for {host.name || host.id}"
-          ><Badge label={health.label} tone={health.tone} size="sm" title={health.hint} /></a
+        <a
+          class="health-link"
+          href={line.href}
+          aria-label="Host health for {host.name || host.id}: {health.label}"
+          aria-describedby={line.text ? `host-${host.id}-health` : undefined}
+          ><Badge tone={health.tone} size="sm" title={health.hint}
+            >{health.label}<ChevronRight size={12} aria-hidden="true" /></Badge
+          ></a
         >
         <!-- How this host is attached comes first and in the neutral tone, so
              every card reads in the same order: state, then what kind of host
@@ -540,6 +549,7 @@
           />
         {/if}
       </div>
+      {#if line.text}<p class="health-checks" id="host-{host.id}-health">{line.text}</p>{/if}
     </div>
     <DropdownMenu items={actions} label="Actions for {host.name || host.id}" size="sm" />
   </header>
@@ -926,13 +936,28 @@
   .badges {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: var(--z-space-2);
   }
   /* The health badge is wrapped in a link. As a plain block, the link lays its
      badge out on a text line, so the line's strut pushed it below its
-     siblings; a flex container has no line box to do that. */
+     siblings; a flex container has no line box to do that. The link is 24px
+     tall (WCAG 2.5.8) around a 16px badge, centred so the badge stays level. */
   .badges > a {
-    display: flex;
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--z-space-6);
+  }
+  .badges > a:hover :global(.badge) {
+    text-decoration: underline;
+    text-underline-offset: var(--z-underline-offset);
+  }
+  .health-checks {
+    margin: 0;
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+    color: var(--z-text-muted);
+    overflow-wrap: anywhere;
   }
   .meta {
     display: flex;

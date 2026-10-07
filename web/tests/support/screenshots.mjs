@@ -185,6 +185,15 @@ const SHOTS = [
     async prepare(page) {
       await page.getByRole('button', { name: 'Host capacity map', exact: true }).click();
       await page.getByRole('region', { name: 'Host capacity map', exact: true }).waitFor();
+      // The cards sit below the map, off the first screen, so the pill link, its
+      // chevron and the line naming what is wrong would never be in the picture.
+      // Scrolled to the cards' top edge, the chart's last rows and each card's
+      // header share the screen. The pointer is parked on the top bar: wherever
+      // it was left lands on a card after the scroll and opens its tooltip.
+      await page.getByRole('article', { name: 'demo-builder-1', exact: true }).evaluate((el) => {
+        window.scrollBy(0, el.getBoundingClientRect().top - 120);
+      });
+      await page.mouse.move(700, 40);
     },
   },
   { name: 'providers', path: '/providers', heading: 'Providers' },

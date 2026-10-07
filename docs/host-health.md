@@ -12,7 +12,8 @@ recommendation and explanation. Both wrap to the terminal width. Doctor is
 read-only by default and finishes without a tuning prompt. Use `--interactive`
 to review eligible fixes individually, or run `sudo zoomies tune` separately.
 Ubuntu 24.04, Ubuntu 26.04 and Debian 13 are the supported tuning platforms. Other
-Linux distributions are report-only; non-Linux hosts report unsupported checks. A
+Linux distributions are report-only; on a non-Linux host the checks are skipped
+and the page says that Zoomies does not tune it. A
 refusal names the distribution and release the host reported, so you can tell an
 unsupported release from an unsupported distribution.
 
@@ -49,9 +50,16 @@ the controller, which persists it and sends `host.updated` events. Host badges
 and the host detail checks table update without reloading the page.
 
 There are two staleness thresholds, for two different jobs. The host page greys
-a badge as **Health stale** once its report is more than three minutes old, or
-whenever the host is unreachable: that is a display, and it changes nothing
-else. Zoomies raises the `host.health_stale` problem only after **ten** minutes
+a badge once its report is more than three minutes old, or whenever the host is
+unreachable: that is a display, and it changes nothing else. The badge says
+which of the two it is. A host that is still connected with an old report reads
+**Report stale**, and its hint says to restart the agent and check the host's
+clock. A host that is not connected reads **Last known report**, and its hint
+says the report is the last one it sent, not the machine's state now. Both are
+neutral and both sit under the **Report stale** filter. Neither label says
+"reboot pending": the flag may have cleared since, so the hint says that the
+report said one was pending, and the check stays in the list on the host's
+page. Zoomies raises the `host.health_stale` problem only after **ten** minutes
 without a newer report from a host that is still sending heartbeats, so a
 collector that is merely slow does not raise a problem. See
 [What a host's report raises](#what-a-hosts-report-raises).
@@ -84,8 +92,13 @@ row stays in the checks table either way.
 
 When more than one thing applies the badge names the worst first: health errors,
 then warnings, then a pending reboot. A report that is only the container's
-partial view reads **Partial report** and is given no verdict, as below. The
-host page opens with a **Needs attention** list of the counted findings, with
+partial view reads **Partial report** and is given no verdict, as below. So does
+a native report that skipped half or more of its counted checks (7 of the 14 or
+more) and has no finding and no pending reboot: it says how many checks could not
+run, because a green "Health OK" would vouch for checks nobody made. A healthy
+Linux host skips between one and five. A stopped Docker daemon or an unreadable
+work directory skips several at once. If there are findings or a reboot, the badge
+names them and the hint adds how many checks could not run. The host page opens with a **Needs attention** list of the counted findings, with
 the failing checks above the ones that pass.
 
 For an operator the host page opens one step earlier, with a **Next step**
@@ -134,10 +147,25 @@ zoomies doctor --host host_example --url https://zoomies.example.com
 
 This reads the latest report, including its timestamp. It does not execute a
 remote root command. Apply fixes locally on that host. The web UI is read-only
-for OS tuning; its health badge links to a tier-grouped checks table. The host
+for OS tuning. On a host card the health badge is a link, 24 pixels high and ending
+in a chevron, and under it one line names the worst checks (`File watches, Docker log
+rotation and 1 more`), in the order the host page lists them. The link opens the host
+page at the first of those checks. No line is shown for a stale report, a container's
+partial report or a host whose only finding is a reboot, so a card never lists
+last-known checks as if they were current. The host
 page can cordon the host, which is a scheduling action on the controller's side
 and changes nothing on the machine, and Zoomies never runs a command on a host:
 the command it offers is for you to run there.
+
+A report that cannot be acted on says so. For a non-Linux host the page's subtitle
+and its Safe tier description say that Zoomies does not change the host, and it
+offers no command to review changes. For an unsupported distribution or a
+container it names `sudo zoomies doctor` as the way to read the checks (on the
+host itself, with the native binary, for a container) and says that `zoomies tune`
+will not change it, and the **Next step** panel keeps its cordon and reboot advice
+without the copyable doctor command. An unsupported distribution's own
+`environment` warning does not open that panel by itself; it stays in **Needs
+attention**, where the controller counts it.
 
 The command needs the controller's address and, unless authentication is off, a
 token, and you should not have to find either first. The host's page has a panel,
@@ -233,7 +261,7 @@ directory, but only while it is less than three minutes old. When the service
 stops, the container falls back to a report of its own, made afresh every
 minute, which is partial and is marked as one. A fresh partial report is not a
 stale one, so `host.health_stale` is never raised, and the OS metrics
-disappear rather than climb. The only signs are the host page's **Partial
+disappear rather than climb. The only signs are the **Partial
 report** badge and `partial` in `zoomies hosts list`. On those installations,
 check the service on the host with `systemctl status zoomies-host-health.service`
 if either appears where you expected a full report.

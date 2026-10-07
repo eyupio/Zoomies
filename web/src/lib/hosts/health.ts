@@ -123,35 +123,54 @@ export function healthSummary(
       ...empty,
     };
   const checked = Date.parse(report.checked_at);
-  const stale = !reachable || !Number.isFinite(checked) || now - checked > 3 * 60_000;
+  const dated = Number.isFinite(checked);
+  const stale = !reachable || !dated || now - checked > 3 * 60_000;
   const { errors, warnings, skipped, suggestions } = summary;
   const tally = { errors, warnings, skipped, suggestions };
+  // Old and gone are different problems with different fixes, so the page says
+  // which: a host that is not connected has nothing newer to send, while a
+  // connected one has an agent or a clock that needs a person. The label never
+  // asserts a reboot either, because the flag may have cleared since; the hint
+  // says it was pending and the report's own rows stay in Needs attention.
+  const staleNote = !stale
+    ? ''
+    : !reachable
+      ? ' The agent is not connected, so this is the last report it sent, not the host’s state now. No runner is placed here until it reconnects.'
+      : ` The agent is connected, but its last OS report ${dated ? 'is more than three minutes old' : 'could not be dated'}. On the host, restart the agent (sudo systemctl restart zoomies-agent) and check its clock (timedatectl).`;
   // A container's report is the container's view, not the host's: most checks
   // are skipped and the image's distribution warns for ever. The controller
   // raises nothing for it, so neither does the pill, and the counts are left
   // out of the hint rather than offered as a verdict.
   const partial = report.container === true;
+  // A partial report's reboot flag is no more a verdict than its checks are.
+  const reboot = report.reboot_pending && !partial;
+  const rebootNote = reboot && stale ? ' That report said a reboot was pending.' : '';
   const hint = partial
     ? 'Partial report from the container. It can see only what the container can, so Zoomies draws no conclusion from it and raises no problem for it. The native host health service supplies the full OS report.' +
-      (stale ? ' Report is stale or the host is unreachable.' : '')
+      staleNote
     : 'Host OS report from the native Zoomies binary. ' +
       `${pluralise(warnings, 'warning')}, ${pluralise(errors, 'error')}, ` +
       `${pluralise(skipped, 'skipped check')}.` +
       (suggestions
         ? ` Also ${pluralise(suggestions, 'optional suggestion')}, which do not count towards health.`
         : '') +
-      (stale ? ' Report is stale or the host is unreachable.' : '');
-  // A partial report's reboot flag is no more a verdict than its checks are.
-  const reboot = report.reboot_pending && !partial;
+      rebootNote +
+      staleNote;
   if (stale)
     return {
-      label: reboot ? 'Reboot pending · stale' : 'Health stale',
+      label: reachable ? 'Report stale' : 'Last known report',
       tone: 'neutral',
       hint,
       stale,
       ...tally,
     };
   if (partial) return { label: 'Partial report', tone: 'neutral', hint, stale, ...tally };
+  // Half or more skipped cannot vouch for the host. A healthy Linux host skips
+  // 1-5 of the 14 counted checks (kernel.hwe off Ubuntu 24.04, docker.* with the
+  // daemon down, no unit), so the trip point is 7; revisit it when the catalogue
+  // changes.
+  const mostlySkipped = skipped * 2 >= summary.counted;
+  const couldNotRun = ` ${skipped} of ${summary.counted} checks could not run.`;
   // Worst first, and every state that applies is said: a reboot used to return
   // before the errors were read, so a full disk showed as an amber "Reboot
   // pending" and the danger tone could not be reached at all.
@@ -160,11 +179,33 @@ export function healthSummary(
     return {
       label: label.charAt(0).toUpperCase() + label.slice(1),
       tone: errors ? 'danger' : 'pending',
-      hint,
+      hint: mostlySkipped ? hint + couldNotRun : hint,
       stale,
       ...tally,
     };
-  if (skipped === summary.counted)
-    return { label: 'Checks unavailable', tone: 'neutral', hint, stale, ...tally };
+  if (skipped === summary.counted) {
+    const env = report.results.find((r) => r.id === 'environment');
+    return {
+      label: 'Checks unavailable',
+      tone: 'neutral',
+      hint:
+        env?.status === 'skip'
+          ? `Zoomies checks Linux hosts only; this host reports ${env.current || report.os || 'another system'}. ` +
+            hint
+          : hint,
+      stale,
+      ...tally,
+    };
+  }
+  if (mostlySkipped)
+    return {
+      label: 'Partial report',
+      tone: 'neutral',
+      hint:
+        hint +
+        `${couldNotRun} So “no warnings” covers only the others. A stopped Docker daemon or an unreadable work directory skips several at once.`,
+      stale,
+      ...tally,
+    };
   return { label: 'Health OK', tone: 'idle', hint, stale, ...tally };
 }
