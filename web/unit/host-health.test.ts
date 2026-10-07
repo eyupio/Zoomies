@@ -370,3 +370,32 @@ test('findings and a pending reboot win over the mostly skipped rule', () => {
   r.reboot_pending = true;
   assert.equal(healthSummary(r, now).label, 'Reboot pending');
 });
+
+// A finding with a few skips is a finding; saying "could not run" there would
+// make an ordinary Linux host look as though its report were missing.
+test('a finding with few skipped checks does not say checks could not run', () => {
+  const warned = healthSummary(skipping(1, 14, [result('disk.space', 'warn')]), now);
+  assert.equal(warned.label, '1 warning');
+  assert.doesNotMatch(warned.hint, /could not run/);
+});
+
+// An operator on a Mac or a BSD box needs to be told why there is no verdict,
+// not shown the generic skipped-check count.
+test('a non-Linux report that skipped everything says Zoomies checks Linux hosts only', () => {
+  const r = reportOf([{ ...result('environment', 'skip'), current: 'darwin' }]);
+  r.os = 'darwin';
+  const s = healthSummary(r, now);
+  assert.equal(s.label, 'Checks unavailable');
+  assert.match(s.hint, /Linux hosts only; this host reports darwin/);
+});
+
+// A report with no usable time cannot be called fresh, and the hint must say
+// the date is the problem rather than that the report is old.
+test('a report whose time cannot be read is stale and says it could not be dated', () => {
+  const r = reportOf([result('ok.0', 'ok')]);
+  r.checked_at = 'garbage';
+  const s = healthSummary(r, now);
+  assert.equal(s.stale, true);
+  assert.equal(s.label, 'Report stale');
+  assert.match(s.hint, /could not be dated/);
+});

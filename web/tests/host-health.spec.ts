@@ -909,8 +909,23 @@ test('a link to a check lands on its row, moves focus there and stays quiet once
     // The report is swapped in every few seconds; that must not take focus back.
     await page.locator('.health-content').getByRole('link', { name: 'File watches' }).click();
     await expect(page.locator('.health-content tr[id="inotify.watches"]')).toBeFocused();
-    await heartbeat(page, credentials, [watches, disk]);
     await expect(page.locator('.health-content tr[id="inotify.watches"]')).toBeFocused();
+    // Move away, so a re-land would be visible as focus and scroll coming back.
+    await page.evaluate(() => {
+      (document.activeElement as HTMLElement | null)?.blur();
+      window.scrollTo(0, 0);
+    });
+    // A report whose content visibly changes, and a wait for that change to
+    // reach the page: a heartbeat that has merely returned proves nothing.
+    await heartbeat(page, credentials, [
+      watches,
+      disk,
+      check('swap.marker', 'Swap marker', 'safe', 'warn', { current: 'new' }),
+    ]);
+    await expect(page.locator('.health-content tr[id="swap.marker"]')).toBeAttached();
+    await page.evaluate(() => new Promise(requestAnimationFrame));
+    expect(await page.evaluate(() => document.activeElement?.tagName)).not.toBe('TR');
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
 
     // A reload and a link shared with someone else are the same arrival.
     // Away first: the same URL again would be a same-document jump, not an arrival.
@@ -931,7 +946,15 @@ test('a link to a check lands on its row, moves focus there and stays quiet once
     await page.goto('about:blank');
     await page.goto(`/hosts/${credentials.host_id}#disk.space`, { waitUntil: 'domcontentloaded' });
     await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
+    // Wait for a row that only exists once the report has rendered, then a
+    // couple of frames: landing runs after a tick and a frame, so a count of
+    // zero taken at once would be true whatever it did.
+    await expect(page.locator('.health-content tr[id="inotify.watches"]')).toBeAttached();
+    await page.evaluate(
+      () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+    );
     await expect(page.locator('tr[data-landed]')).toHaveCount(0);
+    expect(await page.evaluate(() => document.activeElement?.tagName)).not.toBe('TR');
     await expect(page.getByRole('button', { name: /apply|tune/i })).toHaveCount(0);
   } finally {
     await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
