@@ -1543,6 +1543,23 @@ test.describe('the side menu and the switch', () => {
   const on = { 'kennel.enabled': true };
   const off = { 'kennel.enabled': false };
 
+  // The fixture controller has authentication off, so everybody there is an
+  // administrator. The page is told who it is talking to, and asks no different
+  // questions of the controller.
+  async function pretendToBe(page: Page, role: 'viewer' | 'operator'): Promise<void> {
+    await page.route('**/api/v1/meta', async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as Record<string, unknown>;
+      return route.fulfill({
+        response,
+        json: { ...body, auth_disabled: false, bootstrap_required: false },
+      });
+    });
+    await page.route('**/api/v1/auth/session', (route) =>
+      route.fulfill({ json: { kind: 'token', id: 'tok_pretend', name: 'a token', role } }),
+    );
+  }
+
   test.beforeEach(async ({ page }) => patchSettings(page, off));
   test.afterEach(async ({ page }) => patchSettings(page, off));
 
@@ -1749,20 +1766,7 @@ test.describe('the side menu and the switch', () => {
     test(`a ${role} sees the state and who can change it, and cannot press it`, async ({
       page,
     }) => {
-      // The fixture controller has authentication off, so everybody there is an
-      // administrator. The page is told who it is talking to, and asks no
-      // different questions of the controller.
-      await page.route('**/api/v1/meta', async (route) => {
-        const response = await route.fetch();
-        const body = (await response.json()) as Record<string, unknown>;
-        return route.fulfill({
-          response,
-          json: { ...body, auth_disabled: false, bootstrap_required: false },
-        });
-      });
-      await page.route('**/api/v1/auth/session', (route) =>
-        route.fulfill({ json: { kind: 'token', id: 'tok_pretend', name: 'a token', role } }),
-      );
+      await pretendToBe(page, role);
       let changed = 0;
       page.on('request', (request) => {
         if (request.method() === 'PATCH' && request.url().endsWith('/api/v1/settings'))
@@ -1951,6 +1955,32 @@ test.describe('the side menu and the switch', () => {
     await expect(kennelSwitch(page)).toHaveAttribute('aria-checked', 'false', { timeout: 10_000 });
   });
 
+  // The longest thing the switch says is what it says to somebody who cannot press
+  // it. At the narrowest phone it is wider than the screen unless the switch has
+  // the whole row to wrap in, which is why the switch is given a line of its own.
+  test('on a phone the longest sentence under the switch wraps and is all in view', async ({
+    page,
+    isMobile,
+  }) => {
+    test.skip(!isMobile, 'the phone project checks the narrow widths');
+    await pretendToBe(page, 'viewer');
+    for (const width of [320, 360, 412]) {
+      await page.setViewportSize({ width, height: 780 });
+      await goto(page, '/kennel', 'Kennel Club');
+      await expect(
+        rail(page).getByText(
+          'Kennel Club is off and reads nothing. An administrator can change that.',
+        ),
+        `the sentence at ${width}px`,
+      ).toBeInViewport({ ratio: 1 });
+      await expect(kennelSwitch(page)).toBeInViewport({ ratio: 1 });
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+        `the page does not scroll sideways at ${width}px`,
+      ).toBe(true);
+    }
+  });
+
   test('on a phone every page of the section is in view, AI Context included, at a size a finger can use', async ({
     page,
     isMobile,
@@ -1974,16 +2004,6 @@ test.describe('the side menu and the switch', () => {
           ).toBeGreaterThanOrEqual(44);
         }
         await expect(kennelSwitch(page)).toBeInViewport({ ratio: 1 });
-        // On a line of its own, above the chips: beside them, the sentence under it
-        // is squeezed into whatever the row has left.
-        const switchBox = (await kennelSwitch(page).boundingBox())!;
-        const chip = (await rail(page)
-          .getByRole('link', { name: 'Overview', exact: true })
-          .boundingBox())!;
-        expect(
-          switchBox.y + switchBox.height,
-          `the switch is above the chips at ${width}px`,
-        ).toBeLessThanOrEqual(chip.y);
         await auditThePage(page, `${path} at ${width}px`);
       }
     }
