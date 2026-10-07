@@ -1050,6 +1050,15 @@ func (c *Config) Validate() Findings {
 		})
 	}
 
+	if c.Retention.Jobs > 0 && c.Retention.Jobs < SizingEvidenceWindow {
+		add(Finding{
+			Code: "retention.jobs_short", Severity: SeverityInfo, Setting: "retention.jobs",
+			Title:  fmt.Sprintf("job history is kept for %s, less than the %s the sizing advice needs", c.Retention.Jobs, SizingEvidenceWindow),
+			Detail: "advice to give a pool a smaller runner, or a host smaller runners, rests on what a week of jobs used, because the weekly build is the heavy one. With less history kept it would rest on a lighter window than it says, so it is not given.",
+			Fix:    "keep job history for at least a week (retention.jobs, ZOOMIES_RETENTION_JOBS), or leave the advice off.",
+		})
+	}
+
 	// --- Update check -----------------------------------------------------
 	if c.Updates.CheckInterval < 0 {
 		add(Finding{

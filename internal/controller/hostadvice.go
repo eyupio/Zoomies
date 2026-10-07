@@ -186,6 +186,12 @@ func (c *Controller) hostSizeKillsJobs(ctx context.Context, reaching []*store.Po
 	if next.MemoryMB <= 0 || next.MemoryMB >= std.MemoryMB {
 		return "", nil
 	}
+	if !c.sizingHistoryKept() {
+		// Not asked and answered "fine": a smaller runner cannot be checked against a week of
+		// jobs that are no longer there, and unchecked is the one answer that is not safe.
+		return fmt.Sprintf("job history is kept for %s, less than the %s needed to check that a smaller runner would hold the jobs",
+			c.cfg().Retention.Jobs, minimumEvidenceWindow), nil
+	}
 	names := map[string]string{}
 	var ids []string
 	for _, p := range reaching {

@@ -746,3 +746,22 @@ func TestPoolMinimumAdviceWaitsUntilEnoughJobsHaveHalfPeaks(t *testing.T) {
 		t.Error("advice was withheld although 25 jobs were measured per half")
 	}
 }
+
+// The advice counts a week of jobs because the weekly build is the heavy one. Where retention
+// keeps fewer days than that, a window of three days would be read as a week, so the advice
+// that could cost a pool its daemon's memory is not given, and a smaller host runner is
+// held back as unchecked rather than let through as fine.
+func TestSizingAdviceIsWithheldWhereJobHistoryIsKeptForLessThanAWeek(t *testing.T) {
+	h, _ := minimumFleet(t, 2048, 25, false)
+	if h.problemOrNil("pool.minimum_overcharges") == nil {
+		t.Fatal("no advice with the default retention; the case needs advice to withhold")
+	}
+	h.c.UpdateConfig(func(cfg *config.Config) { cfg.Retention.Jobs = 72 * time.Hour })
+	if p := h.problemOrNil("pool.minimum_overcharges"); p != nil {
+		t.Errorf("advice resting on three days of jobs was given as a week's: %+v", p)
+	}
+	why, err := h.c.hostSizeKillsJobs(h.ctx, nil, store.RunnerStandard{CPUs: 6, MemoryMB: 6656}, store.RunnerStandard{CPUs: 4, MemoryMB: 4096})
+	if err != nil || !strings.Contains(why, "72h") {
+		t.Errorf("a smaller host size was not held back as unchecked: %q, %v", why, err)
+	}
+}

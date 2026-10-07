@@ -1090,3 +1090,18 @@ func TestFindingsThatStopStartupSayWhatToChange(t *testing.T) {
 		})
 	}
 }
+
+func TestJobHistoryKeptForLessThanTheSizingWindowIsSaidSoAndAWeekIsNot(t *testing.T) {
+	c := Default()
+	if hasCode(c.Validate(), "retention.jobs_short") {
+		t.Error("the default retention drew a finding")
+	}
+	c.Retention.Jobs = 72 * time.Hour
+	if !hasCode(c.Validate(), "retention.jobs_short") {
+		t.Error("three days of job history was not reported as short for the sizing advice")
+	}
+	c.Retention.Jobs = 0
+	if hasCode(c.Validate(), "retention.jobs_short") {
+		t.Error("retention off keeps everything and was reported as short")
+	}
+}
