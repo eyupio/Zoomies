@@ -1003,9 +1003,14 @@ export const listReadableAIContext = (offset = 0, q = '', signal?: AbortSignal) 
   );
 export const getAIContextRepository = (id: string, signal?: AbortSignal) =>
   api.get<Result<'getAIContextRepository'>>(`/ai-context/repositories/${enc(id)}`, { signal });
-export const findAIContextDraft = (installationId: string, repositoryId: number) =>
+export const findAIContextDraft = (
+  installationId: string,
+  repositoryId: number,
+  signal?: AbortSignal,
+) =>
   api.get<Result<'findAIContextDraft'>>(
     `/ai-context/draft?${new URLSearchParams({ installation_id: installationId, repository_id: String(repositoryId) })}`,
+    { signal },
   );
 export const discoverAIContext = (installationId: string, signal?: AbortSignal) =>
   api.get<Result<'discoverAIContext'>>(

@@ -32,6 +32,7 @@
   import Skeleton from '$lib/components/Skeleton.svelte';
   import Finding from '$lib/kennel/Finding.svelte';
   import RepositoryOverview from '$lib/kennel/RepositoryOverview.svelte';
+  import RepositoryAiContext from '$lib/kennel/RepositoryAiContext.svelte';
   import WaiveDialog from '$lib/kennel/WaiveDialog.svelte';
   import {
     ERROR_WAIVER_SENTENCE,
@@ -58,6 +59,7 @@
   const TABS = [
     { id: 'overview', label: 'Overview' },
     { id: 'ci', label: 'CI' },
+    { id: 'ai-context', label: 'AI Context' },
   ] as const;
   const base = $derived(`/kennel/repositories/${encodeURIComponent(id)}`);
   const requested = $derived(router.params.tab ?? '');
@@ -257,6 +259,8 @@
       <Tabs tabs={TABS} value={tab} label="Repository sections" onchange={openTab}>
         {#if tab === 'overview'}
           <RepositoryOverview repo={current} refreshKey={reload} />
+        {:else if tab === 'ai-context'}
+          <RepositoryAiContext repo={current} />
         {:else}
           {#if incomplete}
             <div class="notice" role="note">
