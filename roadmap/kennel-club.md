@@ -908,6 +908,11 @@ the feature off:
    and the Overview tab ([0008](decisions/0008-the-repository-page-leads-with-what-the-fleet-knows.md)), #677.
    **(d)** The AI Context tab, with the card extracted
    ([0007](decisions/0007-the-repository-page-hosts-ai-context-and-adds-no-switch.md)).
+   Built as the card in `lib/aicontext/AiContextCard.svelte`, rendered by the AI
+   Context page and by the tab, with `ai-context.spec.ts` passing unchanged. The
+   tab's setup button opens the wizard on the repository's installation and not on
+   the repository, because the wizard takes an installation and not a repository to
+   preselect; that is a change to the wizard, not to the tab.
    **(e)** The Track switch: migration `0081`, API, UI, MCP and the counts
    ([0006](decisions/0006-kennel-club-tracks-repositories-one-at-a-time.md)).
    **(f)** A side menu for the section and an on/off switch in it, asked for after

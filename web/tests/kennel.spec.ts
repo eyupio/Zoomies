@@ -2300,3 +2300,383 @@ test.describe('the AI Context row in the side menu', () => {
     await auditThePage(page, 'AI Context with a failed run');
   });
 });
+
+/* -- the AI Context tab on a repository ------------------------------------------ */
+
+// A repository's own page shows the card the AI Context page lists, found by the
+// installation and GitHub's ID for the repository. The API answers 404 to somebody
+// who may not configure the installation whether or not the repository has AI
+// Context, so the tab must not read that 404 as "not set up" for them.
+test.describe('the AI Context tab on a repository', () => {
+  const off = { 'kennel.enabled': false };
+  let target: { id: string; name: string; installation_id: string; repository_id: number };
+
+  const notFound = { status: 404, json: { error: { code: 'not_found', message: 'Not found' } } };
+
+  const record = (over: Record<string, unknown> = {}) => ({
+    id: 'ctx_demo1',
+    repository: {
+      github_host: 'github.com',
+      installation_id: target.installation_id,
+      repository_id: target.repository_id,
+    },
+    full_name: target.name,
+    instructions: 'Use the pack on the zoomies-ai-context branch.',
+    badge_markdown: '![AI Context](https://example.test/badge.svg)',
+    config: {
+      source_branch: 'main',
+      destination: 'repository',
+      exclude: [],
+      keep_snapshots: 5,
+    },
+    revision: 1,
+    workflow_outdated: false,
+    available: false,
+    freshness: {
+      state: 'awaiting_merge',
+      desired_commit: 'abcdef1234567890',
+      published_commit: '',
+      snapshot_id: '',
+      checked_at: new Date().toISOString(),
+    },
+    setup_state: 'awaiting_merge',
+    setup_pr_url: 'https://github.com/acme/site/pull/12',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    ...over,
+  });
+
+  /** What the API says about AI Context, and what it was asked, for the pair it is asked about. */
+  async function apiSays(
+    page: Page,
+    says: {
+      draft: (params: URLSearchParams) => { status?: number; json: unknown };
+      installations?: Array<{ id: string; target: string }>;
+    },
+  ): Promise<URLSearchParams[]> {
+    const asked: URLSearchParams[] = [];
+    await page.route('**/api/v1/ai-context/draft*', (route) => {
+      const params = new URL(route.request().url()).searchParams;
+      asked.push(params);
+      const answer = says.draft(params);
+      return route.fulfill({ status: answer.status ?? 200, json: answer.json });
+    });
+    await page.route('**/api/v1/ai-context/installations', (route) =>
+      route.fulfill({ json: { items: says.installations ?? [] } }),
+    );
+    return asked;
+  }
+
+  const tab = (page: Page) => page.getByRole('tabpanel');
+  const toast = (page: Page, tone: 'success' | 'error', text: string) =>
+    page.locator(`.toast[data-tone="${tone}"]`).filter({ hasText: text });
+  const here = (path = '') => `/kennel/repositories/${target.id}/ai-context${path}`;
+
+  test.beforeEach(async ({ page }) => {
+    await patchSettings(page, { 'kennel.enabled': true });
+    await untilRead(page);
+    const row = await repository(page, PUBLIC_REPO);
+    const detail = (await page.request
+      .get(`/api/v1/kennel/repositories/${row.id}`)
+      .then((r) => r.json())) as { installation_id: string; repository_id: number };
+    target = { id: row.id, name: row.name, ...detail };
+  });
+  test.afterEach(async ({ page }) => patchSettings(page, off));
+
+  test('the tab has an address, and is one of the repository’s sections', async ({ page }) => {
+    await apiSays(page, { draft: () => notFound });
+    await goto(page, `/kennel/repositories/${target.id}`, PUBLIC_REPO);
+    await plantMarker(page);
+    await page.getByRole('tab', { name: 'AI Context', exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`${here()}$`));
+    await expect(page.getByRole('tab', { name: 'AI Context', exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await page.goBack();
+    await expect(page).toHaveURL(new RegExp(`/kennel/repositories/${target.id}$`));
+    await expectNoReload(page);
+  });
+
+  test('it shows the card for the repository, found by the installation and GitHub’s ID', async ({
+    page,
+  }) => {
+    const asked = await apiSays(page, {
+      draft: () => ({ json: record() }),
+      installations: [{ id: target.installation_id, target: 'acme-org' }],
+    });
+    await goto(page, here(), PUBLIC_REPO);
+    await expect(tab(page).getByText('Awaiting merge')).toBeVisible();
+    // The installation is named as the AI Context page names it, not shown as an ID.
+    await expect(tab(page).getByText('acme-org', { exact: true })).toBeVisible();
+    await expect(tab(page).getByText('Source branch')).toBeVisible();
+    await expect(tab(page).getByRole('link', { name: 'Open setup PR' })).toBeVisible();
+    // The page is already about this repository, so the card does not name it again.
+    await expect(tab(page).getByRole('heading', { level: 2, name: PUBLIC_REPO })).toHaveCount(0);
+    expect(asked, 'it asked once').toHaveLength(1);
+    expect(asked[0]!.get('installation_id')).toBe(target.installation_id);
+    expect(asked[0]!.get('repository_id')).toBe(String(target.repository_id));
+    await auditThePage(page, 'the AI Context tab');
+  });
+
+  test('somebody who may configure it is offered setup when there is none', async ({ page }) => {
+    await apiSays(page, {
+      draft: () => notFound,
+      installations: [
+        { id: 'some-other', target: 'other' },
+        { id: target.installation_id, target: 'acme' },
+      ],
+    });
+    await goto(page, here(), PUBLIC_REPO);
+    await expect(tab(page).getByText('AI Context is not set up for this repository')).toBeVisible();
+    // Setup opens on this repository's installation, where the repository is chosen.
+    await expect(tab(page).getByRole('link', { name: 'Set up AI Context' })).toHaveAttribute(
+      'href',
+      `/kennel/ai-context/setup?installation_id=${encodeURIComponent(target.installation_id)}`,
+    );
+  });
+
+  // The API answers the same to somebody who may not configure the installation
+  // whether or not there is a record, so a 404 from it says nothing about whether
+  // there is one, and neither may the tab.
+  for (const status of [404, 403]) {
+    test(`it does not say AI Context is not set up when a ${status} could mean it may not be told`, async ({
+      page,
+    }) => {
+      await apiSays(page, {
+        draft: () => ({
+          status,
+          json: { error: { code: status === 404 ? 'not_found' : 'forbidden', message: 'No' } },
+        }),
+        installations: [{ id: 'some-other', target: 'other' }],
+      });
+      await goto(page, here(), PUBLIC_REPO);
+      await expect(
+        tab(page).getByText('Zoomies cannot say whether AI Context is set up here'),
+      ).toBeVisible();
+      await expect(tab(page).getByText('is not set up')).toHaveCount(0);
+      // Nothing they could not do.
+      await expect(tab(page).getByRole('link', { name: 'Set up AI Context' })).toHaveCount(0);
+      await expect(tab(page).getByRole('link', { name: 'Open AI Context' })).toHaveAttribute(
+        'href',
+        '/kennel/ai-context',
+      );
+    });
+  }
+
+  test('a failure to read it is an error that can be tried again, not a claim about the repository', async ({
+    page,
+  }) => {
+    let failing = true;
+    await apiSays(page, {
+      draft: () =>
+        failing
+          ? { status: 500, json: { error: { code: 'internal', message: 'The database is busy' } } }
+          : { json: record() },
+    });
+    await goto(page, here(), PUBLIC_REPO);
+    await expect(tab(page).getByText('AI Context could not be read')).toBeVisible();
+    await expect(tab(page).getByText('is not set up')).toHaveCount(0);
+    failing = false;
+    await tab(page)
+      .getByRole('button', { name: /try again|retry/i })
+      .click();
+    await expect(tab(page).getByText('Awaiting merge')).toBeVisible();
+    await expect(tab(page).getByText('AI Context could not be read')).toHaveCount(0);
+  });
+
+  test('a recheck updates the card where it is, on the tab as on the page', async ({ page }) => {
+    await apiSays(page, { draft: () => ({ json: record() }) });
+    let rechecks = 0;
+    await page.route('**/api/v1/ai-context/repositories/ctx_demo1/recheck', (route) => {
+      rechecks += 1;
+      return route.fulfill({
+        json: record({
+          available: true,
+          setup_state: undefined,
+          setup_pr_url: undefined,
+          freshness: {
+            state: 'ready',
+            desired_commit: 'abcdef1234567890',
+            published_commit: 'abcdef1234567890',
+            snapshot_id: 'snap_1',
+            checked_at: new Date().toISOString(),
+          },
+        }),
+      });
+    });
+    await goto(page, here(), PUBLIC_REPO);
+    await tab(page).getByRole('button', { name: 'Recheck context' }).click();
+    await expect(tab(page).getByText('Context verified')).toBeVisible();
+    await expect(tab(page).getByText('Last verified commit')).toBeVisible();
+    await expect(tab(page).getByRole('button', { name: 'Recheck context' })).toHaveCount(0);
+    expect(rechecks).toBe(1);
+  });
+
+  // Moved by the address, as back, forward and a link do, and not by loading the page
+  // afresh. The repository page empties itself when the repository changes, so the tab
+  // is built again and not kept; what is checked is that the new one is asked about by
+  // its own ID and the page was not reloaded.
+  // Regenerate asks GitHub to run the workflow and answers with the record as it now
+  // stands; the card has to show that answer, and neither action may be started while
+  // the other is running, since each replaces the record the other is about.
+  test('an action on the card holds the other until it is done, and shows its answer', async ({
+    page,
+  }) => {
+    const stale = (over: Record<string, unknown> = {}) =>
+      record({
+        freshness: {
+          state: 'stale',
+          desired_commit: 'abcdef1234567890',
+          published_commit: '1234567890abcdef',
+          snapshot_id: 's',
+          checked_at: new Date().toISOString(),
+          ...over,
+        },
+      });
+    await apiSays(page, { draft: () => ({ json: stale() }) });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    await page.route('**/api/v1/ai-context/repositories/ctx_demo1/regenerate', async (route) => {
+      await gate;
+      return route.fulfill({ json: stale({ failure: 'The new run has not finished yet' }) });
+    });
+    await page.route('**/api/v1/ai-context/repositories/ctx_demo1/recheck', async (route) => {
+      await gate;
+      return route.fulfill({ json: stale({ failure: 'Checked again, still behind' }) });
+    });
+    await goto(page, here(), PUBLIC_REPO);
+    const regenerate = tab(page).getByRole('button', { name: 'Regenerate' });
+    const recheck = tab(page).getByRole('button', { name: 'Recheck context' });
+    await expect(regenerate).toBeEnabled();
+    await expect(recheck).toBeEnabled();
+
+    await regenerate.click();
+    await expect(recheck, 'Recheck waits while Regenerate runs').toBeDisabled();
+    // The running button gives its label to a spinner, so it is found by being busy.
+    await expect(tab(page).locator('button[aria-busy="true"]')).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+    release();
+    await expect(toast(page, 'success', 'Workflow started')).toBeVisible();
+    await expect(tab(page).getByText('The new run has not finished yet')).toBeVisible();
+    await expect(recheck).toBeEnabled();
+    await expect(regenerate).toBeEnabled();
+  });
+
+  test('a recheck in flight holds Regenerate', async ({ page }) => {
+    const stale = record({
+      freshness: {
+        state: 'stale',
+        desired_commit: 'abcdef1234567890',
+        published_commit: '1234567890abcdef',
+        snapshot_id: 's',
+        checked_at: new Date().toISOString(),
+      },
+    });
+    await apiSays(page, { draft: () => ({ json: stale }) });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    await page.route('**/api/v1/ai-context/repositories/ctx_demo1/recheck', async (route) => {
+      await gate;
+      return route.fulfill({ json: stale });
+    });
+    await goto(page, here(), PUBLIC_REPO);
+    await tab(page).getByRole('button', { name: 'Recheck context' }).click();
+    await expect(
+      tab(page).getByRole('button', { name: 'Regenerate' }),
+      'Regenerate waits while Recheck runs',
+    ).toBeDisabled();
+    release();
+    await expect(tab(page).getByRole('button', { name: 'Regenerate' })).toBeEnabled();
+  });
+
+  // What Zoomies will do about a failed run is said in a sentence, and "will" is only
+  // said when it is going to: an automatic retry that has a time, not one that merely
+  // has a time.
+  for (const [says, retry, sentence] of [
+    [
+      'will start it again',
+      { automatic: true, next_at: '2099-01-02T03:04:00Z', attempts_left: 2 },
+      /Zoomies will start the workflow again from .* \(2 attempts left for this commit\)\./,
+    ],
+    [
+      'will not, though a time is known',
+      { automatic: false, next_at: '2099-01-02T03:04:00Z', attempts_left: 0 },
+      /Zoomies will not start the workflow again by itself\. Use Regenerate once this is fixed\./,
+    ],
+  ] as const) {
+    test(`a failed run says whether Zoomies ${says}`, async ({ page }) => {
+      await apiSays(page, {
+        draft: () => ({
+          json: record({
+            diagnosis: {
+              title: 'GitHub refused to store the file',
+              detail: 'The artifact quota is full.',
+              fix: 'Free some storage.',
+              action: 'repair',
+              cause: 'artifact_quota',
+              retry,
+            },
+          }),
+        }),
+      });
+      await goto(page, here(), PUBLIC_REPO);
+      await expect(
+        tab(page).getByRole('group', { name: 'Why the last workflow run failed' }),
+      ).toContainText(sentence);
+    });
+  }
+
+  // The same card, listed: here it has to name its repository, because the list is
+  // of them, and the tab above leaves the name off because its page is about one.
+  test('the AI Context page names each repository on its card', async ({ page }) => {
+    await page.route('**/api/v1/ai-context/repositories?*', (route) =>
+      route.fulfill({
+        json: { items: [record()], total: 1, limit: 50, offset: 0 },
+      }),
+    );
+    await page.route('**/api/v1/ai-context/installations', (route) =>
+      route.fulfill({ json: { items: [] } }),
+    );
+    await goto(page, '/kennel/ai-context', 'AI Context');
+    await expect(page.getByRole('heading', { level: 2, name: PUBLIC_REPO })).toBeVisible();
+    await expect(
+      page.getByRole('region', { name: PUBLIC_REPO }).getByText('Source branch'),
+    ).toBeVisible();
+  });
+
+  test('another repository is another question', async ({ page }) => {
+    const listed = (await page.request
+      .get('/api/v1/kennel/repositories?limit=100')
+      .then((r) => r.json())) as { items: Array<{ id: string; name: string }> };
+    const second = listed.items.find((r) => r.id !== target.id)!;
+    const asked = await apiSays(page, {
+      draft: (params) => ({
+        json: record({
+          full_name: `seen-for-${params.get('repository_id')}`,
+          repository: {
+            github_host: 'github.com',
+            installation_id: params.get('installation_id'),
+            repository_id: Number(params.get('repository_id')),
+          },
+        }),
+      }),
+    });
+    await goto(page, here(), PUBLIC_REPO);
+    await expect(tab(page).getByText('Source branch')).toBeVisible();
+    await plantMarker(page);
+    const before = asked.length;
+
+    await page.evaluate((path) => {
+      history.pushState({}, '', path);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    }, `/kennel/repositories/${second.id}/ai-context`);
+    await expect(page.getByRole('heading', { level: 1, name: second.name })).toBeVisible();
+    await expect.poll(() => asked.length, { message: 'it asked again' }).toBeGreaterThan(before);
+    const ids = asked.map((p) => p.get('repository_id'));
+    expect(new Set(ids).size, 'each repository was asked about by its own ID').toBe(2);
+    await expectNoReload(page);
+  });
+});
