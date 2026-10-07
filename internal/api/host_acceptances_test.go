@@ -131,6 +131,11 @@ func TestAcceptAndRevokeAreAuditedWithTheReason(t *testing.T) {
 	if len(accepted) != 2 || !strings.Contains(accepted[0].After, "rotation is done by the log shipper") || accepted[0].TargetID != host.ID {
 		t.Errorf("accepted audit rows = %+v", accepted)
 	}
+	// The report's value is agent-written text; the log carries the person's
+	// reason, not the host's words.
+	if strings.Contains(accepted[0].After, `"current"`) {
+		t.Errorf("audit row carries the host-reported value: %s", accepted[0].After)
+	}
 	revoked, _, _ := h.st.ListAudit(h.ctx, store.AuditFilter{Actions: []string{"host.check_revoked"}}, store.Page{Limit: 10})
 	if len(revoked) != 1 {
 		t.Errorf("revoked audit rows = %d, want 1: the second revoke ended nothing", len(revoked))

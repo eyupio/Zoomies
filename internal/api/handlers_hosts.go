@@ -806,14 +806,13 @@ type acceptHostCheckRequest struct {
 // text and is kept to the acceptance itself.
 type hostAcceptanceAudit struct {
 	CheckID   string    `json:"check_id"`
-	Current   string    `json:"current"`
 	Reason    string    `json:"reason"`
 	By        string    `json:"by"`
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
 func acceptanceAudit(a *store.HostCheckAcceptance) hostAcceptanceAudit {
-	return hostAcceptanceAudit{CheckID: a.CheckID, Current: a.Current, Reason: a.Reason, By: a.ByName, ExpiresAt: a.ExpiresAt}
+	return hostAcceptanceAudit{CheckID: a.CheckID, Reason: a.Reason, By: a.ByName, ExpiresAt: a.ExpiresAt}
 }
 
 // failHostAcceptance maps the controller's answers about acceptances onto

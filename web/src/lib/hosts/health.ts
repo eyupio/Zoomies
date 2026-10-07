@@ -99,7 +99,7 @@ export interface HealthSummary {
  * The badge for one host, read from the controller's own count (`summary`).
  *
  * The count is not worked out here: the problems, the metrics, the feed and
- * `zoomies hosts list` read the same five numbers, and a pill that tallied the
+ * `zoomies hosts list` read the same six numbers, and a pill that tallied the
  * results itself would be the one surface that could disagree with them. What
  * stays here is what only a browser knows -- the clock the report is judged
  * against -- and the wording.
