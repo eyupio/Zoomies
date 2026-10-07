@@ -894,6 +894,9 @@ func classify(resp *gh.Response, err error) error {
 		return fmt.Errorf("github: authentication rejected%s: the App ID or private key no longer "+
 			"matches the App on GitHub", detail(message))
 	}
+	if status >= http.StatusInternalServerError {
+		return NewServerError(err)
+	}
 	return err
 }
 

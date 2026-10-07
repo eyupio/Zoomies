@@ -47,6 +47,13 @@ const (
 	// a transient failure has gone would leave a repository half-read for a day.
 	kennelRetryHeld  = 15 * time.Minute
 	kennelRetryError = 30 * time.Minute
+	// kennelUnwellBase and kennelUnwellMax bound how long Kennel Club leaves an
+	// installation alone after GitHub answers one of its reads with a 5xx. The
+	// wait doubles with each failure in a row, because a GitHub that is failing
+	// is not helped by being asked every minute -- and the registration and
+	// scaling paths share that API and have first call on it.
+	kennelUnwellBase = 5 * time.Minute
+	kennelUnwellMax  = time.Hour
 )
 
 // kennelRuntime is the loop's own state, apart from the controller's for the
@@ -63,6 +70,10 @@ type kennelRuntime struct {
 	// listed is when each installation's repositories were last listed, which is
 	// what paces the listing under the installation scope.
 	listed map[string]time.Time
+	// unwell is the backoff after GitHub answered a read with a 5xx. It is
+	// Kennel Club's own: the poller and scheduler's rate-limit hold is not set,
+	// so a failing GitHub never stops a runner being registered by it.
+	unwell map[string]kennelUnwell
 	// rechecks is when each repository was last asked to be read again by a
 	// person, which is what the cooldown on Recheck is counted from.
 	rechecks map[string]time.Time
@@ -75,9 +86,39 @@ func newKennelRuntime() *kennelRuntime {
 		budgets:  map[string]*kennelBudget{},
 		notes:    map[string]kennelNote{},
 		listed:   map[string]time.Time{},
+		unwell:   map[string]kennelUnwell{},
 		rechecks: map[string]time.Time{},
 		wake:     make(chan struct{}, 1),
 	}
+}
+
+// kennelUnwell is one installation's run of server errors.
+type kennelUnwell struct {
+	until   time.Time
+	last    time.Time
+	strikes int
+}
+
+// kennelNoteServerError starts or lengthens the backoff for an installation
+// whose read GitHub answered with a 5xx. A failure more than an hour after the
+// last one starts the count again, so one bad afternoon does not make the next
+// blip cost an hour.
+func (c *Controller) kennelNoteServerError(installationID string, now time.Time) {
+	c.kennel.mu.Lock()
+	defer c.kennel.mu.Unlock()
+	u := c.kennel.unwell[installationID]
+	if now.Sub(u.last) > kennelUnwellMax {
+		u.strikes = 0
+	}
+	u.strikes++
+	wait := kennelUnwellMax
+	if u.strikes <= 4 {
+		wait = min(kennelUnwellBase<<(u.strikes-1), kennelUnwellMax)
+	}
+	u.last, u.until = now, now.Add(wait)
+	c.kennel.unwell[installationID] = u
+	c.log.Warn("GitHub is failing Kennel Club's reads; standing down from it for a while",
+		"installation", installationID, "until", u.until.UTC().Format(time.RFC3339), "failures", u.strikes)
 }
 
 // kennelNote is what the loop last found out about reaching one installation.
@@ -339,6 +380,9 @@ func kennelJitter(repositoryID int64, interval time.Duration) time.Duration {
 func (c *Controller) kennelTake(installationID string, in kennelPassInput, rl github.RateLimit) bool {
 	c.kennel.mu.Lock()
 	defer c.kennel.mu.Unlock()
+	if c.Now().Before(c.kennel.unwell[installationID].until) {
+		return false
+	}
 	b := c.kennel.budgets[installationID]
 	if b == nil {
 		b = &kennelBudget{}
@@ -862,6 +906,9 @@ func marshalJSON(v any) (json.RawMessage, error) {
 // does, so the installation's request counter says all of them.
 func (c *Controller) observeKennel(installationID string, err error) {
 	c.observeGitHub(installationID, err)
+	if errors.Is(err, github.ErrServerError) {
+		c.kennelNoteServerError(installationID, c.Now())
+	}
 	c.metrics.kennelRequests.WithLabelValues(githubResult(err)).Inc()
 }
 
