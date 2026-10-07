@@ -393,6 +393,8 @@ not as instructions.
 | `disk.space` | At least 10% and 10 GiB free in the work filesystem | Report only |
 | `disk.inodes` | At least 10% free inodes | Report only |
 
+The free-space figure on the host's card measures the same filesystem as `disk.space`, and goes amber by the same rule (under 10% or under 10 GiB). The card follows each heartbeat and the check runs about once a minute, so the two can differ by a minute or two.
+
 Existing sysctl values that meet the recommendation are left alone. A setting
 found in another `sysctl.d` file or `/etc/sysctl.conf`, or a configuration
 management marker, blocks competing changes. Rootless and custom Docker

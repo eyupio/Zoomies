@@ -10,7 +10,7 @@
 <script lang="ts">
   import { navigate } from '$lib/router';
   import { healthSummary } from './health';
-  import { cardLine } from './health-card';
+  import { cardLine, diskIsLow, diskLink } from './health-card';
   import { slotsOf } from './slots';
   import {
     ChevronRight,
@@ -348,12 +348,9 @@
     return formatNumber(Math.round(n * 10) / 10);
   }
 
-  /** Below this, the disk is the reason a job will fail rather than a detail. */
-  const DISK_LOW = 0.1;
-  const diskLow = $derived.by(() => {
-    const total = host.disk_total_mb ?? 0;
-    return total > 0 && (host.disk_free_mb ?? 0) / total < DISK_LOW;
-  });
+  /** Amber by the doctor's own rule, so the card and the Warning row agree. */
+  const diskLow = $derived(diskIsLow(host.disk_free_mb ?? 0, host.disk_total_mb ?? 0));
+  const diskHref = $derived(diskLink(host, health));
 
   /**
    * "Proxmox · pve-1 · 143": which provider, and which resource there.
@@ -557,10 +554,17 @@
   <p class="meta">
     {#if platform}<span>{platform}</span>{/if}
     {#if size}<span class="tabular">{size}</span>{/if}
-    {#if disk}<span
+    {#if disk && diskHref}<a
+        class="tabular disk"
+        class:low={diskLow}
+        href={diskHref}
+        title="Free space on the filesystem holding the work directory, as the agent last reported it. The host's Work directory free space check reads the same filesystem and can be a minute or two older. Select to open it."
+        >{disk}</a
+      >{:else if disk}<span
         class="tabular"
         class:low={diskLow}
-        title="Disk on the filesystem holding the work directory">{disk}</span
+        title="Disk on the filesystem holding the work directory, as the agent last reported it."
+        >{disk}</span
       >{/if}
     {#if host.version}<span>agent {host.version}</span>{/if}
     {#if host.version_channel}<span class="mono">channel :{host.version_channel}</span>{/if}
@@ -973,6 +977,14 @@
   .meta .low {
     color: var(--z-pending);
     font-weight: var(--z-weight-medium);
+  }
+  /* A link keeps the meta line's quiet colour, but never over the amber of a
+     low disk: that mark is the whole point of the figure. */
+  .meta a.disk {
+    text-underline-offset: var(--z-underline-offset);
+  }
+  .meta a.disk:not(.low) {
+    color: inherit;
   }
   .health {
     margin: 0;

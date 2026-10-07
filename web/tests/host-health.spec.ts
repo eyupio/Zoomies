@@ -1511,3 +1511,65 @@ test('the host page title names the host and large check values have separators'
     await page.request.delete(`/api/v1/hosts/${credentials.host_id}`);
   }
 });
+
+/**
+ * The card's disk figure and the Work directory free space check read the same
+ * filesystem, so they must not disagree about when it is low.
+ *
+ * Eight GiB free of sixty is above the old card rule (ten percent) and below
+ * the check's (ten GiB): the row warned while the card stayed plain. The
+ * figure is also the way across to that row, since it is the only disk signal
+ * some hosts have.
+ */
+test('the card disk figure goes amber by the check rule and links to the check', async ({
+  page,
+}) => {
+  const name = `health-disk-${Date.now() % 1e6}`;
+  const credentials = await enrol(page, name);
+  const beat = async (freeMb: number, totalMb: number, status: Check['status']) => {
+    const response = await page.request.post('/api/v1/agent/heartbeat', {
+      headers: { Authorization: `Bearer ${credentials.agent_token}` },
+      data: {
+        protocol_version: 1,
+        disk_total_mb: totalMb,
+        disk_free_mb: freeMb,
+        doctor: {
+          checked_at: new Date().toISOString(),
+          os: 'linux',
+          distro: 'ubuntu 24.04',
+          container: false,
+          reboot_pending: false,
+          results: [
+            check('disk.space', 'Work directory free space', 'safe', status, {
+              current: '13% free (8.0 GiB)',
+            }),
+          ],
+        },
+      },
+    });
+    expect(response.ok()).toBeTruthy();
+  };
+  try {
+    await beat(8 * 1024, 60 * 1024, 'warn');
+    await goto(page, '/hosts', 'Hosts');
+    const figure = page
+      .getByRole('article', { name, exact: true })
+      .getByRole('link', { name: /GB free of/ });
+    await expect(figure).toHaveClass(/low/);
+    await expect(figure).toHaveAttribute('href', `/hosts/${credentials.host_id}#disk.space`);
+    await figure.click();
+    await expect(page).toHaveURL(/#disk\.space$/);
+    await expect(page.locator('.health-content tr[id="disk.space"]')).toBeFocused();
+
+    // Plenty of room: still a way to the check, but not amber.
+    await beat(40 * 1024, 100 * 1024, 'ok');
+    await goto(page, '/hosts', 'Hosts');
+    const roomy = page
+      .getByRole('article', { name, exact: true })
+      .getByRole('link', { name: /GB free of/ });
+    await expect(roomy).toBeVisible();
+    await expect(roomy).not.toHaveClass(/low/);
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}`);
+  }
+});
