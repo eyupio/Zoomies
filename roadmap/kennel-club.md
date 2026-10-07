@@ -912,6 +912,10 @@ the feature off:
    ([0006](decisions/0006-kennel-club-tracks-repositories-one-at-a-time.md)).
    **(f)** A side menu for the section and an on/off switch in it, asked for after
    (c) merged ([0010](decisions/0010-kennel-club-has-a-side-menu-and-the-switch-is-in-it.md)).
+   **(g)** The Overview's counts open the repositories behind them, from the same
+   request as (f). Two do not: *Partly checked* adds two standings and the list
+   filters by one, and the list has no waiver filter for *Waived*. Both want a
+   change to the list's API, which is a separate decision.
    The order is the owner's, set on 7 October.
 8. Documentation and screenshots.
 

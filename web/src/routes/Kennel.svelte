@@ -34,6 +34,7 @@
   import ChecksTable from '$lib/kennel/ChecksTable.svelte';
   import KennelShell from '$lib/kennel/KennelShell.svelte';
   import KennelTurnOn from '$lib/kennel/KennelTurnOn.svelte';
+  import { kennelListHref, type KennelListFilter } from '$lib/kennel/pages';
   import {
     coverageStatesText,
     countsAreAFloor,
@@ -127,6 +128,14 @@
     return word ? word.charAt(0).toUpperCase() + word.slice(1) : word;
   }
 
+  // A card opens the repositories it counts, and only when it counts some: a link
+  // to an empty list is a click that finds nothing. The number on the card and the
+  // rows behind it agree, which is why two cards have no link at all -- "Partly
+  // checked" adds two standings and the list filters by one, and the list has no
+  // waiver filter to open "Waived" on.
+  const opens = (count: number, filter?: KennelListFilter) =>
+    count > 0 ? { href: kennelListHref(filter) } : {};
+
   const metrics = $derived.by(() => {
     if (!overview) return [];
     const { states, counts } = overview;
@@ -136,18 +145,21 @@
         label: 'Repositories',
         value: formatNumber(overview.repositories),
         detail: overview.scope === 'served' ? 'This fleet has run jobs for' : 'The App can see',
+        ...opens(overview.repositories),
       },
       {
         label: bestWord,
         value: formatNumber(states.best_in_show),
         detail: 'Nothing worse than a note is open',
         tone: 'success' as const,
+        ...opens(states.best_in_show, { state: 'best_in_show' }),
       },
       {
         label: 'Need attention',
         value: formatNumber(states.attention),
         detail: `${atLeast}An error or a warning is open`,
         tone: states.attention > 0 ? ('danger' as const) : ('neutral' as const),
+        ...opens(states.attention, { state: 'attention' }),
       },
       {
         label: 'Partly checked',
@@ -159,12 +171,14 @@
         value: formatNumber(counts.error),
         detail: `${atLeast}Open across every repository`,
         tone: counts.error > 0 ? ('danger' as const) : ('neutral' as const),
+        ...opens(counts.error, { severity: 'error' }),
       },
       {
         label: 'Warnings',
         value: formatNumber(counts.warning),
         detail: `${atLeast}Open across every repository`,
         tone: counts.warning > 0 ? ('warning' as const) : ('neutral' as const),
+        ...opens(counts.warning, { severity: 'warning' }),
       },
       {
         label: 'Waived',
@@ -299,7 +313,7 @@
             flush
           >
             {#snippet actions()}
-              <a href="/kennel/repositories?state=attention">See all</a>
+              <a href={kennelListHref({ state: 'attention' })}>See all</a>
             {/snippet}
             {#if overview.attention.length === 0}
               <EmptyState

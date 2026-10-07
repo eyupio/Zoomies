@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { KENNEL_GROUPS, KENNEL_PAGES } from '../src/lib/kennel/pages.ts';
+import { KENNEL_GROUPS, KENNEL_PAGES, kennelListHref } from '../src/lib/kennel/pages.ts';
 
 test('every page has its own id and its own address, and all of them are under Kennel Club', () => {
   assert.equal(new Set(KENNEL_PAGES.map((p) => p.id)).size, KENNEL_PAGES.length);
@@ -34,4 +34,26 @@ test('the switch heads the group it governs, and AI Context is not in that group
 test('AI Context has a row of its own in the rail', () => {
   assert.equal(KENNEL_PAGES.filter((p) => p.id === 'ai-context').length, 1);
   assert.equal(KENNEL_PAGES.find((p) => p.id === 'ai-context')?.path, '/kennel/ai-context');
+});
+
+// The list reads its filters from the address, so the link is the whole of "show
+// me these". An empty filter in the address would read as a filter that matches
+// nothing to anyone who copied it.
+test('the list of repositories is opened on the address the list itself reads', () => {
+  const list = KENNEL_PAGES.find((p) => p.id === 'repositories')?.path;
+  assert.equal(kennelListHref(), list);
+  assert.equal(kennelListHref({}), list);
+  assert.equal(kennelListHref({ state: 'attention' }), `${list}?state=attention`);
+  assert.equal(kennelListHref({ severity: 'error' }), `${list}?severity=error`);
+  assert.equal(
+    kennelListHref({ state: 'attention', severity: 'warning' }),
+    `${list}?state=attention&severity=warning`,
+  );
+});
+
+test('an empty filter is left out of the address, and a value is encoded', () => {
+  const list = kennelListHref();
+  assert.equal(kennelListHref({ state: '', severity: '' }), list);
+  assert.equal(kennelListHref({ state: '', severity: 'error' }), `${list}?severity=error`);
+  assert.equal(kennelListHref({ state: 'a&b' }), `${list}?state=a%26b`);
 });
