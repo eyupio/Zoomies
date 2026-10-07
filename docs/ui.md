@@ -456,6 +456,21 @@ See
 [current usage and automatic holds](hosts-and-pools.md#current-usage-and-automatic-holds)
 for the thresholds and the limits of these measurements.
 
+The page opens on its tiles, a row of filters and the cards, and the capacity map
+is folded behind a **Host capacity map** button above them: the cards are what
+somebody came to act on, and the browser remembers whether the map was open. A
+host's status pill reads **Connected** while its agent is sending heartbeats and
+**Unreachable** when it stops. The pill beside it is the host's own OS report,
+and "healthy" is kept for that. The **Need attention** tile counts the hosts
+whose health pill reads warnings, errors or a pending reboot, and opens the
+cards filtered to them. The row above the cards — **All**, **Need attention**,
+**Report stale** and **No report** — is kept in the address as
+`?health=attention`, `?health=stale` or `?health=no-report`, so a view can be
+shared; it is not remembered, because a filter that came back by itself would
+hide hosts for no visible reason. **Report stale** also holds a host whose agent
+is not connected, and the three filters do not add up to **All**: a host with a
+current, clean report is in none of them.
+
 A host the controller has stepped down after sustained pressure wears a
 **Throttled** badge, with the step in its title, and its slots line reads
 "*n* of *m* slots in use · throttled from *capacity*": the smaller figure is

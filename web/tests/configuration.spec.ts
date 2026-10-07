@@ -13,7 +13,13 @@
  * altered is a change every later spec runs against.
  */
 import { expect, test, type Page } from '@playwright/test';
-import { browserOverride, goto, openSection, reload } from './support/fixtures';
+import {
+  browserOverride,
+  goto,
+  openHostCapacityMap,
+  openSection,
+  reload,
+} from './support/fixtures';
 
 test.use(browserOverride);
 
@@ -231,6 +237,8 @@ test('the capacity map opens in the layout the fleet chose for each page, until 
     // already opening a chart per host: the change is live.
     await openSection(page, '/hosts');
     await expect(page.getByRole('heading', { level: 1, name: 'Hosts' })).toBeVisible();
+    // The map is folded until somebody asks; the layout is what is under test.
+    await openHostCapacityMap(page);
     await expect(layout.getByRole('button', { name: /^Per host/ })).toHaveAttribute(
       'aria-pressed',
       'true',
@@ -245,6 +253,7 @@ test('the capacity map opens in the layout the fleet chose for each page, until 
     // An operator's own pick outlives the fleet's default in this browser,
     // and belongs to the page it was made on.
     await goto(page, '/hosts', 'Hosts');
+    await openHostCapacityMap(page);
     await layout.getByRole('button', { name: /^Overlay/ }).click();
     await reload(page, 'Hosts');
     await expect(layout.getByRole('button', { name: /^Overlay/ })).toHaveAttribute(

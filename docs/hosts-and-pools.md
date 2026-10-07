@@ -155,7 +155,7 @@ and says `incompatible` on its card.
 | OS, arch, version | The agent | Shown in **Hosts**. A pool's `host_selector` can match `os` and `arch` directly, so keeping work on arm64 needs no labelling at all. |
 | Health | A heartbeat every `agent.heartbeat_interval` | A host silent for 90 seconds — three times the default interval — is unhealthy, and takes no new runners until it checks in again. After five minutes of silence it is presumed gone: the runners still recorded on it are failed so the pool can replace them, and a job one of them was running is marked as lost by the fleet. |
 
-A host that offers no backend is connected, healthy and useless: nothing will
+A host that offers no backend is connected and useless: nothing will
 ever be scheduled on it. `zoomies hosts list` says so rather than printing a
 dash, and repeats the agent's own explanation for each backend it could not
 use — usually a Docker socket that is not readable by the account the agent runs

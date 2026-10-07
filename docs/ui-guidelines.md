@@ -262,6 +262,10 @@ is `--z-idle` with the hollow dot. A reader with no account sees the same
 colour and shape for "something is stopping jobs" that an operator sees for a
 failed runner, and the state is always written out as a word beside them.
 
+On a host, the heartbeat reads **Connected** or **Unreachable**, and "healthy"
+is kept for the host's OS report, so the two pills on one card never use a word
+for two different things. The mapping above does not move: only the label did.
+
 Busy is the Fast Cyan family: the brand asks for the accent to be used
 sparingly, and *this runner is executing a job right now* is the single most
 valuable "look here" signal on the page.

@@ -713,7 +713,11 @@ export function hostStatus(host: Pick<Host, 'healthy' | 'cordoned' | 'throttle'>
       `Throttled, step ${host.throttle?.level} of ${MAX_THROTTLE_LEVEL}: the fleet is taking fewer new runners here after sustained pressure. It lifts one step after five minutes of calm.`,
     );
   }
-  return meta('healthy', 'Healthy', 'idle', 'hollow', Circle);
+  // The key mirrors the API's `host.healthy`, which is a heartbeat in the last
+  // 90 seconds (store.HeartbeatTimeout). The label says what that means, because
+  // "Healthy" beside a card's separate OS health pill read as one verdict said
+  // twice; that word is kept for the OS report.
+  return meta('healthy', 'Connected', 'idle', 'hollow', Circle);
 }
 
 /* -- machines -------------------------------------------------------------- */

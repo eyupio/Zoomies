@@ -426,3 +426,123 @@ test('the host page does not call a host with runners on it safe to reboot', asy
     await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
   }
 });
+
+// The Hosts page counts the hosts whose health pill is amber or red, and the tile,
+// the chip and the cards are three views of one number. They are checked against
+// each other, against the page's own live updates, and by pressing the chip and
+// the tile, because a count that disagrees with the cards under it is the thing
+// an operator stops believing first.
+//
+// One host is enrolled and walked through the states, rather than three held in
+// each: joins are limited per address per minute, and this file shares the
+// minute with the next. A warning, a reboot alone and a clean report are the
+// three that matter, and one host can be each in turn. The expectations are
+// `before + n`, never constants: the demo fleet's hosts have no OS report, and
+// other specs on this shared controller leave hosts behind. The "Report stale"
+// bucket is covered by the unit test only, because a past `checked_at` on the
+// heartbeat path is not something this spec can promise the controller accepts.
+test('the Hosts page counts the hosts that need attention, and the tile, the filter and the pills agree', async ({
+  page,
+}) => {
+  const name = `health-count-${Date.now()}`;
+  const watches = (status: Check['status']) => [
+    check('inotify.watches', 'File watches', 'safe', status),
+  ];
+  const card = page.getByRole('article', { name, exact: true });
+  let credentials: Credentials | undefined;
+  try {
+    // Enrolled and silent: the page does not know it until it has been heard
+    // from, so what it counts first is the fleet without it.
+    credentials = await enrol(page, name);
+    await goto(page, '/hosts', 'Hosts');
+    const tile = page.getByRole('link', { name: /^Need attention: \d+\./ });
+    const before = Number(
+      /^Need attention: (\d+)\./.exec((await tile.getAttribute('aria-label')) ?? '')?.[1],
+    );
+    expect(Number.isFinite(before), 'the tile says a number').toBe(true);
+    await plantMarker(page);
+
+    // A counted warning, live: the tile's number and the chip's agree, and both
+    // are the one host the pill calls amber.
+    await heartbeat(page, credentials, watches('warn'));
+    const chips = page.getByRole('group', { name: 'Show hosts by OS health' });
+    const chip = chips.getByRole('button', { name: /^Need attention \d+$/ });
+    // A tile's number is its own element; nothing in the accessibility tree
+    // separates it from the line under it, so it is reached through its tile.
+    const value = page.locator('.metric', { has: tile }).locator('.value');
+    await expect(value).toHaveText(String(before + 1));
+    await expect(chip).toHaveAccessibleName(`Need attention ${before + 1}`);
+    await expectNoReload(page);
+
+    // The words: a heartbeat is Connected, and Healthy is the OS report's.
+    await expect(page.getByText(/\d+ hosts? · \d+ connected · /)).toBeVisible();
+    await expect(page.getByText('Hosts connected', { exact: true })).toBeVisible();
+    await expect(page.getByText('Sending heartbeats')).toBeVisible();
+    await expect(page.getByText('Healthy', { exact: true })).toHaveCount(0);
+
+    // The chip filters, in the address, without a new history entry.
+    const historyBefore = await page.evaluate(() => history.length);
+    await chip.click();
+    await expect(page).toHaveURL(/[?&]health=attention(&|$)/);
+    await expect(chip).toHaveAttribute('aria-pressed', 'true');
+    for (const other of [
+      chips.getByRole('button', { name: /^All \d+$/ }),
+      chips.getByRole('button', { name: /^Report stale \d+$/ }),
+      chips.getByRole('button', { name: /^No report \d+$/ }),
+    ]) {
+      await expect(other).toHaveAttribute('aria-pressed', 'false');
+    }
+    expect(await page.evaluate(() => history.length), 'a chip replaces, it does not push').toBe(
+      historyBefore,
+    );
+    await expect(page.getByRole('article')).toHaveCount(before + 1);
+    await expect(card).toHaveCount(1);
+    await expect(page.getByRole('status').filter({ hasText: 'Showing' })).toHaveText(
+      new RegExp(
+        `^Showing ${before + 1} of \\d+ hosts: OS settings below the recommendation, or a reboot pending\\.$`,
+      ),
+    );
+
+    // A reboot on its own is counted too: it is the other thing the pill paints
+    // amber. The pill moving is how the page shows the report has landed.
+    await heartbeat(page, credentials, watches('ok'), true);
+    await expect(card.getByRole('link', { name: `Host health for ${name}` })).toContainText(
+      'Reboot pending',
+    );
+    await expect(value).toHaveText(String(before + 1));
+    await expect(card).toHaveCount(1);
+
+    // And a clean report is not: the host leaves the filtered view live, and
+    // the tile and the chip follow it down. The list follows the report, not
+    // the page's age.
+    await heartbeat(page, credentials, watches('ok'));
+    await expect(card).toHaveCount(0);
+    await expect(page.getByRole('article')).toHaveCount(before);
+    await expect(value).toHaveText(String(before));
+    await expect(chip).toHaveAccessibleName(`Need attention ${before}`);
+    await expectNoReload(page);
+
+    // Unfiltered again, the clean host is among the cards: connected, and its
+    // OS report fine. Two pills, two words.
+    await goto(page, '/hosts', 'Hosts');
+    await expect(card).toContainText('Connected');
+    await expect(card).toContainText('Health OK');
+
+    // The tile opens the same view, as a step of history that Back undoes.
+    await tile.click();
+    await expect(page).toHaveURL(/[?&]health=attention(&|$)/);
+    await expect(chip).toHaveAttribute('aria-pressed', 'true');
+    await expect(card).toHaveCount(0);
+    await page.goBack();
+    await expect(page).not.toHaveURL(/health=/);
+    await expect(chips.getByRole('button', { name: /^All \d+$/ })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await expect(card).toHaveCount(1);
+  } finally {
+    if (credentials) {
+      await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+    }
+  }
+});
