@@ -24,7 +24,7 @@ type Check = {
 };
 
 /** Enrol a host the way an agent does, through a join token from the Add a host page. */
-async function enrol(page: Page, name: string): Promise<Credentials> {
+async function enrol(page: Page, name: string, version = 'dev'): Promise<Credentials> {
   await goto(page, '/hosts/new', 'Add a host');
   await page.getByRole('button', { name: 'Get the command' }).click();
   const command = await page
@@ -40,7 +40,7 @@ async function enrol(page: Page, name: string): Promise<Credentials> {
       capacity: 1,
       os: 'linux',
       arch: 'amd64',
-      version: 'dev',
+      version,
       backends: [{ kind: 'docker', available: true }],
     },
   });
@@ -1301,6 +1301,92 @@ test('a report-only host has no kind word and no preview button, even if a row s
     await expect(page.locator('[id="inotify.watches"] .kind')).toHaveCount(0);
     await expect(page.getByRole('button', { name: /Copy preview command/ })).toHaveCount(0);
     await expect(page.getByText('A Fixable row has a button')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /apply|tune/i })).toHaveCount(0);
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+  }
+});
+
+// A host with no report used to be told one thing whatever the cause, and half of
+// it was wrong for a container deployment. The page now says which of the causes
+// it can tell apart from fields it already has, and never invents a command.
+test('a host that has only just joined is told to wait, with no command and no tuning', async ({
+  page,
+}) => {
+  const name = `noreport-new-${Date.now() % 1e6}`;
+  const credentials = await enrol(page, name);
+  try {
+    await goto(page, `/hosts/${credentials.host_id}`, name);
+    const panel = page.getByRole('region', { name: 'No health report yet' });
+    await expect(panel).toContainText('Waiting for this host’s first report.');
+    await expect(panel).toContainText('This host joined');
+    await expect(page.getByText('No OS report has arrived from this host yet.')).toBeVisible();
+    await expect(panel.locator('pre')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /apply|tune/i })).toHaveCount(0);
+    await expect(page.getByRole('main')).not.toContainText(/drain/i);
+    // The page fills in by itself when the first report arrives.
+    await heartbeat(page, credentials, [check('inotify.watches', 'File watches', 'safe', 'ok')]);
+    await expect(page.getByRole('region', { name: 'Latest host report' })).toBeVisible();
+    await expect(panel).toHaveCount(0);
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+  }
+});
+
+// Skew outranks "just joined": an agent from before OS reports never sends one,
+// however new its row is. The command is the controller's own, byte for byte,
+// read back from the API rather than rebuilt in the test.
+test('an older release is told it may be too old and gets the controller’s own command', async ({
+  page,
+}) => {
+  const name = `noreport-old-${Date.now() % 1e6}`;
+  await stubClipboard(page);
+  const credentials = await enrol(page, name, 'v0.1-alpha');
+  try {
+    const api = (await (await page.request.get(`/api/v1/hosts/${credentials.host_id}`)).json()) as {
+      upgrade_command?: string;
+    };
+    expect(api.upgrade_command, 'the controller offers a command for a dev build').toBeTruthy();
+    await goto(page, `/hosts/${credentials.host_id}`, name);
+    const panel = page.getByRole('region', { name: 'No health report yet' });
+    await expect(panel).toContainText('may be too old to send OS reports');
+    await expect(panel).not.toContainText('Waiting for this host’s first report.');
+    await expect(panel).toContainText('so a report may still be on its way');
+    await expect(panel.locator('pre code')).toHaveText(api.upgrade_command as string);
+    await panel.getByRole('button', { name: 'Copy the upgrade command' }).click();
+    expect(await page.evaluate(() => sessionStorage.getItem('copied'))).toBe(api.upgrade_command);
+    await expect(page.getByRole('button', { name: /apply|tune/i })).toHaveCount(0);
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+  }
+});
+
+test('a viewer is asked to involve an operator rather than shown an update command', async ({
+  page,
+}) => {
+  const name = `noreport-view-${Date.now() % 1e6}`;
+  const credentials = await enrol(page, name, 'v0.1-alpha');
+  try {
+    await signedInAs(page, 'viewer');
+    await goto(page, `/hosts/${credentials.host_id}`, name);
+    const panel = page.getByRole('region', { name: 'No health report yet' });
+    await expect(panel).toContainText('Updating an agent needs the operator role');
+    await expect(panel.locator('pre')).toHaveCount(0);
+    await expect(panel.getByRole('button')).toHaveCount(0);
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+  }
+});
+
+test('an agent that names no release is not given a command either', async ({ page }) => {
+  const name = `noreport-blank-${Date.now() % 1e6}`;
+  const credentials = await enrol(page, name, '');
+  try {
+    await goto(page, `/hosts/${credentials.host_id}`, name);
+    const panel = page.getByRole('region', { name: 'No health report yet' });
+    await expect(panel).toBeVisible();
+    await expect(panel.locator('pre')).toHaveCount(0);
+    await expect(panel.getByRole('button')).toHaveCount(0);
     await expect(page.getByRole('button', { name: /apply|tune/i })).toHaveCount(0);
   } finally {
     await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);

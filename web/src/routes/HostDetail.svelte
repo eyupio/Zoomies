@@ -23,6 +23,7 @@
     reportOnlySubtitle,
     reportOrigin,
   } from '$lib/hosts/report-only';
+  import { noReport, noReportSubtitle } from '$lib/hosts/no-report';
   import { KIND_WORDS, previewCommand, rowKind } from '$lib/hosts/row-kind';
   import { pluralise } from '$lib/format';
   import type { StatusTone } from '$lib/status';
@@ -68,6 +69,7 @@
   // The doctor hint stays wherever the panel has no command of its own, which
   // is for a viewer, and for a cordoned host with nothing waiting on it.
   const showCommand = $derived(showStep && step?.where != null);
+  const missing = $derived(host && !report ? noReport({ host, now, canOperate }) : null);
 
   // Scoped, never getElementById: a host chooses its own check ids, and one
   // called "main" or "page-heading" must not win the lookup.
@@ -199,7 +201,9 @@
 <PageHeader
   title={host?.name || 'Host health'}
   subtitle={reportOnlySubtitle(readOnly) ??
-    'OS checks from the native Zoomies binary. Fixes require explicit consent on the host.'}
+    (missing
+      ? noReportSubtitle()
+      : 'OS checks from the native Zoomies binary. Fixes require explicit consent on the host.')}
   breadcrumb={[{ label: 'Hosts', href: '/hosts' }, { label: host?.name || id }]}
   onrefresh={refresh}
 >
@@ -210,11 +214,33 @@
 {:else if !report}
   <div class="health-content">
     {@render nextPanel()}
-    <Panel
-      title="No health report yet"
-      description="Check zoomies-host-health.service for a container deployment, or update the native agent. Run zoomies doctor directly on the host for an immediate report."
-      ><p>No tuning can be applied from this page.</p></Panel
-    >
+    {#if missing}
+      <Panel title="No health report yet" description={missing.description}>
+        <p>
+          {missing.detail}
+          {#if missing.tail === 'heartbeat' && host?.last_heartbeat}
+            Its last heartbeat was <RelativeTime value={host.last_heartbeat} />.{/if}
+          {#if missing.tail === 'joined'}
+            This host joined <RelativeTime value={host?.created_at} />.{/if}
+          {#if missing.tail === 'joined-late'}
+            It joined <RelativeTime value={host?.created_at} />, so a report may still be on its
+            way.{/if}
+          {#if missing.tail === 'since-joined'}
+            It joined <RelativeTime value={host?.created_at} />.{/if}
+        </p>
+        {#if missing.note}<p>{missing.note}</p>{/if}
+        {#if missing.command && missing.copyLabel}
+          <div class="command">
+            {#if missing.commandCaption}<p>{missing.commandCaption}</p>{/if}
+            <div class="command-row">
+              <pre><code>{missing.command}</code></pre>
+              <CopyButton value={missing.command} label={missing.copyLabel} size="md" showLabel />
+            </div>
+            {#if missing.after}<p>{missing.after}</p>{/if}
+          </div>
+        {/if}
+      </Panel>
+    {/if}
   </div>
 {:else}
   <div class="health-content">

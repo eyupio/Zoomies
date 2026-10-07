@@ -287,5 +287,7 @@ test('an empty Report stale view says how many have never reported, and an empty
   );
   const none = emptyCopy('no-report', counted({}));
   assert.equal(none.title, 'Every host has reported');
-  assert.match(none.description, /health service/);
+  assert.match(none.description, /from before OS reports, or one that has only just joined/);
+  // The old copy sent people to a service that a native host does not have.
+  assert.doesNotMatch(none.description, /health service/);
 });
