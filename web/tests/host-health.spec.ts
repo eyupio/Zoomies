@@ -1037,3 +1037,123 @@ test('a host with a clean report has a pill that links to its page and no line u
     await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
   }
 });
+
+// The three check tables were five columns floored at 720px, so a phone saw
+// the title and one more column and scrolled sideways for the rest, and a
+// rationale -- the sentence that says why -- was off screen. On a phone each
+// row is a card on the same table, so the page's own anchors and the landing
+// script, which look for `tr[id]`, keep working.
+test('on a phone the check tables are cards: the reason is on screen and nothing scrolls sideways', async ({
+  page,
+}) => {
+  const name = `health-card-${Date.now() % 1e6}`;
+  const credentials = await enrol(page, name);
+  const watches = check('inotify.watches', 'File watches', 'safe', 'warn', {
+    current: '8192',
+    recommended: '524288',
+    reason: 'advice only; review this with the host cordoned',
+  });
+  const governor = check('cpu.governor', 'CPU frequency governor', 'aggressive', 'ok', {
+    current: 'performance',
+    recommended: 'performance',
+  });
+  try {
+    await heartbeat(page, credentials, [watches, governor]);
+    for (const width of [375, 360]) {
+      await page.setViewportSize({ width, height: 900 });
+      await goto(page, `/hosts/${credentials.host_id}`, name);
+      const row = page.locator('.health-content tr[id="inotify.watches"]');
+      await expect(row).toBeVisible();
+      // The sentence that says why is the cell most likely to be pushed off screen.
+      await expect(row.locator('td').nth(3)).toContainText('File watches: why it matters.');
+      await row.locator('td').nth(3).scrollIntoViewIfNeeded();
+      await expect(row.locator('td').nth(3)).toBeInViewport({ ratio: 1 });
+      const regions = await page.evaluate(() =>
+        [...document.querySelectorAll('.health-content .checks')].map((region) => ({
+          scrollWidth: region.scrollWidth,
+          clientWidth: region.clientWidth,
+        })),
+      );
+      expect(regions.length).toBeGreaterThan(0);
+      for (const region of regions)
+        expect(region.scrollWidth).toBeLessThanOrEqual(region.clientWidth);
+      const fit = await documentWidth(page);
+      expect(fit.scrollWidth).toBeLessThanOrEqual(fit.clientWidth);
+    }
+
+    // Each cell names its own column, since the header row is not drawn.
+    const labels = await page
+      .locator('.health-content tr[id="inotify.watches"] td')
+      .evaluateAll((cells) =>
+        cells.map((cell) => getComputedStyle(cell, '::before').content.replaceAll('"', '')),
+      );
+    expect(labels).toEqual(['Status', 'Current', 'Recommended', 'Why / details']);
+    const display = await page
+      .locator('.health-content thead')
+      .first()
+      .evaluate((head) => getComputedStyle(head).display);
+    expect(display).toBe('none');
+    // The table is still a table to a screen reader.
+    await expect(page.getByRole('table').first()).toBeAttached();
+    await expect(page.getByRole('row', { name: /File watches/ })).toBeAttached();
+    await expect(page.getByRole('rowheader', { name: /File watches/ })).toBeAttached();
+
+    await expect(page.getByRole('button', { name: /apply|tune/i })).toHaveCount(0);
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+  }
+});
+
+test('a link to a check still lands on its card on a phone', async ({ page }) => {
+  // The tint is the only sign of where a link landed, and a card background
+  // would have out-specified it.
+  const name = `health-cl-${Date.now() % 1e6}`;
+  const credentials = await enrol(page, name);
+  try {
+    await heartbeat(page, credentials, [
+      check('inotify.watches', 'File watches', 'safe', 'warn', { current: '8192' }),
+      check('disk.space', 'Work directory free space', 'safe', 'error', { current: '3% free' }),
+    ]);
+    await page.setViewportSize({ width: 375, height: 900 });
+    await page.goto(`/hosts/${credentials.host_id}#disk.space`, { waitUntil: 'domcontentloaded' });
+    const row = page.locator('.health-content tr[id="disk.space"]');
+    await expect(row).toBeFocused();
+    await expect(row).toHaveAttribute('data-landed', '');
+    await expect(row).toBeInViewport();
+    const tint = await row.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(tint).not.toBe('rgba(0, 0, 0, 0)');
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+  }
+});
+
+test('on a desktop the check tables keep their header row and their columns', async ({ page }) => {
+  // The card layout is a phone rule; a desktop reader keeps the comparison
+  // across a row that a table is for.
+  const name = `health-wide-${Date.now() % 1e6}`;
+  const credentials = await enrol(page, name);
+  try {
+    await heartbeat(page, credentials, [
+      check('inotify.watches', 'File watches', 'safe', 'warn', { current: '8192' }),
+    ]);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await goto(page, `/hosts/${credentials.host_id}`, name);
+    const region = page.getByRole('region', { name: 'safe host checks' });
+    await expect(region.getByRole('columnheader')).toHaveText([
+      'Check',
+      'Status',
+      'Current',
+      'Recommended',
+      'Why / details',
+    ]);
+    const fit = await region.evaluate((el) => ({
+      scrollWidth: el.scrollWidth,
+      clientWidth: el.clientWidth,
+      display: getComputedStyle(el.querySelector('tr') as Element).display,
+    }));
+    expect(fit.display).toBe('table-row');
+    expect(fit.scrollWidth).toBeLessThanOrEqual(fit.clientWidth);
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+  }
+});
