@@ -25,7 +25,7 @@
   } from '$lib/hosts/report-only';
   import { pluralise } from '$lib/format';
   import type { StatusTone } from '$lib/status';
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { ServerCog } from '@lucide/svelte';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
@@ -67,6 +67,50 @@
   // The doctor hint stays wherever the panel has no command of its own, which
   // is for a viewer, and for a cordoned host with nothing waiting on it.
   const showCommand = $derived(showStep && step?.where != null);
+
+  // Scoped, never getElementById: a host chooses its own check ids, and one
+  // called "main" or "page-heading" must not win the lookup.
+  function land(): void {
+    let wanted = '';
+    try {
+      wanted = decodeURIComponent(location.hash.slice(1));
+    } catch {
+      return;
+    }
+    if (!wanted) return;
+    const row = [...document.querySelectorAll<HTMLElement>('.health-content tr[id]')].find(
+      (r) => r.id === wanted,
+    );
+    // Fixed since, or folded away: stay where the page put us. A closed
+    // <details> is never opened to land, findings are never inside one.
+    if (!row || row.closest('details:not([open])') || row.offsetParent === null) return;
+    document.querySelector('.health-content tr[data-landed]')?.removeAttribute('data-landed');
+    // Instant on purpose, so reduced motion needs no branch of its own.
+    row.scrollIntoView({ block: 'start' });
+    row.focus({ preventScroll: true });
+    row.setAttribute('data-landed', '');
+  }
+  // One landing per navigation and hash. Without the key, the host.doctor frame
+  // that swaps the report in every few seconds would scroll the page back each time.
+  let landedFor = '';
+  $effect(() => {
+    if (!report) return;
+    const key = `${router.navigation}:${location.hash}`;
+    if (untrack(() => landedFor) === key) return;
+    landedFor = key;
+    // After App.svelte has put focus on the page heading, or it would take it back.
+    void tick().then(() => requestAnimationFrame(land));
+  });
+  // The in-page links under "Needs attention" are plain #id links, which the
+  // router leaves to the browser; this is what moves focus for them too.
+  $effect(() => {
+    const onHash = () => {
+      landedFor = `${untrack(() => router.navigation)}:${location.hash}`;
+      land();
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  });
 
   async function toggleCordon(): Promise<void> {
     if (!host || cordoning) return;
@@ -303,7 +347,7 @@
       <tbody
         >{#each rows as check (check.id)}
           {@const badge = statusBadge(check)}
-          <tr id={check.id}>
+          <tr id={check.id} tabindex="-1">
             <th scope="row">{check.title}<small>{check.id}</small></th>
             <td><Badge label={badge.label} tone={badge.tone} /></td>
             <td>{check.current || '—'}</td><td>{check.recommended || '—'}</td><td
@@ -447,7 +491,9 @@
   tr[id] {
     scroll-margin-top: calc(var(--z-topbar-height) + var(--z-space-4));
   }
-  tr:target {
+  /* data-landed is set from script, so the compiler cannot see it. */
+  tr:target,
+  tr:global([data-landed]) {
     background: var(--z-accent-subtle);
   }
   .attention {

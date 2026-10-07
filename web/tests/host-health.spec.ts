@@ -5,6 +5,7 @@ import {
   expectNoReload,
   goto,
   plantMarker,
+  reload,
 } from './support/fixtures';
 test.use(browserOverride);
 
@@ -864,6 +865,73 @@ test('a macOS host and a container are told their report is read-only, not to tu
     );
     await expect(page.getByText('not inside the container')).toBeVisible();
     await expect(page.getByText('Review changes locally with')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /apply|tune/i })).toHaveCount(0);
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+  }
+});
+
+// A link that names a check is only useful if it lands on that check and a
+// keyboard user comes with it: focus left on the heading, or on <body>, makes
+// the click a scroll position and nothing more.
+test('a link to a check lands on its row, moves focus there and stays quiet once it is fixed', async ({
+  page,
+}) => {
+  const name = `health-land-${Date.now() % 1e6}`;
+  const credentials = await enrol(page, name);
+  const disk = check('disk.space', 'Work directory free space', 'safe', 'error', {
+    current: '3% free (11G)',
+  });
+  const watches = check('inotify.watches', 'File watches', 'safe', 'warn', { current: '8192' });
+  const row = page.locator('.health-content tr[id="disk.space"]');
+  try {
+    await heartbeat(page, credentials, [watches, disk]);
+
+    // Client-side navigation: the router, not the browser, takes the link, and
+    // the page heading is focused first, so the row must win that race.
+    await goto(page, '/hosts', 'Hosts');
+    await plantMarker(page);
+    await page.evaluate((target) => {
+      const link = document.createElement('a');
+      link.href = target;
+      link.id = 'planted-link';
+      link.textContent = 'planted';
+      document.body.append(link);
+    }, `/hosts/${credentials.host_id}#disk.space`);
+    // Script click: on a phone the bottom bar covers the end of the page.
+    await page.evaluate(() => document.getElementById('planted-link')?.click());
+    await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
+    await expect(row).toBeFocused();
+    await expect(row).toHaveAttribute('data-landed', '');
+    await expect(row).toBeInViewport();
+    await expectNoReload(page);
+
+    // The report is swapped in every few seconds; that must not take focus back.
+    await page.locator('.health-content').getByRole('link', { name: 'File watches' }).click();
+    await expect(page.locator('.health-content tr[id="inotify.watches"]')).toBeFocused();
+    await heartbeat(page, credentials, [watches, disk]);
+    await expect(page.locator('.health-content tr[id="inotify.watches"]')).toBeFocused();
+
+    // A reload and a link shared with someone else are the same arrival.
+    // Away first: the same URL again would be a same-document jump, not an arrival.
+    await page.goto('about:blank');
+    await page.goto(`/hosts/${credentials.host_id}#disk.space`, { waitUntil: 'domcontentloaded' });
+    await expect(row).toBeFocused();
+    await reload(page, name);
+    await expect(row).toBeFocused();
+    await expect(row).toBeInViewport();
+
+    // Fixed since the link was written: the page stays where it put you, with
+    // no row to land on and no error.
+    await heartbeat(page, credentials, [
+      watches,
+      check('disk.space', 'Work directory free space', 'safe', 'ok'),
+    ]);
+    // Away first: the same URL again would be a same-document jump, not an arrival.
+    await page.goto('about:blank');
+    await page.goto(`/hosts/${credentials.host_id}#disk.space`, { waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
+    await expect(page.locator('tr[data-landed]')).toHaveCount(0);
     await expect(page.getByRole('button', { name: /apply|tune/i })).toHaveCount(0);
   } finally {
     await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
