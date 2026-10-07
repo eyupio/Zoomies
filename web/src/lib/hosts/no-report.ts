@@ -13,9 +13,9 @@
 import type { Host } from '$lib/api/types';
 
 /**
- * The first check starts on the first heartbeat (30s) and rides the next, so a
- * minute or two; five is generous. Derived from the monitor and the daemon, not
- * measured.
+ * How long a new host is given before silence reads as a fault. The first check
+ * waits for a heartbeat, and the page cannot see the agent's interval, so this
+ * is generous on purpose and never shown to a person as a promise.
  */
 export const FIRST_REPORT_GRACE_MS = 5 * 60_000;
 
@@ -126,7 +126,7 @@ export function noReport(i: { host: HostFields; now: number; canOperate: boolean
       kind: 'joining',
       description: 'Waiting for this host’s first report.',
       detail:
-        'An agent sends its first OS report within about a minute or two of starting. This page fills in by itself when it arrives.',
+        'An agent sends its first OS report shortly after it starts. This page fills in by itself when it arrives.',
       tail: 'joined',
     };
   }
@@ -137,7 +137,7 @@ export function noReport(i: { host: HostFields; now: number; canOperate: boolean
       kind: 'embedded',
       description: 'This is the controller’s own agent, and it has not sent a report.',
       detail:
-        'It checks itself about once a minute from the moment the controller starts, so a report should be here by now. It is the same program as the controller, so updating it cannot help. Zoomies cannot tell why from this page.',
+        'It checks itself from the moment the controller starts, so a report should be here by now. It is the same program as the controller, so updating it cannot help. Zoomies cannot tell why from this page.',
       tail: null,
     };
   }

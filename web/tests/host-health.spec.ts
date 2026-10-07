@@ -1352,6 +1352,9 @@ test('an older release is told it may be too old and gets the controller’s own
     await expect(panel).toContainText('may be too old to send OS reports');
     await expect(panel).not.toContainText('Waiting for this host’s first report.');
     await expect(panel).toContainText('so a report may still be on its way');
+    // The command block must wrap rather than push the page sideways on a phone.
+    const width = await documentWidth(page);
+    expect(width.scrollWidth).toBeLessThanOrEqual(width.clientWidth);
     await expect(panel.locator('pre code')).toHaveText(api.upgrade_command as string);
     await panel.getByRole('button', { name: 'Copy the upgrade command' }).click();
     expect(await page.evaluate(() => sessionStorage.getItem('copied'))).toBe(api.upgrade_command);
@@ -1440,6 +1443,10 @@ test('a check that clears while the page is open is announced and listed', async
     await expect(live).toContainText('Nothing on this host needs attention now');
     const list = page.getByRole('region', { name: 'Changed since you opened this page' });
     await expect(list).toContainText('Free space — now OK');
+    const width = await documentWidth(page);
+    expect(width.scrollWidth).toBeLessThanOrEqual(width.clientWidth);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
+    await expect(page.getByRole('button', { name: /^$/ })).toHaveCount(0);
     await expect(page.getByRole('button', { name: /apply|tune/i })).toHaveCount(0);
   } finally {
     await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);

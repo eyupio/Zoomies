@@ -84,6 +84,8 @@ test('a host that joined within the grace period is waiting, not faulty', () => 
   assert.equal(r.kind, 'joining');
   assert.equal(r.tail, 'joined');
   assert.equal(r.command, null);
+  // The page cannot see the agent's heartbeat interval, so a figure would be a guess.
+  assert.doesNotMatch(r.detail, /\d|minute/i);
   const old = new Date(now - FIRST_REPORT_GRACE_MS).toISOString();
   assert.notEqual(run(host({ created_at: old })).kind, 'joining');
   // An unreadable date must not read as "just joined": that would hide a fault.
@@ -96,6 +98,7 @@ test('the embedded agent is not told to update itself', () => {
   assert.equal(r.kind, 'embedded');
   assert.equal(r.command, null);
   assert.match(r.detail, /updating it cannot help/);
+  assert.doesNotMatch(r.detail, /\d|minute/i);
 });
 
 test('an agent that gives no release gets no command, because Zoomies would not know which to offer', () => {
