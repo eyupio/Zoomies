@@ -667,6 +667,8 @@ test.describe('with Kennel Club on', () => {
       return { id: row.id, finding: finding as Finding };
     }
 
+    const full = (f: Finding) => ({ ...f, detail: 'Detail.', fix: 'Fix.', evidence: [] });
+
     // A toast from the step before can still be on screen, so each assertion
     // names its own.
     const toast = (page: Page, tone: 'success' | 'error', text: string) =>
@@ -860,7 +862,6 @@ test.describe('with Kennel Club on', () => {
         subject: '',
         title: 'A job ran until GitHub stopped it at six hours',
       };
-      const full = (f: Finding) => ({ ...f, detail: 'Detail.', fix: 'Fix.', evidence: [] });
       await page.route(`**/api/v1/kennel/repositories/${id}`, async (route) => {
         const response = await route.fetch();
         const body = (await response.json()) as Record<string, unknown> & { findings: unknown[] };
@@ -923,6 +924,97 @@ test.describe('with Kennel Club on', () => {
       await expect(page.getByRole('button', { name: /^Waive/ })).toHaveCount(0);
       await expect(page.getByRole('button', { name: /^End the waiver/ })).toHaveCount(0);
       await expect(page.getByText('Only an administrator')).toHaveCount(0);
+    });
+
+    test('the request names the finding exactly, and the page shows what the controller answered', async ({
+      page,
+    }) => {
+      const { id } = await target(page);
+      const real = await detail(page, id);
+      const finding: Finding = {
+        code: 'capacity.job_hit_default_limit',
+        severity: 'warning',
+        subject: 'a1b2c3d4',
+        title: 'A job ran until GitHub stopped it at six hours',
+      };
+      const waiverId = 'kcw_answered1';
+      const answer = (waived: boolean, reason = '') => ({
+        ...real,
+        findings: [...real.findings, ...(waived ? [] : [full(finding)])],
+        waived: waived
+          ? [
+              {
+                finding: full(finding),
+                waiver: {
+                  id: waiverId,
+                  code: finding.code,
+                  subject: finding.subject,
+                  severity: finding.severity,
+                  reason,
+                  by: 'the controller',
+                  at: new Date().toISOString(),
+                  expires_at: new Date(Date.now() + 90 * 86_400_000).toISOString(),
+                },
+              },
+            ]
+          : [],
+      });
+      // Nothing here reaches the controller, so no frame of the stream can say
+      // what changed: the page has the controller's answer to the request, or it
+      // has nothing.
+      let current = answer(false);
+      await page.route(`**/api/v1/kennel/repositories/${id}`, (route) =>
+        route.fulfill({ json: current }),
+      );
+      let sent: Record<string, string> | undefined;
+      await page.route(`**/api/v1/kennel/repositories/${id}/waivers`, (route) => {
+        sent = route.request().postDataJSON() as Record<string, string>;
+        current = answer(true, sent.reason);
+        return route.fulfill({ json: current });
+      });
+      let ended = '';
+      await page.route(`**/api/v1/kennel/repositories/${id}/waivers/*`, (route) => {
+        ended = route.request().url();
+        current = answer(false);
+        return route.fulfill({ json: current });
+      });
+
+      await goto(page, `/kennel/repositories/${id}`, PUBLIC_REPO);
+      await page.getByRole('button', { name: `Waive: ${finding.title}` }).click();
+      const dialog = page.getByRole('dialog', { name: 'Waive this finding' });
+      await dialog
+        .getByRole('textbox', { name: /Why this is acceptable here/ })
+        .fill('   Padded, and long enough to be a reason.   ');
+      const asked = Date.now();
+      await dialog.getByRole('button', { name: 'Waive', exact: true }).click();
+
+      await expect(page.locator('details.waived')).toContainText(
+        'Padded, and long enough to be a reason.',
+      );
+      await expect(article(page, finding)).toHaveCount(0);
+      expect(sent, 'the request was made').toBeTruthy();
+      expect(sent!.code).toBe(finding.code);
+      // The subject is what tells two findings of one code apart, and what the
+      // waiver is about: a waiver sent without it would cover the wrong one.
+      expect(sent!.subject).toBe(finding.subject);
+      expect(sent!.reason, 'the ends of the reason are trimmed').toBe(
+        'Padded, and long enough to be a reason.',
+      );
+      // Left alone, the length is a quarter.
+      const days = (Date.parse(sent!.expires_at!) - asked) / 86_400_000;
+      expect(days).toBeGreaterThan(89.9);
+      expect(days).toBeLessThan(90.1);
+
+      await page.getByRole('button', { name: `End the waiver: ${finding.title}` }).click();
+      await page
+        .getByRole('dialog', { name: 'End waiver' })
+        .getByRole('button', { name: 'End waiver', exact: true })
+        .click();
+      await expect(article(page, finding)).toBeVisible();
+      await expect(page.locator('details.waived')).toHaveCount(0);
+      expect(ended, 'the waiver is named by its own ID').toMatch(
+        new RegExp(`/waivers/${waiverId}$`),
+      );
     });
 
     test('a reason somebody typed is shown as text and never run', async ({ page }) => {
