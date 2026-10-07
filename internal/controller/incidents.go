@@ -232,7 +232,9 @@ func (c *Controller) hostIncidentProblems(ctx context.Context, out *[]Problem) e
 			detail := fmt.Sprintf("%s's agent reported its %s in a row at %s and holds new starts until one recovery attempt at %s. "+
 				"Running jobs continue.", label, ordinalFailure(inc.Failures), incidentTime(inc.ObservedAt), incidentTime(inc.RetryAt))
 			if inc.Error != "" {
-				detail += " The last error: " + inc.Error
+				// The agent's own words, in a sentence the UI scans for backtick
+				// pairs: stored as it sent them, said as prose.
+				detail += " The last error: " + naming.ForSentence(inc.Error)
 			}
 			*out = append(*out, Problem{
 				Code:     "host.runtime_recovering",
@@ -251,20 +253,31 @@ func (c *Controller) hostIncidentProblems(ctx context.Context, out *[]Problem) e
 			if inc.Source == "prewarm" {
 				what = "a prewarm"
 			}
+			// The pool is named by the operator, the image is whatever the task
+			// carried, and the registry is read out of the image; the error is
+			// the agent's. None of them is vouched for, so each is prose here.
+			image, registry, pool := naming.ForSentence(inc.Image), naming.ForSentence(inc.Registry), naming.ForSentence(inc.Pool)
 			detail := fmt.Sprintf("%s of %s for pool %s failed on %s at %s because the image could not be made ready. "+
 				"Every runner that pool places on this host fails the same way until it can.",
-				what, inc.Image, inc.Pool, label, incidentTime(inc.ObservedAt))
+				what, image, pool, label, incidentTime(inc.ObservedAt))
 			if inc.Error != "" {
-				detail += " The error: " + inc.Error
+				detail += " The error: " + naming.ForSentence(inc.Error)
+			}
+			// The command is offered on purpose, so the image goes into it as it
+			// is rather than neutralised -- but only when it is shaped like an
+			// image. Anything else would be copied into a shell.
+			answer := "pulling the pool's image by hand on the host gives the daemon's own answer"
+			if naming.IsImageReference(inc.Image) {
+				answer = fmt.Sprintf("`docker pull %s` on the host gives the daemon's own answer", inc.Image)
 			}
 			*out = append(*out, Problem{
 				Code:     "host.image_pull_failed",
 				Severity: config.SeverityWarning,
-				Title:    fmt.Sprintf("%s cannot pull pool %s's image from %s", label, inc.Pool, inc.Registry),
+				Title:    fmt.Sprintf("%s cannot pull pool %s's image from %s", label, pool, registry),
 				Detail:   detail,
 				Fix: fmt.Sprintf("check that %s can reach %s -- its egress rules, proxy and DNS -- and is logged in to it if the image "+
-					"is private (`docker pull %s` on the host gives the daemon's own answer), and that the pool's image and tag exist. "+
-					"This clears on the next start or prewarm of %s that succeeds on this host.", label, inc.Registry, inc.Image, inc.Pool),
+					"is private (%s), and that the pool's image and tag exist. "+
+					"This clears on the next start or prewarm of %s that succeeds on this host.", label, registry, answer, pool),
 				TargetKind: "host", TargetID: h.ID, Since: &since,
 			})
 		}

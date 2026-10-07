@@ -46,19 +46,25 @@ func ValidateHostName(name string) error {
 	return nil
 }
 
-// ForSentence is a host's name made safe to put inside a sentence the UI will
+// ForSentence is text an agent chose -- a host's name, an error it reports, the
+// architecture it says it has -- made safe to put inside a sentence the UI will
 // render: a backtick becomes an apostrophe and a control character a space.
 //
 // ValidateHostName keeps new names from arriving with either, but it cannot
 // reach one that is already stored -- joins were not checked before it existed,
 // and a host that is working must go on working rather than be refused at its
-// next join -- so every sentence that names a host goes through this on the way
-// out. A name the rule accepts comes back unchanged, which is what keeps a host
-// called one thing on its page and in every sentence about it.
+// next join -- and an error or an architecture is not something to refuse at all:
+// the agent has already said it, and an operator needs to read what. So every
+// sentence that carries such text goes through this on the way out. A name the
+// rule accepts comes back unchanged, which is what keeps a host called one thing
+// on its page and in every sentence about it.
 //
-// The name stays readable rather than being replaced by a placeholder: the
-// sentence is there to say which machine it is about, and the apostrophes are
-// enough to show an operator that the name is odd.
+// The text stays readable rather than being replaced by a placeholder: the
+// sentence is there to say which machine it is about or what it said, and the
+// apostrophes are enough to show an operator that the text is odd. This is for
+// prose. A value that is put inside a command on purpose needs to be shaped like
+// what the command takes, which no amount of neutralising makes true; see
+// IsImageReference.
 func ForSentence(name string) string {
 	return strings.Map(func(r rune) rune {
 		switch {
