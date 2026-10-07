@@ -2147,3 +2147,156 @@ test.describe('the cards on the Overview', () => {
     await auditThePage(page, 'the list from a card');
   });
 });
+
+/* -- the AI Context row ---------------------------------------------------------- */
+
+// The row says something only when an AI Context run has failed: that is the one
+// state of it somebody has to act on, and it is already on every page as a
+// problem. A healthy fleet has no badge, so there is nothing on the row to learn
+// to ignore.
+test.describe('the AI Context row in the side menu', () => {
+  const rail = (page: Page) => page.getByRole('navigation', { name: 'Kennel Club' });
+  const row = (page: Page) => rail(page).getByRole('link', { name: 'AI Context', exact: true });
+  const badge = (page: Page) => row(page).locator('.badge');
+
+  const problem = (target: string, severity: 'error' | 'warning', kind = 'ai_context') => ({
+    code: kind === 'ai_context' ? 'ai_context.run_failed' : 'kennel.exposure',
+    severity,
+    audience: 'fleet',
+    title: `A problem for ${target}`,
+    detail: 'It did not work.',
+    fix: 'Make it work.',
+    target_kind: kind,
+    target_id: target,
+  });
+
+  /** What the controller says is wrong, with the stream cut so nothing else can say otherwise. */
+  async function sayProblemsAre(page: Page, items: ReturnType<typeof problem>[]): Promise<void> {
+    await page.route('**/api/v1/events*', (route) => route.abort('connectionfailed'));
+    await page.route('**/api/v1/problems', async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as { items?: unknown[] };
+      return route.fulfill({ response, json: { ...body, items } });
+    });
+  }
+
+  test('a fleet with no failed run has no badge', async ({ page }) => {
+    await goto(page, '/kennel/ai-context', 'AI Context');
+    await expect(row(page)).toBeVisible();
+    await expect(badge(page)).toHaveCount(0);
+    await expect(row(page)).not.toHaveAttribute('aria-describedby', /./);
+  });
+
+  for (const [says, items, count, tone, text] of [
+    ['one run failed', [problem('a', 'error')], '1', 'danger', '1 repository needs attention'],
+    [
+      'a run failed and another only warned',
+      [problem('a', 'warning'), problem('b', 'error')],
+      '2',
+      'danger',
+      '2 repositories need attention',
+    ],
+    [
+      'runs only warned',
+      [problem('a', 'warning'), problem('b', 'warning'), problem('c', 'warning')],
+      '3',
+      'pending',
+      '3 repositories need attention',
+    ],
+  ] as const) {
+    test(`the row says how bad and how many when ${says}`, async ({ page }) => {
+      // Neither a pool's problem nor Kennel Club's is a failed AI Context run.
+      await sayProblemsAre(page, [
+        ...items,
+        problem('pool_1', 'error', 'pool'),
+        problem('acme/site', 'error', 'kennel'),
+      ]);
+      await goto(page, '/kennel/ai-context', 'AI Context');
+      await expect(badge(page)).toHaveText(count);
+      await expect(badge(page)).toHaveAttribute('data-tone', tone);
+      // The link is still named for the page, and what is wrong is its description.
+      await expect(row(page)).toHaveAccessibleDescription(text);
+      await expect(badge(page).locator('..')).toHaveAttribute('aria-hidden', 'true');
+    });
+  }
+
+  test('it is on every page of the section, since the rail is', async ({ page }) => {
+    await sayProblemsAre(page, [problem('a', 'error')]);
+    for (const [path, heading] of [
+      ['/kennel', 'Kennel Club'],
+      ['/kennel/repositories', 'Repositories'],
+      ['/kennel/ai-context', 'AI Context'],
+    ] as const) {
+      await goto(page, path, heading);
+      await expect(badge(page), path).toHaveText('1');
+    }
+    // The other two rows have nothing to say.
+    await expect(
+      rail(page).getByRole('link', { name: 'Overview', exact: true }).locator('.badge'),
+    ).toHaveCount(0);
+    await expect(
+      rail(page).getByRole('link', { name: 'Repositories', exact: true }).locator('.badge'),
+    ).toHaveCount(0);
+  });
+
+  // The frames are delivered by hand to the open stream, as for a resync above.
+  test('it comes and goes as runs fail and pass, without a reload', async ({ page }) => {
+    await page.addInitScript(() => {
+      const Real = window.EventSource;
+      const streams: EventSource[] = [];
+      (window as unknown as { __streams: EventSource[] }).__streams = streams;
+      window.EventSource = class extends Real {
+        constructor(url: string | URL, init?: EventSourceInit) {
+          super(url, init);
+          streams.push(this);
+        }
+      };
+    });
+    await goto(page, '/kennel/ai-context', 'AI Context');
+    await expect(page.locator('.connection')).toHaveAttribute('data-state', 'live');
+    await expect(badge(page)).toHaveCount(0);
+    await plantMarker(page);
+
+    const send = (items: unknown[]) =>
+      page.evaluate(
+        (payload) => {
+          for (const stream of (window as unknown as { __streams: EventSource[] }).__streams)
+            stream.dispatchEvent(new MessageEvent('problems.updated', { data: payload }));
+        },
+        JSON.stringify({ ok: true, items }),
+      );
+    await send([problem('a', 'error')]);
+    await expect(badge(page)).toHaveText('1');
+    await send([problem('a', 'error'), problem('b', 'warning')]);
+    await expect(badge(page)).toHaveText('2');
+    await send([]);
+    await expect(badge(page)).toHaveCount(0);
+    await expectNoReload(page);
+  });
+
+  test('on a phone the row, its badge and the others are all in view at a size a finger can use', async ({
+    page,
+    isMobile,
+  }) => {
+    test.skip(!isMobile, 'the phone project checks the narrow widths');
+    await sayProblemsAre(page, [problem('a', 'error'), problem('b', 'error')]);
+    for (const width of [320, 360, 412]) {
+      await page.setViewportSize({ width, height: 780 });
+      await goto(page, '/kennel/ai-context', 'AI Context');
+      await expect(badge(page), `the badge at ${width}px`).toBeInViewport({ ratio: 1 });
+      for (const name of ['Overview', 'Repositories', 'AI Context']) {
+        const link = rail(page).getByRole('link', { name, exact: true });
+        await expect(link, `${name} at ${width}px`).toBeInViewport({ ratio: 1 });
+        expect(
+          (await link.boundingBox())!.height,
+          `${name} at ${width}px is a finger-sized target`,
+        ).toBeGreaterThanOrEqual(44);
+      }
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+        `the page does not scroll sideways at ${width}px`,
+      ).toBe(true);
+    }
+    await auditThePage(page, 'AI Context with a failed run');
+  });
+});
