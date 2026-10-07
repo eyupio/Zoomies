@@ -162,6 +162,14 @@ type KennelFilter struct {
 	// ("error", "warning" or "info"). The caller validates it; a value the store
 	// does not know keeps nothing, so a mistake cannot read as "everything".
 	Severity string
+	// Served, when set, keeps the repositories the fleet has had a hand in a job
+	// for since ServedSince (true) or the ones it has not (false). It asks the
+	// jobs table the question KennelServedRepos does, so "active" means here what
+	// it means to the loop that decides which repositories to look at, and not what
+	// a row's last_served_at says: that is when a pass last saw the repository in
+	// that list, and under the installation scope every pass sees every one.
+	Served      *bool
+	ServedSince time.Time
 }
 
 var kennelSortCols = map[string]string{
@@ -186,6 +194,18 @@ func kennelWhere(f KennelFilter) (string, []any) {
 	if f.InstallationID != "" {
 		cond = append(cond, `installation_id = ?`)
 		args = append(args, f.InstallationID)
+	}
+	if f.Served != nil {
+		// By name, folded: a job records the repository as GitHub spelled it when
+		// the webhook arrived, and the row as the listing did, and the loop already
+		// matches the two without regard to case.
+		in := "IN"
+		if !*f.Served {
+			in = "NOT IN"
+		}
+		cond = append(cond, `LOWER(full_name) `+in+` (SELECT LOWER(repo) FROM jobs
+			WHERE queued_at >= ? AND repo <> '' AND installation_id <> '' AND `+managedJobSQL("jobs")+`)`)
+		args = append(args, ms(f.ServedSince))
 	}
 	if f.Code != "" {
 		cond = append(cond, `EXISTS (SELECT 1 FROM json_each(evaluation_json, '$.findings')
