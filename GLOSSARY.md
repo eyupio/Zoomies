@@ -74,6 +74,10 @@ _Avoid_: Issue, risk, "to fix", warning (as a noun for a live fault)
 A result in the Kennel Club report about one repository. A report about a repository, not a live fault.
 _Avoid_: Problem (for a Kennel Club result), warning
 
+**Fixable, Advice, Optional**:
+The three words a flagged row in a host's check tables carries beside its Warning or Suggestion badge: Fixable when the report offers the row to `zoomies tune`, Advice when it does not, Optional for a trade-off. Words about one row, never a state of the host. Warning stays reserved for the badge on a counted check.
+_Avoid_: Warning (for what a person can do about a row), Safe (for Fixable, which is also a tier name)
+
 ### Kennel Club
 
 **Kennel Club**:

@@ -23,6 +23,7 @@
     reportOnlySubtitle,
     reportOrigin,
   } from '$lib/hosts/report-only';
+  import { KIND_WORDS, previewCommand, rowKind } from '$lib/hosts/row-kind';
   import { pluralise } from '$lib/format';
   import type { StatusTone } from '$lib/status';
   import { tick, untrack } from 'svelte';
@@ -142,6 +143,23 @@
     if (check.status === 'ok') return { label: 'OK', tone: 'idle' };
     return { label: 'Skipped', tone: 'neutral' };
   }
+  // Only said where a button can appear, so a viewer or a report-only host is
+  // not told about one it will never see.
+  const PREVIEW_SENTENCE =
+    'A Fixable row has a button that copies a read-only preview to run on the host. It shows the exact change and makes none. Zoomies never runs it.';
+  const DEDICATED_SENTENCE = 'Only for a host that runs nothing but Zoomies.';
+  function tierDescription(tier: (typeof tiers)[number]): string {
+    const base =
+      tier === 'safe' && readOnly
+        ? REPORT_ONLY_SAFE_DESCRIPTION
+        : tier === 'dedicated'
+          ? 'Only for hosts running nothing but Zoomies. These changes are never included in safe or aggressive defaults, and do not count towards this host’s health.'
+          : tier === 'aggressive'
+            ? 'Optional tuning, and not counted towards this host’s health. Applying a change needs --tier aggressive and consent in the CLI.'
+            : 'Read-only findings. Applying a change requires consent in the CLI.';
+    if (!canOperate || readOnly) return base;
+    return `${base} ${PREVIEW_SENTENCE}${tier === 'dedicated' ? ` ${DEDICATED_SENTENCE}` : ''}`;
+  }
   async function refresh(): Promise<void> {
     try {
       fetched = await getHost(id);
@@ -259,13 +277,7 @@
             : tier === 'aggressive'
               ? 'Aggressive checks'
               : 'Dedicated host checks'}
-          description={tier === 'safe' && readOnly
-            ? REPORT_ONLY_SAFE_DESCRIPTION
-            : tier === 'dedicated'
-              ? 'Only for hosts running nothing but Zoomies. These changes are never included in safe or aggressive defaults, and do not count towards this host’s health.'
-              : tier === 'aggressive'
-                ? 'Optional tuning, and not counted towards this host’s health. Applying a change needs --tier aggressive and consent in the CLI.'
-                : 'Read-only findings. Applying a change requires consent in the CLI.'}
+          description={tierDescription(tier)}
           flush
         >
           {#if findings.length}{@render checkTable(`${tier} host checks`, findings)}{/if}
@@ -332,6 +344,19 @@
   {/if}
 {/snippet}
 
+{#snippet statusCell(check: DoctorResult)}
+  {@const badge = statusBadge(check)}
+  {@const kind = rowKind(check, readOnly !== null)}
+  {@const command = kind === 'fixable' && canOperate ? previewCommand(check) : null}
+  <span class="status">
+    <Badge label={badge.label} tone={badge.tone} />
+    {#if kind}<span class="kind">{KIND_WORDS[kind]}</span>{/if}
+    {#if command}
+      <CopyButton value={command} size="md" label={`Copy preview command for ${check.id}`} />
+    {/if}
+  </span>
+{/snippet}
+
 {#snippet checkTable(label: string, rows: DoctorResult[])}
   <!-- Keyboard focus enables horizontal scrolling on narrow screens. -->
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
@@ -355,11 +380,10 @@
       <!-- svelte-ignore a11y_no_redundant_roles -->
       <tbody role="rowgroup">
         {#each rows as check (check.id)}
-          {@const badge = statusBadge(check)}
           <!-- svelte-ignore a11y_no_redundant_roles -->
           <tr role="row" id={check.id} tabindex="-1">
             <th role="rowheader" scope="row">{check.title}<small>{check.id}</small></th>
-            <td role="cell" data-label="Status"><Badge label={badge.label} tone={badge.tone} /></td>
+            <td role="cell" data-label="Status">{@render statusCell(check)}</td>
             <td role="cell" data-label="Current">{check.current || '—'}</td>
             <td role="cell" data-label="Recommended">{check.recommended || '—'}</td>
             <td role="cell" data-label="Why / details"
@@ -497,6 +521,16 @@
   }
   th {
     font-weight: var(--z-weight-medium);
+  }
+  .status {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--z-space-2);
+  }
+  .kind {
+    color: var(--z-text-muted);
+    font-size: var(--z-text-xs);
   }
   small {
     display: block;
