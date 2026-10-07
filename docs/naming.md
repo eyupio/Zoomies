@@ -275,6 +275,22 @@ image and restricts placement.
 actually use, which is the cgroup's share when the agent runs in a container --
 so the controller in a two-core container does not claim the host's sixty-four.
 
+A host's name is otherwise free text — `Build Box 1` and
+`ip-10-0-31-44.eu-west-1.compute.internal` are both fine — with three limits: at
+most 128 characters, no control characters or line breaks, and no backtick. The
+last one is there because Zoomies quotes commands in backticks and the UI draws
+each pair as a command with a copy button, so a name carrying one would put text
+of the agent's choosing in front of every administrator as something to copy and
+run. The controller refuses a join under such a name before it redeems the join
+token, so the same token works once the name is fixed, and `zoomies agent join`
+says so before it contacts the controller at all. Renaming a host, in the UI, with
+`zoomies hosts edit --name` or over MCP, is held to the same rule.
+
+A host enrolled before the rule existed keeps working. It may join again under
+the name it already has, a sentence that names it shows a backtick as an
+apostrophe and a control character as a space, and renaming it to a name the rule
+accepts puts it right everywhere.
+
 **Runners.** The pool's shape, a kennel word and a token, as
 [above](#runner-names). The `zoomies-` prefix is also how the uninstaller and
 the agent's orphan sweep know which registrations and containers are Zoomies' to

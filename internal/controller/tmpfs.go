@@ -11,6 +11,7 @@ import (
 	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/backend"
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -365,7 +366,7 @@ func (c *Controller) tmpfsAdviceProblems(ctx context.Context, out *[]Problem) er
 			if avail == nil || *avail-h.MemoryReserve() < need {
 				continue
 			}
-			names = append(names, h.Name)
+			names = append(names, naming.ForSentence(h.Name))
 			if at := h.Usage.IOWaitHighSince; at != nil && (earliest == nil || at.Before(*earliest)) {
 				earliest = at
 			}

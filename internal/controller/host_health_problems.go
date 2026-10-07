@@ -8,6 +8,7 @@ import (
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/hosttune"
+	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -86,6 +87,9 @@ func (c *Controller) hostHealthProblems(ctx context.Context, out *[]Problem) err
 // every open tab each time. There is no Since for the same reason: nothing
 // records when a finding first appeared, and CheckedAt moves on every report.
 func osHealthProblem(h *store.Host, r *hosttune.Report) (Problem, bool) {
+	// A host name is the agent's to choose, so it goes into prose, never into a
+	// code span the UI would offer to copy.
+	label := naming.ForSentence(h.Name)
 	findings := r.Findings()
 	if len(findings) == 0 {
 		return Problem{}, false
@@ -95,14 +99,14 @@ func osHealthProblem(h *store.Host, r *hosttune.Report) (Problem, bool) {
 		severity = config.SeverityError
 	}
 
-	title := fmt.Sprintf("host %s has an OS health check that needs attention", h.Name)
+	title := fmt.Sprintf("host %s has an OS health check that needs attention", label)
 	if len(findings) > 1 {
-		title = fmt.Sprintf("host %s has %s that need attention", h.Name, plural(len(findings), "OS health check"))
+		title = fmt.Sprintf("host %s has %s that need attention", label, plural(len(findings), "OS health check"))
 	}
 	detail := fmt.Sprintf("%s's latest OS report flags %s. "+
 		"Only the safe checks count here -- the ones zoomies doctor counts by default -- "+
 		"so settings in the aggressive and dedicated tiers, and anything optional, are suggestions "+
-		"that show on the host's page and never raise a problem.", h.Name, nameFindings(findings))
+		"that show on the host's page and never raise a problem.", label, nameFindings(findings))
 	if severity == config.SeverityError {
 		detail += " A check that could not run failed to read what it looks at, or found a file that is not valid, " +
 			"such as /etc/docker/daemon.json; that is different from a setting below the recommendation."
@@ -116,7 +120,7 @@ func osHealthProblem(h *store.Host, r *hosttune.Report) (Problem, bool) {
 			"and what would be better, then `sudo zoomies doctor --interactive` to be offered each fix it can make, "+
 			"with the changes shown first. From another machine, the host's page has the command to read the report, with the "+
 			"controller's address and a short-lived token already in it. Zoomies never changes a host's operating system "+
-			"without that consent.", h.Name),
+			"without that consent.", label),
 		TargetKind: "host", TargetID: h.ID,
 	}, true
 }
@@ -133,6 +137,7 @@ func osHealthProblem(h *store.Host, r *hosttune.Report) (Problem, bool) {
 // does not fix an OS setting, and dropping them would turn "I can no longer see"
 // into "all clear".
 func healthStaleProblem(h *store.Host, r *hosttune.Report, now time.Time) (Problem, bool) {
+	label := naming.ForSentence(h.Name)
 	if now.Sub(r.CheckedAt) <= hosttune.ReportStaleAfter {
 		return Problem{}, false
 	}
@@ -146,14 +151,14 @@ func healthStaleProblem(h *store.Host, r *hosttune.Report, now time.Time) (Probl
 		Code:     "host.health_stale",
 		Severity: config.SeverityWarning,
 		Title: fmt.Sprintf("host %s has sent no OS health report for over %d minutes",
-			h.Name, int(hosttune.ReportStaleAfter.Minutes())),
+			label, int(hosttune.ReportStaleAfter.Minutes())),
 		Detail: fmt.Sprintf("the newest OS health report from %s is dated %s by the host's own clock, "+
 			"but the host is still sending heartbeats, so its health collector has stopped producing reports "+
 			"and what Zoomies shows of its operating system may no longer be true. "+
 			"The age is judged against the controller's clock, so a host whose clock is wrong reads old.",
-			h.Name, r.CheckedAt.UTC().Format(time.RFC3339)),
+			label, r.CheckedAt.UTC().Format(time.RFC3339)),
 		Fix: fmt.Sprintf("on %s, restart the agent (`sudo systemctl restart zoomies-agent`) and check that its clock "+
-			"is right (`timedatectl`). It clears with the next report.", h.Name),
+			"is right (`timedatectl`). It clears with the next report.", label),
 		TargetKind: "host", TargetID: h.ID, Since: &since,
 	}, true
 }
@@ -168,6 +173,7 @@ func healthStaleProblem(h *store.Host, r *hosttune.Report, now time.Time) (Probl
 // again, every time the host swung from busy to idle. Title and detail are the
 // same either way; only the fix says whether the host can be rebooted now.
 func rebootPendingProblem(h *store.Host, r *hosttune.Report) (Problem, bool) {
+	label := naming.ForSentence(h.Name)
 	if !r.RebootPending {
 		return Problem{}, false
 	}
@@ -179,20 +185,20 @@ func rebootPendingProblem(h *store.Host, r *hosttune.Report) (Problem, bool) {
 	// many, because a count would change with every runner that came and went.
 	fix := fmt.Sprintf("nothing is running on %s, so it can be rebooted now. "+
 		"If it is not cordoned, `zoomies hosts cordon %s` first keeps a job from landing on it meanwhile, "+
-		"and `zoomies hosts uncordon %s` lets it take work again afterwards.", h.Name, h.ID, h.ID)
+		"and `zoomies hosts uncordon %s` lets it take work again afterwards.", label, h.ID, h.ID)
 	if h.ActiveRunners > 0 {
 		fix = fmt.Sprintf("runners are still running on %s. "+
 			"If it is not cordoned, `zoomies hosts cordon %s` stops new ones arriving; "+
 			"reboot it once they have finished, then `zoomies hosts uncordon %s`. "+
-			"Zoomies never reboots a host itself.", h.Name, h.ID, h.ID)
+			"Zoomies never reboots a host itself.", label, h.ID, h.ID)
 	}
 	return Problem{
 		Code:     "host.reboot_pending",
 		Severity: config.SeverityInfo,
-		Title:    fmt.Sprintf("host %s is waiting for a reboot", h.Name),
+		Title:    fmt.Sprintf("host %s is waiting for a reboot", label),
 		Detail: fmt.Sprintf("an update installed on %s takes effect only after it restarts, usually a newer kernel "+
 			"than the one running. It keeps working until then, so this is a note and not a fault. "+
-			"Zoomies never reboots a host itself.", h.Name),
+			"Zoomies never reboots a host itself.", label),
 		Fix:        fix,
 		TargetKind: "host", TargetID: h.ID,
 	}, true

@@ -14,12 +14,14 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/backend"
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/version"
 )
@@ -125,6 +127,17 @@ func Join(ctx context.Context, opts JoinOptions) error {
 	if opts.JoinToken == "" {
 		return errors.New("installer: no join token; mint one in the UI under Hosts -> Add a host, or with " +
 			"`zoomies hosts join-token create --ttl 15m`, and pass it as --token")
+	}
+
+	// A name the controller would refuse is refused here instead. It would be
+	// refused there too, and before the token is redeemed, but the answer is a
+	// 422 that the transport reads as a rejected join token, so the operator
+	// would be told to mint another for a token that was never the trouble.
+	if opts.Name != "" {
+		if err := naming.ValidateHostName(strings.TrimSpace(opts.Name)); err != nil {
+			return fmt.Errorf("installer: the name given with --name cannot be used: %v. Pass another with --name; "+
+				"nothing has been redeemed", err)
+		}
 	}
 
 	// Decided before anything is written or redeemed. The join token is single
