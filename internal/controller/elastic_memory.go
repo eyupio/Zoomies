@@ -11,6 +11,7 @@ import (
 	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/backend"
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -434,7 +435,7 @@ func (c *Controller) memoryValveProblems(ctx context.Context, out *[]Problem) er
 			*out = append(*out, Problem{
 				Code:     "host.memory_pool_exhausted",
 				Severity: config.SeverityWarning,
-				Title:    fmt.Sprintf("host %s ran out of memory to lend its runners", h.Name),
+				Title:    fmt.Sprintf("host %s ran out of memory to lend its runners", naming.ForSentence(h.Name)),
 				Detail: fmt.Sprintf("a runner here needed more memory than it was created with, and the host %s: %s of %s was lent out and %s held back. "+
 					"The runner was not given it, so a job that needed it was left to the limit it had.",
 					why, humanMB(s.Pool.LentMB), humanMB(h.MemoryMB), humanMB(s.FloorMB)),
@@ -447,7 +448,7 @@ func (c *Controller) memoryValveProblems(ctx context.Context, out *[]Problem) er
 		}
 		for poolID, at := range s.CeilingAt {
 			if now.Sub(at) < memoryBlockedFor {
-				reached[poolID] = append(reached[poolID], h.Name)
+				reached[poolID] = append(reached[poolID], naming.ForSentence(h.Name))
 			}
 		}
 	}

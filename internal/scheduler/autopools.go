@@ -586,13 +586,17 @@ func hostPhrase(hosts []*store.Host) string {
 	case 0:
 		return "no host"
 	case 1:
-		return "host " + hosts[0].Name
+		return "host " + naming.ForSentence(hosts[0].Name)
 	}
 	return plural(len(hosts), "host")
 }
 
 func joinedWithHosts(hosts []*store.Host, slots int) string {
-	return fmt.Sprintf("%s (%s)", strings.Join(hostNames(hosts), ", "), plural(slots, "slot"))
+	names := hostNames(hosts)
+	for i, n := range names {
+		names[i] = naming.ForSentence(n)
+	}
+	return fmt.Sprintf("%s (%s)", strings.Join(names, ", "), plural(slots, "slot"))
 }
 
 // resizeCause says what moved a pool's maximum, from who joined and who left
@@ -609,7 +613,7 @@ func resizeCause(before, after *store.Pool, previous []string, members, all []*s
 	var parts []string
 	for _, n := range now {
 		if !slices.Contains(previous, n) {
-			parts = append(parts, "host "+n+" joined")
+			parts = append(parts, "host "+naming.ForSentence(n)+" joined")
 		}
 	}
 	parts = append(parts, leftParts(previous, now, all, reasons)...)
@@ -639,9 +643,9 @@ func leftParts(previous, now []string, all []*store.Host, reasons map[string]str
 			continue
 		}
 		if h := byName[n]; h != nil {
-			parts = append(parts, "host "+n+" "+skipPhrase(reasons[h.ID]))
+			parts = append(parts, "host "+naming.ForSentence(n)+" "+skipPhrase(reasons[h.ID]))
 		} else {
-			parts = append(parts, "host "+n+" was removed")
+			parts = append(parts, "host "+naming.ForSentence(n)+" was removed")
 		}
 	}
 	return parts
@@ -673,19 +677,20 @@ func skipPhrase(reason string) string {
 func skippedFindings(skipped []HostSkip) []AutoPoolFinding {
 	var out []AutoPoolFinding
 	for _, s := range skipped {
+		label := naming.ForSentence(s.Host.Name)
 		var fix string
 		switch s.Reason {
 		case SkipBadSize:
-			fix = fmt.Sprintf("set the size tag on host %s to small, medium or large exactly as written here, or remove it to let the controller work it out.", s.Host.Name)
+			fix = fmt.Sprintf("set the size tag on host %s to small, medium or large exactly as written here, or remove it to let the controller work it out.", label)
 		case SkipArch:
-			fix = fmt.Sprintf("host %s reports %q; automatic pools are kept for amd64 and arm64 hosts only.", s.Host.Name, s.Host.Arch)
+			fix = fmt.Sprintf("host %s reports %q; automatic pools are kept for amd64 and arm64 hosts only.", label, s.Host.Arch)
 		case SkipBackend:
-			fix = fmt.Sprintf("host %s offers no backend the pool for its class uses; enable Docker or Podman on it.", s.Host.Name)
+			fix = fmt.Sprintf("host %s offers no backend the pool for its class uses; enable Docker or Podman on it.", label)
 		default:
 			continue
 		}
 		out = append(out, AutoPoolFinding{Code: FindingHostSkipped, Subject: s.Host.Name,
-			Message: fmt.Sprintf("host %s is in no automatic pool: it %s", s.Host.Name, skipPhrase(s.Reason)), Fix: fix})
+			Message: fmt.Sprintf("host %s is in no automatic pool: it %s", label, skipPhrase(s.Reason)), Fix: fix})
 	}
 	return out
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/provider"
 	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
@@ -336,7 +337,7 @@ func sharedFolderProblem(h *store.Host, info store.HostBackend, pools []*store.P
 		Severity: config.SeverityWarning,
 		// The backend is in the title because a host can have one of these
 		// per backend, and the UI keys a row by code, target and title.
-		Title:      h.Name + " keeps no tool cache for its " + string(info.Kind) + " runners",
+		Title:      naming.ForSentence(h.Name) + " keeps no tool cache for its " + string(info.Kind) + " runners",
 		Detail:     fmt.Sprintf("%s. %s start their runners there without the kept tool cache, so every job downloads its toolchains again.", info.SharedFolder, strings.Join(affected, ", ")),
 		Fix:        "mount the folder as the detail says and restart the container; the next heartbeat clears this.",
 		TargetKind: "host",
@@ -772,6 +773,9 @@ func (c *Controller) hostProblems(ctx context.Context, out *[]Problem) error {
 	now := c.Now()
 
 	for _, h := range hosts {
+		// The name is the agent's to choose, and the fix below goes through
+		// RemedyText, which turns a backtick pair into a command to copy.
+		label := naming.ForSentence(h.Name)
 		// Raised before health and cordon are considered, and without a
 		// `continue`: two agents on one host is true whatever else that host
 		// is, and it is very often the explanation for the other two.
@@ -780,7 +784,7 @@ func (c *Controller) hostProblems(ctx context.Context, out *[]Problem) error {
 			*out = append(*out, Problem{
 				Code:     "host.duplicate_agent",
 				Severity: config.SeverityWarning,
-				Title:    fmt.Sprintf("two agents appear to be running as host %s", h.Name),
+				Title:    fmt.Sprintf("two agents appear to be running as host %s", label),
 				Detail: fmt.Sprintf("this host's credentials have been used by two agent sessions in turn %s. "+
 					"An agent takes a new session each time it starts and never goes back to an old one, so "+
 					"alternation means a second agent holds a copy of this host's token -- usually a cloned VM, "+
@@ -788,7 +792,7 @@ func (c *Controller) hostProblems(ctx context.Context, out *[]Problem) error {
 					"them, so each sees only half of its own work.", plural(h.AgentSessionAlternations, "time")),
 				Fix: fmt.Sprintf("find the second machine reporting as %s and stop its agent, then re-join it with "+
 					"its own join token so it becomes a host of its own (zoomies agent join). Zoomies does not "+
-					"refuse either session, because both are running real jobs and picking one would end the other's.", h.Name),
+					"refuse either session, because both are running real jobs and picking one would end the other's.", label),
 				TargetKind: "host", TargetID: h.ID, Since: &since,
 			})
 		}
@@ -810,9 +814,9 @@ func (c *Controller) hostProblems(ctx context.Context, out *[]Problem) error {
 			*out = append(*out, Problem{
 				Code:       "host.unhealthy",
 				Severity:   severity,
-				Title:      fmt.Sprintf("host %s has stopped sending heartbeats", h.Name),
+				Title:      fmt.Sprintf("host %s has stopped sending heartbeats", label),
 				Detail:     detail,
-				Fix:        fmt.Sprintf("check that the zoomies agent is running on %s and can reach %s.", h.Name, c.controllerAddress()),
+				Fix:        fmt.Sprintf("check that the zoomies agent is running on %s and can reach %s.", label, c.controllerAddress()),
 				TargetKind: "host", TargetID: h.ID, Since: &since,
 			})
 			continue
@@ -836,9 +840,9 @@ func (c *Controller) hostProblems(ctx context.Context, out *[]Problem) error {
 			*out = append(*out, Problem{
 				Code:       "host.cordoned_with_work",
 				Severity:   config.SeverityWarning,
-				Title:      fmt.Sprintf("host %s is cordoned with %s queued that it could run", h.Name, plural(couldRun, "job")),
+				Title:      fmt.Sprintf("host %s is cordoned with %s queued that it could run", label, plural(couldRun, "job")),
 				Detail:     "a cordoned host keeps its runners but accepts no new ones, so its capacity is not available to the queue.",
-				Fix:        fmt.Sprintf("uncordon %s on the Hosts page if the maintenance it was cordoned for is over.", h.Name),
+				Fix:        fmt.Sprintf("uncordon %s on the Hosts page if the maintenance it was cordoned for is over.", label),
 				TargetKind: "host", TargetID: h.ID,
 			})
 		}
@@ -874,11 +878,11 @@ func (c *Controller) hostSkewProblems(ctx context.Context, out *[]Problem) error
 		}
 		switch version.CompareBuilds(h.Version, version.Version) {
 		case version.SkewBehind:
-			behind = append(behind, h.Name)
+			behind = append(behind, naming.ForSentence(h.Name))
 		case version.SkewAhead:
-			ahead = append(ahead, h.Name)
+			ahead = append(ahead, naming.ForSentence(h.Name))
 		case version.SkewDiffers:
-			differs = append(differs, h.Name)
+			differs = append(differs, naming.ForSentence(h.Name))
 		}
 	}
 	if len(behind)+len(ahead)+len(differs) == 0 {
@@ -966,9 +970,10 @@ func (c *Controller) hostResourceProblems(ctx context.Context, out *[]Problem) e
 		if h.Incompatible {
 			continue
 		}
+		label := naming.ForSentence(h.Name)
 		a := h.Allocatable()
 		if !a.CPUsKnown && !a.MemoryKnown && !a.DiskKnown {
-			unknown = append(unknown, h.Name)
+			unknown = append(unknown, label)
 		}
 		// A cordoned host is one an operator is already dealing with, and
 		// nothing below places onto it until they are done.
@@ -976,7 +981,7 @@ func (c *Controller) hostResourceProblems(ctx context.Context, out *[]Problem) e
 			continue
 		}
 		if h.Throttle.Active() {
-			throttled = append(throttled, h.Name+": "+scheduler.ThrottleReason(h))
+			throttled = append(throttled, label+": "+scheduler.ThrottleReason(h))
 			throttledID = h.ID
 		}
 		if p, ok := overprovisionedProblem(h, pools, defaults); ok {
@@ -997,8 +1002,8 @@ func (c *Controller) hostResourceProblems(ctx context.Context, out *[]Problem) e
 				*out = append(*out, p)
 			}
 			if !info.Limits.Known {
-				if defaults && (a.CPUsKnown || a.MemoryKnown) && !slices.Contains(unverified, h.Name) {
-					unverified = append(unverified, h.Name)
+				if defaults && (a.CPUsKnown || a.MemoryKnown) && !slices.Contains(unverified, label) {
+					unverified = append(unverified, label)
 				}
 				continue
 			}
@@ -1624,7 +1629,7 @@ func overprovisionedProblem(h *store.Host, pools []*store.Pool, defaults bool) (
 		allocatable = append(allocatable, fmt.Sprintf("%d MB of allocatable memory", a.MemoryMB))
 	}
 	detail := fmt.Sprintf("%s has capacity %d on %s (%s, less the reserve)",
-		h.Name, slots, strings.Join(allocatable, " and "), strings.Join(machine, " and "))
+		naming.ForSentence(h.Name), slots, strings.Join(allocatable, " and "), strings.Join(machine, " and "))
 	// The share is named only where it is given. A host offering only the
 	// process backend, or a daemon that cannot apply the limit, or an agent
 	// that has not said, gives its runners no default at all, and a sentence
@@ -1837,7 +1842,7 @@ func unenforceableProblem(h *store.Host, info store.HostBackend) (Problem, bool)
 		// problems with one target.
 		Title: "a host's " + string(info.Kind) + " daemon cannot apply the limits its runners are given",
 		Detail: fmt.Sprintf("the %s on %s reports that it cannot apply %s. Its runners are given no default on that field, and a pool that sets one explicitly is the pool that fails or runs unlimited there.",
-			daemon, h.Name, strings.Join(cannot, " or ")),
+			daemon, naming.ForSentence(h.Name), strings.Join(cannot, " or ")),
 		Fix:        fix,
 		TargetKind: "host",
 		TargetID:   h.ID,
@@ -2517,7 +2522,7 @@ func (c *Controller) notProgressingProblems(ctx context.Context, out *[]Problem)
 	}
 	if len(hosts) == 1 && oldest.HostID != "" {
 		if h, err := c.st.GetHost(ctx, oldest.HostID); err == nil {
-			detail += fmt.Sprintf(" All of them are on host %s.", h.Name)
+			detail += fmt.Sprintf(" All of them are on host %s.", naming.ForSentence(h.Name))
 		}
 	}
 

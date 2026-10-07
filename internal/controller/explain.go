@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -198,7 +199,7 @@ func (c *Controller) explainRunning(ctx context.Context, job *store.Job, out *Jo
 	out.Blocked = true
 	out.Summary = "This job is on a runner whose host has gone quiet."
 	out.Detail = fmt.Sprintf("%s last checked in %s ago, and a host silent for %s is presumed gone -- the job will be marked as lost by the fleet.",
-		host.Name, formatAge(c.Now().Sub(host.LastHeartbeat)), store.HeartbeatTimeout)
+		naming.ForSentence(host.Name), formatAge(c.Now().Sub(host.LastHeartbeat)), store.HeartbeatTimeout)
 	out.Fix = "check that the zoomies agent is running on that host and can reach this controller."
 }
 

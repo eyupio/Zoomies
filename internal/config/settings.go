@@ -381,7 +381,7 @@ var registry = buildRegistry([]Setting{
 	},
 	{
 		Key: "agent.name", Label: "Host name", Env: "ZOOMIES_AGENT_NAME", Kind: KindString, Scope: ScopeInstance,
-		Summary:       "What this host is called in the fleet. Empty names it after the machine it is on.",
+		Summary:       "What this host is called in the fleet. Empty names it after the machine it is on. At most 128 characters, with no backtick or control character: the controller refuses a join that breaks that, before the join token is redeemed.",
 		RestartReason: "the host row is claimed under this name when the agent enrols",
 	},
 	{
