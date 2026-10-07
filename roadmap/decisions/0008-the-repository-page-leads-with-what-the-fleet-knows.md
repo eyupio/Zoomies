@@ -54,3 +54,27 @@ an index review.
 
 Untracked repositories (decision 0006) still have this tab, because none of it
 comes from GitHub.
+
+## As built
+
+The tabs are the repository page's own sections, `Overview` and `CI`, and each
+has an address: `/kennel/repositories/{id}` is the Overview and
+`/kennel/repositories/{id}/ci` is what Kennel Club concluded. A link about
+findings -- the Overview's list of repositories to open first, and a problem in
+the drawer -- opens `/ci`; an unknown section is replaced by the Overview.
+
+Four things in the routes were not what the first reading said:
+
+* `GET /jobs/stats` names a job with no recorded pool or host `unknown`, in words,
+  rather than leaving the group empty. The page shows that row as *Not recorded*
+  and links it to nothing, because `unknown` is not an ID.
+* A success rate is succeeded over succeeded plus failed. A cancelled or skipped job
+  has no verdict, and a repository whose jobs all had none shows a dash, where one
+  that has only failures shows 0%.
+* The waiting jobs are `GET /jobs?repo=&unmatched=true`, and the link beside them
+  opens the queue with the same two filters. The queue's `q` is a free-text search,
+  so it names the repository with `repo`.
+* The page reloads itself on its Refresh button, on `resync` and when the stream
+  comes back, and hands the Overview one number that moves when it does. The
+  Overview listens to nothing of its own: it did at first, and every Refresh asked
+  the jobs API twice.

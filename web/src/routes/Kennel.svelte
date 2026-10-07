@@ -313,7 +313,7 @@
             <ul class="rows">
               {#each overview.attention as row (row.id)}
                 <li>
-                  <a href="/kennel/repositories/{encodeURIComponent(row.id)}">
+                  <a href="/kennel/repositories/{encodeURIComponent(row.id)}/ci">
                     <span class="name">{row.name}</span>
                     <Badge
                       status={kennelStatus(
