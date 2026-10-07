@@ -203,9 +203,15 @@ func TestStartingTrackingMakesTheRepositoryDueAtOnceAndWakesTheLoop(t *testing.T
 	f.repo("acme/sandbox", "private")
 	f.ran("acme/sandbox", 1, f.pool)
 	f.pass()
-	f.stopTracking("acme/sandbox")
 	select { // a flag, not a queue: whatever woke it before is not what is under test
 	case <-f.c.kennel.wake:
+	default:
+	}
+	f.stopTracking("acme/sandbox")
+	// Stopping leaves nothing to read, so it has no reason to wake the loop.
+	select {
+	case <-f.c.kennel.wake:
+		t.Error("stopping tracking woke the loop, though there is nothing to read for it")
 	default:
 	}
 
