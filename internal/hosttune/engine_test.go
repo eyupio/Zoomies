@@ -330,3 +330,22 @@ func TestNoCheckTellsAnOperatorToDrainTheHost(t *testing.T) {
 		}
 	}
 }
+
+// An operator reads these words. A reason that ends in a developer's note, or a
+// title that is a tier name and a unit, tells them nothing about what to do.
+func TestDedicatedCheckTextIsWrittenForAnOperator(t *testing.T) {
+	e := rebootHost()
+	if got := unitGuard(context.Background(), e, "apt-daily.timer"); got == "" || strings.Contains(strings.ToLower(got), "todo") {
+		t.Errorf("the maintenance guard must give a reason an operator can act on, got %q", got)
+	}
+	for _, r := range e.Run(context.Background(), Dedicated).Results {
+		for field, text := range map[string]string{"title": r.Title, "reason": r.Reason, "rationale": r.Rationale} {
+			if strings.Contains(strings.ToLower(text), "todo") {
+				t.Errorf("%s %s carries a developer note: %q", r.ID, field, text)
+			}
+		}
+		if strings.HasPrefix(r.Title, "Dedicated host:") {
+			t.Errorf("%s is titled %q, which names the tier and not the change", r.ID, r.Title)
+		}
+	}
+}
