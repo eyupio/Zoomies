@@ -10,9 +10,11 @@
 import { expect, test, type Page } from '@playwright/test';
 import {
   browserOverride,
+  clearStoredPreferences,
   expectNoReload,
   FIXTURE,
   goto,
+  openHostCapacityMap,
   pageHeading,
   plantMarker,
   reload,
@@ -363,6 +365,101 @@ test('a host under sustained pressure is throttled, says why, and an operator ca
   }
 });
 
+/**
+ * Cordoning is the one thing an operator does to a host that the page must get
+ * right in both directions: a card that claims a host is cordoned when the
+ * controller refused would have somebody reboot a machine a job can still land
+ * on. The card menu and the host page's Next step panel share one action, so
+ * this is the test that pins what that action does -- the same words, the same
+ * optimism, and the same walk back on a refusal.
+ */
+test('a host is cordoned and uncordoned from its card menu, and a refusal puts it back', async ({
+  page,
+}) => {
+  await goto(page, '/hosts/new', 'Add a host');
+  await page.getByRole('button', { name: 'Get the command' }).click();
+  const token = await joinToken(page);
+  // Never a demo host: demo-arm-1 is cordoned in the seed, and every other spec
+  // on this shared server reads the demo fleet as it was seeded.
+  const name = `cordon-host-${Date.now()}`;
+  let hostId = '';
+  try {
+    const join = await page.request.post('/api/v1/agent/join', {
+      data: {
+        protocol_version: 1,
+        join_token: token,
+        name,
+        capacity: 1,
+        os: 'linux',
+        arch: 'amd64',
+        cpus: 4,
+        memory_mb: 8192,
+        version: 'dev',
+        backends: [{ kind: 'docker', available: true }],
+      },
+    });
+    expect(join.ok()).toBeTruthy();
+    const credentials = (await join.json()) as { host_id: string; agent_token: string };
+    hostId = credentials.host_id;
+    const beat = await page.request.post('/api/v1/agent/heartbeat', {
+      headers: { Authorization: `Bearer ${credentials.agent_token}` },
+      data: { protocol_version: 1 },
+    });
+    expect(beat.ok()).toBeTruthy();
+    const cordoned = async (): Promise<boolean | undefined> =>
+      (
+        (await page.request.get(`/api/v1/hosts/${hostId}`).then((r) => r.json())) as {
+          cordoned?: boolean;
+        }
+      ).cordoned;
+
+    await goto(page, '/hosts', 'Hosts');
+    const card = page.getByRole('article', { name, exact: true });
+    await expect(card).toBeVisible();
+    await expect(card).not.toContainText('Cordoned.');
+    await plantMarker(page);
+
+    await card.getByRole('button', { name: /Actions for/ }).click();
+    await page.getByRole('menuitem', { name: 'Cordon this host', exact: true }).click();
+    // Exact, because the card's own status pill reads "<name> Cordoned" in its
+    // accessible text and a substring match would find the card as well as the toast.
+    await expect(page.getByText(`${name} cordoned`, { exact: true })).toBeVisible();
+    await expect(card).toContainText('Cordoned.');
+    await expectNoReload(page);
+    expect(await cordoned()).toBe(true);
+
+    // A refusal is reported, and the card is what the controller says it is
+    // rather than what the click hoped for.
+    await page.route('**/api/v1/hosts/*/cordon', (route) =>
+      route.fulfill({
+        status: 409,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          error: { code: 'conflict', message: 'That host changed underneath you.' },
+        }),
+      }),
+    );
+    await card.getByRole('button', { name: /Actions for/ }).click();
+    await page.getByRole('menuitem', { name: 'Uncordon this host', exact: true }).click();
+    await expect(page.locator('.toast[data-tone="error"]')).toContainText(
+      `${name} was not uncordoned`,
+    );
+    await expect(card, 'the card rolled back').toContainText('Cordoned.');
+    expect(await cordoned(), 'and the controller never saw it').toBe(true);
+    await page.unroute('**/api/v1/hosts/*/cordon');
+
+    // Now for real: the same menu item, and the card follows.
+    await card.getByRole('button', { name: /Actions for/ }).click();
+    await page.getByRole('menuitem', { name: 'Uncordon this host', exact: true }).click();
+    await expect(page.getByText(`${name} uncordoned`, { exact: true })).toBeVisible();
+    await expect(card).not.toContainText('Cordoned.');
+    await expectNoReload(page);
+    expect(await cordoned()).toBe(false);
+  } finally {
+    if (hostId) await page.request.delete(`/api/v1/hosts/${hostId}?force=true`);
+  }
+});
+
 test('runner capacity is adjustable from the host card without opening the full editor', async ({
   page,
 }) => {
@@ -528,7 +625,7 @@ test('the host capacity map toggles hosts and measurements, and remembers the ch
   page,
 }) => {
   await goto(page, '/hosts', 'Hosts');
-  const map = page.getByRole('region', { name: 'Host capacity map', exact: true });
+  const map = await openHostCapacityMap(page);
   const chart = map.getByRole('img').first();
   // Two measurements on by default, across every host the fixture has: the
   // demo fleet and whatever the diagnostics fixture adds beside it.
@@ -926,7 +1023,7 @@ test('the host capacity map has windows down to the last minute, drawn ten secon
   page,
 }) => {
   await goto(page, '/hosts', 'Hosts');
-  const map = page.getByRole('region', { name: 'Host capacity map', exact: true });
+  const map = await openHostCapacityMap(page);
   const chart = map.getByRole('img').first();
   const windows = map.getByRole('group', { name: 'Window' });
   await expect(windows.getByRole('button')).toHaveText([
@@ -961,7 +1058,7 @@ test('the host capacity map has windows down to the last minute, drawn ten secon
  */
 test('the host capacity map can draw a chart per host, sharing one crosshair', async ({ page }) => {
   await goto(page, '/hosts', 'Hosts');
-  const map = page.getByRole('region', { name: 'Host capacity map', exact: true });
+  const map = await openHostCapacityMap(page);
   const n = await page.request
     .get('/api/v1/hosts')
     .then((r) => r.json() as Promise<{ items: { id: string }[] }>)
@@ -1021,7 +1118,7 @@ test('the host capacity map singles out a host or a measurement under the pointe
   page,
 }) => {
   await goto(page, '/hosts', 'Hosts');
-  const map = page.getByRole('region', { name: 'Host capacity map', exact: true });
+  const map = await openHostCapacityMap(page);
   const n = await page.request
     .get('/api/v1/hosts')
     .then((r) => r.json() as Promise<{ items: { id: string }[] }>)
@@ -1066,6 +1163,153 @@ test('the host capacity map singles out a host or a measurement under the pointe
   await expect(map.getByText(/hosts? past 85% at \d{1,2}:\d{2}/)).toBeVisible();
   await map.getByRole('button', { name: 'Back to now' }).click();
   await expect(map.getByText(/hosts? past 85% now/)).toBeVisible();
+});
+
+/*
+ * The capacity map is a chart for asking which machine is the busy one, and above
+ * the cards it put every host's controls a screen and a half down the page. It is
+ * folded behind a button, and the browser remembers whether it was opened.
+ *
+ * The samples request is the proof that folding saves work and not only space:
+ * the map fetches a day of samples and runs a timer for as long as it exists, so
+ * a map that is merely hidden would cost the same as one on show. Counting the
+ * requests before the page loads, and seeing one arrive once the map opens, is
+ * what makes "none while folded" mean something.
+ */
+test('the host capacity map is folded away until it is asked for, and the choice is remembered', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  const sampleRequests: string[] = [];
+  page.on('request', (request) => {
+    if (request.url().includes('/api/v1/hosts/samples')) sampleRequests.push(request.url());
+  });
+  await goto(page, '/hosts', 'Hosts');
+  const toggle = page.getByRole('button', { name: 'Host capacity map', exact: true });
+  const map = page.getByRole('region', { name: 'Host capacity map', exact: true });
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(map).toHaveCount(0);
+  expect(sampleRequests, 'a folded map asks for nothing').toEqual([]);
+
+  // From the keyboard: Enter opens it, and focus stays on the button.
+  await toggle.focus();
+  await page.keyboard.press('Enter');
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(map).toBeVisible();
+  await expect(toggle).toBeFocused();
+  await expect.poll(() => sampleRequests.length, 'an open map does ask').toBeGreaterThan(0);
+  // Space closes it, and Enter opens it again.
+  await page.keyboard.press('Space');
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(map).toHaveCount(0);
+  await expect(toggle).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(map).toBeVisible();
+
+  // Remembered per browser: a reload finds it as it was left, and a browser
+  // with nothing stored finds it folded again.
+  await reload(page, 'Hosts');
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(map).toBeVisible();
+  await clearStoredPreferences(page);
+  await reload(page, 'Hosts');
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(map).toHaveCount(0);
+
+  if (isMobile) {
+    // A finger-sized target, and a tap opens it.
+    const box = await toggle.boundingBox();
+    expect(box!.height, 'the toggle is tall enough to hit').toBeGreaterThanOrEqual(44);
+    await toggle.tap();
+    await expect(map).toBeVisible();
+    return;
+  }
+
+  // Where the first host's controls start, folded: the number the audit quotes.
+  // Measured on the demo fleet and written to the report, never guessed.
+  const first = page.getByRole('article').first().getByRole('heading', { level: 3 });
+  for (const [width, height] of [
+    [1440, 900],
+    [375, 812],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    await expect(first).toBeVisible();
+    const box = await first.boundingBox();
+    testInfo.annotations.push({
+      type: `first card heading y at ${width}x${height}`,
+      description: String(Math.round(box!.y)),
+    });
+    // Measured on the demo fleet: 1,323px before the fold and about 690px after,
+    // against a 900px screen. A phone's two columns of tiles keep the cards
+    // below its first screen either way, so only the desktop is held to it.
+    if (width === 1440) {
+      expect(box!.y, 'the first host card starts on the first screen').toBeLessThan(height);
+    }
+  }
+});
+
+/*
+ * A filter that matches nothing is the one state where the page could look
+ * broken: the cards are gone and the reason is a count. It says what it found,
+ * what that does and does not mean, and offers every host back with focus
+ * landing somewhere that still exists.
+ */
+test('a health filter that matches nothing says so, and offers every host back', async ({
+  page,
+}) => {
+  // Every host without an OS report, so nothing can need attention and the
+  // page has to say why that is not good news. The list response is rewritten
+  // rather than the fleet changed, because the demo fleet is shared.
+  await page.route(/\/api\/v1\/hosts(?:\?.*)?$/, async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    body.items = body.items.map(({ doctor: _doctor, ...host }: { doctor?: unknown }) => host);
+    await route.fulfill({ json: body });
+  });
+  // And no stream, or a heartbeat's host frame would put a report back.
+  await page.route('**/api/v1/events*', (route) =>
+    route.fulfill({
+      status: 200,
+      headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-store' },
+      body: '',
+    }),
+  );
+  const total = await page.request
+    .get('/api/v1/hosts')
+    .then((r) => r.json() as Promise<{ items: unknown[] }>)
+    .then((body) => body.items.length);
+
+  await goto(page, '/hosts?health=attention', 'Hosts');
+  const chips = page.getByRole('group', { name: 'Show hosts by OS health' });
+  await expect(page.getByText('No host needs attention', { exact: true })).toBeVisible();
+  await expect(page.getByText(/no current report/)).toBeVisible();
+  await expect(page.getByRole('article')).toHaveCount(0);
+  await expect(chips.getByRole('button', { name: /^Need attention \d+$/ })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(chips.getByRole('button', { name: /^All \d+$/ })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
+  await expect(page.getByRole('status').filter({ hasText: 'Showing 0 of' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Show all hosts' }).click();
+  await expect(page).not.toHaveURL(/health=/);
+  await expect(chips.getByRole('button', { name: /^All \d+$/ })).toBeFocused();
+  await expect(chips.getByRole('button', { name: /^All \d+$/ })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(page.getByRole('article')).toHaveCount(total);
+
+  // An address that names no filter is every host, not an empty page.
+  await goto(page, '/hosts?health=bogus', 'Hosts');
+  await expect(page.getByRole('article')).toHaveCount(total);
+  await expect(chips.getByRole('button', { name: /^All \d+$/ })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
 });
 
 test('a host whose agent cannot lend CPU says so, until its agent can', async ({ page }) => {

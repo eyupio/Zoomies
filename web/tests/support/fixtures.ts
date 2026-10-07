@@ -443,6 +443,21 @@ export async function documentWidth(
   }));
 }
 
+/**
+ * Open the Hosts page's capacity map, which is folded away until somebody asks,
+ * and return its region.
+ *
+ * Idempotent, because the choice is remembered: a test that opened it and then
+ * reloads, or that visits the page twice, finds it open and must not close it.
+ */
+export async function openHostCapacityMap(page: Page): Promise<Locator> {
+  const toggle = page.getByRole('button', { name: 'Host capacity map', exact: true });
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
+  const map = page.getByRole('region', { name: 'Host capacity map', exact: true });
+  await expect(map).toBeVisible();
+  return map;
+}
+
 /** True when the element currently holds focus. */
 export function isFocused(locator: Locator): Promise<boolean> {
   return locator.evaluate((element) => element === document.activeElement);

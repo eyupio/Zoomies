@@ -376,7 +376,7 @@ func mountCheck(docker bool) func(context.Context, *Engine) Result {
 		if (strings.HasPrefix(v, "ext4 ") || strings.HasPrefix(v, "xfs ")) && strings.Contains(","+strings.ReplaceAll(v, " ", ",")+",", ",noatime,") {
 			s = OK
 		}
-		return Result{Status: s, Current: p + ": " + v, Recommended: "ext4 or XFS with noatime", Reason: "advice only; review mount settings and drain before changing them"}
+		return Result{Status: s, Current: p + ": " + v, Recommended: "ext4 or XFS with noatime", Reason: "advice only; review mount settings, with the host cordoned, before changing them"}
 	}
 }
 func diskCheck(inodes bool) func(context.Context, *Engine) Result {

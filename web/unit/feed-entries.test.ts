@@ -62,7 +62,7 @@ test('a reboot line says whether the host can be rebooted now', () => {
   const busy = hostEntry(host({ active_runners: 2 }), 'reboot', AT);
   assert.equal(
     busy?.detail,
-    'Runners are still running on it. Cordon it and reboot once they finish; Zoomies never reboots a host itself.',
+    'Runners are on it, and one kept warm for a pool never finishes by itself. Cordon it and reboot when none is running a job; Zoomies never reboots a host itself.',
   );
 });
 

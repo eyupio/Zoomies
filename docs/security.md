@@ -838,6 +838,16 @@ runner and host states, the id of each GitHub App installation a call was made
 for, and the build's version and commit are, and together they tell a stranger
 what you run and how busy it is. Prefer giving Prometheus a viewer API token.
 
+The host series are among them. `zoomies_host_os_checks`,
+`zoomies_host_reboot_pending` and `zoomies_host_health_report_age_seconds` carry a
+host's id and counts, so a stranger can see which of your hosts has a failing check
+or is waiting for a reboot, though never which check. The Kennel Club counters,
+such as `zoomies_kennel_findings_opened_total`, carry the code of the check that
+raised each finding, for the whole fleet and not per repository, so they say how
+many findings of each kind you have, including exposure ones. None of them names a
+repository or quotes a finding; all of them say something about how exposed you
+are.
+
 ### `status.mode: public`
 
 The fleet status at `/status`, the badge at `/status.svg` and the projection at

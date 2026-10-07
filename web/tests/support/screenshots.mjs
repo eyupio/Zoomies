@@ -172,7 +172,21 @@ const SHOTS = [
     },
   },
   { name: 'usage', path: '/usage', heading: 'Usage' },
-  { name: 'hosts', path: '/hosts', heading: 'Hosts' },
+  {
+    name: 'hosts',
+    path: '/hosts',
+    heading: 'Hosts',
+    // Its own context, and the map open: the page folds it away until it is
+    // asked for, the choice is remembered per browser, and a shot of a Hosts
+    // page without it would not show what the captions beside it describe.
+    // The shared context must not inherit that, or the host-runner-sizes shot
+    // after this one would be taken with the map open.
+    device: { viewport: DESKTOP, deviceScaleFactor: SCALE },
+    async prepare(page) {
+      await page.getByRole('button', { name: 'Host capacity map', exact: true }).click();
+      await page.getByRole('region', { name: 'Host capacity map', exact: true }).waitFor();
+    },
+  },
   { name: 'providers', path: '/providers', heading: 'Providers' },
   { name: 'machine', path: `/machines/${FIXTURE.buildingMachine}` },
   { name: 'installations', path: '/installations', heading: 'Installations' },

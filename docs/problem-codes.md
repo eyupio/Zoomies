@@ -243,7 +243,7 @@ something it is not doing.
 | `host.unhealthy` | **error with runners on it, warning without** | The host has stopped heartbeating. With runners recorded on it their state is unknown, which is worse than a spare host being down. |
 | `host.os_health` | **error when a counted check could not run, warning otherwise** | A connected host's latest OS report has a finding in the checks `zoomies doctor` counts by default — the safe tier, without optional checks: file watches, Docker log rotation, free disk and the like, or a check that could not run properly. The entry names up to three and says how many more. The aggressive and dedicated tiers are choices rather than faults, so they are suggestions on the host's page and never raise this. A pending reboot is not counted here: it has its own entry, `host.reboot_pending`, so a host whose only finding is a reboot raises that and not this. One entry per host. Zoomies does not change the operating system from here: `sudo zoomies doctor --verbose` on the host says what each check found (from another machine, the host's page has a command for `zoomies doctor --host` with a short-lived token in it), and `sudo zoomies doctor --interactive` on the host offers each fix. Nothing is raised for a host that has sent no report, one that is offline (`host.unhealthy` speaks for it) or a container's partial report. It never reaches the public status page. |
 | `host.health_stale` | warning | A connected host that has sent an OS report before has sent none for ten minutes, so what its page shows may no longer be true. Its collector has most likely stopped, or its clock is wrong, because the age is judged by the report's own timestamp. The host page greys a badge after three minutes; this is raised only after ten. A container's partial report is produced afresh every minute and is not judged. It clears with the next report. It never reaches the public status page. |
-| `host.reboot_pending` | info | An update installed on a connected host takes effect only after it restarts, usually a newer kernel. It stays until the host has rebooted, whether or not anything is running on it. The entry says when nothing is running on the host, so it can be rebooted now, and otherwise to cordon it and wait. Zoomies never reboots a host. It never reaches the public status page. |
+| `host.reboot_pending` | info | An update installed on a connected host takes effect only after it restarts, usually a newer kernel. It stays until the host has rebooted, whether or not anything is running on it. The entry says when there is no runner on the host, so it can be rebooted now. Otherwise it says to cordon the host and reboot it when `zoomies runners list --host <host-id> --state busy` shows nothing, because a runner kept warm for a pool waits for work and never finishes by itself, and a count of runners cannot tell it from one holding a job. Zoomies never reboots a host. It never reaches the public status page. |
 | `host.cordoned_with_work` | warning | A cordoned host could run jobs that are queued. Cordoning is deliberate, so this is a reminder rather than a fault. |
 | `host.duplicate_agent` | warning | Two agent sessions have used this host's credentials in turn. An agent takes a new session each time it starts and never returns to an old one, so alternation means a second agent holds a copy of the token — usually a cloned VM or a copied state directory. Neither is refused: both are running real jobs, and picking one would end the other's. |
 | `host.runtime_recovering` | warning | A host's agent reports that its container runtime failed — it could not be reached, or it did not answer in time — and it is holding new starts until one recovery attempt. Running jobs continue. The entry names which failure in a row this is, when the agent reported it and when the attempt is due, on the controller's clock, with the backend's own error — shown as prose, so a backtick in what the agent sent reads as an apostrophe and cannot offer a command to copy. For a runtime that cannot be reached, start it or give the agent's user its socket (for Docker, `sudo systemctl start docker`); for one that is slow, look at its load and disk and lower the host's capacity if it carries more than the machine can. It is kept on the host row, so a controller restart does not lose it, and clears on the next heartbeat after a start succeeds. |
@@ -433,16 +433,22 @@ sentence below, never the operator's title, detail or fix, because those
 name the pool, host or repository a problem is about. Only the fleet's codes
 have a sentence: a platform code never reaches the status page at all.
 
-The `ai_context.*` codes are the fleet's too, but they are the other exception:
-they are about whether a repository's AI Context workflow can publish, not about
-whether a job will run, so they never reach the status page and never move its
-state. A full artifact quota is an error for whoever set AI Context up and says
-nothing to a developer waiting on a runner.
+Three groups of the fleet's codes are exceptions: the fleet is shown them, and
+they never reach the status page or move its state.
 
-The three host OS health codes (`host.os_health`, `host.health_stale`,
-`host.reboot_pending`) are exempt in the same way: they say whether a machine's
-settings match a recommendation, not whether a job will run, so they never reach
-the status page and never move its state.
+* The `ai_context.*` codes are about whether a repository's AI Context workflow
+  can publish, not about whether a job will run. A full artifact quota is an error
+  for whoever set AI Context up and says nothing to a developer waiting on a
+  runner.
+* The `kennel.*` codes are about whether a repository the fleet serves is open to
+  a stranger's code. A public page that named which repositories the fleet runs
+  code for, and that one of them is exposed, would be a map for the stranger the
+  finding is about. (`kennel.unavailable` belongs to the platform, so the rule
+  above already keeps it off the page.)
+* The three host OS health codes (`host.os_health`, `host.health_stale`,
+  `host.reboot_pending`) say whether a machine's settings match a
+  recommendation, not whether a job will run, and a stock fleet carries some of
+  them for ever.
 
 The sentences are held in `publicSentences` in
 `internal/controller/status.go`, and `internal/docs` checks this table
