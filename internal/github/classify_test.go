@@ -82,3 +82,20 @@ func response(status int) *http.Response {
 		Request:    &http.Request{Method: http.MethodPost, URL: &url.URL{Scheme: "https", Host: "api.github.com", Path: "/repos/acme/widgets/actions/runners"}},
 	}
 }
+
+// A 5xx is GitHub failing, which no permission fixes and no retry in a minute
+// helps; it is told apart so callers that can wait do, and the message stays
+// GitHub's own so a runner row still says what came back.
+func TestAServerErrorIsToldApartAndKeepsItsMessage(t *testing.T) {
+	raw := &gh.ErrorResponse{Response: &http.Response{StatusCode: http.StatusInternalServerError, Request: &http.Request{Method: "POST", URL: &url.URL{Path: "/x"}}}}
+	err := classify(nil, raw)
+	if !errors.Is(err, ErrServerError) {
+		t.Fatalf("classify(500) = %v, want a server error", err)
+	}
+	if err.Error() != raw.Error() {
+		t.Errorf("message = %q, want GitHub's own %q", err.Error(), raw.Error())
+	}
+	if errors.Is(classify(nil, &gh.ErrorResponse{Response: &http.Response{StatusCode: http.StatusBadRequest, Request: raw.Response.Request}}), ErrServerError) {
+		t.Error("a 400 was called a server error")
+	}
+}

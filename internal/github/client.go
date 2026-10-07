@@ -96,6 +96,23 @@ func RetryAfterRateLimit(err error, now time.Time) (time.Time, bool) {
 // the App installation is missing a permission.
 var ErrForbidden = errors.New("github: forbidden")
 
+// ErrServerError is GitHub itself failing -- any 5xx. It is nothing the caller
+// did and nothing a permission fixes, so it is told apart from ErrForbidden: the
+// callers that can wait (Kennel Club) back off on it instead of asking again.
+var ErrServerError = errors.New("github: server error")
+
+// NewServerError marks err as GitHub failing, for the code that classifies a
+// response and for tests that need the failure without the response.
+func NewServerError(err error) error { return &serverError{err: err} }
+
+// serverError keeps GitHub's own wording as the message and only adds the kind,
+// so a runner row still shows "500 []" and not a paraphrase of it.
+type serverError struct{ err error }
+
+func (e *serverError) Error() string        { return e.err.Error() }
+func (e *serverError) Unwrap() error        { return e.err }
+func (e *serverError) Is(target error) bool { return target == ErrServerError }
+
 // ErrInvalid is GitHub refusing a request as invalid rather than unauthorised:
 // a runner name already taken, a label it will not accept. The detail carries
 // the field-by-field reason, which is the part worth reading -- the message on

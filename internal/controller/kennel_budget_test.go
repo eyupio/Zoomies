@@ -1,9 +1,11 @@
 package controller
 
 import (
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/github"
 )
 
@@ -100,5 +102,32 @@ func TestARefusedRequestDoesNotUseUpTheBudget(t *testing.T) {
 	}
 	if b.spent != 0 {
 		t.Errorf("%d requests were counted while Kennel Club was standing down", b.spent)
+	}
+}
+
+// A GitHub that is answering 500 is not helped by being asked again every
+// minute, and the registration path shares it. Kennel Club therefore stands down
+// from the installation, for longer each time, and nobody else is held.
+func TestKennelClubStandsDownWhenGitHubFailsAndOnlyKennelClub(t *testing.T) {
+	f := newKennelFixture(t)
+	in := kennelPassInput{cfg: config.Kennel{APIBudgetPercent: 20}}
+	if !f.c.kennelTake(f.inst.ID, in, github.RateLimit{}) {
+		t.Fatal("a healthy installation was refused")
+	}
+	f.c.observeKennel(f.inst.ID, github.NewServerError(errors.New("500 []")))
+	if f.c.kennelTake(f.inst.ID, in, github.RateLimit{}) {
+		t.Error("Kennel Club carried on after a 500")
+	}
+	if f.c.githubHeld(f.inst.ID, f.c.Now()) {
+		t.Error("a 500 on a Kennel Club read paused the poller and scheduler too")
+	}
+	f.advance(kennelUnwellBase + time.Second)
+	if !f.c.kennelTake(f.inst.ID, in, github.RateLimit{}) {
+		t.Fatal("Kennel Club never came back")
+	}
+	f.c.observeKennel(f.inst.ID, github.NewServerError(errors.New("500 []")))
+	f.advance(kennelUnwellBase + time.Second)
+	if f.c.kennelTake(f.inst.ID, in, github.RateLimit{}) {
+		t.Error("the second failure in a row waited no longer than the first")
 	}
 }
