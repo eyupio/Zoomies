@@ -30,7 +30,10 @@
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import Select from '$lib/components/Select.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
-  import { KENNEL_SETTING_HREF, openFindingsText, worstSeverity } from '$lib/kennel/words';
+  import KennelShell from '$lib/kennel/KennelShell.svelte';
+  import KennelTurnOn from '$lib/kennel/KennelTurnOn.svelte';
+  import { openFindingsText, worstSeverity } from '$lib/kennel/words';
+  import { kennelClub } from '$lib/state/kennel.svelte';
   import { registerSearch } from '$lib/keys';
   import { router } from '$lib/router';
   import { fleet } from '$lib/state/fleet.svelte';
@@ -46,6 +49,8 @@
 
   $effect(() => {
     void reload;
+    // Turned on or off from the rail, here or in another tab: ask again.
+    void kennelClub.epoch;
     const controller = new AbortController();
     void getKennelOverview(controller.signal)
       .then((overview) => {
@@ -275,106 +280,108 @@
   {/if}
 {/snippet}
 
-<PageHeader
-  title="Repositories"
-  subtitle="Every repository Kennel Club has looked at, and what is open on it."
-  breadcrumb={[{ label: 'Kennel Club', href: '/kennel' }]}
-  onrefresh={() => {
-    reload += 1;
-    liveKey += 1;
-  }}
-/>
+<KennelShell current="repositories">
+  <PageHeader
+    title="Repositories"
+    subtitle="Every repository Kennel Club has looked at, and what is open on it."
+    breadcrumb={[{ label: 'Kennel Club', href: '/kennel' }]}
+    onrefresh={() => {
+      reload += 1;
+      liveKey += 1;
+    }}
+  />
 
-<div class="content">
-  {#if known && !enabled}
-    <EmptyState
-      icon={Trophy}
-      title="Kennel Club is off"
-      description="There is nothing to list until it is on."
-    >
-      {#if session.can('admin')}
-        <Button variant="primary" href={KENNEL_SETTING_HREF}>Turn on in Settings</Button>
-      {:else}
-        <p class="waived">An administrator can turn it on under Settings, Configuration.</p>
-      {/if}
-    </EmptyState>
-  {:else if !known}
-    <Skeleton lines={6} />
-  {:else}
-    <FilterBar {chips} onclear={anyFilter ? clearFilters : undefined}>
-      <div class="search">
-        <Input
-          bind:element={searchField}
-          value={search}
-          type="search"
-          size="sm"
-          icon={Search}
-          placeholder="Search repository names"
-          ariaLabel="Search repositories"
-          oninput={(event) =>
-            router.setQuery({
-              q: (event.currentTarget as HTMLInputElement).value || null,
-              offset: null,
-            })}
-        />
-      </div>
-      <Select
-        value={standing}
-        options={stateOptions}
-        size="sm"
-        ariaLabel="Filter by standing"
-        onchange={(value) => router.setQuery({ state: value || null, offset: null })}
-      />
-      <Select
-        value={severity}
-        options={severityOptions}
-        size="sm"
-        ariaLabel="Filter by the worst severity open"
-        onchange={(value) => router.setQuery({ severity: value || null, offset: null })}
-      />
-      <Select
-        value={code}
-        options={codeOptions}
-        size="sm"
-        ariaLabel="Filter by check"
-        onchange={(value) => router.setQuery({ code: value || null, offset: null })}
-      />
-      {#if installations.length > 1}
-        <Select
-          value={installation}
-          options={installationOptions}
-          size="sm"
-          ariaLabel="Filter by installation"
-          onchange={(value) => router.setQuery({ installation: value || null, offset: null })}
-        />
-      {/if}
-    </FilterBar>
-
-    <DataGrid
-      gridId="kennel-repositories"
-      label="Repositories"
-      {columns}
-      fetcher={fetchRepositories}
-      rowId={(row) => row.id}
-      {filters}
-      defaultSort="severity"
-      defaultOrder="desc"
-      noun="repositories"
-      {liveKey}
-      onopen={open}
-      emptyTitle={anyFilter ? 'No repositories match those filters' : 'No repositories yet'}
-      emptyDescription={anyFilter
-        ? 'Try a wider search, or clear a filter.'
-        : 'Kennel Club looks at repositories your fleet has run jobs for. None yet.'}
-    >
-      {#snippet emptyAction()}
-        {#if anyFilter}
-          <Button onclick={clearFilters}>Clear filters</Button>
+  <div class="content">
+    {#if known && !enabled}
+      <EmptyState
+        icon={Trophy}
+        title="Kennel Club is off"
+        description="There is nothing to list until it is on."
+      >
+        {#if session.can('admin')}
+          <KennelTurnOn />
+        {:else}
+          <p class="waived">An administrator can turn it on, with the switch beside this page.</p>
         {/if}
-      {/snippet}
-    </DataGrid>
-  {/if}
-</div>
+      </EmptyState>
+    {:else if !known}
+      <Skeleton lines={6} />
+    {:else}
+      <FilterBar {chips} onclear={anyFilter ? clearFilters : undefined}>
+        <div class="search">
+          <Input
+            bind:element={searchField}
+            value={search}
+            type="search"
+            size="sm"
+            icon={Search}
+            placeholder="Search repository names"
+            ariaLabel="Search repositories"
+            oninput={(event) =>
+              router.setQuery({
+                q: (event.currentTarget as HTMLInputElement).value || null,
+                offset: null,
+              })}
+          />
+        </div>
+        <Select
+          value={standing}
+          options={stateOptions}
+          size="sm"
+          ariaLabel="Filter by standing"
+          onchange={(value) => router.setQuery({ state: value || null, offset: null })}
+        />
+        <Select
+          value={severity}
+          options={severityOptions}
+          size="sm"
+          ariaLabel="Filter by the worst severity open"
+          onchange={(value) => router.setQuery({ severity: value || null, offset: null })}
+        />
+        <Select
+          value={code}
+          options={codeOptions}
+          size="sm"
+          ariaLabel="Filter by check"
+          onchange={(value) => router.setQuery({ code: value || null, offset: null })}
+        />
+        {#if installations.length > 1}
+          <Select
+            value={installation}
+            options={installationOptions}
+            size="sm"
+            ariaLabel="Filter by installation"
+            onchange={(value) => router.setQuery({ installation: value || null, offset: null })}
+          />
+        {/if}
+      </FilterBar>
+
+      <DataGrid
+        gridId="kennel-repositories"
+        label="Repositories"
+        {columns}
+        fetcher={fetchRepositories}
+        rowId={(row) => row.id}
+        {filters}
+        defaultSort="severity"
+        defaultOrder="desc"
+        noun="repositories"
+        {liveKey}
+        onopen={open}
+        emptyTitle={anyFilter ? 'No repositories match those filters' : 'No repositories yet'}
+        emptyDescription={anyFilter
+          ? 'Try a wider search, or clear a filter.'
+          : 'Kennel Club looks at repositories your fleet has run jobs for. None yet.'}
+      >
+        {#snippet emptyAction()}
+          {#if anyFilter}
+            <Button onclick={clearFilters}>Clear filters</Button>
+          {/if}
+        {/snippet}
+      </DataGrid>
+    {/if}
+  </div>
+</KennelShell>
 
 <style>
   .content {
