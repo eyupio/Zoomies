@@ -1,0 +1,36 @@
+Directory,Tier,URL,Category,DR,Dofollow,Submission Date,Status,Live URL,Backlink Verified,Positioning Variant Used,Tags Used,Account Email,Notes
+Official MCP Registry,4,https://registry.modelcontextprotocol.io,Agent/MCP,,No,,Blocked,,,Agent,,,"DNS ok Only if `zoomies mcp` (stdio) ships as a public package, or list a remote URL. Seeds PulseMCP and Glama. Do first within Tier 4"
+Glama,4,https://glama.ai/mcp/servers,Agent/MCP,75,,,Blocked,,,Agent,,,DNS ok Needs a public MCP server repo; optimise the security grade
+Smithery,4,https://smithery.ai,Agent/MCP,79,,,Blocked,,,Agent,,,DNS ok Needs a publishable server
+MCP.so,4,https://mcp.so,Agent/MCP,73,,,Blocked,,,Agent,,,DNS ok Free form
+awesome-mcp-servers (TensorBlock),4,https://github.com/TensorBlock/awesome-mcp-servers,GitHub list,,No,,Blocked,,,Agent,,,DNS ok PR; discovery not DR
+Claude plugin directory,4,https://claude.ai/directory/manage,Agent/MCP,,No,,Blocked,,,Agent,,,DNS ok Not a backlink play; per-controller /mcp is not a public connector
+Hacker News (Show HN),1,https://news.ycombinator.com/submit,Launch,91,No,,Draft,,,Dev,,,DNS ok Technical angle only. Post on a weekday morning US time; be there to answer for hours
+DevHunt,1,https://devhunt.org/submit,Launch,35,Yes,,Draft,,,Dev,,,DNS ok Best Tier 1 fit for dev tools
+Fazier,1,https://fazier.com/submit,Launch,30,Yes,,Draft,,,Startup,,,DNS ok 
+Uneed,1,https://uneed.best/submit-a-tool,Launch,40,Yes,,Draft,,,Startup,,,DNS ok 
+Product Hunt,1,https://producthunt.com/posts/new,Launch,91,Yes,,On hold,,,Startup,,,DNS ok Owner decision: infrastructure is a weaker fit. Needs 3-week warm-up and a launch date
+AlternativeTo,2,https://alternativeto.net,SaaS directory,79,No,,Draft,,,SaaS,,,"DNS ok List as alternative to ARC, GARM, Cirun, hosted runner services. Nofollow but high value"
+SaaSHub,2,https://www.saashub.com,SaaS directory,77,Yes,,Draft,,,SaaS,,,DNS ok Ranks for '[tool] alternatives'
+SourceForge,2,https://sourceforge.net,Software directory,92,Yes,,Draft,,,Dev,,,DNS ok Open-source project listing
+Slashdot,2,https://slashdot.org,Software directory,88,Yes,,Draft,,,Dev,,,DNS ok Company/software profile
+Stackshare,2,https://stackshare.io,Dev directory,60,Yes,,Draft,,,Dev,,,DNS ok Add Zoomies as a tool; self-hosted CI category
+Indie Hackers,2,https://www.indiehackers.com,Community,76,Yes,,Draft,,,Startup,,,DNS ok Product page plus a build-in-public post; comment before posting
+Slant,2,https://www.slant.co,Recommendation,75,Yes,,Draft,,,SaaS,,,DNS ok Answer 'best self-hosted CI runner' questions honestly
+Startup Stash,2,https://startupstash.com,Directory,50,Yes,,Draft,,,Startup,,,DNS ok Lower fit; optional
+GitHub Marketplace,7,https://github.com/marketplace,Integration marketplace,,No,,To investigate,,,Dev,,,DNS ok Check whether a GitHub App that manages runners can be listed and what review it needs
+awesome-selfhosted,13,https://github.com/awesome-selfhosted/awesome-selfhosted,GitHub list,,No,,To investigate,,,Dev,,,DNS ok Not in the skill catalogue. Read the contribution rules first (maturity and release requirements)
+awesome-actions,13,https://github.com/sdras/awesome-actions,GitHub list,,No,,To investigate,,,Dev,,,DNS ok Not in the skill catalogue. Check it is still merging PRs and that a runner controller fits
+r/selfhosted,10,https://www.reddit.com/r/selfhosted/,Community,,No,,To investigate,,,Dev,,,DNS ok Read the sub's rules and any self-promotion thread first. 90/10; disclose you are the author
+Lobsters,10,https://lobste.rs,Community,,No,,To investigate,,,Dev,,,DNS ok Invite-only; participate before submitting. Disclose authorship
+Dev.to,8,https://dev.to,Content platform,90,Yes,,Draft,,,Dev,,,DNS ok Cross-post a technical post with the canonical URL pointing at zoomies.sh
+Hashnode,8,https://hashnode.com,Content platform,85,Yes,,Draft,,,Dev,,,"DNS ok Same post, canonical URL to zoomies.sh"
+GitHub (profile and org),8,https://github.com/eyupio,Code host,98,Yes,,Live,,,Dev,,,DNS ok Already live. Check the org profile links to zoomies.sh
+Crunchbase,8,https://www.crunchbase.com,Entity profile,,Yes,,Draft,,,Startup,,,DNS ok Not in the skill catalogue; feeds AI corpora. EyUp.io as the company
+LinkedIn company page,8,https://www.linkedin.com/company/setup/new/,Entity profile,,No,,Draft,,,Startup,,,DNS ok Feeds AI corpora
+Wikidata,8,https://www.wikidata.org,Entity profile,,No,,To investigate,,,Dev,,,DNS ok Needs notability; do not force an entry
+Listicle outreach: best self-hosted GitHub Actions runner roundups,6,"(search: ""best self-hosted github actions runners"" 2026)",Editorial,,Yes,,Draft,,,Dev,,,Target 10 inclusions in 30 days. Find posts that omit Zoomies; use the outreach copy in positioning.md
+Listicle outreach: ARC / GARM / Cirun alternative roundups,6,"(search: ""actions-runner-controller alternative"")",Editorial,,Yes,,Draft,,,SaaS,,,Link the matching /alternatives/ page
+"llms.txt directories (llmstxt.site, directory.llmstxt.cloud, llmstxthub.com)",4,https://zoomies.sh/llms.txt,AI search,,No,,Draft,,,Dev,,,"DNS ok /llms.txt is already generated by hooks/seo.py. Use site forms, not PRs"
+G2,2,https://www.g2.com,Review site,92,Yes,,Skipped,,,,,,DNS ok Skipped for now: a free open-source tool without reviews adds nothing. Revisit with 10 willing reviewers
+Capterra,2,https://www.capterra.com,Review site,93,Yes,,Skipped,,,,,,DNS ok Same as G2
