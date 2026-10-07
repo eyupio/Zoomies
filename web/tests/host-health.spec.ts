@@ -24,7 +24,7 @@ type Check = {
 };
 
 /** Enrol a host the way an agent does, through a join token from the Add a host page. */
-async function enrol(page: Page, name: string): Promise<Credentials> {
+async function enrol(page: Page, name: string, version = 'dev'): Promise<Credentials> {
   await goto(page, '/hosts/new', 'Add a host');
   await page.getByRole('button', { name: 'Get the command' }).click();
   const command = await page
@@ -40,7 +40,7 @@ async function enrol(page: Page, name: string): Promise<Credentials> {
       capacity: 1,
       os: 'linux',
       arch: 'amd64',
-      version: 'dev',
+      version,
       backends: [{ kind: 'docker', available: true }],
     },
   });
@@ -233,7 +233,12 @@ test('the badge counts what zoomies doctor counts, and the page leads with what 
   });
   const watches = check('inotify.watches', 'File watches', 'safe', 'ok');
   const swappiness = check('memory.swappiness', 'Swappiness', 'aggressive', 'warn');
-  const apport = check('service.apport', 'Dedicated host: apport.service', 'dedicated', 'warn');
+  const apport = check(
+    'service.apport',
+    'Disable apport.service (dedicated hosts only)',
+    'dedicated',
+    'warn',
+  );
   try {
     // Choices an operator has not made are not faults.
     await heartbeat(page, credentials, [watches, swappiness, apport]);
@@ -1304,5 +1309,205 @@ test('a report-only host has no kind word and no preview button, even if a row s
     await expect(page.getByRole('button', { name: /apply|tune/i })).toHaveCount(0);
   } finally {
     await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+  }
+});
+
+// A host with no report used to be told one thing whatever the cause, and half of
+// it was wrong for a container deployment. The page now says which of the causes
+// it can tell apart from fields it already has, and never invents a command.
+test('a host that has only just joined is told to wait, with no command and no tuning', async ({
+  page,
+}) => {
+  const name = `noreport-new-${Date.now() % 1e6}`;
+  const credentials = await enrol(page, name);
+  try {
+    await goto(page, `/hosts/${credentials.host_id}`, name);
+    const panel = page.getByRole('region', { name: 'No health report yet' });
+    await expect(panel).toContainText('Waiting for this host’s first report.');
+    await expect(panel).toContainText('This host joined');
+    await expect(page.getByText('No OS report has arrived from this host yet.')).toBeVisible();
+    await expect(panel.locator('pre')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /apply|tune/i })).toHaveCount(0);
+    await expect(page.getByRole('main')).not.toContainText(/drain/i);
+    // The page fills in by itself when the first report arrives.
+    await heartbeat(page, credentials, [check('inotify.watches', 'File watches', 'safe', 'ok')]);
+    await expect(page.getByRole('region', { name: 'Latest host report' })).toBeVisible();
+    await expect(panel).toHaveCount(0);
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+  }
+});
+
+// Skew outranks "just joined": an agent from before OS reports never sends one,
+// however new its row is. The command is the controller's own, byte for byte,
+// read back from the API rather than rebuilt in the test.
+test('an older release is told it may be too old and gets the controller’s own command', async ({
+  page,
+}) => {
+  const name = `noreport-old-${Date.now() % 1e6}`;
+  await stubClipboard(page);
+  const credentials = await enrol(page, name, 'v0.1-alpha');
+  try {
+    const api = (await (await page.request.get(`/api/v1/hosts/${credentials.host_id}`)).json()) as {
+      upgrade_command?: string;
+    };
+    expect(api.upgrade_command, 'the controller offers a command for a dev build').toBeTruthy();
+    await goto(page, `/hosts/${credentials.host_id}`, name);
+    const panel = page.getByRole('region', { name: 'No health report yet' });
+    await expect(panel).toContainText('may be too old to send OS reports');
+    await expect(panel).not.toContainText('Waiting for this host’s first report.');
+    await expect(panel).toContainText('so a report may still be on its way');
+    // The command block must wrap rather than push the page sideways on a phone.
+    const width = await documentWidth(page);
+    expect(width.scrollWidth).toBeLessThanOrEqual(width.clientWidth);
+    await expect(panel.locator('pre code')).toHaveText(api.upgrade_command as string);
+    await panel.getByRole('button', { name: 'Copy the upgrade command' }).click();
+    expect(await page.evaluate(() => sessionStorage.getItem('copied'))).toBe(api.upgrade_command);
+    await expect(page.getByRole('button', { name: /apply|tune/i })).toHaveCount(0);
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+  }
+});
+
+test('a viewer is asked to involve an operator rather than shown an update command', async ({
+  page,
+}) => {
+  const name = `noreport-view-${Date.now() % 1e6}`;
+  const credentials = await enrol(page, name, 'v0.1-alpha');
+  try {
+    await signedInAs(page, 'viewer');
+    await goto(page, `/hosts/${credentials.host_id}`, name);
+    const panel = page.getByRole('region', { name: 'No health report yet' });
+    await expect(panel).toContainText('Updating an agent needs the operator role');
+    await expect(panel.locator('pre')).toHaveCount(0);
+    await expect(panel.getByRole('button')).toHaveCount(0);
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+  }
+});
+
+test('an agent that names no release is not given a command either', async ({ page }) => {
+  const name = `noreport-blank-${Date.now() % 1e6}`;
+  const credentials = await enrol(page, name, '');
+  try {
+    await goto(page, `/hosts/${credentials.host_id}`, name);
+    const panel = page.getByRole('region', { name: 'No health report yet' });
+    await expect(panel).toBeVisible();
+    await expect(panel.locator('pre')).toHaveCount(0);
+    await expect(panel.getByRole('button')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /apply|tune/i })).toHaveCount(0);
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+  }
+});
+
+// The header says how old the report is without promising when the next one
+// comes: the page cannot see the agent's heartbeat interval, so a number would
+// be a guess that read as a fact.
+test('the host page says how old the report is, and never how often one arrives', async ({
+  page,
+}) => {
+  const name = `fresh-host-${Date.now() % 1e8}`;
+  const credentials = await enrol(page, name);
+  try {
+    await heartbeat(page, credentials, [check('disk.space', 'Free space', 'safe', 'ok')]);
+    await goto(page, `/hosts/${credentials.host_id}`, name);
+    const line = page.locator('.fresh');
+    await expect(line).toHaveText(
+      /^Report checked (just now|\d+s ago)\. This page updates by itself when the agent sends a newer one\.$/,
+    );
+    await expect(page.getByRole('main')).not.toContainText(/every (minute|\d+ ?s)|per minute/i);
+    await expect(page.getByRole('button', { name: /apply|tune/i })).toHaveCount(0);
+    // The mobile project runs this too: a line that did not wrap would push the page sideways.
+    const width = await documentWidth(page);
+    expect(width.scrollWidth).toBeLessThanOrEqual(width.clientWidth);
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}`);
+  }
+});
+
+// A person watching the page while they fix a host on the machine should hear
+// when a check clears, without a toast (background events are shown by the page
+// changing) and without the page announcing everything it shows on load.
+test('a check that clears while the page is open is announced and listed', async ({ page }) => {
+  const name = `clear-host-${Date.now() % 1e8}`;
+  const credentials = await enrol(page, name);
+  const disk = (status: Check['status']) =>
+    check('disk.space', 'Free space', 'safe', status, { recommended: '10% free' });
+  try {
+    await heartbeat(page, credentials, [disk('warn')]);
+    await goto(page, `/hosts/${credentials.host_id}`, name);
+    const live = page.locator('.health-content > output[aria-live="polite"]');
+    // Opening the page says nothing: the first report is the baseline.
+    await expect(page.getByRole('region', { name: 'Needs attention' })).toBeVisible();
+    await expect(live).toHaveText('');
+    await expect(page.getByText('Changed since you opened this page')).toHaveCount(0);
+
+    await heartbeat(page, credentials, [disk('ok')]);
+    await expect(live).toContainText('Free space — now OK');
+    await expect(live).toContainText('Nothing on this host needs attention now');
+    const list = page.getByRole('region', { name: 'Changed since you opened this page' });
+    await expect(list).toContainText('Free space — now OK');
+    const width = await documentWidth(page);
+    expect(width.scrollWidth).toBeLessThanOrEqual(width.clientWidth);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
+    await expect(page.getByRole('button', { name: /^$/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /apply|tune/i })).toHaveCount(0);
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+  }
+});
+
+test('a check that starts needing attention while the page is open is announced', async ({
+  page,
+}) => {
+  const name = `start-host-${Date.now() % 1e8}`;
+  const credentials = await enrol(page, name);
+  const disk = (status: Check['status']) =>
+    check('disk.space', 'Free space', 'safe', status, { recommended: '10% free' });
+  try {
+    await heartbeat(page, credentials, [disk('ok')]);
+    await goto(page, `/hosts/${credentials.host_id}`, name);
+    const live = page.locator('.health-content > output[aria-live="polite"]');
+    await expect(page.getByText('Health OK', { exact: true }).first()).toBeVisible();
+    await expect(live).toHaveText('');
+
+    await heartbeat(page, credentials, [disk('warn')]);
+    await expect(live).toHaveText('Free space — now needs attention');
+    await expect(
+      page.getByRole('region', { name: 'Changed since you opened this page' }),
+    ).toContainText('Free space — now needs attention');
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+  }
+});
+
+// A row of open tabs for different hosts must be told apart by their titles, and
+// the numbers the Current and Recommended columns compare read with separators.
+test('the host page title names the host and large check values have separators', async ({
+  page,
+}) => {
+  const name = `health-ttl-${Date.now() % 1e6}`;
+  const credentials = await enrol(page, name);
+  try {
+    await heartbeat(page, credentials, [
+      check('inotify.watches', 'File watches', 'safe', 'warn', {
+        current: '65536',
+        recommended: '524288',
+      }),
+      check('files.maximum', 'System file descriptors', 'safe', 'ok', {
+        current: '9223372036854775807',
+        recommended: '2097152',
+      }),
+    ]);
+    await goto(page, `/hosts/${credentials.host_id}`, name);
+    await expect(page).toHaveTitle(`${name} · Host health · Zoomies`);
+    const row = page.locator('tr[id="inotify.watches"]');
+    await expect(row).toContainText('65,536');
+    await expect(row).toContainText('524,288');
+    // The kernel's own "no limit" is longer than a double holds, so it is left alone.
+    await expect(page.locator('tr[id="files.maximum"]')).toContainText('9223372036854775807');
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}`);
   }
 });

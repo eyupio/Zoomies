@@ -4,6 +4,7 @@
   import type { Host } from '$lib/api/types';
   import { href, router } from '$lib/router';
   import { fleet } from '$lib/state/fleet.svelte';
+  import { freshness } from '$lib/hosts/freshness';
   import { session } from '$lib/state/session.svelte';
   import { onClockTick } from '$lib/format';
   import {
@@ -23,8 +24,11 @@
     reportOnlySubtitle,
     reportOrigin,
   } from '$lib/hosts/report-only';
+  import { noReport, noReportSubtitle } from '$lib/hosts/no-report';
+  import { allClear, announcement, logLine, reportChanges } from '$lib/hosts/report-changes';
   import { KIND_WORDS, previewCommand, rowKind } from '$lib/hosts/row-kind';
   import { pluralise } from '$lib/format';
+  import { niceValue } from '$lib/hosts/check-value';
   import type { StatusTone } from '$lib/status';
   import { tick, untrack } from 'svelte';
   import { ServerCog } from '@lucide/svelte';
@@ -49,6 +53,9 @@
   // and a container can be read but not tuned, and the page must not say otherwise.
   const readOnly = $derived(reportOnly(report));
   const summary = $derived(healthSummary(report, now, host?.healthy ?? true));
+  const fresh = $derived(
+    freshness({ report, healthy: host?.healthy ?? true, stale: summary.stale, now }),
+  );
   // What needs doing, worst first. Counted checks only, which is what the badge
   // and `zoomies doctor` count: the other tiers are choices, not faults.
   const attention = $derived(report ? attentionOf(report) : []);
@@ -68,6 +75,7 @@
   // The doctor hint stays wherever the panel has no command of its own, which
   // is for a viewer, and for a cordoned host with nothing waiting on it.
   const showCommand = $derived(showStep && step?.where != null);
+  const missing = $derived(host && !report ? noReport({ host, now, canOperate }) : null);
 
   // Scoped, never getElementById: a host chooses its own check ids, and one
   // called "main" or "page-heading" must not win the lookup.
@@ -101,6 +109,51 @@
     landedFor = key;
     // After App.svelte has put focus on the page heading, or it would take it back.
     void tick().then(() => requestAnimationFrame(land));
+  });
+  // What changed while this page was open. The first report seen is the
+  // baseline, so opening the page announces nothing. It is read off the derived
+  // report -- the fleet cache, else the page's own fetch -- and not off this
+  // page's host.updated subscription, which writes only `fetched` and would miss
+  // a frame the cache had already applied. Not reactive: only a report moves it.
+  let baseline: { id: string; report: NonNullable<typeof report>; version: string } | null = null;
+  let changeLog = $state<{ line: string; at: string }[]>([]);
+  let liveText = $state('');
+  $effect(() => {
+    const next = report;
+    const hostId = id;
+    const version = host?.version ?? '';
+    untrack(() => {
+      if (baseline && baseline.id !== hostId) {
+        baseline = null;
+        changeLog = [];
+        liveText = '';
+      }
+      if (!next) return;
+      if (!baseline) {
+        baseline = { id: hostId, report: next, version };
+        return;
+      }
+      if (next === baseline.report) return;
+      const changes = reportChanges(baseline.report, next, {
+        prevVersion: baseline.version,
+        nextVersion: version,
+      });
+      const advanced = Date.parse(next.checked_at) > Date.parse(baseline.report.checked_at);
+      // A source change is rebaselined without a word; an older or repeated
+      // frame leaves the baseline where it was.
+      const sourceMoved =
+        next.os !== baseline.report.os ||
+        next.distro !== baseline.report.distro ||
+        next.container !== baseline.report.container ||
+        version !== baseline.version;
+      if (advanced || sourceMoved) baseline = { id: hostId, report: next, version };
+      if (changes.length === 0) return;
+      liveText = announcement(changes, allClear(next, Date.now()));
+      changeLog = [
+        ...changes.map((c) => ({ line: logLine(c), at: next.checked_at })),
+        ...changeLog,
+      ].slice(0, 5);
+    });
   });
   // The in-page links under "Needs attention" are plain #id links, which the
   // router leaves to the browser; this is what moves focus for them too.
@@ -155,14 +208,29 @@
         : tier === 'dedicated'
           ? 'Only for hosts running nothing but Zoomies. These changes are never included in safe or aggressive defaults, and do not count towards this host’s health.'
           : tier === 'aggressive'
-            ? 'Optional tuning, and not counted towards this host’s health. Applying a change needs --tier aggressive and consent in the CLI.'
-            : 'Read-only findings. Applying a change requires consent in the CLI.';
+            ? 'Optional tuning, and not counted towards this host’s health. A change here needs --tier aggressive.'
+            : 'Findings that count towards this host’s health.';
     if (!canOperate || readOnly) return base;
     return `${base} ${PREVIEW_SENTENCE}${tier === 'dedicated' ? ` ${DEDICATED_SENTENCE}` : ''}`;
   }
+  // Through the fleet cache, because that is what the page reads once it has the
+  // host: a refresh that only wrote `fetched` was a no-op behind it. A host the
+  // cache does not hold (a deep link before the first reconcile, a removed host)
+  // is asked for directly so the page can still say what became of it.
+  // Two hosts used to share one tab title, "Host health", so a row of open tabs
+  // could not tell them apart. The name is the agent's own text, and a title is
+  // plain text, so it needs no escaping.
+  $effect(() => {
+    if (host?.name) router.setTitle(`${host.name} · Host health`);
+  });
   async function refresh(): Promise<void> {
     try {
-      fetched = await getHost(id);
+      await fleet.reconcile();
+      // A failed reconcile is a state on the fleet, not an exception, so without
+      // this the page would clear its error and say it had refreshed over a cache
+      // that never changed.
+      if (fleet.error) throw fleet.error;
+      if (!fleet.hosts.some((h) => h.id === id)) fetched = await getHost(id);
       error = null;
     } catch (cause) {
       error = cause;
@@ -199,29 +267,77 @@
 <PageHeader
   title={host?.name || 'Host health'}
   subtitle={reportOnlySubtitle(readOnly) ??
-    'OS checks from the native Zoomies binary. Fixes require explicit consent on the host.'}
+    (missing
+      ? noReportSubtitle()
+      : 'OS checks from the native Zoomies binary. Fixes require explicit consent on the host.')}
   breadcrumb={[{ label: 'Hosts', href: '/hosts' }, { label: host?.name || id }]}
   onrefresh={refresh}
 >
   <Badge label={summary.label} tone={summary.tone} title={summary.hint} />
+  {#snippet meta()}
+    {#if fresh && report}
+      <!-- Not a live region: a time that ticks would be announced again and again. -->
+      <span class="fresh"
+        >{fresh.lead}
+        {#if fresh.future}just now{:else}<RelativeTime
+            value={report.checked_at}
+            plain
+          />{/if}{fresh.tail}</span
+      >
+    {/if}
+  {/snippet}
 </PageHeader>
 {#if error}<ErrorState {error} onretry={refresh} />
 {:else if loading && !host}<Skeleton />
 {:else if !report}
   <div class="health-content">
     {@render nextPanel()}
-    <Panel
-      title="No health report yet"
-      description="Check zoomies-host-health.service for a container deployment, or update the native agent. Run zoomies doctor directly on the host for an immediate report."
-      ><p>No tuning can be applied from this page.</p></Panel
-    >
+    {#if missing}
+      <Panel title="No health report yet" description={missing.description}>
+        <p>
+          {missing.detail}
+          {#if missing.tail === 'heartbeat' && host?.last_heartbeat}
+            Its last heartbeat was <RelativeTime value={host.last_heartbeat} />.{/if}
+          {#if missing.tail === 'joined'}
+            This host joined <RelativeTime value={host?.created_at} />.{/if}
+          {#if missing.tail === 'joined-late'}
+            It joined <RelativeTime value={host?.created_at} />, so a report may still be on its
+            way.{/if}
+          {#if missing.tail === 'since-joined'}
+            It joined <RelativeTime value={host?.created_at} />.{/if}
+        </p>
+        {#if missing.note}<p>{missing.note}</p>{/if}
+        {#if missing.command && missing.copyLabel}
+          <div class="command">
+            {#if missing.commandCaption}<p>{missing.commandCaption}</p>{/if}
+            <div class="command-row">
+              <pre><code>{missing.command}</code></pre>
+              <CopyButton value={missing.command} label={missing.copyLabel} size="md" showLabel />
+            </div>
+            {#if missing.after}<p>{missing.after}</p>{/if}
+          </div>
+        {/if}
+      </Panel>
+    {/if}
   </div>
 {:else}
   <div class="health-content">
+    <!-- Empty whenever a report is showing: text arriving in it is what is announced. -->
+    <output class="sr-only" aria-live="polite">{liveText}</output>
     <!-- First, so that a phone meets the action before a long list of findings. -->
     {@render nextPanel()}
     <Panel title="Latest host report" description={summary.hint}>
       <p>{reportOrigin(report)} · Checked <RelativeTime value={report.checked_at} /></p>
+      {#if changeLog.length}
+        <section class="changes" aria-labelledby="changes-h">
+          <h3 id="changes-h">Changed since you opened this page</h3>
+          <ul>
+            {#each changeLog as c, i (i + c.line + c.at)}
+              <li>{c.line} · <RelativeTime value={c.at} /></li>
+            {/each}
+          </ul>
+        </section>
+      {/if}
       {#if !showStep && rebootPending(report)}
         <!-- Cordon, never drain: drain cordons and then stops a runner still busy after
              five minutes (host_health_problems.go), which is the wrong advice for waiting
@@ -258,8 +374,8 @@
               <Badge label={badge.label} tone={badge.tone} />
               <a href="#{check.id}">{check.title}</a>
               <span class="now"
-                >now <code>{check.current || '—'}</code>, recommended
-                <code>{check.recommended || '—'}</code></span
+                >now <code>{niceValue(check.current) || '—'}</code>, recommended
+                <code>{niceValue(check.recommended) || '—'}</code></span
               >
             </li>
           {/each}
@@ -384,8 +500,8 @@
           <tr role="row" id={check.id} tabindex="-1">
             <th role="rowheader" scope="row">{check.title}<small>{check.id}</small></th>
             <td role="cell" data-label="Status">{@render statusCell(check)}</td>
-            <td role="cell" data-label="Current">{check.current || '—'}</td>
-            <td role="cell" data-label="Recommended">{check.recommended || '—'}</td>
+            <td role="cell" data-label="Current">{niceValue(check.current) || '—'}</td>
+            <td role="cell" data-label="Recommended">{niceValue(check.recommended) || '—'}</td>
             <td role="cell" data-label="Why / details"
               >{check.rationale}{#if check.reason}<small>{check.reason}</small>{/if}</td
             >
@@ -462,6 +578,35 @@
   .act p,
   .command p {
     font-size: var(--z-text-xs);
+  }
+  .changes {
+    display: grid;
+    gap: var(--z-space-2);
+    margin: 0 0 var(--z-space-3);
+    padding: var(--z-space-3) var(--z-space-4);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-md);
+    background: var(--z-surface-sunken);
+    font-size: var(--z-text-sm);
+  }
+  .changes h3 {
+    margin: 0;
+    color: var(--z-text);
+    font-size: var(--z-text-sm);
+    font-weight: var(--z-weight-semibold);
+  }
+  .changes ul {
+    display: grid;
+    gap: var(--z-space-1);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    color: var(--z-text-muted);
+    overflow-wrap: anywhere;
+  }
+  .fresh {
+    font-size: var(--z-text-xs);
+    color: var(--z-text-muted);
   }
   .command {
     display: grid;

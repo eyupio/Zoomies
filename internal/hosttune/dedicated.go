@@ -95,7 +95,7 @@ func unitState(ctx context.Context, e *Engine, u string) (enabled, active string
 }
 func unitGuard(ctx context.Context, e *Engine, u string) string {
 	if strings.HasPrefix(u, "apt-daily") && !e.SecurityMaintenanceReady {
-		return "security-update maintenance window is not configured; leave automatic updates enabled (maintenance scheduler TODO)"
+		return "security-update maintenance window is not configured; leave automatic updates enabled"
 	}
 	if strings.HasPrefix(u, "snapd") {
 		v, err := command(ctx, e, "snap", "list")
@@ -148,7 +148,7 @@ func unitGuard(ctx context.Context, e *Engine, u string) string {
 	return ""
 }
 func unitCheck(u string) Check {
-	return Check{ID: unitID(u), Title: "Dedicated host: " + u, Tier: Dedicated, Rationale: "Disable and mask an unused service only on a host dedicated to Zoomies.", Detect: func(ctx context.Context, e *Engine) Result {
+	return Check{ID: unitID(u), Title: "Disable " + u + " (dedicated hosts only)", Tier: Dedicated, Rationale: "Disable and mask an unused service only on a host dedicated to Zoomies.", Detect: func(ctx context.Context, e *Engine) Result {
 		enabled, active, err := unitState(ctx, e, u)
 		if err != nil {
 			return Result{Status: Skip, Reason: err.Error()}

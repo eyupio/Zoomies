@@ -148,6 +148,6 @@ export function emptyCopy(
   return {
     title: 'Every host has reported',
     description:
-      'Each agent has sent at least one OS report. A host that never does needs its health service checking or its agent updating.',
+      'Each host has sent at least one OS report. A host that never does is an agent from before OS reports, or one that has only just joined.',
   };
 }
