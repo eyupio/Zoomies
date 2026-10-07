@@ -792,3 +792,91 @@ func (s *Server) handleDeleteJoinToken(w http.ResponseWriter, r *http.Request) {
 	s.auth.Auditor().Deleted(r.Context(), Identity(r.Context()), "join_token", id, found)
 	noContent(w)
 }
+
+// acceptHostCheckRequest is PUT /api/v1/hosts/{id}/check-acceptances.
+type acceptHostCheckRequest struct {
+	CheckID     string    `json:"check_id"`
+	SeenCurrent string    `json:"seen_current"`
+	Reason      string    `json:"reason"`
+	ExpiresAt   time.Time `json:"expires_at"`
+}
+
+// hostAcceptanceAudit is what an audit row says about an acceptance. The reason
+// is a person's, so it belongs in the log; the check's value is the report's
+// text and is kept to the acceptance itself.
+type hostAcceptanceAudit struct {
+	CheckID   string    `json:"check_id"`
+	Current   string    `json:"current"`
+	Reason    string    `json:"reason"`
+	By        string    `json:"by"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+func acceptanceAudit(a *store.HostCheckAcceptance) hostAcceptanceAudit {
+	return hostAcceptanceAudit{CheckID: a.CheckID, Current: a.Current, Reason: a.Reason, By: a.ByName, ExpiresAt: a.ExpiresAt}
+}
+
+// failHostAcceptance maps the controller's answers about acceptances onto
+// status codes and leaves anything else to the common mapping.
+func (s *Server) failHostAcceptance(w http.ResponseWriter, r *http.Request, doing string, err error) {
+	var (
+		invalid *controller.HostAcceptInvalidError
+		changed *controller.HostCheckChangedError
+	)
+	switch {
+	case errors.As(err, &invalid):
+		fields := make([]fieldError, 0, len(invalid.Fields))
+		for _, f := range invalid.Fields {
+			fields = append(fields, fieldError{Field: f.Field, Message: f.Message})
+		}
+		unprocessable(w, "", fields)
+	case errors.As(err, &changed):
+		conflict(w, changed.Error())
+	case errors.Is(err, controller.ErrHostAcceptLimit):
+		conflict(w, err.Error())
+	default:
+		s.fail(w, r, doing, err)
+	}
+}
+
+// handleAcceptHostCheck answers PUT /api/v1/hosts/{id}/check-acceptances.
+//
+// A PUT because deciding the same thing again renews it: the row keeps its
+// identity and the value, reason, owner and end are replaced. It changes what
+// Zoomies counts and nothing on the host, and it answers the host as it now
+// stands, which is what the page repaints from.
+func (s *Server) handleAcceptHostCheck(w http.ResponseWriter, r *http.Request) {
+	var in acceptHostCheckRequest
+	if !decode(w, r, &in) {
+		return
+	}
+	ident := Identity(r.Context())
+	id := chiURLParam(r, "id")
+	v, a, err := s.ctrl.AcceptHostCheck(r.Context(), id, controller.AcceptInput{
+		CheckID: in.CheckID, SeenCurrent: in.SeenCurrent, Reason: in.Reason, ExpiresAt: in.ExpiresAt,
+	}, controller.HostActor{ID: ident.ID, Name: ident.Name})
+	if err != nil {
+		s.failHostAcceptance(w, r, "accepting a host check", err)
+		return
+	}
+	_ = s.auth.Auditor().Record(r.Context(), ident, "host.check_accepted", "host", id, nil, acceptanceAudit(a))
+	writeJSON(w, http.StatusOK, v)
+}
+
+// handleRevokeHostCheck answers DELETE /api/v1/hosts/{id}/check-acceptances/{check_id}.
+//
+// Any operator may end any acceptance: it only ever makes Zoomies stricter. It
+// is idempotent, because two people pressing the button want the same outcome,
+// and only a revoke that ended something is audited.
+func (s *Server) handleRevokeHostCheck(w http.ResponseWriter, r *http.Request) {
+	id := chiURLParam(r, "id")
+	v, ended, err := s.ctrl.RevokeHostCheck(r.Context(), id, chiURLParam(r, "check_id"))
+	if err != nil {
+		s.failHostAcceptance(w, r, "revoking a host check acceptance", err)
+		return
+	}
+	if ended != nil {
+		_ = s.auth.Auditor().Record(r.Context(), Identity(r.Context()), "host.check_revoked", "host", id, acceptanceAudit(ended), nil)
+	}
+	writeJSON(w, http.StatusOK, v)
+}

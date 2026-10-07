@@ -61,6 +61,10 @@ const (
 	ActionHostsWrite  Action = "hosts.write"
 	ActionHostsCordon Action = "hosts.cordon"
 	ActionHostsDelete Action = "hosts.delete"
+	// ActionHostsAccept is deciding that a host's warning is deliberate, and taking
+	// the decision back. It changes what Zoomies counts, never the host. Operator
+	// for both halves: revoking only ever makes Zoomies stricter.
+	ActionHostsAccept Action = "hosts.accept"
 )
 
 // Installation actions. Verifying credentials is an operator action because it
@@ -240,6 +244,7 @@ var actionRoles = map[Action]store.Role{
 	ActionHostsWrite:  store.RoleOperator,
 	ActionHostsCordon: store.RoleOperator,
 	ActionHostsDelete: store.RoleAdmin,
+	ActionHostsAccept: store.RoleOperator,
 
 	ActionInstallationsRead:   store.RoleViewer,
 	ActionInstallationsWrite:  store.RoleAdmin,

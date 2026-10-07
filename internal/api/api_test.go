@@ -869,6 +869,8 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "POST", path: "/api/v1/hosts/" + ids.host + "/cordon", role: store.RoleOperator, action: auth.ActionHostsCordon,
 			body: map[string]any{"cordoned": false}},
 		{method: "POST", path: "/api/v1/hosts/" + ids.host + "/throttle/clear", role: store.RoleOperator, action: auth.ActionHostsWrite},
+		{method: "PUT", path: "/api/v1/hosts/" + ids.host + "/check-acceptances", role: store.RoleOperator, body: map[string]any{}, action: auth.ActionHostsAccept},
+		{method: "DELETE", path: "/api/v1/hosts/" + ids.host + "/check-acceptances/files.service", role: store.RoleOperator, action: auth.ActionHostsAccept},
 		{method: "DELETE", path: "/api/v1/hosts/missing", role: store.RoleAdmin, action: auth.ActionHostsDelete},
 
 		{method: "GET", path: "/api/v1/providers", role: store.RoleViewer, action: auth.ActionProvidersRead},
@@ -1292,6 +1294,12 @@ func normalisePath(p string) string {
 		// and the waiver's is the one path parameter that is not called {id}.
 		if strings.HasPrefix(part, "kcr_") {
 			parts[i] = "{id}"
+			continue
+		}
+		// An accepted host check is named by the check's own id, which is not
+		// prefixed and which the catalogue chose.
+		if i > 0 && parts[i-1] == "check-acceptances" {
+			parts[i] = "{check_id}"
 			continue
 		}
 		if strings.HasPrefix(part, "kcw_") {
