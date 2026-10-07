@@ -122,7 +122,7 @@
         case 'kennel_repository':
           // The finding, what to change and the button to say it is acceptable.
           return {
-            href: `/kennel/repositories/${encodeURIComponent(id)}`,
+            href: `/kennel/repositories/${encodeURIComponent(id)}/ci`,
             label: 'Open the repository',
           };
         case 'machine':
