@@ -4,6 +4,7 @@
   import type { Host } from '$lib/api/types';
   import { href, router } from '$lib/router';
   import { fleet } from '$lib/state/fleet.svelte';
+  import { freshness } from '$lib/hosts/freshness';
   import { session } from '$lib/state/session.svelte';
   import { onClockTick } from '$lib/format';
   import {
@@ -50,6 +51,9 @@
   // and a container can be read but not tuned, and the page must not say otherwise.
   const readOnly = $derived(reportOnly(report));
   const summary = $derived(healthSummary(report, now, host?.healthy ?? true));
+  const fresh = $derived(
+    freshness({ report, healthy: host?.healthy ?? true, stale: summary.stale, now }),
+  );
   // What needs doing, worst first. Counted checks only, which is what the badge
   // and `zoomies doctor` count: the other tiers are choices, not faults.
   const attention = $derived(report ? attentionOf(report) : []);
@@ -162,9 +166,14 @@
     if (!canOperate || readOnly) return base;
     return `${base} ${PREVIEW_SENTENCE}${tier === 'dedicated' ? ` ${DEDICATED_SENTENCE}` : ''}`;
   }
+  // Through the fleet cache, because that is what the page reads once it has the
+  // host: a refresh that only wrote `fetched` was a no-op behind it. A host the
+  // cache does not hold (a deep link before the first reconcile, a removed host)
+  // is asked for directly so the page can still say what became of it.
   async function refresh(): Promise<void> {
     try {
-      fetched = await getHost(id);
+      await fleet.reconcile();
+      if (!fleet.hosts.some((h) => h.id === id)) fetched = await getHost(id);
       error = null;
     } catch (cause) {
       error = cause;
@@ -208,6 +217,18 @@
   onrefresh={refresh}
 >
   <Badge label={summary.label} tone={summary.tone} title={summary.hint} />
+  {#snippet meta()}
+    {#if fresh && report}
+      <!-- Not a live region: a time that ticks would be announced again and again. -->
+      <span class="fresh"
+        >{fresh.lead}
+        {#if fresh.future}just now{:else}<RelativeTime
+            value={report.checked_at}
+            plain
+          />{/if}{fresh.tail}</span
+      >
+    {/if}
+  {/snippet}
 </PageHeader>
 {#if error}<ErrorState {error} onretry={refresh} />
 {:else if loading && !host}<Skeleton />
@@ -488,6 +509,10 @@
   .act p,
   .command p {
     font-size: var(--z-text-xs);
+  }
+  .fresh {
+    font-size: var(--z-text-xs);
+    color: var(--z-text-muted);
   }
   .command {
     display: grid;

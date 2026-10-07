@@ -130,3 +130,47 @@ test('the refresh says when it last landed', async ({ page }) => {
   await expect(refresh).not.toHaveAttribute('aria-busy', 'true');
   await expect(refresh).toHaveAttribute('title', /^Refreshed .+\. Fetch it again\./);
 });
+
+test('Refresh on a host page re-reads the fleet rather than a copy the page ignores', async ({
+  page,
+}) => {
+  // Once the fleet cache holds the host the page reads it, not its own fetch, so
+  // a button that only refetched the one host did nothing the person could see.
+  // Asking for the host list is the proof the cache was re-read.
+  await goto(page, '/hosts/new', 'Add a host');
+  await page.getByRole('button', { name: 'Get the command' }).click();
+  const command = await page
+    .getByRole('region', { name: 'Run this on the new host' })
+    .locator('pre', { hasText: 'zoomies.sh/install.sh' })
+    .innerText();
+  const token = /--join-token\s+['"]?(zoojoin_[^'"\s]+)/.exec(command)?.[1];
+  const join = await page.request.post('/api/v1/agent/join', {
+    data: {
+      protocol_version: 1,
+      join_token: token,
+      name: `refresh-host-${Date.now() % 1e8}`,
+      capacity: 1,
+      os: 'linux',
+      arch: 'amd64',
+      version: 'dev',
+      backends: [{ kind: 'docker', available: true }],
+    },
+  });
+  expect(join.ok()).toBeTruthy();
+  const { host_id: hostId } = (await join.json()) as { host_id: string };
+  try {
+    await page.goto(`/hosts/${hostId}`);
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    const refresh = refreshButton(page);
+    await expect(refresh).toBeEnabled();
+    const listed = page.waitForRequest(
+      (request) =>
+        request.method() === 'GET' && new URL(request.url()).pathname === '/api/v1/hosts',
+    );
+    await refresh.click();
+    await listed;
+    await expect(refresh).toHaveAttribute('title', /^Refreshed .+\. Fetch it again\./);
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${hostId}`);
+  }
+});

@@ -1392,3 +1392,28 @@ test('an agent that names no release is not given a command either', async ({ pa
     await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
   }
 });
+
+// The header says how old the report is without promising when the next one
+// comes: the page cannot see the agent's heartbeat interval, so a number would
+// be a guess that read as a fact.
+test('the host page says how old the report is, and never how often one arrives', async ({
+  page,
+}) => {
+  const name = `fresh-host-${Date.now() % 1e8}`;
+  const credentials = await enrol(page, name);
+  try {
+    await heartbeat(page, credentials, [check('disk.space', 'Free space', 'safe', 'ok')]);
+    await goto(page, `/hosts/${credentials.host_id}`, name);
+    const line = page.locator('.fresh');
+    await expect(line).toHaveText(
+      /^Report checked (just now|\d+s ago)\. This page updates by itself when the agent sends a newer one\.$/,
+    );
+    await expect(page.getByRole('main')).not.toContainText(/every (minute|\d+ ?s)|per minute/i);
+    await expect(page.getByRole('button', { name: /apply|tune/i })).toHaveCount(0);
+    // The mobile project runs this too: a line that did not wrap would push the page sideways.
+    const width = await documentWidth(page);
+    expect(width.scrollWidth).toBeLessThanOrEqual(width.clientWidth);
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}`);
+  }
+});
