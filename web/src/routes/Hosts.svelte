@@ -20,7 +20,6 @@
   import { Plus, Server } from '@lucide/svelte';
   import {
     clearHostThrottle,
-    cordonHost,
     listJoinTokens,
     listMachines,
     listProviders,
@@ -42,6 +41,7 @@
   import HostCard from '$lib/hosts/HostCard.svelte';
   import HostCapacityDialog from '$lib/hosts/HostCapacityDialog.svelte';
   import HostRunnerSizesDialog from '$lib/hosts/HostRunnerSizesDialog.svelte';
+  import { cordon } from '$lib/hosts/actions';
   import { slotsOf } from '$lib/hosts/slots';
   import HostDeleteDialog from '$lib/hosts/HostDeleteDialog.svelte';
   import HostRenameDialog from '$lib/hosts/HostRenameDialog.svelte';
@@ -199,26 +199,6 @@
     tokensReload += 1;
     machinesReload += 1;
     await fleet.reconcile();
-  }
-
-  async function cordon(host: Host, cordoned: boolean): Promise<void> {
-    if (!host.id) return;
-    const name = host.name || host.id;
-    const result = await fleet.optimistic(
-      host.id,
-      { cordoned },
-      () => cordonHost(host.id ?? '', { cordoned }),
-      cordoned ? `${name} was not cordoned` : `${name} was not uncordoned`,
-    );
-    if (result === undefined) return;
-    if (cordoned) {
-      toasts.info(
-        `${name} cordoned`,
-        'Its runners keep going and finish their jobs. No new runner will be placed here.',
-      );
-    } else {
-      toasts.success(`${name} uncordoned`, 'The scheduler may place runners here again.');
-    }
   }
 
   /**

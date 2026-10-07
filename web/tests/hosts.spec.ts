@@ -363,6 +363,101 @@ test('a host under sustained pressure is throttled, says why, and an operator ca
   }
 });
 
+/**
+ * Cordoning is the one thing an operator does to a host that the page must get
+ * right in both directions: a card that claims a host is cordoned when the
+ * controller refused would have somebody reboot a machine a job can still land
+ * on. The card menu and the host page's Next step panel share one action, so
+ * this is the test that pins what that action does -- the same words, the same
+ * optimism, and the same walk back on a refusal.
+ */
+test('a host is cordoned and uncordoned from its card menu, and a refusal puts it back', async ({
+  page,
+}) => {
+  await goto(page, '/hosts/new', 'Add a host');
+  await page.getByRole('button', { name: 'Get the command' }).click();
+  const token = await joinToken(page);
+  // Never a demo host: demo-arm-1 is cordoned in the seed, and every other spec
+  // on this shared server reads the demo fleet as it was seeded.
+  const name = `cordon-host-${Date.now()}`;
+  let hostId = '';
+  try {
+    const join = await page.request.post('/api/v1/agent/join', {
+      data: {
+        protocol_version: 1,
+        join_token: token,
+        name,
+        capacity: 1,
+        os: 'linux',
+        arch: 'amd64',
+        cpus: 4,
+        memory_mb: 8192,
+        version: 'dev',
+        backends: [{ kind: 'docker', available: true }],
+      },
+    });
+    expect(join.ok()).toBeTruthy();
+    const credentials = (await join.json()) as { host_id: string; agent_token: string };
+    hostId = credentials.host_id;
+    const beat = await page.request.post('/api/v1/agent/heartbeat', {
+      headers: { Authorization: `Bearer ${credentials.agent_token}` },
+      data: { protocol_version: 1 },
+    });
+    expect(beat.ok()).toBeTruthy();
+    const cordoned = async (): Promise<boolean | undefined> =>
+      (
+        (await page.request.get(`/api/v1/hosts/${hostId}`).then((r) => r.json())) as {
+          cordoned?: boolean;
+        }
+      ).cordoned;
+
+    await goto(page, '/hosts', 'Hosts');
+    const card = page.getByRole('article', { name, exact: true });
+    await expect(card).toBeVisible();
+    await expect(card).not.toContainText('Cordoned.');
+    await plantMarker(page);
+
+    await card.getByRole('button', { name: /Actions for/ }).click();
+    await page.getByRole('menuitem', { name: 'Cordon this host', exact: true }).click();
+    // Exact, because the card's own status pill reads "<name> Cordoned" in its
+    // accessible text and a substring match would find the card as well as the toast.
+    await expect(page.getByText(`${name} cordoned`, { exact: true })).toBeVisible();
+    await expect(card).toContainText('Cordoned.');
+    await expectNoReload(page);
+    expect(await cordoned()).toBe(true);
+
+    // A refusal is reported, and the card is what the controller says it is
+    // rather than what the click hoped for.
+    await page.route('**/api/v1/hosts/*/cordon', (route) =>
+      route.fulfill({
+        status: 409,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          error: { code: 'conflict', message: 'That host changed underneath you.' },
+        }),
+      }),
+    );
+    await card.getByRole('button', { name: /Actions for/ }).click();
+    await page.getByRole('menuitem', { name: 'Uncordon this host', exact: true }).click();
+    await expect(page.locator('.toast[data-tone="error"]')).toContainText(
+      `${name} was not uncordoned`,
+    );
+    await expect(card, 'the card rolled back').toContainText('Cordoned.');
+    expect(await cordoned(), 'and the controller never saw it').toBe(true);
+    await page.unroute('**/api/v1/hosts/*/cordon');
+
+    // Now for real: the same menu item, and the card follows.
+    await card.getByRole('button', { name: /Actions for/ }).click();
+    await page.getByRole('menuitem', { name: 'Uncordon this host', exact: true }).click();
+    await expect(page.getByText(`${name} uncordoned`, { exact: true })).toBeVisible();
+    await expect(card).not.toContainText('Cordoned.');
+    await expectNoReload(page);
+    expect(await cordoned()).toBe(false);
+  } finally {
+    if (hostId) await page.request.delete(`/api/v1/hosts/${hostId}?force=true`);
+  }
+});
+
 test('runner capacity is adjustable from the host card without opening the full editor', async ({
   page,
 }) => {
