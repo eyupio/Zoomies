@@ -32,7 +32,10 @@ func (x Result) Counted() bool { return x.Tier == Safe && !x.Optional }
 //
 // Counts, which the CLI uses for the tier it ran and for exit codes, still
 // counts every result on purpose: `doctor --tier aggressive` must exit 1 on an
-// aggressive warning, and TestReportExitCodes builds results with no tier.
+// aggressive warning, and TestReportExitCodes builds results with no tier. It
+// makes one exception, for a warning an operator has accepted: that is a
+// decision about this host, so a report the controller judged exits 0 here as
+// the page says it is well.
 //
 // A pending reboot is counted once. When the report says RebootPending, the
 // kernel.pending warning is the same fact and is left out of every number here,
@@ -52,6 +55,11 @@ type Summary struct {
 	// anything optional. An uncounted error or skip is in no number; it is
 	// still in the results.
 	Suggestions int `json:"suggestions"`
+	// Accepted are counted warnings an operator has accepted as deliberate. They
+	// are in Counted, so "every check was accepted" can be told from "every check
+	// was skipped", and in neither Warnings nor Suggestions: they leave the
+	// list and the problems, and stay visible here.
+	Accepted int `json:"accepted"`
 }
 
 // rebootRow is the kernel.pending warning of a report that already says a
@@ -76,6 +84,10 @@ func (r Report) Summary() Summary {
 			continue
 		}
 		s.Counted++
+		if x.Accepting() && x.Status == Warn {
+			s.Accepted++
+			continue
+		}
 		switch x.Status {
 		case Warn:
 			s.Warnings++
@@ -94,7 +106,7 @@ func (r Report) Summary() Summary {
 func (r Report) Findings() []Result {
 	var errs, warns []Result
 	for _, x := range r.Results {
-		if !x.Counted() || r.rebootRow(x) {
+		if !x.Counted() || r.rebootRow(x) || x.Accepting() {
 			continue
 		}
 		switch x.Status {

@@ -209,8 +209,13 @@ func hostOSHealth(p *printer, h hostItem) string {
 	if d.RebootPending {
 		parts = append(parts, "reboot pending")
 	}
+	// Silence has to be visible: an accepted warning is in no other number.
+	accepted := ""
+	if n := d.Summary.Accepted; n > 0 {
+		accepted = fmt.Sprintf(", %d accepted", n)
+	}
 	if len(parts) > 0 {
-		return strings.Join(parts, ", ")
+		return strings.Join(parts, ", ") + accepted
 	}
 	// Every counted check skipped is not the same as every one passing, and the
 	// host's page says so too.
@@ -219,7 +224,7 @@ func hostOSHealth(p *printer, h hostItem) string {
 	}
 	// Suggestions never reach the cell: a host whose safe checks all pass is ok
 	// whatever the aggressive and optional ones would like.
-	return p.paint(colourGreen, "ok")
+	return p.paint(colourGreen, "ok") + accepted
 }
 
 // hostPlatform is what this machine is, in the terms a pool asks in. The

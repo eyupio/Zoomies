@@ -7469,6 +7469,31 @@ export interface components {
             reason?: string;
             actionable: boolean;
             optional?: boolean;
+            /** @description Present when an operator has accepted this warning as deliberate, so it no longer counts. The controller stamps it when it reads the report; an agent cannot send it. The reason is written by a person on the controller, not by the host. */
+            readonly accepted?: {
+                reason: string;
+                /** @description The name of the person who accepted it. */
+                by: string;
+                /** Format: date-time */
+                at: string;
+                /** Format: date-time */
+                expires_at: string;
+            };
+            /** @description Present when an acceptance of this check no longer covers it, so the row counts again and can say why. `at` is the acceptance's own time, never the time of reading. */
+            readonly ended?: {
+                by: string;
+                /**
+                 * Format: date-time
+                 * @description When it was accepted for `changed` and `worse`, and when it lapsed for `expired`.
+                 */
+                at: string;
+                /** @description What the check read when it was accepted. */
+                was: string;
+                /** @enum {string} */
+                why: "changed" | "expired" | "worse";
+            };
+            /** @description True when an operator may accept this result: a counted warning on a check that can be accepted and is not accepted now. Never true for an error, a skip, a suggestion, the pending reboot or the disk checks. */
+            readonly acceptable?: boolean;
         };
         /** @description A host's OS report, as its agent writes it. This is also the body an agent sends with a heartbeat, and it carries no `summary`: the controller counts the report itself, so a host cannot claim a count (see HostDoctorView). */
         HostDoctor: {
@@ -7495,6 +7520,8 @@ export interface components {
             skipped: number;
             /** @description Warnings that do not count: the aggressive and dedicated tiers, and optional checks. They are on the host's page and never raise a problem. */
             suggestions: number;
+            /** @description Counted warnings an operator has accepted as deliberate. They are in `counted` and in neither `warnings` nor `suggestions`, so they raise no problem and stay visible here. */
+            accepted: number;
         };
         /** @description A host's OS report as the API returns it: the report the agent wrote, with the controller's count of it in `summary`. Read `summary` for how a host is doing and `results` for what each check found. The text in `results` is written by the host and is untrusted. A host that has sent no report has no `doctor` at all. */
         HostDoctorView: components["schemas"]["HostDoctor"] & {

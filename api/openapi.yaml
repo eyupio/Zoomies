@@ -9743,6 +9743,41 @@ components:
         reason: { type: string }
         actionable: { type: boolean }
         optional: { type: boolean }
+        accepted:
+          type: object
+          readOnly: true
+          description: >-
+            Present when an operator has accepted this warning as deliberate, so it no longer
+            counts. The controller stamps it when it reads the report; an agent cannot send it.
+            The reason is written by a person on the controller, not by the host.
+          required: [reason, by, at, expires_at]
+          properties:
+            reason: { type: string }
+            by: { type: string, description: The name of the person who accepted it. }
+            at: { type: string, format: date-time }
+            expires_at: { type: string, format: date-time }
+        ended:
+          type: object
+          readOnly: true
+          description: >-
+            Present when an acceptance of this check no longer covers it, so the row counts again
+            and can say why. `at` is the acceptance's own time, never the time of reading.
+          required: [by, at, was, why]
+          properties:
+            by: { type: string }
+            at:
+              type: string
+              format: date-time
+              description: When it was accepted for `changed` and `worse`, and when it lapsed for `expired`.
+            was: { type: string, description: What the check read when it was accepted. }
+            why: { type: string, enum: [changed, expired, worse] }
+        acceptable:
+          type: boolean
+          readOnly: true
+          description: >-
+            True when an operator may accept this result: a counted warning on a check that can be
+            accepted and is not accepted now. Never true for an error, a skip, a suggestion, the
+            pending reboot or the disk checks.
     HostDoctor:
       type: object
       description: >-
@@ -9766,7 +9801,7 @@ components:
         The aggressive and dedicated tiers, and anything optional, are suggestions that never
         make a host look unwell. A pending reboot is counted once, as `reboot_pending`, and
         is not also a warning here.
-      required: [counted, warnings, errors, skipped, suggestions]
+      required: [counted, warnings, errors, skipped, suggestions, accepted]
       properties:
         counted:
           type: integer
@@ -9793,6 +9828,12 @@ components:
           description: >-
             Warnings that do not count: the aggressive and dedicated tiers, and optional checks.
             They are on the host's page and never raise a problem.
+        accepted:
+          type: integer
+          minimum: 0
+          description: >-
+            Counted warnings an operator has accepted as deliberate. They are in `counted` and in
+            neither `warnings` nor `suggestions`, so they raise no problem and stay visible here.
     HostDoctorView:
       description: >-
         A host's OS report as the API returns it: the report the agent wrote, with the

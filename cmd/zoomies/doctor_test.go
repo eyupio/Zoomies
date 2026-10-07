@@ -195,3 +195,41 @@ func TestARefusedHostReportPointsAtTheHostsPage(t *testing.T) {
 		}
 	}
 }
+
+// An acceptance is a decision made on the controller, so the report fetched
+// with --host must show where the warning went: its own section, who decided
+// and why, and a summary line the sections add up to.
+func TestAnAcceptedWarningHasItsOwnSectionAndLeavesTheCounts(t *testing.T) {
+	at := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
+	r := hosttune.Report{CheckedAt: time.Now(), Results: []hosttune.Result{
+		{ID: "docker.logs", Title: "Docker log rotation", Tier: hosttune.Safe, Status: hosttune.Warn, Current: "json-file", Actionable: true,
+			Accepted: &hosttune.Acceptance{Reason: "rotated by the log shipper", By: "Sam", At: at, ExpiresAt: at.AddDate(0, 6, 0)}},
+		{ID: "cgroup.version", Title: "Control groups", Tier: hosttune.Safe, Status: hosttune.Warn, Current: "v1"},
+	}}
+	var b strings.Builder
+	printDoctor(&b, r, true)
+	out := b.String()
+	for _, want := range []string{"1 warning(s), 0 error(s), 0 skipped check(s), 1 accepted", "Needs attention (1)", "Accepted (1)", "[accepted]", "by Sam on 1 Oct 2026, until 1 Apr 2027: rotated by the log"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "[fixable]") {
+		t.Errorf("an accepted row is still offered as fixable:\n%s", out)
+	}
+	if strings.Index(out, "Accepted (1)") < strings.Index(out, "Needs attention (1)") {
+		t.Errorf("the accepted section should follow what needs attention:\n%s", out)
+	}
+	var brief strings.Builder
+	printDoctorBrief(&brief, r, 0)
+	if strings.Contains(brief.String(), "Docker log rotation") || !strings.Contains(brief.String(), "1 warning, 0 errors") || !strings.Contains(brief.String(), "1 check accepted") {
+		t.Errorf("the brief report should list only what needs attention and mention the accepted check:\n%s", brief.String())
+	}
+}
+
+func TestAHostWithOnlyAcceptedWarningsExitsZero(t *testing.T) {
+	r := hosttune.Report{Results: []hosttune.Result{{ID: "docker.logs", Tier: hosttune.Safe, Status: hosttune.Warn, Accepted: &hosttune.Acceptance{}}}}
+	if r.ExitCode() != 0 {
+		t.Errorf("exit code = %d, want 0", r.ExitCode())
+	}
+}

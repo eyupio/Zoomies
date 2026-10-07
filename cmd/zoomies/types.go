@@ -501,14 +501,16 @@ type hostDoctor struct {
 	Summary       *hostDoctorSummary `json:"summary"` // nil from a controller older than the field
 }
 
-// hostDoctorSummary is the controller's count of a report: the same five
+// hostDoctorSummary is the controller's count of a report: the same six
 // numbers the host's page, the problems and the metrics read. Suggestions are
-// not decoded because they never reach a cell.
+// not decoded because they never reach a cell. Accepted does: a warning an
+// operator has accepted is silent everywhere else, so the table says so.
 type hostDoctorSummary struct {
 	Counted  int `json:"counted"`
 	Warnings int `json:"warnings"`
 	Errors   int `json:"errors"`
 	Skipped  int `json:"skipped"`
+	Accepted int `json:"accepted"`
 }
 
 // runnerProfile is a host's runner profile as the API writes and reads it.

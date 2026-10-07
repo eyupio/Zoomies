@@ -180,6 +180,10 @@ func TestHostOSHealthReadsTheControllersCountOfTheReport(t *testing.T) {
 		{"some checks skipped and the rest fine", aReport(aMinuteOld(hostDoctorSummary{Counted: 12, Skipped: 2})), "ok"},
 
 		{"every counted check passing", aReport(aMinuteOld(hostDoctorSummary{Counted: 12})), "ok"},
+
+		// Silence has to show: an accepted warning is in no other number.
+		{"a host whose only warning was accepted", aReport(aMinuteOld(hostDoctorSummary{Counted: 12, Accepted: 1})), "ok, 1 accepted"},
+		{"accepted beside a warning", aReport(aMinuteOld(hostDoctorSummary{Counted: 12, Warnings: 1, Accepted: 2})), "1 warning, 2 accepted"},
 	}
 	for _, tc := range cases {
 		p, _ := testPrinter(outputTable)
