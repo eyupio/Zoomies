@@ -1732,22 +1732,37 @@ func oomMessage(insp *ContainerInspect) string {
 // job, so the sidecar's build CPU and memory are included in the same sample.
 // The agent handles sampling failures separately from lifecycle observations,
 // retaining the last successful sample.
+//
+// A stats call is a second of the daemon's time at the least, so the runner's and
+// the sidecar's are taken together and not one after the other: in turn they spent
+// two of the agent's five seconds before inspect and list had been asked, and a loaded
+// daemon lost the whole reading -- and with it the evidence the sizing advice is
+// built from -- to a timeout neither container had earned.
+//
+// A failure of the sidecar's sample still loses the whole reading, deliberately. A
+// runner's own figure kept on its own would be recorded as the job's peak with the
+// daemon's share of it missing, and a peak that is too low is the error sizing advice
+// cannot afford: the last good sample is retained instead, and the agent says so after
+// enough of them in a row.
 func (b *DockerBackend) Stats(ctx context.Context, h Handle) (Stats, error) {
-	s, err := b.api.ContainerStats(ctx, string(h))
-	if err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return Stats{}, err
-		}
-		return Stats{}, err
+	type sample struct {
+		stats Stats
+		err   error
 	}
-	out := Stats(s)
+	runner := make(chan sample, 1)
+	go func() {
+		s, err := b.api.ContainerStats(ctx, string(h))
+		runner <- sample{Stats(s), err}
+	}()
 	insp, err := b.api.ContainerInspect(ctx, string(h))
 	if err != nil || insp.Config == nil || insp.Config.Labels[LabelDockerMode] != string(store.DockerDinD) {
-		return out, nil
+		r := <-runner
+		return r.stats, r.err
 	}
 	name := insp.Config.Labels[LabelName]
 	if name == "" {
-		return out, nil
+		r := <-runner
+		return r.stats, r.err
 	}
 	sidecars, err := b.api.ContainerList(ctx, map[string][]string{
 		"label": {LabelManaged + "=true", LabelDinDFor + "=" + name},
@@ -1755,21 +1770,34 @@ func (b *DockerBackend) Stats(ctx context.Context, h Handle) (Stats, error) {
 	if err != nil {
 		return Stats{}, err
 	}
-	busiest := halfPercent(out.CPUPercent, insp.Config.Labels)
-	runnerHalf := halfUse(out, insp.Config.Labels)
-	var daemonHalf *HalfUse
+	type half struct {
+		stats  Stats
+		labels map[string]string
+	}
+	var halves []half
 	for _, sidecar := range sidecars {
-		sample, err := b.api.ContainerStats(ctx, sidecar.ID)
+		sampled, err := b.api.ContainerStats(ctx, sidecar.ID)
 		if errors.Is(err, ErrNotFound) {
 			continue
 		}
 		if err != nil {
 			return Stats{}, err
 		}
-		busiest = max(busiest, halfPercent(sample.CPUPercent, sidecar.Labels))
-		half := halfUse(Stats(sample), sidecar.Labels)
-		daemonHalf = &half
-		out = addStats(out, Stats(sample))
+		halves = append(halves, half{Stats(sampled), sidecar.Labels})
+	}
+	r := <-runner
+	if r.err != nil {
+		return Stats{}, r.err
+	}
+	out := r.stats
+	busiest := halfPercent(out.CPUPercent, insp.Config.Labels)
+	runnerHalf := halfUse(out, insp.Config.Labels)
+	var daemonHalf *HalfUse
+	for _, h := range halves {
+		busiest = max(busiest, halfPercent(h.stats.CPUPercent, h.labels))
+		use := halfUse(h.stats, h.labels)
+		daemonHalf = &use
+		out = addStats(out, h.stats)
 	}
 	out.BusiestHalfPercent = busiest
 	if daemonHalf != nil {

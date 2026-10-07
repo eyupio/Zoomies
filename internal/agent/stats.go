@@ -18,6 +18,10 @@ const (
 	statsBudget   = 20 * time.Second
 	statsTimeout  = 5 * time.Second
 	statsWorkers  = 4
+	// statsMissesSaid is how many samples in a row may fail before the agent says so at Info:
+	// five is two and a half minutes, which a loaded daemon can cost without anything being
+	// wrong and a stuck one cannot.
+	statsMissesSaid = 5
 )
 
 func (a *Agent) statsLoop(ctx context.Context) error {
@@ -56,6 +60,7 @@ func (a *Agent) sampleStats(ctx context.Context) {
 				if err != nil {
 					a.log.Debug("runner stats are unavailable; retaining the last sample",
 						"runner", r.runnerID, "error", err)
+					a.noteStatsMiss(r)
 					continue
 				}
 				sampledAt := a.now()
@@ -64,6 +69,7 @@ func (a *Agent) sampleStats(ctx context.Context) {
 				if current := a.runners[r.runnerID]; current != nil &&
 					current.handle == r.handle && !current.terminal && !current.hostRemoved {
 					current.stats = stats
+					current.statsMisses = 0
 				}
 				a.mu.Unlock()
 			}
@@ -82,4 +88,24 @@ send:
 	}
 	close(jobs)
 	workers.Wait()
+}
+
+// noteStatsMiss counts a failed sample and says so once when they have run on. The failure
+// itself is logged at Debug, and with the last reading retained nothing shows; but readings
+// that stop coming leave the controller sizing from a stale picture, and "not enough
+// samples" is all it can say for it.
+func (a *Agent) noteStatsMiss(r tracked) {
+	a.mu.Lock()
+	current := a.runners[r.runnerID]
+	if current == nil || current.handle != r.handle {
+		a.mu.Unlock()
+		return
+	}
+	current.statsMisses++
+	said := current.statsMisses == statsMissesSaid
+	a.mu.Unlock()
+	if said {
+		a.log.Info("runner stats have been unavailable for several samples in a row; the last reading is being kept, and sizing evidence for this runner is going stale",
+			"runner", r.runnerID, "samples", statsMissesSaid)
+	}
 }
