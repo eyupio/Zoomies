@@ -461,7 +461,15 @@ is folded behind a **Host capacity map** button above them: the cards are what
 somebody came to act on, and the browser remembers whether the map was open. A
 host's status pill reads **Connected** while its agent is sending heartbeats and
 **Unreachable** when it stops. The pill beside it is the host's own OS report,
-and "healthy" is kept for that. The **Need attention** tile counts the hosts
+and "healthy" is kept for that. That pill is a link, 24 pixels high and ending in
+a chevron, and a muted line under the card's badges names the worst checks (up to
+two, then "and N more"), so a tap on a phone says what is wrong as well as where
+to look; the link opens the host page at the first of them. A stale report, a
+container's partial report and a host whose only finding is a reboot get no such
+line. The pill reads **Report stale** for a connected host with an old report,
+**Last known report** for one that is not connected, and **Partial report** for a
+container or a native report that skipped half or more of its checks, all
+neutral. The **Need attention** tile counts the hosts
 whose health pill reads warnings, errors or a pending reboot, and opens the
 cards filtered to them. The row above the cards — **All**, **Need attention**,
 **Report stale** and **No report** — is kept in the address as
