@@ -44,6 +44,7 @@
   } from '$lib/kennel/words';
   import { formatNumber } from '$lib/format';
   import { fleet } from '$lib/state/fleet.svelte';
+  import { kennelClub } from '$lib/state/kennel.svelte';
   import { prefs } from '$lib/state/prefs.svelte';
   import { session } from '$lib/state/session.svelte';
   import { kennelCoverageStatus, kennelStatus } from '$lib/status';
@@ -62,6 +63,9 @@
 
   $effect(() => {
     void reload;
+    // Turned on or off from the rail, here or in another tab: ask again, so the
+    // page does not wait for a frame that a stream which is down cannot send.
+    void kennelClub.epoch;
     const controller = new AbortController();
     loading = true;
     void getKennelOverview(controller.signal)

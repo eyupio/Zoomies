@@ -39,8 +39,13 @@ the same way as in Settings, from the page it governs:
 * it shows what the controller says and not what was asked for, so a change that was
   refused, or accepted and then overruled by the environment, puts it back and says
   why;
-* it follows the event stream, and asks again when the stream comes up, so a change
-  made in another tab is seen.
+* it follows the event stream, and asks again when the stream comes up or says it
+  lost its place, so a change made in another tab is seen;
+* the answer to a change is adopted when it arrives, and every page of the section
+  asks again because of it. A page that waited for the stream's frame would be wrong
+  exactly when the connection is the problem, and a repository page that is open when
+  Kennel Club is turned off says so, as it would have on arrival, and does not go on
+  showing what it read.
 
 The Overview's header buttons for the repositories and AI Context are gone, because
 the menu has them, and "Turn on in Settings" is a button that does what the switch

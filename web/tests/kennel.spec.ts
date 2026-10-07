@@ -1782,6 +1782,12 @@ test.describe('the side menu and the switch', () => {
       await expect(
         page.getByText('An administrator can turn it on, with the switch beside this page.'),
       ).toBeVisible();
+      // The list says the same, and offers nothing either.
+      await goto(page, '/kennel/repositories', 'Repositories');
+      await expect(page.getByRole('button', { name: 'Turn on Kennel Club' })).toHaveCount(0);
+      await expect(
+        page.getByText('An administrator can turn it on, with the switch beside this page.'),
+      ).toBeVisible();
 
       await patchSettings(page, on);
       await expect(kennelSwitch(page)).toHaveAttribute('aria-checked', 'true', { timeout: 20_000 });
@@ -1851,6 +1857,100 @@ test.describe('the side menu and the switch', () => {
     await expect(toast(page, 'success', 'Kennel Club is on')).toHaveCount(0);
   });
 
+  // The stream is cut for the whole of these. A change made from the rail is
+  // answered by the request that made it, and every page of the section follows
+  // that answer, so none of them waits for a frame that a dropped stream cannot
+  // send. The pages that did wait would pass the tests above, which have a
+  // stream, and be wrong exactly when someone's connection is the problem.
+  test.describe('with no stream to say so', () => {
+    const pages = [
+      {
+        name: 'the overview',
+        path: () => '/kennel',
+        heading: 'Kennel Club',
+        offHeading: undefined,
+        saysOff: (page: Page) => page.getByRole('heading', { name: 'Kennel Club is off' }),
+      },
+      {
+        name: 'the list of repositories',
+        path: () => '/kennel/repositories',
+        heading: 'Repositories',
+        offHeading: undefined,
+        saysOff: (page: Page) => page.locator('#main p.title', { hasText: 'Kennel Club is off' }),
+      },
+      {
+        name: 'a repository',
+        path: (id: string) => `/kennel/repositories/${id}`,
+        heading: PUBLIC_REPO,
+        // Arriving while it is off, the page does not know the name yet.
+        offHeading: 'Repository',
+        saysOff: (page: Page) => page.getByText('That repository could not be read'),
+      },
+    ];
+
+    for (const where of pages) {
+      test(`${where.name} follows the switch`, async ({ page }) => {
+        await patchSettings(page, on);
+        await untilRead(page);
+        const row = await repository(page, PUBLIC_REPO);
+        await patchSettings(page, off);
+        await page.route('**/api/v1/events*', (route) => route.abort('connectionfailed'));
+
+        await goto(page, where.path(row.id), where.offHeading ?? where.heading);
+        await expect(where.saysOff(page)).toBeVisible();
+        await expect(kennelSwitch(page)).toHaveAttribute('aria-checked', 'false');
+
+        await kennelSwitch(page).click();
+        await expect(kennelSwitch(page)).toHaveAttribute('aria-checked', 'true');
+        await expect(where.saysOff(page)).toHaveCount(0);
+        await expect(page.getByRole('heading', { level: 1, name: where.heading })).toBeVisible();
+
+        await kennelSwitch(page).click();
+        await page
+          .getByRole('dialog', { name: 'Turn off Kennel Club' })
+          .getByRole('button', { name: 'Turn off', exact: true })
+          .click();
+        await expect(kennelSwitch(page)).toHaveAttribute('aria-checked', 'false');
+        await expect(where.saysOff(page)).toBeVisible();
+      });
+    }
+  });
+
+  // A resync is the controller saying it could not replay what this tab missed. It
+  // arrives on a stream that never dropped, so the switch has no reconnect to
+  // notice, and what it holds may be wrong: it asks again. The frame is delivered
+  // by hand to the open stream, and the answer the controller gives is changed
+  // underneath, which is the only way to tell asking again from not asking.
+  test('a stream that lost its place makes the switch ask again', async ({ page }) => {
+    await patchSettings(page, on);
+    await untilRead(page);
+    await page.addInitScript(() => {
+      const Real = window.EventSource;
+      const streams: EventSource[] = [];
+      (window as unknown as { __streams: EventSource[] }).__streams = streams;
+      window.EventSource = class extends Real {
+        constructor(url: string | URL, init?: EventSourceInit) {
+          super(url, init);
+          streams.push(this);
+        }
+      };
+    });
+    await goto(page, '/kennel/repositories', 'Repositories');
+    await expect(page.locator('.connection')).toHaveAttribute('data-state', 'live');
+    await expect(kennelSwitch(page)).toHaveAttribute('aria-checked', 'true');
+
+    await page.route('**/api/v1/kennel', async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as Record<string, unknown>;
+      return route.fulfill({ response, json: { ...body, enabled: false } });
+    });
+    await page.evaluate(() => {
+      for (const stream of (window as unknown as { __streams: EventSource[] }).__streams)
+        stream.dispatchEvent(new MessageEvent('resync', { data: '{"reason":"test"}' }));
+    });
+    await expect(kennelSwitch(page)).toHaveAttribute('aria-checked', 'false', { timeout: 10_000 });
+  });
+
   test('on a phone every page of the section is in view, AI Context included, at a size a finger can use', async ({
     page,
     isMobile,
@@ -1874,6 +1974,16 @@ test.describe('the side menu and the switch', () => {
           ).toBeGreaterThanOrEqual(44);
         }
         await expect(kennelSwitch(page)).toBeInViewport({ ratio: 1 });
+        // On a line of its own, above the chips: beside them, the sentence under it
+        // is squeezed into whatever the row has left.
+        const switchBox = (await kennelSwitch(page).boundingBox())!;
+        const chip = (await rail(page)
+          .getByRole('link', { name: 'Overview', exact: true })
+          .boundingBox())!;
+        expect(
+          switchBox.y + switchBox.height,
+          `the switch is above the chips at ${width}px`,
+        ).toBeLessThanOrEqual(chip.y);
         await auditThePage(page, `${path} at ${width}px`);
       }
     }
