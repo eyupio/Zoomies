@@ -85,7 +85,10 @@ test('elastic CPU states keep their Zoomies vocabulary and distinct brand icons'
   assert.notEqual(maximum.icon, boost.icon);
   assert.notEqual(boost.icon, throttled.icon);
   assert.equal(maximum.tone, 'busy');
-  assert.equal(throttled.tone, 'draining');
+  // Pending, as the status table in docs/ui-guidelines.md has it: throttled is
+  // amber for a runner's CPU and for a host alike, and the plum is draining,
+  // cordoned and paused.
+  assert.equal(throttled.tone, 'pending');
   // A held runner is not an idle one: "guaranteed pace" is the elastic
   // pool's word for a runner that may yet be lent something, and this one
   // never will be. Its own dog, sitting, and no status hue.
