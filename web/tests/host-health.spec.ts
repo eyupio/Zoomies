@@ -937,3 +937,80 @@ test('a link to a check lands on its row, moves focus there and stays quiet once
     await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
   }
 });
+
+test('the health pill on a card is a 24 pixel link that names the worst checks and lands on the first', async ({
+  page,
+}) => {
+  // The pill was 16px tall and said only "3 warnings": an operator had to open
+  // the host to learn which three, and on a phone could barely hit it.
+  const name = `health-card-${Date.now() % 1e6}`;
+  const credentials = await enrol(page, name);
+  const disk = check('disk.space', 'Work directory free space', 'safe', 'error', {
+    current: '3% free (11G)',
+  });
+  const checks = [
+    check('inotify.watches', 'File watches', 'safe', 'warn'),
+    disk,
+    check('net.somaxconn', 'Listen backlog', 'safe', 'warn'),
+    check('vm.swappiness', 'Swappiness', 'safe', 'warn'),
+  ];
+  try {
+    await heartbeat(page, credentials, checks);
+    for (const width of [1440, 375]) {
+      await page.setViewportSize({ width, height: 900 });
+      await goto(page, '/hosts', 'Hosts');
+      const card = page.getByRole('article', { name, exact: true });
+      const pill = card.getByRole('link', { name: `Host health for ${name}` });
+      // The state is in the name, not only in the colour.
+      await expect(pill).toHaveAccessibleName(
+        `Host health for ${name}: 1 health error · 3 warnings`,
+      );
+      await expect(pill).toHaveAccessibleDescription(
+        'Work directory free space, File watches and 2 more',
+      );
+      await expect(card.locator('.health-checks')).toHaveText(
+        'Work directory free space, File watches and 2 more',
+      );
+      const box = await pill.boundingBox();
+      expect(box?.height ?? 0).toBeGreaterThanOrEqual(24);
+      expect(box?.width ?? 0).toBeGreaterThanOrEqual(24);
+      const fit = await documentWidth(page);
+      expect(fit.scrollWidth).toBeLessThanOrEqual(fit.clientWidth);
+    }
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await goto(page, '/hosts', 'Hosts');
+    const card = page.getByRole('article', { name, exact: true });
+    await plantMarker(page);
+    await card.getByRole('link', { name: `Host health for ${name}` }).click();
+    await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
+    await expect(page).toHaveURL(/#disk\.space$/);
+    await expect(page.locator('.health-content tr[id="disk.space"]')).toBeFocused();
+    await expectNoReload(page);
+
+    await expect(page.getByRole('button', { name: /apply|tune/i })).toHaveCount(0);
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+  }
+});
+
+test('a host with a clean report has a pill that links to its page and no line under it', async ({
+  page,
+}) => {
+  // A line that appeared with nothing to say would teach operators to ignore it.
+  const name = `health-quiet-${Date.now() % 1e6}`;
+  const credentials = await enrol(page, name);
+  try {
+    await heartbeat(page, credentials, [
+      check('disk.space', 'Work directory free space', 'safe', 'ok'),
+    ]);
+    await goto(page, '/hosts', 'Hosts');
+    const card = page.getByRole('article', { name, exact: true });
+    const pill = card.getByRole('link', { name: `Host health for ${name}: Health OK` });
+    await expect(pill).toHaveAttribute('href', `/hosts/${credentials.host_id}`);
+    await expect(card.locator('.health-checks')).toHaveCount(0);
+    await expect(pill).not.toHaveAttribute('aria-describedby', /.+/);
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+  }
+});
