@@ -107,14 +107,13 @@ func (d *demoClient) WebURL() string { return "https://github.com/" + d.target }
 // would be worse than a refusal that says why.
 
 func (d *demoClient) ListRepositories(context.Context, int) ([]github.Repository, error) {
-	names := append(append([]string{}, demoRepos...), demoQuietRepos...)
-	names = append(append(names, demoMigratedRepos...), demoArchivedRepos...)
+	names := demoRepoNames()
 	out := make([]github.Repository, 0, len(names))
-	for i, name := range names {
+	for _, name := range names {
 		out = append(out, github.Repository{
 			// Stable numeric IDs, as GitHub gives: AI Context keys a
 			// repository by its ID so a rename cannot move its source grants.
-			ID:            int64(900001 + i),
+			ID:            demoRepoID(name),
 			FullName:      name,
 			DefaultBranch: "main",
 			Private:       true,
@@ -124,6 +123,56 @@ func (d *demoClient) ListRepositories(context.Context, int) ([]github.Repository
 	}
 	return out, nil
 }
+
+// demoPublicRepo is the one fixture repository Kennel Club is told is public,
+// so a demo has a finding to show. The migration wizard above keeps listing every
+// repository as private, because what it does with visibility is not what Kennel
+// Club does, and a demo that changed its wizard to make a second page interesting
+// would be a worse demo of both.
+const demoPublicRepo = "acme/site"
+
+// demoRepoNames is every repository the fixture's organisation has, in the order
+// whose position gives each its stable numeric ID.
+func demoRepoNames() []string {
+	names := append(append([]string{}, demoRepos...), demoQuietRepos...)
+	return append(append(names, demoMigratedRepos...), demoArchivedRepos...)
+}
+
+func demoRepoID(name string) int64 {
+	if i := slices.Index(demoRepoNames(), name); i >= 0 {
+		return int64(900001 + i)
+	}
+	return 0
+}
+
+// KennelRepositories answers Kennel Club from the fixture, which is the only
+// place it could be answered from: there is no GitHub App behind the demo, so
+// asking one would only put a failure on the Overview that says nothing about the
+// fleet. It never reaches GitHub, and Kennel Club's own request counters never
+// see it.
+func (d *demoClient) KennelRepositories(ctx context.Context, limit int) ([]github.Repository, error) {
+	repos, err := d.ListRepositories(ctx, limit)
+	if err != nil {
+		return nil, err
+	}
+	for i := range repos {
+		repos[i].Private, repos[i].Visibility = true, "private"
+		if repos[i].FullName == demoPublicRepo {
+			repos[i].Private, repos[i].Visibility = false, "public"
+		}
+	}
+	return repos, nil
+}
+
+// KennelRun says a fixture run was a push from the repository itself, which is
+// nothing a stranger started: the demo's finding is about where the repository
+// runs, not about who triggered it.
+func (d *demoClient) KennelRun(_ context.Context, repo string, runID int64) (*github.KennelRun, error) {
+	id := demoRepoID(repo)
+	return &github.KennelRun{ID: runID, Event: "push", RepositoryID: id, HeadRepositoryID: id}, nil
+}
+
+var _ github.RepoReader = (*demoClient)(nil)
 
 // ListWorkflows gives the fixture the answers a real organisation gives: a
 // repository with one workflow, a repository with several -- so the wizard's

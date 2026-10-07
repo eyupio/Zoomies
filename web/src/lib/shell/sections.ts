@@ -14,7 +14,6 @@
  * rather than read from the top each time.
  */
 import {
-  BookOpenText,
   Boxes,
   ChartNoAxesCombined,
   Cloud,
@@ -26,6 +25,7 @@ import {
   ScrollText,
   Server,
   Settings,
+  Trophy,
   Workflow,
 } from '@lucide/svelte';
 import type { LucideIcon } from '@lucide/svelte';
@@ -67,7 +67,7 @@ export const SECTIONS: readonly NavItem[] = [
   { path: '/providers', label: 'Providers', icon: Cloud, key: 'v', group: 'Infrastructure' },
   { path: '/installations', label: 'Installations', icon: Plug, key: 'i', group: 'GitHub' },
   { path: '/migrate', label: 'Migrate', icon: GitPullRequestArrow, key: 'm', group: 'GitHub' },
-  { path: '/ai-context', label: 'AI Context', icon: BookOpenText, key: 'c', group: 'GitHub' },
+  { path: '/kennel', label: 'Kennel Club', icon: Trophy, key: 'k', group: 'GitHub' },
   { path: '/audit', label: 'Audit', icon: ScrollText, key: 'a', group: 'Administration' },
   { path: '/settings', label: 'Settings', icon: Settings, key: 's', group: 'Administration' },
 ];
@@ -91,8 +91,14 @@ export const NAV_GROUPS: readonly NavGroup[] = SECTIONS.reduce<NavGroup[]>((grou
  * Pages that belong to a section without living under its path. The Jobs
  * list is the Workflows page one step down -- the same runs, opened out to
  * every job -- so the sidebar keeps Workflows lit while an operator is there.
+ * AI Context lives under Kennel Club now; its old addresses still open the same
+ * pages, and the sidebar lights the section they belong to from either.
  */
-const WITHIN: Readonly<Record<string, string>> = { '/jobs': '/workflows' };
+const WITHIN: Readonly<Record<string, string>> = {
+  '/jobs': '/workflows',
+  '/ai-context': '/kennel',
+  '/ai-context/setup': '/kennel',
+};
 
 /** Whether `path` is the section the address bar is currently inside. */
 export function isCurrentSection(path: string, here: string): boolean {
