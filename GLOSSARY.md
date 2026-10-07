@@ -78,6 +78,10 @@ _Avoid_: Problem (for a Kennel Club result), warning
 The three words a flagged row in a host's check tables carries beside its Warning or Suggestion badge: Fixable when the report offers the row to `zoomies tune`, Advice when it does not, Optional for a trade-off. Words about one row, never a state of the host. Warning stays reserved for the badge on a counted check.
 _Avoid_: Warning (for what a person can do about a row), Safe (for Fixable, which is also a tier name)
 
+**Accepted**:
+A counted warning on one host that an operator has decided is deliberate, with a reason and an end date. It keeps its row and leaves the counts, the problems and the pill, and counts again when its value changes or its date passes. Neither a state of the host nor a fourth kind of check result: the badge is the accent tone, never a status colour.
+_Avoid_: Ignored, muted, silenced, suppressed, dismissed (which is a problem's word)
+
 ### Kennel Club
 
 **Kennel Club**:
