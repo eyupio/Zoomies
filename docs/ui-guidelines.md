@@ -250,10 +250,24 @@ these colours for anything else, because operators learn them.
 | --- | --- | --- | --- |
 | idle / healthy / success | `--z-idle` | `#0F7A3D` | `#5FD68C` |
 | **busy / running** | `--z-busy` | `#00757F` | `#3BD6E8` |
-| provisioning / registering / pending / throttled | `--z-pending` | `#9A6100` | `#F2B246` |
-| draining / cordoned / paused | `--z-draining` | `#4D3F5C` | `#D0BEE0` |
+| provisioning / registering / pending / throttled / warning | `--z-pending` | `#9A6100` | `#F2B246` |
+| draining / cordoned / paused / waiting on a step an operator asked for | `--z-draining` | `#4D3F5C` | `#D0BEE0` |
 | failed / error / destructive | `--z-danger` | `#BD2018` | `#FF8D84` |
 | removed / neutral | `--z-neutral` | `#686D76` | `#7F858E` |
+
+Two meanings that are not states of the fleet are written into the table
+rather than left to be inferred, because each had quietly grown a colour of its
+own. **Warning** is `--z-pending`: a finding or setting the operator should look
+at, drawn the way a state that will resolve itself is. **Waiting on a step an
+operator asked for** -- a setting saved but not applied until Zoomies restarts, a
+restore staged for the next start -- is `--z-draining`, because it is held on
+purpose and will not move until somebody acts, like a cordon.
+
+**Information is not a status.** A note, an explanation or an `info` severity
+carries `--z-accent`, never one of the six: cyan says a runner is executing a
+job right now, and plum says something was held back, so neither can also mean
+"for your information". A box that only explains itself takes `--z-accent-subtle`
+and `--z-accent-border`.
 
 The fleet status page at `/status` has three states of its own, and they sit on
 this mapping rather than beside it: **blocked** is `--z-danger` with the

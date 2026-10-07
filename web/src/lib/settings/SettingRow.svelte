@@ -240,7 +240,7 @@
   class:has-findings={findings.length > 0}
   class:sought
   id="setting-{setting.key}"
-  class:pending={setting.pending}
+  class:awaiting-restart={setting.pending}
   class:pinned
 >
   <div class="key">
@@ -432,7 +432,7 @@
     outline-offset: calc(-1 * var(--z-border-width-thick));
     scroll-margin-top: var(--z-space-10);
   }
-  .row.pending {
+  .row.awaiting-restart {
     box-shadow: inset var(--z-nudge-1) 0 0 0 var(--z-draining);
   }
   .row.pinned {

@@ -756,6 +756,10 @@ input,
   text-decoration: underline;
   text-underline-offset: 0.16em;
 }
+.zoomies-footer__policies {
+  display: inline-flex;
+  gap: 0.6rem;
+}
 .zoomies-footer__credit a {
   font-weight: 550;
   color: var(--md-footer-fg-color);

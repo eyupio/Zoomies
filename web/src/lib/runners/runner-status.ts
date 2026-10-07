@@ -27,7 +27,7 @@ const activityQuirky: Record<string, Activity> = {
     label: 'Leash tightened',
     title: 'Host pressure protection',
     detail: 'CPU has been reduced to protect the host. It can recover as pressure eases.',
-    tone: 'draining',
+    tone: 'pending',
   },
 };
 
@@ -55,7 +55,7 @@ const activityStandard: Record<string, Activity> = {
     label: 'Throttled',
     title: 'Host pressure protection',
     detail: 'CPU has been reduced to protect the host. It can recover as pressure eases.',
-    tone: 'draining',
+    tone: 'pending',
   },
 };
 

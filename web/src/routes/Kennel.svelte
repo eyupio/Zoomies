@@ -313,7 +313,7 @@
             <ul class="rows">
               {#each overview.attention as row (row.id)}
                 <li>
-                  <a href="/kennel/repositories/{encodeURIComponent(row.id)}">
+                  <a href="/kennel/repositories/{encodeURIComponent(row.id)}/ci">
                     <span class="name">{row.name}</span>
                     <Badge
                       status={kennelStatus(
@@ -414,9 +414,9 @@
   }
   .notice {
     padding: var(--z-space-3) var(--z-space-4);
-    border: var(--z-border-width) solid var(--z-draining-border);
+    border: var(--z-border-width) solid var(--z-accent-border);
     border-radius: var(--z-radius-md);
-    background: var(--z-draining-subtle);
+    background: var(--z-accent-subtle);
     color: var(--z-text);
     font-size: var(--z-text-sm);
   }

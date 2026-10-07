@@ -202,10 +202,18 @@ nav:
   - Runners in your home lab: home-lab.md
   - Runners in Docker: docker.md
   - Runners without Kubernetes: runners-without-kubernetes.md
-  - Compared with ARC: actions-runner-controller.md
-  - Compared with runner services: hosted-runner-services.md
+  - Alternatives:
+      - Overview: alternatives/index.md
+      - Compared with ARC: actions-runner-controller.md
+      - Compared with GARM: alternatives/garm.md
+      - Compared with the AWS Terraform module: alternatives/terraform-aws-github-runner.md
+      - Compared with TestFlows Hetzner runners: alternatives/testflows-hetzner-runners.md
+      - Compared with Cirun: alternatives/cirun.md
+      - Compared with runner services: hosted-runner-services.md
   - What it costs: costs.md
   - FAQ: faq.md
+  - Privacy: privacy.md
+  - Terms: terms.md
 
 # The brand pack's own guide is published because docs/brand.md links to it, but
 # it is not a section of the site's navigation.
