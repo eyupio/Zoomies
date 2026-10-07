@@ -441,9 +441,9 @@
   }
   .notice {
     padding: var(--z-space-3) var(--z-space-4);
-    border: var(--z-border-width) solid var(--z-draining-border);
+    border: var(--z-border-width) solid var(--z-accent-border);
     border-radius: var(--z-radius-md);
-    background: var(--z-draining-subtle);
+    background: var(--z-accent-subtle);
     font-size: var(--z-text-sm);
     color: var(--z-text);
   }
