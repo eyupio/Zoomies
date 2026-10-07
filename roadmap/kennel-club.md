@@ -13,6 +13,58 @@ No code was written for this document. The sections follow the brief's order
 (1 to 11), and the three places where the brief and the repository disagree
 most are set out first, because they change what Stage 1 can be.
 
+## Where it stands, 7 October 2026
+
+This section was added after Stage 1 was mostly built, and it is the one to
+trust where it and the sections below disagree: they describe the design as it
+was proposed, and the decision records say where it changed.
+
+**On `main` at `26c5f759`.** The evaluator and its six checks, the migration and
+store, the GitHub reader, the controller loop with its settings, problems and
+metrics, the REST API with its roles and audit, and the MCP read tools (#661).
+In the UI (#669), **Kennel Club** is a menu entry in the GitHub group, key `g k`,
+in the place AI Context had; AI Context moved under it to `/kennel/ai-context`
+and its old addresses still work. There is an Overview, a repository list with
+filters kept in the address, and a repository page with findings, what could be
+read, the waived list and **Recheck**. An operator can waive a finding with a
+reason and an end, and any operator can end a waiver (#670).
+
+```mermaid
+flowchart LR
+    fleet[("the fleet's own records<br/>jobs, pools, hosts")] --> loop["Kennel loop<br/>every repository the fleet served"]
+    gh["GitHub<br/>Metadata and Actions read"] --> loop
+    loop --> rows[("kennel_repositories<br/>kennel_waivers")]
+    rows --> api["REST, SSE and MCP<br/>under /kennel"]
+    api --> ui["Kennel Club in the UI<br/>Overview, list, repository page"]
+```
+
+The settings are fleet-wide: `kennel.enabled` (off by default), `kennel.scope`,
+`kennel.refresh_interval`, `kennel.api_budget_percent` and `kennel.disabled_checks`.
+Every repository the fleet served is read and evaluated; the only per-repository
+state is a waiver on one finding.
+
+**Not built.** The repository page has no tabs, shows nothing the fleet itself
+knows about the repository, does not host AI Context, and cannot be told to
+leave a repository alone. The documentation and screenshots are not written.
+
+**What the owner expected, and what was decided.** On 7 October the owner said
+Kennel Club should show a repository's relevant details and runtime statistics,
+allow repositories to be enabled selectively, take actions from the repository,
+and include enabling AI Context for a repository. Four decisions followed:
+
+* A repository can be **tracked or not**, one at a time
+  ([0006](decisions/0006-kennel-club-tracks-repositories-one-at-a-time.md)).
+  This replaces the sentence in section 5 that said a per-repository exception is
+  a waiver and never configuration.
+* The repository page **hosts the AI Context card**, with its existing actions and
+  no new switch
+  ([0007](decisions/0007-the-repository-page-hosts-ai-context-and-adds-no-switch.md)).
+* It **leads with an Overview** of what the fleet knows, from routes that already
+  exist
+  ([0008](decisions/0008-the-repository-page-leads-with-what-the-fleet-knows.md)).
+* The order is: tabs and the Overview first, then the AI Context tab, then the
+  Track switch, then the documentation and screenshots.
+
 ## Where the brief and the repository disagree
 
 I chose the repository's reality in every row. None of them blocks the plan.
@@ -135,7 +187,7 @@ page explains itself when the feature is off.
 | --- | --- | --- |
 | `/kennel` | Overview | Fleet-wide. Works with Kennel Club off (it then shows the AI Context lens and an "off" explanation). |
 | `/kennel/repositories` | Repository list | Paged, filterable by severity, check, state, installation. Also the Overview's table. |
-| `/kennel/repositories/:id/:tab?` | One repository | `:tab` is `ci` (default), `storage`, `protection`, `ai-context`. A **path segment**, not `?tab=`: `ProviderDetail.svelte` reads `?tab=` once, so back and forward do not move it, whereas `Settings.svelte`'s `/settings/:page?` gives every page an address. `router.ts` supports an optional trailing parameter. |
+| `/kennel/repositories/:id/:tab?` | One repository | `:tab` is `overview` (default), `ci`, `storage`, `protection`, `ai-context`. A **path segment**, not `?tab=`: `ProviderDetail.svelte` reads `?tab=` once, so back and forward do not move it, whereas `Settings.svelte`'s `/settings/:page?` gives every page an address. `router.ts` supports an optional trailing parameter. |
 | `/kennel/ai-context` | The existing AI Context page, unchanged | Aliases: `/ai-context` renders the same component without redirecting, so every existing link, the problems drawer's "Open AI Context" (`ProblemItem.svelte:118-120`) and the docs screenshots keep working. |
 | `/kennel/ai-context/setup` | The existing setup wizard | Alias: `/ai-context/setup?draft_id=…`. |
 
@@ -167,23 +219,60 @@ four bands, all fed by one derived `kennel.summary` frame:
 
 ### The repository page
 
-A header (full name, visibility, the pools that served it, the last evaluation,
-**Recheck**) and tabs. Each tab lists that area's findings, each as the three
-sentences the evaluator wrote, an evidence list, and the actions that apply.
-Tabs appear when their stage ships; an area whose source is not readable shows
-its coverage reason in place of findings, never an empty "all clear".
+A header (full name, visibility, the standing, when it was last evaluated, the
+**Track** switch and **Recheck**) and tabs. A tab for a stage that has not
+shipped does not appear. An area whose source is not readable shows its coverage
+reason in place of findings, never an empty "all clear".
 
-* **CI** — exposure, capacity, workflow files, token permissions. (The brief's
-  working title; it holds everything that concerns *running* CI.)
+```mermaid
+flowchart TB
+    page["/kennel/repositories/:id/:tab?"] --> head["Header<br/>name, visibility, standing,<br/>Track, Recheck"]
+    page --> overview["Overview (default)<br/>what the fleet knows"]
+    page --> ci["CI<br/>findings, coverage, waivers"]
+    page --> ai["AI Context<br/>the card, same endpoints"]
+    overview --> stats["GET /jobs/stats, GET /jobs"]
+    ci --> kennel["GET /kennel/repositories/:id"]
+    ai --> aic["GET and POST /ai-context/repositories/…"]
+```
+
+* **Overview** — the default, and what the fleet itself knows about the
+  repository, none of it read from GitHub
+  ([decision 0008](decisions/0008-the-repository-page-leads-with-what-the-fleet-knows.md)).
+  For the last 7 and 30 days, from routes that already exist:
+
+  | What | Where it comes from |
+  | --- | --- |
+  | Jobs, and how they ended | `GET /jobs/stats?repo=&hosted=false` |
+  | Queue wait and run duration, median and 95th percentile | the same call |
+  | The pools and hosts that ran them, with links | the same call with `group_by=pool` and `group_by=host`, named from `/pools` and `/hosts` |
+  | Jobs waiting now for a label no pool serves | `GET /jobs?repo=&unmatched=true` |
+
+  The window cannot be longer than `retention.jobs` (30 days by default), so the
+  page says it covers what the fleet still holds. After a rename the figures
+  count only under the new name, because a job records its repository by name.
+  There is no cost: none is kept per repository.
+* **CI** — what Kennel Club concluded: exposure, capacity, workflow files, token
+  permissions, with each finding's evidence and actions. (The brief's working
+  title; it holds everything that concerns *running* CI.)
 * **Storage** — Stage 2.
 * **Protection** — Stage 4. Narrower than the brief's name suggests: only the
   required checks that can block or bypass CI (see section 3 for why).
-* **AI Context** — the existing card, same component, same endpoints, same
-  access gates.
+* **AI Context** — the existing card, same component, same endpoints, same access
+  gates ([decision 0007](decisions/0007-the-repository-page-hosts-ai-context-and-adds-no-switch.md)).
+  For a repository without it, the tab offers the existing setup wizard; it adds
+  no switch and no pause.
 
-A "Waived" disclosure at the foot of each tab lists waived findings with who
+A "Waived" disclosure at the foot of the CI tab lists waived findings with who
 waived them, when, why and when the waiver ends. A waived finding is never
 silently gone.
+
+**Track.** Every repository is tracked unless somebody stops it
+([decision 0006](decisions/0006-kennel-club-tracks-repositories-one-at-a-time.md)).
+An untracked repository is not read from GitHub, not evaluated, raises no
+finding and no problem, and is counted apart as *not tracked*. It stays in the
+list, behind a filter, and its Overview tab still works. The switch shows who
+stopped it, when and why. Stopping takes an administrator and a reason, because
+it silences errors; starting again takes an operator.
 
 ### What happens to AI Context
 
@@ -653,6 +742,28 @@ deletes, as `DeleteInstallation` does for runners. ID prefixes `kcr` and `kcw` g
 `internal/store/ids.go`, and `normalisePath` in `internal/api/api_test.go:1254`
 learns them.
 
+### Migration `0081_kennel_untracked.sql`
+
+Added by [decision 0006](decisions/0006-kennel-club-tracks-repositories-one-at-a-time.md),
+and built with the Track switch, after the tabs and the Overview. One new table, so
+the additive-only test still holds, and a row only for a repository that is not
+tracked; no row means tracked, so a controller that never uses the switch behaves
+as it did.
+
+```sql
+CREATE TABLE kennel_untracked (
+    repository_pk    TEXT PRIMARY KEY REFERENCES kennel_repositories(id) ON DELETE CASCADE,
+    reason           TEXT NOT NULL,                  -- 10 to 500 characters, as a waiver's is
+    created_by       TEXT NOT NULL,
+    created_by_name  TEXT NOT NULL,
+    created_at       INTEGER NOT NULL
+);
+```
+
+The row goes with the repository row when it is pruned, ninety days after the
+repository was last served, so a repository that was quiet for a quarter comes
+back tracked. Whether it should not is the one thing the record leaves open.
+
 ### Event-stream payloads
 
 The rule is the repository's own: **every `*.updated` frame is the resource's
@@ -724,7 +835,9 @@ letter, or a list with a repeat or a blank, is tidied rather than refused.
 
 Thresholds (1 GiB, 5 GiB, 80%, ten minutes, seven days) are constants with
 documented values, not settings. The measures in section 9 say when one earns a
-knob. A per-repository exception is a waiver, not configuration.
+knob. A single finding that is acceptable is a waiver. A repository that Kennel
+Club should not look at is **untracked**, which is state about the repository and
+not a setting ([decision 0006](decisions/0006-kennel-club-tracks-repositories-one-at-a-time.md)).
 
 ---
 
@@ -789,8 +902,15 @@ the feature off:
    views, the derived `kennel.summary`, problems, `statusExempt`, metrics.
 5. API: OpenAPI, generated files, RBAC actions, handlers, audit, route-table rows.
 6. MCP read tools.
-7. UI: the nav, router, Overview, repository page, the AI Context card
-   extraction and aliases.
+7. UI, in five pull requests. **(a)** The nav, router, Overview, list and a
+   read-only repository page, with the AI Context relocation and aliases (#669,
+   merged). **(b)** Waive and unwaive (#670, merged). **(c)** The repository tabs
+   and the Overview tab ([0008](decisions/0008-the-repository-page-leads-with-what-the-fleet-knows.md)).
+   **(d)** The AI Context tab, with the card extracted
+   ([0007](decisions/0007-the-repository-page-hosts-ai-context-and-adds-no-switch.md)).
+   **(e)** The Track switch: migration `0081`, API, UI, MCP and the counts
+   ([0006](decisions/0006-kennel-club-tracks-repositories-one-at-a-time.md)).
+   The order is the owner's, set on 7 October.
 8. Documentation and screenshots.
 
 **Packages and files** (new unless marked):
@@ -856,6 +976,7 @@ tags are inconsistent and are not copied), errors `{error:{code,message}}`.
 | `POST /kennel/repositories/{id}/recheck` | operator | `kennel.recheck` | 202. Cooldown five minutes per repository (429 `rate_limited` with the time it will be allowed); audit `kennel.recheck`. |
 | `PUT /kennel/repositories/{id}/waivers` | operator / admin | `kennel.waive`, and `kennel.waive_error` for an error | Body `{code, subject, reason, expires_at}`. `reason` is 10 to 500 characters; `expires_at` is required and at most 365 days away. 200 with the repository, already worked out again. 422 with `errors[]` per field, all at once, including a code and subject that match no open finding. Waiving an *error* finding answers 403 naming the admin role (`auth.Explain`). 409 beyond 50 waivers on a repository. Waiving the same finding again renews the waiver and keeps its ID. Audit `kennel.waive` with the reason. |
 | `DELETE /kennel/repositories/{id}/waivers/{waiver_id}` | operator | `kennel.waive` | Any operator may end any waiver, an administrator's included: ending one only makes Kennel Club stricter. 200 with the repository, the finding open again; a waiver named through another repository is a 404. Audit `kennel.unwaive` with the waiver as it was. |
+| `PUT /kennel/repositories/{id}/tracking` | operator / admin | `kennel.track`, and `kennel.untrack` to stop | Body `{tracked, reason}`. Stopping needs the administrator role and a reason of 10 to 500 characters; starting again needs the operator role. 200 with the repository, already worked out again. Audit `kennel.untrack` with the reason, and `kennel.track`. Decision 0006; built after the tabs and the Overview. |
 
 Every repository route answers 409 `conflict` with *"Kennel Club is off. An
 administrator can turn it on under Settings → Configuration → kennel.enabled"*

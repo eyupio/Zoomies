@@ -21,6 +21,7 @@ import (
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/events"
+	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/version"
@@ -488,6 +489,24 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
 			return nil, fmt.Errorf("looking up host %q: %w", name, err)
 		}
+	}
+	// What the host may call itself. The name is the agent's to choose and is
+	// written into the problems list, where the UI offers whatever sits between
+	// a pair of backticks as a command to copy, so a name that could pass for
+	// one is refused here -- before the join token is redeemed, so whoever typed
+	// it keeps a token that still works.
+	//
+	// Two cases are exempt because refusing them would take a working host out
+	// of the fleet over a name nobody asked it to change. A host re-joining
+	// under the name its row already carries predates this rule, and every
+	// sentence that names it goes through naming.ForSentence instead; it may
+	// not use the occasion to take a different refused name, which is why the
+	// comparison is with the stored name and not with the rule alone. The
+	// embedded agent's name comes from this controller's own configuration, and
+	// refusing it would leave a single-VM controller with no host at all.
+	if err := naming.ValidateHostName(name); err != nil && !embedded && (existing == nil || existing.Name != name) {
+		return nil, auth.Invalid("this agent's host name was refused: %v. Start the agent with --name, or set agent.name, "+
+			"to a name that fits", err)
 	}
 	// Taking over an existing row is a privileged act: it destroys that host's
 	// runner records and inherits its ID, its labels and its cordon state. A
@@ -1614,10 +1633,11 @@ func (c *Controller) noteRunnerReturned(ctx context.Context, r *store.Runner, ru
 }
 
 // hostName is the operator-facing name of a host, falling back to its id so a
-// message is never left with a hole in it.
+// message is never left with a hole in it. It is for putting in a sentence, so
+// it is the name as prose: see naming.ForSentence.
 func (c *Controller) hostName(ctx context.Context, hostID string) string {
 	if h, err := c.st.GetHost(ctx, hostID); err == nil && h.Name != "" {
-		return h.Name
+		return naming.ForSentence(h.Name)
 	}
 	return hostID
 }

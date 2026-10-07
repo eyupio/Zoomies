@@ -79,6 +79,7 @@ on its own runners, and cannot read pools, jobs, users or the audit log.
 | Someone reaches the controller's API | Authentication required by default; the listener binds to loopback unless told otherwise |
 | Someone reaches a freshly deployed controller before its owner does | The first-run endpoint needs the setup token printed in the controller's log, not merely an empty database |
 | A host enrolled with a join token tries to become a different host, or to advertise labels that win it another pool's work | Taking over an existing host by name needs that host's own agent token; join-token labels win over the agent's |
+| A host enrolled with a join token names itself so that a problem shows an administrator a command to copy | A host's name may not hold a backtick, a control character or more than 128 characters. The join refuses one before it redeems the token, and a rename is held to the same rule. A name stored before that is shown with its backticks as apostrophes in every sentence about the host, so it cannot open a command either |
 | A stolen browser session | Sessions are hashed at rest, `HttpOnly` + `SameSite=Lax` + `Secure` (when the external URL is https), and expire |
 | A stolen API token | Tokens are stored as SHA-256 hashes, scoped by role, optionally expiring, individually revocable |
 | Someone reads the database file or a backup | GitHub App private keys, webhook secrets and OIDC client secrets are AES-256-GCM sealed with a key held outside the database |

@@ -8514,6 +8514,7 @@ export interface components {
             protocol_version: number;
             /** Format: password */
             join_token: string;
+            /** @description What the host asks to be called. Refused with 422, before the join token is redeemed, when it is empty, over 128 characters or holds a control character or a backtick. A host re-joining under the name its row already carries is exempt, so one enrolled before the rule keeps working. */
             name: string;
             /** @description How the host reports itself. The controller never dials it. */
             address?: string;
@@ -12743,7 +12744,7 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    /** @description What the host is called. Surrounding whitespace is trimmed; it must be non-empty, free of control characters and not used by another host (422 otherwise). An agent's configured name is read only when it first joins, so a heartbeat does not undo a rename. */
+                    /** @description What the host is called. Surrounding whitespace is trimmed; it must be non-empty, free of control characters and backticks (a backtick pair is drawn as a command to copy in the problems list) and not used by another host (422 otherwise). An agent's configured name is read only when it first joins, so a heartbeat does not undo a rename. */
                     name?: string;
                     capacity?: number;
                     labels?: {

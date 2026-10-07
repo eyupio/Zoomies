@@ -407,7 +407,7 @@ settings page reports rather than refusing the edit.
 | `agent.insecure_skip_verify` | `ZOOMIES_AGENT_INSECURE_SKIP_VERIFY` | on the agent's own host | Skip certificate verification — Let a standalone agent skip verifying its controller's certificate. It is configured on that agent's own host. |
 | `agent.join_token` | `ZOOMIES_JOIN_TOKEN` | on the agent's own host | Join token — The single-use token a standalone agent redeems to enrol. It is configured on that agent's own host. |
 | `agent.labels` | `ZOOMIES_AGENT_LABELS` | next restart | Host labels — Key=value labels describing this host, which a pool can require of the hosts it runs on. |
-| `agent.name` | `ZOOMIES_AGENT_NAME` | next restart | Host name — What this host is called in the fleet. Empty names it after the machine it is on. |
+| `agent.name` | `ZOOMIES_AGENT_NAME` | next restart | Host name — What this host is called in the fleet. Empty names it after the machine it is on. At most 128 characters, with no backtick or control character: the controller refuses a join that breaks that, before the join token is redeemed. |
 | `agent.network` | `ZOOMIES_AGENT_NETWORK` | next restart | Container network — An existing container network to attach runners to. Empty uses the daemon's default bridge. |
 | `agent.registry_auth` | `ZOOMIES_REGISTRY_AUTH` | next restart | Registry credentials — A base64 X-Registry-Auth value the container backends send when they pull. Without it a pool on a private registry cannot use pinned-only pulls at all. |
 | `agent.runner_download_url` | `ZOOMIES_AGENT_RUNNER_DOWNLOAD_URL` | next restart | Runner download mirror — Where the process backend fetches runner archives from, for hosts that mirror releases internally. The path below it is the same. |

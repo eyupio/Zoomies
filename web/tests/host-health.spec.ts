@@ -348,6 +348,36 @@ test('the host page prints the reasons the agent sends, and none of them says dr
   }
 });
 
+// Cordoning is an operator's action, so the panel that offers it is not drawn
+// for anyone who cannot. The fixture controller has authentication off and so
+// everybody on it is an administrator; signedInAs tells the page otherwise, the
+// way the terminal-command specs below do. The reboot advice stays: a viewer who
+// reads that a reboot is pending should still be told what an operator would do.
+test('a viewer sees the report and the reboot advice, and no panel to act on it', async ({
+  page,
+}) => {
+  const name = `health-view-${Date.now()}`;
+  const credentials = await enrol(page, name);
+  try {
+    await heartbeat(
+      page,
+      credentials,
+      [check('kernel.pending', 'Installed kernel awaiting reboot', 'safe', 'warn')],
+      true,
+    );
+    await signedInAs(page, 'viewer');
+    await goto(page, `/hosts/${credentials.host_id}`, name);
+    // The report and the advice are on the page, so the absences below mean something.
+    await expect(page.locator('[id="kernel.pending"]')).toBeVisible();
+    await expect(page.getByText('A reboot is pending. Cordon the host')).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Next step', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /cordon this host/i })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Copy command' })).toHaveCount(0);
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}`);
+  }
+});
+
 /** Whether the controller has this host cordoned, asked of the API and not of the page. */
 async function cordonedOnServer(page: Page, credentials: Credentials): Promise<boolean> {
   const response = await page.request.get(`/api/v1/hosts/${credentials.host_id}`);
@@ -599,4 +629,198 @@ test('the Hosts page counts the hosts that need attention, and the tile, the fil
       await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
     }
   }
+});
+
+/* -- reading a host's report from a terminal -------------------------------------- */
+
+/**
+ * Enrol a host that has sent a report, and run the body on its page. The host is
+ * removed afterwards whether or not the body passed: the suite shares one
+ * controller.
+ */
+async function withReportingHost(
+  page: Page,
+  body: (host: { id: string; name: string }) => Promise<void>,
+): Promise<void> {
+  const name = `terminal-host-${Date.now()}`;
+  const credentials = await enrol(page, name);
+  try {
+    await heartbeat(page, credentials, [check('disk.space', 'Free space', 'safe', 'ok')]);
+    await body({ id: credentials.host_id, name });
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}`);
+  }
+}
+
+/**
+ * The page is told who it is talking to. The fixture controller has
+ * authentication off, so everybody there is an administrator and a token has no
+ * account to belong to; the page asks the controller nothing different.
+ */
+async function signedInAs(
+  page: Page,
+  role: 'viewer' | 'operator' | 'admin',
+  externalURL?: string,
+): Promise<void> {
+  await page.route('**/api/v1/meta', async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as Record<string, unknown>;
+    return route.fulfill({
+      response,
+      json: {
+        ...body,
+        auth_disabled: false,
+        bootstrap_required: false,
+        ...(externalURL ? { external_url: externalURL } : {}),
+      },
+    });
+  });
+  await page.route('**/api/v1/auth/session', (route) =>
+    route.fulfill({ json: { kind: 'token', id: 'tok_pretend', name: 'a token', role } }),
+  );
+}
+
+/** What the page's token request is answered with: what the controller would send, for a token. */
+function tokenAnswer(asked: Record<string, unknown>, made: string, lifeMs: number) {
+  return {
+    id: 'tok_pretend',
+    name: asked.name,
+    role: 'viewer',
+    scopes: ['hosts:read'],
+    prefix: 'zoo_pretend',
+    revoked: false,
+    created_at: new Date().toISOString(),
+    expires_at: new Date(Date.now() + lifeMs).toISOString(),
+    last_used_at: null,
+    token: made,
+  };
+}
+
+// `zoomies doctor --host` needs the controller's address and, unless the
+// controller has authentication off, a token. The page hands over the command
+// whole, because the machine it is pasted on is usually the host itself, which
+// has neither to hand.
+test('with authentication off, the host page gives a command with the address already in', async ({
+  page,
+}) => {
+  await withReportingHost(page, async ({ id, name }) => {
+    await goto(page, `/hosts/${id}`, name);
+    const panel = page.getByRole('region', { name: 'Read this report from a terminal' });
+    await expect(panel).toContainText('authentication off');
+    await expect(panel.getByRole('button', { name: 'Make a command' })).toHaveCount(0);
+    const origin = new URL(page.url()).origin;
+    await expect(panel.locator('pre')).toHaveText(
+      `zoomies doctor --host ${id} --verbose --url ${origin}`,
+    );
+    // The host itself needs none of it.
+    await expect(panel).toContainText('zoomies doctor --verbose');
+  });
+});
+
+test('with authentication on, the page makes a short-lived read-only token and puts it in the command', async ({
+  page,
+}) => {
+  await withReportingHost(page, async ({ id, name }) => {
+    const made = 'zoo_pretend_0123456789abcdefghij';
+    const configured = 'https://zoomies.example.com';
+    const asked: Array<Record<string, unknown>> = [];
+    await signedInAs(page, 'viewer', configured);
+    await page.route('**/api/v1/tokens', (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      asked.push(route.request().postDataJSON() as Record<string, unknown>);
+      return route.fulfill({ status: 201, json: tokenAnswer(asked[0]!, made, 15 * 60_000) });
+    });
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: { writeText: async (value: string) => sessionStorage.setItem('copied', value) },
+      });
+    });
+    await page.clock.install();
+    await goto(page, `/hosts/${id}`, name);
+    const panel = page.getByRole('region', { name: 'Read this report from a terminal' });
+
+    // Nothing is made until it is asked for, and there is no command to copy
+    // that would fail.
+    await expect(panel.locator('pre')).toHaveCount(0);
+    await panel.getByRole('button', { name: 'Make a command' }).click();
+
+    // What was asked for is what makes it safe to offer on a click: the least
+    // role, reading hosts and nothing else, for a quarter of an hour, named for
+    // the host by its id and not by the name the host gave itself.
+    await expect.poll(() => asked.length).toBe(1);
+    expect(asked[0]).toEqual({
+      name: `Terminal: doctor ${id}`,
+      role: 'viewer',
+      scopes: ['hosts:read'],
+      expires_in: '15m',
+    });
+    // The address is the one the controller was configured to hand out, and not
+    // the one this browser happens to be using.
+    const command = `zoomies doctor --host ${id} --verbose --url ${configured} --token ${made}`;
+    await expect(panel.locator('pre')).toHaveText(command);
+    await expect(panel).toContainText('can only read hosts');
+    // What is copied is the command, whole.
+    await panel.getByRole('button', { name: 'Copy the command' }).click();
+    expect(await page.evaluate(() => sessionStorage.getItem('copied'))).toBe(command);
+    // A long command does not push the page sideways, on a phone least of all.
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth > window.innerWidth,
+    );
+    expect(overflow).toBe(false);
+
+    // When the token ends the command goes with it, so a dead one is never what
+    // gets copied, and a new one can be made.
+    await page.clock.fastForward('16:00');
+    await expect(panel.locator('pre')).toHaveCount(0);
+    await expect(panel).toContainText('That token has ended');
+    await expect(panel.getByRole('button', { name: 'Make another command' })).toBeVisible();
+  });
+});
+
+// The page's clock ticks every ten seconds, and a command that outlived its token
+// by up to that long is one somebody copies. So the command goes at the second the
+// token ends: this one lasts two, on the real clock, with no tick near it.
+test('the command goes at the second its token ends, not at the next tick of the page', async ({
+  page,
+}) => {
+  await withReportingHost(page, async ({ id, name }) => {
+    await signedInAs(page, 'viewer');
+    await page.route('**/api/v1/tokens', (route) =>
+      route.request().method() === 'POST'
+        ? route.fulfill({
+            status: 201,
+            json: tokenAnswer(route.request().postDataJSON(), 'zoo_pretend_short_lived', 2_500),
+          })
+        : route.fallback(),
+    );
+    await goto(page, `/hosts/${id}`, name);
+    const panel = page.getByRole('region', { name: 'Read this report from a terminal' });
+    await panel.getByRole('button', { name: 'Make a command' }).click();
+    await expect(panel.locator('pre')).toContainText('zoo_pretend_short_lived');
+    await expect(panel.locator('pre')).toHaveCount(0, { timeout: 5_000 });
+    await expect(panel).toContainText('That token has ended');
+  });
+});
+
+test('a command that could not be made says why and leaves nothing to copy', async ({ page }) => {
+  await withReportingHost(page, async ({ id, name }) => {
+    await signedInAs(page, 'viewer');
+    await page.route('**/api/v1/tokens', (route) =>
+      route.request().method() === 'POST'
+        ? route.fulfill({
+            status: 422,
+            json: { error: { code: 'invalid', message: 'tokens cannot be made right now' } },
+          })
+        : route.fallback(),
+    );
+    await goto(page, `/hosts/${id}`, name);
+    const panel = page.getByRole('region', { name: 'Read this report from a terminal' });
+    await panel.getByRole('button', { name: 'Make a command' }).click();
+    await expect(
+      page.locator('.toast[data-tone="error"]', { hasText: 'tokens cannot be made right now' }),
+    ).toBeVisible();
+    await expect(panel.locator('pre')).toHaveCount(0);
+    await expect(panel.getByRole('button', { name: 'Make a command' })).toBeEnabled();
+  });
 });

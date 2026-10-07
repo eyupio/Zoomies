@@ -9,6 +9,7 @@ import (
 
 	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/events"
+	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -540,7 +541,7 @@ func (c *Controller) startMessage(ctx context.Context, j *store.Job, runner *sto
 	case runner != nil:
 		host := runner.HostID
 		if h, err := c.st.GetHost(ctx, runner.HostID); err == nil {
-			host = h.Name
+			host = naming.ForSentence(h.Name)
 		}
 		return fmt.Sprintf("started on runner %s, on host %s, after %s in the queue",
 			runner.Name, host, roundDuration(j.QueueWait()))

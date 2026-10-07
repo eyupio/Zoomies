@@ -139,6 +139,17 @@ page can cordon the host, which is a scheduling action on the controller's side
 and changes nothing on the machine, and Zoomies never runs a command on a host:
 the command it offers is for you to run there.
 
+The command needs the controller's address and, unless authentication is off, a
+token, and you should not have to find either first. The host's page has a panel,
+**Read this report from a terminal**, with the command already written: the
+controller's address in it and, when you press **Make a command**, a token made
+on the spot. That token is yours, can only read hosts (`hosts:read`), and stops
+working after 15 minutes; it is shown once, and the command goes from the page
+when it ends. It is listed under your API tokens as `Terminal: doctor <host-id>`
+until you delete the expired ones. On a controller with authentication off the
+command needs no token, and the panel says so. On the host itself none of this is
+needed: `zoomies doctor --verbose` reads it directly.
+
 ## What a host's report raises
 
 A report is not only something to open a page and look at. The controller reads
@@ -159,10 +170,11 @@ An error is a check that could not run properly: a `/etc/docker/daemon.json`
 that is not valid JSON, `df` output it could not read, or a read that failed
 unexpectedly. That is why only errors raise the problem's severity. The
 aggressive and dedicated tiers and anything optional are suggestions, and never
-raise anything. Each entry's fix is a sentence, not a button. Run
-`zoomies doctor --host <host-id> --verbose` to see what every check found, and
-`sudo zoomies doctor --interactive` on the host to be offered each fix it can
-make, with the change shown first. Not every counted warning has a fix to
+raise anything. Each entry's fix is a sentence, not a button. On the host, run
+`sudo zoomies doctor --verbose` to see what every check found and
+`sudo zoomies doctor --interactive` to be offered each fix it can make, with the
+change shown first; from anywhere else, the host's page has the command to read
+the report, with a short-lived token already in it. Not every counted warning has a fix to
 offer: the checks marked report only or advice only in the safe table below,
 the kernel checks and the distribution check (`environment`) clear only when
 you change the machine yourself, and they count all the same. A reboot is only

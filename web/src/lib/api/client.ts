@@ -671,6 +671,15 @@ export const getKennelRepository = (id: string, signal?: AbortSignal) =>
 export const recheckKennelRepository = (id: string) =>
   api.post<Result<'recheckKennelRepository'>>(`/kennel/repositories/${enc(id)}/recheck`);
 
+/** Both answer with the repository, already worked out again. */
+export const waiveKennelFinding = (id: string, body: Body<'waiveKennelFinding'>) =>
+  api.put<Result<'waiveKennelFinding'>>(`/kennel/repositories/${enc(id)}/waivers`, { body });
+
+export const unwaiveKennelFinding = (id: string, waiverId: string) =>
+  api.del<Result<'unwaiveKennelFinding'>>(
+    `/kennel/repositories/${enc(id)}/waivers/${enc(waiverId)}`,
+  );
+
 /* -- providers and machines ------------------------------------------------
  * "Provider" is the infrastructure a machine is rented from, and "machine" is
  * the thing rented. Neither is `listProvisioning` below, which is the queued

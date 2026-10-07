@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -124,6 +126,13 @@ func runDoctor(ctx context.Context, e *env, args []string) error {
 			Doctor *hosttune.Report `json:"doctor"`
 		}
 		if _, err = client.get(ctx, "/hosts/"+url.PathEscape(*host), nil, &h); err != nil {
+			var refused *apiError
+			if errors.As(err, &refused) && refused.status == http.StatusUnauthorized {
+				// The one thing this command needs that a person cannot be expected to
+				// have to hand is a token, and the host's page makes one for exactly
+				// this: read-only, for hosts, over in a quarter of an hour.
+				return fmt.Errorf("%w\n  the host's page in the web UI has this command with a token that lasts 15 minutes already in it", err)
+			}
 			return err
 		}
 		if h.Doctor == nil {
