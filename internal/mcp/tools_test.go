@@ -110,3 +110,16 @@ func TestListHostsPassesTheDoctorAndItsSummaryThroughUntouched(t *testing.T) {
 		}
 	}
 }
+
+// An accepted warning is in no warning count, so an assistant that only tallied
+// results would report it as failing, and one that only read the summary would
+// not know a person had silenced it. The description names both places and
+// says whose words the reason is.
+func TestListHostsSaysWhereAnAcceptedWarningIsCountedAndWhoWroteItsReason(t *testing.T) {
+	d := description(t, "list_hosts")
+	for _, want := range []string{"doctor.summary.accepted", "results[].accepted", "a reason a person wrote, not the host"} {
+		if !strings.Contains(d, want) {
+			t.Errorf("the description does not say %q:\n%s", want, d)
+		}
+	}
+}

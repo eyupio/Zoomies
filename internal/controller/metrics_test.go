@@ -618,7 +618,7 @@ func TestAHostWithACleanReportExportsZeroesForEveryState(t *testing.T) {
 	host := h.host("clean")
 	h.reports(t, host, report(h.c.Now(), check("cgroup.version", hosttune.Safe, hosttune.OK, false)))
 
-	for _, state := range []string{"warning", "error", "skipped", "suggestion"} {
+	for _, state := range []string{"warning", "error", "skipped", "suggestion", "accepted"} {
 		got, ok := gatherValue(t, h.c, "zoomies_host_os_checks", map[string]string{"host": host.ID, "state": state})
 		if !ok || got != 0 {
 			t.Errorf("zoomies_host_os_checks{state=%q} = %v (present=%v), want a present zero", state, got, ok)
@@ -693,7 +693,7 @@ func TestEachReportingHostHasOneSamplePerStateAndNoOneElseHasAny(t *testing.T) {
 
 	series := osHealthSeries(t, h.c)
 	for _, host := range []*store.Host{first, second} {
-		for _, state := range []string{"warning", "error", "skipped", "suggestion"} {
+		for _, state := range []string{"warning", "error", "skipped", "suggestion", "accepted"} {
 			if got := series[[3]string{"zoomies_host_os_checks", host.ID, state}]; len(got) != 1 {
 				t.Errorf("%s state %q has %d samples, want exactly 1", host.Name, state, len(got))
 			}
@@ -703,8 +703,8 @@ func TestEachReportingHostHasOneSamplePerStateAndNoOneElseHasAny(t *testing.T) {
 				t.Errorf("%s has %d samples of %s, want exactly 1", host.Name, len(got), name)
 			}
 		}
-		if n := seriesFor(series, host.ID); n != 6 {
-			t.Errorf("%s has %d OS health samples, want 6: four states, the reboot and the age", host.Name, n)
+		if n := seriesFor(series, host.ID); n != 7 {
+			t.Errorf("%s has %d OS health samples, want 7: five states, the reboot and the age", host.Name, n)
 		}
 	}
 	if n := seriesFor(series, silent.ID); n != 0 {
@@ -766,7 +766,7 @@ func TestTheOSHealthSeriesCarryNoCheckName(t *testing.T) {
 		check("cpu.governor", hosttune.Aggressive, hosttune.Warn, false)))
 
 	// osHealthSeries fails on any label other than host and state.
-	allowed := map[string]bool{"warning": true, "error": true, "skipped": true, "suggestion": true, "": true}
+	allowed := map[string]bool{"warning": true, "error": true, "skipped": true, "suggestion": true, "accepted": true, "": true}
 	for key := range osHealthSeries(t, h.c) {
 		if !allowed[key[2]] {
 			t.Errorf("%s has the state %q, which is not one of the four", key[0], key[2])
