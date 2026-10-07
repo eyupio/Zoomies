@@ -28,6 +28,7 @@
   import { allClear, announcement, logLine, reportChanges } from '$lib/hosts/report-changes';
   import { KIND_WORDS, previewCommand, rowKind } from '$lib/hosts/row-kind';
   import { pluralise } from '$lib/format';
+  import { niceValue } from '$lib/hosts/check-value';
   import type { StatusTone } from '$lib/status';
   import { tick, untrack } from 'svelte';
   import { ServerCog } from '@lucide/svelte';
@@ -207,8 +208,8 @@
         : tier === 'dedicated'
           ? 'Only for hosts running nothing but Zoomies. These changes are never included in safe or aggressive defaults, and do not count towards this host’s health.'
           : tier === 'aggressive'
-            ? 'Optional tuning, and not counted towards this host’s health. Applying a change needs --tier aggressive and consent in the CLI.'
-            : 'Read-only findings. Applying a change requires consent in the CLI.';
+            ? 'Optional tuning, and not counted towards this host’s health. A change here needs --tier aggressive.'
+            : 'Findings that count towards this host’s health.';
     if (!canOperate || readOnly) return base;
     return `${base} ${PREVIEW_SENTENCE}${tier === 'dedicated' ? ` ${DEDICATED_SENTENCE}` : ''}`;
   }
@@ -216,6 +217,12 @@
   // host: a refresh that only wrote `fetched` was a no-op behind it. A host the
   // cache does not hold (a deep link before the first reconcile, a removed host)
   // is asked for directly so the page can still say what became of it.
+  // Two hosts used to share one tab title, "Host health", so a row of open tabs
+  // could not tell them apart. The name is the agent's own text, and a title is
+  // plain text, so it needs no escaping.
+  $effect(() => {
+    if (host?.name) router.setTitle(`${host.name} · Host health`);
+  });
   async function refresh(): Promise<void> {
     try {
       await fleet.reconcile();
@@ -367,8 +374,8 @@
               <Badge label={badge.label} tone={badge.tone} />
               <a href="#{check.id}">{check.title}</a>
               <span class="now"
-                >now <code>{check.current || '—'}</code>, recommended
-                <code>{check.recommended || '—'}</code></span
+                >now <code>{niceValue(check.current) || '—'}</code>, recommended
+                <code>{niceValue(check.recommended) || '—'}</code></span
               >
             </li>
           {/each}
@@ -493,8 +500,8 @@
           <tr role="row" id={check.id} tabindex="-1">
             <th role="rowheader" scope="row">{check.title}<small>{check.id}</small></th>
             <td role="cell" data-label="Status">{@render statusCell(check)}</td>
-            <td role="cell" data-label="Current">{check.current || '—'}</td>
-            <td role="cell" data-label="Recommended">{check.recommended || '—'}</td>
+            <td role="cell" data-label="Current">{niceValue(check.current) || '—'}</td>
+            <td role="cell" data-label="Recommended">{niceValue(check.recommended) || '—'}</td>
             <td role="cell" data-label="Why / details"
               >{check.rationale}{#if check.reason}<small>{check.reason}</small>{/if}</td
             >

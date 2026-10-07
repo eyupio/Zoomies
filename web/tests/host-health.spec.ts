@@ -233,7 +233,12 @@ test('the badge counts what zoomies doctor counts, and the page leads with what 
   });
   const watches = check('inotify.watches', 'File watches', 'safe', 'ok');
   const swappiness = check('memory.swappiness', 'Swappiness', 'aggressive', 'warn');
-  const apport = check('service.apport', 'Dedicated host: apport.service', 'dedicated', 'warn');
+  const apport = check(
+    'service.apport',
+    'Disable apport.service (dedicated hosts only)',
+    'dedicated',
+    'warn',
+  );
   try {
     // Choices an operator has not made are not faults.
     await heartbeat(page, credentials, [watches, swappiness, apport]);
@@ -1474,5 +1479,35 @@ test('a check that starts needing attention while the page is open is announced'
     ).toContainText('Free space — now needs attention');
   } finally {
     await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+  }
+});
+
+// A row of open tabs for different hosts must be told apart by their titles, and
+// the numbers the Current and Recommended columns compare read with separators.
+test('the host page title names the host and large check values have separators', async ({
+  page,
+}) => {
+  const name = `health-ttl-${Date.now() % 1e6}`;
+  const credentials = await enrol(page, name);
+  try {
+    await heartbeat(page, credentials, [
+      check('inotify.watches', 'File watches', 'safe', 'warn', {
+        current: '65536',
+        recommended: '524288',
+      }),
+      check('files.maximum', 'System file descriptors', 'safe', 'ok', {
+        current: '9223372036854775807',
+        recommended: '2097152',
+      }),
+    ]);
+    await goto(page, `/hosts/${credentials.host_id}`, name);
+    await expect(page).toHaveTitle(`${name} · Host health · Zoomies`);
+    const row = page.locator('tr[id="inotify.watches"]');
+    await expect(row).toContainText('65,536');
+    await expect(row).toContainText('524,288');
+    // The kernel's own "no limit" is longer than a double holds, so it is left alone.
+    await expect(page.locator('tr[id="files.maximum"]')).toContainText('9223372036854775807');
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}`);
   }
 });
