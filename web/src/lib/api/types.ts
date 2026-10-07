@@ -324,6 +324,11 @@ export interface EventPayloads {
   stats: Stats;
   audit: AuditEvent;
   'webhook.delivery': WebhookDelivery;
+  /** One repository, in the shape `GET /kennel/repositories/{id}` returns. */
+  'kennel.updated': KennelRepository;
+  'kennel.deleted': Deleted;
+  /** The whole Overview document, sent when it changes. */
+  'kennel.summary': KennelOverview;
   heartbeat: unknown;
   /**
    * The first frame on a reconnection whose gap the server could not replay:
@@ -341,3 +346,15 @@ export type AIContextNote = Schemas['AIContextNote'];
 export type AIContextDiscovery = Result<'discoverAIContext'>;
 
 export type AIContextSetupPreview = Schemas['AIContextSetupPreview'];
+
+export type KennelOverview = Schemas['KennelOverview'];
+export type KennelRepository = Schemas['KennelRepository'];
+export type KennelFinding = Schemas['KennelFinding'];
+export type KennelEvidence = Schemas['KennelEvidence'];
+export type KennelWaived = Schemas['KennelWaived'];
+export type KennelWaiver = Schemas['KennelWaiver'];
+export type KennelCoverage = Schemas['KennelCoverage'];
+export type KennelCounts = Schemas['KennelCounts'];
+export type KennelState = Schemas['KennelState'];
+export type KennelCoverageState = Schemas['KennelCoverageState'];
+export type KennelCatalogueEntry = Schemas['KennelCatalogueEntry'];

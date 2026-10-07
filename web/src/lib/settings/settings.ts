@@ -35,6 +35,8 @@ export const SECTION_BLURB: Record<string, string> = {
   updates: 'Whether Zoomies asks github.com which release is current.',
   capacity_demand: 'Publishing a signed request for more hosts to an external provisioner.',
   provider: 'Renting machines from a hypervisor, and when to give them back.',
+  kennel:
+    "Whether Kennel Club checks the repositories this fleet serves, and how much of GitHub's request budget it may spend.",
   ui: 'What the web UI opens with. An operator can pick differently on the page itself, and that browser remembers the pick; these are what somebody who has never chosen sees.',
 };
 

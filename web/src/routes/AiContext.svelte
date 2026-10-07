@@ -165,7 +165,7 @@
     reload += 1;
   }}
 >
-  {#if canConfigure}<Button variant="primary" icon={Plus} href="/ai-context/setup"
+  {#if canConfigure}<Button variant="primary" icon={Plus} href="/kennel/ai-context/setup"
       >Enable repositories</Button
     >{/if}
 </PageHeader>
@@ -314,7 +314,7 @@
     {#if query || installationId}<Button
         onclick={() => router.setQuery({ q: null, installation_id: null, offset: null })}
         >Clear filters</Button
-      >{:else if canConfigure}<Button variant="primary" href="/ai-context/setup"
+      >{:else if canConfigure}<Button variant="primary" href="/kennel/ai-context/setup"
         >Enable repositories</Button
       >{:else}<Button href="/settings/connections">MCP connections</Button>{/if}
   </EmptyState>
@@ -427,7 +427,7 @@
             {#if item.setup_pr_url}<Button size="sm" newTab href={item.setup_pr_url}
                 >Open setup PR</Button
               >{/if}
-            <Button size="sm" href="/ai-context/setup?draft_id={encodeURIComponent(item.id)}"
+            <Button size="sm" href="/kennel/ai-context/setup?draft_id={encodeURIComponent(item.id)}"
               >{item.setup_state ? 'View setup' : 'Resume setup'}</Button
             >
             {#if item.setup_state}
@@ -439,7 +439,7 @@
                   (mode === 'amend' && item.diagnosis?.action === 'exclusions')
                     ? 'primary'
                     : 'secondary'}
-                  href="/ai-context/setup?draft_id={encodeURIComponent(item.id)}&mode={mode}"
+                  href="/kennel/ai-context/setup?draft_id={encodeURIComponent(item.id)}&mode={mode}"
                   >{mode === 'reinstall'
                     ? 'Reinstall / repair'
                     : mode === 'amend'

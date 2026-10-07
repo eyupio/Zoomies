@@ -55,6 +55,11 @@ const PAGES = [
   { path: `/machines/${FIXTURE.readyMachineId}`, heading: FIXTURE.readyMachine },
   { path: '/installations', heading: 'Installations' },
   { path: '/migrate', heading: 'Migrate repositories' },
+  // Kennel Club is off in the fixture fleet, so these are the pages somebody
+  // meets first: the one that explains itself, and the list that says why it is
+  // empty. kennel.spec.ts audits what they show once it is on.
+  { path: '/kennel', heading: 'Kennel Club' },
+  { path: '/kennel/repositories', heading: 'Repositories' },
   { path: '/audit', heading: 'Audit' },
   // Three of the settings pages: the one with a table and a row menu, the one
   // with the most controls on it, and the one that is nothing but switches --

@@ -169,9 +169,6 @@ func (c *Controller) KennelPass(ctx context.Context) {
 		if ctx.Err() != nil || !c.mayAct() {
 			return
 		}
-		if IsDemoID(inst.ID) {
-			continue
-		}
 		c.kennelInstallation(ctx, inst, byInstallation[inst.ID], in)
 	}
 }

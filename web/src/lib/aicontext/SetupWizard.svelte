@@ -492,7 +492,7 @@
               <Button
                 size="sm"
                 disabled={busy}
-                href="/ai-context/setup?draft_id={encodeURIComponent(result.draft.id)}"
+                href="/kennel/ai-context/setup?draft_id={encodeURIComponent(result.draft.id)}"
                 >{result.submitted ? 'View setup' : 'Resume draft'}</Button
               >
             </div>{/if}
@@ -501,7 +501,7 @@
     </div>
     <div class="actions">
       <div class="secondary-actions">
-        <Button href="/ai-context" disabled={busy}>Back to AI Context</Button>
+        <Button href="/kennel/ai-context" disabled={busy}>Back to AI Context</Button>
       </div>
       <div class="submit-actions">
         {#if failed.length}<Button
@@ -551,7 +551,7 @@
     {busy}
     finishLabel="Review setup changes"
     onfinish={reviewSetups}
-    oncancel={() => router.navigate('/ai-context')}
+    oncancel={() => router.navigate('/kennel/ai-context')}
   >
     {#snippet children(current)}
       {#if current.id === 'repositories'}
@@ -686,7 +686,7 @@
               This reviewed setup has already been submitted. Its configuration is frozen so retries
               recover the same pull request. Use the AI Context repository card to reinstall, amend
               or remove it after merging or closing the previous PR.
-              <a href="/ai-context">Manage AI Context</a>
+              <a href="/kennel/ai-context">Manage AI Context</a>
             </p>{/if}
           <div>
             <h3>Source branches</h3>

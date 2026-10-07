@@ -24,6 +24,7 @@
     Search,
     Server,
     Settings,
+    Trophy,
     TriangleAlert,
     Workflow,
   } from '@lucide/svelte';
@@ -152,11 +153,18 @@
         run: () => router.navigate('/migrate'),
       },
       {
+        id: 'go-kennel',
+        group: 'Go to',
+        label: 'Kennel Club',
+        icon: Trophy,
+        run: () => router.navigate('/kennel'),
+      },
+      {
         id: 'go-ai-context',
         group: 'Go to',
         label: 'AI Context',
         icon: BookOpenText,
-        run: () => router.navigate('/ai-context'),
+        run: () => router.navigate('/kennel/ai-context'),
       },
       {
         id: 'go-audit',

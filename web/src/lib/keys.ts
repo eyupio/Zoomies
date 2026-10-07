@@ -185,7 +185,8 @@ export const GO_KEYS: ReadonlyArray<{ key: string; path: string; label: string }
   { key: 'v', path: '/providers', label: 'Providers' },
   { key: 'i', path: '/installations', label: 'Installations' },
   { key: 'm', path: '/migrate', label: 'Migrate repositories' },
-  { key: 'c', path: '/ai-context', label: 'AI Context' },
+  { key: 'k', path: '/kennel', label: 'Kennel Club' },
+  { key: 'c', path: '/kennel/ai-context', label: 'AI Context' },
   { key: 'a', path: '/audit', label: 'Audit' },
   { key: 's', path: '/settings', label: 'Settings' },
 ];

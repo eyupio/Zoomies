@@ -139,6 +139,39 @@ export const ROUTES: readonly RouteDef[] = [
     load: () => import('../routes/Migrate.svelte'),
   },
   {
+    name: 'kennel',
+    path: '/kennel',
+    title: 'Kennel Club',
+    load: () => import('../routes/Kennel.svelte'),
+  },
+  {
+    name: 'kennel-repositories',
+    path: '/kennel/repositories',
+    title: 'Repositories',
+    load: () => import('../routes/KennelRepositories.svelte'),
+  },
+  {
+    name: 'kennel-repository',
+    path: '/kennel/repositories/:id',
+    title: 'Repository',
+    load: () => import('../routes/KennelRepository.svelte'),
+  },
+  {
+    name: 'kennel-ai-context',
+    path: '/kennel/ai-context',
+    title: 'AI Context',
+    load: () => import('../routes/AiContext.svelte'),
+  },
+  {
+    name: 'kennel-ai-context-setup',
+    path: '/kennel/ai-context/setup',
+    title: 'Enable repositories',
+    load: () => import('../routes/AiContextSetup.svelte'),
+  },
+  {
+    // AI Context's old addresses. They render the same pages and do not
+    // redirect, so a bookmark, a link in the docs and the problems drawer's
+    // old target all keep working; the page itself lives under Kennel Club.
     name: 'ai-context',
     path: '/ai-context',
     title: 'AI Context',
