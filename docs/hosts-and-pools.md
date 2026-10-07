@@ -176,9 +176,13 @@ zoomies hosts delete host_k3f9qz2m  # refused while runners are still on it
 
 **Cordon before maintenance.** A cordoned host keeps everything it is already
 running — no job is ever interrupted by a cordon — and accepts nothing new. Once
-its runners have finished, reboot the machine, upgrade Docker, do whatever you
-came to do, then uncordon it. The scheduler says `cordoned` in its reasons while
-that is true, so the pause is visible rather than mysterious.
+nothing on it is running a job (a runner kept warm for a pool never finishes by
+itself, so look at which are busy), reboot the machine, upgrade Docker, do
+whatever you came to do, then uncordon it. The scheduler says `cordoned` in its
+reasons while that is true, so the pause is visible rather than mysterious. A
+host's own page offers **Cordon this host** and **Uncordon this host**, and says
+when the host is idle and cordoned, so you do not have to find its card to do
+either.
 
 **Delete only a host that is gone for good.** `delete` is refused while live
 runners remain; `--force` deletes anyway and leaves their GitHub registrations

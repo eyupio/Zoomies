@@ -87,6 +87,23 @@ then warnings, then a pending reboot. A report that is only the container's
 partial view reads **Partial report** and is given no verdict, as below. The
 host page opens with a **Needs attention** list of the counted findings, with
 the failing checks above the ones that pass.
+
+For an operator the host page opens one step earlier, with a **Next step**
+panel, whenever the host has a counted finding or a pending reboot, and also
+while the host is cordoned, so that a host brought back from its reboot and left
+cordoned still has its way back. It shows how many runners are on the host,
+whether the host is cordoned, and **Cordon this host** or **Uncordon this host**.
+Once the host is connected, cordoned and has no runner on it, it says **Idle and
+cordoned: safe to reboot now**. A cordoned host with nothing waiting on it says
+so, offers only **Uncordon this host** and has no command to run. Otherwise a
+**Copy command** button copies `sudo zoomies doctor --interactive`, under a line
+naming the host and its address so that you know which machine to run it on; the
+host's name is never part of what is copied. A runner kept warm for a pool
+counts as a runner and never finishes by itself, so a count above zero does not
+mean a job is running: the panel says so and links to the host's runners that
+are busy. A host that is not connected is never called safe, because the count
+the controller holds for it is the last one it heard. A viewer does not see the
+panel; the report tells them what to ask an operator for.
 Tuning and reversal refresh the shared report immediately where it exists;
 the next heartbeat carries that result.
 
@@ -117,7 +134,10 @@ zoomies doctor --host host_example --url https://zoomies.example.com
 
 This reads the latest report, including its timestamp. It does not execute a
 remote root command. Apply fixes locally on that host. The web UI is read-only
-for OS tuning; its health badge links to a tier-grouped checks table.
+for OS tuning; its health badge links to a tier-grouped checks table. The host
+page can cordon the host, which is a scheduling action on the controller's side
+and changes nothing on the machine, and Zoomies never runs a command on a host:
+the command it offers is for you to run there.
 
 ## What a host's report raises
 
@@ -400,9 +420,9 @@ the controller counts it once, as
 `zoomies doctor` counts the warning.
 
 Zoomies never changes CPU vulnerability mitigations and never installs a
-mainline or third-party kernel. It never reboots. Cordon/drain the host, wait
-for jobs to finish, reboot during your maintenance period, and check doctor
-before allowing new jobs.
+mainline or third-party kernel. It never reboots. Cordon the host, wait until
+nothing on it is running a job, reboot during your maintenance period, and check
+doctor before allowing new jobs.
 
 ## Dedicated host tuning
 

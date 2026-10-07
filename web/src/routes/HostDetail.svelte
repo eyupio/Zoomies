@@ -2,8 +2,9 @@
   import { getHost } from '$lib/api/client';
   import { events } from '$lib/api/sse';
   import type { Host } from '$lib/api/types';
-  import { router } from '$lib/router';
+  import { href, router } from '$lib/router';
   import { fleet } from '$lib/state/fleet.svelte';
+  import { session } from '$lib/state/session.svelte';
   import { onClockTick } from '$lib/format';
   import {
     attention as attentionOf,
@@ -13,9 +14,15 @@
     isFinding,
     type DoctorResult,
   } from '$lib/hosts/health';
+  import { cordon } from '$lib/hosts/actions';
+  import { DOCTOR_COMMAND, nextStep, rebootAdvice, rebootPending } from '$lib/hosts/next-step';
   import { pluralise } from '$lib/format';
   import type { StatusTone } from '$lib/status';
+  import { tick } from 'svelte';
+  import { ServerCog } from '@lucide/svelte';
   import Badge from '$lib/components/Badge.svelte';
+  import Button from '$lib/components/Button.svelte';
+  import CopyButton from '$lib/components/CopyButton.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
   import Panel from '$lib/components/Panel.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
@@ -33,6 +40,41 @@
   // What needs doing, worst first. Counted checks only, which is what the badge
   // and `zoomies doctor` count: the other tiers are choices, not faults.
   const attention = $derived(report ? attentionOf(report) : []);
+
+  // Who may cordon. A viewer is told what to do in the report instead, and
+  // never offered a button the controller would refuse.
+  const canOperate = $derived(session.can('operator'));
+  let cordoning = $state(false);
+  let cordonedBefore = $state(false);
+  // While a request is in flight the cache already shows the optimistic value,
+  // and a host frame that landed first can overwrite it. The value from before
+  // the click is the only one nobody has argued with, and "safe to reboot" is
+  // never said on the strength of a cordon the controller has not confirmed.
+  const cordonedNow = $derived(cordoning ? cordonedBefore : host?.cordoned === true);
+  const step = $derived(host ? nextStep({ host, report, cordoned: cordonedNow }) : null);
+  const showStep = $derived(canOperate && step !== null);
+  // The doctor hint stays wherever the panel has no command of its own, which
+  // is for a viewer, and for a cordoned host with nothing waiting on it.
+  const showCommand = $derived(showStep && step?.where != null);
+
+  async function toggleCordon(): Promise<void> {
+    if (!host || cordoning) return;
+    cordonedBefore = host.cordoned === true;
+    // A second press would send the opposite request.
+    cordoning = true;
+    try {
+      await cordon(host, !cordonedBefore);
+    } finally {
+      cordoning = false;
+    }
+    // Uncordoning a host with nothing else waiting on it takes the panel away,
+    // and a button removed under focus drops it to <body>. Put it on the page's
+    // name, where route navigation puts it, unless the person has moved on.
+    await tick();
+    const active = document.activeElement;
+    if (!showStep && (!active || active === document.body))
+      document.getElementById('page-heading')?.focus();
+  }
   const tiers = ['safe', 'aggressive', 'dedicated'] as const;
   // A warning that does not count says so in its own word and tone, or the
   // header would read "Health OK" above a column of amber "Warning" badges.
@@ -92,22 +134,32 @@
 {#if error}<ErrorState {error} onretry={refresh} />
 {:else if loading && !host}<Skeleton />
 {:else if !report}
-  <Panel
-    title="No health report yet"
-    description="Check zoomies-host-health.service for a container deployment, or update the native agent. Run zoomies doctor directly on the host for an immediate report."
-    ><p>No tuning can be applied from this page.</p></Panel
-  >
+  <div class="health-content">
+    {@render nextPanel()}
+    <Panel
+      title="No health report yet"
+      description="Check zoomies-host-health.service for a container deployment, or update the native agent. Run zoomies doctor directly on the host for an immediate report."
+      ><p>No tuning can be applied from this page.</p></Panel
+    >
+  </div>
 {:else}
   <div class="health-content">
+    <!-- First, so that a phone meets the action before a long list of findings. -->
+    {@render nextPanel()}
     <Panel title="Latest host report" description={summary.hint}>
       <p>{report.os} · {report.distro} · Checked <RelativeTime value={report.checked_at} /></p>
-      {#if report.reboot_pending}<p>
-          A reboot is pending. Drain the host before rebooting manually. Zoomies never reboots it.
-        </p>{/if}
-      <p>
-        Review changes locally with <code>sudo zoomies doctor --interactive</code> or preview them
-        with <code>sudo zoomies tune --dry-run</code>.
-      </p>
+      {#if !showStep && rebootPending(report)}
+        <!-- Cordon, never drain: drain cordons and then stops a runner still busy after
+             five minutes (host_health_problems.go), which is the wrong advice for waiting
+             for jobs to finish. -->
+        <p>{rebootAdvice()}</p>
+      {/if}
+      {#if !showCommand}
+        <p>
+          Review changes locally with <code>sudo zoomies doctor --interactive</code> or preview them
+          with <code>sudo zoomies tune --dry-run</code>.
+        </p>
+      {/if}
     </Panel>
     {#if attention.length}
       <Panel
@@ -167,6 +219,53 @@
   </div>
 {/if}
 
+{#snippet nextPanel()}
+  {#if showStep && step && host}
+    <Panel title="Next step">
+      <div class="next">
+        <!-- No runner count in the headline: this is the region a screen reader
+             speaks when it changes, and it should change when the state does,
+             not on every heartbeat that moves a count. -->
+        <div class="verdict" role="status">
+          <p class="headline">{step.headline}</p>
+          <p>{step.detail}</p>
+          {#if step.verdict === 'busy' && host.id}
+            <a href={href('/runners', { host_id: host.id, state: 'busy' })}
+              >Show the runners running a job</a
+            >
+          {/if}
+        </div>
+        {#if step.embeddedNote}<p>{step.embeddedNote}</p>{/if}
+        <dl class="facts">
+          <dt>Runners on this host</dt>
+          <dd>{step.runners}</dd>
+          <dt>New work</dt>
+          <dd>{step.placement}</dd>
+        </dl>
+        <div class="act">
+          <Button
+            variant="secondary"
+            icon={ServerCog}
+            loading={cordoning}
+            onclick={() => void toggleCordon()}>{step.button.label}</Button
+          >
+          <p>{step.button.help}</p>
+        </div>
+        {#if step.where}
+          <div class="command">
+            <p>{step.where}</p>
+            <div class="command-row">
+              <pre><code>{DOCTOR_COMMAND}</code></pre>
+              <CopyButton value={DOCTOR_COMMAND} label="Copy command" size="md" showLabel />
+            </div>
+            <p>It shows each change before it makes it. Zoomies never runs it for you.</p>
+          </div>
+        {/if}
+      </div>
+    </Panel>
+  {/if}
+{/snippet}
+
 {#snippet checkTable(label: string, rows: DoctorResult[])}
   <!-- Keyboard focus enables horizontal scrolling on narrow screens. -->
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
@@ -206,6 +305,91 @@
   code {
     font-family: var(--z-font-mono);
     overflow-wrap: anywhere;
+  }
+  .next {
+    display: grid;
+    gap: var(--z-space-4);
+    min-width: 0;
+  }
+  /* The page's own p rule is muted and carries a bottom margin; inside the
+     panel the grid's gap does the spacing. */
+  .next p {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+  .verdict {
+    display: grid;
+    gap: var(--z-space-2);
+    padding: var(--z-space-3) var(--z-space-4);
+    border: var(--z-border-width) solid var(--z-border-strong);
+    border-radius: var(--z-radius-md);
+    background: var(--z-surface-sunken);
+  }
+  /* No status colour: the verdict is a sentence to read, and the colours
+     belong to what a host is (docs/ui-guidelines.md), not to what to do next. */
+  .headline {
+    color: var(--z-text);
+    font-size: var(--z-text-base);
+    font-weight: var(--z-weight-semibold);
+  }
+  .verdict a {
+    color: var(--z-accent);
+    text-decoration: underline;
+  }
+  .facts {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: var(--z-space-2) var(--z-space-4);
+    margin: 0;
+    font-size: var(--z-text-sm);
+  }
+  .facts dt {
+    color: var(--z-text-muted);
+  }
+  .facts dd {
+    margin: 0;
+    color: var(--z-text);
+    overflow-wrap: anywhere;
+  }
+  .act {
+    display: grid;
+    gap: var(--z-space-2);
+    justify-items: start;
+  }
+  .act p,
+  .command p {
+    font-size: var(--z-text-xs);
+  }
+  .command {
+    display: grid;
+    gap: var(--z-space-2);
+  }
+  .command-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: var(--z-space-3);
+  }
+  /* The command wraps rather than scrolling, so a phone never has to scroll
+     sideways to read what it is about to copy. */
+  .command-row pre {
+    flex: 1 1 16rem;
+    min-width: 0;
+    margin: 0;
+    padding: var(--z-space-3);
+    background: var(--z-surface-sunken);
+    border-radius: var(--z-radius-sm);
+    font-family: var(--z-font-mono);
+    font-size: var(--z-text-xs);
+    line-height: var(--z-leading-xs);
+    color: var(--z-text);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  @media (max-width: 768px) {
+    .act {
+      justify-items: stretch;
+    }
   }
   .checks {
     overflow-x: auto;
