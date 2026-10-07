@@ -19,6 +19,7 @@ type Check = {
   rationale: string;
   actionable: boolean;
   optional?: boolean;
+  reason?: string;
 };
 
 /** Enrol a host the way an agent does, through a join token from the Add a host page. */
@@ -289,6 +290,59 @@ test('the badge counts what zoomies doctor counts, and the page leads with what 
     expect((await summaryOf(page, credentials)).warnings).toBe(0);
     await expect(page.getByText('Reboot pending', { exact: true })).toBeVisible();
     await expect(attention).toHaveCount(0);
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}`);
+  }
+});
+
+// The page prints every row's reason, and a reason is text the agent wrote. The
+// panel above them says cordon and never drain (a drain stops a runner that is
+// still busy after five minutes), so a row that said drain would contradict it
+// on the very host that has a reboot pending. These are the reasons the engine
+// sends for the three rows that carry advice (internal/hosttune), so the page is
+// shown the real thing rather than the empty reason every other fixture has. The
+// source of that text is pinned by a Go test; this is the page's half.
+test('the host page prints the reasons the agent sends, and none of them says drain', async ({
+  page,
+}) => {
+  // No longer than the other health specs' names: the agent is the actor of its
+  // own join in the audit log, and the tables spec fails a name wide enough to
+  // push that table past a 360px screen.
+  const name = `health-why-${Date.now()}`;
+  const credentials = await enrol(page, name);
+  const reboot =
+    'reboot pending; cordon the host and wait until none of its runners is running a job, then reboot it manually';
+  const mounts = 'advice only; review mount settings, with the host cordoned, before changing them';
+  try {
+    await heartbeat(
+      page,
+      credentials,
+      [
+        check('kernel.pending', 'Installed kernel awaiting reboot', 'safe', 'warn', {
+          current: '6.9.0-1-generic',
+          recommended: '6.10.0-2-generic',
+          reason: reboot,
+        }),
+        check('work.filesystem', 'Work directory filesystem', 'safe', 'warn', {
+          current: '/work: nfs4 rw',
+          recommended: 'ext4 or XFS with noatime',
+          reason: mounts,
+        }),
+        check('docker.filesystem', 'Docker root filesystem', 'safe', 'warn', {
+          current: '/var/lib/docker: nfs4 rw',
+          recommended: 'ext4 or XFS with noatime',
+          reason: mounts,
+        }),
+      ],
+      true,
+    );
+    await goto(page, `/hosts/${credentials.host_id}`, name);
+    // The reasons are on the page, so the absence below means something.
+    await expect(page.locator('[id="kernel.pending"]')).toContainText(reboot);
+    await expect(page.locator('[id="work.filesystem"]')).toContainText(mounts);
+    await expect(page.locator('[id="docker.filesystem"]')).toContainText(mounts);
+    await expect(page.getByRole('region', { name: 'Next step', exact: true })).toBeVisible();
+    await expect(page.getByRole('main')).not.toContainText(/drain/i);
   } finally {
     await page.request.delete(`/api/v1/hosts/${credentials.host_id}`);
   }

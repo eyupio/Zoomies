@@ -45,7 +45,10 @@ func kernelChecks() []Check {
 			}
 			r := Result{Status: s, Current: running, Recommended: latest}
 			if pending {
-				r.Reason = "reboot pending; drain jobs before rebooting manually"
+				// Cordon, not drain: a drain stops a runner that is still busy after
+				// five minutes, and this text reaches the host page in the web UI,
+				// which gives the same advice the controller does.
+				r.Reason = "reboot pending; cordon the host and wait until none of its runners is running a job, then reboot it manually"
 			}
 			return r
 		}},

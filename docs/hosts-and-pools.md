@@ -179,10 +179,12 @@ running — no job is ever interrupted by a cordon — and accepts nothing new. 
 nothing on it is running a job (a runner kept warm for a pool never finishes by
 itself, so look at which are busy), reboot the machine, upgrade Docker, do
 whatever you came to do, then uncordon it. The scheduler says `cordoned` in its
-reasons while that is true, so the pause is visible rather than mysterious. A
-host's own page offers **Cordon this host** and **Uncordon this host**, and says
-when the host is idle and cordoned, so you do not have to find its card to do
-either.
+reasons while that is true, so the pause is visible rather than mysterious. An
+operator can also do it from the host's own page, whose **Next step** panel
+offers **Cordon this host** and **Uncordon this host** and says when the host is
+idle and cordoned. The panel is there when the host has an OS finding or a
+pending reboot, or is already cordoned (see [host health](host-health.md)); on a
+clean host, cordon it from its card's menu or with `zoomies hosts cordon`.
 
 **Delete only a host that is gone for good.** `delete` is refused while live
 runners remain; `--force` deletes anyway and leaves their GitHub registrations

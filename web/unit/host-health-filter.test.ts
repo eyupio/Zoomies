@@ -63,14 +63,21 @@ function report(
   };
 }
 
-function host(doctor: DoctorReport | undefined, healthy: boolean | undefined = true) {
+// `healthy` has no default on purpose: a default parameter would turn an explicit
+// `undefined` into `true`, and "the payload left it out" is a case worth testing.
+function host(doctor: DoctorReport | undefined, healthy?: boolean) {
   return { doctor, healthy } satisfies Pick<Host, 'doctor' | 'healthy'>;
+}
+
+/** A host whose agent is connected, which is what nearly every case wants. */
+function connected(doctor: DoctorReport | undefined) {
+  return host(doctor, true);
 }
 
 const ok = [result('disk.space', 'ok')];
 
 test('a host that has sent no OS report is in No report', () => {
-  assert.equal(healthBucket(host(undefined), now), 'no-report');
+  assert.equal(healthBucket(connected(undefined), now), 'no-report');
 });
 
 // The pill calls a report that arrived without the controller's count "Health
@@ -80,20 +87,20 @@ test('a host that has sent no OS report is in No report', () => {
 test('a report that arrived without the controller’s count is No report, not stale', () => {
   const r = report(ok);
   delete (r as Partial<DoctorReport>).summary;
-  assert.equal(healthBucket(host(r), now), 'no-report');
+  assert.equal(healthBucket(connected(r), now), 'no-report');
 });
 
 test('a fresh report with an error, a warning or only a pending reboot needs attention', () => {
-  assert.equal(healthBucket(host(report([result('disk.space', 'error')])), now), 'attention');
-  assert.equal(healthBucket(host(report([result('disk.space', 'warn')])), now), 'attention');
-  assert.equal(healthBucket(host(report(ok, { reboot: true })), now), 'attention');
+  assert.equal(healthBucket(connected(report([result('disk.space', 'error')])), now), 'attention');
+  assert.equal(healthBucket(connected(report([result('disk.space', 'warn')])), now), 'attention');
+  assert.equal(healthBucket(connected(report(ok, { reboot: true })), now), 'attention');
 });
 
 test('a fresh report with nothing to do, or nothing it can say, is in no bucket at all', () => {
-  assert.equal(healthBucket(host(report(ok)), now), null);
+  assert.equal(healthBucket(connected(report(ok)), now), null);
   // Every check skipped is "Checks unavailable", which is not a finding.
-  assert.equal(healthBucket(host(report([result('disk.space', 'skip')])), now), null);
-  assert.equal(healthBucket(host(report([])), now), null);
+  assert.equal(healthBucket(connected(report([result('disk.space', 'skip')])), now), null);
+  assert.equal(healthBucket(connected(report([])), now), null);
 });
 
 // The pill ignores a container's findings and its reboot flag, because the
@@ -105,7 +112,7 @@ test('a container’s partial report is never counted, whatever it found', () =>
     reboot: true,
     container: true,
   });
-  assert.equal(healthBucket(host(partial), now), null);
+  assert.equal(healthBucket(connected(partial), now), null);
 });
 
 // Mirrors the strict `>` in healthSummary. If the threshold moves, this fails,
@@ -113,15 +120,19 @@ test('a container’s partial report is never counted, whatever it found', () =>
 // which is the point: they are written for this number.
 test('a report is stale only once it is older than three minutes', () => {
   const errored = [result('disk.space', 'error')];
-  assert.equal(healthBucket(host(report(errored, { age: 3 * MINUTE })), now), 'attention');
-  assert.equal(healthBucket(host(report(errored, { age: 3 * MINUTE + 1 })), now), 'stale');
+  assert.equal(healthBucket(connected(report(errored, { age: 3 * MINUTE })), now), 'attention');
+  assert.equal(healthBucket(connected(report(errored, { age: 3 * MINUTE + 1 })), now), 'stale');
 });
 
 test('a host whose agent is not connected is stale, even with a fresh report', () => {
   const fresh = report([result('disk.space', 'error')]);
   assert.equal(healthBucket(host(fresh, false), now), 'stale');
-  // An unknown reachability is the pill's default, which is reachable.
-  assert.equal(healthBucket(host(fresh, undefined), now), 'attention');
+  // A payload that leaves `healthy` out (the generated type makes it optional)
+  // reads as reachable, as the card's pill does. If the bucket ever read
+  // `healthy === true` instead, this host would land in Report stale while its
+  // pill still said warnings, and the tile and the pill would disagree.
+  assert.equal(host(fresh).healthy, undefined, 'the fixture must really omit it');
+  assert.equal(healthBucket(host(fresh), now), 'attention');
 });
 
 // Its pill is the neutral "Reboot pending · stale", not the amber one, so the
@@ -129,7 +140,7 @@ test('a host whose agent is not connected is stale, even with a fresh report', (
 test('a stale host that is also waiting for a reboot is stale, not attention', () => {
   const waiting = report(ok, { reboot: true, age: 4 * MINUTE });
   assert.equal(healthSummary(waiting, now).label, 'Reboot pending · stale');
-  assert.equal(healthBucket(host(waiting), now), 'stale');
+  assert.equal(healthBucket(connected(waiting), now), 'stale');
 });
 
 // The tile, the chip and the card's pill must agree, and the only way to be sure
@@ -137,17 +148,18 @@ test('a stale host that is also waiting for a reboot is stale, not attention', (
 // can meet and checks the bucket against the pill's own words.
 test('a host is in Need attention exactly when its pill is amber or red and current', () => {
   const shapes: Array<[string, Pick<Host, 'doctor' | 'healthy'>]> = [
-    ['no report', host(undefined)],
-    ['clean', host(report(ok))],
-    ['warning', host(report([result('a', 'warn')]))],
-    ['error', host(report([result('a', 'error')]))],
-    ['reboot only', host(report(ok, { reboot: true }))],
-    ['error and reboot', host(report([result('a', 'error')], { reboot: true }))],
-    ['skipped', host(report([result('a', 'skip')]))],
-    ['empty', host(report([]))],
-    ['container', host(report([result('a', 'warn')], { reboot: true, container: true }))],
-    ['old error', host(report([result('a', 'error')], { age: 10 * MINUTE }))],
-    ['old reboot', host(report(ok, { reboot: true, age: 10 * MINUTE }))],
+    ['no report', connected(undefined)],
+    ['clean', connected(report(ok))],
+    ['warning', connected(report([result('a', 'warn')]))],
+    ['error', connected(report([result('a', 'error')]))],
+    ['reboot only', connected(report(ok, { reboot: true }))],
+    ['error and reboot', connected(report([result('a', 'error')], { reboot: true }))],
+    ['skipped', connected(report([result('a', 'skip')]))],
+    ['empty', connected(report([]))],
+    ['container', connected(report([result('a', 'warn')], { reboot: true, container: true }))],
+    ['old error', connected(report([result('a', 'error')], { age: 10 * MINUTE }))],
+    ['old reboot', connected(report(ok, { reboot: true, age: 10 * MINUTE }))],
+    ['unknown reachability error', host(report([result('a', 'error')]))],
     ['unreachable error', host(report([result('a', 'error')]), false)],
     ['unreachable clean', host(report(ok), false)],
   ];
@@ -162,13 +174,13 @@ test('a host is in Need attention exactly when its pill is amber or red and curr
 // page says so rather than letting the chips look as though they sum to All.
 test('the buckets are exclusive and do not add up to All', () => {
   const hosts = [
-    host(undefined),
-    host(report(ok)),
-    host(report([result('a', 'warn')])),
-    host(report(ok, { reboot: true })),
-    host(report(ok, { age: 5 * MINUTE })),
+    connected(undefined),
+    connected(report(ok)),
+    connected(report([result('a', 'warn')])),
+    connected(report(ok, { reboot: true })),
+    connected(report(ok, { age: 5 * MINUTE })),
     host(report(ok), false),
-    host(report([], { container: true })),
+    connected(report([], { container: true })),
   ];
   const counts = healthCounts(hosts, now);
   assert.equal(counts.all, hosts.length);
@@ -181,9 +193,9 @@ test('the buckets are exclusive and do not add up to All', () => {
 });
 
 test('filtering by All hands back the same array, and a bucket keeps only its hosts', () => {
-  const warned = { ...host(report([result('a', 'warn')])), id: 'warned' };
-  const clean = { ...host(report(ok)), id: 'clean' };
-  const silent = { ...host(undefined), id: 'silent' };
+  const warned = { ...connected(report([result('a', 'warn')])), id: 'warned' };
+  const clean = { ...connected(report(ok)), id: 'clean' };
+  const silent = { ...connected(undefined), id: 'silent' };
   const hosts = [warned, clean, silent];
   assert.equal(hostsFor(hosts, 'all', now), hosts);
   assert.deepEqual(
