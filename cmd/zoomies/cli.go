@@ -131,8 +131,15 @@ func (cf *clientFlags) client() (*apiClient, error) {
 		}
 	}
 	if base == "" {
-		return nil, missingCredential("no controller URL", "url", "https://zoomies.example.com",
-			"and no controller configuration was found on this host at "+config.DefaultConfigFile())
+		conf := config.DefaultConfigFile()
+		why := "and no controller configuration was found on this host at " + conf
+		if cliconfig.InstalledUnreadable(conf) {
+			// It is there, and this user may not read it: say so, or the operator is told
+			// to look for an install that is in front of them.
+			why = "and the controller's configuration at " + conf + " is not readable by this user -- " +
+				"run with sudo, join the group that owns it, or say where the controller is"
+		}
+		return nil, missingCredential("no controller URL", "url", "https://zoomies.example.com", why)
 	}
 	if !strings.Contains(base, "://") {
 		// A bare host is what people type first. Assume https, because

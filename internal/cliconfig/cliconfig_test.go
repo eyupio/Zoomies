@@ -129,3 +129,28 @@ func TestInstalledURLReadsOnlyTheFileItIsGiven(t *testing.T) {
 		t.Errorf("a file that does not parse names no controller, got %q", got)
 	}
 }
+
+// A configuration the user may not read is not the same as no configuration: the first
+// is fixed with sudo or a group, and the second by installing something.
+func TestAnInstalledConfigurationThisUserCannotReadIsToldApartFromNoneAtAll(t *testing.T) {
+	dir := t.TempDir()
+	if InstalledUnreadable(filepath.Join(dir, "absent.yaml")) {
+		t.Error("a file that is not there was reported as unreadable")
+	}
+	file := filepath.Join(dir, "zoomies.yaml")
+	if err := os.WriteFile(file, []byte("server: {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if InstalledUnreadable(file) {
+		t.Error("a file this user wrote and can read was reported as unreadable")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root reads everything, so a permission error cannot be provoked")
+	}
+	if err := os.Chmod(file, 0); err != nil {
+		t.Fatal(err)
+	}
+	if !InstalledUnreadable(file) {
+		t.Error("a file this user may not read was not reported as unreadable")
+	}
+}
