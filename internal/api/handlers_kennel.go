@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/auth"
@@ -86,10 +88,22 @@ func (s *Server) handleKennelChecks(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleListKennelRepositories(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	p := parsePage(r)
-	rows, total, err := s.ctrl.KennelRepositories(r.Context(), controller.KennelListFilter{
+	filter := controller.KennelListFilter{
 		Q: q.Get("q"), Severity: q.Get("severity"), Code: q.Get("code"),
 		State: q.Get("state"), InstallationID: q.Get("installation"),
-	}, p)
+	}
+	if raw := strings.TrimSpace(q.Get("active")); raw != "" {
+		active, err := strconv.ParseBool(raw)
+		if err != nil {
+			// A filter that is wrong is a 400 on the parameter, as it is on every
+			// other: ignoring it would show the whole fleet to somebody who asked
+			// for the busy part of it.
+			badRequestField(w, "active", "is not true or false")
+			return
+		}
+		filter.Active = &active
+	}
+	rows, total, err := s.ctrl.KennelRepositories(r.Context(), filter, p)
 	if err != nil {
 		var invalid *controller.KennelInvalidError
 		if errors.As(err, &invalid) && len(invalid.Fields) > 0 {

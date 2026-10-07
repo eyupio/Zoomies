@@ -5,6 +5,7 @@
 <script lang="ts">
   import { Clock, Layers, Undo2, Wrench, X } from '@lucide/svelte';
   import type { Problem } from '$lib/api/types';
+  import { kennelListHref } from '$lib/kennel/pages';
   import { severityStatus } from '$lib/status';
   import { notifications, SNOOZE_OPTIONS } from '$lib/state/notifications.svelte';
   import type { MenuItem } from '$lib/components/DropdownMenu.svelte';
@@ -144,9 +145,13 @@
     }
     // Kennel Club's exposure problem is one for the whole fleet, so it has no ID:
     // the list of repositories that have an error, where each is named and where
-    // the finding, what to change and the button to say it is acceptable are.
+    // the finding, what to change and the button to say it is acceptable are. It
+    // counts every repository, quiet ones too, so the list must show every one.
     if (p.target_kind === 'kennel') {
-      return { href: '/kennel/repositories?severity=error', label: 'Open Kennel Club' };
+      return {
+        href: kennelListHref({ severity: 'error', everything: true }),
+        label: 'Open Kennel Club',
+      };
     }
     // The setting itself, not the page holding eighty-eight of them. A problem
     // that names a key and then lands somebody on a list they have to search is

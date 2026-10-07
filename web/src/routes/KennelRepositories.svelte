@@ -6,6 +6,13 @@
   ?state=attention. A filter that matches nothing says so and offers to clear
   itself, and the page says why when there is nothing to list because Kennel Club
   is off.
+
+  By default only the repositories the fleet is serving are listed: Kennel Club
+  keeps a row for one for a quarter after its last job, and under the installation
+  scope for every one the App can see. Which view a person wants is theirs and is
+  remembered in their browser. The address can override it with ?active=all, so a
+  link that counts every repository -- a card on the Overview, the problem in the
+  drawer -- opens on as many rows as it said.
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
@@ -30,6 +37,7 @@
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import Select from '$lib/components/Select.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
+  import Switch from '$lib/components/Switch.svelte';
   import KennelShell from '$lib/kennel/KennelShell.svelte';
   import KennelTurnOn from '$lib/kennel/KennelTurnOn.svelte';
   import { openFindingsText, worstSeverity } from '$lib/kennel/words';
@@ -37,7 +45,7 @@
   import { registerSearch } from '$lib/keys';
   import { router } from '$lib/router';
   import { fleet } from '$lib/state/fleet.svelte';
-  import { prefs } from '$lib/state/prefs.svelte';
+  import { prefs, remember, remembered } from '$lib/state/prefs.svelte';
   import { session } from '$lib/state/session.svelte';
   import { kennelStatus } from '$lib/status';
 
@@ -73,7 +81,22 @@
   const code = $derived(router.param('code'));
   const installation = $derived(router.param('installation'));
 
-  const filters = $derived({ search, severity, standing, code, installation });
+  // Only the repositories being served, unless this person has said otherwise or the
+  // address does. It is a scope on the view and not a filter: it has no chip and
+  // "Clear filters" leaves it alone.
+  const ACTIVE_KEY = 'zoomies.kennel.activeOnly';
+  let activeOnlyChoice = $state(
+    remembered(ACTIVE_KEY, true, (value): value is boolean => typeof value === 'boolean'),
+  );
+  const activeOnly = $derived(router.param('active') !== 'all' && activeOnlyChoice);
+  function chooseActiveOnly(next: boolean): void {
+    activeOnlyChoice = next;
+    remember(ACTIVE_KEY, next);
+    // The choice is made, so the address no longer overrides it.
+    router.setQuery({ active: null, offset: null });
+  }
+
+  const filters = $derived({ search, severity, standing, code, installation, activeOnly });
   const anyFilter = $derived(Boolean(search || severity || standing || code || installation));
 
   let searchField = $state<HTMLInputElement | null>(null);
@@ -184,18 +207,25 @@
     previous = next;
   });
 
+  // What is asked of the list, apart from the page of it and whether to keep only
+  // the ones being served: the hidden count asks the same question of the rest.
+  const asked = $derived({
+    q: search || undefined,
+    severity: (severity || undefined) as 'error' | 'warning' | 'info' | undefined,
+    state: (standing || undefined) as
+      'attention' | 'partial' | 'pending' | 'best_in_show' | undefined,
+    code: code || undefined,
+    installation: installation || undefined,
+  });
+
   async function fetchRepositories(
     query: GridQuery,
     signal: AbortSignal,
   ): Promise<GridPage<KennelRepository>> {
     const page = await listKennelRepositories(
       {
-        q: search || undefined,
-        severity: (severity || undefined) as 'error' | 'warning' | 'info' | undefined,
-        state: (standing || undefined) as
-          'attention' | 'partial' | 'pending' | 'best_in_show' | undefined,
-        code: code || undefined,
-        installation: installation || undefined,
+        ...asked,
+        active: activeOnly ? true : undefined,
         limit: query.limit,
         offset: query.offset,
         sort: query.sort,
@@ -205,6 +235,28 @@
     );
     return { items: page.items ?? [], total: page.total };
   }
+
+  // How many more would be listed without the scope, with the same filters, so the
+  // page can say what it is leaving out instead of quietly leaving it out.
+  let hidden = $state<number | null>(null);
+  $effect(() => {
+    void liveKey;
+    void reload;
+    if (!known || !enabled || !activeOnly) {
+      hidden = null;
+      return;
+    }
+    const controller = new AbortController();
+    void listKennelRepositories({ ...asked, active: false, limit: 1 }, controller.signal)
+      .then((page) => {
+        if (!controller.signal.aborted) hidden = page.total;
+      })
+      .catch(() => {
+        // The grid reports an outage itself; without the count the page says less.
+        if (!controller.signal.aborted) hidden = null;
+      });
+    return () => controller.abort();
+  });
 
   function capitalise(word: string): string {
     return word ? word.charAt(0).toUpperCase() + word.slice(1) : word;
@@ -354,7 +406,26 @@
             onchange={(value) => router.setQuery({ installation: value || null, offset: null })}
           />
         {/if}
+        <Switch checked={activeOnly} label="Active on Zoomies" onchange={chooseActiveOnly} />
       </FilterBar>
+
+      <p class="scope">
+        {#if activeOnly}
+          Showing repositories with a job in the last 30 days (fewer if this fleet keeps its jobs
+          for less).
+          {#if hidden}
+            {hidden} more {hidden === 1 ? 'repository has' : 'repositories have'} no recent job.
+            <button
+              class="link"
+              type="button"
+              onclick={() => router.setQuery({ active: 'all', offset: null })}>Show them</button
+            >
+          {/if}
+        {:else}
+          Showing every repository Kennel Club has a row for, including those with no job in the
+          last 30 days.
+        {/if}
+      </p>
 
       <DataGrid
         gridId="kennel-repositories"
@@ -368,12 +439,25 @@
         noun="repositories"
         {liveKey}
         onopen={open}
-        emptyTitle={anyFilter ? 'No repositories match those filters' : 'No repositories yet'}
-        emptyDescription={anyFilter
-          ? 'Try a wider search, or clear a filter.'
-          : 'Kennel Club looks at repositories your fleet has run jobs for. None yet.'}
+        emptyTitle={anyFilter
+          ? activeOnly
+            ? 'No active repositories match those filters'
+            : 'No repositories match those filters'
+          : activeOnly && hidden
+            ? 'No repository has had a job lately'
+            : 'No repositories yet'}
+        emptyDescription={hidden
+          ? `${hidden} without a job in the last 30 days ${hidden === 1 ? 'is' : 'are'} not shown.`
+          : anyFilter
+            ? 'Try a wider search, or clear a filter.'
+            : 'Kennel Club looks at repositories your fleet has run jobs for. None yet.'}
       >
         {#snippet emptyAction()}
+          {#if hidden}
+            <Button onclick={() => router.setQuery({ active: 'all', offset: null })}
+              >Show them</Button
+            >
+          {/if}
           {#if anyFilter}
             <Button onclick={clearFilters}>Clear filters</Button>
           {/if}
@@ -397,5 +481,20 @@
   .waived {
     color: var(--z-text-subtle);
     font-size: var(--z-text-xs);
+  }
+  .scope {
+    margin: 0;
+    color: var(--z-text-muted);
+    font-size: var(--z-text-sm);
+  }
+  .link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--z-accent);
+    font: inherit;
+    text-decoration: underline;
+    text-underline-offset: var(--z-underline-offset);
+    cursor: pointer;
   }
 </style>

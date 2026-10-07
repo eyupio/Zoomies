@@ -264,6 +264,70 @@ func TestListingPutsTheWorstRepositoryFirstAndHonoursItsFilters(t *testing.T) {
 	}
 }
 
+// "Active" is asked of the jobs, as "served" is, and not of the row. A row's
+// last_served_at is when a pass last saw the repository in the served list, which
+// under the installation scope is every pass for every repository the App can see,
+// so it cannot tell a busy repository from one that has been quiet for a quarter.
+func TestTheListCanBeNarrowedToTheRepositoriesTheFleetIsServing(t *testing.T) {
+	ctx := context.Background()
+	s, inst, clock := kennelStore(t)
+	now := *clock
+	since := now.Add(-30 * 24 * time.Hour)
+	for i, name := range []string{"acme/busy", "acme/Mixed", "acme/quiet", "acme/never", "acme/hosted", "acme/edge", "acme/orphan"} {
+		touch(t, s, inst, int64(i+1), name, "public")
+	}
+	ran := func(id int64, repo string, queued time.Time) {
+		job(t, s, id, Job{Repo: repo, State: JobCompleted, QueuedAt: queued, RunnerID: "run_1", PoolID: "pool_1", Labels: StringSlice{"self-hosted"}})
+	}
+	ran(1, "acme/busy", now.Add(-time.Hour))
+	// Recorded as the webhook spelt it, listed as the listing did.
+	ran(2, "acme/mixed", now.Add(-48*time.Hour))
+	ran(3, "acme/quiet", now.Add(-40*24*time.Hour))
+	// Somebody else's runner is not this fleet having a hand in it.
+	job(t, s, 4, Job{Repo: "acme/hosted", State: JobCompleted, QueuedAt: now.Add(-time.Hour), Labels: StringSlice{"ubuntu-latest"}})
+	// Exactly at the start of the window is inside it.
+	ran(5, "acme/edge", since)
+	// A job that was never attributed to an installation is not one the fleet can
+	// say it served, here as in the loop's own list.
+	job(t, s, 6, Job{Repo: "acme/orphan", InstallationID: "-", State: JobCompleted, QueuedAt: now.Add(-time.Hour), RunnerID: "run_1", PoolID: "pool_1", Labels: StringSlice{"self-hosted"}})
+
+	yes, no := true, false
+	list := func(f KennelFilter, p Page) (string, int) {
+		t.Helper()
+		f.ServedSince = since
+		p.Sort = "name"
+		rs, total, err := s.ListKennelRepositories(ctx, f, p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var names []string
+		for _, r := range rs {
+			names = append(names, r.FullName)
+		}
+		return strings.Join(names, ","), total
+	}
+	if got, total := list(KennelFilter{Served: &yes}, Page{}); got != "acme/busy,acme/edge,acme/Mixed" || total != 3 {
+		t.Errorf("active = %s (total %d), want the three with a job in the window, the edge and the differently spelt one included", got, total)
+	}
+	if got, total := list(KennelFilter{Served: &no}, Page{}); got != "acme/hosted,acme/never,acme/orphan,acme/quiet" || total != 4 {
+		t.Errorf("not active = %s (total %d), want the four with none: no job, an old one, a hosted one and one with no installation", got, total)
+	}
+	if got, total := list(KennelFilter{}, Page{}); total != 7 || strings.Count(got, ",") != 6 {
+		t.Errorf("unfiltered = %s (total %d), want all seven: the filter is only there when asked for", got, total)
+	}
+	// The total is of what matches and not of the page, and the filter narrows
+	// with the others rather than replacing them.
+	if got, total := list(KennelFilter{Served: &yes}, Page{Limit: 1}); got != "acme/busy" || total != 3 {
+		t.Errorf("a page of one = %s (total %d), want the first and a total of three", got, total)
+	}
+	if got, total := list(KennelFilter{Served: &yes, Q: "bus"}, Page{}); got != "acme/busy" || total != 1 {
+		t.Errorf("active and searched = %s (total %d), want only acme/busy", got, total)
+	}
+	if got, _ := list(KennelFilter{Served: &no, Q: "bus"}, Page{}); got != "" {
+		t.Errorf("not active and searched for the busy one = %s, want nothing", got)
+	}
+}
+
 func TestDueRepositoriesAreThoseWhoseTimeHasComeAndRecheckMakesOneDue(t *testing.T) {
 	ctx := context.Background()
 	s, inst, clock := kennelStore(t)
