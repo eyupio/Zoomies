@@ -9,6 +9,7 @@ import (
 	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/backend"
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -225,19 +226,20 @@ func (c *Controller) hostIncidentProblems(ctx context.Context, out *[]Problem) e
 		live[p.ID] = true
 	}
 	for _, h := range hosts {
+		label := naming.ForSentence(h.Name)
 		if inc := h.Incidents.Runtime; inc != nil {
 			since := inc.Since
 			detail := fmt.Sprintf("%s's agent reported its %s in a row at %s and holds new starts until one recovery attempt at %s. "+
-				"Running jobs continue.", h.Name, ordinalFailure(inc.Failures), incidentTime(inc.ObservedAt), incidentTime(inc.RetryAt))
+				"Running jobs continue.", label, ordinalFailure(inc.Failures), incidentTime(inc.ObservedAt), incidentTime(inc.RetryAt))
 			if inc.Error != "" {
 				detail += " The last error: " + inc.Error
 			}
 			*out = append(*out, Problem{
 				Code:     "host.runtime_recovering",
 				Severity: config.SeverityWarning,
-				Title:    fmt.Sprintf("the container runtime on %s is recovering after its %s", h.Name, ordinalFailure(inc.Failures)),
+				Title:    fmt.Sprintf("the container runtime on %s is recovering after its %s", label, ordinalFailure(inc.Failures)),
 				Detail:   detail,
-				Fix:      runtimeFix(h.Name, inc),
+				Fix:      runtimeFix(label, inc),
 				// Since is when the controller first heard of it; the
 				// detail carries when it last heard anything new.
 				TargetKind: "host", TargetID: h.ID, Since: &since,
@@ -251,18 +253,18 @@ func (c *Controller) hostIncidentProblems(ctx context.Context, out *[]Problem) e
 			}
 			detail := fmt.Sprintf("%s of %s for pool %s failed on %s at %s because the image could not be made ready. "+
 				"Every runner that pool places on this host fails the same way until it can.",
-				what, inc.Image, inc.Pool, h.Name, incidentTime(inc.ObservedAt))
+				what, inc.Image, inc.Pool, label, incidentTime(inc.ObservedAt))
 			if inc.Error != "" {
 				detail += " The error: " + inc.Error
 			}
 			*out = append(*out, Problem{
 				Code:     "host.image_pull_failed",
 				Severity: config.SeverityWarning,
-				Title:    fmt.Sprintf("%s cannot pull pool %s's image from %s", h.Name, inc.Pool, inc.Registry),
+				Title:    fmt.Sprintf("%s cannot pull pool %s's image from %s", label, inc.Pool, inc.Registry),
 				Detail:   detail,
 				Fix: fmt.Sprintf("check that %s can reach %s -- its egress rules, proxy and DNS -- and is logged in to it if the image "+
 					"is private (`docker pull %s` on the host gives the daemon's own answer), and that the pool's image and tag exist. "+
-					"This clears on the next start or prewarm of %s that succeeds on this host.", h.Name, inc.Registry, inc.Image, inc.Pool),
+					"This clears on the next start or prewarm of %s that succeeds on this host.", label, inc.Registry, inc.Image, inc.Pool),
 				TargetKind: "host", TargetID: h.ID, Since: &since,
 			})
 		}

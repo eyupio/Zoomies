@@ -80,7 +80,9 @@ as `token:`. It is the file of whichever account ran the command, so under `sudo
 | `zoomies agent install` | Install the agent's service on a machine about to become a provider's template, joined to nothing. The unit reads `/etc/zoomies/zoomies.env`, which the controller writes into each clone, and is left disabled for the controller to enable there. It refuses a machine that has already joined, because its `agent.json` would be cloned into every machine. See [Proxmox VE](proxmox.md#preparing-the-template). |
 | `zoomies gateway --target <host:port>` | Publish a private provider API — a Proxmox cluster on your home network, say — to a controller over Tailcat. It prints the address the provider form asks for, keeps its identity in `--state-dir` so a restart keeps the same address, and forwards every connection that arrives through the tunnel to the one target. `--quiet` keeps the address out of a service's log. See [Private hosts and providers](private-hosts.md#private-providers). |
 
-`agent join` takes the host's shape as flags — `--name`, `--capacity`,
+`agent join` takes the host's shape as flags — `--name` (at most 128 characters,
+with no backtick or control character; it is refused before the token is spent
+otherwise, see [Naming](naming.md)), `--capacity`,
 `--labels`, `--backend`, `--docker-host` — plus the TLS trio (`--ca-file`,
 `--client-cert`, `--client-key`), `--no-service` to skip installing one, and
 `--non-interactive` with `--yes` for automation.

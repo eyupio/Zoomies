@@ -319,3 +319,36 @@ func TestOutdatedRunnerExplainsRequiredUpdate(t *testing.T) {
 		t.Fatal("outdated runner lacks actionable classification")
 	}
 }
+
+type failingStatsBackend struct{ *fakeBackend }
+
+func (failingStatsBackend) Stats(context.Context, backend.Handle) (backend.Stats, error) {
+	return backend.Stats{}, errors.New("cgroup unavailable")
+}
+
+// Readings that stop coming leave the controller sizing from a stale picture, and the
+// failure itself is only at Debug: the agent counts them in a row so the run can be said
+// once, and a good sample ends it.
+func TestStatsFailuresAreCountedInARowAndEndedByAGoodSample(t *testing.T) {
+	a, _, be, _ := newAgent(t, 2)
+	be.setWorkloads(running("wl-1", "runner-1"))
+	tr := track(a, "runner-1", "wl-1", true)
+	a.opts.Backends = backend.NewRegistry(failingStatsBackend{be})
+	for range statsMissesSaid + 2 {
+		a.sampleStats(context.Background())
+	}
+	a.mu.Lock()
+	missed := tr.statsMisses
+	a.mu.Unlock()
+	if missed != statsMissesSaid+2 {
+		t.Fatalf("misses = %d, want %d", missed, statsMissesSaid+2)
+	}
+	a.opts.Backends = backend.NewRegistry(be)
+	a.sampleStats(context.Background())
+	a.mu.Lock()
+	missed = tr.statsMisses
+	a.mu.Unlock()
+	if missed != 0 {
+		t.Errorf("misses = %d after a good sample, want 0", missed)
+	}
+}

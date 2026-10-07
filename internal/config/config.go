@@ -1041,6 +1041,11 @@ func (l Limits) JobStatsSpan() time.Duration {
 	return l.JobStatsWindow
 }
 
+// SizingEvidenceWindow is how much job history the controller's sizing advice counts: a
+// week spans the regular builds and the weekly one. It lives here because the validator
+// asks whether the history kept is long enough to give it.
+const SizingEvidenceWindow = 7 * 24 * time.Hour
+
 // Retention bounds how much history the database keeps.
 //
 // Audit rows are deliberately absent: an audit trail a process can quietly

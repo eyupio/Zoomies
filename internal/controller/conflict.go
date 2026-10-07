@@ -6,6 +6,7 @@ import (
 	"maps"
 	"slices"
 
+	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -134,7 +135,7 @@ func (c *Controller) PoolStranding(ctx context.Context, current, proposed *store
 // what the Hosts page would show for it.
 func hostLabel(h *store.Host) string {
 	if h.Name != "" {
-		return h.Name
+		return naming.ForSentence(h.Name)
 	}
 	return h.ID
 }

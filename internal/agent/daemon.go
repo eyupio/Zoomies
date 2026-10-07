@@ -311,6 +311,10 @@ type tracked struct {
 	// holding a live row for a runner that no longer exists.
 	reported bool
 
+	// statsMisses is how many samples in a row failed, so a runner whose readings have gone
+	// stale is said so once and not at every failure.
+	statsMisses int
+
 	state      store.RunnerState
 	phase      backend.Phase
 	stats      backend.Stats

@@ -189,6 +189,7 @@ than about what any one setting says.
 | `images.refresh_negative` | error | `images.refresh_interval` | Must not be negative. Use a duration, or 0 to leave images alone. |
 | `images.refresh_too_fast` | warning | `images.refresh_interval` | Every pool's image is checked on every host far more often than an image is built. |
 | `images.refresh_off` | info | `images.refresh_interval` | Nothing refreshes runner images, so a pool naming a moving tag keeps whatever its hosts pulled first. Expected on an air-gapped fleet, or one that pins every pool to a digest. |
+| `retention.jobs_short` | info | `retention.jobs` | Job history is kept for less than the week the sizing advice counts. Advice to give a pool a smaller runner, or a host smaller runners, rests on what a week of jobs used, so it is not given. Keep a week or more. |
 | `retention.audit_renamed` | info | `retention.audit` | The key was renamed to `retention.scaling_events`, which is all it ever bounded; audit rows are never pruned. The value is still honoured. Rename it. |
 | `backup.remote_incomplete` | error | `backup.remotes` | A remote has no endpoint or no bucket, so nothing would be copied to it and nothing would say so. Finish it, or set `disabled: true` until it is ready. |
 | `backup.remote_endpoint` | error | `backup.remotes` | A remote's endpoint is not an HTTP URL. Write the service's own, such as `https://s3.eu-west-2.amazonaws.com` or `http://minio:9000`; the scheme is what decides whether the connection is encrypted. |

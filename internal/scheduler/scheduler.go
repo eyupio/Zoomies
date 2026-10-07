@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -1666,7 +1667,7 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 			// place. Take the first host that has an explanation.
 			if detail == "" {
 				if info, ok := h.BackendInfo.Find(p.Backend); ok && !info.Available && info.Detail != "" {
-					detail = h.Name + " reports: " + info.Detail
+					detail = naming.ForSentence(h.Name) + " reports: " + info.Detail
 				}
 			}
 		case !HostIsPlatform(h, p):
@@ -1679,12 +1680,12 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 			// the weather, and counted in neither of the flags that mean wait.
 			profile++
 			if detail == "" {
-				detail = h.Name + ": " + ExcludedBySize(h, p).Reason
+				detail = naming.ForSentence(h.Name) + ": " + ExcludedBySize(h, p).Reason
 			}
 		case HostAdmissionReason(h, hs.now) != "":
 			held++
 			if detail == "" {
-				detail = h.Name + ": " + HostAdmissionReason(h, hs.now)
+				detail = naming.ForSentence(h.Name) + ": " + HostAdmissionReason(h, hs.now)
 			}
 		case hostUnderCPUPressure(h, hs.now) && hs.warming[h.ID] > 0:
 			warming++
@@ -1695,7 +1696,7 @@ func (hs *hostSet) why(p *store.Pool) blockage {
 			// is being pushed too hard at the slots it already has.
 			throttled++
 			if detail == "" {
-				detail = h.Name + ": " + ThrottleReason(h)
+				detail = naming.ForSentence(h.Name) + ": " + ThrottleReason(h)
 			}
 		case hs.alloc[h.ID].DiskKnown && hs.alloc[h.ID].DiskMB <= 0:
 			// The disk gate is asked before the sizing one, because a host at

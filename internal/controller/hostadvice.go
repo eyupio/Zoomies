@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -165,7 +166,7 @@ func (c *Controller) hostCapacityAdviceProblems(ctx context.Context, out *[]Prob
 			Code:     "host.slots_below_capacity",
 			Severity: config.SeverityInfo,
 			Title: fmt.Sprintf("host %s holds %d of its %d slots, because its runners are larger than the machine divides into",
-				h.Name, slots, h.Capacity),
+				naming.ForSentence(h.Name), slots, h.Capacity),
 			Detail: detail, Fix: fix,
 			Remedy:     remedy,
 			TargetKind: "host", TargetID: h.ID,
@@ -185,6 +186,12 @@ func (c *Controller) hostCapacityAdviceProblems(ctx context.Context, out *[]Prob
 func (c *Controller) hostSizeKillsJobs(ctx context.Context, reaching []*store.Pool, std, next store.RunnerStandard) (string, error) {
 	if next.MemoryMB <= 0 || next.MemoryMB >= std.MemoryMB {
 		return "", nil
+	}
+	if !c.sizingHistoryKept() {
+		// Not asked and answered "fine": a smaller runner cannot be checked against a week of
+		// jobs that are no longer there, and unchecked is the one answer that is not safe.
+		return fmt.Sprintf("job history is kept for %s, less than the %s needed to check that a smaller runner would hold the jobs",
+			c.cfg().Retention.Jobs, minimumEvidenceWindow), nil
 	}
 	names := map[string]string{}
 	var ids []string
@@ -302,6 +309,7 @@ func (c *Controller) hostConcentrationProblems(ctx context.Context, out *[]Probl
 	}
 	sort.Slice(idle, func(i, j int) bool { return idle[i].Name < idle[j].Name })
 	for _, h := range pinned {
+		label := naming.ForSentence(h.Name)
 		// An idle host only counts if work that runs on this one could run there: a
 		// Windows or arm64 machine beside a throttled amd64 one is idle for a reason.
 		var reaching []*store.Pool
@@ -313,7 +321,7 @@ func (c *Controller) hostConcentrationProblems(ctx context.Context, out *[]Probl
 		var names []string
 		for _, other := range idle {
 			if slices.ContainsFunc(reaching, func(p *store.Pool) bool { return reaches(other, p) }) {
-				names = append(names, other.Name)
+				names = append(names, naming.ForSentence(other.Name))
 			}
 		}
 		if len(names) == 0 {
@@ -322,13 +330,13 @@ func (c *Controller) hostConcentrationProblems(ctx context.Context, out *[]Probl
 		*out = append(*out, Problem{
 			Code:     "host.work_concentrated",
 			Severity: config.SeverityInfo,
-			Title:    fmt.Sprintf("host %s is throttled while %s idle", h.Name, plural(len(names), "other host")+verbIs(len(names))),
+			Title:    fmt.Sprintf("host %s is throttled while %s idle", label, plural(len(names), "other host")+verbIs(len(names))),
 			Detail: fmt.Sprintf("%s is running %s and has been stepped down after sustained pressure, while %s with no runners and under %.0f%% CPU, and work that runs on %s could run there. "+
 				"The placement order is headroom, which prefers the host with the most left afterwards, so the largest machine is the first choice again as soon as a job needs a runner, throttled or not.",
-				h.Name, plural(h.ActiveRunners, "runner"), strings.Join(names, ", ")+verbIs(len(names)), idleCPUPercent, h.Name),
+				label, plural(h.ActiveRunners, "runner"), strings.Join(names, ", ")+verbIs(len(names)), idleCPUPercent, label),
 			Fix: fmt.Sprintf("lower %s's capacity so it takes fewer runners at once. Changing scheduler.host_order is not the answer on its own: best_fit packs the fullest host first "+
 				"and largest_standard prefers the host where a pool's runner is biggest, and both keep choosing a large host that headroom would have left. "+
-				"Which capacity is right depends on what %s is for, so none is proposed for you.", h.Name, h.Name),
+				"Which capacity is right depends on what %s is for, so none is proposed for you.", label, label),
 			TargetKind: "host", TargetID: h.ID,
 		})
 	}
