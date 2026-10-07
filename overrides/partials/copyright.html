@@ -39,6 +39,10 @@
     {% if config.copyright %}
       <span class="md-copyright__highlight">{{ config.copyright }}</span>
     {% endif %}
+    <span class="zoomies-footer__policies">
+      <a href="{{ 'privacy/' | url }}">Privacy</a>
+      <a href="{{ 'terms/' | url }}">Terms</a>
+    </span>
     {% if config.extra.developer %}
       <span class="zoomies-footer__credit">
         Developed by
