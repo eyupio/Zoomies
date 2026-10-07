@@ -259,6 +259,78 @@ func TestTheRepositoryListCanBeNarrowedByEveryFilterItOffers(t *testing.T) {
 	}
 }
 
+// Active is asked of the jobs, the way the loop asks which repositories to look
+// at, so it means the same on the list as it does everywhere else. A repository
+// with a row and no job is the one the filter exists to tell apart, and under the
+// installation scope there are plenty of them.
+func TestTheRepositoryListCanBeNarrowedToWhatTheFleetIsServing(t *testing.T) {
+	s := newKennelStack(t)
+	if _, err := s.st.TouchKennelRepository(s.ctx, store.KennelRepositoryRef{
+		GitHubHost: "github.com", RepositoryID: 9001, InstallationID: s.inst.ID,
+		FullName: "acme/dormant", Visibility: "private",
+	}); err != nil {
+		t.Fatalf("TouchKennelRepository: %v", err)
+	}
+	names := func(query string) []string {
+		t.Helper()
+		var got []string
+		for _, r := range s.list(query, s.viewer) {
+			got = append(got, r.Name)
+		}
+		slices.Sort(got)
+		return got
+	}
+	for _, tc := range []struct {
+		name, query string
+		want        []string
+	}{
+		{"asked for nothing", "", []string{"acme/dormant", "acme/exposed", "acme/quiet", "acme/rebuilt"}},
+		{"the ones being served", "active=true", []string{"acme/exposed", "acme/quiet", "acme/rebuilt"}},
+		{"the ones that are not", "active=false", []string{"acme/dormant"}},
+		{"another spelling of true", "active=1", []string{"acme/exposed", "acme/quiet", "acme/rebuilt"}},
+		{"served, and with an error", "active=true&severity=error", []string{"acme/exposed"}},
+		{"not served, and with an error", "active=false&severity=error", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := names(tc.query); !slices.Equal(got, tc.want) {
+				t.Errorf("%q listed %v, want %v", tc.query, got, tc.want)
+			}
+		})
+	}
+
+	// The total is of what the filter keeps, so a page of one still says three.
+	resp := s.do(request{method: http.MethodGet, path: kennelBase + "/repositories?active=true&limit=1", cookie: s.viewer})
+	resp.mustStatus(t, http.StatusOK, "a page of the served")
+	var page struct {
+		Items []json.RawMessage `json:"items"`
+		Total int               `json:"total"`
+	}
+	resp.into(t, &page)
+	if len(page.Items) != 1 || page.Total != 3 {
+		t.Errorf("a page of one listed %d of %d, want one of three", len(page.Items), page.Total)
+	}
+}
+
+// The window is Kennel Club's own, thirty days or the fleet's job retention if
+// that is shorter, because the jobs table cannot answer about a day it has already
+// pruned. A repository whose job is older than what the fleet keeps is not one it
+// can say it is serving.
+func TestTheWindowForActiveIsTheOneEveryOtherSentenceNames(t *testing.T) {
+	s := newKennelStack(t)
+	// The stack's jobs were queued an hour ago.
+	s.ctrl.UpdateConfig(func(c *config.Config) { c.Retention.Jobs = 30 * time.Minute })
+	if got := len(s.list("active=true", s.viewer)); got != 0 {
+		t.Errorf("%d repositories active inside a window of half an hour, want none: their jobs are an hour old", got)
+	}
+	if got := len(s.list("active=false", s.viewer)); got != 3 {
+		t.Errorf("%d repositories not active inside a window of half an hour, want all three", got)
+	}
+	s.ctrl.UpdateConfig(func(c *config.Config) { c.Retention.Jobs = 90 * 24 * time.Hour })
+	if got := len(s.list("active=true", s.viewer)); got != 3 {
+		t.Errorf("%d repositories active with ninety days of jobs kept, want all three: the window is thirty days at most, not longer", got)
+	}
+}
+
 func TestTheRepositoryListPagesAndSaysHowManyThereAre(t *testing.T) {
 	s := newKennelStack(t)
 	resp := s.do(request{method: http.MethodGet, path: kennelBase + "/repositories?limit=2&offset=2", cookie: s.viewer})
@@ -283,6 +355,7 @@ func TestAFilterTheListDoesNotKnowIsRefusedByName(t *testing.T) {
 		{"severity=loud", "severity"},
 		{"state=sleeping", "state"},
 		{"code=exposure.nonsense", "code"},
+		{"active=sometimes", "active"},
 	} {
 		t.Run(tc.field, func(t *testing.T) {
 			resp := s.do(request{method: http.MethodGet, path: kennelBase + "/repositories?" + tc.query, cookie: s.viewer})

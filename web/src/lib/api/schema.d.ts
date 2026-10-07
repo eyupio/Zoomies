@@ -13028,6 +13028,8 @@ export interface operations {
                 state?: components["schemas"]["KennelState"];
                 /** @description Only this installation's repositories. */
                 installation?: string;
+                /** @description `true` keeps the repositories this fleet has had a hand in a job for within Kennel Club's window, which is thirty days or as long as the fleet keeps its jobs if that is shorter; `false` keeps the ones it has not. Left out, both are listed. It is asked of the jobs, not of when Kennel Club last looked at the repository, so under the installation scope it still tells a busy repository from one the App merely sees. Anything but a boolean is a 400. */
+                active?: boolean;
                 limit?: components["parameters"]["Limit"];
                 offset?: components["parameters"]["Offset"];
                 /** @description A column name. An unknown value falls back to the default rather than erroring, so a stale bookmark does not break the page. */

@@ -51,6 +51,23 @@ test('the list of repositories is opened on the address the list itself reads', 
   );
 });
 
+// The list leaves out the repositories the fleet is not serving unless told. A link
+// that counts every repository has to say so, or it opens on fewer rows than the
+// number it came from.
+test('a link that counts every repository asks the list for every repository', () => {
+  const list = kennelListHref();
+  assert.equal(kennelListHref({ everything: true }), `${list}?active=all`);
+  assert.equal(
+    kennelListHref({ state: 'attention', everything: true }),
+    `${list}?state=attention&active=all`,
+  );
+  assert.equal(
+    kennelListHref({ severity: 'error', everything: true }),
+    `${list}?severity=error&active=all`,
+  );
+  assert.equal(kennelListHref({ everything: false }), list, 'not asked for, not in the address');
+});
+
 test('an empty filter is left out of the address, and a value is encoded', () => {
   const list = kennelListHref();
   assert.equal(kennelListHref({ state: '', severity: '' }), list);

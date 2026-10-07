@@ -84,6 +84,11 @@ func (e *KennelNeedsAdminError) Error() string {
 // answer and not an empty page.
 type KennelListFilter struct {
 	Q, Severity, Code, State, InstallationID string
+	// Active, when set, keeps the repositories the fleet has served a job for in
+	// Kennel Club's window (true) or the ones it has not (false). The window is
+	// the one every sentence on the Overview names: thirty days, or as long as the
+	// fleet keeps its jobs if that is shorter.
+	Active *bool
 }
 
 // KennelRepositories lists what Kennel Club has concluded, in the shape of GET
@@ -93,6 +98,10 @@ func (c *Controller) KennelRepositories(ctx context.Context, f KennelListFilter,
 		return nil, 0, ErrKennelOff
 	}
 	filter := store.KennelFilter{Q: f.Q, InstallationID: f.InstallationID}
+	if f.Active != nil {
+		filter.Served = f.Active
+		filter.ServedSince = c.Now().Add(-kennelWindow(c.cfg().Retention.Jobs))
+	}
 	switch f.Severity {
 	case "", "error", "warning", "info":
 		filter.Severity = f.Severity
