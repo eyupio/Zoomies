@@ -219,6 +219,10 @@
   async function refresh(): Promise<void> {
     try {
       await fleet.reconcile();
+      // A failed reconcile is a state on the fleet, not an exception, so without
+      // this the page would clear its error and say it had refreshed over a cache
+      // that never changed.
+      if (fleet.error) throw fleet.error;
       if (!fleet.hosts.some((h) => h.id === id)) fetched = await getHost(id);
       error = null;
     } catch (cause) {
