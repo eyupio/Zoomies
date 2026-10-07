@@ -259,7 +259,9 @@ type HostView struct {
 // backends it never reported on.
 func (c *Controller) HostView(h *store.Host) HostView {
 	out := HostView{
-		Doctor:             doctorView(h.Doctor.Report),
+		// Judged, not raw: the page, the problems and the metrics must read one
+		// answer about what counts.
+		Doctor:             doctorView(h.JudgedDoctor(c.Now())),
 		ID:                 h.ID,
 		Name:               h.Name,
 		Address:            h.Address,

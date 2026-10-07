@@ -46,6 +46,11 @@ export const KERNEL_PENDING = 'kernel.pending';
  * one place the rule is written a second time, so it is where the two would
  * drift.
  *
+ * Nor an accepted warning: an operator decided it is deliberate, and the
+ * controller stops counting it (hosttune.Summary), so this list must drop it too
+ * or its length would stop being `warnings + errors`. The row stays in the
+ * tables below, with its badge and its reason.
+ *
  * Empty for a container's partial report. The pill calls that report no verdict
  * and the controller raises nothing for it, so a list of what "needs attention"
  * on the same page would contradict both -- and its one warning, the image's own
@@ -58,6 +63,7 @@ export function attention(report: DoctorReport): DoctorResult[] {
       (r) =>
         counts(r) &&
         isFinding(r) &&
+        !r.accepted &&
         !(report.reboot_pending && r.id === KERNEL_PENDING && r.status === 'warn'),
     ),
   );
@@ -85,13 +91,15 @@ export interface HealthSummary {
   skipped: number;
   /** Warnings that do not count: other tiers, and anything optional. */
   suggestions: number;
+  /** Counted warnings an operator accepted as deliberate. Zero from a controller that predates it. */
+  accepted: number;
 }
 
 /**
  * The badge for one host, read from the controller's own count (`summary`).
  *
  * The count is not worked out here: the problems, the metrics, the feed and
- * `zoomies hosts list` read the same five numbers, and a pill that tallied the
+ * `zoomies hosts list` read the same six numbers, and a pill that tallied the
  * results itself would be the one surface that could disagree with them. What
  * stays here is what only a browser knows -- the clock the report is judged
  * against -- and the wording.
@@ -101,7 +109,7 @@ export function healthSummary(
   now: number,
   reachable = true,
 ): HealthSummary {
-  const empty = { errors: 0, warnings: 0, skipped: 0, suggestions: 0 };
+  const empty = { errors: 0, warnings: 0, skipped: 0, suggestions: 0, accepted: 0 };
   if (!report)
     return {
       label: 'Health unavailable',
@@ -126,7 +134,8 @@ export function healthSummary(
   const dated = Number.isFinite(checked);
   const stale = !reachable || !dated || now - checked > 3 * 60_000;
   const { errors, warnings, skipped, suggestions } = summary;
-  const tally = { errors, warnings, skipped, suggestions };
+  const accepted = summary.accepted ?? 0;
+  const tally = { errors, warnings, skipped, suggestions, accepted };
   // Old and gone are different problems with different fixes, so the page says
   // which: a host that is not connected has nothing newer to send, while a
   // connected one has an agent or a clock that needs a person. The label never
@@ -153,6 +162,9 @@ export function healthSummary(
       `${pluralise(skipped, 'skipped check')}.` +
       (suggestions
         ? ` Also ${pluralise(suggestions, 'optional suggestion')}, which do not count towards health.`
+        : '') +
+      (accepted
+        ? ` Also ${pluralise(accepted, 'accepted check')}, which do not count towards health.`
         : '') +
       rebootNote +
       staleNote;

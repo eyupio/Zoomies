@@ -30,7 +30,9 @@ export const CHECK_ID_MAX = 64;
  * be wrong; Optional wins because a trade-off is read about before it is fixed.
  */
 export function rowKind(check: DoctorResult, readOnly: boolean): RowKind | null {
-  if (check.status !== 'warn' || readOnly) return null;
+  // An accepted row is a decision already taken: it says so in its badge, and a
+  // word about fixing it would argue with that.
+  if (check.status !== 'warn' || readOnly || check.accepted) return null;
   if (check.optional === true) return 'optional';
   if (check.actionable === true) return 'fixable';
   return 'advice';

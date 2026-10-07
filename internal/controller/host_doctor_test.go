@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"maps"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -141,7 +142,7 @@ func TestAHostViewRendersTheReportAsItWasWithTheControllersCountBesideIt(t *test
 	if err := json.Unmarshal(view.Doctor["summary"], &summary); err != nil {
 		t.Fatalf("summary is not an object of counts: %s", view.Doctor["summary"])
 	}
-	wantSummary := map[string]int{"counted": 4, "warnings": 1, "errors": 1, "skipped": 1, "suggestions": 2}
+	wantSummary := map[string]int{"counted": 4, "warnings": 1, "errors": 1, "skipped": 1, "suggestions": 2, "accepted": 0}
 	if !maps.Equal(summary, wantSummary) {
 		t.Errorf("summary = %v, want %v", summary, wantSummary)
 	}
@@ -268,5 +269,38 @@ func TestHostUpdatedCarriesTheSameDoctorCountAsGET(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("no host health event")
+	}
+}
+
+// Only an operator can accept a check. An agent that sends the marks itself --
+// to silence its own alarm -- has them dropped before the report is stored, so
+// they are neither counted nor ever read back.
+func TestAnAgentCannotClaimToHaveAcceptedItsOwnWarning(t *testing.T) {
+	h := newHarness(t)
+	host := h.host("claimant")
+	claim := hosttune.Result{ID: "docker.logs", Tier: hosttune.Safe, Status: hosttune.Warn, Current: "none",
+		Accepted:   &hosttune.Acceptance{Reason: "trust me", By: "the host"},
+		Ended:      &hosttune.Ended{Why: "changed"},
+		Acceptable: true}
+	r := &hosttune.Report{CheckedAt: h.c.Now(), OS: "linux", Results: []hosttune.Result{claim}}
+	if _, err := h.c.Heartbeat(h.ctx, host.ID, agent.HeartbeatRequest{ProtocolVersion: agent.ProtocolVersion, Doctor: r}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := h.st.GetHost(h.ctx, host.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := got.Doctor.Value()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{`"accepted"`, `"ended"`, `"acceptable"`} {
+		if strings.Contains(stored.(string), k) {
+			t.Errorf("the stored report kept %s: %s", k, stored)
+		}
+	}
+	s := h.c.HostView(got).Doctor.Summary
+	if s.Warnings != 1 || s.Accepted != 0 {
+		t.Errorf("summary = %+v, want the warning counted and nothing accepted", s)
 	}
 }

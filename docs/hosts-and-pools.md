@@ -145,6 +145,8 @@ shows it as a different build. Only a **protocol** mismatch stops work reaching
 a host, and then it is excluded from placement exactly as a cordon excludes it
 and says `incompatible` on its card.
 
+The disk figure on a host's card is the filesystem holding the work directory, the one the [host health](host-health.md) `disk.space` check reads. The card follows each heartbeat and the check runs about once a minute, and the figure turns amber by the check's rule (under 10% or under 10 GiB free) and links to that check.
+
 ### What a host brings with it
 
 | What | Where it comes from | Why it matters |

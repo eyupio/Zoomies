@@ -1083,10 +1083,14 @@ func (p *Pool) Dangerous() []string {
 
 // Host is an agent process and the machine it runs on.
 type Host struct {
-	Doctor     HostDoctor `json:"doctor,omitempty"`
-	Connection string     `json:"connection"`
-	ID         string     `json:"id"`
-	Name       string     `json:"name"`
+	Doctor HostDoctor `json:"doctor,omitempty"`
+	// Acceptances are the operator decisions about this host's checks, filled
+	// by every read that fills the runner counts. They stay out of the JSON:
+	// the API renders them as marks on the doctor results, through JudgedDoctor.
+	Acceptances []HostCheckAcceptance `json:"-"`
+	Connection  string                `json:"connection"`
+	ID          string                `json:"id"`
+	Name        string                `json:"name"`
 	// Address is how the host reported itself; the controller never dials it.
 	// Agents always connect outbound to the controller.
 	Address string `json:"address,omitempty"`

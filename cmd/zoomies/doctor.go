@@ -237,6 +237,9 @@ func printDoctor(w io.Writer, r hosttune.Report, remote bool) {
 	warnings, errs, skipped := r.Counts()
 	ui.Title(w, "Host health", fmt.Sprintf("%s · %s · checked %s", r.OS, r.Distro, r.CheckedAt.Format(time.RFC3339)))
 	summary := fmt.Sprintf("%d warning(s), %d error(s), %d skipped check(s)", warnings, errs, skipped)
+	if n := acceptedCount(r); n > 0 {
+		summary += fmt.Sprintf(", %d accepted", n)
+	}
 	switch {
 	case errs > 0:
 		ui.Fail(w, "%s", summary)
@@ -256,10 +259,10 @@ func printDoctor(w io.Writer, r hosttune.Report, remote bool) {
 	}
 	// Findings come first and in full, because they are what the reader came
 	// for; checks that pass are one line each so they do not bury them.
-	section := func(label string, keep func(hosttune.Status) bool, detail bool) {
+	section := func(label string, keep func(hosttune.Result) bool, detail bool) {
 		var rows []hosttune.Result
 		for _, x := range r.Results {
-			if keep(x.Status) {
+			if keep(x) {
 				rows = append(rows, x)
 			}
 		}
@@ -272,10 +275,16 @@ func printDoctor(w io.Writer, r hosttune.Report, remote bool) {
 			printCheck(w, ui, x, detail)
 		}
 	}
-	section("Needs attention", func(s hosttune.Status) bool { return s == hosttune.Warn || s == hosttune.Error }, true)
-	section("Skipped", func(s hosttune.Status) bool { return s == hosttune.Skip }, true)
-	section("Passing", func(s hosttune.Status) bool {
-		return s != hosttune.Warn && s != hosttune.Error && s != hosttune.Skip
+	// An accepted warning is a decision an operator made on the controller, not a
+	// pass, so it gets a section of its own: the sections then add up to the
+	// summary line, and nobody has to wonder where a warning went.
+	section("Needs attention", func(x hosttune.Result) bool {
+		return !x.Accepting() && (x.Status == hosttune.Warn || x.Status == hosttune.Error)
+	}, true)
+	section("Accepted", hosttune.Result.Accepting, true)
+	section("Skipped", func(x hosttune.Result) bool { return x.Status == hosttune.Skip }, true)
+	section("Passing", func(x hosttune.Result) bool {
+		return x.Status != hosttune.Warn && x.Status != hosttune.Error && x.Status != hosttune.Skip
 	}, false)
 	if warnings > 0 {
 		fmt.Fprintln(w)
@@ -296,7 +305,9 @@ func printCheck(w io.Writer, ui installer.Palette, x hosttune.Result, detail boo
 	case hosttune.Error:
 		ui.Fail(w, "%s", title)
 	case hosttune.Warn:
-		if x.Actionable && !x.Optional {
+		if x.Accepting() {
+			title += "  " + ui.Dim("[accepted]")
+		} else if x.Actionable && !x.Optional {
 			title += "  " + ui.Green("[fixable]")
 		}
 		ui.Warn(w, "%s", title)
@@ -322,6 +333,10 @@ func printCheck(w io.Writer, ui installer.Palette, x hosttune.Result, detail boo
 			}
 			fmt.Fprintf(w, "     %s\n", line)
 		}
+	}
+	if a := x.Accepted; a != nil {
+		// Person-written, so it goes through plainCell like the host's own text.
+		field("accepted", fmt.Sprintf("by %s on %s, until %s: %s", a.By, a.At.Format("2 Jan 2006"), a.ExpiresAt.Format("2 Jan 2006"), a.Reason))
 	}
 	field("current", x.Current)
 	field("better", x.Recommended)
@@ -469,7 +484,7 @@ const briefRows = 3
 
 func actionableCount(r hosttune.Report) (n int) {
 	for _, x := range r.Results {
-		if x.Status == hosttune.Warn && x.Actionable && !x.Optional {
+		if x.Status == hosttune.Warn && x.Actionable && !x.Optional && !x.Accepting() {
 			n++
 		}
 	}
@@ -487,8 +502,14 @@ func printDoctorBrief(w io.Writer, r hosttune.Report, fresh int) {
 			ui.Hint(w, "%d checks unavailable; see --verbose for details.", skipped)
 		}
 	}
+	acceptedNote := func() {
+		if n := acceptedCount(r); n > 0 {
+			ui.Hint(w, "%s accepted by an operator; see --verbose for who and why.", countOf(n, "check"))
+		}
+	}
 	if warnings+errs == 0 {
 		ui.Done(w, "No warnings or errors")
+		acceptedNote()
 		skippedNote()
 		return
 	}
@@ -503,7 +524,7 @@ func printDoctorBrief(w io.Writer, r hosttune.Report, fresh int) {
 	}
 	shown := 0
 	for _, x := range r.Results {
-		if x.Status != hosttune.Warn && x.Status != hosttune.Error {
+		if (x.Status != hosttune.Warn && x.Status != hosttune.Error) || x.Accepting() {
 			continue
 		}
 		if shown == briefRows {
@@ -525,8 +546,21 @@ func printDoctorBrief(w io.Writer, r hosttune.Report, fresh int) {
 	if r.RebootPending {
 		ui.Hint(w, "A reboot is pending. Drain this host first; Zoomies will not reboot it.")
 	}
+	acceptedNote()
 	skippedNote()
 	if actionableCount(r) > 0 {
 		ui.Hint(w, "Review fixes: sudo zoomies tune")
 	}
+}
+
+// acceptedCount is how many warnings an operator has accepted. Only a report
+// fetched from the controller can have any; a local run never does.
+func acceptedCount(r hosttune.Report) int {
+	n := 0
+	for _, x := range r.Results {
+		if x.Accepting() {
+			n++
+		}
+	}
+	return n
 }

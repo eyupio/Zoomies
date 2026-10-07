@@ -443,7 +443,7 @@ var (
 	// id such as docker.logs would tell anyone who can reach it which setting a
 	// host has not changed.
 	descHostOSChecks = prometheus.NewDesc("zoomies_host_os_checks",
-		"The checks on a host's latest OS report that need attention, by state: warning and error are the ones that count towards its health, skipped is a counted check that could not be assessed, and suggestion is a warning that is only a choice. Every state is reported for a host with a report; absent for a host that is offline, has sent no report, or sent only the container's partial one.",
+		"The checks on a host's latest OS report that need attention, by state: warning and error are the ones that count towards its health, skipped is a counted check that could not be assessed, and suggestion is a warning that is only a choice, and accepted is a counted warning an operator has accepted as deliberate, which is in none of the others. Every state is reported for a host with a report; absent for a host that is offline, has sent no report, or sent only the container's partial one.",
 		[]string{"host", "state"}, nil)
 	descHostRebootPending = prometheus.NewDesc("zoomies_host_reboot_pending",
 		"1 while a host's latest OS report says an update is waiting for a reboot, 0 otherwise. Absent when the host is offline, has sent no report, or sent only the container's partial one.",
@@ -731,6 +731,10 @@ func (f *fleetCollector) collectHostHealth(hosts []*store.Host, now time.Time, g
 			{"error", s.Errors},
 			{"skipped", s.Skipped},
 			{"suggestion", s.Suggestions},
+			// A warning an operator accepted is in no other state, so its
+			// silence stays countable; warning keeps meaning unaccepted ones, so
+			// an existing alert rule means what it did.
+			{"accepted", s.Accepted},
 		} {
 			gauge(descHostOSChecks, float64(c.n), h.ID, c.state)
 		}

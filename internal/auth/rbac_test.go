@@ -49,7 +49,7 @@ func TestEveryActionHasARole(t *testing.T) {
 		ActionRunnersRead, ActionRunnersDrain, ActionRunnersDelete,
 		ActionJobsRead,
 		ActionJobsCancel, ActionProvisioningWrite,
-		ActionHostsRead, ActionHostsCordon, ActionHostsDelete,
+		ActionHostsRead, ActionHostsCordon, ActionHostsDelete, ActionHostsAccept,
 		ActionInstallationsRead, ActionInstallationsWrite, ActionInstallationsDelete,
 		ActionAuditRead,
 		ActionUsersRead, ActionUsersWrite,

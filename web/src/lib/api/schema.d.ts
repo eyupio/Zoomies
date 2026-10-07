@@ -2426,6 +2426,53 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/hosts/{id}/check-acceptances": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Accept a host's warning as deliberate
+         * @description Stops Zoomies counting one warning on one host, for a reason a person gives and until a date at most 365 days away. It changes nothing on the host: the controller never runs a command there, and the host's own `zoomies doctor` still lists the check. Only a counted warning on a check this build has can be accepted -- never an error, a skip, a suggestion, the pending reboot or the two disk checks, each refused with 422 and the reason -- and only while the check still reads `seen_current`, or the answer is 409. The value kept is the stored report's, so it ends sooner if the check reads anything else. Deciding the same thing again renews it. The reason is shown to everyone who can see the host and goes in the audit log as `host.check_accepted`. The answer is the host.
+         */
+        put: operations["acceptHostCheck"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/hosts/{id}/check-acceptances/{check_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+                check_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Take back an accepted warning
+         * @description Any operator may revoke any acceptance: it only makes Zoomies stricter, so the check counts again straight away. Revoking one that is not there is not an error, so two people pressing the button agree; only a revoke that ended something is audited, as `host.check_revoked`. The answer is the host.
+         */
+        delete: operations["revokeHostCheck"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/hosts/{id}/throttle/clear": {
         parameters: {
             query?: never;
@@ -4531,6 +4578,19 @@ export interface components {
             /** @description Defaults to the whole repository. */
             subject?: string;
             /** @description Why this is acceptable here */
+            reason: string;
+            /**
+             * Format: date-time
+             * @description Required
+             */
+            expires_at: string;
+        };
+        HostCheckAcceptanceInput: {
+            /** @example files.service */
+            check_id: string;
+            /** @description What the check read when the person decided. The acceptance is refused with 409 if it reads anything else now. */
+            seen_current: string;
+            /** @description Why this is deliberate */
             reason: string;
             /**
              * Format: date-time
@@ -7469,6 +7529,31 @@ export interface components {
             reason?: string;
             actionable: boolean;
             optional?: boolean;
+            /** @description Present when an operator has accepted this warning as deliberate, so it no longer counts. The controller stamps it when it reads the report; an agent cannot send it. The reason is written by a person on the controller, not by the host. */
+            readonly accepted?: {
+                reason: string;
+                /** @description The name of the person who accepted it. */
+                by: string;
+                /** Format: date-time */
+                at: string;
+                /** Format: date-time */
+                expires_at: string;
+            };
+            /** @description Present when an acceptance of this check no longer covers it, so the row counts again and can say why. `at` is the acceptance's own time, never the time of reading. */
+            readonly ended?: {
+                by: string;
+                /**
+                 * Format: date-time
+                 * @description When it was accepted for `changed` and `worse`, and when it lapsed for `expired`.
+                 */
+                at: string;
+                /** @description What the check read when it was accepted. */
+                was: string;
+                /** @enum {string} */
+                why: "changed" | "expired" | "worse";
+            };
+            /** @description True when an operator may accept this result: a counted warning on a check that can be accepted and is not accepted now. Never true for an error, a skip, a suggestion, the pending reboot or the disk checks. */
+            readonly acceptable?: boolean;
         };
         /** @description A host's OS report, as its agent writes it. This is also the body an agent sends with a heartbeat, and it carries no `summary`: the controller counts the report itself, so a host cannot claim a count (see HostDoctorView). */
         HostDoctor: {
@@ -7495,6 +7580,8 @@ export interface components {
             skipped: number;
             /** @description Warnings that do not count: the aggressive and dedicated tiers, and optional checks. They are on the host's page and never raise a problem. */
             suggestions: number;
+            /** @description Counted warnings an operator has accepted as deliberate. They are in `counted` and in neither `warnings` nor `suggestions`, so they raise no problem and stay visible here. */
+            accepted: number;
         };
         /** @description A host's OS report as the API returns it: the report the agent wrote, with the controller's count of it in `summary`. Read `summary` for how a host is doing and `results` for what each check found. The text in `results` is written by the host and is untrusted. A host that has sent no report has no `doctor` at all. */
         HostDoctorView: components["schemas"]["HostDoctor"] & {
@@ -12801,6 +12888,62 @@ export interface operations {
                     "application/json": components["schemas"]["Host"];
                 };
             };
+        };
+    };
+    acceptHostCheck: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HostCheckAcceptanceInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Host"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    revokeHostCheck: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+                check_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Host"];
+                };
+            };
+            404: components["responses"]["NotFound"];
         };
     };
     clearHostThrottle: {
