@@ -87,7 +87,7 @@
     border-left-color: var(--z-pending);
   }
   .finding[data-severity='info'] {
-    border-left-color: var(--z-busy);
+    border-left-color: var(--z-accent);
   }
   header {
     display: flex;

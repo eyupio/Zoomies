@@ -72,8 +72,19 @@ import type {
   Severity,
 } from './api/types';
 
-/** The six status hues from the token file. Nothing else may use them. */
-export type StatusTone = 'idle' | 'busy' | 'pending' | 'draining' | 'danger' | 'neutral';
+/**
+ * The six status hues from the token file, and the accent. The six are reserved
+ * for fleet states and nothing else may use them; the accent is the one tone
+ * for information that is not a state, such as an info severity.
+ */
+export type StatusTone =
+  | 'idle'
+  | 'busy'
+  | 'pending'
+  | 'draining'
+  | 'danger'
+  | 'neutral'
+  | 'accent';
 
 /**
  * The shape half of the encoding. `square` extends the five in the guidelines
@@ -247,8 +258,8 @@ export function cpuResourceStatus(
         : meta(state, 'Extra boost', 'busy', 'filled', TrendingUp);
     case 'throttled':
       return quirky
-        ? meta(state, said ?? 'Leash tightened — host under pressure', 'draining', 'slash', Dog)
-        : meta(state, 'Throttled', 'draining', 'slash', TrendingDown);
+        ? meta(state, said ?? 'Leash tightened — host under pressure', 'pending', 'dashed', Dog)
+        : meta(state, 'Throttled', 'pending', 'dashed', TrendingDown);
     case 'observing':
       return quirky
         ? meta(
@@ -853,7 +864,7 @@ export function severityStatus(severity: Severity | undefined): StatusMeta {
   if (severity === 'error') return meta('error', 'Error', 'danger', 'triangle', TriangleAlert);
   if (severity === 'warning')
     return meta('warning', 'Warning', 'pending', 'triangle', TriangleAlert);
-  return meta('info', 'Info', 'busy', 'hollow', Info);
+  return meta('info', 'Info', 'accent', 'hollow', Info);
 }
 
 /* -- Kennel Club ----------------------------------------------------------
@@ -997,9 +1008,9 @@ export function apiTokenStatus(
     return meta(
       'revoked',
       'Revoked',
-      'draining',
-      'slash',
-      CircleSlash,
+      'neutral',
+      'square',
+      CircleMinus,
       'Switched off by an administrator.',
     );
   }
@@ -1044,9 +1055,9 @@ export function joinTokenStatus(token: Pick<JoinToken, 'used_at' | 'usable'>): S
     return meta(
       'expired',
       'Expired',
-      'draining',
-      'slash',
-      CircleSlash,
+      'neutral',
+      'square',
+      CircleMinus,
       'Create a new one to add a host.',
     );
   }
@@ -1129,9 +1140,9 @@ const contextStates = {
   working: meta(
     'working',
     'Preparing',
-    'busy',
-    'filled',
-    Activity,
+    'pending',
+    'dashed',
+    LoaderCircle,
     'Saving configuration and checking proposed files.',
   ),
   available: meta(
