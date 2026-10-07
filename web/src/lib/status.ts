@@ -77,14 +77,7 @@ import type {
  * for fleet states and nothing else may use them; the accent is the one tone
  * for information that is not a state, such as an info severity.
  */
-export type StatusTone =
-  | 'idle'
-  | 'busy'
-  | 'pending'
-  | 'draining'
-  | 'danger'
-  | 'neutral'
-  | 'accent';
+export type StatusTone = 'idle' | 'busy' | 'pending' | 'draining' | 'danger' | 'neutral' | 'accent';
 
 /**
  * The shape half of the encoding. `square` extends the five in the guidelines
