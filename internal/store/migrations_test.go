@@ -92,6 +92,7 @@ var shippedMigrations = []string{
 	"0078_job_half_peaks.sql",
 	"0079_runners_live_host.sql",
 	"0080_kennel_club.sql",
+	"0081_kennel_untracked.sql",
 }
 
 // The two prefixes shared by files that already shipped. They sort by what
