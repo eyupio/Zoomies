@@ -1121,7 +1121,38 @@ test('a link to a check still lands on its card on a phone', async ({ page }) =>
     await expect(row).toHaveAttribute('data-landed', '');
     await expect(row).toBeInViewport();
     const tint = await row.evaluate((el) => getComputedStyle(el).backgroundColor);
-    expect(tint).not.toBe('rgba(0, 0, 0, 0)');
+    const other = await page
+      .locator('.health-content tr[id="inotify.watches"]')
+      .evaluate((el) => getComputedStyle(el).backgroundColor);
+    // Differing from a row that was not landed on is what proves the tint shows;
+    // a card background on every row would be non-transparent and still pass.
+    expect(tint).not.toBe(other);
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
+  }
+});
+
+test('the check tables do not scroll sideways across the tablet band', async ({ page }) => {
+  // A five-column floor of 720px once scrolled the table from 769 to about 855px.
+  const name = `health-tab-${Date.now() % 1e6}`;
+  const credentials = await enrol(page, name);
+  try {
+    await heartbeat(page, credentials, [
+      check('inotify.watches', 'File watches', 'safe', 'warn', { current: '8192' }),
+    ]);
+    for (const width of [769, 800, 820, 855]) {
+      await page.setViewportSize({ width, height: 900 });
+      await goto(page, `/hosts/${credentials.host_id}`, name);
+      const regions = await page.evaluate(() =>
+        [...document.querySelectorAll('.health-content .checks')].map((region) => ({
+          scrollWidth: region.scrollWidth,
+          clientWidth: region.clientWidth,
+        })),
+      );
+      expect(regions.length).toBeGreaterThan(0);
+      for (const region of regions)
+        expect(region.scrollWidth, `at ${width}px`).toBeLessThanOrEqual(region.clientWidth);
+    }
   } finally {
     await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
   }

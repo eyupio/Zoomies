@@ -511,11 +511,15 @@
     overflow-wrap: anywhere;
     min-width: 0;
   }
-  /* Five columns at 9rem each floor the table at 720px; the phone layout below
-     must not inherit that, so the floor is only for a table laid out as one. */
+  /* Five columns at 9rem floored the table at 720px, which scrolled sideways
+     from 769 to about 855px. Only the column of sentences needs a floor, and the
+     floors live here so the phone block never has to fight them. */
   @media (min-width: 769px) {
-    th,
-    td {
+    td:last-child {
+      min-width: 12rem;
+    }
+    th[scope='row'],
+    td:nth-child(2) {
       min-width: 9rem;
     }
   }
