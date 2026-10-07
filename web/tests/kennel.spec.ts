@@ -1543,6 +1543,23 @@ test.describe('the side menu and the switch', () => {
   const on = { 'kennel.enabled': true };
   const off = { 'kennel.enabled': false };
 
+  // The fixture controller has authentication off, so everybody there is an
+  // administrator. The page is told who it is talking to, and asks no different
+  // questions of the controller.
+  async function pretendToBe(page: Page, role: 'viewer' | 'operator'): Promise<void> {
+    await page.route('**/api/v1/meta', async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as Record<string, unknown>;
+      return route.fulfill({
+        response,
+        json: { ...body, auth_disabled: false, bootstrap_required: false },
+      });
+    });
+    await page.route('**/api/v1/auth/session', (route) =>
+      route.fulfill({ json: { kind: 'token', id: 'tok_pretend', name: 'a token', role } }),
+    );
+  }
+
   test.beforeEach(async ({ page }) => patchSettings(page, off));
   test.afterEach(async ({ page }) => patchSettings(page, off));
 
@@ -1749,20 +1766,7 @@ test.describe('the side menu and the switch', () => {
     test(`a ${role} sees the state and who can change it, and cannot press it`, async ({
       page,
     }) => {
-      // The fixture controller has authentication off, so everybody there is an
-      // administrator. The page is told who it is talking to, and asks no
-      // different questions of the controller.
-      await page.route('**/api/v1/meta', async (route) => {
-        const response = await route.fetch();
-        const body = (await response.json()) as Record<string, unknown>;
-        return route.fulfill({
-          response,
-          json: { ...body, auth_disabled: false, bootstrap_required: false },
-        });
-      });
-      await page.route('**/api/v1/auth/session', (route) =>
-        route.fulfill({ json: { kind: 'token', id: 'tok_pretend', name: 'a token', role } }),
-      );
+      await pretendToBe(page, role);
       let changed = 0;
       page.on('request', (request) => {
         if (request.method() === 'PATCH' && request.url().endsWith('/api/v1/settings'))
@@ -1778,6 +1782,12 @@ test.describe('the side menu and the switch', () => {
         ),
       ).toBeVisible();
       // No button to press, and the page says who can instead.
+      await expect(page.getByRole('button', { name: 'Turn on Kennel Club' })).toHaveCount(0);
+      await expect(
+        page.getByText('An administrator can turn it on, with the switch beside this page.'),
+      ).toBeVisible();
+      // The list says the same, and offers nothing either.
+      await goto(page, '/kennel/repositories', 'Repositories');
       await expect(page.getByRole('button', { name: 'Turn on Kennel Club' })).toHaveCount(0);
       await expect(
         page.getByText('An administrator can turn it on, with the switch beside this page.'),
@@ -1849,6 +1859,126 @@ test.describe('the side menu and the switch', () => {
     await expect(rail(page).getByRole('alert')).toContainText('stays off');
     await expect(kennelSwitch(page)).toHaveAttribute('aria-checked', 'false');
     await expect(toast(page, 'success', 'Kennel Club is on')).toHaveCount(0);
+  });
+
+  // The stream is cut for the whole of these. A change made from the rail is
+  // answered by the request that made it, and every page of the section follows
+  // that answer, so none of them waits for a frame that a dropped stream cannot
+  // send. The pages that did wait would pass the tests above, which have a
+  // stream, and be wrong exactly when someone's connection is the problem.
+  test.describe('with no stream to say so', () => {
+    const pages = [
+      {
+        name: 'the overview',
+        path: () => '/kennel',
+        heading: 'Kennel Club',
+        offHeading: undefined,
+        saysOff: (page: Page) => page.getByRole('heading', { name: 'Kennel Club is off' }),
+      },
+      {
+        name: 'the list of repositories',
+        path: () => '/kennel/repositories',
+        heading: 'Repositories',
+        offHeading: undefined,
+        saysOff: (page: Page) => page.locator('#main p.title', { hasText: 'Kennel Club is off' }),
+      },
+      {
+        name: 'a repository',
+        path: (id: string) => `/kennel/repositories/${id}`,
+        heading: PUBLIC_REPO,
+        // Arriving while it is off, the page does not know the name yet.
+        offHeading: 'Repository',
+        saysOff: (page: Page) => page.getByText('That repository could not be read'),
+      },
+    ];
+
+    for (const where of pages) {
+      test(`${where.name} follows the switch`, async ({ page }) => {
+        await patchSettings(page, on);
+        await untilRead(page);
+        const row = await repository(page, PUBLIC_REPO);
+        await patchSettings(page, off);
+        await page.route('**/api/v1/events*', (route) => route.abort('connectionfailed'));
+
+        await goto(page, where.path(row.id), where.offHeading ?? where.heading);
+        await expect(where.saysOff(page)).toBeVisible();
+        await expect(kennelSwitch(page)).toHaveAttribute('aria-checked', 'false');
+
+        await kennelSwitch(page).click();
+        await expect(kennelSwitch(page)).toHaveAttribute('aria-checked', 'true');
+        await expect(where.saysOff(page)).toHaveCount(0);
+        await expect(page.getByRole('heading', { level: 1, name: where.heading })).toBeVisible();
+
+        await kennelSwitch(page).click();
+        await page
+          .getByRole('dialog', { name: 'Turn off Kennel Club' })
+          .getByRole('button', { name: 'Turn off', exact: true })
+          .click();
+        await expect(kennelSwitch(page)).toHaveAttribute('aria-checked', 'false');
+        await expect(where.saysOff(page)).toBeVisible();
+      });
+    }
+  });
+
+  // A resync is the controller saying it could not replay what this tab missed. It
+  // arrives on a stream that never dropped, so the switch has no reconnect to
+  // notice, and what it holds may be wrong: it asks again. The frame is delivered
+  // by hand to the open stream, and the answer the controller gives is changed
+  // underneath, which is the only way to tell asking again from not asking.
+  test('a stream that lost its place makes the switch ask again', async ({ page }) => {
+    await patchSettings(page, on);
+    await untilRead(page);
+    await page.addInitScript(() => {
+      const Real = window.EventSource;
+      const streams: EventSource[] = [];
+      (window as unknown as { __streams: EventSource[] }).__streams = streams;
+      window.EventSource = class extends Real {
+        constructor(url: string | URL, init?: EventSourceInit) {
+          super(url, init);
+          streams.push(this);
+        }
+      };
+    });
+    await goto(page, '/kennel/repositories', 'Repositories');
+    await expect(page.locator('.connection')).toHaveAttribute('data-state', 'live');
+    await expect(kennelSwitch(page)).toHaveAttribute('aria-checked', 'true');
+
+    await page.route('**/api/v1/kennel', async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as Record<string, unknown>;
+      return route.fulfill({ response, json: { ...body, enabled: false } });
+    });
+    await page.evaluate(() => {
+      for (const stream of (window as unknown as { __streams: EventSource[] }).__streams)
+        stream.dispatchEvent(new MessageEvent('resync', { data: '{"reason":"test"}' }));
+    });
+    await expect(kennelSwitch(page)).toHaveAttribute('aria-checked', 'false', { timeout: 10_000 });
+  });
+
+  // The longest thing the switch says is what it says to somebody who cannot press
+  // it. At the narrowest phone it is wider than the screen unless the switch has
+  // the whole row to wrap in, which is why the switch is given a line of its own.
+  test('on a phone the longest sentence under the switch wraps and is all in view', async ({
+    page,
+    isMobile,
+  }) => {
+    test.skip(!isMobile, 'the phone project checks the narrow widths');
+    await pretendToBe(page, 'viewer');
+    for (const width of [320, 360, 412]) {
+      await page.setViewportSize({ width, height: 780 });
+      await goto(page, '/kennel', 'Kennel Club');
+      await expect(
+        rail(page).getByText(
+          'Kennel Club is off and reads nothing. An administrator can change that.',
+        ),
+        `the sentence at ${width}px`,
+      ).toBeInViewport({ ratio: 1 });
+      await expect(kennelSwitch(page)).toBeInViewport({ ratio: 1 });
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+        `the page does not scroll sideways at ${width}px`,
+      ).toBe(true);
+    }
   });
 
   test('on a phone every page of the section is in view, AI Context included, at a size a finger can use', async ({

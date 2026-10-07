@@ -11,6 +11,7 @@
   import { untrack } from 'svelte';
   import { RotateCw, ShieldCheck, Trophy, Undo2 } from '@lucide/svelte';
   import {
+    ApiError,
     getKennelRepository,
     recheckKennelRepository,
     unwaiveKennelFinding,
@@ -98,6 +99,10 @@
       })
       .catch((cause: unknown) => {
         if (cause instanceof DOMException && cause.name === 'AbortError') return;
+        // Kennel Club was turned off while this page was open. What it showed is
+        // not so now, and the page says why, as it would have on arrival; any other
+        // failure keeps what is held, since a blip should not blank the page.
+        if (cause instanceof ApiError && cause.isConflict) repo = null;
         error = cause;
       })
       .finally(() => (loading = false));
