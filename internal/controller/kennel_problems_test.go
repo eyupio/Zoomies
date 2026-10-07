@@ -32,43 +32,89 @@ func kennelProblemsOf(t *testing.T, f *kennelFixture, code string) []Problem {
 	return out
 }
 
+// exposeRepositories makes each named repository public, with a fork-free push
+// that ran on a persistent pool: a weak pool, so each has an error open.
+func exposeRepositories(f *kennelFixture, names ...string) {
+	f.persistent()
+	for i, name := range names {
+		f.repo(name, "public")
+		f.ran(name, int64(11+i), f.pool)
+		f.trigger(name, int64(11+i), "push", false)
+	}
+	f.pass()
+}
+
 // A stranger's code running on the fleet is the problems list's business, and a
 // repository's falling short of a standard is not: the list carries the first,
-// one entry for each repository, and Kennel Club's own page carries the rest.
-func TestAnExposedRepositoryRaisesOneErrorLinkingToItsPage(t *testing.T) {
+// as one entry however many repositories it is about, and Kennel Club's own page
+// carries each of them.
+func TestExposedRepositoriesRaiseOneErrorBetweenThemLinkingToKennelClub(t *testing.T) {
 	f := newKennelFixture(t)
-	f.persistent()
-	f.repo("acme/exposed", "public")
-	f.ran("acme/exposed", 11, f.pool)
-	f.trigger("acme/exposed", 11, "push", false)
-	f.pass()
+	exposeRepositories(f, "acme/exposed", "acme/also-exposed")
 
 	got := kennelProblemsOf(t, f, "kennel.exposure")
 	if len(got) != 1 {
-		t.Fatalf("%d problems, want one for the repository: %+v", len(got), got)
+		t.Fatalf("%d problems, want one for the fleet: %+v", len(got), got)
 	}
 	p := got[0]
-	row := f.row("acme/exposed")
-	if p.Severity != config.SeverityError || p.TargetKind != "kennel_repository" || p.TargetID != row.ID {
-		t.Errorf("problem = %+v, want an error linking to the repository's page", p)
+	if p.Severity != config.SeverityError || p.TargetKind != "kennel" || p.TargetID != "" {
+		t.Errorf("problem = %+v, want an error linking to Kennel Club and to no repository", p)
 	}
 	if p.Audience != AudienceFleet {
 		t.Errorf("audience = %s: a stranger's code on the fleet is the fleet's to act on", p.Audience)
 	}
-	if !strings.HasPrefix(p.Title, "acme/exposed: ") {
-		t.Errorf("title = %q, want it to name the repository", p.Title)
+	if p.Title != "Kennel Club: 2 repositories have an exposure error open" {
+		t.Errorf("title = %q, want the count of repositories", p.Title)
 	}
-	// The first of the errors, in the order the evaluator listed them.
-	if !strings.Contains(p.Title, "A public repository is running jobs on this fleet") {
-		t.Errorf("title = %q, want it to carry the first error's own title", p.Title)
+	// Kennel Club has the repositories, their findings and their evidence. The
+	// drawer saying so again is what this entry exists not to do.
+	for name, text := range map[string]string{"title": p.Title, "detail": p.Detail, "fix": p.Fix} {
+		if strings.Contains(text, "acme/") {
+			t.Errorf("%s = %q: it names a repository", name, text)
+		}
 	}
-	// Two exposure errors are open (the weak pool makes the public-repository
-	// warning an error too), and the entry says there is another.
-	if !strings.Contains(p.Detail, "1 other exposure error is open for this repository as well.") {
-		t.Errorf("detail = %q, want it to say there is another error", p.Detail)
+	// What is wrong, in the two ways it can be, and where to go for the rest.
+	if !strings.Contains(p.Detail, "stranger's pull request") || !strings.Contains(p.Detail, "reach the host") {
+		t.Errorf("detail = %q: it should say what the two causes are", p.Detail)
 	}
-	if !strings.Contains(p.Fix, "waived with a reason") {
-		t.Errorf("fix = %q: the entry should say where the finding is waived", p.Fix)
+	if !strings.HasPrefix(p.Fix, "Open Kennel Club") || !strings.Contains(p.Fix, "waived with a reason") {
+		t.Errorf("fix = %q: the entry should send the reader to Kennel Club, where a finding is waived", p.Fix)
+	}
+}
+
+func TestOneExposedRepositoryIsSaidInTheSingular(t *testing.T) {
+	f := newKennelFixture(t)
+	exposeRepositories(f, "acme/exposed")
+	got := kennelProblemsOf(t, f, "kennel.exposure")
+	if len(got) != 1 || got[0].Title != "Kennel Club: 1 repository has an exposure error open" {
+		t.Fatalf("problems = %+v, want one that says 1 repository has", got)
+	}
+}
+
+// The drawer dismisses and snoozes by code and target. If the count were in the
+// target, every repository that became exposed would be a new problem to dismiss;
+// if the target changed with the repositories, a dismissal would never hold.
+func TestTheEntryIsTheSameProblemWhateverTheCount(t *testing.T) {
+	f := newKennelFixture(t)
+	exposeRepositories(f, "acme/exposed")
+	one := kennelProblemsOf(t, f, "kennel.exposure")
+	if len(one) != 1 {
+		t.Fatalf("problems = %+v, want one", one)
+	}
+
+	f.repo("acme/also-exposed", "public")
+	f.ran("acme/also-exposed", 12, f.pool)
+	f.trigger("acme/also-exposed", 12, "push", false)
+	f.pass()
+	two := kennelProblemsOf(t, f, "kennel.exposure")
+	if len(two) != 1 {
+		t.Fatalf("problems = %+v, want still one", two)
+	}
+	if one[0].Title == two[0].Title {
+		t.Errorf("both said %q: the count did not move", one[0].Title)
+	}
+	if one[0].Code != two[0].Code || one[0].TargetKind != two[0].TargetKind || one[0].TargetID != two[0].TargetID {
+		t.Errorf("%+v became %+v: a dismissal would not carry across", one[0], two[0])
 	}
 }
 
@@ -106,8 +152,8 @@ func TestAWaivedErrorRaisesNothingAndOnlyTheOpenOneDoes(t *testing.T) {
 	}
 	waive("exposure.public_repo_weak_pool")
 	got := kennelProblemsOf(t, f, "kennel.exposure")
-	if len(got) != 1 || strings.Contains(got[0].Detail, "other exposure error") {
-		t.Errorf("with one error waived, problems = %+v, want one entry about the error left", got)
+	if len(got) != 1 || !strings.Contains(got[0].Title, "1 repository has") {
+		t.Errorf("with one error waived, problems = %+v, want the entry for the error left", got)
 	}
 	waive("exposure.public_repo_on_fleet")
 	if got := kennelProblemsOf(t, f, "kennel.exposure"); len(got) != 0 {
@@ -181,7 +227,7 @@ func TestEveryWayAnInstallationCanFailHasAFixThatSaysWhatToDo(t *testing.T) {
 // the person the finding is about.
 func TestAnExposureFindingNeverMovesOrAppearsOnThePublicStatus(t *testing.T) {
 	st := ProjectStatus([]Problem{
-		{Code: "kennel.exposure", Severity: config.SeverityError, Title: "acme/private-repo: Code from a fork's pull request ran on this fleet", Audience: AudienceFleet},
+		{Code: "kennel.exposure", Severity: config.SeverityError, Title: "Kennel Club: 1 repository has an exposure error open", Audience: AudienceFleet},
 	}, nil)
 	if st.State != FleetHealthy || len(st.Reasons) != 0 || len(st.Explanations) != 0 {
 		t.Errorf("status = %+v, want healthy with no reasons", st)
@@ -366,8 +412,8 @@ func TestOnlyAnErrorInTheExposureAreaRaisesAProblem(t *testing.T) {
 }
 
 // More repositories than a page, with errors on the second: the walk must not
-// stop at the first.
-func TestEveryRepositoryWithAnOpenErrorIsOnTheListNotJustTheFirstPage(t *testing.T) {
+// stop at the first, or the count would be a page's worth.
+func TestEveryRepositoryWithAnOpenErrorIsCountedNotJustTheFirstPage(t *testing.T) {
 	f := newKennelFixture(t)
 	f.persistent()
 	for i := range 130 {
@@ -377,7 +423,8 @@ func TestEveryRepositoryWithAnOpenErrorIsOnTheListNotJustTheFirstPage(t *testing
 		f.trigger(name, int64(i+1), "push", false)
 	}
 	f.pass()
-	if got := kennelProblemsOf(t, f, "kennel.exposure"); len(got) != 130 {
-		t.Errorf("%d problems for 130 exposed repositories", len(got))
+	got := kennelProblemsOf(t, f, "kennel.exposure")
+	if len(got) != 1 || got[0].Title != "Kennel Club: 130 repositories have an exposure error open" {
+		t.Errorf("problems = %+v, want one that counts all 130 exposed repositories", got)
 	}
 }

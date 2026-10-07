@@ -22,7 +22,9 @@ const kennelUnavailableAfter = 6 * time.Hour
 // Two, and no more, because the list is for what needs doing now. A finding that
 // is a warning, or an error that a waiver covers, is on Kennel Club's own page
 // and nowhere else: a problems drawer that carried every standard a repository
-// falls short of would be a drawer nobody opened.
+// falls short of would be a drawer nobody opened. The same goes for the
+// repositories themselves: the drawer says that some are exposed and Kennel Club
+// says which.
 func (c *Controller) kennelProblems(ctx context.Context, out *[]Problem) error {
 	if !c.cfg().Kennel.Enabled {
 		return nil
@@ -34,15 +36,22 @@ func (c *Controller) kennelProblems(ctx context.Context, out *[]Problem) error {
 	return nil
 }
 
-// kennelExposureProblems is one problem per repository with an open error among
-// its exposure findings: a stranger can already run code on the fleet, or a pool
-// that does is set up to be hurt by it.
+// kennelExposureProblems is one problem for the whole fleet, however many
+// repositories have an open error among their exposure findings: a stranger can
+// already run code on the fleet, or a pool that does is set up to be hurt by it.
 //
-// The sentences are the finding's own, written from templates with only numbers and
-// enumerated words in them, so nothing a repository's author wrote reaches the
-// drawer. The repository's name is the one GitHub reports, which is validated
-// owner/name, and it is the same text the page puts in a heading.
+// One, and with no repository in it, because Kennel Club is where each finding,
+// its evidence and the waive button are, and a drawer that listed the repositories
+// as well would say it twice and grow with the fleet. What the entry carries is a
+// count and the way to the list, which is also why nothing a repository's author
+// wrote can reach the drawer.
+//
+// Its identity is the same whatever the count. The drawer dismisses by code and
+// target, so a dismissal holds while errors stay open and is forgotten when they
+// all clear, as it is for every other problem; a target per repository was how
+// each one could be muted alone, and is what this gives up.
 func (c *Controller) kennelExposureProblems(ctx context.Context, out *[]Problem) error {
+	exposed := 0
 	for offset := 0; ; {
 		rows, total, err := c.st.ListKennelRepositories(ctx,
 			store.KennelFilter{Severity: "error"}, store.Page{Limit: 100, Offset: offset})
@@ -50,30 +59,34 @@ func (c *Controller) kennelExposureProblems(ctx context.Context, out *[]Problem)
 			return fmt.Errorf("listing the repositories with open errors: %w", err)
 		}
 		for _, r := range rows {
-			errs := exposureErrors(newKennelRepositoryView(r).Findings)
-			if len(errs) == 0 {
-				continue
+			if len(exposureErrors(newKennelRepositoryView(r).Findings)) > 0 {
+				exposed++
 			}
-			worst := errs[0]
-			detail := worst.Detail
-			if len(errs) > 1 {
-				detail += fmt.Sprintf(" %s open for this repository as well.", plural(len(errs)-1, "other exposure error")+isAre(len(errs)-1))
-			}
-			*out = append(*out, Problem{
-				Code: "kennel.exposure", Severity: config.SeverityError,
-				Title:  r.FullName + ": " + worst.Title,
-				Detail: detail,
-				Fix:    worst.Fix + " Kennel Club lists every finding for the repository, and is where one is waived with a reason.",
-				// The repository's page, which is where the findings, their
-				// evidence and the waive button are.
-				TargetKind: "kennel_repository", TargetID: r.ID,
-			})
 		}
 		offset += len(rows)
 		if len(rows) == 0 || offset >= total {
-			return nil
+			break
 		}
 	}
+	if exposed == 0 {
+		return nil
+	}
+	title := "Kennel Club: 1 repository has an exposure error open"
+	if exposed != 1 {
+		title = fmt.Sprintf("Kennel Club: %d repositories have an exposure error open", exposed)
+	}
+	*out = append(*out, Problem{
+		Code: "kennel.exposure", Severity: config.SeverityError,
+		Title: title,
+		Detail: "Code from a stranger's pull request has run on your runners, or a public repository's jobs ran on a pool " +
+			"set up so that such code could reach the host.",
+		Fix: "Open Kennel Club to see which repositories, what each finding is, the evidence behind it and what to change. " +
+			"It is also where one is waived with a reason.",
+		// Kennel Club's list, which the UI narrows to the repositories with an
+		// error. It has no ID: there is one of these.
+		TargetKind: "kennel",
+	})
+	return nil
 }
 
 // exposureErrors are the findings that make a repository a problem: open errors

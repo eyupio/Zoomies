@@ -543,16 +543,35 @@ test.describe('with Kennel Club on', () => {
     }
   });
 
-  test('a problem about a repository opens the repository', async ({ page }) => {
+  test('the problems list carries one entry for Kennel Club, and it opens the list of repositories with errors', async ({
+    page,
+  }) => {
+    // Kennel Club has every repository and its findings, so the drawer says that
+    // some are exposed and not which: a drawer with a line per repository would
+    // say it twice, and grow with the fleet.
+    const listed = (await page.request
+      .get('/api/v1/kennel/repositories?severity=error&limit=1')
+      .then((r) => r.json())) as { total: number };
+    expect(listed.total, 'the demo fleet has repositories with an error open').toBeGreaterThan(0);
+    const title =
+      listed.total === 1
+        ? 'Kennel Club: 1 repository has an exposure error open'
+        : `Kennel Club: ${listed.total} repositories have an exposure error open`;
+
     await goto(page, '/');
     await page.getByRole('button', { name: /^Problems\./ }).click();
     const drawer = page.getByRole('dialog', { name: 'Problems' });
     await expect(drawer).toBeVisible();
-    const entry = drawer.getByRole('listitem').filter({ hasText: 'kennel.exposure' });
-    await expect(entry).toContainText(PUBLIC_REPO);
-    await entry.getByRole('link', { name: 'Open the repository' }).click();
-    await expect(page).toHaveURL(/\/kennel\/repositories\/kcr_/);
-    await expect(page.getByRole('heading', { level: 1, name: PUBLIC_REPO })).toBeVisible();
+    const entries = drawer.getByRole('listitem').filter({ hasText: 'kennel.exposure' });
+    await expect(entries).toHaveCount(1);
+    await expect(entries).toContainText(title);
+    // Not one of them is named.
+    for (const name of FIXTURE.repos) await expect(entries).not.toContainText(name);
+
+    await entries.getByRole('link', { name: 'Open Kennel Club' }).click();
+    await expect(page).toHaveURL(/\/kennel\/repositories\?severity=error$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'Repositories' })).toBeVisible();
+    await expect(page.getByRole('link', { name: PUBLIC_REPO })).toBeVisible();
   });
 
   test('names a stranger chose are shown as text and never run', async ({ page }) => {

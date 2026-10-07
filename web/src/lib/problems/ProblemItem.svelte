@@ -119,12 +119,6 @@
         case 'ai_context':
           // The card on that page carries the run, the cause and the buttons.
           return { href: '/kennel/ai-context', label: 'Open AI Context' };
-        case 'kennel_repository':
-          // The finding, what to change and the button to say it is acceptable.
-          return {
-            href: `/kennel/repositories/${encodeURIComponent(id)}`,
-            label: 'Open the repository',
-          };
         case 'machine':
           // A machine has a page of its own because the answer to "why is this
           // taking so long" is on it: the phase timeline, the last failure and
@@ -147,6 +141,12 @@
         default:
           break;
       }
+    }
+    // Kennel Club's exposure problem is one for the whole fleet, so it has no ID:
+    // the list of repositories that have an error, where each is named and where
+    // the finding, what to change and the button to say it is acceptable are.
+    if (p.target_kind === 'kennel') {
+      return { href: '/kennel/repositories?severity=error', label: 'Open Kennel Club' };
     }
     // The setting itself, not the page holding eighty-eight of them. A problem
     // that names a key and then lands somebody on a list they have to search is
