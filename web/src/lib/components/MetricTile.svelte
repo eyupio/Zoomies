@@ -125,7 +125,7 @@
   }
   /* A row while there is room; when there is not, the delta, the hint and the
      sparkline each take a line of their own rather than breaking mid-phrase.
-     "6 in the hour" and "9 of 10 slots on 3 healthy hosts" are each one thing
+     "6 in the hour" and "9 of 10 slots on 3 connected hosts" are each one thing
      to read, and a four-column tile at laptop width has room for one of them
      beside the sparkline, not both. */
   .foot {

@@ -547,11 +547,19 @@
     flex: 1 1 240px;
     max-width: 360px;
   }
+  /*
+    max-width, because min-width alone does not do it. An inline-flex box inside
+    a block is as wide as its content's minimum, and a name that will not wrap
+    has a minimum of its whole length, so the ellipsis below never had anything
+    to cut and a long host name -- an agent is the actor of its own join --
+    pushed a phone's card past the screen. Capped at its cell, the name shrinks.
+  */
   .actor {
     display: inline-flex;
     align-items: center;
     gap: var(--z-space-2);
     min-width: 0;
+    max-width: 100%;
   }
   .actor-name {
     overflow: hidden;

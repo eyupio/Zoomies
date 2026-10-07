@@ -198,7 +198,7 @@
     const hosts = stats?.hosts;
     if (!hosts) return undefined;
     if ((hosts.total ?? 0) === 0) return 'No hosts connected';
-    return `${hosts.used ?? 0} of ${hosts.capacity ?? 0} slots on ${pluralise(hosts.healthy ?? 0, 'healthy host')}`;
+    return `${hosts.used ?? 0} of ${hosts.capacity ?? 0} slots on ${pluralise(hosts.healthy ?? 0, 'connected host')}`;
   });
 
   // Undefined rather than zero when there is nothing to time. The controller

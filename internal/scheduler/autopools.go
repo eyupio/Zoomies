@@ -683,7 +683,7 @@ func skippedFindings(skipped []HostSkip) []AutoPoolFinding {
 		case SkipBadSize:
 			fix = fmt.Sprintf("set the size tag on host %s to small, medium or large exactly as written here, or remove it to let the controller work it out.", label)
 		case SkipArch:
-			fix = fmt.Sprintf("host %s reports %q; automatic pools are kept for amd64 and arm64 hosts only.", label, s.Host.Arch)
+			fix = fmt.Sprintf("host %s reports %q; automatic pools are kept for amd64 and arm64 hosts only.", label, naming.ForSentence(s.Host.Arch))
 		case SkipBackend:
 			fix = fmt.Sprintf("host %s offers no backend the pool for its class uses; enable Docker or Podman on it.", label)
 		default:

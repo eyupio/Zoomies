@@ -1026,13 +1026,14 @@ no public sentence, `status_test.go:18-38`):
 
 | Code | Severity | Audience | Raised when |
 | --- | --- | --- | --- |
-| `kennel.exposure` | error | fleet | A repository has an open, unwaived *error* exposure finding. One problem per repository, `TargetKind: "kennel_repository"`, linking to its page. A warning-only repository raises nothing: it appears in Kennel Club and nowhere else. |
+| `kennel.exposure` | error | fleet | A repository has an open, unwaived *error* exposure finding. One problem for the fleet, with the count of repositories in its title and none of them named, `TargetKind: "kennel"` and no ID, linking to the list narrowed to errors ([0009](decisions/0009-the-problems-list-says-one-thing-for-kennel-club.md)); it was one for each repository at first. A warning-only repository raises nothing: it appears in Kennel Club and nowhere else. |
 | `kennel.unavailable` | warning | platform | Kennel Club is on but could not complete a remote read for an installation for six hours for a reason other than a permission the operator chose not to grant — repeated transport errors, or an unexpected 403. A *declined* permission is a coverage state, never a problem. |
 
 Neither carries a `Remedy`: remedy kinds are only `pool.update` and
 `host.update` (`internal/controller/remedy.go:26-28`), and neither applies. The
-`Fix` sentence says what to do; for `kennel.exposure` it says to edit the pool,
-and the pool page already offers that.
+`Fix` sentence says what to do; for `kennel.exposure` it says to open Kennel Club,
+which names the repositories and what to change, the pool page being where a pool
+is edited.
 
 **Tests.**
 

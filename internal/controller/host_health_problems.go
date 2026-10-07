@@ -187,10 +187,17 @@ func rebootPendingProblem(h *store.Host, r *hosttune.Report) (Problem, bool) {
 		"If it is not cordoned, `zoomies hosts cordon %s` first keeps a job from landing on it meanwhile, "+
 		"and `zoomies hosts uncordon %s` lets it take work again afterwards.", label, h.ID, h.ID)
 	if h.ActiveRunners > 0 {
-		fix = fmt.Sprintf("runners are still running on %s. "+
-			"If it is not cordoned, `zoomies hosts cordon %s` stops new ones arriving; "+
-			"reboot it once they have finished, then `zoomies hosts uncordon %s`. "+
-			"Zoomies never reboots a host itself.", label, h.ID, h.ID)
+		// ActiveRunners counts every live runner, and a runner kept warm for a pool
+		// with a minimum sits idle between jobs and never finishes by itself, so a
+		// count cannot say whether a job is running. Telling an operator to wait
+		// "until they finish" sent a quiet fleet to wait for ever. The runners list
+		// has each runner's state, and takes the host's id, which the controller
+		// made, rather than its name, which the agent chose.
+		fix = fmt.Sprintf("runners are on %s, and one kept warm for a pool waits for work and never finishes by itself, "+
+			"so this cannot tell a runner that holds a job from one that does not. "+
+			"If it is not cordoned, `zoomies hosts cordon %s` stops new jobs arriving; "+
+			"reboot it when `zoomies runners list --host %s --state busy` shows nothing, then `zoomies hosts uncordon %s`. "+
+			"Zoomies never reboots a host itself.", label, h.ID, h.ID, h.ID)
 	}
 	return Problem{
 		Code:     "host.reboot_pending",

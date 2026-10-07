@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { browserOverride, goto } from './support/fixtures';
+import { browserOverride, goto, openHostCapacityMap } from './support/fixtures';
 
 test.use(browserOverride);
 
@@ -212,6 +212,8 @@ for (const route of [
       page.on('pageerror', (error) => errors.push(error.message));
       await page.addInitScript((value) => localStorage.setItem('zoomies.theme', value), theme);
       await goto(page, route.path, route.heading);
+      // The Hosts page folds its map away until it is asked for.
+      if (route.path === '/hosts') await openHostCapacityMap(page);
       await expect(page.getByRole('region', { name: route.panel, exact: true })).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
         true,

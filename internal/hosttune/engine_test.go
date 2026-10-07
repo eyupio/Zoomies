@@ -292,3 +292,41 @@ func TestASupportedReleaseIsNotToldItIsReportOnly(t *testing.T) {
 		t.Errorf("tune refused a supported release: %v", err)
 	}
 }
+
+// The web UI prints each row's reason on the host page, under a Next step panel
+// that says cordon and never drain: a drain stops a runner that is still busy
+// after five minutes, which is the wrong advice for waiting on a job. Two
+// reasons said "drain" until this was pinned, so the page contradicted itself
+// on the one host that had a reboot pending. This walks every tier on a host
+// that reaches both of them, and fails if any text a check reports uses the word.
+func TestNoCheckTellsAnOperatorToDrainTheHost(t *testing.T) {
+	e := rebootHost()
+	f := e.System.(*fakeSystem)
+	// Neither filesystem is ext4 or XFS with noatime, so both mount rows warn
+	// and carry their advice.
+	f.commands["findmnt -n -o FSTYPE,OPTIONS --target /work"] = "nfs4 rw"
+	f.commands["docker info --format {{.DockerRootDir}}"] = "/var/lib/docker"
+	f.commands["findmnt -n -o FSTYPE,OPTIONS --target /var/lib/docker"] = "nfs4 rw"
+
+	reached := map[string]bool{}
+	for _, tier := range []Tier{Safe, Aggressive, Dedicated} {
+		for _, r := range e.Run(context.Background(), tier).Results {
+			if r.Status == Warn && r.Reason != "" {
+				reached[r.ID] = true
+			}
+			for field, text := range map[string]string{
+				"title": r.Title, "current": r.Current, "recommended": r.Recommended,
+				"rationale": r.Rationale, "reason": r.Reason,
+			} {
+				if strings.Contains(strings.ToLower(text), "drain") {
+					t.Errorf("%s (%s tier) %s says drain, but the host page advises cordon: %q", r.ID, tier, field, text)
+				}
+			}
+		}
+	}
+	for _, id := range []string{KernelPending, "work.filesystem", "docker.filesystem"} {
+		if !reached[id] {
+			t.Errorf("%s did not warn with a reason, so this test proves nothing about its text", id)
+		}
+	}
+}

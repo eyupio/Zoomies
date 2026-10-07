@@ -103,6 +103,56 @@ async function expectTablesFit(page: Page, where: string): Promise<void> {
   }
 }
 
+/**
+ * A host's name is whatever its agent called itself, up to 128 characters, and the
+ * agent is the actor of its own join in the audit log. The seeded fleet's names are
+ * short, so a card that cannot hold a long one passes every width above and fails
+ * the first operator whose hosts are named after their cloud's addresses.
+ */
+test('a long actor name is cut short in the Audit card instead of widening it', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 360, height: 900 });
+  const minted = await page.request.post('/api/v1/join-tokens', {
+    data: { ttl: '15m', capacity: 1 },
+  });
+  expect(minted.ok(), 'a join token was minted').toBeTruthy();
+  const { token } = (await minted.json()) as { token: string };
+  const name = `ip-10-0-12-34.eu-west-1.compute.internal-${'a'.repeat(60)}`;
+  const join = await page.request.post('/api/v1/agent/join', {
+    data: {
+      protocol_version: 1,
+      join_token: token,
+      name,
+      capacity: 1,
+      os: 'linux',
+      arch: 'amd64',
+      version: 'dev',
+      backends: [{ kind: 'docker', available: true }],
+    },
+  });
+  expect(join.ok(), 'the agent joined under its long name').toBeTruthy();
+  const { host_id: hostId } = (await join.json()) as { host_id: string };
+  try {
+    await goto(page, '/audit', 'Audit');
+    await waitForRows(grid(page, 'Audit log'));
+    await chooseCards(page);
+    // The row is on the page, so the measure below is of a card that holds the name.
+    const actor = page.locator('.actor-name', { hasText: name }).first();
+    await expect(actor).toBeVisible();
+    const measured = await overflow(page, 'Audit log');
+    expect(measured.table, 'the Audit card is wider than its frame').toBeLessThanOrEqual(1);
+    expect(measured.document, 'the Audit page scrolls sideways').toBeLessThanOrEqual(1);
+    // Cut short rather than dropped: the full name is still the cell's text.
+    expect(
+      await actor.evaluate((el) => el.scrollWidth > el.clientWidth),
+      'the name is ellipsised',
+    ).toBe(true);
+  } finally {
+    await page.request.delete(`/api/v1/hosts/${hostId}`);
+  }
+});
+
 for (const width of WIDTHS) {
   test(`no grid scrolls sideways at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });

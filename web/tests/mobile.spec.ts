@@ -20,6 +20,7 @@ import {
   menuEntry,
   navEntry,
   navMenu,
+  openHostCapacityMap,
   openNavMenu,
   pageHeading,
   PRIMARY_SECTIONS,
@@ -827,7 +828,7 @@ test('the capacity reading keeps its figures on the card whatever the hosts are 
   });
 
   await goto(page, '/hosts', 'Hosts');
-  const map = page.getByRole('region', { name: 'Host capacity map', exact: true });
+  const map = await openHostCapacityMap(page);
   const chart = map.getByRole('img').first();
   await chart.scrollIntoViewIfNeeded();
   await chart.tap();
@@ -1013,7 +1014,7 @@ test('the Settings default decides for every grid that has not chosen', async ({
  */
 test('the host capacity map is read by touch', async ({ page }) => {
   await goto(page, '/hosts', 'Hosts');
-  const map = page.getByRole('region', { name: 'Host capacity map', exact: true });
+  const map = await openHostCapacityMap(page);
   const chart = map.getByRole('img').first();
   await expect(chart).toBeVisible();
 
