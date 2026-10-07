@@ -10147,8 +10147,9 @@ components:
         upgrade_command:
           type: string
           description: >-
-            Copyable install.sh --upgrade command for an older or different remote agent,
-            targeting the controller's published release or dev channel. Absent for embedded,
+            Copyable `sudo zoomies upgrade --mode agent --version <tag>` command for an older or
+            different remote agent, targeting the controller's published release or dev channel.
+            An operator runs it on the host; the controller never does. Absent for embedded,
             matching or newer agents, and for unpublished controller builds. Contains no credentials.
         upgrade_version:
           type: string

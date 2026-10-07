@@ -64,6 +64,26 @@ without a newer report from a host that is still sending heartbeats, so a
 collector that is merely slow does not raise a problem. See
 [What a host's report raises](#what-a-hosts-report-raises).
 
+The host page says how old the report is under its title: **Report checked 40s
+ago**, with what that means for this host. A connected host with an old report is
+told it has sent nothing newer, a host that is not connected is told nothing newer
+can arrive until it is, and a container's report is said to come from inside the
+container. The line gives no interval, because the page cannot see how often an
+agent sends a report. **Refresh** (or `R`) re-reads the host from the controller;
+it does not ask the agent to check again, since Zoomies never reaches into a host
+and the page already updates by itself when a newer report arrives.
+
+When a newer report clears a check or makes one need attention, the page says so in
+two places. A polite live region announces it to a screen reader, once per report,
+and a **Changed since you opened this page** list under the report keeps the last
+five changes with their times. The report on screen when you open the page is the
+baseline and announces nothing, so does a report that is no newer than the last,
+and so does one from a different build of the host or a container's partial one.
+Only counted checks are compared, as the badge counts them, so the list cannot
+disagree with it. A check that was skipped is not called OK. There is no toast: the
+page changing is the notice. There is no "Check now" button yet; see
+[Not built yet](#not-built-yet).
+
 The controller counts each report once, and every surface reads that count. It
 is `doctor.summary`, beside `doctor.results` in the host's payload: the host's
 badge, the problems, the metrics, the Overview feed and `zoomies hosts list` all
@@ -198,6 +218,37 @@ when it ends. It is listed under your API tokens as `Terminal: doctor <host-id>`
 until you delete the expired ones. On a controller with authentication off the
 command needs no token, and the panel says so. On the host itself none of this is
 needed: `zoomies doctor --verbose` reads it directly.
+
+## A host with no report
+
+A host that has never sent an OS report gets a sentence chosen from what the page
+already knows, because the causes need different actions:
+
+| What the page sees | What it says |
+| --- | --- |
+| The host is not connected | No report can reach the controller until the agent is back; check it is running and can reach the controller, and when its last heartbeat was. |
+| The agent is an earlier release than the controller, or a different build | It **may be** too old to send OS reports. An operator gets the controller's own upgrade command to copy, and a viewer is told to ask one. The page cannot detect the age, only the mismatch, so it never says "is". |
+| The host joined in the last five minutes | The first report is on its way and the page fills in by itself. |
+| The controller's own agent | It is the same program as the controller, so updating it cannot help; the page says it cannot tell why. |
+| The agent names no release | Zoomies cannot tell whether it is new enough, and offers no command, since it does not know which release to give. |
+| Anything else | Zoomies cannot tell why, and offers the read-only `sudo zoomies doctor` to run on the host, to everyone. |
+
+The only command taken from the controller is the upgrade command it made itself,
+copied exactly; nothing is built from a host's name or anything else an agent
+wrote. Zoomies never runs either command for you. A container install without the
+host health service does not land here: it sends a partial report and reads
+**Partial report** (see [what it cannot see](#what-it-cannot-see)).
+
+## Not built yet
+
+A **Check now** button, which would ask a connected agent to run its checks once and
+send the report, is deliberately left for a later change. It is possible without
+breaking the rule that the controller never dials an agent (a read-only task on the
+queue the agent already long-polls), but it needs new code in the agent, the
+controller and the API, would serve native agents only, and its cost on a real host
+has not been measured. It also interacts with how often the controller publishes an
+unchanged report (DH7 in `UI_AUDIT.md`). After `zoomies tune` the report already
+rides the next heartbeat.
 
 ## What a host's report raises
 

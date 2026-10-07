@@ -106,7 +106,7 @@ export function healthSummary(
     return {
       label: 'Health unavailable',
       tone: 'neutral',
-      hint: 'No host OS report yet. Run zoomies doctor on the host or check its health service.',
+      hint: 'No OS report has arrived from this host yet.',
       stale: true,
       ...empty,
     };
