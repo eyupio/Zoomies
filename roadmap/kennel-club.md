@@ -905,7 +905,7 @@ the feature off:
 7. UI, in five pull requests. **(a)** The nav, router, Overview, list and a
    read-only repository page, with the AI Context relocation and aliases (#669,
    merged). **(b)** Waive and unwaive (#670, merged). **(c)** The repository tabs
-   and the Overview tab ([0008](decisions/0008-the-repository-page-leads-with-what-the-fleet-knows.md)).
+   and the Overview tab ([0008](decisions/0008-the-repository-page-leads-with-what-the-fleet-knows.md)), #677.
    **(d)** The AI Context tab, with the card extracted
    ([0007](decisions/0007-the-repository-page-hosts-ai-context-and-adds-no-switch.md)).
    **(e)** The Track switch: migration `0081`, API, UI, MCP and the counts

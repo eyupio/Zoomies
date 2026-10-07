@@ -152,7 +152,7 @@ export const ROUTES: readonly RouteDef[] = [
   },
   {
     name: 'kennel-repository',
-    path: '/kennel/repositories/:id',
+    path: '/kennel/repositories/:id/:tab?',
     title: 'Repository',
     load: () => import('../routes/KennelRepository.svelte'),
   },

@@ -60,7 +60,33 @@ class EventStream {
     if (this.#started) return;
     this.#started = true;
     this.#bindWindow();
-    this.#open();
+    this.#openAfterLoad();
+  }
+
+  /**
+   * Open once the page has finished loading, not while it is.
+   *
+   * A stream that never ends and is opened during load keeps the tab's spinner
+   * going for as long as it stays open -- Firefox and Safari count it as part of
+   * the page still loading. The shell starts us from an effect that runs well
+   * before `load` on a cold open, so wait for it, then one more task so the
+   * browser has settled before the connection goes out.
+   */
+  #openAfterLoad(): void {
+    if (typeof document === 'undefined' || document.readyState === 'complete') {
+      this.#open();
+      return;
+    }
+    window.addEventListener(
+      'load',
+      () => {
+        setTimeout(() => {
+          // stop() or reconnectNow() may have run while we waited.
+          if (this.#started && !this.#source && !this.#retryTimer) this.#open();
+        }, 0);
+      },
+      { once: true },
+    );
   }
 
   /** Close the stream and stop retrying. Used on sign-out. */
