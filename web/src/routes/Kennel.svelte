@@ -18,7 +18,7 @@
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { BookOpenText, Eye, ListChecks, Trophy } from '@lucide/svelte';
+  import { Trophy } from '@lucide/svelte';
   import { getKennelOverview, listKennelChecks } from '$lib/api/client';
   import { events } from '$lib/api/sse';
   import type { KennelCatalogueEntry, KennelOverview } from '$lib/api/types';
@@ -32,8 +32,9 @@
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import ChecksTable from '$lib/kennel/ChecksTable.svelte';
+  import KennelShell from '$lib/kennel/KennelShell.svelte';
+  import KennelTurnOn from '$lib/kennel/KennelTurnOn.svelte';
   import {
-    KENNEL_SETTING_HREF,
     coverageStatesText,
     countsAreAFloor,
     floorSentence,
@@ -170,217 +171,211 @@
   });
 </script>
 
-<PageHeader
-  title="Kennel Club"
-  subtitle="How the repositories this fleet serves measure up against what affects CI and the fleet."
-  onrefresh={() => {
-    reload += 1;
-  }}
->
-  {#snippet meta()}
-    {#if enabled && overview?.oldest_evaluation}
-      <p class="summary">
-        Oldest evaluation <RelativeTime value={overview.oldest_evaluation} />
-      </p>
-    {/if}
-  {/snippet}
-  {#if enabled}
-    <Button icon={ListChecks} href="/kennel/repositories">All repositories</Button>
-  {/if}
-  <Button icon={BookOpenText} href="/kennel/ai-context">AI Context</Button>
-</PageHeader>
-
-<div class="content">
-  <LoadingBoundary
-    loading={loading && !loaded}
-    error={loaded ? null : error}
-    onretry={() => (reload += 1)}
+<KennelShell current="overview">
+  <PageHeader
+    title="Kennel Club"
+    subtitle="How the repositories this fleet serves measure up against what affects CI and the fleet."
+    onrefresh={() => {
+      reload += 1;
+    }}
   >
-    {#snippet skeleton()}
-      <div class="tiles">
-        {#each [0, 1, 2, 3] as tile (tile)}
-          <div class="tile-skeleton">
-            <Skeleton width="50%" height="0.875rem" />
-            <Skeleton width="30%" height="1.75rem" />
-          </div>
-        {/each}
-      </div>
-      <Skeleton lines={5} />
-    {/snippet}
-
-    {#if overview}
-      {#if stale}
-        <div class="notice" role="status">
-          <p>
-            The last refresh did not get through, so this is what was last received.
-            <Button size="sm" variant="ghost" onclick={() => (reload += 1)}>Try again</Button>
-          </p>
-        </div>
+    {#snippet meta()}
+      {#if enabled && overview?.oldest_evaluation}
+        <p class="summary">
+          Oldest evaluation <RelativeTime value={overview.oldest_evaluation} />
+        </p>
       {/if}
+    {/snippet}
+  </PageHeader>
 
-      {#if !overview.enabled}
-        <Panel title="Kennel Club is off">
-          <div class="explain">
+  <div class="content">
+    <LoadingBoundary
+      loading={loading && !loaded}
+      error={loaded ? null : error}
+      onretry={() => (reload += 1)}
+    >
+      {#snippet skeleton()}
+        <div class="tiles">
+          {#each [0, 1, 2, 3] as tile (tile)}
+            <div class="tile-skeleton">
+              <Skeleton width="50%" height="0.875rem" />
+              <Skeleton width="30%" height="1.75rem" />
+            </div>
+          {/each}
+        </div>
+        <Skeleton lines={5} />
+      {/snippet}
+
+      {#if overview}
+        {#if stale}
+          <div class="notice" role="status">
             <p>
-              Kennel Club looks at the repositories your fleet has run jobs for and says which of
-              them put the fleet at risk, or make it work harder than it should: a public repository
-              whose pull requests run on a machine that keeps state between jobs, or a label no pool
-              serves.
+              The last refresh did not get through, so this is what was last received.
+              <Button size="sm" variant="ghost" onclick={() => (reload += 1)}>Try again</Button>
             </p>
-            <h3>What it reads</h3>
-            <ul>
-              <li>
-                GitHub's own record of each repository: its name and whether it is public. Nothing
-                more than the App already has permission to see.
-              </li>
-              <li>
-                For a public repository this fleet has run jobs for, how each recent workflow run
-                was started and from where. Private repositories cost no request beyond the shared
-                list.
-              </li>
-              <li>Zoomies' own record of its jobs and pools.</li>
-            </ul>
-            <h3>What it never does</h3>
-            <ul>
-              <li>Read a repository's files or a workflow's contents.</li>
-              <li>Change a repository, a setting or a workflow.</li>
-              <li>
-                Spend more than its share of GitHub's request limit, or read at all while an
-                installation is held for a rate limit.
-              </li>
-            </ul>
-            {#if canAdmin}
-              <p>
-                <Button variant="primary" icon={Eye} href={KENNEL_SETTING_HREF}
-                  >Turn on in Settings</Button
-                >
-              </p>
-            {:else}
-              <p class="note">
-                An administrator can turn it on under Settings, Configuration, kennel.enabled.
-              </p>
-            {/if}
           </div>
-        </Panel>
+        {/if}
 
-        {#if catalogue.length > 0}
+        {#if !overview.enabled}
+          <Panel title="Kennel Club is off">
+            <div class="explain">
+              <p>
+                Kennel Club looks at the repositories your fleet has run jobs for and says which of
+                them put the fleet at risk, or make it work harder than it should: a public
+                repository whose pull requests run on a machine that keeps state between jobs, or a
+                label no pool serves.
+              </p>
+              <h3>What it reads</h3>
+              <ul>
+                <li>
+                  GitHub's own record of each repository: its name and whether it is public. Nothing
+                  more than the App already has permission to see.
+                </li>
+                <li>
+                  For a public repository this fleet has run jobs for, how each recent workflow run
+                  was started and from where. Private repositories cost no request beyond the shared
+                  list.
+                </li>
+                <li>Zoomies' own record of its jobs and pools.</li>
+              </ul>
+              <h3>What it never does</h3>
+              <ul>
+                <li>Read a repository's files or a workflow's contents.</li>
+                <li>Change a repository, a setting or a workflow.</li>
+                <li>
+                  Spend more than its share of GitHub's request limit, or read at all while an
+                  installation is held for a rate limit.
+                </li>
+              </ul>
+              {#if canAdmin}
+                <p><KennelTurnOn /></p>
+              {:else}
+                <p class="note">
+                  An administrator can turn it on, with the switch beside this page.
+                </p>
+              {/if}
+            </div>
+          </Panel>
+
+          {#if catalogue.length > 0}
+            <Panel title="What it checks" flush>
+              <ChecksTable rows={catalogue} label="What Kennel Club checks" />
+            </Panel>
+          {/if}
+        {:else if overview.repositories === 0}
+          <EmptyState
+            icon={Trophy}
+            title="Nothing to look at yet"
+            description="Kennel Club looks at repositories your fleet has run jobs for. None yet."
+          />
           <Panel title="What it checks" flush>
-            <ChecksTable rows={catalogue} label="What Kennel Club checks" />
+            <ChecksTable rows={overview.checks} label="What Kennel Club checks" />
+          </Panel>
+        {:else}
+          {#if floorText}
+            <p class="floor" role="note">{floorText}</p>
+          {/if}
+
+          <MetricGrid items={metrics} />
+
+          {#each overview.unavailable as note (note.installation_id)}
+            {@const status = kennelCoverageStatus(note.state)}
+            <div class="notice" role="note">
+              <p>
+                <Badge {status} size="sm" />
+                <strong>{note.target}</strong>: {note.reason}
+                <span class="since">since <RelativeTime value={note.since} plain /></span>
+              </p>
+            </div>
+          {/each}
+
+          <Panel
+            title="Needs attention"
+            description="The repositories with the worst findings open, worst first."
+            flush
+          >
+            {#snippet actions()}
+              <a href="/kennel/repositories?state=attention">See all</a>
+            {/snippet}
+            {#if overview.attention.length === 0}
+              <EmptyState
+                compact
+                title="Nothing needs attention"
+                description="No repository has an error or a warning open."
+              />
+            {:else}
+              <ul class="rows">
+                {#each overview.attention as row (row.id)}
+                  <li>
+                    <a href="/kennel/repositories/{encodeURIComponent(row.id)}/ci">
+                      <span class="name">{row.name}</span>
+                      <Badge
+                        status={kennelStatus(
+                          row.state,
+                          worstSeverity(row.counts),
+                          prefs.quirkyStatus,
+                        )}
+                        size="sm"
+                      />
+                      {#if row.visibility}
+                        <Badge
+                          tone="neutral"
+                          label={capitalise(row.visibility)}
+                          size="sm"
+                          dot={false}
+                        />
+                      {/if}
+                      <span class="counts">{openFindingsText(row.counts)}</span>
+                    </a>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+          </Panel>
+
+          <Panel
+            title="By check"
+            description="Which repositories have each check open: the way to ask which of them have no job timeouts, say."
+            flush
+          >
+            <ChecksTable
+              rows={overview.checks}
+              label="Checks and the repositories that have each open"
+            />
+          </Panel>
+
+          <Panel
+            title="What Kennel Club can see"
+            description="Each source of facts, and how far it could be read for the repositories above."
+          >
+            {#if overview.coverage.length === 0}
+              <p class="note">Nothing has been read yet.</p>
+            {:else}
+              <ul class="coverage">
+                {#each overview.coverage as source (source.source)}
+                  {@const worst = worstCoverageState(source.states)}
+                  <li>
+                    <div class="head">
+                      <strong>{source.label}</strong>
+                      <Badge status={kennelCoverageStatus(worst)} size="sm" />
+                    </div>
+                    <p>{coverageStatesText(source.states)}</p>
+                    {#if source.permission && worst !== 'ok'}
+                      <p class="permission">
+                        Needs the App's <strong>{source.permission}</strong> permission.
+                        {#if canAdmin}<a href="/installations">Open installations</a>{/if}
+                      </p>
+                    {/if}
+                  </li>
+                {/each}
+              </ul>
+            {/if}
           </Panel>
         {/if}
-      {:else if overview.repositories === 0}
-        <EmptyState
-          icon={Trophy}
-          title="Nothing to look at yet"
-          description="Kennel Club looks at repositories your fleet has run jobs for. None yet."
-        />
-        <Panel title="What it checks" flush>
-          <ChecksTable rows={overview.checks} label="What Kennel Club checks" />
-        </Panel>
-      {:else}
-        {#if floorText}
-          <p class="floor" role="note">{floorText}</p>
-        {/if}
-
-        <MetricGrid items={metrics} />
-
-        {#each overview.unavailable as note (note.installation_id)}
-          {@const status = kennelCoverageStatus(note.state)}
-          <div class="notice" role="note">
-            <p>
-              <Badge {status} size="sm" />
-              <strong>{note.target}</strong>: {note.reason}
-              <span class="since">since <RelativeTime value={note.since} plain /></span>
-            </p>
-          </div>
-        {/each}
-
-        <Panel
-          title="Needs attention"
-          description="The repositories with the worst findings open, worst first."
-          flush
-        >
-          {#snippet actions()}
-            <a href="/kennel/repositories?state=attention">See all</a>
-          {/snippet}
-          {#if overview.attention.length === 0}
-            <EmptyState
-              compact
-              title="Nothing needs attention"
-              description="No repository has an error or a warning open."
-            />
-          {:else}
-            <ul class="rows">
-              {#each overview.attention as row (row.id)}
-                <li>
-                  <a href="/kennel/repositories/{encodeURIComponent(row.id)}/ci">
-                    <span class="name">{row.name}</span>
-                    <Badge
-                      status={kennelStatus(
-                        row.state,
-                        worstSeverity(row.counts),
-                        prefs.quirkyStatus,
-                      )}
-                      size="sm"
-                    />
-                    {#if row.visibility}
-                      <Badge
-                        tone="neutral"
-                        label={capitalise(row.visibility)}
-                        size="sm"
-                        dot={false}
-                      />
-                    {/if}
-                    <span class="counts">{openFindingsText(row.counts)}</span>
-                  </a>
-                </li>
-              {/each}
-            </ul>
-          {/if}
-        </Panel>
-
-        <Panel
-          title="By check"
-          description="Which repositories have each check open: the way to ask which of them have no job timeouts, say."
-          flush
-        >
-          <ChecksTable
-            rows={overview.checks}
-            label="Checks and the repositories that have each open"
-          />
-        </Panel>
-
-        <Panel
-          title="What Kennel Club can see"
-          description="Each source of facts, and how far it could be read for the repositories above."
-        >
-          {#if overview.coverage.length === 0}
-            <p class="note">Nothing has been read yet.</p>
-          {:else}
-            <ul class="coverage">
-              {#each overview.coverage as source (source.source)}
-                {@const worst = worstCoverageState(source.states)}
-                <li>
-                  <div class="head">
-                    <strong>{source.label}</strong>
-                    <Badge status={kennelCoverageStatus(worst)} size="sm" />
-                  </div>
-                  <p>{coverageStatesText(source.states)}</p>
-                  {#if source.permission && worst !== 'ok'}
-                    <p class="permission">
-                      Needs the App's <strong>{source.permission}</strong> permission.
-                      {#if canAdmin}<a href="/installations">Open installations</a>{/if}
-                    </p>
-                  {/if}
-                </li>
-              {/each}
-            </ul>
-          {/if}
-        </Panel>
       {/if}
-    {/if}
-  </LoadingBoundary>
-</div>
+    </LoadingBoundary>
+  </div>
+</KennelShell>
 
 <style>
   .content {

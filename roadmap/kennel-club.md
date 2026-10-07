@@ -910,6 +910,8 @@ the feature off:
    ([0007](decisions/0007-the-repository-page-hosts-ai-context-and-adds-no-switch.md)).
    **(e)** The Track switch: migration `0081`, API, UI, MCP and the counts
    ([0006](decisions/0006-kennel-club-tracks-repositories-one-at-a-time.md)).
+   **(f)** A side menu for the section and an on/off switch in it, asked for after
+   (c) merged ([0010](decisions/0010-kennel-club-has-a-side-menu-and-the-switch-is-in-it.md)).
    The order is the owner's, set on 7 October.
 8. Documentation and screenshots.
 

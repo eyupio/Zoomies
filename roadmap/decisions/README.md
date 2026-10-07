@@ -44,3 +44,4 @@ what was decided.
 | [0006](0006-kennel-club-tracks-repositories-one-at-a-time.md) | Kennel Club tracks repositories one at a time: each is tracked by default, and an administrator can stop tracking one | accepted, at the owner's instruction; the role split not yet ratified |
 | [0007](0007-the-repository-page-hosts-ai-context-and-adds-no-switch.md) | The repository page hosts the AI Context card and adds no switch or pause to AI Context | accepted, at the owner's instruction |
 | [0008](0008-the-repository-page-leads-with-what-the-fleet-knows.md) | The repository page leads with an Overview of what the fleet knows, built from existing routes | accepted, at the owner's instruction |
+| [0010](0010-kennel-club-has-a-side-menu-and-the-switch-is-in-it.md) | Kennel Club has a side menu like Settings', and its on/off switch is in it | accepted, at the owner's instruction |

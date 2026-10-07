@@ -144,11 +144,8 @@ test.describe('while Kennel Club is off', () => {
     await expect(page.getByRole('heading', { name: 'What it reads' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'What it never does' })).toBeVisible();
     // The platform account an auth-less controller signs everybody in as may turn
-    // it on, and is told where.
-    await expect(page.getByRole('link', { name: 'Turn on in Settings' })).toHaveAttribute(
-      'href',
-      '/settings/configuration?setting=kennel.enabled',
-    );
+    // it on, from the page that explains what it would be turning on.
+    await expect(page.getByRole('button', { name: 'Turn on Kennel Club' })).toBeVisible();
 
     const checks = page.getByRole('table', { name: 'What Kennel Club checks' });
     // The body's rows: on a phone the header row is hidden and each row is a card.
@@ -169,7 +166,7 @@ test.describe('while Kennel Club is off', () => {
   test('the list says why there is nothing in it', async ({ page }) => {
     await goto(page, '/kennel/repositories', 'Repositories');
     await expect(page.getByText('Kennel Club is off', { exact: true })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Turn on in Settings' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Turn on Kennel Club' })).toBeVisible();
     await auditThePage(page, 'the off list');
   });
 
@@ -177,7 +174,10 @@ test.describe('while Kennel Club is off', () => {
     page,
   }) => {
     await goto(page, '/kennel', 'Kennel Club');
-    await page.getByRole('link', { name: 'AI Context', exact: true }).click();
+    await page
+      .getByRole('navigation', { name: 'Kennel Club' })
+      .getByRole('link', { name: 'AI Context', exact: true })
+      .click();
     await expect(page).toHaveURL(/\/kennel\/ai-context$/);
     await expect(page.getByRole('heading', { level: 1, name: 'AI Context' })).toBeVisible();
     await expectCurrentSection(page, '/kennel');
@@ -1507,5 +1507,356 @@ test.describe('with Kennel Club on', () => {
         await endWaivers(page, id);
       }
     });
+  });
+});
+
+/* -- the side menu and the switch ---------------------------------------------- */
+
+// Kennel Club's own navigation, and the one place its on/off setting is changed
+// from. Every test here starts with it off and puts it back off: the suite shares
+// one controller, and a problem Kennel Club raises moves counts other specs read.
+test.describe('the side menu and the switch', () => {
+  const rail = (page: Page) => page.getByRole('navigation', { name: 'Kennel Club' });
+  const kennelSwitch = (page: Page) =>
+    page.getByRole('switch', { name: 'Check repository standards' });
+  const toast = (page: Page, tone: 'success' | 'error', text: string) =>
+    page.locator(`.toast[data-tone="${tone}"]`).filter({ hasText: text });
+  const on = { 'kennel.enabled': true };
+  const off = { 'kennel.enabled': false };
+
+  test.beforeEach(async ({ page }) => patchSettings(page, off));
+  test.afterEach(async ({ page }) => patchSettings(page, off));
+
+  test('every page of the section has the rail, with the page on screen marked', async ({
+    page,
+  }) => {
+    await patchSettings(page, on);
+    await untilRead(page);
+    const row = await repository(page, PUBLIC_REPO);
+    for (const [path, heading, here] of [
+      ['/kennel', 'Kennel Club', 'Overview'],
+      ['/kennel/repositories', 'Repositories', 'Repositories'],
+      [`/kennel/repositories/${row.id}`, PUBLIC_REPO, 'Repositories'],
+      [`/kennel/repositories/${row.id}/ci`, PUBLIC_REPO, 'Repositories'],
+      ['/kennel/ai-context', 'AI Context', 'AI Context'],
+      // The old address renders the same page, rail included.
+      ['/ai-context', 'AI Context', 'AI Context'],
+    ] as const) {
+      await goto(page, path, heading);
+      await expect(rail(page).getByRole('link'), path).toHaveText([
+        'Overview',
+        'Repositories',
+        'AI Context',
+      ]);
+      await expect(rail(page).locator('[aria-current="page"]'), path).toHaveCount(1);
+      await expect(rail(page).getByRole('link', { name: here, exact: true }), path).toHaveAttribute(
+        'aria-current',
+        'page',
+      );
+    }
+  });
+
+  test('the switch heads the group it governs, and AI Context is apart from it', async ({
+    page,
+  }) => {
+    await goto(page, '/kennel', 'Kennel Club');
+    const standards = rail(page).getByRole('list', { name: 'Standards' });
+    const assistants = rail(page).getByRole('list', { name: 'For assistants' });
+    await expect(standards.getByRole('link')).toHaveText(['Overview', 'Repositories']);
+    await expect(assistants.getByRole('link')).toHaveText(['AI Context']);
+    await expect(kennelSwitch(page)).toBeVisible();
+    // The switch is above what it governs; AI Context is not under it, because it
+    // keeps working with Kennel Club off.
+    const [toggleBox, standardsBox, assistantsBox] = await Promise.all([
+      kennelSwitch(page).boundingBox(),
+      standards.boundingBox(),
+      assistants.boundingBox(),
+    ]);
+    expect(toggleBox!.y).toBeLessThan(standardsBox!.y);
+    expect(standardsBox!.y).toBeLessThanOrEqual(assistantsBox!.y);
+  });
+
+  test('the rail takes you between the pages', async ({ page }) => {
+    await patchSettings(page, on);
+    await untilRead(page);
+    await goto(page, '/kennel', 'Kennel Club');
+    await rail(page).getByRole('link', { name: 'Repositories', exact: true }).click();
+    await expect(page).toHaveURL(/\/kennel\/repositories$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'Repositories' })).toBeVisible();
+    await rail(page).getByRole('link', { name: 'AI Context', exact: true }).click();
+    await expect(page).toHaveURL(/\/kennel\/ai-context$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'AI Context' })).toBeVisible();
+    await rail(page).getByRole('link', { name: 'Overview', exact: true }).click();
+    await expect(page).toHaveURL(/\/kennel$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'Kennel Club' })).toBeVisible();
+  });
+
+  test('AI Context is in the rail, and works, while Kennel Club is off', async ({ page }) => {
+    await goto(page, '/kennel', 'Kennel Club');
+    await expect(kennelSwitch(page)).toHaveAttribute('aria-checked', 'false');
+    await rail(page).getByRole('link', { name: 'AI Context', exact: true }).click();
+    await expect(page.getByRole('heading', { level: 1, name: 'AI Context' })).toBeVisible();
+    // Its page is not a page about being off, and the rail still says what the switch is.
+    await expect(page.getByText('Kennel Club is off', { exact: true })).toHaveCount(0);
+    await expect(kennelSwitch(page)).toHaveAttribute('aria-checked', 'false');
+  });
+
+  test('the setup wizard has no rail: it is a task with a way back and not a place', async ({
+    page,
+  }) => {
+    await goto(page, '/kennel/ai-context/setup', 'Enable repositories');
+    await expect(rail(page)).toHaveCount(0);
+  });
+
+  test('an administrator turns it on and off from the rail, and off is asked about first', async ({
+    page,
+  }) => {
+    const changes: unknown[] = [];
+    page.on('request', (request) => {
+      if (request.method() === 'PATCH' && request.url().endsWith('/api/v1/settings'))
+        changes.push(request.postDataJSON());
+    });
+    await goto(page, '/kennel', 'Kennel Club');
+    const toggle = kennelSwitch(page);
+    await expect(toggle).toHaveAttribute('aria-checked', 'false');
+    await expect(rail(page).getByText('Kennel Club is off and reads nothing.')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Kennel Club is off' })).toBeVisible();
+
+    await toggle.click();
+    await expect(toast(page, 'success', 'Kennel Club is on')).toBeVisible();
+    await expect(toggle).toHaveAttribute('aria-checked', 'true');
+    await expect(rail(page).getByText('Kennel Club is on and reading from GitHub.')).toBeVisible();
+    expect((await overview(page)).enabled).toBe(true);
+    expect(changes).toEqual([on]);
+    await expect(page.getByRole('heading', { name: 'Kennel Club is off' })).toHaveCount(0);
+
+    // Off takes the checking away from everybody, so it says what that does first.
+    // Cancelling leaves it on and sends nothing.
+    await toggle.click();
+    const confirm = page.getByRole('dialog', { name: 'Turn off Kennel Club' });
+    await expect(confirm).toBeVisible();
+    await expect(confirm).toContainText('It stops reading from GitHub.');
+    await expect(confirm).toContainText('What it found is kept, and shown again');
+    await expect(confirm).toContainText('AI Context is not affected.');
+    // Still on while it is being asked about.
+    await expect(toggle).toHaveAttribute('aria-checked', 'true');
+    await confirm.getByRole('button', { name: 'Cancel' }).click();
+    await expect(confirm).toHaveCount(0);
+    expect(changes).toHaveLength(1);
+    expect((await overview(page)).enabled).toBe(true);
+
+    await toggle.click();
+    await confirm.getByRole('button', { name: 'Turn off', exact: true }).click();
+    await expect(toast(page, 'success', 'Kennel Club is off')).toBeVisible();
+    await expect(toggle).toHaveAttribute('aria-checked', 'false');
+    expect(changes).toEqual([on, off]);
+    expect((await overview(page)).enabled).toBe(false);
+    await expect(page.getByRole('heading', { name: 'Kennel Club is off' })).toBeVisible();
+  });
+
+  test('the switch works from the keyboard', async ({ page, isMobile }) => {
+    test.skip(isMobile, 'a phone has no keyboard');
+    await goto(page, '/kennel', 'Kennel Club');
+    await kennelSwitch(page).focus();
+    await page.keyboard.press('Space');
+    await expect(toast(page, 'success', 'Kennel Club is on')).toBeVisible();
+    expect((await overview(page)).enabled).toBe(true);
+  });
+
+  test('the page that says it is off turns it on, and the list fills in', async ({ page }) => {
+    await goto(page, '/kennel/repositories', 'Repositories');
+    await expect(page.getByText('Kennel Club is off', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Turn on Kennel Club' }).click();
+    await expect(toast(page, 'success', 'Kennel Club is on')).toBeVisible();
+    await untilRead(page);
+    await expect(page.getByRole('link', { name: PUBLIC_REPO })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText('Kennel Club is off', { exact: true })).toHaveCount(0);
+  });
+
+  // The controller sends the summary when it differs from the one it last sent,
+  // and sends nothing while nobody is connected. So the page is opened first, and
+  // each change is waited for in turn: a flip and a flip back between two passes
+  // would, correctly, be no change at all to a controller that had sent nothing.
+  test('a change made elsewhere is followed without a reload', async ({ page }) => {
+    await goto(page, '/kennel/repositories', 'Repositories');
+    await expect(kennelSwitch(page)).toHaveAttribute('aria-checked', 'false');
+    await expect(page.getByText('Kennel Club is off', { exact: true })).toBeVisible();
+    await plantMarker(page);
+
+    await patchSettings(page, on);
+    await expect(kennelSwitch(page)).toHaveAttribute('aria-checked', 'true', { timeout: 20_000 });
+    await untilRead(page);
+    await expect(page.getByRole('link', { name: PUBLIC_REPO })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText('Kennel Club is off', { exact: true })).toHaveCount(0);
+
+    await patchSettings(page, off);
+    await expect(kennelSwitch(page)).toHaveAttribute('aria-checked', 'false', { timeout: 20_000 });
+    await expect(page.getByText('Kennel Club is off', { exact: true })).toBeVisible();
+    await expectNoReload(page);
+  });
+
+  // The stream opens after the page has loaded, so a change can land between the
+  // page's first read and the stream coming up, and no frame is ever replayed for
+  // it. The switch asks again when the stream arrives, as the pages beside it do.
+  test('a change that landed before the stream was up is caught when it arrives', async ({
+    page,
+  }) => {
+    await patchSettings(page, on);
+    await untilRead(page);
+    let cut = true;
+    await page.route('**/api/v1/events*', (route) =>
+      cut
+        ? route.abort('connectionfailed')
+        : route.fulfill({
+            status: 200,
+            headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-store' },
+            body: ': up\n\n',
+          }),
+    );
+    await goto(page, '/kennel/repositories', 'Repositories');
+    await expect(kennelSwitch(page)).toHaveAttribute('aria-checked', 'true');
+
+    // Nothing is listening, so nothing says so.
+    await patchSettings(page, off);
+    await expect(kennelSwitch(page)).toHaveAttribute('aria-checked', 'true');
+
+    cut = false;
+    await page.evaluate(() => window.dispatchEvent(new Event('online')));
+    await expect(kennelSwitch(page)).toHaveAttribute('aria-checked', 'false', { timeout: 20_000 });
+    await expect(page.getByText('Kennel Club is off', { exact: true })).toBeVisible();
+  });
+
+  for (const role of ['viewer', 'operator'] as const) {
+    test(`a ${role} sees the state and who can change it, and cannot press it`, async ({
+      page,
+    }) => {
+      // The fixture controller has authentication off, so everybody there is an
+      // administrator. The page is told who it is talking to, and asks no
+      // different questions of the controller.
+      await page.route('**/api/v1/meta', async (route) => {
+        const response = await route.fetch();
+        const body = (await response.json()) as Record<string, unknown>;
+        return route.fulfill({
+          response,
+          json: { ...body, auth_disabled: false, bootstrap_required: false },
+        });
+      });
+      await page.route('**/api/v1/auth/session', (route) =>
+        route.fulfill({ json: { kind: 'token', id: 'tok_pretend', name: 'a token', role } }),
+      );
+      let changed = 0;
+      page.on('request', (request) => {
+        if (request.method() === 'PATCH' && request.url().endsWith('/api/v1/settings'))
+          changed += 1;
+      });
+
+      await goto(page, '/kennel', 'Kennel Club');
+      await expect(kennelSwitch(page)).toBeDisabled();
+      await expect(kennelSwitch(page)).toHaveAttribute('aria-checked', 'false');
+      await expect(
+        rail(page).getByText(
+          'Kennel Club is off and reads nothing. An administrator can change that.',
+        ),
+      ).toBeVisible();
+      // No button to press, and the page says who can instead.
+      await expect(page.getByRole('button', { name: 'Turn on Kennel Club' })).toHaveCount(0);
+      await expect(
+        page.getByText('An administrator can turn it on, with the switch beside this page.'),
+      ).toBeVisible();
+
+      await patchSettings(page, on);
+      await expect(kennelSwitch(page)).toHaveAttribute('aria-checked', 'true', { timeout: 20_000 });
+      await expect(
+        rail(page).getByText(
+          'Kennel Club is on and reading from GitHub. An administrator can change that.',
+        ),
+      ).toBeVisible();
+      await expect(kennelSwitch(page)).toBeDisabled();
+      expect(changed, 'nothing was sent from the page').toBe(0);
+    });
+  }
+
+  test('a change the controller refuses is said beside the switch, and the switch goes back', async ({
+    page,
+  }) => {
+    await page.route('**/api/v1/settings', (route) =>
+      route.request().method() === 'PATCH'
+        ? route.fulfill({
+            status: 403,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              error: { code: 'forbidden', message: 'That setting needs the platform role.' },
+            }),
+          })
+        : route.fallback(),
+    );
+    await goto(page, '/kennel', 'Kennel Club');
+    await kennelSwitch(page).click();
+    await expect(rail(page).getByRole('alert')).toContainText(
+      'That setting needs the platform role.',
+    );
+    await expect(kennelSwitch(page)).toHaveAttribute('aria-checked', 'false');
+    await expect(toast(page, 'success', 'Kennel Club is on')).toHaveCount(0);
+    expect((await overview(page)).enabled).toBe(false);
+  });
+
+  test('a change the environment overrules is not shown as made, and says why', async ({
+    page,
+  }) => {
+    // The database accepts it and the environment has the last word: the answer
+    // carries the setting as it stands, which is still off.
+    await page.route('**/api/v1/settings', (route) =>
+      route.request().method() === 'PATCH'
+        ? route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              settings: [
+                {
+                  key: 'kennel.enabled',
+                  value: false,
+                  source: 'environment',
+                  env: 'ZOOMIES_KENNEL_ENABLED',
+                  pending: false,
+                },
+              ],
+            }),
+          })
+        : route.fallback(),
+    );
+    await goto(page, '/kennel', 'Kennel Club');
+    await kennelSwitch(page).click();
+    await expect(rail(page).getByRole('alert')).toContainText('ZOOMIES_KENNEL_ENABLED is set');
+    await expect(rail(page).getByRole('alert')).toContainText('stays off');
+    await expect(kennelSwitch(page)).toHaveAttribute('aria-checked', 'false');
+    await expect(toast(page, 'success', 'Kennel Club is on')).toHaveCount(0);
+  });
+
+  test('on a phone every page of the section is in view, AI Context included, at a size a finger can use', async ({
+    page,
+    isMobile,
+  }) => {
+    test.skip(!isMobile, 'the phone project checks the narrow widths');
+    for (const width of [360, 412]) {
+      await page.setViewportSize({ width, height: 780 });
+      for (const [path, heading] of [
+        ['/kennel', 'Kennel Club'],
+        ['/kennel/ai-context', 'AI Context'],
+      ] as const) {
+        await goto(page, path, heading);
+        for (const name of ['Overview', 'Repositories', 'AI Context']) {
+          const link = rail(page).getByRole('link', { name, exact: true });
+          const where = `${name} on ${path} at ${width}px`;
+          // Fully on screen: a strip that scrolls sideways hides the last one.
+          await expect(link, where).toBeInViewport({ ratio: 1 });
+          expect(
+            (await link.boundingBox())!.height,
+            `${where} is a finger-sized target`,
+          ).toBeGreaterThanOrEqual(44);
+        }
+        await expect(kennelSwitch(page)).toBeInViewport({ ratio: 1 });
+        await auditThePage(page, `${path} at ${width}px`);
+      }
+    }
   });
 });
