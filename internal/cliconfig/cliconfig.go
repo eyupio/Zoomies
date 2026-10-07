@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/url"
 	"os"
@@ -204,6 +205,21 @@ func InstalledURL(file string) string {
 		return dialable(cfg.Agent.ControllerURL)
 	}
 	return ConnectionURL(cfg.Server.ExternalURL, cfg.Server.Bind, cfg.Server.TLS.Mode)
+}
+
+// InstalledUnreadable reports whether the installed controller's configuration is there
+// but this user may not read it. The installer keeps that directory to the service user
+// (and its group), so on a host where the controller runs an ordinary login gets a
+// permission error from stat, and InstalledURL's empty answer reads the same as "no
+// controller is installed here" -- which sends the operator looking for an install that
+// is in front of them.
+func InstalledUnreadable(file string) bool {
+	f, err := os.Open(file)
+	if err != nil {
+		return errors.Is(err, fs.ErrPermission)
+	}
+	_ = f.Close()
+	return false
 }
 
 // dialable is the address if a command typed in a shell can dial it, and nothing

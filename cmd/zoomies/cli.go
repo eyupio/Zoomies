@@ -145,12 +145,18 @@ func (cf *clientFlags) client() (*apiClient, error) {
 		}
 	}
 	if base == "" {
-		why := "and no controller configuration was found on this host at " + config.DefaultConfigFile()
-		if _, err := os.Stat(config.DefaultConfigFile()); err == nil {
+		conf := config.DefaultConfigFile()
+		why := "and no controller configuration was found on this host at " + conf
+		if cliconfig.InstalledUnreadable(conf) {
+			// It is there, and this user may not read it: say so, or the operator is told
+			// to look for an install that is in front of them.
+			why = "and the controller's configuration at " + conf + " is not readable by this user -- " +
+				"run with sudo, join the group that owns it, or say where the controller is"
+		} else if _, err := os.Stat(conf); err == nil {
 			// The file is there and names nothing a command can dial: a host that
 			// joined over a private connection reaches its controller through a
 			// tunnel only its agent can open.
-			why = config.DefaultConfigFile() + " names no controller address a command can use here " +
+			why = conf + " names no controller address a command can use here " +
 				"(this host may have joined over a private connection, which only its agent can dial)"
 		}
 		return nil, missingCredential("no controller URL", "url", "https://zoomies.example.com", why)
