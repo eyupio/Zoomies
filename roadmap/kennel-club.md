@@ -933,7 +933,11 @@ the feature off:
    ([0006](decisions/0006-kennel-club-tracks-repositories-one-at-a-time.md)). Built in
    two pull requests, the controller and API with the MCP descriptions first and
    the UI second. Taken with the owner by question on 7 October: an administrator
-   stops, an operator starts, and an untracked row outlives the ninety days.
+   stops, an operator starts, and an untracked row outlives the ninety days. The
+   UI's default list is of the repositories Kennel Club is tracking, so every card's
+   number is the number of rows behind it; the **Tracking** filter
+   (`?tracked=false|all`) and a **Not tracked** card bring the others back, and a
+   stopped repository's page says who, when and why beside the switch.
    **(f)** A side menu for the section and an on/off switch in it, asked for after
    (c) merged ([0010](decisions/0010-kennel-club-has-a-side-menu-and-the-switch-is-in-it.md)).
    **(g)** The Overview's counts open the repositories behind them, from the same
