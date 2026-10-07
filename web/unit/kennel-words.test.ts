@@ -14,6 +14,9 @@ import {
   WAIVER_REASON_MIN,
   worstCoverageState,
   worstSeverity,
+  KENNEL_TURN_OFF,
+  kennelSwitchOutcome,
+  kennelSwitchSentence,
 } from '../src/lib/kennel/words.ts';
 
 const none = { error: 0, warning: 0, info: 0 };
@@ -139,4 +142,59 @@ test('an error is waived by an administrator and anything lighter by an operator
   assert.equal(waiverRole('error'), 'admin');
   assert.equal(waiverRole('warning'), 'operator');
   assert.equal(waiverRole('info'), 'operator');
+});
+
+/* -- the on/off switch ------------------------------------------------------ */
+
+test('the line under the switch says the state, and says who can change it to somebody who cannot', () => {
+  // Not heard yet: a switch that has not heard must not say it is off.
+  assert.equal(kennelSwitchSentence(null, true), '');
+  assert.equal(kennelSwitchSentence(null, false), '');
+  assert.equal(kennelSwitchSentence(true, true), 'Kennel Club is on and reading from GitHub.');
+  assert.equal(kennelSwitchSentence(false, true), 'Kennel Club is off and reads nothing.');
+  assert.equal(
+    kennelSwitchSentence(true, false),
+    'Kennel Club is on and reading from GitHub. An administrator can change that.',
+  );
+  assert.equal(
+    kennelSwitchSentence(false, false),
+    'Kennel Club is off and reads nothing. An administrator can change that.',
+  );
+});
+
+test('turning it off says what that does before it is done, including that AI Context is untouched', () => {
+  const said = KENNEL_TURN_OFF.consequences.join(' ');
+  assert.match(said, /stops reading from GitHub/);
+  assert.match(said, /problems list/);
+  assert.match(said, /kept, and shown again/);
+  assert.match(said, /AI Context is not affected/);
+});
+
+test('a change that held is a plain success', () => {
+  assert.deepEqual(kennelSwitchOutcome(true, { value: true, env: 'ZOOMIES_KENNEL_ENABLED' }), {
+    holds: true,
+    message: '',
+  });
+  assert.deepEqual(kennelSwitchOutcome(false, { value: false }), { holds: false, message: '' });
+});
+
+// The environment has the last word. A switch that moved because it was pressed
+// would show what was asked for, and the controller would go on doing the opposite.
+test('a change the environment overruled is not a success, and says so naming the variable', () => {
+  const stayedOff = kennelSwitchOutcome(true, { value: false, env: 'ZOOMIES_KENNEL_ENABLED' });
+  assert.equal(stayedOff.holds, false);
+  assert.match(stayedOff.message, /ZOOMIES_KENNEL_ENABLED is set/);
+  assert.match(stayedOff.message, /stays off/);
+
+  const stayedOn = kennelSwitchOutcome(false, { value: true, env: 'ZOOMIES_KENNEL_ENABLED' });
+  assert.equal(stayedOn.holds, true);
+  assert.match(stayedOn.message, /stays on/);
+});
+
+test('without the setting in the answer the request is taken at its word, and the variable is still named', () => {
+  assert.deepEqual(kennelSwitchOutcome(true, undefined), { holds: true, message: '' });
+  assert.match(
+    kennelSwitchOutcome(true, { value: false }).message,
+    /ZOOMIES_KENNEL_ENABLED is set/,
+  );
 });

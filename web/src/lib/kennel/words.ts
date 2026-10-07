@@ -169,3 +169,76 @@ export function waiverRole(severity: Severity): 'admin' | 'operator' {
 
 export const ERROR_WAIVER_SENTENCE =
   'Only an administrator can waive an error. An operator can waive a warning or a note.';
+
+/* -- the on/off switch ----------------------------------------------------- */
+
+/** The setting an administrator changes to turn Kennel Club on or off. */
+export const KENNEL_ENABLED_KEY = 'kennel.enabled';
+
+/** What the switch is called: the setting's own label, so the two read as one thing. */
+export const KENNEL_SWITCH_LABEL = 'Check repository standards';
+
+/**
+ * The line under the switch: what state Kennel Club is in, and, to someone who
+ * cannot change it, who can. Empty until the state is known, so that a switch
+ * that has not heard yet does not say it is off.
+ */
+export function kennelSwitchSentence(enabled: boolean | null, canAdmin: boolean): string {
+  if (enabled === null) return '';
+  const state = enabled
+    ? 'Kennel Club is on and reading from GitHub.'
+    : 'Kennel Club is off and reads nothing.';
+  return canAdmin ? state : `${state} An administrator can change that.`;
+}
+
+/**
+ * What turning it off does, said before it is done. Turning it on needs no such
+ * warning: its page already says what it reads and what it never does.
+ */
+export const KENNEL_TURN_OFF = {
+  title: 'Turn off Kennel Club',
+  description: 'Kennel Club stops checking the repositories this fleet serves.',
+  consequences: [
+    'It stops reading from GitHub.',
+    'Its problem leaves the problems list, and its pages say it is off.',
+    'What it found is kept, and shown again when you turn it back on.',
+    'AI Context is not affected.',
+  ],
+} as const;
+
+/** What the toast says once it has been turned on or off, wherever it was done from. */
+export const KENNEL_NOW_ON = {
+  title: 'Kennel Club is on',
+  detail: 'It reads from GitHub on its next pass, and its pages fill in as it does.',
+} as const;
+
+export const KENNEL_NOW_OFF = {
+  title: 'Kennel Club is off',
+  detail: 'It has stopped reading from GitHub.',
+} as const;
+
+/** The variable that overrides the setting, when the controller did not name it. */
+const KENNEL_ENABLED_ENV = 'ZOOMIES_KENNEL_ENABLED';
+
+/**
+ * What a change to the switch came to, from the setting as the controller now
+ * reports it. The setting as it stands is the truth, and what was asked for is
+ * not: a value the database accepted can still lose to the environment. With no
+ * setting in the answer, the request is taken at its word.
+ */
+export function kennelSwitchOutcome(
+  requested: boolean,
+  setting: { value?: unknown; env?: string } | undefined,
+): { holds: boolean; message: string } {
+  const holds = setting ? setting.value === true : requested;
+  if (holds === requested) return { holds, message: '' };
+  return { holds, message: kennelPinnedSentence(setting?.env || KENNEL_ENABLED_ENV, holds) };
+}
+
+/**
+ * Why a change that was accepted did nothing: the environment has the last word
+ * over the database, so a controller started with the variable set keeps its value.
+ */
+export function kennelPinnedSentence(variable: string, holds: boolean): string {
+  return `${variable} is set in this controller's environment, and the environment has the last word, so Kennel Club stays ${holds ? 'on' : 'off'} until that is changed there.`;
+}
