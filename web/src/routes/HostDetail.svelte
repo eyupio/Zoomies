@@ -16,6 +16,7 @@
   import { pluralise } from '$lib/format';
   import type { StatusTone } from '$lib/status';
   import Badge from '$lib/components/Badge.svelte';
+  import HostDoctorCommand from '$lib/hosts/HostDoctorCommand.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
   import Panel from '$lib/components/Panel.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
@@ -108,6 +109,12 @@
         Review changes locally with <code>sudo zoomies doctor --interactive</code> or preview them
         with <code>sudo zoomies tune --dry-run</code>.
       </p>
+    </Panel>
+    <Panel
+      title="Read this report from a terminal"
+      description="From any machine that has zoomies installed, with the controller's address and a short-lived token already in the command."
+    >
+      <HostDoctorCommand hostId={host?.id ?? id} />
     </Panel>
     {#if attention.length}
       <Panel

@@ -154,3 +154,52 @@ func TestAnInstalledConfigurationThisUserCannotReadIsToldApartFromNoneAtAll(t *t
 		t.Error("a file this user may not read was not reported as unreadable")
 	}
 }
+
+// A host that joined a controller as an agent has a zoomies.yaml as well --
+// `zoomies agent join` writes it with embedded off and the controller's address --
+// and what it names is the controller it joined, not a listener of its own. Read for
+// a listener address instead, it answers with the default one on loopback -- a
+// controller that is not there, which is where `zoomies doctor --host` on such a
+// host was sent.
+func TestInstalledURLOnAnAgentHostIsTheControllerItJoined(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		yaml string
+		want string
+	}{
+		{
+			name: "a controller reached over https",
+			yaml: "agent:\n  embedded: false\n  controller_url: https://zoomies.example.com\n",
+			want: "https://zoomies.example.com",
+		},
+		{
+			name: "plain http on a private network",
+			yaml: "agent:\n  embedded: false\n  controller_url: http://10.0.0.5:8080\n  allow_insecure_http: true\n",
+			want: "http://10.0.0.5:8080",
+		},
+		{
+			// The agent dials this over a tunnel of its own; a command typed in a
+			// shell has nothing to dial, and a made-up address would be worse than
+			// saying so.
+			name: "a private connection is not an address a command can dial",
+			yaml: "agent:\n  embedded: false\n  controller_url: tailcat://controller\n",
+			want: "",
+		},
+		{
+			// An embedded agent ignores controller_url: this host is the controller.
+			name: "an embedded agent is the controller's own",
+			yaml: "server:\n  external_url: https://zoomies.example.com\nagent:\n  embedded: true\n  controller_url: https://elsewhere.example.com\n",
+			want: "https://zoomies.example.com",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			file := filepath.Join(t.TempDir(), "zoomies.yaml")
+			if err := os.WriteFile(file, []byte(tc.yaml), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if got := InstalledURL(file); got != tc.want {
+				t.Errorf("InstalledURL = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
