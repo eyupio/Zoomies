@@ -69,7 +69,7 @@ func TestAcceptingReportsEveryFieldErrorAtOnce(t *testing.T) {
 	}{
 		{"a reason of nine characters", func(in *AcceptInput) { in.Reason = "123456789" }, "reason"},
 		{"a reason of 501 characters", func(in *AcceptInput) { in.Reason = strings.Repeat("a", 501) }, "reason"},
-		{"a reason with a direction override", func(in *AcceptInput) { in.Reason = goodReason + "‮" }, "reason"},
+		{"a reason with a direction override", func(in *AcceptInput) { in.Reason = goodReason + "\u202e" }, "reason"},
 		{"no end", func(in *AcceptInput) { in.ExpiresAt = time.Time{} }, "expires_at"},
 		{"an end in the past", func(in *AcceptInput) { in.ExpiresAt = now.Add(-time.Hour) }, "expires_at"},
 		{"an end past 365 days", func(in *AcceptInput) { in.ExpiresAt = now.Add(hosttune.MaxAcceptance + time.Hour) }, "expires_at"},
