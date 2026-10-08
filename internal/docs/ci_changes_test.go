@@ -80,7 +80,7 @@ func TestCIRunsOnlyWhatAChangeCanAffect(t *testing.T) {
 	if _, err := exec.LookPath("sh"); err != nil {
 		t.Skip("no sh to run the filter with")
 	}
-	all := `["controller","api","store","rest"]`
+	all := `["controller-1","controller-2","api-1","api-2","store","rest"]`
 	for _, tc := range []struct {
 		name  string
 		event string

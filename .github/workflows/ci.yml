@@ -99,7 +99,7 @@ jobs:
           everything() {
             {
               echo "go=true"; echo "web=true"; echo "deploy=true"; echo "installer=true"
-              echo 'shards=["controller","api","store","rest"]'
+              echo 'shards=["controller-1","controller-2","api-1","api-2","store","rest"]'
               echo "publish=$on_main"
             } >> "$GITHUB_OUTPUT"
             exit 0
@@ -156,7 +156,7 @@ jobs:
             esac
           done
           if [ "$go" = true ]; then
-            shards='["controller","api","store","rest"]'
+            shards='["controller-1","controller-2","api-1","api-2","store","rest"]'
           elif [ "$rest" = true ]; then
             shards='["rest"]'
           elif [ "$docs" = true ]; then
@@ -271,8 +271,8 @@ jobs:
         run: |
           set -eu
           case "$SHARD" in
-            controller) pkgs=./internal/controller/ ;;
-            api) pkgs=./internal/api/ ;;
+            controller-[12]) pkgs=./internal/controller/ ;;
+            api-[12]) pkgs=./internal/api/ ;;
             store) pkgs=./internal/store/ ;;
             rest) pkgs=$(go list ./... | grep -vE '/internal/(controller|api|store)$' | tr '\n' ' ') ;;
             # Only a change to prose, the workflows or the UI's source: the two
@@ -282,6 +282,25 @@ jobs:
             *) echo "::error::unknown shard $SHARD"; exit 1 ;;
           esac
           echo "list=$pkgs" >> "$GITHUB_OUTPUT"
+
+          # A package that is a shard on its own is still the slowest thing
+          # gating the merge, so the biggest two are cut in half by test name.
+          # Round-robin over the sorted names, so neighbouring tests (which
+          # share fixtures and cost) land in different halves, and both halves
+          # come from the one list, so no test is dropped or run twice.
+          run=
+          case "$SHARD" in
+            *-[12])
+              part=${SHARD##*-}
+              names=$(go test -list '.' $pkgs | grep -vE '^(ok|FAIL|\?)[[:space:]]' | sort)
+              run=$(printf '%s\n' "$names" | awk -v p="$part" 'NR % 2 == p % 2 { printf "%s%s", sep, $0; sep = "|" }')
+              if [ -z "$run" ]; then
+                echo "::error::no tests listed for $SHARD"; exit 1
+              fi
+              run="^($run)\$"
+              ;;
+          esac
+          echo "run=$run" >> "$GITHUB_OUTPUT"
 
       # Coverage is main's record of the whole suite, so it is measured only
       # when the whole suite runs. A shard run for a deploy or docs change on
@@ -294,11 +313,11 @@ jobs:
         # and exceed Go's default ten-minute budget many times over on the
         # fleet runner; the Makefile carries the bounded budget so local
         # make test shares it.
-        run: make test TEST_PKGS="${{ steps.pkgs.outputs.list }}"
+        run: make test TEST_PKGS="${{ steps.pkgs.outputs.list }}" TEST_RUN='${{ steps.pkgs.outputs.run }}'
 
       - name: Test with coverage
         if: github.event_name != 'pull_request' && needs.changes.outputs.go == 'true'
-        run: make cover-shard TEST_PKGS="${{ steps.pkgs.outputs.list }}" COVERDIR="$RUNNER_TEMP/covdata"
+        run: make cover-shard TEST_PKGS="${{ steps.pkgs.outputs.list }}" TEST_RUN='${{ steps.pkgs.outputs.run }}' COVERDIR="$RUNNER_TEMP/covdata"
 
       - name: Preserve the shard's coverage
         if: github.event_name != 'pull_request' && needs.changes.outputs.go == 'true'
