@@ -321,6 +321,11 @@ func TestEveryPlaceThatPromisesAnUpdateSaysThisReleaseOnlyShowsOne(t *testing.T)
 			t.Errorf("%s = %q, want it to say %q", tc.where, tc.text, updatesNotInstalledYet)
 		}
 	}
+	// The title is printed at start-up on its own, so it must not promise what
+	// a release that installs nothing does not do, now or after it does.
+	if auto.Title != "the update mode is auto" || strings.Contains(strings.ToLower(auto.Title), "install") {
+		t.Errorf("the updates.auto title = %q, want it to state the mode and promise no installing", auto.Title)
+	}
 	if strings.Contains(auto.Title, updatesNotInstalledYet) {
 		t.Errorf("the updates.auto title carries the clause; a title is short, so it belongs in the detail")
 	}

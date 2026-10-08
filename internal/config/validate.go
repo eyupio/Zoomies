@@ -1841,7 +1841,7 @@ func (c *Config) validateUpdates(add func(Finding)) {
 	}
 	add(Finding{
 		Code: "updates.auto", Severity: SeverityInfo, Setting: "updates.mode",
-		Title: "new releases are installed without anyone asking",
+		Title: "the update mode is auto",
 		Detail: "the controller takes the newest release " + taken + ", and the hosts that have opted in then follow it, " +
 			"one at a time. Nobody is asked first, updating the controller restarts it, and there is no automatic rollback: a migration is one way. " +
 			updatesNotInstalledYet,

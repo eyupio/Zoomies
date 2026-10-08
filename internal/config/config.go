@@ -213,9 +213,9 @@ var updateModes = []string{"off", "manual", "auto"}
 
 // updatesNotInstalledYet is said wherever the modes are described, because this
 // release reads the mode and acts on none of it: an operator who picks auto on
-// the strength of "installed without anyone asking" would wait for an update
-// that nothing makes. The docs quote it word for word. Removing it is one grep
-// for this sentence, in the release that installs.
+// the strength of a description that says releases are installed unasked would
+// wait for an update that nothing makes. The docs quote it word for word.
+// Removing it is one grep for this sentence, in the release that installs.
 const updatesNotInstalledYet = "In this release it only shows what the mode would take on Settings → Updates; it installs nothing yet."
 
 // Backup is the controller's own copies of its database: where they go, how
