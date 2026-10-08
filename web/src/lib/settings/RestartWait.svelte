@@ -220,7 +220,7 @@
   }
   p {
     margin: var(--z-space-2) 0 0;
-    max-width: 72ch;
+    max-width: var(--z-measure-prose);
     font-size: var(--z-text-sm);
     line-height: var(--z-leading-sm);
     color: var(--z-text-muted);

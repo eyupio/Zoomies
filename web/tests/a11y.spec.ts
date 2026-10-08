@@ -373,7 +373,7 @@ const SETTINGS_OUTLINES = [
   { path: '/settings/configuration', heading: 'Configuration', loaded: '[id^="section-"]' },
   { path: '/settings/about', heading: 'About', loaded: '#docs-heading' },
   { path: '/settings/events', heading: 'Events', loaded: '[id^="feed-group-"]' },
-  { path: '/settings/updates', heading: 'Updates', loaded: '.updates-take' },
+  { path: '/settings/updates', heading: 'Updates', loaded: '#update-reason' },
 ];
 
 for (const { path, heading, loaded } of SETTINGS_OUTLINES) {

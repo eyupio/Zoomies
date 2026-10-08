@@ -1523,7 +1523,7 @@
   }
   .lede {
     margin: 0;
-    max-width: 72ch;
+    max-width: var(--z-measure-prose);
     font-size: var(--z-text-base);
     line-height: var(--z-leading-base);
     color: var(--z-text-muted);

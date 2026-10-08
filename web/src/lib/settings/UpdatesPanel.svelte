@@ -76,13 +76,13 @@
         </div>
       {/if}
 
-      <Panel title="What an update would take" class="updates-take">
+      <Panel title="What an update would take">
         {#snippet actions()}
           {#if badge}<Badge tone={badge.tone} label={badge.label} dot={false} />{/if}
         {/snippet}
 
         {#if line}<p class="line">{line}</p>{/if}
-        <p class="reason">{status.reason}</p>
+        <p class="reason" id="update-reason">{status.reason}</p>
 
         {#if status.latest || status.checked_at}
           <dl class="facts">
@@ -176,7 +176,7 @@
   .reason,
   .detail,
   .note {
-    max-width: 72ch;
+    max-width: var(--z-measure-prose);
   }
   .reason {
     margin: 0;
@@ -187,7 +187,7 @@
   }
   .facts {
     display: grid;
-    grid-template-columns: minmax(0, 11rem) minmax(0, 1fr);
+    grid-template-columns: var(--z-facts-columns);
     gap: var(--z-space-3) var(--z-space-4);
     margin: 0;
     font-size: var(--z-text-base);

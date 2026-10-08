@@ -249,7 +249,7 @@
   }
   .facts {
     display: grid;
-    grid-template-columns: minmax(0, 11rem) minmax(0, 1fr);
+    grid-template-columns: var(--z-facts-columns);
     gap: var(--z-space-3) var(--z-space-4);
     margin: 0;
     font-size: var(--z-text-base);
