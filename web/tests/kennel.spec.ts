@@ -1650,7 +1650,9 @@ test.describe('with Kennel Club on', () => {
       await expect(page.locator('p.meta')).toContainText('Since');
       const notice = page.getByTestId('not-tracked');
       await expect(notice).toContainText('Kennel Club is not looking at this repository.');
-      await expect(notice).toContainText('stopped it');
+      // Svelte drops the whitespace at the start of an `{#if}` block, so a sentence
+      // built across one reads "stopped iton 8 Oct". Match the words and the gap.
+      await expect(notice).toContainText(/stopped it on \w/);
       await expect(notice).toContainText(REASON);
       await expect(notice).toContainText('Its waivers are kept');
       await expect(page.getByRole('button', { name: 'Recheck' })).toHaveCount(0);

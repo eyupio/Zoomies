@@ -19,7 +19,7 @@ import (
 // words, would repaint a repository wrong.
 
 // KennelSources is the order a repository's sources are listed in.
-var KennelSources = []kennel.Source{kennel.SourceFleet, kennel.SourceMetadata, kennel.SourceRuns}
+var KennelSources = []kennel.Source{kennel.SourceFleet, kennel.SourceMetadata, kennel.SourceRuns, kennel.SourceSetup, kennel.SourceWorkflows}
 
 // KennelCoverageView is how far one source could be read, with the sentence that
 // says why when it could not, and the permission that would fix it.
@@ -224,10 +224,17 @@ const kennelAttentionLines = 10
 
 // kennelDisabled turns the setting into the set the evaluator is given.
 func kennelDisabled(k config.Kennel) map[string]bool {
-	if len(k.DisabledChecks) == 0 {
+	if len(k.DisabledChecks) == 0 && k.RepositorySetup && k.WorkflowChecks {
 		return nil
 	}
-	out := make(map[string]bool, len(k.DisabledChecks))
+	out := make(map[string]bool, len(k.DisabledChecks)+1)
+	if !k.RepositorySetup {
+		out[string(kennel.AreaSetup)] = true
+	}
+	if !k.WorkflowChecks {
+		out[string(kennel.AreaCI)] = true
+		out[string(kennel.AreaToken)] = true
+	}
 	for _, name := range k.DisabledChecks {
 		out[name] = true
 	}

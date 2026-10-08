@@ -6643,7 +6643,7 @@ components:
         means what was found stands and nothing found is not an all-clear.
     KennelSource:
       type: string
-      enum: [fleet, metadata, runs]
+      enum: [fleet, metadata, runs, setup, workflows]
     KennelCounts:
       type: object
       required: [error, warning, info, waived]
@@ -6797,7 +6797,7 @@ components:
       required: [code, area, severity, detects, needs, disabled]
       properties:
         code: { type: string }
-        area: { type: string, enum: [exposure, capacity] }
+        area: { type: string, enum: [exposure, capacity, setup, ci, token] }
         severity: { $ref: "#/components/schemas/KennelSeverity" }
         detects: { type: string }
         needs:

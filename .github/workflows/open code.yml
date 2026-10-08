@@ -12,7 +12,12 @@ permissions:
   id-token: write
 jobs:
   opencode:
-    if: contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode')
+    # Anyone who can comment can write '/oc', and this job holds write tokens
+    # and a paid API key, so the trigger alone is not enough: only someone the
+    # repository already trusts may start it. A stranger's comment is ignored.
+    if: >-
+      (contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode'))
+      && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
