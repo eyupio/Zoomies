@@ -126,7 +126,7 @@
         <Badge label="Warning" tone="pending" size="sm" />
         <strong>{check.title}</strong>
         <span class="now"
-          >Now “{niceValue(check.current) || '—'}” — recommended “{niceValue(check.recommended) ||
+          >Now “{niceValue(check.current) || '—'}”, recommended “{niceValue(check.recommended) ||
             '—'}”</span
         >
       </p>

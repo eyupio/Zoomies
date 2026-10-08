@@ -3,8 +3,7 @@ icon: material/scale-balance
 title: "Zoomies vs GARM (GitHub Actions Runner Manager)"
 description: >-
   How Zoomies compares with GARM: two single-binary, SQLite-backed runner
-  managers with a web UI. Where GARM's providers and Gitea support are the
-  better choice, and where Zoomies' migration and private-host workflow is.
+  managers with a web UI, and where each is the better choice.
 ---
 
 # Zoomies and GARM

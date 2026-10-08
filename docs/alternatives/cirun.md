@@ -2,9 +2,9 @@
 icon: material/cloud-sync-outline
 title: "Zoomies vs Cirun"
 description: >-
-  How Zoomies compares with Cirun: a managed control plane that provisions
-  runners in your cloud or on your hardware, against free software you run
-  yourself. What each costs, who holds the control plane, and when each fits.
+  How Zoomies compares with Cirun: a managed control plane against free software
+  you run yourself. What each costs, who holds the control plane, when each
+  fits.
 ---
 
 # Zoomies and Cirun

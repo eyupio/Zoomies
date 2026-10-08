@@ -49,6 +49,17 @@ const (
 	// whose agent is gone. After this the runner's provision timeout is what
 	// notices, and it says so on the Runners page.
 	maxTaskAttempts = 3
+	// hostCheckLease sits above the agent's own bound on one run of its checks
+	// (hosttune.MonitorRunTimeout, 45 s) with room for the poll and the result.
+	// A check_host has no runner behind it to notice a lost task, so without a
+	// lease it would stay in flight for ever, enqueue would refuse its key, and
+	// the button would be dead for that host -- the prewarm failure above.
+	hostCheckLease = 90 * time.Second
+	// hostCheckPendingTTL is how long a check may sit unclaimed. An agent holds
+	// a long poll and takes a task at once, so a task still pending after this
+	// means nobody is listening, and delivering it hours later when the agent
+	// comes back would run a check nobody is waiting for.
+	hostCheckPendingTTL = 20 * time.Second
 	// maxTasksPerPoll bounds one response so a host that has been offline does
 	// not receive a hundred tasks in one batch.
 	maxTasksPerPoll = 20
@@ -183,11 +194,24 @@ func requeueAfter(kind agent.TaskKind) time.Duration {
 		return prewarmLease
 	case agent.TaskFillToolCache:
 		return toolFillLease
+	case agent.TaskCheckHost:
+		return hostCheckLease
 	default:
 		// Log relays are tied to a browser that has since gone away, so
 		// redelivering one would open a stream nobody is reading.
 		return 0
 	}
+}
+
+// maxAttempts is how many times a task of this kind may be delivered. A host
+// check is read-only and the operator who pressed the button has given up long
+// before a third delivery, so it gets one; every other kind keeps the shared
+// bound.
+func maxAttempts(kind agent.TaskKind) int {
+	if kind == agent.TaskCheckHost {
+		return 1
+	}
+	return maxTaskAttempts
 }
 
 // enqueue adds a task unless an equivalent one is already outstanding.
@@ -281,7 +305,7 @@ func (q *taskQueue) redeliver(taskID string) redelivery {
 		q.mu.Unlock()
 		return notInFlight
 	}
-	if lt.attempts >= maxTaskAttempts {
+	if lt.attempts >= maxAttempts(lt.task.Kind) {
 		q.mu.Unlock()
 		return outOfAttempts
 	}
@@ -328,13 +352,25 @@ func (q *taskQueue) sweep(now time.Time) (requeued int, dropped []agent.Task) {
 			continue
 		}
 		delete(q.inflight, id)
-		if lt.attempts >= maxTaskAttempts {
+		if lt.attempts >= maxAttempts(lt.task.Kind) {
 			dropped = append(dropped, lt.task)
 			continue
 		}
 		q.pending = append(q.pending, lt)
 		requeued++
 	}
+	// Pending checks expire too: take overwrites IssuedAt on delivery, so this
+	// only ever sees one that has not been delivered.
+	kept := q.pending[:0]
+	for _, lt := range q.pending {
+		if lt.task.Kind == agent.TaskCheckHost && now.Sub(lt.task.IssuedAt) > hostCheckPendingTTL {
+			dropped = append(dropped, lt.task)
+			continue
+		}
+		kept = append(kept, lt)
+	}
+	clear(q.pending[len(kept):])
+	q.pending = kept
 	q.mu.Unlock()
 	if requeued > 0 {
 		select {
@@ -1201,6 +1237,12 @@ func (c *Controller) ReportResult(ctx context.Context, hostID string, res agent.
 	kind := res.Kind
 	if kind == "" && known {
 		kind = task.Kind
+	}
+	if kind == agent.TaskCheckHost {
+		// hostID is the authenticated agent's, never the body's. Returning nil
+		// clears the lease on every outcome, a failed check included.
+		c.applyHostCheck(ctx, hostID, res, task.IssuedAt)
+		return nil
 	}
 	if res.RunnerID == "" {
 		return nil

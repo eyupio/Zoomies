@@ -144,7 +144,7 @@
       <h3 id="orphans-untracked">Resources with no row</h3>
       <p>
         {pluralise(untracked.length, 'resource')} at the provider wearing this fleet's naming that no
-        machine of ours accounts for. Zoomies never deletes one — look at it, and remove it there if it
+        machine of ours accounts for. Zoomies never deletes one, look at it, and remove it there if it
         really is rubbish.
         {#if orphans.last_sweep_at}
           Last swept <RelativeTime value={orphans.last_sweep_at} plain />.

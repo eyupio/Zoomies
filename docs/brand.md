@@ -12,7 +12,7 @@ description: >-
 
 The identity is a fast-moving black-and-white cocker spaniel curling through a
 circular motion path, paired with the Zoomies wordmark. A dog doing zoomies in
-circles is runners executing jobs quickly — that is the whole idea, and it is
+circles is runners executing jobs quickly; that is the whole idea, and it is
 why the mark is never rotated: the circular movement already communicates speed.
 
 Personality: fast, playful, capable, technical, friendly.
@@ -26,7 +26,7 @@ guidance. Asset provenance is recorded in
 
 ## Colour
 
-The core palette is monochrome. The accent exists for the product UI only — the
+The core palette is monochrome. The accent exists for the product UI only; the
 logo stays monochrome, always.
 
 | Name | Value | Where it is used |
@@ -35,7 +35,7 @@ logo stays monochrome, always.
 | White | `#FFFFFF` | Surfaces in the light theme, and the knockout mark |
 | Cool Grey | `#B9BCC2` | Secondary text in the dark theme |
 | Mid Grey | `#666A73` | Secondary text in the light theme |
-| Runner Blue | `#2F80ED` | The interactive accent — see the note below |
+| Runner Blue | `#2F80ED` | The interactive accent, see the note below |
 | Fast Cyan | `#22D3EE` | The *busy* runner state, and nothing else |
 | Paw Black | `#000000` | The official favicon and smallest-size artwork |
 
@@ -107,7 +107,7 @@ information**. GitHub crops it to a circle, which the file already allows for.
 
 A repository whose CI runs on Zoomies can say so with the badge, served from
 `https://zoomies.sh/badge.svg`. It is the paw/swish on Zoomies Black beside
-"CI", and "has the zoomies" on Runner Blue — the three colours the guide
+"CI", and "has the zoomies" on Runner Blue; the three colours the guide
 gives a badge, and the one thing the identity is about: a dog doing zoomies
 is CI running fast.
 
@@ -132,20 +132,20 @@ one: a badge in different colours on different READMEs is not a brand.
 ## Using the system in the product
 
 The full primary logo appears on the sign-in, first-run, boot and connection
-failure screens — the screens that open the product — and it is given room on
+failure screens (the screens that open the product) and it is given room on
 them: 260px on the sign-in page, about 300px on the first-run screen, 250px on
 the two transient ones, and never below the 220px minimum. The holding shape is
 Zoomies Black, and it is capped at the width of whatever contains it, so a phone
 shrinks the lockup rather than overflowing. The artwork carries its own clear
-space, so the shape is deliberately larger than the dog inside it — that padding
+space, so the shape is deliberately larger than the dog inside it; that padding
 is part of the supplied file and is not cropped away.
 
 ![The sign-in page: a Zoomies Black panel on the left holding the lockup, a one-line description, three facts and links to zoomies.sh, GitHub and EyUp.io; the form on the right, under the address of the instance being signed in to](screenshots/sign-in-dark.webp#only-dark){ .zoomies-shot }
 ![The sign-in page: a Zoomies Black panel on the left holding the lockup, a one-line description, three facts and links to zoomies.sh, GitHub and EyUp.io; the form on the right, under the address of the instance being signed in to](screenshots/sign-in-light.webp#only-light){ .zoomies-shot }
 
 The sign-in page is the one screen where the brand gets a panel rather than a
-shape. It is the page met by people who did not install the controller —
-somebody sent its address by the colleague who did — so the left of it is
+shape. It is the page met by people who did not install the controller
+(somebody sent its address by the colleague who did) so the left of it is
 Zoomies Black in both themes and says what they are looking at: the lockup, a
 one-line description, three facts true of every installation, and links to
 [zoomies.sh](https://zoomies.sh), the source on GitHub and
@@ -154,7 +154,7 @@ straight on it, pulled out by exactly its artwork's padding so the dog lines up
 with the text beneath it; the clear space moves with the artwork and nothing
 enters it. The faint rings in the panel's far corner are the circular motion
 path, drawn out past the edge so only an arc of it shows, with one stroke of
-Runner Blue — decoration on the ground, well away from the artwork, which
+Runner Blue, decoration on the ground, well away from the artwork, which
 carries no texture of its own. The text on the panel uses the fixed
 `--z-panel-*` tokens rather than the theme's, because the panel does not change
 with the theme and the light theme's greys fail on black.
@@ -164,7 +164,7 @@ its 220px minimum, and the links move below the form in the theme's own
 colours. The first-run screen stays a card. Only the person who has just
 installed the controller ever sees it, and they already know what it is.
 
-The original circular dog carries Settings → About at 128px, its minimum size —
+The original circular dog carries Settings → About at 128px, its minimum size;
 the one identity slot in the signed-in product with room for the primary mark,
 and the page that is about the product rather than about the fleet. The
 paw/swish carries everything up to its 64px maximum: the navbar, where the
@@ -262,7 +262,7 @@ distortion of the full brand mark elsewhere.
 **Inter** for the interface, with Geist and `system-ui` as the sanctioned
 alternatives, and **JetBrains Mono** for logs, identifiers and durations. Both
 are self-hosted as woff2 so an air-gapped install makes no third-party font
-request. The wordmark in the artwork is custom-rendered and is not Inter — do
+request. The wordmark in the artwork is custom-rendered and is not Inter, do
 not try to set it in type.
 
 ## Naming
@@ -275,7 +275,7 @@ not try to set it in type.
 | Service | `zoomies` (controller), `zoomies-agent` (agent) |
 | Config directory | `/etc/zoomies` as root, `~/.config/zoomies` otherwise; see [Where things live](configuration.md#where-things-live) |
 | Container images | `ghcr.io/eyupio/zoomies`, `ghcr.io/eyupio/zoomies-agent`, `ghcr.io/eyupio/zoomies-runner`, `ghcr.io/eyupio/zoomies-runner-docker` |
-| Runner names | `zoomies-4vcpu-ubuntu-2404-biscuit-a3f9qz2m` — the brand, the pool's shape, a kennel word and a token |
+| Runner names | `zoomies-4vcpu-ubuntu-2404-biscuit-a3f9qz2m`; the brand, the pool's shape, a kennel word and a token |
 | Pool names | `zoomies-truffle-docker-linux`; a name given without the prefix gains one |
 | Pool labels | `zoomies-linux-x64`, `zoomies-gpu`; every pool also answers to `zoomies` |
 | Migration branch | `zoomies/migrate-runners-<timestamp>` |
@@ -289,7 +289,7 @@ workflow in the organisation. Both start with the product name, and neither
 carries anything a reader would have to decode. The runner name carries the
 pool's *shape* rather than the name somebody invented for it, because a reader
 on GitHub is there precisely because they do not yet know what they are looking
-at — and when it will not fit, the shape is what gives way rather than the
+at, and when it will not fit, the shape is what gives way rather than the
 brand. See [Naming and platforms](naming.md#runner-names).
 
 `internal/store/brand.go` is the one place these are spelled out;
@@ -303,8 +303,8 @@ identity outwards, and both are part of the brand rather than an afterthought.
 
 **A controller's own page.** `web/index.html` carries Open Graph and Twitter
 card tags, `brand/social-card.png` as the card image, and a link to
-[zoomies.sh](https://zoomies.sh) on the sign-in page's brand panel — beside the
-source on GitHub — and in the footer of every signed-in page, each beside the
+[zoomies.sh](https://zoomies.sh) on the sign-in page's brand panel, beside the
+source on GitHub, and in the footer of every signed-in page, each beside the
 credit *Developed by [EyUp.io](https://eyup.io)*.
 Both addresses come from `web/src/lib/links.ts`, and the site's footer prints
 the same credit from `extra.developer` in `mkdocs.yml`, so the product and the

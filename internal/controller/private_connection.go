@@ -61,7 +61,7 @@ func (c *Controller) privateConnectionProblems(_ context.Context, out *[]Problem
 		Detail: "the private-connection listener has no Tailcat relay it can reach, so hosts enrolled with a " +
 			"private connection cannot heartbeat or take work. " +
 			"The last attempt said: " + f.Reason,
-		Fix: "check that this controller has outbound HTTPS to Tailcat's relays — a firewall, proxy or DNS change is " +
+		Fix: "check that this controller has outbound HTTPS to Tailcat's relays, a firewall, proxy or DNS change is " +
 			"the usual cause. The controller keeps retrying, trying the relay its identity was sealed with first, " +
 			"and this clears on its own once one answers; no restart is needed.",
 		Since: &since,

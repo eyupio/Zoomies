@@ -10,8 +10,7 @@ site_name: Zoomies
 site_url: https://zoomies.sh/
 site_description: >-
   Free, open-source self-hosted GitHub Actions runners with ephemeral jobs, a
-  live web UI, autoscaling across your own hosts, and a migration path off
-  static runners.
+  live web UI, autoscaling across your own hosts and a path off static runners.
 site_author: Zoomies contributors
 copyright: Zoomies is AGPL-3.0 licensed.
 

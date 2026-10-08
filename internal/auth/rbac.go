@@ -65,6 +65,11 @@ const (
 	// the decision back. It changes what Zoomies counts, never the host. Operator
 	// for both halves: revoking only ever makes Zoomies stricter.
 	ActionHostsAccept Action = "hosts.accept"
+	// ActionHostsCheck is asking a host's agent to run its read-only OS checks
+	// now. It changes nothing on the host, but it spends the host's CPU and forks
+	// a few dozen processes there, so a viewer never can, and it has a scope of
+	// its own so a token can be given this and nothing else about hosts.
+	ActionHostsCheck Action = "hosts.check"
 )
 
 // Installation actions. Verifying credentials is an operator action because it
@@ -156,6 +161,13 @@ const (
 	ActionMigrationsRead  Action = "migrations.read"
 	ActionMigrationsWrite Action = "migrations.write"
 )
+
+// Updates. Reading what an update would take is every role's: it names a public
+// release, the build this controller runs and a sentence about why one has not
+// been taken, and nothing of the fleet's. It is the first viewer-readable route
+// that carries the platform-scoped mode and soak, which say what the controller
+// will do and open nothing.
+const ActionUpdatesRead Action = "updates.read"
 
 // Account and credential actions.
 const (
@@ -254,6 +266,7 @@ var actionRoles = map[Action]store.Role{
 	ActionHostsCordon: store.RoleOperator,
 	ActionHostsDelete: store.RoleAdmin,
 	ActionHostsAccept: store.RoleOperator,
+	ActionHostsCheck:  store.RoleOperator,
 
 	ActionInstallationsRead:   store.RoleViewer,
 	ActionInstallationsWrite:  store.RoleAdmin,
@@ -273,6 +286,8 @@ var actionRoles = map[Action]store.Role{
 	ActionMachinesDelete:  store.RoleAdmin,
 
 	ActionAuditRead: store.RoleViewer,
+
+	ActionUpdatesRead: store.RoleViewer,
 
 	ActionMigrationsRead:  store.RoleOperator,
 	ActionMigrationsWrite: store.RoleOperator,

@@ -26,10 +26,10 @@
   const LEAVE = '';
 
   const options = $derived([
-    { value: LEAVE, label: 'Leave it alone — keep running on GitHub' },
+    { value: LEAVE, label: 'Leave it alone, keep running on GitHub' },
     ...(plan?.pools ?? []).map((p) => ({
       value: p.runs_on ?? '',
-      label: `${p.runs_on} — the ${p.name} pool`,
+      label: `${p.runs_on}, the ${p.name} pool`,
     })),
   ]);
 

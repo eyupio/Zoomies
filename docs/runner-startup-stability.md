@@ -3,8 +3,7 @@ icon: material/timer-outline
 title: Runner startup under host load
 description: >-
   How Zoomies keeps runner startup reliable on a busy host: a health probe
-  before admission, the CPU quota during registration, and the settings that
-  control both.
+  before admission, a CPU quota during registration, and the settings for both.
 ---
 
 # Runner startup under host load

@@ -378,6 +378,35 @@ func (s *Server) handleCordonHost(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.ctrl.HostView(h))
 }
 
+// handleCheckHost answers POST /api/v1/hosts/{id}/health-check.
+//
+// It queues a request and returns at once, because the agent answers on its own
+// poll and a browser should not hold a connection for the checks to finish; the
+// page learns the outcome from the host's event frames. Only a request that
+// queued a task is audited: a repeat press or a refusal changed nothing, and an
+// audit row per press would let a held-down button fill the log.
+func (s *Server) handleCheckHost(w http.ResponseWriter, r *http.Request) {
+	id := chiURLParam(r, "id")
+	h, queued, err := s.ctrl.RequestHostCheck(r.Context(), id)
+	if err != nil {
+		var refused *controller.HostCheckError
+		var cooling *controller.HostCheckCooldownError
+		switch {
+		case errors.As(err, &refused):
+			conflict(w, refused.Message)
+		case errors.As(err, &cooling):
+			rateLimited(w, cooling.Error(), max(cooling.Until.Sub(s.ctrl.Now()), time.Second))
+		default:
+			s.fail(w, r, "asking the host to check", err)
+		}
+		return
+	}
+	if queued {
+		s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "host.check_requested", "host", id, map[string]any{"name": h.Name})
+	}
+	writeJSON(w, http.StatusAccepted, s.ctrl.HostView(&h))
+}
+
 // handleDeleteHost removes a host.
 //
 // It refuses while the host still has live runners unless forced, because

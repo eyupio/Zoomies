@@ -41,7 +41,7 @@ only to the degree a test proves:
 | --- | --- | --- | --- |
 | Linux arm64 controller and agent | Build: CI cross-compiles and builds the arm64 images. Runtime: the Go suite and the lifecycle drill run on GitHub's hosted `ubuntu-24.04-arm` on every pull request, so a queued job becomes a real process on an arm64 machine and is cleaned up | Runtime with a container, and a real arm64 host in a fleet: the drill's runner is the stub, and the Docker backend has started no container on arm64 | An arm64 host in the real-runtime tier of the harness, which is a beta-testing item: the row moves when a job runs on an arm64 host somebody kept |
 | Windows agent, `process` backend | Build: `windows/amd64` is cross-compiled in CI and shipped in every release; the whole tree vets on Windows, and the packages the agent is made of run their tests on GitHub's hosted `windows-latest` on every pull request. Shape: the `.zip` unpacker and its refusals, the digests for `win-x64` and `win-arm64`, the service manager's command line and its `sc.exe` calls, the removal retry | **Runtime: nothing in this repository has run actions/runner, joined a host, or started the service on a Windows machine.** The job object, the service control dispatcher, the disk and memory queries and the ProgramData defaults compile and have not been exercised. Windows on arm64 has digests and no build | A Windows host in the real-runtime tier of the harness, which is a beta-testing item: the row moves when a Windows host joins from the documented command and a queued job runs on it |
-| **Docker backend** | Shape: the Engine API client, the create arguments, the DinD refusal, the cache suffix and the permission checks are unit-tested against a fake Engine. Runtime: this repository's own CI runs on a Zoomies fleet through the build under test — every job but the arm64 and Windows legs runs inside a container the Docker backend started, on every pull request and every push to `main`, and `TestCIDogfoodsZoomiesWithRecoveryForEveryJob` (`internal/docs`) fails if a job leaves the fleet | Runtime from a test: no test in this repository starts a container, so the drill tier's runner is still the stub and the daemon-stopped-then-restored half of the dead-socket drill has nowhere to run; on arm64 the backend has started nothing | A container started from a test would be a Docker daemon in the drill tier, which ROADMAP v3.0 withdrew as a gate (ZF-301c); the arm64 half moves with the arm64 row. It was the largest single gap in this table until CI moved onto the fleet, and it stays first because the default backend is the one to be honest about |
+| **Docker backend** | Shape: the Engine API client, the create arguments, the DinD refusal, the cache suffix and the permission checks are unit-tested against a fake Engine. Runtime: this repository's own CI runs on a Zoomies fleet through the build under test; every job but the arm64 and Windows legs runs inside a container the Docker backend started, on every pull request and every push to `main`, and `TestCIDogfoodsZoomiesWithRecoveryForEveryJob` (`internal/docs`) fails if a job leaves the fleet | Runtime from a test: no test in this repository starts a container, so the drill tier's runner is still the stub and the daemon-stopped-then-restored half of the dead-socket drill has nowhere to run; on arm64 the backend has started nothing | A container started from a test would be a Docker daemon in the drill tier, which ROADMAP v3.0 withdrew as a gate (ZF-301c); the arm64 half moves with the arm64 row. It was the largest single gap in this table until CI moved onto the fleet, and it stays first because the default backend is the one to be honest about |
 | Podman backend | Shape: probe, defaults, DinD refusal and the SELinux cache suffix are unit-tested | Runtime: no test starts a Podman daemon | A Podman host in the harness |
 | `process` backend | Shape: layout, signals, process groups, archive tamper check, JIT config off argv. Runtime: the drill tier runs the built binary as a real remote agent on this backend and watches a workload appear on the machine and go away | Runtime with the real runner: the drill's workload is a stub staged on disk, so nothing has yet run `actions/runner` itself | A bare host in the harness with the real runner tree; it is the least isolated backend and the docs already say so |
 | macOS controller | Build; launchd plist rendering | Everything else; the docs say development only | Nothing planned |
@@ -50,7 +50,7 @@ only to the degree a test proves:
 | GitHub Enterprise Server | `github.api_base_url` is validated | No test speaks to a GHES | Access to a GHES; not in the first assignment |
 
 Cross-compilation is not qualification. A row moves right only when something
-runs on the thing — a test, or this repository's own CI.
+runs on the thing; a test, or this repository's own CI.
 
 ## The moments to timestamp
 
@@ -73,11 +73,11 @@ the current answer and the baseline is history.
 Two smaller gaps the reconciliation found belonged to Phase 0 itself because
 they needed no migration, and the code for both has landed. A job GitHub holds
 for a deployment review is `waiting`, and the hold and its release now have
-timeline kinds of their own — `waiting` and `approved`, written by the existing
-job-change path — so a held job's timeline says whose time the review was. The
+timeline kinds of their own (`waiting` and `approved`, written by the existing
+job-change path) so a held job's timeline says whose time the review was. The
 RC1 change moves the queue start when an observed approval changes a waiting
 job to queued, and keeps that boundary on replays. `Stats` is split four ways
-— succeeded, failed, cancelled and unknown — so a `stale` or empty conclusion
+(succeeded, failed, cancelled and unknown) so a `stale` or empty conclusion
 is no longer counted as a success.
 
 Two rules go with the table. Every rate has a denominator written beside it,

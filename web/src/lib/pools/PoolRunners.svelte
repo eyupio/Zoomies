@@ -40,7 +40,7 @@
       compact
       icon={Cpu}
       title="No runners right now"
-      description="That is normal when nothing is queued — runners are created on demand."
+      description="That is normal when nothing is queued, runners are created on demand."
     />
   {:else}
     <ul class="list">

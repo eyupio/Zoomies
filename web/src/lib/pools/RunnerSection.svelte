@@ -136,7 +136,7 @@
   /* -- platform ----------------------------------------------------------- */
 
   const osOptions = $derived([
-    { value: '', label: 'Any — use the default image' },
+    { value: '', label: 'Any, use the default image' },
     ...platforms.map((p) => ({
       value: platformKey(p.os, p.os_version),
       label: p.default ? `${p.label} (default)` : (p.label ?? ''),
@@ -323,7 +323,7 @@
       </p>
       <p class="danger-body">
         Mounting the host's Docker socket lets a job start a privileged container, mount the host
-        filesystem and read every secret on that machine — including the credentials of every other
+        filesystem and read every secret on that machine, including the credentials of every other
         pool's runners. A pull request from a fork is enough to do it. Use Docker in Docker unless
         you control every workflow that can reach these labels.
       </p>

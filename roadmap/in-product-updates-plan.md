@@ -1,12 +1,12 @@
-# ZF-232: updating from the web UI — Implementation Plan
+# ZF-232: updating from the web UI: Implementation Plan
 
 **Status**: proposed. The design is approved; this plan is waiting for the
 owner's review and their choice of how to execute it. Nothing is built.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Let an operator update the controller and its hosts from the web UI —
-off, a button, or automatically — without running `zoomies upgrade` by hand.
+**Goal:** Let an operator update the controller and its hosts from the web UI
+(off, a button, or automatically) without running `zoomies upgrade` by hand.
 
 **Architecture:** Each host that opts in gets a root-owned systemd path unit
 that, on a request file naming one validated release tag, runs the existing
@@ -34,7 +34,7 @@ find the symbol, not the number.
   `internal/api`, `cmd/zoomies` and `test/*` need the embed stub; run
   `make build-nogui` once first. `make lint` and `make test` are green before every
   push. A subset: `make test TEST_PKGS="./internal/config/ ./internal/docs/"`.
-* Only `internal/store` writes SQL. `internal/updates` stays pure — no clock
+* Only `internal/store` writes SQL. `internal/updates` stays pure: no clock
   read, database or network. Everything that touches a file, a command or the
   clock lives in `internal/updates/channel`, `internal/installer` or
   `internal/controller`.
@@ -106,19 +106,19 @@ find the symbol, not the number.
 The spec says what the software must do. It is silent on these, and none is an
 obvious happy path, so each is pinned by a test in the task that owns the code.
 
-1. **The update folder cannot be written when a button is pressed** — a
+1. **The update folder cannot be written when a button is pressed**; a
    container without the mount, a full disk, the wrong owner, the folder
    replaced by a file. Expect a refusal that names the folder and the fix, no
    attempt left open, and nothing half-written. Tasks 2.1 and 3.2.
-2. **A `result.json` the controller did not ask for** — left from before a
+2. **A `result.json` the controller did not ask for**: left from before a
    restart, for an attempt already closed, for none, or malformed or oversized.
    Expect it ignored: no crash, no attempt reopened or closed twice. A failed
    result for an open attempt closes it with the helper's sentence. Task 3.2.
-3. **A host that goes away mid-rollout** — deleted, renamed, re-joined under a
+3. **A host that goes away mid-rollout**: deleted, renamed, re-joined under a
    new id, or lost. Expect its open attempt to close as `cancelled`, the rollout
    not to wait on it, and a failure to halt the rollout rather than start the
    next host. Tasks 3.1, 4.3 and 5.3.
-4. **Two actors at once** — two administrators, or the planner and a button.
+4. **Two actors at once**: two administrators, or the planner and a button.
    Expect exactly one open attempt per controller or host, `update.in_progress`
    for the second, and never a second request file. Tasks 3.1 and 3.2.
 5. **The mode is switched to `off`, or the helper removed, while something is in
@@ -164,7 +164,7 @@ that changes them.
 
 ---
 
-## Part 1 — The mode, the release list and a read-only status
+## Part 1: The mode, the release list and a read-only status
 
 Pull request 1. Exit: a mode is stored and shown and nothing acts; the soak edge
 is a table test; in mode `off` the controller's one request is unchanged.
@@ -278,7 +278,7 @@ is a table test; in mode `off` the controller's one request is unchanged.
 
 - [ ] **Step 1: Write the failing tests.** Unit: `updates-words.test.ts` pins the sentence for each mode (`off`, `manual`, `auto`) and for a target with and without a due time. Playwright `updates.spec.ts` (desktop and Pixel 7): opens `/settings/updates` on the seeded server; sees running `1.3.0`, target `v1.3.2` and a "Waiting: …" or "available" sentence; sees the mode as text, not a control; has no Update button yet; passes the a11y pass; `expectNoSidewaysScroll` at 360px.
 - [ ] **Step 2: Run** `cd web && npm run test:unit`. Expected: FAIL.
-- [ ] **Step 3: Implement the seed.** `seedUpdates()` in `seed_updates.go`, called beside the existing seed hook (`grep -n seedStuck internal/controller`), is inert unless `ZOOMIES_SEED_UPDATES` is set (it is not a registry setting, so `TestNoCodeReadsASettingFromTheEnvironment` is unaffected). It installs a transport that serves a release list — `v1.3.1` published 30 hours ago, `v1.3.2` six hours ago, both complete for this platform — as `c.httpClient`, and sets `version.Version = "1.3.0"`, because the binary under test is `dev`, which no release comparison accepts. `serve-updates.mjs` is `serve.mjs` plus that variable and `ZOOMIES_UPDATE_MODE=manual`. The variable's value is the path of a temporary update folder, which Part 3 puts to use; the script creates it at a path derived from the port, so the spec can find it too.
+- [ ] **Step 3: Implement the seed.** `seedUpdates()` in `seed_updates.go`, called beside the existing seed hook (`grep -n seedStuck internal/controller`), is inert unless `ZOOMIES_SEED_UPDATES` is set (it is not a registry setting, so `TestNoCodeReadsASettingFromTheEnvironment` is unaffected). It installs a transport that serves a release list (`v1.3.1` published 30 hours ago, `v1.3.2` six hours ago, both complete for this platform) as `c.httpClient`, and sets `version.Version = "1.3.0"`, because the binary under test is `dev`, which no release comparison accepts. `serve-updates.mjs` is `serve.mjs` plus that variable and `ZOOMIES_UPDATE_MODE=manual`. The variable's value is the path of a temporary update folder, which Part 3 puts to use; the script creates it at a path derived from the port, so the spec can find it too.
 - [ ] **Step 4: Implement the panel**, state and words with design tokens only; reuse `Panel`, `Badge`, `EmptyState`. Admins do not receive `updates.*` from `/settings`, so the panel reads mode and soak from `GET /api/v1/updates`. The state module follows `state/kennel.svelte.ts`: subscribe to `updates.updated` on mount and refetch when the stream returns.
 - [ ] **Step 5: Run** `cd web && npm run lint && npm run test:unit`, then `make build VERSION=dev && cd web && npx playwright test tests/updates.spec.ts --project=updates --project=updates-mobile`. Expected: PASS. Check the shell budget: `npm run build` must not fail the size gate.
 - [ ] **Step 6: Commit** "Show what an update would take on a Settings page, read-only".
@@ -286,7 +286,7 @@ is a table test; in mode `off` the controller's one request is unchanged.
 
 ---
 
-## Part 2 — The helper
+## Part 2: The helper
 
 Pull request 2. Exit: a request file makes `zoomies upgrade` run against a fake
 `systemctl`; every refusal has a test; nothing is created on a host that did not
@@ -425,7 +425,7 @@ ask for it.
 - [ ] **Step 5: Commit** "Offer the update helper when a host is installed or joined, never by default".
 - [ ] **Step 6:** Update the ZF-232 row in `roadmap/progress.md`; commit "Record the helper".
 
-## Part 3 — Updating the controller from a button
+## Part 3: Updating the controller from a button
 
 Pull request 3. Exit: an attempt is recorded and closed across a restart; a
 failure problem carries the helper's sentence; only `platform` can press the
@@ -447,7 +447,7 @@ button.
   - `TestAReJoinKeepsAHostsAttemptHistory`: `DeleteHost` then `CreateHost` under the same id leaves finished rows in place, because the column has no foreign key.
   - `TestPruneSparesOpenAttempts`; `TestTheRetentionKeyHasAFloor`.
 - [ ] **Step 2: Run** `go test ./internal/store/ ./internal/config/`. Expected: FAIL.
-- [ ] **Step 3: Implement.** The migration header says why: a table of its own, why `host_id` has no foreign key, and why a partial unique index (`WHERE state = 'requested'`, over `(scope, host_id)`) carries the "one open attempt" rule — the model is `0074_size_classes.sql`. Columns are `from_version` and `to_version` because `from` is an SQL keyword. Ids are `NewID(PrefixUpdateAttempt)`; times are Unix milliseconds through the store's helpers, never `time.Now()`. Create inside `s.tx`; `wrapWrite` turns the unique violation into `ErrConflict`.
+- [ ] **Step 3: Implement.** The migration header says why: a table of its own, why `host_id` has no foreign key, and why a partial unique index (`WHERE state = 'requested'`, over `(scope, host_id)`) carries the "one open attempt" rule; the model is `0074_size_classes.sql`. Columns are `from_version` and `to_version` because `from` is an SQL keyword. Ids are `NewID(PrefixUpdateAttempt)`; times are Unix milliseconds through the store's helpers, never `time.Now()`. Create inside `s.tx`; `wrapWrite` turns the unique violation into `ErrConflict`.
 - [ ] **Step 4: Run** the same command and `go test ./internal/controller/ -run Prune`. Expected: PASS. Mutation check: drop the partial index; the open-per-target test must fail.
 - [ ] **Step 5: Commit** "Record each update attempt, one open at a time, without tying it to the host row".
 
@@ -459,14 +459,14 @@ button.
 
 **Interfaces:**
 - Consumes: Tasks 1.2, 1.3, 2.1, 3.1.
-- Produces: `type UpdateActor struct{ID, Name string}`; the sentinels `ErrUpdateModeOff`, `ErrUpdateHelperMissing`, `ErrUpdateInProgress`, `ErrUpdateNotARelease`, `ErrUpdateNothingNewer`, `ErrUpdateHostCannotUpdate` and `ErrUpdateRolloutHalted` — all declared here beside Task 1.3's `ErrUpdateCheckDisabled`, so Task 3.4's mapper covers all eight codes, and Parts 4 and 5 only use them; `func (c *Controller) RequestControllerUpdate(ctx context.Context, by UpdateActor, tag string) (*UpdatesView, error)` (empty `tag` takes the newest complete release); `func (c *Controller) KickUpdates()`; the view gains `Helper{State, Reason, InstallCommand string}` and `Controller *UpdatesAttempt{ID, State, From, To, Trigger string; RequestedAt time.Time; FinishedAt *time.Time; Error string}`; counter `zoomies_update_attempts_total{kind,result}`.
+- Produces: `type UpdateActor struct{ID, Name string}`; the sentinels `ErrUpdateModeOff`, `ErrUpdateHelperMissing`, `ErrUpdateInProgress`, `ErrUpdateNotARelease`, `ErrUpdateNothingNewer`, `ErrUpdateHostCannotUpdate` and `ErrUpdateRolloutHalted`, all declared here beside Task 1.3's `ErrUpdateCheckDisabled`, so Task 3.4's mapper covers all eight codes, and Parts 4 and 5 only use them; `func (c *Controller) RequestControllerUpdate(ctx context.Context, by UpdateActor, tag string) (*UpdatesView, error)` (empty `tag` takes the newest complete release); `func (c *Controller) KickUpdates()`; the view gains `Helper{State, Reason, InstallCommand string}` and `Controller *UpdatesAttempt{ID, State, From, To, Trigger string; RequestedAt time.Time; FinishedAt *time.Time; Error string}`; counter `zoomies_update_attempts_total{kind,result}`.
 
 - [ ] **Step 1: Write the failing tests** with the controller `newHarness`, `h.advance`, `h.restart`, an `Options.UpdateDir` temp folder holding a marker, and `withVersion`:
   - `TestRequestingAControllerUpdateRecordsTheAttemptAndWritesTheRequest`: one open attempt (`from` the running version, `to` the tag), `request.json` parses to the same id and tag, an audit row names the actor, and a frame is published.
   - Refusals, each with its sentinel: `...WhenTheModeIsOff`, `...WithoutAHelper`, `...OnABuildThatIsNotARelease`, `...WhenNothingIsNewer`, `...WhileFenced` (`mayAct` false).
   - `TestASecondRequestWhileOneIsOpenWritesNoSecondFile` (Review Focus 4): `ErrUpdateInProgress`, and the folder holds the first request only.
   - `TestAnUnwritableFolderRefusesAndLeavesNoAttempt` (Review Focus 1): the folder replaced by a regular file; the error names the folder; `OpenUpdateAttempts` is empty.
-  - `TestAStaleOrUnknownResultIsIgnored` (Review Focus 2), table: the id of a closed attempt, an unknown id, malformed JSON, an oversized file — no state change, no panic.
+  - `TestAStaleOrUnknownResultIsIgnored` (Review Focus 2), table: the id of a closed attempt, an unknown id, malformed JSON, an oversized file; no state change, no panic.
   - `TestAFailedResultClosesTheOpenAttemptWithTheHelpersSentence`.
   - `TestTheNewProcessClosesTheAttemptAsSucceededWhenItRunsTheTarget`: `withVersion(t, "1.3.5")` after `h.restart()` with an open attempt to `v1.3.5`; and `...EvenWithoutAResultFile`.
   - `TestAnAttemptTimesOutAfterNinetyMinutes`: `h.advance(89*time.Minute)` leaves it open, `91*time.Minute` closes it as `timed_out`.
@@ -531,7 +531,7 @@ button.
 
 ---
 
-## Part 4 — Updating a host
+## Part 4: Updating a host
 
 Pull request 4. Exit: a host moves to the controller's release with a job running
 on it, and the job survives; a failed or lost task never fails a runner.
@@ -580,7 +580,7 @@ on it, and the job survives; a failed or lost task never fails a runner.
 - Modify: `internal/controller/agents.go` (`updateLease` and `requeueAfter`; a branch in `ReportResult` before `if res.RunnerID == ""`; the heartbeat hook after the `if changed {…}` block), `internal/controller/views.go` (`HostView.Update *HostUpdateView`), `internal/controller/problems.go`, `internal/controller/status.go` (`statusExempt`), `docs/problem-codes.md` (rows, and the exceptions paragraph beside the table), `internal/controller/invariants_test.go` (the lease table), `internal/controller/compatibility_test.go`, `api/openapi.yaml` (`Host.update`), generated files
 
 **Interfaces:**
-- Produces: `func hostCanSelfUpdate(h *store.Host, target string) (can bool, why string)`, the single place that says whether a host can update itself and, if not, why in a sentence — used by the view, the route and, in Part 5, the planner's snapshot; `func (c *Controller) RequestHostUpdate(ctx context.Context, by UpdateActor, hostID string) (*HostView, error)` (`ErrUpdateHostCannotUpdate` when the host lacks `self-update`, is embedded, is ahead, or has no target); `type HostUpdateView struct{State, Reason string; CanUpdate bool; AttemptID string}`; codes `host.update_failed` (error) and `host.update_unavailable` (info), both fleet-audience and in `statusExempt`.
+- Produces: `func hostCanSelfUpdate(h *store.Host, target string) (can bool, why string)`, the single place that says whether a host can update itself and, if not, why in a sentence, used by the view, the route and, in Part 5, the planner's snapshot; `func (c *Controller) RequestHostUpdate(ctx context.Context, by UpdateActor, hostID string) (*HostView, error)` (`ErrUpdateHostCannotUpdate` when the host lacks `self-update`, is embedded, is ahead, or has no target); `type HostUpdateView struct{State, Reason string; CanUpdate bool; AttemptID string}`; codes `host.update_failed` (error) and `host.update_unavailable` (info), both fleet-audience and in `statusExempt`.
 
 - [ ] **Step 1: Write the failing tests:**
   - `TestAHostBehindTheControllerGetsAnUpdateTask`, `...OnlyWhenItAdvertisesSelfUpdate`, `...NeverWhenEmbedded`, `...NeverWhenAheadOfTheController`, `...NotWhileFenced`.
@@ -622,19 +622,19 @@ on it, and the job survives; a failed or lost task never fails a runner.
 - [ ] **Step 4: Run** `cd web && npm run lint && npm run test:unit`, then the Playwright spec on both projects. Expected: PASS.
 - [ ] **Step 5: Commit** "Add the Update button to a host's card, and keep the command beneath it".
 
-### Task 4.6: The drill — an update with a job running
+### Task 4.6: The drill: an update with a job running
 
 **Files:**
 - Create: `test/drill/agent_update_test.go` (`//go:build drill`)
 - Modify: `test/drill/harness.go` (`builtBinary()` can build with `-X …version.Version=1.0.0` and `1.0.1`; `spawn` takes the binary), `test/drill/budget.go`
 
-- [ ] **Step 1: Write the drill**, modelled on `agent_restart_test.go`: start `newFleet(t)` with the controller at `1.0.1` and the remote agent at `1.0.0`; the controller runs with `ZOOMIES_UPDATE_MODE=manual` and the check interval `0`; the test acts as the root helper — writes `helper.json`, waits for `update/request.json`, kills the agent, respawns the `1.0.1` binary with the same environment, writes `result.json`. Assert: the same runner pid is still alive, the same host id, the host view's version is now `1.0.1`, the attempt is `succeeded`, and the job completes normally.
+- [ ] **Step 1: Write the drill**, modelled on `agent_restart_test.go`: start `newFleet(t)` with the controller at `1.0.1` and the remote agent at `1.0.0`; the controller runs with `ZOOMIES_UPDATE_MODE=manual` and the check interval `0`; the test acts as the root helper, writes `helper.json`, waits for `update/request.json`, kills the agent, respawns the `1.0.1` binary with the same environment, writes `result.json`. Assert: the same runner pid is still alive, the same host id, the host view's version is now `1.0.1`, the attempt is `succeeded`, and the job completes normally.
 - [ ] **Step 2: Run** `make test-drill`. Expected: PASS within the drill budget; if the budget test complains, add the wait to `budget.go`.
 - [ ] **Step 3: Run it once with the agent's adoption removed** (comment out the start-up adoption call) and see the drill fail; restore. State this in the pull request (delivery rule 14).
 - [ ] **Step 4: Commit** "Drill an agent update that runs while a job is running".
 - [ ] **Step 5:** Update the ZF-232 row; commit "Record the host update".
 
-## Part 5 — Automatic updates and rollouts
+## Part 5: Automatic updates and rollouts
 
 Pull request 5. Exit: the planner's tables hold; a halted rollout starts
 nothing; the soak holds a release back; switching to `off` cancels a pending
@@ -738,7 +738,7 @@ rollout.
 
 ---
 
-## Part 6 — Drills, documentation and screenshots
+## Part 6: Drills, documentation and screenshots
 
 Pull request 6. Exit: the drills run in CI; the documentation says what each
 mode does and what the helper is allowed to do.
@@ -758,7 +758,7 @@ mode does and what the helper is allowed to do.
 ### Task 6.2: The documentation and the screenshots
 
 **Files:**
-- Modify: `docs/upgrading.md` (a new "Updating from the web UI" section: what each mode does, the helper and its consent, what happens to running jobs, the soak, how to roll back by hand with `zoomies.previous` and the pre-migration copy; and the first-upgrade note that hosts which predate the feature need one manual upgrade — keep every inbound anchor listed in the notes), `docs/architecture.md` (a Mermaid sequence for the flow beside the task-queue one, and rows for `internal/updates` and its `channel` package in the components table; keep `#why-the-agent-connects-outbound`), `docs/hosts-and-pools.md` (a pointer from the skew paragraph), `docs/privacy.md` (what is contacted and what is downloaded, and by whom), `docs/configuration.md`, `docs/ui.md` (the two screenshots, each with its own alt text), `GLOSSARY.md` (helper, soak, rollout), `web/tests/support/screenshots.mjs` (`settings-updates` and `hosts-update` entries), `docs/screenshots/*.webp` (both themes), `ROADMAP.md` (move the ZF-232 entry from section 8 to section 6 with one line and the pull requests; change record 3.6), `roadmap/progress.md` (`done`, with the evidence)
+- Modify: `docs/upgrading.md` (a new "Updating from the web UI" section: what each mode does, the helper and its consent, what happens to running jobs, the soak, how to roll back by hand with `zoomies.previous` and the pre-migration copy; and the first-upgrade note that hosts which predate the feature need one manual upgrade, keep every inbound anchor listed in the notes), `docs/architecture.md` (a Mermaid sequence for the flow beside the task-queue one, and rows for `internal/updates` and its `channel` package in the components table; keep `#why-the-agent-connects-outbound`), `docs/hosts-and-pools.md` (a pointer from the skew paragraph), `docs/privacy.md` (what is contacted and what is downloaded, and by whom), `docs/configuration.md`, `docs/ui.md` (the two screenshots, each with its own alt text), `GLOSSARY.md` (helper, soak, rollout), `web/tests/support/screenshots.mjs` (`settings-updates` and `hosts-update` entries), `docs/screenshots/*.webp` (both themes), `ROADMAP.md` (move the ZF-232 entry from section 8 to section 6 with one line and the pull requests; change record 3.6), `roadmap/progress.md` (`done`, with the evidence)
 
 - [ ] **Step 1: Write the pages.** Plain prose in the repository's voice; diagrams in Mermaid; no mention of a plan, a tier or an operated instance (delivery rule 15).
 - [ ] **Step 2: Run** `go test ./internal/docs/ ./internal/naming/` and, where `mkdocs` is installed, `mkdocs build --strict`. Expected: PASS; CI runs the strict build otherwise.

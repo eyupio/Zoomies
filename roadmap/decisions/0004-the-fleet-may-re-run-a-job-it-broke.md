@@ -1,16 +1,16 @@
 # 0004: The fleet may re-run a job it broke, if the operator turns it on
 
 **Status**: accepted. Taken on 22 September 2026 on the owner's instruction,
-in answer to the question the fleet raised on its own repository — whether
+in answer to the question the fleet raised on its own repository, whether
 Zoomies could recover from a lost runner by restarting the job on GitHub.
 
 ## Context
 
 A runner that dies under a job fails it in a way that is, on GitHub,
 indistinguishable from a test failure: the job's conclusion is `failure`
-either way. Zoomies already knows better — `Job.FleetFailed` is the predicate
+either way. Zoomies already knows better (`Job.FleetFailed` is the predicate
 the Jobs page splits on, and the fault taxonomy names which of eleven things
-went wrong — but until now it could only say so. Acting on it was the
+went wrong) but until now it could only say so. Acting on it was the
 operator's: notice the failure, work out that it was the fleet's, open the
 run on GitHub and press the button, or press the one #406 added to the job.
 
@@ -39,7 +39,7 @@ three objections in the mechanism rather than by refusing:
   a re-run an operator asked for by hand, and there is no state to get out of
   step with it.
 * *A job may have had side effects.* Only the fleet's own failures are re-run,
-  never a test that failed — and the warning says outright that a job which
+  never a test that failed, and the warning says outright that a job which
   ran may have done something outside GitHub that its author expected to
   happen once. That residual risk is the operator's to accept, which is what
   the setting is for.
@@ -55,7 +55,7 @@ it.
 It rules out re-running a workflow's own failure, now and later: a fleet that
 re-ran somebody's red build would be overruling their result, and no setting
 should be able to ask for that. It also rules out a counter of our own for the
-attempt bound — a second way to count the same thing is a second thing to get
+attempt bound; a second way to count the same thing is a second thing to get
 wrong, and GitHub already numbers the attempts.
 
 The button stays exactly as it was. This is a second way to reach the same

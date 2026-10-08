@@ -57,7 +57,7 @@ export function isMigratable(repo: MigrationRepo): boolean {
  */
 export function noteFor(repo: MigrationRepo): string {
   if (repo.error) return repo.error;
-  if (repo.archived) return 'Archived — accepts no pull requests';
+  if (repo.archived) return 'Archived, accepts no pull requests';
 
   const jobs = jobsIn(repo);
   const files = filesIn(repo);

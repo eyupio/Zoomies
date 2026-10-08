@@ -70,7 +70,7 @@ cannot be inferred from one of them working.
 | Arrangement | Status |
 | --- | --- |
 | `acme`, with DNS ready before boot | not run |
-| `acme`, with DNS created after boot — the proxy is expected to recover on its own | not run |
+| `acme`, with DNS created after boot; the proxy is expected to recover on its own | not run |
 | `files`, with a certificate supplied | not run |
 | `off`, behind a provider's load balancer, with trusted proxies set | not run |
 

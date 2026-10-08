@@ -1,7 +1,9 @@
 ---
 icon: material/dog-side
 title: Kennel Club
-description: Kennel Club checks the repositories your Zoomies fleet serves and says which could hurt it or stop its CI, what it reads from GitHub, and how to waive, stop or read a finding.
+description: >-
+  Kennel Club checks the repositories your fleet serves for what could hurt it
+  or stop its CI, what it reads from GitHub, and how to waive or read a finding.
 ---
 
 # Kennel Club
@@ -48,7 +50,7 @@ and a test fails the build when a check is added without it being run.
 
 <!-- zoomies:catalogue-begin -->
 
-#### `exposure.public_repo_on_fleet` { #exposure-public_repo_on_fleet }
+### `exposure.public_repo_on_fleet` { #exposure-public_repo_on_fleet }
 
 Area
 :   exposure
@@ -65,7 +67,7 @@ Fix
 Verify
 :   Press Recheck once the pool is ephemeral and unprivileged, or once the repository no longer sends jobs here; the finding closes when the next read sees neither.
 
-#### `exposure.public_repo_weak_pool` { #exposure-public_repo_weak_pool }
+### `exposure.public_repo_weak_pool` { #exposure-public_repo_weak_pool }
 
 Area
 :   exposure
@@ -82,7 +84,7 @@ Fix
 Verify
 :   Press Recheck after the pool's settings change; the finding closes when every run of the repository in the window landed on a pool without those settings.
 
-#### `exposure.fork_code_ran` { #exposure-fork_code_ran }
+### `exposure.fork_code_ran` { #exposure-fork_code_ran }
 
 Area
 :   exposure
@@ -99,7 +101,7 @@ Fix
 Verify
 :   Press Recheck after the setting changes; the finding closes once no run from a fork's pull request has executed here in the window.
 
-#### `exposure.target_event_ran` { #exposure-target_event_ran }
+### `exposure.target_event_ran` { #exposure-target_event_ran }
 
 Area
 :   exposure
@@ -116,7 +118,7 @@ Fix
 Verify
 :   Press Recheck once the workflow has been reviewed or moved; the finding closes when no run for those events has executed here in the window.
 
-#### `capacity.unserved_label` { #capacity-unserved_label }
+### `capacity.unserved_label` { #capacity-unserved_label }
 
 Area
 :   capacity
@@ -133,7 +135,7 @@ Fix
 Verify
 :   Press Recheck after the pool or the workflow changes; the finding closes once no job has waited ten minutes for an unserved label in the last seven days.
 
-#### `capacity.job_hit_default_limit` { #capacity-job_hit_default_limit }
+### `capacity.job_hit_default_limit` { #capacity-job_hit_default_limit }
 
 Area
 :   capacity
@@ -150,7 +152,7 @@ Fix
 Verify
 :   Press Recheck after the next run of the job; the finding closes once no run in the window was cancelled at the six-hour limit.
 
-#### `setup.readme` { #setup-readme }
+### `setup.readme` { #setup-readme }
 
 Area
 :   setup
@@ -167,7 +169,7 @@ Fix
 Verify
 :   Press Recheck once the file is on the default branch; the finding closes when the next tree read finds it.
 
-#### `setup.licence` { #setup-licence }
+### `setup.licence` { #setup-licence }
 
 Area
 :   setup
@@ -184,7 +186,7 @@ Fix
 Verify
 :   Press Recheck once the file is on the default branch; the finding closes when the next tree read finds it.
 
-#### `setup.security` { #setup-security }
+### `setup.security` { #setup-security }
 
 Area
 :   setup
@@ -201,7 +203,7 @@ Fix
 Verify
 :   Press Recheck once the file is on the default branch; the finding closes when the next tree read finds it.
 
-#### `setup.contributing` { #setup-contributing }
+### `setup.contributing` { #setup-contributing }
 
 Area
 :   setup
@@ -218,7 +220,7 @@ Fix
 Verify
 :   Press Recheck once the file is on the default branch; the finding closes when the next tree read finds it.
 
-#### `setup.code_of_conduct` { #setup-code_of_conduct }
+### `setup.code_of_conduct` { #setup-code_of_conduct }
 
 Area
 :   setup
@@ -235,7 +237,7 @@ Fix
 Verify
 :   Press Recheck once the file is on the default branch; the finding closes when the next tree read finds it.
 
-#### `setup.issue_template` { #setup-issue_template }
+### `setup.issue_template` { #setup-issue_template }
 
 Area
 :   setup
@@ -252,7 +254,7 @@ Fix
 Verify
 :   Press Recheck once the file is on the default branch; the finding closes when the next tree read finds it.
 
-#### `setup.pull_request_template` { #setup-pull_request_template }
+### `setup.pull_request_template` { #setup-pull_request_template }
 
 Area
 :   setup
@@ -269,7 +271,7 @@ Fix
 Verify
 :   Press Recheck once the file is on the default branch; the finding closes when the next tree read finds it.
 
-#### `setup.codeowners` { #setup-codeowners }
+### `setup.codeowners` { #setup-codeowners }
 
 Area
 :   setup
@@ -286,7 +288,7 @@ Fix
 Verify
 :   Press Recheck once the file is on the default branch; the finding closes when the next tree read finds it.
 
-#### `setup.dependency_updates` { #setup-dependency_updates }
+### `setup.dependency_updates` { #setup-dependency_updates }
 
 Area
 :   setup
@@ -303,7 +305,7 @@ Fix
 Verify
 :   Press Recheck once the file is on the default branch; the finding closes when the next tree read finds it.
 
-#### `setup.workflows` { #setup-workflows }
+### `setup.workflows` { #setup-workflows }
 
 Area
 :   setup
@@ -320,7 +322,7 @@ Fix
 Verify
 :   Press Recheck once the file is on the default branch; the finding closes when the next tree read finds it.
 
-#### `ci.no_timeout` { #ci-no_timeout }
+### `ci.no_timeout` { #ci-no_timeout }
 
 Area
 :   ci
@@ -337,7 +339,7 @@ Fix
 Verify
 :   Press Recheck after the change reaches the default branch; the finding closes when every executable job declares a timeout.
 
-#### `ci.no_concurrency` { #ci-no_concurrency }
+### `ci.no_concurrency` { #ci-no_concurrency }
 
 Area
 :   ci
@@ -354,7 +356,7 @@ Fix
 Verify
 :   Press Recheck after the change reaches the default branch; the finding closes when every pull-request-only workflow cancels superseded runs.
 
-#### `ci.action_not_pinned` { #ci-action_not_pinned }
+### `ci.action_not_pinned` { #ci-action_not_pinned }
 
 Area
 :   ci
@@ -371,7 +373,7 @@ Fix
 Verify
 :   Press Recheck after the change reaches the default branch; the finding closes when no external reference is a tag or a branch.
 
-#### `token.permissions_unset` { #token-permissions_unset }
+### `token.permissions_unset` { #token-permissions_unset }
 
 Area
 :   token
@@ -649,6 +651,36 @@ is not looking:
 The repository list leaves untracked repositories out unless you ask for them,
 so that a card's number and the rows behind it agree. The **Tracking** filter
 brings them back.
+
+### Stopping several at once
+
+A fleet that has a dozen sandboxes to leave alone does not have to open a dozen
+pages. On the **Repositories** list an administrator ticks the rows and presses
+**Stop tracking** in the bar that appears. The dialog names what is about to be
+stopped (eight names, then a count of the rest), asks for one reason in the same
+length as above, and says the same four things it says for one repository.
+
+* **Each repository is its own decision.** The reason is written once and sent
+  for each, so every repository has its own request and its own audit entry,
+  naming the person who stopped it.
+* **The requests go one after another**, in the order the rows were ticked, and
+  not all together. A failure is then attributable: when one is refused the page
+  names it, instead of saying that some were, and the audit log reads in the
+  order the person chose.
+* **A repository that is already not tracked is left as it is**, keeping the
+  reason it was stopped with and the person who stopped it, so this is not a way
+  to rewrite what a colleague wrote. The dialog says how many it is leaving, and
+  if everything ticked was already stopped it says there is nothing to stop
+  instead of asking for a reason to do nothing.
+* **What was refused stays ticked.** If some could not be stopped, the page says
+  how many, names them and says why, and the ones that did stop leave the list;
+  the rest are still selected, so pressing the button again tries only those.
+* **A reason the controller refuses is said beside the field**, and nothing has
+  been stopped, because the same reason would be refused for every one of them.
+
+Only an administrator is offered the tick boxes, since stopping is theirs. There
+is no bulk start: starting again is one press on a repository's own page, and
+nobody has asked for a hundred repositories to be made stricter at once.
 
 ## Where it shows up
 

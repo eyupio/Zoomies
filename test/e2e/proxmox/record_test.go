@@ -116,7 +116,7 @@ func TestTheEvidenceCarriesTheSetupTheCasesTheCountAndWhatWasLeftBehind(t *testi
 		"| Proxmox VE version | pve-manager/8.2.4 |",
 		// A setup row nobody filled in is a dash, so a missing fact is visible
 		// rather than an empty cell somebody reads past.
-		"| Node(s) | — |",
+		"| Node(s) | - |",
 		"| 1 | scale from zero | pass | 4m 12s | one machine, one job | none |",
 		"| Machines confirmed deleted | 20 |",
 		"| Unexplained owned resources | 0 | **must be zero** |",
@@ -250,7 +250,7 @@ func TestAFigureIsRoundedForReadingAndAMissingOneIsVisible(t *testing.T) {
 	if got := round(2*time.Minute + 34*time.Second + 567*time.Millisecond); got != "2m34.6s" {
 		t.Errorf("round() = %q", got)
 	}
-	if got := orDash(""); got != "—" {
+	if got := orDash(""); got != "-" {
 		t.Errorf("orDash(%q) = %q, want a dash", "", got)
 	}
 	if got := orDash("pve1"); got != "pve1" {

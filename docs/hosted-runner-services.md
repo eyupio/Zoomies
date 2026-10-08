@@ -2,9 +2,9 @@
 icon: material/cloud-check-outline
 title: "Zoomies vs Blacksmith, WarpBuild and RunsOn"
 description: >-
-  How running your own runners with Zoomies compares with the services that
-  sell GitHub Actions runners: Blacksmith, WarpBuild and RunsOn. Where jobs run,
-  what each costs, and when each is the better choice.
+  How running your own runners with Zoomies compares with Blacksmith, WarpBuild
+  and RunsOn: where jobs run, what each costs, and when each is the better
+  choice.
 ---
 
 # Zoomies and the runner services
@@ -27,7 +27,7 @@ The prices below are from each company's own pricing page, as of September
 | [WarpBuild](https://www.warpbuild.com/pricing) | WarpBuild's cloud | Per minute | Linux x64 and arm64, Windows, macOS |
 | [WarpBuild BYOC](https://www.warpbuild.com/docs/ci/byoc) | Your AWS, Google Cloud or Azure account | $0.002 a minute to WarpBuild, plus your cloud bill | Linux; Windows on AWS and Azure |
 | [RunsOn](https://runs-on.com/pricing/) | Your AWS account, on EC2 | A yearly licence from €300 (free for non-commercial use), plus your AWS bill | Linux x64 and arm64, Windows |
-| Zoomies | Machines you own or rent, anywhere | Nothing — [AGPL-3.0](https://github.com/eyupio/zoomies/blob/main/LICENSE) — plus the machines | Linux x64 and arm64; Windows [not yet qualified](index.md#what-is-qualified) |
+| Zoomies | Machines you own or rent, anywhere | Nothing, [AGPL-3.0](https://github.com/eyupio/zoomies/blob/main/LICENSE), plus the machines | Linux x64 and arm64; Windows [not yet qualified](index.md#what-is-qualified) |
 
 For the per-minute services, the smallest runner of each kind:
 
@@ -63,7 +63,7 @@ Sizes differ between services, so compare the machine as well as the price.
   per-minute markup, for a yearly licence; WarpBuild's BYOC does the same across
   AWS, Google Cloud and Azure for a per-minute fee.
 - **You want a machine per job.** RunsOn gives each job its own EC2 instance.
-  Zoomies gives each job a fresh container on a shared host — see
+  Zoomies gives each job a fresh container on a shared host, see
   [hosts and pools](hosts-and-pools.md).
 
 ## When Zoomies is the better choice
@@ -73,7 +73,7 @@ Sizes differ between services, so compare the machine as well as the price.
   per-minute fee and no licence. [Runners in your home lab](home-lab.md) has the
   planning.
 - **You are not tied to one cloud.** Hosts can be anywhere an agent can dial out
-  from — several clouds, your own hardware, or both in one fleet.
+  from, several clouds, your own hardware, or both in one fleet.
 - **You want to read and change the code.** Zoomies is AGPL-3.0 and developed in
   the open; running it for your own organisation, changed or not, asks nothing
   of you.

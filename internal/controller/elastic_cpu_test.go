@@ -73,7 +73,7 @@ func TestCPUResourceStatusSaysWhatTheNumbersMean(t *testing.T) {
 	r := &store.Runner{AllocatedCPUs: 2, ResourceSample: sample}
 
 	got := cpuResourceView(r, p, h)
-	if got == nil || got.State != "maximum_zoomies" || got.Label != "Squirrel spotted — maximum zoomies" || got.CurrentCPUs != 4 || got.GuaranteedCPUs != 2 {
+	if got == nil || got.State != "maximum_zoomies" || got.Label != "Squirrel spotted, maximum zoomies" || got.CurrentCPUs != 4 || got.GuaranteedCPUs != 2 {
 		t.Fatalf("resource status = %+v, want a truthful maximum-zoomies label over 2 -> 4 CPUs", got)
 	}
 
@@ -81,7 +81,7 @@ func TestCPUResourceStatusSaysWhatTheNumbersMean(t *testing.T) {
 	r.ResourceSample = sample
 	p.CPUBurst.Mode = store.CPUBurstOff
 	got = cpuResourceView(r, p, h)
-	if got.State != "throttled" || got.Label != "Leash tightened — host under pressure" || got.CurrentCPUs != 1 {
+	if got.State != "throttled" || got.Label != "Leash tightened, host under pressure" || got.CurrentCPUs != 1 {
 		t.Fatalf("resource status = %+v, want a host-pressure throttle at 1 CPU", got)
 	}
 
@@ -98,7 +98,7 @@ func TestCPUResourceStatusSaysWhatTheNumbersMean(t *testing.T) {
 	sample, _ = json.Marshal(backend.Stats{CPUAllocationFactor: 1})
 	r.ResourceSample = sample
 	got = cpuResourceView(r, p, h)
-	if got == nil || got.State != "sit_and_stay" || got.Label != "Sit and stay — CPU held at its share" || got.Reason != "elastic_off" {
+	if got == nil || got.State != "sit_and_stay" || got.Label != "Sit and stay, CPU held at its share" || got.Reason != "elastic_off" {
 		t.Fatalf("resource status = %+v, want a runner held at its share to say so", got)
 	}
 	if got.CurrentCPUs != got.GuaranteedCPUs || got.CeilingCPUs != got.GuaranteedCPUs {

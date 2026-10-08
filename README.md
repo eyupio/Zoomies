@@ -12,7 +12,7 @@ web UI, and move off static runners without rebuilding your CI.
 
 Zoomies gives each job a fresh runner, scales across the hosts and runner
 operating systems you already use, and makes the fleet easy to see and
-operate — without Kubernetes and without a database server.
+operate, without Kubernetes and without a database server.
 
 Single Go binary. SQLite. AGPL-3.0.
 
@@ -90,17 +90,17 @@ flowchart LR
 ```
 
 * **A live web UI.** Thirteen pages, one job each, all updating in place from the
-  controller's event stream — you never have to press refresh, though there is a
+  controller's event stream; you never have to press refresh, though there is a
   button where you want to be sure. Light and dark, a command palette, and a log
   viewer built for a hundred thousand lines.
   [See every page](https://zoomies.sh/ui/).
 * **Elastic CPU zoomies.** Every runner keeps its guaranteed share of its
-  host, and a busy one is lent the CPU nobody else is using — the next queued
+  host, and a busy one is lent the CPU nobody else is using; the next queued
   job's room held back, the host's reserve untouched. New pools measure it by
   default and move nothing until you say so.
   [How it works](https://zoomies.sh/elastic-cpu/).
 * **Elastic memory.** A job about to be killed for its memory limit is given
-  more, out of memory no other runner on its host was promised — raised, never
+  more, out of memory no other runner on its host was promised, raised, never
   lowered, with swap as the last resort. [How it works](https://zoomies.sh/elastic-memory/).
 * **Ephemeral by default.** One job per runner. Nothing leaks from one workflow
   run to the next.
@@ -111,14 +111,14 @@ flowchart LR
 * **Multi-host, multi-OS.** One controller, any number of agents. Agents connect
   outbound only, so a host behind NAT needs no inbound rule. Runner images for
   Ubuntu 24.04, Ubuntu 26.04, Ubuntu 22.04, Debian 12, Debian 13, Fedora 42 and
-  Rocky Linux 9, each for amd64 and arm64 — and a pool is only ever
+  Rocky Linux 9, each for amd64 and arm64, and a pool is only ever
   placed on a host that matches the one it asked for.
 * **Actually observable.** SQLite for state, Prometheus metrics, structured
   logs, live log streaming, job history with queue waits, and an audit row for
   every mutating action.
 * **Backed up by itself, and off the machine.** A consistent copy of the
   database nightly, kept to a ceiling, and every copy sent on to as many
-  S3-compatible destinations as you name — added and tested from the Backups tab
+  S3-compatible destinations as you name, added and tested from the Backups tab
   without editing a file or restarting anything, sealed with that destination's
   passphrase before it leaves the host, and caught up automatically after a
   bucket that was unreachable comes back. The same tab takes one now, verifies it, downloads it
@@ -128,7 +128,7 @@ flowchart LR
   [Backup and restore](https://zoomies.sh/backup-and-restore/).
 * **Safe defaults.** Loopback bind, auth on, no Docker socket in your jobs, no
   root, and every deviation named at startup and in the UI. A self-hosted runner
-  still runs your repositories' code —
+  still runs your repositories' code,
   [what that does and does not protect](https://zoomies.sh/security/).
 
 ## Quick start
@@ -139,40 +139,40 @@ Five minutes on a fresh Ubuntu, Debian, Fedora or Alpine host.
 curl -fsSL https://zoomies.sh/install.sh | sh
 ```
 
-The script checks what it needs before it downloads anything — the platform it
+The script checks what it needs before it downloads anything (the platform it
 is fetching for, whether the install prefix can be written and with what,
-whether there is a terminal to run setup on — shows you what it is about to do,
+whether there is a terminal to run setup on) shows you what it is about to do,
 and asks once. Then it hands off to `zoomies init`.
 
 **How setup finishes depends on how you choose to run Zoomies**, and that is the
 one fork worth knowing about before you start. Compose is the default whenever
 you have a `compose` command:
 
-#### Native — finishes in the terminal
+#### Native: finishes in the terminal
 
-1. **Install mode** — single VM with an embedded agent, controller only, or
+1. **Install mode**: single VM with an embedded agent, controller only, or
    agent only.
-2. **Service user and directories** — a dedicated unprivileged `zoomies` user.
-3. **Backend** — rootless Docker if it finds one, otherwise Docker, Podman or
+2. **Service user and directories**: a dedicated unprivileged `zoomies` user.
+3. **Backend**: rootless Docker if it finds one, otherwise Docker, Podman or
    bare process, with the trade-off on every option.
-4. **Bind address and TLS** — loopback, a certificate you provide, a
+4. **Bind address and TLS**: loopback, a certificate you provide, a
    self-signed one, or reverse-proxy mode.
-5. **Review** — the whole plan and the exact files it will write, before
+5. **Review**: the whole plan and the exact files it will write, before
    anything is written. Install, change an answer, or stop.
-6. **GitHub App** — opens your browser at a pre-filled App manifest with
+6. **GitHub App**: opens your browser at a pre-filled App manifest with
    exactly the permissions Zoomies needs and the webhook URL already set. It
    asks first whether you also want migration pull requests, which is the one
    thing that needs write access to code, and the answer is no unless you
    say otherwise. Create it, and the credentials come back to the installer
    automatically.
 7. **First admin account**, and a **first pool** sized for the host.
-8. **Service** — a hardened systemd unit (or launchd), started and
+8. **Service**: a hardened systemd unit (or launchd), started and
    health-checked.
 
 It finishes with the URL, your login, and the `runs-on:` line to put in a
 workflow.
 
-#### Compose or Docker — finishes in the browser
+#### Compose or Docker: finishes in the browser
 
 The same questions up to the review, then it writes the deployment
 (`docker-compose.yml` and a fully populated `.env`, or one container and an
@@ -208,12 +208,12 @@ never needs one.)
 
 Three values are required, and compose will not start without them:
 
-* `ZOOMIES_EXTERNAL_URL` — the https address you and GitHub reach the
+* `ZOOMIES_EXTERNAL_URL`: the https address you and GitHub reach the
   controller at. Webhooks are delivered there, and creating the GitHub App
   sends your browser back there.
-* `ZOOMIES_ENCRYPTION_KEY` — `openssl rand -base64 32`. Back it up; without it
+* `ZOOMIES_ENCRYPTION_KEY`: `openssl rand -base64 32`. Back it up; without it
   the stored App key cannot be read.
-* `DOCKER_GID` — the gid that owns `/var/run/docker.sock`, which
+* `DOCKER_GID`: the gid that owns `/var/run/docker.sock`, which
   `stat -c '%g' /var/run/docker.sock` prints. It is not always the group called
   `docker`. The container is put in that group so it can create runner
   containers; with the wrong number it comes up healthy and can start nothing.
@@ -247,8 +247,8 @@ use a Tunnel and publish no port at all. See
 ### On a PaaS, with Nixpacks
 
 There is a `nixpacks.toml` in the repository root, so a platform that builds
-with [Nixpacks](https://nixpacks.com) — Coolify, Dokploy, Railway, Zeabur,
-Easypanel — can deploy Zoomies from the source: point it at this repository,
+with [Nixpacks](https://nixpacks.com), Coolify, Dokploy, Railway, Zeabur,
+Easypanel, can deploy Zoomies from the source: point it at this repository,
 set `ZOOMIES_EXTERNAL_URL`, `ZOOMIES_ENCRYPTION_KEY` and
 `ZOOMIES_TRUSTED_PROXIES`, and mount a volume at `/data`.
 
@@ -260,17 +260,17 @@ as below. See [docs/paas.md](docs/paas.md).
 ### From a provider's marketplace
 
 `deploy/marketplace/` renders a cloud-config that boots an instance into a
-running controller: pinned images, HTTPS however you want it in front — a
+running controller: pinned images, HTTPS however you want it in front (a
 Cloudflare Tunnel with no inbound rule at all, Cloudflare in front of a
 published origin, a certificate from Let's Encrypt, one of your own, or your
-load balancer — and no credential in the instance metadata. The first
+load balancer) and no credential in the instance metadata. The first
 administrator is created in the browser with the setup token the controller
 prints, and GitHub is connected there too.
 
 It deploys a **controller**. Zoomies stays self-hosted and
 bring-your-own-infrastructure: you own the runner capacity, whether that is the
 same instance, your own machines, or a hypervisor. See
-[docs/marketplace.md](docs/marketplace.md) — including what it has not yet been
+[docs/marketplace.md](docs/marketplace.md), including what it has not yet been
 tested on.
 
 ### Add another host
@@ -328,18 +328,18 @@ You do not have to edit every workflow by hand. **Migrate** in the UI reads the
 workflows in the repositories your App can see, rewrites their `runs-on` lines,
 shows you the exact diff, and opens one pull request per repository.
 
-It changes `runs-on` and nothing else — comments, indentation and quoting all
-survive byte for byte — and it refuses to guess: a job on `${{ matrix.os }}`, a
+It changes `runs-on` and nothing else (comments, indentation and quoting all
+survive byte for byte) and it refuses to guess: a job on `${{ matrix.os }}`, a
 job already on a self-hosted runner, or a label you chose not to map is listed as
 left alone, with the reason, both in the review screen and in the pull request
 body.
 
 It needs three App permissions the rest of Zoomies deliberately does not ask for
-(Contents, Pull requests, Workflows) — connecting GitHub asks whether you want
-them, and the default is no — and it tells you which are missing before it tries
+(Contents, Pull requests, Workflows), connecting GitHub asks whether you want
+them, and the default is no, and it tells you which are missing before it tries
 anything.
 
-**Already running your own static runners?** Then the wizard is not the tool —
+**Already running your own static runners?** Then the wizard is not the tool;
 it deliberately leaves those jobs where they are, because somebody made that
 decision on purpose. Give a Zoomies pool the label your existing runners already
 advertise and not a line of any workflow changes: the same `runs-on` reaches the
@@ -437,7 +437,7 @@ Upgrades never apply tuning. See [Host health and tuning](docs/host-health.md).
 A coding agent gets the same fleet over the Model Context Protocol, either
 straight from the controller at `/mcp` with a token or through `zoomies mcp`
 on its own machine. It reads failed jobs, their timelines and runner logs, and
-can act only as far as its token's role allows — see
+can act only as far as its token's role allows, see
 [the CLI reference](docs/cli.md#zoomies-mcp).
 
 ```sh
@@ -474,7 +474,7 @@ The same list appears in the UI's problems panel. See
 
 * Linux (amd64 or arm64) for the controller and agents. macOS is supported for
   running the controller in development.
-* Docker or Podman for the container backends — **rootless preferred**, and the
+* Docker or Podman for the container backends: **rootless preferred**, and the
   installer looks for a rootless socket first. `install.sh` offers to install
   one for you on a Linux host that has neither.
 * A GitHub App on github.com. The installer creates it for you. Enterprise
@@ -492,7 +492,7 @@ make build        # builds the UI and embeds it
 
 Go 1.25 or later, and Node 22 or later. `go.mod` sets the language version at
 1.25 and that is the floor a contributor needs; CI builds and releases with
-1.26. Node is a build-time dependency only — the binary is
+1.26. Node is a build-time dependency only; the binary is
 self-contained.
 
 ```sh
@@ -506,18 +506,18 @@ make ui-dev       # Vite dev server against it
 ## How it compares
 
 Zoomies is what you want when [ARC](https://github.com/actions/actions-runner-controller)
-is too much machinery — you have a VM or three, not a cluster — but a handful of
+is too much machinery (you have a VM or three, not a cluster) but a handful of
 hand-registered long-lived runners is too little.
 
 | | ARC | A few static runners | Zoomies |
 | --- | :---: | :---: | :---: |
-| Runs without Kubernetes | — | ✓ | ✓ |
+| Runs without Kubernetes | - | ✓ | ✓ |
 | Ephemeral runners | ✓ | rarely | **default** |
-| Autoscaling | ✓ | — | ✓ |
-| Multi-host | ✓ | — | ✓ |
+| Autoscaling | ✓ | - | ✓ |
+| Multi-host | ✓ | - | ✓ |
 | Auth model | GitHub App | a PAT per runner | **GitHub App** |
-| Web UI | — | sometimes | ✓ |
-| Audit log | — | — | ✓ |
+| Web UI | - | sometimes | ✓ |
+| Audit log | - | - | ✓ |
 | To install | Helm, CRDs, a cluster | manual | **one command** |
 
 Featured in DevToolLab's
@@ -582,7 +582,7 @@ mkdocs build --strict # a link that points nowhere fails the build
 ## Contributing
 
 Read [docs/architecture.md](docs/architecture.md) first, then
-[docs/dependencies.md](docs/dependencies.md) — every dependency needs a
+[docs/dependencies.md](docs/dependencies.md); every dependency needs a
 one-line justification, and that is enforced by review. UI changes should keep
 [docs/ui-guidelines.md](docs/ui-guidelines.md) true.
 

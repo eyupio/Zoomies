@@ -199,6 +199,9 @@ func (s *Server) apiRoutes() chi.Router {
 		r.With(s.require(auth.ActionStatsRead)).Get("/scaling-events", s.handleScalingEvents)
 		r.With(s.require(auth.ActionEventsRead)).Get("/events", s.handleEvents)
 
+		// Updates.
+		r.With(s.require(auth.ActionUpdatesRead)).Get("/updates", s.handleGetUpdates)
+
 		// Installations.
 		r.Route("/installations", func(r chi.Router) {
 			r.With(s.require(auth.ActionInstallationsRead)).Get("/", s.handleListInstallations)
@@ -314,6 +317,7 @@ func (s *Server) apiRoutes() chi.Router {
 			r.With(s.require(auth.ActionHostsWrite)).Post("/{id}/throttle/clear", s.handleClearHostThrottle)
 			// Named for the decision and not for the report, so a route that serves
 			// the report itself has the name /doctor to itself.
+			r.With(s.require(auth.ActionHostsCheck)).Post("/{id}/health-check", s.handleCheckHost)
 			r.With(s.require(auth.ActionHostsAccept)).Put("/{id}/check-acceptances", s.handleAcceptHostCheck)
 			r.With(s.require(auth.ActionHostsAccept)).Delete("/{id}/check-acceptances/{check_id}", s.handleRevokeHostCheck)
 			r.With(s.require(auth.ActionHostsDelete)).Delete("/{id}", s.handleDeleteHost)

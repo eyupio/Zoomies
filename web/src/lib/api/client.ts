@@ -499,6 +499,9 @@ export const updateHost = (id: string, body: Body<'updateHost'>, query?: Query<'
 
 export const cordonHost = (id: string, body: Body<'cordonHost'>) =>
   api.post<Result<'cordonHost'>>(`/hosts/${enc(id)}/cordon`, { body });
+/** Ask the host's agent to run its read-only OS checks once. Answers 202 with the host, not the report. */
+export const checkHostHealth = (id: string) =>
+  api.post<Result<'checkHostHealth'>>(`/hosts/${enc(id)}/health-check`);
 export const acceptHostCheck = (id: string, body: Body<'acceptHostCheck'>) =>
   api.put<Result<'acceptHostCheck'>>(`/hosts/${enc(id)}/check-acceptances`, { body });
 export const revokeHostCheck = (id: string, checkId: string) =>
@@ -810,6 +813,12 @@ export const settingsExportUrl = (format: 'json' | 'yaml') =>
 
 export const importSettings = (body: Body<'importSettings'>) =>
   api.post<Result<'importSettings'>>('/settings/import', { body });
+
+/* -- updates -------------------------------------------------------------- */
+
+/** What the update mode would take: the document the `updates.updated` event carries. */
+export const getUpdates = (signal?: AbortSignal) =>
+  api.get<Result<'getUpdates'>>('/updates', { signal });
 
 /* -- backups -------------------------------------------------------------- */
 

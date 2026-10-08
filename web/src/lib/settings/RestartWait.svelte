@@ -134,7 +134,7 @@
     {:else}
       <p>
         It stopped and nothing has started it in {START_LIMIT_S} seconds. If it runs under systemd or
-        a container with a restart policy, look at that; if you ran it by hand, start it again — the staged
+        a container with a restart policy, look at that; if you ran it by hand, start it again, the staged
         restore is applied when it starts, whoever starts it.
       </p>
       <pre class="mono">zoomies controller</pre>
@@ -220,7 +220,7 @@
   }
   p {
     margin: var(--z-space-2) 0 0;
-    max-width: 72ch;
+    max-width: var(--z-measure-prose);
     font-size: var(--z-text-sm);
     line-height: var(--z-leading-sm);
     color: var(--z-text-muted);

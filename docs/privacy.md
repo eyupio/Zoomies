@@ -2,17 +2,16 @@
 icon: material/shield-account-outline
 title: Privacy
 description: >-
-  What the Zoomies website and the Zoomies software do and do not collect.
-  There is no telemetry, no analytics and no account; the one request the
-  software makes that is not about your fleet is a daily release check you can
-  turn off.
+  What the Zoomies website and software collect: nothing. No telemetry,
+  analytics or account; the only non-fleet request is a daily release check you
+  can stop.
 ---
 
 # Privacy
 
 Zoomies is software you run yourself, so most of the privacy question is
 answered by where it runs: on your machines, with its data in a SQLite file you
-own. This page says what is left over — what the website at zoomies.sh does,
+own. This page says what is left over, what the website at zoomies.sh does,
 and what the software sends anywhere you did not point it.
 
 ## The website
@@ -55,7 +54,7 @@ What it does talk to, because you configured it to:
   runners, which is the whole job. Webhook payloads and API responses are
   GitHub's own data about your own repositories.
 - **Whatever you add.** An identity provider for sign-in, a Proxmox server, an
-  S3-compatible bucket for backups, a tunnel — each is a service you chose, and
+  S3-compatible bucket for backups, a tunnel; each is a service you chose, and
   each is configured in your own controller.
 
 The one request the software makes that is **not** about your fleet is the

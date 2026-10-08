@@ -44,13 +44,13 @@ Hosts also exposes fleet summary metrics and links into a host's usage report.
 `lib/insights/ActivityMatrix.svelte` draws a series of usage buckets as a
 contribution graph, and the Overview and the Usage page both use it. Daily
 buckets become a calendar, a column per week and a row per weekday; hourly
-buckets become a row per day and a column per hour. Buckets of a few hours —
-the Overview's month in four-hour buckets and quarter in eight — become the
+buckets become a row per day and a column per hour. Buckets of a few hours
+(the Overview's month in four-hour buckets and quarter in eight) become the
 calendar again, with each day's buckets side by side in its weekday's row, so
 a column is a week of days each several squares wide. The Usage page draws
 whatever range it is given in the squares the Overview uses for a window as
-long — `matrixInterval` in `activity.ts`, the narrowest of hours, four hours
-and eight that the API will cut the whole window into, and days beyond — so a
+long (`matrixInterval` in `activity.ts`, the narrowest of hours, four hours
+and eight that the API will cut the whole window into, and days beyond) so a
 month there fills the panel the way the Overview's does. Where those squares
 are narrower than the report's own (hourly up to 48 hours, daily beyond), the
 matrix asks for its own series in the report's grouping and focus, and a
@@ -64,8 +64,8 @@ capacity share once a ceiling has actually been reached. Which of the two
 takes the width is settled by shape rather than by a breakpoint. A grid with
 at least as many columns as rows grows its square, up to twice the size the
 caller asked for, until it fills the room left once the aside is owed two
-columns of figures; a grid with more rows than columns — a few weeks of whole
-days, which is five week columns whatever the square — would reach the foot
+columns of figures; a grid with more rows than columns (a few weeks of whole
+days, which is five week columns whatever the square) would reach the foot
 of the panel long before the right of it, so it keeps its size and the aside
 takes the width. Any grid that would not fit at the size asked for shrinks instead, to
 the largest square that fits beside a single column of figures, down to a
@@ -93,9 +93,9 @@ for today and the last week, so a week is a week of hours and never a week of
 days, `interval=4h` for the month, `interval=8h` for the quarter, and
 `interval=day` for the year. The route takes any whole number of hours a day
 divides into, so a day is always a whole number of squares, and refuses more
-than 336 buckets a row narrower than a day — 14 days of hours, 56 of four
+than 336 buckets a row narrower than a day (14 days of hours, 56 of four
 hours, 112 of eight; a year of hours, times every repository, is a payload
-nobody wants — and says so with what to ask for instead.
+nobody wants) and says so with what to ask for instead.
 
 ## Extending the visual system
 

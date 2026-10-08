@@ -1,13 +1,18 @@
 ---
 icon: material/currency-usd
-title: What self-hosted GitHub Actions runners cost
+title: "GitHub Actions cost: hosted vs self-hosted"
 description: >-
-  GitHub-hosted runner prices, the free minutes each plan includes, the
-  postponed $0.002-a-minute charge for self-hosted runners, and the sums for
-  deciding whether running your own is worth it.
+  Does GitHub Actions cost money? Hosted runner pricing, free minutes per plan,
+  the postponed self-hosted charge, and the sums for running your own.
 ---
 
-# What self-hosted runners cost
+# What GitHub Actions runners cost
+
+**Does GitHub Actions cost money?** It depends on the repository and the runner.
+Public repositories on standard GitHub-hosted runners are free. Private
+repositories get a monthly allowance of minutes with the plan, then pay per
+minute (Linux 2-core is $0.006). Self-hosted runners cost nothing in GitHub
+minutes today, so you pay only for your own machines.
 
 GitHub does not charge for minutes on self-hosted runners. You pay for the
 machines, and for the time it takes to look after them; Zoomies itself is free
@@ -53,7 +58,7 @@ later postponed it "to take time to re-evaluate our approach"
 ([the announcement and its update](https://github.blog/changelog/2025-12-16-coming-soon-simpler-pricing-and-a-better-experience-for-github-actions/),
 [GitHub's summary of the 2026 changes](https://github.com/resources/insights/2026-pricing-changes-for-github-actions)).
 Postponed is not cancelled. If it comes back at the announced rate, 20,000
-minutes a month would cost $40 — a third of the Linux hosted rate, and paid on
+minutes a month would cost $40; a third of the Linux hosted rate, and paid on
 top of your own machines.
 
 Zoomies adds no charge of its own either way: it is software you run, not a
@@ -75,8 +80,8 @@ Two examples on the GitHub Team plan, all on Linux 2-core runners:
 
 Turned round, a machine costs its monthly price divided by $0.006 in Linux
 minutes before it pays for itself: one you rent for $30 a month breaks even at
-5,000 minutes past the allowance. A machine you already own — a home-lab box,
-a spare server, an idle VM — starts ahead, which is what
+5,000 minutes past the allowance. A machine you already own (a home-lab box,
+a spare server, an idle VM) starts ahead, which is what
 [private hosts with Tailcat](private-hosts.md) is for.
 
 Windows minutes cost two-thirds more than Linux ones on GitHub's runners, so
@@ -86,9 +91,9 @@ has no macOS runner image, so it does not help with those.
 ## What running your own costs that a price list does not show
 
 - **Your time.** Someone keeps the hosts patched, the runner images current and
-  the controller upgraded. Zoomies keeps that small — one binary to
+  the controller upgraded. Zoomies keeps that small, one binary to
   [upgrade](upgrading.md), and a web UI that names what is wrong and what to
-  change — but it is not zero.
+  change, but it is not zero.
 - **Idle machines.** A pool scales to zero runners by default, so nothing
   starts until a job is queued, but the hosts themselves are still yours to
   pay for while they wait.
@@ -98,7 +103,7 @@ has no macOS runner image, so it does not help with those.
   runners are free and the safer choice. [Security](security.md) has the rest.
 - **Shared hosts.** GitHub gives each hosted job its own virtual machine.
   Zoomies gives each job a fresh container with a guaranteed share of its host,
-  and can lend a busy one the CPU nobody else is using — see
+  and can lend a busy one the CPU nobody else is using, see
   [hosts and pools](hosts-and-pools.md) and
   [elastic CPU zoomies](elastic-cpu.md).
 - **What is qualified.** Linux runners are what Zoomies is built and tested

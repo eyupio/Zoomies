@@ -67,7 +67,7 @@ export function authFailureText(error: unknown): string {
  * reader can read that log. On an instance one team operates while another
  * uses the fleet they cannot: the log belongs to the process, and the person
  * reading this runs pools on it. Naming the request ID and who to hand it to
- * is true for both — someone running their own instance is "whoever operates
+ * is true for both, someone running their own instance is "whoever operates
  * this instance", and its log is theirs to open.
  *
  * One function rather than nine sentences, because nine sentences is how the

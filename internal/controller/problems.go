@@ -2404,7 +2404,7 @@ func (c *Controller) cleanupProblems(ctx context.Context, out *[]Problem) error 
 		Code:     "runners.cleanup_failed",
 		Severity: config.SeverityWarning,
 		Title:    fmt.Sprintf("%s could not be cleaned up", plural(len(stuck), "runner")),
-		Detail: fmt.Sprintf("%s, %s: %s. Something is left behind — a container on its host, or a "+
+		Detail: fmt.Sprintf("%s, %s: %s. Something is left behind, a container on its host, or a "+
 			"registration on GitHub. Housekeeping will recheck and retry safe cleanup automatically.",
 			example.Name, progress, example.CleanupError),
 		Fix:        fix,
@@ -2597,6 +2597,12 @@ func (c *Controller) updateProblems() []Problem {
 	}
 	newest, ok := releaseVersion(latest.Tag)
 	if !ok || newest == running {
+		return nil
+	}
+	// A list was read, so the tag is the newest release that can be taken, not
+	// the newest there is: a controller on 1.4.0 whose release is still
+	// uploading checksums.txt is ahead of v1.3.9, and the status says so.
+	if latest.Releases != nil && version.CompareBuilds(version.Version, latest.Tag) != version.SkewBehind {
 		return nil
 	}
 	fix := "upgrade with the same method you installed by; the release notes are at " + latest.URL

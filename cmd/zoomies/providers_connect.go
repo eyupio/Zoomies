@@ -171,6 +171,10 @@ func providersConnectProxmox(ctx context.Context, e *env, args []string) error {
 			return fmt.Errorf("proxmox setup: cannot start the private provider connection; check systemctl status %s and retry", unitName)
 		}
 	}
+	conn.Templates, err = proxmoxsetup.DiscoverTemplates(ctx, h)
+	if err != nil {
+		fmt.Fprintln(e.out, "VM templates could not be listed locally; Zoomies will discover them through the API.")
+	}
 	payload, err := json.Marshal(conn)
 	if err != nil {
 		return err
@@ -215,5 +219,11 @@ func providersConnectProxmox(ctx context.Context, e *env, args []string) error {
 		return err
 	}
 	fmt.Fprintln(e.out, "Proxmox connected. Return to Zoomies to choose the VM template and capacity.")
+	for _, template := range conn.Templates {
+		fmt.Fprintf(e.out, "Template VMID %d: %s (node %s)\n", template.VMID, template.Name, template.Node)
+	}
+	if len(conn.Templates) == 0 {
+		fmt.Fprintln(e.out, "No template VMID was detected. Prepare a runner VM template before completing Placement.")
+	}
 	return nil
 }

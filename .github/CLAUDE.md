@@ -19,7 +19,7 @@ has a CI job that diffs them:
   in `docs/naming.md`. Adding or swapping an operating system is a row there and
   then `make generate`; editing any of the four by hand fails a test in
   `internal/naming`.
-* `install.sh` at the repo root is copied verbatim to the site root — the script
+* `install.sh` at the repo root is copied verbatim to the site root; the script
   people `curl` is the script a contributor edits. Do not create a second copy.
 * The app shell must stay under **200 KB gzipped** (`web/vite.config.ts`
   enforces it, the number is documented in `docs/ui-guidelines.md`). Route chunks
@@ -37,13 +37,13 @@ has a CI job that diffs them:
 * A workflow that runs on `pull_request` lists `closed` among its types, groups
   its concurrency by pull-request number with `cancel-in-progress` true for
   pull requests only, and leads every job's condition with
-  `github.event.action != 'closed'` — inside parentheses around any `||` the
+  `github.event.action != 'closed'`, inside parentheses around any `||` the
   condition already had. Closing or merging a pull request starts a run whose
   only purpose is to take over the group and cancel the one in flight, so
   nothing may start for it. `internal/docs` tests all of it;
   `cancel-merged-checks.yml` is the one exemption, because it is the closed
   handler and a guard on its job would switch it off.
-* `mkdocs build --strict` — a docs link that points nowhere fails the build. The
+* `mkdocs build --strict`: a docs link that points nowhere fails the build. The
   site workflow also checks that `sitemap.xml` and `llms.txt` came out of it,
   both generated (by `overrides/sitemap.xml` and `hooks/seo.py`) rather than
   written, so a build that quietly stopped producing one would otherwise ship,

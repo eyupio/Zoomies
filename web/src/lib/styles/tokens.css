@@ -344,6 +344,11 @@
      width than stretched across a wide monitor. */
   --z-settings-rail-width: 200px;
   --z-settings-page-max: 960px;
+  /* How wide a run of prose is let to get before it wraps, so a sentence stays
+     readable on a wide monitor. */
+  --z-measure-prose: 72ch;
+  /* A key and its value, as the Settings pages lay out a list of facts. */
+  --z-facts-columns: minmax(0, 11rem) minmax(0, 1fr);
 
   /* The window, which on a phone is not the same thing as 100%. A mobile
      browser answers a page that overflows sideways by laying the whole thing

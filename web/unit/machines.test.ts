@@ -77,11 +77,11 @@ test('elastic CPU states keep their Zoomies vocabulary and distinct brand icons'
   const steady = cpuResourceStatus('guaranteed');
   const sitting = cpuResourceStatus('sit_and_stay');
 
-  assert.equal(maximum.label, 'Squirrel spotted — maximum zoomies');
-  assert.equal(boost.label, 'Rabbit spotted — extra zoomies');
-  assert.equal(throttled.label, 'Leash tightened — host under pressure');
-  assert.equal(steady.label, 'Steady paws — guaranteed pace');
-  assert.equal(sitting.label, 'Sit and stay — CPU held at its share');
+  assert.equal(maximum.label, 'Squirrel spotted, maximum zoomies');
+  assert.equal(boost.label, 'Rabbit spotted, extra zoomies');
+  assert.equal(throttled.label, 'Leash tightened, host under pressure');
+  assert.equal(steady.label, 'Steady paws, guaranteed pace');
+  assert.equal(sitting.label, 'Sit and stay, CPU held at its share');
   assert.notEqual(maximum.icon, boost.icon);
   assert.notEqual(boost.icon, throttled.icon);
   assert.equal(maximum.tone, 'busy');
@@ -102,12 +102,12 @@ test("with the vocabulary off, the controller's kennel label gives way to a plai
   // passes that label through; with the vocabulary off it must not reach the
   // page beside a plain icon.
   for (const [state, controller, plain] of [
-    ['maximum_zoomies', 'Squirrel spotted — maximum zoomies', 'Maximum boost'],
-    ['zoomies', 'Rabbit spotted — extra zoomies', 'Extra boost'],
-    ['throttled', 'Leash tightened — host under pressure', 'Throttled'],
-    ['observing', 'Nose to the wind — watching spare CPU', 'Observing spare CPU'],
-    ['sit_and_stay', 'Sit and stay — CPU held at its share', 'Held at its share'],
-    ['guaranteed', 'Steady paws — guaranteed pace', 'Guaranteed pace'],
+    ['maximum_zoomies', 'Squirrel spotted, maximum zoomies', 'Maximum boost'],
+    ['zoomies', 'Rabbit spotted, extra zoomies', 'Extra boost'],
+    ['throttled', 'Leash tightened, host under pressure', 'Throttled'],
+    ['observing', 'Nose to the wind, watching spare CPU', 'Observing spare CPU'],
+    ['sit_and_stay', 'Sit and stay, CPU held at its share', 'Held at its share'],
+    ['guaranteed', 'Steady paws, guaranteed pace', 'Guaranteed pace'],
   ] as const) {
     assert.equal(cpuResourceStatus(state, controller, false).label, plain);
     assert.equal(cpuResourceStatus(state, controller).label, controller);

@@ -225,7 +225,7 @@
             {#if signals?.safeToDelete}
               Yes, as far as the row can say. The delete asks the provider again before it acts.
             {:else}
-              No — {signals?.safeToDeleteWhy || 'the row does not say why.'}
+              No, {signals?.safeToDeleteWhy || 'the row does not say why.'}
             {/if}
           </dd>
         </div>

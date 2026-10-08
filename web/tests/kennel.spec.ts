@@ -829,6 +829,12 @@ test.describe('with Kennel Club on', () => {
       page,
     }) => {
       const row = await repository(page, 'acme/api');
+      // The page reads everything again when the stream first goes live, which
+      // closes the gap between its first read and its subscription. On a page that
+      // has just loaded that can land a moment after the first read and count the
+      // jobs twice, so the stream is refused here: this test is about the page's own
+      // requests, and the Refresh button is the only thing that should add any.
+      await page.route('**/api/v1/events*', (route) => route.abort());
       const counted: URL[] = [];
       const queued: URL[] = [];
       page.on('request', (request) => {
@@ -1907,6 +1913,308 @@ test.describe('with Kennel Club on', () => {
       await setTracking(page, row.id, { tracked: true });
       await expect(page.getByTestId('not-tracked')).toHaveCount(0);
       await expect(trackSwitch(page)).toBeChecked();
+    });
+
+    /* -- several at once, from the list ---------------------------------------- */
+
+    // Stopping is the same decision as on a repository's own page, asked of a
+    // selection: one reason, one request and one audit entry for each.
+    const API = 'acme/api';
+    const WIDGETS = 'acme/widgets';
+    const bulkBar = (page: Page) => page.getByRole('group', { name: /Actions for the selected/ });
+    const bulkDialog = (page: Page, title: string) => page.getByRole('dialog', { name: title });
+    const listRows = (page: Page) => dataRows(grid(page, 'Repositories'));
+    const tick = async (page: Page, name: string) =>
+      listRows(page).filter({ hasText: name }).getByRole('checkbox').check();
+    const putsToTracking = (page: Page): string[] => {
+      const sent: string[] = [];
+      page.on('request', (request) => {
+        if (request.method() === 'PUT' && request.url().endsWith('/tracking'))
+          sent.push(request.postData() ?? '');
+      });
+      return sent;
+    };
+
+    test('an administrator ticks several and stops them with one reason, each by its own request', async ({
+      page,
+    }) => {
+      const [api, widgets] = [await repository(page, API), await repository(page, WIDGETS)];
+      const before = await overview(page);
+      await goto(page, '/kennel/repositories', 'Repositories');
+      const sent = putsToTracking(page);
+
+      await expect(bulkBar(page)).toHaveCount(0);
+      await tick(page, API);
+      await tick(page, WIDGETS);
+      await expect(bulkBar(page)).toContainText('2 selected');
+      await bulkBar(page).getByRole('button', { name: 'Stop tracking' }).click();
+
+      const dialog = bulkDialog(page, 'Stop tracking 2 repositories');
+      await expect(dialog).toBeVisible();
+      // What is about to be stopped is named, so a wrong tick is seen before it costs
+      // anything.
+      const named = dialog.getByRole('list', { name: 'Repositories to stop tracking' });
+      await expect(named).toContainText(API);
+      await expect(named).toContainText(WIDGETS);
+      await expect(dialog).toContainText('Their waivers are kept');
+
+      const reason = dialog.getByRole('textbox', {
+        name: /Why Kennel Club should not look at them/,
+      });
+      const stop = dialog.getByRole('button', { name: 'Stop tracking', exact: true });
+      await expect(stop).toBeDisabled();
+      await reason.fill('too short');
+      await expect(dialog).toContainText(
+        'At least 10 characters: say why Kennel Club should not look at these repositories',
+      );
+      await expect(stop).toBeDisabled();
+      await auditThePage(page, 'the stop tracking dialog, for several repositories');
+
+      await reason.fill(`  ${REASON}  `);
+      await stop.click();
+
+      await expect(toast(page, 'success', '2 repositories no longer tracked')).toBeVisible();
+      await expect(dialog).toBeHidden();
+      // One request for each, in the order they were ticked, saying the same thing,
+      // without the words around the reason.
+      expect(sent.map((body) => JSON.parse(body) as unknown)).toEqual([
+        { tracked: false, reason: REASON },
+        { tracked: false, reason: REASON },
+      ]);
+
+      // Both have left the list of what is being looked at, and the selection with them.
+      await expect(listRows(page).filter({ hasText: API })).toHaveCount(0);
+      await expect(listRows(page).filter({ hasText: WIDGETS })).toHaveCount(0);
+      await expect(bulkBar(page)).toHaveCount(0);
+      for (const row of [api, widgets]) {
+        const now = await tracking(page, row.id);
+        expect(now.tracking.tracked, `${row.name} is stopped`).toBe(false);
+        expect(now.tracking.reason).toBe(REASON);
+        expect(now.tracking.by, 'the controller says who').toBeTruthy();
+      }
+      expect((await overview(page)).not_tracked).toBe(before.not_tracked + 2);
+    });
+
+    test('cancelling stops nothing and keeps the selection', async ({ page }) => {
+      const row = await repository(page, API);
+      await goto(page, '/kennel/repositories', 'Repositories');
+      const sent = putsToTracking(page);
+      await tick(page, API);
+      await bulkBar(page).getByRole('button', { name: 'Stop tracking' }).click();
+
+      const dialog = bulkDialog(page, 'Stop tracking this repository');
+      await dialog
+        .getByRole('textbox', { name: /Why Kennel Club should not look at/ })
+        .fill(REASON);
+      await dialog.getByRole('button', { name: 'Cancel' }).click();
+      await expect(dialog).toBeHidden();
+
+      // Nobody who backed out has chosen anything, so what they ticked is still ticked
+      // to be changed or tried again.
+      await expect(bulkBar(page)).toContainText('1 selected');
+      expect(sent, 'nothing was sent').toEqual([]);
+      expect((await tracking(page, row.id)).tracking.tracked).toBe(true);
+
+      // And the next time the dialog opens it is empty, not the last person's reason.
+      await bulkBar(page).getByRole('button', { name: 'Stop tracking' }).click();
+      await expect(
+        dialog.getByRole('textbox', { name: /Why Kennel Club should not look at/ }),
+      ).toHaveValue('');
+    });
+
+    test('what is already not tracked is left as it is, and said so', async ({ page }) => {
+      const [api, widgets] = [await repository(page, API), await repository(page, WIDGETS)];
+      await setTracking(page, widgets.id, { tracked: false, reason: REASON });
+      await goto(page, '/kennel/repositories?tracked=all', 'Repositories');
+      const sent = putsToTracking(page);
+
+      await tick(page, API);
+      await tick(page, WIDGETS);
+      await expect(bulkBar(page)).toContainText('2 selected');
+      await bulkBar(page).getByRole('button', { name: 'Stop tracking' }).click();
+
+      // Two ticked, one to stop: the dialog is about one, and says what it leaves.
+      const dialog = bulkDialog(page, 'Stop tracking this repository');
+      await expect(dialog).toContainText(
+        '1 repository that is already not tracked is left as it is.',
+      );
+      const named = dialog.getByRole('list', { name: 'Repositories to stop tracking' });
+      await expect(named).toContainText(API);
+      await expect(named).not.toContainText(WIDGETS);
+      await dialog
+        .getByRole('textbox', { name: /Why Kennel Club should not look at/ })
+        .fill('A different reason, for the one that is still tracked.');
+      await dialog.getByRole('button', { name: 'Stop tracking', exact: true }).click();
+
+      await expect(toast(page, 'success', '1 repository no longer tracked')).toBeVisible();
+      expect(sent, 'only the one that was tracked is asked about').toHaveLength(1);
+      // The one that was already stopped keeps the reason it was stopped with, and
+      // whoever stopped it: this is not a way to rewrite what a colleague wrote.
+      expect((await tracking(page, widgets.id)).tracking.reason).toBe(REASON);
+      expect((await tracking(page, api.id)).tracking.reason).toBe(
+        'A different reason, for the one that is still tracked.',
+      );
+    });
+
+    test('only what is already stopped is ticked: nothing to ask, so it says so', async ({
+      page,
+    }) => {
+      const widgets = await repository(page, WIDGETS);
+      await setTracking(page, widgets.id, { tracked: false, reason: REASON });
+      await goto(page, '/kennel/repositories?tracked=all', 'Repositories');
+      const sent = putsToTracking(page);
+
+      await tick(page, WIDGETS);
+      await bulkBar(page).getByRole('button', { name: 'Stop tracking' }).click();
+      await expect(
+        page.locator('.toast[data-tone="info"]', { hasText: 'Nothing to stop' }),
+      ).toBeVisible();
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      // A dialog that opened on nothing would ask for a reason to do nothing.
+      await expect(bulkBar(page)).toContainText('1 selected');
+      expect(sent).toEqual([]);
+    });
+
+    test('one refused is named, the rest are stopped, and the refused stays ticked', async ({
+      page,
+    }) => {
+      const [api, widgets] = [await repository(page, API), await repository(page, WIDGETS)];
+      await page.route(`**/api/v1/kennel/repositories/${widgets.id}/tracking`, (route) =>
+        route.fulfill({
+          status: 409,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            error: { code: 'conflict', message: 'another change got there first' },
+          }),
+        }),
+      );
+      await goto(page, '/kennel/repositories', 'Repositories');
+      await tick(page, API);
+      await tick(page, WIDGETS);
+      await bulkBar(page).getByRole('button', { name: 'Stop tracking' }).click();
+      const dialog = bulkDialog(page, 'Stop tracking 2 repositories');
+      await dialog
+        .getByRole('textbox', { name: /Why Kennel Club should not look at them/ })
+        .fill(REASON);
+      await dialog.getByRole('button', { name: 'Stop tracking', exact: true }).click();
+
+      // A count would leave the person to find out which; the name does not.
+      const failed = toast(page, 'error', '1 of 2 could not be stopped');
+      await expect(failed).toBeVisible();
+      await expect(failed).toContainText('The other 1 was stopped.');
+      await expect(failed).toContainText(`${WIDGETS}: another change got there first`);
+
+      expect((await tracking(page, api.id)).tracking.tracked, 'the first went through').toBe(false);
+      expect((await tracking(page, widgets.id)).tracking.tracked, 'the second did not').toBe(true);
+      // What stopped has left the list; what did not is still there and still ticked,
+      // to be tried again without ticking it again.
+      await expect(listRows(page).filter({ hasText: API })).toHaveCount(0);
+      await expect(listRows(page).filter({ hasText: WIDGETS })).toHaveCount(1);
+      await expect(bulkBar(page)).toContainText('2 selected');
+    });
+
+    test('a reason the controller refuses is said beside the field, and nothing is stopped', async ({
+      page,
+    }) => {
+      const [api, widgets] = [await repository(page, API), await repository(page, WIDGETS)];
+      await page.route('**/api/v1/kennel/repositories/*/tracking', (route) =>
+        route.fulfill({
+          status: 422,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            error: { code: 'invalid', message: 'the request was refused' },
+            errors: [
+              {
+                field: 'reason',
+                message: 'may not contain control or direction-changing characters',
+              },
+            ],
+          }),
+        }),
+      );
+      await goto(page, '/kennel/repositories', 'Repositories');
+      const sent = putsToTracking(page);
+      await tick(page, API);
+      await tick(page, WIDGETS);
+      await bulkBar(page).getByRole('button', { name: 'Stop tracking' }).click();
+      const dialog = bulkDialog(page, 'Stop tracking 2 repositories');
+      await dialog
+        .getByRole('textbox', { name: /Why Kennel Club should not look at them/ })
+        .fill(REASON);
+      await dialog.getByRole('button', { name: 'Stop tracking', exact: true }).click();
+
+      await expect(dialog).toContainText(
+        'may not contain control or direction-changing characters',
+      );
+      await expect(dialog).toBeVisible();
+      // The same reason would be refused for the second, so it is not sent.
+      expect(sent, 'the second is not tried with a reason that was refused').toHaveLength(1);
+      for (const row of [api, widgets])
+        expect((await tracking(page, row.id)).tracking.tracked).toBe(true);
+      await expect(bulkBar(page)).toContainText('2 selected');
+    });
+
+    // The list learns of a stop from the stream, and from the page asking again
+    // once its own requests are done. With the stream down the second has to be
+    // enough, or the rows a person just stopped would stay in the list they are
+    // looking at until they thought to reload it.
+    test('with no stream to say so, the list is asked again once the stops are done', async ({
+      page,
+    }) => {
+      const row = await repository(page, API);
+      await page.route('**/api/v1/events*', (route) => route.abort());
+      await goto(page, '/kennel/repositories', 'Repositories');
+      await expect(listRows(page).filter({ hasText: API })).toHaveCount(1);
+      await tick(page, API);
+      await bulkBar(page).getByRole('button', { name: 'Stop tracking' }).click();
+      const dialog = bulkDialog(page, 'Stop tracking this repository');
+      await dialog
+        .getByRole('textbox', { name: /Why Kennel Club should not look at/ })
+        .fill(REASON);
+      await dialog.getByRole('button', { name: 'Stop tracking', exact: true }).click();
+
+      await expect(toast(page, 'success', '1 repository no longer tracked')).toBeVisible();
+      await expect(listRows(page).filter({ hasText: API })).toHaveCount(0);
+      await expect(bulkBar(page)).toHaveCount(0);
+      expect((await tracking(page, row.id)).tracking.tracked).toBe(false);
+    });
+
+    test('more than eight are named by eight and a count of the rest', async ({ page }) => {
+      // The fixture has three repositories, so the list is handed more of them.
+      const first = await repository(page, API);
+      await page.route('**/api/v1/kennel/repositories?*', async (route) => {
+        const response = await route.fetch();
+        const body = (await response.json()) as { items: Row[]; total: number };
+        const items = [...body.items];
+        for (let i = 0; items.length < 11; i++)
+          items.push({ ...first, id: `${first.id}-copy-${i}`, name: `acme/copy-${i}` });
+        return route.fulfill({ response, json: { ...body, items, total: items.length } });
+      });
+      await goto(page, '/kennel/repositories', 'Repositories');
+      const sent = putsToTracking(page);
+      // The header's box is on the page before any row is, and ticking it then
+      // selects nothing, so the rows are waited for first. Without this the test
+      // failed whenever the list was a moment slower than the click.
+      await expect(listRows(page)).toHaveCount(11);
+      await page.getByRole('checkbox', { name: /^Select every/ }).check();
+      await bulkBar(page).getByRole('button', { name: 'Stop tracking' }).click();
+      const dialog = bulkDialog(page, 'Stop tracking 11 repositories');
+      const named = dialog.getByRole('list', { name: 'Repositories to stop tracking' });
+      await expect(named.getByRole('listitem')).toHaveCount(9);
+      await expect(named).toContainText('and 3 more');
+      await dialog.getByRole('button', { name: 'Cancel' }).click();
+      expect(sent).toEqual([]);
+    });
+
+    test('an operator is not offered the tick boxes: stopping is an administrator’s', async ({
+      page,
+    }) => {
+      await actAs(page, 'operator');
+      await goto(page, '/kennel/repositories', 'Repositories');
+      await expect(listRows(page).first()).toBeVisible();
+      await expect(listRows(page).first().getByRole('checkbox')).toHaveCount(0);
+      await expect(page.getByRole('checkbox', { name: /^Select every/ })).toHaveCount(0);
+      await expect(bulkBar(page)).toHaveCount(0);
     });
   });
 });

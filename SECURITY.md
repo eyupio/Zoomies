@@ -39,7 +39,7 @@ than it is documented to be.
 
 ## Supported versions
 
-Fixes go to the latest release; there are no maintained release branches. Upgrading is stop, replace the binary, start —
+Fixes go to the latest release; there are no maintained release branches. Upgrading is stop, replace the binary, start,
 see [Upgrading](docs/upgrading.md).
 
 [advisory]: https://github.com/eyupio/zoomies/security/advisories/new

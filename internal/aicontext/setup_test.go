@@ -34,7 +34,7 @@ func TestRepositoryInstructionsPreferPreparedContextWithoutRequiringMCP(t *testi
 		config.Destination = destination
 		body := AssistantInstructions(key, "owner/repo", config)
 		for _, required := range []string{
-			"Use repository context first — no MCP required",
+			"Use repository context first: no MCP required",
 			"first source reference before browsing individual source files",
 			"https://github.com/owner/repo/blob/zoomies-ai-context/.zoomies/ai-context/manifest.json",
 			"https://github.com/owner/repo/blob/zoomies-ai-context/.zoomies/ai-context/snapshot.json",

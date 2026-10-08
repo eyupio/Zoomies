@@ -12,19 +12,19 @@ the setting to change, and maintainers who read what comes in.
 
 | You want to | Go to |
 | --- | --- |
-| Work out why something is not doing what you expected | [Troubleshooting](https://zoomies.sh/troubleshooting/), and the problems panel in your own UI — it names the setting rather than the symptom |
+| Work out why something is not doing what you expected | [Troubleshooting](https://zoomies.sh/troubleshooting/), and the problems panel in your own UI; it names the setting rather than the symptom |
 | Ask how to do something | [Discussions](https://github.com/eyupio/zoomies/discussions) |
 | Report a bug | [Issues](https://github.com/eyupio/zoomies/issues) |
-| Report a vulnerability | A [private advisory](https://github.com/eyupio/zoomies/security/advisories/new). Not an issue, not a discussion — see [SECURITY.md](SECURITY.md) |
+| Report a vulnerability | A [private advisory](https://github.com/eyupio/zoomies/security/advisories/new). Not an issue, not a discussion, see [SECURITY.md](SECURITY.md) |
 | Propose a change | [CONTRIBUTING.md](CONTRIBUTING.md) |
 
 ## What makes a report answerable
 
 Most of what a maintainer needs, Zoomies will print for you:
 
-* `zoomies version` — the build, on both the controller and the agent if they
+* `zoomies version`: the build, on both the controller and the agent if they
   differ;
-* `zoomies config print` — the configuration, already blanked of secrets;
+* `zoomies config print`: the configuration, already blanked of secrets;
 * the problem code from the UI or the log, such as `bind.public_no_tls`. Every
   code has [a row explaining it](https://zoomies.sh/problem-codes/), and naming
   it skips a round of questions;
@@ -35,7 +35,7 @@ controller's log can name repositories.
 
 ## If you deployed from a provider's marketplace
 
-Your provider supports their platform — the instance, its network, its volume,
+Your provider supports their platform; the instance, its network, its volume,
 its billing. They do not maintain Zoomies and cannot fix it.
 
 So: anything about the machine goes to them, and anything about the software
@@ -47,6 +47,6 @@ provider can offer one on its behalf.
 
 Not everything that builds has been run. The [support
 matrix](https://zoomies.sh/#what-is-qualified) separates the two, and it is
-worth reading before putting anything precious on this — a report about a
+worth reading before putting anything precious on this; a report about a
 combination nobody has qualified is still welcome, but it is a different
 conversation from one about a combination that is supposed to work.

@@ -15,12 +15,12 @@ by subcommand. On a single VM the controller runs an agent inside itself, so the
 whole system is one process and one SQLite file.
 
 Read [docs/architecture.md](docs/architecture.md) before changing anything
-structural — it explains the shape and the reasons for it.
+structural; it explains the shape and the reasons for it.
 
 ## Commands
 
 ```sh
-make build-nogui   # build without rebuilding the UI -- the fast inner loop
+make build-nogui   # build without rebuilding the UI (the fast inner loop)
 make build         # build the UI and embed it (needs npm)
 make test          # go test -race -count=1 ./...
 make lint          # go vet, gofmt check, staticcheck if present, UI lint
@@ -33,8 +33,8 @@ make screenshots   # recapture docs/screenshots from the real UI, both themes (n
 ```
 
 `go build ./...` fails on a clean checkout: `internal/api` embeds
-`internal/api/webdist`, which is a build product. Run `make build-nogui` once —
-it writes a placeholder — before any Go command that compiles that package. CI
+`internal/api/webdist`, which is a build product. Run `make build-nogui` once,
+it writes a placeholder, before any Go command that compiles that package. CI
 does the same thing as its first step.
 
 Go 1.27.1 or later (`go.mod` sets the floor; CI builds with 1.27.1), Node 22 or
@@ -52,16 +52,17 @@ review.
 | Package | Rule |
 | --- | --- |
 | `internal/store` | The **only** place SQL is written. Domain types, embedded migrations, every query. No other package imports `database/sql`. |
-| `internal/scheduler` | **Pure.** `Decide` takes a snapshot and returns a `Plan`. No clock reads, no database, no network — that is what makes scaling behaviour testable, and it is where every decision's operator-facing *reason string* comes from. |
+| `internal/scheduler` | **Pure.** `Decide` takes a snapshot and returns a `Plan`. No clock reads, no database, no network; that is what makes scaling behaviour testable, and it is where every decision's operator-facing *reason string* comes from. |
+| `internal/updates` | **Pure.** `Choose` takes a list of releases, the mode, the soak and the instant, and picks the release the mode would take and says why. It imports the standard library and `internal/version` and reads no clock; `purity_test.go` enforces both. The planner for automatic updates will join it. |
 | `internal/api` | Transport only. A handler reads a request, asks the controller / auth / store, and renders the shape `api/openapi.yaml` promises. It has no opinions about the fleet. The resource views themselves (`HostView`, `PoolView`, …) are `internal/controller/views.go` types the handlers alias, because the event stream renders the same JSON and is fed from the controller. |
-| `internal/provider` | The infrastructure-provider contract, a fake that obeys it, and `RunContractTests`, the conformance suite every provider passes. It may import `internal/store`'s domain types and `config.Finding` and **nothing else** -- two tests enforce that, and that it names nothing provider-specific. Renting a machine is not placing a runner: this is separate from `internal/backend` on purpose. |
+| `internal/provider` | The infrastructure-provider contract, a fake that obeys it, and `RunContractTests`, the conformance suite every provider passes. It may import `internal/store`'s domain types and `config.Finding` and **nothing else**; two tests enforce that, and that it names nothing provider-specific. Renting a machine is not placing a runner: this is separate from `internal/backend` on purpose. |
 | `internal/provider/proxmox` | The first provider. The Proxmox VE API is hand-rolled `net/http` for the same reason the Docker one is. |
 | `internal/controller` | Wiring: the reconcile loop, the machine loop, webhook ingest, the agent task queue, the log relay, and every payload the event stream carries (`views.go`, `derived.go`). The machine loop is **not** part of `Reconcile`: a clone takes minutes and `reconcileMu` is held for a whole scheduling pass. |
 | `internal/config` | `zoomies.yaml` + `ZOOMIES_*` overrides, and the validator. |
 | `internal/github` | App auth, JIT configs, webhook validation, the fallback poller, and `fake.go`, a fake GitHub used by tests. |
 | `internal/backend` | Docker, Podman, bare process. The Docker API is hand-rolled `net/http` against the Engine API on purpose (see below). |
 | `internal/agent` | The runner-executing half and its outbound transport. |
-| `internal/mcp` | The MCP tools and both transports (stdio for `zoomies mcp`, Streamable HTTP for `/mcp`). A tool calls the REST API through the `mcp.API` interface and nothing else -- no store, no controller -- so it can never do what the caller's token could not. |
+| `internal/mcp` | The MCP tools and both transports (stdio for `zoomies mcp`, Streamable HTTP for `/mcp`). A tool calls the REST API through the `mcp.API` interface and nothing else (no store, no controller), so it can never do what the caller's token could not. |
 
 Other invariants worth knowing before you edit:
 
@@ -72,20 +73,20 @@ Other invariants worth knowing before you edit:
 * **Webhook deliveries are at-least-once and can arrive out of order.** The jobs
   upsert refuses to move a job backwards through its lifecycle. Keep it that way.
 * **Every `*.updated` event is the resource's `GET` shape.** The UI drops a frame
-  straight into its cache, so a `host.updated` carrying a bare store row -- no
-  `healthy`, no `free` -- repaints the host wrong. Publish through the
+  straight into its cache, so a `host.updated` carrying a bare store row (no
+  `healthy`, no `free`) repaints the host wrong. Publish through the
   controller's `publish*`/`Publish*` helpers, which render the view; never put a
   store row on the bus. `stats`, `problems.updated` and each host's view are
   computed after every pass and sent only when they change, so a new kind of
-  problem -- or a host whose slots or heartbeat moved with no row written --
+  problem (or a host whose slots or heartbeat moved with no row written)
   needs no publish call of its own.
 Scoped detail lives in subfolder files that Claude Code loads when it works there:
 
-* [`internal/store/CLAUDE.md`](internal/store/CLAUDE.md) -- one writer, the runner state machine, sentinel errors, IDs.
-* [`internal/config/CLAUDE.md`](internal/config/CLAUDE.md) -- configuration: settings live in the database.
-* [`web/CLAUDE.md`](web/CLAUDE.md) -- the UI: tokens, status colours, no new libraries.
-* [`internal/hosttune/CLAUDE.md`](internal/hosttune/CLAUDE.md) -- host health and tuning: consent, never tune from an upgrade, never restart Docker under work.
-* [`.github/CLAUDE.md`](.github/CLAUDE.md) -- "Things CI will fail you on": the files CI diffs against their sources.
+* [`internal/store/CLAUDE.md`](internal/store/CLAUDE.md): one writer, the runner state machine, sentinel errors, IDs.
+* [`internal/config/CLAUDE.md`](internal/config/CLAUDE.md): configuration: settings live in the database.
+* [`web/CLAUDE.md`](web/CLAUDE.md): the UI: tokens, status colours, no new libraries.
+* [`internal/hosttune/CLAUDE.md`](internal/hosttune/CLAUDE.md): host health and tuning: consent, never tune from an upgrade, never restart Docker under work.
+* [`.github/CLAUDE.md`](.github/CLAUDE.md): "Things CI will fail you on": the files CI diffs against their sources.
 
 ## Dependencies
 
@@ -94,7 +95,7 @@ Every dependency carries a one-line justification in
 Before adding one: could the standard library or fifty lines of our own do it?
 Is it maintained? What does it pull in transitively? What does it cost against
 the shell budget if it ships to the browser? Then add the row, in the same
-voice — *why*, not *what*.
+voice, *why*, not *what*.
 
 Some omissions are deliberate and documented there, notably
 `github.com/docker/docker` (the hand-rolled Engine API client in
@@ -106,8 +107,8 @@ free, because `podman.sock` speaks the same protocol).
 Table-driven and standard-library `testing` throughout; no assertion framework.
 Tests use `:memory:` SQLite stores, injected clocks (`store.Options.Now`), and
 the fake GitHub in `internal/github/fake.go` rather than network calls. Helper
-constructors take `t` and call `t.Helper()` / `t.Cleanup`. Coverage is broad —
-roughly one test file for every source file — so a new behaviour is expected to
+constructors take `t` and call `t.Helper()` / `t.Cleanup`. Coverage is broad
+(roughly one test file for every source file) so a new behaviour is expected to
 arrive with one.
 
 Test names are sentences about the behaviour, not the method
@@ -116,25 +117,25 @@ explaining *why the behaviour matters*, not what the code does.
 
 ## Voice
 
-The prose in this repository — comments, docs, error messages, commit messages —
+The prose in this repository (comments, docs, error messages, commit messages)
 has a consistent voice, and matching it is part of a change looking finished.
 
 * **British spelling** in prose: *behaviour*, *authorisation*, *organisation*,
   *utilisation*, *licence*. (JSON field names mirroring GitHub's API stay
-  American — `organization` in a webhook payload is correct as-is.)
+  American: `organization` in a webhook payload is correct as-is.)
 * **Comments explain why, not what.** The interesting ones name the failure mode
   being designed out, or the trade-off taken. Follow that; do not narrate code.
 * **Error and warning messages are written for a person to act on.** An operator
   who gets a 403 should be told which role they are missing. Findings say what
   to change; API errors carry a human message and a stable code.
-* **`--` in code, `—` in Markdown.** Go comments, TypeScript comments and
-  terminal output use `--` for an em dash, because a source file is read in a
-  terminal as often as in an editor and a literal em dash is one more thing to
-  get wrong. Markdown prose uses the character itself: the site renders it, and
-  a document is written to be read rather than to be greppable. Strings the UI
-  renders are Markdown's side of that line, not code's.
+* **No em dashes.** Do not write `—` anywhere in this repository: prose,
+  docs, comments, error messages, UI strings, commit messages or pull request
+  text. Use a comma, a colon, a semicolon or parentheses, or split the sentence.
+  Do not use `--` as a stand-in either. The one exception is a lone `—` as the
+  UI's placeholder for an absent value, which `web/unit/absent-value.test.ts`
+  guards. `internal/docs/no_em_dash_test.go` fails the build on a spaced one.
 * **Diagrams are Mermaid**, in a `mermaid` fenced block beside the prose they
-  explain -- never ASCII art. The site renders them (`mkdocs.yml` registers the
+  explain, never ASCII art. The site renders them (`mkdocs.yml` registers the
   fence) and so does GitHub, so a diagram lives in the Markdown it belongs to and
   there is no exported image to go stale. Do not colour one by hand: Material
   themes it for light and dark, and a hard-coded fill is wrong in one of them.
@@ -150,6 +151,7 @@ cmd/zoomies         the binary: controller, agent, gateway, init, CLI
 internal/store      domain model, SQLite schema, every query
 internal/config     zoomies.yaml + env, and the validator that warns
 internal/scheduler  pure scaling decisions and label matching
+internal/updates    which release an update mode would take, and why; pure
 internal/github     App auth, JIT configs, webhooks, the fallback poller
 internal/backend    Docker, Podman and bare-process runner backends
 internal/auth       identity, RBAC, tokens, audit, OIDC
@@ -203,7 +205,7 @@ Put detail next to the code it concerns and leave a one-line pointer here.
 
 Repository: `eyupio/zoomies` on `github.com`. Source branch: `main`. Destination: `both`.
 
-### Use repository context first — no MCP required
+### Use repository context first: no MCP required
 
 Repository context lives on the `zoomies-ai-context` branch under `.zoomies/ai-context/`, not on the source branch. Use this prepared context as your first source reference before browsing individual source files. GitHub Actions regenerates it after pushes to the source branch. Use your existing authorised GitHub access; no Zoomies connection is required.
 

@@ -130,7 +130,7 @@ Link the post to something people can try, not a landing page: Show HN's own rul
 
 A project under three months old can only be shared in the weekly New Project Megathread (a new one each Friday), until about 2026-12-04. Re-read the live rules first: they were checked through a mirror, not the subreddit. The suggested shape is project name, link, description.
 
-> **Zoomies** — https://github.com/eyupio/zoomies (site: https://zoomies.sh)
+> **Zoomies**: https://github.com/eyupio/zoomies (site: https://zoomies.sh)
 >
 > I'm one of the authors. It's a controller for self-hosted GitHub Actions runners: one Go binary and SQLite, a web UI, and a fresh container per job that's destroyed afterwards. It runs on ordinary Linux hosts, so no Kubernetes, and an agent on a home server dials out, so nothing needs opening on your router. AGPL-3.0. `curl -fsSL https://zoomies.sh/install.sh | sh -s -- --demo` runs a throwaway demo fleet locally. Linux-first; the Windows agent isn't qualified yet. Questions and criticism welcome.
 

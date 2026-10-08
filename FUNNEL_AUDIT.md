@@ -1,4 +1,4 @@
-# Funnel audit — zoomies.sh and the first-run flow
+# Funnel audit: zoomies.sh and the first-run flow
 
 Audited on 1 October 2026 at commit `0b4734c`. The docs site was built from
 `mkdocs.yml` with the pinned requirements and inspected in Chromium at
@@ -173,11 +173,11 @@ disciplined than most funded products. The funnel is the problem.
 
 ### The five that matter most
 
-1. **C1** — No way to see the product without a Linux host, a GitHub App and an org owner.
-2. **C2** — The hero says "Zoomies", not what it is, and has no button.
-3. **C3** — Connect GitHub is a dead end for the installer's own default.
-4. **C4** — The Quick Start buries the first job at word 1,822 and promises "five minutes" without evidence.
-5. **C5** — On a phone the install command is clipped and overlapped by its own 24px button.
+1. **C1**: No way to see the product without a Linux host, a GitHub App and an org owner.
+2. **C2**: The hero says "Zoomies", not what it is, and has no button.
+3. **C3**: Connect GitHub is a dead end for the installer's own default.
+4. **C4**: The Quick Start buries the first job at word 1,822 and promises "five minutes" without evidence.
+5. **C5**: On a phone the install command is clipped and overlapped by its own 24px button.
 
 A sixth critical item, **C6**, breaks search and every diagram for visitors
 whose network blocks `unpkg.com`.
@@ -228,7 +228,7 @@ or a hosted service.
    (the pattern `install.sh:1126-1127` uses) and run `./zoomies demo`. Until the
    subcommand exists the section can give the form I ran:
    `ZOOMIES_SEED_DEMO=true ZOOMIES_DISABLE_AUTH=true ZOOMIES_DB_PATH="$(mktemp -d)/demo.db" ./zoomies controller`.
-3. Put a second button beside the install box: `Try the demo — no GitHub needed`
+3. Put a second button beside the install box: `Try the demo, no GitHub needed`
    → `quickstart.md#try-it-first`.
 4. Acceptance: from a clean laptop to a populated Overview in under 90 seconds,
    timed.
@@ -242,7 +242,7 @@ or a hosted service.
 
 **Problem:**
 
-* The H1 is "Give your GitHub Actions runners the 🐾 Zoomies." — a pun, set at
+* The H1 is "Give your GitHub Actions runners the 🐾 Zoomies."; a pun, set at
   72px, with the product name in *grey* (`#868b94` in the dark scheme) as the
   "quiet" half.
   "Self-hosted", the one word that tells a visitor whether this is for them, is in
@@ -282,7 +282,7 @@ is done. One binary. No Kubernetes. No database server.
 </p>
 
 [Get started in ten minutes](quickstart.md){ .md-button .md-button--primary }
-[Try the demo — no GitHub needed](quickstart.md#try-it-first){ .md-button }
+[Try the demo, no GitHub needed](quickstart.md#try-it-first){ .md-button }
 
 <install box>
 
@@ -340,10 +340,10 @@ in `docs/quickstart.md`.
      the reconnect. The dialog already keeps its progress (`saveProgress()`).
      `server.external_url` is restart-scoped (`docs/configuration.md:649`), so this
      cannot be instant without a hot reload; the flow is built around that.
-   * **No public address (a home lab)?** "Connect an App you already have —
+   * **No public address (a home lab)?** "Connect an App you already have,
      Zoomies will poll GitHub instead" → switches to the second tab.
 2. In `FirstRun.svelte`, when the address is not reachable, show a precondition
-   under step 2 ("Needs a public address first — you are on `http://localhost:8080`")
+   under step 2 ("Needs a public address first; you are on `http://localhost:8080`")
    and label the button `Set the address`. The file's own header says why: never
    offer an action whose first screen is a refusal.
 3. Shorten the tab labels to `New App` and `Existing App` so they fit at 375px.
@@ -641,13 +641,13 @@ is shown, and neither has `width`, `height` or `loading`.
 
 * **A bug.** Two feed categories are off by default (`on: false`), so a fresh
   browser has `hidden === 2`, `everything` is false, and an empty feed says
-  **"Nothing in the kinds you are watching — 2 kinds of event are switched off for
+  **"Nothing in the kinds you are watching, 2 kinds of event are switched off for
   this browser. Choose above turns them back on."** Nobody switched anything off.
   The first-run copy the team wrote ("Nothing has happened yet… Once there is a
   pool and a host, this is where the fleet says what it has been doing") is
   unreachable on a default configuration.
 * Under the checklist the page still renders six tiles of `0` and `0ms`, "No pools
-  yet — Create a pool" (a second copy of step 3's button), "Nothing is running
+  yet, Create a pool" (a second copy of step 3's button), "Nothing is running
   right now" with a second **Other runners** switch (the same preference as the one
   in the page header) and a 620px host-capacity panel charting nothing. The activity
   matrix is the only block hidden during setup (`setupPending`).
@@ -887,7 +887,7 @@ the token), `internal/api/handlers_auth.go:124` (email saved),
 **Problem:** The first screen after install asks for the setup token ("From the
 controller's log: docker compose logs zoomies | grep 'setup token'", a Compose
 command on a page the single-container install also lands on), then username,
-password, confirmation and **Email — "Optional. Used only to identify the
+password, confirmation and **Email, "Optional. Used only to identify the
 account."** Nothing in the codebase sends mail: there is no SMTP anywhere, only
 systemd `sd_notify`. Recovery is "An administrator can reset it" (`Login.svelte`).
 The email appears as a grey sub-line in Settings → Users and as an OIDC claim. A
@@ -1106,7 +1106,7 @@ scrolls out of view. On the home page that is the tagline, truncated.
 
 ---
 
-## Appendix A — "Specifically check for"
+## Appendix A: "Specifically check for"
 
 | Check | Result |
 | --- | --- |
@@ -1116,7 +1116,7 @@ scrolls out of view. On the home page that is the tagline, truncated.
 | Onboarding answers collected but never used | One: the email at bootstrap (H13). Everything else I traced is used: installer answers are stored in the database and drive the pool defaults ("Today that is 1.25 CPU and 7.0 GB on 1 host"); the Connect dialog's target, name and API base feed the manifest; Automatic versus Advanced is honoured; the Overview's Other runners switch persists. The inverse is the problem: the product *does not ask* where it should, taking the maximum GitHub scopes (H1). |
 | Choices respected | The installer's accepted default `external_url` (`http://localhost:8080`) is silently accepted and later refused by the product (C3). |
 
-## Appendix B — The first-time user's walk
+## Appendix B: The first-time user's walk
 
 ```mermaid
 flowchart LR
@@ -1149,7 +1149,7 @@ flowchart LR
 | 12. Watch the job | The payoff; the checklist retires itself | | **Yes** |
 | 13. "Upgrade prompt" | None exists. Closest: the Hosts card "Update this agent to vX", a version-skew notice | | n/a |
 
-## Appendix C — Measurements
+## Appendix C: Measurements
 
 | Metric | Desktop 1440×900 | Phone 375×812 |
 | --- | --- | --- |
@@ -1172,14 +1172,14 @@ flowchart LR
 | Contrast, light scheme | all at least 4.45:1; two items under 4.5 | |
 | Product pages with horizontal overflow | 0 of 9 | 0 of 9 |
 
-## Appendix D — What is working; do not break it
+## Appendix D: What is working; do not break it
 
 * **The token system.** Both themes, one source of truth, contrast measured and
   passing in dark everywhere. Every fix above uses the existing tokens.
 * **Self-hosted fonts and reduced-motion handling**, and the discipline of not
   fetching third-party assets (C6 is the exception that proves the rule).
-* **The first-run checklist's rule** — "never offer an action whose first screen
-  is a refusal" — and its ticking from real fleet state. C3 asks the dialog to
+* **The first-run checklist's rule** ("never offer an action whose first screen
+  is a refusal") and its ticking from real fleet state. C3 asks the dialog to
   obey it too.
 * **The sign-in page**, which says what the product is better than the home page
   does.
@@ -1193,7 +1193,7 @@ flowchart LR
   navigation.
 * **No horizontal overflow** on any product page at 375px.
 
-## Appendix E — Method and caveats
+## Appendix E: Method and caveats
 
 * **Docs.** `mkdocs 1.6.1` with `docs/requirements.txt`, built to a scratch
   directory and served statically. Sizes are uncompressed (the local server does

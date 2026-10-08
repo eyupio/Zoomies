@@ -1059,7 +1059,7 @@
     ? `, ${formatAbsolute(restoring.taken_at)}`
     : ''}. Nothing changes until you restart the controller: this stages the restore, checking now everything a restore checks."
   consequences={[
-    'Everything done since the backup — pools, hosts, jobs, settings, users — is replaced by what the backup holds. The database being replaced is kept beside it, not deleted.',
+    'Everything done since the backup, pools, hosts, jobs, settings, users, is replaced by what the backup holds. The database being replaced is kept beside it, not deleted.',
     'Everyone is signed out, and every unredeemed join token is removed.',
     'The fleet comes back fenced: it decides as normal and applies nothing until an administrator lifts the fence.',
   ]}
@@ -1090,7 +1090,7 @@
     'the staged backup'} before it opens the database."
   consequences={[
     'The UI and the API are unavailable for a few seconds. Runners keep working: a controller restart never kills a job.',
-    'If nothing restarts the process — it was run by hand in a terminal, say — start it again yourself; the restore is applied whoever starts it.',
+    'If nothing restarts the process, it was run by hand in a terminal, say, start it again yourself; the restore is applied whoever starts it.',
     'This page watches the restart and reloads when the controller is back.',
   ]}
   confirmLabel="Restart and restore"

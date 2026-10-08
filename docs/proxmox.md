@@ -2,9 +2,8 @@
 icon: material/server-outline
 title: Renting runner hosts from Proxmox VE
 description: >-
-  Let Zoomies clone a prepared VM template on your own Proxmox VE cluster when a
-  pool has queued work and nowhere to run it, and destroy the machine again when
-  the work is done — with scoped API credentials and verified ownership.
+  Let Zoomies clone a VM template on your Proxmox VE cluster when a pool has
+  queued work, and destroy the machine afterwards, with scoped API credentials.
 ---
 
 # Proxmox VE
@@ -23,7 +22,7 @@ Zoomies created it, knows it did, and is the only thing allowed to delete it.
     One combination is supported: a **Linux cloud image with `qemu-guest-agent`
     and the Zoomies agent preinstalled**, running the **Docker** runner backend,
     cloned from a template you prepared. That is the combination the
-    qualification harness at the end of this page is written for — and the
+    qualification harness at the end of this page is written for, and the
     harness has not yet been run against a cluster, so nothing on this page
     has been tested end to end: the lifecycle logic and the wire format are
     proved against fixtures, and a hypervisor is not. Other operating systems,
@@ -32,7 +31,7 @@ Zoomies created it, knows it did, and is the only thing allowed to delete it.
 
     Renting machines is off until you turn it on: `provider.enabled` defaults to
     `false`, and `provider.max_machines` defaults to **zero, which rents
-    nothing** — a maximum of none is none, exactly as it is for a pool's
+    nothing**; a maximum of none is none, exactly as it is for a pool's
     `max_runners`. Set both in the same edit, or the fleet will look enabled and
     buy nothing. That is deliberate: the alternative reading, where an unset
     number means "as many as it takes", puts the one setting that decides the
@@ -63,7 +62,7 @@ compromise of the controller, cannot reach beyond the VMs it rents.
 
 In the Proxmox UI, **Datacenter → Permissions → Users** to add
 `zoomies@pve`, then **API Tokens** to add a token to it. Leave *Privilege
-Separation* on — the token then has only the privileges you grant it
+Separation* on; the token then has only the privileges you grant it
 explicitly, which is what the next step does.
 
 Grant the token these privileges, on these paths:
@@ -85,8 +84,8 @@ metadata, and it is the reason to scope the token to a resource pool containing
 only Zoomies' own VMs if your cluster runs anything else you care about.
 
 Zoomies checks all of this before it creates anything. **Providers → your
-provider → Check** asks the token what privileges it holds — Proxmox lets a
-token read its own permissions — and names each missing one rather than
+provider → Check** asks the token what privileges it holds (Proxmox lets a
+token read its own permissions) and names each missing one rather than
 failing at the first clone. Run it after any change to the token.
 
 Paste the token into the provider form as
@@ -98,7 +97,7 @@ guest. See [Security](security.md).
 ### TLS
 
 A fresh Proxmox cluster serves its own certificate, signed by the cluster's own
-CA. Paste that CA — `/etc/pve/pve-root-ca.pem` on any node — into the
+CA. Paste that CA, `/etc/pve/pve-root-ca.pem` on any node, into the
 provider's **CA certificate** field and the connection is verified against it.
 
 Take the certificate, not the key: `pve-root-ca.key` next to it is the thing
@@ -116,7 +115,7 @@ is not already there, so what is in the image is what a runner gets.
 
 Proxmox ships no templates, and the standard answer is a distribution's cloud
 image: a disk image with cloud-init in it, published for exactly this purpose.
-Start from Ubuntu 24.04 LTS — it is what the harness is written for — and, in one VM
+Start from Ubuntu 24.04 LTS (it is what the harness is written for) and, in one VM
 you then convert to a template:
 
 1. **Install the Docker engine**, or whichever runner backend the machines will
@@ -134,7 +133,7 @@ you then convert to a template:
    delete that file first.
 5. Shut the VM down and **convert it to a template**.
 
-The same recipe as commands, on a node as root — the wizard's *Before you
+The same recipe as commands, on a node as root; the wizard's *Before you
 start* panel carries them too, with a copy button:
 
 ```sh
@@ -162,13 +161,13 @@ be allocated.
 
     `agent.json` holds one host's identity. A template containing one clones
     that identity into every machine made from it, and two agents then share a
-    host row and split its tasks between them — which shows up as work
+    host row and split its tasks between them, which shows up as work
     vanishing, not as an error.
 
     Nothing can check this for you, and it is worth being plain about why: the
     template is powered off, so its guest agent is not running and no API call
-    can read a file inside it. Zoomies sees the *consequence* — it raises a
-    problem when a host's agent session alternates between two identities — but
+    can read a file inside it. Zoomies sees the *consequence* (it raises a
+    problem when a host's agent session alternates between two identities) but
     by then you are debugging vanishing work rather than preparing an image.
     Check it before you convert the VM.
 
@@ -205,12 +204,19 @@ host can run `sudo /var/lib/zoomies-proxmox/<controller-key>/zoomies upgrade`.
 `--check` previews these updates without changing gateway files or services.
 Controller upgrades do not remotely upgrade a Proxmox host.
 
+For an existing gateway, choose **Use an existing Tailcat gateway** on the Connect
+step and enter its private address. **Configure a direct connection** remains
+available for an API address Zoomies can reach.
+
 The controller needs private connections enabled. The Proxmox host needs outbound
 internet access and systemd. The setup does not prepare a runner VM template:
 choose the prepared template, storage and network on the Placement step. Choices
 come from the cluster; anything with one answer is already selected. Review the
 machine shape and limits, then save. The initial maximum is zero, so connecting a
-provider does not create any VMs.
+provider does not create any VMs. The setup callback also reports existing QEMU
+templates, with their VMIDs and nodes. A sole template is preselected; with several,
+choose the runner template on Placement. The script prints these identifiers at
+completion. If none exists, prepare a runner template first; setup does not create one.
 
 For a direct network connection or credentials you manage yourself, choose
 **Configure connection manually**. The tables and terminal command below describe
@@ -219,7 +225,7 @@ that alternative.
 | Setting | What it means |
 | --- | --- |
 | Endpoint | `https://pve.example.com:8006`. Plain `http://` is refused: the API token would cross in the clear. |
-| Connection | Direct, or private through a `zoomies gateway` running beside the cluster when it lives on a network the controller cannot reach — a home lab behind a router, typically. See [Private providers](private-hosts.md#private-providers). |
+| Connection | Direct, or private through a `zoomies gateway` running beside the cluster when it lives on a network the controller cannot reach; a home lab behind a router, typically. See [Private providers](private-hosts.md#private-providers). |
 | Nodes | Which nodes clones may be made on. Give more than one and machines are spread across them, each new clone going to the least loaded. |
 | Template VMID | The template prepared above. The preflight checks it exists and is a template. |
 | Storage | Where the clone's disk lands. Must accept disk images. |
@@ -238,8 +244,8 @@ zoomies providers add proxmox --name proxmox-lab \
   --vmid-range 9000-9099 --max-machines 4
 ```
 
-It asks for the API token without echoing it — or reads it from standard
-input, or from `--credential-file` — checks the answers before saving anything,
+It asks for the API token without echoing it (or reads it from standard
+input, or from `--credential-file`) checks the answers before saving anything,
 and then runs the same check the **Check** button does, so the first thing it
 prints after "created" is what the cluster would refuse. The nodes, storage and
 bridge have to be typed rather than picked from a list, because the list comes
@@ -258,7 +264,7 @@ still verified end to end: the gateway forwards bytes and reads none of them.
 The **VMID range** is worth setting deliberately. Zoomies allocates the lowest
 free identifier inside it, so the range is both a budget and a blast radius: a
 machine outside it is, by construction, not one of ours. Give Zoomies a block
-nothing else uses — `9000–9099`, say — and keep it out of whatever your other
+nothing else uses (`9000–9099`, say) and keep it out of whatever your other
 tooling allocates from.
 
 A machine's shape is one shape per provider. If you want two sizes, make two
@@ -294,8 +300,8 @@ sequenceDiagram
 
 Two of those steps are the whole design and are worth stating plainly:
 
-* **The row exists before the VM does.** Zoomies writes the machine's identity —
-  which node, which VMID, which name — before it asks Proxmox for anything.
+* **The row exists before the VM does.** Zoomies writes the machine's identity
+  (which node, which VMID, which name) before it asks Proxmox for anything.
   When a clone request times out, that is not evidence the clone did not happen,
   and the answer is to go and look for the identity we already chose rather than
   to ask for a second machine. A controller killed at any point in the sequence
@@ -310,7 +316,7 @@ Two of those steps are the whole design and are worth stating plainly:
 ## Day to day
 
 **Pausing.** The Hosts page has a switch that stops new machines being created.
-Drains, deletions, recovery and ownership checks all continue — a pause that
+Drains, deletions, recovery and ownership checks all continue; a pause that
 stopped those too would leave VMs running with nothing tending them. It is a
 row, so it survives a restart, and it is audited.
 
@@ -322,13 +328,13 @@ than fifty.
 
 **Orphan review.** **Providers → your provider → Orphans** has three lists:
 
-* *Untracked resources* — VMs wearing Zoomies' name or marks with no row behind
+* *Untracked resources*: VMs wearing Zoomies' name or marks with no row behind
   them. Zoomies never deletes one. They are what a database restored from
   backup, or a row pruned too early, leaves behind, and they are real machines
   costing real money, so they are shown until somebody deals with them.
-* *Machines with no resource* — rows whose VM has gone. Usually somebody deleted
+* *Machines with no resource*: rows whose VM has gone. Usually somebody deleted
   it in the Proxmox console.
-* *Ownership unverified* — the quarantine. A row and a VM that disagree about
+* *Ownership unverified*: the quarantine. A row and a VM that disagree about
   who owns what.
 
 For a quarantined machine, **Release** forgets the row without touching the VM.
@@ -344,7 +350,7 @@ separate startup path, because a restart is simply the pass where nothing was
 in memory.
 
 **A restored database** is treated as possibly describing somebody else's
-machines — because it might: two controllers restored from one backup would
+machines, because it might: two controllers restored from one backup would
 both believe they own the same VMs. Restoring sets the fence, and while it is
 set Zoomies will not create or delete anything at all, though it keeps
 inspecting and reporting. Lifting the fence marks every machine's ownership
@@ -363,11 +369,11 @@ far nothing about anyone's. The procedure below is implemented as a harness,
 `make test-e2e-proxmox`, that has not yet been run against a cluster, and
 [the record it fills in](https://github.com/eyupio/zoomies/blob/main/roadmap/validation/proxmox-qualification.md)
 says `not run` on every row. Before this is load-bearing for you, run it against
-**disposable** resources and record what happened — and if you do, send the
+**disposable** resources and record what happened, and if you do, send the
 rows it wrote, because a run on a real cluster is the evidence this page is
 waiting for.
 
-1. Twenty full cycles — create, enrol, run a real workflow job, drain, delete.
+1. Twenty full cycles: create, enrol, run a real workflow job, drain, delete.
 2. Scale from zero: no hosts at all, then queued work.
 3. A burst across two pools at once.
 4. A controller restart in the middle of a create.

@@ -1,6 +1,6 @@
 ---
 name: babysit
-description: Autonomous orchestration loop for driving the Zoomies test suite or a pull request to green — run, diagnose, fix, verify, repeat — with sparse breakpoints for the operator and a hard stop after three identical failures. Use when asked to babysit, watch, monitor, autofix or "keep going until it passes" on a build, a test run or a CI failure.
+description: Autonomous orchestration loop for driving the Zoomies test suite or a pull request to green (run, diagnose, fix, verify, repeat) with sparse breakpoints for the operator and a hard stop after three identical failures. Use when asked to babysit, watch, monitor, autofix or "keep going until it passes" on a build, a test run or a CI failure.
 ---
 
 # Babysit
@@ -22,20 +22,20 @@ make test          # go test -race -count=1 ./...
 
 Record which checks were already red on the base branch. A failure that
 reproduces identically on `main` is not this change's failure, and the loop
-below must not spend iterations on it — say so and move on.
+below must not spend iterations on it, say so and move on.
 
 ## One iteration
 
 Each iteration is the same five steps, in order. Do not start the next one
 until the current one finishes.
 
-1. **Run.** Execute the narrowest check that still covers the failure —
+1. **Run.** Execute the narrowest check that still covers the failure,
    `go test -run TestName ./internal/pkg/` while iterating, the full
    `make test` before any push.
 2. **Read.** Take the first failure, not the loudest one. Later failures are
    often the first one's debris.
 3. **Diagnose.** Name the mechanism in one sentence before editing anything.
-   If you cannot, add instrumentation and re-run — that is a legitimate
+   If you cannot, add instrumentation and re-run; that is a legitimate
    iteration with no fix in it.
 4. **Fix.** Minimal and local: what the failure needs, nothing more. Do not
    widen scope on your own initiative.
@@ -46,7 +46,7 @@ Then record the iteration in the run log described below and continue.
 
 ## Sparse breakpoints
 
-Do not report after every iteration — a per-iteration narration is noise, and
+Do not report after every iteration; a per-iteration narration is noise, and
 it defeats the point of an autonomous loop. Surface to the operator only at
 these points:
 
@@ -56,7 +56,7 @@ these points:
   what you are trying next.
 - **A category change.** The failure moves to a different package, or a
   compile error becomes a test failure, or a new check goes red.
-- **A blocker.** A decision only a person can make — a schema change, an API
+- **A blocker.** A decision only a person can make; a schema change, an API
   break, an ambiguous merge conflict, a missing credential. Stop and ask;
   `make test-e2e` needs real GitHub credentials and skips itself without them,
   so a skipped e2e run is not a blocker.
@@ -74,7 +74,7 @@ A **failure signature** is the tuple:
 (check or command, test identifier, first line of the assertion or panic)
 ```
 
-normalised — strip timestamps, durations, temporary paths, ports, goroutine
+normalised, strip timestamps, durations, temporary paths, ports, goroutine
 numbers, memory addresses, run and job IDs. Two failures with the same
 signature are identical even if the surrounding output differs.
 
@@ -97,7 +97,7 @@ On stopping, report:
 A re-run is not an iteration and never clears a counter. Re-run a job only to
 confirm a failure that names a service the diff does not touch, or one that
 died before any test body ran (checkout, install, runner loss), or one that
-passed earlier on this exact commit — at most once in the whole run. A second
+passed earlier on this exact commit, at most once in the whole run. A second
 failure is real.
 
 ## What never counts as a fix
@@ -106,7 +106,7 @@ failure is real.
 - Loosening an assertion, widening a tolerance or adding a retry around a
   deterministic check to make red turn green.
 - Adding a sleep to paper over a race. Tests here use injected clocks
-  (`store.Options.Now`) and the fake GitHub in `internal/github/fake.go` —
+  (`store.Options.Now`) and the fake GitHub in `internal/github/fake.go`,
   reach for those instead.
 - An empty commit, or closing and reopening a pull request, to kick CI.
 - Editing a generated file by hand. Regenerate it:

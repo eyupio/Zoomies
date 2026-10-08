@@ -49,14 +49,14 @@ func TestEveryActionHasARole(t *testing.T) {
 		ActionRunnersRead, ActionRunnersDrain, ActionRunnersDelete,
 		ActionJobsRead,
 		ActionJobsCancel, ActionProvisioningWrite,
-		ActionHostsRead, ActionHostsCordon, ActionHostsDelete, ActionHostsAccept,
+		ActionHostsRead, ActionHostsCordon, ActionHostsDelete, ActionHostsAccept, ActionHostsCheck,
 		ActionInstallationsRead, ActionInstallationsWrite, ActionInstallationsDelete,
 		ActionAuditRead,
 		ActionUsersRead, ActionUsersWrite,
 		ActionTokensRead, ActionTokensWrite,
 		ActionSettingsRead, ActionSettingsWrite,
 		ActionMetricsRead, ActionEventsRead, ActionLogsRead, ActionJoinsWrite,
-		ActionDiagnosticsRead,
+		ActionDiagnosticsRead, ActionUpdatesRead,
 	} {
 		if !required.Known() {
 			t.Errorf("%s is missing from the RBAC table", required)
@@ -114,6 +114,36 @@ func TestSecretsStayWithAdmins(t *testing.T) {
 		if a.MinRole() != store.RoleAdmin {
 			t.Errorf("%s needs %s; want admin", a, a.MinRole())
 		}
+	}
+}
+
+// What an update would take is read out of this controller's own state and
+// names nothing of the fleet's, so every role reads it: the operator who has to
+// explain why a release has not been taken is the viewer's colleague, and a
+// panel that hid the reason from half of them would be no use to either. The
+// scope is a separate matter, and a token minted for something else does not
+// reach it.
+func TestEveryRoleMayReadWhatAnUpdateWouldTake(t *testing.T) {
+	if got := ActionUpdatesRead.MinRole(); got != store.RoleViewer {
+		t.Errorf("%s needs %s; want viewer", ActionUpdatesRead, got)
+	}
+	for _, role := range []store.Role{store.RoleViewer, store.RoleOperator, store.RoleAdmin, store.RolePlatform} {
+		id := &Identity{Kind: KindUser, ID: "usr_1", Name: "test", Role: role}
+		if !id.Can(ActionUpdatesRead) {
+			t.Errorf("a %s may not read the update status", role)
+		}
+	}
+
+	elsewhere := &Identity{Kind: KindToken, Name: "ci", Role: store.RolePlatform, Scopes: []string{"jobs:read"}}
+	if elsewhere.Can(ActionUpdatesRead) {
+		t.Error("a token scoped to jobs:read may read the update status")
+	}
+	if msg := Explain(elsewhere, ActionUpdatesRead); !strings.Contains(msg, `"updates:read"`) {
+		t.Errorf("Explain = %q; want it to name the updates:read scope the token is missing", msg)
+	}
+	reads := &Identity{Kind: KindToken, Name: "dashboard", Role: store.RoleViewer, Scopes: []string{"updates:read"}}
+	if !reads.Can(ActionUpdatesRead) {
+		t.Error("a token scoped to updates:read may not read the update status")
 	}
 }
 

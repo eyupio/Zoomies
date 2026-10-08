@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/tailscale/tailcat"
@@ -23,12 +24,19 @@ import (
 
 const ProviderPrivileges = "Sys.Audit VM.Clone VM.Allocate VM.Audit VM.Config.Disk VM.Config.CPU VM.Config.Memory VM.Config.Network VM.Config.Options VM.PowerMgmt VM.GuestAgent.Unrestricted Datastore.Audit Datastore.AllocateSpace"
 
+type Template struct {
+	VMID int    `json:"vmid"`
+	Name string `json:"name"`
+	Node string `json:"node"`
+}
+
 type Connection struct {
-	Name           string `json:"name"`
-	Endpoint       string `json:"endpoint"`
-	Credential     string `json:"credential"`
-	CAPEM          string `json:"ca_pem"`
-	TailcatAddress string `json:"tailcat_address"`
+	Templates      []Template `json:"templates,omitempty"`
+	Name           string     `json:"name"`
+	Endpoint       string     `json:"endpoint"`
+	Credential     string     `json:"credential"`
+	CAPEM          string     `json:"ca_pem"`
+	TailcatAddress string     `json:"tailcat_address"`
 }
 
 func (c Connection) Validate() error {
@@ -38,6 +46,11 @@ func (c Connection) Validate() error {
 	}
 	if c.Name == "" || len(c.Name) > 128 || c.Credential == "" {
 		return errors.New("proxmox setup: the Proxmox host did not supply its name and API credential")
+	}
+	for _, template := range c.Templates {
+		if template.VMID < 100 || template.VMID > 999999999 || template.Node == "" || len(template.Node) > 256 || len(template.Name) > 256 {
+			return errors.New("proxmox setup: invalid template inventory")
+		}
 	}
 	roots := x509.NewCertPool()
 	if !roots.AppendCertsFromPEM([]byte(c.CAPEM)) {
@@ -238,4 +251,30 @@ func Command(controller, id, token, tag string) string {
 		"chmod 700 \"$tmp/$asset\"\n" +
 		"\"$tmp/$asset\" providers connect-proxmox --controller " + quote(controller) + " --setup-id " + quote(id) + " --token " + quote(token) + "\n" +
 		"ZOOMIES_PROXMOX_SETUP"
+}
+
+// DiscoverTemplates reads cluster inventory without changing any guests.
+func DiscoverTemplates(ctx context.Context, h Host) ([]Template, error) {
+	raw, err := h.Run(ctx, "pvesh", "get", "/cluster/resources", "--type", "vm", "--output-format", "json")
+	if err != nil {
+		return nil, errors.New("proxmox setup: cannot list VM templates")
+	}
+	var rows []struct {
+		VMID     int    `json:"vmid"`
+		Name     string `json:"name"`
+		Node     string `json:"node"`
+		Type     string `json:"type"`
+		Template int    `json:"template"`
+	}
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		return nil, errors.New("proxmox setup: invalid VM inventory")
+	}
+	var templates []Template
+	for _, row := range rows {
+		if row.Type == "qemu" && row.Template == 1 && row.VMID >= 100 && row.Node != "" {
+			templates = append(templates, Template{VMID: row.VMID, Name: row.Name, Node: row.Node})
+		}
+	}
+	sort.Slice(templates, func(i, j int) bool { return templates[i].VMID < templates[j].VMID })
+	return templates, nil
 }

@@ -309,7 +309,7 @@ test('a runner lent spare CPU says so in the feed, in the dog park’s own words
     frame(999_001, held ?? {}) +
     frame(999_002, {
       state: 'maximum_zoomies',
-      label: 'Squirrel spotted — maximum zoomies',
+      label: 'Squirrel spotted, maximum zoomies',
       reason: 'spare_cpu_lent',
       guaranteed_cpus: 2,
       current_cpus: 3.8,

@@ -204,7 +204,7 @@
         {willChange === 1 ? 'setting' : 'settings'} will change,
         <strong>{preview.summary.unchanged}</strong> already so,
         {#if stillRefused > 0}
-          <strong class="refused-count">{stillRefused}</strong> refused —
+          <strong class="refused-count">{stillRefused}</strong> refused,
           {stillRefused === 1 ? 'it is' : 'they are'} left out until the document is fixed.
         {:else if preview.summary.refused > 0}
           {preview.summary.refused} refused and left out.

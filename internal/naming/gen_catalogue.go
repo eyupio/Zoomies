@@ -198,7 +198,7 @@ func docsBlock(images []naming.Image) string {
 	b.WriteString("| Tag | Base | Architectures | `zoomies-runner-full` |\n")
 	b.WriteString("| --- | --- | --- | --- |\n")
 	for _, img := range images {
-		full := "—"
+		full := "-"
 		if img.Full {
 			full = "yes"
 		}

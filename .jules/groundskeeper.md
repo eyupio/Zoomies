@@ -1,4 +1,4 @@
-# Groundskeeper's Journal — Zoomies
+# Groundskeeper's Journal: Zoomies
 
 Genuinely critical structural/cleanliness discoveries only. Routine fixes are not logged here.
 
@@ -30,20 +30,20 @@ one-off ad hoc Playwright scripts (manual DOM/label inspection and a
 screenshot against a locally running dev server on the standard test port
 8099) left committed at the top of `web/`. None were referenced from
 `web/package.json` scripts, `vite.config.ts`, `eslint.config.js`,
-`playwright.config.ts`, any workflow, or any other source file — confirmed by
+`playwright.config.ts`, any workflow, or any other source file, confirmed by
 grepping the whole tree. `web/shot.mjs` even hard-coded an absolute output
 path into a *different* session's scratchpad directory
 (`/tmp/claude-0/-home-user-Zoomies/<uuid>/scratchpad`), which cannot exist on
 any other machine. All three landed in the same already-merged commit
-(`1ec046a`, PR #348) as unrelated, real changes — debug scaffolding an
+(`1ec046a`, PR #348) as unrelated, real changes, debug scaffolding an
 earlier session forgot to clean up before committing.
 
 **Learning:** A scratch/debug script that talks to a real dev server (rather
 than being a `.bak`/`.old` filename variant) doesn't get caught by a filename
-sweep — it looks like ordinary tooling until you check whether anything
+sweep; it looks like ordinary tooling until you check whether anything
 actually invokes it. Grepping for the filename across scripts, configs and
 workflows is what surfaces this class of cruft.
 
 **Action:** Removed all three (`git rm`). Verified with `make build-nogui`,
-`go build ./...`, `gofmt -l .` and `make test` — none are part of the Go or
+`go build ./...`, `gofmt -l .` and `make test`; none are part of the Go or
 Vite build graph, and their removal is invisible to both.

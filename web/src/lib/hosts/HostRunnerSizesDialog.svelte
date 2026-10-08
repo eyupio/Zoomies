@@ -492,7 +492,7 @@
       />
       {#if !figures.tmpfsOff}
         <p class="note-text">
-          Sizes a folder is asked for on this machine when a pool leaves it to size itself — the
+          Sizes a folder is asked for on this machine when a pool leaves it to size itself, the
           counterpart of a standard runner size. A machine with a great deal of memory can offer far
           more than the defaults, and one with little, less. Each is still fitted to the runner's
           limit and lowered to the ceiling below; leave one empty to use the default.

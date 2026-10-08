@@ -1,32 +1,32 @@
 ---
 icon: material/robot-outline
-description: Add your Zoomies controller to Claude as a custom connector by its /mcp address, and sign in through the browser — no pasted tokens.
+description: Add your Zoomies controller to Claude as a custom connector by its /mcp address, and sign in through the browser; no pasted tokens.
 ---
 
 # Connect Claude to Zoomies
 
 Your controller serves the fleet over the [Model Context Protocol](https://modelcontextprotocol.io)
-at `/mcp`. Claude — on claude.ai, in the desktop and mobile apps, and in Claude
-Code — can be connected to it by that address alone: Claude finds out how to
+at `/mcp`. Claude (on claude.ai, in the desktop and mobile apps, and in Claude
+Code) can be connected to it by that address alone: Claude finds out how to
 sign in, opens your controller's own sign-in page, and asks you what the
 connection may do. Nobody copies a token anywhere.
 
-The connection acts as you, at the role you choose for it — **viewer** to read
-the fleet, **operator** to also re-run a failed job or drain an idle runner —
+The connection acts as you, at the role you choose for it (**viewer** to read
+the fleet, **operator** to also re-run a failed job or drain an idle runner)
 and never above your own. It works on `/mcp` and nowhere else, and you can
 disconnect it at any time.
 
 ## Before you start
 
 * **The controller is reached over https**, with `server.external_url` set to
-  that address — for example `https://zoomies.example.com`. OAuth for MCP turns
+  that address, for example `https://zoomies.example.com`. OAuth for MCP turns
   itself on there when authentication is on, and the problems panel shows
   `mcp_oauth.enabled` with the exact address to give Claude. On plain HTTP it
   stays off, because codes and tokens would cross the network readable; see
   [`security.mcp_oauth`](configuration.md).
 * **Claude can reach it.** claude.ai and the Claude apps connect from
   Anthropic's servers, which reach your controller from `160.79.104.0/21`, so
-  `/mcp`, `/.well-known/*` and `/oauth/*` must answer from the internet — or at
+  `/mcp`, `/.well-known/*` and `/oauth/*` must answer from the internet, or at
   least from that range. Claude Code runs on your own machine and only needs to
   reach the controller from there.
 * **You can sign in** to the controller in a browser: a password (with two-step
@@ -43,7 +43,7 @@ It should answer a small JSON document whose `resource` is your `/mcp` address.
        On a Team or Enterprise plan an Owner does this for everyone under
        **Organization settings → Connectors → Add → Custom** (choose **Web**
        if asked), and each member then presses **Connect**.
-    2. Give it a name — `Zoomies` — and the URL
+    2. Give it a name, `Zoomies`, and the URL
        `https://<your controller>/mcp`. Leave the OAuth fields under
        **Advanced settings** empty.
     3. Press **Add**, then **Connect**. A browser tab opens on your
@@ -61,7 +61,7 @@ It should answer a small JSON document whose `resource` is your `/mcp` address.
     claude mcp add --transport http zoomies https://<your controller>/mcp
     ```
 
-    Then, in a session, run `/mcp`, pick **zoomies** and **Authenticate** — or
+    Then, in a session, run `/mcp`, pick **zoomies** and **Authenticate**, or
     run `claude mcp login zoomies` from your shell. Claude Code opens the
     browser on your controller; sign in, choose the role and press **Allow**.
 
@@ -77,9 +77,9 @@ your controller has open registration turned off
 client you made and can revoke by name, an administrator creates one:
 
 1. In Zoomies, open **Settings → MCP clients** and press **Create a client**.
-2. Name it, keep the redirect URI it suggests —
-   `https://claude.ai/api/mcp/auth_callback`, which is where the Claude apps
-   send you back to — and choose whether it has a secret. Add
+2. Name it, keep the redirect URI it suggests
+   (`https://claude.ai/api/mcp/auth_callback`, which is where the Claude apps
+   send you back to) and choose whether it has a secret. Add
    `http://localhost/callback` too if Claude Code will use it; the port is
    allowed to differ.
 3. Copy the **client ID**, and the **client secret** if you asked for one. The
@@ -94,8 +94,8 @@ client you made and can revoke by name, an administrator creates one:
       --callback-port 8080 zoomies https://<your controller>/mcp
     ```
 
-A secret can be rotated from the same page — the old one stops working at once
-— and revoking the client ends every connection made with it.
+A secret can be rotated from the same page (the old one stops working at once)
+and revoking the client ends every connection made with it.
 
 ## What happens when you connect
 
@@ -119,7 +119,7 @@ sequenceDiagram
 The access token lasts an hour and Claude refreshes it on its own; the refresh
 token lasts thirty days and is replaced every time it is used. If a code or a
 refresh token is ever presented twice, the connection is revoked, because only
-a copy explains it — sign in again from Claude to reconnect.
+a copy explains it, sign in again from Claude to reconnect.
 
 ## See and end your connections
 
@@ -127,8 +127,8 @@ a copy explains it — sign in again from Claude to reconnect.
 you gave it, and when it was last used. **Disconnect** ends it at once: Claude's
 next call is refused and it asks you to sign in again.
 
-An administrator sees everybody's connections, and every client — the ones they
-created, the ones that registered themselves and the metadata documents — under
+An administrator sees everybody's connections, and every client (the ones they
+created, the ones that registered themselves and the metadata documents) under
 **Settings → MCP clients**, where each can be revoked. Everything is in the
 audit log: `mcp_connection.grant`, `mcp_connection.revoke`,
 `mcp_connection.replay`, `mcp_client.register`, `mcp_client.create`,
@@ -138,8 +138,8 @@ every tool call that changed or tried to change the fleet.
 ## What it can and cannot do
 
 The tools are the same ones [`zoomies mcp`](cli.md#zoomies-mcp) offers: reading
-jobs, runners, pools, hosts and logs, and — for an operator connection only —
-`rerun_job`, `drain_runner`, `update_pool` and `update_host` (a pool's scale, smallest runner, sidecar shares, folder placement and burst valves, and a host's capacity and runner sizes), and `apply_remedy`, which makes a change a problem proposes after the controller has priced it. An administrator can also switch on **Offer administrator tools over MCP** (`security.mcp_admin_tools`, off by default) under Settings, Security: an administrator connection is then offered `edit_host`, `clear_host_throttle`, `get_settings` and `update_settings`, which can rename, relabel and cordon a host and change the tuning settings, but never security, sign-in, GitHub, provider or database ones. Each call is the documented API route, run as
+jobs, runners, pools, hosts and logs, and, for an operator connection only,
+`rerun_job`, `drain_runner`, `update_pool` and `update_host` (a pool's scale, smallest runner, sidecar shares, folder placement and burst valves, and a host's capacity and runner sizes), and `apply_remedy`, which makes a change a problem proposes after the controller has priced it. An administrator can also switch on **Offer administrator tools over MCP** (`security.mcp_admin_tools`, off by default) under Settings, Security: an administrator connection is then offered `edit_host`, `clear_host_throttle`, `get_settings` and `update_settings`, which can rename, relabel and cordon a host and change the tuning settings, but never security, sign-in, GitHub, provider or database ones, nor the update mode and soak that decide whether, and how soon, Zoomies updates itself. Each call is the documented API route, run as
 your connection, so it meets the same role check and writes the same audit row
 as the CLI would.
 
@@ -156,7 +156,11 @@ Three more tools read [Kennel Club](kennel-club.md), and any viewer may call the
   is tracked and, if not, who stopped it and why.
 * `kennel_findings` lists the repositories that have a check open or a finding
   of a severity, worst first and paged, narrowed by check, severity, standing,
-  tracking or a fragment of the name.
+  tracking or a fragment of the name. Three yes-or-no filters open the same lists
+  the Overview's cards do: `active` for the repositories the fleet has run a job
+  for lately (or, with false, the quiet ones), `incomplete` for the ones only
+  partly checked or not yet looked at, and `waived` for the ones with a waived
+  finding (or, with false, none).
 
 They cannot recheck a repository, waive a finding or stop tracking one: those
 are decisions, they are not MCP tools, and the REST routes behind them want an
@@ -192,7 +196,7 @@ an [API token](security.md#identities) instead.
 | What you see | Why, and what to change |
 | --- | --- |
 | Claude says it could not reach the MCP server | The controller is not reachable from Claude, or OAuth for MCP is off and `/.well-known/oauth-protected-resource/mcp` answers 404. Check the address from outside your network, and that the problems panel shows `mcp_oauth.enabled`. |
-| The controller's page says the client asked to send you somewhere it did not register | The redirect is not one the client registered. For a client you created, add the address it uses — `https://claude.ai/api/mcp/auth_callback` for the Claude apps. |
+| The controller's page says the client asked to send you somewhere it did not register | The redirect is not one the client registered. For a client you created, add the address it uses, `https://claude.ai/api/mcp/auth_callback` for the Claude apps. |
 | The page says the controller does not let clients register themselves | `security.mcp_open_registration` is off: use a client ID from **Settings → MCP clients**. |
 | The consent screen only offers viewer | Your own role is viewer. Ask an administrator for operator if you need the connection to act on the fleet. |
 | Claude connected, but cannot re-run or drain | The connection is viewer. Disconnect it and connect again choosing operator. |

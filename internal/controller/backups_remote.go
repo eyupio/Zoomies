@@ -537,8 +537,8 @@ func (c *Controller) remoteProblems(ctx context.Context) []Problem {
 					Title:    "the backup remote " + status.Name + " is sent the backup unencrypted",
 					Detail: "a backup is the whole fleet: every repository and job it has seen, every account, and the sealed " +
 						"GitHub App credentials. In " + status.Where + " it is a file anyone who can read the bucket can open.",
-					Fix: "set a passphrase on the destination from the Backups tab — the archive is then sealed with argon2id and " +
-						"AES-256-GCM before it leaves this host — and keep it wherever you keep the encryption key. Nothing here can recover it.",
+					Fix: "set a passphrase on the destination from the Backups tab, the archive is then sealed with argon2id and " +
+						"AES-256-GCM before it leaves this host, and keep it wherever you keep the encryption key. Nothing here can recover it.",
 				})
 			}
 			if u, err := url.Parse(status.Endpoint); err == nil && u.Scheme == "http" && !config.LoopbackHost(u.Hostname()) {
@@ -575,7 +575,7 @@ func (c *Controller) remoteProblems(ctx context.Context) []Problem {
 			Setting:  "backup.remotes",
 			Title:    "backups are not reaching " + status.Name,
 			Detail:   detail,
-			Fix:      "read the error: it names the bucket, the credential or the clock. The Backups tab tests the remote on demand, and the copies on this host are unaffected — they are simply all there is.",
+			Fix:      "read the error: it names the bucket, the credential or the clock. The Backups tab tests the remote on demand, and the copies on this host are unaffected, they are simply all there is.",
 			Since:    &at,
 		})
 	}

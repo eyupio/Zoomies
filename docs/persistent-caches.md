@@ -1,14 +1,30 @@
 ---
 icon: material/database-clock-outline
-title: Caching for ephemeral GitHub Actions runners
+title: GitHub Actions cache on self-hosted runners
 description: >-
   Keep Go, npm, pip, Maven and Docker build caches between ephemeral runners.
   Configure Zoomies cache scopes and reuse builds safely across jobs and hosts.
 ---
 
-# Persistent caches for ephemeral runners
+# GitHub Actions cache on self-hosted runners
+
+A fresh runner for every job means a fresh, empty disk, so every job downloads
+its dependencies again. This page covers how to stop that on a Zoomies fleet.
 
 Keep runners ephemeral. Retain selected cache data outside the runner's writable filesystem so the next runner can reuse downloads and build outputs. Losing a cache must only make a build slower; workspaces, credentials, runner registration and job state must not depend on it.
+
+## The pool cache and `actions/cache`
+
+They do different jobs, and a workflow can use both.
+
+- **The pool cache** is a directory on the host, mounted at `/opt/zoomies-cache`
+  in every runner the pool starts and kept between them. It saves the download
+  and the rebuild, and it is an accelerator only: nothing guarantees a hit and
+  an operator may empty it at any time.
+- **`actions/cache`** is the step to use for anything a workflow depends on,
+  because the workflow asks for it by key and carries on if it misses.
+
+Either way, a missing cache must make a job slower and never make it fail.
 
 | Data | Lifetime and location | Sharing rule |
 |---|---|---|
@@ -65,7 +81,7 @@ Set cache size targets and leave disk reserve for image pulls, workspaces, daemo
 
 The pool cache cannot be a tmpfs of each runner's own. It is kept *between*
 runners, and a tmpfs belongs to one container and is gone when it is, so every
-runner would start with an empty cache — which is no cache. The form that works
+runner would start with an empty cache, which is no cache. The form that works
 is a directory the **host** mounts in memory, given as the cache's source. It is
 bind-mounted into every runner like any other host path, so sharing, the in-use
 check and eviction all keep working.
@@ -91,7 +107,7 @@ Three things are different from a cache on disk:
   with no limit is warned about as `pool.cache_memory_unbounded`. Keep the limit
   inside the mount's own `size=`, with room to spare.
 - **It is lost at a reboot.** A cache is disposable accelerator data and a missing
-  one is recreated empty, so nothing breaks — the first runner after a restart
+  one is recreated empty, so nothing breaks; the first runner after a restart
   just pays for the downloads again.
 - **It is not charged to a runner's memory limit.** The mount belongs to the host,
   so a job's cgroup is not where it is counted, but page cache a job dirties may
@@ -105,7 +121,7 @@ so it stays on disk unless that folder is the mount.
 Zoomies mounts the cache and nothing more: it does not know which package
 manager a job runs, so a workflow has to point its tools at
 `/opt/zoomies-cache`. The recipes below do that in one step, and each keeps the
-rule the cache is built on — a missing or broken cache makes a job slower and
+rule the cache is built on; a missing or broken cache makes a job slower and
 never makes it fail. Every one creates its own folder under the cache and only
 uses it if that folder turned out writable, so the same workflow still runs on
 GitHub's hosted runners, on a pool with the cache off, on a cache folder whose
@@ -178,7 +194,7 @@ folder and read it back on the next runner. The `local` exporter needs a
 `docker-container` builder, which is what `docker/setup-buildx-action` creates.
 
 The exporter writes a whole cache at once, and two jobs exporting to one folder
-— two runs, or two jobs of one matrix, which share a run ID — can leave a
+(two runs, or two jobs of one matrix, which share a run ID) can leave a
 half-written one. So each job exports to a folder `mktemp` made for it alone,
 and when its build succeeds it publishes that folder by renaming a link over
 `current`, which is atomic: a reader sees the old cache or the new one, never
@@ -221,7 +237,7 @@ Name the folder after the image and, if the pool builds for more than one
 platform, the platform too, so two builds do not replace each other's cache.
 The cache is not pruned by Buildx; the pool's `size_limit` is what bounds it.
 To share a cache across hosts rather than across runners on one host, use a
-registry cache instead — [the recipe below](#dind-and-buildkit) shares layers
+registry cache instead, [the recipe below](#dind-and-buildkit) shares layers
 without sharing a live daemon.
 
 **Pull requests.** Everything a job writes to the cache is read by the jobs

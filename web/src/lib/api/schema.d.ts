@@ -2454,6 +2454,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/hosts/{id}/health-check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask a host's agent to check itself now
+         * @description Queues one request for the host's agent to run its read-only OS checks once and send the report back, instead of waiting for its next periodic report. Nothing on the host is changed, and the controller never dials the agent: the request goes out on the agent's own poll. The answer is the host straight away, carrying `health_check.state` of `asked`; the report arrives later as an ordinary `host.updated` event. Only a native Linux agent (a systemd or bare-process install, or the agent inside a natively installed controller) that advertises `host-check` can answer. An agent in a container, including the Compose deployment with the host-health service, a host that is not Linux and an agent older than this feature are refused with 409 and a sentence saying so, as is a host that is not connected. A host asked within the last 15 seconds answers 429 with `Retry-After`; asking again while a request is still waiting for its answer changes nothing and answers the host. Audited as `host.check_requested` only when a request was queued. Takes no body.
+         */
+        post: operations["checkHostHealth"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/hosts/{id}/check-acceptances": {
         parameters: {
             query?: never;
@@ -3694,7 +3717,7 @@ export interface paths {
         put?: never;
         /**
          * Apply retention now
-         * @description Deletes the copies beyond `backup.keep` from the backup directory, and the ones beyond each destination's own `keep` from its bucket. Retention otherwise runs as part of taking a backup, which leaves a fleet that has just lowered `backup.keep` holding the old number until the next one — and on a fleet with `backup.interval` off, holding it forever. A copy that was uploaded here or fetched back out of a bucket is never counted and never removed. The answer lists what went, per destination, and a bucket that refused is reported against its own name while the others are still pruned. Refused with 409 while a backup or an offsite pass is running.
+         * @description Deletes the copies beyond `backup.keep` from the backup directory, and the ones beyond each destination's own `keep` from its bucket. Retention otherwise runs as part of taking a backup, which leaves a fleet that has just lowered `backup.keep` holding the old number until the next one, and on a fleet with `backup.interval` off, holding it forever. A copy that was uploaded here or fetched back out of a bucket is never counted and never removed. The answer lists what went, per destination, and a bucket that refused is reported against its own name while the others are still pruned. Refused with 409 while a backup or an offsite pass is running.
          */
         post: operations["pruneBackups"];
         delete?: never;
@@ -3714,7 +3737,7 @@ export interface paths {
         put?: never;
         /**
          * Add a backup remote
-         * @description Stores an S3-compatible destination this fleet copies every backup to. The secret key and the passphrase are sealed with the instance encryption key before anything else happens to them, and no response ever carries them back — the page is told whether each is set, which is the only thing it can act on. A destination `backup.remotes` in `zoomies.yaml` already names is refused: the file has the last word, and two rows that disagree would be worse than one that cannot be added.
+         * @description Stores an S3-compatible destination this fleet copies every backup to. The secret key and the passphrase are sealed with the instance encryption key before anything else happens to them, and no response ever carries them back; the page is told whether each is set, which is the only thing it can act on. A destination `backup.remotes` in `zoomies.yaml` already names is refused: the file has the last word, and two rows that disagree would be worse than one that cannot be added.
          */
         post: operations["createBackupRemote"];
         delete?: never;
@@ -3765,7 +3788,7 @@ export interface paths {
         head?: never;
         /**
          * Change a stored backup remote
-         * @description Only the fields the body carries are changed. The two secrets follow the credential convention: absent leaves what is stored, a value replaces it, and an explicit empty string clears it — which is how a passphrase is removed from a destination that should send the plain archive. A destination described in `zoomies.yaml` answers `409`: it is changed in the file.
+         * @description Only the fields the body carries are changed. The two secrets follow the credential convention: absent leaves what is stored, a value replaces it, and an explicit empty string clears it, which is how a passphrase is removed from a destination that should send the plain archive. A destination described in `zoomies.yaml` answers `409`: it is changed in the file.
          */
         patch: operations["updateBackupRemote"];
         trace?: never;
@@ -4005,13 +4028,13 @@ export interface paths {
          *     default says.
          *
          *     Every key is checked before any is written, and the whole request is
-         *     refused if one fails — including when the result would be a controller
+         *     refused if one fails, including when the result would be a controller
          *     that will not start, which the validator is asked about before anything
          *     is stored.
          *
          *     An accepted change is always kept. One the running process can apply
-         *     does so at once; one it cannot — rebinding the listener, rebuilding the
-         *     backends — is stored and named in `pending_restart`.
+         *     does so at once; one it cannot (rebinding the listener, rebuilding the
+         *     backends) is stored and named in `pending_restart`.
          *
          *     Refused: a key that is read before the database opens, one that belongs
          *     to a standalone agent's own host, and one an environment variable is
@@ -4054,6 +4077,26 @@ export interface paths {
          * @description Every key in the document is planned through the checks a PATCH makes and reported as `change`, `unchanged`, `unset` or `refused` with the reason. A dry run reports and writes nothing. A real run refuses the whole document with 422 while any key is refused, so an import is one change or none; `skip` names the keys to leave out. Applying returns the settings page too.
          */
         post: operations["importSettings"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/updates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What an update would take
+         * @description The update mode and soak, the build that is running, the newest release that can be installed on this system, whether that is newer than the build, and when the mode would take it, with the sentence that says why. It answers 200 whatever the mode: with `mode: off` it names no release and says how to turn updating on, and until the list of releases has been read it says that, because a list nobody has read and a list with nothing in it that can be installed are different things to be told. A build that is not from a release is left alone, and the sentence says so. It changes nothing. The same document is the payload of the `updates.updated` event.
+         */
+        get: operations["getUpdates"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -5828,8 +5871,8 @@ export interface components {
              * @description Where the history each figure is computed from begins, given what
              *     retention has already pruned. Job counts, execution time and
              *     queue waits come from job rows. Allocated runner time and cost
-             *     come from the usage ledger — a daily roll-up for the whole UTC
-             *     days it covers, and runner rows and sessions for the rest — so
+             *     come from the usage ledger (a daily roll-up for the whole UTC
+             *     days it covers, and runner rows and sessions for the rest) so
              *     `runners` is where the ledger begins rather than where
              *     retention.runners cuts the rows. A report whose `from` is earlier
              *     than one of these is complete only from that instant on. Null
@@ -6503,7 +6546,7 @@ export interface components {
             last_idle_at?: string | null;
             /** Format: date-time */
             finished_at?: string | null;
-            /** @description Why Zoomies could not finish taking this runner away: a stop or remove the agent could not complete, or a registration GitHub would not delete. Empty is the normal case. A non-empty value means something is left behind — a container on its host, or a registration on the organisation — and it will not go away on its own. Zoomies retries, and this clears when it succeeds. */
+            /** @description Why Zoomies could not finish taking this runner away: a stop or remove the agent could not complete, or a registration GitHub would not delete. Empty is the normal case. A non-empty value means something is left behind (a container on its host, or a registration on the organisation) and it will not go away on its own. Zoomies retries, and this clears when it succeeds. */
             cleanup_error?: string;
             /** Format: date-time */
             cleanup_failed_at?: string | null;
@@ -6661,7 +6704,7 @@ export interface components {
             path_style: boolean | null;
             /** @description A stored destination the file overrides by name. Nothing is sent to it; it is listed so that a row which quietly does nothing is visible rather than mysterious. */
             shadowed: boolean;
-            /** @description Why this destination cannot be used at all — almost always that this instance's encryption key does not open its stored secrets. */
+            /** @description Why this destination cannot be used at all, almost always that this instance's encryption key does not open its stored secrets. */
             problem?: string;
             /** @description A secret key is stored for this destination. */
             has_secret_key?: boolean;
@@ -7921,7 +7964,30 @@ export interface components {
              */
             at: string;
         };
+        /** @description The last "Check now" asked of this host's agent. It lives in the controller's memory only, so it is lost on a restart, and it is absent when there is nothing to say: no request, or one old enough that the page has no use for it. */
+        HostHealthCheck: {
+            /**
+             * @description asked while the agent has not answered; failed also covers an agent that did not answer in time.
+             * @enum {string}
+             */
+            state: "asked" | "done" | "failed";
+            /** Format: date-time */
+            asked_at: string;
+            /**
+             * @description When done: whether the report was the first, changed the findings, matched the last, or carried a clock no later than the last report's.
+             * @enum {string}
+             */
+            outcome?: "first" | "changed" | "unchanged" | "not_newer";
+            /** @description When failed: a sentence for a person saying what to check. */
+            message?: string;
+            /**
+             * Format: date-time
+             * @description When the host may be asked again. Only present while that is in the future.
+             */
+            next_at?: string;
+        };
         Host: {
+            health_check?: components["schemas"]["HostHealthCheck"];
             doctor?: components["schemas"]["HostDoctorView"];
             usage?: components["schemas"]["HostUsage"];
             /** @description Usage is less than 90 seconds old. Unknown or stale readings retain reservation-based placement. */
@@ -8179,6 +8245,11 @@ export interface components {
             /** Format: date-time */
             updated_at?: string;
         };
+        ProxmoxSetupTemplate: {
+            vmid: number;
+            name: string;
+            node: string;
+        };
         ProviderSetup: {
             id: string;
             /** Format: date-time */
@@ -8186,6 +8257,8 @@ export interface components {
             ready: boolean;
             name?: string;
             endpoint?: string;
+            /** @description QEMU templates detected by the setup command. */
+            templates?: components["schemas"]["ProxmoxSetupTemplate"][];
             /** @description Returned only at creation; contains the short-lived setup capability. */
             command?: string;
         };
@@ -8781,6 +8854,58 @@ export interface components {
             };
             secrets_configured: string[];
             settings?: components["schemas"]["Settings"];
+        };
+        UpdatesRunning: {
+            /**
+             * @description The build as it reports itself. A release binary says `1.3.5`, without the v its tag has; any other says something like `main-sha-abc1234` or `dev`.
+             * @example 1.3.5
+             */
+            version: string;
+            /** @description Whether the build came from a release. Only one that did is offered an update, because a build from main is usually ahead of the newest release and taking it there would be a downgrade. */
+            release: boolean;
+        };
+        UpdatesRelease: {
+            /** @example v1.3.5 */
+            tag: string;
+            /** @description The release's page, where its notes are. Empty when GitHub's address is not an absolute https URL. */
+            url: string;
+            /**
+             * Format: date-time
+             * @description When GitHub published it, which is where the soak starts.
+             */
+            published_at: string;
+        };
+        UpdatesTarget: {
+            /** @example v1.3.5 */
+            tag: string;
+            /** @description Whether the release is a later one than the build that is running. Only then is there anything to take. */
+            newer: boolean;
+            /**
+             * Format: date-time
+             * @description The earliest time the mode takes the release: the end of the soak in `auto`. Null in `manual`, where the person asking is the only wait, and whenever `newer` is false.
+             */
+            due_at: string | null;
+        };
+        UpdatesStatus: {
+            /**
+             * @description `updates.mode` as the controller acts on it. `off` offers nothing, `manual` offers the newest release to a person, and `auto` takes it once it has been public for the soak.
+             * @enum {string}
+             */
+            mode: "off" | "manual" | "auto";
+            /** @description `updates.soak` as the Settings page writes it. `auto` waits this long after a release is published; `manual` ignores it. */
+            soak: components["schemas"]["Duration"];
+            running: components["schemas"]["UpdatesRunning"];
+            /** @description The newest release that could be installed on this system, whether or not the build is behind it. Null while updating is off, until the list of releases has been read, and when nothing in it can be installed here. */
+            latest: components["schemas"]["UpdatesRelease"] | null;
+            /** @description What the mode would do about `latest`. Null whenever `latest` is. */
+            target: components["schemas"]["UpdatesTarget"] | null;
+            /** @description A sentence or two, in an operator's words, that says what the mode would do and why. It always says something: it is what to show when there is nothing to offer. */
+            reason: string;
+            /**
+             * Format: date-time
+             * @description When the list of releases `latest` was chosen from was read. Null while updating is off, and until a list has been read.
+             */
+            checked_at: string | null;
         };
         AgentJoinRequest: {
             protocol_version: number;
@@ -11668,7 +11793,7 @@ export interface operations {
                             /** @example 0s */
                             scale_up_delay: string;
                             /**
-                             * @description The wait that actually happens rather than the one configured — zero in the setting means the runner image chooses, and the image waits two minutes.
+                             * @description The wait that actually happens rather than the one configured, zero in the setting means the runner image chooses, and the image waits two minutes.
                              * @example 2m0s
                              */
                             docker_wait: string;
@@ -11763,11 +11888,11 @@ export interface operations {
                         selected_hosts?: number;
                         /** @description Every host the selector reaches that the fleet could not run this pool on, with the reason. It is what turns "2 hosts match" followed by "1 host can run this pool" from a contradiction into an explanation. */
                         excluded_hosts?: components["schemas"]["HostExclusion"][];
-                        /** @description Hosts that can run this pool, and are counted in matching_hosts, but give its runners less than a larger machine would — the pool's minimum at work, with code `reduced` and a sentence saying how much. Information, not a warning. */
+                        /** @description Hosts that can run this pool, and are counted in matching_hosts, but give its runners less than a larger machine would; the pool's minimum at work, with code `reduced` and a sentence saying how much. Information, not a warning. */
                         reduced_hosts?: components["schemas"]["HostExclusion"][];
-                        /** @description The image the pool would actually run, which for a pool that gives its jobs a daemon is the stock image's Docker variant rather than the image the request named. Empty for a pool that names no image, where nothing is stored — `effective_image` is the answer there. */
+                        /** @description The image the pool would actually run, which for a pool that gives its jobs a daemon is the stock image's Docker variant rather than the image the request named. Empty for a pool that names no image, where nothing is stored, `effective_image` is the answer there. */
                         image?: string;
-                        /** @description The image a pool that names none would boot — the variant its platform picks, or the fleet's default, with the Docker swap applied. It is what the pool editor shows for the pool written out at the foot of the page, where the pool being described has no image of its own. */
+                        /** @description The image a pool that names none would boot; the variant its platform picks, or the fleet's default, with the Docker swap applied. It is what the pool editor shows for the pool written out at the foot of the page, where the pool being described has no image of its own. */
                         effective_image?: string;
                         /** @description The size the pool would run at on every host. Empty for a pool that leaves the size to its host, where the per-host share is in `room.hosts[].charge_cpus` and `charge_memory_mb` instead. */
                         resources?: components["schemas"]["Resources"];
@@ -13103,6 +13228,33 @@ export interface operations {
             };
         };
     };
+    checkHostHealth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Host"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
+        };
+    };
     acceptHostCheck: {
         parameters: {
             query?: never;
@@ -13638,6 +13790,7 @@ export interface operations {
                     credential: string;
                     ca_pem: string;
                     tailcat_address: string;
+                    templates?: components["schemas"]["ProxmoxSetupTemplate"][];
                 };
             };
         };
@@ -15414,6 +15567,26 @@ export interface operations {
                 };
             };
             422: components["responses"]["Unprocessable"];
+        };
+    };
+    getUpdates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdatesStatus"];
+                };
+            };
         };
     };
     agentJoin: {

@@ -2,9 +2,8 @@
 icon: material/docker
 title: Self-hosted GitHub Actions runners in Docker
 description: >-
-  Running GitHub Actions runners in Docker: what a single runner container
-  gives you, the three ways a job can get Docker and what each costs, and how
-  Zoomies turns containers into an ephemeral, autoscaling fleet.
+  Running GitHub Actions runners in Docker: what one runner container gives you,
+  three ways a job can get Docker, and how Zoomies makes an autoscaling fleet.
 ---
 
 # Self-hosted runners in Docker
@@ -16,8 +15,8 @@ the host. This page walks through those, and where Zoomies fits.
 
 ## One runner in one container
 
-A runner image — [myoung34/docker-github-actions-runner](https://github.com/myoung34/docker-github-actions-runner)
-is the best-known — starts GitHub's runner inside a container and registers it
+A runner image, [myoung34/docker-github-actions-runner](https://github.com/myoung34/docker-github-actions-runner)
+is the best-known, starts GitHub's runner inside a container and registers it
 with your repository or organisation. It is a good way to try self-hosting, and
 for one repository with a steady trickle of jobs it may be all you need.
 
@@ -31,7 +30,7 @@ What it leaves to you:
   hand.
 - **Starting fresh.** A runner registered as ephemeral takes one job and exits,
   so something has to start the next one. A runner that is not ephemeral keeps
-  whatever the last job left behind — files, caches, credentials — for the next.
+  whatever the last job left behind (files, caches, credentials) for the next.
 - **Scaling.** The container does not know how many jobs are queued. You run as
   many as you guess you need, and they sit idle or leave jobs waiting.
 - **More than one machine.** Each host is its own set of containers, started

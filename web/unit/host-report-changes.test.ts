@@ -139,7 +139,7 @@ test('several changes make one announcement, worded without a verb to agree', ()
     report([row('a', 'ok')], {}, later(60)),
     ctx,
   );
-  assert.equal(announcement(one, false), 'Title of a — now OK');
+  assert.equal(announcement(one, false), 'Title of a, now OK');
   const ids = ['a', 'b', 'c', 'd', 'e'];
   const prev = report(ids.map((i) => row(i, 'warn')));
   const next = report(
@@ -152,7 +152,7 @@ test('several changes make one announcement, worded without a verb to agree', ()
     announcement(many, true),
     '5 checks are now OK. Nothing on this host needs attention now',
   );
-  assert.equal(announcement(many.slice(0, 2), false), 'Title of a and Title of b — now OK');
+  assert.equal(announcement(many.slice(0, 2), false), 'Title of a and Title of b, now OK');
   assert.equal(announcement([], true), '');
 });
 
@@ -161,9 +161,9 @@ test('new, error and escalated changes are each worded as what they are', () => 
   const next = report([row('a', 'warn'), row('b', 'error'), row('c', 'error')], {}, later(60));
   const lines = reportChanges(prev, next, ctx).map(logLine);
   assert.deepEqual(lines.sort(), [
-    'Title of a — now needs attention',
-    'Title of b — now has an error',
-    'Title of c — warning became an error',
+    'Title of a, now needs attention',
+    'Title of b, now has an error',
+    'Title of c, warning became an error',
   ]);
   assert.match(announcement(reportChanges(prev, next, ctx), false), /warning became an error/);
 });

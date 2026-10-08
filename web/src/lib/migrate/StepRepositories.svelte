@@ -385,7 +385,7 @@
             (chosen.length === 0 && chosenCount >= MAX_SELECTED_REPOSITORIES)}
           label={row.repo}
           description={chosen.length > 0 && chosen.length < row.files.length
-            ? `${row.note} — ${chosen.length} of ${row.files.length} files chosen`
+            ? `${row.note}, ${chosen.length} of ${row.files.length} files chosen`
             : row.note}
           onchange={(on) => toggle(row, on)}
         />

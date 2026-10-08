@@ -282,7 +282,7 @@
     <span>
       Zoomies could not finish taking this runner away{runner.cleanup_attempts
         ? ` after ${runner.cleanup_attempts} ${runner.cleanup_attempts === 1 ? 'attempt' : 'attempts'}`
-        : ''}: {runner.cleanup_error}. Something is left behind — a container on its host, or a
+        : ''}: {runner.cleanup_error}. Something is left behind, a container on its host, or a
       registration on GitHub. Zoomies keeps retrying, and this clears when it succeeds.
     </span>
   </p>

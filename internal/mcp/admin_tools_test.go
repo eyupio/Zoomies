@@ -126,3 +126,54 @@ func TestAnAgentCannotTurnOnAutomaticApplyOverMCP(t *testing.T) {
 		t.Errorf("a refused call sent %v", r.sent)
 	}
 }
+
+// An assistant is steered by text a workflow wrote, so it must not be able to
+// switch on a controller that replaces its own binary, or shorten the wait that
+// stands between a bad release and every host. The check interval stays
+// tunable: it only changes how often a question is put to github.com.
+func TestUpdateSettingsCannotWriteTheUpdatesMode(t *testing.T) {
+	if tunable("updates.mode") || tunable("updates.soak") {
+		t.Error("the update mode or its soak is on the tuning allowlist")
+	}
+	if !tunable("updates.check_interval") {
+		t.Error("updates.check_interval was taken off the tuning allowlist with the rest of the section")
+	}
+
+	r := &recorder{object: `{}`}
+	for key, value := range map[string]string{"updates.mode": `"auto"`, "updates.soak": `"0"`} {
+		_, err := call(t, "update_settings", r, `{"changes":{"`+key+`":`+value+`}}`)
+		if err == nil || !strings.Contains(err.Error(), key) {
+			t.Errorf("%s: error = %v, want a refusal naming it", key, err)
+		}
+	}
+	if len(r.sent) != 0 {
+		t.Errorf("a refused call sent %v", r.sent)
+	}
+	if _, err := call(t, "update_settings", r, `{"changes":{"updates.check_interval":"12h"}}`); err != nil {
+		t.Errorf("the check interval was refused: %v", err)
+	}
+}
+
+// An entry that does not end in a dot names one key. Read as a prefix it would
+// also admit updates.check_interval_x the day the section grows one, and the
+// allowlist exists so that a new key is not tunable until somebody names it.
+func TestAnAllowlistEntryWithoutATrailingDotNamesOneKey(t *testing.T) {
+	for key, want := range map[string]bool{
+		"updates.check_interval":   true,
+		"updates.check_interval_x": false,
+		"updates.check_interval.x": false,
+		"scheduler.anything":       true,
+	} {
+		if got := tunable(key); got != want {
+			t.Errorf("tunable(%q) = %v, want %v", key, got, want)
+		}
+	}
+
+	_, err := call(t, "update_settings", &recorder{object: `{}`}, `{"changes":{"updates.check_interval_x":"1h"}}`)
+	if err == nil || !strings.Contains(err.Error(), "updates.check_interval_x cannot be changed over MCP") {
+		t.Fatalf("error = %v, want a refusal naming the key", err)
+	}
+	if !strings.Contains(err.Error(), "only these can") || strings.Contains(err.Error(), "only keys under") {
+		t.Errorf("the refusal reads as though every entry were a prefix: %v", err)
+	}
+}

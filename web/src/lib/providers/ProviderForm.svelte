@@ -127,12 +127,31 @@
     untrack(() => (provider ? draftFromProvider(provider) : emptyDraft())),
   );
   let manualConnection = $state(false);
+  let setupMethod = $state('automatic');
+
+  function chooseSetupMethod(method: string): void {
+    setupMethod = method;
+    manualConnection = method !== 'automatic';
+    setupID = '';
+    setupCommand = '';
+    setupReady = false;
+    setupTemplates = [];
+    setupError = '';
+    if (draft.setup_id) {
+      delete draft.setup_id;
+      draft.name = '';
+      draft.endpoint = '';
+      draft.tailcat_configured = false;
+    }
+    draft.connection = method === 'tailcat' ? 'tailcat' : 'direct';
+  }
   const automaticProxmox = $derived(!editing && draft.kind === 'proxmox' && !manualConnection);
   let setupID = $state('');
   let setupCommand = $state('');
   let setupError = $state('');
   let creatingSetup = $state(false);
   let setupReady = $state(false);
+  let setupTemplates = $state<ProviderChoice[]>([]);
 
   async function startSetup(): Promise<void> {
     creatingSetup = true;
@@ -168,6 +187,19 @@
           draft.endpoint = result.endpoint ?? '';
           draft.connection = 'tailcat';
           draft.tailcat_configured = true;
+          setupTemplates = (result.templates ?? []).map((template) => ({
+            value: String(template.vmid),
+            label: template.name || String(template.vmid),
+            consequence: `VMID ${template.vmid} on ${template.node}`,
+          }));
+          const template = result.templates?.[0];
+          if (template && result.templates?.length === 1) {
+            draft.settings = {
+              ...draft.settings,
+              template_id: String(template.vmid),
+              template_node: template.node,
+            };
+          }
           setupCommand = '';
           setupReady = true;
           return;
@@ -193,6 +225,7 @@
     setupID = '';
     setupCommand = '';
     setupReady = false;
+    setupTemplates = [];
     setupError = '';
     delete draft.setup_id;
     draft.name = '';
@@ -551,9 +584,14 @@
   }
 
   /** What picking the current answer means, in the driver's words. */
+  function settingChoices(spec: ProviderSetting): ProviderChoice[] {
+    const found = choicesFor(spec, discovery);
+    return spec.key === 'template_id' && found.length === 0 ? setupTemplates : found;
+  }
+
   function chosenConsequence(spec: ProviderSetting): string {
     const value = settingValue(spec.key);
-    return choicesFor(spec, discovery).find((c) => c.value === value)?.consequence ?? '';
+    return settingChoices(spec).find((c) => c.value === value)?.consequence ?? '';
   }
 
   const OS_OPTIONS = [
@@ -590,7 +628,7 @@
 </script>
 
 {#snippet setting(spec: ProviderSetting)}
-  {@const choices = choicesFor(spec, discovery)}
+  {@const choices = settingChoices(spec)}
   <Field
     label={spec.label || spec.key}
     hint={spec.help}
@@ -852,6 +890,35 @@
           {/snippet}
         </Field>
 
+        {#if !editing && draft.kind === 'proxmox'}
+          <RadioGroup
+            bind:value={setupMethod}
+            name="proxmox-setup-method"
+            legend="How to connect"
+            options={[
+              {
+                value: 'automatic',
+                label: 'Automatic setup · Tailcat',
+                description:
+                  'Run one command on the Proxmox host. Zoomies fills in the connection details.',
+              },
+              {
+                value: 'tailcat',
+                label: 'Use an existing Tailcat gateway',
+                description:
+                  'Connect through a gateway you already run, using its private address.',
+                disabled: !tailcatAvailable,
+              },
+              {
+                value: 'direct',
+                label: 'Configure a direct connection',
+                description: 'Enter the API address and credentials for a host Zoomies can reach.',
+              },
+            ]}
+            onchange={chooseSetupMethod}
+          />
+        {/if}
+
         {#if automaticProxmox}
           <p class="prose">
             Run one command as root on your Proxmox host. Zoomies detects its name, creates an API
@@ -893,7 +960,7 @@
             <Button
               variant="ghost"
               onclick={() => {
-                manualConnection = true;
+                chooseSetupMethod('direct');
               }}>Configure connection manually</Button
             >
           {/if}
@@ -1022,7 +1089,7 @@
           <Switch
             bind:checked={draft.insecure_skip_verify}
             label="Do not verify the certificate"
-            description="The credential then travels to whatever answers at that address. A homelab hypervisor's certificate is usually its own, which is why this exists rather than being refused — but pasting the certificate above is better."
+            description="The credential then travels to whatever answers at that address. A homelab hypervisor's certificate is usually its own, which is why this exists rather than being refused, but pasting the certificate above is better."
           />
         {/if}
       {:else if step.id === 'placement'}
@@ -1194,7 +1261,7 @@
           <section class="terminal" aria-label="The same thing from a terminal">
             <p class="prose">
               {editing ? 'The same change' : 'The same provider'}, as one command for a shell that
-              can reach Zoomies — for a setup you would rather keep in a script. It asks for the
+              can reach Zoomies, for a setup you would rather keep in a script. It asks for the
               credential itself, so nothing secret is in the line.
             </p>
             <div class="command">

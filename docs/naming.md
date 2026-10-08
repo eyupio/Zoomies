@@ -24,7 +24,7 @@ it, so it is read far more often than it is written.
 
 Runner names matter for a different reason: they are the one thing Zoomies puts
 in somebody else's GitHub account. GitHub shows a runner's name in the runner
-list, in a job's header, and in the "Set up job" step of every log — three places
+list, in a job's header, and in the "Set up job" step of every log, three places
 a reader arrives at knowing nothing, and often the place they are looking
 *because* something landed somewhere surprising. The name answers them there.
 
@@ -38,7 +38,7 @@ zoomies-<vcpu>vcpu[-<memory>gb]-<os>-<version>[-<arch>][-<suffix>]
 | --- | --- | --- |
 | `zoomies` | | Always. It is how you tell Zoomies' runners and containers from everything else on a host. |
 | `<vcpu>vcpu` | `4vcpu` | A pool's per-runner share, or a host's total. A fraction rounds up. |
-| `<memory>gb` | `32gb` | Only when there is a memory limit to state. A host name carries what the machine has; a pool name carries what one of its runners gets, and only when that is not the fleet's default — a figure every pool shares says nothing about any of them, which is the same reason `amd64` is left out. |
+| `<memory>gb` | `32gb` | Only when there is a memory limit to state. A host name carries what the machine has; a pool name carries what one of its runners gets, and only when that is not the fleet's default; a figure every pool shares says nothing about any of them, which is the same reason `amd64` is left out. |
 | `<os>-<version>` | `ubuntu-2404` | The distribution and its release, with the dots removed. `ubuntu-2404`, `debian-12`, `fedora-42`, `rocky-9`. |
 | `<arch>` | `arm64` | Omitted for `amd64`, which is the default. Spelled out for everything else. |
 | `<suffix>` | `tuck`, `biscuit-a3f9qz2m` | What tells two things of the same shape apart: a host's machine name, or a runner's kennel word and token. Pools have none: a pool *is* its shape. |
@@ -64,7 +64,7 @@ not about the grammar here.
 ## Runner names
 
 A runner is named after the pool it belongs to, plus a discriminator that tells
-it from its siblings — `zoomies-4vcpu-ubuntu-2404-biscuit-a3f9qz2m`:
+it from its siblings, `zoomies-4vcpu-ubuntu-2404-biscuit-a3f9qz2m`:
 
 | Part | Example | What it is for |
 | --- | --- | --- |
@@ -73,7 +73,7 @@ it from its siblings — `zoomies-4vcpu-ubuntu-2404-biscuit-a3f9qz2m`:
 | kennel word | `biscuit` | A handle two people can say to each other. |
 | token | `a3f9qz2m` | Eight random characters, which is what makes the name unique. |
 
-The **kennel word** is one of thirty-two cocker spaniel names — the same list
+The **kennel word** is one of thirty-two cocker spaniel names; the same list
 the pool editor offers, because a fleet whose pools are named from one list and
 whose runners are named from another reads as two products. It is there to be
 said out loud: "the biscuit one" is a thing two people on a call can both find.
@@ -81,10 +81,10 @@ said out loud: "the biscuit one" is a thing two people on a call can both find.
 The **token** is eight random characters, and it is what actually guarantees
 uniqueness. GitHub requires a runner's name to be unique within the target, and
 thirty-two words collide about as often as two people in a room of eight share
-a birthday — fine for something you say, useless for something a registration
+a birthday, fine for something you say, useless for something a registration
 depends on.
 
-A pool that has no shape to report — no resources, no platform — lends its own
+A pool that has no shape to report (no resources, no platform) lends its own
 name instead, so a pool created in the UI gets
 `zoomies-biscuit-docker-linux-truffle-a3f9qz2m` rather than a runner called
 nothing in particular.
@@ -98,7 +98,7 @@ registration fighting itself. Segments go whole rather than mid-word, because
 shorter only says less.
 
 Because a runner's name is in the grammar, anything holding one can read it
-back into the pool's shape — which is what makes it worth the characters rather
+back into the pool's shape, which is what makes it worth the characters rather
 than just longer.
 
 ## Platforms
@@ -144,10 +144,10 @@ and the tag is the same `<os>-<version>` that appears in a pool name.
 | `ubuntu-2404` | `ubuntu:24.04@sha256:224a1869083a311ef3f13648a154ba79832fbef6364d31493642ca03082da254` | amd64, arm64 | yes |
 | `ubuntu-2604` | `ubuntu:26.04@sha256:da6fc2be547864451aa253836dd926da33623312df4a9a243e35dc877c378a78` | amd64, arm64 | yes |
 | `ubuntu-2204` | `ubuntu:22.04@sha256:829f6df217bcbae2b371026e81711d1a787c61b2967ad09d015063663ebafbf7` | amd64, arm64 | yes |
-| `debian-13` | `debian:13-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a` | amd64, arm64 | — |
-| `debian-12` | `debian:12-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171` | amd64, arm64 | — |
-| `fedora-42` | `fedora:42@sha256:99e203b80b1c3d8f7e161ec10a68fd02b081ef83a3963553e513c82846b97814` | amd64, arm64 | — |
-| `rocky-9` | `rockylinux/rockylinux:9@sha256:8101994123cf3d0a8fee517bee7f39e555c7d92bd2d9eb3303cc988a0eeed00f` | amd64, arm64 | — |
+| `debian-13` | `debian:13-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a` | amd64, arm64 | - |
+| `debian-12` | `debian:12-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe64d6990e4b07ea4171` | amd64, arm64 | - |
+| `fedora-42` | `fedora:42@sha256:99e203b80b1c3d8f7e161ec10a68fd02b081ef83a3963553e513c82846b97814` | amd64, arm64 | - |
+| `rocky-9` | `rockylinux/rockylinux:9@sha256:8101994123cf3d0a8fee517bee7f39e555c7d92bd2d9eb3303cc988a0eeed00f` | amd64, arm64 | - |
 <!-- zoomies:catalogue-end -->
 
 `:latest` points at `ubuntu-2404`, which is what a pool that names no platform
@@ -167,7 +167,7 @@ Every variant is published twice: as `zoomies-runner` and as
 switched to when its `docker_mode` gives jobs a daemon. The Ubuntu variants are
 published a third time, as `zoomies-runner-full`: the Docker image plus the
 language toolchains the `setup-*` actions install, which a pool opts into by
-naming it — the table above says which. All three are targets of one
+naming it; the table above says which. All three are targets of one
 `deploy/Dockerfile.runner`.
 
 That file takes the base image and the package family (`apt` or `dnf`) as build
@@ -182,7 +182,7 @@ The `apt` variants share one script more: every package installation goes
 through `deploy/runner-apt.sh`, which fetches the index again and retries when a
 download fails. The Ubuntu and Debian archives are each several machines behind
 one name, and a package the index has just started listing can 404 on whichever
-of them the build happens to reach — a mirror mid-sync, not a missing package,
+of them the build happens to reach; a mirror mid-sync, not a missing package,
 and not a reason to lose a whole image build. The `dnf` variants need no
 equivalent: dnf reads a metalink, knows about several mirrors at once and fails
 over between them itself.
@@ -199,9 +199,9 @@ fail at the first job.
 
 ### Baking in a toolchain
 
-The image already carries what a build usually reaches for — a compiler, the
+The image already carries what a build usually reaches for (a compiler, the
 headers native extensions link against, `python3`, `node`, `git-lfs`, `shellcheck` and
-the GitHub CLI — because a runner missing `cc` is a workflow that fails in the
+the GitHub CLI) because a runner missing `cc` is a workflow that fails in the
 middle of somebody's afternoon with an error about a missing compiler rather
 than about this image.
 
@@ -219,7 +219,7 @@ docker build -f deploy/Dockerfile.runner \
 The packages are named for the variant's own package manager, so an `apt`
 variant wants `libpq-dev` and a `dnf` one `libpq-devel`. They are installed in
 the image's last layer, so changing the list costs one package install rather
-than rebuilding the toolchain above it — and an unknown name fails the build,
+than rebuilding the toolchain above it, and an unknown name fails the build,
 which is a much better place to find out than a workflow.
 
 Then point a pool at it with `--image`, which overrides whatever its platform
@@ -261,8 +261,8 @@ here gets it, so saying it would tell a workflow author nothing. Ask for more
 than the usual and the name says so.
 
 The spaniel is still there, for the two cases the shape cannot cover on its own:
-a pool created before anything about it is known — the first one, before a host
-has connected — is `zoomies-biscuit`, and a second pool of a shape the fleet
+a pool created before anything about it is known (the first one, before a host
+has connected) is `zoomies-biscuit`, and a second pool of a shape the fleet
 already has becomes `zoomies-4vcpu-ubuntu-2404-truffle` rather than colliding.
 The dice ask for one outright, for an operator who wants a handle whether or not
 the name needs one.
@@ -275,8 +275,8 @@ image and restricts placement.
 actually use, which is the cgroup's share when the agent runs in a container --
 so the controller in a two-core container does not claim the host's sixty-four.
 
-A host's name is otherwise free text — `Build Box 1` and
-`ip-10-0-31-44.eu-west-1.compute.internal` are both fine — with three limits: at
+A host's name is otherwise free text (`Build Box 1` and
+`ip-10-0-31-44.eu-west-1.compute.internal` are both fine) with three limits: at
 most 128 characters, no control characters or line breaks, and no backtick. The
 last one is there because Zoomies quotes commands in backticks and the UI draws
 each pair as a command with a copy button, so a name carrying one would put text

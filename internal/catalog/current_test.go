@@ -113,7 +113,7 @@ func readJSON(t *testing.T, path string) map[string]any {
 	return out
 }
 
-var checkHeading = regexp.MustCompile("(?m)^#### `([a-z_.]+)` \\{ #[a-z_-]+ \\}$")
+var checkHeading = regexp.MustCompile("(?m)^### `([a-z_.]+)` \\{ #[a-z_-]+ \\}$")
 
 // The Kennel Club page's check list is generated from the registry between two
 // markers, so every check has a heading an anchor can reach and nothing else

@@ -244,25 +244,19 @@ export function cpuResourceStatus(
   switch (state) {
     case 'maximum_zoomies':
       return quirky
-        ? meta(state, said ?? 'Squirrel spotted — maximum zoomies', 'busy', 'filled', Squirrel)
+        ? meta(state, said ?? 'Squirrel spotted, maximum zoomies', 'busy', 'filled', Squirrel)
         : meta(state, 'Maximum boost', 'busy', 'filled', Zap);
     case 'zoomies':
       return quirky
-        ? meta(state, said ?? 'Rabbit spotted — extra zoomies', 'busy', 'filled', Rabbit)
+        ? meta(state, said ?? 'Rabbit spotted, extra zoomies', 'busy', 'filled', Rabbit)
         : meta(state, 'Extra boost', 'busy', 'filled', TrendingUp);
     case 'throttled':
       return quirky
-        ? meta(state, said ?? 'Leash tightened — host under pressure', 'pending', 'dashed', Dog)
+        ? meta(state, said ?? 'Leash tightened, host under pressure', 'pending', 'dashed', Dog)
         : meta(state, 'Throttled', 'pending', 'dashed', TrendingDown);
     case 'observing':
       return quirky
-        ? meta(
-            state,
-            said ?? 'Nose to the wind — watching spare CPU',
-            'pending',
-            'dashed',
-            PawPrint,
-          )
+        ? meta(state, said ?? 'Nose to the wind, watching spare CPU', 'pending', 'dashed', PawPrint)
         : meta(state, 'Observing spare CPU', 'pending', 'dashed', Eye);
     case 'sit_and_stay': {
       // A pool with elastic CPU off: the runner is held at exactly its share,
@@ -274,7 +268,7 @@ export function cpuResourceStatus(
       return quirky
         ? meta(
             state,
-            said ?? 'Sit and stay — CPU held at its share',
+            said ?? 'Sit and stay, CPU held at its share',
             'neutral',
             'hollow',
             DogSitting,
@@ -284,7 +278,7 @@ export function cpuResourceStatus(
     }
     default:
       return quirky
-        ? meta('guaranteed', said ?? 'Steady paws — guaranteed pace', 'idle', 'hollow', Circle)
+        ? meta('guaranteed', said ?? 'Steady paws, guaranteed pace', 'idle', 'hollow', Circle)
         : meta('guaranteed', 'Guaranteed pace', 'idle', 'hollow', Circle);
   }
 }

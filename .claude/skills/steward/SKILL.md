@@ -1,6 +1,6 @@
 ---
 name: steward
-description: Repository maintenance rules for Zoomies — keeping branches, pull requests, generated files, dependencies and docs healthy without trusting your own unverified work. Use when tidying the repository, acting on CI failures or review comments, refreshing generated artefacts, updating dependencies, or removing code, files, config keys or database rows.
+description: Repository maintenance rules for Zoomies, keeping branches, pull requests, generated files, dependencies and docs healthy without trusting your own unverified work. Use when tidying the repository, acting on CI failures or review comments, refreshing generated artefacts, updating dependencies, or removing code, files, config keys or database rows.
 ---
 
 # Steward
@@ -39,8 +39,8 @@ repository's own checks say so, run by you, on the tree you are about to push.
 - Re-read your own diff adversarially and ask what would make CI reject it.
   Generated files are the usual answer: `internal/api/openapi_spec.go`,
   `web/src/lib/api/schema.d.ts`, the `internal/naming/images.go` matrices,
-  `docs/problem-codes.md`. Regenerate with the repository's tooling —
-  `go run internal/api/gen_openapi.go`, `make openapi`, `make generate` —
+  `docs/problem-codes.md`. Regenerate with the repository's tooling
+  (`go run internal/api/gen_openapi.go`, `make openapi`, `make generate`)
   never by hand.
 - Never treat a failing test as noise. "Flake" is a diagnosis you have
   evidence for, not a default. Never skip, disable or quarantine a test to
@@ -56,13 +56,13 @@ diff, so default to a reversible form of it.
 | Deleting a config key | Keep it parsed, ignore it, and raise a `config.Finding` naming the replacement |
 | Deleting an API field or route | Mark it deprecated in `api/openapi.yaml`, keep serving it, regenerate both clients |
 | Deleting a database row | Set the tombstone or state the store already models; go through `store.TransitionRunner` rather than removing history |
-| Deleting a doc page | Leave a stub that links onward — `mkdocs build --strict` fails on a link that points nowhere |
+| Deleting a doc page | Leave a stub that links onward, `mkdocs build --strict` fails on a link that points nowhere |
 | Dropping a dependency | Remove the import and the `docs/dependencies.md` row in the same commit, so the justification and the use disappear together |
 
 Hard deletion is reserved for things with no external surface: unreferenced
 private helpers, dead test fixtures, files you added yourself earlier in the
-same branch. Before removing anything, read it — `grep` for the identifier
-across `internal/`, `cmd/`, `web/` and `docs/` — and say in the commit message
+same branch. Before removing anything, read it (`grep` for the identifier
+across `internal/`, `cmd/`, `web/` and `docs/`) and say in the commit message
 what confirmed it was unused.
 
 Never rewrite history on a branch you did not create: no rebase, no amend, no
@@ -85,7 +85,7 @@ Ask before:
 - Resolving a merge conflict where both sides changed the same logic and
   picking either one loses behaviour.
 - Any change to authentication, authorisation, secrets, runner isolation or a
-  deletion path — `CONTRIBUTING.md` asks for an explicit threat and
+  deletion path, `CONTRIBUTING.md` asks for an explicit threat and
   failure-mode review on those.
 
 Proceed without asking on: a nit, a rename, an added test, regenerating a file
@@ -105,17 +105,17 @@ the following acceptable:
 
 ## Before every push
 
-1. `make build-nogui` — the tree compiles.
-2. `make fmt` then `make lint` — `gofmt -l` is empty, `go vet` and the UI lint
+1. `make build-nogui`: the tree compiles.
+2. `make fmt` then `make lint`: `gofmt -l` is empty, `go vet` and the UI lint
    are clean.
-3. `make test` — the full suite, with the race detector.
+3. `make test`: the full suite, with the race detector.
 4. `go mod tidy` leaves `go.mod` and `go.sum` unchanged.
 5. Generated files regenerated from their sources, not edited.
 6. New behaviour arrives with a test; new settings arrive with a
    `docs/configuration.md` row and a `ZOOMIES_*` override in `applyEnv`; new
    finding codes arrive with a `docs/problem-codes.md` row.
 7. The prose matches the house voice: British spelling, comments that say
-   *why*, `--` in code and `—` in Markdown, commit messages as imperative
+   *why*, no em dashes (`—`) anywhere, commit messages as imperative
    sentences in sentence case with no Conventional Commits prefix.
 
 One validated push beats three speculative ones.

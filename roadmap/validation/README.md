@@ -1,6 +1,6 @@
 # Validation evidence
 
-One file per gate or per measured baseline, named for the commit it describes —
+One file per gate or per measured baseline, named for the commit it describes,
 with one exception, the drill record, which is a running log rather than a
 snapshot and is named for what writes it.
 A file here is a record of what was run, on what, with what result, and what
@@ -36,7 +36,7 @@ Gate F was withdrawn by ROADMAP.md version 3.0 on 19 September 2026, so no
 file for it will be added; its definitions of scheduling latency, of a
 Zoomies-caused failure and of a denominator stay in
 [support-and-measurement.md](../support-and-measurement.md) and in
-`docs/metrics.md`. Evidence from a real fleet — a Windows host, a Proxmox
-cluster — is still recorded here when it arrives, and is never waited for.
+`docs/metrics.md`. Evidence from a real fleet (a Windows host, a Proxmox
+cluster) is still recorded here when it arrives, and is never waited for.
 
 See [Scorecard hardening](scorecard-hardening.md) for the September 2026 security changes and remaining repository settings.

@@ -46,10 +46,10 @@ async function connectStep(page: Page, name: string): Promise<void> {
   const manual = page.getByRole('button', { name: 'Configure connection manually' });
   if (await manual.isVisible()) await manual.click();
   await page.getByLabel('Name').fill(name);
-  // By role: the connection choice below it describes itself with the word
-  // too, and a radio is not where a URL goes.
+  // The setup choices describe themselves with these words too; match the
+  // fields' labels without matching the radios' descriptions.
   await page.getByRole('textbox', { name: /^Address/ }).fill('https://pve.e2e.example:8006');
-  await page.getByLabel('Credential').fill('zoomies@pve!e2e=not-a-token');
+  await page.getByLabel(/^Credential\b/).fill('zoomies@pve!e2e=not-a-token');
   await next(page).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Placement' })).toBeVisible();
 }
@@ -556,7 +556,10 @@ test('a private connection is offered only where the controller can make one, an
   await goto(page, '/providers/new', 'Add a provider');
   await page.getByRole('button', { name: 'Configure connection manually' }).click();
   await expect(page.getByRole('radio', { name: /Private connection/ })).toBeDisabled();
-  await expect(page.getByRole('radio', { name: 'Direct' })).toBeChecked();
+  const direct = page.getByRole('group', { name: 'Connection', exact: true }).getByRole('radio', {
+    name: /^Direct\b/,
+  });
+  await expect(direct).toBeChecked();
   await expect(page.getByText(/Private connections need authentication/)).toBeVisible();
 
   await page.route('**/api/v1/meta', async (route) => {
@@ -584,7 +587,7 @@ test('a private connection is offered only where the controller can make one, an
   );
   // Nothing about the choice is a matter for the browser alone: what leaves
   // the page names the connection, and the address travels only with it.
-  await page.getByRole('radio', { name: 'Direct' }).check();
+  await direct.check();
   await expect(page.getByLabel('Private connection address')).toHaveCount(0);
 });
 
@@ -661,7 +664,13 @@ test('Proxmox onboarding waits for one command and fills the connection without 
         id: 'pvs_test',
         expires_at: new Date(Date.now() + 3600000).toISOString(),
         ready: hostConnected,
-        ...(hostConnected ? { name: 'proxmox-pve-1', endpoint: 'https://pve.example:8006' } : {}),
+        ...(hostConnected
+          ? {
+              name: 'proxmox-pve-1',
+              endpoint: 'https://pve.example:8006',
+              templates: [{ vmid: 9000, name: 'Runner template', node: 'pve-1' }],
+            }
+          : {}),
       },
     }),
   );
@@ -672,7 +681,7 @@ test('Proxmox onboarding waits for one command and fills the connection without 
         nodes: [{ value: 'pve-1', label: 'pve-1' }],
         storages: [{ value: 'local-lvm', label: 'local-lvm' }],
         bridges: [{ value: 'vmbr0', label: 'vmbr0' }],
-        templates: [{ value: '9000', label: 'Runner template' }],
+        templates: [],
       },
     });
   });
@@ -696,8 +705,34 @@ test('Proxmox onboarding waits for one command and fills the connection without 
   await expect.poll(() => discoveryBody?.setup_id).toBe('pvs_test');
   expect(discoveryBody).not.toHaveProperty('credential');
   expect(discoveryBody).not.toHaveProperty('tailcat_address');
+  expect(discoveryBody?.settings).toMatchObject({ template_id: '9000', template_node: 'pve-1' });
+  await expect(page.getByRole('option', { name: 'Runner template (9000)' })).toBeAttached();
   await expect(next(page)).toBeEnabled();
   await next(page).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Capacity' })).toBeVisible();
   await expect(page.getByText('Advanced machine settings', { exact: true })).toBeVisible();
+});
+
+test('Proxmox offers an existing Tailcat gateway without hiding it behind manual setup', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/meta', async (route) => {
+    const response = await route.fetch();
+    const meta = await response.json();
+    await route.fulfill({ response, json: { ...meta, tailcat_available: true } });
+  });
+  await goto(page, '/providers/new', 'Add a provider');
+  await expect(page.getByRole('radio', { name: /^Automatic setup · Tailcat/ })).toBeChecked();
+  await page.getByRole('radio', { name: /^Use an existing Tailcat gateway/ }).check();
+  await expect(page.getByRole('radio', { name: /^Private connection · Tailcat/ })).toBeChecked();
+  await expect(page.getByLabel('Private connection address')).toBeVisible();
+  await expect(
+    page.getByText('zoomies gateway --target <hypervisor-ip>:8006', { exact: true }),
+  ).toBeVisible();
+  await page.getByRole('radio', { name: /^Configure a direct connection/ }).check();
+  await expect(page.getByRole('radio', { name: /^Direct/ })).toBeChecked();
+  await expect(page.getByLabel('Private connection address')).toHaveCount(0);
+  await page.getByRole('radio', { name: /^Automatic setup · Tailcat/ }).check();
+  await expect(page.getByLabel('Credential', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Generate setup command' })).toBeVisible();
 });

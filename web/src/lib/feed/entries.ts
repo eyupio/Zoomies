@@ -205,7 +205,7 @@ export function runnerMilestoneEntry(
 /**
  * A runner lent spare CPU, or having it taken back.
  *
- * The title is the controller's own label -- "Squirrel spotted — maximum
+ * The title is the controller's own label -- "Squirrel spotted, maximum
  * zoomies" -- because that vocabulary is the product's, it is what the
  * runner's own page says, and a feed that translated it into "CPU allocation
  * factor 1.8" would be describing a different system from the one beside it

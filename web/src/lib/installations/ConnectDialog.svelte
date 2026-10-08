@@ -461,20 +461,20 @@
   const webhookURL = $derived(session.meta?.webhook_url ?? '');
   const permissions = $derived([
     targetType === 'repo'
-      ? "administration: write — register and remove this repository's runners"
-      : "organization_self_hosted_runners: write — register and remove the org's runners",
+      ? "administration: write, register and remove this repository's runners"
+      : "organization_self_hosted_runners: write, register and remove the org's runners",
     session.meta?.workflow_cancellation_enabled
-      ? 'actions: write — read workflow jobs and cancel workflow runs from Zoomies'
-      : 'actions: read — read workflow runs and jobs for the fallback poller',
-    'metadata: read — required by GitHub for every App',
+      ? 'actions: write, read workflow jobs and cancel workflow runs from Zoomies'
+      : 'actions: read, read workflow runs and jobs for the fallback poller',
+    'metadata: read, required by GitHub for every App',
     ...(migration
       ? [
-          'contents: write — read and rewrite workflow files for the migration wizard',
-          "pull_requests: write — open the migration wizard's pull request",
-          'workflows: write — required by GitHub to change files under .github/workflows',
+          'contents: write, read and rewrite workflow files for the migration wizard',
+          "pull_requests: write, open the migration wizard's pull request",
+          'workflows: write, required by GitHub to change files under .github/workflows',
         ]
       : []),
-    'workflow_job events — the webhook that makes scaling instant',
+    'workflow_job events, the webhook that makes scaling instant',
   ]);
 
   /**
@@ -1202,8 +1202,8 @@
                 <img class="logo-preview" src={APP_LOGO} alt="" width="56" height="56" />
                 <div class="logo-copy">
                   <p>
-                    An App manifest cannot carry a logo — GitHub only takes an upload — so the App
-                    is wearing the grey default, and it signs every "Set up job" line in the
+                    An App manifest cannot carry a logo, GitHub only takes an upload, so the App is
+                    wearing the grey default, and it signs every "Set up job" line in the
                     organisation's logs. Download the mark and upload it under
                     <em>Display information</em>.
                   </p>
@@ -1523,7 +1523,7 @@
   }
   .lede {
     margin: 0;
-    max-width: 72ch;
+    max-width: var(--z-measure-prose);
     font-size: var(--z-text-base);
     line-height: var(--z-leading-base);
     color: var(--z-text-muted);

@@ -585,7 +585,7 @@ func (c *Config) Validate() Findings {
 		add(Finding{
 			Code: "crypto.key_in_config", Severity: SeverityWarning, Setting: "security.encryption_key",
 			Title:  "the encryption key is written in the config file",
-			Detail: "anything that can read " + c.path + " — backups, configuration management, a support bundle — can decrypt every stored secret.",
+			Detail: "anything that can read " + c.path + ", backups, configuration management, a support bundle, can decrypt every stored secret.",
 			Fix:    "move it to security.encryption_key_file (mode 0600) or the ZOOMIES_ENCRYPTION_KEY environment variable.",
 		})
 	}
@@ -1076,6 +1076,9 @@ func (c *Config) Validate() Findings {
 		})
 	}
 
+	// --- Update mode ------------------------------------------------------
+	c.validateUpdates(add)
+
 	// --- External capacity provisioner -----------------------------------
 	if c.CapacityDemand.DestinationURL != "" {
 		u, err := url.Parse(c.CapacityDemand.DestinationURL)
@@ -1544,7 +1547,7 @@ func (c *Config) validateBackupRemotes(add func(Finding)) {
 				Code: "backup.remote_plaintext", Severity: SeverityWarning, Setting: "backup.remotes",
 				Title:  fmt.Sprintf("the backup remote %s is sent the backup unencrypted", named),
 				Detail: "a backup is the whole fleet: every repository and job it has seen, every account, and the sealed GitHub App credentials. In " + r.Where() + " it is a file anyone who can read the bucket can open.",
-				Fix:    "set a passphrase on the remote — the archive is then sealed with argon2id and AES-256-GCM before it leaves this host — and keep it wherever you keep the encryption key. Nothing here can recover it.",
+				Fix:    "set a passphrase on the remote, the archive is then sealed with argon2id and AES-256-GCM before it leaves this host, and keep it wherever you keep the encryption key. Nothing here can recover it.",
 			})
 		}
 		if r.Passphrase != "" && len(r.Passphrase) < MinBackupPassphrase {
@@ -1567,7 +1570,7 @@ func (c *Config) validateBackupRemotes(add func(Finding)) {
 			Code: "backup.no_remote", Severity: SeverityInfo, Setting: "backup.remotes",
 			Title:  "backups are taken but never leave this host",
 			Detail: "the schedule keeps copies beside the database, which is a backup against a mistake and not against the disk, the machine or the datacentre.",
-			Fix:    "add an S3-compatible destination on the Backups page, or under backup.remotes here — or keep shipping the directory yourself. The point is that one of the three is somebody's job.",
+			Fix:    "add an S3-compatible destination on the Backups page, or under backup.remotes here, or keep shipping the directory yourself. The point is that one of the three is somebody's job.",
 		})
 	}
 }
@@ -1783,5 +1786,74 @@ func (c *Config) validateSizeRouting(add func(Finding)) {
 			Title:  "size routing is on and automatic pools are off",
 			Detail: "Jobs are classed, but no pool is kept for a class, so a job is only ever answered by a pool you made that carries its size label.",
 			Fix:    "turn scheduler.auto_pools on, or label your own pools zoomies-small, zoomies-medium and zoomies-large."})
+	}
+}
+
+// validateUpdates checks what the controller was told to do about a newer
+// release.
+//
+// The mode and the soak are checked whether or not updating is on, for the
+// reason the Kennel settings are: a value that is wrong while the feature is off
+// is still wrong on the day somebody switches it on. And a negative soak can get
+// here from the file even though the settings layer refuses one at a write.
+//
+// The three findings that are not errors are the point of it. A mode beside a
+// release check that is switched off has no release to act on, and would never
+// say why no update is offered. A soak of nothing removes the only wait between a
+// release being published and every host running it. And the mode that replaces
+// the controller's binary with nobody pressing anything is the largest surprise a
+// setting could hold. None of them stops a fleet that means it, and none is
+// allowed to be silent.
+func (c *Config) validateUpdates(add func(Finding)) {
+	u := c.Updates
+	if !slices.Contains(updateModes, u.Mode) {
+		add(Finding{
+			Code: "updates.mode", Severity: SeverityError, Setting: "updates.mode",
+			Title: fmt.Sprintf("%q is not a release update mode", u.Mode),
+			Fix: "choose off, which says that a release exists and nothing more; manual, which adds the Update buttons and moves nothing " +
+				"without a click; or auto, which takes a release once it has been public for updates.soak. " + updatesNotInstalledYet,
+		})
+	}
+	if u.Soak < 0 {
+		add(Finding{
+			Code: "updates.soak_negative", Severity: SeverityError, Setting: "updates.soak",
+			Title: "updates.soak cannot be negative",
+			Fix:   `use a duration like "24h", or 0 for no wait.`,
+		})
+	}
+	if (u.Mode == "manual" || u.Mode == "auto") && u.CheckInterval <= 0 {
+		add(Finding{
+			Code: "updates.mode_without_check", Severity: SeverityWarning, Setting: "updates.mode",
+			Title: fmt.Sprintf("updates.mode is %s but the release check is switched off", u.Mode),
+			Detail: "updates.check_interval is 0, which is the setting for a deployment with no route to github.com, so this controller never learns " +
+				"that a release exists. The mode has nothing to act on, and nothing would tell you why no update is ever offered.",
+			Fix: `give updates.check_interval a duration such as "24h", or set updates.mode to off if this controller cannot reach github.com.`,
+		})
+	}
+	if u.Mode != "auto" {
+		return
+	}
+	// A soak of nothing would read "once it has been public for 0s", which is a
+	// wait that is not one; the warning beside it says what it means.
+	taken := "as soon as it is seen"
+	if u.Soak > 0 {
+		taken = "once it has been public for " + TidyDuration(u.Soak)
+	}
+	add(Finding{
+		Code: "updates.auto", Severity: SeverityInfo, Setting: "updates.mode",
+		Title: "the update mode is auto",
+		Detail: "the controller takes the newest release " + taken + ", and the hosts that have opted in then follow it, " +
+			"one at a time. Nobody is asked first, updating the controller restarts it, and there is no automatic rollback: a migration is one way. " +
+			updatesNotInstalledYet,
+		Fix: "nothing to change if that is what you want. Set updates.mode to manual to take each update yourself, or to off to be told that a release exists and nothing more.",
+	})
+	if u.Soak == 0 {
+		add(Finding{
+			Code: "updates.auto_without_soak", Severity: SeverityWarning, Setting: "updates.soak",
+			Title: "updates.soak is 0, so a release is taken as soon as it is seen",
+			Detail: "the soak is the only wait between a release being published and every host running it. Without one, a release that turns out to be " +
+				"broken, or is replaced by a fix within hours, would be taken before anyone has had the chance to notice.",
+			Fix: `set updates.soak to "24h", which is the default, or to however long a release should have been public first; or set updates.mode to manual to take each update yourself.`,
+		})
 	}
 }

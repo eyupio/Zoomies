@@ -92,7 +92,7 @@
   const pools = $derived(plan?.pools ?? []);
 
   const options = $derived([
-    ...pools.map((p) => ({ value: p.runs_on ?? '', label: `${p.runs_on} — the ${p.name} pool` })),
+    ...pools.map((p) => ({ value: p.runs_on ?? '', label: `${p.runs_on}, the ${p.name} pool` })),
     { value: STAY, label: 'Leave this job where it is' },
   ]);
 
@@ -106,7 +106,7 @@
     return [
       {
         value: CONSOLIDATED,
-        label: to ? `Use the label mapping — ${to}` : 'Use the label mapping — stays where it is',
+        label: to ? `Use the label mapping, ${to}` : 'Use the label mapping, stays where it is',
       },
       ...options,
     ];
@@ -137,7 +137,7 @@
 {:else}
   <p class="lede">
     Every job below already has an answer from the label mapping, and leaving them all alone is the
-    usual thing to do. Change one and it changes only that job, in that file, in that repository —
+    usual thing to do. Change one and it changes only that job, in that file, in that repository,
     the review step will show the diff either way.
     {#if count > 0}
       <strong>{count} {count === 1 ? 'job is' : 'jobs are'} an exception.</strong>

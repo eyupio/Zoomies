@@ -95,6 +95,8 @@ tags:
     description: The fence a restore sets, and the one act that lifts it.
   - name: backups
     description: Copies of the database, and the restore that puts one back.
+  - name: updates
+    description: Which release this controller's update mode would take, when, and why.
   - name: agent
     description: Routes used by agents. Not for general clients.
 
@@ -2275,7 +2277,7 @@ paths:
                       scale_up_delay: { type: string, examples: ["0s"] }
                       docker_wait:
                         type: string
-                        description: The wait that actually happens rather than the one configured — zero in the setting means the runner image chooses, and the image waits two minutes.
+                        description: The wait that actually happens rather than the one configured, zero in the setting means the runner image chooses, and the image waits two minutes.
                         examples: ["2m0s"]
 
   /pools/export:
@@ -2395,14 +2397,14 @@ paths:
                     items: { $ref: "#/components/schemas/HostExclusion" }
                   reduced_hosts:
                     type: array
-                    description: Hosts that can run this pool, and are counted in matching_hosts, but give its runners less than a larger machine would — the pool's minimum at work, with code `reduced` and a sentence saying how much. Information, not a warning.
+                    description: Hosts that can run this pool, and are counted in matching_hosts, but give its runners less than a larger machine would; the pool's minimum at work, with code `reduced` and a sentence saying how much. Information, not a warning.
                     items: { $ref: "#/components/schemas/HostExclusion" }
                   image:
                     type: string
-                    description: The image the pool would actually run, which for a pool that gives its jobs a daemon is the stock image's Docker variant rather than the image the request named. Empty for a pool that names no image, where nothing is stored — `effective_image` is the answer there.
+                    description: The image the pool would actually run, which for a pool that gives its jobs a daemon is the stock image's Docker variant rather than the image the request named. Empty for a pool that names no image, where nothing is stored, `effective_image` is the answer there.
                   effective_image:
                     type: string
-                    description: The image a pool that names none would boot — the variant its platform picks, or the fleet's default, with the Docker swap applied. It is what the pool editor shows for the pool written out at the foot of the page, where the pool being described has no image of its own.
+                    description: The image a pool that names none would boot; the variant its platform picks, or the fleet's default, with the Docker swap applied. It is what the pool editor shows for the pool written out at the foot of the page, where the pool being described has no image of its own.
                   resources:
                     allOf: [{ $ref: "#/components/schemas/Resources" }]
                     description: The size the pool would run at on every host. Empty for a pool that leaves the size to its host, where the per-host share is in `room.hosts[].charge_cpus` and `charge_memory_mb` instead.
@@ -3856,6 +3858,37 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Host" }
 
+  /hosts/{id}/health-check:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    post:
+      operationId: checkHostHealth
+      tags: [hosts]
+      summary: Ask a host's agent to check itself now
+      description: >-
+        Queues one request for the host's agent to run its read-only OS checks once and send the
+        report back, instead of waiting for its next periodic report. Nothing on the host is
+        changed, and the controller never dials the agent: the request goes out on the agent's
+        own poll. The answer is the host straight away, carrying `health_check.state` of `asked`;
+        the report arrives later as an ordinary `host.updated` event. Only a native Linux agent
+        (a systemd or bare-process install, or the agent inside a natively installed controller)
+        that advertises `host-check` can answer. An agent in a container, including the Compose
+        deployment with the host-health service, a host that is not Linux and an agent older
+        than this feature are refused with 409 and a sentence saying so, as is a host that is not
+        connected. A host asked within the last 15 seconds answers 429 with `Retry-After`; asking
+        again while a request is still waiting for its answer changes nothing and answers the
+        host. Audited as `host.check_requested` only when a request was queued. Takes no body.
+      x-zoomies-role: operator
+      responses:
+        "202":
+          description: Accepted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Host" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
   /hosts/{id}/check-acceptances:
     parameters: [{ $ref: "#/components/parameters/PathID" }]
     put:
@@ -4369,6 +4402,7 @@ paths:
                 credential: { type: string, writeOnly: true }
                 ca_pem: { type: string }
                 tailcat_address: { type: string, writeOnly: true }
+                templates: { type: array, items: { $ref: "#/components/schemas/ProxmoxSetupTemplate" } }
       responses:
         "204": { description: Connection accepted. }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -5496,7 +5530,7 @@ paths:
         Deletes the copies beyond `backup.keep` from the backup directory, and the
         ones beyond each destination's own `keep` from its bucket. Retention
         otherwise runs as part of taking a backup, which leaves a fleet that has
-        just lowered `backup.keep` holding the old number until the next one —
+        just lowered `backup.keep` holding the old number until the next one,
         and on a fleet with `backup.interval` off, holding it forever. A copy that
         was uploaded here or fetched back out of a bucket is never counted and
         never removed. The answer lists what went, per destination, and a bucket
@@ -5520,7 +5554,7 @@ paths:
         Stores an S3-compatible destination this fleet copies every backup to.
         The secret key and the passphrase are sealed with the instance encryption
         key before anything else happens to them, and no response ever carries
-        them back — the page is told whether each is set, which is the only thing
+        them back; the page is told whether each is set, which is the only thing
         it can act on. A destination `backup.remotes` in `zoomies.yaml` already
         names is refused: the file has the last word, and two rows that disagree
         would be worse than one that cannot be added.
@@ -5578,7 +5612,7 @@ paths:
       description: >-
         Only the fields the body carries are changed. The two secrets follow the
         credential convention: absent leaves what is stored, a value replaces it,
-        and an explicit empty string clears it — which is how a passphrase is
+        and an explicit empty string clears it, which is how a passphrase is
         removed from a destination that should send the plain archive. A
         destination described in `zoomies.yaml` answers `409`: it is changed in
         the file.
@@ -5921,13 +5955,13 @@ paths:
         default says.
 
         Every key is checked before any is written, and the whole request is
-        refused if one fails — including when the result would be a controller
+        refused if one fails, including when the result would be a controller
         that will not start, which the validator is asked about before anything
         is stored.
 
         An accepted change is always kept. One the running process can apply
-        does so at once; one it cannot — rebinding the listener, rebuilding the
-        backends — is stored and named in `pending_restart`.
+        does so at once; one it cannot (rebinding the listener, rebuilding the
+        backends) is stored and named in `pending_restart`.
 
         Refused: a key that is read before the database opens, one that belongs
         to a standalone agent's own host, and one an environment variable is
@@ -5996,6 +6030,31 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/SettingsImport" }
         "422": { $ref: "#/components/responses/Unprocessable" }
+
+  # ==========================================================================
+  # Updates
+  # ==========================================================================
+  /updates:
+    get:
+      operationId: getUpdates
+      tags: [updates]
+      summary: What an update would take
+      description: >-
+        The update mode and soak, the build that is running, the newest release that can be
+        installed on this system, whether that is newer than the build, and when the mode
+        would take it, with the sentence that says why. It answers 200 whatever the mode:
+        with `mode: off` it names no release and says how to turn updating on, and until the
+        list of releases has been read it says that, because a list nobody has read and a
+        list with nothing in it that can be installed are different things to be told. A
+        build that is not from a release is left alone, and the sentence says so. It changes
+        nothing. The same document is the payload of the `updates.updated` event.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpdatesStatus" }
 
   # ==========================================================================
   # Agent routes
@@ -8059,8 +8118,8 @@ components:
             Where the history each figure is computed from begins, given what
             retention has already pruned. Job counts, execution time and
             queue waits come from job rows. Allocated runner time and cost
-            come from the usage ledger — a daily roll-up for the whole UTC
-            days it covers, and runner rows and sessions for the rest — so
+            come from the usage ledger (a daily roll-up for the whole UTC
+            days it covers, and runner rows and sessions for the rest) so
             `runners` is where the ledger begins rather than where
             retention.runners cuts the rows. A report whose `from` is earlier
             than one of these is complete only from that instant on. Null
@@ -8791,8 +8850,8 @@ components:
           description: >-
             Why Zoomies could not finish taking this runner away: a stop or remove the
             agent could not complete, or a registration GitHub would not delete. Empty is
-            the normal case. A non-empty value means something is left behind — a container
-            on its host, or a registration on the organisation — and it will not go away on
+            the normal case. A non-empty value means something is left behind (a container
+            on its host, or a registration on the organisation) and it will not go away on
             its own. Zoomies retries, and this clears when it succeeds.
         cleanup_failed_at: { type: [string, "null"], format: date-time }
         cleanup_attempts:
@@ -8950,7 +9009,7 @@ components:
         problem:
           type: string
           description: >-
-            Why this destination cannot be used at all — almost always that this
+            Why this destination cannot be used at all, almost always that this
             instance's encryption key does not open its stored secrets.
         has_secret_key: { type: boolean, description: A secret key is stored for this destination. }
         where: { type: string, description: The bucket and prefix. }
@@ -10277,9 +10336,23 @@ components:
         short_code: { type: string, enum: [pool_empty, host_floor] }
         at: { type: string, format: date-time, description: When the pool was last worked out. }
 
+    HostHealthCheck:
+      type: object
+      description: >-
+        The last "Check now" asked of this host's agent. It lives in the controller's
+        memory only, so it is lost on a restart, and it is absent when there is nothing
+        to say: no request, or one old enough that the page has no use for it.
+      required: [state, asked_at]
+      properties:
+        state: { type: string, enum: [asked, done, failed], description: "asked while the agent has not answered; failed also covers an agent that did not answer in time." }
+        asked_at: { type: string, format: date-time }
+        outcome: { type: string, enum: [first, changed, unchanged, not_newer], description: "When done: whether the report was the first, changed the findings, matched the last, or carried a clock no later than the last report's." }
+        message: { type: string, description: "When failed: a sentence for a person saying what to check." }
+        next_at: { type: string, format: date-time, description: "When the host may be asked again. Only present while that is in the future." }
     Host:
       type: object
       properties:
+        health_check: { $ref: "#/components/schemas/HostHealthCheck" }
         doctor: { $ref: "#/components/schemas/HostDoctorView" }
         usage: { $ref: "#/components/schemas/HostUsage" }
         usage_fresh: { type: boolean, description: Usage is less than 90 seconds old. Unknown or stale readings retain reservation-based placement. }
@@ -10582,6 +10655,14 @@ components:
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
 
+    ProxmoxSetupTemplate:
+      type: object
+      required: [vmid, name, node]
+      properties:
+        vmid: { type: integer, minimum: 100 }
+        name: { type: string }
+        node: { type: string }
+
     ProviderSetup:
       type: object
       required: [id, expires_at, ready]
@@ -10591,6 +10672,7 @@ components:
         ready: { type: boolean }
         name: { type: string }
         endpoint: { type: string }
+        templates: { type: array, items: { $ref: "#/components/schemas/ProxmoxSetupTemplate" }, description: QEMU templates detected by the setup command. }
         command: { type: string, description: Returned only at creation; contains the short-lived setup capability. }
 
     ProviderInput:
@@ -11230,6 +11312,90 @@ components:
             skipped: { type: integer }
         secrets_configured: { type: array, items: { type: string } }
         settings: { $ref: "#/components/schemas/Settings" }
+
+    # --- updates -----------------------------------------------------------
+    UpdatesRunning:
+      type: object
+      required: [version, release]
+      properties:
+        version:
+          type: string
+          description: >-
+            The build as it reports itself. A release binary says `1.3.5`, without the v its
+            tag has; any other says something like `main-sha-abc1234` or `dev`.
+          examples: ["1.3.5"]
+        release:
+          type: boolean
+          description: >-
+            Whether the build came from a release. Only one that did is offered an update,
+            because a build from main is usually ahead of the newest release and taking it
+            there would be a downgrade.
+    UpdatesRelease:
+      type: object
+      required: [tag, url, published_at]
+      properties:
+        tag: { type: string, examples: [v1.3.5] }
+        url:
+          type: string
+          description: >-
+            The release's page, where its notes are. Empty when GitHub's address is not an
+            absolute https URL.
+        published_at:
+          type: string
+          format: date-time
+          description: When GitHub published it, which is where the soak starts.
+    UpdatesTarget:
+      type: object
+      required: [tag, newer, due_at]
+      properties:
+        tag: { type: string, examples: [v1.3.5] }
+        newer: { type: boolean, description: Whether the release is a later one than the build that is running. Only then is there anything to take. }
+        due_at:
+          type: [string, "null"]
+          format: date-time
+          description: >-
+            The earliest time the mode takes the release: the end of the soak in `auto`. Null in
+            `manual`, where the person asking is the only wait, and whenever `newer` is false.
+    UpdatesStatus:
+      type: object
+      required: [mode, soak, running, latest, target, reason, checked_at]
+      properties:
+        mode:
+          type: string
+          enum: [off, manual, auto]
+          description: >-
+            `updates.mode` as the controller acts on it. `off` offers nothing, `manual` offers
+            the newest release to a person, and `auto` takes it once it has been public for the soak.
+        soak:
+          allOf: [{ $ref: "#/components/schemas/Duration" }]
+          description: >-
+            `updates.soak` as the Settings page writes it. `auto` waits this long after a release is
+            published; `manual` ignores it.
+        running: { $ref: "#/components/schemas/UpdatesRunning" }
+        latest:
+          description: >-
+            The newest release that could be installed on this system, whether or not the build is
+            behind it. Null while updating is off, until the list of releases has been read, and
+            when nothing in it can be installed here.
+          oneOf:
+            - $ref: "#/components/schemas/UpdatesRelease"
+            - type: "null"
+        target:
+          description: What the mode would do about `latest`. Null whenever `latest` is.
+          oneOf:
+            - $ref: "#/components/schemas/UpdatesTarget"
+            - type: "null"
+        reason:
+          type: string
+          description: >-
+            A sentence or two, in an operator's words, that says what the mode would do and why.
+            It always says something: it is what to show when there is nothing to offer.
+        checked_at:
+          type: [string, "null"]
+          format: date-time
+          description: >-
+            When the list of releases `latest` was chosen from was read. Null while updating is
+            off, and until a list has been read.
 
     # --- agent protocol (internal) ------------------------------------------
     # The wire types of the agent routes. internal/agent/protocol.go owns them;
