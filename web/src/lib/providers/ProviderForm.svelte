@@ -127,6 +127,23 @@
     untrack(() => (provider ? draftFromProvider(provider) : emptyDraft())),
   );
   let manualConnection = $state(false);
+  let setupMethod = $state('automatic');
+
+  function chooseSetupMethod(method: string): void {
+    setupMethod = method;
+    manualConnection = method !== 'automatic';
+    setupID = '';
+    setupCommand = '';
+    setupReady = false;
+    setupError = '';
+    if (draft.setup_id) {
+      delete draft.setup_id;
+      draft.name = '';
+      draft.endpoint = '';
+      draft.tailcat_configured = false;
+    }
+    draft.connection = method === 'tailcat' ? 'tailcat' : 'direct';
+  }
   const automaticProxmox = $derived(!editing && draft.kind === 'proxmox' && !manualConnection);
   let setupID = $state('');
   let setupCommand = $state('');
@@ -852,6 +869,35 @@
           {/snippet}
         </Field>
 
+        {#if !editing && draft.kind === 'proxmox'}
+          <RadioGroup
+            bind:value={setupMethod}
+            name="proxmox-setup-method"
+            legend="How to connect"
+            options={[
+              {
+                value: 'automatic',
+                label: 'Automatic setup · Tailcat',
+                description:
+                  'Run one command on the Proxmox host. Zoomies fills in the connection details.',
+              },
+              {
+                value: 'tailcat',
+                label: 'Use an existing Tailcat gateway',
+                description:
+                  'Connect through a gateway you already run, using its private address.',
+                disabled: !tailcatAvailable,
+              },
+              {
+                value: 'direct',
+                label: 'Configure a direct connection',
+                description: 'Enter the API address and credentials for a host Zoomies can reach.',
+              },
+            ]}
+            onchange={chooseSetupMethod}
+          />
+        {/if}
+
         {#if automaticProxmox}
           <p class="prose">
             Run one command as root on your Proxmox host. Zoomies detects its name, creates an API
@@ -893,7 +939,7 @@
             <Button
               variant="ghost"
               onclick={() => {
-                manualConnection = true;
+                chooseSetupMethod('direct');
               }}>Configure connection manually</Button
             >
           {/if}
