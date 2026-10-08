@@ -197,14 +197,14 @@ func resolveHelperInstall(configDir, unitDir string, lookup func(string) (*user.
 		}
 		return nativeHelperInstall(path, string(body), configDir, lookup)
 	}
-	return InstallHelperOptions{}, fmt.Errorf("there is no %s.service or %s.service in %s and no container deployment recorded in %s, so there is no Zoomies service here for the helper to update; install Zoomies first, or pass --config-dir with the deployment's configuration directory", UnitController, UnitAgent, unitDir, configDir)
+	return InstallHelperOptions{}, helperNotApplicable{fmt.Errorf("there is no %s.service or %s.service in %s and no container deployment recorded in %s, so there is no Zoomies service here for the helper to update; install Zoomies first, or pass --config-dir with the deployment's configuration directory", UnitController, UnitAgent, unitDir, configDir)}
 }
 
 // nativeHelperInstall reads the options from the unit a native install wrote.
 func nativeHelperInstall(path, body, configDir string, lookup func(string) (*user.User, error)) (InstallHelperOptions, error) {
 	name, _, _ := ReadUnitIdentity(path)
 	if name == "" || name == "root" {
-		return InstallHelperOptions{}, fmt.Errorf("%s runs zoomies as root, and %s", path, rootNeedsNoHelper)
+		return InstallHelperOptions{}, helperNotApplicable{fmt.Errorf("%s runs zoomies as root, and %s", path, rootNeedsNoHelper)}
 	}
 	account, err := lookup(name)
 	if err != nil {
@@ -215,7 +215,7 @@ func nativeHelperInstall(path, body, configDir string, lookup func(string) (*use
 		return InstallHelperOptions{}, fmt.Errorf("%s runs zoomies as %s, whose uid %q is not a number", path, name, account.Uid)
 	}
 	if uid == 0 {
-		return InstallHelperOptions{}, fmt.Errorf("%s runs zoomies as %s, which is uid 0, and %s", path, name, rootNeedsNoHelper)
+		return InstallHelperOptions{}, helperNotApplicable{fmt.Errorf("%s runs zoomies as %s, which is uid 0, and %s", path, name, rootNeedsNoHelper)}
 	}
 	workDir := unitValue(body, "WorkingDirectory")
 	if workDir == "" {

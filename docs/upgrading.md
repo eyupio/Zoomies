@@ -194,28 +194,43 @@ Add the update helper? [y/N]
 ```
 
 The [update helper](security.md#what-the-agent-owns-on-a-host) is what lets the
-web UI update the host. It is a pair of root-owned systemd units that run
-`zoomies upgrade` for a request the web UI writes, once the helper has
-validated it; the request names a release and nothing else. You install it as
-the host's owner, and `sudo zoomies updates helper remove` takes it away. It
-is a grant of root, so it is never part of the batch above:
+web UI update the host. It is a pair of systemd units that run
+`zoomies upgrade` as root for a validated request from the web UI; a request
+names a release and nothing else. The account Zoomies runs as can trigger an
+upgrade by writing a request, which is why it is a question of its own and
+never part of the batch above. `sudo zoomies updates helper remove` takes it
+away.
 
 * **`--yes` does not answer it.** `zoomies upgrade --yes` still adds the layout
   additions and moves the settings, and still leaves this question at its
   default.
 * **At a terminal**, Enter, `n` and the end of the input all mean no. Only `y`
   or `yes` installs it.
-* **`--update-helper`** (`zoomies upgrade --update-helper`) installs it without
-  asking.
+* **`--update-helper`** (`zoomies upgrade --update-helper`, or
+  `install.sh --upgrade --update-helper`) installs it without asking.
 * **Unattended** (`--non-interactive`, or no terminal at all) it adds nothing
-  and prints `Add later: sudo zoomies updates helper install`. This includes
-  the upgrade the helper itself runs, which never installs, offers or changes
-  anything of its own.
+  and prints `Add later: sudo zoomies updates helper install`, with
+  `--config-dir` appended when the upgrade ran against a configuration
+  directory other than the default.
+* **Once the helper is installed** the upgrade it runs for the web UI adds
+  nothing and prints nothing about the helper.
 
 The question comes after the deployment's additions are reviewed and before
-anything is pulled or restarted, and it is not asked once the helper is
-installed, on a host without systemd, or for a service that runs as root. If
-the install is refused (the binary sits under a folder a group can write, a
+anything is pulled or restarted. It is not asked, and nothing about the helper
+is said, on a host without systemd, on macOS (launchd), for a private
+provider's own service, for a service that runs as root (which can upgrade
+itself and needs no helper), or once the helper is installed. When a service
+cannot be resolved for a reason you can put right (an unreadable unit, an
+account that no longer exists, a unit that names another `--config` directory),
+an upgrade at a terminal says so in one line.
+
+A container that does not yet mount the shared folder gets the mount from the
+restart in the same upgrade, and the helper cannot be installed before then.
+So in that run the question is not asked: the upgrade says that the helper
+needs the shared folder mounted, which the restart adds, and to run
+`sudo zoomies updates helper install` afterwards.
+
+If the install is refused (the binary sits under a folder a group can write, a
 path is under `/home`, Docker remaps user namespaces) the upgrade does not
 fail: it prints the helper's own sentence, says the helper was not added, and
 finishes. Put the refusal right and run `sudo zoomies updates helper install`.

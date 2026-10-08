@@ -8,11 +8,13 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"os/user"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/updates/channel"
 )
 
@@ -118,8 +120,15 @@ func TestAnUpgradeAsksAboutTheHelperAsItsOwnQuestionThatDefaultsToNo(t *testing.
 			if tc.says != "" && !strings.Contains(out, tc.says) {
 				t.Errorf("output does not say %q:\n%s", tc.says, out)
 			}
-			if tc.asks && !strings.Contains(out, "sudo zoomies updates helper remove") {
-				t.Errorf("the question does not say how to take the helper away again:\n%s", out)
+			if tc.asks {
+				for _, want := range []string{"sudo zoomies updates helper remove", "as root", "validated request", "by writing a request"} {
+					if !strings.Contains(out, want) {
+						t.Errorf("the question does not say %q:\n%s", want, out)
+					}
+				}
+				if strings.Contains(out, "You install it") {
+					t.Errorf("the question claims who is installing it:\n%s", out)
+				}
 			}
 			if got := h.installed(); got != tc.installed {
 				t.Fatalf("installed = %v, want %v:\n%s", got, tc.installed, out)
@@ -254,15 +263,15 @@ func writeOffer(t *testing.T, path string) {
 func TestAUpgradeWithTheHelperInstalledStillUpgradesWhenTheQuestionIsDeclined(t *testing.T) {
 	t.Run("declined", func(t *testing.T) {
 		h := newOfferHost(t)
-		h.install(t)
 		h.opts.Interactive = true
 		h.opts.In = strings.NewReader("n\n")
 		if err := h.upgrade(t); err != nil {
 			t.Fatal(err)
 		}
-		if !h.restarted() || !h.installed() {
+		if !h.restarted() || h.installed() {
 			t.Errorf("restarted = %v, installed = %v", h.restarted(), h.installed())
 		}
+		h.installedNothing(t)
 	})
 	for _, mode := range []string{"asked", "--update-helper"} {
 		t.Run("refused when "+mode, func(t *testing.T) {
@@ -377,6 +386,8 @@ func TestAContainerDeploymentIsOfferedTheHelperToo(t *testing.T) {
 	opts, rec := upgradeFixture(t, DeploymentCompose)
 	host := newInstallHost(t, DeploymentCompose)
 	host.opts.ConfigDir = rec.Directory
+	var out bytes.Buffer
+	pulledAfterTheQuestion := false
 	host.runner.answer = func(args []string) (string, error) {
 		line := strings.Join(args, " ")
 		switch {
@@ -386,10 +397,11 @@ func TestAContainerDeploymentIsOfferedTheHelperToo(t *testing.T) {
 			return host.stateDir, nil
 		case len(args) > 0 && args[0] == "inspect":
 			return "true", nil
+		case strings.Contains(line, " pull "):
+			pulledAfterTheQuestion = pulledAfterTheQuestion || strings.Contains(out.String(), "[y/N]")
 		}
 		return "", nil
 	}
-	var out bytes.Buffer
 	opts.Out, opts.Interactive, opts.In, opts.run = &out, true, strings.NewReader("y\n"), host.runner.run
 	opts.helperHost = &upgradeHelperHost{
 		systemdDir: t.TempDir(), unitDir: host.opts.unitDir, stateDir: host.opts.helperStateDir,
@@ -401,22 +413,206 @@ func TestAContainerDeploymentIsOfferedTheHelperToo(t *testing.T) {
 	if !strings.Contains(out.String(), "[y/N]") || !exists(filepath.Join(host.opts.unitDir, UpdatePathUnit)) {
 		t.Errorf("a container deployment was not offered the helper:\n%s", &out)
 	}
+	if !pulledAfterTheQuestion {
+		t.Errorf("the image was pulled before the helper question was asked:\n%s", &out)
+	}
 }
 
-// A service that runs as root, or a host whose units the helper cannot be
-// resolved from, has nothing to offer; the question is not asked only to be
-// refused.
+// A host the helper has nothing to serve (a service that runs as root, no
+// zoomies unit) is not asked and not told; one where something is wrong that the
+// operator can put right is told, at a terminal, in the helper's own sentence.
 func TestTheHelperIsNotOfferedWhereItCannotBeResolved(t *testing.T) {
-	h := newOfferHost(t)
-	h.opts.helperHost.resolve = func(string) (InstallHelperOptions, error) {
-		return InstallHelperOptions{}, errors.New("runs zoomies as root")
+	for _, tc := range []struct {
+		name        string
+		err         error
+		interactive bool
+		says        string
+	}{
+		{name: "runs as root", err: helperNotApplicable{errors.New("runs zoomies as root")}, interactive: true},
+		{name: "no zoomies unit", err: helperNotApplicable{errors.New("there is no zoomies.service here")}, interactive: true},
+		{name: "unreadable unit at a terminal", err: errors.New("cannot read zoomies.service: permission denied"), interactive: true, says: "cannot read zoomies.service: permission denied"},
+		{name: "unreadable unit unattended", err: errors.New("cannot read zoomies.service: permission denied")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newOfferHost(t)
+			h.opts.helperHost.resolve = func(string) (InstallHelperOptions, error) { return InstallHelperOptions{}, tc.err }
+			h.opts.Interactive = tc.interactive
+			h.opts.NonInteractive = !tc.interactive
+			h.opts.In = strings.NewReader("y\n")
+			if err := h.upgrade(t); err != nil {
+				t.Fatal(err)
+			}
+			out := h.out.String()
+			if strings.Contains(out, "[y/N]") || strings.Contains(out, addLater) || h.installed() {
+				t.Errorf("asked about a helper that cannot be installed:\n%s", out)
+			}
+			if tc.says == "" && strings.Contains(out, "update helper") {
+				t.Errorf("said something about a helper this host has no use for:\n%s", out)
+			}
+			if tc.says != "" && !strings.Contains(out, tc.says) {
+				t.Errorf("did not pass on the helper's sentence %q:\n%s", tc.says, out)
+			}
+		})
 	}
-	h.opts.Interactive = true
-	h.opts.In = strings.NewReader("y\n")
+}
+
+// ResolveHelperInstall marks the hosts that have nothing for the helper to
+// serve, so that the upgrade can stay quiet about them and speak about the rest.
+func TestResolvingTheHelperSaysWhichHostsHaveNothingForItToServe(t *testing.T) {
+	unitDir := t.TempDir()
+	lookup := func(name string) (*user.User, error) {
+		if name == "zoomies" {
+			return &user.User{Uid: "4242", Username: name}, nil
+		}
+		return nil, errors.New("unknown user " + name)
+	}
+	write := func(unit, body string) {
+		t.Helper()
+		mustDo(t, os.WriteFile(filepath.Join(unitDir, unit+".service"), []byte(body), 0o644))
+	}
+	resolve := func() error {
+		_, err := resolveHelperInstall(t.TempDir(), unitDir, lookup, "/usr/local/bin/zoomies")
+		return err
+	}
+	var na helperNotApplicable
+	if err := resolve(); !errors.As(err, &na) {
+		t.Errorf("no unit at all: %v, want one marked as nothing to serve", err)
+	}
+	write(UnitController, "[Service]\nUser=root\nWorkingDirectory=/var/lib/zoomies\nExecStart=/usr/local/bin/zoomies controller\n")
+	if err := resolve(); !errors.As(err, &na) {
+		t.Errorf("a service that runs as root: %v, want one marked as nothing to serve", err)
+	}
+	write(UnitController, "[Service]\nUser=ghost\nWorkingDirectory=/var/lib/zoomies\nExecStart=/usr/local/bin/zoomies controller\n")
+	if err := resolve(); err == nil || errors.As(err, &na) {
+		t.Errorf("a missing account: %v, want a refusal the operator can act on", err)
+	}
+	write(UnitController, "[Service]\nUser=zoomies\nExecStart=/usr/local/bin/zoomies controller\n")
+	if err := resolve(); err == nil || errors.As(err, &na) {
+		t.Errorf("no WorkingDirectory: %v, want a refusal the operator can act on", err)
+	}
+}
+
+// What is printed to add the helper later names the deployment it was run for
+// when that is not the default one, because a bare command would look for the
+// wrong configuration.
+func TestTheCommandToAddTheHelperLaterNamesANonDefaultConfigDir(t *testing.T) {
+	p := &upgradePlan{opts: UpgradeOptions{ConfigDir: config.ConfigDir()}}
+	if got, want := p.helperInstallCommand(), "sudo zoomies updates helper install"; got != want {
+		t.Errorf("default: %q, want %q", got, want)
+	}
+	p.opts.ConfigDir = "/srv/zoomies/etc"
+	if got, want := p.helperInstallCommand(), "sudo zoomies updates helper install --config-dir /srv/zoomies/etc"; got != want {
+		t.Errorf("non-default: %q, want %q", got, want)
+	}
+	p.opts.ConfigDir = "/srv/my zoomies"
+	if got, want := p.helperInstallCommand(), `sudo zoomies updates helper install --config-dir "/srv/my zoomies"`; got != want {
+		t.Errorf("with a space: %q, want %q", got, want)
+	}
+
+	h := newOfferHost(t)
+	h.opts.NonInteractive = true
 	if err := h.upgrade(t); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(h.out.String(), "[y/N]") || h.installed() {
-		t.Errorf("asked about a helper that cannot be installed:\n%s", h.out)
+	if want := addLater + " --config-dir " + h.configDir; !strings.Contains(h.out.String(), want) {
+		t.Errorf("the upgrade did not say %q:\n%s", want, h.out)
+	}
+}
+
+// Only a service whose deployment the helper can update is offered it: not a
+// private provider's own unit, which a zoomies unit on the same host would
+// otherwise stand in for, and not launchd.
+func TestTheHelperIsNotOfferedForAProviderOnlyUnitOrLaunchd(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		units   []string
+		launchd bool
+	}{
+		{name: "a provider-only unit", units: []string{"zoomies-proxmox-ab12.service"}},
+		{name: "launchd", units: []string{UnitAgent}, launchd: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newOfferHost(t)
+			var out bytes.Buffer
+			p := &upgradePlan{
+				opts: UpgradeOptions{ConfigDir: h.configDir, Out: &out, Interactive: true, UpdateHelper: true,
+					In: strings.NewReader("y\n"), run: h.runner.run, helperHost: h.opts.helperHost},
+				nativeUnits: tc.units, unit: tc.units[0], launchd: tc.launchd,
+			}
+			p.offerUpdateHelper(context.Background())
+			if out.Len() != 0 || h.installed() || h.ranHelperCommands() {
+				t.Errorf("offered the helper:\n%s\n%v", &out, h.runner.lines())
+			}
+		})
+	}
+}
+
+// A container that does not mount the shared folder yet is about to get the
+// mount from the restart this upgrade is about to do, and the helper install
+// would refuse it now. So the question is not asked, and the install is not
+// tried, in the same run that adds the mount; the operator is told to add the
+// helper afterwards.
+func TestTheHelperIsNotOfferedInTheRunThatAddsTheSharedMount(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		configure func(o *UpgradeOptions)
+		answers   string
+		says      string
+	}{
+		{name: "approved at the terminal", configure: func(o *UpgradeOptions) { o.Interactive = true }, answers: "y\ny\n", says: "which the restart below adds"},
+		{name: "--update-helper", configure: func(o *UpgradeOptions) { o.AssumeYes, o.UpdateHelper = true, true }, says: "which the restart below adds"},
+		{name: "only reported", configure: func(o *UpgradeOptions) { o.NonInteractive = true }, says: "zoomies upgrade --yes"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts, rec := upgradeFixture(t, DeploymentCompose)
+			withoutSharedMount(t, &opts, rec)
+			host := newInstallHost(t, DeploymentCompose)
+			host.opts.ConfigDir = rec.Directory
+			var out bytes.Buffer
+			host.runner.answer = func(args []string) (string, error) {
+				line := strings.Join(args, " ")
+				switch {
+				case strings.Contains(line, "config --images"):
+					return opts.Image, nil
+				case len(args) > 1 && args[0] == "inspect" && args[1] == "--type":
+					// The running container has no shared mount yet.
+					return "", nil
+				case len(args) > 0 && args[0] == "inspect":
+					return "true", nil
+				}
+				return "", nil
+			}
+			in := strings.NewReader(tc.answers)
+			opts.Out, opts.In, opts.run = &out, in, host.runner.run
+			tc.configure(&opts)
+			opts.helperHost = &upgradeHelperHost{
+				systemdDir: t.TempDir(), unitDir: host.opts.unitDir, stateDir: host.opts.helperStateDir,
+				resolve: func(string) (InstallHelperOptions, error) { return host.opts, nil },
+			}
+			if err := Upgrade(context.Background(), opts); err != nil {
+				t.Fatalf("%v\n%s", err, &out)
+			}
+			text := out.String()
+			// The layout question took its "y\n"; the rest was not read.
+			unread := 0
+			if tc.answers != "" {
+				unread = len(tc.answers) - len("y\n")
+			}
+			if strings.Contains(text, "[y/N]") || in.Len() != unread {
+				t.Errorf("asked about the helper (%d bytes of the answers left, want %d):\n%s", in.Len(), unread, text)
+			}
+			if !strings.Contains(text, "shared folder") || !strings.Contains(text, tc.says) || !strings.Contains(text, "sudo zoomies updates helper install") {
+				t.Errorf("did not say why the helper waits and how to add it:\n%s", text)
+			}
+			if review, said := strings.Index(text, "Deployment additions to review"), strings.Index(text, "update helper"); review < 0 || said < review {
+				t.Errorf("the helper was spoken of before the deployment's additions were reviewed:\n%s", text)
+			}
+			if exists(filepath.Join(host.opts.unitDir, UpdatePathUnit)) || host.runner.ran("systemctl", "daemon-reload") {
+				t.Errorf("tried to install the helper: %v", host.runner.lines())
+			}
+			if !slices.ContainsFunc(host.runner.lines(), func(l string) bool { return strings.Contains(l, " up ") }) {
+				t.Errorf("the upgrade did not go on: %v", host.runner.lines())
+			}
+		})
 	}
 }

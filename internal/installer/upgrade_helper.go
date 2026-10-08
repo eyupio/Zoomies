@@ -2,11 +2,15 @@ package installer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
+
+	"github.com/eyupio/zoomies/internal/config"
 )
 
 // noSystemdForHelper is the refusal on a host that systemd does not run: the
@@ -47,15 +51,16 @@ func helperPresent(unitDir, stateDir string) bool {
 // additions in advance, and this is a grant of root to a request the service
 // writes; only the person at the host, or --update-helper typed by them, says
 // yes to it. The upgrade the helper itself runs is never interactive and never
-// passes either, so it can only ever print the line saying how to add it.
+// passes either, so with the helper installed it asks nothing and says nothing.
 //
 // The question is asked only where it could be answered: on a systemd host,
 // where the helper is not already installed, for a service that can be resolved
-// to an account other than root's. A refusal after a yes is reported and the
-// upgrade goes on, since the host is no worse for not having the helper and the
-// refusal is something to put right and retry.
+// to an account other than root's, and not in the run that is about to give the
+// container its shared mount. A refusal after a yes is reported and the upgrade
+// goes on, since the host is no worse for not having the helper and the refusal
+// is something to put right and retry.
 func (p *upgradePlan) offerUpdateHelper(ctx context.Context) {
-	if p.opts.Check || !p.managesZoomiesUnits() {
+	if !p.managesZoomiesUnits() {
 		return
 	}
 	out, ui := p.opts.Out, PaletteFor(p.opts.Out)
@@ -71,8 +76,24 @@ func (p *upgradePlan) offerUpdateHelper(ctx context.Context) {
 	}
 	helper, err := host.resolve(p.opts.ConfigDir)
 	if err != nil {
-		if p.opts.UpdateHelper {
+		var nothingToServe helperNotApplicable
+		switch {
+		case p.opts.UpdateHelper:
 			p.helperNotAdded(err)
+		case p.opts.Interactive && !errors.As(err, &nothingToServe):
+			// Something the operator can put right, and somebody is there to read it.
+			ui.Hint(out, "The update helper cannot be offered on this host: %v", err)
+		}
+		return
+	}
+	if p.sharedMountComing {
+		// The running container does not mount the shared folder, so the install
+		// would refuse it with a sentence about runner-less containers. It gets
+		// the mount when it is recreated below, and then the install works.
+		if p.sharedMountApplied {
+			ui.Hint(out, "The web UI update helper needs the shared folder mounted, which the restart below adds; run %s afterwards.", p.helperInstallCommand())
+		} else {
+			ui.Hint(out, "The web UI update helper needs the shared folder mounted, which the deployment additions above would give it; once they are added (sudo zoomies upgrade --yes), run %s.", p.helperInstallCommand())
 		}
 		return
 	}
@@ -80,10 +101,11 @@ func (p *upgradePlan) offerUpdateHelper(ctx context.Context) {
 	case p.opts.UpdateHelper:
 	case p.opts.Interactive && p.opts.In != nil:
 		fmt.Fprintln(out, "Update this host from the web UI?")
-		fmt.Fprintln(out, "  The update helper is a pair of root-owned systemd units ("+UpdatePathUnit+" and "+UpdateServiceUnit+")")
-		fmt.Fprintln(out, "  that run `zoomies upgrade` for a request from the web UI, once the helper has")
-		fmt.Fprintln(out, "  validated it; the request names a release and nothing else. You install it as")
-		fmt.Fprintln(out, "  this host's owner, and `sudo zoomies updates helper remove` takes it away.")
+		fmt.Fprintln(out, "  The update helper is a pair of systemd units ("+UpdatePathUnit+" and "+UpdateServiceUnit+")")
+		fmt.Fprintln(out, "  that run `zoomies upgrade` as root for a validated request from the web UI; a")
+		fmt.Fprintln(out, "  request names a release and nothing else. The account Zoomies runs as ("+helper.Account+")")
+		fmt.Fprintln(out, "  can trigger an upgrade by writing a request. `sudo zoomies updates helper remove`")
+		fmt.Fprintln(out, "  takes it away.")
 		if !askDefaultNo(p.opts.In, out, "Add the update helper? [y/N] ") {
 			p.updateHelperSkipped()
 			return
@@ -110,9 +132,23 @@ func (p *upgradePlan) managesZoomiesUnits() bool {
 	return !p.launchd && (slices.Contains(p.nativeUnits, UnitController) || slices.Contains(p.nativeUnits, UnitAgent))
 }
 
+// helperInstallCommand is the command that adds the helper later. It names the
+// configuration directory when this upgrade ran against another than the
+// default, because the bare command would look at the wrong deployment.
+func (p *upgradePlan) helperInstallCommand() string {
+	command := "sudo zoomies updates helper install"
+	if dir := p.opts.ConfigDir; dir != "" && dir != config.ConfigDir() {
+		if strings.ContainsAny(dir, " \t") {
+			dir = strconv.Quote(dir)
+		}
+		command += " --config-dir " + dir
+	}
+	return command
+}
+
 func (p *upgradePlan) updateHelperSkipped() {
 	PaletteFor(p.opts.Out).Hint(p.opts.Out, "The update helper was not added, so the web UI cannot update this host.")
-	fmt.Fprintln(p.opts.Out, "Add later: sudo zoomies updates helper install")
+	fmt.Fprintln(p.opts.Out, "Add later: "+p.helperInstallCommand())
 }
 
 // helperNotAdded reports a refusal in the helper's own words. It is a warning
@@ -120,8 +156,14 @@ func (p *upgradePlan) updateHelperSkipped() {
 func (p *upgradePlan) helperNotAdded(reason any) {
 	ui := PaletteFor(p.opts.Out)
 	ui.Warn(p.opts.Out, "The update helper was not added: %v", reason)
-	ui.Hint(p.opts.Out, "The upgrade goes on without it. Once that is put right, add it with: sudo zoomies updates helper install")
+	ui.Hint(p.opts.Out, "The upgrade goes on without it. Once that is put right, add it with: %s", p.helperInstallCommand())
 }
+
+// helperNotApplicable marks a host the helper has nothing to serve: a service
+// that runs as root, or no zoomies service at all. The upgrade says nothing
+// about the helper there, where any other reason it cannot be resolved is
+// something to tell the person at the terminal.
+type helperNotApplicable struct{ error }
 
 // askDefaultNo reads one answer to a [y/N] question: only y or yes is a yes,
 // and an empty line or an input that ends first is a no.

@@ -77,6 +77,11 @@ type upgradePlan struct {
 	// move is the settings the operator agreed to take out of the
 	// container's environment and into its database; see envsettings.go.
 	move []movedSetting
+	// sharedMountComing is set when the layout review found the running
+	// container without the shared folder, and sharedMountApplied when the
+	// review's additions were made, so the next restart gives it the mount.
+	// The update helper cannot be installed until it has the mount.
+	sharedMountComing, sharedMountApplied bool
 }
 
 // Upgrade applies the binary already downloaded by install.sh to the running
@@ -262,6 +267,7 @@ func (p *upgradePlan) settleLayout(ctx context.Context) error {
 	required := ""
 	for _, c := range changes {
 		fmt.Fprintln(out, "  - "+c.what)
+		p.sharedMountComing = p.sharedMountComing || c.sharedMount
 		if c.required && required == "" {
 			required = c.what
 		}
@@ -298,6 +304,7 @@ func (p *upgradePlan) settleLayout(ctx context.Context) error {
 			return fmt.Errorf("installer: could not %s: %w", c.what, err)
 		}
 	}
+	p.sharedMountApplied = true
 	fmt.Fprintf(out, "Added %d change(s) this release expects.\n", len(changes))
 	return nil
 }
