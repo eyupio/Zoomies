@@ -4,13 +4,14 @@ import {
   buildText,
   describeMode,
   modeLabel,
+  modeSettingHref,
   releaseHref,
   soakNote,
   soakText,
   targetLine,
   updateState,
 } from '../src/lib/updates/words.ts';
-import type { UpdatesStatus } from '../src/lib/api/types.ts';
+import { atLeast, type Role, type UpdatesStatus } from '../src/lib/api/types.ts';
 
 /** A moment to count from, so the sentences below do not depend on when the suite runs. */
 const NOW = Date.parse('2026-10-08T12:00:00Z');
@@ -249,4 +250,14 @@ test('a release is linked only when its address is an https one', () => {
 test('a build is told apart by whether it came from a release', () => {
   assert.equal(buildText(true), 'From a release');
   assert.equal(buildText(false), 'Not from a release, so updates leave it alone');
+});
+
+// The settings list omits platform-scoped rows below that role, so a link sent
+// to an administrator opens a Configuration page that cannot show the setting.
+test('the link to the mode setting is offered to the platform role and to no one below it', () => {
+  const as = (held: Role) => (needed: Role) => atLeast(held, needed);
+  assert.equal(modeSettingHref(as('platform')), '/settings/configuration?setting=updates.mode');
+  for (const held of ['admin', 'operator', 'viewer'] as const) {
+    assert.equal(modeSettingHref(as(held)), null, held);
+  }
 });
