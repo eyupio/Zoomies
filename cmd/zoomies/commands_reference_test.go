@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -70,6 +71,13 @@ func TestCommandsHelpTextsHoldNoPathsFromThisMachine(t *testing.T) {
 // skills/zoomies/reference.md is what an agent reads instead of running
 // --help on everything; it is generated, and this is what keeps it so.
 func TestTheCommandReferenceMatchesTheBinary(t *testing.T) {
+	// The reference is the Linux binary's help, which is where Zoomies is
+	// operated from; Windows prints the same pinned default with its own
+	// separator (\etc\zoomies), so the comparison is a Linux one and the
+	// Windows job checks the rest of this package.
+	if runtime.GOOS == "windows" {
+		t.Skip("the command reference is generated from and compared with the Linux binary")
+	}
 	want, err := os.ReadFile("../../skills/zoomies/reference.md")
 	if err != nil {
 		t.Fatal(err)
