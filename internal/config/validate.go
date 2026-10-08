@@ -1852,7 +1852,7 @@ func (c *Config) validateUpdates(add func(Finding)) {
 			Code: "updates.auto_without_soak", Severity: SeverityWarning, Setting: "updates.soak",
 			Title: "updates.soak is 0, so a release is taken as soon as it is seen",
 			Detail: "the soak is the only wait between a release being published and every host running it. Without one, a release that turns out to be " +
-				"broken, or is replaced by a fix within hours, is installed before anyone has had the chance to notice.",
+				"broken, or is replaced by a fix within hours, would be taken before anyone has had the chance to notice.",
 			Fix: `set updates.soak to "24h", which is the default, or to however long a release should have been public first; or set updates.mode to manual to take each update yourself.`,
 		})
 	}
