@@ -2599,6 +2599,12 @@ func (c *Controller) updateProblems() []Problem {
 	if !ok || newest == running {
 		return nil
 	}
+	// A list was read, so the tag is the newest release that can be taken, not
+	// the newest there is: a controller on 1.4.0 whose release is still
+	// uploading checksums.txt is ahead of v1.3.9, and the status says so.
+	if latest.Releases != nil && version.CompareBuilds(version.Version, latest.Tag) != version.SkewBehind {
+		return nil
+	}
 	fix := "upgrade with the same method you installed by; the release notes are at " + latest.URL
 	if latest.URL == "" {
 		fix = "upgrade with the same method you installed by."
