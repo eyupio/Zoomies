@@ -296,3 +296,42 @@ func TestTheSoakHasNoFloorAndZeroIsAnAnswer(t *testing.T) {
 		t.Error("a soak that is not a duration was accepted")
 	}
 }
+
+// Parts of the update work that install something have not shipped, so every
+// place that describes the modes says so in the same words. The sentence is one
+// constant so that removing it, when the installing arrives, is one search; the
+// docs quote it and are held to the same text here.
+func TestEveryPlaceThatPromisesAnUpdateSaysThisReleaseOnlyShowsOne(t *testing.T) {
+	mode, ok := LookupSetting("updates.mode")
+	if !ok {
+		t.Fatal("updates.mode is not a setting")
+	}
+	c := Default()
+	c.Updates.Mode = "auto"
+	auto := find(c.Validate(), "updates.auto")
+	c.Updates.Mode = "weekly"
+	invalid := find(c.Validate(), "updates.mode")
+
+	for _, tc := range []struct{ where, text string }{
+		{"the updates.mode summary", mode.Summary},
+		{"the updates.auto detail", auto.Detail},
+		{"the updates.mode fix", invalid.Fix},
+	} {
+		if !strings.Contains(tc.text, updatesNotInstalledYet) {
+			t.Errorf("%s = %q, want it to say %q", tc.where, tc.text, updatesNotInstalledYet)
+		}
+	}
+	if strings.Contains(auto.Title, updatesNotInstalledYet) {
+		t.Errorf("the updates.auto title carries the clause; a title is short, so it belongs in the detail")
+	}
+
+	for _, page := range []string{"configuration.md", "problem-codes.md"} {
+		body, err := os.ReadFile(filepath.Join("..", "..", "docs", page))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Count(string(body), updatesNotInstalledYet); got < 1 {
+			t.Errorf("docs/%s never says %q", page, updatesNotInstalledYet)
+		}
+	}
+}
