@@ -61,7 +61,12 @@ const FIXTURE = {
 /**
  * What is captured. `heading` is the <h1> that proves the route rendered;
  * `prepare` puts the page into the state worth showing after it has settled;
- * `clip` names a region to photograph instead of the whole page; `device`
+ * `kennel` marks a shot of Kennel Club, which is off until it is turned on and
+ * has nothing to show until it has made its first pass, so those are taken last,
+ * after everything else, once it has (see `turnOnKennelClub`);
+ * `path` may be a function of the signed-in request context, for a page whose
+ * address is only known once the fleet has been read; `clip` names a region to
+ * photograph instead of the whole page; `device`
  * gives the shot a browser context of its own -- a phone, or a desktop whose
  * `prepare` changes a per-operator preference that must not follow the shots
  * captured after it; `signedOut` keeps the session cookie out of that
@@ -423,6 +428,78 @@ const SHOTS = [
   },
   // Read-only monitoring on a phone is a stated requirement, so it is shown.
   { name: 'overview-phone', path: '/', heading: 'Overview', device: devices['Pixel 7'] },
+
+  // Kennel Club, in the order that keeps the later shots true: the pages first,
+  // then a dialog opened and left unsent, and last the repository that was let go,
+  // which changes the counts the earlier shots show.
+  { name: 'kennel', path: '/kennel', heading: 'Kennel Club', kennel: true },
+  {
+    name: 'kennel-repositories',
+    path: '/kennel/repositories',
+    heading: 'Repositories',
+    kennel: true,
+  },
+  {
+    // The repository with an error open, on its CI tab: what is wrong, what to
+    // change, and the pools and runs it is about.
+    name: 'kennel-repository',
+    path: async (api) => `${await kennelRepositoryPath(api, 'attention')}/ci`,
+    kennel: true,
+  },
+  {
+    // The same finding with the dialog that waives it open and filled in, which
+    // is the form that asks for a reason, an end and the role to do it.
+    name: 'kennel-waive',
+    path: async (api) => `${await kennelRepositoryPath(api, 'attention')}/ci`,
+    kennel: true,
+    async prepare(page) {
+      await page
+        .getByRole('button', { name: /^Waive: / })
+        .first()
+        .click();
+      const dialog = page.getByRole('dialog', { name: 'Waive this finding' });
+      await dialog.waitFor();
+      await dialog
+        .getByRole('textbox', { name: /Why this is acceptable here/ })
+        .fill('The pool is rebuilt from a clean image every night, and this is a docs site.');
+      await dialog.getByLabel('Waive for').selectOption({ label: '30 days' });
+    },
+  },
+  {
+    // A repository with nothing open, and the dialog an administrator is asked
+    // before Kennel Club stops looking at it, with its reason written.
+    name: 'kennel-stop-tracking',
+    path: (api) => kennelRepositoryPath(api, 'best_in_show'),
+    kennel: true,
+    async prepare(page) {
+      await page.getByRole('switch', { name: 'Track this repository' }).click();
+      const dialog = page.getByRole('dialog', { name: 'Stop tracking this repository' });
+      await dialog.waitFor();
+      await dialog
+        .getByRole('textbox', { name: /Why Kennel Club should not look at it/ })
+        .fill('A scratch repository we try workflows in; nothing in it is kept.');
+    },
+  },
+  {
+    // The repository after it has been let go: the notice that says who, when
+    // and why, and the switch that starts it again.
+    name: 'kennel-not-tracked',
+    path: async (api) => {
+      const path = await kennelRepositoryPath(api, 'best_in_show');
+      const id = path.split('/').pop();
+      const res = await api.put(`/api/v1/kennel/repositories/${id}/tracking`, {
+        headers: { Origin: BASE_URL },
+        data: {
+          tracked: false,
+          reason: 'A scratch repository we try workflows in; nothing in it is kept.',
+        },
+      });
+      if (!res.ok())
+        throw new Error(`stopping tracking returned ${res.status()}: ${await res.text()}`);
+      return path;
+    },
+    kennel: true,
+  },
 ];
 
 /**
@@ -455,6 +532,46 @@ async function seedAIContextDrafts(page, names) {
       throw new Error(`creating the ${name} draft returned ${res.status()}: ${await res.text()}`);
     }
   }
+}
+
+/** The origin every shot is taken at, which a write from the API client has to name. */
+const BASE_URL = `http://127.0.0.1:${PORT}`;
+
+/**
+ * The address of the first repository Kennel Club has put in a standing. The
+ * seeded fleet's repositories are not named here, so a shot asks for one by what
+ * it concluded, which is also what the shot is of.
+ */
+async function kennelRepositoryPath(api, state) {
+  const { items } = await (await api.get(`/api/v1/kennel/repositories?state=${state}`)).json();
+  if (!items?.length) {
+    throw new Error(`Kennel Club has no repository in the ${state} standing to photograph`);
+  }
+  return `/kennel/repositories/${items[0].id}`;
+}
+
+/**
+ * Kennel Club is off until an administrator turns it on, and what it concludes
+ * comes from the controller's loop, which makes its first pass a little after
+ * that. So its shots are taken last: this turns it on, and waits until every
+ * repository it knows has been evaluated, so no page is photographed saying that
+ * nothing has looked yet. The seeded fleet needs no help to give it something
+ * to say.
+ */
+async function turnOnKennelClub(context) {
+  const on = await context.request.patch('/api/v1/settings', {
+    headers: { Origin: BASE_URL },
+    data: { 'kennel.enabled': true },
+  });
+  if (!on.ok())
+    throw new Error(`turning Kennel Club on returned ${on.status()}: ${await on.text()}`);
+  const deadline = Date.now() + 180_000;
+  while (Date.now() < deadline) {
+    const overview = await (await context.request.get('/api/v1/kennel')).json();
+    if (overview.repositories > 0 && overview.states.pending === 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+  throw new Error('Kennel Club had not evaluated the seeded repositories within three minutes');
 }
 
 /** Boot a seeded controller with authentication on, and wait until it answers. */
@@ -624,16 +741,18 @@ async function capture(browser, scheme, pngDir) {
     const cookies = await desktop.cookies();
     await pingWebhook(baseURL);
 
-    for (const shot of SHOTS) {
-      if (only.length > 0 && !only.includes(shot.name)) continue;
+    const wanted = (shot) => only.length === 0 || only.includes(shot.name);
+    const shoot = async (shot) => {
       console.log(`  capturing ${shot.name}-${scheme}`);
       let context = desktop;
       if (shot.device) {
         context = await browser.newContext({ ...shot.device, ...common });
         if (!shot.signedOut) await context.addCookies(cookies);
       }
+      const address =
+        typeof shot.path === 'function' ? await shot.path(desktop.request) : shot.path;
       const page = await context.newPage();
-      await page.goto(shot.path, { waitUntil: 'domcontentloaded' });
+      await page.goto(address, { waitUntil: 'domcontentloaded' });
       await settle(page, shot);
       if (shot.prepare) {
         await shot.prepare(page);
@@ -646,6 +765,12 @@ async function capture(browser, scheme, pngDir) {
       writeFileSync(join(pngDir, `${shot.name}-${scheme}.png`), png);
       await page.close();
       if (shot.device) await context.close();
+    };
+    for (const shot of SHOTS) if (wanted(shot) && !shot.kennel) await shoot(shot);
+    const kennelShots = SHOTS.filter((shot) => shot.kennel && wanted(shot));
+    if (kennelShots.length > 0) {
+      await turnOnKennelClub(desktop);
+      for (const shot of kennelShots) await shoot(shot);
     }
     await desktop.close();
   } finally {

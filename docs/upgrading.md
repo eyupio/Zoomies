@@ -21,6 +21,12 @@ upgrade both when they share the installed binary. An active native host-health
 reporter using that binary is restarted too. Use `--mode controller` or
 `--mode agent` to select one service explicitly.
 
+For Compose and single-container deployments, the service image is pulled and
+compared with the image the running container uses. If they are identical, the
+container is kept running without a restart. An image pulled earlier still
+replaces a container using an older build. A stopped container is started even
+when its image has not changed.
+
 At a colour-capable terminal, a block-letter Zoomies banner lights up from
 blue to cyan, catches a bright sweep, then holds briefly before the stages
 begin. The intro lasts about three seconds and plays once, including when the command
@@ -367,6 +373,22 @@ beside them the ones the controller works out from the machine, `os` and `arch`;
 what a pool's host selector matches is unchanged. And the Overview's feed gains an
 **Automatic changes** kind, on by default and empty until a switch is set, which
 **Settings → Events** turns off.
+
+## Kennel Club arrives off
+
+[Kennel Club](kennel-club.md) is one switch, `kennel.enabled`, and it is `off`
+after an upgrade. Nothing is read from GitHub, nothing is evaluated, and no
+problem is raised, so no repository is different until somebody sets it. AI
+Context, which now sits under the same **Kennel Club** heading in the UI, carries on
+exactly as it was, and its old `/ai-context` address still works.
+
+The migrations add three tables and change nothing that exists: `0080` adds the
+evaluation and the waiver, and `0082` adds the record of a repository Kennel Club
+has been told not to look at. They apply with the rest, and the usual backup and
+no-downgrade rules cover them. Turning it on the first time reads the repositories
+this fleet serves, within a GitHub request budget of its own (`kennel.api_budget_percent`,
+20 per cent of the limit an installation reports by default), and the first
+evaluations arrive over the next few minutes, not at once.
 
 ## The usage ledger
 

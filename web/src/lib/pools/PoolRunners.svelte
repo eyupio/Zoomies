@@ -4,6 +4,7 @@
   stream without a request of its own.
 -->
 <script lang="ts">
+  import { readableJobText } from '$lib/jobs/name';
   import { Cpu } from '@lucide/svelte';
   import type { Runner } from '$lib/api/types';
   import EmptyState from '$lib/components/EmptyState.svelte';
@@ -53,7 +54,9 @@
             {#if runner.current_job}
               {runner.current_job.repo ?? ''}
               <span class="sep">·</span>
-              {runner.current_job.job_name ?? runner.current_job.workflow ?? 'a job'}
+              {readableJobText(runner.current_job.job_name) ||
+                runner.current_job.workflow ||
+                'a job'}
             {:else if runner.host_name}
               on {runner.host_name}
             {/if}

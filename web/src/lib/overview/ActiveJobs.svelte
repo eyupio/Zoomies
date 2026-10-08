@@ -13,6 +13,7 @@
   reports, and every row it adds says whose runner has it.
 -->
 <script lang="ts">
+  import { readableJobText } from '$lib/jobs/name';
   import { CircleSlash, ExternalLink } from '@lucide/svelte';
   import { listJobs } from '$lib/api/client';
   import { events } from '$lib/api/sse';
@@ -193,7 +194,9 @@
                 <span class="workflow">{job.workflow ?? 'Unknown workflow'}</span>
               </span>
             {/if}
-            {#if job.job_name}<p class="job-name">{job.job_name}</p>{/if}
+            {#if readableJobText(job.job_name)}<p class="job-name">
+                {readableJobText(job.job_name)}
+              </p>{/if}
           </div>
           <p class="who">
             <span class="sr-only">Runner </span>

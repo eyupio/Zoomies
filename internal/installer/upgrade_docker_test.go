@@ -1,13 +1,68 @@
 package installer
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 )
+
+func TestAnUnchangedImageKeepsTheControllerContainer(t *testing.T) {
+	for _, deployment := range []Deployment{DeploymentCompose, DeploymentDocker} {
+		t.Run(string(deployment), func(t *testing.T) {
+			opts, rec := upgradeFixture(t, deployment)
+			rec.Mode = ModeController
+			var out bytes.Buffer
+			opts.Out = &out
+			var calls []string
+			opts.run = func(_ context.Context, name string, args ...string) (string, error) {
+				line := name + " " + strings.Join(args, " ")
+				calls = append(calls, line)
+				switch {
+				case strings.Contains(line, "image inspect"), strings.Contains(line, "{{.Image}}"):
+					return "sha256:current", nil
+				case strings.Contains(line, "{{.State.Running}}"):
+					return "true", nil
+				}
+				return "", nil
+			}
+			p := &upgradePlan{opts: opts, record: rec, image: opts.Image}
+			var err error
+			if deployment == DeploymentCompose {
+				err = p.upgradeCompose(context.Background())
+			} else {
+				// No Docker API client is needed on this path: stopping or
+				// replacing the existing container would fail this test.
+				err = p.upgradeDocker(context.Background())
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			joined := strings.Join(calls, "\n")
+			if !strings.Contains(joined, " pull ") || strings.Contains(joined, " up ") {
+				t.Fatalf("upgrade must pull without recreating the container: %s", joined)
+			}
+			if !strings.Contains(out.String(), "keeping the running container") {
+				t.Fatalf("output = %q, want the skipped restart explained", out.String())
+			}
+			stored, ok := ReadDeploymentRecord(opts.ConfigDir)
+			if !ok || stored.Image != opts.Image {
+				t.Fatalf("new image reference was not remembered: %+v", stored)
+			}
+			env, err := ParseEnvFile(rec.EnvFile)
+			if err != nil || env["ZOOMIES_IMAGE"] != opts.Image || env["CUSTOM_SETTING"] != "leave me alone" {
+				t.Fatalf("environment = %v, %v", env, err)
+			}
+			if info, err := os.Stat(rec.EnvFile); err != nil || info.Mode().Perm() != 0600 {
+				t.Fatalf("environment permissions changed: %v, %v", info, err)
+			}
+		})
+	}
+}
 
 func TestDockerUpgradeRestoresTheOldContainerWhenTheReplacementCannotStart(t *testing.T) {
 	for _, fail := range []bool{false, true} {

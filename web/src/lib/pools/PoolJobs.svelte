@@ -3,6 +3,7 @@
   work, and is that work passing" without leaving the page.
 -->
 <script lang="ts">
+  import { readableJobText } from '$lib/jobs/name';
   import { ListChecks } from '@lucide/svelte';
   import type { Job } from '$lib/api/types';
   import { jobStatus, queueStatus } from '$lib/status';
@@ -54,7 +55,7 @@
           {#if queue}<Badge status={queue} size="sm" title={queue.hint} />{/if}
           <span class="what">
             <span class="repo">{job.repo ?? 'unknown repository'}</span>
-            <span class="job">{job.job_name ?? job.workflow ?? 'a job'}</span>
+            <span class="job">{readableJobText(job.job_name) || job.workflow || 'a job'}</span>
           </span>
           <span class="timing">
             {#if job.state === 'queued'}
@@ -67,7 +68,7 @@
           <GitHubLink
             href={job.html_url}
             runNumber={job.run_number}
-            label="Open {job.job_name || 'this job'} on GitHub, in a new tab"
+            label="Open {readableJobText(job.job_name) || 'this job'} on GitHub, in a new tab"
           />
         </li>
       {/each}

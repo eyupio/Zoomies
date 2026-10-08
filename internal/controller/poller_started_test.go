@@ -172,8 +172,8 @@ func TestASweepDoesNotMoveABusyRunnerToAnotherJob(t *testing.T) {
 }
 
 // Most running jobs in an installed repository are on somebody else's runners.
-// They occupy nothing here, and a row for one would sit in progress for ever:
-// nothing reconciles a job this fleet has no hand in.
+// They occupy nothing here, so discovery need not create rows for them. Rows
+// already recorded through webhooks are reconciled by the known-job check.
 func TestASweepLeavesAJobRunningElsewhereAlone(t *testing.T) {
 	h := newHarness(t)
 	h.fleet()
