@@ -285,7 +285,7 @@ says so when it does, and a daemon that already applies limits is left alone.
 | Role | May |
 | --- | --- |
 | **viewer** | Read pools, runners, jobs, hosts, the audit log and metrics. Never sees a secret value — including a pool's `env`, where a registry or proxy credential ends up: a viewer is sent the variable names with empty values, on the API and on the event stream alike. |
-| **operator** | Everything a viewer may, plus act on the fleet: create and edit pools, drain/delete/restart runners, cordon hosts. |
+| **operator** | Everything a viewer may, plus act on the fleet: create and edit pools, drain/delete/restart runners, cordon hosts, and ask a host's agent to run its read-only OS checks once (scope `hosts:check`). A viewer never can: the check spends the host's CPU and starts a few dozen processes there. |
 | **admin** | Everything an operator may, plus manage users, API tokens, installations, join tokens and settings, and take a support bundle. |
 | **platform** | Everything an administrator may, plus the two things that belong to whoever runs the process rather than the fleet: lifting the recovery fence, and taking, downloading and restoring backups. A backup is the whole database — every account's password hash and every sealed credential, under the key this host holds — so `backups:read` on a token is the instance, not merely the fleet. The role exists for the instance where one team runs the controller and another uses it; where one team does both, the account that installed it holds this role and nothing looks any different. |
 

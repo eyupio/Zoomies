@@ -71,7 +71,8 @@ can arrive until it is, and a container's report is said to come from inside the
 container. The line gives no interval, because the page cannot see how often an
 agent sends a report. **Refresh** (or `R`) re-reads the host from the controller;
 it does not ask the agent to check again, since Zoomies never reaches into a host
-and the page already updates by itself when a newer report arrives.
+and the page already updates by itself when a newer report arrives. **Check now**
+is the button that asks; see [Check now](#check-now).
 
 When a newer report clears a check or makes one need attention, the page says so in
 two places. A polite live region announces it to a screen reader, once per report,
@@ -81,8 +82,7 @@ baseline and announces nothing, so does a report that is no newer than the last,
 and so does one from a different build of the host or a container's partial one.
 Only counted checks are compared, as the badge counts them, so the list cannot
 disagree with it. A check that was skipped is not called OK. There is no toast: the
-page changing is the notice. There is no "Check now" button yet; see
-[Not built yet](#not-built-yet).
+page changing is the notice.
 
 The controller counts each report once, and every surface reads that count. It
 is `doctor.summary`, beside `doctor.results` in the host's payload: the host's
@@ -239,15 +239,68 @@ wrote. Zoomies never runs either command for you. A container install without th
 host health service does not land here: it sends a partial report and reads
 **Partial report** (see [what it cannot see](#what-it-cannot-see)).
 
-## Not built yet
+## Check now
 
-A **Check now** button, which would ask a connected agent to run its checks once and
-send the report, is deliberately left for a later change. It is possible without
-breaking the rule that the controller never dials an agent (a read-only task on the
-queue the agent already long-polls), but it needs new code in the agent, the
-controller and the API, would serve native agents only, and its cost on a real host
-has not been measured. After `zoomies tune` the report already rides the next
-heartbeat.
+**Check now** asks the host's agent to run its OS checks once and send the report
+back, instead of waiting for the next periodic one. An operator presses it on the
+host page; a viewer sees one sentence saying the operator role is needed. The same
+request is `POST /api/v1/hosts/{id}/health-check`, with the scope `hosts:check`
+(see [the API](api-surface.md)). It is in the REST API and on the host page only:
+there is no `--now` on the CLI and no MCP tool.
+
+The controller still never dials an agent. It queues a `check_host` task, and the
+agent takes it on the long poll it already holds open. The agent runs the checks
+through the same monitor that makes its periodic report, sends the report in the
+task's result, and the controller ingests it exactly as it would a heartbeat's. The
+page shows **Checked just now** and any changed findings by changing, as it does
+for every report. A result is not a heartbeat: it records that a report arrived and
+nothing else, so a wedged heartbeat loop cannot look alive because someone pressed
+the button.
+
+**The check is read-only on the host.** It runs the same detection the periodic
+report does, and the only thing it writes is the monitor's own cache file. Nothing
+on the host is tuned, installed or restarted.
+
+### Which installs can answer
+
+| Install | Answers? | Why |
+| --- | --- | --- |
+| Native systemd agent | Yes | Its monitor reads the host itself. |
+| Bare-process agent | Yes | The same. |
+| A natively installed controller's own agent | Yes | It is the same program, on the same host. |
+| Docker or Compose, **including** Compose with `zoomies-host-health.service` | No | The container only re-reads a file the host service wrote on its schedule; it has no way to ask that service for another, and a trigger file for a root unit would be a separate security design. |
+| Any agent on an operating system other than Linux | No | The checks are Linux's. |
+| An agent older than this release | No | It does not know the task, so the controller never sends it. |
+
+Zoomies decides this from the flag the agent advertises (`host-check`), never from
+what the report says. A Compose host's service reports `container=false`, because
+the report is the host's own, so the report cannot tell you whether the *agent*
+can be asked. The agent advertises the flag only when it runs natively on Linux.
+
+A host that cannot answer shows the button off, with the reason in a line beside
+it rather than in a tooltip. So does a host that is not connected and one whose
+agent is incompatible; the last report stays on screen, marked with its age.
+
+### How often, and what it costs
+
+A host can be asked once every 15 seconds. The window counts from the request, is
+held in the controller's memory and is not cleared when a check fails, so a token
+in a loop cannot hammer an agent that fails quickly. A repeat press inside it
+changes nothing, and the page counts down. A request that is still waiting is not
+queued twice. If the agent does not take the task within 20 seconds the controller
+drops it and the page says so; if it takes it and does not answer, the page says
+that after a minute. A late answer is still used, since it is fresh read-only data.
+
+Treat the cost below as a floor. In container sandboxes where 26 of the 30
+checks skip, one run took about 0.3 to 0.9 seconds of wall time (2.3 seconds
+cold), about 0.6 seconds of CPU and 21 to 40 process executions. Peak memory was
+not measured. A real host with a live Docker daemon runs checks those sandboxes
+skipped, so it costs more; no figure for one has been taken. The 15 second window
+is a judgement, not a measurement.
+
+An unchanged report still moves **Checked**. The page then says "Nothing has
+changed since the last report", the controller records that a report arrived
+without rewriting the stored body, and the host reads as checked just now.
 
 When a report arrives, the controller stores its body only if it says something
 the stored one does not, or at least every five minutes, and records that a report
@@ -255,8 +308,9 @@ arrived in the heartbeat's own write. A report that says nothing new therefore
 costs no rewrite of the stored report and no frame of its own, and the host still
 reads as checked just now. Free-space figures move on every report and do not
 count as news while their verdict holds, so the disk figure on the host page can be
-up to five minutes older than the **Checked** time beside it. A future **Check
-now** would publish the host itself, because someone is waiting for the answer.
+up to five minutes older than the **Checked** time beside it. **Check
+now** publishes the host itself where the periodic path would not, because
+someone is waiting for the answer.
 
 ## What a host's report raises
 
