@@ -165,16 +165,20 @@ export const TRACK_SWITCH_LABEL = 'Track this repository';
 export const TRACKING_REASON_ADVICE =
   'say why Kennel Club should not look at this repository, for whoever finds it quiet in a year';
 
+// The same advice for a reason that will stand beside several repositories: each
+// page says it, so "this repository" would be wrong on all of them.
+const TRACKING_REASON_ADVICE_MANY =
+  'say why Kennel Club should not look at these repositories, for whoever finds them quiet in a year';
+
 /**
  * What the reason field says about itself when stopping tracking: the rule in this
  * form's own words while it is unmet, and the shared count once it is met. The
  * shared rule finishes "say why this is ...", which is a waiver's question, and
  * asking it here would ask the wrong thing.
  */
-export function trackingReasonHint(reason: string): string {
-  return reasonLength(reason) < REASON_MIN
-    ? `At least ${REASON_MIN} characters: ${TRACKING_REASON_ADVICE}.`
-    : reasonHint(reason);
+export function trackingReasonHint(reason: string, several = false): string {
+  if (reasonLength(reason) >= REASON_MIN) return reasonHint(reason);
+  return `At least ${REASON_MIN} characters: ${several ? TRACKING_REASON_ADVICE_MANY : TRACKING_REASON_ADVICE}.`;
 }
 
 /**
@@ -227,6 +231,117 @@ export const TRACKING_NOW_STARTED = {
   title: 'Repository tracked again',
   detail: 'Kennel Club reads it on its next pass.',
 } as const;
+
+/* -- stopping several at once ---------------------------------------------- */
+
+/**
+ * What stopping a selection comes to. A selection is ids, and the page knows the
+ * rows it last loaded, so each ticked repository is one of three things: one to
+ * stop, one that is already not tracked (which is left as it is, not stopped again
+ * under a new reason), or one the page holds no row for.
+ */
+export interface StopPlan<T> {
+  /** What to stop, in the order it was ticked, which is the order it is stopped and named. */
+  stop: T[];
+  alreadyStopped: number;
+  unknown: number;
+}
+
+export function planStop<T extends { tracking: { tracked: boolean } }>(
+  ids: readonly string[],
+  known: ReadonlyMap<string, T>,
+): StopPlan<T> {
+  const plan: StopPlan<T> = { stop: [], alreadyStopped: 0, unknown: 0 };
+  for (const id of new Set(ids)) {
+    const row = known.get(id);
+    if (!row) plan.unknown += 1;
+    else if (row.tracking.tracked) plan.stop.push(row);
+    else plan.alreadyStopped += 1;
+  }
+  return plan;
+}
+
+const repositoriesCount = (count: number): string =>
+  count === 1 ? '1 repository' : `${count} repositories`;
+
+/**
+ * What the dialog says before several are stopped: the single repository's words
+ * in the plural. One repository keeps its own, which already say "it".
+ */
+export function trackingStopMany(count: number): {
+  readonly title: string;
+  readonly description: string;
+  readonly consequences: readonly string[];
+} {
+  if (count === 1) return TRACKING_STOP;
+  return {
+    title: `Stop tracking ${count} repositories`,
+    description:
+      'Kennel Club stops looking at them, and says so on each page, with your name and your reason.',
+    consequences: [
+      'They are not read from GitHub, and nothing is evaluated for them.',
+      'Their findings are cleared, and they raise no finding and no problem.',
+      'They are counted apart, as not tracked, and stay in the list.',
+      'Their waivers are kept, and do nothing until they are tracked again.',
+    ],
+  };
+}
+
+/** Those ticked that were already not tracked, said so the person knows they were not touched. */
+export function alreadyStoppedSentence(count: number): string {
+  if (count <= 0) return '';
+  return count === 1
+    ? '1 repository that is already not tracked is left as it is.'
+    : `${count} repositories that are already not tracked are left as they are.`;
+}
+
+export interface StopFailure {
+  name: string;
+  /** The controller's own sentence, which says what to do about it. */
+  message: string;
+}
+
+export interface StopOutcome {
+  failed: boolean;
+  title: string;
+  detail: string;
+}
+
+/**
+ * One sentence for the whole batch. When some were not stopped it says that the
+ * rest were, because that is what somebody reading a red message wants to know
+ * first, and gives the first reason the controller gave.
+ */
+export function stopOutcome(total: number, failures: readonly StopFailure[]): StopOutcome {
+  const first = failures[0];
+  if (!first) {
+    return {
+      failed: false,
+      title: `${repositoriesCount(total)} no longer tracked`,
+      detail:
+        total === 1
+          ? TRACKING_NOW_STOPPED.detail
+          : 'Kennel Club has stopped looking at them. They stay in the list as not tracked.',
+    };
+  }
+  const reason = `${first.name}: ${first.message}`;
+  if (failures.length >= total) {
+    return {
+      failed: true,
+      title:
+        total === 1
+          ? 'That repository could not be stopped'
+          : `None of the ${total} could be stopped`,
+      detail: reason,
+    };
+  }
+  const stopped = total - failures.length;
+  return {
+    failed: true,
+    title: `${failures.length} of ${total} could not be stopped`,
+    detail: `The other ${stopped} ${stopped === 1 ? 'was' : 'were'} stopped. ${reason}`,
+  };
+}
 
 /* -- the on/off switch ----------------------------------------------------- */
 
