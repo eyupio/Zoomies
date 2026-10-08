@@ -450,8 +450,24 @@ func (s *Server) handleJobFacets(w http.ResponseWriter, r *http.Request) {
 // computed from the last scheduler plan and the fleet around the job rather
 // than from the row -- so it would be wrong on every cached copy of a job the
 // event stream has already delivered.
+// explanationDefaultLogs is the excerpt a caller gets without asking.
+const explanationDefaultLogs = 12
+
 func (s *Server) handleJobExplanation(w http.ResponseWriter, r *http.Request) {
-	out, err := s.ctrl.ExplainJob(r.Context(), chiURLParam(r, "id"), 12)
+	// logs is how many of the runner's kept lines to quote around the
+	// decisive one: 12 reads as a glance, 0 is none, and more than the store
+	// keeps is what the store keeps. A value that is not a number is refused
+	// rather than quietly read as the default.
+	logs := explanationDefaultLogs
+	if raw := r.URL.Query().Get("logs"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 {
+			badRequestField(w, "logs", fmt.Sprintf("%q is not a number of lines; logs is 0 or more", raw))
+			return
+		}
+		logs = min(n, store.OutputTailLines)
+	}
+	out, err := s.ctrl.ExplainJob(r.Context(), chiURLParam(r, "id"), logs)
 	if err != nil {
 		s.fail(w, r, "explaining the job", err)
 		return
