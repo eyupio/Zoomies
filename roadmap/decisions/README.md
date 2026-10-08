@@ -46,3 +46,4 @@ what was decided.
 | [0008](0008-the-repository-page-leads-with-what-the-fleet-knows.md) | The repository page leads with an Overview of what the fleet knows, built from existing routes | accepted, at the owner's instruction |
 | [0009](0009-the-problems-list-says-one-thing-for-kennel-club.md) | The problems list carries one entry for Kennel Club, not one for each exposed repository | accepted, at the owner's instruction |
 | [0010](0010-kennel-club-has-a-side-menu-and-the-switch-is-in-it.md) | Kennel Club has a side menu like Settings', and its on/off switch is in it | accepted, at the owner's instruction |
+| [0011](0011-an-operator-may-let-zoomies-update-itself.md) | An operator may opt in to updating Zoomies from the web UI, through a consented root-owned helper on each host; narrows decision 25 | accepted, at the owner's instruction; the narrowing of decision 25 not yet put to the owner separately |

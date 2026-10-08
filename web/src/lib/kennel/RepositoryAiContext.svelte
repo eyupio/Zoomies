@@ -97,12 +97,13 @@
   <EmptyState
     icon={BookOpenText}
     title="AI Context is not set up for this repository"
-    description="Set it up to give AI assistants this repository's source as a verified pack that is refreshed after every push. Setup opens on this repository's installation, where you choose the repository and review the pull request before anything is published."
+    description="Set it up to give AI assistants this repository's source as a verified pack that is refreshed after every push. Setup opens with this repository selected, and you review the pull request before anything is published."
   >
     <Button
       variant="primary"
-      href="/kennel/ai-context/setup?installation_id={encodeURIComponent(installationId)}"
-      >Set up AI Context</Button
+      href="/kennel/ai-context/setup?installation_id={encodeURIComponent(
+        installationId,
+      )}&repository_id={repositoryId}">Set up AI Context</Button
     >
   </EmptyState>
 {:else}
