@@ -92,6 +92,8 @@
   const tracking = $derived<'tracked' | 'untracked' | 'all'>(
     trackedParam === 'false' ? 'untracked' : trackedParam === 'all' ? 'all' : 'tracked',
   );
+  const incomplete = $derived(router.param('incomplete') === 'true');
+  const waived = $derived(router.param('waived') === 'true');
 
   // Only the repositories being served, unless this person has said otherwise or the
   // address does. It is a scope on the view and not a filter: it has no chip and
@@ -114,11 +116,22 @@
     standing,
     code,
     installation,
+    incomplete,
+    waived,
     activeOnly,
     tracking,
   });
   const anyFilter = $derived(
-    Boolean(search || severity || standing || code || installation || tracking !== 'tracked'),
+    Boolean(
+      search ||
+      severity ||
+      standing ||
+      code ||
+      installation ||
+      incomplete ||
+      waived ||
+      tracking !== 'tracked',
+    ),
   );
 
   let searchField = $state<HTMLInputElement | null>(null);
@@ -196,6 +209,18 @@
         value: stateOptions.find((o) => o.value === standing)?.label ?? standing,
         onremove: () => router.setQuery({ state: null, offset: null }),
       },
+      incomplete && {
+        id: 'incomplete',
+        label: 'Standing',
+        value: 'Partly checked',
+        onremove: () => router.setQuery({ incomplete: null, offset: null }),
+      },
+      waived && {
+        id: 'waived',
+        label: 'Findings',
+        value: 'Some waived',
+        onremove: () => router.setQuery({ waived: null, offset: null }),
+      },
       code && {
         id: 'code',
         label: 'Check',
@@ -225,6 +250,8 @@
       code: null,
       installation: null,
       tracked: null,
+      incomplete: null,
+      waived: null,
       offset: null,
     });
   }
@@ -252,6 +279,8 @@
     installation: installation || undefined,
     // The API lists both when it is not asked, so "both" is the absence of the filter.
     tracked: tracking === 'all' ? undefined : tracking === 'tracked',
+    incomplete: incomplete || undefined,
+    waived: waived || undefined,
   });
 
   async function fetchRepositories(
@@ -425,7 +454,8 @@
           options={stateOptions}
           size="sm"
           ariaLabel="Filter by standing"
-          onchange={(value) => router.setQuery({ state: value || null, offset: null })}
+          onchange={(value) =>
+            router.setQuery({ state: value || null, incomplete: null, offset: null })}
         />
         <Select
           value={severity}

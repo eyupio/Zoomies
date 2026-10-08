@@ -4089,6 +4089,8 @@ paths:
         - { name: code, in: query, description: Only repositories with an open finding of this check., schema: { type: string, examples: [exposure.fork_code_ran] } }
         - { name: state, in: query, schema: { $ref: "#/components/schemas/KennelState" } }
         - { name: installation, in: query, description: Only this installation's repositories., schema: { type: string } }
+        - { name: incomplete, in: query, description: "`true` keeps the repositories that are only partly checked: `partial` or `pending`. It is what the Overview's Partly checked count adds up, which counts only the repositories being tracked, so add `tracked=true` to match it. It cannot be combined with `state`.", schema: { type: boolean } }
+        - { name: waived, in: query, description: "`true` keeps the repositories with at least one waived finding; `false` keeps the ones with none.", schema: { type: boolean } }
         - name: active
           in: query
           description: >-

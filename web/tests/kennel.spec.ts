@@ -2433,9 +2433,7 @@ test.describe('the cards on the Overview', () => {
     );
   });
 
-  test('a card is judged by its own count, and two cards have no link to give', async ({
-    page,
-  }) => {
+  test('a card is judged by its own count', async ({ page }) => {
     // The stream is cut so that only this document is ever on the page: a frame
     // of the real summary would replace it, and a "has no link" check made after
     // that would be about the real fleet and not about the card.
@@ -2450,6 +2448,9 @@ test.describe('the cards on the Overview', () => {
       ['Warnings', '/kennel/repositories?severity=warning&active=all'],
     ] as const;
     let alone = 0;
+    // "Partly checked" and "Waived" are judged by their own counts as well, so they
+    // have something to count except when this says they do not.
+    let nothing = false;
     await page.route('**/api/v1/kennel', async (route) => {
       const response = await route.fetch();
       const body = (await response.json()) as Overview;
@@ -2458,15 +2459,14 @@ test.describe('the cards on the Overview', () => {
         response,
         json: {
           ...body,
-          // "Partly checked" and "Waived" always have something to count.
           states: {
             ...body.states,
             best_in_show: some(0),
             attention: some(1),
-            partial: 1,
-            pending: 1,
+            partial: nothing ? 0 : 1,
+            pending: nothing ? 0 : 1,
           },
-          counts: { ...body.counts, error: some(2), warning: some(3), waived: 1 },
+          counts: { ...body.counts, error: some(2), warning: some(3), waived: nothing ? 0 : 1 },
         },
       });
     });
@@ -2484,16 +2484,79 @@ test.describe('the cards on the Overview', () => {
         if (n === only) await expect(card(page, label), where).toHaveAttribute('href', href);
         else await expect(card(page, label), `${where}: no link`).toHaveCount(0);
       }
-      // These two have no list to open whatever they count. "Partly checked" adds
-      // two standings and the list filters by one; the list has no waiver filter.
-      for (const [label, value] of [
-        ['Partly checked', '2'],
-        ['Waived', '1'],
+      // "Partly checked" adds two standings, which the list narrows by as one, and
+      // "Waived" counts findings and opens the repositories that hold them. Each has
+      // something to count here, so each is a link.
+      for (const [label, value, href] of [
+        ['Partly checked', '2', '/kennel/repositories?incomplete=true&active=all'],
+        ['Waived', '1', '/kennel/repositories?waived=true&active=all'],
       ] as const) {
         await expect(tile(page, label), `${label} is on the page`).toBeVisible();
-        await expect(tile(page, label).locator('a'), `${label} is not a link`).toHaveCount(0);
+        await expect(
+          card(page, label),
+          `${label} opens the repositories it counts`,
+        ).toHaveAttribute('href', href);
         await expect(tile(page, label), `${label} says ${value}`).toContainText(value);
       }
+    }
+
+    // And when they count nothing there is nothing to open, as for every other card.
+    nothing = true;
+    await goto(page, '/kennel', 'Kennel Club');
+    for (const label of ['Partly checked', 'Waived']) {
+      await expect(tile(page, label), `${label} is on the page`).toBeVisible();
+      await expect(tile(page, label).locator('a'), `${label} counts nothing: no link`).toHaveCount(
+        0,
+      );
+    }
+  });
+
+  // A repository Kennel Club has been told not to look at is put back to "pending",
+  // which is one of the two standings "Partly checked" adds up. The card counts only
+  // what is being tracked, so the list it opens has to as well, or the click finds
+  // one row more than the number it came from. Nothing in the fixture is partly
+  // checked, so the stopped repository is the only pending row there is.
+  test('the list Partly checked opens is as long as its number, and leaves out what is not tracked', async ({
+    page,
+  }) => {
+    const before = await overview(page);
+    const partly = before.states.partial + before.states.pending;
+
+    const quiet = await (
+      await page.request.get('/api/v1/kennel/repositories?state=best_in_show&tracked=true')
+    ).json();
+    const sandbox = (quiet.items as Array<{ id: string; name: string }>)[0]!;
+    const stopped = await page.request.put(`/api/v1/kennel/repositories/${sandbox.id}/tracking`, {
+      data: { tracked: false, reason: 'a sandbox nobody keeps, stopped for this test' },
+    });
+    expect(stopped.ok(), await stopped.text()).toBeTruthy();
+    try {
+      const after = await overview(page);
+      expect(after.states.partial + after.states.pending, 'the card does not count it').toBe(
+        partly,
+      );
+
+      // The rows are asked of the list's own answer, which cannot be satisfied before
+      // it has arrived: a count of nothing is also what a page that has not loaded has.
+      const answered = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/v1/kennel/repositories?') &&
+          response.url().includes('incomplete=true'),
+      );
+      await goto(page, '/kennel/repositories?incomplete=true&active=all', 'Repositories');
+      const list = (await (await answered).json()) as {
+        total: number;
+        items: Array<{ name: string }>;
+      };
+      expect(list.total, 'as many as the number on the card').toBe(partly);
+      expect(
+        list.items.map((item) => item.name),
+        'the stopped one is not among them',
+      ).not.toContain(sandbox.name);
+    } finally {
+      await page.request.put(`/api/v1/kennel/repositories/${sandbox.id}/tracking`, {
+        data: { tracked: true },
+      });
     }
   });
 

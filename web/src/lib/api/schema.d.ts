@@ -13216,6 +13216,10 @@ export interface operations {
                 state?: components["schemas"]["KennelState"];
                 /** @description Only this installation's repositories. */
                 installation?: string;
+                /** @description `true` keeps the repositories that are only partly checked: `partial` or `pending`. It is what the Overview's Partly checked count adds up, which counts only the repositories being tracked, so add `tracked=true` to match it. It cannot be combined with `state`. */
+                incomplete?: boolean;
+                /** @description `true` keeps the repositories with at least one waived finding; `false` keeps the ones with none. */
+                waived?: boolean;
                 /** @description `true` keeps the repositories this fleet has had a hand in a job for within Kennel Club's window, which is thirty days or as long as the fleet keeps its jobs if that is shorter; `false` keeps the ones it has not. Left out, both are listed. It is asked of the jobs, not of when Kennel Club last looked at the repository, so under the installation scope it still tells a busy repository from one the App merely sees. Anything but a boolean is a 400. */
                 active?: boolean;
                 /** @description `true` keeps the repositories Kennel Club is looking at; `false` keeps the ones it has been told not to. Left out, both are listed. Anything but a boolean is a 400. */

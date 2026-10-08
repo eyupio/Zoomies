@@ -215,6 +215,9 @@ type KennelFilter struct {
 	// the ones somebody told it not to (false). Left alone, both are listed: the
 	// loop reads every row, and an untracked repository is always listed.
 	Tracked *bool
+	// Waived keeps repositories with at least one finding somebody has decided is
+	// acceptable (true) or none (false), the rows behind the Overview's "Waived" card.
+	Waived *bool
 }
 
 var kennelSortCols = map[string]string{
@@ -257,6 +260,13 @@ func kennelWhere(f KennelFilter) (string, []any) {
 			cond = append(cond, `repository_pk IS NULL`)
 		} else {
 			cond = append(cond, `repository_pk IS NOT NULL`)
+		}
+	}
+	if f.Waived != nil {
+		if *f.Waived {
+			cond = append(cond, `waived > 0`)
+		} else {
+			cond = append(cond, `waived = 0`)
 		}
 	}
 	if f.Code != "" {

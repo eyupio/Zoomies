@@ -1115,6 +1115,49 @@ func TestTheListCanBeNarrowedToTheRepositoriesBeingTrackedOrNot(t *testing.T) {
 	}
 }
 
+// A repository that has been stopped is put back to "pending", which is one of the
+// two standings the Overview's Partly checked card adds up. The card counts only
+// what is being tracked, so a link from it has to ask for both, and the two filters
+// have to work together: with the one alone, a stopped repository would be listed
+// among those that "could not be fully read" when nobody has tried.
+func TestPartlyCheckedAndTrackedAreAskedTogetherAndAStoppedRepositoryIsOnlyPartlyCheckedByAccident(t *testing.T) {
+	ctx := context.Background()
+	s, inst, _ := kennelStore(t)
+	touch(t, s, inst, 1, "acme/new", "public") // never evaluated: pending
+	partial := touch(t, s, inst, 2, "acme/partial", "public")
+	done := touch(t, s, inst, 3, "acme/done", "public")
+	sandbox := touch(t, s, inst, 4, "acme/sandbox", "public")
+	for id, state := range map[string]string{partial.ID: "partial", done.ID: "best_in_show", sandbox.ID: "best_in_show"} {
+		if err := s.SaveKennelEvaluation(ctx, id, record(state, 0, 0, 0)); err != nil {
+			t.Fatalf("SaveKennelEvaluation(%s): %v", id, err)
+		}
+	}
+	stopTracking(t, s, sandbox.ID)
+
+	yes := true
+	incomplete := []string{"partial", "pending"}
+	for _, c := range []struct {
+		name    string
+		tracked *bool
+		want    []string
+	}{
+		{"partly checked alone also lists the stopped repository, which is pending", nil, []string{"acme/new", "acme/partial", "acme/sandbox"}},
+		{"partly checked among those being tracked is what the card counts", &yes, []string{"acme/new", "acme/partial"}},
+	} {
+		rows, total, err := s.ListKennelRepositories(ctx, KennelFilter{States: incomplete, Tracked: c.tracked}, Page{})
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		var names []string
+		for _, r := range rows {
+			names = append(names, r.FullName)
+		}
+		if !slices.Equal(names, c.want) || total != len(c.want) {
+			t.Errorf("%s: %v (total %d), want %v", c.name, names, total, c.want)
+		}
+	}
+}
+
 // DueKennelRepositories is what asks "which repositories do I read now". A
 // repository nobody tracks is due for nothing, however long ago it was read.
 func TestWhatIsNotTrackedIsNeverDue(t *testing.T) {
@@ -1140,5 +1183,34 @@ func TestDeletingAnInstallationRemovesTheDecisionsNotToTrackItsRepositories(t *t
 	var n int
 	if err := s.read.QueryRowContext(ctx, `SELECT COUNT(*) FROM kennel_untracked`).Scan(&n); err != nil || n != 0 {
 		t.Errorf("%d decisions left after the installation went, %v", n, err)
+	}
+}
+
+// The Overview's "Waived" card counts findings somebody decided are acceptable,
+// and opens the repositories that hold them. The list has to be able to say so,
+// or the card is a number with nothing behind it.
+func TestTheListCanBeNarrowedToRepositoriesWithAWaivedFinding(t *testing.T) {
+	ctx := context.Background()
+	s, inst, _ := kennelStore(t)
+	waived := touch(t, s, inst, 1, "acme/waived", "public")
+	plain := touch(t, s, inst, 2, "acme/plain", "public")
+	rec := record("best_in_show", 0, 0, 0)
+	rec.Waived = 2
+	_ = s.SaveKennelEvaluation(ctx, waived.ID, rec)
+	_ = s.SaveKennelEvaluation(ctx, plain.ID, record("best_in_show", 0, 0, 0))
+
+	yes, no := true, false
+	for _, c := range []struct {
+		name   string
+		filter *bool
+		want   string
+	}{{"with", &yes, waived.ID}, {"without", &no, plain.ID}} {
+		got, total, err := s.ListKennelRepositories(ctx, KennelFilter{Waived: c.filter}, Page{Limit: 10})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if total != 1 || len(got) != 1 || got[0].ID != c.want {
+			t.Errorf("%s a waiver: listed %d (total %d), want only %s", c.name, len(got), total, c.want)
+		}
 	}
 }

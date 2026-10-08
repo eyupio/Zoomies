@@ -49,10 +49,14 @@ export const KENNEL_GROUPS: readonly KennelGroup[] = [
 /** Every page, in the order the rail lists them. */
 export const KENNEL_PAGES: readonly KennelPage[] = KENNEL_GROUPS.flatMap((group) => group.pages);
 
-/** What the list of repositories can be narrowed by from outside it: the two the cards on the Overview count. */
+/** What the list of repositories can be narrowed by from outside it: what the cards on the Overview count. */
 export interface KennelListFilter {
   state?: string;
   severity?: string;
+  /** Only the repositories that are partly checked: partial or pending, which `state` can name only one of. */
+  incomplete?: boolean;
+  /** Only the repositories with a waived finding. */
+  waived?: boolean;
   /**
    * List every repository, not only the ones being served. The list leaves the
    * others out unless told, so a link that counts every repository has to say so, or
@@ -78,6 +82,8 @@ export function kennelListHref(filter: KennelListFilter = {}): string {
   if (filter.state) query.set('state', filter.state);
   if (filter.severity) query.set('severity', filter.severity);
   if (filter.notTracked) query.set('tracked', 'false');
+  if (filter.incomplete) query.set('incomplete', 'true');
+  if (filter.waived) query.set('waived', 'true');
   if (filter.everything) query.set('active', 'all');
   const text = query.toString();
   return text ? `${base}?${text}` : base;
