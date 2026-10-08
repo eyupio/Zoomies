@@ -102,6 +102,7 @@ func commands() []*command {
 		{"size-pins", groupFleet, "Put a job, or a repository, in a size class by hand", runSizePins},
 		{"auto-pools", groupFleet, "What the controller keeps for each size of host", runAutoPools},
 		{"hosts", groupFleet, "Agents, their capacity, and enrolment", runHosts},
+		{"updates", groupFleet, "Release updates, and the helper that applies them", runUpdates},
 		{"providers", groupFleet, "Where machines are rented from, and the machines themselves", runProviders},
 		{"installations", groupFleet, "GitHub App installations", runInstallations},
 		{"export", groupFleet, "Write one installation's whole history as an archive another instance can import", runExport},

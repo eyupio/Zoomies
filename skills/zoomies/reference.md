@@ -1087,6 +1087,39 @@ Subcommands:
 Run "zoomies hosts join-token <subcommand> --help" for the flags each one takes.
 ```
 
+### zoomies updates
+
+Release updates, and the helper that applies them
+
+```text
+Release updates, and the helper that applies them. To upgrade this host by hand, use "zoomies upgrade".
+
+Usage:
+  zoomies updates <subcommand> [flags]
+
+Subcommands:
+  helper <run|status>                The root-owned helper on this host that applies an update
+
+Run "zoomies updates <subcommand> --help" for the flags each one takes.
+```
+
+#### zoomies updates helper
+
+The root-owned helper on this host that applies an update
+
+```text
+The update helper on this host. It is local: it never talks to a controller.
+
+Usage:
+  zoomies updates helper <subcommand> [flags]
+
+Subcommands:
+  run                                Answer the request in the update folder; the helper's unit runs it, as root
+  status                             Where the update folder is, whether the helper is installed, and its last result
+
+Run "zoomies updates helper <subcommand> --help" for the flags each one takes.
+```
+
 ### zoomies providers
 
 Where machines are rented from, and the machines themselves

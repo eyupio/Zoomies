@@ -310,6 +310,21 @@ run it again, that is your call to make.
 | `hosts delete <host-id>` | Forget it. Refused while it has live runners, unless `--force`. |
 | `hosts join-token create` | Mint a single-use join token: `--ttl` (`15m`), `--capacity` (`2`), `--labels`, `--controller`. Shown once; only its hash is stored. |
 
+### `zoomies updates`
+
+Release updates, and the helper that applies them. `zoomies upgrade` is still
+how you upgrade a host by hand, and `zoomies update` is its old name, not part
+of this group.
+
+| Command | What it does |
+| --- | --- |
+| `updates helper run` | Answer the request in the update folder: check it against the helper's limits, run `zoomies upgrade --version <tag> --non-interactive` for it (never `--yes`), and write `result.json` saying how it went. The `zoomies-update` unit runs it when a request arrives. It takes no flags: where the folder is, which account owns it, which binary to run and where `upgrade.lock` lives all come from root's copy of the pointer in `/var/lib/zoomies-update`, which only root can write. A release already installed, or a newer one, is answered as done and nothing runs. |
+| `updates helper status` | Where the update folder is, whether the helper is installed, and the last result it wrote with the end of its log. When the new controller does not come back, this is where to look. |
+
+`helper` is local and root-only: it acts on this host and never talks to a
+controller, `helper run` refuses to start as any account but root, and
+`helper status` reads what it can without root and says when it needs `sudo`.
+
 ### `zoomies providers`
 
 | Command | What it does |

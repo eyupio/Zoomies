@@ -167,9 +167,10 @@ func openPlainFile(dir *os.Root, name string) (*os.File, os.FileInfo, error) {
 	return f, opened, nil
 }
 
-// betweenLookAndOpen runs after openPlainFile has looked at a name and before
-// it opens it. It does nothing; it is a variable so that a test can swap the
-// name in the one moment a hostile service would.
+// betweenLookAndOpen runs after the helper has looked at a name (a file in
+// openPlainFile, the update folder in openUpdateFolder) and before it opens
+// it. It does nothing; it is a variable so that a test can swap the name in
+// the one moment a hostile service would.
 var betweenLookAndOpen = func(name string) {}
 
 // fileKind says what something that is not a plain file is, for the sentence
@@ -416,17 +417,18 @@ func refusedResult(r updates.Request, err error, at time.Time) updates.Result {
 // writing through it. The file is world-readable, since the service has to
 // read it and it holds nothing secret.
 //
-// The text is made valid UTF-8 and bounded first, so the answer stays within
-// the limit the service reads results through whatever the engine printed.
+// The text is made printable and bounded first, so the answer stays within
+// the limit the service reads results through whatever the engine printed,
+// and a person shown it later is shown text and not terminal control.
 func writeResult(dir *os.Root, r updates.Result) error {
 	r.V = updates.WireVersion
-	r.ID = headOf(r.ID, maxResultFieldBytes)
-	r.Tag = headOf(r.Tag, maxResultFieldBytes)
-	r.From = headOf(r.From, maxResultFieldBytes)
-	r.To = headOf(r.To, maxResultFieldBytes)
-	r.Error = headOf(r.Error, maxResultErrorBytes)
+	r.ID = headOf(printable(r.ID, false), maxResultFieldBytes)
+	r.Tag = headOf(printable(r.Tag, false), maxResultFieldBytes)
+	r.From = headOf(printable(r.From, false), maxResultFieldBytes)
+	r.To = headOf(printable(r.To, false), maxResultFieldBytes)
+	r.Error = headOf(printable(r.Error, false), maxResultErrorBytes)
 	// The reason a run failed is at the end of its output.
-	r.LogTail = tailOf(r.LogTail, updates.MaxLogTailBytes)
+	r.LogTail = tailOf(printable(r.LogTail, true), updates.MaxLogTailBytes)
 	body, err := json.Marshal(r)
 	if err != nil {
 		return fmt.Errorf("cannot encode the update result: %w", err)
