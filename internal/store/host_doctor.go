@@ -40,6 +40,10 @@ func (h *HostDoctor) Scan(value any) error {
 	return nil
 }
 func (s *Store) SetHostDoctor(ctx context.Context, id string, r *hosttune.Report) error {
-	_, err := s.exec(ctx, `UPDATE hosts SET doctor=? WHERE id=?`, HostDoctor{r}, id)
+	var at int64
+	if r != nil {
+		at = ms(r.CheckedAt)
+	}
+	_, err := s.exec(ctx, `UPDATE hosts SET doctor=?, doctor_checked_at=? WHERE id=?`, HostDoctor{r}, at, id)
 	return wrapWrite(err)
 }

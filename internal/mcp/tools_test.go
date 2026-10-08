@@ -123,3 +123,52 @@ func TestListHostsSaysWhereAnAcceptedWarningIsCountedAndWhoWroteItsReason(t *tes
 		}
 	}
 }
+
+// An assistant asking about free slots should not pay for 29 checks a host.
+// The summary stays, because it is the verdict; only the results go.
+func TestListHostsCanLeaveTheChecksOut(t *testing.T) {
+	const body = `{"items":[{"id":"host_1","free":2,"doctor":{"checked_at":"2026-10-06T14:02:11Z",` +
+		`"results":[{"id":"docker.logs","status":"warn"}],"summary":{"counted":12,"warnings":1}}},{"id":"host_2"}],"total":2}`
+	got, err := call(t, "list_hosts", &recorder{object: body}, `{"include_checks":false}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "docker.logs") || strings.Contains(got, `"results"`) {
+		t.Errorf("the checks are still there:\n%s", got)
+	}
+	for _, want := range []string{`"summary"`, `"warnings":1`, `"free":2`, `"host_2"`, `"total":2`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the reply lost %s:\n%s", want, got)
+		}
+	}
+}
+
+func TestHostHealthReturnsOneHostsReportWithItsSummary(t *testing.T) {
+	const body = `{"id":"host_1","name":"builder","healthy":true,"capacity":4,` +
+		`"doctor":{"results":[{"id":"docker.logs","status":"warn"}],"summary":{"counted":12,"warnings":1}}}`
+	rec := &recorder{object: body}
+	got, err := call(t, "host_health", rec, `{"host_id":"host_1"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"id":"host_1"`, `"name":"builder"`, `"summary"`, `"docker.logs"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the reply lacks %s:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "capacity") {
+		t.Errorf("the tool is about health and should not pass the whole host:\n%s", got)
+	}
+	if _, err := call(t, "host_health", rec, `{}`); err == nil {
+		t.Error("a call without a host_id should be refused")
+	}
+}
+
+func TestHostHealthSaysAHostWithNoReportIsNotAnAllClear(t *testing.T) {
+	d := description(t, "host_health")
+	for _, want := range []string{"doctor.summary", "not an all-clear", "untrusted", "results[].accepted"} {
+		if !strings.Contains(d, want) {
+			t.Errorf("the description does not say %q:\n%s", want, d)
+		}
+	}
+}

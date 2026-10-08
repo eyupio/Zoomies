@@ -2,7 +2,6 @@ package installer
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -48,12 +47,14 @@ func (p *upgradePlan) upgradeProxmoxGateways(ctx context.Context) error {
 			PaletteFor(p.opts.Out).Hint(p.opts.Out, "Will update %s", unit)
 			continue
 		}
-		unlock, err := LockSetup(filepath.Join(root, entry.Name(), "setup.lock"))
+		lock, err := os.OpenFile(filepath.Join(root, entry.Name(), "setup.lock"), os.O_CREATE|os.O_RDWR, 0600)
 		if err != nil {
-			if errors.Is(err, ErrSetupLocked) {
-				return fmt.Errorf("installer: %s is being configured; retry the upgrade when setup finishes", unit)
-			}
 			return err
+		}
+		defer lock.Close()
+		unlock, err := tryLockSetup(lock)
+		if err != nil {
+			return fmt.Errorf("installer: %s is being configured; retry the upgrade when setup finishes", unit)
 		}
 		defer unlock()
 		binary, err := os.ReadFile(p.opts.BinaryPath)
