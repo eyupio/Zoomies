@@ -9,7 +9,7 @@
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { RotateCw, ShieldCheck, Trophy, Undo2 } from '@lucide/svelte';
+  import { EyeOff, RotateCw, ShieldCheck, Trophy, Undo2 } from '@lucide/svelte';
   import {
     ApiError,
     getKennelRepository,
@@ -33,6 +33,7 @@
   import Finding from '$lib/kennel/Finding.svelte';
   import RepositoryOverview from '$lib/kennel/RepositoryOverview.svelte';
   import RepositoryAiContext from '$lib/kennel/RepositoryAiContext.svelte';
+  import TrackSwitch from '$lib/kennel/TrackSwitch.svelte';
   import WaiveDialog from '$lib/kennel/WaiveDialog.svelte';
   import {
     ERROR_WAIVER_SENTENCE,
@@ -46,7 +47,12 @@
   import { prefs } from '$lib/state/prefs.svelte';
   import { session } from '$lib/state/session.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
-  import { kennelCoverageStatus, kennelStatus, severityStatus } from '$lib/status';
+  import {
+    kennelCoverageStatus,
+    kennelStatus,
+    kennelTrackingStatus,
+    severityStatus,
+  } from '$lib/status';
 
   const id = $derived(router.params.id ?? '');
 
@@ -193,8 +199,14 @@
 
   /* -- what to say ------------------------------------------------------------- */
 
+  // Not one of the four standings: those are what the evaluator concluded, and
+  // nothing is evaluated for a repository Kennel Club has been told not to look at.
   const status = $derived(
-    repo ? kennelStatus(repo.state, worstSeverity(repo.counts), prefs.quirkyStatus) : null,
+    repo
+      ? repo.tracking.tracked
+        ? kennelStatus(repo.state, worstSeverity(repo.counts), prefs.quirkyStatus)
+        : kennelTrackingStatus()
+      : null,
   );
 
   function capitalise(word: string): string {
@@ -226,7 +238,9 @@
             <Badge tone="neutral" label={capitalise(repo.visibility)} size="sm" dot={false} />
           {/if}
           <span>
-            {#if repo.evaluated_at}
+            {#if !repo.tracking.tracked && repo.tracking.since}
+              Since <RelativeTime value={repo.tracking.since} />
+            {:else if repo.evaluated_at}
               Evaluated <RelativeTime value={repo.evaluated_at} />
             {:else}
               Not evaluated yet
@@ -235,7 +249,12 @@
         </p>
       {/if}
     {/snippet}
-    {#if repo && session.can('operator')}
+    {#if repo}
+      <!-- A constant, because a snippet does not keep what the branch learned about `repo`. -->
+      {@const current = repo}
+      <TrackSwitch repo={current} onchange={(next) => (repo = next)} />
+    {/if}
+    {#if repo && repo.tracking.tracked && session.can('operator')}
       <Button icon={RotateCw} loading={rechecking} onclick={() => void recheck()}>Recheck</Button>
     {/if}
   </PageHeader>
@@ -244,7 +263,7 @@
     {#if gone}
       <EmptyState
         icon={Trophy}
-        title="Kennel Club no longer tracks this repository"
+        title="Kennel Club has let this repository go"
         description="It has not had a job served by this fleet for long enough, so Kennel Club let it go. It comes back if one runs again."
       >
         <Button href="/kennel/repositories">All repositories</Button>
@@ -256,11 +275,33 @@
     {:else if repo}
       <!-- A constant, because a snippet does not keep what the branch learned about `repo`. -->
       {@const current = repo}
+      <!-- AI Context is its own thing and goes on whether or not Kennel Club is looking. -->
+      {#if !current.tracking.tracked && tab !== 'ai-context'}
+        <div class="notice" role="note" data-testid="not-tracked">
+          <p>
+            <strong>Kennel Club is not looking at this repository.</strong>
+            {current.tracking.by || 'Somebody'} stopped it{#if current.tracking.since}
+              on {formatAbsolute(current.tracking.since)}{/if}.
+          </p>
+          <blockquote class="why">{current.tracking.reason}</blockquote>
+          <p>
+            Nothing is read from GitHub for it and nothing is evaluated, so it has no findings and
+            raises no problem. Its waivers are kept, and do nothing until it is tracked again.
+          </p>
+        </div>
+      {/if}
       <Tabs tabs={TABS} value={tab} label="Repository sections" onchange={openTab}>
         {#if tab === 'overview'}
           <RepositoryOverview repo={current} refreshKey={reload} />
         {:else if tab === 'ai-context'}
           <RepositoryAiContext repo={current} />
+        {:else if !current.tracking.tracked}
+          <EmptyState
+            compact
+            icon={EyeOff}
+            title="Nothing to show for a repository that is not tracked"
+            description="Having no findings is not an all clear. Track it again to have it read from GitHub and evaluated."
+          />
         {:else}
           {#if incomplete}
             <div class="notice" role="note">
@@ -464,6 +505,17 @@
   }
   .notice p {
     margin: 0;
+  }
+  .notice .why + p {
+    margin-top: var(--z-space-2);
+  }
+  /* The reason is somebody's own sentence, set apart from the words around it. */
+  .why {
+    margin: var(--z-space-2) 0 0;
+    padding-left: var(--z-space-3);
+    border-left: var(--z-border-width-thick) solid var(--z-accent-border);
+    overflow-wrap: anywhere;
+    white-space: pre-line;
   }
   .findings {
     display: flex;

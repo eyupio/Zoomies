@@ -838,6 +838,354 @@ func TestTheListCanBeNarrowedToRepositoriesWithAnOpenFindingOfASeverity(t *testi
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Tracking
+// ---------------------------------------------------------------------------
+
+// stopTracking is the administrator's decision, with the words a person would give.
+func stopTracking(t *testing.T, s *Store, id string) bool {
+	t.Helper()
+	changed, err := s.UntrackKennelRepository(context.Background(), id,
+		KennelUntracked{Reason: "a sandbox nobody keeps", By: "usr_ada", ByName: "ada"})
+	if err != nil {
+		t.Fatalf("UntrackKennelRepository(%s): %v", id, err)
+	}
+	return changed
+}
+
+// Every repository is tracked until somebody says otherwise, and what is kept of
+// the decision is what the page has to show beside the switch: who, when and why.
+func TestARepositoryIsTrackedUntilSomebodySaysOtherwiseAndThenRecordsWhoWhenAndWhy(t *testing.T) {
+	ctx := context.Background()
+	s, inst, clock := kennelStore(t)
+	r := touch(t, s, inst, 1, "acme/sandbox", "public")
+	if r.Untracked != nil {
+		t.Fatalf("a new repository is untracked: %+v", r.Untracked)
+	}
+
+	*clock = kennelNow.Add(time.Hour)
+	if !stopTracking(t, s, r.ID) {
+		t.Fatal("stopping tracking a tracked repository said nothing changed")
+	}
+	got, err := s.GetKennelRepository(ctx, r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := got.Untracked
+	if u == nil {
+		t.Fatal("the repository is still tracked")
+	}
+	if u.Reason != "a sandbox nobody keeps" || u.By != "usr_ada" || u.ByName != "ada" || !u.At.Equal(*clock) {
+		t.Errorf("decision = %+v, want the reason, who and when it was made", u)
+	}
+
+	// The same record is on every way of reading the row, because the list and the
+	// loop are what act on it.
+	rows, _, err := s.ListKennelRepositories(ctx, KennelFilter{}, Page{})
+	if err != nil || len(rows) != 1 || rows[0].Untracked == nil {
+		t.Errorf("list = %v, %v: the decision is not on the listed row", rows, err)
+	}
+	if again := touch(t, s, inst, 1, "acme/sandbox", "public"); again.Untracked == nil {
+		t.Error("being served again undid the decision")
+	}
+
+	if changed, err := s.TrackKennelRepository(ctx, r.ID); err != nil || !changed {
+		t.Fatalf("TrackKennelRepository = %v, %v", changed, err)
+	}
+	got, _ = s.GetKennelRepository(ctx, r.ID)
+	if got.Untracked != nil {
+		t.Errorf("still untracked after being tracked: %+v", got.Untracked)
+	}
+}
+
+// Stopping puts the row back to what it was before anything had looked at it,
+// so that nothing downstream has a finding, a count or a coverage state to
+// remember is not there. What is not the evaluation's is left: the decisions
+// about its findings, and the fleet's record of runs it has read.
+func TestStoppingTrackingPutsTheRowBackToBeforeAnythingLookedAndKeepsWhatIsNotTheEvaluations(t *testing.T) {
+	ctx := context.Background()
+	s, inst, clock := kennelStore(t)
+	r := touch(t, s, inst, 1, "acme/api", "public")
+	rec := record("attention", 2, 1, 1, "exposure.fork_code_ran")
+	rec.Waived = 1
+	rec.Coverage = json.RawMessage(`{"fleet":{"state":"ok"}}`)
+	rec.Watermark = json.RawMessage(`{"after":42}`)
+	if err := s.SaveKennelEvaluation(ctx, r.ID, rec); err != nil {
+		t.Fatal(err)
+	}
+	w := &KennelWaiver{RepositoryPK: r.ID, Code: "exposure.fork_code_ran", Severity: "error", Reason: "isolated hosts",
+		CreatedBy: "usr_1", CreatedByName: "ada", ExpiresAt: clock.Add(24 * time.Hour)}
+	if err := s.UpsertKennelWaiver(ctx, w); err != nil {
+		t.Fatal(err)
+	}
+
+	stopTracking(t, s, r.ID)
+
+	got, _ := s.GetKennelRepository(ctx, r.ID)
+	if got.State != "pending" || got.EvaluatorVersion != 0 || got.EvaluatedAt != nil || got.InputsDigest != "" {
+		t.Errorf("row = state %q, evaluator %d, evaluated %v, digest %q; want it as it was before anything looked",
+			got.State, got.EvaluatorVersion, got.EvaluatedAt, got.InputsDigest)
+	}
+	if got.OpenErrors != 0 || got.OpenWarnings != 0 || got.OpenInfos != 0 || got.Waived != 0 {
+		t.Errorf("counts = %d/%d/%d with %d waived, want none: nothing is evaluated for it",
+			got.OpenErrors, got.OpenWarnings, got.OpenInfos, got.Waived)
+	}
+	if string(got.Evaluation) != `{}` || string(got.Coverage) != `{}` {
+		t.Errorf("evaluation %s, coverage %s; want both empty", got.Evaluation, got.Coverage)
+	}
+	if string(got.Watermark) != `{"after":42}` {
+		t.Errorf("watermark = %s: the runs already read must not be read twice", got.Watermark)
+	}
+	if _, err := s.GetKennelWaiver(ctx, w.ID); err != nil {
+		t.Errorf("the waiver went with the evaluation: %v", err)
+	}
+}
+
+// A second request to stop has nothing to add, and the record of who stopped it
+// and when is not the second person's to replace. It is also how a request that
+// arrives twice is not two decisions.
+func TestStoppingTrackingTwiceKeepsTheFirstDecisionAndTrackingTwiceIsNothing(t *testing.T) {
+	ctx := context.Background()
+	s, inst, clock := kennelStore(t)
+	r := touch(t, s, inst, 1, "acme/api", "public")
+	if !stopTracking(t, s, r.ID) {
+		t.Fatal("the first request changed nothing")
+	}
+	*clock = kennelNow.Add(time.Hour)
+	changed, err := s.UntrackKennelRepository(ctx, r.ID, KennelUntracked{Reason: "somebody else's reason", By: "usr_bob", ByName: "bob"})
+	if err != nil || changed {
+		t.Fatalf("second request = %v, %v; want no change", changed, err)
+	}
+	got, _ := s.GetKennelRepository(ctx, r.ID)
+	if got.Untracked.ByName != "ada" || got.Untracked.Reason != "a sandbox nobody keeps" || !got.Untracked.At.Equal(kennelNow) {
+		t.Errorf("decision = %+v, want the first one kept", got.Untracked)
+	}
+
+	if changed, err := s.TrackKennelRepository(ctx, r.ID); err != nil || !changed {
+		t.Fatalf("first track = %v, %v", changed, err)
+	}
+	if changed, err := s.TrackKennelRepository(ctx, r.ID); err != nil || changed {
+		t.Errorf("tracking a tracked repository = %v, %v; want no change", changed, err)
+	}
+}
+
+// Tracking again makes the repository due, so the loop reads it on its next pass
+// and does not wait for a day that was set before anybody stopped looking.
+func TestTrackingAgainMakesTheRepositoryDueAtOnce(t *testing.T) {
+	ctx := context.Background()
+	s, inst, _ := kennelStore(t)
+	r := touch(t, s, inst, 1, "acme/api", "public")
+	if err := s.SaveKennelEvaluation(ctx, r.ID, record("best_in_show", 0, 0, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetKennelRepository(ctx, r.ID); got.NextDueAt.UnixMilli() <= 0 {
+		t.Fatal("the evaluation did not set a time to read again")
+	}
+	stopTracking(t, s, r.ID)
+	if _, err := s.TrackKennelRepository(ctx, r.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetKennelRepository(ctx, r.ID); got.NextDueAt.UnixMilli() != 0 {
+		t.Errorf("next due = %v, want now", got.NextDueAt)
+	}
+}
+
+func TestStoppingOrStartingTrackingForARepositoryThatIsNotThereSaysSo(t *testing.T) {
+	ctx := context.Background()
+	s, _, _ := kennelStore(t)
+	if _, err := s.UntrackKennelRepository(ctx, "kcr_nope", KennelUntracked{Reason: "r", By: "u", ByName: "n"}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("untrack: %v, want ErrNotFound", err)
+	}
+	if _, err := s.TrackKennelRepository(ctx, "kcr_nope"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("track: %v, want ErrNotFound", err)
+	}
+}
+
+// An evaluation takes reads from GitHub, so one can be under way when somebody
+// stops Kennel Club looking. Its answer must not land on a repository nobody is
+// tracking, or the findings come back and the count with them.
+func TestAnEvaluationThatLandsAfterTheRepositoryWasUntrackedIsNotKept(t *testing.T) {
+	ctx := context.Background()
+	s, inst, _ := kennelStore(t)
+	r := touch(t, s, inst, 1, "acme/api", "public")
+	stopTracking(t, s, r.ID)
+
+	err := s.SaveKennelEvaluation(ctx, r.ID, record("attention", 1, 0, 0, "exposure.fork_code_ran"))
+	if !errors.Is(err, ErrKennelUntracked) {
+		t.Fatalf("save = %v, want ErrKennelUntracked, which is neither a failure nor a missing row", err)
+	}
+	if got, _ := s.GetKennelRepository(ctx, r.ID); got.OpenErrors != 0 || got.EvaluatedAt != nil || got.State != "pending" {
+		t.Errorf("the late evaluation was kept: %+v", got)
+	}
+
+	if _, err := s.TrackKennelRepository(ctx, r.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveKennelEvaluation(ctx, r.ID, record("attention", 1, 0, 0, "exposure.fork_code_ran")); err != nil {
+		t.Errorf("save after tracking again: %v", err)
+	}
+}
+
+// Somebody decided Kennel Club should not look at it. A quarter without a job is
+// not a reason to forget that, or it comes back tracked the day it is next pushed
+// to. It is a reason to forget a repository nobody decided about.
+func TestPruningLeavesARepositoryThatIsNotTrackedAloneAndOnlyWhileItIsNot(t *testing.T) {
+	ctx := context.Background()
+	s, inst, clock := kennelStore(t)
+	quiet := touch(t, s, inst, 1, "acme/sandbox", "public")
+	forgotten := touch(t, s, inst, 2, "acme/forgotten", "public")
+	stopTracking(t, s, quiet.ID)
+	*clock = kennelNow.Add(100 * 24 * time.Hour)
+	fresh := touch(t, s, inst, 3, "acme/fresh", "public")
+
+	gone, err := s.PruneKennelRepositories(ctx, clock.Add(-90*24*time.Hour))
+	if err != nil || len(gone) != 1 || gone[0] != forgotten.ID {
+		t.Fatalf("pruned %v, %v; want only %s", gone, err, forgotten.ID)
+	}
+	kept, err := s.GetKennelRepository(ctx, quiet.ID)
+	if err != nil || kept.Untracked == nil || kept.Untracked.ByName != "ada" {
+		t.Errorf("the untracked repository = %+v, %v; want it and its decision kept", kept, err)
+	}
+	if _, err := s.GetKennelRepository(ctx, fresh.ID); err != nil {
+		t.Errorf("the fresh repository went: %v", err)
+	}
+
+	// Tracked again, it is a repository like another and is forgotten like one.
+	if _, err := s.TrackKennelRepository(ctx, quiet.ID); err != nil {
+		t.Fatal(err)
+	}
+	gone, err = s.PruneKennelRepositories(ctx, clock.Add(-90*24*time.Hour))
+	if err != nil || len(gone) != 1 || gone[0] != quiet.ID {
+		t.Errorf("pruned %v, %v after tracking again; want %s", gone, err, quiet.ID)
+	}
+}
+
+// A repository somebody chose not to track is not one nothing has looked at yet,
+// and must not be counted as if it were: it is counted apart, and in nothing
+// else.
+func TestTheTotalsLeaveOutWhatIsNotTrackedAndCountItApart(t *testing.T) {
+	ctx := context.Background()
+	s, inst, _ := kennelStore(t)
+	a := touch(t, s, inst, 1, "acme/a", "public")
+	touch(t, s, inst, 2, "acme/b", "public")
+	sandbox := touch(t, s, inst, 3, "acme/sandbox", "public")
+	fork := touch(t, s, inst, 4, "acme/fork", "public")
+	_ = s.SaveKennelEvaluation(ctx, a.ID, record("attention", 1, 0, 0, "exposure.fork_code_ran"))
+	stopTracking(t, s, sandbox.ID)
+	stopTracking(t, s, fork.ID)
+
+	c, err := s.KennelCounts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Repositories != 2 || c.ByState["attention"] != 1 || c.ByState["pending"] != 1 || c.NotTracked != 2 {
+		t.Errorf("counts = %+v, want 2 tracked (one attention, one pending) and 2 not tracked", c)
+	}
+}
+
+func TestTheListCanBeNarrowedToTheRepositoriesBeingTrackedOrNot(t *testing.T) {
+	ctx := context.Background()
+	s, inst, _ := kennelStore(t)
+	touch(t, s, inst, 1, "acme/api", "public")
+	touch(t, s, inst, 2, "acme/web", "public")
+	sandbox := touch(t, s, inst, 3, "acme/sandbox", "public")
+	stopTracking(t, s, sandbox.ID)
+
+	yes, no := true, false
+	for _, c := range []struct {
+		name    string
+		tracked *bool
+		want    []string
+	}{
+		{"left alone, both are listed", nil, []string{"acme/api", "acme/sandbox", "acme/web"}},
+		{"tracked", &yes, []string{"acme/api", "acme/web"}},
+		{"not tracked", &no, []string{"acme/sandbox"}},
+	} {
+		rows, total, err := s.ListKennelRepositories(ctx, KennelFilter{Tracked: c.tracked}, Page{})
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		var names []string
+		for _, r := range rows {
+			names = append(names, r.FullName)
+		}
+		if !slices.Equal(names, c.want) || total != len(c.want) {
+			t.Errorf("%s: %v (total %d), want %v", c.name, names, total, c.want)
+		}
+	}
+}
+
+// A repository that has been stopped is put back to "pending", which is one of the
+// two standings the Overview's Partly checked card adds up. The card counts only
+// what is being tracked, so a link from it has to ask for both, and the two filters
+// have to work together: with the one alone, a stopped repository would be listed
+// among those that "could not be fully read" when nobody has tried.
+func TestPartlyCheckedAndTrackedAreAskedTogetherAndAStoppedRepositoryIsOnlyPartlyCheckedByAccident(t *testing.T) {
+	ctx := context.Background()
+	s, inst, _ := kennelStore(t)
+	touch(t, s, inst, 1, "acme/new", "public") // never evaluated: pending
+	partial := touch(t, s, inst, 2, "acme/partial", "public")
+	done := touch(t, s, inst, 3, "acme/done", "public")
+	sandbox := touch(t, s, inst, 4, "acme/sandbox", "public")
+	for id, state := range map[string]string{partial.ID: "partial", done.ID: "best_in_show", sandbox.ID: "best_in_show"} {
+		if err := s.SaveKennelEvaluation(ctx, id, record(state, 0, 0, 0)); err != nil {
+			t.Fatalf("SaveKennelEvaluation(%s): %v", id, err)
+		}
+	}
+	stopTracking(t, s, sandbox.ID)
+
+	yes := true
+	incomplete := []string{"partial", "pending"}
+	for _, c := range []struct {
+		name    string
+		tracked *bool
+		want    []string
+	}{
+		{"partly checked alone also lists the stopped repository, which is pending", nil, []string{"acme/new", "acme/partial", "acme/sandbox"}},
+		{"partly checked among those being tracked is what the card counts", &yes, []string{"acme/new", "acme/partial"}},
+	} {
+		rows, total, err := s.ListKennelRepositories(ctx, KennelFilter{States: incomplete, Tracked: c.tracked}, Page{})
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		var names []string
+		for _, r := range rows {
+			names = append(names, r.FullName)
+		}
+		if !slices.Equal(names, c.want) || total != len(c.want) {
+			t.Errorf("%s: %v (total %d), want %v", c.name, names, total, c.want)
+		}
+	}
+}
+
+// DueKennelRepositories is what asks "which repositories do I read now". A
+// repository nobody tracks is due for nothing, however long ago it was read.
+func TestWhatIsNotTrackedIsNeverDue(t *testing.T) {
+	ctx := context.Background()
+	s, inst, _ := kennelStore(t)
+	touch(t, s, inst, 1, "acme/api", "public")
+	sandbox := touch(t, s, inst, 2, "acme/sandbox", "public")
+	stopTracking(t, s, sandbox.ID)
+	due, err := s.DueKennelRepositories(ctx, 10)
+	if err != nil || len(due) != 1 || due[0].FullName != "acme/api" {
+		t.Errorf("due = %v, %v; want only the repository that is tracked", due, err)
+	}
+}
+
+func TestDeletingAnInstallationRemovesTheDecisionsNotToTrackItsRepositories(t *testing.T) {
+	ctx := context.Background()
+	s, inst, _ := kennelStore(t)
+	r := touch(t, s, inst, 1, "acme/sandbox", "public")
+	stopTracking(t, s, r.ID)
+	if _, err := s.DeleteInstallation(ctx, inst.ID); err != nil {
+		t.Fatalf("DeleteInstallation: %v", err)
+	}
+	var n int
+	if err := s.read.QueryRowContext(ctx, `SELECT COUNT(*) FROM kennel_untracked`).Scan(&n); err != nil || n != 0 {
+		t.Errorf("%d decisions left after the installation went, %v", n, err)
+	}
+}
+
 // The Overview's "Waived" card counts findings somebody decided are acceptable,
 // and opens the repositories that hold them. The list has to be able to say so,
 // or the card is a number with nothing behind it.

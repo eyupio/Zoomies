@@ -18,7 +18,8 @@ import (
 // can.
 const (
 	// kennelRetention is how long a repository's row is kept after the fleet last
-	// served it, so a quiet repository keeps its waivers.
+	// served it, so a quiet repository keeps its waivers. A repository somebody
+	// told Kennel Club not to look at is kept however long it has been quiet.
 	kennelRetention = 90 * 24 * time.Hour
 	// kennelLocalInterval is the least time between two evaluations of what the
 	// fleet itself observed. They cost no GitHub request, but a busy fleet changes

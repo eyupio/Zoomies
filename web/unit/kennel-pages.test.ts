@@ -68,6 +68,18 @@ test('a link that counts every repository asks the list for every repository', (
   assert.equal(kennelListHref({ everything: false }), list, 'not asked for, not in the address');
 });
 
+// The list leaves out what Kennel Club was told not to look at, because the cards count
+// what it is looking at. The card for the others has to ask for them by name.
+test('the card for the repositories nobody tracks asks the list for them', () => {
+  const list = kennelListHref();
+  assert.equal(kennelListHref({ notTracked: true }), `${list}?tracked=false`);
+  assert.equal(
+    kennelListHref({ notTracked: true, everything: true }),
+    `${list}?tracked=false&active=all`,
+  );
+  assert.equal(kennelListHref({ notTracked: false }), list, 'not asked for, not in the address');
+});
+
 test('an empty filter is left out of the address, and a value is encoded', () => {
   const list = kennelListHref();
   assert.equal(kennelListHref({ state: '', severity: '' }), list);

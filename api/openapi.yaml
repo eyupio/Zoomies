@@ -4079,7 +4079,9 @@ paths:
       description: >-
         Each is a repository this fleet has served, or under the installation scope one the App
         can see. The default order puts the repository with the most errors first, then warnings,
-        then notes, then by name. `sort` is `severity`, `name` or `evaluated_at`.
+        then notes, then by name. `sort` is `severity`, `name` or `evaluated_at`. A repository
+        Kennel Club has been told not to look at is listed too, with `tracking.tracked` false and
+        nothing evaluated for it; `tracked` narrows the list to the ones it is or is not.
       x-zoomies-role: viewer
       parameters:
         - { name: q, in: query, description: Substring match on the repository's name., schema: { type: string } }
@@ -4087,7 +4089,7 @@ paths:
         - { name: code, in: query, description: Only repositories with an open finding of this check., schema: { type: string, examples: [exposure.fork_code_ran] } }
         - { name: state, in: query, schema: { $ref: "#/components/schemas/KennelState" } }
         - { name: installation, in: query, description: Only this installation's repositories., schema: { type: string } }
-        - { name: incomplete, in: query, description: "`true` keeps the repositories that are only partly checked: `partial` or `pending`. It is what the Overview's Partly checked count adds up, and it cannot be combined with `state`.", schema: { type: boolean } }
+        - { name: incomplete, in: query, description: "`true` keeps the repositories that are only partly checked: `partial` or `pending`. It is what the Overview's Partly checked count adds up, which counts only the repositories being tracked, so add `tracked=true` to match it. It cannot be combined with `state`.", schema: { type: boolean } }
         - { name: waived, in: query, description: "`true` keeps the repositories with at least one waived finding; `false` keeps the ones with none.", schema: { type: boolean } }
         - name: active
           in: query
@@ -4098,6 +4100,12 @@ paths:
             the jobs, not of when Kennel Club last looked at the repository, so under the
             installation scope it still tells a busy repository from one the App merely sees.
             Anything but a boolean is a 400.
+          schema: { type: boolean }
+        - name: tracked
+          in: query
+          description: >-
+            `true` keeps the repositories Kennel Club is looking at; `false` keeps the ones it has
+            been told not to. Left out, both are listed. Anything but a boolean is a 400.
           schema: { type: boolean }
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/Offset"
@@ -4153,7 +4161,8 @@ paths:
       description: >-
         Makes the repository due and wakes the loop; it reads nothing itself, so it waits on the
         same request budget and the same rate-limit hold as everything else. A repository can be
-        asked for once every five minutes: a second request answers 429 with `Retry-After`.
+        asked for once every five minutes: a second request answers 429 with `Retry-After`. A
+        repository Kennel Club is not tracking has nothing to read, and answers 409.
       x-zoomies-role: operator
       responses:
         "202":
@@ -4177,7 +4186,8 @@ paths:
         open on the repository are refused. Making the same decision again renews it and keeps its
         ID. Waiving an **error** finding needs `kennel.waive_error` (the administrator role) and
         answers 403 naming it; a warning or a note is the operator's. The answer is the repository,
-        already worked out again.
+        already worked out again. A repository Kennel Club is not tracking has no findings, and
+        answers 409.
       x-zoomies-role: operator
       requestBody:
         required: true
@@ -4216,6 +4226,46 @@ paths:
               schema: { $ref: "#/components/schemas/KennelRepository" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
+
+  /kennel/repositories/{id}/tracking:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    put:
+      operationId: setKennelTracking
+      tags: [kennel]
+      summary: Stop Kennel Club looking at a repository, or start again
+      description: >-
+        Every repository is tracked until somebody says otherwise. One that is not tracked is not
+        read from GitHub and not evaluated, raises no finding and no problem, and is counted
+        apart from the Overview's totals as `not_tracked`; it stays in the list, and everything
+        the fleet knows about it still shows. Its waivers are kept and do nothing until it is
+        tracked again.
+
+
+        Stopping silences the repository's errors, so it needs `kennel.untrack` (the
+        administrator role) and a `reason` of 10 to 500 characters, and answers 403 naming the
+        action without it. Starting again needs only `kennel.track` (an operator), because it can
+        only make Kennel Club stricter, and makes the repository due at once. It is a PUT
+        because it sets a state: asking for the one the repository is already in answers 200
+        and changes nothing, the first decision's reason, person and time included, and writes
+        no audit row. `reason` is read only when stopping. The answer is the repository as it
+        now stands, and a repository that is not tracked is as if nothing had looked at it:
+        `state` is `pending` and it has no findings, counts or coverage.
+      x-zoomies-role: operator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/KennelTrackingInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KennelRepository" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
 
   /providers:
     get:
@@ -6583,7 +6633,7 @@ components:
         reason: { type: string }
     KennelRepository:
       type: object
-      required: [id, name, repository_id, installation_id, visibility, state, evaluated_at, next_due_at, counts, complete, coverage, findings, waived, lapsed, skipped, disabled]
+      required: [id, name, repository_id, installation_id, visibility, state, evaluated_at, next_due_at, counts, complete, coverage, findings, waived, lapsed, skipped, disabled, tracking]
       properties:
         id: { type: string, examples: [kcr_k3f9qz2m] }
         name: { type: string, examples: [acme/widgets] }
@@ -6592,7 +6642,7 @@ components:
         visibility: { type: string, description: "`public`, `private` or `internal`; empty until GitHub has said." }
         state: { $ref: "#/components/schemas/KennelState" }
         evaluated_at: { type: [string, "null"], format: date-time }
-        next_due_at: { type: [string, "null"], format: date-time, description: When the reads from GitHub are next due. Null means they are due now. }
+        next_due_at: { type: [string, "null"], format: date-time, description: When the reads from GitHub are next due. Null means they are due now, or that the repository is not tracked and is due for nothing; `tracking` says which. }
         counts: { $ref: "#/components/schemas/KennelCounts" }
         complete: { type: boolean, description: Whether every enabled check ran against everything it needs. }
         coverage:
@@ -6617,6 +6667,25 @@ components:
           type: array
           description: Checks the operator turned off, which are not a gap.
           items: { type: string }
+        tracking: { $ref: "#/components/schemas/KennelTracking" }
+    KennelTracking:
+      type: object
+      required: [tracked, reason, by, since]
+      description: >-
+        Whether Kennel Club is looking at the repository. For one it is not, who stopped it, when
+        and why; the three are empty and null otherwise.
+      properties:
+        tracked: { type: boolean }
+        reason: { type: string, description: Why it was stopped, as the person who did it wrote it. }
+        by: { type: string, description: Who stopped it, by the name they had then. }
+        since: { type: [string, "null"], format: date-time }
+    KennelTrackingInput:
+      type: object
+      required: [tracked]
+      additionalProperties: false
+      properties:
+        tracked: { type: boolean, description: "`true` to start looking at the repository, `false` to stop." }
+        reason: { type: string, minLength: 10, maxLength: 500, description: Required to stop, in characters; not read when starting. A line break is allowed; other control characters and direction-changing ones are not. }
     KennelWaiverInput:
       type: object
       required: [code, reason, expires_at]
@@ -6705,11 +6774,12 @@ components:
         since: { type: string, format: date-time }
     KennelOverview:
       type: object
-      required: [enabled, scope, repositories, states, counts, checks, attention, coverage, unavailable, oldest_evaluation, disabled_checks]
+      required: [enabled, scope, repositories, not_tracked, states, counts, checks, attention, coverage, unavailable, oldest_evaluation, disabled_checks]
       properties:
         enabled: { type: boolean, description: False when Kennel Club is off, and then nothing else is filled. }
         scope: { type: string, enum: [served, installation] }
-        repositories: { type: integer }
+        repositories: { type: integer, description: The repositories Kennel Club is tracking. }
+        not_tracked: { type: integer, description: The repositories it has been told not to look at, counted here and in nothing else, so they never read as repositories nothing has looked at yet. }
         states: { $ref: "#/components/schemas/KennelStateCounts" }
         counts: { $ref: "#/components/schemas/KennelCounts" }
         checks:
