@@ -53,6 +53,7 @@ review.
 | --- | --- |
 | `internal/store` | The **only** place SQL is written. Domain types, embedded migrations, every query. No other package imports `database/sql`. |
 | `internal/scheduler` | **Pure.** `Decide` takes a snapshot and returns a `Plan`. No clock reads, no database, no network — that is what makes scaling behaviour testable, and it is where every decision's operator-facing *reason string* comes from. |
+| `internal/updates` | **Pure.** `Choose` takes a list of releases, the mode, the soak and the instant, and picks the release the mode would take and says why. It imports the standard library and `internal/version` and reads no clock -- `purity_test.go` enforces both. The planner joins it in Part 5 of the update work. |
 | `internal/api` | Transport only. A handler reads a request, asks the controller / auth / store, and renders the shape `api/openapi.yaml` promises. It has no opinions about the fleet. The resource views themselves (`HostView`, `PoolView`, …) are `internal/controller/views.go` types the handlers alias, because the event stream renders the same JSON and is fed from the controller. |
 | `internal/provider` | The infrastructure-provider contract, a fake that obeys it, and `RunContractTests`, the conformance suite every provider passes. It may import `internal/store`'s domain types and `config.Finding` and **nothing else** -- two tests enforce that, and that it names nothing provider-specific. Renting a machine is not placing a runner: this is separate from `internal/backend` on purpose. |
 | `internal/provider/proxmox` | The first provider. The Proxmox VE API is hand-rolled `net/http` for the same reason the Docker one is. |
@@ -150,6 +151,7 @@ cmd/zoomies         the binary: controller, agent, gateway, init, CLI
 internal/store      domain model, SQLite schema, every query
 internal/config     zoomies.yaml + env, and the validator that warns
 internal/scheduler  pure scaling decisions and label matching
+internal/updates    which release an update mode would take, and why; pure
 internal/github     App auth, JIT configs, webhooks, the fallback poller
 internal/backend    Docker, Podman and bare-process runner backends
 internal/auth       identity, RBAC, tokens, audit, OIDC

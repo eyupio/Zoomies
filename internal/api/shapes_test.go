@@ -219,6 +219,46 @@ func TestResponsesMatchTheSpecShapes(t *testing.T) {
 		assertShape(t, doc, "Stats", resp.body)
 	})
 
+	t.Run("UpdatesStatus", func(t *testing.T) {
+		resp := h.do(request{method: http.MethodGet, path: "/api/v1/updates", cookie: cookie})
+		resp.mustStatus(t, http.StatusOK, "updates status")
+		assertShape(t, doc, "UpdatesStatus", resp.body)
+	})
+
+	t.Run("UpdatesStatusNamingARelease", func(t *testing.T) {
+		// The route above answers for a controller that has read no release list,
+		// so the three objects that exist only once it has are null in it and
+		// assertShape has nothing to say about their keys. The view is checked
+		// against the document directly, filled in, as the orphan is below: it is
+		// what the route and the event stream both render.
+		at := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
+		due := at.Add(24 * time.Hour)
+		raw, err := json.Marshal(controller.UpdatesView{
+			Mode: "auto", Soak: "24h",
+			Running:   controller.UpdatesRunning{Version: "1.3.0", Release: true},
+			Latest:    &controller.UpdatesRelease{Tag: "v1.3.2", URL: "https://example.invalid/releases/v1.3.2", PublishedAt: at},
+			Target:    &controller.UpdatesTarget{Tag: "v1.3.2", Newer: true, DueAt: &due},
+			Reason:    "Waiting: v1.3.2 has been public for 6 hours and auto waits for 24; it can be taken in 17 hours.",
+			CheckedAt: &at,
+		})
+		if err != nil {
+			t.Fatalf("marshalling a status: %v", err)
+		}
+		assertShape(t, doc, "UpdatesStatus", raw)
+
+		var parts struct {
+			Running json.RawMessage `json:"running"`
+			Latest  json.RawMessage `json:"latest"`
+			Target  json.RawMessage `json:"target"`
+		}
+		if err := json.Unmarshal(raw, &parts); err != nil {
+			t.Fatalf("reading the status back: %v", err)
+		}
+		assertShape(t, doc, "UpdatesRunning", parts.Running)
+		assertShape(t, doc, "UpdatesRelease", parts.Latest)
+		assertShape(t, doc, "UpdatesTarget", parts.Target)
+	})
+
 	t.Run("Problem", func(t *testing.T) {
 		resp := h.do(request{method: http.MethodGet, path: "/api/v1/problems", cookie: cookie})
 		resp.mustStatus(t, http.StatusOK, "problems")

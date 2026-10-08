@@ -15,7 +15,7 @@
   import RemedyText from '$lib/components/RemedyText.svelte';
   import StatusDot from '$lib/components/StatusDot.svelte';
   import ApplyRemedy from './ApplyRemedy.svelte';
-  import { hostTarget } from './targets';
+  import { controllerTarget, hostTarget } from './targets';
 
   interface Props {
     problem: Problem;
@@ -162,7 +162,7 @@
         label: 'Open the setting',
       };
     }
-    return null;
+    return controllerTarget(p.code);
   }
 
   const status = $derived(severityStatus(problem.severity));

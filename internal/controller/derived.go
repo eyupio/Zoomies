@@ -60,6 +60,16 @@ func (c *Controller) publishDerived(ctx context.Context) {
 		c.bus.Publish(events.KindKennelSummary, "", json.RawMessage(raw))
 	}
 
+	// What an update would take is computed too: a soak ends when the clock passes
+	// it and nothing is written, so no row could announce that auto may now act.
+	// The sentence moves as time does, by the hour and then by the minute near the
+	// end of a wait, and each move is sent once.
+	if status, err := c.UpdatesView(ctx); err != nil {
+		c.log.Warn("could not work out the update status for the event stream", "error", err)
+	} else if raw, changed := c.derivedChanged(&c.lastUpdates, status); changed {
+		c.bus.Publish(events.KindUpdates, "", json.RawMessage(raw))
+	}
+
 	c.publishHostChanges(ctx)
 	c.publishMachineChanges(ctx)
 }

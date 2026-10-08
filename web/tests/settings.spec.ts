@@ -356,6 +356,7 @@ test('every settings page has an address of its own, and the section lists them'
     ['tokens', 'API tokens'],
     ['configuration', 'Configuration'],
     ['backups', 'Backups'],
+    ['updates', 'Updates'],
     ['about', 'About'],
   ] as const;
 

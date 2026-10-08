@@ -325,7 +325,7 @@ var registry = buildRegistry([]Setting{
 	},
 	{
 		Key: "security.mcp_admin_tools", Label: "Offer administrator tools over MCP", Env: "ZOOMIES_MCP_ADMIN_TOOLS", Kind: KindBool, Scope: ScopePlatform, Live: true,
-		Summary: "Let an MCP token or connection whose role is administrator edit a host's name, labels and reserve, cordon it and lift its throttle, and read and change the tuning settings (scheduler, retention, runners, limits, logging, metrics, images, status, UI and updates -- never security, sign-in, GitHub, providers or the database). Off, those tools are not offered and an agent that asks is told to turn this on. It changes nothing for a role below administrator.",
+		Summary: "Let an MCP token or connection whose role is administrator edit a host's name, labels and reserve, cordon it and lift its throttle, and read and change the tuning settings (scheduler, retention, runners, limits, logging, metrics, images, status, UI and the update check interval -- never security, sign-in, GitHub, providers, the database, or the update mode and soak). Off, those tools are not offered and an agent that asks is told to turn this on. It changes nothing for a role below administrator.",
 	},
 
 	// ---------------------------------------------------------------------
@@ -875,6 +875,15 @@ var registry = buildRegistry([]Setting{
 	{
 		Key: "updates.check_interval", Label: "Update check interval", Env: "ZOOMIES_UPDATE_CHECK_INTERVAL", Kind: KindDuration, Scope: ScopePlatform, Live: true,
 		Summary: "How often github.com is asked which release of Zoomies is current. 0 never asks, and is the one request that is not about your fleet. Nothing is ever downloaded by it.",
+	},
+	{
+		Key: "updates.mode", Label: "Release update mode", Env: "ZOOMIES_UPDATE_MODE", Kind: KindEnum, Scope: ScopePlatform, Live: true,
+		Choices: updateModes,
+		Summary: "What this controller does about a newer release of Zoomies. off says that one exists and nothing more. manual adds Update buttons for the controller and its hosts, and nothing moves without a click. auto takes the newest release once it has been public for the soak, and the hosts that have opted in then follow it, one at a time.",
+	},
+	{
+		Key: "updates.soak", Label: "Release update soak", Env: "ZOOMIES_UPDATE_SOAK", Kind: KindDuration, Scope: ScopePlatform, Live: true,
+		Summary: "How long a release must have been public before auto takes it. A newer release restarts the wait, so one that is replaced quickly is never installed. 0 removes the wait, which under auto is warned about. manual ignores it, because a person pressing the button is the soak.",
 	},
 
 	// ---------------------------------------------------------------------

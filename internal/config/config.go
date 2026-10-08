@@ -172,17 +172,44 @@ var CapacityLayouts = []string{CapacityLayoutOverlay, CapacityLayoutSplit}
 
 // Updates controls whether this controller asks github.com which release of
 // Zoomies is current, so that being out of date is something the UI says rather
-// than something an operator finds out later.
+// than something an operator finds out later, and what it then does about a
+// newer one.
+//
+// Finding out and acting are separate settings on purpose. The question is one
+// unauthenticated request that downloads nothing; replacing the binary that is
+// running is a decision about the machine, so it waits for somebody who runs the
+// process to make it.
 type Updates struct {
-	// CheckInterval is how often that question is asked. Zero switches the
-	// check off, and with it the one request Zoomies makes to github.com that
-	// is not about your fleet -- which is what an air-gapped deployment, or one
-	// pointed at GitHub Enterprise Server with no route to github.com, wants.
+	// Mode is what is done about a newer release. off, the default, says that one
+	// exists and nothing more, which is all the controller has ever done. manual
+	// adds Update buttons for the controller and its hosts, and nothing moves
+	// without a click. auto takes the newest release once it has been public for
+	// Soak, and the hosts that have opted in then follow it, one at a time.
 	//
-	// Nothing is ever downloaded or installed by this: the controller does not
-	// update itself, it only says that a newer release exists.
+	// An assistant cannot write it: the allowlist in internal/mcp leaves it out,
+	// so a connected assistant can never be the one that turns updating on.
+	Mode string `yaml:"mode"`
+	// CheckInterval is how often the question is asked. Zero switches the check
+	// off, and with it the one request Zoomies makes to github.com that is not
+	// about your fleet -- which is what an air-gapped deployment, or one pointed
+	// at GitHub Enterprise Server with no route to github.com, wants. It also
+	// leaves Mode with no release to act on, which the validator says.
+	//
+	// Nothing is ever downloaded or installed by the check itself; what is done
+	// about a release it finds is Mode's business.
 	CheckInterval time.Duration `yaml:"check_interval"`
+	// Soak is how long a release must have been public before auto takes it,
+	// counted from the day GitHub published it. A newer release restarts the
+	// wait, so one that is replaced quickly is never installed. Zero removes the
+	// wait, and is warned about. manual ignores it: a person pressing the button
+	// is the soak.
+	Soak time.Duration `yaml:"soak"`
 }
+
+// updateModes are the choices of updates.mode, in the order the settings page
+// offers them. The registry and the validator both read this one list, so a mode
+// cannot be offered by the page and then refused at the next start.
+var updateModes = []string{"off", "manual", "auto"}
 
 // Backup is the controller's own copies of its database: where they go, how
 // often one is taken, how many are kept, and which object stores each one is
@@ -1204,7 +1231,14 @@ func Default() *Config {
 		},
 		// Daily: releases are not frequent, and a controller that asks once a
 		// day still tells you within a working day of one being published.
-		Updates: Updates{CheckInterval: 24 * time.Hour},
+		//
+		// Off, because replacing the binary that is running is something a person
+		// chooses and not something an upgrade starts doing; it has to be a valid
+		// choice rather than empty, or the registry's round trip refuses it. And a
+		// day's soak for the day somebody does choose auto: a release is sometimes
+		// replaced by a fix within hours of being published, and a day is long
+		// enough for the replacement to be the one that is taken.
+		Updates: Updates{Mode: "off", CheckInterval: 24 * time.Hour, Soak: 24 * time.Hour},
 		// Nightly, keeping a week. The database holds configuration and
 		// history rather than anything a workflow depends on minute to
 		// minute, so a day is the right grain; seven copies bounds the disk
@@ -1649,6 +1683,14 @@ func (c *Config) normalize() {
 		c.Kennel.Scope = KennelScopeServed
 	}
 	c.Kennel.DisabledChecks = normaliseCheckNames(c.Kennel.DisabledChecks)
+	// A mode typed with a capital or a trailing space is the mode meant. An empty
+	// one is not a choice of anything, and the only safe thing it can mean is off:
+	// a template that renders an empty value must not turn updating on, and is not
+	// worth stopping the controller over either.
+	c.Updates.Mode = strings.ToLower(strings.TrimSpace(c.Updates.Mode))
+	if c.Updates.Mode == "" {
+		c.Updates.Mode = "off"
+	}
 	// The environment override was always lowercased; the file is now too, so
 	// "Self-Signed" in zoomies.yaml is the same mode as self-signed.
 	c.Server.TLS.Mode = TLSMode(strings.ToLower(strings.TrimSpace(string(c.Server.TLS.Mode))))

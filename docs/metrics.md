@@ -79,6 +79,7 @@ memory, so they are always current and never drift.
 | `zoomies_github_paused` | gauge | `installation` | 1 while that installation is inside its GitHub rate-limit backoff and every background sweep is standing down from it. |
 | `zoomies_provider_machines` | gauge | `provider`, `state` | Machines a provider is renting, by state. Every state is reported including the zeroes, so a provider that has stopped buying is visible rather than absent. |
 | `zoomies_provider_machines_quarantined` | gauge | — | Machines whose ownership could not be proved. Nothing will move one until a person does, so this is a queue of work rather than a shape — alert on any sustained non-zero value. |
+| `zoomies_update_available` | gauge | — | 1 while the release `updates.mode` would take is newer than the build this controller is running, and 0 otherwise. A release still waiting out `updates.soak` counts: this says a newer one exists, and `GET /updates` says when `auto` will take it. It is 0 while `updates.mode` is `off`, until the release list has been read, and for a build that is not from a release, and it is reported at 0 as well as 1 so a rule on how long a release has been waiting has a series to match before there is one. The `controller.update_available` notice is separate: it still follows GitHub's latest release while the mode is `off`. |
 
 **Configured and effective slots are kept apart rather than one replacing the
 other.** The effective figure is the utilisation denominator while a throttle

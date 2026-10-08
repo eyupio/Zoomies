@@ -33,24 +33,43 @@ var adminTools = map[string]bool{
 // IsAdminTool reports whether a tool is one the administrator switch governs.
 func IsAdminTool(name string) bool { return adminTools[name] }
 
-// tunableSettings are the prefixes update_settings may write: the knobs that
-// shape scheduling, retention and limits. Everything that decides who gets in,
+// tunableSettings are what update_settings may write: a name ending in a dot is
+// every key under it, and any other name is that one key. They are the knobs
+// that shape scheduling, retention and limits. Everything that decides who gets in,
 // what the controller trusts or where it keeps its state -- security, oidc,
 // github, provider, server, database, agent, backup -- is not here, so an
 // agent that has been talked into a bad change can at worst make the fleet
 // slower or tidier, and not locked open.
+//
+// updates is here by one key only. How often github.com is asked which release
+// is current is as harmless as the rest, but updates.mode decides whether this
+// controller replaces its own binary with nobody pressing anything, and
+// updates.soak is the wait that stands between a bad release and every host. An
+// agent steered by text a workflow wrote must not be able to switch either on
+// or shorten it, so a person makes those at the Settings page, and a new key in
+// the section is not tunable until it is named here.
 var tunableSettings = []string{
 	"scheduler.", "capacity_demand.", "retention.", "runners.", "limits.",
-	"log.", "metrics.", "images.", "status.", "ui.", "updates.",
+	"log.", "metrics.", "images.", "status.", "ui.", "updates.check_interval",
 }
 
 func tunable(key string) bool {
 	for _, p := range tunableSettings {
-		if strings.HasPrefix(key, p) {
+		if strings.HasSuffix(p, ".") {
+			if strings.HasPrefix(key, p) {
+				return true
+			}
+		} else if key == p {
 			return true
 		}
 	}
 	return false
+}
+
+// tunableList is the allowlist as a person reads it, with the one rule that
+// tells a section from a single key.
+func tunableList() string {
+	return strings.Join(tunableSettings, " ") + " (a name ending in a dot stands for every key under it)"
 }
 
 func adminConfigTools() []*tool {
@@ -120,7 +139,7 @@ func adminConfigTools() []*tool {
 		{
 			Name:  "update_settings",
 			Title: "Change tuning settings",
-			Description: "Change settings under " + strings.Join(tunableSettings, " ") + " -- scheduling, retention, limits and the like. " +
+			Description: "Change these settings: " + tunableList() + " -- scheduling, retention, limits and the like. " +
 				"A null value clears the stored setting, so the key goes back to the file or the default. Every key is checked before any is " +
 				"written and the whole call is refused if one fails. Security, sign-in, GitHub, provider, server, database, agent and backup " +
 				"settings are not changeable here: a person makes those at the Settings page. A change the running process cannot apply is " +
@@ -267,8 +286,8 @@ func updateSettings(ctx context.Context, c API, raw json.RawMessage) ([]Content,
 	}
 	if len(refused) > 0 {
 		sort.Strings(refused)
-		return nil, fmt.Errorf("%s cannot be changed over MCP: only keys under %s can. Make the others at the Settings page",
-			strings.Join(refused, ", "), strings.Join(tunableSettings, " "))
+		return nil, fmt.Errorf("%s cannot be changed over MCP: only these can: %s. Make the others at the Settings page",
+			strings.Join(refused, ", "), tunableList())
 	}
 	bc, ok := c.(BodyCaller)
 	if !ok {

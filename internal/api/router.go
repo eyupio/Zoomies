@@ -199,6 +199,9 @@ func (s *Server) apiRoutes() chi.Router {
 		r.With(s.require(auth.ActionStatsRead)).Get("/scaling-events", s.handleScalingEvents)
 		r.With(s.require(auth.ActionEventsRead)).Get("/events", s.handleEvents)
 
+		// Updates.
+		r.With(s.require(auth.ActionUpdatesRead)).Get("/updates", s.handleGetUpdates)
+
 		// Installations.
 		r.Route("/installations", func(r chi.Router) {
 			r.With(s.require(auth.ActionInstallationsRead)).Get("/", s.handleListInstallations)

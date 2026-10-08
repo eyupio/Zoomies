@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -139,6 +140,10 @@ func itemsOf(problems map[string]any) []any {
 func TestNothingIsComputedForNobody(t *testing.T) {
 	h := newHarness(t)
 	h.fleet()
+	// With updating on, so that the status has something to say and there is a
+	// reason to render it for somebody.
+	withVersion(t, "1.3.0")
+	h.inMode("manual")
 
 	before := h.c.Events().LastID()
 	if err := h.c.Reconcile(h.ctx); err != nil {
@@ -149,6 +154,69 @@ func TestNothingIsComputedForNobody(t *testing.T) {
 	}
 	if h.c.lastStats != nil || h.c.lastProblems != nil || h.c.lastHosts != nil {
 		t.Error("a pass with no subscribers still computed the derived payloads")
+	}
+	if h.c.lastUpdates != nil {
+		t.Error("a pass with no subscribers still rendered the update status")
+	}
+}
+
+// What an update would take changes with the clock as well as with the list: a
+// soak ends, and nothing is written when it does, so nothing but the pass could
+// say so. It says it once. A frame every few seconds repeating itself would
+// repaint a panel nobody has touched, and the panel repainting is the only
+// reason to send one.
+func TestUpdatesUpdatedIsSentOnlyWhenTheStatusChanges(t *testing.T) {
+	h := newHarness(t)
+	h.fleet()
+	withVersion(t, "1.3.0")
+	h.inMode("auto")
+	h.readTheList(releaseEntry("v1.3.2", whenAgo(6*time.Hour+30*time.Minute), completeAssets(t)...))
+	sub := h.listen(events.KindUpdates)
+
+	pass := func(doing string) {
+		t.Helper()
+		if err := h.c.Reconcile(h.ctx); err != nil {
+			t.Fatalf("Reconcile %s: %v", doing, err)
+		}
+	}
+
+	// The first pass with somebody watching says what there is, because nothing
+	// has been sent yet.
+	pass("the first time")
+	first := nextOfKind(t, sub, events.KindUpdates)
+	// The frame is the GET shape, which is the fields of the view and not a row
+	// of anything: the panel drops it straight into what it holds.
+	if first["mode"] != "auto" || first["soak"] != "24h" {
+		t.Errorf("first frame mode %v and soak %v, want auto and 24h", first["mode"], first["soak"])
+	}
+	if target, _ := first["target"].(map[string]any); target["tag"] != "v1.3.2" || target["newer"] != true {
+		t.Errorf("first frame target = %v, want v1.3.2, newer", first["target"])
+	}
+	if reason, _ := first["reason"].(string); !strings.HasPrefix(reason, "Waiting: v1.3.2 ") {
+		t.Errorf("first frame reason = %q, want the sentence that says v1.3.2 is waiting", reason)
+	}
+
+	// Nothing has moved, so nothing is said.
+	pass("with nothing changed")
+	nothingFor(t, sub)
+
+	// The soak ends. The release is the same, and the list is the same, and the
+	// sentence is not.
+	h.advance(18 * time.Hour)
+	pass("after the soak")
+	if reason, _ := nextOfKind(t, sub, events.KindUpdates)["reason"].(string); !strings.HasPrefix(reason, "Ready: v1.3.2 ") {
+		t.Errorf("frame after the soak: reason = %q, want the sentence that says it can be taken now", reason)
+	}
+	pass("with the soak over and nothing else changed")
+	nothingFor(t, sub)
+
+	// An operator changing the mode is announced by the next pass as well, and
+	// takes the offer away with it.
+	h.inMode("off")
+	pass("after the mode was switched off")
+	off := nextOfKind(t, sub, events.KindUpdates)
+	if off["mode"] != "off" || off["target"] != nil {
+		t.Errorf("frame after switching off: mode %v, target %v, want off and no target", off["mode"], off["target"])
 	}
 }
 

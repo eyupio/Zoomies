@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { hostTarget } from '../src/lib/problems/targets.ts';
+import { controllerTarget, hostTarget } from '../src/lib/problems/targets.ts';
 
 // The three OS health codes are about what a host's report says, and the
 // report is on the host's own page.
@@ -23,5 +23,31 @@ test('every other host problem keeps its link to the list of hosts', () => {
     undefined,
   ]) {
     assert.deepEqual(hostTarget(code, 'hst_1'), { href: '/hosts', label: 'Open hosts' }, `${code}`);
+  }
+});
+
+// The notice that a newer release exists is about updating, and the Updates
+// page reads that same release in full and says what the update mode would do
+// about it, so it is where the notice should lead. It carries no target of its
+// own, so the code is all there is to go by.
+test('the notice of a newer release opens the Updates page', () => {
+  assert.deepEqual(controllerTarget('controller.update_available'), {
+    href: '/settings/updates',
+    label: 'Open Updates',
+  });
+});
+
+// A controller problem with no page of its own keeps having none: the link is
+// for the codes that were given one, and a guess would send somebody to a page
+// that says nothing about what they were told.
+test('every other controller problem has no link of its own', () => {
+  for (const code of [
+    'controller.development_update_available',
+    'controller.problems_partial',
+    'host.unhealthy',
+    '',
+    undefined,
+  ]) {
+    assert.equal(controllerTarget(code), null, `${code}`);
   }
 });

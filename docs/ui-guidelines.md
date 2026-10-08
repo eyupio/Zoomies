@@ -611,7 +611,7 @@ fixed, because muscle memory is the point:
     `/ai-context` still reaches it.
 12. **Audit** — who did what
 13. **Settings** — a section of pages rather than one page: your account and
-    appearance; users and API tokens; the configuration, backups and about.
+    appearance; users and API tokens; the configuration, backups, updates and about.
     Each has an address of its own (`/settings/users`), the section's own rail
     lists them beside the page, and `/settings` alone goes to the first of
     them — except on a phone, where it is the list.
@@ -1268,6 +1268,17 @@ The `diagnostics` Playwright project runs `tests/diagnostics.spec.ts` against
 its own controller on that fixture. Put a spec there when what it protects is a
 diagnosis — the words an operator reads on their worst day — rather than a
 grid.
+
+`ZOOMIES_SEED_UPDATES=<folder>`, on top of `ZOOMIES_SEED_DEMO`, is the opt-in
+for the Updates page. The binary the suite drives is a `dev` build, which no
+release comparison accepts, so on every other fixture that page can only say the
+build is left alone. This makes the controller report 1.3.0 and read a release
+list holding v1.3.1 and v1.3.2, and its value is the folder the suite makes for
+the controller to do its updating through. The `updates` and `updates-mobile`
+projects run `tests/updates.spec.ts` against one controller of their own, in
+manual mode, which is the mode whose sentences do not move with the clock;
+states it cannot make, an auto soak or a list nobody has read, are served to the
+page as the documents the controller would send.
 
 ## 8. Screenshots
 

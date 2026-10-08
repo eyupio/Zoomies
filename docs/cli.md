@@ -469,7 +469,7 @@ again.
 | `edit_host` | Only with `--allow-actions --allow-admin`. `PATCH /hosts/{id}` for a host's `name`, `labels` (replaced whole) and `reserve_disk_mb`, and `POST /hosts/{id}/cordon`. Never with `confirm`. Needs an administrator token; over `/mcp` it also needs `security.mcp_admin_tools`. |
 | `clear_host_throttle` | Only with `--allow-actions --allow-admin`. `POST /hosts/{id}/throttle/clear`. Same two conditions as `edit_host`. |
 | `get_settings` | Only with `--allow-actions --allow-admin`. `GET /settings`, optionally under a `prefix`; a secret's value is never sent. Same two conditions. |
-| `update_settings` | Only with `--allow-actions --allow-admin`. `PATCH /settings` for keys under `scheduler.`, `capacity_demand.`, `retention.`, `runners.`, `limits.`, `log.`, `metrics.`, `images.`, `status.`, `ui.` and `updates.` only. Security, sign-in, GitHub, provider, server, database, agent and backup settings are refused before anything is sent; a person changes those at the Settings page. Same two conditions. |
+| `update_settings` | Only with `--allow-actions --allow-admin`. `PATCH /settings` for keys under `scheduler.`, `capacity_demand.`, `retention.`, `runners.`, `limits.`, `log.`, `metrics.`, `images.`, `status.` and `ui.`, and for `updates.check_interval`, only. The update mode and its soak (`updates.mode`, `updates.soak`) are refused with the security, sign-in, GitHub, provider, server, database, agent and backup settings, before anything is sent; a person changes those at the Settings page. Same two conditions. |
 
 #### Straight to the controller
 
