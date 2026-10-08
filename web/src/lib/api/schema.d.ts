@@ -2602,7 +2602,7 @@ export interface paths {
         };
         /**
          * Repositories Kennel Club has looked at
-         * @description Each is a repository this fleet has served, or under the installation scope one the App can see. The default order puts the repository with the most errors first, then warnings, then notes, then by name. `sort` is `severity`, `name` or `evaluated_at`.
+         * @description Each is a repository this fleet has served, or under the installation scope one the App can see. The default order puts the repository with the most errors first, then warnings, then notes, then by name. `sort` is `severity`, `name` or `evaluated_at`. A repository Kennel Club has been told not to look at is listed too, with `tracking.tracked` false and nothing evaluated for it; `tracked` narrows the list to the ones it is or is not.
          */
         get: operations["listKennelRepositories"];
         put?: never;
@@ -2650,7 +2650,7 @@ export interface paths {
         put?: never;
         /**
          * Ask for a repository to be read from GitHub again
-         * @description Makes the repository due and wakes the loop; it reads nothing itself, so it waits on the same request budget and the same rate-limit hold as everything else. A repository can be asked for once every five minutes: a second request answers 429 with `Retry-After`.
+         * @description Makes the repository due and wakes the loop; it reads nothing itself, so it waits on the same request budget and the same rate-limit hold as everything else. A repository can be asked for once every five minutes: a second request answers 429 with `Retry-After`. A repository Kennel Club is not tracking has nothing to read, and answers 409.
          */
         post: operations["recheckKennelRepository"];
         delete?: never;
@@ -2672,7 +2672,7 @@ export interface paths {
         get?: never;
         /**
          * Decide that a finding is acceptable here
-         * @description A waiver is a person's recorded decision, with a reason, an owner and a mandatory end of at most 365 days. It is for a finding that exists: a code and subject that match nothing open on the repository are refused. Making the same decision again renews it and keeps its ID. Waiving an **error** finding needs `kennel.waive_error` (the administrator role) and answers 403 naming it; a warning or a note is the operator's. The answer is the repository, already worked out again.
+         * @description A waiver is a person's recorded decision, with a reason, an owner and a mandatory end of at most 365 days. It is for a finding that exists: a code and subject that match nothing open on the repository are refused. Making the same decision again renews it and keeps its ID. Waiving an **error** finding needs `kennel.waive_error` (the administrator role) and answers 403 naming it; a warning or a note is the operator's. The answer is the repository, already worked out again. A repository Kennel Club is not tracking has no findings, and answers 409.
          */
         put: operations["waiveKennelFinding"];
         post?: never;
@@ -2701,6 +2701,31 @@ export interface paths {
          * @description Any operator may end any waiver, an administrator's included: ending one only makes Kennel Club stricter, because the finding is open again. The waiver must belong to this repository, or the answer is 404. The answer is the repository, worked out again.
          */
         delete: operations["unwaiveKennelFinding"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/kennel/repositories/{id}/tracking": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Stop Kennel Club looking at a repository, or start again
+         * @description Every repository is tracked until somebody says otherwise. One that is not tracked is not read from GitHub and not evaluated, raises no finding and no problem, and is counted apart from the Overview's totals as `not_tracked`; it stays in the list, and everything the fleet knows about it still shows. Its waivers are kept and do nothing until it is tracked again.
+         *
+         *     Stopping silences the repository's errors, so it needs `kennel.untrack` (the administrator role) and a `reason` of 10 to 500 characters, and answers 403 naming the action without it. Starting again needs only `kennel.track` (an operator), because it can only make Kennel Club stricter, and makes the repository due at once. It is a PUT because it sets a state: asking for the one the repository is already in answers 200 and changes nothing, the first decision's reason, person and time included, and writes no audit row. `reason` is read only when stopping. The answer is the repository as it now stands, and a repository that is not tracked is as if nothing had looked at it: `state` is `pending` and it has no findings, counts or coverage.
+         */
+        put: operations["setKennelTracking"];
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -4555,7 +4580,7 @@ export interface components {
             evaluated_at: string | null;
             /**
              * Format: date-time
-             * @description When the reads from GitHub are next due. Null means they are due now.
+             * @description When the reads from GitHub are next due. Null means they are due now
              */
             next_due_at: string | null;
             counts: components["schemas"]["KennelCounts"];
@@ -4571,6 +4596,23 @@ export interface components {
             skipped: components["schemas"]["KennelSkipped"][];
             /** @description Checks the operator turned off, which are not a gap. */
             disabled: string[];
+            tracking: components["schemas"]["KennelTracking"];
+        };
+        /** @description Whether Kennel Club is looking at the repository. For one it is not, who stopped it, when and why; the three are empty and null otherwise. */
+        KennelTracking: {
+            tracked: boolean;
+            /** @description Why it was stopped */
+            reason: string;
+            /** @description Who stopped it */
+            by: string;
+            /** Format: date-time */
+            since: string | null;
+        };
+        KennelTrackingInput: {
+            /** @description `true` to start looking at the repository, `false` to stop. */
+            tracked: boolean;
+            /** @description Required to stop */
+            reason?: string;
         };
         KennelWaiverInput: {
             /** @example exposure.public_repo_on_fleet */
@@ -4661,7 +4703,10 @@ export interface components {
             enabled: boolean;
             /** @enum {string} */
             scope: "served" | "installation";
+            /** @description The repositories Kennel Club is tracking. */
             repositories: number;
+            /** @description The repositories it has been told not to look at */
+            not_tracked: number;
             states: components["schemas"]["KennelStateCounts"];
             counts: components["schemas"]["KennelCounts"];
             checks: components["schemas"]["KennelCheck"][];
@@ -13171,8 +13216,14 @@ export interface operations {
                 state?: components["schemas"]["KennelState"];
                 /** @description Only this installation's repositories. */
                 installation?: string;
+                /** @description `true` keeps the repositories that are only partly checked: `partial` or `pending`. It is what the Overview's Partly checked count adds up, which counts only the repositories being tracked, so add `tracked=true` to match it. It cannot be combined with `state`. */
+                incomplete?: boolean;
+                /** @description `true` keeps the repositories with at least one waived finding; `false` keeps the ones with none. */
+                waived?: boolean;
                 /** @description `true` keeps the repositories this fleet has had a hand in a job for within Kennel Club's window, which is thirty days or as long as the fleet keeps its jobs if that is shorter; `false` keeps the ones it has not. Left out, both are listed. It is asked of the jobs, not of when Kennel Club last looked at the repository, so under the installation scope it still tells a busy repository from one the App merely sees. Anything but a boolean is a 400. */
                 active?: boolean;
+                /** @description `true` keeps the repositories Kennel Club is looking at; `false` keeps the ones it has been told not to. Left out, both are listed. Anything but a boolean is a 400. */
+                tracked?: boolean;
                 limit?: components["parameters"]["Limit"];
                 offset?: components["parameters"]["Offset"];
                 /** @description A column name. An unknown value falls back to the default rather than erroring, so a stale bookmark does not break the page. */
@@ -13314,6 +13365,37 @@ export interface operations {
             };
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+        };
+    };
+    setKennelTracking: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KennelTrackingInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KennelRepository"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
         };
     };
     listProviders: {

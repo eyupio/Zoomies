@@ -34,10 +34,10 @@
     windowStart,
     type OverviewWindow,
   } from '$lib/kennel/runtime';
-  import { openFindingsText, worstSeverity } from '$lib/kennel/words';
+  import { openFindingsText, TRACKING_OVERVIEW, worstSeverity } from '$lib/kennel/words';
   import { fleet } from '$lib/state/fleet.svelte';
   import { prefs } from '$lib/state/prefs.svelte';
-  import { kennelStatus } from '$lib/status';
+  import { kennelStatus, kennelTrackingStatus } from '$lib/status';
 
   interface Props {
     repo: KennelRepository;
@@ -149,7 +149,14 @@
   ]);
 
   const note = $derived(partialWindowNote(days));
-  const status = $derived(kennelStatus(repo.state, worstSeverity(repo.counts), prefs.quirkyStatus));
+  const tracked = $derived(repo.tracking.tracked);
+  // Stopping resets the row to pending with nothing found, so a standing read from it
+  // would be a standing nobody gave.
+  const status = $derived(
+    tracked
+      ? kennelStatus(repo.state, worstSeverity(repo.counts), prefs.quirkyStatus)
+      : kennelTrackingStatus(),
+  );
 </script>
 
 <div class="overview">
@@ -253,11 +260,18 @@
     </Panel>
   {/if}
 
-  <Panel title="What Kennel Club says" description="Its conclusions are on the CI tab.">
+  <Panel
+    title="What Kennel Club says"
+    description={tracked ? 'Its conclusions are on the CI tab.' : TRACKING_OVERVIEW.description}
+  >
     <p class="standing">
       <Badge {status} size="sm" />
-      <span>{openFindingsText(repo.counts)}</span>
-      <a href="/kennel/repositories/{encodeURIComponent(repo.id)}/ci">Open the CI tab</a>
+      {#if tracked}
+        <span>{openFindingsText(repo.counts)}</span>
+        <a href="/kennel/repositories/{encodeURIComponent(repo.id)}/ci">Open the CI tab</a>
+      {:else}
+        <span>{TRACKING_OVERVIEW.detail}</span>
+      {/if}
     </p>
   </Panel>
 </div>

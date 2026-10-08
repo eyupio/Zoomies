@@ -35,6 +35,7 @@ import {
   Clock,
   Cloud,
   Eye,
+  EyeOff,
   Handshake,
   Hourglass,
   Info,
@@ -926,6 +927,24 @@ export function kennelStatus(
     default:
       return UNKNOWN;
   }
+}
+
+/**
+ * A repository Kennel Club has been told not to look at. It is not one of the four
+ * standings, and is not drawn as one: those are what the evaluator concluded, and
+ * nothing is evaluated for this. It is a decision somebody took, so it is neutral
+ * and slashed, as a source nobody granted is, and the eye is the state of not
+ * looking and not the act of hiding something.
+ */
+export function kennelTrackingStatus(): StatusMeta {
+  return meta(
+    'not_tracked',
+    'Not tracked',
+    'neutral',
+    'slash',
+    EyeOff,
+    'Somebody told Kennel Club not to look at this repository. It is not read from GitHub, and nothing is evaluated for it.',
+  );
 }
 
 /** Whether one source of facts about a repository could be read. */
