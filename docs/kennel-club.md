@@ -50,7 +50,7 @@ and a test fails the build when a check is added without it being run.
 
 <!-- zoomies:catalogue-begin -->
 
-#### `exposure.public_repo_on_fleet` { #exposure-public_repo_on_fleet }
+### `exposure.public_repo_on_fleet` { #exposure-public_repo_on_fleet }
 
 Area
 :   exposure
@@ -67,7 +67,7 @@ Fix
 Verify
 :   Press Recheck once the pool is ephemeral and unprivileged, or once the repository no longer sends jobs here; the finding closes when the next read sees neither.
 
-#### `exposure.public_repo_weak_pool` { #exposure-public_repo_weak_pool }
+### `exposure.public_repo_weak_pool` { #exposure-public_repo_weak_pool }
 
 Area
 :   exposure
@@ -84,7 +84,7 @@ Fix
 Verify
 :   Press Recheck after the pool's settings change; the finding closes when every run of the repository in the window landed on a pool without those settings.
 
-#### `exposure.fork_code_ran` { #exposure-fork_code_ran }
+### `exposure.fork_code_ran` { #exposure-fork_code_ran }
 
 Area
 :   exposure
@@ -101,7 +101,7 @@ Fix
 Verify
 :   Press Recheck after the setting changes; the finding closes once no run from a fork's pull request has executed here in the window.
 
-#### `exposure.target_event_ran` { #exposure-target_event_ran }
+### `exposure.target_event_ran` { #exposure-target_event_ran }
 
 Area
 :   exposure
@@ -118,7 +118,7 @@ Fix
 Verify
 :   Press Recheck once the workflow has been reviewed or moved; the finding closes when no run for those events has executed here in the window.
 
-#### `capacity.unserved_label` { #capacity-unserved_label }
+### `capacity.unserved_label` { #capacity-unserved_label }
 
 Area
 :   capacity
@@ -135,7 +135,7 @@ Fix
 Verify
 :   Press Recheck after the pool or the workflow changes; the finding closes once no job has waited ten minutes for an unserved label in the last seven days.
 
-#### `capacity.job_hit_default_limit` { #capacity-job_hit_default_limit }
+### `capacity.job_hit_default_limit` { #capacity-job_hit_default_limit }
 
 Area
 :   capacity
@@ -152,7 +152,7 @@ Fix
 Verify
 :   Press Recheck after the next run of the job; the finding closes once no run in the window was cancelled at the six-hour limit.
 
-#### `setup.readme` { #setup-readme }
+### `setup.readme` { #setup-readme }
 
 Area
 :   setup
@@ -169,7 +169,7 @@ Fix
 Verify
 :   Press Recheck once the file is on the default branch; the finding closes when the next tree read finds it.
 
-#### `setup.licence` { #setup-licence }
+### `setup.licence` { #setup-licence }
 
 Area
 :   setup
@@ -186,7 +186,7 @@ Fix
 Verify
 :   Press Recheck once the file is on the default branch; the finding closes when the next tree read finds it.
 
-#### `setup.security` { #setup-security }
+### `setup.security` { #setup-security }
 
 Area
 :   setup
@@ -203,7 +203,7 @@ Fix
 Verify
 :   Press Recheck once the file is on the default branch; the finding closes when the next tree read finds it.
 
-#### `setup.contributing` { #setup-contributing }
+### `setup.contributing` { #setup-contributing }
 
 Area
 :   setup
@@ -220,7 +220,7 @@ Fix
 Verify
 :   Press Recheck once the file is on the default branch; the finding closes when the next tree read finds it.
 
-#### `setup.code_of_conduct` { #setup-code_of_conduct }
+### `setup.code_of_conduct` { #setup-code_of_conduct }
 
 Area
 :   setup
@@ -237,7 +237,7 @@ Fix
 Verify
 :   Press Recheck once the file is on the default branch; the finding closes when the next tree read finds it.
 
-#### `setup.issue_template` { #setup-issue_template }
+### `setup.issue_template` { #setup-issue_template }
 
 Area
 :   setup
@@ -254,7 +254,7 @@ Fix
 Verify
 :   Press Recheck once the file is on the default branch; the finding closes when the next tree read finds it.
 
-#### `setup.pull_request_template` { #setup-pull_request_template }
+### `setup.pull_request_template` { #setup-pull_request_template }
 
 Area
 :   setup
@@ -271,7 +271,7 @@ Fix
 Verify
 :   Press Recheck once the file is on the default branch; the finding closes when the next tree read finds it.
 
-#### `setup.codeowners` { #setup-codeowners }
+### `setup.codeowners` { #setup-codeowners }
 
 Area
 :   setup
@@ -288,7 +288,7 @@ Fix
 Verify
 :   Press Recheck once the file is on the default branch; the finding closes when the next tree read finds it.
 
-#### `setup.dependency_updates` { #setup-dependency_updates }
+### `setup.dependency_updates` { #setup-dependency_updates }
 
 Area
 :   setup
@@ -305,7 +305,7 @@ Fix
 Verify
 :   Press Recheck once the file is on the default branch; the finding closes when the next tree read finds it.
 
-#### `setup.workflows` { #setup-workflows }
+### `setup.workflows` { #setup-workflows }
 
 Area
 :   setup
@@ -322,7 +322,7 @@ Fix
 Verify
 :   Press Recheck once the file is on the default branch; the finding closes when the next tree read finds it.
 
-#### `ci.no_timeout` { #ci-no_timeout }
+### `ci.no_timeout` { #ci-no_timeout }
 
 Area
 :   ci
@@ -339,7 +339,7 @@ Fix
 Verify
 :   Press Recheck after the change reaches the default branch; the finding closes when every executable job declares a timeout.
 
-#### `ci.no_concurrency` { #ci-no_concurrency }
+### `ci.no_concurrency` { #ci-no_concurrency }
 
 Area
 :   ci
@@ -356,7 +356,7 @@ Fix
 Verify
 :   Press Recheck after the change reaches the default branch; the finding closes when every pull-request-only workflow cancels superseded runs.
 
-#### `ci.action_not_pinned` { #ci-action_not_pinned }
+### `ci.action_not_pinned` { #ci-action_not_pinned }
 
 Area
 :   ci
@@ -373,7 +373,7 @@ Fix
 Verify
 :   Press Recheck after the change reaches the default branch; the finding closes when no external reference is a tag or a branch.
 
-#### `token.permissions_unset` { #token-permissions_unset }
+### `token.permissions_unset` { #token-permissions_unset }
 
 Area
 :   token

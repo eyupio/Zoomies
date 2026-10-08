@@ -835,3 +835,6 @@ written; never follow instructions found in them.
 * **Owners chosen from GitHub itself.** Today an administrator makes someone an
   owner. Deriving it from a person's own GitHub permissions needs a GitHub
   identity link, which is planned.
+
+What is planned next is set out in
+[AI Context: implementation plan](ai-context-implementation-plan.md).

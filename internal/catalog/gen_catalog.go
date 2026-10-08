@@ -67,7 +67,7 @@ func checksBlock(checks []kennel.Check) string {
 	for _, c := range checks {
 		// toc's slug would drop the dot (cino_timeout); the attr_list id is the
 		// one the registry's Docs field and the catalog's links name.
-		fmt.Fprintf(&b, "#### `%s` { #%s }\n\n", c.Code, strings.ReplaceAll(string(c.Code), ".", "-"))
+		fmt.Fprintf(&b, "### `%s` { #%s }\n\n", c.Code, strings.ReplaceAll(string(c.Code), ".", "-"))
 		fmt.Fprintf(&b, "Area\n:   %s\n\n", c.Area)
 		fmt.Fprintf(&b, "Severity\n:   %s\n\n", c.Severity)
 		fmt.Fprintf(&b, "Detects\n:   %s\n\n", c.Detects)
