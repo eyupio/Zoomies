@@ -103,6 +103,24 @@ func (s *Server) handleListKennelRepositories(w http.ResponseWriter, r *http.Req
 		}
 		filter.Active = &active
 	}
+	for _, flag := range []struct {
+		name string
+		set  func(bool)
+	}{
+		{"incomplete", func(v bool) { filter.Incomplete = v }},
+		{"waived", func(v bool) { filter.Waived = &v }},
+	} {
+		raw := strings.TrimSpace(q.Get(flag.name))
+		if raw == "" {
+			continue
+		}
+		v, err := strconv.ParseBool(raw)
+		if err != nil {
+			badRequestField(w, flag.name, "is not true or false")
+			return
+		}
+		flag.set(v)
+	}
 	rows, total, err := s.ctrl.KennelRepositories(r.Context(), filter, p)
 	if err != nil {
 		var invalid *controller.KennelInvalidError

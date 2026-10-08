@@ -170,6 +170,9 @@ type KennelFilter struct {
 	// that list, and under the installation scope every pass sees every one.
 	Served      *bool
 	ServedSince time.Time
+	// Waived keeps repositories with at least one finding somebody has decided is
+	// acceptable (true) or none (false), the rows behind the Overview's "Waived" card.
+	Waived *bool
 }
 
 var kennelSortCols = map[string]string{
@@ -206,6 +209,13 @@ func kennelWhere(f KennelFilter) (string, []any) {
 		cond = append(cond, `LOWER(full_name) `+in+` (SELECT LOWER(repo) FROM jobs
 			WHERE queued_at >= ? AND repo <> '' AND installation_id <> '' AND `+managedJobSQL("jobs")+`)`)
 		args = append(args, ms(f.ServedSince))
+	}
+	if f.Waived != nil {
+		if *f.Waived {
+			cond = append(cond, `waived > 0`)
+		} else {
+			cond = append(cond, `waived = 0`)
+		}
 	}
 	if f.Code != "" {
 		cond = append(cond, `EXISTS (SELECT 1 FROM json_each(evaluation_json, '$.findings')

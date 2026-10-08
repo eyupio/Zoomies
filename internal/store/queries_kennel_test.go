@@ -837,3 +837,32 @@ func TestTheListCanBeNarrowedToRepositoriesWithAnOpenFindingOfASeverity(t *testi
 		}
 	}
 }
+
+// The Overview's "Waived" card counts findings somebody decided are acceptable,
+// and opens the repositories that hold them. The list has to be able to say so,
+// or the card is a number with nothing behind it.
+func TestTheListCanBeNarrowedToRepositoriesWithAWaivedFinding(t *testing.T) {
+	ctx := context.Background()
+	s, inst, _ := kennelStore(t)
+	waived := touch(t, s, inst, 1, "acme/waived", "public")
+	plain := touch(t, s, inst, 2, "acme/plain", "public")
+	rec := record("best_in_show", 0, 0, 0)
+	rec.Waived = 2
+	_ = s.SaveKennelEvaluation(ctx, waived.ID, rec)
+	_ = s.SaveKennelEvaluation(ctx, plain.ID, record("best_in_show", 0, 0, 0))
+
+	yes, no := true, false
+	for _, c := range []struct {
+		name   string
+		filter *bool
+		want   string
+	}{{"with", &yes, waived.ID}, {"without", &no, plain.ID}} {
+		got, total, err := s.ListKennelRepositories(ctx, KennelFilter{Waived: c.filter}, Page{Limit: 10})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if total != 1 || len(got) != 1 || got[0].ID != c.want {
+			t.Errorf("%s a waiver: listed %d (total %d), want only %s", c.name, len(got), total, c.want)
+		}
+	}
+}
