@@ -196,7 +196,7 @@ func TestOperatorFacingCodesCarryVerify(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, e := range entries {
-		for _, prefix := range []string{"host.", "pool.", "jobs.", "runners."} {
+		for _, prefix := range []string{"host.", "pool.", "jobs.", "runners.", "kennel."} {
 			if strings.HasPrefix(e.ID, prefix) && e.Detection == DetectionRuntime && (e.Verify == nil || *e.Verify == "") {
 				t.Errorf("%s has no 'How to see it worked' cell", e.ID)
 			}

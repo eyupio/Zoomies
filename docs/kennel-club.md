@@ -12,7 +12,7 @@ affects CI and the fleet: a public repository whose pull requests run on a
 machine that keeps state between jobs, a label no pool serves, a job with no
 timeout. It is off until an administrator turns on `kennel.enabled`, and
 [the UI page](ui.md#kennel-club) says what it would read and what it never does
-until then. [Configuration](configuration.md#kennel-club) has its settings;
+until then. [Configuration](configuration.md#kennel) has its settings;
 the [problem codes](problem-codes.md) page has the one problem it raises,
 `kennel.exposure`.
 

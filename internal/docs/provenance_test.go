@@ -14,7 +14,7 @@ import (
 // for the honest reason that there is nothing to look for, and the mechanism
 // is tested with seeded terms in that package.
 func TestTheTreeCarriesNoThirdPartyNames(t *testing.T) {
-	hits, err := provenance.ScanTree("../..", provenance.DefaultSkip)
+	hits, err := provenance.ScanTracked("../..")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -2,6 +2,7 @@ package provenance
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -72,5 +73,47 @@ func TestTermsAreLowerCasedAndDeduplicated(t *testing.T) {
 	SetTermsForTest(t, []string{"Abc", "abc", "Def"})
 	if got := strings.Join(Terms(), ","); got != "abc,def" {
 		t.Fatalf("terms = %q", got)
+	}
+}
+
+// The tree test reads what the repository tracks, not what happens to be on
+// the disk: a developer's .env, a compose deployment's data/ full of other
+// people's checkouts, a build's output. Those are not this repository's
+// writing, and scanning them would fail the build for a file nobody commits.
+func TestScanTrackedReadsOnlyWhatGitTracks(t *testing.T) {
+	term := seed(t)
+	root := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", root}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	write := func(rel, content string) {
+		t.Helper()
+		path := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git("init", "-q")
+	write("docs/a.md", "tracked "+term+"\n")
+	write("logo.png", "\x89PNG\x00"+term)
+	git("add", "docs/a.md", "logo.png")
+	git("commit", "-q", "-m", "x")
+	write(".env", term)
+	write("data/other-repo/README.md", term)
+	write("docs/untracked.md", term)
+	hits, err := ScanTracked(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 || hits[0].Path != "docs/a.md" {
+		t.Fatalf("hits = %+v, want only docs/a.md", hits)
 	}
 }

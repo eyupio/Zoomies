@@ -10,9 +10,11 @@ package provenance
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -131,6 +133,43 @@ func ScanTree(root string, skip func(path string, d fs.DirEntry) bool) ([]Hit, e
 	return hits, err
 }
 
+// ScanTracked scans every file git tracks under root -- a repository's own
+// writing, and nothing that merely sits beside it: a developer's .env, a
+// deployment's data directory, a build's output -- keeping the size and binary
+// filters, with paths relative to root in git's order.
+func ScanTracked(root string) ([]Hit, error) {
+	cmd := exec.Command("git", "-C", root, "ls-files", "-z")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("provenance: listing tracked files: %w", err)
+	}
+	var hits []Hit
+	for _, rel := range strings.Split(strings.TrimRight(string(out), "\x00"), "\x00") {
+		if rel == "" {
+			continue
+		}
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		info, err := os.Stat(path)
+		if err != nil || !info.Mode().IsRegular() || info.Size() > maxFileBytes {
+			// Deleted but not yet committed, a symlink, or too large to be prose.
+			continue
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		if !binary(f) {
+			if _, err := f.Seek(0, io.SeekStart); err != nil {
+				f.Close()
+				return nil, err
+			}
+			hits = append(hits, Scan(rel, f)...)
+		}
+		f.Close()
+	}
+	return hits, nil
+}
+
 // maxFileBytes is the most a scanned file may hold: prose and source are far
 // smaller, and anything larger is a bundle, an archive or a database.
 const maxFileBytes = 1 << 20
@@ -141,7 +180,7 @@ const maxFileBytes = 1 << 20
 func DefaultSkip(path string, d fs.DirEntry) bool {
 	if d.IsDir() {
 		switch d.Name() {
-		case ".git", "node_modules", "webdist", "site", ".superpowers":
+		case ".git", "node_modules", "webdist", "site":
 			return true
 		}
 		return false

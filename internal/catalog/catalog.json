@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_from": "888640f",
+  "generated_from": "74df8f3",
   "entries": [
     {
       "id": "agent.backend_missing",
@@ -1578,7 +1578,7 @@
       "detection": "runtime",
       "detects": "A repository this fleet serves has an open, unwaived exposure finding that is an error: code from a stranger's pull request has run on your runners, or a public repository's jobs ran on a pool set up so that such code could reach the host. One entry for the whole fleet, however many repositories it is about: its title is the count and it names none of them. It links to Kennel Club's repositories narrowed to those with an error, which lists every finding with the evidence behind it and is where one is waived with a reason. Dismissing it holds until every such error has cleared. A repository with only warnings raises nothing here: it appears in Kennel Club and nowhere else. Neither does one an administrator has told Kennel Club not to look at: it is not evaluated, so there is no error to raise, and starting again raises it afresh if the error is still there. It is never on the public status page.",
       "fix": "A repository this fleet serves has an open, unwaived exposure finding that is an error: code from a stranger's pull request has run on your runners, or a public repository's jobs ran on a pool set up so that such code could reach the host. One entry for the whole fleet, however many repositories it is about: its title is the count and it names none of them. It links to Kennel Club's repositories narrowed to those with an error, which lists every finding with the evidence behind it and is where one is waived with a reason. Dismissing it holds until every such error has cleared. A repository with only warnings raises nothing here: it appears in Kennel Club and nowhere else. Neither does one an administrator has told Kennel Club not to look at: it is not evaluated, so there is no error to raise, and starting again raises it afresh if the error is still there. It is never on the public status page.",
-      "verify": null,
+      "verify": "Kennel Club's Overview shows no repository with an open exposure error once the pools or the repositories' settings change and the next read lands, and the entry leaves the list.",
       "docs_html": "https://zoomies.sh/problem-codes/#runtime-pools-jobs-and-runners",
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#runtime-pools-jobs-and-runners"
     },
@@ -1619,7 +1619,7 @@
       "detection": "runtime",
       "detects": "Kennel Club has not been able to read an installation's repositories for six hours: GitHub refused the listing, which every App is allowed to make, or the reads keep failing or being held back by the rate limit. What it says about those repositories is as old as that. A permission you chose not to grant is never this: it is shown on the repositories it affects, naming the permission, and is not a problem. Nor is an installation on which every repository has been told not to be tracked: nothing there is read, so the failure is dropped, and it comes back if one is tracked again and the reads still fail.",
       "fix": "Kennel Club has not been able to read an installation's repositories for six hours: GitHub refused the listing, which every App is allowed to make, or the reads keep failing or being held back by the rate limit. What it says about those repositories is as old as that. A permission you chose not to grant is never this: it is shown on the repositories it affects, naming the permission, and is not a problem. Nor is an installation on which every repository has been told not to be tracked: nothing there is read, so the failure is dropped, and it comes back if one is tracked again and the reads still fail.",
-      "verify": null,
+      "verify": "Kennel Club's Overview shows the installation read within the last refresh interval, and the entry leaves the list after the next successful read.",
       "docs_html": "https://zoomies.sh/problem-codes/#runtime-pools-jobs-and-runners",
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#runtime-pools-jobs-and-runners"
     },
