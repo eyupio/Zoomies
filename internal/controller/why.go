@@ -366,12 +366,33 @@ func catalogDocsFor(code string) string {
 	return catalogDocs[code]
 }
 
-// decisiveLine is, per class, what the line that decided it looks like. A
-// class with no pattern, or a tail with no match, decides on its last line:
-// the end of the output is where a runner says why it stopped.
-var decisiveLine = map[WhyClass]*regexp.Regexp{
-	WhyOOM:  regexp.MustCompile(`(?i)killed process|out of memory|oom|exit code 137|memory limit`),
-	WhyDisk: regexp.MustCompile(`(?i)no space left|enospc|disk full`),
+// decisiveLine is, per class, what the line that decided it looks like, the
+// strongest sign first: the kernel's own "Killed process" line outranks the
+// entrypoint echoing "exit code 137" on its way out, which is the last line
+// of nearly every killed runner and says nothing the kill did not. A class
+// with no pattern, or a tail with no match, decides on its last line: the
+// end of the output is where a runner says why it stopped.
+var decisiveLine = map[WhyClass][]*regexp.Regexp{
+	WhyOOM: {
+		regexp.MustCompile(`(?i)killed process|out of memory|oom[- ]?kill`),
+		regexp.MustCompile(`(?i)exit code 137|memory limit`),
+	},
+	WhyDisk: {
+		regexp.MustCompile(`(?i)no space left|enospc|disk full`),
+	},
+}
+
+// decisiveIndex finds the line a class decided on, trying each of its
+// patterns in turn from the end of the tail, and the last line when none hits.
+func decisiveIndex(tail []string, class WhyClass) int {
+	for _, re := range decisiveLine[class] {
+		for i := len(tail) - 1; i >= 0; i-- {
+			if re.MatchString(tail[i]) {
+				return i
+			}
+		}
+	}
+	return len(tail) - 1
 }
 
 // excerptFrom picks the n lines of a kept tail that lead up to the one that
@@ -390,15 +411,7 @@ func excerptFrom(tail []string, class WhyClass, n int) *LogExcerpt {
 	if n > store.OutputTailLines {
 		n = store.OutputTailLines
 	}
-	decisive := len(tail) - 1
-	if re := decisiveLine[class]; re != nil {
-		for i := len(tail) - 1; i >= 0; i-- {
-			if re.MatchString(tail[i]) {
-				decisive = i
-				break
-			}
-		}
-	}
+	decisive := decisiveIndex(tail, class)
 	start := decisive - n + 1
 	if start < 0 {
 		start = 0

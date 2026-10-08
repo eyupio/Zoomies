@@ -13,6 +13,9 @@ func oomTail() []string {
 		tail[i] = fmt.Sprintf("step output %d", i+1)
 	}
 	tail[30] = "Killed process 2231 (node) total-vm:9812344kB, anon-rss:7900120kB"
+	// The runner's entrypoint repeats the code on its way out. It is the
+	// echo, not the kill, and the kill is the line to stop on.
+	tail[39] = "[entrypoint] exit code 137"
 	return tail
 }
 
