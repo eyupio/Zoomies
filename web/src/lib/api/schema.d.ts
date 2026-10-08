@@ -8860,7 +8860,7 @@ export interface components {
         UpdatesRelease: {
             /** @example v1.3.5 */
             tag: string;
-            /** @description The release's page, where its notes are. */
+            /** @description The release's page, where its notes are. Empty when GitHub's address is not an absolute https URL. */
             url: string;
             /**
              * Format: date-time
