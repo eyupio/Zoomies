@@ -1069,3 +1069,11 @@ export const applyAIContextMaintenance = (id: string, body: Body<'applyAIContext
     `/ai-context/repositories/${enc(id)}/maintenance/apply`,
     { body },
   );
+
+export const createProviderSetup = () =>
+  api.post<Result<'createProviderSetup'>>('/provider-setups', {
+    body: {},
+  });
+
+export const getProviderSetup = (id: string, signal?: AbortSignal) =>
+  api.get<Result<'getProviderSetup'>>(`/provider-setups/${enc(id)}`, { signal });

@@ -18,6 +18,7 @@ func runProviders(ctx context.Context, e *env, args []string) error {
 	return runGroup(ctx, e, "providers", "Where machines are rented from, and the machines themselves.", []*subcommand{
 		{"list", "", "Every provider, with its machines and whether it is buying", providersList},
 		{"kinds", "", "What this build can rent from, and the settings each kind asks for", providersKinds},
+		{"connect-proxmox", "[flags]", "Connect a Proxmox host using the provider wizard's setup command", providersConnectProxmox},
 		{"add", "<kind> [flags]", "Add a provider from the terminal, then ask it what it would refuse", providersAdd},
 		{"edit", "<name|id> [flags]", "Change the settings you name and nothing else", providersEdit},
 		{"check", "<name|id>", "Ask a provider what it would refuse, changing nothing", providersCheck},
