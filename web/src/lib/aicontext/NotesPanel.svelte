@@ -103,7 +103,8 @@
           </div>
           <p class="meta">
             Version {note.version} by {note.author_name}
-            {via(note)} · {formatAbsolute(note.created_at)}{#if note.source_commit}
+            {via(note)} · {formatAbsolute(note.created_at)}
+            {#if note.source_commit}
               · written against <code>{note.source_commit.slice(0, 12)}</code>{/if}
           </p>
           <Button size="sm" variant="ghost" onclick={() => read(note.slug)}

@@ -13,7 +13,7 @@
     "build": "vite build && vite build --mode status",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json --threshold warning",
-    "lint": "prettier --check . && eslint .",
+    "lint": "prettier --check . && eslint . && node scripts/block-spacing.mjs",
     "format": "prettier --write .",
     "generate:api": "openapi-typescript ../api/openapi.yaml -o src/lib/api/schema.d.ts",
     "test:e2e": "playwright test",

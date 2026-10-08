@@ -133,7 +133,8 @@
               <span class="sev">{reason.severity === 'error' ? 'Blocking' : 'Slowing'}</span>
               <span class="sentence">{status.explanations[reason.code]}</span>
               <span class="meta">
-                <code>{reason.code}</code>{#if reason.since}
+                <code>{reason.code}</code>
+                {#if reason.since}
                   · since {sinceWords(reason.since, now)}{/if}
               </span>
             </li>
