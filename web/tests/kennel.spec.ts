@@ -829,6 +829,12 @@ test.describe('with Kennel Club on', () => {
       page,
     }) => {
       const row = await repository(page, 'acme/api');
+      // The page reads everything again when the stream first goes live, which
+      // closes the gap between its first read and its subscription. On a page that
+      // has just loaded that can land a moment after the first read and count the
+      // jobs twice, so the stream is refused here: this test is about the page's own
+      // requests, and the Refresh button is the only thing that should add any.
+      await page.route('**/api/v1/events*', (route) => route.abort());
       const counted: URL[] = [];
       const queued: URL[] = [];
       page.on('request', (request) => {
