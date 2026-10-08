@@ -205,6 +205,10 @@ host can run `sudo /var/lib/zoomies-proxmox/<controller-key>/zoomies upgrade`.
 `--check` previews these updates without changing gateway files or services.
 Controller upgrades do not remotely upgrade a Proxmox host.
 
+For an existing gateway, choose **Use an existing Tailcat gateway** on the Connect
+step and enter its private address. **Configure a direct connection** remains
+available for an API address Zoomies can reach.
+
 The controller needs private connections enabled. The Proxmox host needs outbound
 internet access and systemd. The setup does not prepare a runner VM template:
 choose the prepared template, storage and network on the Placement step. Choices

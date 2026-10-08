@@ -701,3 +701,27 @@ test('Proxmox onboarding waits for one command and fills the connection without 
   await expect(page.getByRole('heading', { level: 2, name: 'Capacity' })).toBeVisible();
   await expect(page.getByText('Advanced machine settings', { exact: true })).toBeVisible();
 });
+
+test('Proxmox offers an existing Tailcat gateway without hiding it behind manual setup', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/meta', async (route) => {
+    const response = await route.fetch();
+    const meta = await response.json();
+    await route.fulfill({ response, json: { ...meta, tailcat_available: true } });
+  });
+  await goto(page, '/providers/new', 'Add a provider');
+  await expect(page.getByRole('radio', { name: /^Automatic setup · Tailcat/ })).toBeChecked();
+  await page.getByRole('radio', { name: /^Use an existing Tailcat gateway/ }).check();
+  await expect(page.getByRole('radio', { name: /^Private connection · Tailcat/ })).toBeChecked();
+  await expect(page.getByLabel('Private connection address')).toBeVisible();
+  await expect(
+    page.getByText('zoomies gateway --target <hypervisor-ip>:8006', { exact: true }),
+  ).toBeVisible();
+  await page.getByRole('radio', { name: /^Configure a direct connection/ }).check();
+  await expect(page.getByRole('radio', { name: /^Direct/ })).toBeChecked();
+  await expect(page.getByLabel('Private connection address')).toHaveCount(0);
+  await page.getByRole('radio', { name: /^Automatic setup · Tailcat/ }).check();
+  await expect(page.getByLabel('Credential', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Generate setup command' })).toBeVisible();
+});
