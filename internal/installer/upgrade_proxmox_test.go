@@ -12,6 +12,11 @@ import (
 )
 
 func TestProxmoxGatewayUpgradePreservesIdentityAndPreviews(t *testing.T) {
+	// Gateways are systemd units, so the upgrade deliberately does nothing off
+	// Linux; there is nothing for this test to observe on Windows or macOS.
+	if runtime.GOOS != "linux" {
+		t.Skip("Proxmox gateways exist only on Linux hosts")
+	}
 	root := t.TempDir()
 	dir := filepath.Join(root, "0123456789ab")
 	if err := os.Mkdir(dir, 0700); err != nil {

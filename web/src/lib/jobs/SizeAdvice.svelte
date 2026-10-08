@@ -13,6 +13,7 @@
   would be the first thing every Jobs page met.
 -->
 <script lang="ts">
+  import { readableJobText } from '$lib/jobs/name';
   import { Pin, PinOff } from '@lucide/svelte';
   import {
     deleteSizePin,
@@ -207,7 +208,8 @@
                     title={adviceWords(item.kind).hint}
                   />
                   <span class="job"
-                    >{item.repo} · {item.workflow} · <strong>{item.job_name}</strong></span
+                    >{item.repo} · {item.workflow} ·
+                    <strong>{readableJobText(item.job_name)}</strong></span
                   >
                   <span class="muted tabular">{pluralise(item.runs, 'run')} measured</span>
                 </div>

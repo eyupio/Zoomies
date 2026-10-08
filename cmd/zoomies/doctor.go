@@ -342,6 +342,11 @@ func printCheck(w io.Writer, ui installer.Palette, x hosttune.Result, detail boo
 	field("better", x.Recommended)
 	field("why", x.Rationale)
 	field("detail", x.Reason)
+	// Only while there is something to fix: the command for a check that already
+	// passes is noise, and an accepted warning has been decided about.
+	if x.Status == hosttune.Warn && !x.Accepting() {
+		field("run", x.Command)
+	}
 }
 
 // termWidth is the columns available, from the terminal itself or $COLUMNS,

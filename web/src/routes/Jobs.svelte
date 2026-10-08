@@ -41,6 +41,7 @@
   already on.
 -->
 <script lang="ts">
+  import { readableJobText } from '$lib/jobs/name';
   import JobsInsights from '$lib/insights/JobsInsights.svelte';
   import FleetHistory from '$lib/insights/FleetHistory.svelte';
   import { getJobFacets, listJobs } from '$lib/api/client';
@@ -277,7 +278,7 @@
     { id: 'failed_at', header: 'Failed at', priority: 'wide', value: failedAt, cell: failedAtCell },
     { id: 'repo', header: 'Repository', sortable: true, value: (job) => job.repo ?? '' },
     { id: 'workflow', header: 'Workflow', sortable: true, value: (job) => job.workflow ?? '' },
-    { id: 'job_name', header: 'Job', value: (job) => job.job_name ?? '' },
+    { id: 'job_name', header: 'Job', value: (job) => readableJobText(job.job_name) },
     {
       id: 'labels',
       header: 'Labels',
@@ -431,7 +432,7 @@
   <GitHubLink
     href={job.html_url}
     runNumber={job.run_number}
-    label="Open {job.job_name || 'this job'} on GitHub, in a new tab"
+    label="Open {readableJobText(job.job_name) || 'this job'} on GitHub, in a new tab"
     onclick={(event) => event.stopPropagation()}
   />
 {/snippet}

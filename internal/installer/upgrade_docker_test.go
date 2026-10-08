@@ -58,12 +58,9 @@ func TestAnUnchangedImageKeepsTheControllerContainer(t *testing.T) {
 			if err != nil || env["ZOOMIES_IMAGE"] != opts.Image || env["CUSTOM_SETTING"] != "leave me alone" {
 				t.Fatalf("environment = %v, %v", env, err)
 			}
-			// A file mode is a POSIX fact; Windows reports 0666 whatever
-			// was asked for, so the check would fail there for nothing.
-			if runtime.GOOS != "windows" {
-				if info, err := os.Stat(rec.EnvFile); err != nil || info.Mode().Perm() != 0600 {
-					t.Fatalf("environment permissions changed: %v, %v", info, err)
-				}
+			// Windows reports every file as 0666, so there is no mode to keep.
+			if info, err := os.Stat(rec.EnvFile); err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0600) {
+				t.Fatalf("environment permissions changed: %v, %v", info, err)
 			}
 		})
 	}

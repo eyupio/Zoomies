@@ -37,31 +37,33 @@ func TestUpgradeSaysWhetherAMovingImageAdvanced(t *testing.T) {
 			opts, _ := upgradeFixture(t, DeploymentCompose)
 			var out bytes.Buffer
 			opts.Out = &out
-			inspects, recreates := 0, 0
+			// The mock follows what a host does rather than counting calls: the
+			// local tag moves when the image is pulled and the service's image
+			// moves when it is recreated. Counting calls broke whenever the
+			// upgrade looked at an image one more time, and made a service that
+			// had not been recreated yet look as if it already ran the new build.
+			pulled, recreates := false, 0
 			opts.run = func(_ context.Context, name string, args ...string) (string, error) {
 				line := name + " " + strings.Join(args, " ")
 				switch {
+				case strings.Contains(line, " pull "):
+					pulled = true
+					return "", nil
 				case strings.Contains(line, " up "):
 					recreates++
 					return "", nil
 				case strings.Contains(line, "config --images"):
 					return opts.Image, nil
 				case strings.Contains(line, "image inspect"):
-					inspects++
-					if inspects == 1 {
-						return tc.before, nil
+					if pulled {
+						return tc.after, nil
 					}
-					return tc.after, nil
+					return tc.before, nil
 				case strings.Contains(line, "{{.Image}}"):
-					// The container's image moves only when the service is
-					// recreated, however often the upgrade asks: it asks once
-					// more now, after the pull, to decide whether to recreate
-					// at all, and answering "after" there would tell it the
-					// service already runs the new build.
-					if recreates == 0 {
-						return tc.runBefore, nil
+					if recreates > 0 {
+						return tc.runAfter, nil
 					}
-					return tc.runAfter, nil
+					return tc.runBefore, nil
 				case name == "docker" && len(args) > 0 && args[0] == "inspect":
 					return "true", nil
 				default:
