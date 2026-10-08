@@ -335,3 +335,19 @@ func TestEveryPlaceThatPromisesAnUpdateSaysThisReleaseOnlyShowsOne(t *testing.T)
 		}
 	}
 }
+
+// "Once it has been public for 0s" reads as a wait, when the whole point of a
+// soak of nothing is that there is none.
+func TestTheAutoNoticeDoesNotCallNoSoakAWait(t *testing.T) {
+	c := Default()
+	c.Updates.Mode, c.Updates.Soak = "auto", 0
+	got := find(c.Validate(), "updates.auto").Detail
+	if strings.Contains(got, "0s") || !strings.Contains(got, "as soon as it is seen") {
+		t.Errorf("detail = %q, want the release taken as soon as it is seen and no 0s", got)
+	}
+
+	c.Updates.Soak = 36 * time.Hour
+	if got := find(c.Validate(), "updates.auto").Detail; !strings.Contains(got, "once it has been public for 36h") {
+		t.Errorf("detail = %q, want the wait named when there is one", got)
+	}
+}

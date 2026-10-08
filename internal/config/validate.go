@@ -1833,12 +1833,18 @@ func (c *Config) validateUpdates(add func(Finding)) {
 	if u.Mode != "auto" {
 		return
 	}
+	// A soak of nothing would read "once it has been public for 0s", which is a
+	// wait that is not one; the warning beside it says what it means.
+	taken := "as soon as it is seen"
+	if u.Soak > 0 {
+		taken = "once it has been public for " + TidyDuration(u.Soak)
+	}
 	add(Finding{
 		Code: "updates.auto", Severity: SeverityInfo, Setting: "updates.mode",
 		Title: "new releases are installed without anyone asking",
-		Detail: fmt.Sprintf("the controller takes the newest release once it has been public for %s, and the hosts that have opted in then follow it, "+
-			"one at a time. Nobody is asked first, updating the controller restarts it, and there is no automatic rollback: a migration is one way. %s",
-			TidyDuration(u.Soak), updatesNotInstalledYet),
+		Detail: "the controller takes the newest release " + taken + ", and the hosts that have opted in then follow it, " +
+			"one at a time. Nobody is asked first, updating the controller restarts it, and there is no automatic rollback: a migration is one way. " +
+			updatesNotInstalledYet,
 		Fix: "nothing to change if that is what you want. Set updates.mode to manual to take each update yourself, or to off to be told that a release exists and nothing more.",
 	})
 	if u.Soak == 0 {
