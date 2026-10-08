@@ -1,3 +1,10 @@
+---
+title: AI Context implementation plan
+description: >-
+  The scope and sequence for Zoomies AI Context: who can enable repositories,
+  the Repository, Zoomies and Both destinations, and what is planned next.
+---
+
 # Zoomies AI Context: implementation plan
 
 ## Product correction: 3 October 2026
