@@ -143,6 +143,11 @@ func testConfig(t *testing.T) *config.Config {
 
 func newHarness(t *testing.T, opts ...func(*config.Config)) *harness {
 	t.Helper()
+	return newHarnessWithProviders(t, []provider.Factory{provider.NewFakeFactory()}, opts...)
+}
+
+func newHarnessWithProviders(t *testing.T, factories []provider.Factory, opts ...func(*config.Config)) *harness {
+	t.Helper()
 	ctx := context.Background()
 
 	st, err := store.Open(ctx, store.Options{Path: ":memory:"})
@@ -170,7 +175,7 @@ func newHarness(t *testing.T, opts ...func(*config.Config)) *harness {
 	// answer about. Without one every one of them would answer "this build
 	// has no driver for that kind", and the walks below would be asserting
 	// that a refusal is well-formed rather than that a route works.
-	providers, err := provider.NewRegistry(provider.NewFakeFactory())
+	providers, err := provider.NewRegistry(factories...)
 	if err != nil {
 		t.Fatalf("provider.NewRegistry: %v", err)
 	}
@@ -874,6 +879,8 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "DELETE", path: "/api/v1/hosts/" + ids.host + "/check-acceptances/files.service", role: store.RoleOperator, action: auth.ActionHostsAccept},
 		{method: "DELETE", path: "/api/v1/hosts/missing", role: store.RoleAdmin, action: auth.ActionHostsDelete},
 
+		{method: "POST", path: "/api/v1/provider-setups", role: store.RoleAdmin, body: map[string]any{"controller_url": "https://zoomies.example"}},
+		{method: "GET", path: "/api/v1/provider-setups/missing", role: store.RoleAdmin},
 		{method: "GET", path: "/api/v1/providers", role: store.RoleViewer, action: auth.ActionProvidersRead},
 		{method: "POST", path: "/api/v1/providers", role: store.RoleAdmin, action: auth.ActionProvidersWrite,
 			body: map[string]any{"kind": "fake", "name": "made-by-the-route-walk", "settings": map[string]string{"zone": "zone-a"}}},

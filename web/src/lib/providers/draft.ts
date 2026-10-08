@@ -60,6 +60,7 @@ export const WIZARD_STEPS: readonly WizardStepDef[] = [
 export const STEP_FIELDS: readonly (readonly string[])[] = [
   [
     'kind',
+    'setup_id',
     'name',
     'endpoint',
     'connection',
@@ -85,6 +86,7 @@ export const STEP_FIELDS: readonly (readonly string[])[] = [
 /** Human labels for the field names the API rejects things under. */
 export const FIELD_LABELS: Readonly<Record<string, string>> = {
   kind: 'Kind',
+  setup_id: 'Proxmox connection',
   name: 'Name',
   endpoint: 'Address',
   connection: 'Connection',
@@ -120,6 +122,7 @@ export function stepForField(field: string): number {
 }
 
 export interface ProviderDraft {
+  setup_id?: string;
   /**
    * Plain strings, not the generated unions. Every control in the form binds a
    * string, and a draft typed as the union would make the two disagree the
@@ -295,6 +298,7 @@ export function toProviderBody(
     max_creates_in_flight: num(draft.max_creates_in_flight) ?? 1,
     enabled: draft.enabled,
   };
+  if (draft.setup_id) body.setup_id = draft.setup_id;
   if (draft.kind !== '') body.kind = draft.kind as ProviderKindName;
   if (draft.credential.trim() !== '') body.credential = draft.credential;
   // Only ever sent alongside a private connection, and never empty: the
@@ -397,7 +401,7 @@ export function draftErrors(
       'create and destroy machines. Use https. Turning certificate verification off does not permit this.';
   // An edit leaves the stored credential alone, so an empty box is an answer
   // there and a missing one only on the way in.
-  if (!options.editing && draft.credential.trim() === '')
+  if (!options.editing && !draft.setup_id && draft.credential.trim() === '')
     out.credential = 'A credential is needed before anything can be created.';
   if (draft.connection === 'tailcat') {
     const address = draft.tailcat_address.trim();

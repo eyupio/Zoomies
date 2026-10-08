@@ -312,6 +312,9 @@ running beside it, and the gateway's Tailcat address is handled the same way:
 
 | Method | Path | Role | Notes |
 | --- | --- | --- | --- |
+| POST | `/api/v1/provider-setups` | admin | Generate a Proxmox connection command, valid for one hour; identical uploads can be retried. Defaults to a private Tailcat callback. |
+| GET | `/api/v1/provider-setups/{id}` | admin | Poll connection readiness and detected name/address. Never returns credentials or private addresses. |
+| POST | `/api/v1/provider-setups/{id}/complete` | setup capability | Accept one sealed connection upload; cannot create providers or enrol runner hosts. Also admitted by the private listener. |
 | GET | `/api/v1/providers` | viewer | Each provider with its machines by state, how many still hold a resource, and `held` — why no new machine may be bought right now, in one sentence, or absent when one may. |
 | POST | `/api/v1/providers` | admin | Creates one renting nothing: `max_machines` defaults to zero, so a fleet that turns a provider on says in the same breath how many machines it is willing to pay for. 422 names the offending field. |
 | POST | `/api/v1/providers/validate` | admin | A dry run over a draft. Always 200 — the verdict is in the body — and it writes nothing and dials nothing, so a form can run it as somebody types. `?id=` says the draft is an edit to that provider, so the name check does not refuse it about itself. |

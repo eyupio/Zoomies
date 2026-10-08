@@ -79,8 +79,9 @@ heartbeats, task polling, results and live logs. The HTTP connection exists
 inside the encrypted transport; it never falls back to ordinary HTTP on the
 network. Environment HTTP proxies and redirects cannot reroute these requests.
 
-Only the agent API is available through the tunnel. It does not expose the web
-UI, administrator API, SSH, Docker sockets, arbitrary ports or your LAN.
+The tunnel admits the agent API and single-use Proxmox setup uploads. It does
+not expose the web UI, administrator API, SSH, Docker sockets, arbitrary ports
+or your LAN.
 Zoomies still requires a single-use join token to enrol and a host-specific
 agent token for ongoing operations. The controller marks the connection from
 its own observation, not an agent-supplied label.
@@ -152,6 +153,15 @@ to the Zoomies UI are configured separately. A fully private controller can
 use the existing GitHub polling fallback when webhooks cannot reach it.
 
 ## Private providers
+
+For Proxmox, **Providers → Add provider → Proxmox VE → Generate setup command**
+automates the steps below. Run the command as root on the Proxmox host and return
+to Zoomies. The wizard detects the host name, creates the API credential, trusts
+the local certificate and installs a persistent gateway. An existing runner
+agent keeps its registration and service; the provider uses separate state and
+a separate binary. See [Proxmox setup](proxmox.md#the-provider).
+
+The following commands are for a gateway you want to configure yourself.
 
 The hypervisor a home lab rents machines from is behind the same router the
 hosts are. A Proxmox cluster on `192.168.1.10` has no address a controller in

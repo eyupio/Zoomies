@@ -312,7 +312,12 @@ Choose **Enable repositories**. The wizard has six steps, and nothing is
 written to GitHub until the last one:
 
 1. **Repositories** — an installation, then one or more repositories. Archived
-   repositories cannot be chosen.
+   repositories cannot be chosen. Nothing is chosen for you, except when you
+   arrive from a repository's own page: its **AI Context** tab links here with
+   the repository's GitHub ID, and the wizard ticks that repository once the
+   installation's list has loaded, and says so. It is yours from then on:
+   untick it and it stays unticked. If the installation does not list it, or it
+   is archived, nothing is ticked and the step says why.
 2. **Readiness** — whether the installation can read the repository and open a
    setup pull request, and which permission is missing if not.
 3. **Output** — *Repository and Zoomies* or *Repository*; see

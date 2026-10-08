@@ -38,6 +38,8 @@ GO_TEST_TIMEOUT ?= 120m
 # the whole -- and this is how a shard says which share it is. Local runs
 # leave it alone and get everything.
 TEST_PKGS ?= ./...
+# A -run regexp, for CI to run half of one package on each runner.
+TEST_RUN ?=
 
 ##@ Build
 
@@ -89,7 +91,7 @@ dist: ui ## Cross-compile release binaries into dist/
 
 .PHONY: test
 test: ## Run Go unit and integration tests
-	$(GO) test -race -count=1 -timeout $(GO_TEST_TIMEOUT) $(TEST_PKGS)
+	$(GO) test -race -count=1 -timeout $(GO_TEST_TIMEOUT) $(if $(TEST_RUN),-run '$(TEST_RUN)') $(TEST_PKGS)
 
 .PHONY: test-short
 test-short: ## Run only fast tests
@@ -115,7 +117,7 @@ cover: ## Run tests with a coverage report
 cover-shard: ## Run one shard of the coverage run into COVERDIR (see cover-merge)
 	@test -n "$(COVERDIR)" || { echo "cover-shard needs COVERDIR=<directory>"; exit 2; }
 	@mkdir -p $(COVERDIR)
-	$(GO) test -race -count=1 -timeout $(GO_TEST_TIMEOUT) -cover -coverpkg=./... -covermode=atomic $(TEST_PKGS) -args -test.gocoverdir=$(abspath $(COVERDIR))
+	$(GO) test -race -count=1 -timeout $(GO_TEST_TIMEOUT) -cover -coverpkg=./... -covermode=atomic $(if $(TEST_RUN),-run '$(TEST_RUN)') $(TEST_PKGS) -args -test.gocoverdir=$(abspath $(COVERDIR))
 
 .PHONY: cover-merge
 cover-merge: ## Merge every cover-shard directory under COVERDIRS into coverage.out
