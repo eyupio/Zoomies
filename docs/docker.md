@@ -2,9 +2,8 @@
 icon: material/docker
 title: Self-hosted GitHub Actions runners in Docker
 description: >-
-  Running GitHub Actions runners in Docker: what a single runner container
-  gives you, the three ways a job can get Docker and what each costs, and how
-  Zoomies turns containers into an ephemeral, autoscaling fleet.
+  Running GitHub Actions runners in Docker: what one runner container gives you,
+  three ways a job can get Docker, and how Zoomies makes an autoscaling fleet.
 ---
 
 # Self-hosted runners in Docker

@@ -3,11 +3,10 @@ icon: material/home
 # The header shows the page's title once the headline has scrolled out of view,
 # and the headline is too long for it: on a phone it read "Give your GitHub Ac…".
 title: Zoomies
-social_title: Zoomies — free, open-source self-hosted GitHub Actions runners
+social_title: Zoomies — open-source self-hosted GitHub Actions runners
 description: >-
-  Free, open-source self-hosted GitHub Actions runners: a fresh ephemeral
-  runner for every job, autoscaling across cloud and private home-lab hosts
-  with built-in Tailcat encrypted connections.
+  Free, open-source self-hosted GitHub Actions runners: a fresh ephemeral runner
+  per job, autoscaling across cloud and home-lab hosts over Tailcat tunnels.
 hide:
   - navigation
   - toc

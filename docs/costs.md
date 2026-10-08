@@ -2,9 +2,9 @@
 icon: material/currency-usd
 title: What self-hosted GitHub Actions runners cost
 description: >-
-  GitHub-hosted runner prices, the free minutes each plan includes, the
-  postponed $0.002-a-minute charge for self-hosted runners, and the sums for
-  deciding whether running your own is worth it.
+  GitHub-hosted runner prices, free minutes per plan, the postponed
+  $0.002-a-minute self-hosted charge, and the sums for deciding whether to run
+  your own.
 ---
 
 # What self-hosted runners cost

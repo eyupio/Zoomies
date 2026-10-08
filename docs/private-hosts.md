@@ -3,8 +3,7 @@ icon: material/lock-outline
 title: Private hosts with Tailcat
 description: >-
   Turn your home lab into GitHub Actions runner capacity. Connect private hosts
-  to your self-hosted Zoomies controller with built-in Tailcat tunnels, without
-  public IPs, port forwarding or a Tailscale account.
+  over built-in Tailcat tunnels: no public IPs, port forwarding or Tailscale.
 ---
 
 # Your home lab. Your runner fleet.

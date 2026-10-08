@@ -2,9 +2,9 @@
 icon: material/source-repository-multiple
 title: One self-hosted runner fleet for many repositories
 description: >-
-  Sharing self-hosted GitHub Actions runners across repositories: where GitHub
-  lets a runner be registered, how one Zoomies fleet serves a whole
-  organisation, what personal accounts need, and how to keep repositories apart.
+  Share self-hosted GitHub Actions runners across repositories: where GitHub
+  allows registration, how one fleet serves an organisation, and keeping repos
+  apart.
 ---
 
 # One fleet for many repositories

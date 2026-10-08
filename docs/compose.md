@@ -1,6 +1,6 @@
 ---
 icon: material/view-grid-outline
-title: Self-hosted GitHub Actions runners with Docker Compose
+title: GitHub Actions runners with Docker Compose
 description: >-
   Running Zoomies with Docker Compose: the compose file in the repository, the
   three values .env needs, what moves to the browser, and how to upgrade.

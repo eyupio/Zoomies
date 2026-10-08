@@ -3,8 +3,8 @@ icon: material/cloud-sync-outline
 title: The infrastructure provider contract
 description: >-
   What Zoomies asks an infrastructure provider to do, what it promises in
-  return, and the rules a second provider has to obey — failure categories,
-  durable operation handles, ownership and deadlines.
+  return, and the rules a second provider must obey: failures, handles,
+  ownership.
 ---
 
 # The provider contract

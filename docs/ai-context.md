@@ -1,6 +1,8 @@
 ---
 icon: material/book-open-page-variant-outline
-description: Reduce AI input token usage with relevant repository excerpts. Zoomies automates Repomix generation, verifies source against Git, and lets assistants use fresh context through GitHub access or MCP.
+description: >-
+  Cut AI input tokens with relevant repository excerpts. Zoomies automates
+  Repomix, verifies it against Git, and serves fresh context via GitHub or MCP.
 ---
 
 # AI Context
@@ -20,7 +22,7 @@ clients can also connect to Zoomies for bounded search and source reads.
 <div markdown>
 :material-text-search:{ .icon }
 
-### Less context overhead
+## Less context overhead
 Search for the relevant code, then read selected files or excerpts. A focused
 task can use significantly fewer input tokens than loading a whole repository,
 leaving more of the context window for instructions, reasoning and changes.
@@ -29,7 +31,7 @@ leaving more of the context window for instructions, reasoning and changes.
 <div markdown>
 :material-sync:{ .icon }
 
-### Prepared after every push
+## Prepared after every push
 A managed GitHub Actions workflow regenerates context when the source branch
 changes. Zoomies verifies it against Git before serving it, so every reply names
 the commit being investigated.
@@ -38,7 +40,7 @@ the commit being investigated.
 <div markdown>
 :material-package-variant-closed:{ .icon }
 
-### Repomix, managed for you
+## Repomix, managed for you
 Repomix packages eligible source and scans it for secrets. Zoomies adds setup
 pull requests, regeneration, verified storage and permissioned access for each
 person and assistant connection.

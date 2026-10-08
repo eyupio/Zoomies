@@ -1,10 +1,9 @@
 ---
 icon: material/monitor-dashboard
-title: "GitHub Actions runner management: the Zoomies web UI"
+title: Zoomies web UI for GitHub Actions runners
 description: >-
-  A tour of the Zoomies web UI page by page: the Overview, pools, runners,
-  jobs, hosts, providers and the machines they rent, the migration wizard and
-  settings, light and dark.
+  A page-by-page tour of the Zoomies web UI: Overview, pools, runners, jobs,
+  hosts, providers, the migration wizard and settings, in light and dark.
 ---
 
 # The UI

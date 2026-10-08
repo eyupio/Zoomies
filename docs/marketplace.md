@@ -1,9 +1,9 @@
 ---
 icon: material/storefront-outline
 description: >-
-  Deploying Zoomies from a VPS provider's marketplace: what the one-click
-  install puts on the instance, how it gets a certificate without Cloudflare,
-  and the first-run journey from a booted image to a connected fleet.
+  Deploy Zoomies from a VPS provider's marketplace: what the one-click install
+  sets up, how it gets a certificate without Cloudflare, and the first-run
+  journey.
 ---
 
 # One-click deployment

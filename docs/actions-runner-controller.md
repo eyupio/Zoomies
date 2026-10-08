@@ -2,9 +2,8 @@
 icon: material/kubernetes
 title: "Zoomies vs actions-runner-controller (ARC)"
 description: >-
-  How Zoomies compares with actions-runner-controller: what each needs, how
-  each scales and isolates jobs, where each is the better choice, and how to
-  move between them.
+  How Zoomies compares with actions-runner-controller: what each needs, how each
+  scales and isolates jobs, where each is better, and how to move between them.
 ---
 
 # Zoomies and actions-runner-controller

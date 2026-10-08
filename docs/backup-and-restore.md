@@ -1,9 +1,9 @@
 ---
 icon: material/backup-restore
 description: >-
-  The two files a Zoomies controller is made of, how to copy them safely — by
-  schedule, from the settings page, or by hand — and how to bring the fleet
-  back, here or on another machine.
+  The two files a Zoomies controller is made of, how to copy them safely by
+  schedule, from settings or by hand, and how to restore the fleet here or
+  elsewhere.
 ---
 
 # Backup and restore

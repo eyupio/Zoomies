@@ -1,10 +1,10 @@
 ---
 icon: material/memory
-title: "Elastic memory for self-hosted GitHub Actions runners"
+title: Elastic memory for GitHub Actions runners
 description: >-
-  Raise a running job's memory limit just before the kernel would kill it, out
-  of memory no other runner on its host has been promised, with swap as the last
-  resort. Configure the memory valve and read what it did.
+  Raise a running job's memory limit before the kernel kills it, using memory no
+  other runner was promised, with swap as a last resort. Configure and monitor
+  it.
 ---
 
 # Elastic memory

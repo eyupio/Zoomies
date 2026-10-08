@@ -2,9 +2,8 @@
 icon: material/server-outline
 title: Renting runner hosts from Proxmox VE
 description: >-
-  Let Zoomies clone a prepared VM template on your own Proxmox VE cluster when a
-  pool has queued work and nowhere to run it, and destroy the machine again when
-  the work is done — with scoped API credentials and verified ownership.
+  Let Zoomies clone a VM template on your Proxmox VE cluster when a pool has
+  queued work, and destroy the machine afterwards, with scoped API credentials.
 ---
 
 # Proxmox VE

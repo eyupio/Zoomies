@@ -2,9 +2,8 @@
 icon: material/home-outline
 title: GitHub Actions runners in your home lab
 description: >-
-  Planning GitHub Actions runners on machines you own: which home-lab hardware
-  suits which jobs, where to put the controller, keeping jobs on the right
-  machines, what happens when a box is switched off, and your home network.
+  Plan GitHub Actions runners on machines you own: which home-lab hardware suits
+  which jobs, where the controller goes, and what happens when a box is off.
 ---
 
 # Runners in your home lab

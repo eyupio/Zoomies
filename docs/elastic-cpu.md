@@ -1,6 +1,6 @@
 ---
 icon: material/rabbit
-title: "Dynamic CPU allocation for self-hosted GitHub Actions runners"
+title: Dynamic CPU allocation for self-hosted runners
 description: >-
   Lend idle host CPU to busy GitHub Actions runners while reserving capacity
   for queued jobs. Configure Zoomies CPU boosts and read their live status.

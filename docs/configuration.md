@@ -2,9 +2,9 @@
 icon: material/cog-outline
 title: "Configuration reference: every setting and default"
 description: >-
-  Where Zoomies keeps its settings — the fleet's database, a small file, and the
-  ZOOMIES_* environment — with every key, its default, and the startup warnings
-  that name any setting weakening your posture.
+  Where Zoomies keeps its settings (the database, a small file and ZOOMIES_*
+  variables), with every key, its default, and the startup warnings for risky
+  settings.
 ---
 
 # Configuring Zoomies
@@ -20,7 +20,7 @@ A setting that unlocks a store cannot be stored in that store. Those go in
 `zoomies.yaml` or the environment, and that is the whole of what a fresh
 install's file contains.
 
-### The four layers
+## The four layers
 
 ```mermaid
 flowchart LR
@@ -51,7 +51,7 @@ something that would be overridden at the next restart.
 To hand such a setting over to the settings page, remove the variable from the
 deployment's environment file and restart.
 
-### Upgrading from a file-only install
+## Upgrading from a file-only install
 
 On the first start after the upgrade, the settings your `zoomies.yaml` actually
 spells are copied into the database, attributed to the file, and the file stays
@@ -65,7 +65,7 @@ host that reads them — the database path from its state directory, the agent's
 capacity from its cores — so a row claiming to be "the default" would freeze one
 machine's answers for every machine after it.
 
-### From a terminal
+## From a terminal
 
 When the settings page is the thing that is broken, `zoomies config` does the
 same job against a stopped controller:
@@ -81,7 +81,7 @@ It refuses to run while a controller is up, because writing settings under a
 process that has already read them leaves the two disagreeing with no way for
 either to find out.
 
-### When a setting stops the controller starting
+## When a setting stops the controller starting
 
 This is the failure the layers make possible: a value saved on the settings page
 that the validator refuses at the next start. The page that would fix it is
@@ -111,7 +111,7 @@ go from the environment the controller starts with. That is also what makes it
 the way back in when the database is the problem and you would rather not stop
 the controller to fix it.
 
-### The file
+## The file
 
 The parser is strict. A misspelled key is an error naming the line, not a
 setting that silently does nothing.
@@ -120,7 +120,7 @@ If no file exists and none was named explicitly, the database plus the
 environment plus the defaults are used — which is what makes the container image
 work with nothing but environment variables.
 
-### Where things live
+## Where things live
 
 Two directories, and neither has one fixed answer: they depend on the operating
 system and on whether the process is running as root.

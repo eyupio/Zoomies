@@ -3,7 +3,7 @@ icon: material/puzzle-outline
 title: "Runtime compatibility: Docker, Podman and cgroups"
 description: >-
   Which Docker and Podman setups Zoomies supports, rootful or rootless, on
-  cgroup v1 or v2, what each can enforce, and how to read a runner's resource
+  cgroup v1 or v2, what each can enforce, and how to read a runner's
   measurements.
 ---
 

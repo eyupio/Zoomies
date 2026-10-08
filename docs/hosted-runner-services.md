@@ -2,9 +2,9 @@
 icon: material/cloud-check-outline
 title: "Zoomies vs Blacksmith, WarpBuild and RunsOn"
 description: >-
-  How running your own runners with Zoomies compares with the services that
-  sell GitHub Actions runners: Blacksmith, WarpBuild and RunsOn. Where jobs run,
-  what each costs, and when each is the better choice.
+  How running your own runners with Zoomies compares with Blacksmith, WarpBuild
+  and RunsOn: where jobs run, what each costs, and when each is the better
+  choice.
 ---
 
 # Zoomies and the runner services

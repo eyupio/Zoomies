@@ -1,3 +1,9 @@
+---
+description: >-
+  Send light jobs to small hosts and heavy jobs to big ones, with pools that
+  adjust as hosts come and go. Off by default; your own pools are left alone.
+---
+
 # Size classes and automatic pools
 
 A fleet of mixed machines has two questions the pool settings do not answer: *which

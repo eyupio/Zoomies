@@ -1,5 +1,5 @@
 ---
-title: Recovering a GHCR image that fails with manifest unknown
+title: Fix a GHCR image failing with manifest unknown
 description: >-
   Diagnose missing child manifests in multi-platform Zoomies images on GHCR,
   check affected tags and republish them without repeating unsafe cleanup.
