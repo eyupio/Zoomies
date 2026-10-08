@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -157,8 +158,11 @@ func TestInstallKeepsThePreviousBinaryBesideIt(t *testing.T) {
 	if b, _ := os.ReadFile(bin + PreviousSuffix); string(b) != "old" {
 		t.Fatalf("previous = %q", b)
 	}
-	if info, err := os.Stat(bin + PreviousSuffix); err != nil || info.Mode().Perm() != 0o755 {
-		t.Fatalf("previous is not executable: %v %v", info, err)
+	// Windows has no POSIX mode bits to compare.
+	if runtime.GOOS != "windows" {
+		if info, err := os.Stat(bin + PreviousSuffix); err != nil || info.Mode().Perm() != 0o755 {
+			t.Fatalf("previous is not executable: %v %v", info, err)
+		}
 	}
 
 	// The next release replaces the installed one, and the previous moves on.
@@ -244,4 +248,80 @@ func TestThePreflightIsNotRunWhenNothingIsNewer(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Some filesystems refuse hard links, and so does a kernel with
+// fs.protected_hardlinks set for a file the user does not own. A rollback file
+// that is a copy is still a rollback file.
+func TestInstallFallsBackToACopyWhenTheLinkCannotBeMade(t *testing.T) {
+	srv := updateServer(t, "v1.4.0", "new build", sumOf("new build"))
+	opts, bin := updateFixture(t, srv, "v1.3.0")
+	if err := os.Chmod(bin, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	old := linkFile
+	linkFile = func(string, string) error { return errors.New("operation not permitted") }
+	t.Cleanup(func() { linkFile = old })
+
+	cand, _, err := FetchRelease(context.Background(), opts)
+	if err != nil || cand == nil {
+		t.Fatalf("cand=%+v err=%v", cand, err)
+	}
+	defer cand.Discard()
+	if err := cand.Install(opts); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(bin); string(b) != "new build" {
+		t.Fatalf("binary = %q", b)
+	}
+	if b, _ := os.ReadFile(bin + PreviousSuffix); string(b) != "old" {
+		t.Fatalf("previous = %q", b)
+	}
+	// Windows has no POSIX mode bits to compare.
+	if runtime.GOOS != "windows" {
+		if info, err := os.Stat(bin + PreviousSuffix); err != nil || info.Mode().Perm() != 0o750 {
+			t.Fatalf("the copy lost the binary's mode: %v %v", info, err)
+		}
+	}
+	if left, _ := filepath.Glob(filepath.Join(filepath.Dir(bin), "*.new")); len(left) != 0 {
+		t.Fatalf("staging file left behind: %v", left)
+	}
+}
+
+// Failing closed is for the case where there is no way to keep the old binary
+// at all: replacing it then would leave nothing to go back to.
+func TestInstallRefusesToReplaceWhenThePreviousBinaryCannotBeKept(t *testing.T) {
+	srv := updateServer(t, "v1.4.0", "new build", sumOf("new build"))
+	opts, bin := updateFixture(t, srv, "v1.3.0")
+	old := linkFile
+	t.Cleanup(func() { linkFile = old })
+	// The link fails and the installed binary vanishes under it, so the copy
+	// that follows has nothing to read either.
+	linkFile = func(string, string) error {
+		_ = os.Remove(bin)
+		return errors.New("operation not permitted")
+	}
+	cand, _, err := FetchRelease(context.Background(), opts)
+	if err != nil || cand == nil {
+		t.Fatalf("cand=%+v err=%v", cand, err)
+	}
+	defer cand.Discard()
+	err = cand.Install(opts)
+	if err == nil || !strings.Contains(err.Error(), "left in place") {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := os.Stat(bin); !os.IsNotExist(err) {
+		t.Fatalf("the candidate was renamed over a binary that could not be kept: %v", err)
+	}
+	if _, err := os.Stat(cand.Path); err != nil {
+		t.Fatalf("the candidate was consumed: %v", err)
+	}
+	if left, _ := filepath.Glob(filepath.Join(filepath.Dir(bin), "*"+PreviousSuffix+"*")); len(left) != 0 {
+		t.Fatalf("a partial previous binary was left behind: %v", left)
+	}
+}
+
+func TestDiscardingNothingIsHarmless(t *testing.T) {
+	var cand *Candidate
+	cand.Discard()
 }

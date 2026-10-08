@@ -130,6 +130,11 @@ type Candidate struct {
 // checksum is verified before the file is executed, and the installed binary
 // is not touched. The Candidate is nil when nothing newer was found, and
 // always when opts.Check is set.
+//
+// Whether a build is out of date is decided by hashing the installed file
+// against the release's checksums.txt, not by comparing version strings: a
+// rolling dev build carries no version worth comparing, and a hash cannot be
+// fooled by two builds of one tag.
 func FetchRelease(ctx context.Context, opts SelfUpdateOptions) (*Candidate, SelfUpdateResult, error) {
 	opts.defaults()
 	var res SelfUpdateResult
@@ -201,22 +206,35 @@ func FetchRelease(ctx context.Context, opts SelfUpdateOptions) (*Candidate, Self
 // PreviousSuffix is what the binary it replaced is kept under, beside it.
 const PreviousSuffix = ".previous"
 
+// linkFile is a variable so a test can stand in for a filesystem that refuses
+// hard links.
+var linkFile = os.Link
+
 // Install puts the candidate in place of opts.BinaryPath and keeps what was
 // there as BinaryPath+".previous", replacing any earlier one, so a manual
 // rollback has a binary to go back to.
 //
-// The old binary is hard-linked rather than copied: the link names the old
-// inode, which survives the rename that follows, so there is no moment at which
-// the path has no binary and no second copy of a file that may be large. The
-// link is made under a temporary name and renamed over any earlier .previous,
-// so a failure here leaves the installed binary and the last .previous as they
-// were.
+// The old binary is hard-linked where the filesystem allows it: the link names
+// the old inode, which survives the rename that follows, and costs no second
+// copy of a file that may be large. Where a link cannot be made it is copied
+// instead, with its mode, because a rollback file that is a copy is still one.
+// Either is made under a temporary name and renamed over any earlier
+// .previous, so a failure before that rename leaves the installed binary and
+// the last .previous as they were. The two renames are not one step: if the
+// final rename of the candidate fails, .previous is already the binary that was
+// running and the older rollback file has been replaced by it.
+//
+// If the old binary can be kept neither way, nothing is replaced.
 func (c *Candidate) Install(opts SelfUpdateOptions) error {
 	previous := opts.BinaryPath + PreviousSuffix
 	staged := previous + ".new"
 	_ = os.Remove(staged)
-	if err := os.Link(opts.BinaryPath, staged); err != nil {
-		return fmt.Errorf("keep %s as %s: %w; the installed binary was left in place", opts.BinaryPath, previous, err)
+	if err := linkFile(opts.BinaryPath, staged); err != nil {
+		_ = os.Remove(staged)
+		if err := copyBinary(opts.BinaryPath, staged); err != nil {
+			_ = os.Remove(staged)
+			return fmt.Errorf("keep %s as %s: %w; the installed binary was left in place", opts.BinaryPath, previous, err)
+		}
 	}
 	if err := os.Rename(staged, previous); err != nil {
 		_ = os.Remove(staged)
@@ -228,9 +246,43 @@ func (c *Candidate) Install(opts SelfUpdateOptions) error {
 	return nil
 }
 
+// copyBinary copies src to dst with src's mode. It is only the fallback for a
+// filesystem that cannot hard-link, so it does not try to be atomic: dst is a
+// staging name that Install renames or removes.
+func copyBinary(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	info, err := in.Stat()
+	if err != nil {
+		return err
+	}
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, info.Mode().Perm())
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return err
+	}
+	if err := out.Close(); err != nil {
+		return err
+	}
+	// The creation mode is subject to the umask; the rollback file should run
+	// exactly as the binary did.
+	return os.Chmod(dst, info.Mode().Perm())
+}
+
 // Discard removes the temporary file. It is safe after Install, when the file
-// has already become the installed binary and there is nothing at Path.
+// has already become the installed binary and there is nothing at Path, and on
+// a nil Candidate, so it can be deferred before the fetch is known to have
+// produced one.
 func (c *Candidate) Discard() {
+	if c == nil {
+		return
+	}
 	_ = os.Remove(c.Path)
 }
 

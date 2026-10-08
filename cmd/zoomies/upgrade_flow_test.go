@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
+	"unicode/utf8"
 
 	"github.com/eyupio/zoomies/internal/installer"
 )
@@ -97,10 +99,10 @@ func stubUpgradeSeams(t *testing.T, binary string, preflightErr error) (calls *[
 	calls, reexecs = &[]preflightCall{}, &[]string{}
 	oldRun, oldReexec := runCandidate, reexecBinary
 	t.Cleanup(func() { runCandidate, reexecBinary = oldRun, oldReexec })
-	runCandidate = func(_ context.Context, env []string, name string, args ...string) (string, error) {
+	runCandidate = func(_ context.Context, env []string, name string, args ...string) error {
 		b, _ := os.ReadFile(binary)
 		*calls = append(*calls, preflightCall{name: name, args: args, env: env, installed: string(b)})
-		return "", preflightErr
+		return preflightErr
 	}
 	reexecBinary = func(path string, _ []string, _ []string) error {
 		*reexecs = append(*reexecs, path)
@@ -199,5 +201,170 @@ func TestACandidateThatRefusesTheDeploymentReplacesNothing(t *testing.T) {
 	}
 	if len(*reexecs) != 0 {
 		t.Fatalf("re-exec into a refused release: %q", *reexecs)
+	}
+}
+
+// A check changes nothing, so an operator who typed --yes has already said what
+// the preview was told; without it the candidate would refuse a layout change
+// the preview let through, and advise the command that was just run.
+func TestTheOperatorsYesReachesTheCandidatesCheckAndNothingElseDoes(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		yes     bool
+		wantYes bool
+	}{
+		{"the operator passed --yes", true, true},
+		{"the operator did not", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e, _, _ := newTestEnv(t)
+			candidateRelease(t)
+			binary := filepath.Join(t.TempDir(), "zoomies")
+			if err := os.WriteFile(binary, []byte("existing binary"), 0755); err != nil {
+				t.Fatal(err)
+			}
+			calls, _ := stubUpgradeSeams(t, binary, nil)
+			sel := deploymentSelector{AssumeYes: tc.yes}
+			if err := selfUpdate(context.Background(), e, binary, "v9.9.9", sel); err != nil {
+				t.Fatal(err)
+			}
+			args := (*calls)[0].args
+			if got := slices.Contains(args, "--yes"); got != tc.wantYes {
+				t.Fatalf("--yes in %q = %v, want %v", args, got, tc.wantYes)
+			}
+			if !slices.Contains(args, "--non-interactive") || !slices.Contains(args, "--check") {
+				t.Fatalf("the check must stay unattended and read-only: %q", args)
+			}
+		})
+	}
+}
+
+// Each flag has to land in the field the candidate will be handed it as; a
+// swapped runtime and image would send the check to the wrong deployment.
+func TestEachDeploymentFlagLandsInItsOwnSelectorField(t *testing.T) {
+	got := newDeploymentSelector("/etc/z", "unix:///d.sock", "podman", "img:tag", "agent", true)
+	want := deploymentSelector{ConfigDir: "/etc/z", DockerHost: "unix:///d.sock", Runtime: "podman", Image: "img:tag", Mode: "agent", AssumeYes: true}
+	if got != want {
+		t.Fatalf("selector = %+v, want %+v", got, want)
+	}
+}
+
+func scriptCandidate(t *testing.T, body string) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the fixture is a #!/bin/sh script, which Windows cannot execute")
+	}
+	path := filepath.Join(t.TempDir(), ".zoomies-update-fixture")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// The real runner, not the stub: the environment has to reach the child, and
+// what it printed has to reach the person who is told why the upgrade stopped.
+func TestTheCandidateRunsWithTheUpgradeMarkersAndItsRefusalIsCarried(t *testing.T) {
+	path := scriptCandidate(t, `env | grep '^ZOOMIES_'; echo "needs a shared folder"; exit 1`)
+	err := candidatePreflight("/usr/local/bin/zoomies", deploymentSelector{})(context.Background(), path)
+	if err == nil {
+		t.Fatal("a candidate that exits 1 passed the pre-flight")
+	}
+	for _, want := range []string{installer.SelfUpdateEnv + "=1", "needs a shared folder"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error does not carry %q: %v", want, err)
+		}
+	}
+	var refusal *candidateRefusal
+	if !errors.As(err, &refusal) {
+		t.Fatalf("a non-zero exit is the release refusing the deployment: %T", err)
+	}
+}
+
+func TestACandidateThatSucceedsPassesThePreflight(t *testing.T) {
+	path := scriptCandidate(t, `exit 0`)
+	if err := candidatePreflight("/usr/local/bin/zoomies", deploymentSelector{})(context.Background(), path); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A page of output is for the person reading it; a runaway probe must not turn
+// into an error message the size of a log file.
+func TestOnlyTheEndOfACandidatesOutputIsCarried(t *testing.T) {
+	path := scriptCandidate(t, `i=0; while [ $i -lt 4000 ]; do echo "line $i of the candidate's output"; i=$((i+1)); done; exit 1`)
+	err := candidatePreflight("/usr/local/bin/zoomies", deploymentSelector{})(context.Background(), path)
+	if err == nil {
+		t.Fatal("expected a refusal")
+	}
+	msg := err.Error()
+	if len(msg) > candidateOutputLimit+512 {
+		t.Fatalf("error is %d bytes, want about %d", len(msg), candidateOutputLimit)
+	}
+	if !strings.Contains(msg, "line 3999 of") || strings.Contains(msg, "line 0 of") || !strings.Contains(msg, "...") {
+		t.Fatalf("error is not the tail with a marker: %.200q", msg)
+	}
+	if !utf8.ValidString(msg) {
+		t.Fatal("the cut landed inside a character")
+	}
+}
+
+func tailOf(b []byte, limit int) string {
+	t := tailBuffer{max: limit}
+	_, _ = t.Write(b)
+	return t.String()
+}
+
+func TestTheTailOfOutputIsCutOnACharacterBoundary(t *testing.T) {
+	in := strings.Repeat("é", 100) // two bytes each, so an odd limit lands inside one
+	got := tailOf([]byte(in), 51)
+	if !utf8.ValidString(got) || !strings.HasPrefix(got, "...") || !strings.HasSuffix(got, "é") {
+		t.Fatalf("tail = %q", got)
+	}
+	if short := tailOf([]byte("short"), 51); short != "short" {
+		t.Fatalf("short output was changed: %q", short)
+	}
+}
+
+// An unattended run has nobody to press Ctrl-C: a doctor probe that hangs in
+// the candidate must end the upgrade, not hold it for ever.
+func TestACandidateThatHangsIsStoppedAndSaidSo(t *testing.T) {
+	old := candidateTimeout
+	candidateTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { candidateTimeout = old })
+	path := scriptCandidate(t, `exec sleep 30`)
+	start := time.Now()
+	err := candidatePreflight("/usr/local/bin/zoomies", deploymentSelector{})(context.Background(), path)
+	if err == nil || !strings.Contains(err.Error(), "did not finish") {
+		t.Fatalf("error: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 10*time.Second {
+		t.Fatalf("took %s to give up", elapsed)
+	}
+	var refusal *candidateRefusal
+	if errors.As(err, &refusal) {
+		t.Fatal("a timeout is not the release refusing the deployment")
+	}
+}
+
+// The advice has to fit what happened: --no-download is no answer to a release
+// that needs a change, and --yes is no answer to an operator who passed it.
+func TestARefusalFromTheCandidateSaysWhatToDo(t *testing.T) {
+	for _, tc := range []struct {
+		yes         bool
+		want, avoid string
+	}{
+		{false, "zoomies upgrade --yes", "--no-download"},
+		{true, "Follow the advice", "zoomies upgrade --yes"},
+	} {
+		e, _, _ := newTestEnv(t)
+		candidateRelease(t)
+		binary := filepath.Join(t.TempDir(), "zoomies")
+		if err := os.WriteFile(binary, []byte("existing binary"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		stubUpgradeSeams(t, binary, &candidateRefusal{errors.New("exit status 1: the layout needs a shared folder")})
+		err := selfUpdate(context.Background(), e, binary, "v9.9.9", deploymentSelector{AssumeYes: tc.yes})
+		if err == nil || !strings.Contains(err.Error(), tc.want) || strings.Contains(err.Error(), tc.avoid) {
+			t.Fatalf("yes=%v: error: %v", tc.yes, err)
+		}
 	}
 }
