@@ -23,3 +23,8 @@ Scoped guidance for the store, loaded in addition to the root [CLAUDE.md](../../
 * **IDs are prefixed** (`pool_`, `run_`, `job_`, `usr_`…) via `store.NewID`, so a
   pasted ID is self-describing in a log line or bug report. Add new prefixes to
   `internal/store/ids.go`.
+* **A host's report body is written when it changes.** Its freshness rides the
+  heartbeat's own UPDATE (`HeartbeatWithReport`, `doctor_checked_at`), because any
+  `UPDATE hosts` rewrites the whole record, report included. `scanHost` overlays
+  the newer time, so every reader sees it; `Host.DoctorBodyAt` is when the body
+  itself was written.

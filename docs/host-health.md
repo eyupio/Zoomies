@@ -246,9 +246,17 @@ send the report, is deliberately left for a later change. It is possible without
 breaking the rule that the controller never dials an agent (a read-only task on the
 queue the agent already long-polls), but it needs new code in the agent, the
 controller and the API, would serve native agents only, and its cost on a real host
-has not been measured. It also interacts with how often the controller publishes an
-unchanged report (DH7 in `UI_AUDIT.md`). After `zoomies tune` the report already
-rides the next heartbeat.
+has not been measured. After `zoomies tune` the report already rides the next
+heartbeat.
+
+When a report arrives, the controller stores its body only if it says something
+the stored one does not, or at least every five minutes, and records that a report
+arrived in the heartbeat's own write. A report that says nothing new therefore
+costs no rewrite of the stored report and no frame of its own, and the host still
+reads as checked just now. Free-space figures move on every report and do not
+count as news while their verdict holds, so the disk figure on the host page can be
+up to five minutes older than the **Checked** time beside it. A future **Check
+now** would publish the host itself, because someone is waiting for the answer.
 
 ## What a host's report raises
 

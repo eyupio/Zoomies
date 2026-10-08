@@ -762,16 +762,13 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 
 	now := c.Now()
 	wasHealthy := h.Healthy(now)
+	var freshAt time.Time
 	if req.Doctor != nil {
 		if err := validateDoctor(req.Doctor, now); err != nil {
 			return nil, err
 		}
-		if h.Doctor.Report == nil || req.Doctor.CheckedAt.After(h.Doctor.CheckedAt) {
-			if err := c.st.SetHostDoctor(ctx, hostID, req.Doctor); err != nil {
-				return nil, err
-			}
-			h.Doctor = store.HostDoctor{Report: req.Doctor}
-			c.publishHost(h)
+		if freshAt, err = c.ingestDoctor(ctx, h, req.Doctor); err != nil {
+			return nil, err
 		}
 	}
 
@@ -793,7 +790,18 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 	// Hosts API says "use 0 to stop this host taking new runners", and a
 	// heartbeat writing the agent's configured number back thirty seconds
 	// later would undo exactly that.
-	if err := c.st.Heartbeat(ctx, hostID, now); err != nil {
+	//
+	// A report that said nothing new reaches the database here, in the
+	// heartbeat's own UPDATE, and reaches the page with the next frame that
+	// carries last_heartbeat. If heartbeat frames are ever quietened, the
+	// "Checked" line would freeze with them. A crash between ingest and this
+	// write loses one freshness update, and the next report repairs it.
+	if freshAt.IsZero() {
+		err = c.st.Heartbeat(ctx, hostID, now)
+	} else {
+		err = c.st.HeartbeatWithReport(ctx, hostID, now, freshAt)
+	}
+	if err != nil {
 		return nil, err
 	}
 
