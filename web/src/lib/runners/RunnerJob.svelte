@@ -6,6 +6,7 @@
   in a new tab, and never hidden behind a menu.
 -->
 <script lang="ts">
+  import { readableJobText } from '$lib/jobs/name';
   import { ExternalLink } from '@lucide/svelte';
   import type { Job } from '$lib/api/types';
   import { formatDuration } from '$lib/format';
@@ -43,7 +44,7 @@
   <div class="job {className}">
     <div class="head">
       <Badge {status} size="sm" />
-      <h3>{job.job_name ?? 'Unnamed job'}</h3>
+      <h3>{readableJobText(job.job_name) || 'Unnamed job'}</h3>
     </div>
 
     <p class="where">

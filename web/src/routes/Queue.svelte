@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { readableJobText } from '$lib/jobs/name';
   import ChartPanel from '$lib/components/ChartPanel.svelte';
   import StateBreakdown from '$lib/insights/StateBreakdown.svelte';
 
@@ -180,7 +181,7 @@
   }
   /** What an action acts on. Names the row's toolbar, and every button in it. */
   function subjectOf(job: Job): string {
-    return `${job.repo ?? 'this repository'} / ${job.job_name ?? 'this job'}`;
+    return `${job.repo ?? 'this repository'} / ${readableJobText(job.job_name) || 'this job'}`;
   }
   /**
    * The four actions, on the row.
@@ -220,7 +221,9 @@
     pending = {
       action,
       ids: [...ids],
-      name: job ? `${job.repo} / ${job.job_name}` : `${ids.length} provisioning items`,
+      name: job
+        ? `${job.repo} / ${readableJobText(job.job_name)}`
+        : `${ids.length} provisioning items`,
     };
     confirmOpen = true;
     return new Promise((resolve) => (settle = resolve));
@@ -257,7 +260,7 @@
       header: 'Job / workflow',
       hideable: false,
       cell: jobCell,
-      value: (j) => j.job_name ?? '',
+      value: (j) => readableJobText(j.job_name),
     },
     {
       id: 'repo',
@@ -343,7 +346,9 @@
   />
 {/snippet}
 {#snippet jobCell(job: Job)}<div class="cell">
-    <strong>{job.job_name || 'Unnamed job'}</strong><span>{job.workflow || 'Workflow'}</span>
+    <strong>{readableJobText(job.job_name) || 'Unnamed job'}</strong><span
+      >{job.workflow || 'Workflow'}</span
+    >
   </div>{/snippet}
 {#snippet repoCell(job: Job)}<div class="cell">
     <span class="repo">{job.repo}</span><span>{job.head_branch || NO_VALUE}</span>
@@ -352,7 +357,7 @@
   <GitHubLink
     href={job.html_url}
     runNumber={job.run_number}
-    label="Open {job.job_name || 'this job'} on GitHub, in a new tab"
+    label="Open {readableJobText(job.job_name) || 'this job'} on GitHub, in a new tab"
     onclick={(event) => event.stopPropagation()}
   />
 {/snippet}
