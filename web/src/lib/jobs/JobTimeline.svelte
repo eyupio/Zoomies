@@ -8,6 +8,7 @@
   this job, because every change to the timeline arrives with one of those.
 -->
 <script lang="ts">
+  import { readableJobText } from '$lib/jobs/name';
   import { getJobEvents } from '$lib/api/client';
   import { events } from '$lib/api/sse';
   import type { JobEvent } from '$lib/api/types';
@@ -107,7 +108,7 @@
             <RelativeTime value={entry.at} class="when" />
           </div>
           <p class="message">
-            {entry.message}
+            {readableJobText(entry.message)}
             {#if entry.runner_id && (entry.kind === 'runner_lost' || entry.kind === 'runner_returned')}
               <a href="/runners/{entry.runner_id}">Open the runner</a>
             {/if}

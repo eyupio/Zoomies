@@ -10,6 +10,7 @@
   older than the stream.
 -->
 <script lang="ts">
+  import { readableJobText, unresolvedJobName } from '$lib/jobs/name';
   import { CircleX } from '@lucide/svelte';
   import { cancelJobWorkflow, rerunJobWorkflow } from '$lib/api/client';
   import { formatDuration, formatMegabytes, formatNumber, shortId } from '$lib/format';
@@ -144,7 +145,7 @@
 
 <Drawer
   bind:open
-  title={job?.job_name || 'Job'}
+  title={readableJobText(job?.job_name) || 'Job'}
   description={job?.repo ? `${job.repo} · ${job.workflow ?? 'workflow'}` : undefined}
   {onclose}
 >
@@ -170,6 +171,13 @@
         />
       {:else if pending}
         <JobWaiting {job} />
+      {/if}
+
+      {#if unresolvedJobName(job.job_name)}
+        <p>
+          GitHub did not provide the values needed to name this job. The unresolved values are shown
+          as unavailable.
+        </p>
       {/if}
 
       <dl class="facts">
@@ -396,7 +404,7 @@
 <ConfirmDialog
   bind:open={cancelOpen}
   title="Cancel workflow run"
-  name={job?.workflow || job?.job_name || 'workflow run'}
+  name={job?.workflow || readableJobText(job?.job_name) || 'workflow run'}
   description="GitHub can only cancel the whole workflow run. Every queued or running job in this run will be stopped, not only the job shown here."
   consequences={[
     `Run ${job?.run_number ? '#' + job.run_number : (job?.github_run_id ?? '')} in ${job?.repo ?? 'GitHub'} will be cancelled.`,

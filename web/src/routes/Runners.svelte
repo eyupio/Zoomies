@@ -13,6 +13,7 @@
   both the cache and the page of rows up to date.
 -->
 <script lang="ts">
+  import { readableJobText } from '$lib/jobs/name';
   import RunnerInsights from '$lib/insights/RunnerInsights.svelte';
   import FleetHistory from '$lib/insights/FleetHistory.svelte';
   import { CircleSlash, Search, Trash2 } from '@lucide/svelte';
@@ -314,7 +315,7 @@
       {
         id: 'job',
         header: 'Current job',
-        value: (row) => row.current_job?.job_name ?? '',
+        value: (row) => readableJobText(row.current_job?.job_name),
         cell: jobCell,
       },
       {
@@ -428,13 +429,14 @@
 {#snippet jobCell(runner: Runner)}
   {#if runner.current_job}
     <span class="job">
-      <span class="job-name">{runner.current_job.job_name ?? 'Unnamed job'}</span>
+      <span class="job-name">{readableJobText(runner.current_job.job_name) || 'Unnamed job'}</span>
       <span class="job-repo">
         <span class="job-repo-name mono">{runner.current_job.repo ?? ''}</span>
         <GitHubLink
           href={runner.current_job.html_url}
           runNumber={runner.current_job.run_number}
-          label="Open {runner.current_job.job_name || 'this job'} on GitHub, in a new tab"
+          label="Open {readableJobText(runner.current_job.job_name) ||
+            'this job'} on GitHub, in a new tab"
           onclick={stopRowClick}
         />
       </span>

@@ -12,6 +12,7 @@
   attempt that failed and was re-run is still the reason somebody is looking.
 -->
 <script lang="ts">
+  import { readableJobText } from '$lib/jobs/name';
   import { CircleX, RotateCcw } from '@lucide/svelte';
   import {
     cancelJobWorkflow,
@@ -155,18 +156,21 @@
       const refused = result.results.find((r) => !r.ok);
       if (refused) {
         toasts.error(
-          `Could not ${label.toLowerCase()} ${ask.job.job_name || 'this job'}`,
+          `Could not ${label.toLowerCase()} ${readableJobText(ask.job.job_name) || 'this job'}`,
           refused.error,
         );
         return false;
       }
       toasts.success(
-        `${label}: ${ask.job.job_name || 'job'}`,
+        `${label}: ${readableJobText(ask.job.job_name) || 'job'}`,
         `${provisioningDescription(ask.action)} GitHub\u2019s view of the job is unchanged.`,
       );
       return true;
     } catch (cause) {
-      toasts.fromError(cause, `Could not ${label.toLowerCase()} ${ask.job.job_name || 'this job'}`);
+      toasts.fromError(
+        cause,
+        `Could not ${label.toLowerCase()} ${readableJobText(ask.job.job_name) || 'this job'}`,
+      );
       return false;
     }
   }
@@ -311,7 +315,7 @@
             </td>
             <td data-label="Job">
               <button type="button" class="job-name" onclick={() => onopen(job)}>
-                {job.job_name || 'Unnamed job'}
+                {readableJobText(job.job_name) || 'Unnamed job'}
               </button>
               {#if reran && job.run_attempt}
                 <span class="attempt">attempt {job.run_attempt}</span>
@@ -367,14 +371,15 @@
             <td data-label="On GitHub" class="end">
               <GitHubLink
                 href={job.html_url}
-                label="Open {job.job_name || 'this job'} on GitHub, in a new tab"
+                label="Open {readableJobText(job.job_name) || 'this job'} on GitHub, in a new tab"
               />
             </td>
             {#if canOperate}
               <td data-label="Actions" class="end">
                 <RowActions
                   actions={rowActions(job)}
-                  subject="{job.job_name || 'this job'} in {job.repo ?? 'this run'}"
+                  subject="{readableJobText(job.job_name) || 'this job'} in {job.repo ??
+                    'this run'}"
                 />
               </td>
             {/if}
@@ -388,8 +393,8 @@
 <ConfirmDialog
   bind:open={provisioningOpen}
   title={provisioningActionLabel(provisioning?.action)}
-  name={provisioning?.job.job_name || 'this job'}
-  description={`${provisioning?.job.repo ?? ''} / ${provisioning?.job.job_name ?? 'this job'}. ${provisioningDescription(provisioning?.action)}`}
+  name={readableJobText(provisioning?.job.job_name) || 'this job'}
+  description={`${provisioning?.job.repo ?? ''} / ${readableJobText(provisioning?.job.job_name) || 'this job'}. ${provisioningDescription(provisioning?.action)}`}
   consequences={[
     'Only this job\u2019s provisioning demand changes. Its siblings in the run, existing runners and GitHub\u2019s view of the job are unaffected.',
     'If the job starts or finishes before this reaches the server, nothing changes and the refusal is reported.',
@@ -402,7 +407,7 @@
 <ConfirmDialog
   bind:open={cancelOpen}
   title="Cancel workflow run"
-  name={cancelTarget?.workflow || cancelTarget?.job_name || 'workflow run'}
+  name={cancelTarget?.workflow || readableJobText(cancelTarget?.job_name) || 'workflow run'}
   description="GitHub can only cancel the whole workflow run. Every queued or running job in this run will be stopped, not only the job shown here."
   consequences={[
     `Run ${cancelTarget?.run_number ? '#' + cancelTarget.run_number : (cancelTarget?.github_run_id ?? '')} in ${cancelTarget?.repo ?? 'GitHub'} will be cancelled.`,
