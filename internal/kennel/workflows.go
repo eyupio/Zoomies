@@ -13,8 +13,8 @@ type WorkflowFacts struct {
 	PermissionsUnset   int `json:"permissions_unset"`
 }
 
-func workflowCheck(code Code, area Area, severity Severity, detects string, eval func(*Snapshot) result) Check {
-	return Check{Code: code, Area: area, Severity: severity, Detects: detects, Needs: []Source{SourceMetadata, SourceWorkflows}, eval: func(s *Snapshot) result {
+func workflowCheck(code Code, area Area, severity Severity, detects, fix, verify string, eval func(*Snapshot) result) Check {
+	return Check{Code: code, Area: area, Severity: severity, Detects: detects, Fix: fix, Verify: verify, Docs: docsAnchor(code), Needs: []Source{SourceMetadata, SourceWorkflows}, eval: func(s *Snapshot) result {
 		r := eval(s)
 		r.incomplete = s.Coverage.state(SourceWorkflows) == CoveragePartial
 		return r

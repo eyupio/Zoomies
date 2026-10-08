@@ -1,0 +1,170 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"regexp"
+	"strings"
+
+	"github.com/eyupio/zoomies/internal/version"
+)
+
+// commandDoc is one top-level command as the binary describes itself: the help
+// it prints, and for a group each subcommand's help in turn. It is what
+// `zoomies commands` emits and what skills/zoomies/reference.md is generated
+// from, so a reference an agent reads cannot drift from what --help says.
+type commandDoc struct {
+	Name        string          `json:"name"`
+	Group       string          `json:"group"`
+	Brief       string          `json:"brief"`
+	Help        string          `json:"help"`
+	Subcommands []subcommandDoc `json:"subcommands,omitempty"`
+}
+
+type subcommandDoc struct {
+	Name  string `json:"name"`
+	Args  string `json:"args,omitempty"`
+	Brief string `json:"brief"`
+	Help  string `json:"help"`
+}
+
+// runCommands is `zoomies commands`: every command, its subcommands and the
+// help the binary prints for each, as JSON or Markdown.
+func runCommands(ctx context.Context, e *env, args []string) error {
+	fs := newFlagSet(e, "zoomies commands [--output json|markdown]", "Every command and subcommand with the help text the binary prints for it.")
+	output := fs.String("output", "markdown", "json or markdown")
+	fs.example("zoomies commands --output json", "zoomies commands > skills/zoomies/reference.md")
+	if err := fs.parse(args); err != nil {
+		return err
+	}
+	if err := fs.noMoreArgs(); err != nil {
+		return err
+	}
+	docs := collectCommandDocs(ctx)
+	switch *output {
+	case "json":
+		enc := json.NewEncoder(e.out)
+		enc.SetIndent("", "  ")
+		return enc.Encode(docs)
+	case "markdown":
+		_, err := e.out.Write([]byte(renderCommandReference(docs)))
+		return err
+	default:
+		return usagef("commands", "--output must be json or markdown, not %q", *output)
+	}
+}
+
+// subcommandLine is a line of printGroupUsage's "Subcommands:" block: the name,
+// its arguments if any, two or more spaces, then the brief.
+var subcommandLine = regexp.MustCompile(`^  (\S+)((?: \S+)*?)\s{2,}(.+)$`)
+
+// collectCommandDocs runs every command in-process with --help, which every
+// one of them answers before doing anything else, and for a group runs each
+// subcommand the same way. Nothing here is run with any other argument, so
+// collecting the docs can neither touch a controller nor this machine.
+func collectCommandDocs(ctx context.Context) []commandDoc {
+	restore := pinEnvironmentForHelp()
+	defer restore()
+	var docs []commandDoc
+	for _, c := range commands() {
+		if c.name == "commands" {
+			continue
+		}
+		help := helpOf(ctx, c.run, "--help")
+		doc := commandDoc{Name: c.name, Group: c.group, Brief: c.brief, Help: help}
+		for _, sub := range subcommandsOf(help) {
+			sub.Help = helpOf(ctx, c.run, sub.Name, "--help")
+			doc.Subcommands = append(doc.Subcommands, sub)
+		}
+		docs = append(docs, doc)
+	}
+	return docs
+}
+
+// referenceConfigDir and referenceStateDir are the directories the reference
+// is written with: the documented defaults for a root install on Linux, which
+// is what the help prints there and what every example in docs/ already names.
+const (
+	referenceConfigDir = "/etc/zoomies"
+	referenceStateDir  = "/var/lib/zoomies"
+)
+
+// pinEnvironmentForHelp makes the help texts the same wherever they are
+// collected. A flag's default can come from the environment -- the controller
+// prints its configuration path and the gateway its state path, which are
+// /etc/zoomies and /var/lib/zoomies for root on Linux and somewhere under the
+// home directory for anyone else -- and a reference that changed with the
+// generating machine would fail its test on the next one. Every ZOOMIES_*
+// variable is cleared and both directories are pinned until the collection
+// ends.
+func pinEnvironmentForHelp() (restore func()) {
+	var saved []string
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "ZOOMIES_") {
+			saved = append(saved, kv)
+			os.Unsetenv(kv[:strings.Index(kv, "=")])
+		}
+	}
+	os.Setenv("ZOOMIES_CONFIG_DIR", referenceConfigDir)
+	os.Setenv("ZOOMIES_STATE_DIR", referenceStateDir)
+	return func() {
+		os.Unsetenv("ZOOMIES_CONFIG_DIR")
+		os.Unsetenv("ZOOMIES_STATE_DIR")
+		for _, kv := range saved {
+			i := strings.Index(kv, "=")
+			os.Setenv(kv[:i], kv[i+1:])
+		}
+	}
+}
+
+// helpOf captures what a command prints for a help request. A flag set prints
+// its usage to stderr and a group prints its list to stdout, so both are read.
+func helpOf(ctx context.Context, run func(context.Context, *env, []string) error, args ...string) string {
+	var out, errOut bytes.Buffer
+	e := &env{out: &out, err: &errOut, in: strings.NewReader("")}
+	_ = run(ctx, e, args)
+	return strings.TrimRight(out.String()+errOut.String(), "\n") + "\n"
+}
+
+// subcommandsOf reads the "Subcommands:" block out of a group's help.
+func subcommandsOf(help string) []subcommandDoc {
+	var subs []subcommandDoc
+	in := false
+	for _, line := range strings.Split(help, "\n") {
+		switch {
+		case line == "Subcommands:":
+			in = true
+		case in && strings.HasPrefix(line, "  "):
+			if m := subcommandLine.FindStringSubmatch(line); m != nil {
+				subs = append(subs, subcommandDoc{Name: m[1], Args: strings.TrimSpace(m[2]), Brief: m[3]})
+			}
+		case in:
+			in = false
+		}
+	}
+	return subs
+}
+
+// renderCommandReference is the Markdown the skills carry: one section per
+// group, one heading per command and subcommand, each with the help verbatim.
+func renderCommandReference(docs []commandDoc) string {
+	var b strings.Builder
+	b.WriteString("# zoomies command reference\n\n")
+	fmt.Fprintf(&b, "Generated by `zoomies commands` from %s, with the configuration directory at `%s` and the state directory at `%s` (the defaults for a root install on Linux) and no other `ZOOMIES_*` variable set, so the file is the same wherever it is generated. Do not edit: `make generate` rewrites it, and a test fails when it differs from the binary.\n", version.Short(), referenceConfigDir, referenceStateDir)
+	for _, group := range []string{groupRun, groupFleet, groupSetup} {
+		fmt.Fprintf(&b, "\n## %s\n", group)
+		for _, d := range docs {
+			if d.Group != group {
+				continue
+			}
+			fmt.Fprintf(&b, "\n### zoomies %s\n\n%s\n\n```text\n%s```\n", d.Name, d.Brief, d.Help)
+			for _, s := range d.Subcommands {
+				fmt.Fprintf(&b, "\n#### zoomies %s %s\n\n%s\n\n```text\n%s```\n", d.Name, s.Name, s.Brief, s.Help)
+			}
+		}
+	}
+	return b.String()
+}

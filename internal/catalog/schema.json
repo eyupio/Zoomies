@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zoomies.sh/catalog.schema.json",
+  "title": "Zoomies catalog",
+  "description": "Every problem code and Kennel Club check Zoomies can raise, with what each means, what to do and how to see that it worked.",
+  "type": "object",
+  "required": ["version", "generated_from", "entries"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "generated_from": { "type": "string", "description": "The short commit the catalog was generated at, or empty." },
+    "entries": { "type": "array", "items": { "$ref": "#/$defs/entry" } }
+  },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "required": ["id", "kind", "title", "category", "severity", "detection", "detects", "fix", "verify", "docs_html", "docs_md"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "description": "The code, verbatim: a problem code such as jobs.oom_killed or a check code such as ci.no_timeout." },
+        "kind": { "type": "string", "enum": ["problem", "check"] },
+        "title": { "type": "string" },
+        "category": { "type": "string", "enum": ["capacity", "reliability", "security", "configuration", "cost"] },
+        "severity": { "type": "string", "description": "The documented severity verbatim; a sentence where the severity depends on the circumstances." },
+        "detection": { "type": "string", "enum": ["static", "runtime"] },
+        "detects": { "type": "string" },
+        "fix": { "type": "string" },
+        "verify": { "type": ["string", "null"], "description": "How to see the fix worked, or null where the documentation has no such sentence yet." },
+        "status_sentence": { "type": "string", "description": "What the public status page says for this code, where it shows it." },
+        "area": { "type": "string", "description": "A check's registry area." },
+        "setting": { "type": "string", "description": "The configuration key a static problem is about." },
+        "docs_html": { "type": "string", "format": "uri" },
+        "docs_md": { "type": "string", "format": "uri" }
+      }
+    }
+  }
+}
