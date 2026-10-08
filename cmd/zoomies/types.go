@@ -225,6 +225,7 @@ type rerunResponse struct {
 
 type jobItem struct {
 	ID          string   `json:"id"`
+	GitHubJobID int64    `json:"github_job_id"`
 	GitHubRunID int64    `json:"github_run_id"`
 	Repo        string   `json:"repo"`
 	Workflow    string   `json:"workflow"`
@@ -384,11 +385,33 @@ type jobEventItem struct {
 // worked out on the controller. The CLI renders it rather than reasoning for
 // itself, so it and the web UI cannot give an operator two different answers.
 type explanationItem struct {
+	JobID   string `json:"job_id"`
 	Summary string `json:"summary"`
 	Detail  string `json:"detail"`
 	Fix     string `json:"fix"`
 	Waiting bool   `json:"waiting"`
 	Blocked bool   `json:"blocked"`
+	// The structured half of the answer, which `zoomies why` renders. A
+	// controller older than these fields sends none, and the page then has a
+	// summary and nothing else, which is what it always had.
+	Class            string `json:"class"`
+	Confidence       string `json:"confidence"`
+	ConfidenceReason string `json:"confidence_reason"`
+	ProblemCode      string `json:"problem_code"`
+	CheckCode        string `json:"check_code"`
+	Evidence         []struct {
+		Kind      string `json:"kind"`
+		Label     string `json:"label"`
+		Value     string `json:"value"`
+		Unit      string `json:"unit"`
+		Ref       string `json:"ref"`
+		Untrusted bool   `json:"untrusted"`
+	} `json:"evidence"`
+	NextSteps []struct {
+		Text string `json:"text"`
+		Kind string `json:"kind"`
+		Link string `json:"link"`
+	} `json:"next_steps"`
 }
 
 type backendInfo struct {

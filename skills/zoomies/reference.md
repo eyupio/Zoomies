@@ -675,6 +675,7 @@ Subcommands:
   list                               Recent jobs, with filters
   stats                              Counts and percentiles over a period, grouped by release, day, host, pool or job
   get <job-id>                       One job in full
+  why <job-id>                       Why one job failed, stalled or ran slow, with the evidence and what to do next
   advice                             What a workflow's runs-on could say better, from what its jobs used
   rerun <job-id>                     Ask GitHub to run this run's failed jobs again
 
@@ -787,6 +788,36 @@ Flags:
   --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
 ```
 
+#### zoomies jobs why
+
+Why one job failed, stalled or ran slow, with the evidence and what to do next
+
+```text
+Say why a job failed, stalled or ran slow, from what the controller holds: a class, the evidence, and what to do next. No model is involved.
+
+Exit status: 0 diagnosed; 1 any other error; 2 no such job; 3 the controller could not narrow it (class unknown).
+
+Usage:
+  zoomies jobs why <job-id | github run or job url> | --latest-failed
+
+Flags:
+  --ca-file                  PEM file holding the controller's certificate
+  --insecure                 do not verify the controller's certificate
+  --latest-failed            explain the newest job that went wrong instead of naming one
+  --output=table             table, json or yaml
+  --pool                     with --latest-failed, only jobs that ran in this pool, by ID
+  --repo                     with --latest-failed, only this repository, e.g. acme/widgets
+  --timeout=30s              how long to wait for one request
+  --token                    an API token (or ZOOMIES_TOKEN)
+  --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
+
+Examples:
+  zoomies jobs why job_01HZX
+  zoomies jobs why https://github.com/acme/widgets/actions/runs/123456789/job/987654321
+  zoomies jobs why --latest-failed --repo acme/widgets
+  zoomies jobs why job_01HZX --output json
+```
+
 #### zoomies jobs advice
 
 What a workflow's runs-on could say better, from what its jobs used
@@ -839,6 +870,36 @@ Flags:
 
 Examples:
   zoomies jobs rerun job_2fq8xk3m
+```
+
+### zoomies why
+
+Why a job failed, stalled or ran slow: a class, the evidence and what to do next
+
+```text
+Say why a job failed, stalled or ran slow, from what the controller holds: a class, the evidence, and what to do next. No model is involved.
+
+Exit status: 0 diagnosed; 1 any other error; 2 no such job; 3 the controller could not narrow it (class unknown).
+
+Usage:
+  zoomies why <job-id | github run or job url> | --latest-failed
+
+Flags:
+  --ca-file                  PEM file holding the controller's certificate
+  --insecure                 do not verify the controller's certificate
+  --latest-failed            explain the newest job that went wrong instead of naming one
+  --output=table             table, json or yaml
+  --pool                     with --latest-failed, only jobs that ran in this pool, by ID
+  --repo                     with --latest-failed, only this repository, e.g. acme/widgets
+  --timeout=30s              how long to wait for one request
+  --token                    an API token (or ZOOMIES_TOKEN)
+  --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
+
+Examples:
+  zoomies why job_01HZX
+  zoomies why https://github.com/acme/widgets/actions/runs/123456789/job/987654321
+  zoomies why --latest-failed --repo acme/widgets
+  zoomies why job_01HZX --output json
 ```
 
 ### zoomies size-pins

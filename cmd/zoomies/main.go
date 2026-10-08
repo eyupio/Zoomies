@@ -99,6 +99,7 @@ func commands() []*command {
 		{"runners", groupFleet, "The runners that exist right now", runRunners},
 		{"problems", groupFleet, "What is wrong, and the changes the controller proposes for it", runProblems},
 		{"jobs", groupFleet, "Job history, queue waits and outcomes", runJobs},
+		{"why", groupFleet, "Why a job failed, stalled or ran slow: a class, the evidence and what to do next", runWhy},
 		{"size-pins", groupFleet, "Put a job, or a repository, in a size class by hand", runSizePins},
 		{"auto-pools", groupFleet, "What the controller keeps for each size of host", runAutoPools},
 		{"hosts", groupFleet, "Agents, their capacity, and enrolment", runHosts},
@@ -214,6 +215,10 @@ func report(e *env, name string, err error) int {
 	var de doctorExit
 	if errors.As(err, &de) {
 		return int(de)
+	}
+	var we whyExit
+	if errors.As(err, &we) {
+		return int(we)
 	}
 
 	var restart *restartRequested

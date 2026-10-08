@@ -23,7 +23,9 @@ invoked wrongly) plus one of the controller's own: `3` when it stopped because
 the settings page asked it to restart, which is how a [staged
 restore](backup-and-restore.md#from-the-settings-page) is applied.
 Non-zero on purpose, so a service manager set to restart on failure starts it
-again.
+again. Two commands answer a question with their status and document their own
+codes: [`zoomies doctor`](#setting-up-and-looking-around) and
+[`zoomies why`](#zoomies-why).
 
 ## Talking to a controller
 
@@ -297,6 +299,44 @@ GitHub has no job-level re-run, so it re-runs **every** failed job in the run.
 It refuses a job that has not finished and one that did not fail, and it does
 not ask whose fault the failure was; if you have looked at one and decided to
 run it again, that is your call to make.
+
+### `zoomies why`
+
+`zoomies why` says why one job failed, stalled or ran slow, from what the controller
+holds: a class from a closed set, how far to trust it, the facts it rests on, and
+what to do next, in order. No model is involved; it is the same answer the job's
+page and `GET /api/v1/jobs/{id}/explanation` give, described in [Why a job is where
+it is](why.md). `zoomies jobs why` is the same command, found where jobs live.
+
+```sh
+zoomies why job_01HZX
+zoomies why https://github.com/acme/widgets/actions/runs/123456789/job/987654321
+zoomies why --latest-failed --repo acme/widgets
+zoomies why job_01HZX --output json
+```
+
+Name the job by its ID, by the address of a GitHub run or of one job in it, or ask
+for the newest one that went wrong with `--latest-failed`, narrowed by `--repo` and
+`--pool` (a pool's ID). A run's address names several jobs; the command explains the
+one that went wrong, or the first when none did, and says how many others the run
+has. A job's own address names the job.
+
+Anything a workflow's author or a runner wrote, such as a step's name, is printed in
+quotes under a line saying so, with control characters made harmless, so a name made
+to look like an instruction or like a line of the page reads as the data it is.
+`--output json` prints the controller's answer unchanged, including the `untrusted`
+flag on those facts.
+
+| Status | Meaning |
+| --- | --- |
+| `0` | The job was diagnosed. |
+| `1` | Any other error: the controller could not be reached, or refused the token. |
+| `2` | There is no such job, or the run or address names no job this fleet ran. A mistake in how the command was typed also exits `2`, with a message that says so. |
+| `3` | The controller answered and could not narrow it: the class is `unknown`, and `confidence_reason` says what was missing. |
+
+It does not read a job's log. The controller keeps none, and a runner's output is
+only available while the runner exists, so the page points at the run on GitHub
+for the step's own output.
 
 ### `zoomies hosts`
 

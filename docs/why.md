@@ -17,9 +17,19 @@ than a guess.
 role that can read jobs. The job drawer, the CLI, the `get_job` tool and the support
 bundle all read this same answer, so they cannot disagree.
 
-The class and the structured fields below are on the route now. A `zoomies why`
-command, a log excerpt and a Why section in the job drawer are not built yet; this
-page is updated as each lands.
+[`zoomies why`](cli.md#zoomies-why) prints it for a person: name the job by its ID or
+by the address of a GitHub run or job, or ask for the newest failure with
+`--latest-failed`. Its exit status says whether the job was diagnosed, was not found,
+or could not be narrowed (class `unknown`).
+
+The class and the structured fields below are on the route and in the command. A Why
+section in the job drawer, and the split that keeps untrusted facts apart in the
+`get_job` tool, are not built yet; this page is updated as each lands.
+
+There is no log excerpt. The controller keeps no job logs: a runner's output is
+relayed from its host while the runner exists, and an ephemeral runner is removed
+when its job ends. A class that points at a step says which step, and the run on
+GitHub has what it printed.
 
 ## The class
 
