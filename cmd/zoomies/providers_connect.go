@@ -17,10 +17,10 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/gateway"
+	"github.com/eyupio/zoomies/internal/installer"
 	"github.com/eyupio/zoomies/internal/proxmoxsetup"
 	"github.com/tailscale/tailcat"
 )
@@ -72,10 +72,10 @@ func providersConnectProxmox(ctx context.Context, e *env, args []string) error {
 		return err
 	}
 	defer lock.Close()
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err := installer.TryLockExclusive(lock); err != nil {
 		return errors.New("Another setup is running for this controller; retry when it finishes.")
 	}
-	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	defer installer.UnlockFile(lock)
 	receipt := filepath.Join(dir, "completed-"+proxmoxsetup.InstanceKey(*id+*token))
 	// Completion survives provider creation and setup-token expiry.
 	if _, err := os.Stat(receipt); err == nil {
