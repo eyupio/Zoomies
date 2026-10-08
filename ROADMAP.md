@@ -1416,8 +1416,9 @@ consent, that runs the existing `zoomies upgrade` for one validated release
 tag; the controller and each host updated as recorded attempts; and a pure
 planner that rolls hosts to the controller's release one at a time and halts
 at the first failure. The design is
-[roadmap/in-product-updates.md](roadmap/in-product-updates.md). The decision,
-which narrows decision 25, is
+[roadmap/in-product-updates.md](roadmap/in-product-updates.md) and the plan
+[roadmap/in-product-updates-plan.md](roadmap/in-product-updates-plan.md). The
+decision, which narrows decision 25, is
 [decision 0011](roadmap/decisions/0011-an-operator-may-let-zoomies-update-itself.md).
 
 **Accepted because:** a request can only name a published release; the mode is
