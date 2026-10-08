@@ -210,8 +210,13 @@ type Result struct {
 	Recommended string `json:"recommended"`
 	Rationale   string `json:"rationale"`
 	Reason      string `json:"reason,omitempty"`
-	Actionable  bool   `json:"actionable"`
-	Optional    bool   `json:"optional,omitempty"`
+	// Command is what an operator can paste into a shell on the host to put the
+	// finding right by hand, for a package or setting Zoomies would never change
+	// on its own (a kernel, say) or cannot from where it is running. Empty when
+	// there is nothing sensible to type. It is a suggestion, never run by us.
+	Command    string `json:"command,omitempty"`
+	Actionable bool   `json:"actionable"`
+	Optional   bool   `json:"optional,omitempty"`
 	// Accepted, Ended and Acceptable are the controller's reading of the
 	// operator's decisions (see Report.Judged). An agent never sets them: they are
 	// scrubbed on the way in and stamped on a copy on the way out.

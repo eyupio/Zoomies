@@ -7,6 +7,13 @@ import (
 	"strings"
 )
 
+const hwePackage = "linux-generic-hwe-24.04"
+
+// hweCommand is the by-hand route to the same install planHWE performs, for a
+// host Zoomies cannot tune: a container install, a non-root run, or an operator
+// who would rather type it. It installs no recommends, as the plan does.
+const hweCommand = "sudo apt-get install --no-install-recommends " + hwePackage
+
 func kernelChecks() []Check {
 	return []Check{
 		{ID: "kernel.running", Title: "Running kernel", Tier: Safe, Rationale: "Linux 6.8 or later is the baseline for these runner hosts.", Detect: func(ctx context.Context, e *Engine) Result {
@@ -88,7 +95,7 @@ func detectHWE(ctx context.Context, e *Engine) Result {
 	if e.Distro != "ubuntu" || e.Version != "24.04" {
 		return Result{Status: Skip, Reason: "HWE check applies to Ubuntu 24.04 only"}
 	}
-	pkg := "linux-generic-hwe-24.04"
+	pkg := hwePackage
 	v, err := command(ctx, e, "dpkg-query", "-W", "-f=${Status}", pkg)
 	if err == nil && strings.Contains(v, "install ok installed") {
 		return Result{Status: OK, Current: pkg + " installed", Recommended: pkg}
@@ -106,10 +113,10 @@ func detectHWE(ctx context.Context, e *Engine) Result {
 	if candidate == "" || candidate == "(none)" {
 		return Result{Status: Skip, Current: "not installed", Reason: "no HWE candidate in configured package metadata"}
 	}
-	return Result{Status: Warn, Current: "available, not installed", Recommended: pkg, Reason: "optional install with --dedicated --only kernel.hwe-install"}
+	return Result{Status: Warn, Current: "available, not installed", Recommended: pkg, Command: hweCommand, Reason: "optional install with --dedicated --only kernel.hwe-install"}
 }
 func planHWE(ctx context.Context, e *Engine, r Result) (Change, error) {
-	pkg := "linux-generic-hwe-24.04"
+	pkg := hwePackage
 	out, err := command(ctx, e, "apt-get", "--simulate", "--no-install-recommends", "install", pkg)
 	if err != nil {
 		return Change{}, fmt.Errorf("cannot plan HWE installation: %s", out)
