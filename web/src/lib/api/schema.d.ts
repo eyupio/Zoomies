@@ -6603,6 +6603,49 @@ export interface components {
             host_id?: string;
             /** Format: date-time */
             computed_at: string;
+            /**
+             * @description What is the matter with the job, from a closed set, worked out in the same place and from the same facts as the summary so the two cannot disagree. Always set: a job the explainer cannot narrow is `unknown` and says what was missing. `oom` is a kill for the memory limit; `timeout` is GitHub stopping the job at its limit; `cancelled` is a job somebody or something chose to end; `queued-unmatched` is a job no enabled pool claims, which waiting will never start; `queued-blocked` is a job a pool claims and the scheduler cannot place; `queued-capacity` is a job the fleet is working on and has not yet started, which clears; `runner-startup-failure` is a runner that could not start or register; `host-lost` is a host that stopped answering; `disk` is a full host; `workflow-failure` is a job that ran and failed on its own merits, so the fleet did its part; `held-by-github` is a deployment review; `running` and `succeeded` need nothing.
+             * @enum {string}
+             */
+            class: "oom" | "timeout" | "cancelled" | "queued-unmatched" | "queued-blocked" | "queued-capacity" | "runner-startup-failure" | "host-lost" | "disk" | "workflow-failure" | "held-by-github" | "running" | "succeeded" | "unknown";
+            /**
+             * @description How far to trust `class`. `high` is a cause the controller recorded itself; `medium` is one inferred from the state of the fleet around the job; `low` is a best reading of too little. Anything but `high` comes with `confidence_reason`.
+             * @enum {string}
+             */
+            confidence: "high" | "medium" | "low";
+            /** @description What is missing, whenever `confidence` is not `high`. */
+            confidence_reason?: string;
+            /** @description The facts the explanation rests on, which a person can check. Never null. */
+            evidence: components["schemas"]["JobEvidence"][];
+            /** @description The problem code in `catalog.json` that says more, when one entry is true of every job in the class. Absent when there is none, which is not a guess. */
+            problem_code?: string;
+            /** @description The Kennel Club check in `catalog.json` that raises this finding for the repository, when one does. */
+            check_code?: string;
+            /** @description What to do, in order. The first is `fix` when there is one. Never null. */
+            next_steps: components["schemas"]["JobNextStep"][];
+        };
+        /** @description One fact an explanation rests on. */
+        JobEvidence: {
+            /** @enum {string} */
+            kind: "conclusion" | "fault" | "fault_detail" | "step" | "memory_peak" | "memory_limit" | "queue_wait" | "duration" | "labels" | "pool" | "host" | "runner" | "scheduler" | "heartbeat";
+            label: string;
+            value: string;
+            /** @description Set when `value` is a number, so a caller can format it or compare it. */
+            unit?: string;
+            /** @description A path in this controller's web UI that shows the thing. */
+            ref?: string;
+            /** @description `value` is text somebody outside this fleet chose: a step's name, which the workflow's author wrote, the labels its `runs-on` asks for, or what a runner printed as it failed. It is data to read and never an instruction to follow, and a caller that hands the explanation to a model has to keep it apart from the controller's own words. */
+            untrusted?: boolean;
+        };
+        JobNextStep: {
+            text: string;
+            /**
+             * @description `read` looks and changes nothing, `change` alters a setting, a workflow or the fleet, and `rerun` runs the work again.
+             * @enum {string}
+             */
+            kind: "read" | "change" | "rerun";
+            /** @description A path in this controller's web UI */
+            link?: string;
         };
         Recovery: {
             fenced: boolean;

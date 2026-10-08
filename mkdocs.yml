@@ -193,6 +193,7 @@ nav:
       - Runner startup stability: runner-startup-stability.md
       - Runtime compatibility: runtime-compatibility.md
       - Problem codes: problem-codes.md
+      - Why a job is where it is: why.md
       - Metrics: metrics.md
       - Provider contract: providers.md
       - Dependencies: dependencies.md
