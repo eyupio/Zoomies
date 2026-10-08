@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -36,10 +37,13 @@ func TestUpgradeSaysWhetherAMovingImageAdvanced(t *testing.T) {
 			opts, _ := upgradeFixture(t, DeploymentCompose)
 			var out bytes.Buffer
 			opts.Out = &out
-			inspects, running := 0, 0
+			inspects, running, recreates := 0, 0, 0
 			opts.run = func(_ context.Context, name string, args ...string) (string, error) {
 				line := name + " " + strings.Join(args, " ")
 				switch {
+				case strings.Contains(line, " up "):
+					recreates++
+					return "", nil
 				case strings.Contains(line, "config --images"):
 					return opts.Image, nil
 				case strings.Contains(line, "image inspect"):
@@ -68,6 +72,13 @@ func TestUpgradeSaysWhetherAMovingImageAdvanced(t *testing.T) {
 			}
 			if !strings.Contains(out.String(), tc.want) || !strings.Contains(out.String(), opts.Image) {
 				t.Fatalf("output = %q, want %q and image", out.String(), tc.want)
+			}
+			wantRecreates := 1
+			if tc.runBefore == tc.after {
+				wantRecreates = 0
+			}
+			if recreates != wantRecreates {
+				t.Fatalf("recreated the service %d times, want %d", recreates, wantRecreates)
 			}
 		})
 	}
@@ -101,6 +112,33 @@ func upgradeFixture(t *testing.T, deployment Deployment) (UpgradeOptions, Deploy
 	}
 	return UpgradeOptions{ConfigDir: dir, Mode: ModeAgent, Image: stockAgentRepository + ":v9.0",
 		shared: &sharedTarget{dir: shared, uid: -1, gid: -1}, socketGroup: func(string) int { return 0 }}, rec
+}
+
+func TestAnUnchangedImageStillStartsAStoppedController(t *testing.T) {
+	opts, rec := upgradeFixture(t, DeploymentCompose)
+	rec.Mode = ModeController
+	var out bytes.Buffer
+	opts.Out = &out
+	recreated := false
+	opts.run = func(_ context.Context, name string, args ...string) (string, error) {
+		line := name + " " + strings.Join(args, " ")
+		switch {
+		case strings.Contains(line, "image inspect"), strings.Contains(line, "{{.Image}}"):
+			return "sha256:current", nil
+		case strings.Contains(line, " up "):
+			recreated = true
+		case strings.Contains(line, "{{.State.Running}}"):
+			return strconv.FormatBool(recreated), nil
+		}
+		return "", nil
+	}
+	p := &upgradePlan{opts: opts, record: rec, image: opts.Image}
+	if err := p.upgradeCompose(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !recreated || strings.Contains(out.String(), "keeping the running container") {
+		t.Fatalf("a stopped controller was left alone: recreated=%v, output=%q", recreated, out.String())
+	}
 }
 
 func TestComposeUpgradeKeepsConfigurationAndPullsBeforeRestarting(t *testing.T) {

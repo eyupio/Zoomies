@@ -21,6 +21,12 @@ upgrade both when they share the installed binary. An active native host-health
 reporter using that binary is restarted too. Use `--mode controller` or
 `--mode agent` to select one service explicitly.
 
+For Compose and single-container deployments, the service image is pulled and
+compared with the image the running container uses. If they are identical, the
+container is kept running without a restart. An image pulled earlier still
+replaces a container using an older build. A stopped container is started even
+when its image has not changed.
+
 At a colour-capable terminal, a block-letter Zoomies banner lights up from
 blue to cyan, catches a bright sweep, then holds briefly before the stages
 begin. The intro lasts about three seconds and plays once, including when the command
