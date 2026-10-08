@@ -236,6 +236,27 @@ fail: it prints the helper's own sentence, says the helper was not added, and
 finishes. Put the refusal right and run `sudo zoomies updates helper install`.
 `--check` asks nothing and adds nothing.
 
+The same question is asked once more, in the same words, at the end of a fresh
+`zoomies init` and of `zoomies agent join`, once the service is installed (for a
+container deployment, once it is up and has its shared folder). It follows the
+same rules:
+
+* **It defaults to no, and `--yes` does not answer it.** `zoomies init --yes`
+  and `zoomies agent join --yes` leave it at its default; on `agent join`,
+  `--yes` means only "replace the credentials this host already has".
+* **`--update-helper`** (on `zoomies init` or `zoomies agent join`) adds the
+  helper without asking. In an [answer file](quickstart.md#unattended-installs)
+  the key is `update_helper: true`.
+* **Unattended** it adds nothing and prints
+  `Add later: sudo zoomies updates helper install`.
+* **A controller-only container** is not asked, since it has no shared folder
+  for the helper to watch.
+* **If the install is refused**, the install or join still finishes: it prints
+  the helper's own sentence and the command to retry.
+
+`zoomies init` on a host where Zoomies is already installed only upgrades it in
+place and does not ask; `zoomies upgrade` is where the question is asked then.
+
 `zoomies upgrade --check` checks the existing deployment without modifying it.
 `zoomies update` is a compatibility alias and accepts the same flags. Both commands
 fetch the newest release (or the rolling `dev` build, for a host running one),

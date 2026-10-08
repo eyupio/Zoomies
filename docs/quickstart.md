@@ -411,6 +411,11 @@ sh install.sh --non-interactive --answers zoomies-answers.yaml
 mode a missing required answer is an error naming the key and what it is for,
 never a silent default.
 
+One key is never on in a template: `update_helper: true` adds the [update
+helper](security.md#what-the-agent-owns-on-a-host), which lets the web UI update
+the host and is a grant of root to a request the service writes. Left out or
+`false`, nothing is added and the run prints how to add it later.
+
 ## If something is wrong
 
 Very little of it should be a mystery. The UI, `zoomies status` and

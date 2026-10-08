@@ -13,6 +13,7 @@ import (
 	"github.com/eyupio/zoomies/internal/hosttune"
 	"github.com/eyupio/zoomies/internal/installer"
 	"github.com/eyupio/zoomies/internal/store"
+	"golang.org/x/term"
 )
 
 // runAgent is `zoomies agent`: either the daemon, or its `join` subcommand.
@@ -191,7 +192,8 @@ func runAgentJoin(ctx context.Context, e *env, args []string) error {
 	configDir := fs.String("config-dir", "", "where to write the agent's configuration (default: "+config.ConfigDir()+")")
 	stateDir := fs.String("state-dir", "", "where the agent keeps its credentials and scratch space (default: "+config.StateDir()+")")
 	nonInteractive := fs.Bool("non-interactive", false, "never prompt; a missing answer is an error naming it")
-	assumeYes := fs.Bool("yes", false, "answer yes to the one question a re-join asks")
+	assumeYes := fs.Bool("yes", false, "answer yes to the one question a re-join asks; it does not answer the update helper's")
+	updateHelper := fs.Bool("update-helper", false, "add the update helper without asking, so the web UI can update this host")
 	fs.example(
 		"zoomies agent join https://zoomies.example.com --token zoojoin_...",
 		"zoomies agent join https://zoomies.example.com --token zoojoin_... --capacity 8 --labels arch=arm64",
@@ -213,6 +215,13 @@ func runAgentJoin(ctx context.Context, e *env, args []string) error {
 		return usagef("agent join", "--backend %q is not a backend; use docker, podman or process", *backendKind)
 	}
 
+	// Asked at a terminal only: a join run from a script has nobody to answer, and
+	// must not take an answer off whatever its input happens to be.
+	interactive := false
+	if f, ok := e.in.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
+		interactive = !*nonInteractive && isTerminal(e.out)
+	}
+
 	return installer.Join(ctx, installer.JoinOptions{
 		ControllerURL:      strings.TrimRight(url, "/"),
 		JoinToken:          *token,
@@ -232,6 +241,8 @@ func runAgentJoin(ctx context.Context, e *env, args []string) error {
 		Service:            serviceChoice(*noService),
 		NonInteractive:     *nonInteractive,
 		AssumeYes:          *assumeYes,
+		UpdateHelper:       *updateHelper,
+		Interactive:        interactive,
 		Out:                e.out,
 		In:                 e.in,
 	})

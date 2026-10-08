@@ -2112,7 +2112,8 @@ Flags:
   --print-answers            write an annotated example answer file to stdout and exit
   --state-dir                where the database and runner scratch space go (default: /var/lib/zoomies)
   --tune                     explicitly approve recommended safe tuning after a fresh install
-  --yes                      accept the confirmations that are not destructive
+  --update-helper            add the update helper without asking, so the web UI can update this host; --yes never does
+  --yes                      accept the confirmations that are not destructive; never the update helper
 
 Examples:
   zoomies init

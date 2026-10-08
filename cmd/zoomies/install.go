@@ -40,7 +40,8 @@ func runInit(ctx context.Context, e *env, args []string) error {
 	answers := fs.String("answers", "", "a YAML answer file for unattended setup; implies --non-interactive")
 	nonInteractive := fs.Bool("non-interactive", false, "never prompt; a missing answer is an error naming the key")
 	noAnimation := fs.Bool("no-animation", false, "skip the short branded terminal splash")
-	assumeYes := fs.Bool("yes", false, "accept the confirmations that are not destructive")
+	assumeYes := fs.Bool("yes", false, "accept the confirmations that are not destructive; never the update helper")
+	updateHelper := fs.Bool("update-helper", false, "add the update helper without asking, so the web UI can update this host; --yes never does")
 	printAnswers := fs.Bool("print-answers", false, "write an annotated example answer file to stdout and exit")
 
 	configDir := fs.String("config-dir", "", "where zoomies.yaml and the encryption key go (default: "+config.ConfigDir()+")")
@@ -118,6 +119,7 @@ func runInit(ctx context.Context, e *env, args []string) error {
 		AnswersFile:      *answers,
 		NonInteractive:   *nonInteractive || *answers != "",
 		AssumeYes:        *assumeYes,
+		UpdateHelper:     *updateHelper,
 		ConfigDir:        *configDir,
 		StateDir:         *stateDir,
 		Out:              e.out,

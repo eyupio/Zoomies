@@ -496,17 +496,14 @@ func TestResolvingTheHelperSaysWhichHostsHaveNothingForItToServe(t *testing.T) {
 // when that is not the default one, because a bare command would look for the
 // wrong configuration.
 func TestTheCommandToAddTheHelperLaterNamesANonDefaultConfigDir(t *testing.T) {
-	p := &upgradePlan{opts: UpgradeOptions{ConfigDir: config.ConfigDir()}}
-	if got, want := p.helperInstallCommand(), "sudo zoomies updates helper install"; got != want {
-		t.Errorf("default: %q, want %q", got, want)
-	}
-	p.opts.ConfigDir = "/srv/zoomies/etc"
-	if got, want := p.helperInstallCommand(), "sudo zoomies updates helper install --config-dir /srv/zoomies/etc"; got != want {
-		t.Errorf("non-default: %q, want %q", got, want)
-	}
-	p.opts.ConfigDir = "/srv/my zoomies"
-	if got, want := p.helperInstallCommand(), `sudo zoomies updates helper install --config-dir "/srv/my zoomies"`; got != want {
-		t.Errorf("with a space: %q, want %q", got, want)
+	for _, tc := range []struct{ name, dir, want string }{
+		{"default", config.ConfigDir(), "sudo zoomies updates helper install"},
+		{"non-default", "/srv/zoomies/etc", "sudo zoomies updates helper install --config-dir /srv/zoomies/etc"},
+		{"with a space", "/srv/my zoomies", `sudo zoomies updates helper install --config-dir "/srv/my zoomies"`},
+	} {
+		if got := helperInstallCommand(tc.dir); got != tc.want {
+			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
+		}
 	}
 
 	h := newOfferHost(t)
