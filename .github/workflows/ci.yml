@@ -672,8 +672,17 @@ jobs:
           path: internal/api/webdist
           retention-days: 3
 
+  # The suite runs the whole UI twice (desktop, then a phone) and then four
+  # small projects that each own a controller, one after the other on one
+  # runner: 23 minutes at the median on the fleet. The projects share no state
+  # -- each boots its own database -- so they are a matrix, and the wall-clock
+  # is the longest of them rather than the sum.
   playwright:
-    name: Playwright
+    name: Playwright (${{ matrix.projects }})
+    strategy:
+      fail-fast: false
+      matrix:
+        projects: [chromium, mobile, other]
     # Not gated on sudo the way the runner image's passwordless entry
     # promises (see deploy/Dockerfile.runner): a pool running the process
     # backend gives its agent's systemd unit NoNewPrivileges=yes, which
@@ -751,12 +760,22 @@ jobs:
             echo "LD_LIBRARY_PATH=${prefix}/root/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}" >> "${GITHUB_ENV}"
           fi
         working-directory: web
-      - run: npm run test:e2e
+      - name: Run the suite
+        env:
+          PROJECTS: ${{ matrix.projects }}
+        run: |
+          set -eu
+          case "$PROJECTS" in
+            chromium|mobile) flags="--project=$PROJECTS" ;;
+            other) flags="--project=first-run --project=diagnostics --project=status --project=connect" ;;
+            *) echo "::error::unknown Playwright group $PROJECTS"; exit 1 ;;
+          esac
+          npm run test:e2e -- $flags
         working-directory: web
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.projects }}
           path: web/playwright-report
           retention-days: 7
 
