@@ -814,6 +814,12 @@ export const settingsExportUrl = (format: 'json' | 'yaml') =>
 export const importSettings = (body: Body<'importSettings'>) =>
   api.post<Result<'importSettings'>>('/settings/import', { body });
 
+/* -- updates -------------------------------------------------------------- */
+
+/** What the update mode would take: the document the `updates.updated` event carries. */
+export const getUpdates = (signal?: AbortSignal) =>
+  api.get<Result<'getUpdates'>>('/updates', { signal });
+
 /* -- backups -------------------------------------------------------------- */
 
 export const listBackups = (signal?: AbortSignal) =>

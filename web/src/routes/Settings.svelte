@@ -36,6 +36,7 @@
   import SettingsIndex from '$lib/settings/SettingsIndex.svelte';
   import SettingsRail from '$lib/settings/SettingsRail.svelte';
   import TokensPanel from '$lib/settings/TokensPanel.svelte';
+  import UpdatesPanel from '$lib/settings/UpdatesPanel.svelte';
   import UsersPanel from '$lib/settings/UsersPanel.svelte';
   import { DEFAULT_SETTINGS_PAGE, settingsPage, settingsPath } from '$lib/settings/pages';
 
@@ -93,7 +94,7 @@
         <PageHeader title="Settings" />
         <EmptyState
           title="There is no settings page called “{wanted}”"
-          description="The pages are your account, MCP connections, appearance, events, users, API tokens, MCP clients, configuration, backups and about."
+          description="The pages are your account, MCP connections, appearance, events, users, API tokens, MCP clients, configuration, backups, updates and about."
         >
           <Button href={settingsPath(DEFAULT_SETTINGS_PAGE)}>Go to your account</Button>
         </EmptyState>
@@ -126,6 +127,8 @@
         <ConfigurationPanel />
       {:else if page.id === 'backups'}
         <BackupsPanel />
+      {:else if page.id === 'updates'}
+        <UpdatesPanel />
       {:else}
         <AboutPanel />
       {/if}

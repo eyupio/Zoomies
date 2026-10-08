@@ -20,3 +20,20 @@ export function hostTarget(code: string | undefined, id: string): { href: string
     ? { href: `/hosts/${id}`, label: 'Open the host' }
     : { href: '/hosts', label: 'Open hosts' };
 }
+
+/**
+ * Where a controller problem's "open" link goes, or null for one with no page
+ * of its own.
+ *
+ * A controller problem names no pool, host or setting, so the code is all there
+ * is to go by. The notice that a newer release exists is about updating, and the
+ * Updates page reads that same release in full and says what the update mode
+ * would do about it. A code is added here when it has been given a page, never
+ * guessed at: a link to a page that says nothing about what the problem said is
+ * worse than no link.
+ */
+export function controllerTarget(code: string | undefined): { href: string; label: string } | null {
+  return code === 'controller.update_available'
+    ? { href: '/settings/updates', label: 'Open Updates' }
+    : null;
+}

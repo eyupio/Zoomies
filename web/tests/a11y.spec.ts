@@ -67,6 +67,10 @@ const PAGES = [
   { path: '/settings/users', heading: 'Users' },
   { path: '/settings/configuration', heading: 'Configuration' },
   { path: '/settings/events', heading: 'Events' },
+  // Facts and sentences rather than controls, read from a status the controller
+  // works out; on this fixture the mode is off, which is the state an operator
+  // meets first. updates.spec.ts audits it once there is a release on offer.
+  { path: '/settings/updates', heading: 'Updates' },
 ] as const;
 
 /** The pages whose main content is a grid of rows to wait for. */
@@ -369,6 +373,7 @@ const SETTINGS_OUTLINES = [
   { path: '/settings/configuration', heading: 'Configuration', loaded: '[id^="section-"]' },
   { path: '/settings/about', heading: 'About', loaded: '#docs-heading' },
   { path: '/settings/events', heading: 'Events', loaded: '[id^="feed-group-"]' },
+  { path: '/settings/updates', heading: 'Updates', loaded: '.updates-take' },
 ];
 
 for (const { path, heading, loaded } of SETTINGS_OUTLINES) {

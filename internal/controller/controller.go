@@ -536,12 +536,21 @@ func (c *Controller) Start(ctx context.Context) error {
 			// Seeding is a development and test convenience; refusing to start
 			// because of it would be worse than saying so and carrying on.
 			c.log.Warn("demo seeding was requested but did not run", "env", SeedEnvVar, "error", err)
-		} else if stuckSeedRequested() {
-			// Only on top of a seed that just succeeded: the diagnostics
-			// fixture ages the demo's own runners, so it has nothing to work
-			// with otherwise.
-			if err := c.SeedStuck(ctx); err != nil {
-				c.log.Warn("the diagnostics fixture was requested but did not run", "env", StuckSeedEnvVar, "error", err)
+		} else {
+			if stuckSeedRequested() {
+				// Only on top of a seed that just succeeded: the diagnostics
+				// fixture ages the demo's own runners, so it has nothing to work
+				// with otherwise.
+				if err := c.SeedStuck(ctx); err != nil {
+					c.log.Warn("the diagnostics fixture was requested but did not run", "env", StuckSeedEnvVar, "error", err)
+				}
+			}
+			// Also only on top of the demo fleet, for a different reason: it
+			// rewrites the version this controller reports, so a variable left
+			// set on a real deployment must find the demo seed's refusal to run
+			// there in its way.
+			if err := c.seedUpdates(ctx); err != nil {
+				c.log.Warn("the update fixture was requested but did not run", "env", UpdatesSeedEnvVar, "error", err)
 			}
 		}
 	}

@@ -646,10 +646,10 @@ so nothing here can leak one.
 A section of pages rather than a page of tabs, with its own rail beside them:
 your account, appearance and which events the Overview's feed shows; the
 accounts that can sign in and their roles, and the API tokens; the
-configuration this controller is actually running with, its backups, and what
-it is. Each page has an address of its own, so a
-settings page is a link. Zoomies refuses any change that would leave no
-enabled administrator, and the pages that need that role are listed for
+configuration this controller is actually running with, its backups, which
+release an update would take, and what it is. Each page has an address of its
+own, so a settings page is a link. Zoomies refuses any change that would leave
+no enabled administrator, and the pages that need that role are listed for
 everybody, marked rather than hidden.
 
 ![Settings: the section's rail beside the Users page, listing one administrator](screenshots/settings-dark.webp#only-dark){ .zoomies-shot }
@@ -680,6 +680,28 @@ rather than starting from the newest. What a destination costs — who can read
 the archive, and what a plain-HTTP endpoint gives away — is set out in
 [Security](security.md#a-backup-remote-with-no-passphrase), and the whole of it
 in [Backup and restore](backup-and-restore.md).
+
+### Updates
+
+Which release the update mode would take, and when. It reads and nothing more:
+no part of the page installs anything.
+
+At the top is one line saying what the mode would do about the newest release
+that can be installed on this system — *Manual would offer v1.3.2 and wait for
+a person to take it*, or *Auto would take v1.3.2 in 18 hours* — and under it the
+controller's own sentence for why, exactly as the API gives it. Then the release
+itself, linked to its notes when the address GitHub gave for it is an `https`
+one, with how long ago it was published and when the list was last read.
+
+The mode and the soak follow, as text with a sentence of what each would do.
+Auto's says what its wait costs: a newer release restarts the wait, so if
+releases are published faster than the soak, auto never takes one. Both are
+settings that only the platform role changes, on the Configuration page; this
+page shows them to everybody, because an administrator is not sent those rows
+and still has to be able to tell what the controller is set to do. Last is the
+build the controller is running and whether it came from a release. One built
+from `main` is left alone, since it is usually ahead of the newest release and
+an update would take it back.
 
 ## The status page
 

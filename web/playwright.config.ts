@@ -38,6 +38,14 @@ const CONNECT_PORT = 8096;
  * every request is an administrator, so "signed out" could not be tested.
  */
 const STATUS_PORT = 8095;
+/**
+ * The updates projects share a controller of their own, on the desktop and on a
+ * phone. The binary under test is a `dev` build, which no release comparison
+ * accepts, so the shared fixture can only ever say that the build is left alone;
+ * this one reports a version and reads a release list of its own, and the
+ * Updates page has something to show.
+ */
+const UPDATES_PORT = 8094;
 const FAKE_GITHUB_FILE = 'test-results/fakegithub.json';
 
 export default defineConfig({
@@ -59,14 +67,14 @@ export default defineConfig({
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
       testIgnore:
-        /(first-run|two-step|mcp-oauth|diagnostics|connect|ai-context|status-page)\.spec\.ts/,
+        /(first-run|two-step|mcp-oauth|diagnostics|connect|ai-context|status-page|updates)\.spec\.ts/,
     },
     // Read-only monitoring on a phone is a stated requirement, so it is tested.
     {
       name: 'mobile',
       use: { ...devices['Pixel 7'] },
       testIgnore:
-        /(first-run|two-step|mcp-oauth|diagnostics|connect|ai-context|status-page)\.spec\.ts/,
+        /(first-run|two-step|mcp-oauth|diagnostics|connect|ai-context|status-page|updates)\.spec\.ts/,
     },
     {
       name: 'first-run',
@@ -90,6 +98,16 @@ export default defineConfig({
       name: 'connect',
       testMatch: /(connect|ai-context)\.spec\.ts/,
       use: { ...devices['Desktop Chrome'], baseURL: `http://127.0.0.1:${CONNECT_PORT}` },
+    },
+    {
+      name: 'updates',
+      testMatch: /updates\.spec\.ts/,
+      use: { ...devices['Desktop Chrome'], baseURL: `http://127.0.0.1:${UPDATES_PORT}` },
+    },
+    {
+      name: 'updates-mobile',
+      testMatch: /updates\.spec\.ts/,
+      use: { ...devices['Pixel 7'], baseURL: `http://127.0.0.1:${UPDATES_PORT}` },
     },
   ],
   webServer: [
@@ -133,6 +151,17 @@ export default defineConfig({
       command: `node tests/support/serve-stuck.mjs ${STUCK_PORT}`,
       url: `http://127.0.0.1:${STUCK_PORT}/healthz`,
       reuseExistingServer: !process.env.CI,
+      timeout: 60_000,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
+    {
+      command: `node tests/support/serve-updates.mjs ${UPDATES_PORT}`,
+      url: `http://127.0.0.1:${UPDATES_PORT}/healthz`,
+      // Never reused: one spec moves the soak and puts it back, and a controller
+      // that a run which died in between left at the other value would answer
+      // the first test with a number it did not start from.
+      reuseExistingServer: false,
       timeout: 60_000,
       stdout: 'pipe',
       stderr: 'pipe',

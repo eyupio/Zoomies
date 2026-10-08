@@ -692,11 +692,12 @@ jobs:
           path: internal/api/webdist
           retention-days: 3
 
-  # The suite runs the whole UI twice (desktop, then a phone) and then four
-  # small projects that each own a controller, one after the other on one
-  # runner: 23 minutes at the median on the fleet. The projects share no state
-  # -- each boots its own database -- so they are a matrix, and the wall-clock
-  # is the longest of them rather than the sum.
+  # The suite runs the whole UI twice (desktop, then a phone) and then six
+  # small projects on five controllers of their own (the two updates projects
+  # share one), one after the other on one runner: 23 minutes at the median on
+  # the fleet. The projects share no state -- each boots its own database -- so
+  # they are a matrix, and the wall-clock is the longest of them rather than the
+  # sum.
   playwright:
     name: Playwright (${{ matrix.projects }})
     strategy:
@@ -787,7 +788,7 @@ jobs:
           set -eu
           case "$PROJECTS" in
             chromium|mobile) flags="--project=$PROJECTS" ;;
-            other) flags="--project=first-run --project=diagnostics --project=status --project=connect" ;;
+            other) flags="--project=first-run --project=diagnostics --project=status --project=connect --project=updates --project=updates-mobile" ;;
             *) echo "::error::unknown Playwright group $PROJECTS"; exit 1 ;;
           esac
           npm run test:e2e -- $flags

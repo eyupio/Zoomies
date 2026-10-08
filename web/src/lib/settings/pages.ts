@@ -17,6 +17,7 @@
 import {
   Activity,
   Cable,
+  CircleArrowUp,
   CircleUser,
   DatabaseBackup,
   Info,
@@ -130,6 +131,15 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
         icon: DatabaseBackup,
         // A backup is the whole database under the key this host holds.
         needs: 'platform',
+      },
+      {
+        id: 'updates',
+        label: 'Updates',
+        description: 'Which release the update mode would take, and when.',
+        icon: CircleArrowUp,
+        // The status names a version, a release and a mode and nothing of the
+        // fleet's, so every role may read it.
+        needs: 'viewer',
       },
       {
         id: 'about',

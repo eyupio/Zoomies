@@ -647,6 +647,7 @@ test('every section fits a 360px phone, not just the one these tests emulate', a
     ['/settings/tokens', 'API tokens'],
     ['/settings/configuration', 'Configuration'],
     ['/settings/backups', 'Backups'],
+    ['/settings/updates', 'Updates'],
     ['/settings/about', 'About'],
   ] as const) {
     await goto(page, path, heading);
