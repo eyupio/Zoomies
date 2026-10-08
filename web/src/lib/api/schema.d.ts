@@ -8892,7 +8892,7 @@ export interface components {
             latest: components["schemas"]["UpdatesRelease"] | null;
             /** @description What the mode would do about `latest`. Null whenever `latest` is. */
             target: components["schemas"]["UpdatesTarget"] | null;
-            /** @description One sentence, in an operator's words, that says what the mode would do and why. It always says something: it is what to show when there is nothing to offer. */
+            /** @description A sentence or two, in an operator's words, that says what the mode would do and why. It always says something: it is what to show when there is nothing to offer. */
             reason: string;
             /**
              * Format: date-time

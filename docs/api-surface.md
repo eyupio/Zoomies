@@ -455,10 +455,12 @@ fleet. [Backup and restore](backup-and-restore.md) is the operator's page.
 
 | Method | Path | Role | Notes |
 | --- | --- | --- | --- |
-| GET | `/api/v1/updates` | viewer | What an update would take, and why. `mode` and `soak` are the settings as the controller acts on them. `running` is the build, with whether it came from a `release`. `latest` is the newest release that can be installed on this system (`tag`, `url`, `published_at`), and `target` is what the mode would do about it: `newer` says whether it is a later release than the build, and `due_at` is the end of the soak in `auto` and null in `manual`. `reason` is one sentence, and always says something. `checked_at` is when the release list was read. While `mode` is `off`, and until the list has been read, `latest`, `target` and `checked_at` are null and `reason` says why; a list that was read and holds nothing that can be installed has a `checked_at`, no `latest`, and a sentence that says what a complete release is. A build that is not from a release is left alone, and the sentence says so. Computed, not stored. |
+| GET | `/api/v1/updates` | viewer | What an update would take, and why. `mode` and `soak` are the settings as the controller acts on them. `running` is the build, with whether it came from a `release`. `latest` is the newest release that can be installed on this system (`tag`, `url`, `published_at`), and `target` is what the mode would do about it: `newer` says whether it is a later release than the build, and `due_at` is the end of the soak in `auto` and null in `manual`. `reason` is a sentence or two, and always says something. `checked_at` is when the release list was read. While `mode` is `off`, and until the list has been read, `latest`, `target` and `checked_at` are null and `reason` says why; a list that was read and holds nothing that can be installed has a `checked_at`, no `latest`, and a sentence that says what a complete release is. A build that is not from a release is left alone, and the sentence says so. Computed, not stored. |
 
 It takes no role above `viewer`: it names a public release and the build this
-controller runs, and nothing of the fleet's. It answers `200` in every mode,
+controller runs, and nothing of the fleet's. It is, though, the first route a
+viewer can read that carries the platform-scoped `mode` and `soak`, which is
+accepted because they say what the controller will do and not how to get in. It answers `200` in every mode,
 because the page that reads it is the one an operator opens to find out why
 nothing is offered.
 

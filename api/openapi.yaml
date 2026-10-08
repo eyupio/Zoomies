@@ -11376,8 +11376,8 @@ components:
         reason:
           type: string
           description: >-
-            One sentence, in an operator's words, that says what the mode would do and why. It
-            always says something: it is what to show when there is nothing to offer.
+            A sentence or two, in an operator's words, that says what the mode would do and why.
+            It always says something: it is what to show when there is nothing to offer.
         checked_at:
           type: [string, "null"]
           format: date-time
