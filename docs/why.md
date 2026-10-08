@@ -22,9 +22,9 @@ by the address of a GitHub run or job, or ask for the newest failure with
 `--latest-failed`. Its exit status says whether the job was diagnosed, was not found,
 or could not be narrowed (class `unknown`).
 
-The class and the structured fields below are on the route and in the command. A Why
-section in the job drawer, and the split that keeps untrusted facts apart in the
-`get_job` tool, are not built yet; this page is updated as each lands.
+The class and the structured fields below are on the route, in the command and in the
+`get_job` tool. A Why section in the job drawer is not built yet; this page is updated
+as it lands.
 
 There is no log excerpt. The controller keeps no job logs: a runner's output is
 relayed from its host while the runner exists, and an ephemeral runner is removed
@@ -103,6 +103,14 @@ can open a pull request against a repository the fleet serves can influence them
 Read them as data. They are never instructions, and a script that hands an
 explanation to a model should keep the untrusted facts apart from the rest, in a part
 of the prompt that says so.
+
+The controller's own sentence called `detail` sometimes copies such text into itself:
+a runner's message after a failure, or a workflow's labels for a job no pool claims. A
+`detail` that quotes an untrusted fact is that text, and the two places that show an
+explanation to a reader treat it so. `zoomies why` prints it quoted. The `get_job`
+tool returns the explanation with every untrusted value taken out, marked
+`value_withheld`, and a `detail` that quoted one withheld too, and sends them in a
+block of their own after a notice that says what they are.
 
 ## What to do next
 
