@@ -181,3 +181,25 @@ func TestEntriesAreSortedAndIDsUnique(t *testing.T) {
 		t.Errorf("kinds not ordered problem then check")
 	}
 }
+
+// The codes an operator acts on -- the fleet's hosts, pools, jobs and runners
+// -- say how to see that the fix worked, so an agent can check its own work
+// instead of declaring it done. The rest of the page may still be silent on
+// it, and the catalog says null there rather than inventing a sentence.
+func TestOperatorFacingCodesCarryVerify(t *testing.T) {
+	md, err := os.ReadFile("../../docs/problem-codes.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := ParseProblemTables(md)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		for _, prefix := range []string{"host.", "pool.", "jobs.", "runners."} {
+			if strings.HasPrefix(e.ID, prefix) && e.Detection == DetectionRuntime && (e.Verify == nil || *e.Verify == "") {
+				t.Errorf("%s has no 'How to see it worked' cell", e.ID)
+			}
+		}
+	}
+}
