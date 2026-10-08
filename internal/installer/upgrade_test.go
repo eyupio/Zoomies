@@ -37,7 +37,7 @@ func TestUpgradeSaysWhetherAMovingImageAdvanced(t *testing.T) {
 			opts, _ := upgradeFixture(t, DeploymentCompose)
 			var out bytes.Buffer
 			opts.Out = &out
-			inspects, running, recreates := 0, 0, 0
+			inspects, recreates := 0, 0
 			opts.run = func(_ context.Context, name string, args ...string) (string, error) {
 				line := name + " " + strings.Join(args, " ")
 				switch {
@@ -53,8 +53,12 @@ func TestUpgradeSaysWhetherAMovingImageAdvanced(t *testing.T) {
 					}
 					return tc.after, nil
 				case strings.Contains(line, "{{.Image}}"):
-					running++
-					if running == 1 {
+					// The container's image moves only when the service is
+					// recreated, however often the upgrade asks: it asks once
+					// more now, after the pull, to decide whether to recreate
+					// at all, and answering "after" there would tell it the
+					// service already runs the new build.
+					if recreates == 0 {
 						return tc.runBefore, nil
 					}
 					return tc.runAfter, nil
