@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_from": "d2e91a0",
+  "generated_from": "e2bef1e",
   "entries": [
     {
       "id": "agent.backend_missing",
@@ -3636,6 +3636,34 @@
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#configuration-the-scheduler-and-the-rest"
     },
     {
+      "id": "updates.auto",
+      "kind": "problem",
+      "title": "updates.auto",
+      "category": "configuration",
+      "severity": "info",
+      "detection": "static",
+      "detects": "The update mode is `auto`, which is meant to install new releases without anyone asking: the controller takes the newest once it has been public for `updates.soak`, and the hosts that have opted in then follow it, one at a time. There is no automatic rollback, because a migration is one way. Nothing to change if that is what you want; `manual` keeps the decision with a person. In this release it only shows what the mode would take on Settings → Updates; it installs nothing yet.",
+      "fix": "The update mode is `auto`, which is meant to install new releases without anyone asking: the controller takes the newest once it has been public for `updates.soak`, and the hosts that have opted in then follow it, one at a time. There is no automatic rollback, because a migration is one way. Nothing to change if that is what you want; `manual` keeps the decision with a person. In this release it only shows what the mode would take on Settings → Updates; it installs nothing yet.",
+      "verify": null,
+      "setting": "updates.mode",
+      "docs_html": "https://zoomies.sh/problem-codes/#configuration-the-scheduler-and-the-rest",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#configuration-the-scheduler-and-the-rest"
+    },
+    {
+      "id": "updates.auto_without_soak",
+      "kind": "problem",
+      "title": "updates.auto_without_soak",
+      "category": "configuration",
+      "severity": "warning",
+      "detection": "static",
+      "detects": "The mode is `auto` and the soak is 0, which removes the only wait between a release being published and every host running it. A release that turns out to be broken, or is replaced by a fix within hours, would be taken before anyone has had the chance to notice. Use `24h`, the default, or set the mode to `manual`.",
+      "fix": "The mode is `auto` and the soak is 0, which removes the only wait between a release being published and every host running it. A release that turns out to be broken, or is replaced by a fix within hours, would be taken before anyone has had the chance to notice. Use `24h`, the default, or set the mode to `manual`.",
+      "verify": null,
+      "setting": "updates.soak",
+      "docs_html": "https://zoomies.sh/problem-codes/#configuration-the-scheduler-and-the-rest",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#configuration-the-scheduler-and-the-rest"
+    },
+    {
       "id": "updates.interval_negative",
       "kind": "problem",
       "title": "updates.interval_negative",
@@ -3660,6 +3688,48 @@
       "fix": "Releases are published far less often than this, and the check is unauthenticated.",
       "verify": null,
       "setting": "updates.check_interval",
+      "docs_html": "https://zoomies.sh/problem-codes/#configuration-the-scheduler-and-the-rest",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#configuration-the-scheduler-and-the-rest"
+    },
+    {
+      "id": "updates.mode",
+      "kind": "problem",
+      "title": "updates.mode",
+      "category": "configuration",
+      "severity": "error",
+      "detection": "static",
+      "detects": "Not a release update mode. Use `off`, which says that a release exists and nothing more; `manual`, which adds the Update buttons and moves nothing without a click; or `auto`, which takes a release once it has been public for `updates.soak`. In this release it only shows what the mode would take on Settings → Updates; it installs nothing yet.",
+      "fix": "Not a release update mode. Use `off`, which says that a release exists and nothing more; `manual`, which adds the Update buttons and moves nothing without a click; or `auto`, which takes a release once it has been public for `updates.soak`. In this release it only shows what the mode would take on Settings → Updates; it installs nothing yet.",
+      "verify": null,
+      "setting": "updates.mode",
+      "docs_html": "https://zoomies.sh/problem-codes/#configuration-the-scheduler-and-the-rest",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#configuration-the-scheduler-and-the-rest"
+    },
+    {
+      "id": "updates.mode_without_check",
+      "kind": "problem",
+      "title": "updates.mode_without_check",
+      "category": "configuration",
+      "severity": "warning",
+      "detection": "static",
+      "detects": "The mode is `manual` or `auto` and `updates.check_interval` is 0, the air-gap switch, so this controller never learns that a release exists and the mode has nothing to act on. Give the check a duration such as `24h`, or set the mode to `off`.",
+      "fix": "The mode is `manual` or `auto` and `updates.check_interval` is 0, the air-gap switch, so this controller never learns that a release exists and the mode has nothing to act on. Give the check a duration such as `24h`, or set the mode to `off`.",
+      "verify": null,
+      "setting": "updates.mode",
+      "docs_html": "https://zoomies.sh/problem-codes/#configuration-the-scheduler-and-the-rest",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#configuration-the-scheduler-and-the-rest"
+    },
+    {
+      "id": "updates.soak_negative",
+      "kind": "problem",
+      "title": "updates.soak_negative",
+      "category": "configuration",
+      "severity": "error",
+      "detection": "static",
+      "detects": "Must not be negative. Use a duration such as `24h`, or 0 for no wait.",
+      "fix": "Must not be negative. Use a duration such as `24h`, or 0 for no wait.",
+      "verify": null,
+      "setting": "updates.soak",
       "docs_html": "https://zoomies.sh/problem-codes/#configuration-the-scheduler-and-the-rest",
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#configuration-the-scheduler-and-the-rest"
     },
