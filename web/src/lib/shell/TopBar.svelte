@@ -83,7 +83,7 @@
       section.path !== '/' &&
       router.pathname !== section.path &&
       router.title !== section.label
-      ? section.label
+      ? section
       : null,
   );
 
@@ -188,7 +188,7 @@
   <div class="title">
     <p class="page">
       {#if crumb}
-        <span class="crumb">{crumb}</span>
+        <a class="crumb" href={crumb.path}>{crumb.label}</a>
         <span class="crumb-sep" aria-hidden="true">›</span>
       {/if}
       <span>{router.title}</span>
@@ -292,6 +292,15 @@
     flex: none;
     font-weight: var(--z-weight-medium);
     color: var(--z-text-subtle);
+  }
+  /* The crumb is the way back up to the section's own page. */
+  a.crumb {
+    text-decoration: none;
+    border-radius: var(--z-radius-sm);
+  }
+  a.crumb:hover {
+    color: var(--z-text);
+    text-decoration: underline;
   }
   .right {
     display: flex;
