@@ -46,10 +46,10 @@ async function connectStep(page: Page, name: string): Promise<void> {
   const manual = page.getByRole('button', { name: 'Configure connection manually' });
   if (await manual.isVisible()) await manual.click();
   await page.getByLabel('Name').fill(name);
-  // By role: the connection choice below it describes itself with the word
-  // too, and a radio is not where a URL goes.
+  // The setup choices describe themselves with these words too; match the
+  // fields' labels without matching the radios' descriptions.
   await page.getByRole('textbox', { name: /^Address/ }).fill('https://pve.e2e.example:8006');
-  await page.getByLabel('Credential').fill('zoomies@pve!e2e=not-a-token');
+  await page.getByLabel(/^Credential\b/).fill('zoomies@pve!e2e=not-a-token');
   await next(page).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Placement' })).toBeVisible();
 }
@@ -556,7 +556,10 @@ test('a private connection is offered only where the controller can make one, an
   await goto(page, '/providers/new', 'Add a provider');
   await page.getByRole('button', { name: 'Configure connection manually' }).click();
   await expect(page.getByRole('radio', { name: /Private connection/ })).toBeDisabled();
-  await expect(page.getByRole('radio', { name: 'Direct' })).toBeChecked();
+  const direct = page.getByRole('group', { name: 'Connection', exact: true }).getByRole('radio', {
+    name: /^Direct\b/,
+  });
+  await expect(direct).toBeChecked();
   await expect(page.getByText(/Private connections need authentication/)).toBeVisible();
 
   await page.route('**/api/v1/meta', async (route) => {
@@ -584,7 +587,7 @@ test('a private connection is offered only where the controller can make one, an
   );
   // Nothing about the choice is a matter for the browser alone: what leaves
   // the page names the connection, and the address travels only with it.
-  await page.getByRole('radio', { name: 'Direct' }).check();
+  await direct.check();
   await expect(page.getByLabel('Private connection address')).toHaveCount(0);
 });
 
