@@ -141,7 +141,7 @@ func (c *Controller) KickKennel() {
 // kennelSettingsChanged is whether a change of configuration is one the loop
 // should act on at once.
 func kennelSettingsChanged(a, b config.Kennel) bool {
-	return a.Enabled != b.Enabled || a.Scope != b.Scope || a.RefreshInterval != b.RefreshInterval ||
+	return a.Enabled != b.Enabled || a.RepositorySetup != b.RepositorySetup || a.WorkflowChecks != b.WorkflowChecks || a.Scope != b.Scope || a.RefreshInterval != b.RefreshInterval ||
 		a.APIBudgetPercent != b.APIBudgetPercent || !slices.Equal(a.DisabledChecks, b.DisabledChecks)
 }
 
@@ -258,12 +258,19 @@ func (c *Controller) kennelInstallation(ctx context.Context, inst *store.Install
 		c.log.Warn("Kennel Club could not read its repositories", "installation", inst.ID, "error", err)
 		return
 	}
+	// Every row is known, an untracked one included: a served repository whose row
+	// is not in this map reads as one that has none, and makes the pass list the
+	// installation from GitHub every minute for a repository nobody is looking at.
+	// Only a tracked row can be due, for the same reason.
 	known := make(map[string]*store.KennelRepository, len(rows))
-	anyDue := false
+	anyDue, anyTracked := false, false
 	for _, r := range rows {
 		known[strings.ToLower(r.FullName)] = r
-		if kennelDue(r, in.now) {
-			anyDue = true
+		if r.Untracked == nil {
+			anyTracked = true
+			if kennelDue(r, in.now) || kennelSetupDue(r, in) || kennelWorkflowsDue(r, in) {
+				anyDue = true
+			}
 		}
 	}
 	missing := false
@@ -300,6 +307,10 @@ func (c *Controller) kennelInstallation(ctx context.Context, inst *store.Install
 		if ctx.Err() != nil || !c.mayAct() {
 			return
 		}
+		// Not tracked means not read and not evaluated, and kennelRefresh does both.
+		if r.Untracked != nil {
+			continue
+		}
 		got := c.kennelRefresh(ctx, inst, r, listing, in)
 		if got == kennel.CoverageError {
 			installationState = kennel.CoverageError
@@ -309,6 +320,12 @@ func (c *Controller) kennelInstallation(ctx context.Context, inst *store.Install
 	// one that found nothing due must not clear a failure it never looked at.
 	if listing != nil {
 		c.kennelNoteResult(inst.ID, installationState, in.now)
+	} else if len(rows) > 0 && !anyTracked {
+		// Every repository here has been let go, so nothing on this installation is
+		// read and nothing ever will be until one is tracked again. A failure noted
+		// before that is about reads that are no longer made, and no listing is left
+		// to clear it: it would be raised for as long as the controller ran.
+		c.kennelNoteResult(inst.ID, kennel.CoverageOK, in.now)
 	}
 }
 
@@ -503,7 +520,7 @@ func (c *Controller) kennelTouch(ctx context.Context, inst *store.Installation, 
 // read ended in.
 func (c *Controller) kennelRefresh(ctx context.Context, inst *store.Installation, row *store.KennelRepository, l *kennelListing, in kennelPassInput) kennel.CoverageState {
 	wm := parseKennelWatermark(row.Watermark)
-	due := kennelDue(row, in.now)
+	due := kennelDue(row, in.now) || kennelSetupDue(row, in) || kennelWorkflowsDue(row, in)
 	var retry time.Duration
 	outcome := kennel.CoverageOK
 
@@ -524,6 +541,33 @@ func (c *Controller) kennelRefresh(ctx context.Context, inst *store.Installation
 		case row.Visibility == string(kennel.VisibilityPublic):
 			outcome, retry = c.kennelReadRuns(ctx, inst, row, &wm, l, in)
 		}
+	}
+	if due && kennelSetupEnabled(in.policy) {
+		state := c.kennelReadSetup(ctx, inst, row, &wm, l, in)
+		if state != kennel.CoverageOK {
+			if state == kennel.CoverageError || outcome == kennel.CoverageOK {
+				outcome = state
+			}
+			retry = max(retry, kennelRetryAfter(state))
+		}
+	}
+
+	if due && kennelWorkflowsEnabled(in.policy) {
+		state := c.kennelReadWorkflows(ctx, inst, row, &wm, l, in)
+		if state != kennel.CoverageOK {
+			if state == kennel.CoverageError || outcome == kennel.CoverageOK {
+				outcome = state
+			}
+			retry = max(retry, kennelRetryAfter(state))
+		}
+	}
+	if !kennelWorkflowsEnabled(in.policy) {
+		wm.Workflows = nil
+		wm.WorkflowState = ""
+	}
+	if !kennelSetupEnabled(in.policy) {
+		wm.Setup = nil
+		wm.SetupState = ""
 	}
 	if err := c.kennelEvaluate(ctx, inst, row, wm, l, due, retry, in); err != nil {
 		c.log.Warn("Kennel Club could not evaluate a repository", "repository", row.FullName, "error", err)
@@ -749,6 +793,14 @@ func (c *Controller) kennelSnapshot(ctx context.Context, inst *store.Installatio
 		},
 		Coverage: cov,
 	}
+	if kennelSetupEnabled(in.policy) {
+		snap.Setup = wm.Setup
+		cov[kennel.SourceSetup] = kennel.SourceState{State: wm.SetupState}
+	}
+	if kennelWorkflowsEnabled(in.policy) {
+		snap.Workflows = wm.Workflows
+		cov[kennel.SourceWorkflows] = kennel.SourceState{State: wm.WorkflowState}
+	}
 	// A private repository's runs are not read, so they are not in its coverage
 	// either: a source nothing needs is not a gap.
 	if public {
@@ -873,7 +925,8 @@ func (c *Controller) publishKennelDeleted(ids []string) {
 // pruneKennel deletes what was last served so long ago nobody is waiting on it.
 // It runs with Kennel Club off, because it only ever deletes Kennel Club's own
 // rows and asks GitHub for nothing: a feature that is off still tidies up after
-// itself, and creates nothing.
+// itself, and creates nothing. A repository somebody told Kennel Club not to look
+// at is not among what it deletes; the store sees to that.
 func (c *Controller) pruneKennel(ctx context.Context, now time.Time) {
 	ids, err := c.st.PruneKennelRepositories(ctx, now.Add(-kennelRetention))
 	if err != nil {

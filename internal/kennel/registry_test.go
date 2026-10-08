@@ -12,12 +12,27 @@ import (
 // this list is what a pull request that adds one has to edit.
 func TestTheRegistryIsTheClosedSetOfCodes(t *testing.T) {
 	want := []Code{
+
 		"exposure.public_repo_on_fleet",
 		"exposure.public_repo_weak_pool",
 		"exposure.fork_code_ran",
 		"exposure.target_event_ran",
 		"capacity.unserved_label",
 		"capacity.job_hit_default_limit",
+		"setup.readme",
+		"setup.licence",
+		"setup.security",
+		"setup.contributing",
+		"setup.code_of_conduct",
+		"setup.issue_template",
+		"setup.pull_request_template",
+		"setup.codeowners",
+		"setup.dependency_updates",
+		"setup.workflows",
+		"ci.no_timeout",
+		"ci.no_concurrency",
+		"ci.action_not_pinned",
+		"token.permissions_unset",
 	}
 	var got []Code
 	seen := map[Code]bool{}

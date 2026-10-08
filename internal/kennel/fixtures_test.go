@@ -9,9 +9,11 @@ var now = time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
 
 func okCoverage() Coverage {
 	return Coverage{
-		SourceFleet:    {State: CoverageOK},
-		SourceMetadata: {State: CoverageOK},
-		SourceRuns:     {State: CoverageOK},
+		SourceFleet:     {State: CoverageOK},
+		SourceMetadata:  {State: CoverageOK},
+		SourceRuns:      {State: CoverageOK},
+		SourceSetup:     {State: CoverageOK},
+		SourceWorkflows: {State: CoverageOK},
 	}
 }
 
@@ -27,8 +29,10 @@ func publicRepo() Snapshot {
 			Jobs:   JobFacts{Ran: 5},
 			Pools:  []PoolFact{{ID: "pool_a1", Name: "zoomies-ubuntu-2404", JobsRun: 5}},
 		},
-		Runs:     &RunFacts{Window: 14 * 24 * time.Hour},
-		Coverage: okCoverage(),
+		Runs:      &RunFacts{Window: 14 * 24 * time.Hour},
+		Coverage:  okCoverage(),
+		Setup:     completeSetup(),
+		Workflows: &WorkflowFacts{},
 	}
 }
 

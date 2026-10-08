@@ -19,7 +19,7 @@ import (
 // words, would repaint a repository wrong.
 
 // KennelSources is the order a repository's sources are listed in.
-var KennelSources = []kennel.Source{kennel.SourceFleet, kennel.SourceMetadata, kennel.SourceRuns}
+var KennelSources = []kennel.Source{kennel.SourceFleet, kennel.SourceMetadata, kennel.SourceRuns, kennel.SourceSetup, kennel.SourceWorkflows}
 
 // KennelCoverageView is how far one source could be read, with the sentence that
 // says why when it could not, and the permission that would fix it.
@@ -66,6 +66,20 @@ type KennelRepositoryView struct {
 	Lapsed   []kennel.Waiver     `json:"lapsed"`
 	Skipped  []KennelSkippedView `json:"skipped"`
 	Disabled []kennel.Code       `json:"disabled"`
+	// Tracking says whether Kennel Club is looking at this repository, and for one
+	// it is not, who stopped it, when and why. An untracked repository has no
+	// findings, counts or coverage to read, and its state is pending: nothing is
+	// evaluated for it, so there is nothing to be in a state.
+	Tracking KennelTrackingView `json:"tracking"`
+}
+
+// KennelTrackingView is whether Kennel Club is looking at a repository. Reason, By
+// and Since are filled in only when it is not.
+type KennelTrackingView struct {
+	Tracked bool       `json:"tracked"`
+	Reason  string     `json:"reason"`
+	By      string     `json:"by"`
+	Since   *time.Time `json:"since"`
 }
 
 // newKennelRepositoryView renders a stored row. It reads nothing but the row, so
@@ -74,11 +88,17 @@ func newKennelRepositoryView(r *store.KennelRepository) KennelRepositoryView {
 	v := KennelRepositoryView{
 		ID: r.ID, Name: r.FullName, RepositoryID: r.RepositoryID, InstallationID: r.InstallationID,
 		Visibility: r.Visibility, State: kennel.State(r.State), EvaluatedAt: r.EvaluatedAt,
+		Tracking: KennelTrackingView{Tracked: r.Untracked == nil},
+	}
+	if u := r.Untracked; u != nil {
+		since := u.At
+		v.Tracking.Reason, v.Tracking.By, v.Tracking.Since = u.Reason, u.ByName, &since
 	}
 	// A due time of zero is stored for "now", and the store reads it back as the
 	// start of 1970 and not as a zero time, so the test is for a real date. Null
-	// is how the page says the reads are due.
-	if r.NextDueAt.UnixMilli() > 0 {
+	// is how the page says the reads are due. A repository nobody tracks is due
+	// for nothing, which the page says from tracking and not from this.
+	if r.NextDueAt.UnixMilli() > 0 && r.Untracked == nil {
 		due := r.NextDueAt
 		v.NextDueAt = &due
 	}
@@ -180,9 +200,13 @@ type KennelOverviewView struct {
 	// read nothing to count.
 	Enabled bool   `json:"enabled"`
 	Scope   string `json:"scope"`
-	// Repositories is every one it has a row for.
-	Repositories int               `json:"repositories"`
-	States       KennelStateCounts `json:"states"`
+	// Repositories is every one it is tracking. A repository somebody told it not
+	// to look at is in NotTracked and nowhere else, so that it is never read as
+	// one nothing has looked at yet.
+	Repositories int `json:"repositories"`
+	// NotTracked is how many repositories Kennel Club has been told not to look at.
+	NotTracked int               `json:"not_tracked"`
+	States     KennelStateCounts `json:"states"`
 	// Counts are the open findings across every repository, by severity, and the
 	// waived ones beside them.
 	Counts           kennel.Counts            `json:"counts"`
@@ -200,10 +224,17 @@ const kennelAttentionLines = 10
 
 // kennelDisabled turns the setting into the set the evaluator is given.
 func kennelDisabled(k config.Kennel) map[string]bool {
-	if len(k.DisabledChecks) == 0 {
+	if len(k.DisabledChecks) == 0 && k.RepositorySetup && k.WorkflowChecks {
 		return nil
 	}
-	out := make(map[string]bool, len(k.DisabledChecks))
+	out := make(map[string]bool, len(k.DisabledChecks)+1)
+	if !k.RepositorySetup {
+		out[string(kennel.AreaSetup)] = true
+	}
+	if !k.WorkflowChecks {
+		out[string(kennel.AreaCI)] = true
+		out[string(kennel.AreaToken)] = true
+	}
 	for _, name := range k.DisabledChecks {
 		out[name] = true
 	}
@@ -241,6 +272,7 @@ func (c *Controller) KennelOverview(ctx context.Context) (*KennelOverviewView, e
 	}
 
 	out.Repositories = counts.Repositories
+	out.NotTracked = counts.NotTracked
 	out.States = KennelStateCounts{
 		Pending: counts.ByState[string(kennel.StatePending)], Partial: counts.ByState[string(kennel.StatePartial)],
 		Attention: counts.ByState[string(kennel.StateAttention)], BestInShow: counts.ByState[string(kennel.StateBestInShow)],

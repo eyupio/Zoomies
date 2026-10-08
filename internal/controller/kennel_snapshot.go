@@ -18,7 +18,8 @@ import (
 // can.
 const (
 	// kennelRetention is how long a repository's row is kept after the fleet last
-	// served it, so a quiet repository keeps its waivers.
+	// served it, so a quiet repository keeps its waivers. A repository somebody
+	// told Kennel Club not to look at is kept however long it has been quiet.
 	kennelRetention = 90 * 24 * time.Hour
 	// kennelLocalInterval is the least time between two evaluations of what the
 	// fleet itself observed. They cost no GitHub request, but a busy fleet changes
@@ -52,7 +53,7 @@ func kennelWindow(retentionJobs time.Duration) time.Duration {
 	return kennelMaxWindow
 }
 
-// kennelWatermark is what the controller keeps about the runs it has read for a
+// kennelWatermark is what the controller keeps about the facts it has read for a
 // repository, in the row's own document. The store keeps it whole and has no
 // opinion about what is in it.
 //
@@ -62,7 +63,11 @@ func kennelWindow(retentionJobs time.Duration) time.Duration {
 type kennelWatermark struct {
 	// After is the highest run ID read in an unbroken run from the lowest one
 	// taken. The next read asks only for runs above it.
-	After int64 `json:"after"`
+	After         int64                 `json:"after"`
+	Workflows     *kennel.WorkflowFacts `json:"workflows,omitempty"`
+	WorkflowState kennel.CoverageState  `json:"workflow_state,omitempty"`
+	Setup         *kennel.SetupFacts    `json:"setup,omitempty"`
+	SetupState    kennel.CoverageState  `json:"setup_state,omitempty"`
 	// Runs are the fork pull requests and stranger-triggered runs found, newest
 	// first.
 	Runs []kennelSeenRun `json:"runs"`

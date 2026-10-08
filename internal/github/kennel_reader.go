@@ -37,6 +37,9 @@ var KennelEndpoints = []string{
 	// The budget is a share of the limit the installation reports, and this is
 	// how it reports it. GitHub does not count the request against the limit.
 	"GET /rate_limit",
+	// Optional repository setup reads only the default-branch file inventory.
+	"GET /repos/{owner}/{repo}/git/trees/{tree}",
+	"GET /repos/{owner}/{repo}/git/blobs/{blob}",
 }
 
 // KennelRun is the four fields of a workflow run that the exposure checks read.

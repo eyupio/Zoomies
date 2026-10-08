@@ -113,7 +113,7 @@ func TestTheCatalogueIsTheRegistryWithThePermissionEachCheckNeedsAndWhatIsTurned
 		if g.Code != ck.Code || g.Area != ck.Area || g.Severity != ck.Severity || g.Detects != ck.Detects || len(g.Needs) != len(ck.Needs)+len(ck.Conditional) {
 			t.Errorf("entry %d = %+v, want the registry's %+v", i, g, ck)
 		}
-		wantOff := ck.Area == kennel.AreaCapacity || ck.Code == kennel.CodeForkCodeRan
+		wantOff := ck.Area == kennel.AreaCapacity || ck.Code == kennel.CodeForkCodeRan || ck.Area == kennel.AreaSetup || ck.Area == kennel.AreaCI || ck.Area == kennel.AreaToken
 		if g.Disabled != wantOff {
 			t.Errorf("%s disabled = %v, want %v", ck.Code, g.Disabled, wantOff)
 		}
@@ -131,7 +131,7 @@ func TestTheCatalogueIsTheRegistryWithThePermissionEachCheckNeedsAndWhatIsTurned
 				if n.Source == kennel.SourceMetadata && !strings.Contains(n.Permission, "Metadata: Read-only") {
 					t.Errorf("the repository's own details do not name their permission: %+v", n)
 				}
-				if n.Conditional != (n.Source == kennel.SourceRuns) {
+				if n.Conditional != (n.Source == kennel.SourceRuns || n.Source == kennel.SourceSetup) {
 					t.Errorf("%+v: only the run history is read for some repositories and not others", n)
 				}
 			}
