@@ -263,11 +263,14 @@ func (c *Controller) kennelInstallation(ctx context.Context, inst *store.Install
 	// installation from GitHub every minute for a repository nobody is looking at.
 	// Only a tracked row can be due, for the same reason.
 	known := make(map[string]*store.KennelRepository, len(rows))
-	anyDue := false
+	anyDue, anyTracked := false, false
 	for _, r := range rows {
 		known[strings.ToLower(r.FullName)] = r
-		if r.Untracked == nil && kennelDue(r, in.now) {
-			anyDue = true
+		if r.Untracked == nil {
+			anyTracked = true
+			if kennelDue(r, in.now) {
+				anyDue = true
+			}
 		}
 	}
 	missing := false
@@ -317,6 +320,12 @@ func (c *Controller) kennelInstallation(ctx context.Context, inst *store.Install
 	// one that found nothing due must not clear a failure it never looked at.
 	if listing != nil {
 		c.kennelNoteResult(inst.ID, installationState, in.now)
+	} else if len(rows) > 0 && !anyTracked {
+		// Every repository here has been let go, so nothing on this installation is
+		// read and nothing ever will be until one is tracked again. A failure noted
+		// before that is about reads that are no longer made, and no listing is left
+		// to clear it: it would be raised for as long as the controller ran.
+		c.kennelNoteResult(inst.ID, kennel.CoverageOK, in.now)
 	}
 }
 

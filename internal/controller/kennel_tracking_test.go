@@ -69,6 +69,48 @@ func TestARepositoryNobodyTracksNeverMakesAPassListTheInstallation(t *testing.T)
 	}
 }
 
+// A failure noted for an installation is cleared by a listing that works, and a
+// pass with nothing due makes none. That is right while a tracked repository is
+// waiting for its time, since the failure may still be true of it. It is wrong
+// once the last tracked repository on an installation is let go: nothing there is
+// read any more, so nothing would ever clear the note, and the Overview would go
+// on saying that the repositories on it cannot be read.
+func TestAnInstallationWithNothingLeftToTrackIsNotReportedAsUnreadable(t *testing.T) {
+	f := newKennelFixture(t)
+	failed := func() {
+		f.c.kennel.mu.Lock()
+		f.c.kennel.notes[f.inst.ID] = kennelNote{State: kennel.CoverageError, Since: f.c.Now().Add(-7 * time.Hour)}
+		f.c.kennel.mu.Unlock()
+	}
+
+	// An installation Kennel Club has no row for has not been let go by anybody, and
+	// a pass that read nothing there still says nothing about whether reading works.
+	failed()
+	f.pass()
+	if got := kennelProblemsOf(t, f, "kennel.unavailable"); len(got) != 1 {
+		t.Fatalf("with no repository at all, the failure was %+v, want it kept", got)
+	}
+
+	f.repo("acme/sandbox", "private")
+	f.repo("acme/kept", "private")
+	f.ran("acme/sandbox", 1, f.pool)
+	f.ran("acme/kept", 2, f.pool)
+	f.pass()
+	failed()
+
+	f.stopTracking("acme/sandbox")
+	f.pass()
+	if got := kennelProblemsOf(t, f, "kennel.unavailable"); len(got) != 1 {
+		t.Fatalf("with a repository still tracked and none due, the failure was %+v, want it kept: a pass that read nothing says nothing about reading", got)
+	}
+
+	f.stopTracking("acme/kept")
+	f.pass()
+	if got := kennelProblemsOf(t, f, "kennel.unavailable"); len(got) != 0 {
+		t.Errorf("with every repository let go, the installation was still reported as unreadable: %+v", got)
+	}
+}
+
 // What is tracked beside it is read as it was. The untracked repository is not:
 // no run is read for it, even a new one, and nothing is evaluated.
 func TestAPassThatReadsOnePublicRepositoryDoesNotReadTheOneNobodyTracks(t *testing.T) {

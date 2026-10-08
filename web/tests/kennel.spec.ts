@@ -1599,6 +1599,9 @@ test.describe('with Kennel Club on', () => {
         'Kennel Club reads this repository from GitHub.',
       );
       await expect(page.locator('p.meta')).not.toContainText('Not tracked');
+      const standing = page.locator('p.standing');
+      await expect(standing).toContainText('No open findings');
+      await expect(standing.getByRole('link', { name: 'Open the CI tab' })).toBeVisible();
 
       await trackSwitch(page).click();
       const dialog = stopDialog(page);
@@ -1651,6 +1654,17 @@ test.describe('with Kennel Club on', () => {
       await expect(notice).toContainText(REASON);
       await expect(notice).toContainText('Its waivers are kept');
       await expect(page.getByRole('button', { name: 'Recheck' })).toHaveCount(0);
+      // The Overview's own summary of what Kennel Club says is made from the row that
+      // stopping reset, and it does not read it: "Pending" and "No open findings" under
+      // a notice that nothing is evaluated would be Kennel Club contradicting itself.
+      await expect(standing).toContainText('Not tracked');
+      await expect(standing).toContainText('that is not an all clear');
+      await expect(
+        page.getByText('Somebody told it not to look at this repository.'),
+      ).toBeVisible();
+      await expect(standing).not.toContainText('Pending');
+      await expect(standing).not.toContainText('No open findings');
+      await expect(standing.getByRole('link', { name: 'Open the CI tab' })).toHaveCount(0);
 
       const now = await tracking(page, row.id);
       expect(now.tracking.tracked).toBe(false);
@@ -1679,6 +1693,7 @@ test.describe('with Kennel Club on', () => {
       await expect(trackSwitch(page)).toBeChecked();
       await expect(notice).toHaveCount(0);
       await expect(page.getByRole('button', { name: 'Recheck' })).toBeVisible();
+      await expect(standing).not.toContainText('Not tracked');
       expect((await tracking(page, row.id)).tracking.tracked).toBe(true);
     });
 

@@ -208,6 +208,16 @@ export const TRACKING_STOP = {
   ],
 } as const;
 
+/**
+ * What the Overview's summary of Kennel Club says about a repository it has been
+ * told not to look at. The row stopping resets reads as "pending, no findings", and
+ * a summary built from it would say so under a notice that says nothing is evaluated.
+ */
+export const TRACKING_OVERVIEW = {
+  description: 'Somebody told it not to look at this repository.',
+  detail: 'Nothing is read for it, so it has no findings, and that is not an all clear.',
+} as const;
+
 export const TRACKING_NOW_STOPPED = {
   title: 'Repository no longer tracked',
   detail: 'Kennel Club has stopped looking at it. It stays in the list as not tracked.',
