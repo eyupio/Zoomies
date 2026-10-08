@@ -26,12 +26,18 @@ const maxNamedFindings = 3
 // The problems and the metrics share it so they cannot disagree about which
 // hosts may speak: an alert on a metric that fires for a host the drawer says
 // nothing about is the failure this is here to design out.
+//
+// It is also the one place an operator's acceptances are applied. The report
+// returned is a judged copy, so a warning someone has accepted is counted by
+// nothing downstream, and a problem can never be raised from a check the page
+// shows as accepted. The reboot is judged before acceptances and is never
+// acceptable, so it is untouched.
 func hostHealthReport(h *store.Host, now time.Time) *hosttune.Report {
 	r := h.Doctor.Report
 	if r == nil || r.Container || !h.Healthy(now) {
 		return nil
 	}
-	return r
+	return h.JudgedDoctor(now)
 }
 
 // hostHealthProblems raises, for each connected host with a full OS report,

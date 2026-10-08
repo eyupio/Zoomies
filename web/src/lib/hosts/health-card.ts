@@ -53,3 +53,37 @@ export function cardLine(
   const firstId = first.id;
   return { text, firstId, href: `/hosts/${host.id}#${encodeURIComponent(firstId)}` };
 }
+
+/** -- keep in step with diskCheck in internal/hosttune/checks.go */
+export const DISK_LOW_PERCENT = 10;
+/** -- keep in step with diskCheck in internal/hosttune/checks.go (10 GiB, in MiB) */
+export const DISK_LOW_FLOOR_MB = 10 * 1024;
+
+/**
+ * Whether the card should call the disk low: the rule the Work directory free
+ * space check warns by, so the amber figure and the Warning row never disagree.
+ *
+ * Strictly less than on both limbs, as the check is, so exactly 10% or exactly
+ * 10 GiB free is not low. Zero total means the agent did not measure it.
+ */
+export function diskIsLow(freeMb: number, totalMb: number): boolean {
+  if (!(totalMb > 0)) return false;
+  return (freeMb * 100) / totalMb < DISK_LOW_PERCENT || freeMb < DISK_LOW_FLOOR_MB;
+}
+
+/**
+ * Where the card's disk figure leads: the check that reads the same filesystem.
+ *
+ * Null when there is no honest destination -- no report, a container's partial
+ * view, a stale report, or a report without the check -- so the figure stays
+ * plain text rather than linking to a row that is not there.
+ */
+export function diskLink(
+  host: Pick<Host, 'id' | 'doctor'>,
+  health: Pick<HealthSummary, 'stale'>,
+): string | null {
+  const report = host.doctor;
+  if (!host.id || !report || report.container || health.stale) return null;
+  if (!report.results.some((r) => r.id === 'disk.space')) return null;
+  return `/hosts/${encodeURIComponent(host.id)}#disk.space`;
+}

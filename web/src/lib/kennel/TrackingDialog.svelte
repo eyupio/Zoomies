@@ -19,11 +19,10 @@
   import Field from '$lib/components/Field.svelte';
   import Textarea from '$lib/components/Textarea.svelte';
   import {
-    reasonHint,
     reasonLength,
     TRACKING_NOW_STOPPED,
-    TRACKING_REASON_ADVICE,
     TRACKING_STOP,
+    trackingReasonHint,
     WAIVER_REASON_MIN,
   } from '$lib/kennel/words';
   import { toasts } from '$lib/state/toasts.svelte';
@@ -108,7 +107,7 @@
 
     <Field
       label="Why Kennel Club should not look at it"
-      hint={reasonHint(reason, TRACKING_REASON_ADVICE)}
+      hint={trackingReasonHint(reason)}
       error={errors.reason}
       required
     >

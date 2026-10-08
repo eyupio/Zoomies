@@ -243,13 +243,13 @@ func TestOnlyASafeCheckThatIsNotOptionalIsCounted(t *testing.T) {
 
 // The summary is a contract with the UI, the CLI and the metrics, and a missing
 // key reads as "unknown" where a zero reads as "none". A host with nothing wrong
-// must still send all five numbers.
-func TestSummaryAlwaysCarriesAllFiveNumbers(t *testing.T) {
+// must still send all six numbers.
+func TestSummaryAlwaysCarriesAllSixNumbers(t *testing.T) {
 	b, err := json.Marshal(Report{}.Summary())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := `{"counted":0,"warnings":0,"errors":0,"skipped":0,"suggestions":0}`; string(b) != want {
+	if want := `{"counted":0,"warnings":0,"errors":0,"skipped":0,"suggestions":0,"accepted":0}`; string(b) != want {
 		t.Errorf("an empty summary marshals as %s, want %s", b, want)
 	}
 }

@@ -7,8 +7,8 @@ import {
   openFindingsText,
   reasonHint,
   reasonLength,
+  trackingReasonHint,
   trackSentence,
-  TRACKING_REASON_ADVICE,
   TRACKING_STOP,
   waiverEndsAt,
   waiverRole,
@@ -128,15 +128,12 @@ test('the reason field says the rule while it is unmet and the count once it is 
 // is acceptable, and a form that told a person to say so would be asking the wrong thing.
 test('the reason for stopping tracking is asked for in its own words, to the same length', () => {
   assert.match(
-    reasonHint('too short', TRACKING_REASON_ADVICE),
+    trackingReasonHint('too short'),
     /At least 10 characters: say why Kennel Club should not look at this repository/,
   );
-  assert.doesNotMatch(reasonHint('too short', TRACKING_REASON_ADVICE), /acceptable/);
+  assert.doesNotMatch(trackingReasonHint('too short'), /acceptable/);
   // The count after the rule is met is the same sentence for both.
-  assert.equal(
-    reasonHint('x'.repeat(10), TRACKING_REASON_ADVICE),
-    `10 of ${WAIVER_REASON_MAX} characters.`,
-  );
+  assert.equal(trackingReasonHint('x'.repeat(10)), `10 of ${WAIVER_REASON_MAX} characters.`);
   // And a waiver's is still a waiver's.
   assert.match(reasonHint('too short'), /say why this is acceptable here/);
 });

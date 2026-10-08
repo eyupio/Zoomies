@@ -45,7 +45,7 @@ only makes Kennel Club stricter. Waivers stay, for a single finding.
 
 ## Consequences
 
-One new table in migration `0081`, `kennel_untracked`, with a row for each
+One new table in migration `0082`, `kennel_untracked`, with a row for each
 untracked repository (who, name, when, why) and no row meaning tracked. It is
 additive, so `TestKennelMigrationsOnlyAddTables` still holds, and a controller
 that never uses the switch behaves exactly as before.

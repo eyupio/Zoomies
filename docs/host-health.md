@@ -341,6 +341,55 @@ if either appears where you expected a full report.
 A native agent is different. Its report is the host's own, so a monitor that
 stalls, or a clock that runs behind, shows as `host.health_stale`.
 
+## Accepting a check as deliberate
+
+Some warnings are a choice. A host that keeps `relatime` on purpose would otherwise
+read "2 warnings" for ever, which is how a page teaches people to stop looking at
+it. An operator can accept one counted warning on one host as deliberate, and the
+rest of the fleet is unaffected: there is no fleet-wide accept and no bulk, so
+thirty hosts that all keep the same setting take thirty decisions.
+
+On a warning's row the page offers **Accept**. It asks for a reason of 10 to 500
+characters and an end date, from 7 days to a year, with a year as the default.
+Every acceptance ends: there is no way to accept a check for ever.
+
+An accepted check:
+
+* keeps its row, after the unaccepted findings, with an **Accepted** badge, who
+  decided, when it ends and the reason, so nobody has to wonder why a host is green;
+* leaves **Needs attention**, the counts, `host.os_health`, the pill and the
+  warning state of `zoomies_host_os_checks`, and is counted as `state="accepted"`
+  instead, so the silence is visible. The pill still reads Health OK and says how
+  many accepted checks do not count towards it;
+* is listed by `zoomies hosts list` as, for example, `ok, 2 accepted`, and
+  `zoomies doctor --host` puts it in its own **Accepted** section, so the sections
+  add up to the summary line.
+
+An acceptance ends by itself, and the row counts again with a note saying why, when:
+
+* the check no longer reads what it read when you accepted it (the controller keeps
+  that text and compares it with each report);
+* its end date passes; or
+* the check becomes an error, because it could not run.
+
+If the value comes back to what was accepted inside the term, the acceptance holds
+again. **Revoke** ends one by hand, and counts the check again straight away.
+
+Only a counted warning on a check this build has can be accepted. These are
+refused, each with the reason:
+
+* an error or a skipped check, because there is nothing deliberate to accept;
+* a suggestion from a tier that does not count;
+* `kernel.pending`, because a pending reboot ends when the host reboots;
+* `disk.space` and `disk.inodes`, because free space moves, and an acceptance could
+  not tell 12% free from 2%.
+
+Accepting changes only what Zoomies counts. The controller never runs a command on
+a host, so `zoomies doctor` and `zoomies tune` on the host know nothing of it and
+still list the check. Accepting needs the operator role (the `hosts:accept` token
+scope), both decisions are audited with the reason, and an assistant cannot do it:
+there is no MCP tool, so a prompt-injected sentence cannot silence an alarm.
+
 ## Who can read the check detail
 
 Anyone who can read hosts can read the check detail: any signed-in viewer, or
@@ -367,6 +416,11 @@ to three of a host's failing checks by title, and says which could not run,
 with no value. So a token that must not see any of it needs none of
 `hosts:read`, `runners:read`, `events:read` or `stats:read`.
 
+An accepted check adds one more thing to the detail: the name of the operator who
+accepted it and the reason they gave. That text is written by a person, not the
+host, and everyone who can read the host can read it, so write it for them and put
+no secret in it. It is never copied into a problem, a metric or the status page.
+
 The support bundle carries it for admins only. The public status page never
 carries it, and `/metrics` carries counts and no check's name. With
 `metrics.public` on, those counts are readable by anyone who can reach the
@@ -392,6 +446,8 @@ not as instructions.
 | `docker.filesystem` | Docker root on local ext4/XFS and `noatime` | Report and advice only |
 | `disk.space` | At least 10% and 10 GiB free in the work filesystem | Report only |
 | `disk.inodes` | At least 10% free inodes | Report only |
+
+The free-space figure on the host's card measures the same filesystem as `disk.space`, and goes amber by the same rule (under 10% or under 10 GiB). The card follows each heartbeat and the check runs about once a minute, so the two can differ by a minute or two.
 
 Existing sysctl values that meet the recommendation are left alone. A setting
 found in another `sysctl.d` file or `/etc/sysctl.conf`, or a configuration

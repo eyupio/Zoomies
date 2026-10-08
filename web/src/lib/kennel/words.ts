@@ -7,6 +7,7 @@
  */
 import type { KennelCounts, KennelOverview, Severity } from '../api/types';
 import { joinWords, pluralise } from '../format';
+import { REASON_MAX, REASON_MIN, reasonHint, reasonLength } from '../reason';
 
 /** The worst severity that is open, or nothing when nothing is. */
 export function worstSeverity(
@@ -114,35 +115,10 @@ export function worstCoverageState(
 
 /* -- waivers ------------------------------------------------------------------ */
 
-/** The controller's own bounds on a reason, in characters. A test holds them to what it says. */
-export const WAIVER_REASON_MIN = 10;
-export const WAIVER_REASON_MAX = 500;
-
-/**
- * How long a reason is, counted the way the controller counts it: characters,
- * after the ends are trimmed. `.length` counts UTF-16 units, so an emoji would
- * be two, and a form that says "9 of 10" while the controller says "10" is a
- * form that argues with the person typing.
- */
-export function reasonLength(reason: string): number {
-  return [...reason.trim()].length;
-}
-
-/** What a waiver's reason is asked to say. */
-export const WAIVER_REASON_ADVICE =
-  'say why this is acceptable here, for whoever reads the audit log in a year';
-
-/**
- * What the reason field says about itself: the rule while it is unmet, the count
- * after. Stopping tracking is held to the same length, so it asks with its own words.
- */
-export function reasonHint(reason: string, advice: string = WAIVER_REASON_ADVICE): string {
-  const n = reasonLength(reason);
-  if (n < WAIVER_REASON_MIN) {
-    return `At least ${WAIVER_REASON_MIN} characters: ${advice}.`;
-  }
-  return `${n} of ${WAIVER_REASON_MAX} characters.`;
-}
+/** The reason's bounds are the shared ones; the names stay for the pages that already say waiver. */
+export { reasonHint, reasonLength } from '../reason';
+export const WAIVER_REASON_MIN = REASON_MIN;
+export const WAIVER_REASON_MAX = REASON_MAX;
 
 /**
  * How long a waiver can run. The longest is a day short of the 365 the
@@ -188,6 +164,18 @@ export const TRACK_SWITCH_LABEL = 'Track this repository';
  */
 export const TRACKING_REASON_ADVICE =
   'say why Kennel Club should not look at this repository, for whoever finds it quiet in a year';
+
+/**
+ * What the reason field says about itself when stopping tracking: the rule in this
+ * form's own words while it is unmet, and the shared count once it is met. The
+ * shared rule finishes "say why this is ...", which is a waiver's question, and
+ * asking it here would ask the wrong thing.
+ */
+export function trackingReasonHint(reason: string): string {
+  return reasonLength(reason) < REASON_MIN
+    ? `At least ${REASON_MIN} characters: ${TRACKING_REASON_ADVICE}.`
+    : reasonHint(reason);
+}
 
 /**
  * The line under the switch: which state the repository is in, and, to somebody

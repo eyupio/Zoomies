@@ -407,8 +407,26 @@ func diskCheck(inodes bool) func(context.Context, *Engine) Result {
 		if free*100/total < 10 || (!inodes && free < 10*1024*1024) {
 			s = Warn
 		}
-		return Result{Status: s, Current: fmt.Sprintf("%d%% free (%s)", free*100/total, f[3]), Recommended: rec}
+		// df -P reports 1 KiB blocks, which nobody reads at a glance; the status
+		// rule above is untouched, only the words an operator sees changed.
+		amount := fmt.Sprintf("%d inodes", free)
+		if !inodes {
+			amount = formatKiB(free)
+		}
+		return Result{Status: s, Current: fmt.Sprintf("%d%% free (%s)", free*100/total, amount), Recommended: rec}
 	}
+}
+
+// formatKiB renders a df block count in the largest unit that keeps it short:
+// GiB to one decimal, whole MiB under a GiB, KiB under a MiB.
+func formatKiB(k int64) string {
+	switch {
+	case k >= 1024*1024:
+		return fmt.Sprintf("%.1f GiB", float64(k)/(1024*1024))
+	case k >= 1024:
+		return fmt.Sprintf("%d MiB", k/1024)
+	}
+	return fmt.Sprintf("%d KiB", k)
 }
 func governorPaths(e *Engine) []string {
 	es, _ := e.System.ReadDir("/sys/devices/system/cpu/cpufreq")

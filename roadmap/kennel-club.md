@@ -742,7 +742,7 @@ deletes, as `DeleteInstallation` does for runners. ID prefixes `kcr` and `kcw` g
 `internal/store/ids.go`, and `normalisePath` in `internal/api/api_test.go:1254`
 learns them.
 
-### Migration `0081_kennel_untracked.sql`
+### Migration `0082_kennel_untracked.sql`
 
 Added by [decision 0006](decisions/0006-kennel-club-tracks-repositories-one-at-a-time.md),
 and built with the Track switch, after the tabs and the Overview. One new table, so
@@ -929,7 +929,7 @@ the feature off:
    filter, `active`, to `GET /kennel/repositories` and no migration. The MCP tools
    do not take it. A link that counts every repository carries `active=all`, so it
    opens on as many rows as its number.
-   **(e)** The Track switch: migration `0081`, API, UI, MCP and the counts
+   **(e)** The Track switch: migration `0082`, API, UI, MCP and the counts
    ([0006](decisions/0006-kennel-club-tracks-repositories-one-at-a-time.md)). Built in
    two pull requests, the controller and API with the MCP descriptions first and
    the UI second. Taken with the owner by question on 7 October: an administrator

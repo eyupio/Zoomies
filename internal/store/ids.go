@@ -46,6 +46,8 @@ const (
 	// and a waiver a person recorded about one of its findings.
 	PrefixKennelRepository = "kcr"
 	PrefixKennelWaiver     = "kcw"
+	// PrefixHostAcceptance names an operator's acceptance of one host's check.
+	PrefixHostAcceptance = "hca"
 )
 
 var idEncoding = base32.NewEncoding("abcdefghijklmnopqrstuvwxyz234567").WithPadding(base32.NoPadding)

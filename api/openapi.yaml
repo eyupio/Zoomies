@@ -3828,6 +3828,61 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Host" }
 
+  /hosts/{id}/check-acceptances:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    put:
+      operationId: acceptHostCheck
+      tags: [hosts]
+      summary: Accept a host's warning as deliberate
+      description: >-
+        Stops Zoomies counting one warning on one host, for a reason a person gives and until
+        a date at most 365 days away. It changes nothing on the host: the controller never runs
+        a command there, and the host's own `zoomies doctor` still lists the check. Only a
+        counted warning on a check this build has can be accepted -- never an error, a skip,
+        a suggestion, the pending reboot or the two disk checks, each refused with 422 and the
+        reason -- and only while the check still reads `seen_current`, or the answer is 409.
+        The value kept is the stored report's, so it ends sooner if the check reads anything
+        else. Deciding the same thing again renews it. The reason is shown to everyone who can
+        see the host and goes in the audit log as `host.check_accepted`. The answer is the host.
+      x-zoomies-role: operator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/HostCheckAcceptanceInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Host" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /hosts/{id}/check-acceptances/{check_id}:
+    parameters:
+      - { $ref: "#/components/parameters/PathID" }
+      - { name: check_id, in: path, required: true, schema: { type: string, examples: [files.service] } }
+    delete:
+      operationId: revokeHostCheck
+      tags: [hosts]
+      summary: Take back an accepted warning
+      description: >-
+        Any operator may revoke any acceptance: it only makes Zoomies stricter, so the check
+        counts again straight away. Revoking one that is not there is not an error, so two
+        people pressing the button agree; only a revoke that ended something is audited, as
+        `host.check_revoked`. The answer is the host.
+      x-zoomies-role: operator
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Host" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /hosts/{id}/throttle/clear:
     parameters: [{ $ref: "#/components/parameters/PathID" }]
     post:
@@ -6637,6 +6692,15 @@ components:
         code: { type: string, examples: [exposure.public_repo_on_fleet] }
         subject: { type: string, description: Defaults to the whole repository. }
         reason: { type: string, minLength: 10, maxLength: 500, description: Why this is acceptable here, in characters. A line break is allowed; other control characters and direction-changing ones are not. }
+        expires_at: { type: string, format: date-time, description: Required, in the future, and at most 365 days away. }
+    HostCheckAcceptanceInput:
+      type: object
+      required: [check_id, seen_current, reason, expires_at]
+      additionalProperties: false
+      properties:
+        check_id: { type: string, examples: [files.service] }
+        seen_current: { type: string, description: What the check read when the person decided. The acceptance is refused with 409 if it reads anything else now. }
+        reason: { type: string, minLength: 10, maxLength: 500, description: Why this is deliberate, in characters. A line break is allowed; other control characters and direction-changing ones are not. }
         expires_at: { type: string, format: date-time, description: Required, in the future, and at most 365 days away. }
     KennelNeed:
       type: object
@@ -9813,6 +9877,41 @@ components:
         reason: { type: string }
         actionable: { type: boolean }
         optional: { type: boolean }
+        accepted:
+          type: object
+          readOnly: true
+          description: >-
+            Present when an operator has accepted this warning as deliberate, so it no longer
+            counts. The controller stamps it when it reads the report; an agent cannot send it.
+            The reason is written by a person on the controller, not by the host.
+          required: [reason, by, at, expires_at]
+          properties:
+            reason: { type: string }
+            by: { type: string, description: The name of the person who accepted it. }
+            at: { type: string, format: date-time }
+            expires_at: { type: string, format: date-time }
+        ended:
+          type: object
+          readOnly: true
+          description: >-
+            Present when an acceptance of this check no longer covers it, so the row counts again
+            and can say why. `at` is the acceptance's own time, never the time of reading.
+          required: [by, at, was, why]
+          properties:
+            by: { type: string }
+            at:
+              type: string
+              format: date-time
+              description: When it was accepted for `changed` and `worse`, and when it lapsed for `expired`.
+            was: { type: string, description: What the check read when it was accepted. }
+            why: { type: string, enum: [changed, expired, worse] }
+        acceptable:
+          type: boolean
+          readOnly: true
+          description: >-
+            True when an operator may accept this result: a counted warning on a check that can be
+            accepted and is not accepted now. Never true for an error, a skip, a suggestion, the
+            pending reboot or the disk checks.
     HostDoctor:
       type: object
       description: >-
@@ -9836,7 +9935,7 @@ components:
         The aggressive and dedicated tiers, and anything optional, are suggestions that never
         make a host look unwell. A pending reboot is counted once, as `reboot_pending`, and
         is not also a warning here.
-      required: [counted, warnings, errors, skipped, suggestions]
+      required: [counted, warnings, errors, skipped, suggestions, accepted]
       properties:
         counted:
           type: integer
@@ -9863,6 +9962,12 @@ components:
           description: >-
             Warnings that do not count: the aggressive and dedicated tiers, and optional checks.
             They are on the host's page and never raise a problem.
+        accepted:
+          type: integer
+          minimum: 0
+          description: >-
+            Counted warnings an operator has accepted as deliberate. They are in `counted` and in
+            neither `warnings` nor `suggestions`, so they raise no problem and stay visible here.
     HostDoctorView:
       description: >-
         A host's OS report as the API returns it: the report the agent wrote, with the

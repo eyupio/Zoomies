@@ -3,6 +3,7 @@ package hosttune
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"strings"
 	"testing"
@@ -347,5 +348,53 @@ func TestDedicatedCheckTextIsWrittenForAnOperator(t *testing.T) {
 		if strings.HasPrefix(r.Title, "Dedicated host:") {
 			t.Errorf("%s is titled %q, which names the tier and not the change", r.ID, r.Title)
 		}
+	}
+}
+
+// The Current text is shown to an operator as evidence, so it must be in units
+// they can read, while the Warn rule underneath stays exactly as it was.
+func TestDiskChecksSayWhatTheyFoundInReadableUnits(t *testing.T) {
+	const df = "Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/sda1 %d 1 %d 1%% /work"
+	const dfi = "Filesystem Inodes IUsed IFree IUse%% Mounted on\n/dev/sda1 %d 1 %d 1%% /work"
+	const gib = 1024 * 1024
+	cases := []struct {
+		name    string
+		inodes  bool
+		total   int64
+		free    int64
+		status  Status
+		current string
+	}{
+		{"space under ten percent", false, 100 * gib, 3 * gib, Warn, "3% free (3.0 GiB)"},
+		{"space under a GiB is whole MiB", false, 100 * gib, 512 * 1024, Warn, "0% free (512 MiB)"},
+		{"exactly ten percent is not low", false, 200 * gib, 20 * gib, OK, "10% free (20.0 GiB)"},
+		{"exactly ten GiB is not low", false, 50 * gib, 10 * gib, OK, "20% free (10.0 GiB)"},
+		{"one KiB under ten GiB is low", false, 50 * gib, 10*gib - 1, Warn, "19% free (10.0 GiB)"},
+		{"inodes name the count", true, 400000, 12000, Warn, "3% free (12000 inodes)"},
+		{"exactly ten percent of inodes is not low", true, 400000, 40000, OK, "10% free (40000 inodes)"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			e, f := fixture()
+			if c.inodes {
+				f.commands["df -Pi -- /work"] = fmt.Sprintf(dfi, c.total, c.free)
+			} else {
+				f.commands["df -Pk -- /work"] = fmt.Sprintf(df, c.total, c.free)
+			}
+			id := "disk.space"
+			if c.inodes {
+				id = "disk.inodes"
+			}
+			for _, r := range e.Run(context.Background(), Safe).Results {
+				if r.ID != id {
+					continue
+				}
+				if r.Status != c.status || r.Current != c.current {
+					t.Fatalf("%s = %s %q, want %s %q", id, r.Status, r.Current, c.status, c.current)
+				}
+				return
+			}
+			t.Fatalf("no %s result", id)
+		})
 	}
 }

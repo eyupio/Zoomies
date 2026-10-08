@@ -709,7 +709,7 @@ func (s *Store) fillHostCounts(ctx context.Context, hosts ...*Host) error {
 		h.ActiveRunners = counts[h.ID].live
 		h.UnlimitedRunners = counts[h.ID].unlimited
 	}
-	return nil
+	return s.fillHostAcceptances(ctx, hosts)
 }
 
 // hostRunnerCounts is what one host's live rows add up to: how many there

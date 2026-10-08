@@ -212,6 +212,12 @@ type Result struct {
 	Reason      string `json:"reason,omitempty"`
 	Actionable  bool   `json:"actionable"`
 	Optional    bool   `json:"optional,omitempty"`
+	// Accepted, Ended and Acceptable are the controller's reading of the
+	// operator's decisions (see Report.Judged). An agent never sets them: they are
+	// scrubbed on the way in and stamped on a copy on the way out.
+	Accepted   *Acceptance `json:"accepted,omitempty"`
+	Ended      *Ended      `json:"ended,omitempty"`
+	Acceptable bool        `json:"acceptable,omitempty"`
 }
 type Report struct {
 	CheckedAt     time.Time `json:"checked_at"`
@@ -225,6 +231,12 @@ type Report struct {
 
 func (r Report) Counts() (warnings, errors, skipped int) {
 	for _, x := range r.Results {
+		// An accepted warning is the operator's decision, so doctor on the page
+		// and doctor in a terminal agree on what is left. A local run never has
+		// one: only the controller stamps it.
+		if x.Accepting() {
+			continue
+		}
 		switch x.Status {
 		case Warn:
 			warnings++
